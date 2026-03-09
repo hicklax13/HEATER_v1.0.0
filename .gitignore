@@ -1,0 +1,51 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+venv/
+env/
+.venv/
+.env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Streamlit
+.streamlit/secrets.toml
+
+# Project data (generated at runtime)
+data/draft_tool.db
+data/backups/
+data/yahoo_creds.json
+
+# Claude Code local settings (keep launch.json for dev server)
+.claude/settings.local.json
+.claude/projects/
+.claude/scheduled-tasks/
+.claude/plugins/
+.claude/worktrees/
+.claude/todos/
+
+# Playwright MCP
+.playwright-mcp/
+
+# Misc
+nul
+*.log
+copilot.py

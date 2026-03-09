@@ -1,0 +1,9 @@
+streamlit>=1.37.0
+pandas>=2.0.0
+numpy>=1.24.0
+scipy>=1.10.0
+plotly>=5.18.0
+# Optional: Yahoo API integration
+# yfpy>=15.0.0
+# Optional: Excel cheat sheet export
+# openpyxl>=3.1.0
