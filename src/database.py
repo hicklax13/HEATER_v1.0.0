@@ -498,6 +498,149 @@ def load_player_pool() -> pd.DataFrame:
     return df
 
 
+# ── In-Season Data Functions ──────────────────────────────────────────
+
+
+def upsert_season_stats(player_id: int, stats: dict, season: int = 2026):
+    """Insert or update a player's season stats."""
+    from datetime import datetime
+
+    conn = get_connection()
+    cols = [
+        "pa", "ab", "h", "r", "hr", "rbi", "sb", "avg",
+        "ip", "w", "sv", "k", "era", "whip", "er", "bb_allowed",
+        "h_allowed", "games_played",
+    ]
+    values = {c: stats.get(c, 0) for c in cols}
+    values["last_updated"] = datetime.utcnow().isoformat()
+
+    conn.execute(
+        f"""INSERT INTO season_stats (player_id, season, {', '.join(cols)}, last_updated)
+            VALUES (?, ?, {', '.join('?' for _ in cols)}, ?)
+            ON CONFLICT(player_id, season) DO UPDATE SET
+            {', '.join(f'{c}=excluded.{c}' for c in cols)},
+            last_updated=excluded.last_updated""",
+        (player_id, season, *[values[c] for c in cols], values["last_updated"]),
+    )
+    conn.commit()
+    conn.close()
+
+
+def load_season_stats(season: int = 2026) -> pd.DataFrame:
+    """Load all season stats as a DataFrame."""
+    conn = get_connection()
+    df = pd.read_sql_query(
+        "SELECT * FROM season_stats WHERE season = ?", conn, params=(season,)
+    )
+    conn.close()
+    return df
+
+
+def upsert_ros_projection(player_id: int, system: str, stats: dict):
+    """Insert or update a ROS projection for a player."""
+    from datetime import datetime
+
+    conn = get_connection()
+    cols = [
+        "pa", "ab", "h", "r", "hr", "rbi", "sb", "avg",
+        "ip", "w", "sv", "k", "era", "whip", "er", "bb_allowed", "h_allowed",
+    ]
+    values = {c: stats.get(c, 0) for c in cols}
+    values["updated_at"] = datetime.utcnow().isoformat()
+
+    conn.execute(
+        f"""INSERT INTO ros_projections (player_id, system, {', '.join(cols)}, updated_at)
+            VALUES (?, ?, {', '.join('?' for _ in cols)}, ?)
+            ON CONFLICT(player_id, system) DO UPDATE SET
+            {', '.join(f'{c}=excluded.{c}' for c in cols)},
+            updated_at=excluded.updated_at""",
+        (player_id, system, *[values[c] for c in cols], values["updated_at"]),
+    )
+    conn.commit()
+    conn.close()
+
+
+def upsert_league_roster_entry(
+    team_name: str,
+    team_index: int,
+    player_id: int,
+    roster_slot: str = None,
+    is_user_team: bool = False,
+):
+    """Add a player to a league roster."""
+    conn = get_connection()
+    conn.execute(
+        """INSERT INTO league_rosters (team_name, team_index, player_id, roster_slot, is_user_team)
+           VALUES (?, ?, ?, ?, ?)""",
+        (team_name, team_index, player_id, roster_slot, 1 if is_user_team else 0),
+    )
+    conn.commit()
+    conn.close()
+
+
+def load_league_rosters() -> pd.DataFrame:
+    """Load all league rosters as a DataFrame."""
+    conn = get_connection()
+    df = pd.read_sql_query("SELECT * FROM league_rosters", conn)
+    conn.close()
+    return df
+
+
+def clear_league_rosters():
+    """Remove all league roster entries (for re-import)."""
+    conn = get_connection()
+    conn.execute("DELETE FROM league_rosters")
+    conn.commit()
+    conn.close()
+
+
+def upsert_league_standing(
+    team_name: str, category: str, total: float, rank: int = None, points: float = None
+):
+    """Insert or update a league standing entry."""
+    conn = get_connection()
+    conn.execute(
+        "DELETE FROM league_standings WHERE team_name = ? AND category = ?",
+        (team_name, category),
+    )
+    conn.execute(
+        "INSERT INTO league_standings (team_name, category, total, rank, points) VALUES (?, ?, ?, ?, ?)",
+        (team_name, category, total, rank, points),
+    )
+    conn.commit()
+    conn.close()
+
+
+def update_refresh_log(source: str, status: str = "success"):
+    """Update the refresh log for a data source."""
+    from datetime import datetime
+
+    conn = get_connection()
+    conn.execute(
+        """INSERT INTO refresh_log (source, last_refresh, status)
+           VALUES (?, ?, ?)
+           ON CONFLICT(source) DO UPDATE SET
+           last_refresh=excluded.last_refresh, status=excluded.status""",
+        (source, datetime.utcnow().isoformat(), status),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_refresh_status(source: str) -> dict | None:
+    """Get the last refresh status for a data source."""
+    conn = get_connection()
+    cursor = conn.execute(
+        "SELECT source, last_refresh, status FROM refresh_log WHERE source = ?",
+        (source,),
+    )
+    row = cursor.fetchone()
+    conn.close()
+    if row is None:
+        return None
+    return {"source": row[0], "last_refresh": row[1], "status": row[2]}
+
+
 # ── Helpers ──────────────────────────────────────────────────────────
 
 
