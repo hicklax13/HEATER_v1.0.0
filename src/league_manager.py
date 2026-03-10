@@ -1,0 +1,139 @@
+"""League management: roster imports, standings, free agents."""
+
+import pandas as pd
+
+from src.database import (
+    get_connection,
+    upsert_league_roster_entry,
+    upsert_league_standing,
+    load_league_rosters,
+    clear_league_rosters,
+)
+
+
+def import_league_rosters_csv(csv_path: str, user_team_name: str) -> int:
+    """Import all teams' rosters from CSV.
+
+    Expected columns: team_name, player_name, position, roster_slot
+    Returns number of roster entries imported.
+    """
+    clear_league_rosters()
+    conn = get_connection()
+    df = pd.read_csv(csv_path)
+    df.columns = df.columns.str.strip()
+    imported = 0
+
+    teams = sorted(df["team_name"].unique())
+    team_index_map = {}
+    idx = 1
+    for t in teams:
+        if t == user_team_name:
+            team_index_map[t] = 0
+        else:
+            team_index_map[t] = idx
+            idx += 1
+
+    for _, row in df.iterrows():
+        team = str(row["team_name"]).strip()
+        player_name = str(row["player_name"]).strip()
+        roster_slot = (
+            str(row.get("roster_slot", "")).strip()
+            if "roster_slot" in row.index
+            else None
+        )
+
+        cursor = conn.cursor()
+        cursor.execute("SELECT player_id FROM players WHERE name = ?", (player_name,))
+        result = cursor.fetchone()
+        if not result:
+            parts = player_name.split()
+            if len(parts) >= 2:
+                cursor.execute(
+                    "SELECT player_id FROM players WHERE name LIKE ? AND name LIKE ?",
+                    (f"%{parts[0]}%", f"%{parts[-1]}%"),
+                )
+                result = cursor.fetchone()
+        if not result:
+            continue
+
+        player_id = result[0]
+        is_user = team == user_team_name
+        team_idx = team_index_map.get(team, 0)
+
+        upsert_league_roster_entry(
+            team, team_idx, player_id, roster_slot, is_user_team=is_user
+        )
+        imported += 1
+
+    conn.close()
+    return imported
+
+
+def import_standings_csv(csv_path: str) -> int:
+    """Import current standings from CSV.
+
+    Expected columns: team_name, R, HR, RBI, SB, AVG, W, SV, K, ERA, WHIP
+    Returns number of teams imported.
+    """
+    df = pd.read_csv(csv_path)
+    df.columns = df.columns.str.strip()
+    categories = ["R", "HR", "RBI", "SB", "AVG", "W", "SV", "K", "ERA", "WHIP"]
+    imported = 0
+
+    for _, row in df.iterrows():
+        team = str(row["team_name"]).strip()
+        for cat in categories:
+            if cat in row.index:
+                val = float(str(row[cat]).replace(",", ""))
+                upsert_league_standing(team, cat, val)
+        imported += 1
+
+    return imported
+
+
+def get_team_roster(team_name: str) -> pd.DataFrame:
+    """Return roster for a specific team with player info."""
+    conn = get_connection()
+    df = pd.read_sql_query(
+        """SELECT lr.*, p.name, p.team, p.positions, p.is_hitter
+           FROM league_rosters lr
+           JOIN players p ON lr.player_id = p.player_id
+           WHERE lr.team_name = ?""",
+        conn,
+        params=(team_name,),
+    )
+    conn.close()
+    return df
+
+
+def get_free_agents(player_pool: pd.DataFrame) -> pd.DataFrame:
+    """Return all players NOT on any league_rosters team."""
+    rostered = load_league_rosters()
+    if rostered.empty:
+        return player_pool
+    rostered_ids = set(rostered["player_id"].values)
+    return player_pool[~player_pool["player_id"].isin(rostered_ids)].copy()
+
+
+def add_player_to_roster(
+    team_name: str,
+    team_index: int,
+    player_id: int,
+    roster_slot: str = None,
+    is_user_team: bool = False,
+):
+    """Add a player to a team roster."""
+    upsert_league_roster_entry(
+        team_name, team_index, player_id, roster_slot, is_user_team
+    )
+
+
+def remove_player_from_roster(team_name: str, player_id: int):
+    """Remove a player from a team roster."""
+    conn = get_connection()
+    conn.execute(
+        "DELETE FROM league_rosters WHERE team_name = ? AND player_id = ?",
+        (team_name, player_id),
+    )
+    conn.commit()
+    conn.close()
