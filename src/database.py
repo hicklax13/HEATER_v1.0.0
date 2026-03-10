@@ -1,10 +1,9 @@
 """Database module: SQLite schema, data loading, and projection blending."""
 
 import sqlite3
-import os
-import pandas as pd
-import numpy as np
 from pathlib import Path
+
+import pandas as pd
 
 DB_PATH = Path(__file__).parent.parent / "data" / "draft_tool.db"
 
@@ -109,10 +108,13 @@ def import_hitter_csv(csv_path: str, system: str):
         sb = int(_safe_num(row, col_map.get("sb", "SB")))
         avg = float(_safe_num(row, col_map.get("avg", "AVG")))
 
-        cursor.execute("""
+        cursor.execute(
+            """
             INSERT INTO projections (player_id, system, pa, ab, h, r, hr, rbi, sb, avg)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (player_id, system, pa, ab, h, r, hr, rbi, sb, avg))
+        """,
+            (player_id, system, pa, ab, h, r, hr, rbi, sb, avg),
+        )
         imported += 1
 
     conn.commit()
@@ -168,10 +170,13 @@ def import_pitcher_csv(csv_path: str, system: str):
             bb_allowed = int(total * 0.3)
             h_allowed = int(total * 0.7)
 
-        cursor.execute("""
+        cursor.execute(
+            """
             INSERT INTO projections (player_id, system, ip, w, sv, k, era, whip, er, bb_allowed, h_allowed)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (player_id, system, ip, w, sv, k, era, whip, er, bb_allowed, h_allowed))
+        """,
+            (player_id, system, ip, w, sv, k, era, whip, er, bb_allowed, h_allowed),
+        )
         imported += 1
 
     conn.commit()
@@ -192,11 +197,14 @@ def create_blended_projections():
     player_ids = [row[0] for row in cursor.fetchall()]
 
     for pid in player_ids:
-        cursor.execute("""
+        cursor.execute(
+            """
             SELECT pa, ab, h, r, hr, rbi, sb, avg,
                    ip, w, sv, k, era, whip, er, bb_allowed, h_allowed
             FROM projections WHERE player_id = ? AND system != 'blended'
-        """, (pid,))
+        """,
+            (pid,),
+        )
         rows = cursor.fetchall()
         if not rows:
             continue
@@ -204,8 +212,25 @@ def create_blended_projections():
         n = len(rows)
         # Average all stats
         avg_stats = {}
-        stat_names = ["pa", "ab", "h", "r", "hr", "rbi", "sb", "avg",
-                       "ip", "w", "sv", "k", "era", "whip", "er", "bb_allowed", "h_allowed"]
+        stat_names = [
+            "pa",
+            "ab",
+            "h",
+            "r",
+            "hr",
+            "rbi",
+            "sb",
+            "avg",
+            "ip",
+            "w",
+            "sv",
+            "k",
+            "era",
+            "whip",
+            "er",
+            "bb_allowed",
+            "h_allowed",
+        ]
         for i, name in enumerate(stat_names):
             vals = [row[i] or 0 for row in rows]
             avg_stats[name] = sum(vals) / n
@@ -217,17 +242,33 @@ def create_blended_projections():
             avg_stats["era"] = avg_stats["er"] * 9 / avg_stats["ip"]
             avg_stats["whip"] = (avg_stats["bb_allowed"] + avg_stats["h_allowed"]) / avg_stats["ip"]
 
-        cursor.execute("""
+        cursor.execute(
+            """
             INSERT INTO projections (player_id, system, pa, ab, h, r, hr, rbi, sb, avg,
                                      ip, w, sv, k, era, whip, er, bb_allowed, h_allowed)
             VALUES (?, 'blended', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (pid,
-              int(avg_stats["pa"]), int(avg_stats["ab"]), int(avg_stats["h"]),
-              int(avg_stats["r"]), int(avg_stats["hr"]), int(avg_stats["rbi"]),
-              int(avg_stats["sb"]), round(avg_stats["avg"], 3),
-              round(avg_stats["ip"], 1), int(avg_stats["w"]), int(avg_stats["sv"]),
-              int(avg_stats["k"]), round(avg_stats["era"], 2), round(avg_stats["whip"], 2),
-              int(avg_stats["er"]), int(avg_stats["bb_allowed"]), int(avg_stats["h_allowed"])))
+        """,
+            (
+                pid,
+                int(avg_stats["pa"]),
+                int(avg_stats["ab"]),
+                int(avg_stats["h"]),
+                int(avg_stats["r"]),
+                int(avg_stats["hr"]),
+                int(avg_stats["rbi"]),
+                int(avg_stats["sb"]),
+                round(avg_stats["avg"], 3),
+                round(avg_stats["ip"], 1),
+                int(avg_stats["w"]),
+                int(avg_stats["sv"]),
+                int(avg_stats["k"]),
+                round(avg_stats["era"], 2),
+                round(avg_stats["whip"], 2),
+                int(avg_stats["er"]),
+                int(avg_stats["bb_allowed"]),
+                int(avg_stats["h_allowed"]),
+            ),
+        )
 
     conn.commit()
     conn.close()
@@ -279,22 +320,29 @@ def import_adp_csv(csv_path: str, source: str = "fantasypros"):
             if len(parts) >= 2:
                 cursor.execute(
                     "SELECT player_id FROM players WHERE name LIKE ? AND name LIKE ?",
-                    (f"%{parts[0]}%", f"%{parts[-1]}%"))
+                    (f"%{parts[0]}%", f"%{parts[-1]}%"),
+                )
                 result = cursor.fetchone()
         if not result:
             continue
 
         player_id = result[0]
         if source == "yahoo":
-            cursor.execute("""
+            cursor.execute(
+                """
                 INSERT INTO adp (player_id, yahoo_adp, adp) VALUES (?, ?, ?)
                 ON CONFLICT(player_id) DO UPDATE SET yahoo_adp = ?, adp = min(adp, ?)
-            """, (player_id, adp_val, adp_val, adp_val, adp_val))
+            """,
+                (player_id, adp_val, adp_val, adp_val, adp_val),
+            )
         else:
-            cursor.execute("""
+            cursor.execute(
+                """
                 INSERT INTO adp (player_id, fantasypros_adp, adp) VALUES (?, ?, ?)
                 ON CONFLICT(player_id) DO UPDATE SET fantasypros_adp = ?, adp = min(adp, ?)
-            """, (player_id, adp_val, adp_val, adp_val, adp_val))
+            """,
+                (player_id, adp_val, adp_val, adp_val, adp_val),
+            )
         imported += 1
 
     conn.commit()
@@ -309,7 +357,8 @@ def load_player_pool() -> pd.DataFrame:
     # Prefer blended, fall back to any available system
     # Note: Do NOT use CAST on numeric columns — Python 3.14 SQLite returns raw bytes
     # for NumPy integers, and CAST corrupts them. Fix bytes in Python after loading.
-    df = pd.read_sql_query("""
+    df = pd.read_sql_query(
+        """
         SELECT
             p.player_id, p.name, p.team, p.positions, p.is_hitter, p.is_injured,
             proj.pa, proj.ab, proj.h, proj.r, proj.hr, proj.rbi, proj.sb, proj.avg,
@@ -322,11 +371,14 @@ def load_player_pool() -> pd.DataFrame:
         WHERE proj.system = 'blended'
           AND p.is_injured = 0
         ORDER BY COALESCE(a.adp, 999)
-    """, conn)
+    """,
+        conn,
+    )
 
     # If no blended projections exist, try any system
     if df.empty:
-        df = pd.read_sql_query("""
+        df = pd.read_sql_query(
+            """
             SELECT
                 p.player_id, p.name, p.team, p.positions, p.is_hitter, p.is_injured,
                 proj.pa, proj.ab, proj.h, proj.r, proj.hr, proj.rbi, proj.sb, proj.avg,
@@ -338,24 +390,28 @@ def load_player_pool() -> pd.DataFrame:
             LEFT JOIN adp a ON p.player_id = a.player_id
             WHERE p.is_injured = 0
             ORDER BY COALESCE(a.adp, 999)
-        """, conn)
+        """,
+            conn,
+        )
 
     conn.close()
 
     # Fix Python 3.14 SQLite bytes issue: NumPy ints may be stored as raw bytes
     import struct
+
     def _fix_bytes_col(series, as_float=False):
         def _decode(val):
             if isinstance(val, bytes):
                 if len(val) == 8:
-                    return struct.unpack('<q', val)[0]
+                    return struct.unpack("<q", val)[0]
                 elif len(val) == 4:
-                    return struct.unpack('<i', val)[0]
+                    return struct.unpack("<i", val)[0]
                 try:
                     return float(val) if as_float else int(val)
                 except (ValueError, TypeError):
                     return 0.0 if as_float else 0
             return val
+
         return series.map(_decode)
 
     # Ensure numeric columns are properly typed
@@ -374,6 +430,7 @@ def load_player_pool() -> pd.DataFrame:
 
 
 # ── Helpers ──────────────────────────────────────────────────────────
+
 
 def _build_column_map(df: pd.DataFrame, is_hitter: bool) -> dict:
     """Flexibly map CSV columns to expected names."""
@@ -396,9 +453,13 @@ def _build_column_map(df: pd.DataFrame, is_hitter: bool) -> dict:
 
     if is_hitter:
         for stat, candidates in {
-            "pa": ["pa"], "ab": ["ab"], "h": ["h", "hits"],
-            "r": ["r", "runs"], "hr": ["hr", "homerun", "homeruns"],
-            "rbi": ["rbi"], "sb": ["sb", "stolenbases"],
+            "pa": ["pa"],
+            "ab": ["ab"],
+            "h": ["h", "hits"],
+            "r": ["r", "runs"],
+            "hr": ["hr", "homerun", "homeruns"],
+            "rbi": ["rbi"],
+            "sb": ["sb", "stolenbases"],
             "avg": ["avg", "ba", "battingaverage"],
         }.items():
             for k in candidates:
@@ -408,9 +469,12 @@ def _build_column_map(df: pd.DataFrame, is_hitter: bool) -> dict:
     else:
         for stat, candidates in {
             "ip": ["ip", "innings"],
-            "w": ["w", "wins"], "sv": ["sv", "saves"],
-            "k": ["k", "so", "strikeouts"], "so": ["so"],
-            "era": ["era"], "whip": ["whip"],
+            "w": ["w", "wins"],
+            "sv": ["sv", "saves"],
+            "k": ["k", "so", "strikeouts"],
+            "so": ["so"],
+            "era": ["era"],
+            "whip": ["whip"],
             "er": ["er", "earnedruns"],
             "bb": ["bb", "walks", "bb_allowed"],
             "h_allowed": ["h", "hits", "h_allowed"],
@@ -450,7 +514,8 @@ def _upsert_player(cursor, name: str, team: str, positions: str, is_hitter: bool
     else:
         cursor.execute(
             "INSERT INTO players (name, team, positions, is_hitter) VALUES (?, ?, ?, ?)",
-            (name, team, positions, 1 if is_hitter else 0))
+            (name, team, positions, 1 if is_hitter else 0),
+        )
         return cursor.lastrowid
 
 

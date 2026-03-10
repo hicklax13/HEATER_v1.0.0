@@ -4,9 +4,9 @@ Run this to populate the database with realistic sample data.
 For the real draft, replace this with actual FanGraphs CSV imports.
 """
 
-import pandas as pd
 import numpy as np
-from src.database import init_db, get_connection
+
+from src.database import get_connection, init_db
 
 # Seed for reproducibility
 rng = np.random.default_rng(42)
@@ -29,67 +29,118 @@ def generate_sample_data():
     hitter_archetypes = [
         # (name_prefix, positions, pa_range, hr_range, sb_range, avg_range, tier)
         # Elite
-        ("Aaron Judge", "OF", (600, 650), (45, 55), (3, 8), (.285, .310), 1),
-        ("Shohei Ohtani", "Util", (580, 620), (40, 50), (15, 25), (.280, .300), 1),
-        ("Mookie Betts", "OF,SS", (580, 620), (25, 35), (12, 20), (.280, .300), 1),
-        ("Freddie Freeman", "1B", (600, 650), (22, 30), (5, 10), (.290, .315), 1),
-        ("Trea Turner", "SS", (560, 610), (20, 28), (25, 35), (.275, .295), 1),
-        ("Bobby Witt Jr.", "SS", (620, 660), (28, 35), (25, 40), (.280, .300), 1),
-        ("Elly De La Cruz", "SS", (560, 610), (22, 30), (55, 75), (.255, .275), 1),
-        ("Ronald Acuna Jr.", "OF", (540, 600), (20, 28), (40, 60), (.270, .295), 2),
-        ("Corey Seager", "SS", (560, 610), (28, 38), (2, 6), (.275, .295), 2),
-        ("Juan Soto", "OF", (600, 650), (30, 40), (3, 8), (.275, .300), 1),
-        ("Yordan Alvarez", "Util,OF", (560, 600), (30, 40), (1, 5), (.280, .305), 2),
-        ("Marcus Semien", "2B", (620, 660), (22, 30), (15, 25), (.265, .285), 2),
-        ("Jose Ramirez", "3B", (580, 620), (25, 33), (18, 28), (.270, .290), 2),
-        ("Rafael Devers", "3B", (580, 620), (28, 36), (1, 5), (.275, .295), 2),
-        ("Kyle Tucker", "OF", (560, 600), (25, 33), (18, 28), (.275, .295), 2),
-        ("Julio Rodriguez", "OF", (580, 620), (22, 30), (22, 35), (.270, .290), 2),
-        ("Gunnar Henderson", "SS,3B", (600, 640), (28, 36), (15, 25), (.265, .285), 2),
-        ("Matt Olson", "1B", (580, 620), (30, 42), (1, 4), (.248, .268), 3),
-        ("Pete Alonso", "1B", (560, 600), (35, 45), (1, 4), (.245, .265), 3),
-        ("Adolis Garcia", "OF", (560, 600), (28, 36), (18, 28), (.248, .268), 3),
-        ("William Contreras", "C", (520, 570), (18, 26), (1, 5), (.275, .295), 3),
-        ("Adley Rutschman", "C", (540, 580), (18, 25), (2, 6), (.265, .285), 3),
-        ("Salvador Perez", "C", (520, 560), (22, 32), (0, 3), (.255, .275), 4),
-        ("J.T. Realmuto", "C", (480, 530), (15, 22), (10, 18), (.260, .280), 4),
-        ("Cal Raleigh", "C", (480, 530), (25, 33), (1, 4), (.230, .250), 4),
-        ("Willy Adames", "SS", (560, 600), (25, 33), (15, 22), (.248, .268), 3),
-        ("Bo Bichette", "SS", (550, 600), (18, 25), (15, 25), (.270, .290), 3),
-        ("Ozzie Albies", "2B", (560, 600), (22, 30), (10, 18), (.265, .285), 3),
-        ("Jazz Chisholm Jr.", "3B,2B", (520, 570), (20, 28), (18, 28), (.250, .270), 3),
-        ("Christian Walker", "1B", (560, 600), (28, 36), (3, 8), (.255, .275), 3),
-        ("Anthony Santander", "OF", (560, 600), (30, 40), (2, 6), (.255, .275), 3),
-        ("Anthony Rizzo", "1B", (480, 530), (18, 26), (1, 4), (.255, .275), 5),
-        ("Tommy Edman", "2B,SS,OF", (520, 570), (10, 18), (25, 40), (.260, .280), 4),
-        ("Thairo Estrada", "2B,SS", (500, 550), (12, 18), (12, 20), (.265, .285), 5),
-        ("Byron Buxton", "OF", (400, 480), (25, 35), (10, 18), (.248, .268), 4),
-        ("Mike Trout", "OF", (380, 460), (25, 35), (3, 8), (.260, .285), 4),
-        ("Lars Nootbaar", "OF", (480, 540), (15, 22), (8, 15), (.255, .275), 5),
-        ("Jarren Duran", "OF", (580, 620), (15, 22), (30, 45), (.275, .295), 3),
-        ("Jackson Chourio", "OF", (560, 600), (18, 26), (15, 25), (.270, .290), 3),
-        ("Jackson Merrill", "OF", (560, 600), (20, 28), (10, 18), (.270, .290), 3),
+        ("Aaron Judge", "OF", (600, 650), (45, 55), (3, 8), (0.285, 0.310), 1),
+        ("Shohei Ohtani", "Util", (580, 620), (40, 50), (15, 25), (0.280, 0.300), 1),
+        ("Mookie Betts", "OF,SS", (580, 620), (25, 35), (12, 20), (0.280, 0.300), 1),
+        ("Freddie Freeman", "1B", (600, 650), (22, 30), (5, 10), (0.290, 0.315), 1),
+        ("Trea Turner", "SS", (560, 610), (20, 28), (25, 35), (0.275, 0.295), 1),
+        ("Bobby Witt Jr.", "SS", (620, 660), (28, 35), (25, 40), (0.280, 0.300), 1),
+        ("Elly De La Cruz", "SS", (560, 610), (22, 30), (55, 75), (0.255, 0.275), 1),
+        ("Ronald Acuna Jr.", "OF", (540, 600), (20, 28), (40, 60), (0.270, 0.295), 2),
+        ("Corey Seager", "SS", (560, 610), (28, 38), (2, 6), (0.275, 0.295), 2),
+        ("Juan Soto", "OF", (600, 650), (30, 40), (3, 8), (0.275, 0.300), 1),
+        ("Yordan Alvarez", "Util,OF", (560, 600), (30, 40), (1, 5), (0.280, 0.305), 2),
+        ("Marcus Semien", "2B", (620, 660), (22, 30), (15, 25), (0.265, 0.285), 2),
+        ("Jose Ramirez", "3B", (580, 620), (25, 33), (18, 28), (0.270, 0.290), 2),
+        ("Rafael Devers", "3B", (580, 620), (28, 36), (1, 5), (0.275, 0.295), 2),
+        ("Kyle Tucker", "OF", (560, 600), (25, 33), (18, 28), (0.275, 0.295), 2),
+        ("Julio Rodriguez", "OF", (580, 620), (22, 30), (22, 35), (0.270, 0.290), 2),
+        ("Gunnar Henderson", "SS,3B", (600, 640), (28, 36), (15, 25), (0.265, 0.285), 2),
+        ("Matt Olson", "1B", (580, 620), (30, 42), (1, 4), (0.248, 0.268), 3),
+        ("Pete Alonso", "1B", (560, 600), (35, 45), (1, 4), (0.245, 0.265), 3),
+        ("Adolis Garcia", "OF", (560, 600), (28, 36), (18, 28), (0.248, 0.268), 3),
+        ("William Contreras", "C", (520, 570), (18, 26), (1, 5), (0.275, 0.295), 3),
+        ("Adley Rutschman", "C", (540, 580), (18, 25), (2, 6), (0.265, 0.285), 3),
+        ("Salvador Perez", "C", (520, 560), (22, 32), (0, 3), (0.255, 0.275), 4),
+        ("J.T. Realmuto", "C", (480, 530), (15, 22), (10, 18), (0.260, 0.280), 4),
+        ("Cal Raleigh", "C", (480, 530), (25, 33), (1, 4), (0.230, 0.250), 4),
+        ("Willy Adames", "SS", (560, 600), (25, 33), (15, 22), (0.248, 0.268), 3),
+        ("Bo Bichette", "SS", (550, 600), (18, 25), (15, 25), (0.270, 0.290), 3),
+        ("Ozzie Albies", "2B", (560, 600), (22, 30), (10, 18), (0.265, 0.285), 3),
+        ("Jazz Chisholm Jr.", "3B,2B", (520, 570), (20, 28), (18, 28), (0.250, 0.270), 3),
+        ("Christian Walker", "1B", (560, 600), (28, 36), (3, 8), (0.255, 0.275), 3),
+        ("Anthony Santander", "OF", (560, 600), (30, 40), (2, 6), (0.255, 0.275), 3),
+        ("Anthony Rizzo", "1B", (480, 530), (18, 26), (1, 4), (0.255, 0.275), 5),
+        ("Tommy Edman", "2B,SS,OF", (520, 570), (10, 18), (25, 40), (0.260, 0.280), 4),
+        ("Thairo Estrada", "2B,SS", (500, 550), (12, 18), (12, 20), (0.265, 0.285), 5),
+        ("Byron Buxton", "OF", (400, 480), (25, 35), (10, 18), (0.248, 0.268), 4),
+        ("Mike Trout", "OF", (380, 460), (25, 35), (3, 8), (0.260, 0.285), 4),
+        ("Lars Nootbaar", "OF", (480, 540), (15, 22), (8, 15), (0.255, 0.275), 5),
+        ("Jarren Duran", "OF", (580, 620), (15, 22), (30, 45), (0.275, 0.295), 3),
+        ("Jackson Chourio", "OF", (560, 600), (18, 26), (15, 25), (0.270, 0.290), 3),
+        ("Jackson Merrill", "OF", (560, 600), (20, 28), (10, 18), (0.270, 0.290), 3),
     ]
 
     # Generate additional filler hitters
     filler_names = [
-        "Alex Bregman", "Nolan Arenado", "Manny Machado", "Xander Bogaerts",
-        "Carlos Correa", "Tim Anderson", "Dansby Swanson", "Ketel Marte",
-        "Gleyber Torres", "Jonathan India", "Andres Gimenez", "Ha-Seong Kim",
-        "Yandy Diaz", "Vladimir Guerrero Jr.", "Spencer Torkelson", "Vinnie Pasquantino",
-        "Rhys Hoskins", "Cody Bellinger", "Bryce Harper", "Luis Robert Jr.",
-        "Mike Yastrzemski", "Lane Thomas", "Bryan Reynolds", "Starling Marte",
-        "Randy Arozarena", "George Springer", "Teoscar Hernandez", "Giancarlo Stanton",
-        "Marcell Ozuna", "Austin Riley", "Max Muncy", "Willson Contreras",
-        "Gabriel Moreno", "MJ Melendez", "Logan O'Hoppe", "Patrick Bailey",
-        "Jonah Heim", "Alejandro Kirk", "Ryan McMahon", "Brandon Lowe",
-        "Jeff McNeil", "Nico Hoerner", "CJ Abrams", "Masataka Yoshida",
-        "Seiya Suzuki", "Fernando Tatis Jr.", "Cedric Mullins", "Corbin Carroll",
-        "Colton Cowser", "James Outman", "Michael Harris II", "Riley Greene",
-        "Evan Carter", "Wyatt Langford", "Jordan Walker", "Spencer Steer",
-        "Josh Lowe", "Willy Adames", "Tyler O'Neill", "Brendan Donovan",
-        "Isaac Paredes", "Christopher Morel", "Maikel Garcia", "Ezequiel Tovar",
-        "Noelvi Marte", "Royce Lewis", "Mookie Betts", "Jake Cronenworth",
+        "Alex Bregman",
+        "Nolan Arenado",
+        "Manny Machado",
+        "Xander Bogaerts",
+        "Carlos Correa",
+        "Tim Anderson",
+        "Dansby Swanson",
+        "Ketel Marte",
+        "Gleyber Torres",
+        "Jonathan India",
+        "Andres Gimenez",
+        "Ha-Seong Kim",
+        "Yandy Diaz",
+        "Vladimir Guerrero Jr.",
+        "Spencer Torkelson",
+        "Vinnie Pasquantino",
+        "Rhys Hoskins",
+        "Cody Bellinger",
+        "Bryce Harper",
+        "Luis Robert Jr.",
+        "Mike Yastrzemski",
+        "Lane Thomas",
+        "Bryan Reynolds",
+        "Starling Marte",
+        "Randy Arozarena",
+        "George Springer",
+        "Teoscar Hernandez",
+        "Giancarlo Stanton",
+        "Marcell Ozuna",
+        "Austin Riley",
+        "Max Muncy",
+        "Willson Contreras",
+        "Gabriel Moreno",
+        "MJ Melendez",
+        "Logan O'Hoppe",
+        "Patrick Bailey",
+        "Jonah Heim",
+        "Alejandro Kirk",
+        "Ryan McMahon",
+        "Brandon Lowe",
+        "Jeff McNeil",
+        "Nico Hoerner",
+        "CJ Abrams",
+        "Masataka Yoshida",
+        "Seiya Suzuki",
+        "Fernando Tatis Jr.",
+        "Cedric Mullins",
+        "Corbin Carroll",
+        "Colton Cowser",
+        "James Outman",
+        "Michael Harris II",
+        "Riley Greene",
+        "Evan Carter",
+        "Wyatt Langford",
+        "Jordan Walker",
+        "Spencer Steer",
+        "Josh Lowe",
+        "Willy Adames",
+        "Tyler O'Neill",
+        "Brendan Donovan",
+        "Isaac Paredes",
+        "Christopher Morel",
+        "Maikel Garcia",
+        "Ezequiel Tovar",
+        "Noelvi Marte",
+        "Royce Lewis",
+        "Mookie Betts",
+        "Jake Cronenworth",
     ]
     filler_positions = ["1B", "2B", "3B", "SS", "OF", "OF", "OF", "1B,3B", "2B,SS", "C", "OF,1B"]
 
@@ -104,13 +155,15 @@ def generate_sample_data():
         r = int(hr * 1.8 + sb * 0.3 + rng.integers(30, 60))
         rbi = int(hr * 2.5 + rng.integers(15, 45))
 
-        cursor.execute("INSERT INTO players (name, team, positions, is_hitter) VALUES (?, ?, ?, 1)",
-                       (name, "MLB", pos))
+        cursor.execute("INSERT INTO players (name, team, positions, is_hitter) VALUES (?, ?, ?, 1)", (name, "MLB", pos))
         pid = cursor.lastrowid
-        cursor.execute("""
+        cursor.execute(
+            """
             INSERT INTO projections (player_id, system, pa, ab, h, r, hr, rbi, sb, avg)
             VALUES (?, 'blended', ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (pid, pa, ab, h, r, hr, rbi, sb, avg))
+        """,
+            (pid, pa, ab, h, r, hr, rbi, sb, avg),
+        )
 
         adp = tier * 25 + rng.integers(-10, 10) + (player_id - 1) * 1.5
         cursor.execute("INSERT INTO adp (player_id, adp) VALUES (?, ?)", (pid, max(1, adp)))
@@ -132,13 +185,15 @@ def generate_sample_data():
         r = int(hr * 1.5 + sb * 0.3 + rng.integers(25, 50))
         rbi = int(hr * 2.2 + rng.integers(10, 35))
 
-        cursor.execute("INSERT INTO players (name, team, positions, is_hitter) VALUES (?, ?, ?, 1)",
-                       (name, "MLB", pos))
+        cursor.execute("INSERT INTO players (name, team, positions, is_hitter) VALUES (?, ?, ?, 1)", (name, "MLB", pos))
         pid = cursor.lastrowid
-        cursor.execute("""
+        cursor.execute(
+            """
             INSERT INTO projections (player_id, system, pa, ab, h, r, hr, rbi, sb, avg)
             VALUES (?, 'blended', ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (pid, pa, ab, h, r, hr, rbi, sb, avg))
+        """,
+            (pid, pa, ab, h, r, hr, rbi, sb, avg),
+        )
 
         adp = 80 + player_id * 1.8 + rng.integers(-15, 15)
         cursor.execute("INSERT INTO adp (player_id, adp) VALUES (?, ?)", (pid, max(1, adp)))
@@ -195,19 +250,52 @@ def generate_sample_data():
 
     # Additional filler SP and RP
     filler_sp = [
-        "Logan Gilbert", "Aaron Nola", "Freddy Peralta", "Shane Bieber",
-        "Nick Lodolo", "Mitch Keller", "Bailey Ober", "Jake Irvin",
-        "Cristian Javier", "Nathan Eovaldi", "Tyler Anderson", "Jordan Montgomery",
-        "Nestor Cortes", "Reid Detmers", "Brayan Bello", "Gavin Stone",
-        "Clarke Schmidt", "Spencer Schwellenbach", "Reese Olson", "Grayson Rodriguez",
-        "Brady Singer", "Drew Thorpe", "Jack Flaherty", "Cole Ragans",
-        "Seth Lugo", "George Kirby", "Tobias Myers", "JP Sears",
+        "Logan Gilbert",
+        "Aaron Nola",
+        "Freddy Peralta",
+        "Shane Bieber",
+        "Nick Lodolo",
+        "Mitch Keller",
+        "Bailey Ober",
+        "Jake Irvin",
+        "Cristian Javier",
+        "Nathan Eovaldi",
+        "Tyler Anderson",
+        "Jordan Montgomery",
+        "Nestor Cortes",
+        "Reid Detmers",
+        "Brayan Bello",
+        "Gavin Stone",
+        "Clarke Schmidt",
+        "Spencer Schwellenbach",
+        "Reese Olson",
+        "Grayson Rodriguez",
+        "Brady Singer",
+        "Drew Thorpe",
+        "Jack Flaherty",
+        "Cole Ragans",
+        "Seth Lugo",
+        "George Kirby",
+        "Tobias Myers",
+        "JP Sears",
     ]
     filler_rp = [
-        "Craig Kimbrel", "Jordan Romano", "David Bednar", "Felix Bautista",
-        "Jhoan Duran", "Camilo Doval", "Paul Sewald", "Alexis Diaz",
-        "Jason Adam", "Trevor Megill", "Yennier Cano", "Justin Martinez",
-        "Ben Joyce", "Ryan Pressly", "Edwin Diaz", "A.J. Minter",
+        "Craig Kimbrel",
+        "Jordan Romano",
+        "David Bednar",
+        "Felix Bautista",
+        "Jhoan Duran",
+        "Camilo Doval",
+        "Paul Sewald",
+        "Alexis Diaz",
+        "Jason Adam",
+        "Trevor Megill",
+        "Yennier Cano",
+        "Justin Martinez",
+        "Ben Joyce",
+        "Ryan Pressly",
+        "Edwin Diaz",
+        "A.J. Minter",
     ]
 
     pitcher_id_start = player_id
@@ -223,13 +311,15 @@ def generate_sample_data():
         bb = int(total_baserunners * 0.3)
         ha = int(total_baserunners * 0.7)
 
-        cursor.execute("INSERT INTO players (name, team, positions, is_hitter) VALUES (?, ?, ?, 0)",
-                       (name, "MLB", pos))
+        cursor.execute("INSERT INTO players (name, team, positions, is_hitter) VALUES (?, ?, ?, 0)", (name, "MLB", pos))
         pid = cursor.lastrowid
-        cursor.execute("""
+        cursor.execute(
+            """
             INSERT INTO projections (player_id, system, ip, w, sv, k, era, whip, er, bb_allowed, h_allowed)
             VALUES (?, 'blended', ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (pid, ip, w, sv, k, era, whip, er, bb, ha))
+        """,
+            (pid, ip, w, sv, k, era, whip, er, bb, ha),
+        )
 
         adp = tier * 30 + rng.integers(-10, 10) + player_id * 0.8
         if pos == "RP":
@@ -249,13 +339,15 @@ def generate_sample_data():
         bb = int(total_br * 0.3)
         ha = int(total_br * 0.7)
 
-        cursor.execute("INSERT INTO players (name, team, positions, is_hitter) VALUES (?, ?, 'SP', 0)",
-                       (name, "MLB"))
+        cursor.execute("INSERT INTO players (name, team, positions, is_hitter) VALUES (?, ?, 'SP', 0)", (name, "MLB"))
         pid = cursor.lastrowid
-        cursor.execute("""
+        cursor.execute(
+            """
             INSERT INTO projections (player_id, system, ip, w, sv, k, era, whip, er, bb_allowed, h_allowed)
             VALUES (?, 'blended', ?, ?, 0, ?, ?, ?, ?, ?, ?)
-        """, (pid, ip, w, k, era, whip, er, bb, ha))
+        """,
+            (pid, ip, w, k, era, whip, er, bb, ha),
+        )
 
         adp = 100 + player_id * 1.5 + rng.integers(-10, 10)
         cursor.execute("INSERT INTO adp (player_id, adp) VALUES (?, ?)", (pid, max(1, adp)))
@@ -274,13 +366,15 @@ def generate_sample_data():
         bb = int(total_br * 0.3)
         ha = int(total_br * 0.7)
 
-        cursor.execute("INSERT INTO players (name, team, positions, is_hitter) VALUES (?, ?, 'RP', 0)",
-                       (name, "MLB"))
+        cursor.execute("INSERT INTO players (name, team, positions, is_hitter) VALUES (?, ?, 'RP', 0)", (name, "MLB"))
         pid = cursor.lastrowid
-        cursor.execute("""
+        cursor.execute(
+            """
             INSERT INTO projections (player_id, system, ip, w, sv, k, era, whip, er, bb_allowed, h_allowed)
             VALUES (?, 'blended', ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (pid, ip, w, sv, k, era, whip, er, bb, ha))
+        """,
+            (pid, ip, w, sv, k, era, whip, er, bb, ha),
+        )
 
         adp = 140 + player_id * 1.2 + rng.integers(-10, 10)
         cursor.execute("INSERT INTO adp (player_id, adp) VALUES (?, ?)", (pid, max(1, adp)))

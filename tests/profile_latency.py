@@ -7,25 +7,25 @@ Usage:
     python tests/profile_latency.py
 """
 
-import sys
 import os
-import time
 import statistics
+import sys
+import time
 
 # Ensure the project root is on the path so src.* imports resolve.
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_ROOT)
 
-from src.database import init_db, load_player_pool
-from src.valuation import (
+from src.database import init_db, load_player_pool  # noqa: E402
+from src.draft_state import DraftState  # noqa: E402
+from src.simulation import DraftSimulator  # noqa: E402
+from src.valuation import (  # noqa: E402
     LeagueConfig,
     SGPCalculator,
-    value_all_players,
-    compute_replacement_levels,
     compute_category_weights,
+    compute_replacement_levels,
+    value_all_players,
 )
-from src.draft_state import DraftState
-from src.simulation import DraftSimulator
 
 LATENCY_THRESHOLD_SECONDS = 15.0
 NUM_RUNS = 10
@@ -76,9 +76,7 @@ def run_recommendation_pipeline(player_pool, draft, config):
     replacement_levels = compute_replacement_levels(available, config, sgp_calc)
 
     # 5. Value all available players
-    valued = value_all_players(
-        available, config, roster_totals, cat_weights, replacement_levels
-    )
+    valued = value_all_players(available, config, roster_totals, cat_weights, replacement_levels)
 
     # 6. Compute urgency for the top N candidates
     simulator = DraftSimulator(config, sigma=10.0)
@@ -165,12 +163,15 @@ def main():
 
     passed = lat_max < LATENCY_THRESHOLD_SECONDS
     if passed:
-        print(f"\n  PASS  -- All {NUM_RUNS} runs completed under "
-              f"{LATENCY_THRESHOLD_SECONDS:.0f}s (worst: {lat_max:.3f}s)")
+        print(
+            f"\n  PASS  -- All {NUM_RUNS} runs completed under {LATENCY_THRESHOLD_SECONDS:.0f}s (worst: {lat_max:.3f}s)"
+        )
     else:
         slow_count = sum(1 for t in latencies if t >= LATENCY_THRESHOLD_SECONDS)
-        print(f"\n  FAIL  -- {slow_count}/{NUM_RUNS} runs exceeded "
-              f"{LATENCY_THRESHOLD_SECONDS:.0f}s (worst: {lat_max:.3f}s)")
+        print(
+            f"\n  FAIL  -- {slow_count}/{NUM_RUNS} runs exceeded "
+            f"{LATENCY_THRESHOLD_SECONDS:.0f}s (worst: {lat_max:.3f}s)"
+        )
 
     print()
     sys.exit(0 if passed else 1)

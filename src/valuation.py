@@ -1,29 +1,50 @@
 """Valuation engine: SGP, replacement level, VORP, marginal category value."""
 
-import numpy as np
-import pandas as pd
 from dataclasses import dataclass, field
 
+import numpy as np
+import pandas as pd
 
 # ── League Configuration ─────────────────────────────────────────────
+
 
 @dataclass
 class LeagueConfig:
     """League settings that drive the valuation engine."""
+
     num_teams: int = 12
-    roster_slots: dict = field(default_factory=lambda: {
-        "C": 1, "1B": 1, "2B": 1, "3B": 1, "SS": 1,
-        "OF": 3, "Util": 2,
-        "SP": 2, "RP": 2, "P": 4,
-        "BN": 5,
-    })
+    roster_slots: dict = field(
+        default_factory=lambda: {
+            "C": 1,
+            "1B": 1,
+            "2B": 1,
+            "3B": 1,
+            "SS": 1,
+            "OF": 3,
+            "Util": 2,
+            "SP": 2,
+            "RP": 2,
+            "P": 4,
+            "BN": 5,
+        }
+    )
     hitting_categories: list = field(default_factory=lambda: ["R", "HR", "RBI", "SB", "AVG"])
     pitching_categories: list = field(default_factory=lambda: ["W", "SV", "K", "ERA", "WHIP"])
     # SGP denominators — defaults for 12-team 5x5 roto
-    sgp_denominators: dict = field(default_factory=lambda: {
-        "R": 32.0, "HR": 13.0, "RBI": 32.0, "SB": 14.0, "AVG": 0.004,
-        "W": 3.5, "SV": 9.0, "K": 45.0, "ERA": 0.20, "WHIP": 0.020,
-    })
+    sgp_denominators: dict = field(
+        default_factory=lambda: {
+            "R": 32.0,
+            "HR": 13.0,
+            "RBI": 32.0,
+            "SB": 14.0,
+            "AVG": 0.004,
+            "W": 3.5,
+            "SV": 9.0,
+            "K": 45.0,
+            "ERA": 0.20,
+            "WHIP": 0.020,
+        }
+    )
     risk_aversion: float = 0.15  # lambda for variance penalty
 
     @property
@@ -61,6 +82,7 @@ class LeagueConfig:
 
 # ── SGP Calculator ───────────────────────────────────────────────────
 
+
 class SGPCalculator:
     """Compute Standings Gain Points for players."""
 
@@ -88,8 +110,7 @@ class SGPCalculator:
         """Total SGP across all categories."""
         return sum(self.player_sgp(player).values())
 
-    def marginal_sgp(self, player: pd.Series, roster_totals: dict,
-                     category_weights: dict = None) -> dict:
+    def marginal_sgp(self, player: pd.Series, roster_totals: dict, category_weights: dict = None) -> dict:
         """Compute marginal SGP contribution given current roster totals.
 
         roster_totals: dict with keys like 'R', 'HR', ..., 'ab', 'ip', 'h', 'er', etc.
@@ -191,8 +212,16 @@ class SGPCalculator:
     @staticmethod
     def _get_stat(player: pd.Series, cat: str) -> float:
         mapping = {
-            "R": "r", "HR": "hr", "RBI": "rbi", "SB": "sb", "AVG": "avg",
-            "W": "w", "SV": "sv", "K": "k", "ERA": "era", "WHIP": "whip",
+            "R": "r",
+            "HR": "hr",
+            "RBI": "rbi",
+            "SB": "sb",
+            "AVG": "avg",
+            "W": "w",
+            "SV": "sv",
+            "K": "k",
+            "ERA": "era",
+            "WHIP": "whip",
         }
         col = mapping.get(cat, cat.lower())
         val = player.get(col, 0)
@@ -206,8 +235,8 @@ class SGPCalculator:
 
 # ── Replacement Level ────────────────────────────────────────────────
 
-def compute_replacement_levels(player_pool: pd.DataFrame, config: LeagueConfig,
-                               sgp_calc: SGPCalculator) -> dict:
+
+def compute_replacement_levels(player_pool: pd.DataFrame, config: LeagueConfig, sgp_calc: SGPCalculator) -> dict:
     """Compute replacement-level SGP for each position.
 
     Returns dict: position -> replacement_sgp (float).
@@ -218,8 +247,7 @@ def compute_replacement_levels(player_pool: pd.DataFrame, config: LeagueConfig,
     hitting_positions = ["C", "1B", "2B", "3B", "SS", "OF"]
     for pos in hitting_positions:
         eligible = player_pool[
-            player_pool["positions"].str.contains(pos, na=False) &
-            (player_pool["is_hitter"] == 1)
+            player_pool["positions"].str.contains(pos, na=False) & (player_pool["is_hitter"] == 1)
         ].copy()
         if eligible.empty:
             replacement[pos] = 0
@@ -238,8 +266,7 @@ def compute_replacement_levels(player_pool: pd.DataFrame, config: LeagueConfig,
     pitcher_counts = config.pitcher_starters()
     for pos in ["SP", "RP"]:
         eligible = player_pool[
-            player_pool["positions"].str.contains(pos, na=False) &
-            (player_pool["is_hitter"] == 0)
+            player_pool["positions"].str.contains(pos, na=False) & (player_pool["is_hitter"] == 0)
         ].copy()
         if eligible.empty:
             replacement[pos] = 0
@@ -260,8 +287,7 @@ def compute_replacement_levels(player_pool: pd.DataFrame, config: LeagueConfig,
     return replacement
 
 
-def compute_vorp(player: pd.Series, sgp_calc: SGPCalculator,
-                 replacement_levels: dict) -> float:
+def compute_vorp(player: pd.Series, sgp_calc: SGPCalculator, replacement_levels: dict) -> float:
     """Compute Value Over Replacement Player.
 
     Includes a multi-position flexibility premium: players eligible at
@@ -294,10 +320,14 @@ def compute_vorp(player: pd.Series, sgp_calc: SGPCalculator,
 
 # ── Category Balance ─────────────────────────────────────────────────
 
-def compute_category_weights(roster_totals: dict, config: LeagueConfig,
-                              target_rank: float = 5.0,
-                              draft_progress: float = 0.0,
-                              league_totals: list = None) -> dict:
+
+def compute_category_weights(
+    roster_totals: dict,
+    config: LeagueConfig,
+    target_rank: float = 5.0,
+    draft_progress: float = 0.0,
+    league_totals: list = None,
+) -> dict:
     """Compute per-category weights based on current roster strength.
 
     Categories where the roster is weak get higher weight.
@@ -316,8 +346,16 @@ def compute_category_weights(roster_totals: dict, config: LeagueConfig,
     """
     # League average stat totals per team (approximate for 12-team 5x5)
     league_avg = {
-        "R": 780, "HR": 200, "RBI": 760, "SB": 110, "AVG": 0.262,
-        "W": 70, "SV": 60, "K": 1100, "ERA": 3.90, "WHIP": 1.25,
+        "R": 780,
+        "HR": 200,
+        "RBI": 760,
+        "SB": 110,
+        "AVG": 0.262,
+        "W": 70,
+        "SV": 60,
+        "K": 1100,
+        "ERA": 3.90,
+        "WHIP": 1.25,
     }
 
     weights = {}
@@ -369,12 +407,16 @@ def compute_category_weights(roster_totals: dict, config: LeagueConfig,
 
 # ── Full Player Valuation ────────────────────────────────────────────
 
-def value_all_players(player_pool: pd.DataFrame, config: LeagueConfig,
-                       roster_totals: dict = None,
-                       category_weights: dict = None,
-                       replacement_levels: dict = None,
-                       current_round: int = None,
-                       num_rounds: int = 23) -> pd.DataFrame:
+
+def value_all_players(
+    player_pool: pd.DataFrame,
+    config: LeagueConfig,
+    roster_totals: dict = None,
+    category_weights: dict = None,
+    replacement_levels: dict = None,
+    current_round: int = None,
+    num_rounds: int = 23,
+) -> pd.DataFrame:
     """Compute full valuations for all players in the pool.
 
     Returns the player_pool DataFrame with added columns:
@@ -395,8 +437,7 @@ def value_all_players(player_pool: pd.DataFrame, config: LeagueConfig,
 
     # Compute SGP and VORP for each player
     pool["total_sgp"] = pool.apply(sgp_calc.total_sgp, axis=1)
-    pool["vorp"] = pool.apply(
-        lambda p: compute_vorp(p, sgp_calc, replacement_levels), axis=1)
+    pool["vorp"] = pool.apply(lambda p: compute_vorp(p, sgp_calc, replacement_levels), axis=1)
 
     # Compute marginal SGP if roster totals are available
     if roster_totals:
@@ -433,8 +474,10 @@ def value_all_players(player_pool: pd.DataFrame, config: LeagueConfig,
     if current_round is not None:
         draft_progress = current_round / num_rounds
         if draft_progress > 0.7:
+
             def _pos_count(pos_str):
                 return len([p for p in str(pos_str).split(",") if p.strip()])
+
             flex_bonus = pool["positions"].apply(_pos_count) * 0.08 * (draft_progress - 0.7) / 0.3
             pool["pick_score"] = pool["pick_score"] + flex_bonus
 
@@ -442,6 +485,7 @@ def value_all_players(player_pool: pd.DataFrame, config: LeagueConfig,
 
 
 # ── SGP Denominator Auto-Computation ────────────────────────────────
+
 
 def compute_sgp_denominators(player_pool: pd.DataFrame, config: LeagueConfig) -> dict:
     """Auto-compute SGP denominators from player pool statistics.
@@ -530,8 +574,8 @@ def compute_sgp_denominators(player_pool: pd.DataFrame, config: LeagueConfig) ->
 
 # ── Tier Assignment ─────────────────────────────────────────────────
 
-def assign_tiers(valued_pool: pd.DataFrame, score_col: str = "pick_score",
-                  n_tiers: int = 8) -> pd.DataFrame:
+
+def assign_tiers(valued_pool: pd.DataFrame, score_col: str = "pick_score", n_tiers: int = 8) -> pd.DataFrame:
     """Assign tier labels to players based on score distribution gaps.
 
     Uses natural breaks in the score distribution to identify tiers.
@@ -559,7 +603,7 @@ def assign_tiers(valued_pool: pd.DataFrame, score_col: str = "pick_score",
         break_indices = np.where(abs_gaps >= gap_threshold)[0]
         # Take only the top n_tiers - 1 breaks
         if len(break_indices) > n_tiers - 1:
-            top_gap_indices = np.argsort(abs_gaps[break_indices])[::-1][:n_tiers - 1]
+            top_gap_indices = np.argsort(abs_gaps[break_indices])[::-1][: n_tiers - 1]
             break_indices = sorted(break_indices[top_gap_indices])
         else:
             break_indices = sorted(break_indices)

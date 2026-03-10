@@ -1,10 +1,9 @@
 """Draft state management: tracks picks, rosters, and category totals."""
 
 import json
-import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+
 import pandas as pd
 
 BACKUP_DIR = Path(__file__).parent.parent / "data" / "backups"
@@ -13,8 +12,8 @@ BACKUP_DIR = Path(__file__).parent.parent / "data" / "backups"
 @dataclass
 class RosterSlot:
     position: str
-    player_id: Optional[int] = None
-    player_name: Optional[str] = None
+    player_id: int | None = None
+    player_name: str | None = None
 
 
 @dataclass
@@ -82,8 +81,7 @@ class TeamRoster:
 class DraftState:
     """Manages the entire draft state."""
 
-    def __init__(self, num_teams: int = 12, num_rounds: int = 23,
-                 user_team_index: int = 0, roster_config: dict = None):
+    def __init__(self, num_teams: int = 12, num_rounds: int = 23, user_team_index: int = 0, roster_config: dict = None):
         self.num_teams = num_teams
         self.num_rounds = num_rounds
         self.user_team_index = user_team_index
@@ -95,9 +93,16 @@ class DraftState:
         # Default roster config
         if roster_config is None:
             roster_config = {
-                "C": 1, "1B": 1, "2B": 1, "3B": 1, "SS": 1,
-                "OF": 3, "Util": 2,
-                "SP": 2, "RP": 2, "P": 4,
+                "C": 1,
+                "1B": 1,
+                "2B": 1,
+                "3B": 1,
+                "SS": 1,
+                "OF": 3,
+                "Util": 2,
+                "SP": 2,
+                "RP": 2,
+                "P": 4,
                 "BN": 5,
             }
 
@@ -108,11 +113,13 @@ class DraftState:
             for pos, count in roster_config.items():
                 for _ in range(count):
                     slots.append(RosterSlot(position=pos))
-            self.teams.append(TeamRoster(
-                team_name=f"Team {i+1}" if i != user_team_index else "My Team",
-                team_index=i,
-                slots=slots,
-            ))
+            self.teams.append(
+                TeamRoster(
+                    team_name=f"Team {i + 1}" if i != user_team_index else "My Team",
+                    team_index=i,
+                    slots=slots,
+                )
+            )
 
     @property
     def user_team(self) -> TeamRoster:
@@ -141,7 +148,7 @@ class DraftState:
         else:
             return self.num_teams - 1 - pos_in_round  # reverse (snake)
 
-    def next_user_pick(self) -> Optional[int]:
+    def next_user_pick(self) -> int | None:
         """Return the overall pick number of the user's next pick, or None if draft is over."""
         for pick in range(self.current_pick, self.total_picks):
             if self.picking_team_index(pick) == self.user_team_index:
@@ -155,8 +162,7 @@ class DraftState:
             return 999
         return nxt - self.current_pick
 
-    def make_pick(self, player_id: int, player_name: str, positions: str,
-                  team_index: int = None) -> dict:
+    def make_pick(self, player_id: int, player_name: str, positions: str, team_index: int = None) -> dict:
         """Record a draft pick.
 
         Args:
@@ -205,10 +211,19 @@ class DraftState:
     def get_user_roster_totals(self, player_pool: pd.DataFrame) -> dict:
         """Compute category totals for the user's current roster."""
         totals = {
-            "R": 0, "HR": 0, "RBI": 0, "SB": 0,
-            "W": 0, "SV": 0, "K": 0,
-            "ab": 0, "h": 0,
-            "ip": 0, "er": 0, "bb_allowed": 0, "h_allowed": 0,
+            "R": 0,
+            "HR": 0,
+            "RBI": 0,
+            "SB": 0,
+            "W": 0,
+            "SV": 0,
+            "K": 0,
+            "ab": 0,
+            "h": 0,
+            "ip": 0,
+            "er": 0,
+            "bb_allowed": 0,
+            "h_allowed": 0,
         }
 
         for _, pid, _ in self.user_team.picks:
@@ -270,8 +285,21 @@ class DraftState:
         """
         all_totals = []
         for team in self.teams:
-            t = {"R": 0, "HR": 0, "RBI": 0, "SB": 0, "W": 0, "SV": 0, "K": 0,
-                 "ab": 0, "h": 0, "ip": 0, "er": 0, "bb_allowed": 0, "h_allowed": 0}
+            t = {
+                "R": 0,
+                "HR": 0,
+                "RBI": 0,
+                "SB": 0,
+                "W": 0,
+                "SV": 0,
+                "K": 0,
+                "ab": 0,
+                "h": 0,
+                "ip": 0,
+                "er": 0,
+                "bb_allowed": 0,
+                "h_allowed": 0,
+            }
             for _, pid, _ in team.picks:
                 player = player_pool[player_pool["player_id"] == pid]
                 if player.empty:
@@ -342,8 +370,7 @@ class DraftState:
         return str(filepath)
 
     @classmethod
-    def load(cls, filename: str = "draft_state.json",
-             roster_config: dict = None) -> "DraftState":
+    def load(cls, filename: str = "draft_state.json", roster_config: dict = None) -> "DraftState":
         filepath = BACKUP_DIR / filename
         if not filepath.exists():
             raise FileNotFoundError(f"No saved draft state at {filepath}")

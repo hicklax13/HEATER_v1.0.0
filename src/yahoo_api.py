@@ -12,15 +12,13 @@ Setup:
 import json
 import logging
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
 YAHOO_CREDS_PATH = Path(__file__).parent.parent / "data" / "yahoo_creds.json"
 
 
-def save_credentials(consumer_key: str, consumer_secret: str,
-                      league_id: str, game_key: str = "mlb"):
+def save_credentials(consumer_key: str, consumer_secret: str, league_id: str, game_key: str = "mlb"):
     """Save Yahoo API credentials to disk."""
     YAHOO_CREDS_PATH.parent.mkdir(parents=True, exist_ok=True)
     creds = {
@@ -33,7 +31,7 @@ def save_credentials(consumer_key: str, consumer_secret: str,
         json.dump(creds, f, indent=2)
 
 
-def load_credentials() -> Optional[dict]:
+def load_credentials() -> dict | None:
     """Load saved Yahoo API credentials."""
     if not YAHOO_CREDS_PATH.exists():
         return None
@@ -48,8 +46,7 @@ def has_credentials() -> bool:
 class YahooFantasyClient:
     """Wrapper around yfpy for Yahoo Fantasy API access."""
 
-    def __init__(self, consumer_key: str, consumer_secret: str,
-                 league_id: str, game_key: str = "mlb"):
+    def __init__(self, consumer_key: str, consumer_secret: str, league_id: str, game_key: str = "mlb"):
         self.consumer_key = consumer_key
         self.consumer_secret = consumer_secret
         self.league_id = league_id
@@ -82,7 +79,7 @@ class YahooFantasyClient:
             logger.error(f"Yahoo API connection failed: {e}")
             return False
 
-    def get_league_settings(self) -> Optional[dict]:
+    def get_league_settings(self) -> dict | None:
         """Fetch league settings (categories, roster positions, etc.)."""
         if not self._query:
             return None
@@ -121,7 +118,7 @@ class YahooFantasyClient:
             logger.error(f"Failed to get league settings: {e}")
             return None
 
-    def get_draft_results(self) -> Optional[list]:
+    def get_draft_results(self) -> list | None:
         """Fetch draft results (works during an active draft).
 
         Returns list of dicts with: pick, round, team_key, player_key, player_name.
@@ -162,7 +159,7 @@ class YahooFantasyClient:
             logger.error(f"Failed to get draft results: {e}")
             return None
 
-    def get_teams(self) -> Optional[list]:
+    def get_teams(self) -> list | None:
         """Fetch list of teams in the league."""
         if not self._query:
             return None
@@ -171,13 +168,15 @@ class YahooFantasyClient:
             result = []
             for t in teams:
                 team = getattr(t, "team", t)
-                result.append({
-                    "team_key": str(getattr(team, "team_key", "")),
-                    "name": str(getattr(team, "name", "")),
-                    "manager": str(getattr(team, "manager", {}).get("nickname", ""))
-                    if isinstance(getattr(team, "manager", None), dict)
-                    else str(getattr(getattr(team, "manager", None), "nickname", "")),
-                })
+                result.append(
+                    {
+                        "team_key": str(getattr(team, "team_key", "")),
+                        "name": str(getattr(team, "name", "")),
+                        "manager": str(getattr(team, "manager", {}).get("nickname", ""))
+                        if isinstance(getattr(team, "manager", None), dict)
+                        else str(getattr(getattr(team, "manager", None), "nickname", "")),
+                    }
+                )
             return result
         except Exception as e:
             logger.error(f"Failed to get teams: {e}")
@@ -209,10 +208,23 @@ def apply_league_settings(settings: dict, config) -> list:
 
     if "categories" in settings:
         cat_name_map = {
-            "R": "R", "HR": "HR", "RBI": "RBI", "SB": "SB", "AVG": "AVG",
-            "W": "W", "SV": "SV", "K": "K", "ERA": "ERA", "WHIP": "WHIP",
-            "OBP": "OBP", "SLG": "SLG", "OPS": "OPS",
-            "QS": "QS", "HLD": "HLD", "HD": "HLD", "BB": "BB",
+            "R": "R",
+            "HR": "HR",
+            "RBI": "RBI",
+            "SB": "SB",
+            "AVG": "AVG",
+            "W": "W",
+            "SV": "SV",
+            "K": "K",
+            "ERA": "ERA",
+            "WHIP": "WHIP",
+            "OBP": "OBP",
+            "SLG": "SLG",
+            "OPS": "OPS",
+            "QS": "QS",
+            "HLD": "HLD",
+            "HD": "HLD",
+            "BB": "BB",
         }
         hit_cats = []
         pitch_cats = []
@@ -255,16 +267,14 @@ def sync_draft_picks(client: YahooFantasyClient, draft_state, player_pool) -> in
         player_name = api_pick.get("player_name", "Unknown")
 
         # Try to match player in pool
-        matches = player_pool[
-            player_pool["name"].str.lower() == player_name.lower()
-        ]
+        matches = player_pool[player_pool["name"].str.lower() == player_name.lower()]
         if matches.empty:
             # Fuzzy match
             parts = player_name.split()
             if len(parts) >= 2:
                 matches = player_pool[
-                    player_pool["name"].str.contains(parts[-1], case=False, na=False) &
-                    player_pool["name"].str.contains(parts[0], case=False, na=False)
+                    player_pool["name"].str.contains(parts[-1], case=False, na=False)
+                    & player_pool["name"].str.contains(parts[0], case=False, na=False)
                 ]
 
         if not matches.empty:

@@ -2,15 +2,19 @@
 
 import numpy as np
 import pandas as pd
-from typing import Optional
-from src.valuation import LeagueConfig, SGPCalculator, value_all_players, compute_replacement_levels
+
 from src.draft_state import DraftState
 from src.simulation import DraftSimulator
+from src.valuation import LeagueConfig, SGPCalculator, value_all_players
 
 
-def simulate_full_draft(player_pool: pd.DataFrame, config: LeagueConfig,
-                         user_team_index: int = 0, sigma: float = 10.0,
-                         use_tool: bool = True) -> dict:
+def simulate_full_draft(
+    player_pool: pd.DataFrame,
+    config: LeagueConfig,
+    user_team_index: int = 0,
+    sigma: float = 10.0,
+    use_tool: bool = True,
+) -> dict:
     """Simulate a complete 12-team, 23-round draft.
 
     Args:
@@ -24,8 +28,7 @@ def simulate_full_draft(player_pool: pd.DataFrame, config: LeagueConfig,
         dict with 'user_roster' (list of player dicts), 'user_sgp', 'all_sgp' (list per team),
         'user_rank', 'pick_log'.
     """
-    ds = DraftState(num_teams=config.num_teams, num_rounds=23,
-                     user_team_index=user_team_index)
+    ds = DraftState(num_teams=config.num_teams, num_rounds=23, user_team_index=user_team_index)
     sgp_calc = SGPCalculator(config)
     simulator = DraftSimulator(config, sigma=sigma)
     rng = np.random.default_rng()
@@ -87,11 +90,13 @@ def simulate_full_draft(player_pool: pd.DataFrame, config: LeagueConfig,
         player = pool[pool["player_id"] == pid]
         if not player.empty:
             p = player.iloc[0]
-            user_roster.append({
-                "name": p["name"],
-                "positions": p["positions"],
-                "total_sgp": sgp_calc.total_sgp(p),
-            })
+            user_roster.append(
+                {
+                    "name": p["name"],
+                    "positions": p["positions"],
+                    "total_sgp": sgp_calc.total_sgp(p),
+                }
+            )
 
     return {
         "user_sgp": user_sgp,
@@ -102,8 +107,9 @@ def simulate_full_draft(player_pool: pd.DataFrame, config: LeagueConfig,
     }
 
 
-def run_benchmark(player_pool: pd.DataFrame, config: LeagueConfig,
-                   n_simulations: int = 100, sigma: float = 10.0) -> dict:
+def run_benchmark(
+    player_pool: pd.DataFrame, config: LeagueConfig, n_simulations: int = 100, sigma: float = 10.0
+) -> dict:
     """Run a full benchmark: compare tool-assisted drafting vs ADP-based drafting.
 
     Returns summary statistics for both approaches.
@@ -118,16 +124,12 @@ def run_benchmark(player_pool: pd.DataFrame, config: LeagueConfig,
         user_pos = i % config.num_teams
 
         # Tool-assisted draft
-        tool_result = simulate_full_draft(
-            player_pool, config, user_team_index=user_pos,
-            sigma=sigma, use_tool=True)
+        tool_result = simulate_full_draft(player_pool, config, user_team_index=user_pos, sigma=sigma, use_tool=True)
         tool_ranks.append(tool_result["user_rank"])
         tool_sgps.append(tool_result["user_sgp"])
 
         # ADP-based draft (baseline)
-        adp_result = simulate_full_draft(
-            player_pool, config, user_team_index=user_pos,
-            sigma=sigma, use_tool=False)
+        adp_result = simulate_full_draft(player_pool, config, user_team_index=user_pos, sigma=sigma, use_tool=False)
         adp_ranks.append(adp_result["user_rank"])
         adp_sgps.append(adp_result["user_sgp"])
 
@@ -152,17 +154,14 @@ def run_benchmark(player_pool: pd.DataFrame, config: LeagueConfig,
     }
 
 
-def sensitivity_analysis(player_pool: pd.DataFrame, config: LeagueConfig,
-                          n_per_test: int = 30) -> dict:
+def sensitivity_analysis(player_pool: pd.DataFrame, config: LeagueConfig, n_per_test: int = 30) -> dict:
     """Test sensitivity of results to key parameters."""
     results = {}
 
     # Test different SGP denominator scales
     for scale in [0.8, 1.0, 1.2]:
         test_config = LeagueConfig()
-        test_config.sgp_denominators = {
-            k: v * scale for k, v in config.sgp_denominators.items()
-        }
+        test_config.sgp_denominators = {k: v * scale for k, v in config.sgp_denominators.items()}
         benchmark = run_benchmark(player_pool, test_config, n_per_test)
         results[f"sgp_scale_{scale}"] = benchmark["tool"]["avg_rank"]
 
@@ -174,8 +173,7 @@ def sensitivity_analysis(player_pool: pd.DataFrame, config: LeagueConfig,
     return results
 
 
-def ablation_test(player_pool: pd.DataFrame, config: LeagueConfig,
-                   n_simulations: int = 50) -> dict:
+def ablation_test(player_pool: pd.DataFrame, config: LeagueConfig, n_simulations: int = 50) -> dict:
     """Test the impact of removing each component.
 
     Compares full tool vs. simplified versions to measure each component's contribution.
@@ -211,8 +209,7 @@ def generate_cheat_sheet(player_pool: pd.DataFrame, config: LeagueConfig) -> pd.
     for pos in positions:
         is_hitter = pos not in ("SP", "RP")
         eligible = valued[
-            valued["positions"].str.contains(pos, na=False) &
-            (valued["is_hitter"] == (1 if is_hitter else 0))
+            valued["positions"].str.contains(pos, na=False) & (valued["is_hitter"] == (1 if is_hitter else 0))
         ].copy()
 
         if eligible.empty:
@@ -230,17 +227,19 @@ def generate_cheat_sheet(player_pool: pd.DataFrame, config: LeagueConfig) -> pd.
                 tier += 1
                 tier_count = 0
 
-            rows.append({
-                "Position": pos,
-                "Tier": tier,
-                "Rank": len([r for r in rows if r["Position"] == pos]) + 1,
-                "Player": p["name"],
-                "Team": p.get("team", ""),
-                "ADP": p.get("adp", "N/A"),
-                "SGP": round(p["total_sgp"], 1),
-                "VORP": round(p["vorp"], 1),
-                "Key Stats": _format_key_stats(p, is_hitter),
-            })
+            rows.append(
+                {
+                    "Position": pos,
+                    "Tier": tier,
+                    "Rank": len([r for r in rows if r["Position"] == pos]) + 1,
+                    "Player": p["name"],
+                    "Team": p.get("team", ""),
+                    "ADP": p.get("adp", "N/A"),
+                    "SGP": round(p["total_sgp"], 1),
+                    "VORP": round(p["vorp"], 1),
+                    "Key Stats": _format_key_stats(p, is_hitter),
+                }
+            )
             prev_vorp = vorp
             tier_count += 1
 
@@ -261,7 +260,7 @@ def _format_key_stats(player, is_hitter: bool) -> str:
         if r > 0:
             parts.append(f"{r}R")
         if avg > 0:
-            parts.append(f".{int(avg*1000):03d}")
+            parts.append(f".{int(avg * 1000):03d}")
         return " | ".join(parts[:4])
     else:
         parts = []

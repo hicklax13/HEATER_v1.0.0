@@ -2,8 +2,8 @@
 
 import numpy as np
 import pandas as pd
-from typing import Optional
-from src.valuation import SGPCalculator, LeagueConfig, compute_category_weights
+
+from src.valuation import LeagueConfig, SGPCalculator
 
 
 class DraftSimulator:
@@ -20,10 +20,14 @@ class DraftSimulator:
         self.sigma = sigma
         self.sgp_calc = SGPCalculator(config)
 
-    def survival_probability(self, player_adp: float, current_pick: int,
-                              next_user_pick: int,
-                              positions_needed_league: dict = None,
-                              player_positions: str = None) -> float:
+    def survival_probability(
+        self,
+        player_adp: float,
+        current_pick: int,
+        next_user_pick: int,
+        positions_needed_league: dict = None,
+        player_positions: str = None,
+    ) -> float:
         """Estimate the probability a player survives to the user's next pick.
 
         Uses a normal CDF approximation based on ADP distance, with optional
@@ -52,7 +56,8 @@ class DraftSimulator:
             return min(1.0, 0.95)
 
         from scipy.stats import norm
-        z = (player_adp - next_user_pick) / (self.sigma * max(1, picks_between ** 0.3))
+
+        z = (player_adp - next_user_pick) / (self.sigma * max(1, picks_between**0.3))
         base_prob = float(np.clip(norm.cdf(z), 0.01, 0.99))
 
         # Positional scarcity adjustment: if many teams need this position,
@@ -67,26 +72,26 @@ class DraftSimulator:
                 # More teams needing this position = lower survival probability
                 # Scale: if 6+ teams need the position, reduce survival by up to 20%
                 scarcity_factor = min(0.2, max_demand / 50)
-                base_prob *= (1.0 - scarcity_factor)
+                base_prob *= 1.0 - scarcity_factor
 
         return float(np.clip(base_prob, 0.01, 0.99))
 
-    def compute_urgency(self, player: pd.Series, available_pool: pd.DataFrame,
-                         current_pick: int, next_user_pick: int) -> float:
+    def compute_urgency(
+        self, player: pd.Series, available_pool: pd.DataFrame, current_pick: int, next_user_pick: int
+    ) -> float:
         """Compute pick urgency: how much value is lost by waiting.
 
         urgency = (1 - P_survive) * positional_dropoff
         """
-        p_survive = self.survival_probability(
-            player.get("adp", 999), current_pick, next_user_pick)
+        p_survive = self.survival_probability(player.get("adp", 999), current_pick, next_user_pick)
 
         # Positional drop-off: difference between this player and next-best at position
         positions = str(player.get("positions", "")).split(",")
         best_pos = positions[0].strip() if positions else "Util"
 
         eligible = available_pool[
-            available_pool["positions"].str.contains(best_pos, na=False) &
-            (available_pool["player_id"] != player.get("player_id"))
+            available_pool["positions"].str.contains(best_pos, na=False)
+            & (available_pool["player_id"] != player.get("player_id"))
         ]
 
         if eligible.empty or "pick_score" not in eligible.columns:
@@ -98,9 +103,9 @@ class DraftSimulator:
         urgency = (1 - p_survive) * dropoff
         return urgency
 
-    def opponent_pick_probability(self, available: pd.DataFrame, pick_num: int,
-                                   team_positions: list = None,
-                                   roster_slots: dict = None) -> np.ndarray:
+    def opponent_pick_probability(
+        self, available: pd.DataFrame, pick_num: int, team_positions: list = None, roster_slots: dict = None
+    ) -> np.ndarray:
         """Compute pick probabilities for an opponent, factoring in positional need.
 
         Args:
@@ -125,8 +130,14 @@ class DraftSimulator:
 
             # Determine slots per position
             slots = roster_slots or {
-                "C": 1, "1B": 1, "2B": 1, "3B": 1, "SS": 1,
-                "OF": 3, "SP": 2, "RP": 2,
+                "C": 1,
+                "1B": 1,
+                "2B": 1,
+                "3B": 1,
+                "SS": 1,
+                "OF": 3,
+                "SP": 2,
+                "RP": 2,
             }
 
             for i, (_, player) in enumerate(available.iterrows()):
@@ -150,8 +161,7 @@ class DraftSimulator:
             return np.ones(len(available)) / len(available)
         return weights / weight_sum
 
-    def greedy_rollout_value(self, candidate: pd.Series, available: pd.DataFrame,
-                              draft_state, config) -> float:
+    def greedy_rollout_value(self, candidate: pd.Series, available: pd.DataFrame, draft_state, config) -> float:
         """Estimate total team value if we pick this candidate, then draft greedily.
 
         For each candidate being evaluated, simulate the user's remaining picks
@@ -167,7 +177,8 @@ class DraftSimulator:
         Returns:
             Estimated total SGP value from this candidate plus greedy future picks.
         """
-        from src.valuation import SGPCalculator, value_all_players
+        from src.valuation import SGPCalculator
+
         sgp_calc = SGPCalculator(config)
 
         # Start with candidate's value
@@ -187,14 +198,21 @@ class DraftSimulator:
 
         return total_value
 
-    def simulate_draft(self, available_ids: np.ndarray, adp_values: np.ndarray,
-                        sgp_values: np.ndarray, positions: list,
-                        user_team_index: int, current_pick: int,
-                        total_picks: int, num_teams: int,
-                        user_roster_needs: set,
-                        candidate_id: int,
-                        n_simulations: int = 300,
-                        team_positions: dict = None) -> dict:
+    def simulate_draft(
+        self,
+        available_ids: np.ndarray,
+        adp_values: np.ndarray,
+        sgp_values: np.ndarray,
+        positions: list,
+        user_team_index: int,
+        current_pick: int,
+        total_picks: int,
+        num_teams: int,
+        user_roster_needs: set,
+        candidate_id: int,
+        n_simulations: int = 300,
+        team_positions: dict = None,
+    ) -> dict:
         """Run Monte Carlo draft simulations for a candidate pick.
 
         Args:
@@ -306,9 +324,9 @@ class DraftSimulator:
             "p25_sgp": float(np.percentile(results, 25)),
         }
 
-    def evaluate_candidates(self, player_pool: pd.DataFrame,
-                             draft_state, top_n: int = 8,
-                             n_simulations: int = 300) -> pd.DataFrame:
+    def evaluate_candidates(
+        self, player_pool: pd.DataFrame, draft_state, top_n: int = 8, n_simulations: int = 300
+    ) -> pd.DataFrame:
         """Evaluate the top N candidate picks using Monte Carlo simulation.
 
         Args:
@@ -330,7 +348,11 @@ class DraftSimulator:
         # Prepare arrays for simulation
         available_ids = available["player_id"].values
         adp_values = available["adp"].values.astype(float)
-        sgp_values = available["total_sgp"].values.astype(float) if "total_sgp" in available.columns else available["pick_score"].values.astype(float)
+        sgp_values = (
+            available["total_sgp"].values.astype(float)
+            if "total_sgp" in available.columns
+            else available["pick_score"].values.astype(float)
+        )
         positions = available["positions"].tolist()
 
         user_needs = set(draft_state.user_team.open_positions())
@@ -344,8 +366,10 @@ class DraftSimulator:
         for _, candidate in candidates.iterrows():
             # Compute urgency
             urgency = self.compute_urgency(
-                candidate, available, current_pick,
-                next_pick if next_pick and next_pick > current_pick else current_pick + draft_state.num_teams
+                candidate,
+                available,
+                current_pick,
+                next_pick if next_pick and next_pick > current_pick else current_pick + draft_state.num_teams,
             )
 
             # Run simulation with opponent roster tracking
@@ -365,24 +389,27 @@ class DraftSimulator:
             )
 
             p_survive = self.survival_probability(
-                candidate.get("adp", 999), current_pick,
-                next_pick if next_pick else current_pick + draft_state.num_teams
+                candidate.get("adp", 999),
+                current_pick,
+                next_pick if next_pick else current_pick + draft_state.num_teams,
             )
 
-            results.append({
-                "player_id": candidate["player_id"],
-                "name": candidate["name"],
-                "team": candidate.get("team", ""),
-                "positions": candidate["positions"],
-                "adp": candidate.get("adp", 999),
-                "pick_score": candidate.get("pick_score", 0),
-                "urgency": urgency,
-                "p_survive": p_survive,
-                "mc_mean_sgp": sim_result["mean_sgp"],
-                "mc_std_sgp": sim_result["std_sgp"],
-                "mc_p25_sgp": sim_result["p25_sgp"],
-                "combined_score": sim_result["mean_sgp"] + urgency * 0.4,
-            })
+            results.append(
+                {
+                    "player_id": candidate["player_id"],
+                    "name": candidate["name"],
+                    "team": candidate.get("team", ""),
+                    "positions": candidate["positions"],
+                    "adp": candidate.get("adp", 999),
+                    "pick_score": candidate.get("pick_score", 0),
+                    "urgency": urgency,
+                    "p_survive": p_survive,
+                    "mc_mean_sgp": sim_result["mean_sgp"],
+                    "mc_std_sgp": sim_result["std_sgp"],
+                    "mc_p25_sgp": sim_result["p25_sgp"],
+                    "combined_score": sim_result["mean_sgp"] + urgency * 0.4,
+                }
+            )
 
         results_df = pd.DataFrame(results)
         if not results_df.empty:

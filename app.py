@@ -4,36 +4,40 @@ Live draft assistant for Yahoo Sports 12-team snake draft.
 Dark navy + amber accents + sports broadcast typography.
 """
 
-import streamlit as st
-import pandas as pd
-import numpy as np
-import os
 import time
-import io
-from pathlib import Path
+
+import numpy as np
+import pandas as pd
+import streamlit as st
 
 from src.database import (
-    init_db, import_hitter_csv, import_pitcher_csv,
-    import_adp_csv, create_blended_projections, load_player_pool,
-)
-from src.valuation import (
-    LeagueConfig, SGPCalculator, value_all_players,
-    compute_replacement_levels, compute_category_weights,
-    compute_sgp_denominators,
+    create_blended_projections,
+    import_adp_csv,
+    import_hitter_csv,
+    import_pitcher_csv,
+    init_db,
+    load_player_pool,
 )
 from src.draft_state import DraftState
 from src.simulation import DraftSimulator, detect_position_run
-from src.yahoo_api import (
-    YahooFantasyClient, save_credentials, load_credentials,
-    has_credentials, sync_draft_picks, apply_league_settings,
+from src.valuation import (
+    LeagueConfig,
+    SGPCalculator,
+    compute_replacement_levels,
+    compute_sgp_denominators,
+    value_all_players,
 )
-from src.validation import (
-    run_benchmark, ablation_test, generate_cheat_sheet,
-    simulate_full_draft,
+from src.yahoo_api import (
+    YahooFantasyClient,
+    has_credentials,
+    load_credentials,
+    save_credentials,
+    sync_draft_picks,
 )
 
 try:
     import plotly.graph_objects as go
+
     HAS_PLOTLY = True
 except ImportError:
     HAS_PLOTLY = False
@@ -60,14 +64,29 @@ THEME = {
     "tx": "#f0f0f0",
     "tx2": "#8b95a5",
     "tiers": [
-        "#f59e0b", "#fbbf24", "#84cc16", "#06b6d4",
-        "#8b5cf6", "#f97316", "#f43f5e", "#6b7280",
+        "#f59e0b",
+        "#fbbf24",
+        "#84cc16",
+        "#06b6d4",
+        "#8b5cf6",
+        "#f97316",
+        "#f43f5e",
+        "#6b7280",
     ],
 }
 
 ROSTER_CONFIG = {
-    "C": 1, "1B": 1, "2B": 1, "3B": 1, "SS": 1,
-    "OF": 3, "Util": 2, "SP": 2, "RP": 2, "P": 4, "BN": 5,
+    "C": 1,
+    "1B": 1,
+    "2B": 1,
+    "3B": 1,
+    "SS": 1,
+    "OF": 3,
+    "Util": 2,
+    "SP": 2,
+    "RP": 2,
+    "P": 4,
+    "BN": 5,
 }
 
 T = THEME  # shorthand for f-strings
@@ -75,16 +94,18 @@ T = THEME  # shorthand for f-strings
 
 # ── CSS Injection ────────────────────────────────────────────────────
 
+
 def inject_custom_css():
-    st.markdown(f"""
+    st.markdown(
+        f"""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
     /* ── BASE ─────────────────────────────────── */
     .stApp {{
-        background: {T['bg']};
+        background: {T["bg"]};
         font-family: 'DM Sans', sans-serif;
-        color: {T['tx']};
+        color: {T["tx"]};
     }}
     .block-container {{ padding-top: 1rem; padding-bottom: 1rem; }}
 
@@ -95,30 +116,30 @@ def inject_custom_css():
         font-size: 13px;
         text-transform: uppercase;
         letter-spacing: 2.5px;
-        color: {T['tx2']};
+        color: {T["tx2"]};
         margin-bottom: 10px;
         padding-bottom: 6px;
-        border-bottom: 1px solid {T['card_h']};
+        border-bottom: 1px solid {T["card_h"]};
     }}
 
     /* ── GLASS CARD ───────────────────────────── */
     .glass {{
-        background: {T['card']};
-        border: 1px solid {T['card_h']};
+        background: {T["card"]};
+        border: 1px solid {T["card_h"]};
         border-radius: 12px;
         padding: 16px;
         margin-bottom: 12px;
     }}
     .glass:hover {{
-        background: {T['card_h']};
+        background: {T["card_h"]};
         transform: translateY(-1px);
         transition: all 0.2s ease;
     }}
 
     /* ── COMMAND BAR ──────────────────────────── */
     .cmd-bar {{
-        background: linear-gradient(135deg, {T['card']} 0%, {T['bg']} 100%);
-        border: 1px solid {T['card_h']};
+        background: linear-gradient(135deg, {T["card"]} 0%, {T["bg"]} 100%);
+        border: 1px solid {T["card_h"]};
         border-radius: 14px;
         padding: 14px 24px;
         display: flex;
@@ -134,20 +155,20 @@ def inject_custom_css():
         font-size: 18px;
         text-transform: uppercase;
         letter-spacing: 1.5px;
-        color: {T['tx']};
+        color: {T["tx"]};
     }}
     .cmd-center {{ display: flex; align-items: center; gap: 12px; }}
     .cmd-right {{
         display: flex; align-items: center; gap: 10px;
         font-family: 'JetBrains Mono', monospace;
         font-size: 13px;
-        color: {T['tx2']};
+        color: {T["tx2"]};
     }}
 
     /* ── YOUR TURN BADGE ─────────────────────── */
     .your-turn {{
-        background: {T['amber']};
-        color: {T['bg']};
+        background: {T["amber"]};
+        color: {T["bg"]};
         font-family: 'Oswald', sans-serif;
         font-weight: 700;
         font-size: 16px;
@@ -158,8 +179,8 @@ def inject_custom_css():
         animation: amberGlow 2s ease-in-out infinite;
     }}
     .waiting {{
-        background: {T['card_h']};
-        color: {T['tx2']};
+        background: {T["card_h"]};
+        color: {T["tx2"]};
         font-family: 'Oswald', sans-serif;
         font-weight: 600;
         font-size: 14px;
@@ -169,39 +190,39 @@ def inject_custom_css():
         border-radius: 8px;
     }}
     @keyframes amberGlow {{
-        0%, 100% {{ box-shadow: 0 0 8px {T['amber']}66; }}
-        50% {{ box-shadow: 0 0 24px {T['amber']}cc, 0 0 48px {T['amber']}44; }}
+        0%, 100% {{ box-shadow: 0 0 8px {T["amber"]}66; }}
+        50% {{ box-shadow: 0 0 24px {T["amber"]}cc, 0 0 48px {T["amber"]}44; }}
     }}
 
     /* ── PROGRESS BAR ────────────────────────── */
     .prog-track {{
         width: 120px; height: 6px;
-        background: {T['card_h']};
+        background: {T["card_h"]};
         border-radius: 3px;
         overflow: hidden;
     }}
     .prog-fill {{
         height: 100%;
-        background: linear-gradient(90deg, {T['amber']}, {T['amber_l']});
+        background: linear-gradient(90deg, {T["amber"]}, {T["amber_l"]});
         border-radius: 3px;
         transition: width 0.5s ease;
     }}
 
     /* ── HERO PICK CARD ──────────────────────── */
     .hero {{
-        background: {T['card']};
-        border: 2px solid {T['amber']};
+        background: {T["card"]};
+        border: 2px solid {T["amber"]};
         border-radius: 16px;
         padding: 24px;
         margin-bottom: 16px;
         position: relative;
-        box-shadow: 0 0 30px {T['amber']}22, 0 8px 32px rgba(0,0,0,0.4);
+        box-shadow: 0 0 30px {T["amber"]}22, 0 8px 32px rgba(0,0,0,0.4);
     }}
     .hero .p-name {{
         font-family: 'Oswald', sans-serif;
         font-weight: 700;
         font-size: 36px;
-        color: {T['tx']};
+        color: {T["tx"]};
         text-transform: uppercase;
         letter-spacing: 1px;
         line-height: 1.1;
@@ -209,14 +230,14 @@ def inject_custom_css():
     .hero .p-meta {{
         font-family: 'DM Sans', sans-serif;
         font-size: 14px;
-        color: {T['tx2']};
+        color: {T["tx2"]};
         margin-top: 4px;
     }}
     .hero .score-badge {{
         position: absolute;
         top: 16px; right: 20px;
-        background: {T['amber']};
-        color: {T['bg']};
+        background: {T["amber"]};
+        color: {T["bg"]};
         font-family: 'JetBrains Mono', monospace;
         font-weight: 700;
         font-size: 22px;
@@ -226,7 +247,7 @@ def inject_custom_css():
     .hero .reason {{
         font-family: 'DM Sans', sans-serif;
         font-size: 15px;
-        color: {T['amber_l']};
+        color: {T["amber_l"]};
         margin-top: 12px;
         font-style: italic;
     }}
@@ -239,7 +260,7 @@ def inject_custom_css():
         font-family: 'JetBrains Mono', monospace;
         font-weight: 700;
         font-size: 16px;
-        color: {T['tx']};
+        color: {T["tx"]};
     }}
 
     /* ── SGP CHIPS ───────────────────────────── */
@@ -249,63 +270,63 @@ def inject_custom_css():
         font-size: 11px;
         padding: 4px 10px;
         border-radius: 6px;
-        border: 1px solid {T['card_h']};
-        background: {T['bg']};
-        color: {T['tx2']};
+        border: 1px solid {T["card_h"]};
+        background: {T["bg"]};
+        color: {T["tx2"]};
     }}
-    .sgp-chip.pos {{ border-color: {T['teal']}; color: {T['teal']}; }}
-    .sgp-chip.neg {{ border-color: {T['danger']}; color: {T['danger']}; }}
+    .sgp-chip.pos {{ border-color: {T["teal"]}; color: {T["teal"]}; }}
+    .sgp-chip.neg {{ border-color: {T["danger"]}; color: {T["danger"]}; }}
 
     /* ── ALTERNATIVE CARDS ───────────────────── */
     .alt {{
-        background: {T['card']};
-        border: 1px solid {T['card_h']};
-        border-left: 4px solid {T['card_h']};
+        background: {T["card"]};
+        border: 1px solid {T["card_h"]};
+        border-left: 4px solid {T["card_h"]};
         border-radius: 10px;
         padding: 12px 14px;
         transition: all 0.2s ease;
         cursor: default;
     }}
     .alt:hover {{
-        background: {T['card_h']};
+        background: {T["card_h"]};
         transform: translateY(-2px);
         box-shadow: 0 4px 12px rgba(0,0,0,0.3);
     }}
     .alt .a-rank {{
         font-family: 'JetBrains Mono', monospace;
         font-size: 11px;
-        color: {T['tx2']};
+        color: {T["tx2"]};
     }}
     .alt .a-name {{
         font-family: 'Oswald', sans-serif;
         font-weight: 600;
         font-size: 16px;
-        color: {T['tx']};
+        color: {T["tx"]};
         text-transform: uppercase;
         margin: 2px 0;
     }}
     .alt .a-meta {{
         font-family: 'DM Sans', sans-serif;
         font-size: 12px;
-        color: {T['tx2']};
+        color: {T["tx2"]};
     }}
     .alt .a-score {{
         font-family: 'JetBrains Mono', monospace;
         font-weight: 600;
         font-size: 14px;
-        color: {T['amber']};
+        color: {T["amber"]};
         margin-top: 4px;
     }}
 
     /* ── TIER BORDERS ────────────────────────── */
-    .tier-1 {{ border-left-color: {T['tiers'][0]}; }}
-    .tier-2 {{ border-left-color: {T['tiers'][1]}; }}
-    .tier-3 {{ border-left-color: {T['tiers'][2]}; }}
-    .tier-4 {{ border-left-color: {T['tiers'][3]}; }}
-    .tier-5 {{ border-left-color: {T['tiers'][4]}; }}
-    .tier-6 {{ border-left-color: {T['tiers'][5]}; }}
-    .tier-7 {{ border-left-color: {T['tiers'][6]}; }}
-    .tier-8 {{ border-left-color: {T['tiers'][7]}; }}
+    .tier-1 {{ border-left-color: {T["tiers"][0]}; }}
+    .tier-2 {{ border-left-color: {T["tiers"][1]}; }}
+    .tier-3 {{ border-left-color: {T["tiers"][2]}; }}
+    .tier-4 {{ border-left-color: {T["tiers"][3]}; }}
+    .tier-5 {{ border-left-color: {T["tiers"][4]}; }}
+    .tier-6 {{ border-left-color: {T["tiers"][5]}; }}
+    .tier-7 {{ border-left-color: {T["tiers"][6]}; }}
+    .tier-8 {{ border-left-color: {T["tiers"][7]}; }}
 
     /* ── BADGES ───────────────────────────────── */
     .badge {{
@@ -318,12 +339,12 @@ def inject_custom_css():
         text-transform: uppercase;
         letter-spacing: 0.5px;
     }}
-    .badge-value {{ background: {T['ok']}22; color: {T['ok']}; border: 1px solid {T['ok']}44; }}
-    .badge-reach {{ background: {T['danger']}22; color: {T['danger']}; border: 1px solid {T['danger']}44; }}
-    .badge-fair {{ background: {T['card_h']}; color: {T['tx2']}; }}
-    .badge-risk-low {{ background: {T['ok']}22; color: {T['ok']}; }}
-    .badge-risk-med {{ background: {T['warn']}22; color: {T['warn']}; }}
-    .badge-risk-high {{ background: {T['danger']}22; color: {T['danger']}; }}
+    .badge-value {{ background: {T["ok"]}22; color: {T["ok"]}; border: 1px solid {T["ok"]}44; }}
+    .badge-reach {{ background: {T["danger"]}22; color: {T["danger"]}; border: 1px solid {T["danger"]}44; }}
+    .badge-fair {{ background: {T["card_h"]}; color: {T["tx2"]}; }}
+    .badge-risk-low {{ background: {T["ok"]}22; color: {T["ok"]}; }}
+    .badge-risk-med {{ background: {T["warn"]}22; color: {T["warn"]}; }}
+    .badge-risk-high {{ background: {T["danger"]}22; color: {T["danger"]}; }}
 
     /* ── ROSTER GRID ─────────────────────────── */
     .roster-grid {{
@@ -331,8 +352,8 @@ def inject_custom_css():
         gap: 6px;
     }}
     .roster-slot {{
-        background: {T['card']};
-        border: 1px solid {T['card_h']};
+        background: {T["card"]};
+        border: 1px solid {T["card_h"]};
         border-radius: 8px;
         padding: 6px 10px;
         text-align: center;
@@ -342,12 +363,12 @@ def inject_custom_css():
         justify-content: center;
     }}
     .roster-slot.filled {{
-        border-color: {T['ok']}66;
-        background: {T['card_h']};
+        border-color: {T["ok"]}66;
+        background: {T["card_h"]};
     }}
     .roster-slot.empty {{
         border-style: dashed;
-        border-color: {T['tx2']}44;
+        border-color: {T["tx2"]}44;
     }}
     .roster-slot .s-label {{
         font-family: 'Oswald', sans-serif;
@@ -355,13 +376,13 @@ def inject_custom_css():
         font-weight: 600;
         text-transform: uppercase;
         letter-spacing: 1px;
-        color: {T['tx2']};
+        color: {T["tx2"]};
     }}
     .roster-slot .s-player {{
         font-family: 'DM Sans', sans-serif;
         font-size: 12px;
         font-weight: 600;
-        color: {T['tx']};
+        color: {T["tx"]};
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
@@ -381,7 +402,7 @@ def inject_custom_css():
         font-family: 'JetBrains Mono', monospace;
         font-weight: 600;
         font-size: 13px;
-        color: {T['tx']};
+        color: {T["tx"]};
     }}
     .scar-ring.critical {{
         animation: scarPulse 1.5s ease-in-out infinite;
@@ -396,7 +417,7 @@ def inject_custom_css():
         font-weight: 600;
         text-transform: uppercase;
         letter-spacing: 1px;
-        color: {T['tx2']};
+        color: {T["tx2"]};
     }}
 
     /* ── DRAFT BOARD ─────────────────────────── */
@@ -407,46 +428,46 @@ def inject_custom_css():
         font-size: 11px;
     }}
     .draft-board th {{
-        background: {T['card']};
-        color: {T['tx2']};
+        background: {T["card"]};
+        color: {T["tx2"]};
         font-family: 'Oswald', sans-serif;
         font-weight: 600;
         font-size: 10px;
         text-transform: uppercase;
         letter-spacing: 1.5px;
         padding: 8px 6px;
-        border-bottom: 2px solid {T['card_h']};
+        border-bottom: 2px solid {T["card_h"]};
         position: sticky;
         top: 0;
         z-index: 10;
     }}
     .draft-board td {{
         padding: 5px 6px;
-        border-bottom: 1px solid {T['card_h']}44;
-        color: {T['tx2']};
+        border-bottom: 1px solid {T["card_h"]}44;
+        color: {T["tx2"]};
     }}
     .draft-board .user-col {{
-        background: {T['amber']}11;
-        border-left: 2px solid {T['amber']};
-        border-right: 2px solid {T['amber']};
+        background: {T["amber"]}11;
+        border-left: 2px solid {T["amber"]};
+        border-right: 2px solid {T["amber"]};
     }}
     .draft-board .user-col th {{
-        background: {T['amber']};
-        color: {T['bg']};
+        background: {T["amber"]};
+        color: {T["bg"]};
     }}
     .draft-board .current-pick {{
-        border: 2px solid {T['amber']};
+        border: 2px solid {T["amber"]};
         animation: amberGlow 2s ease-in-out infinite;
     }}
     .draft-board .picked {{
-        color: {T['tx']};
+        color: {T["tx"]};
         font-weight: 600;
     }}
 
     /* ── CATEGORY CARDS ──────────────────────── */
     .cat-card {{
-        background: {T['card']};
-        border: 1px solid {T['card_h']};
+        background: {T["card"]};
+        border: 1px solid {T["card_h"]};
         border-radius: 8px;
         padding: 10px 12px;
         text-align: center;
@@ -457,52 +478,52 @@ def inject_custom_css():
         font-weight: 600;
         text-transform: uppercase;
         letter-spacing: 1px;
-        color: {T['tx2']};
+        color: {T["tx2"]};
     }}
     .cat-val {{
         font-family: 'JetBrains Mono', monospace;
         font-size: 18px;
         font-weight: 700;
-        color: {T['tx']};
+        color: {T["tx"]};
         margin-top: 2px;
     }}
 
     /* ── ALERTS, FEED, WIZARD ────────────────── */
     .alert-card {{
-        background: {T['card']};
-        border-left: 4px solid {T['warn']};
+        background: {T["card"]};
+        border-left: 4px solid {T["warn"]};
         border-radius: 8px;
         padding: 10px 14px;
         margin-bottom: 8px;
         font-size: 13px;
-        color: {T['tx']};
+        color: {T["tx"]};
     }}
-    .alert-card.critical {{ border-left-color: {T['danger']}; }}
+    .alert-card.critical {{ border-left-color: {T["danger"]}; }}
 
     .feed-card {{
-        background: {T['card']};
-        border: 1px solid {T['card_h']};
+        background: {T["card"]};
+        border: 1px solid {T["card_h"]};
         border-radius: 8px;
         padding: 10px 14px;
         margin-bottom: 6px;
         font-size: 13px;
     }}
     .feed-card.user-pick {{
-        border-left: 3px solid {T['amber']};
+        border-left: 3px solid {T["amber"]};
     }}
     .feed-pick-num {{
         font-family: 'JetBrains Mono', monospace;
         font-size: 11px;
-        color: {T['tx2']};
+        color: {T["tx2"]};
     }}
     .feed-name {{
         font-family: 'DM Sans', sans-serif;
         font-weight: 600;
-        color: {T['tx']};
+        color: {T["tx"]};
     }}
     .feed-team {{
         font-size: 11px;
-        color: {T['tx2']};
+        color: {T["tx2"]};
     }}
 
     .wizard-bar {{
@@ -521,27 +542,27 @@ def inject_custom_css():
         font-size: 13px;
         text-transform: uppercase;
         letter-spacing: 1.5px;
-        color: {T['tx2']};
-        background: {T['card']};
-        border: 1px solid {T['card_h']};
+        color: {T["tx2"]};
+        background: {T["card"]};
+        border: 1px solid {T["card_h"]};
     }}
     .wizard-step:first-child {{ border-radius: 8px 0 0 8px; }}
     .wizard-step:last-child {{ border-radius: 0 8px 8px 0; }}
     .wizard-step.active {{
-        background: {T['amber']};
-        color: {T['bg']};
-        border-color: {T['amber']};
+        background: {T["amber"]};
+        color: {T["bg"]};
+        border-color: {T["amber"]};
     }}
     .wizard-step.done {{
-        background: {T['ok']}22;
-        color: {T['ok']};
-        border-color: {T['ok']}44;
+        background: {T["ok"]}22;
+        color: {T["ok"]};
+        border-color: {T["ok"]}44;
     }}
 
     /* ── LOCK-IN BANNER ──────────────────────── */
     .lock-in {{
-        background: linear-gradient(135deg, {T['ok']}33, {T['ok']}11);
-        border: 1px solid {T['ok']}66;
+        background: linear-gradient(135deg, {T["ok"]}33, {T["ok"]}11);
+        border: 1px solid {T["ok"]}66;
         border-radius: 10px;
         padding: 12px 20px;
         text-align: center;
@@ -550,7 +571,7 @@ def inject_custom_css():
         font-size: 16px;
         text-transform: uppercase;
         letter-spacing: 2px;
-        color: {T['ok']};
+        color: {T["ok"]};
         animation: lockFade 3s ease-out forwards;
     }}
     @keyframes lockFade {{
@@ -570,32 +591,32 @@ def inject_custom_css():
     }}
     .stButton > button[kind="primary"],
     .stButton > button[data-testid="stBaseButton-primary"] {{
-        background: {T['amber']};
-        color: {T['bg']};
+        background: {T["amber"]};
+        color: {T["bg"]};
         border: none;
     }}
     .stButton > button[kind="primary"]:hover,
     .stButton > button[data-testid="stBaseButton-primary"]:hover {{
-        background: {T['amber_l']};
-        box-shadow: 0 4px 16px {T['amber']}44;
+        background: {T["amber_l"]};
+        box-shadow: 0 4px 16px {T["amber"]}44;
     }}
     .stButton > button[kind="secondary"],
     .stButton > button[data-testid="stBaseButton-secondary"] {{
-        background: {T['card']};
-        color: {T['tx']};
-        border: 1px solid {T['card_h']};
+        background: {T["card"]};
+        color: {T["tx"]};
+        border: 1px solid {T["card_h"]};
     }}
     div[data-testid="stTextInput"] input,
     div[data-testid="stNumberInput"] input,
     div[data-testid="stSelectbox"] > div {{
-        background: {T['card']} !important;
-        color: {T['tx']} !important;
-        border-color: {T['card_h']} !important;
+        background: {T["card"]} !important;
+        color: {T["tx"]} !important;
+        border-color: {T["card_h"]} !important;
         border-radius: 8px !important;
     }}
     .stTabs [data-baseweb="tab-list"] {{
         gap: 0;
-        background: {T['card']};
+        background: {T["card"]};
         border-radius: 10px;
         padding: 4px;
     }}
@@ -606,34 +627,37 @@ def inject_custom_css():
         letter-spacing: 1px;
         font-size: 13px;
         border-radius: 8px;
-        color: {T['tx2']};
+        color: {T["tx2"]};
     }}
     .stTabs [aria-selected="true"] {{
-        background: {T['amber']} !important;
-        color: {T['bg']} !important;
+        background: {T["amber"]} !important;
+        color: {T["bg"]} !important;
     }}
     div[data-testid="stFileUploader"] {{
-        background: {T['card']};
-        border: 2px dashed {T['card_h']};
+        background: {T["card"]};
+        border: 2px dashed {T["card_h"]};
         border-radius: 12px;
         padding: 16px;
     }}
     div[data-testid="stFileUploader"]:hover {{
-        border-color: {T['amber']};
+        border-color: {T["amber"]};
     }}
     div[data-testid="stDataFrame"] {{
-        border: 1px solid {T['card_h']};
+        border: 1px solid {T["card_h"]};
         border-radius: 10px;
     }}
     .stSidebar {{
-        background: {T['card']} !important;
-        border-right: 1px solid {T['card_h']} !important;
+        background: {T["card"]} !important;
+        border-right: 1px solid {T["card_h"]} !important;
     }}
     </style>
-    """, unsafe_allow_html=True)
+    """,
+        unsafe_allow_html=True,
+    )
 
 
 # ── Session Init ─────────────────────────────────────────────────────
+
 
 def init_session():
     defaults = {
@@ -661,6 +685,7 @@ def init_session():
 
 # ── Helper: section header ───────────────────────────────────────────
 
+
 def sec(title):
     st.markdown(f'<div class="sec-head">{title}</div>', unsafe_allow_html=True)
 
@@ -668,6 +693,7 @@ def sec(title):
 # ── Wizard Progress Bar ─────────────────────────────────────────────
 
 WIZARD_STEPS = ["Import", "Settings", "Connect", "Launch"]
+
 
 def render_wizard_progress(current_step):
     steps_html = ""
@@ -687,12 +713,13 @@ def render_wizard_progress(current_step):
 
 # ── Setup Page ──────────────────────────────────────────────────────
 
+
 def render_setup_page():
     st.markdown(
         f'<div style="text-align:center;margin-bottom:8px;">'
         f'<span style="font-family:Oswald,sans-serif;font-weight:700;font-size:32px;'
         f'color:{T["amber"]};text-transform:uppercase;letter-spacing:3px;">'
-        f'Draft Command Center</span></div>',
+        f"Draft Command Center</span></div>",
         unsafe_allow_html=True,
     )
     step = st.session_state.setup_step
@@ -710,15 +737,18 @@ def render_setup_page():
 
 # ── Step 1: Import ──────────────────────────────────────────────────
 
+
 def render_step_import():
     sec("Step 1 — Import Your Data")
 
     col1, col2 = st.columns(2)
     with col1:
-        st.markdown(f'<div class="glass"><div style="font-family:Oswald,sans-serif;'
-                    f'font-weight:600;font-size:16px;color:{T["tx"]};text-transform:uppercase;'
-                    f'letter-spacing:1px;margin-bottom:8px;">Hitter Projections</div></div>',
-                    unsafe_allow_html=True)
+        st.markdown(
+            f'<div class="glass"><div style="font-family:Oswald,sans-serif;'
+            f"font-weight:600;font-size:16px;color:{T['tx']};text-transform:uppercase;"
+            f'letter-spacing:1px;margin-bottom:8px;">Hitter Projections</div></div>',
+            unsafe_allow_html=True,
+        )
         hitter_file = st.file_uploader("Upload hitter CSV", type=["csv"], key="hitter_upload")
         if hitter_file:
             try:
@@ -730,10 +760,12 @@ def render_step_import():
                 st.error(f"Import error: {e}")
 
     with col2:
-        st.markdown(f'<div class="glass"><div style="font-family:Oswald,sans-serif;'
-                    f'font-weight:600;font-size:16px;color:{T["tx"]};text-transform:uppercase;'
-                    f'letter-spacing:1px;margin-bottom:8px;">Pitcher Projections</div></div>',
-                    unsafe_allow_html=True)
+        st.markdown(
+            f'<div class="glass"><div style="font-family:Oswald,sans-serif;'
+            f"font-weight:600;font-size:16px;color:{T['tx']};text-transform:uppercase;"
+            f'letter-spacing:1px;margin-bottom:8px;">Pitcher Projections</div></div>',
+            unsafe_allow_html=True,
+        )
         pitcher_file = st.file_uploader("Upload pitcher CSV", type=["csv"], key="pitcher_upload")
         if pitcher_file:
             try:
@@ -761,12 +793,17 @@ def render_step_import():
         if st.button("Load Sample Data (for testing)", use_container_width=True):
             with st.status("Loading sample data..."):
                 try:
-                    import importlib, load_sample_data
+                    import importlib
+
+                    import load_sample_data
+
                     importlib.reload(load_sample_data)
                     load_sample_data.generate_sample_data()
                     # Verify data persisted
                     import sqlite3
+
                     from src.database import DB_PATH
+
                     _vconn = sqlite3.connect(str(DB_PATH))
                     _vc = _vconn.cursor()
                     _vc.execute("SELECT COUNT(*) FROM projections")
@@ -784,9 +821,9 @@ def render_step_import():
     # Status chips
     chips = []
     if st.session_state.hitter_data:
-        chips.append(f'<span class="badge badge-value">Hitters ✓</span>')
+        chips.append('<span class="badge badge-value">Hitters ✓</span>')
     if st.session_state.pitcher_data:
-        chips.append(f'<span class="badge badge-value">Pitchers ✓</span>')
+        chips.append('<span class="badge badge-value">Pitchers ✓</span>')
     if chips:
         st.markdown(" ".join(chips), unsafe_allow_html=True)
 
@@ -800,11 +837,13 @@ def render_step_import():
                 with st.status("Blending projections..."):
                     init_db()
                     import sqlite3 as _sql
+
                     from src.database import DB_PATH as _dbp
+
                     _tc = _sql.connect(str(_dbp))
-                    _non_blended = _tc.execute(
-                        "SELECT COUNT(*) FROM projections WHERE system != 'blended'"
-                    ).fetchone()[0]
+                    _non_blended = _tc.execute("SELECT COUNT(*) FROM projections WHERE system != 'blended'").fetchone()[
+                        0
+                    ]
                     _tc.close()
                     if _non_blended > 0:
                         create_blended_projections()
@@ -816,14 +855,15 @@ def render_step_import():
 
 # ── Step 2: League Settings ─────────────────────────────────────────
 
+
 def render_step_league():
     sec("Step 2 — League Settings")
 
     col1, col2 = st.columns(2)
 
     with col1:
-        st.markdown(f'<div class="glass">', unsafe_allow_html=True)
-        st.markdown(f"**SGP Denominators**")
+        st.markdown('<div class="glass">', unsafe_allow_html=True)
+        st.markdown("**SGP Denominators**")
         auto_sgp = st.toggle("Auto-compute SGP", value=st.session_state.auto_sgp, key="auto_sgp_toggle")
         st.session_state.auto_sgp = auto_sgp
 
@@ -838,10 +878,10 @@ def render_step_league():
             sgp_k = st.number_input("K", value=25.0, step=1.0, key="sgp_k")
             sgp_era = st.number_input("ERA", value=0.30, step=0.01, format="%.3f", key="sgp_era")
             sgp_whip = st.number_input("WHIP", value=0.03, step=0.01, format="%.3f", key="sgp_whip")
-        st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
 
     with col2:
-        st.markdown(f'<div class="glass">', unsafe_allow_html=True)
+        st.markdown('<div class="glass">', unsafe_allow_html=True)
         st.markdown("**Draft Settings**")
         num_teams = st.number_input("Number of teams", value=12, min_value=6, max_value=20, key="num_teams")
         num_rounds = st.number_input("Rounds", value=23, min_value=10, max_value=30, key="num_rounds")
@@ -851,19 +891,20 @@ def render_step_league():
         st.markdown("**Risk Tolerance**")
         risk = st.slider(
             "Risk appetite",
-            min_value=0.0, max_value=1.0,
+            min_value=0.0,
+            max_value=1.0,
             value=st.session_state.risk_tolerance,
             step=0.1,
             format="%.1f",
             key="risk_slider",
-            help="0 = Conservative (safe picks), 1 = Aggressive (high-upside gambles)"
+            help="0 = Conservative (safe picks), 1 = Aggressive (high-upside gambles)",
         )
         st.session_state.risk_tolerance = risk
 
         labels = ["Conservative", "Balanced", "Moderate", "Aggressive", "YOLO"]
         idx = min(int(risk * 4), 4)
         st.markdown(f'<span class="badge badge-fair">{labels[idx]}</span>', unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
 
     # Nav
     st.markdown("")
@@ -880,6 +921,7 @@ def render_step_league():
 
 # ── Step 3: Connect Yahoo (Optional) ───────────────────────────────
 
+
 def render_step_connect():
     sec("Step 3 — Connect Yahoo (Optional)")
 
@@ -888,13 +930,13 @@ def render_step_connect():
         f'<div style="font-family:Oswald,sans-serif;font-size:18px;color:{T["tx"]};'
         f'text-transform:uppercase;letter-spacing:2px;margin-bottom:8px;">Yahoo Fantasy API</div>'
         f'<div style="color:{T["tx2"]};font-size:14px;margin-bottom:16px;">'
-        f'Connect to auto-sync draft picks and league settings. You can skip this.</div>'
-        f'</div>',
+        f"Connect to auto-sync draft picks and league settings. You can skip this.</div>"
+        f"</div>",
         unsafe_allow_html=True,
     )
 
     if has_credentials():
-        st.markdown(f'<span class="badge badge-value">Credentials Found ✓</span>', unsafe_allow_html=True)
+        st.markdown('<span class="badge badge-value">Credentials Found ✓</span>', unsafe_allow_html=True)
         creds = load_credentials()
         st.text_input("Consumer Key", value=creds.get("consumer_key", ""), key="yk", type="password")
         st.text_input("Consumer Secret", value=creds.get("consumer_secret", ""), key="ys", type="password")
@@ -936,6 +978,7 @@ def render_step_connect():
 
 
 # ── Step 4: Launch ──────────────────────────────────────────────────
+
 
 def render_step_launch():
     sec("Step 4 — Ready to Launch")
@@ -982,8 +1025,9 @@ def render_step_launch():
     st.markdown("")
     c1, c2 = st.columns(2)
     with c1:
-        practice = st.toggle("Practice Mode", value=True, key="launch_practice",
-                             help="Auto-picks for opponents so you can test")
+        practice = st.toggle(
+            "Practice Mode", value=True, key="launch_practice", help="Auto-picks for opponents so you can test"
+        )
     with c2:
         resume = st.toggle("Resume saved draft", value=False, key="launch_resume")
 
@@ -1062,13 +1106,17 @@ def _start_new_draft(pool, practice, resume):
         except FileNotFoundError:
             st.warning("No saved draft found. Starting fresh.")
             ds = DraftState(
-                num_teams=num_teams, num_rounds=num_rounds,
-                user_team_index=draft_pos - 1, roster_config=ROSTER_CONFIG,
+                num_teams=num_teams,
+                num_rounds=num_rounds,
+                user_team_index=draft_pos - 1,
+                roster_config=ROSTER_CONFIG,
             )
     else:
         ds = DraftState(
-            num_teams=num_teams, num_rounds=num_rounds,
-            user_team_index=draft_pos - 1, roster_config=ROSTER_CONFIG,
+            num_teams=num_teams,
+            num_rounds=num_rounds,
+            user_team_index=draft_pos - 1,
+            roster_config=ROSTER_CONFIG,
         )
 
     st.session_state.draft_state = ds
@@ -1080,6 +1128,7 @@ def _start_new_draft(pool, practice, resume):
 # ═══════════════════════════════════════════════════════════════════
 # DRAFT PAGE
 # ═══════════════════════════════════════════════════════════════════
+
 
 def render_draft_page():
     ds = st.session_state.draft_state
@@ -1101,10 +1150,13 @@ def render_draft_page():
         st.markdown(
             f'<div style="font-family:Oswald,sans-serif;font-weight:700;font-size:18px;'
             f'color:{T["amber"]};text-transform:uppercase;letter-spacing:2px;margin-bottom:12px;">'
-            f'Controls</div>', unsafe_allow_html=True)
+            f"Controls</div>",
+            unsafe_allow_html=True,
+        )
 
         st.session_state.practice_mode = st.toggle(
-            "Practice Mode", value=st.session_state.practice_mode, key="draft_practice")
+            "Practice Mode", value=st.session_state.practice_mode, key="draft_practice"
+        )
 
         if st.button("Undo Last Pick", use_container_width=True):
             ds.undo_last_pick()
@@ -1113,7 +1165,7 @@ def render_draft_page():
 
         if st.button("Save Draft", use_container_width=True):
             path = ds.save()
-            st.toast(f"Saved!", icon="💾")
+            st.toast("Saved!", icon="💾")
 
         st.markdown("---")
 
@@ -1139,7 +1191,9 @@ def render_draft_page():
             f'<div class="hero" style="text-align:center;">'
             f'<div class="p-name" style="color:{T["ok"]};">Draft Complete!</div>'
             f'<div class="p-meta">{ds.total_picks} picks made across {ds.num_rounds} rounds</div>'
-            f'</div>', unsafe_allow_html=True)
+            f"</div>",
+            unsafe_allow_html=True,
+        )
         render_draft_tabs(ds, pool, lc, sgp)
         return
 
@@ -1153,9 +1207,7 @@ def render_draft_page():
 
     # ── Lock-in banner ───────────────────────────────────────────
     if st.session_state.last_drafted and (time.time() - st.session_state.last_lock_in) < 3:
-        st.markdown(
-            f'<div class="lock-in">✓ {st.session_state.last_drafted} — Locked In</div>',
-            unsafe_allow_html=True)
+        st.markdown(f'<div class="lock-in">✓ {st.session_state.last_drafted} — Locked In</div>', unsafe_allow_html=True)
 
     # ── Run recommendation engine ────────────────────────────────
     available = ds.available_players(pool)
@@ -1166,8 +1218,7 @@ def render_draft_page():
         with st.status("Analyzing best picks...", expanded=False) as status:
             try:
                 sim = DraftSimulator(lc)
-                candidates = sim.evaluate_candidates(
-                    pool, ds, n_simulations=st.session_state.num_sims)
+                candidates = sim.evaluate_candidates(pool, ds, n_simulations=st.session_state.num_sims)
 
                 if candidates is not None and len(candidates) > 0:
                     rec = candidates.iloc[0]
@@ -1198,14 +1249,15 @@ def render_draft_page():
                 st.info("No recommendation available.")
 
             # Position run alerts
-            if 'pos_runs' in dir() and pos_runs:
+            if "pos_runs" in dir() and pos_runs:
                 for pos, info in pos_runs.items():
                     severity = "critical" if info.get("severity", 0) > 0.7 else ""
                     st.markdown(
                         f'<div class="alert-card {severity}">'
                         f'<strong style="color:{T["warn"]};">⚡ {pos} Run!</strong> '
-                        f'{info.get("message", "Position being drafted heavily")}</div>',
-                        unsafe_allow_html=True)
+                        f"{info.get('message', 'Position being drafted heavily')}</div>",
+                        unsafe_allow_html=True,
+                    )
         else:
             team_idx = ds.picking_team_index()
             team_name = ds.teams[team_idx].team_name
@@ -1213,10 +1265,11 @@ def render_draft_page():
             st.markdown(
                 f'<div class="glass" style="text-align:center;padding:32px;">'
                 f'<div style="font-family:Oswald,sans-serif;font-size:20px;color:{T["tx2"]};">'
-                f'{team_name} is on the clock</div>'
+                f"{team_name} is on the clock</div>"
                 f'<div style="font-family:JetBrains Mono,monospace;font-size:14px;color:{T["tx2"]};'
                 f'margin-top:8px;">{picks_away} picks until your turn</div></div>',
-                unsafe_allow_html=True)
+                unsafe_allow_html=True,
+            )
 
     with right:
         render_pick_entry(ds, pool, available)
@@ -1228,6 +1281,7 @@ def render_draft_page():
 
 # ── Command Bar ─────────────────────────────────────────────────────
 
+
 def render_command_bar(ds):
     pct = int((ds.current_pick / ds.total_picks) * 100) if ds.total_picks > 0 else 0
 
@@ -1237,23 +1291,23 @@ def render_command_bar(ds):
         team_idx = ds.picking_team_index()
         team_name = ds.teams[team_idx].team_name
         picks_away = ds.picks_until_user_turn()
-        center_html = (
-            f'<div class="waiting">{team_name} picking... '
-            f'{picks_away} to go</div>')
+        center_html = f'<div class="waiting">{team_name} picking... {picks_away} to go</div>'
 
     st.markdown(
         f'<div class="cmd-bar">'
         f'<div class="cmd-left">Round {ds.current_round} &middot; Pick {ds.pick_in_round}</div>'
         f'<div class="cmd-center">{center_html}</div>'
         f'<div class="cmd-right">'
-        f'<span>{pct}%</span>'
+        f"<span>{pct}%</span>"
         f'<div class="prog-track"><div class="prog-fill" style="width:{pct}%;"></div></div>'
-        f'<span>Pick {ds.current_pick + 1}/{ds.total_picks}</span>'
-        f'</div></div>',
-        unsafe_allow_html=True)
+        f"<span>Pick {ds.current_pick + 1}/{ds.total_picks}</span>"
+        f"</div></div>",
+        unsafe_allow_html=True,
+    )
 
 
 # ── Hero Pick Card ──────────────────────────────────────────────────
+
 
 def render_hero_pick(rec, ds, pool):
     name = rec.get("player_name", rec.get("name", "Unknown"))
@@ -1273,11 +1327,16 @@ def render_hero_pick(rec, ds, pool):
 
     # SGP chips
     sgp_cats = [
-        ("R", rec.get("sgp_r", 0)), ("HR", rec.get("sgp_hr", 0)),
-        ("RBI", rec.get("sgp_rbi", 0)), ("SB", rec.get("sgp_sb", 0)),
-        ("AVG", rec.get("sgp_avg", 0)), ("W", rec.get("sgp_w", 0)),
-        ("SV", rec.get("sgp_sv", 0)), ("K", rec.get("sgp_k", 0)),
-        ("ERA", rec.get("sgp_era", 0)), ("WHIP", rec.get("sgp_whip", 0)),
+        ("R", rec.get("sgp_r", 0)),
+        ("HR", rec.get("sgp_hr", 0)),
+        ("RBI", rec.get("sgp_rbi", 0)),
+        ("SB", rec.get("sgp_sb", 0)),
+        ("AVG", rec.get("sgp_avg", 0)),
+        ("W", rec.get("sgp_w", 0)),
+        ("SV", rec.get("sgp_sv", 0)),
+        ("K", rec.get("sgp_k", 0)),
+        ("ERA", rec.get("sgp_era", 0)),
+        ("WHIP", rec.get("sgp_whip", 0)),
     ]
     chips_html = ""
     for cat, val in sgp_cats:
@@ -1312,17 +1371,19 @@ def render_hero_pick(rec, ds, pool):
         f'{T["card_h"]} {surv_deg}deg);">'
         f'<div style="width:48px;height:48px;border-radius:50%;background:{T["card"]};'
         f'display:flex;align-items:center;justify-content:center;">{surv:.0f}%</div></div>'
-        f'<div>'
+        f"<div>"
         f'<div class="p-name">{name}</div>'
         f'<div class="p-meta">{pos} &middot; Tier {tier} {vb}</div>'
-        f'</div></div>'
+        f"</div></div>"
         f'<div class="reason">{reason}</div>'
         f'<div class="sgp-row">{chips_html}</div>'
-        f'</div>',
-        unsafe_allow_html=True)
+        f"</div>",
+        unsafe_allow_html=True,
+    )
 
 
 # ── Alternative Cards ───────────────────────────────────────────────
+
 
 def render_alternatives(alts):
     sec("Alternatives")
@@ -1348,24 +1409,27 @@ def render_alternatives(alts):
 
             st.markdown(
                 f'<div class="alt tier-{tier}">'
-                f'<div class="a-rank">#{i+2}</div>'
+                f'<div class="a-rank">#{i + 2}</div>'
                 f'<div class="a-name">{name}</div>'
                 f'<div class="a-meta">{pos} {risk_badge}</div>'
                 f'<div class="a-score">{score:.1f}</div>'
-                f'</div>',
-                unsafe_allow_html=True)
+                f"</div>",
+                unsafe_allow_html=True,
+            )
 
 
 # ── Pick Entry (Right Panel) ───────────────────────────────────────
+
 
 def render_pick_entry(ds, pool, available):
     sec("Enter Pick")
 
     # Search / select player
-    player_options = available.sort_values("pick_score", ascending=False) if "pick_score" in available.columns else available
+    player_options = (
+        available.sort_values("pick_score", ascending=False) if "pick_score" in available.columns else available
+    )
     display_list = [
-        f"{row['player_name']} ({row.get('positions', '?')})"
-        for _, row in player_options.head(200).iterrows()
+        f"{row['player_name']} ({row.get('positions', '?')})" for _, row in player_options.head(200).iterrows()
     ]
 
     selected = st.selectbox(
@@ -1385,9 +1449,11 @@ def render_pick_entry(ds, pool, available):
             st.markdown(
                 f'<div class="glass" style="border-color:{T["amber"]}44;">'
                 f'<div style="font-family:Oswald,sans-serif;font-size:16px;color:{T["tx"]};">'
-                f'{p["player_name"]}</div>'
+                f"{p['player_name']}</div>"
                 f'<div style="font-size:12px;color:{T["tx2"]};">{p.get("positions", "?")}</div>'
-                f'</div>', unsafe_allow_html=True)
+                f"</div>",
+                unsafe_allow_html=True,
+            )
 
             # Draft button
             btn_label = f"DRAFT {pname.upper()}"
@@ -1403,9 +1469,11 @@ def render_pick_entry(ds, pool, available):
 
     # Quick "Mark as mine" for user picks
     if not ds.is_user_turn:
-        st.markdown(f'<div style="font-size:11px;color:{T["tx2"]};margin-top:8px;">'
-                    f'Or record pick for {ds.teams[ds.picking_team_index()].team_name}</div>',
-                    unsafe_allow_html=True)
+        st.markdown(
+            f'<div style="font-size:11px;color:{T["tx2"]};margin-top:8px;">'
+            f"Or record pick for {ds.teams[ds.picking_team_index()].team_name}</div>",
+            unsafe_allow_html=True,
+        )
 
 
 def _execute_pick(ds, player_row, pool):
@@ -1462,12 +1530,12 @@ def _auto_pick_opponent(ds, pool, sgp, lc):
 
 # ── Recent Feed ─────────────────────────────────────────────────────
 
+
 def render_recent_feed(ds):
     sec("Recent Picks")
     recent = ds.pick_log[-5:][::-1] if ds.pick_log else []
     if not recent:
-        st.markdown(f'<div style="color:{T["tx2"]};font-size:13px;">No picks yet.</div>',
-                    unsafe_allow_html=True)
+        st.markdown(f'<div style="color:{T["tx2"]};font-size:13px;">No picks yet.</div>', unsafe_allow_html=True)
         return
 
     for entry in recent:
@@ -1478,11 +1546,13 @@ def render_recent_feed(ds):
             f'<div class="feed-pick-num">#{entry["pick"] + 1} &middot; R{entry["round"]}</div>'
             f'<div class="feed-name">{entry["player_name"]}</div>'
             f'<div class="feed-team">{entry["team_name"]} &middot; {entry["positions"]}</div>'
-            f'</div>',
-            unsafe_allow_html=True)
+            f"</div>",
+            unsafe_allow_html=True,
+        )
 
 
 # ── Roster Panel ────────────────────────────────────────────────────
+
 
 def render_roster_panel(ds, pool):
     sec("My Roster")
@@ -1495,8 +1565,10 @@ def render_roster_panel(ds, pool):
     bench_pos = ["BN"]
 
     for group_label, group_positions in [
-        ("Field", field_pos), ("Utility", util_pos),
-        ("Pitching", pitch_pos), ("Bench", bench_pos)
+        ("Field", field_pos),
+        ("Utility", util_pos),
+        ("Pitching", pitch_pos),
+        ("Bench", bench_pos),
     ]:
         slots_in_group = [s for s in team.slots if s.position in group_positions]
         if not slots_in_group:
@@ -1511,13 +1583,13 @@ def render_roster_panel(ds, pool):
                 player_html = f'<div style="color:{T["tx2"]}44;font-size:11px;">Empty</div>'
 
             st.markdown(
-                f'<div class="roster-slot {cls}">'
-                f'<div class="s-label">{s.position}</div>'
-                f'{player_html}</div>',
-                unsafe_allow_html=True)
+                f'<div class="roster-slot {cls}"><div class="s-label">{s.position}</div>{player_html}</div>',
+                unsafe_allow_html=True,
+            )
 
 
 # ── Scarcity Rings ──────────────────────────────────────────────────
+
 
 def render_scarcity_rings(ds, pool):
     sec("Position Scarcity")
@@ -1563,10 +1635,11 @@ def render_scarcity_rings(ds, pool):
                 f'{color} {deg}deg, {T["card_h"]} {deg}deg);">'
                 f'<div style="width:38px;height:38px;border-radius:50%;background:{T["card"]};'
                 f'display:flex;align-items:center;justify-content:center;">{avail_count}</div>'
-                f'</div>'
+                f"</div>"
                 f'<div class="scar-label">{pos}</div>'
-                f'</div>',
-                unsafe_allow_html=True)
+                f"</div>",
+                unsafe_allow_html=True,
+            )
 
             if critical:
                 st.toast(f"⚠️ {pos} scarce! Only {avail_count} left", icon="🚨")
@@ -1575,6 +1648,7 @@ def render_scarcity_rings(ds, pool):
 # ═══════════════════════════════════════════════════════════════════
 # DRAFT TABS
 # ═══════════════════════════════════════════════════════════════════
+
 
 def render_draft_tabs(ds, pool, lc, sgp):
     tabs = st.tabs(["Category Balance", "Available Players", "Draft Board", "Draft Log"])
@@ -1593,6 +1667,7 @@ def render_draft_tabs(ds, pool, lc, sgp):
 
 
 # ── Category Balance ────────────────────────────────────────────────
+
 
 def render_category_balance(ds, pool):
     totals = ds.get_user_roster_totals(pool)
@@ -1616,11 +1691,9 @@ def render_category_balance(ds, pool):
         with cols[i % 5]:
             display = f"{val:{fmt}}" if fmt else str(int(val))
             st.markdown(
-                f'<div class="cat-card">'
-                f'<div class="cat-name">{cat}</div>'
-                f'<div class="cat-val">{display}</div>'
-                f'</div>',
-                unsafe_allow_html=True)
+                f'<div class="cat-card"><div class="cat-name">{cat}</div><div class="cat-val">{display}</div></div>',
+                unsafe_allow_html=True,
+            )
 
     # Radar chart
     if HAS_PLOTLY and ds.user_team.picks:
@@ -1659,20 +1732,24 @@ def _render_radar_chart(ds, pool):
         avg_vals.append(az)
 
     fig = go.Figure()
-    fig.add_trace(go.Scatterpolar(
-        r=user_vals + [user_vals[0]],
-        theta=categories + [categories[0]],
-        fill='toself',
-        name='My Team',
-        line=dict(color=T["amber"], width=2),
-        fillcolor='rgba(245, 158, 11, 0.13)',
-    ))
-    fig.add_trace(go.Scatterpolar(
-        r=avg_vals + [avg_vals[0]],
-        theta=categories + [categories[0]],
-        name='League Avg',
-        line=dict(color=T["tx2"], width=1, dash='dot'),
-    ))
+    fig.add_trace(
+        go.Scatterpolar(
+            r=user_vals + [user_vals[0]],
+            theta=categories + [categories[0]],
+            fill="toself",
+            name="My Team",
+            line=dict(color=T["amber"], width=2),
+            fillcolor="rgba(245, 158, 11, 0.13)",
+        )
+    )
+    fig.add_trace(
+        go.Scatterpolar(
+            r=avg_vals + [avg_vals[0]],
+            theta=categories + [categories[0]],
+            name="League Avg",
+            line=dict(color=T["tx2"], width=1, dash="dot"),
+        )
+    )
 
     fig.update_layout(
         polar=dict(
@@ -1711,6 +1788,7 @@ def _render_balance_bars(ds, pool):
 
 # ── Available Players ───────────────────────────────────────────────
 
+
 def render_available_players(ds, pool):
     available = ds.available_players(pool)
 
@@ -1727,8 +1805,9 @@ def render_available_players(ds, pool):
                 st.rerun()
 
     # Search
-    search = st.text_input("Search player...", key="player_search", label_visibility="collapsed",
-                           placeholder="Search player name...")
+    search = st.text_input(
+        "Search player...", key="player_search", label_visibility="collapsed", placeholder="Search player name..."
+    )
 
     filtered = available.copy()
     if selected_pos != "All" and "positions" in filtered.columns:
@@ -1750,8 +1829,7 @@ def render_available_players(ds, pool):
     display_df = filtered[display_cols].head(50).copy()
 
     # Rename for display
-    rename_map = {"player_name": "Player", "positions": "Pos", "pick_score": "Score",
-                  "tier": "Tier", "adp": "ADP"}
+    rename_map = {"player_name": "Player", "positions": "Pos", "pick_score": "Score", "tier": "Tier", "adp": "ADP"}
     display_df = display_df.rename(columns={k: v for k, v in rename_map.items() if k in display_df.columns})
 
     col_config = {}
@@ -1762,11 +1840,11 @@ def render_available_players(ds, pool):
     if "ADP" in display_df.columns:
         col_config["ADP"] = st.column_config.NumberColumn(format="%.0f")
 
-    st.dataframe(display_df, use_container_width=True, hide_index=True,
-                 column_config=col_config, height=400)
+    st.dataframe(display_df, use_container_width=True, hide_index=True, column_config=col_config, height=400)
 
 
 # ── Draft Board ─────────────────────────────────────────────────────
+
 
 def render_draft_board(ds):
     # Build HTML table
@@ -1781,7 +1859,7 @@ def render_draft_board(ds):
     for r in range(ds.current_round + 2):  # show current + next round
         if r >= ds.num_rounds:
             break
-        row_html = f'<td style="font-weight:600;color:{T["amber"]};">R{r+1}</td>'
+        row_html = f'<td style="font-weight:600;color:{T["amber"]};">R{r + 1}</td>'
         for team_idx in range(ds.num_teams):
             # In snake draft, determine which overall pick this team had in this round
             if r % 2 == 0:
@@ -1821,13 +1899,15 @@ def render_draft_board(ds):
     st.markdown(
         f'<div style="overflow-x:auto;max-height:500px;overflow-y:auto;">'
         f'<table class="draft-board">'
-        f'<thead><tr><th>Rd</th>{headers}</tr></thead>'
-        f'<tbody>{rows}</tbody>'
-        f'</table></div>',
-        unsafe_allow_html=True)
+        f"<thead><tr><th>Rd</th>{headers}</tr></thead>"
+        f"<tbody>{rows}</tbody>"
+        f"</table></div>",
+        unsafe_allow_html=True,
+    )
 
 
 # ── Draft Log ───────────────────────────────────────────────────────
+
 
 def render_draft_log(ds):
     if not ds.pick_log:
@@ -1844,6 +1924,7 @@ def render_draft_log(ds):
     with c2:
         if st.button("Export JSON", key="export_json"):
             import json
+
             j = json.dumps(ds.pick_log, indent=2)
             st.download_button("Download JSON", j, "draft_log.json", "application/json", key="dl_json")
 
@@ -1857,25 +1938,29 @@ def render_draft_log(ds):
             st.markdown(
                 f'<div style="text-align:center;padding:4px;font-family:Oswald,sans-serif;'
                 f'font-size:11px;color:{T["tx2"]};text-transform:uppercase;letter-spacing:2px;">'
-                f'— Round {entry["round"]} —</div>', unsafe_allow_html=True)
+                f"— Round {entry['round']} —</div>",
+                unsafe_allow_html=True,
+            )
 
         st.markdown(
             f'<div class="feed-card {cls}">'
             f'<div style="display:flex;justify-content:space-between;align-items:center;">'
-            f'<div>'
-            f'<div class="feed-pick-num">#{entry["pick"]+1} &middot; R{entry["round"]}.{entry["pick_in_round"]}</div>'
+            f"<div>"
+            f'<div class="feed-pick-num">#{entry["pick"] + 1} &middot; R{entry["round"]}.{entry["pick_in_round"]}</div>'
             f'<div class="feed-name">{entry["player_name"]}</div>'
-            f'</div>'
+            f"</div>"
             f'<div style="text-align:right;">'
             f'<div class="feed-team">{entry["team_name"]}</div>'
             f'<div style="font-size:11px;color:{T["tx2"]};">{entry["positions"]}</div>'
-            f'</div></div></div>',
-            unsafe_allow_html=True)
+            f"</div></div></div>",
+            unsafe_allow_html=True,
+        )
 
 
 # ═══════════════════════════════════════════════════════════════════
 # MAIN
 # ═══════════════════════════════════════════════════════════════════
+
 
 def main():
     init_session()
