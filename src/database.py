@@ -70,6 +70,75 @@ def init_db():
     conn.commit()
     conn.close()
 
+    conn = get_connection()
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS season_stats (
+            player_id INTEGER NOT NULL,
+            season INTEGER NOT NULL DEFAULT 2026,
+            pa INTEGER DEFAULT 0, ab INTEGER DEFAULT 0, h INTEGER DEFAULT 0,
+            r INTEGER DEFAULT 0, hr INTEGER DEFAULT 0, rbi INTEGER DEFAULT 0,
+            sb INTEGER DEFAULT 0, avg REAL DEFAULT 0,
+            ip REAL DEFAULT 0, w INTEGER DEFAULT 0, sv INTEGER DEFAULT 0,
+            k INTEGER DEFAULT 0, era REAL DEFAULT 0, whip REAL DEFAULT 0,
+            er INTEGER DEFAULT 0, bb_allowed INTEGER DEFAULT 0, h_allowed INTEGER DEFAULT 0,
+            games_played INTEGER DEFAULT 0,
+            last_updated TEXT,
+            PRIMARY KEY (player_id, season),
+            FOREIGN KEY (player_id) REFERENCES players(player_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS ros_projections (
+            player_id INTEGER NOT NULL,
+            system TEXT NOT NULL,
+            pa INTEGER DEFAULT 0, ab INTEGER DEFAULT 0, h INTEGER DEFAULT 0,
+            r INTEGER DEFAULT 0, hr INTEGER DEFAULT 0, rbi INTEGER DEFAULT 0,
+            sb INTEGER DEFAULT 0, avg REAL DEFAULT 0,
+            ip REAL DEFAULT 0, w INTEGER DEFAULT 0, sv INTEGER DEFAULT 0,
+            k INTEGER DEFAULT 0, era REAL DEFAULT 0, whip REAL DEFAULT 0,
+            er INTEGER DEFAULT 0, bb_allowed INTEGER DEFAULT 0, h_allowed INTEGER DEFAULT 0,
+            updated_at TEXT,
+            PRIMARY KEY (player_id, system),
+            FOREIGN KEY (player_id) REFERENCES players(player_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS league_rosters (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            team_name TEXT NOT NULL,
+            team_index INTEGER NOT NULL,
+            player_id INTEGER NOT NULL,
+            roster_slot TEXT,
+            is_user_team INTEGER NOT NULL DEFAULT 0,
+            FOREIGN KEY (player_id) REFERENCES players(player_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS league_standings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            team_name TEXT NOT NULL,
+            category TEXT NOT NULL,
+            total REAL DEFAULT 0,
+            rank INTEGER,
+            points REAL
+        );
+
+        CREATE TABLE IF NOT EXISTS park_factors (
+            team_code TEXT PRIMARY KEY,
+            factor_hitting REAL DEFAULT 1.0,
+            factor_pitching REAL DEFAULT 1.0
+        );
+
+        CREATE TABLE IF NOT EXISTS refresh_log (
+            source TEXT PRIMARY KEY,
+            last_refresh TEXT,
+            status TEXT DEFAULT 'success'
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_season_stats_player ON season_stats(player_id);
+        CREATE INDEX IF NOT EXISTS idx_ros_proj_player ON ros_projections(player_id);
+        CREATE INDEX IF NOT EXISTS idx_league_rosters_team ON league_rosters(team_name);
+    """)
+    conn.commit()
+    conn.close()
+
 
 def import_hitter_csv(csv_path: str, system: str):
     """Import a FanGraphs hitter projection CSV.
