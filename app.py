@@ -1,6 +1,6 @@
 """Fantasy Baseball Draft Tool — Broadcast Booth Edition.
 
-Live draft assistant for Yahoo Sports 12-team snake draft.
+Live draft assistant for 12-team snake draft with in-season management.
 Dark navy + amber accents + sports broadcast typography.
 """
 
@@ -18,6 +18,7 @@ from src.database import (
     init_db,
     load_player_pool,
 )
+from src.league_manager import import_league_rosters_csv, import_standings_csv
 from src.draft_state import DraftState
 from src.simulation import DraftSimulator, detect_position_run
 from src.valuation import (
@@ -26,13 +27,6 @@ from src.valuation import (
     compute_replacement_levels,
     compute_sgp_denominators,
     value_all_players,
-)
-from src.yahoo_api import (
-    YahooFantasyClient,
-    has_credentials,
-    load_credentials,
-    save_credentials,
-    sync_draft_picks,
 )
 
 try:
@@ -637,8 +631,6 @@ def init_session():
         "num_sims": 100,
         "last_lock_in": 0,
         "last_drafted": "",
-        "yahoo_client": None,
-        "last_yahoo_sync": 0,
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -654,7 +646,7 @@ def sec(title):
 
 # ── Wizard Progress Bar ─────────────────────────────────────────────
 
-WIZARD_STEPS = ["Import", "Settings", "Connect", "Launch"]
+WIZARD_STEPS = ["Import", "Settings", "League", "Launch"]
 
 
 def render_wizard_progress(current_step):
@@ -880,47 +872,64 @@ def render_step_league():
             st.session_state.setup_step = 3
             st.rerun()
 
-
-# ── Step 3: Connect Yahoo (Optional) ───────────────────────────────
+# ── Step 3: Import League Data (Optional) ─────────────────────────
 
 
 def render_step_connect():
-    sec("Step 3 — Connect Yahoo (Optional)")
+    sec("Step 3 — Import League Data (Optional)")
 
     st.markdown(
         f'<div class="glass" style="text-align:center;padding:24px;">'
         f'<div style="font-family:Oswald,sans-serif;font-size:18px;color:{T["tx"]};'
-        f'text-transform:uppercase;letter-spacing:2px;margin-bottom:8px;">Yahoo Fantasy API</div>'
+        f'text-transform:uppercase;letter-spacing:2px;margin-bottom:8px;">League Import</div>'
         f'<div style="color:{T["tx2"]};font-size:14px;margin-bottom:16px;">'
-        f"Connect to auto-sync draft picks and league settings. You can skip this.</div>"
+        f"Upload your league rosters and standings from CSV. You can skip this.</div>"
         f"</div>",
         unsafe_allow_html=True,
     )
 
-    if has_credentials():
-        st.markdown('<span class="badge badge-value">Credentials Found ✓</span>', unsafe_allow_html=True)
-        creds = load_credentials()
-        st.text_input("Consumer Key", value=creds.get("consumer_key", ""), key="yk", type="password")
-        st.text_input("Consumer Secret", value=creds.get("consumer_secret", ""), key="ys", type="password")
-    else:
-        st.text_input("Consumer Key", key="yk", type="password")
-        st.text_input("Consumer Secret", key="ys", type="password")
+    team_name = st.text_input(
+        "Your Team Name",
+        value=st.session_state.get("user_team_name", "Team Hickey"),
+        key="import_team_name",
+    )
+    st.session_state["user_team_name"] = team_name
 
-    c1, c2, c3 = st.columns([1, 1, 1])
-    with c1:
-        if st.button("Save & Test Connection", use_container_width=True):
-            yk = st.session_state.get("yk", "")
-            ys = st.session_state.get("ys", "")
-            if yk and ys:
-                save_credentials(yk, ys)
-                try:
-                    client = YahooFantasyClient()
-                    st.session_state.yahoo_client = client
-                    st.toast("Connected to Yahoo!", icon="✅")
-                except Exception as e:
-                    st.error(f"Connection failed: {e}")
-            else:
-                st.warning("Enter both keys.")
+    roster_file = st.file_uploader(
+        "Upload Roster CSV (team_name, player_name, position, roster_slot)",
+        type=["csv"],
+        key="roster_csv_upload",
+    )
+    if roster_file is not None:
+        import tempfile, os
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".csv") as tmp:
+            tmp.write(roster_file.getvalue())
+            tmp_path = tmp.name
+        try:
+            count = import_league_rosters_csv(tmp_path, user_team_name=team_name)
+            st.success(f"Imported {count} roster entries!")
+        except Exception as e:
+            st.error(f"Import error: {e}")
+        finally:
+            os.unlink(tmp_path)
+
+    standings_file = st.file_uploader(
+        "Upload Standings CSV (team_name, R, HR, RBI, SB, AVG, W, SV, K, ERA, WHIP)",
+        type=["csv"],
+        key="standings_csv_upload",
+    )
+    if standings_file is not None:
+        import tempfile, os
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".csv") as tmp:
+            tmp.write(standings_file.getvalue())
+            tmp_path = tmp.name
+        try:
+            count = import_standings_csv(tmp_path)
+            st.success(f"Imported standings for {count} teams!")
+        except Exception as e:
+            st.error(f"Import error: {e}")
+        finally:
+            os.unlink(tmp_path)
 
     # Nav
     st.markdown("")
@@ -1128,19 +1137,6 @@ def render_draft_page():
         if st.button("Save Draft", use_container_width=True):
             path = ds.save()
             st.toast("Saved!", icon="💾")
-
-        st.markdown("---")
-
-        # Yahoo sync
-        if st.session_state.yahoo_client:
-            if st.button("Sync Yahoo", use_container_width=True):
-                try:
-                    sync_draft_picks(st.session_state.yahoo_client, ds, pool)
-                    st.session_state.last_yahoo_sync = time.time()
-                    st.toast("Yahoo synced!", icon="🔄")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Sync error: {e}")
 
         st.markdown("---")
         if st.button("← Back to Setup", use_container_width=True):
