@@ -178,3 +178,16 @@ streamlit run app.py
 - **Projections:** FanGraphs CSV exports (Steamer, ZiPS, Depth Charts)
 - **ADP:** FantasyPros consensus ADP
 - **Yahoo integration:** yfpy library for league settings import and live draft polling
+
+## GitHub Repository
+
+- **Repo:** https://github.com/hicklax13/fantasy-baseball-draft-tool (public)
+- **CI/CD:** GitHub Actions — lint (ruff), test (Python 3.11-3.13), build verification
+- **Release workflow:** Auto-creates GitHub releases on `v*.*.*` tags
+- **Current release:** v1.0.0
+
+### Pending CI Fix
+The lint job fails due to unused imports in `app.py` (lines 7-33). These are F401 violations (unused imports) and I001 (unsorted imports). The test and build jobs pass on all Python versions. Fix by removing unused imports: `os`, `io`, `Path`, `compute_category_weights`, `apply_league_settings`, `run_benchmark`, `ablation_test`, `generate_cheat_sheet`, `simulate_full_draft`, and sorting the import block.
+
+### Dependabot
+Configured in `.github/dependabot.yml` for weekly pip and GitHub Actions updates.
