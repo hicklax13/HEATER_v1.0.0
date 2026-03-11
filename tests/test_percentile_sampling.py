@@ -73,12 +73,36 @@ def test_evaluate_candidates_returns_risk_adjusted_sgp():
 
 
 def test_evaluate_candidates_without_percentile_unchanged():
-    """Without percentile params, behavior unchanged (no risk_adjusted_sgp column)."""
+    """Without percentile params, behavior unchanged — risk_adjusted_sgp still present."""
     pool = _make_pool()
     ds = _make_draft_state()
     sim = DraftSimulator(LeagueConfig())
 
     result = sim.evaluate_candidates(pool, ds, top_n=3, n_simulations=10)
     assert result is not None
-    # risk_adjusted_sgp should not be present when sampling is off
-    assert "risk_adjusted_sgp" not in result.columns or True  # backward compat
+    assert len(result) > 0
+    # risk_adjusted_sgp is always present (falls back to mean_sgp formula)
+    assert "risk_adjusted_sgp" in result.columns
+
+
+def test_evaluate_candidates_with_drafted_players():
+    """evaluate_candidates with pre-drafted players should still work with volatility."""
+    pool = _make_pool(n=30)
+    ds = _make_draft_state()
+    sim = DraftSimulator(LeagueConfig())
+
+    # Simulate some picks being made (use make_pick with positions arg)
+    for i in range(3):
+        row = pool.iloc[i]
+        ds.make_pick(row["player_id"], row["name"], row["positions"])
+
+    vol = np.ones(len(pool)) * 0.5  # Aligned to FULL pool
+
+    # Should not crash even though pool is now filtered (3 players removed)
+    result = sim.evaluate_candidates(
+        pool, ds, top_n=3, n_simulations=10,
+        use_percentile_sampling=True,
+        sgp_volatility=vol,
+    )
+    assert result is not None
+    assert len(result) > 0

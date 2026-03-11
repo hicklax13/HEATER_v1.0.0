@@ -443,6 +443,15 @@ class DraftSimulator:
         )
         positions = available["positions"].tolist()
 
+        # Re-align sgp_volatility to the filtered (available) pool so that the
+        # lengths match the arrays above.  The input array is aligned to the
+        # full player_pool; after players are drafted the sizes diverge.
+        if sgp_volatility is not None and use_percentile_sampling:
+            vol_series = pd.Series(sgp_volatility, index=player_pool["player_id"].values)
+            aligned_vol = vol_series.reindex(available["player_id"].values).fillna(0.0).values
+        else:
+            aligned_vol = None
+
         user_needs = set(draft_state.user_team.open_positions())
         current_pick = draft_state.current_pick
         next_pick = draft_state.next_user_pick()
@@ -475,7 +484,7 @@ class DraftSimulator:
                 n_simulations=n_simulations,
                 team_positions=team_positions,
                 use_percentile_sampling=use_percentile_sampling,
-                sgp_volatility=sgp_volatility,
+                sgp_volatility=aligned_vol,
             )
 
             p_survive = self.survival_probability(
