@@ -4,6 +4,7 @@ import pandas as pd
 import streamlit as st
 
 from src.database import init_db, load_league_rosters, load_league_standings
+from src.injury_model import compute_health_score, get_injury_badge
 from src.league_manager import get_team_roster
 from src.lineup_optimizer import LineupOptimizer
 from src.ui_shared import T
@@ -131,7 +132,70 @@ else:
 # ── Current Roster Overview ───────────────────────────────────────
 st.divider()
 st.subheader("👥 Current Roster")
+
+# Add health info to roster overview
+health_dict = {}
+try:
+    from src.database import get_connection
+    conn = get_connection()
+    injury_df = pd.read_sql_query("SELECT * FROM injury_history", conn)
+    conn.close()
+
+    if not injury_df.empty:
+        health_badges = []
+        for _, row in roster.iterrows():
+            pid = row.get("player_id")
+            pi = injury_df[injury_df["player_id"] == pid]
+            if not pi.empty:
+                hs = compute_health_score(pi["games_played"].tolist(), pi["games_available"].tolist())
+                icon, _ = get_injury_badge(hs)
+                health_badges.append(icon)
+                health_dict[pid] = hs
+            else:
+                health_badges.append("🟢")
+                health_dict[pid] = 1.0
+        roster["Health"] = health_badges
+except Exception:
+    pass
+
+# Apply health penalty to LP objective
+HEALTH_PENALTY_WEIGHT = 0.15
+if health_dict and "projected_sgp" in roster.columns:
+    roster["health_adjusted_sgp"] = roster.apply(
+        lambda r: r["projected_sgp"] * (1.0 - HEALTH_PENALTY_WEIGHT * (1.0 - health_dict.get(r.get("player_id"), 1.0))),
+        axis=1,
+    )
+
+# Two-start SP detection via MLB schedule
+try:
+    import statsapi
+    from datetime import datetime, timedelta
+    today = datetime.now()
+    end = today + timedelta(days=7)
+    schedule = statsapi.schedule(start_date=today.strftime("%Y-%m-%d"), end_date=end.strftime("%Y-%m-%d"))
+
+    team_game_counts = {}
+    for game in schedule:
+        for team_key in ["home_name", "away_name"]:
+            team_name = game.get(team_key, "")
+            team_game_counts[team_name] = team_game_counts.get(team_name, 0) + 1
+
+    # Flag SPs whose team has 2+ games in the period
+    two_start_sps = []
+    for _, row in roster.iterrows():
+        if not row.get("is_hitter", True) and "SP" in str(row.get("positions", "")):
+            team = row.get("team", "")
+            if team_game_counts.get(team, 0) >= 2:
+                two_start_sps.append(row.get("name", row.get("player_name", "")))
+
+    if two_start_sps:
+        st.info(f"📅 Potential two-start SPs this week: {', '.join(two_start_sps)}")
+except Exception:
+    pass  # Graceful degradation when MLB Stats API unavailable
+
 display_cols = ["name", "positions", "is_hitter"] + [c for c in stat_cols if c in roster.columns]
+if "Health" in roster.columns:
+    display_cols = ["name", "positions", "is_hitter", "Health"] + [c for c in stat_cols if c in roster.columns]
 st.dataframe(
     roster[[c for c in display_cols if c in roster.columns]],
     hide_index=True,
