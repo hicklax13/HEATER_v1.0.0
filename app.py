@@ -782,12 +782,10 @@ def render_step_import():
 
             _conn = _gc()
             _has_hit = _conn.execute(
-                "SELECT COUNT(*) FROM projections p JOIN players pl "
-                "ON p.player_id=pl.player_id WHERE pl.is_hitter=1"
+                "SELECT COUNT(*) FROM projections p JOIN players pl ON p.player_id=pl.player_id WHERE pl.is_hitter=1"
             ).fetchone()[0]
             _has_pit = _conn.execute(
-                "SELECT COUNT(*) FROM projections p JOIN players pl "
-                "ON p.player_id=pl.player_id WHERE pl.is_hitter=0"
+                "SELECT COUNT(*) FROM projections p JOIN players pl ON p.player_id=pl.player_id WHERE pl.is_hitter=0"
             ).fetchone()[0]
             _conn.close()
 
@@ -827,8 +825,7 @@ def render_step_import():
                 st.rerun()
 
         st.markdown(
-            f'<div style="text-align:center;color:{T["tx2"]};margin:12px 0;">'
-            f"── Manual Override ──</div>",
+            f'<div style="text-align:center;color:{T["tx2"]};margin:12px 0;">── Manual Override ──</div>',
             unsafe_allow_html=True,
         )
 

@@ -25,7 +25,7 @@ ruff check .
 # Format
 ruff format .
 
-# Run all tests (~154 tests, 4 skipped for optional deps)
+# Run all tests (~182 tests, 4 skipped for optional deps)
 python -m pytest
 
 # Run a single test file
@@ -84,6 +84,7 @@ src/
   injury_model.py       — Health scores, age-risk curves, workload flags, injury-adjusted projections
   lineup_optimizer.py   — PuLP LP solver: lineup optimization, category targeting, two-start SP detection
   yahoo_api.py          — Yahoo Fantasy API: OAuth integration via yfpy, league sync, roster import
+  data_pipeline.py      — FanGraphs auto-fetch: Steamer/ZiPS/Depth Charts JSON API, normalize, upsert, ADP extraction
 tests/
   test_database_schema.py   — DB schema and table existence tests
   test_database_queries.py  — Query function tests
@@ -97,6 +98,7 @@ tests/
   test_percentiles.py       — Percentile forecasts: volatility, P10/P50/P90 bounds (7 tests)
   test_opponent_model.py    — Enhanced opponent modeling: preferences, needs, history (8 tests)
   test_percentile_sampling.py — Percentile sampling passthrough in evaluate_candidates (4 tests)
+  test_data_pipeline.py     — FanGraphs auto-fetch: normalization, fetch, storage, ADP, orchestration (28 tests)
   test_integration.py       — End-to-end pipeline: injury → Bayesian → percentiles → valuation (11 tests)
   profile_latency.py        — Performance profiling utility
 data/
@@ -133,6 +135,14 @@ docs/plans/             — Implementation plan archives
 - **Practice mode** — Ephemeral DraftState clone for what-if scenarios, resets on refresh or button click
 - **Yahoo OAuth** — Setup wizard Step 1 shows Yahoo connect card when env vars are set
 
+### Auto-Fetch Pipeline
+- **FanGraphs JSON API** — Fetches Steamer, ZiPS, Depth Charts projections (3 systems × bat/pit = 6 endpoints) on app startup
+- **Normalization** — Maps FG JSON fields to DB schema; SP/RP classification mirrors CSV import logic (GS≥5→SP, SV≥3→RP)
+- **Staleness check** — `refresh_if_stale()` skips fetch if projections table already has data; `force=True` overrides
+- **ADP extraction** — Pulls ADP from Steamer JSON responses, resolves names→player_ids with fuzzy fallback
+- **Graceful degradation** — Partial system failures proceed with available data; total failure falls back to CSV upload
+- **Rate limiting** — 0.5s between requests, User-Agent header to avoid CloudFlare blocks
+
 ### In-Season Algorithms
 - **Trade Analyzer:** Roster swap → projected season totals (YTD + ROS) → park-adjusted SGP delta → MC simulation (200 sims) → verdict with confidence %. Now includes injury badges for both sides and P10/P90 risk assessment.
 - **Player Compare:** ROS projections → Z-score normalization across 10 categories → composite weighted score, optional marginal SGP team impact. Now includes health badges and projection confidence (P10-P90 range width).
@@ -158,8 +168,8 @@ docs/plans/             — Implementation plan archives
 
 ## Data Sources
 
-- **Draft projections:** FanGraphs CSV exports (Steamer, ZiPS, Depth Charts)
-- **ADP:** FantasyPros consensus
+- **Draft projections:** Auto-fetched from FanGraphs JSON API (Steamer, ZiPS, Depth Charts) on startup; CSV upload as manual fallback
+- **ADP:** Extracted from FanGraphs Steamer JSON (filters ADP ≥ 999 and nulls); FantasyPros consensus as fallback
 - **Current stats:** MLB Stats API (`MLB-StatsAPI` package, auto-refreshed daily)
 - **ROS projections:** FanGraphs Depth Charts (`pybaseball`, on-demand or daily)
 - **Park factors:** pybaseball / FanGraphs
@@ -208,6 +218,11 @@ get_positional_needs(draft_state_dict, team_id: int, roster_config: dict)
 LineupOptimizer(roster_df, config_dict)
 optimizer.optimize_lineup()  # returns {slot: player_name, projected_stats: {...}}
 optimizer.category_targeting(standings_df, team_name)  # returns {cat: weight}
+
+# Data pipeline (src/data_pipeline.py)
+refresh_if_stale(force=False)  # returns bool; auto-skips if projections table has data
+fetch_projections(system, stats)  # returns (DataFrame, raw_json_list)
+SYSTEM_MAP = {"steamer": "steamer", "zips": "zips", "fangraphsdc": "depthcharts"}
 ```
 
 ## Gotchas
@@ -226,6 +241,9 @@ optimizer.category_targeting(standings_df, team_name)  # returns {cat: weight}
 - **`get_team_draft_patterns()` uses int team_id** — `team_id` is 0-based team index, not team name string. Filters on `pick.get("team_index")`.
 - **health_score range** — Always 0.0 to 1.0. Missing seasons default to 0.85 (league average). Empty history returns 0.85.
 - **Yahoo API graceful degradation** — All Yahoo features wrapped in `YFPY_AVAILABLE` checks. App works fully without Yahoo credentials. Setup wizard Yahoo connect requires `YAHOO_CLIENT_ID` and `YAHOO_CLIENT_SECRET` env vars.
+- **FanGraphs API SYSTEM_MAP** — FG API uses `"fangraphsdc"` for Depth Charts, but DB stores as `"depthcharts"`. Always use `SYSTEM_MAP` dict, never hardcode system names. `SYSTEMS = list(SYSTEM_MAP.keys())` derives the list.
+- **FanGraphs `minpos` field** — Returns primary position only (e.g., "SS"), not multi-position eligibility. Sometimes returns `"0"` or `"-"` meaning no position; these are guarded to fall back to `"Util"`.
+- **Auto-fetch session state** — `st.session_state.projections_fetched` gates the fetch-once logic. Delete the key to allow retry. `HAS_DATA_PIPELINE` flag handles import failure gracefully.
 - **sgp_volatility alignment** — When `evaluate_candidates()` receives `sgp_volatility`, the array is aligned to the full pool. After filtering drafted players, it must be re-indexed via `pd.Series.reindex()` to match the filtered `available` pool.
 - **Practice mode isolation** — Uses separate `st.session_state["practice_draft_state"]` DraftState, never persisted to disk/DB. Resets on page refresh or "Reset Practice" button click.
 - **Percentile pipeline ordering** — `compute_projection_volatility()` → `add_process_risk()` → `compute_percentile_projections()`. Skip entirely when only one projection system exists (zero variance).
