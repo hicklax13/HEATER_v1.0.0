@@ -5,7 +5,7 @@
 A fantasy baseball draft assistant + in-season manager for a 12-team Yahoo Sports 5x5 roto snake draft league. Two pillars:
 
 1. **Draft Tool** (`app.py`, ~1900 lines) — "Broadcast Booth" dark-theme Streamlit app: 4-step setup wizard, 3-column draft page, Monte Carlo recommendations.
-2. **In-Season Management** (`pages/`) — 4 Streamlit pages: team overview, trade analysis, player comparison, free agent rankings. Powered by MLB Stats API + pybaseball (no Yahoo API dependency).
+2. **In-Season Management** (`pages/`) — 5 Streamlit pages: team overview, trade analysis, player comparison, free agent rankings, lineup optimizer. Powered by MLB Stats API + pybaseball + optional Yahoo Fantasy API.
 
 ## Commands
 
@@ -25,7 +25,7 @@ ruff check .
 # Format
 ruff format .
 
-# Run all tests (22 tests)
+# Run all tests (~150 tests, 4 skipped for optional deps)
 python -m pytest
 
 # Run a single test file
@@ -46,9 +46,11 @@ python -m pytest tests/test_in_season.py::test_trade_analyzer -v
 ## Tech Stack
 
 - **Framework:** Streamlit (Python), multi-page app
-- **Database:** SQLite (`data/draft_tool.db`) — 12 tables total
+- **Database:** SQLite (`data/draft_tool.db`) — 14 tables total
 - **Core libs:** pandas, NumPy, SciPy, Plotly
+- **Analytics:** PyMC 5 (Bayesian), PuLP (LP optimizer), arviz (posterior analysis)
 - **Live data:** MLB-StatsAPI, pybaseball (FanGraphs Depth Charts + park factors)
+- **Yahoo API:** yfpy + streamlit-oauth (optional OAuth integration)
 - **Linter:** ruff (lint + format)
 - **CI:** GitHub Actions — ruff lint/format, pytest (Python 3.11-3.13), build check
 - **Python:** Local dev uses 3.14; CI tests 3.11-3.13
@@ -57,8 +59,8 @@ python -m pytest tests/test_in_season.py::test_trade_analyzer -v
 
 ```
 app.py                  — Draft tool: 4-step setup wizard + 3-column draft page
-requirements.txt        — pip dependencies (streamlit, pandas, numpy, scipy, plotly, MLB-StatsAPI, pybaseball)
-load_sample_data.py     — Generates ~190 sample players for testing
+requirements.txt        — pip dependencies (streamlit, pandas, numpy, scipy, plotly, MLB-StatsAPI, pybaseball, pymc, PuLP, yfpy)
+load_sample_data.py     — Generates ~190 sample players + injury history for testing
 .streamlit/config.toml  — Dark theme configuration
 .claude/launch.json     — Dev server config for preview tools
 pages/
@@ -66,24 +68,35 @@ pages/
   2_Trade_Analyzer.py   — In-season: trade proposal builder + MC analysis
   3_Player_Compare.py   — In-season: head-to-head player comparison
   4_Free_Agents.py      — In-season: free agent rankings by marginal value
+  5_Lineup_Optimizer.py — In-season: PuLP LP solver for start/sit + category targeting
 src/
-  database.py           — SQLite schema (12 tables), CSV import, projection blending, player pool + in-season queries
-  valuation.py          — SGP calculator, replacement levels, VORP, category weights, full valuation
-  draft_state.py        — Draft state management, roster tracking, snake pick order, JSON persistence
-  simulation.py         — Monte Carlo draft simulation, opponent modeling, survival probability, urgency
+  database.py           — SQLite schema (14 tables), CSV import, projection blending, player pool + in-season queries
+  valuation.py          — SGP calculator, replacement levels, VORP, category weights, percentile forecasts
+  draft_state.py        — Draft state management, roster tracking, snake pick order, opponent patterns
+  simulation.py         — Monte Carlo draft simulation, opponent modeling (history-aware), survival probability
   in_season.py          — Trade analyzer, player comparison engine, FA ranker
   live_stats.py         — MLB Stats API + pybaseball data fetcher, daily refresh logic
   league_manager.py     — League roster/standings management, CSV import for all 12 teams
   ui_shared.py          — Shared THEME dict + inject_custom_css() used by app.py and pages/
   data_2026.py          — Hardcoded 2026 projections (~200 hitters, ~80 pitchers) for sample data
   validation.py         — Validation utilities
-  yahoo_api.py          — DEPRECATED: exists but unused (replaced by live_stats.py)
+  bayesian.py           — Bayesian projection updater: PyMC hierarchical model + Marcel regression fallback
+  injury_model.py       — Health scores, age-risk curves, workload flags, injury-adjusted projections
+  lineup_optimizer.py   — PuLP LP solver: lineup optimization, category targeting, two-start SP detection
+  yahoo_api.py          — Yahoo Fantasy API: OAuth integration via yfpy, league sync, roster import
 tests/
   test_database_schema.py   — DB schema and table existence tests
   test_database_queries.py  — Query function tests
   test_in_season.py         — Trade analyzer, comparison, FA ranker tests
   test_league_manager.py    — League roster/standings management tests
   test_live_stats.py        — Live stats pipeline tests
+  test_bayesian.py          — Bayesian updater: regression, age curves, stabilization, batch update (31 tests)
+  test_injury_model.py      — Injury model: health scores, age risk, workload flags (17 tests)
+  test_lineup_optimizer.py  — Lineup optimizer: LP solver, constraints, category targeting (20 tests)
+  test_yahoo_api.py         — Yahoo API: OAuth, sync, mock endpoints (38 tests)
+  test_percentiles.py       — Percentile forecasts: volatility, P10/P50/P90 bounds (7 tests)
+  test_opponent_model.py    — Enhanced opponent modeling: preferences, needs, history (8 tests)
+  test_integration.py       — End-to-end pipeline: injury → Bayesian → percentiles → valuation (11 tests)
   profile_latency.py        — Performance profiling utility
 data/
   draft_tool.db         — SQLite database (created at runtime)
@@ -118,13 +131,22 @@ docs/plans/             — Implementation plan archives
 - **Player Compare:** ROS projections → Z-score normalization across 10 categories → composite weighted score, optional marginal SGP team impact
 - **FA Ranker:** Marginal SGP per FA vs. user's roster → category-need weighting → replacement target identification → sort by net marginal value
 - **Live Stats:** MLB Stats API (daily auto-refresh) + pybaseball ROS projections, staleness tracking via `refresh_log` table
+- **Lineup Optimizer:** PuLP LP solver with binary assignment per player/slot, category targeting based on standings gaps, two-start SP detection
 
-### Database Tables (12)
+### Advanced Analytics (Plan 3)
+- **Bayesian Updater:** PyMC 5 hierarchical beta-binomial model for in-season stat updates; Marcel regression fallback when PyMC unavailable. Uses FanGraphs stabilization thresholds (K=60 PA, AVG=910 AB, ERA=70 IP). Aging curves on logit scale.
+- **Injury Model:** `health_score = avg(GP/games_available)` over 3 seasons. Age-risk curves: hitters +2%/yr after 30, pitchers +3%/yr after 28. Workload flag for >40 IP increase. Counting stats scaled by health score.
+- **Percentile Forecasts:** Inter-projection volatility (StdDev across Steamer/ZiPS/Depth Charts). P10/P50/P90 using ±1.28σ. Process risk widening for low-correlation stats (AVG r²=0.41 vs HR r²=0.72).
+- **Enhanced Opponent Model:** `P(pick) = 0.5*ADP + 0.3*team_need + 0.2*historical_preference`. Computes per-team positional bias from draft history. Falls back to ADP-only when no history available.
+- **Yahoo API:** OAuth 2.0 via yfpy v17+, streamlit-oauth browser flow. League settings, rosters, standings, FA pool, draft results sync. Graceful degradation when not connected.
+
+### Database Tables (14)
 
 | Group | Tables |
 |-------|--------|
 | Draft | `projections`, `adp`, `league_config`, `draft_picks`, `blended_projections`, `player_pool` |
 | In-Season | `season_stats`, `ros_projections`, `league_rosters`, `league_standings`, `park_factors`, `refresh_log` |
+| Plan 3 | `injury_history`, `transactions` |
 
 ## Data Sources
 
@@ -151,6 +173,33 @@ value_all_players(pool, config, roster_totals=None, category_weights=None,
 # load_player_pool() columns:
 # player_id, name, team, positions, is_hitter, is_injured,
 # pa, ab, h, r, hr, rbi, sb, avg, ip, w, sv, k, era, whip, er, bb_allowed, h_allowed, adp
+
+# --- Plan 3 new APIs ---
+
+# Bayesian updater (src/bayesian.py)
+BayesianUpdater(prior_weight=0.6)
+updater.regressed_rate(observed_rate, sample_size, league_mean, stabilization_point)
+updater.batch_update_projections(season_stats_df, preseason_df, config=None)
+updater.age_adjustment(age, stat)  # returns float multiplier
+
+# Injury model (src/injury_model.py)
+compute_health_score(games_played_3yr: list, games_available_3yr: list) -> float
+apply_injury_adjustment(projections_df, health_scores_df) -> pd.DataFrame
+get_injury_badge(health_score) -> tuple[str, str]  # (icon, label)
+
+# Percentiles (src/valuation.py)
+compute_projection_volatility(projections_by_system: dict[str, DataFrame]) -> DataFrame
+compute_percentile_projections(base_df, volatility_df, percentiles=[10,50,90]) -> dict[int, DataFrame]
+
+# Opponent model (src/simulation.py, src/draft_state.py)
+compute_team_preferences(draft_history_df)  # needs columns: team_key, positions, round
+get_team_draft_patterns(draft_state_dict, team_id: int)  # team_id is 0-based index
+get_positional_needs(draft_state_dict, team_id: int, roster_config: dict)
+
+# Lineup optimizer (src/lineup_optimizer.py)
+LineupOptimizer(roster_df, config_dict)
+optimizer.optimize_lineup()  # returns {slot: player_name, projected_stats: {...}}
+optimizer.category_targeting(standings_df, team_name)  # returns {cat: weight}
 ```
 
 ## Gotchas
@@ -164,6 +213,11 @@ value_all_players(pool, config, roster_totals=None, category_weights=None,
 - **Streamlit pages outside runtime** — Pages use `if/else` guard pattern around `st.stop()` to prevent crashes when imported outside Streamlit.
 - **`datetime.now(UTC)`** — Used everywhere; `datetime.utcnow()` is deprecated.
 - **`width="stretch"`** — Replaces deprecated `use_container_width=True` in Streamlit.
+- **PyMC/PuLP optional deps** — `PYMC_AVAILABLE` and `PULP_AVAILABLE` flags in bayesian.py and lineup_optimizer.py. Always use `try/except ImportError` pattern. CI skips tests requiring these with `@pytest.mark.skipif`.
+- **`compute_team_preferences()` column names** — Expects `team_key` and `positions`, NOT `team_id`/`position`. Integration tests caught this.
+- **`get_team_draft_patterns()` uses int team_id** — `team_id` is 0-based team index, not team name string. Filters on `pick.get("team_index")`.
+- **health_score range** — Always 0.0 to 1.0. Missing seasons default to 0.85 (league average). Empty history returns 0.85.
+- **Yahoo API graceful degradation** — All Yahoo features wrapped in `YFPY_AVAILABLE` checks. App works fully without Yahoo credentials.
 
 ## GitHub
 
