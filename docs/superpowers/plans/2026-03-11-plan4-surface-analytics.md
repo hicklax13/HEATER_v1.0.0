@@ -63,22 +63,16 @@ def _make_pool(n=20):
     return pd.DataFrame(rows)
 
 
-def _make_draft_state(pool, num_teams=12):
+def _make_draft_state(num_teams=12):
     """Create a minimal DraftState for testing."""
     from src.draft_state import DraftState
-    config = {
-        "num_teams": num_teams,
-        "num_rounds": 23,
-        "user_team_index": 0,
-        "team_names": [f"Team {i+1}" for i in range(num_teams)],
-    }
-    return DraftState(config, pool)
+    return DraftState(num_teams=num_teams, num_rounds=23, user_team_index=0)
 
 
 def test_evaluate_candidates_accepts_percentile_params():
     """evaluate_candidates should accept use_percentile_sampling and sgp_volatility."""
     pool = _make_pool()
-    ds = _make_draft_state(pool)
+    ds = _make_draft_state()
     sim = DraftSimulator(LeagueConfig())
 
     vol = np.ones(len(pool)) * 0.5
@@ -96,7 +90,7 @@ def test_evaluate_candidates_accepts_percentile_params():
 def test_evaluate_candidates_returns_risk_adjusted_sgp():
     """When percentile sampling is on, result should include risk_adjusted_sgp."""
     pool = _make_pool()
-    ds = _make_draft_state(pool)
+    ds = _make_draft_state()
     sim = DraftSimulator(LeagueConfig())
 
     vol = np.ones(len(pool)) * 0.5
@@ -112,7 +106,7 @@ def test_evaluate_candidates_returns_risk_adjusted_sgp():
 def test_evaluate_candidates_without_percentile_unchanged():
     """Without percentile params, behavior unchanged (no risk_adjusted_sgp column)."""
     pool = _make_pool()
-    ds = _make_draft_state(pool)
+    ds = _make_draft_state()
     sim = DraftSimulator(LeagueConfig())
 
     result = sim.evaluate_candidates(pool, ds, top_n=3, n_simulations=10)
@@ -263,9 +257,17 @@ In `render_draft_page()` (after line 1108, after loading pool/config), add healt
                 ga = group["games_available"].tolist()
                 health_dict[pid] = compute_health_score(gp, ga)
         st.session_state.health_scores = health_dict
+
+        # Apply injury adjustment to counting stats so injured players rank lower
+        if health_dict:
+            health_scores_df = pd.DataFrame([
+                {"player_id": pid, "health_score": hs}
+                for pid, hs in health_dict.items()
+            ])
+            pool = apply_injury_adjustment(pool, health_scores_df)
 ```
 
-- [ ] **Step 3: Add injury badge to hero card**
+- [ ] **Step 3: Add injury badge + workload flag to hero card**
 
 In `render_hero_pick()` (line 1270), after getting name/pos/score, add badge computation:
 
@@ -281,12 +283,20 @@ In `render_hero_pick()` (line 1270), after getting name/pos/score, add badge com
     is_hitter = rec.get("is_hitter", 1)
     age_threshold = POSITION_PLAYER_AGE_THRESHOLD if is_hitter else PITCHER_AGE_THRESHOLD
     age_html = f' <span style="color:{T["warn"]};">⚠️ Age {age}</span>' if age and age >= age_threshold else ""
+
+    # Workload flag (pitchers only — >40 IP increase)
+    workload_html = ""
+    if not is_hitter:
+        ip_current = rec.get("ip", 0)
+        ip_prev = rec.get("ip_prev", ip_current)  # Fallback to current if no prev
+        if workload_flag(ip_current, ip_prev):
+            workload_html = f' <span style="color:{T["danger"]};">🔥 Workload</span>'
 ```
 
 Then insert `{injury_html}{age_html}` into the hero card HTML after the `p-meta` div content (line 1334):
 
 ```python
-        f'<div class="p-meta">{pos} &middot; Tier {tier} {vb}{injury_html}{age_html}</div>'
+        f'<div class="p-meta">{pos} &middot; Tier {tier} {vb}{injury_html}{age_html}{workload_html}</div>'
 ```
 
 - [ ] **Step 4: Add injury badge to alternative cards**
@@ -526,11 +536,11 @@ In `render_draft_page()`, after the recommendation engine section (around line 1
             pick_idx = ds.current_pick + offset
             if pick_idx >= ds.total_picks:
                 break
-            team_idx = ds.team_for_pick(pick_idx)
+            team_idx = ds.picking_team_index(pick_idx)
             team_name = ds.teams[team_idx].team_name
 
             # Get positional needs
-            state_dict = ds.to_dict()
+            state_dict = {"picks": ds.pick_log}
             needs = get_positional_needs(state_dict, team_idx, ROSTER_CONFIG)
 
             # Check preference bias
@@ -606,25 +616,53 @@ Add the new function:
 
 ```python
 def render_opponent_intel(ds):
-    """Display positional needs and tendencies for all opponents."""
+    """Display positional needs, bias, and predicted picks for all opponents."""
     if not ds.pick_log:
         st.info("Opponent data will appear after the first few picks.")
         return
 
-    # Build data
+    # Compute team preferences from draft history
+    history_rows = [
+        {"team_key": str(p.get("team_index", "")), "positions": p.get("positions", "")}
+        for p in ds.pick_log
+    ]
+    history_df = pd.DataFrame(history_rows)
+    preferences = compute_team_preferences(history_df) if not history_df.empty else {}
+
+    # Build data for each opponent
     rows = []
     for team_idx in range(ds.num_teams):
         if team_idx == ds.user_team_index:
             continue
         team_name = ds.teams[team_idx].team_name
-        state_dict = ds.to_dict()
+        state_dict = {"picks": ds.pick_log}
         needs = get_positional_needs(state_dict, team_idx, ROSTER_CONFIG)
         needs_str = ", ".join(sorted(needs.keys())) if needs else "Full"
 
+        # Historical bias
+        team_key = str(team_idx)
+        pref = preferences.get(team_key, {}).get("positional_bias", {})
+        top_bias = max(pref.items(), key=lambda x: x[1]) if pref else ("—", 0)
+        bias_str = f"{top_bias[0]} ({top_bias[1]:.0%})" if top_bias[1] > 0.2 else "—"
+
+        # Predicted next pick: highest-bias position that is also a need
+        predicted = "—"
+        for pos, frac in sorted(pref.items(), key=lambda x: -x[1]):
+            if pos in needs:
+                predicted = pos
+                break
+
+        # Threat level (for color coding)
+        picks_made = sum(1 for p in ds.pick_log if p.get("team_index") == team_idx)
+        threat = "🔴" if len(needs) <= 3 else "🟡" if len(needs) <= 8 else "🟢"
+
         rows.append({
+            "Threat": threat,
             "Team": team_name,
             "Positions Needed": needs_str,
-            "Picks Made": sum(1 for p in ds.pick_log if p.get("team_index") == team_idx),
+            "Historical Bias": bias_str,
+            "Predicted Next": predicted,
+            "Picks Made": picks_made,
         })
 
     if rows:
@@ -677,14 +715,41 @@ In `render_draft_page()`, after the practice mode check (line 1158), add a visib
         )
 ```
 
-- [ ] **Step 3: Ensure practice_mode init in session state**
+- [ ] **Step 3: Add practice mode state isolation**
 
-Find where session state is initialized (search for `practice_mode` in session state init block). Verify it defaults to `False`. If missing, add:
+The spec requires practice picks to use a separate `practice_draft_state` dict that is session-state-only (NOT written to `draft_state.json` or `draft_picks` table). On page refresh, practice state resets.
+
+Find where session state is initialized and add:
 
 ```python
 if "practice_mode" not in st.session_state:
     st.session_state.practice_mode = False
+if "practice_draft_state" not in st.session_state:
+    st.session_state.practice_draft_state = None
 ```
+
+Then in `render_draft_page()`, after loading the real `ds`, add the active-state swap:
+
+```python
+    # Practice mode state isolation: use separate ephemeral DraftState
+    if st.session_state.practice_mode:
+        if st.session_state.practice_draft_state is None:
+            # Clone current real state into a practice-only copy
+            st.session_state.practice_draft_state = DraftState(
+                num_teams=ds.num_teams,
+                num_rounds=ds.num_rounds,
+                user_team_index=ds.user_team_index,
+                roster_config=ROSTER_CONFIG,
+            )
+            # Copy existing picks into practice state
+            for pick in ds.pick_log:
+                st.session_state.practice_draft_state.pick_log.append(pick)
+                st.session_state.practice_draft_state.drafted_player_ids.add(pick["player_id"])
+            st.session_state.practice_draft_state.current_pick = ds.current_pick
+        ds = st.session_state.practice_draft_state  # Swap — all reads/writes go to practice state
+```
+
+**Key:** When practice mode is on, `ds` points to the ephemeral session-state copy. No file or DB writes occur because the practice `DraftState` is never persisted.
 
 - [ ] **Step 4: Add "Reset Practice" button**
 
@@ -693,7 +758,13 @@ In the sidebar, after the practice toggle:
 ```python
         if st.session_state.practice_mode:
             if st.button("🔄 Reset Practice", width="stretch"):
-                ds.reset()
+                # Create fresh DraftState — practice state is ephemeral
+                st.session_state.practice_draft_state = DraftState(
+                    num_teams=ds.num_teams,
+                    num_rounds=ds.num_rounds,
+                    user_team_index=ds.user_team_index,
+                    roster_config=ROSTER_CONFIG,
+                )
                 st.toast("Practice reset!", icon="🎮")
                 st.rerun()
 ```
@@ -707,7 +778,7 @@ git commit -m "feat: add practice mode banner and reset button to draft page"
 
 ---
 
-## Chunk 3: In-Season Page Enhancements (Tasks 7-10)
+## Chunk 4: In-Season Page Enhancements (Tasks 7-10)
 
 These tasks are independent of each other and can be parallelized.
 
@@ -744,7 +815,8 @@ After `roster` is loaded (line 50), compute health scores:
 ```python
         # Compute health scores for badge display
         try:
-            conn = __import__("src.database", fromlist=["get_connection"]).get_connection()
+            from src.database import get_connection
+            conn = get_connection()
             injury_df = pd.read_sql_query("SELECT * FROM injury_history", conn)
             conn.close()
         except Exception:
@@ -786,8 +858,12 @@ After the roster display section, add:
                     conn.close()
 
                     if not season_stats.empty and season_stats.get("games_played", pd.Series([0])).sum() > 0:
+                        # Load preseason projections for Bayesian prior
+                        preseason = pd.read_sql_query(
+                            "SELECT * FROM blended_projections", conn
+                        )
                         updater = BayesianUpdater()
-                        updated = updater.batch_update_projections(season_stats, roster)
+                        updated = updater.batch_update_projections(season_stats, preseason)
                         st.subheader("📊 Bayesian-Adjusted Projections")
                         st.caption("Stats regressed toward preseason priors using FanGraphs stabilization thresholds")
                         stat_display = ["player_id", "avg", "hr", "rbi", "sb", "era", "whip", "k"]
@@ -846,9 +922,31 @@ After existing imports, add:
 
 ```python
 from src.injury_model import compute_health_score, get_injury_badge
+from src.valuation import compute_percentile_projections, compute_projection_volatility
 ```
 
-- [ ] **Step 2: Add injury badges to trade proposal display**
+- [ ] **Step 2: Load health scores from injury_history table**
+
+After pool is loaded, compute actual health scores (NOT hardcoded):
+
+```python
+        # Load health scores from injury history
+        health_dict = {}
+        try:
+            from src.database import get_connection
+            conn = get_connection()
+            injury_df = pd.read_sql_query("SELECT * FROM injury_history", conn)
+            conn.close()
+            if not injury_df.empty and "player_id" in injury_df.columns:
+                for pid, group in injury_df.groupby("player_id"):
+                    gp = group["games_played"].tolist()
+                    ga = group["games_available"].tolist()
+                    health_dict[pid] = compute_health_score(gp, ga)
+        except Exception:
+            pass
+```
+
+- [ ] **Step 3: Add injury badges to trade proposal display**
 
 After the trade analysis result is computed, before the verdict banner (around line 96), add badge display for both sides:
 
@@ -861,23 +959,64 @@ After the trade analysis result is computed, before the verdict banner (around l
                         p = pool[pool["player_name"] == name]
                         if not p.empty:
                             pid = p.iloc[0]["player_id"]
-                            # Simple badge from pool data
-                            icon, label = get_injury_badge(0.85)  # Default
-                            st.markdown(f"{icon} {name}")
+                            hs = health_dict.get(pid, 0.85)
+                            icon, label = get_injury_badge(hs)
+                            st.markdown(f"{icon} {name} — {label}")
                 with trade_col2:
                     st.markdown("**Receiving:**")
                     for name in receiving_names:
                         p = pool[pool["player_name"] == name]
                         if not p.empty:
-                            icon, label = get_injury_badge(0.85)
-                            st.markdown(f"{icon} {name}")
+                            pid = p.iloc[0]["player_id"]
+                            hs = health_dict.get(pid, 0.85)
+                            icon, label = get_injury_badge(hs)
+                            st.markdown(f"{icon} {name} — {label}")
 ```
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 4: Add P10/P90 upside/downside risk**
+
+After the injury badges section, add percentile range display:
+
+```python
+                # P10/P90 risk assessment for traded players
+                try:
+                    from src.database import get_connection
+                    conn = get_connection()
+                    systems = {}
+                    for sys_name in ["steamer", "zips", "depthcharts", "blended"]:
+                        df = pd.read_sql_query(
+                            f"SELECT * FROM projections WHERE system = '{sys_name}'", conn
+                        )
+                        if not df.empty:
+                            systems[sys_name] = df
+                    conn.close()
+
+                    if len(systems) >= 2:
+                        vol = compute_projection_volatility(systems)
+                        pct = compute_percentile_projections(base=pool, volatility=vol)
+                        p10_df, p90_df = pct.get(10), pct.get(90)
+                        if p10_df is not None and p90_df is not None:
+                            st.subheader("📊 Upside/Downside Risk")
+                            all_names = list(giving_names) + list(receiving_names)
+                            risk_rows = []
+                            for name in all_names:
+                                p10_row = p10_df[p10_df.get("name", p10_df.get("player_name", "")) == name]
+                                p90_row = p90_df[p90_df.get("name", p90_df.get("player_name", "")) == name]
+                                if not p10_row.empty and not p90_row.empty:
+                                    p10_sgp = p10_row.iloc[0].get("total_sgp", 0)
+                                    p90_sgp = p90_row.iloc[0].get("total_sgp", 0)
+                                    risk_rows.append({"Player": name, "P10 (Floor)": f"{p10_sgp:.1f}", "P90 (Ceiling)": f"{p90_sgp:.1f}"})
+                            if risk_rows:
+                                st.dataframe(pd.DataFrame(risk_rows), hide_index=True, width="stretch")
+                except Exception:
+                    pass  # Graceful degradation when percentiles unavailable
+```
+
+- [ ] **Step 5: Commit**
 
 ```bash
 git add pages/2_Trade_Analyzer.py
-git commit -m "feat: add injury badges to Trade Analyzer page"
+git commit -m "feat: add injury badges and P10/P90 ranges to Trade Analyzer page"
 ```
 
 ---
@@ -893,9 +1032,31 @@ After existing imports, add:
 
 ```python
 from src.injury_model import compute_health_score, get_injury_badge
+from src.valuation import compute_percentile_projections, compute_projection_volatility
 ```
 
-- [ ] **Step 2: Add health score comparison row**
+- [ ] **Step 2: Load health scores from injury_history table**
+
+After result is computed, load actual health scores:
+
+```python
+        # Load health scores
+        health_dict = {}
+        try:
+            from src.database import get_connection
+            conn = get_connection()
+            injury_df = pd.read_sql_query("SELECT * FROM injury_history", conn)
+            conn.close()
+            if not injury_df.empty and "player_id" in injury_df.columns:
+                for pid, group in injury_df.groupby("player_id"):
+                    gp = group["games_played"].tolist()
+                    ga = group["games_available"].tolist()
+                    health_dict[pid] = compute_health_score(gp, ga)
+        except Exception:
+            pass
+```
+
+- [ ] **Step 3: Add health score + projection confidence comparison rows**
 
 After the z-score comparison table (line 122), add:
 
@@ -904,22 +1065,54 @@ After the z-score comparison table (line 122), add:
         st.subheader("Health & Confidence")
         health_rows = []
         for name_col, pid_col in [(result["player_a"], id_a), (result["player_b"], id_b)]:
-            icon, label = get_injury_badge(0.85)  # Default when no history
-            health_rows.append({"Player": name_col, "Health": f"{icon} {label}"})
+            hs = health_dict.get(pid_col, 0.85)
+            icon, label = get_injury_badge(hs)
+            health_rows.append({"Player": name_col, "Health": f"{icon} {label}", "Score": f"{hs:.2f}"})
+
+        # Projection confidence: P10-P90 range width per player
+        try:
+            from src.database import get_connection
+            conn = get_connection()
+            systems = {}
+            for sys_name in ["steamer", "zips", "depthcharts", "blended"]:
+                df = pd.read_sql_query(
+                    f"SELECT * FROM projections WHERE system = '{sys_name}'", conn
+                )
+                if not df.empty:
+                    systems[sys_name] = df
+            conn.close()
+
+            if len(systems) >= 2:
+                vol = compute_projection_volatility(systems)
+                pct = compute_percentile_projections(base=pool, volatility=vol)
+                p10_df, p90_df = pct.get(10), pct.get(90)
+                if p10_df is not None and p90_df is not None:
+                    for row in health_rows:
+                        name = row["Player"]
+                        p10_row = p10_df[p10_df.get("name", p10_df.get("player_name", "")) == name]
+                        p90_row = p90_df[p90_df.get("name", p90_df.get("player_name", "")) == name]
+                        if not p10_row.empty and not p90_row.empty:
+                            width = p90_row.iloc[0].get("total_sgp", 0) - p10_row.iloc[0].get("total_sgp", 0)
+                            row["Confidence"] = f"±{width:.1f} SGP" if width > 0 else "—"
+                        else:
+                            row["Confidence"] = "—"
+        except Exception:
+            for row in health_rows:
+                row["Confidence"] = "—"
 
         st.dataframe(pd.DataFrame(health_rows), hide_index=True, width="stretch")
 ```
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
 git add pages/3_Player_Compare.py
-git commit -m "feat: add health score comparison to Player Compare page"
+git commit -m "feat: add health score and projection confidence to Player Compare page"
 ```
 
 ---
 
-### Task 10: Lineup Optimizer — health penalty + two-start SP placeholder
+### Task 10: Lineup Optimizer — health penalty + two-start SP detection
 
 **Files:**
 - Modify: `pages/5_Lineup_Optimizer.py`
@@ -932,12 +1125,13 @@ After existing imports, add:
 from src.injury_model import compute_health_score, get_injury_badge
 ```
 
-- [ ] **Step 2: Add health-adjusted roster info**
+- [ ] **Step 2: Add health-adjusted roster info + health penalty in optimization**
 
-After the roster overview section (line 131), add health column:
+After the roster overview section (line 131), add health column and apply penalty:
 
 ```python
 # Add health info to roster overview
+health_dict = {}
 try:
     from src.database import get_connection
     conn = get_connection()
@@ -953,32 +1147,108 @@ try:
                 hs = compute_health_score(pi["games_played"].tolist(), pi["games_available"].tolist())
                 icon, _ = get_injury_badge(hs)
                 health_badges.append(icon)
+                health_dict[pid] = hs
             else:
                 health_badges.append("🟢")
+                health_dict[pid] = 1.0
         roster["Health"] = health_badges
 except Exception:
     pass
+
+# Apply health penalty to LP objective: reduce projected value by (1 - health_score) * penalty_weight
+# This makes the optimizer prefer healthy players when value is close
+HEALTH_PENALTY_WEIGHT = 0.15
+if health_dict and "projected_sgp" in roster.columns:
+    roster["health_adjusted_sgp"] = roster.apply(
+        lambda r: r["projected_sgp"] * (1.0 - HEALTH_PENALTY_WEIGHT * (1.0 - health_dict.get(r.get("player_id"), 1.0))),
+        axis=1,
+    )
 ```
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 3: Add two-start SP detection**
+
+After the health section, add two-start pitcher identification:
+
+```python
+# Two-start SP detection via MLB schedule
+try:
+    import statsapi
+    # Get this week's schedule
+    from datetime import datetime, timedelta
+    today = datetime.now()
+    end = today + timedelta(days=7)
+    schedule = statsapi.schedule(start_date=today.strftime("%Y-%m-%d"), end_date=end.strftime("%Y-%m-%d"))
+
+    team_game_counts = {}
+    for game in schedule:
+        for team_key in ["home_name", "away_name"]:
+            team_name = game.get(team_key, "")
+            team_game_counts[team_name] = team_game_counts.get(team_name, 0) + 1
+
+    # Flag SPs whose team has 2+ games in the period
+    two_start_sps = []
+    for _, row in roster.iterrows():
+        if not row.get("is_hitter", True) and "SP" in str(row.get("positions", "")):
+            team = row.get("team", "")
+            if team_game_counts.get(team, 0) >= 2:
+                two_start_sps.append(row.get("name", row.get("player_name", "")))
+
+    if two_start_sps:
+        st.info(f"📅 Potential two-start SPs this week: {', '.join(two_start_sps)}")
+except Exception:
+    pass  # Graceful degradation when MLB Stats API unavailable
+```
+
+- [ ] **Step 4: Commit**
 
 ```bash
 git add pages/5_Lineup_Optimizer.py
-git commit -m "feat: add health indicators to Lineup Optimizer roster view"
+git commit -m "feat: add health penalty and two-start SP detection to Lineup Optimizer"
 ```
 
 ---
 
-## Chunk 4: Yahoo API Setup Wizard + Final Verification (Tasks 11-12)
+## Chunk 5: Yahoo API Setup Wizard + Final Verification (Tasks 11-12)
 
 ---
 
-### Task 11: Add Yahoo OAuth to setup wizard
+### Task 11: Yahoo API integration — update authenticate() + setup wizard
 
 **Files:**
+- Modify: `src/yahoo_api.py` — `authenticate()` to consume `token_data`
 - Modify: `app.py` — setup wizard Step 1 section
 
-- [ ] **Step 1: Add Yahoo API import**
+- [ ] **Step 1: Update `authenticate()` in yahoo_api.py to consume token_data**
+
+In `src/yahoo_api.py`, the `authenticate()` method (line 133) already accepts `token_data: dict | None = None` but currently ignores it. Update to consume when provided:
+
+```python
+    def authenticate(
+        self,
+        consumer_key: str,
+        consumer_secret: str,
+        token_data: dict | None = None,
+    ) -> bool:
+        # ... existing docstring ...
+        if not YFPY_AVAILABLE:
+            return False
+        try:
+            # If token_data provided, skip browser OAuth flow
+            if token_data is not None:
+                import json
+                token_path = Path(self.data_dir) / "token.json"
+                token_path.write_text(json.dumps(token_data))
+                # yfpy will pick up the token file on Game() init
+
+            self._game = Game(
+                consumer_key, consumer_secret, game_code=self.game_code
+            )
+            return True
+        except Exception:
+            return False
+```
+
+- [ ] **Step 2: Add Yahoo API import to app.py**
 
 At top of `app.py`, add:
 
@@ -989,7 +1259,7 @@ except ImportError:
     YFPY_AVAILABLE = False
 ```
 
-- [ ] **Step 2: Add Yahoo connect section to Step 1**
+- [ ] **Step 3: Add Yahoo connect section to Step 1**
 
 Find the Step 1 (league config) section of the setup wizard. Before the manual config form, add:
 
@@ -1015,8 +1285,16 @@ Find the Step 1 (league config) section of the setup wizard. Before the manual c
                         client = YahooFantasyClient(league_id="auto")
                         if client.authenticate(yahoo_key, yahoo_secret):
                             st.session_state.yahoo_client = client
+                            # Auto-populate league settings
+                            try:
+                                settings = client.get_league_settings()
+                                if settings:
+                                    st.session_state.yahoo_settings = settings
+                                client.sync_to_db()
+                            except Exception:
+                                pass  # Sync failures are non-fatal
                             st.success("Connected to Yahoo Fantasy!")
-                            st.toast("League data will auto-populate", icon="✅")
+                            st.toast("League data auto-populated!", icon="✅")
                         else:
                             st.error("Authentication failed. Check your credentials.")
                     except Exception as e:
@@ -1025,16 +1303,16 @@ Find the Step 1 (league config) section of the setup wizard. Before the manual c
             st.markdown(f'<div style="text-align:center;color:{T["tx2"]};margin:12px 0;">── or ──</div>', unsafe_allow_html=True)
 ```
 
-- [ ] **Step 3: Run full test suite**
+- [ ] **Step 4: Run full test suite**
 
 Run: `python -m pytest tests/ -v --tb=short`
 Expected: All pass (Yahoo import is behind try/except)
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
-git add app.py
-git commit -m "feat: add Yahoo Fantasy OAuth connect button to setup wizard"
+git add src/yahoo_api.py app.py
+git commit -m "feat: update Yahoo authenticate() and add OAuth connect to setup wizard"
 ```
 
 ---
@@ -1054,7 +1332,7 @@ Expected: Clean
 - [ ] **Step 3: Run full test suite**
 
 Run: `python -m pytest tests/ -v --tb=short`
-Expected: ~155 pass, 4 skip, 0 fail
+Expected: ~153 pass, 4 skip, 0 fail
 
 - [ ] **Step 4: Update CLAUDE.md**
 
