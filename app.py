@@ -21,9 +21,6 @@ from src.database import (
     load_player_pool,
 )
 from src.draft_state import DraftState
-from src.league_manager import import_league_rosters_csv, import_standings_csv
-from src.simulation import DraftSimulator, detect_position_run
-from src.ui_shared import ROSTER_CONFIG, T
 from src.injury_model import (
     PITCHER_AGE_THRESHOLD,
     POSITION_PLAYER_AGE_THRESHOLD,
@@ -32,9 +29,15 @@ from src.injury_model import (
     get_injury_badge,
     workload_flag,
 )
+from src.league_manager import import_league_rosters_csv, import_standings_csv
+from src.simulation import DraftSimulator, detect_position_run
+from src.ui_shared import ROSTER_CONFIG, T
 from src.valuation import (
     LeagueConfig,
     SGPCalculator,
+    add_process_risk,
+    compute_percentile_projections,
+    compute_projection_volatility,
     compute_replacement_levels,
     compute_sgp_denominators,
     value_all_players,
@@ -1144,10 +1147,37 @@ def render_draft_page():
 
         # Apply injury adjustment to counting stats so injured players rank lower
         if health_dict:
-            health_scores_df = pd.DataFrame(
-                [{"player_id": pid, "health_score": hs} for pid, hs in health_dict.items()]
-            )
+            health_scores_df = pd.DataFrame([{"player_id": pid, "health_score": hs} for pid, hs in health_dict.items()])
             pool = apply_injury_adjustment(pool, health_scores_df)
+
+    # ── Compute percentile ranges ────────────────────────────────
+    if "percentile_data" not in st.session_state:
+        from src.database import get_connection
+
+        conn = get_connection()
+        try:
+            systems = {}
+            for system_name in ["steamer", "zips", "depthcharts", "blended"]:
+                df = pd.read_sql_query(
+                    f"SELECT * FROM projections WHERE system = '{system_name}'",
+                    conn,
+                )
+                if not df.empty:
+                    systems[system_name] = df
+        except Exception:
+            systems = {}
+        finally:
+            conn.close()
+
+        if len(systems) >= 2:
+            vol = compute_projection_volatility(systems)
+            vol = add_process_risk(vol)
+            pct_projs = compute_percentile_projections(base=pool, volatility=vol)
+            st.session_state.percentile_data = pct_projs
+            st.session_state.has_percentiles = True
+        else:
+            st.session_state.percentile_data = {}
+            st.session_state.has_percentiles = False
 
     inject_custom_css()
 
@@ -1212,7 +1242,24 @@ def render_draft_page():
         with st.status("Analyzing best picks...", expanded=False) as status:
             try:
                 sim = DraftSimulator(lc)
-                candidates = sim.evaluate_candidates(pool, ds, n_simulations=st.session_state.num_sims)
+
+                # Build volatility array for MC sampling
+                perc_kwargs = {}
+                if st.session_state.get("has_percentiles", False):
+                    vol_array = np.zeros(len(pool))
+                    if "total_sgp" in pool.columns:
+                        vol_array = np.full(len(pool), pool["total_sgp"].std() * 0.3)
+                    perc_kwargs = {
+                        "use_percentile_sampling": True,
+                        "sgp_volatility": vol_array,
+                    }
+
+                candidates = sim.evaluate_candidates(
+                    pool,
+                    ds,
+                    n_simulations=st.session_state.num_sims,
+                    **perc_kwargs,
+                )
 
                 if candidates is not None and len(candidates) > 0:
                     rec = candidates.iloc[0]
@@ -1367,9 +1414,7 @@ def render_hero_pick(rec, ds, pool):
     is_hitter = rec.get("is_hitter", 1)
     age_threshold = POSITION_PLAYER_AGE_THRESHOLD if is_hitter else PITCHER_AGE_THRESHOLD
     age_html = (
-        f' <span style="color:{T["warn"]};">&#9888;&#65039; Age {age}</span>'
-        if age and age >= age_threshold
-        else ""
+        f' <span style="color:{T["warn"]};">&#9888;&#65039; Age {age}</span>' if age and age >= age_threshold else ""
     )
 
     # Workload flag (pitchers only — >40 IP increase)
@@ -1379,6 +1424,38 @@ def render_hero_pick(rec, ds, pool):
         ip_prev = rec.get("ip_prev", ip_current)  # Fallback to current if no prev
         if workload_flag(ip_current, ip_prev):
             workload_html = f' <span style="color:{T["danger"]};">&#128293; Workload</span>'
+
+    # Percentile range bar
+    pct_html = ""
+    if st.session_state.get("has_percentiles", False):
+        pct_data = st.session_state.get("percentile_data", {})
+        p10_df = pct_data.get(10)
+        p90_df = pct_data.get(90)
+        if p10_df is not None and p90_df is not None and pid is not None:
+            p10_row = p10_df[p10_df["player_id"] == pid]
+            p90_row = p90_df[p90_df["player_id"] == pid]
+            if not p10_row.empty and not p90_row.empty:
+                p10_val = p10_row.iloc[0].get("pick_score", p10_row.iloc[0].get("total_sgp", score * 0.7))
+                p90_val = p90_row.iloc[0].get("pick_score", p90_row.iloc[0].get("total_sgp", score * 1.3))
+                range_width = max(p90_val - p10_val, 0.1)
+                fill_pct = int(((score - p10_val) / range_width) * 100)
+                fill_pct = max(5, min(95, fill_pct))
+                pct_html = (
+                    f'<div style="margin-top:8px;font-family:JetBrains Mono,monospace;'
+                    f'font-size:12px;color:{T["tx2"]};">'
+                    f"P10: {p10_val:.1f} "
+                    f'<span style="display:inline-block;width:120px;height:8px;'
+                    f'background:{T["card_h"]};border-radius:4px;vertical-align:middle;">'
+                    f'<span style="display:inline-block;width:{fill_pct}%;height:100%;'
+                    f'background:{T["amber"]};border-radius:4px;"></span>'
+                    f"</span>"
+                    f" P90: {p90_val:.1f}</div>"
+                )
+    else:
+        pct_html = (
+            f'<div style="margin-top:4px;font-size:11px;color:{T["tx2"]};font-style:italic;">'
+            f"Single projection source — range unavailable</div>"
+        )
 
     st.markdown(
         f'<div class="hero">'
@@ -1394,6 +1471,7 @@ def render_hero_pick(rec, ds, pool):
         f"</div></div>"
         f'<div class="reason">{reason}</div>'
         f'<div class="sgp-row">{chips_html}</div>'
+        f"{pct_html}"
         f"</div>",
         unsafe_allow_html=True,
     )
@@ -1429,12 +1507,27 @@ def render_alternatives(alts):
             alt_hs = st.session_state.get("health_scores", {}).get(alt_pid, 0.85)
             alt_icon, _ = get_injury_badge(alt_hs)
 
+            # Compact percentile range
+            range_text = ""
+            if st.session_state.get("has_percentiles", False):
+                pct_data = st.session_state.get("percentile_data", {})
+                p10_df = pct_data.get(10)
+                p90_df = pct_data.get(90)
+                if p10_df is not None and p90_df is not None and alt_pid is not None:
+                    p10_r = p10_df[p10_df["player_id"] == alt_pid]
+                    p90_r = p90_df[p90_df["player_id"] == alt_pid]
+                    if not p10_r.empty and not p90_r.empty:
+                        p10_s = p10_r.iloc[0].get("pick_score", score * 0.7)
+                        p90_s = p90_r.iloc[0].get("pick_score", score * 1.3)
+                        range_text = f'<div style="font-size:10px;color:{T["tx2"]};">{p10_s:.1f} — {p90_s:.1f}</div>'
+
             st.markdown(
                 f'<div class="alt tier-{tier}">'
                 f'<div class="a-rank">#{i + 2}</div>'
                 f'<div class="a-name">{name}</div>'
                 f'<div class="a-meta">{pos} {alt_icon} {risk_badge}</div>'
                 f'<div class="a-score">{score:.1f}</div>'
+                f"{range_text}"
                 f"</div>",
                 unsafe_allow_html=True,
             )
