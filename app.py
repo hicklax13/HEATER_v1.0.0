@@ -20,7 +20,7 @@ from src.database import (
     init_db,
     load_player_pool,
 )
-from src.draft_state import DraftState
+from src.draft_state import DraftState, get_positional_needs
 from src.injury_model import (
     PITCHER_AGE_THRESHOLD,
     POSITION_PLAYER_AGE_THRESHOLD,
@@ -30,7 +30,7 @@ from src.injury_model import (
     workload_flag,
 )
 from src.league_manager import import_league_rosters_csv, import_standings_csv
-from src.simulation import DraftSimulator, detect_position_run
+from src.simulation import DraftSimulator, compute_team_preferences, detect_position_run
 from src.ui_shared import ROSTER_CONFIG, T
 from src.valuation import (
     LeagueConfig,
@@ -1273,6 +1273,74 @@ def render_draft_page():
                 st.error(f"Engine error: {e}")
                 status.update(label="Error", state="error")
 
+    # ── Compute opponent intel ───────────────────────────────────
+    threat_alerts = []
+    opponent_data = []
+    if ds.is_user_turn and rec is not None:
+        # Build draft history for team preferences
+        pick_log = ds.pick_log
+        if len(pick_log) > 0:
+            history_rows = []
+            for pick in pick_log:
+                history_rows.append(
+                    {
+                        "team_key": str(pick.get("team_index", "")),
+                        "positions": pick.get("positions", ""),
+                    }
+                )
+            history_df = pd.DataFrame(history_rows)
+            preferences = compute_team_preferences(history_df)
+        else:
+            preferences = {}
+            history_df = None
+
+        # Determine which teams pick before our next turn
+        next_user = ds.next_user_pick()
+        if next_user and next_user > ds.current_pick:
+            picks_between = next_user - ds.current_pick - 1
+        else:
+            picks_between = ds.num_teams - 1
+
+        hero_pos = rec.get("positions", "").split(",")[0].strip()
+        teams_needing_pos = 0
+
+        for offset in range(1, picks_between + 1):
+            pick_idx = ds.current_pick + offset
+            if pick_idx >= ds.total_picks:
+                break
+            team_idx = ds.picking_team_index(pick_idx)
+            team_name = ds.teams[team_idx].team_name
+
+            # Get positional needs
+            state_dict = {"picks": ds.pick_log}
+            needs = get_positional_needs(state_dict, team_idx, ROSTER_CONFIG)
+
+            # Check preference bias
+            team_key = str(team_idx)
+            pref = preferences.get(team_key, {}).get("positional_bias", {})
+            bias = pref.get(hero_pos, 0)
+
+            if hero_pos in needs:
+                teams_needing_pos += 1
+
+            if bias > 0.6:
+                threat_alerts.append(f"\U0001f525 {team_name} targets {hero_pos} early ({bias:.0%} bias)")
+
+            opponent_data.append(
+                {
+                    "Team": team_name,
+                    "Needs": ", ".join(sorted(needs.keys())) if needs else "\u2014",
+                    "Bias": hero_pos + f" ({bias:.0%})" if bias > 0.3 else "\u2014",
+                }
+            )
+
+        if teams_needing_pos >= 3:
+            threat_alerts.insert(0, f"\u26a0\ufe0f Low survival: {teams_needing_pos} teams need {hero_pos} before you")
+
+        surv = rec.get("p_survive", rec.get("survival_pct", 50))
+        if surv > 80 and not threat_alerts:
+            threat_alerts.append("\u2705 Likely available next round")
+
     # ── 3-Column Layout ──────────────────────────────────────────
     left, center, right = st.columns([1.2, 3, 1.3])
 
@@ -1283,7 +1351,7 @@ def render_draft_page():
     with center:
         if ds.is_user_turn:
             if rec is not None:
-                render_hero_pick(rec, ds, pool)
+                render_hero_pick(rec, ds, pool, threat_alerts=threat_alerts)
                 if len(alts) > 0:
                     render_alternatives(alts)
             else:
@@ -1349,7 +1417,7 @@ def render_command_bar(ds):
 # ── Hero Pick Card ──────────────────────────────────────────────────
 
 
-def render_hero_pick(rec, ds, pool):
+def render_hero_pick(rec, ds, pool, threat_alerts=None):
     name = rec.get("player_name", rec.get("name", "Unknown"))
     pos = rec.get("positions", rec.get("position", ""))
     score = rec.get("pick_score", rec.get("combined_score", 0))
@@ -1457,6 +1525,12 @@ def render_hero_pick(rec, ds, pool):
             f"Single projection source — range unavailable</div>"
         )
 
+    # Threat alerts
+    alerts_html = ""
+    if threat_alerts:
+        for alert in threat_alerts[:2]:  # Max 2 lines
+            alerts_html += f'<div style="font-size:13px;margin-top:4px;color:{T["tx2"]};">{alert}</div>'
+
     st.markdown(
         f'<div class="hero">'
         f'<div class="score-badge">{score:.1f}</div>'
@@ -1472,6 +1546,7 @@ def render_hero_pick(rec, ds, pool):
         f'<div class="reason">{reason}</div>'
         f'<div class="sgp-row">{chips_html}</div>'
         f"{pct_html}"
+        f"{alerts_html}"
         f"</div>",
         unsafe_allow_html=True,
     )
@@ -1768,7 +1843,7 @@ def render_scarcity_rings(ds, pool):
 
 
 def render_draft_tabs(ds, pool, lc, sgp):
-    tabs = st.tabs(["Category Balance", "Available Players", "Draft Board", "Draft Log"])
+    tabs = st.tabs(["Category Balance", "Available Players", "Draft Board", "Draft Log", "Opponent Intel"])
 
     with tabs[0]:
         render_category_balance(ds, pool)
@@ -1781,6 +1856,69 @@ def render_draft_tabs(ds, pool, lc, sgp):
 
     with tabs[3]:
         render_draft_log(ds)
+
+    with tabs[4]:
+        render_opponent_intel(ds)
+
+
+# ── Opponent Intel ──────────────────────────────────────────────────
+
+
+def render_opponent_intel(ds):
+    """Display positional needs, bias, and predicted picks for all opponents."""
+    if not ds.pick_log:
+        st.info("Opponent data will appear after the first few picks.")
+        return
+
+    # Compute team preferences from draft history
+    history_rows = [
+        {"team_key": str(p.get("team_index", "")), "positions": p.get("positions", "")} for p in ds.pick_log
+    ]
+    history_df = pd.DataFrame(history_rows)
+    preferences = compute_team_preferences(history_df) if not history_df.empty else {}
+
+    # Build data for each opponent
+    rows = []
+    for team_idx in range(ds.num_teams):
+        if team_idx == ds.user_team_index:
+            continue
+        team_name = ds.teams[team_idx].team_name
+        state_dict = {"picks": ds.pick_log}
+        needs = get_positional_needs(state_dict, team_idx, ROSTER_CONFIG)
+        needs_str = ", ".join(sorted(needs.keys())) if needs else "Full"
+
+        # Historical bias
+        team_key = str(team_idx)
+        pref = preferences.get(team_key, {}).get("positional_bias", {})
+        top_bias = max(pref.items(), key=lambda x: x[1]) if pref else ("\u2014", 0)
+        bias_str = f"{top_bias[0]} ({top_bias[1]:.0%})" if top_bias[1] > 0.2 else "\u2014"
+
+        # Predicted next pick: highest-bias position that is also a need
+        predicted = "\u2014"
+        for pos, frac in sorted(pref.items(), key=lambda x: -x[1]):
+            if pos in needs:
+                predicted = pos
+                break
+
+        # Threat level
+        picks_made = sum(1 for p in ds.pick_log if p.get("team_index") == team_idx)
+        threat = "\U0001f534" if len(needs) <= 3 else "\U0001f7e1" if len(needs) <= 8 else "\U0001f7e2"
+
+        rows.append(
+            {
+                "Threat": threat,
+                "Team": team_name,
+                "Positions Needed": needs_str,
+                "Historical Bias": bias_str,
+                "Predicted Next": predicted,
+                "Picks Made": picks_made,
+            }
+        )
+
+    if rows:
+        st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
+    else:
+        st.info("No opponent data yet.")
 
 
 # ── Category Balance ────────────────────────────────────────────────
