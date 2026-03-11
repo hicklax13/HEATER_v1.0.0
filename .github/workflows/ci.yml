@@ -57,8 +57,8 @@ jobs:
       - name: Run sample data generation
         run: python load_sample_data.py
 
-      - name: Run tests
-        run: pytest tests/ -v --tb=short || echo "No test failures or no tests found"
+      - name: Run tests with coverage
+        run: pytest tests/ -v --tb=short --cov=src --cov-report=term-missing --cov-fail-under=75
 
       - name: Verify app imports cleanly
         run: python -c "import app; print('✅ app.py imports successfully')"
