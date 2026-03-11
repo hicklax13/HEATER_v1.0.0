@@ -50,6 +50,11 @@ try:
 except ImportError:
     HAS_PLOTLY = False
 
+try:
+    from src.yahoo_api import YFPY_AVAILABLE, YahooFantasyClient
+except ImportError:
+    YFPY_AVAILABLE = False
+
 st.set_page_config(
     page_title="Draft Command Center",
     page_icon="⚾",
@@ -707,6 +712,45 @@ def render_setup_page():
 
 def render_step_import():
     sec("Step 1 — Import Your Data")
+
+    # ── Yahoo Fantasy Auto-Connect (optional) ────────────────────────
+    if YFPY_AVAILABLE:
+        yahoo_key = os.environ.get("YAHOO_CLIENT_ID")
+        yahoo_secret = os.environ.get("YAHOO_CLIENT_SECRET")
+        if yahoo_key and yahoo_secret:
+            st.markdown(
+                f'<div style="background:{T["card"]};border:1px solid {T["card_h"]};'
+                f'border-radius:12px;padding:16px;margin-bottom:16px;">'
+                f'<div style="font-family:Oswald,sans-serif;color:{T["amber"]};'
+                f'font-size:16px;">⚾ Connect Yahoo Fantasy</div>'
+                f'<div style="color:{T["tx2"]};font-size:13px;margin-top:4px;">'
+                f"Auto-import league settings, rosters, and standings</div></div>",
+                unsafe_allow_html=True,
+            )
+            if st.button("Authorize with Yahoo", type="secondary"):
+                with st.spinner("Connecting to Yahoo Fantasy..."):
+                    try:
+                        client = YahooFantasyClient(league_id="auto")
+                        if client.authenticate(yahoo_key, yahoo_secret):
+                            st.session_state.yahoo_client = client
+                            try:
+                                settings = client.get_league_settings()
+                                if settings:
+                                    st.session_state.yahoo_settings = settings
+                                client.sync_to_db()
+                            except Exception:
+                                pass  # Sync failures are non-fatal
+                            st.success("Connected to Yahoo Fantasy!")
+                            st.toast("League data auto-populated!", icon="✅")
+                        else:
+                            st.error("Authentication failed. Check your credentials.")
+                    except Exception as e:
+                        st.error(f"Connection error: {e}")
+
+            st.markdown(
+                f'<div style="text-align:center;color:{T["tx2"]};margin:12px 0;">── or ──</div>',
+                unsafe_allow_html=True,
+            )
 
     col1, col2 = st.columns(2)
     with col1:

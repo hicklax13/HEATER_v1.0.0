@@ -145,7 +145,10 @@ class YahooFantasyClient:
         Args:
             consumer_key: Yahoo app consumer key.
             consumer_secret: Yahoo app consumer secret.
-            token_data: Optional pre-existing token dict (ignored if None).
+            token_data: Optional pre-existing token dict from streamlit-oauth
+                browser flow.  When provided, the token is written to disk so
+                yfpy can pick it up without triggering its terminal-based
+                OAuth consent prompt.
 
         Returns:
             True on successful authentication, False otherwise.
@@ -160,6 +163,15 @@ class YahooFantasyClient:
 
         try:
             _AUTH_DIR.mkdir(parents=True, exist_ok=True)
+
+            # If the caller supplies a pre-existing OAuth token (e.g. from
+            # streamlit-oauth), persist it so yfpy skips the browser flow.
+            if token_data is not None:
+                import json
+
+                token_path = _AUTH_DIR / "token.json"
+                token_path.write_text(json.dumps(token_data))
+
             self._query = YahooFantasySportsQuery(
                 auth_dir=str(_AUTH_DIR),
                 league_id=self.league_id,
