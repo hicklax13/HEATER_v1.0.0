@@ -4,6 +4,7 @@ Live draft assistant for 12-team snake draft with in-season management.
 Dark navy + amber accents + sports broadcast typography.
 """
 
+import logging
 import os
 import tempfile
 import time
@@ -54,6 +55,15 @@ try:
     from src.yahoo_api import YFPY_AVAILABLE, YahooFantasyClient
 except ImportError:
     YFPY_AVAILABLE = False
+
+try:
+    from src.data_pipeline import refresh_if_stale as fetch_projections_from_fg
+
+    HAS_DATA_PIPELINE = True
+except ImportError:
+    HAS_DATA_PIPELINE = False
+
+logger = logging.getLogger(__name__)
 
 st.set_page_config(
     page_title="Draft Command Center",
@@ -752,6 +762,59 @@ def render_step_import():
                 unsafe_allow_html=True,
             )
 
+    # ── Auto-Fetch Projections from FanGraphs ──────────────────────────
+    if HAS_DATA_PIPELINE:
+        if "projections_fetched" not in st.session_state:
+            with st.spinner("Fetching latest projections from FanGraphs..."):
+                try:
+                    result = fetch_projections_from_fg(force=False)
+                    st.session_state.projections_fetched = result
+                except Exception as exc:
+                    logger.warning("Auto-fetch failed: %s", exc)
+                    st.session_state.projections_fetched = False
+
+            if st.session_state.projections_fetched:
+                st.toast("Projections updated!", icon="✅")
+
+        if st.session_state.get("projections_fetched"):
+            st.markdown(
+                f'<div style="background:{T["card"]};border:1px solid #2d6a4f;'
+                f'border-radius:12px;padding:16px;margin-bottom:16px;">'
+                f'<div style="font-family:Oswald,sans-serif;color:#52b788;'
+                f'font-size:16px;">✅ Projections Loaded</div>'
+                f'<div style="color:{T["tx2"]};font-size:13px;margin-top:4px;">'
+                f"Steamer + ZiPS + Depth Charts fetched from FanGraphs</div></div>",
+                unsafe_allow_html=True,
+            )
+            st.session_state.hitter_data = True
+            st.session_state.pitcher_data = True
+
+            if st.button("🔄 Refresh Projections", type="secondary"):
+                with st.spinner("Refreshing..."):
+                    result = fetch_projections_from_fg(force=True)
+                    st.session_state.projections_fetched = result
+                    if result:
+                        st.toast("Projections refreshed!", icon="✅")
+                    else:
+                        st.warning("Refresh failed. Data may be stale.")
+                    st.rerun()
+        else:
+            st.markdown(
+                f'<div style="background:{T["card"]};border:1px solid {T["card_h"]};'
+                f'border-radius:12px;padding:16px;margin-bottom:16px;">'
+                f'<div style="font-family:Oswald,sans-serif;color:{T["amber"]};'
+                f'font-size:16px;">⚠️ Auto-Fetch Unavailable</div>'
+                f'<div style="color:{T["tx2"]};font-size:13px;margin-top:4px;">'
+                f"Upload CSV files below to load projections manually</div></div>",
+                unsafe_allow_html=True,
+            )
+
+        st.markdown(
+            f'<div style="text-align:center;color:{T["tx2"]};margin:12px 0;">'
+            f"── Manual Override ──</div>",
+            unsafe_allow_html=True,
+        )
+
     col1, col2 = st.columns(2)
     with col1:
         st.markdown(
@@ -764,7 +827,7 @@ def render_step_import():
         if hitter_file:
             try:
                 init_db()
-                import_hitter_csv(hitter_file)
+                import_hitter_csv(hitter_file, system="steamer")
                 st.session_state.hitter_data = True
                 st.toast("Hitters imported!", icon="✅")
             except Exception as e:
@@ -781,7 +844,7 @@ def render_step_import():
         if pitcher_file:
             try:
                 init_db()
-                import_pitcher_csv(pitcher_file)
+                import_pitcher_csv(pitcher_file, system="steamer")
                 st.session_state.pitcher_data = True
                 st.toast("Pitchers imported!", icon="✅")
             except Exception as e:
