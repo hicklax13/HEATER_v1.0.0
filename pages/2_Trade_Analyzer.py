@@ -5,9 +5,10 @@ import streamlit as st
 
 from src.database import init_db, load_league_rosters, load_player_pool
 from src.in_season import analyze_trade
+from src.injury_model import compute_health_score, get_injury_badge
 from src.league_manager import get_team_roster
 from src.ui_shared import T
-from src.valuation import LeagueConfig
+from src.valuation import LeagueConfig, compute_percentile_projections, compute_projection_volatility
 
 st.set_page_config(page_title="Trade Analyzer", page_icon="🔄", layout="wide")
 
@@ -31,6 +32,21 @@ if pool.empty:
 
 pool = pool.rename(columns={"name": "player_name"})
 config = LeagueConfig()
+
+# Load health scores from injury history
+health_dict = {}
+try:
+    from src.database import get_connection
+    conn = get_connection()
+    injury_df = pd.read_sql_query("SELECT * FROM injury_history", conn)
+    conn.close()
+    if not injury_df.empty and "player_id" in injury_df.columns:
+        for pid, group in injury_df.groupby("player_id"):
+            gp = group["games_played"].tolist()
+            ga = group["games_available"].tolist()
+            health_dict[pid] = compute_health_score(gp, ga)
+except Exception:
+    pass
 
 # Get user team roster
 rosters = load_league_rosters()
@@ -129,3 +145,66 @@ else:
                     st.subheader("⚠️ Risk Flags")
                     for flag in result["risk_flags"]:
                         st.warning(flag)
+
+                # Show injury badges for traded players
+                trade_col1, trade_col2 = st.columns(2)
+                with trade_col1:
+                    st.markdown("**Giving:**")
+                    for name in giving_names:
+                        p = pool[pool["player_name"] == name]
+                        if not p.empty:
+                            pid = p.iloc[0]["player_id"]
+                            hs = health_dict.get(pid, 0.85)
+                            icon, label = get_injury_badge(hs)
+                            st.markdown(f"{icon} {name} — {label}")
+                with trade_col2:
+                    st.markdown("**Receiving:**")
+                    for name in receiving_names:
+                        p = pool[pool["player_name"] == name]
+                        if not p.empty:
+                            pid = p.iloc[0]["player_id"]
+                            hs = health_dict.get(pid, 0.85)
+                            icon, label = get_injury_badge(hs)
+                            st.markdown(f"{icon} {name} — {label}")
+
+                # P10/P90 risk assessment for traded players
+                try:
+                    from src.database import get_connection
+                    conn = get_connection()
+                    systems = {}
+                    for sys_name in ["steamer", "zips", "depthcharts", "blended"]:
+                        df = pd.read_sql_query(
+                            f"SELECT * FROM projections WHERE system = '{sys_name}'", conn
+                        )
+                        if not df.empty:
+                            systems[sys_name] = df
+                    conn.close()
+
+                    if len(systems) >= 2:
+                        vol = compute_projection_volatility(systems)
+                        pct = compute_percentile_projections(base=pool, volatility=vol)
+                        p10_df, p90_df = pct.get(10), pct.get(90)
+                        if p10_df is not None and p90_df is not None:
+                            st.subheader("📊 Upside/Downside Risk")
+                            all_names = list(giving_names) + list(receiving_names)
+                            risk_rows = []
+                            for name in all_names:
+                                p10_row = p10_df[p10_df["player_name"] == name] if "player_name" in p10_df.columns else pd.DataFrame()
+                                p90_row = p90_df[p90_df["player_name"] == name] if "player_name" in p90_df.columns else pd.DataFrame()
+                                if not p10_row.empty and not p90_row.empty:
+                                    # Use HR as a representative counting stat for upside/downside display
+                                    p10_hr = p10_row.iloc[0].get("hr", 0)
+                                    p90_hr = p90_row.iloc[0].get("hr", 0)
+                                    p10_avg = p10_row.iloc[0].get("avg", 0)
+                                    p90_avg = p90_row.iloc[0].get("avg", 0)
+                                    risk_rows.append({
+                                        "Player": name,
+                                        "P10 HR (Floor)": f"{p10_hr:.0f}",
+                                        "P90 HR (Ceiling)": f"{p90_hr:.0f}",
+                                        "P10 AVG (Floor)": f"{p10_avg:.3f}",
+                                        "P90 AVG (Ceiling)": f"{p90_avg:.3f}",
+                                    })
+                            if risk_rows:
+                                st.dataframe(pd.DataFrame(risk_rows), hide_index=True, width="stretch")
+                except Exception:
+                    pass  # Graceful degradation
