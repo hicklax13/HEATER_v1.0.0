@@ -11,12 +11,13 @@ from src.ui_shared import T
 
 try:
     from src.bayesian import BayesianUpdater
+
     BAYESIAN_AVAILABLE = True
 except ImportError:
     BAYESIAN_AVAILABLE = False
 
 try:
-    from src.yahoo_api import YahooFantasyClient, YFPY_AVAILABLE
+    from src.yahoo_api import YFPY_AVAILABLE, YahooFantasyClient
 except ImportError:
     YFPY_AVAILABLE = False
 
@@ -61,6 +62,7 @@ else:
         # Yahoo sync button
         if YFPY_AVAILABLE:
             import os
+
             yahoo_key = os.environ.get("YAHOO_CLIENT_ID")
             yahoo_secret = os.environ.get("YAHOO_CLIENT_SECRET")
             if yahoo_key and yahoo_secret:
@@ -84,6 +86,7 @@ else:
             # Compute health scores for badge display
             try:
                 from src.database import get_connection
+
                 conn = get_connection()
                 injury_df = pd.read_sql_query("SELECT * FROM injury_history", conn)
                 conn.close()
@@ -153,13 +156,12 @@ else:
             if BAYESIAN_AVAILABLE:
                 try:
                     from src.database import get_connection
+
                     conn = get_connection()
                     season_stats = pd.read_sql_query("SELECT * FROM season_stats", conn)
 
                     if not season_stats.empty and season_stats.get("games_played", pd.Series([0])).sum() > 0:
-                        preseason = pd.read_sql_query(
-                            "SELECT * FROM blended_projections", conn
-                        )
+                        preseason = pd.read_sql_query("SELECT * FROM blended_projections", conn)
                         conn.close()
                         updater = BayesianUpdater()
                         updated = updater.batch_update_projections(season_stats, preseason)

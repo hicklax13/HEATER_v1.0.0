@@ -4,7 +4,7 @@
 
 A fantasy baseball draft assistant + in-season manager for a 12-team Yahoo Sports 5x5 roto snake draft league. Two pillars:
 
-1. **Draft Tool** (`app.py`, ~1900 lines) — "Broadcast Booth" dark-theme Streamlit app: 4-step setup wizard, 3-column draft page, Monte Carlo recommendations.
+1. **Draft Tool** (`app.py`, ~2100 lines) — "Broadcast Booth" dark-theme Streamlit app: 4-step setup wizard (with optional Yahoo OAuth), 3-column draft page with injury badges, percentile ranges, opponent intel tab, and practice mode. Monte Carlo recommendations with percentile sampling.
 2. **In-Season Management** (`pages/`) — 5 Streamlit pages: team overview, trade analysis, player comparison, free agent rankings, lineup optimizer. Powered by MLB Stats API + pybaseball + optional Yahoo Fantasy API.
 
 ## Commands
@@ -25,7 +25,7 @@ ruff check .
 # Format
 ruff format .
 
-# Run all tests (~150 tests, 4 skipped for optional deps)
+# Run all tests (~154 tests, 4 skipped for optional deps)
 python -m pytest
 
 # Run a single test file
@@ -96,6 +96,7 @@ tests/
   test_yahoo_api.py         — Yahoo API: OAuth, sync, mock endpoints (38 tests)
   test_percentiles.py       — Percentile forecasts: volatility, P10/P50/P90 bounds (7 tests)
   test_opponent_model.py    — Enhanced opponent modeling: preferences, needs, history (8 tests)
+  test_percentile_sampling.py — Percentile sampling passthrough in evaluate_candidates (4 tests)
   test_integration.py       — End-to-end pipeline: injury → Bayesian → percentiles → valuation (11 tests)
   profile_latency.py        — Performance profiling utility
 data/
@@ -125,13 +126,20 @@ docs/plans/             — Implementation plan archives
 - Dynamic replacement levels recalculated as players are drafted
 - Projection confidence discount (low PA/IP get up to 20% discount)
 - Bench slot optimization (late-draft bonus for multi-position flexibility)
+- **Percentile sampling** — MC sims sample from P10-P90 distributions when multiple projection systems available
+- **Injury badges** — Hero card shows 🟢/🟡/🔴 health icons, age flags for aging curves, workload flags for IP spikes
+- **P10/P90 range bars** — Floor/ceiling projections displayed on hero pick and alternatives
+- **Opponent intel tab** — Threat alerts when opponents need your target position, plus full opponent roster/needs breakdown
+- **Practice mode** — Ephemeral DraftState clone for what-if scenarios, resets on refresh or button click
+- **Yahoo OAuth** — Setup wizard Step 1 shows Yahoo connect card when env vars are set
 
 ### In-Season Algorithms
-- **Trade Analyzer:** Roster swap → projected season totals (YTD + ROS) → park-adjusted SGP delta → MC simulation (200 sims) → verdict with confidence %
-- **Player Compare:** ROS projections → Z-score normalization across 10 categories → composite weighted score, optional marginal SGP team impact
+- **Trade Analyzer:** Roster swap → projected season totals (YTD + ROS) → park-adjusted SGP delta → MC simulation (200 sims) → verdict with confidence %. Now includes injury badges for both sides and P10/P90 risk assessment.
+- **Player Compare:** ROS projections → Z-score normalization across 10 categories → composite weighted score, optional marginal SGP team impact. Now includes health badges and projection confidence (P10-P90 range width).
 - **FA Ranker:** Marginal SGP per FA vs. user's roster → category-need weighting → replacement target identification → sort by net marginal value
 - **Live Stats:** MLB Stats API (daily auto-refresh) + pybaseball ROS projections, staleness tracking via `refresh_log` table
-- **Lineup Optimizer:** PuLP LP solver with binary assignment per player/slot, category targeting based on standings gaps, two-start SP detection
+- **Lineup Optimizer:** PuLP LP solver with binary assignment per player/slot, category targeting based on standings gaps, two-start SP detection. Now includes health-adjusted SGP penalties and auto-detected two-start SP highlights.
+- **My Team:** Roster display with injury badges, Bayesian projection indicators, Yahoo sync button (when connected)
 
 ### Advanced Analytics (Plan 3)
 - **Bayesian Updater:** PyMC 5 hierarchical beta-binomial model for in-season stat updates; Marcel regression fallback when PyMC unavailable. Uses FanGraphs stabilization thresholds (K=60 PA, AVG=910 AB, ERA=70 IP). Aging curves on logit scale.
@@ -217,7 +225,10 @@ optimizer.category_targeting(standings_df, team_name)  # returns {cat: weight}
 - **`compute_team_preferences()` column names** — Expects `team_key` and `positions`, NOT `team_id`/`position`. Integration tests caught this.
 - **`get_team_draft_patterns()` uses int team_id** — `team_id` is 0-based team index, not team name string. Filters on `pick.get("team_index")`.
 - **health_score range** — Always 0.0 to 1.0. Missing seasons default to 0.85 (league average). Empty history returns 0.85.
-- **Yahoo API graceful degradation** — All Yahoo features wrapped in `YFPY_AVAILABLE` checks. App works fully without Yahoo credentials.
+- **Yahoo API graceful degradation** — All Yahoo features wrapped in `YFPY_AVAILABLE` checks. App works fully without Yahoo credentials. Setup wizard Yahoo connect requires `YAHOO_CLIENT_ID` and `YAHOO_CLIENT_SECRET` env vars.
+- **sgp_volatility alignment** — When `evaluate_candidates()` receives `sgp_volatility`, the array is aligned to the full pool. After filtering drafted players, it must be re-indexed via `pd.Series.reindex()` to match the filtered `available` pool.
+- **Practice mode isolation** — Uses separate `st.session_state["practice_draft_state"]` DraftState, never persisted to disk/DB. Resets on page refresh or "Reset Practice" button click.
+- **Percentile pipeline ordering** — `compute_projection_volatility()` → `add_process_risk()` → `compute_percentile_projections()`. Skip entirely when only one projection system exists (zero variance).
 
 ## GitHub
 

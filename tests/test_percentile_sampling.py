@@ -13,28 +13,44 @@ def _make_pool(n=20):
     rows = []
     positions = ["C", "1B", "2B", "3B", "SS", "OF", "SP", "RP"]
     for i in range(n):
-        rows.append({
-            "player_id": i + 1,
-            "name": f"Player {i + 1}",
-            "player_name": f"Player {i + 1}",
-            "team": "TST",
-            "positions": positions[i % len(positions)],
-            "is_hitter": 1 if i % len(positions) < 6 else 0,
-            "is_injured": 0,
-            "adp": float(i + 1),
-            "pick_score": 10.0 - i * 0.3,
-            "total_sgp": 10.0 - i * 0.3,
-            "pa": 600, "ab": 550, "h": 150, "r": 80, "hr": 25,
-            "rbi": 80, "sb": 10, "avg": 0.273, "ip": 0, "w": 0,
-            "sv": 0, "k": 0, "era": 0.0, "whip": 0.0,
-            "er": 0, "bb_allowed": 0, "h_allowed": 0,
-        })
+        rows.append(
+            {
+                "player_id": i + 1,
+                "name": f"Player {i + 1}",
+                "player_name": f"Player {i + 1}",
+                "team": "TST",
+                "positions": positions[i % len(positions)],
+                "is_hitter": 1 if i % len(positions) < 6 else 0,
+                "is_injured": 0,
+                "adp": float(i + 1),
+                "pick_score": 10.0 - i * 0.3,
+                "total_sgp": 10.0 - i * 0.3,
+                "pa": 600,
+                "ab": 550,
+                "h": 150,
+                "r": 80,
+                "hr": 25,
+                "rbi": 80,
+                "sb": 10,
+                "avg": 0.273,
+                "ip": 0,
+                "w": 0,
+                "sv": 0,
+                "k": 0,
+                "era": 0.0,
+                "whip": 0.0,
+                "er": 0,
+                "bb_allowed": 0,
+                "h_allowed": 0,
+            }
+        )
     return pd.DataFrame(rows)
 
 
 def _make_draft_state(num_teams=12):
     """Create a minimal DraftState for testing."""
     from src.draft_state import DraftState
+
     return DraftState(num_teams=num_teams, num_rounds=23, user_team_index=0)
 
 
@@ -48,7 +64,10 @@ def test_evaluate_candidates_accepts_percentile_params():
 
     # Should not raise TypeError
     result = sim.evaluate_candidates(
-        pool, ds, top_n=3, n_simulations=10,
+        pool,
+        ds,
+        top_n=3,
+        n_simulations=10,
         use_percentile_sampling=True,
         sgp_volatility=vol,
     )
@@ -65,7 +84,10 @@ def test_evaluate_candidates_returns_risk_adjusted_sgp():
     vol = np.ones(len(pool)) * 0.5
 
     result = sim.evaluate_candidates(
-        pool, ds, top_n=3, n_simulations=10,
+        pool,
+        ds,
+        top_n=3,
+        n_simulations=10,
         use_percentile_sampling=True,
         sgp_volatility=vol,
     )
@@ -100,7 +122,10 @@ def test_evaluate_candidates_with_drafted_players():
 
     # Should not crash even though pool is now filtered (3 players removed)
     result = sim.evaluate_candidates(
-        pool, ds, top_n=3, n_simulations=10,
+        pool,
+        ds,
+        top_n=3,
+        n_simulations=10,
         use_percentile_sampling=True,
         sgp_volatility=vol,
     )

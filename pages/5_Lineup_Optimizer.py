@@ -137,6 +137,7 @@ st.subheader("👥 Current Roster")
 health_dict = {}
 try:
     from src.database import get_connection
+
     conn = get_connection()
     injury_df = pd.read_sql_query("SELECT * FROM injury_history", conn)
     conn.close()
@@ -168,8 +169,10 @@ if health_dict and "projected_sgp" in roster.columns:
 
 # Two-start SP detection via MLB schedule
 try:
-    import statsapi
     from datetime import datetime, timedelta
+
+    import statsapi
+
     today = datetime.now()
     end = today + timedelta(days=7)
     schedule = statsapi.schedule(start_date=today.strftime("%Y-%m-%d"), end_date=end.strftime("%Y-%m-%d"))

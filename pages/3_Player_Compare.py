@@ -61,6 +61,7 @@ if player_a_name and player_b_name and player_a_name != player_b_name:
     health_dict = {}
     try:
         from src.database import get_connection
+
         conn = get_connection()
         injury_df = pd.read_sql_query("SELECT * FROM injury_history", conn)
         conn.close()
@@ -148,12 +149,11 @@ if player_a_name and player_b_name and player_a_name != player_b_name:
         # Projection confidence: P10-P90 range width per player using key stat cols
         try:
             from src.database import get_connection
+
             conn = get_connection()
             systems = {}
             for sys_name in ["steamer", "zips", "depthcharts", "blended"]:
-                df = pd.read_sql_query(
-                    f"SELECT * FROM projections WHERE system = '{sys_name}'", conn
-                )
+                df = pd.read_sql_query(f"SELECT * FROM projections WHERE system = '{sys_name}'", conn)
                 if not df.empty:
                     systems[sys_name] = df
             conn.close()
