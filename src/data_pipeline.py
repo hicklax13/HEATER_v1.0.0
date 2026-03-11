@@ -35,7 +35,7 @@ SYSTEM_MAP = {
     "fangraphsdc": "depthcharts",
 }
 
-SYSTEMS = ["steamer", "zips", "fangraphsdc"]
+SYSTEMS = list(SYSTEM_MAP.keys())
 
 
 class FetchError(Exception):
@@ -54,11 +54,13 @@ def normalize_hitter_json(raw: list[dict]) -> pd.DataFrame:
     """
     records = []
     for player in raw:
+        raw_pos = (player.get("minpos") or "").strip()
+        pos = raw_pos if raw_pos and raw_pos not in ("0", "-") else "Util"
         records.append(
             {
                 "name": player.get("PlayerName", ""),
                 "team": player.get("Team", ""),
-                "positions": player.get("minpos", "Util") or "Util",
+                "positions": pos,
                 "is_hitter": True,
                 "pa": int(player.get("PA", 0) or 0),
                 "ab": int(player.get("AB", 0) or 0),
@@ -241,74 +243,76 @@ def _store_projections(projections: dict[str, pd.DataFrame]) -> int:
     Returns total row count inserted.
     """
     conn = get_connection()
-    cursor = conn.cursor()
-    total = 0
+    try:
+        cursor = conn.cursor()
+        total = 0
 
-    # Collect all unique systems being stored
-    systems_stored = set()
-    for key in projections:
-        db_system = key.rsplit("_", 1)[0]  # "steamer_bat" → "steamer"
-        systems_stored.add(db_system)
+        # Collect all unique systems being stored
+        systems_stored = set()
+        for key in projections:
+            db_system = key.rsplit("_", 1)[0]  # "steamer_bat" → "steamer"
+            systems_stored.add(db_system)
 
-    # Delete old projections for each system (idempotency)
-    for system in systems_stored:
-        cursor.execute("DELETE FROM projections WHERE system = ?", (system,))
+        # Delete old projections for each system (idempotency)
+        for system in systems_stored:
+            cursor.execute("DELETE FROM projections WHERE system = ?", (system,))
 
-    # Insert new projections
-    for key, df in projections.items():
-        db_system = key.rsplit("_", 1)[0]
-        for _, row in df.iterrows():
-            is_hitter = bool(row.get("is_hitter", True))
-            player_id = _upsert_player(
-                cursor,
-                str(row["name"]),
-                str(row.get("team", "")),
-                str(row.get("positions", "Util")),
-                is_hitter,
-            )
-
-            if is_hitter:
-                cursor.execute(
-                    """INSERT INTO projections
-                       (player_id, system, pa, ab, h, r, hr, rbi, sb, avg)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                    (
-                        player_id,
-                        db_system,
-                        int(row.get("pa", 0)),
-                        int(row.get("ab", 0)),
-                        int(row.get("h", 0)),
-                        int(row.get("r", 0)),
-                        int(row.get("hr", 0)),
-                        int(row.get("rbi", 0)),
-                        int(row.get("sb", 0)),
-                        float(row.get("avg", 0)),
-                    ),
+        # Insert new projections
+        for key, df in projections.items():
+            db_system = key.rsplit("_", 1)[0]
+            for _, row in df.iterrows():
+                is_hitter = bool(row.get("is_hitter", True))
+                player_id = _upsert_player(
+                    cursor,
+                    str(row["name"]),
+                    str(row.get("team", "")),
+                    str(row.get("positions", "Util")),
+                    is_hitter,
                 )
-            else:
-                cursor.execute(
-                    """INSERT INTO projections
-                       (player_id, system, ip, w, sv, k, era, whip, er, bb_allowed, h_allowed)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                    (
-                        player_id,
-                        db_system,
-                        float(row.get("ip", 0)),
-                        int(row.get("w", 0)),
-                        int(row.get("sv", 0)),
-                        int(row.get("k", 0)),
-                        float(row.get("era", 0)),
-                        float(row.get("whip", 0)),
-                        int(row.get("er", 0)),
-                        int(row.get("bb_allowed", 0)),
-                        int(row.get("h_allowed", 0)),
-                    ),
-                )
-            total += 1
 
-    conn.commit()
-    conn.close()
-    return total
+                if is_hitter:
+                    cursor.execute(
+                        """INSERT INTO projections
+                           (player_id, system, pa, ab, h, r, hr, rbi, sb, avg)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (
+                            player_id,
+                            db_system,
+                            int(row.get("pa", 0)),
+                            int(row.get("ab", 0)),
+                            int(row.get("h", 0)),
+                            int(row.get("r", 0)),
+                            int(row.get("hr", 0)),
+                            int(row.get("rbi", 0)),
+                            int(row.get("sb", 0)),
+                            float(row.get("avg", 0)),
+                        ),
+                    )
+                else:
+                    cursor.execute(
+                        """INSERT INTO projections
+                           (player_id, system, ip, w, sv, k, era, whip, er, bb_allowed, h_allowed)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (
+                            player_id,
+                            db_system,
+                            float(row.get("ip", 0)),
+                            int(row.get("w", 0)),
+                            int(row.get("sv", 0)),
+                            int(row.get("k", 0)),
+                            float(row.get("era", 0)),
+                            float(row.get("whip", 0)),
+                            int(row.get("er", 0)),
+                            int(row.get("bb_allowed", 0)),
+                            int(row.get("h_allowed", 0)),
+                        ),
+                    )
+                total += 1
+
+        conn.commit()
+        return total
+    finally:
+        conn.close()
 
 
 def _store_adp(adp_df: pd.DataFrame) -> int:
@@ -323,43 +327,45 @@ def _store_adp(adp_df: pd.DataFrame) -> int:
         return 0
 
     conn = get_connection()
-    cursor = conn.cursor()
+    try:
+        cursor = conn.cursor()
 
-    # Clear existing ADP (idempotency)
-    cursor.execute("DELETE FROM adp")
+        # Clear existing ADP (idempotency)
+        cursor.execute("DELETE FROM adp")
 
-    count = 0
-    for _, row in adp_df.iterrows():
-        name = str(row["name"])
-        adp_val = float(row["adp"])
+        count = 0
+        for _, row in adp_df.iterrows():
+            name = str(row["name"])
+            adp_val = float(row["adp"])
 
-        # Resolve name → player_id (exact match first, fuzzy fallback)
-        cursor.execute("SELECT player_id FROM players WHERE name = ?", (name,))
-        result = cursor.fetchone()
-        if result is None:
-            # Fuzzy fallback: first + last name LIKE match
-            parts = name.split()
-            if len(parts) >= 2:
-                cursor.execute(
-                    "SELECT player_id FROM players WHERE name LIKE ? AND name LIKE ?",
-                    (f"%{parts[0]}%", f"%{parts[-1]}%"),
-                )
-                result = cursor.fetchone()
-        if result is None:
-            logger.warning("ADP: no player_id found for '%s', skipping", name)
-            continue
+            # Resolve name → player_id (exact match first, fuzzy fallback)
+            cursor.execute("SELECT player_id FROM players WHERE name = ?", (name,))
+            result = cursor.fetchone()
+            if result is None:
+                # Fuzzy fallback: first + last name LIKE match
+                parts = name.split()
+                if len(parts) >= 2:
+                    cursor.execute(
+                        "SELECT player_id FROM players WHERE name LIKE ? AND name LIKE ?",
+                        (f"%{parts[0]}%", f"%{parts[-1]}%"),
+                    )
+                    result = cursor.fetchone()
+            if result is None:
+                logger.warning("ADP: no player_id found for '%s', skipping", name)
+                continue
 
-        player_id = result[0]
-        cursor.execute(
-            """INSERT INTO adp (player_id, adp) VALUES (?, ?)
-               ON CONFLICT(player_id) DO UPDATE SET adp=excluded.adp""",
-            (player_id, adp_val),
-        )
-        count += 1
+            player_id = result[0]
+            cursor.execute(
+                """INSERT INTO adp (player_id, adp) VALUES (?, ?)
+                   ON CONFLICT(player_id) DO UPDATE SET adp=excluded.adp""",
+                (player_id, adp_val),
+            )
+            count += 1
 
-    conn.commit()
-    conn.close()
-    return count
+        conn.commit()
+        return count
+    finally:
+        conn.close()
 
 
 # ── Orchestration ──────────────────────────────────────────────────
