@@ -638,6 +638,7 @@ def init_session():
         "league_config": None,
         "sgp_calc": None,
         "practice_mode": True,
+        "practice_draft_state": None,
         "auto_sgp": True,
         "risk_tolerance": 0.5,
         "num_sims": 100,
@@ -1118,6 +1119,23 @@ def render_draft_page():
     lc = st.session_state.league_config
     sgp = st.session_state.sgp_calc
 
+    # Practice mode state isolation: use separate ephemeral DraftState
+    if ds is not None and st.session_state.practice_mode:
+        if st.session_state.practice_draft_state is None:
+            # Clone current real state into a practice-only copy
+            st.session_state.practice_draft_state = DraftState(
+                num_teams=ds.num_teams,
+                num_rounds=ds.num_rounds,
+                user_team_index=ds.user_team_index,
+                roster_config=ROSTER_CONFIG,
+            )
+            # Copy existing picks into practice state
+            for pick in ds.pick_log:
+                st.session_state.practice_draft_state.pick_log.append(pick)
+                st.session_state.practice_draft_state.drafted_player_ids.add(pick["player_id"])
+            st.session_state.practice_draft_state.current_pick = ds.current_pick
+        ds = st.session_state.practice_draft_state  # Swap — all reads/writes go to practice state
+
     if ds is None or pool is None:
         st.error("Draft not initialized. Go back to setup.")
         if st.button("← Setup"):
@@ -1194,6 +1212,17 @@ def render_draft_page():
             "Practice Mode", value=st.session_state.practice_mode, key="draft_practice"
         )
 
+        if st.session_state.practice_mode:
+            if st.button("🔄 Reset Practice", width="stretch"):
+                st.session_state.practice_draft_state = DraftState(
+                    num_teams=ds.num_teams,
+                    num_rounds=ds.num_rounds,
+                    user_team_index=ds.user_team_index,
+                    roster_config=ROSTER_CONFIG,
+                )
+                st.toast("Practice reset!", icon="🎮")
+                st.rerun()
+
         if st.button("Undo Last Pick", width="stretch"):
             ds.undo_last_pick()
             st.toast("Pick undone!", icon="↩️")
@@ -1207,6 +1236,16 @@ def render_draft_page():
         if st.button("← Back to Setup", width="stretch"):
             st.session_state.page = "setup"
             st.rerun()
+
+    # ── Practice mode banner ──────────────────────────────────────
+    if st.session_state.practice_mode:
+        st.markdown(
+            f'<div style="background:rgba(245,158,11,0.15);border:2px solid {T["warn"]};'
+            f'border-radius:8px;padding:10px;text-align:center;margin-bottom:12px;">'
+            f'<span style="font-family:Oswald,sans-serif;color:{T["warn"]};">'
+            f"🎮 PRACTICE MODE — Picks will not be saved</span></div>",
+            unsafe_allow_html=True,
+        )
 
     # ── Check draft complete ─────────────────────────────────────
     if ds.current_pick >= ds.total_picks:
