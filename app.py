@@ -777,17 +777,31 @@ def render_step_import():
                 st.toast("Projections updated!", icon="✅")
 
         if st.session_state.get("projections_fetched"):
+            # Validate both hitter and pitcher data exist before flagging ready
+            from src.database import get_connection as _gc
+
+            _conn = _gc()
+            _has_hit = _conn.execute(
+                "SELECT COUNT(*) FROM projections p JOIN players pl "
+                "ON p.player_id=pl.player_id WHERE pl.is_hitter=1"
+            ).fetchone()[0]
+            _has_pit = _conn.execute(
+                "SELECT COUNT(*) FROM projections p JOIN players pl "
+                "ON p.player_id=pl.player_id WHERE pl.is_hitter=0"
+            ).fetchone()[0]
+            _conn.close()
+
             st.markdown(
-                f'<div style="background:{T["card"]};border:1px solid #2d6a4f;'
+                f'<div style="background:{T["card"]};border:1px solid {T["ok"]};'
                 f'border-radius:12px;padding:16px;margin-bottom:16px;">'
-                f'<div style="font-family:Oswald,sans-serif;color:#52b788;'
+                f'<div style="font-family:Oswald,sans-serif;color:{T["ok"]};'
                 f'font-size:16px;">✅ Projections Loaded</div>'
                 f'<div style="color:{T["tx2"]};font-size:13px;margin-top:4px;">'
                 f"Steamer + ZiPS + Depth Charts fetched from FanGraphs</div></div>",
                 unsafe_allow_html=True,
             )
-            st.session_state.hitter_data = True
-            st.session_state.pitcher_data = True
+            st.session_state.hitter_data = _has_hit > 0
+            st.session_state.pitcher_data = _has_pit > 0
 
             if st.button("🔄 Refresh Projections", type="secondary"):
                 with st.spinner("Refreshing..."):
@@ -795,9 +809,9 @@ def render_step_import():
                     st.session_state.projections_fetched = result
                     if result:
                         st.toast("Projections refreshed!", icon="✅")
+                        st.rerun()
                     else:
                         st.warning("Refresh failed. Data may be stale.")
-                    st.rerun()
         else:
             st.markdown(
                 f'<div style="background:{T["card"]};border:1px solid {T["card_h"]};'
@@ -808,6 +822,9 @@ def render_step_import():
                 f"Upload CSV files below to load projections manually</div></div>",
                 unsafe_allow_html=True,
             )
+            if st.button("🔄 Retry Auto-Fetch"):
+                del st.session_state["projections_fetched"]
+                st.rerun()
 
         st.markdown(
             f'<div style="text-align:center;color:{T["tx2"]};margin:12px 0;">'
