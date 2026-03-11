@@ -1,17 +1,17 @@
 """Test that all database tables are created correctly."""
 
+import os
 import sqlite3
 import sys
 import tempfile
-import os
 from pathlib import Path
+
+import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import src.database as db_mod
-from src.database import init_db, DB_PATH
-
-import pytest
+from src.database import DB_PATH, init_db
 
 
 def _table_exists(cursor, table_name):
@@ -68,9 +68,27 @@ def test_season_stats_columns(temp_db):
 
     cols = _get_columns(cursor, "season_stats")
     expected = {
-        "player_id", "season", "pa", "ab", "h", "r", "hr", "rbi",
-        "sb", "avg", "ip", "w", "sv", "k", "era", "whip",
-        "er", "bb_allowed", "h_allowed", "games_played", "last_updated",
+        "player_id",
+        "season",
+        "pa",
+        "ab",
+        "h",
+        "r",
+        "hr",
+        "rbi",
+        "sb",
+        "avg",
+        "ip",
+        "w",
+        "sv",
+        "k",
+        "era",
+        "whip",
+        "er",
+        "bb_allowed",
+        "h_allowed",
+        "games_played",
+        "last_updated",
     }
     assert expected.issubset(cols), f"Missing columns: {expected - cols}"
 

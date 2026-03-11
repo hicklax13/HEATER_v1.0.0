@@ -1,28 +1,28 @@
 """Test database query functions for in-season tables."""
 
+import os
 import sqlite3
 import sys
 import tempfile
-import os
 from pathlib import Path
+
+import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import src.database as db_mod
 from src.database import (
+    clear_league_rosters,
+    get_refresh_status,
     init_db,
-    upsert_season_stats,
-    upsert_ros_projection,
+    load_league_rosters,
+    load_season_stats,
+    update_refresh_log,
     upsert_league_roster_entry,
     upsert_league_standing,
-    update_refresh_log,
-    get_refresh_status,
-    load_season_stats,
-    load_league_rosters,
-    clear_league_rosters,
+    upsert_ros_projection,
+    upsert_season_stats,
 )
-
-import pytest
 
 
 @pytest.fixture(autouse=True)
@@ -74,9 +74,7 @@ def test_upsert_ros_projection(temp_db):
     pid = _insert_player(temp_db)
     upsert_ros_projection(pid, "steamer_ros", {"r": 30, "hr": 10})
     conn = sqlite3.connect(temp_db)
-    row = conn.execute(
-        "SELECT * FROM ros_projections WHERE player_id=?", (pid,)
-    ).fetchone()
+    row = conn.execute("SELECT * FROM ros_projections WHERE player_id=?", (pid,)).fetchone()
     conn.close()
     assert row is not None
 

@@ -1,22 +1,25 @@
 # Fantasy Baseball Draft Tool
 
-## Project Status: UI/UX Redesign Complete ✅ (Broadcast Booth Theme)
+## Project Status: Draft Tool + In-Season Management Complete ✅
 
-**All phases complete.** Design plan: `.claude/plans/optimized-wiggling-meerkat.md`
+**All phases complete.** UI/UX design plan: `.claude/plans/optimized-wiggling-meerkat.md`. In-season plan: `docs/plans/2026-03-10-in-season-management-plan.md`
 
-All core backend modules (Phases 1-7 of original build + 9 accuracy enhancements) are complete. A complete `app.py` rewrite (~1900 lines) implements the "Broadcast Booth" dark-theme UI with 4-step setup wizard, 3-column draft page, and sports-broadcast styling. Phase 7 verification passed all 15 checks plus cleanup.
+The project has two major pillars:
+1. **Draft Tool** — "Broadcast Booth" dark-theme Streamlit app (`app.py`, ~1900 lines): 4-step setup wizard, 3-column draft page, Monte Carlo recommendations.
+2. **In-Season Management** — 4 Streamlit pages (`pages/`) covering team overview, trade analysis, player comparison, and free agent rankings; powered by live MLB Stats API data and ROS projections.
 
 ## What's Been Done (UI Redesign)
 
 ### Phase 0: Infrastructure ✅
 - `.streamlit/config.toml` dark theme created
-- `THEME` dict with all design tokens at top of `app.py`
-- `inject_custom_css()` function (~400 lines) with Google Fonts, component styles, animations
+- `THEME` dict and `inject_custom_css()` extracted to `src/ui_shared.py`
+- Google Fonts, component styles, animations (~400 lines CSS)
 
 ### Phase 1: Setup Wizard ✅
-- 4-step wizard: Import → Settings → Connect → Launch
+- 4-step wizard: Import → Settings → League Import → Launch
 - Wizard progress bar with amber active / green completed states
 - Load Sample Data button with in-process import
+- Step 4 replaced Yahoo OAuth with League Import CSV upload
 
 ### Phase 2: Draft Page Layout ✅
 - 3-column layout: My Roster | Center (hero pick + alternatives) | Enter Pick
@@ -70,9 +73,59 @@ All core backend modules (Phases 1-7 of original build + 9 accuracy enhancements
 - [x] Debug logging cleaned up from Load Sample Data handler
 - [x] `?skip=1` debug shortcut removed
 
+## In-Season Management (Added Post-Draft)
+
+Four Streamlit pages extend the tool into the regular season. All data comes from public sources (MLB Stats API, pybaseball/FanGraphs) — no Yahoo API required.
+
+### Pages
+- **My Team** (`pages/1_My_Team.py`) — Roster overview, season stats to date, category standings position
+- **Trade Analyzer** (`pages/2_Trade_Analyzer.py`) — Proposal builder + MC-backed trade analysis with verdict and confidence %
+- **Player Compare** (`pages/3_Player_Compare.py`) — Head-to-head player comparison across all 10 roto categories
+- **Free Agents** (`pages/4_Free_Agents.py`) — FA rankings by net marginal SGP value relative to user's roster
+
+### Key In-Season Algorithms
+
+**Trade Analyzer**
+- Before/after roster swap → projected season totals (actual YTD + ROS projections)
+- Park factor adjustment per player
+- Live SGP delta computation
+- MC simulation (200 sims) → positional scarcity check
+- Outputs verdict with confidence %
+
+**Player Comparison**
+- ROS projections → Z-score normalization across all 10 roto categories
+- Composite weighted score
+- Optional team impact analysis via marginal SGP
+
+**Free Agent Ranker**
+- Marginal SGP per FA relative to user's current roster
+- Category-need weighting (boosts scarce categories)
+- Identifies which rostered player the FA would replace
+- Sorts by net marginal value
+
+**Live Stats Pipeline** (`src/live_stats.py`)
+- MLB Stats API for current season stats (daily auto-refresh + on-demand)
+- pybaseball for ROS projections (FanGraphs Depth Charts) + park factors
+- Refresh log tracks staleness per data source
+
+### New Database Tables (6)
+
+| Table | Description |
+|-------|-------------|
+| `season_stats` | Actual 2026 stats from MLB Stats API |
+| `ros_projections` | Rest-of-season projections from FanGraphs |
+| `league_rosters` | All 12 teams' rosters (manually uploaded CSV) |
+| `league_standings` | Current roto standings |
+| `park_factors` | Stadium hitting/pitching adjustments |
+| `refresh_log` | Tracks when each data source was last updated |
+
+### Data Model
+- **Hybrid approach:** Manual CSV upload for league-specific data (rosters, standings); auto-pull for player stats/projections
+- **No Yahoo dependency** — all data from public MLB Stats API and FanGraphs via pybaseball
+
 ## Purpose
 
-A live fantasy baseball draft assistant for use on a laptop during a Yahoo Sports snake draft. Recommends the optimal player to draft each time the user is on the clock, accounting for league settings, draft state, category scarcity, positional needs, opponent behavior, and risk.
+A live fantasy baseball draft assistant and in-season manager for a Yahoo Sports snake draft league. During the draft, recommends the optimal player to select each round. Post-draft, tracks roster health, evaluates trades, and surfaces waiver wire pickups.
 
 ## League Context
 
@@ -97,29 +150,46 @@ A live fantasy baseball draft assistant for use on a laptop during a Yahoo Sport
 
 ## Tech Stack
 
-- **Framework:** Streamlit (Python)
+- **Framework:** Streamlit (Python), multi-page app
 - **Database:** SQLite (`data/draft_tool.db`)
 - **Core libs:** pandas, NumPy, SciPy, Plotly
-- **Yahoo API:** yfpy (optional, for live league sync)
+- **Live data:** MLB-StatsAPI (current season stats), pybaseball (ROS projections + park factors)
 
 ## File Structure
 
 ```
-app.py                  — Main Streamlit app (~1900 lines): setup wizard + draft page
+app.py                  — Draft tool: 4-step setup wizard + 3-column draft page (~1900 lines)
 .streamlit/config.toml  — Dark theme configuration
 .claude/launch.json     — Dev server config for preview tools
+pages/
+  1_My_Team.py          — In-season: team overview, roster, category standings
+  2_Trade_Analyzer.py   — In-season: trade proposal builder + MC analysis
+  3_Player_Compare.py   — In-season: head-to-head player comparison
+  4_Free_Agents.py      — In-season: free agent rankings by marginal value
 src/
-  database.py           — SQLite schema, CSV import, projection blending, player pool loading
+  database.py           — SQLite schema (12 tables), CSV import, projection blending, player pool + in-season queries
   valuation.py          — SGP calculator, replacement levels, VORP, category weights, full valuation
   draft_state.py        — Draft state management, roster tracking, snake pick order, JSON persistence
   simulation.py         — Monte Carlo draft simulation, opponent modeling, survival probability, urgency
-  yahoo_api.py          — Yahoo Fantasy API integration (yfpy OAuth, league sync, draft polling)
+  in_season.py          — Trade analyzer, player comparison engine, FA ranker
+  live_stats.py         — MLB Stats API + pybaseball data fetcher, daily refresh logic
+  league_manager.py     — League roster/standings management, CSV import for all 12 teams
+  ui_shared.py          — Shared THEME dict + inject_custom_css() used by app.py and pages/
   validation.py         — Validation utilities
+tests/
+  test_database_schema.py   — DB schema and table existence tests
+  test_database_queries.py  — Query function tests
+  test_in_season.py         — Trade analyzer, comparison, FA ranker tests
+  test_league_manager.py    — League roster/standings management tests
+  test_live_stats.py        — Live stats pipeline tests (22 tests total across suite)
+  profile_latency.py        — Performance profiling utility
 load_sample_data.py     — Generates ~190 sample players for testing
+docs/
+  plans/
+    2026-03-10-in-season-management-plan.md — In-season feature design plan
 data/
   draft_tool.db         — SQLite database (created at runtime)
   backups/              — Draft state JSON backups
-  yahoo_creds.json      — Yahoo API credentials (not committed)
 ```
 
 ## Architecture & Key Algorithms
@@ -155,9 +225,11 @@ data/
 # First time: load sample data
 python load_sample_data.py
 
-# Launch the app
+# Launch the app (multi-page: draft tool on main page, in-season pages in sidebar)
 streamlit run app.py
 ```
+
+The sidebar will show navigation links to all 4 in-season pages once the app is running. In-season pages require live data — run a manual refresh from the My Team page or wait for the daily auto-refresh.
 
 ## Key Technical Notes
 
@@ -172,12 +244,19 @@ streamlit run app.py
 - `compute_replacement_levels(pool, config, sgp_calc)` and `compute_sgp_denominators(pool, config)` are standalone functions in `src/valuation.py`, NOT methods on SGPCalculator
 - MC simulation uses 6-round horizon limit for performance (4.45s vs 10.42s without limit)
 - Plotly 6.x does NOT accept 8-digit hex colors; use `rgba(r,g,b,a)` format instead
+- `src/yahoo_api.py` still exists in the repo but is no longer used; in-season data comes from MLB Stats API + pybaseball
 
-## Data Sources (for real draft)
+## Data Sources
 
+### Draft
 - **Projections:** FanGraphs CSV exports (Steamer, ZiPS, Depth Charts)
 - **ADP:** FantasyPros consensus ADP
-- **Yahoo integration:** yfpy library for league settings import and live draft polling
+
+### In-Season
+- **Current stats:** MLB Stats API (via `MLB-StatsAPI` Python package, auto-refreshed daily)
+- **ROS projections:** FanGraphs Depth Charts (via `pybaseball`, on-demand or daily)
+- **Park factors:** pybaseball / FanGraphs
+- **League rosters/standings:** Manual CSV upload via League Import step in setup wizard
 
 ## GitHub Repository
 
@@ -185,9 +264,6 @@ streamlit run app.py
 - **CI/CD:** GitHub Actions — lint (ruff), test (Python 3.11-3.13), build verification
 - **Release workflow:** Auto-creates GitHub releases on `v*.*.*` tags
 - **Current release:** v1.0.0
-
-### Pending CI Fix
-The lint job fails due to unused imports in `app.py` (lines 7-33). These are F401 violations (unused imports) and I001 (unsorted imports). The test and build jobs pass on all Python versions. Fix by removing unused imports: `os`, `io`, `Path`, `compute_category_weights`, `apply_league_settings`, `run_benchmark`, `ablation_test`, `generate_cheat_sheet`, `simulate_full_draft`, and sorting the import block.
 
 ### Dependabot
 Configured in `.github/dependabot.yml` for weekly pip and GitHub Actions updates.

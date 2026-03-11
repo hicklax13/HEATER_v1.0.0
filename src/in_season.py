@@ -18,10 +18,19 @@ def _roster_category_totals(roster_ids: list, player_pool: pd.DataFrame) -> dict
     """Compute aggregate category totals for a set of player IDs."""
     roster = player_pool[player_pool["player_id"].isin(roster_ids)]
     totals = {
-        "R": 0, "HR": 0, "RBI": 0, "SB": 0,
-        "W": 0, "SV": 0, "K": 0,
-        "ab": 0, "h": 0, "ip": 0, "er": 0,
-        "bb_allowed": 0, "h_allowed": 0,
+        "R": 0,
+        "HR": 0,
+        "RBI": 0,
+        "SB": 0,
+        "W": 0,
+        "SV": 0,
+        "K": 0,
+        "ab": 0,
+        "h": 0,
+        "ip": 0,
+        "er": 0,
+        "bb_allowed": 0,
+        "h_allowed": 0,
     }
     for _, p in roster.iterrows():
         totals["R"] += int(p.get("r", 0) or 0)
@@ -68,9 +77,7 @@ def analyze_trade(
     sgp_calc = SGPCalculator(config)
 
     before_ids = list(user_roster_ids)
-    after_ids = [pid for pid in before_ids if pid not in giving_ids] + list(
-        receiving_ids
-    )
+    after_ids = [pid for pid in before_ids if pid not in giving_ids] + list(receiving_ids)
 
     before_totals = _roster_category_totals(before_ids, player_pool)
     after_totals = _roster_category_totals(after_ids, player_pool)
@@ -98,10 +105,7 @@ def analyze_trade(
     mc_results = []
     for _ in range(n_sims):
         noise = np.random.normal(1.0, 0.08, size=len(config.all_categories))
-        sim_change = sum(
-            category_impact[cat] * noise[i]
-            for i, cat in enumerate(config.all_categories)
-        )
+        sim_change = sum(category_impact[cat] * noise[i] for i, cat in enumerate(config.all_categories))
         mc_results.append(sim_change)
 
     mc_results = np.array(mc_results)
@@ -114,17 +118,12 @@ def analyze_trade(
 
     for _, p in receiving_players.iterrows():
         if p.get("is_injured", 0):
-            risk_flags.append(
-                f"{p.get('player_name', p.get('name', '?'))} is injured"
-            )
+            risk_flags.append(f"{p.get('player_name', p.get('name', '?'))} is injured")
 
     for _, p in giving_players.iterrows():
         sgp = sgp_calc.total_sgp(p)
         if sgp > 3.0:
-            risk_flags.append(
-                f"Trading away elite player: "
-                f"{p.get('player_name', p.get('name', '?'))}"
-            )
+            risk_flags.append(f"Trading away elite player: {p.get('player_name', p.get('name', '?'))}")
 
     verdict = "ACCEPT" if pct_positive >= 55 else "DECLINE"
 
@@ -158,8 +157,16 @@ def compare_players(
     pb = player_b.iloc[0]
 
     stat_map = {
-        "R": "r", "HR": "hr", "RBI": "rbi", "SB": "sb", "AVG": "avg",
-        "W": "w", "SV": "sv", "K": "k", "ERA": "era", "WHIP": "whip",
+        "R": "r",
+        "HR": "hr",
+        "RBI": "rbi",
+        "SB": "sb",
+        "AVG": "avg",
+        "W": "w",
+        "SV": "sv",
+        "K": "k",
+        "ERA": "era",
+        "WHIP": "whip",
     }
 
     z_a, z_b = {}, {}
@@ -223,18 +230,18 @@ def rank_free_agents(
         best_cat = max(marginal, key=marginal.get) if marginal else ""
         best_cat_val = marginal.get(best_cat, 0)
 
-        records.append({
-            "player_id": fa["player_id"],
-            "player_name": fa.get("player_name", fa.get("name", "?")),
-            "positions": fa.get("positions", ""),
-            "marginal_value": round(total_marginal, 3),
-            "best_category": best_cat,
-            "best_cat_impact": round(best_cat_val, 3),
-        })
+        records.append(
+            {
+                "player_id": fa["player_id"],
+                "player_name": fa.get("player_name", fa.get("name", "?")),
+                "positions": fa.get("positions", ""),
+                "marginal_value": round(total_marginal, 3),
+                "best_category": best_cat,
+                "best_cat_impact": round(best_cat_val, 3),
+            }
+        )
 
     result = pd.DataFrame(records)
     if not result.empty:
-        result = result.sort_values(
-            "marginal_value", ascending=False
-        ).reset_index(drop=True)
+        result = result.sort_values("marginal_value", ascending=False).reset_index(drop=True)
     return result

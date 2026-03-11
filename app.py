@@ -4,6 +4,8 @@ Live draft assistant for 12-team snake draft with in-season management.
 Dark navy + amber accents + sports broadcast typography.
 """
 
+import os
+import tempfile
 import time
 
 import numpy as np
@@ -18,9 +20,10 @@ from src.database import (
     init_db,
     load_player_pool,
 )
-from src.league_manager import import_league_rosters_csv, import_standings_csv
 from src.draft_state import DraftState
+from src.league_manager import import_league_rosters_csv, import_standings_csv
 from src.simulation import DraftSimulator, detect_position_run
+from src.ui_shared import ROSTER_CONFIG, T
 from src.valuation import (
     LeagueConfig,
     SGPCalculator,
@@ -44,8 +47,6 @@ st.set_page_config(
 )
 
 # ── Design Tokens ────────────────────────────────────────────────────
-
-from src.ui_shared import THEME, ROSTER_CONFIG, T
 
 
 # ── CSS Injection ────────────────────────────────────────────────────
@@ -744,7 +745,7 @@ def render_step_import():
     st.markdown("---")
     c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
-        if st.button("Load Sample Data (for testing)", use_container_width=True):
+        if st.button("Load Sample Data (for testing)", width="stretch"):
             with st.status("Loading sample data..."):
                 try:
                     import importlib
@@ -785,7 +786,7 @@ def render_step_import():
     st.markdown("")
     c1, c2, c3 = st.columns([2, 1, 2])
     with c2:
-        if st.button("Next →", type="primary", use_container_width=True):
+        if st.button("Next →", type="primary", width="stretch"):
             if st.session_state.hitter_data and st.session_state.pitcher_data:
                 # Blend projections (skip if only blended exists, e.g. sample data)
                 with st.status("Blending projections..."):
@@ -864,13 +865,14 @@ def render_step_league():
     st.markdown("")
     c1, c2, c3 = st.columns([1, 1, 1])
     with c1:
-        if st.button("← Back", use_container_width=True):
+        if st.button("← Back", width="stretch"):
             st.session_state.setup_step = 1
             st.rerun()
     with c3:
-        if st.button("Next →", type="primary", use_container_width=True):
+        if st.button("Next →", type="primary", width="stretch"):
             st.session_state.setup_step = 3
             st.rerun()
+
 
 # ── Step 3: Import League Data (Optional) ─────────────────────────
 
@@ -901,7 +903,6 @@ def render_step_connect():
         key="roster_csv_upload",
     )
     if roster_file is not None:
-        import tempfile, os
         with tempfile.NamedTemporaryFile(delete=False, suffix=".csv") as tmp:
             tmp.write(roster_file.getvalue())
             tmp_path = tmp.name
@@ -919,7 +920,6 @@ def render_step_connect():
         key="standings_csv_upload",
     )
     if standings_file is not None:
-        import tempfile, os
         with tempfile.NamedTemporaryFile(delete=False, suffix=".csv") as tmp:
             tmp.write(standings_file.getvalue())
             tmp_path = tmp.name
@@ -935,15 +935,15 @@ def render_step_connect():
     st.markdown("")
     c1, c2, c3 = st.columns([1, 1, 1])
     with c1:
-        if st.button("← Back", use_container_width=True, key="s3_back"):
+        if st.button("← Back", width="stretch", key="s3_back"):
             st.session_state.setup_step = 2
             st.rerun()
     with c2:
-        if st.button("Skip →", use_container_width=True, key="s3_skip"):
+        if st.button("Skip →", width="stretch", key="s3_skip"):
             st.session_state.setup_step = 4
             st.rerun()
     with c3:
-        if st.button("Next →", type="primary", use_container_width=True, key="s3_next"):
+        if st.button("Next →", type="primary", width="stretch", key="s3_next"):
             st.session_state.setup_step = 4
             st.rerun()
 
@@ -1006,7 +1006,7 @@ def render_step_launch():
     st.markdown("")
     c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
-        if st.button("START DRAFT", type="primary", use_container_width=True, disabled=not all_ok):
+        if st.button("START DRAFT", type="primary", width="stretch", disabled=not all_ok):
             _start_new_draft(pool, practice, resume)
 
     # Back
@@ -1129,17 +1129,17 @@ def render_draft_page():
             "Practice Mode", value=st.session_state.practice_mode, key="draft_practice"
         )
 
-        if st.button("Undo Last Pick", use_container_width=True):
+        if st.button("Undo Last Pick", width="stretch"):
             ds.undo_last_pick()
             st.toast("Pick undone!", icon="↩️")
             st.rerun()
 
-        if st.button("Save Draft", use_container_width=True):
+        if st.button("Save Draft", width="stretch"):
             path = ds.save()
             st.toast("Saved!", icon="💾")
 
         st.markdown("---")
-        if st.button("← Back to Setup", use_container_width=True):
+        if st.button("← Back to Setup", width="stretch"):
             st.session_state.page = "setup"
             st.rerun()
 
@@ -1416,13 +1416,13 @@ def render_pick_entry(ds, pool, available):
             # Draft button
             btn_label = f"DRAFT {pname.upper()}"
             if ds.is_user_turn:
-                if st.button(btn_label, type="primary", use_container_width=True, key="draft_btn"):
+                if st.button(btn_label, type="primary", width="stretch", key="draft_btn"):
                     _execute_pick(ds, p, pool)
             else:
                 # Other team's pick
                 team_idx = ds.picking_team_index()
                 team_name = ds.teams[team_idx].team_name
-                if st.button(f"Record for {team_name}", use_container_width=True, key="draft_btn"):
+                if st.button(f"Record for {team_name}", width="stretch", key="draft_btn"):
                     _execute_pick(ds, p, pool)
 
     # Quick "Mark as mine" for user picks
@@ -1723,7 +1723,7 @@ def _render_radar_chart(ds, pool):
         margin=dict(l=40, r=40, t=30, b=30),
         height=350,
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 
 def _render_balance_bars(ds, pool):
@@ -1758,7 +1758,7 @@ def render_available_players(ds, pool):
     for i, pos in enumerate(positions):
         with pill_cols[i]:
             btn_type = "primary" if selected_pos == pos else "secondary"
-            if st.button(pos, key=f"pill_{pos}", type=btn_type, use_container_width=True):
+            if st.button(pos, key=f"pill_{pos}", type=btn_type, width="stretch"):
                 st.session_state.pos_filter = pos
                 st.rerun()
 
@@ -1798,7 +1798,7 @@ def render_available_players(ds, pool):
     if "ADP" in display_df.columns:
         col_config["ADP"] = st.column_config.NumberColumn(format="%.0f")
 
-    st.dataframe(display_df, use_container_width=True, hide_index=True, column_config=col_config, height=400)
+    st.dataframe(display_df, width="stretch", hide_index=True, column_config=col_config, height=400)
 
 
 # ── Draft Board ─────────────────────────────────────────────────────

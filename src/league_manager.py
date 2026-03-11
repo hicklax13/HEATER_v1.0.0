@@ -3,11 +3,11 @@
 import pandas as pd
 
 from src.database import (
+    clear_league_rosters,
     get_connection,
+    load_league_rosters,
     upsert_league_roster_entry,
     upsert_league_standing,
-    load_league_rosters,
-    clear_league_rosters,
 )
 
 
@@ -36,11 +36,7 @@ def import_league_rosters_csv(csv_path: str, user_team_name: str) -> int:
     for _, row in df.iterrows():
         team = str(row["team_name"]).strip()
         player_name = str(row["player_name"]).strip()
-        roster_slot = (
-            str(row.get("roster_slot", "")).strip()
-            if "roster_slot" in row.index
-            else None
-        )
+        roster_slot = str(row.get("roster_slot", "")).strip() if "roster_slot" in row.index else None
 
         cursor = conn.cursor()
         cursor.execute("SELECT player_id FROM players WHERE name = ?", (player_name,))
@@ -60,9 +56,7 @@ def import_league_rosters_csv(csv_path: str, user_team_name: str) -> int:
         is_user = team == user_team_name
         team_idx = team_index_map.get(team, 0)
 
-        upsert_league_roster_entry(
-            team, team_idx, player_id, roster_slot, is_user_team=is_user
-        )
+        upsert_league_roster_entry(team, team_idx, player_id, roster_slot, is_user_team=is_user)
         imported += 1
 
     conn.close()
@@ -123,9 +117,7 @@ def add_player_to_roster(
     is_user_team: bool = False,
 ):
     """Add a player to a team roster."""
-    upsert_league_roster_entry(
-        team_name, team_index, player_id, roster_slot, is_user_team
-    )
+    upsert_league_roster_entry(team_name, team_index, player_id, roster_slot, is_user_team)
 
 
 def remove_player_from_roster(team_name: str, player_id: int):

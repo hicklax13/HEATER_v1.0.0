@@ -25,12 +25,10 @@ def temp_db():
     init_db()
     conn = sqlite3.connect(tmp.name)
     conn.execute(
-        "INSERT INTO players (player_id, name, team, positions, is_hitter) "
-        "VALUES (1, 'Aaron Judge', 'NYY', 'OF', 1)"
+        "INSERT INTO players (player_id, name, team, positions, is_hitter) VALUES (1, 'Aaron Judge', 'NYY', 'OF', 1)"
     )
     conn.execute(
-        "INSERT INTO players (player_id, name, team, positions, is_hitter) "
-        "VALUES (2, 'Gerrit Cole', 'NYY', 'SP', 0)"
+        "INSERT INTO players (player_id, name, team, positions, is_hitter) VALUES (2, 'Gerrit Cole', 'NYY', 'SP', 0)"
     )
     conn.commit()
     conn.close()

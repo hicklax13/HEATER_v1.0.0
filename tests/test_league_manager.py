@@ -15,11 +15,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import src.database as db_mod
 from src.database import init_db
 from src.league_manager import (
-    import_league_rosters_csv,
-    import_standings_csv,
+    add_player_to_roster,
     get_free_agents,
     get_team_roster,
-    add_player_to_roster,
+    import_league_rosters_csv,
+    import_standings_csv,
     remove_player_from_roster,
 )
 
@@ -33,24 +33,19 @@ def temp_db():
     init_db()
     conn = sqlite3.connect(tmp.name)
     conn.execute(
-        "INSERT INTO players (player_id, name, team, positions, is_hitter) "
-        "VALUES (1, 'Aaron Judge', 'NYY', 'OF', 1)"
+        "INSERT INTO players (player_id, name, team, positions, is_hitter) VALUES (1, 'Aaron Judge', 'NYY', 'OF', 1)"
     )
     conn.execute(
-        "INSERT INTO players (player_id, name, team, positions, is_hitter) "
-        "VALUES (2, 'Shohei Ohtani', 'LAD', 'DH', 1)"
+        "INSERT INTO players (player_id, name, team, positions, is_hitter) VALUES (2, 'Shohei Ohtani', 'LAD', 'DH', 1)"
     )
     conn.execute(
-        "INSERT INTO players (player_id, name, team, positions, is_hitter) "
-        "VALUES (3, 'Trea Turner', 'PHI', 'SS', 1)"
+        "INSERT INTO players (player_id, name, team, positions, is_hitter) VALUES (3, 'Trea Turner', 'PHI', 'SS', 1)"
     )
     conn.execute(
-        "INSERT INTO players (player_id, name, team, positions, is_hitter) "
-        "VALUES (4, 'Gerrit Cole', 'NYY', 'SP', 0)"
+        "INSERT INTO players (player_id, name, team, positions, is_hitter) VALUES (4, 'Gerrit Cole', 'NYY', 'SP', 0)"
     )
     conn.execute(
-        "INSERT INTO players (player_id, name, team, positions, is_hitter) "
-        "VALUES (5, 'Free Agent Guy', 'FA', 'OF', 1)"
+        "INSERT INTO players (player_id, name, team, positions, is_hitter) VALUES (5, 'Free Agent Guy', 'FA', 'OF', 1)"
     )
     conn.commit()
     conn.close()
@@ -80,18 +75,51 @@ def standings_csv(tmp_path):
     csv_path = tmp_path / "standings.csv"
     with open(csv_path, "w", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow([
-            "team_name", "R", "HR", "RBI", "SB", "AVG",
-            "W", "SV", "K", "ERA", "WHIP",
-        ])
-        writer.writerow([
-            "Team Hickey", "450", "120", "430", "65", ".272",
-            "45", "30", "650", "3.50", "1.15",
-        ])
-        writer.writerow([
-            "Team 2", "420", "110", "410", "70", ".265",
-            "50", "35", "700", "3.70", "1.20",
-        ])
+        writer.writerow(
+            [
+                "team_name",
+                "R",
+                "HR",
+                "RBI",
+                "SB",
+                "AVG",
+                "W",
+                "SV",
+                "K",
+                "ERA",
+                "WHIP",
+            ]
+        )
+        writer.writerow(
+            [
+                "Team Hickey",
+                "450",
+                "120",
+                "430",
+                "65",
+                ".272",
+                "45",
+                "30",
+                "650",
+                "3.50",
+                "1.15",
+            ]
+        )
+        writer.writerow(
+            [
+                "Team 2",
+                "420",
+                "110",
+                "410",
+                "70",
+                ".265",
+                "50",
+                "35",
+                "700",
+                "3.70",
+                "1.20",
+            ]
+        )
     return str(csv_path)
 
 
@@ -109,13 +137,18 @@ def test_import_standings_csv(standings_csv, temp_db):
 
 def test_free_agents(roster_csv, temp_db):
     import_league_rosters_csv(roster_csv, user_team_name="Team Hickey")
-    all_players = pd.DataFrame({
-        "player_id": [1, 2, 3, 4, 5],
-        "name": [
-            "Aaron Judge", "Shohei Ohtani", "Trea Turner",
-            "Gerrit Cole", "Free Agent Guy",
-        ],
-    })
+    all_players = pd.DataFrame(
+        {
+            "player_id": [1, 2, 3, 4, 5],
+            "name": [
+                "Aaron Judge",
+                "Shohei Ohtani",
+                "Trea Turner",
+                "Gerrit Cole",
+                "Free Agent Guy",
+            ],
+        }
+    )
     fa = get_free_agents(all_players)
     assert len(fa) == 1
     assert fa.iloc[0]["name"] == "Free Agent Guy"

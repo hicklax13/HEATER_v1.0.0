@@ -1,15 +1,16 @@
 """Player Compare — Head-to-head comparison with z-scores and radar chart."""
 
-import streamlit as st
 import pandas as pd
+import streamlit as st
 
 from src.database import init_db, load_player_pool
 from src.in_season import compare_players
+from src.ui_shared import ALL_CATEGORIES, T
 from src.valuation import LeagueConfig
-from src.ui_shared import THEME, T, ALL_CATEGORIES
 
 try:
     import plotly.graph_objects as go
+
     HAS_PLOTLY = True
 except ImportError:
     HAS_PLOTLY = False
@@ -20,8 +21,8 @@ init_db()
 
 st.markdown(
     f"""<style>
-    .stApp {{ background-color: {T['bg']}; }}
-    h1, h2, h3 {{ color: {T['amber']}; font-family: 'Oswald', sans-serif; }}
+    .stApp {{ background-color: {T["bg"]}; }}
+    h1, h2, h3 {{ color: {T["amber"]}; font-family: 'Oswald', sans-serif; }}
     </style>""",
     unsafe_allow_html=True,
 )
@@ -42,7 +43,7 @@ col1, col2 = st.columns(2)
 with col1:
     player_a_name = st.selectbox("Player A", options=player_names, index=0, key="pa")
 with col2:
-    player_b_name = st.selectbox("Player B", options=player_names, index=min(1, len(player_names)-1), key="pb")
+    player_b_name = st.selectbox("Player B", options=player_names, index=min(1, len(player_names) - 1), key="pb")
 
 if player_a_name and player_b_name and player_a_name != player_b_name:
     id_a = pool[pool["player_name"] == player_a_name].iloc[0]["player_id"]
@@ -65,22 +66,26 @@ if player_a_name and player_b_name and player_a_name != player_b_name:
             z_b = [result["z_scores_b"].get(c, 0) for c in cats]
 
             fig = go.Figure()
-            fig.add_trace(go.Scatterpolar(
-                r=z_a + [z_a[0]],
-                theta=cats + [cats[0]],
-                name=result["player_a"],
-                line=dict(color=T["amber"]),
-                fill="toself",
-                fillcolor=f"rgba(245,158,11,0.15)",
-            ))
-            fig.add_trace(go.Scatterpolar(
-                r=z_b + [z_b[0]],
-                theta=cats + [cats[0]],
-                name=result["player_b"],
-                line=dict(color=T["teal"]),
-                fill="toself",
-                fillcolor=f"rgba(6,182,212,0.15)",
-            ))
+            fig.add_trace(
+                go.Scatterpolar(
+                    r=z_a + [z_a[0]],
+                    theta=cats + [cats[0]],
+                    name=result["player_a"],
+                    line=dict(color=T["amber"]),
+                    fill="toself",
+                    fillcolor="rgba(245,158,11,0.15)",
+                )
+            )
+            fig.add_trace(
+                go.Scatterpolar(
+                    r=z_b + [z_b[0]],
+                    theta=cats + [cats[0]],
+                    name=result["player_b"],
+                    line=dict(color=T["teal"]),
+                    fill="toself",
+                    fillcolor="rgba(6,182,212,0.15)",
+                )
+            )
             fig.update_layout(
                 polar=dict(
                     bgcolor=T["card"],
@@ -92,7 +97,7 @@ if player_a_name and player_b_name and player_a_name != player_b_name:
                 legend=dict(font=dict(color=T["tx"])),
                 margin=dict(l=60, r=60, t=40, b=40),
             )
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
 
         # Z-score comparison table
         st.subheader("Category Breakdown")
@@ -101,13 +106,15 @@ if player_a_name and player_b_name and player_a_name != player_b_name:
             za = result["z_scores_a"].get(cat, 0)
             zb = result["z_scores_b"].get(cat, 0)
             adv = result["advantages"].get(cat, "TIE")
-            rows.append({
-                "Category": cat,
-                f"{result['player_a']} Z": f"{za:+.2f}",
-                f"{result['player_b']} Z": f"{zb:+.2f}",
-                "Advantage": adv,
-            })
-        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+            rows.append(
+                {
+                    "Category": cat,
+                    f"{result['player_a']} Z": f"{za:+.2f}",
+                    f"{result['player_b']} Z": f"{zb:+.2f}",
+                    "Advantage": adv,
+                }
+            )
+        st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
 else:
     if player_a_name == player_b_name:
         st.info("Select two different players to compare.")

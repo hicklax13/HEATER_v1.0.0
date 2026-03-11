@@ -34,8 +34,7 @@ def temp_db():
     ]
     for p in players:
         conn.execute(
-            "INSERT INTO players (player_id, name, team, positions, is_hitter) "
-            "VALUES (?,?,?,?,?)",
+            "INSERT INTO players (player_id, name, team, positions, is_hitter) VALUES (?,?,?,?,?)",
             p,
         )
     hitter_projs = [
@@ -50,9 +49,7 @@ def temp_db():
     ]
     for p in hitter_projs:
         conn.execute(
-            "INSERT INTO projections "
-            "(player_id, system, pa, ab, h, r, hr, rbi, sb, avg) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO projections (player_id, system, pa, ab, h, r, hr, rbi, sb, avg) VALUES (?,?,?,?,?,?,?,?,?,?)",
             p,
         )
     for p in pitcher_projs:
