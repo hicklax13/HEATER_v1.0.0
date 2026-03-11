@@ -1,300 +1,662 @@
-"""Yahoo Fantasy Sports API integration for league settings and live draft tracking.
+"""Yahoo Fantasy Sports API client using yfpy.
 
-Uses the yfpy library for OAuth 2.0 authentication and API access.
-Install: pip install yfpy
+Provides authenticated access to Yahoo Fantasy Sports data including league
+settings, rosters, standings, free agents, transactions, and draft results.
+All data can be synced to the local SQLite database for offline use.
 
 Setup:
-1. Register an app at https://developer.yahoo.com/apps/
-2. Get your Consumer Key and Consumer Secret
-3. Set game_key to the current MLB season (e.g., "mlb" or the numeric game key)
+    1. Go to https://developer.yahoo.com/apps/ and click "Create an App"
+    2. Select "Installed Application" (not web-based)
+    3. Under API Permissions, check "Fantasy Sports (Read)"
+    4. Copy your Consumer Key and Consumer Secret
+    5. Install the yfpy package: pip install 'yfpy>=17.0'
+    6. On first authenticate() call, yfpy will open a browser for OAuth consent.
+       Paste the verifier code back into the terminal prompt.
+
+Token persistence:
+    yfpy stores OAuth tokens in the auth_dir (data/ by default). Subsequent
+    calls reuse the cached token automatically. Call refresh_token() if the
+    token expires mid-session.
+
+Rate limiting:
+    Yahoo's API allows ~2000 requests/hour. This module inserts a 0.5-second
+    delay between consecutive API calls to stay well under the limit.
 """
 
-import json
+from __future__ import annotations
+
 import logging
+import time
 from pathlib import Path
+
+import pandas as pd
+
+try:
+    from yfpy.query import YahooFantasySportsQuery
+
+    YFPY_AVAILABLE = True
+except ImportError:
+    YFPY_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
-YAHOO_CREDS_PATH = Path(__file__).parent.parent / "data" / "yahoo_creds.json"
+_AUTH_DIR = Path(__file__).parent.parent / "data"
+_RATE_LIMIT_SECONDS = 0.5
+_last_request_time: float = 0.0
 
 
-def save_credentials(consumer_key: str, consumer_secret: str, league_id: str, game_key: str = "mlb"):
-    """Save Yahoo API credentials to disk."""
-    YAHOO_CREDS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    creds = {
-        "consumer_key": consumer_key,
-        "consumer_secret": consumer_secret,
-        "league_id": league_id,
-        "game_key": game_key,
-    }
-    with open(YAHOO_CREDS_PATH, "w") as f:
-        json.dump(creds, f, indent=2)
+def _rate_limit():
+    """Sleep if needed to respect Yahoo API rate limits."""
+    global _last_request_time
+    elapsed = time.monotonic() - _last_request_time
+    if elapsed < _RATE_LIMIT_SECONDS:
+        time.sleep(_RATE_LIMIT_SECONDS - elapsed)
+    _last_request_time = time.monotonic()
 
 
-def load_credentials() -> dict | None:
-    """Load saved Yahoo API credentials."""
-    if not YAHOO_CREDS_PATH.exists():
-        return None
-    with open(YAHOO_CREDS_PATH) as f:
-        return json.load(f)
+# ---------------------------------------------------------------------------
+# Standalone helpers
+# ---------------------------------------------------------------------------
 
 
-def has_credentials() -> bool:
-    return YAHOO_CREDS_PATH.exists()
+def build_oauth_url(consumer_key: str, redirect_uri: str = "oob") -> str:
+    """Build Yahoo OAuth authorization URL.
+
+    Args:
+        consumer_key: Yahoo app consumer key.
+        redirect_uri: Redirect URI. Use "oob" for installed applications.
+
+    Returns:
+        The authorization URL string the user should visit in a browser.
+    """
+    base = "https://api.login.yahoo.com/oauth2/request_auth"
+    return f"{base}?client_id={consumer_key}&redirect_uri={redirect_uri}&response_type=code&language=en-us"
+
+
+def validate_credentials(consumer_key: str, consumer_secret: str) -> bool:
+    """Quick check if credentials have a valid format.
+
+    Yahoo consumer keys are typically 72 characters and secrets are 32.
+    This does NOT verify them against Yahoo's servers --- it only catches
+    obviously empty or malformed values.
+
+    Args:
+        consumer_key: Yahoo app consumer key.
+        consumer_secret: Yahoo app consumer secret.
+
+    Returns:
+        True if both values look structurally plausible.
+    """
+    if not consumer_key or not consumer_secret:
+        return False
+    if not isinstance(consumer_key, str) or not isinstance(consumer_secret, str):
+        return False
+    key = consumer_key.strip()
+    secret = consumer_secret.strip()
+    if len(key) < 10 or len(secret) < 10:
+        return False
+    return True
+
+
+# ---------------------------------------------------------------------------
+# Main client
+# ---------------------------------------------------------------------------
 
 
 class YahooFantasyClient:
-    """Wrapper around yfpy for Yahoo Fantasy API access."""
+    """Yahoo Fantasy Sports API client using yfpy.
 
-    def __init__(self, consumer_key: str, consumer_secret: str, league_id: str, game_key: str = "mlb"):
-        self.consumer_key = consumer_key
-        self.consumer_secret = consumer_secret
+    Usage::
+
+        client = YahooFantasyClient(league_id="12345")
+        if client.authenticate(consumer_key="...", consumer_secret="..."):
+            settings = client.get_league_settings()
+            standings = client.get_league_standings()
+            client.sync_to_db()
+    """
+
+    def __init__(
+        self,
+        league_id: str,
+        game_code: str = "mlb",
+        season: int = 2026,
+    ):
         self.league_id = league_id
-        self.game_key = game_key
-        self._query = None
+        self.game_code = game_code
+        self.season = season
+        self._query: YahooFantasySportsQuery | None = None
 
-    def connect(self) -> bool:
-        """Initialize the Yahoo Fantasy API connection.
+    # ------------------------------------------------------------------
+    # Authentication
+    # ------------------------------------------------------------------
 
-        Returns True if successful, False if yfpy is not installed or auth fails.
+    def authenticate(
+        self,
+        consumer_key: str,
+        consumer_secret: str,
+        token_data: dict | None = None,
+    ) -> bool:
+        """Initialize yfpy Game object with OAuth credentials.
+
+        On the very first call yfpy will open a browser window for the user
+        to authorize the app.  The resulting token is cached in *data/* so
+        future calls skip the browser flow.
+
+        Args:
+            consumer_key: Yahoo app consumer key.
+            consumer_secret: Yahoo app consumer secret.
+            token_data: Optional pre-existing token dict (ignored if None).
+
+        Returns:
+            True on successful authentication, False otherwise.
         """
-        try:
-            from yfpy.query import YahooFantasySportsQuery
-        except ImportError:
-            logger.warning("yfpy not installed. Run: pip install yfpy")
+        if not YFPY_AVAILABLE:
+            logger.warning("yfpy is not installed. Run: pip install 'yfpy>=17.0'")
+            return False
+
+        if not validate_credentials(consumer_key, consumer_secret):
+            logger.error("Invalid credential format --- key or secret too short / empty.")
             return False
 
         try:
-            auth_dir = Path(__file__).parent.parent / "data"
+            _AUTH_DIR.mkdir(parents=True, exist_ok=True)
             self._query = YahooFantasySportsQuery(
-                auth_dir=str(auth_dir),
+                auth_dir=str(_AUTH_DIR),
                 league_id=self.league_id,
-                game_code="mlb",
-                game_id=self.game_key if self.game_key.isdigit() else None,
-                consumer_key=self.consumer_key,
-                consumer_secret=self.consumer_secret,
+                game_code=self.game_code,
+                consumer_key=consumer_key,
+                consumer_secret=consumer_secret,
             )
+            # Force a lightweight call to confirm the token is valid.
+            _rate_limit()
+            self._query.get_league_metadata()
+            logger.info("Yahoo Fantasy API authenticated successfully.")
             return True
-        except Exception as e:
-            logger.error(f"Yahoo API connection failed: {e}")
+        except Exception:
+            logger.exception("Yahoo API authentication failed.")
+            self._query = None
             return False
 
-    def get_league_settings(self) -> dict | None:
-        """Fetch league settings (categories, roster positions, etc.)."""
-        if not self._query:
-            return None
-        try:
-            settings = self._query.get_league_settings()
-            result = {
-                "name": getattr(settings, "name", "Unknown"),
-                "num_teams": getattr(settings, "num_teams", 12),
-                "scoring_type": getattr(settings, "scoring_type", "roto"),
-            }
+    @property
+    def is_authenticated(self) -> bool:
+        """Check if client has valid authentication."""
+        return self._query is not None
 
-            # Extract roster positions
-            roster_positions = getattr(settings, "roster_positions", [])
-            if roster_positions:
-                pos_dict = {}
-                for rp in roster_positions:
-                    pos = getattr(rp, "position", None) or getattr(rp, "position_type", "")
-                    count = getattr(rp, "count", 1)
-                    if pos:
-                        pos_dict[str(pos)] = int(count)
-                result["roster_positions"] = pos_dict
+    def refresh_token(self) -> bool:
+        """Refresh an expired OAuth token.
 
-            # Extract stat categories
-            stat_categories = getattr(settings, "stat_categories", None)
-            if stat_categories:
-                cats = []
-                for sc in getattr(stat_categories, "stats", []):
-                    stat = getattr(sc, "stat", sc)
-                    name = getattr(stat, "display_name", getattr(stat, "name", ""))
-                    if name:
-                        cats.append(str(name))
-                result["categories"] = cats
-
-            return result
-        except Exception as e:
-            logger.error(f"Failed to get league settings: {e}")
-            return None
-
-    def get_draft_results(self) -> list | None:
-        """Fetch draft results (works during an active draft).
-
-        Returns list of dicts with: pick, round, team_key, player_key, player_name.
-        Returns empty list if draft hasn't started yet.
+        Returns:
+            True on success, False if refresh fails or client not authenticated.
         """
-        if not self._query:
-            return None
+        if not YFPY_AVAILABLE or self._query is None:
+            logger.warning("Cannot refresh token --- client not authenticated.")
+            return False
         try:
-            draft_results = self._query.get_league_draft_results()
-            if not draft_results:
-                return []
+            # yfpy automatically refreshes on the next API call, but we
+            # trigger it explicitly with a lightweight metadata request.
+            _rate_limit()
+            self._query.get_league_metadata()
+            logger.info("OAuth token refreshed successfully.")
+            return True
+        except Exception:
+            logger.exception("Token refresh failed.")
+            return False
 
-            picks = []
-            for dr in draft_results:
-                pick_data = getattr(dr, "draft_result", dr)
-                pick = {
-                    "pick": int(getattr(pick_data, "pick", 0)),
-                    "round": int(getattr(pick_data, "round", 0)),
-                    "team_key": str(getattr(pick_data, "team_key", "")),
-                    "player_key": str(getattr(pick_data, "player_key", "")),
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _ensure_auth(self) -> bool:
+        """Log a warning and return False if not authenticated."""
+        if not self.is_authenticated:
+            logger.warning("Yahoo API call attempted without authentication.")
+            return False
+        return True
+
+    @staticmethod
+    def _safe_attr(obj, attr: str, default=None):
+        """Safely read an attribute from a yfpy model object."""
+        return getattr(obj, attr, default)
+
+    # ------------------------------------------------------------------
+    # League data
+    # ------------------------------------------------------------------
+
+    def get_league_settings(self) -> dict:
+        """Get scoring categories, roster slots, draft type.
+
+        Returns:
+            Dict with keys: ``scoring_categories``, ``roster_positions``,
+            ``draft_type``, ``num_teams``, ``name``.  Returns empty dict on
+            error or if not authenticated.
+        """
+        if not self._ensure_auth():
+            return {}
+        try:
+            _rate_limit()
+            settings = self._query.get_league_settings()
+
+            # Scoring categories
+            scoring_categories: list[str] = []
+            stat_cats = self._safe_attr(settings, "stat_categories")
+            if stat_cats:
+                for sc in getattr(stat_cats, "stats", []):
+                    stat = getattr(sc, "stat", sc)
+                    display = self._safe_attr(stat, "display_name") or self._safe_attr(stat, "name")
+                    if display:
+                        scoring_categories.append(str(display))
+
+            # Roster positions
+            roster_positions: dict[str, int] = {}
+            for rp in self._safe_attr(settings, "roster_positions", []):
+                pos = self._safe_attr(rp, "position") or self._safe_attr(rp, "position_type")
+                count = self._safe_attr(rp, "count", 1)
+                if pos:
+                    roster_positions[str(pos)] = int(count)
+
+            return {
+                "name": str(self._safe_attr(settings, "name", "Unknown")),
+                "num_teams": int(self._safe_attr(settings, "num_teams", 12)),
+                "draft_type": str(self._safe_attr(settings, "draft_type", "live")),
+                "scoring_categories": scoring_categories,
+                "roster_positions": roster_positions,
+            }
+        except Exception:
+            logger.exception("Failed to fetch league settings.")
+            return {}
+
+    def get_league_standings(self) -> pd.DataFrame:
+        """Get current roto standings for all teams.
+
+        Returns:
+            DataFrame with columns: ``team_name``, ``team_key``, ``rank``,
+            plus one column per scoring category.
+        """
+        if not self._ensure_auth():
+            return pd.DataFrame()
+        try:
+            _rate_limit()
+            standings_data = self._query.get_league_standings()
+
+            teams = self._safe_attr(standings_data, "teams", [])
+            rows: list[dict] = []
+            for entry in teams:
+                team = getattr(entry, "team", entry)
+                row: dict = {
+                    "team_name": str(self._safe_attr(team, "name", "")),
+                    "team_key": str(self._safe_attr(team, "team_key", "")),
+                    "rank": int(self._safe_attr(team, "rank", 0)),
                 }
+                # Extract per-category stat values
+                team_stats = self._safe_attr(team, "team_stats")
+                if team_stats:
+                    for s in getattr(team_stats, "stats", []):
+                        stat_obj = getattr(s, "stat", s)
+                        name = self._safe_attr(stat_obj, "display_name") or self._safe_attr(stat_obj, "name")
+                        value = self._safe_attr(stat_obj, "value", 0)
+                        if name:
+                            try:
+                                row[str(name).lower()] = float(value)
+                            except (ValueError, TypeError):
+                                row[str(name).lower()] = value
+                rows.append(row)
 
-                # Try to get player name
-                player = getattr(pick_data, "player", None)
-                if player:
-                    name = getattr(player, "name", None)
-                    if name:
-                        pick["player_name"] = str(getattr(name, "full", name))
-                    else:
-                        pick["player_name"] = str(player)
-                else:
-                    pick["player_name"] = f"Player {pick['player_key']}"
+            return pd.DataFrame(rows) if rows else pd.DataFrame()
+        except Exception:
+            logger.exception("Failed to fetch league standings.")
+            return pd.DataFrame()
 
-                picks.append(pick)
+    # ------------------------------------------------------------------
+    # Rosters
+    # ------------------------------------------------------------------
 
-            return sorted(picks, key=lambda x: x["pick"])
-        except Exception as e:
-            logger.error(f"Failed to get draft results: {e}")
-            return None
+    def get_all_rosters(self) -> pd.DataFrame:
+        """Get all teams' rosters.
 
-    def get_teams(self) -> list | None:
-        """Fetch list of teams in the league."""
-        if not self._query:
-            return None
+        Returns:
+            DataFrame with columns: ``team_name``, ``team_key``,
+            ``player_name``, ``player_id``, ``position``, ``status``.
+        """
+        if not self._ensure_auth():
+            return pd.DataFrame()
         try:
+            _rate_limit()
             teams = self._query.get_league_teams()
-            result = []
-            for t in teams:
-                team = getattr(t, "team", t)
-                result.append(
+            all_rows: list[dict] = []
+
+            for entry in teams:
+                team = getattr(entry, "team", entry)
+                team_name = str(self._safe_attr(team, "name", ""))
+                team_key = str(self._safe_attr(team, "team_key", ""))
+
+                _rate_limit()
+                roster = self._query.get_team_roster_by_week(team_key)
+                for player_entry in roster or []:
+                    player = getattr(player_entry, "player", player_entry)
+                    name_obj = self._safe_attr(player, "name")
+                    full_name = ""
+                    if name_obj:
+                        full_name = str(self._safe_attr(name_obj, "full", name_obj))
+
+                    positions = self._safe_attr(player, "eligible_positions", [])
+                    pos_str = "/".join(str(p) for p in positions) if positions else ""
+
+                    all_rows.append(
+                        {
+                            "team_name": team_name,
+                            "team_key": team_key,
+                            "player_name": full_name,
+                            "player_id": str(self._safe_attr(player, "player_id", "")),
+                            "position": pos_str,
+                            "status": str(self._safe_attr(player, "status", "active")),
+                        }
+                    )
+
+            return pd.DataFrame(all_rows) if all_rows else pd.DataFrame()
+        except Exception:
+            logger.exception("Failed to fetch all rosters.")
+            return pd.DataFrame()
+
+    def get_team_roster(self, team_key: str) -> pd.DataFrame:
+        """Get a single team's roster.
+
+        Args:
+            team_key: The Yahoo team key (e.g. ``"422.l.12345.t.1"``).
+
+        Returns:
+            DataFrame with columns: ``player_name``, ``player_id``,
+            ``position``, ``status``.
+        """
+        if not self._ensure_auth():
+            return pd.DataFrame()
+        try:
+            _rate_limit()
+            roster = self._query.get_team_roster_by_week(team_key)
+            rows: list[dict] = []
+            for player_entry in roster or []:
+                player = getattr(player_entry, "player", player_entry)
+                name_obj = self._safe_attr(player, "name")
+                full_name = ""
+                if name_obj:
+                    full_name = str(self._safe_attr(name_obj, "full", name_obj))
+
+                positions = self._safe_attr(player, "eligible_positions", [])
+                pos_str = "/".join(str(p) for p in positions) if positions else ""
+
+                rows.append(
                     {
-                        "team_key": str(getattr(team, "team_key", "")),
-                        "name": str(getattr(team, "name", "")),
-                        "manager": str(getattr(team, "manager", {}).get("nickname", ""))
-                        if isinstance(getattr(team, "manager", None), dict)
-                        else str(getattr(getattr(team, "manager", None), "nickname", "")),
+                        "player_name": full_name,
+                        "player_id": str(self._safe_attr(player, "player_id", "")),
+                        "position": pos_str,
+                        "status": str(self._safe_attr(player, "status", "active")),
                     }
                 )
-            return result
-        except Exception as e:
-            logger.error(f"Failed to get teams: {e}")
-            return None
 
+            return pd.DataFrame(rows) if rows else pd.DataFrame()
+        except Exception:
+            logger.exception("Failed to fetch team roster for %s.", team_key)
+            return pd.DataFrame()
 
-def apply_league_settings(settings: dict, config) -> list:
-    """Apply Yahoo league settings to a LeagueConfig object.
+    # ------------------------------------------------------------------
+    # Free agents & transactions
+    # ------------------------------------------------------------------
 
-    Returns a list of changes made (for display to the user).
-    """
-    changes = []
+    def get_free_agents(
+        self,
+        position: str | None = None,
+        count: int = 50,
+    ) -> pd.DataFrame:
+        """Get available free agents.
 
-    if "num_teams" in settings:
-        old = config.num_teams
-        config.num_teams = int(settings["num_teams"])
-        if old != config.num_teams:
-            changes.append(f"Teams: {old} -> {config.num_teams}")
+        Args:
+            position: Filter by eligible position (e.g. ``"SS"``). ``None``
+                returns all positions.
+            count: Maximum number of players to return.
 
-    if "roster_positions" in settings:
-        pos_map = settings["roster_positions"]
-        for pos, count in pos_map.items():
-            pos_key = str(pos).strip()
-            if pos_key in config.roster_slots:
-                old = config.roster_slots[pos_key]
-                config.roster_slots[pos_key] = int(count)
-                if old != int(count):
-                    changes.append(f"{pos_key}: {old} -> {count}")
-
-    if "categories" in settings:
-        cat_name_map = {
-            "R": "R",
-            "HR": "HR",
-            "RBI": "RBI",
-            "SB": "SB",
-            "AVG": "AVG",
-            "W": "W",
-            "SV": "SV",
-            "K": "K",
-            "ERA": "ERA",
-            "WHIP": "WHIP",
-            "OBP": "OBP",
-            "SLG": "SLG",
-            "OPS": "OPS",
-            "QS": "QS",
-            "HLD": "HLD",
-            "HD": "HLD",
-            "BB": "BB",
-        }
-        hit_cats = []
-        pitch_cats = []
-        hit_set = {"R", "HR", "RBI", "SB", "AVG", "OBP", "SLG", "OPS", "H", "BB", "TB"}
-        for raw_cat in settings["categories"]:
-            cat = cat_name_map.get(raw_cat.upper(), raw_cat.upper())
-            if cat in hit_set:
-                hit_cats.append(cat)
-            else:
-                pitch_cats.append(cat)
-        if hit_cats and hit_cats != config.hitting_categories:
-            config.hitting_categories = hit_cats
-            changes.append(f"Hitting cats: {', '.join(hit_cats)}")
-        if pitch_cats and pitch_cats != config.pitching_categories:
-            config.pitching_categories = pitch_cats
-            changes.append(f"Pitching cats: {', '.join(pitch_cats)}")
-
-    return changes
-
-
-def sync_draft_picks(client: YahooFantasyClient, draft_state, player_pool) -> int:
-    """Sync draft picks from Yahoo API into the local draft state.
-
-    Returns number of new picks synced.
-    """
-    api_picks = client.get_draft_results()
-    if api_picks is None:
-        return -1  # API error
-
-    new_picks = 0
-    for api_pick in api_picks:
-        pick_num = api_pick["pick"] - 1  # Convert to 0-indexed
-        if pick_num < draft_state.current_pick:
-            continue  # Already recorded
-
-        # Skip picks that are out of order (shouldn't happen but be safe)
-        if pick_num != draft_state.current_pick:
-            continue
-
-        player_name = api_pick.get("player_name", "Unknown")
-
-        # Try to match player in pool
-        matches = player_pool[player_pool["name"].str.lower() == player_name.lower()]
-        if matches.empty:
-            # Fuzzy match
-            parts = player_name.split()
-            if len(parts) >= 2:
-                matches = player_pool[
-                    player_pool["name"].str.contains(parts[-1], case=False, na=False)
-                    & player_pool["name"].str.contains(parts[0], case=False, na=False)
-                ]
-
-        if not matches.empty:
-            p = matches.iloc[0]
-            draft_state.make_pick(
-                int(p["player_id"]),
-                p["name"],
-                p["positions"],
+        Returns:
+            DataFrame with columns: ``player_name``, ``player_id``,
+            ``positions``, ``percent_owned``.
+        """
+        if not self._ensure_auth():
+            return pd.DataFrame()
+        try:
+            _rate_limit()
+            fa_list = self._query.get_league_players(
+                player_count=count,
+                player_count_start=0,
+                status="FA",
             )
-            new_picks += 1
-        else:
-            # Player not in pool — create a placeholder pick
-            draft_state.make_pick(
-                player_id=-1 * (pick_num + 1),  # negative ID for unknown players
-                player_name=player_name,
-                positions="Util",
-            )
-            new_picks += 1
 
-    if new_picks > 0:
-        draft_state.save()
+            rows: list[dict] = []
+            for entry in fa_list or []:
+                player = getattr(entry, "player", entry)
+                name_obj = self._safe_attr(player, "name")
+                full_name = ""
+                if name_obj:
+                    full_name = str(self._safe_attr(name_obj, "full", name_obj))
 
-    return new_picks
+                positions = self._safe_attr(player, "eligible_positions", [])
+                pos_list = [str(p) for p in positions] if positions else []
+
+                # Apply position filter if requested
+                if position and position not in pos_list:
+                    continue
+
+                pct = self._safe_attr(player, "percent_owned", 0)
+                try:
+                    pct = float(pct)
+                except (ValueError, TypeError):
+                    pct = 0.0
+
+                rows.append(
+                    {
+                        "player_name": full_name,
+                        "player_id": str(self._safe_attr(player, "player_id", "")),
+                        "positions": "/".join(pos_list),
+                        "percent_owned": pct,
+                    }
+                )
+
+            return pd.DataFrame(rows) if rows else pd.DataFrame()
+        except Exception:
+            logger.exception("Failed to fetch free agents.")
+            return pd.DataFrame()
+
+    def get_league_transactions(self, days: int = 7) -> pd.DataFrame:
+        """Get recent adds/drops/trades.
+
+        Args:
+            days: Number of past days to include.
+
+        Returns:
+            DataFrame with columns: ``transaction_id``, ``type``,
+            ``player_name``, ``team_from``, ``team_to``, ``timestamp``.
+        """
+        if not self._ensure_auth():
+            return pd.DataFrame()
+        try:
+            _rate_limit()
+            transactions = self._query.get_league_transactions()
+
+            rows: list[dict] = []
+            for entry in transactions or []:
+                tx = getattr(entry, "transaction", entry)
+                tx_id = str(self._safe_attr(tx, "transaction_id", ""))
+                tx_type = str(self._safe_attr(tx, "type", ""))
+                ts = str(self._safe_attr(tx, "timestamp", ""))
+
+                # Each transaction can involve multiple players
+                players = self._safe_attr(tx, "players", [])
+                for p_entry in players or []:
+                    player = getattr(p_entry, "player", p_entry)
+                    name_obj = self._safe_attr(player, "name")
+                    full_name = ""
+                    if name_obj:
+                        full_name = str(self._safe_attr(name_obj, "full", name_obj))
+
+                    tx_data = self._safe_attr(player, "transaction_data")
+                    team_from = ""
+                    team_to = ""
+                    if tx_data:
+                        team_from = str(self._safe_attr(tx_data, "source_team_name", ""))
+                        team_to = str(self._safe_attr(tx_data, "destination_team_name", ""))
+
+                    rows.append(
+                        {
+                            "transaction_id": tx_id,
+                            "type": tx_type,
+                            "player_name": full_name,
+                            "team_from": team_from,
+                            "team_to": team_to,
+                            "timestamp": ts,
+                        }
+                    )
+
+            return pd.DataFrame(rows) if rows else pd.DataFrame()
+        except Exception:
+            logger.exception("Failed to fetch league transactions.")
+            return pd.DataFrame()
+
+    # ------------------------------------------------------------------
+    # Draft
+    # ------------------------------------------------------------------
+
+    def get_draft_results(self) -> pd.DataFrame:
+        """Get draft results for opponent modeling.
+
+        Returns:
+            DataFrame with columns: ``pick_number``, ``round``,
+            ``team_name``, ``team_key``, ``player_name``, ``player_id``.
+        """
+        if not self._ensure_auth():
+            return pd.DataFrame()
+        try:
+            _rate_limit()
+            draft_results = self._query.get_league_draft_results()
+            if not draft_results:
+                return pd.DataFrame()
+
+            rows: list[dict] = []
+            for entry in draft_results:
+                pick_data = getattr(entry, "draft_result", entry)
+
+                player_name = ""
+                player = self._safe_attr(pick_data, "player")
+                if player:
+                    name_obj = self._safe_attr(player, "name")
+                    if name_obj:
+                        player_name = str(self._safe_attr(name_obj, "full", name_obj))
+                    else:
+                        player_name = str(player)
+
+                player_key = str(self._safe_attr(pick_data, "player_key", ""))
+                if not player_name:
+                    player_name = f"Player {player_key}"
+
+                rows.append(
+                    {
+                        "pick_number": int(self._safe_attr(pick_data, "pick", 0)),
+                        "round": int(self._safe_attr(pick_data, "round", 0)),
+                        "team_name": str(self._safe_attr(pick_data, "team_name", "")),
+                        "team_key": str(self._safe_attr(pick_data, "team_key", "")),
+                        "player_name": player_name,
+                        "player_id": player_key,
+                    }
+                )
+
+            df = pd.DataFrame(rows)
+            if not df.empty:
+                df = df.sort_values("pick_number").reset_index(drop=True)
+            return df
+        except Exception:
+            logger.exception("Failed to fetch draft results.")
+            return pd.DataFrame()
+
+    # ------------------------------------------------------------------
+    # Database sync
+    # ------------------------------------------------------------------
+
+    def sync_to_db(self) -> dict:
+        """Push all Yahoo data to SQLite tables.
+
+        Syncs league standings and rosters to the database using the
+        existing upsert functions in ``src.database``.
+
+        Returns:
+            Dict of ``{"standings": N, "rosters": N}`` with row counts
+            synced, or empty dict on failure.
+        """
+        if not self._ensure_auth():
+            return {}
+
+        # Late import to avoid circular dependency and keep this module
+        # free of Streamlit imports.
+        from src.database import (
+            clear_league_rosters,
+            update_refresh_log,
+            upsert_league_roster_entry,
+            upsert_league_standing,
+        )
+
+        counts: dict[str, int] = {"standings": 0, "rosters": 0}
+
+        # --- Standings ---
+        try:
+            standings_df = self.get_league_standings()
+            if not standings_df.empty:
+                # Determine which columns are category values (not metadata)
+                meta_cols = {"team_name", "team_key", "rank"}
+                cat_cols = [c for c in standings_df.columns if c not in meta_cols]
+
+                for _, row in standings_df.iterrows():
+                    team_name = row.get("team_name", "")
+                    rank = int(row.get("rank", 0))
+                    for cat in cat_cols:
+                        upsert_league_standing(
+                            team_name=team_name,
+                            category=cat.upper(),
+                            total=float(row.get(cat, 0)),
+                            rank=rank,
+                        )
+                        counts["standings"] += 1
+
+                update_refresh_log("yahoo_standings", "success")
+                logger.info("Synced %d standing entries to DB.", counts["standings"])
+        except Exception:
+            logger.exception("Failed to sync standings to DB.")
+            update_refresh_log("yahoo_standings", "error")
+
+        # --- Rosters ---
+        try:
+            rosters_df = self.get_all_rosters()
+            if not rosters_df.empty:
+                clear_league_rosters()
+                team_indices: dict[str, int] = {}
+                idx = 0
+                for _, row in rosters_df.iterrows():
+                    team_name = row.get("team_name", "")
+                    if team_name not in team_indices:
+                        team_indices[team_name] = idx
+                        idx += 1
+
+                    player_id_str = row.get("player_id", "0")
+                    try:
+                        player_id = int(player_id_str)
+                    except (ValueError, TypeError):
+                        player_id = hash(player_id_str) % (10**9)
+
+                    upsert_league_roster_entry(
+                        team_name=team_name,
+                        team_index=team_indices[team_name],
+                        player_id=player_id,
+                        roster_slot=row.get("position", ""),
+                    )
+                    counts["rosters"] += 1
+
+                update_refresh_log("yahoo_rosters", "success")
+                logger.info("Synced %d roster entries to DB.", counts["rosters"])
+        except Exception:
+            logger.exception("Failed to sync rosters to DB.")
+            update_refresh_log("yahoo_rosters", "error")
+
+        return counts
