@@ -409,3 +409,107 @@ class DraftState:
 
     def has_saved_state(self) -> bool:
         return (BACKUP_DIR / "draft_state.json").exists()
+
+
+def get_team_draft_patterns(draft_state: dict, team_id: int) -> dict:
+    """Analyze a team's draft picks to identify positional bias and round patterns.
+
+    Args:
+        draft_state: Dict with at least a "picks" key containing the pick_log list.
+                     Each entry has "team_index", "positions", "round".
+        team_id: Team index (0-based) to analyze.
+
+    Returns:
+        Dict with "positional_bias" (fraction of picks per position) and
+        "round_patterns" (positions picked in early/mid/late round ranges).
+    """
+    picks = draft_state.get("picks", [])
+    team_picks = [p for p in picks if p.get("team_index") == team_id]
+
+    if not team_picks:
+        return {"positional_bias": {}, "round_patterns": {}}
+
+    # Count primary position for each pick
+    position_counts = {}
+    round_positions = {"early": [], "mid": [], "late": []}
+
+    for pick in team_picks:
+        pos_str = pick.get("positions", "")
+        primary_pos = pos_str.split(",")[0].strip() if pos_str else ""
+        if not primary_pos:
+            continue
+
+        position_counts[primary_pos] = position_counts.get(primary_pos, 0) + 1
+
+        # Classify round ranges
+        rnd = pick.get("round", 1)
+        if rnd <= 7:
+            round_positions["early"].append(primary_pos)
+        elif rnd <= 15:
+            round_positions["mid"].append(primary_pos)
+        else:
+            round_positions["late"].append(primary_pos)
+
+    # Compute bias as fraction
+    total = sum(position_counts.values())
+    positional_bias = {}
+    if total > 0:
+        for pos, count in position_counts.items():
+            positional_bias[pos] = round(count / total, 4)
+
+    return {
+        "positional_bias": positional_bias,
+        "round_patterns": round_positions,
+    }
+
+
+def get_positional_needs(
+    draft_state: dict,
+    team_id: int,
+    roster_config: dict = None,
+) -> dict:
+    """Compare a team's current roster against required roster slots.
+
+    Args:
+        draft_state: Dict with "picks" key containing the pick_log list.
+        team_id: Team index (0-based) to analyze.
+        roster_config: Dict of {position: count}. Defaults to standard 23-slot roster.
+
+    Returns:
+        Dict mapping each unfilled position to the number of remaining slots.
+    """
+    if roster_config is None:
+        roster_config = {
+            "C": 1,
+            "1B": 1,
+            "2B": 1,
+            "3B": 1,
+            "SS": 1,
+            "OF": 3,
+            "Util": 2,
+            "SP": 2,
+            "RP": 2,
+            "P": 4,
+            "BN": 5,
+        }
+
+    picks = draft_state.get("picks", [])
+    team_picks = [p for p in picks if p.get("team_index") == team_id]
+
+    # Count filled positions (use primary position)
+    filled_counts = {}
+    for pick in team_picks:
+        pos_str = pick.get("positions", "")
+        primary_pos = pos_str.split(",")[0].strip() if pos_str else ""
+        if primary_pos:
+            filled_counts[primary_pos] = filled_counts.get(primary_pos, 0) + 1
+
+    # Compute remaining needs
+    needs = {}
+    for pos, required in roster_config.items():
+        filled = filled_counts.get(pos, 0)
+        remaining = required - filled
+        if remaining > 0:
+            needs[pos] = remaining
+
+    return needs

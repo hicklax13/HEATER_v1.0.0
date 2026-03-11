@@ -632,3 +632,205 @@ def assign_tiers(valued_pool: pd.DataFrame, score_col: str = "pick_score", n_tie
 
     pool["tier"] = tiers
     return pool
+
+
+# ── Percentile Forecasts ───────────────────────────────────────────
+
+
+def compute_projection_volatility(
+    projections_by_system: dict[str, pd.DataFrame],
+) -> pd.DataFrame:
+    """Compute cross-system standard deviation for each player/stat.
+
+    Args:
+        projections_by_system: Dict mapping system name (e.g. "steamer",
+            "zips") to DataFrames of projections. Each DataFrame must have
+            a ``player_id`` column plus stat columns.
+
+    Returns:
+        DataFrame with ``player_id`` plus stat columns containing the
+        standard deviation across projection systems. If only one system
+        is provided, all volatility values are zero.
+    """
+    if not projections_by_system:
+        return pd.DataFrame(columns=["player_id"])
+
+    stat_cols = [
+        "r",
+        "hr",
+        "rbi",
+        "sb",
+        "avg",
+        "w",
+        "sv",
+        "k",
+        "era",
+        "whip",
+    ]
+
+    systems = list(projections_by_system.values())
+
+    # Collect all player IDs across systems
+    all_ids = set()
+    for df in systems:
+        if "player_id" in df.columns:
+            all_ids.update(df["player_id"].unique())
+    all_ids = sorted(all_ids)
+
+    if len(systems) <= 1:
+        # Single system → zero volatility
+        vol_data = {"player_id": all_ids}
+        for col in stat_cols:
+            vol_data[col] = 0.0
+        return pd.DataFrame(vol_data)
+
+    # Stack values per player across systems, compute std
+    vol_rows = []
+    for pid in all_ids:
+        row = {"player_id": pid}
+        for col in stat_cols:
+            vals = []
+            for df in systems:
+                match = df.loc[df["player_id"] == pid]
+                if not match.empty and col in match.columns:
+                    v = match.iloc[0][col]
+                    if v is not None and not (isinstance(v, float) and np.isnan(v)):
+                        vals.append(float(v))
+            if len(vals) >= 2:
+                row[col] = float(np.std(vals, ddof=0))
+            else:
+                row[col] = 0.0
+        vol_rows.append(row)
+
+    return pd.DataFrame(vol_rows)
+
+
+def compute_percentile_projections(
+    base: pd.DataFrame,
+    volatility: pd.DataFrame,
+    percentiles: list[int] | None = None,
+) -> dict[int, pd.DataFrame]:
+    """Build floor / median / ceiling projections from base + volatility.
+
+    Args:
+        base: Base (blended) projections with ``player_id`` + stat columns.
+        volatility: Per-player volatility from
+            :func:`compute_projection_volatility`.
+        percentiles: List of integer percentiles. Defaults to
+            ``[10, 50, 90]``.
+
+    Returns:
+        Dict mapping percentile → DataFrame with the same columns as
+        *base*.  P10 = floor, P50 = median (= base), P90 = ceiling.
+
+    Physical limits enforced:
+        - Counting stats (R, HR, RBI, SB, W, SV, K) ≥ 0
+        - AVG ∈ [0.150, 0.400]
+        - ERA ∈ [1.50, 7.00]
+        - WHIP ∈ [0.80, 2.00]
+    """
+    if percentiles is None:
+        percentiles = [10, 50, 90]
+
+    counting_stats = {"r", "hr", "rbi", "sb", "w", "sv", "k"}
+    rate_bounds = {
+        "avg": (0.150, 0.400),
+        "era": (1.50, 7.00),
+        "whip": (0.80, 2.00),
+    }
+    # z-multiplier for each percentile relative to median
+    z_map = {p: _percentile_z(p) for p in percentiles}
+
+    merged = base.merge(
+        volatility,
+        on="player_id",
+        suffixes=("", "_vol"),
+        how="left",
+    )
+
+    result: dict[int, pd.DataFrame] = {}
+    stat_cols = [
+        "r",
+        "hr",
+        "rbi",
+        "sb",
+        "avg",
+        "w",
+        "sv",
+        "k",
+        "era",
+        "whip",
+    ]
+
+    for pct in percentiles:
+        z = z_map[pct]
+        proj = base.copy()
+        for col in stat_cols:
+            vol_col = f"{col}_vol"
+            if col in proj.columns and vol_col in merged.columns:
+                vol = merged[vol_col].fillna(0.0)
+                proj[col] = proj[col] + z * vol
+            # Enforce bounds
+            if col in counting_stats and col in proj.columns:
+                proj[col] = proj[col].clip(lower=0.0)
+            if col in rate_bounds and col in proj.columns:
+                lo, hi = rate_bounds[col]
+                proj[col] = proj[col].clip(lower=lo, upper=hi)
+        result[pct] = proj
+
+    return result
+
+
+def _percentile_z(p: int) -> float:
+    """Return the z-score multiplier for percentile *p*.
+
+    P50 → 0, P10 → −1.28, P90 → +1.28.
+    """
+    from scipy.stats import norm
+
+    return float(norm.ppf(p / 100.0))
+
+
+def add_process_risk(
+    volatility: pd.DataFrame,
+    historical_correlations: dict | None = None,
+) -> pd.DataFrame:
+    """Widen volatility for stats with low year-to-year correlation.
+
+    Low autocorrelation means projections carry more process noise —
+    adjusted_vol = volatility / sqrt(correlation).
+
+    Args:
+        volatility: Per-player volatility from
+            :func:`compute_projection_volatility`.
+        historical_correlations: Optional dict mapping lowercase stat name
+            to a correlation coefficient in (0, 1]. Defaults to
+            empirically-derived values.
+
+    Returns:
+        Adjusted volatility DataFrame (same shape as *volatility*).
+    """
+    default_corr: dict[str, float] = {
+        "hr": 0.72,
+        "sb": 0.55,
+        "avg": 0.41,
+        "r": 0.65,
+        "rbi": 0.68,
+        "w": 0.30,
+        "sv": 0.35,
+        "k": 0.62,
+        "era": 0.38,
+        "whip": 0.40,
+    }
+    corr = historical_correlations if historical_correlations is not None else default_corr
+
+    adjusted = volatility.copy()
+    for col in adjusted.columns:
+        if col == "player_id":
+            continue
+        c = corr.get(col, 1.0)
+        if c <= 0:
+            c = 0.01  # safety floor
+        adjusted[col] = adjusted[col] / np.sqrt(c)
+
+    return adjusted

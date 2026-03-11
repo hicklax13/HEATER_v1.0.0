@@ -26,6 +26,12 @@ def generate_sample_data():
     cursor.execute("DELETE FROM projections")
     cursor.execute("DELETE FROM adp")
     cursor.execute("DELETE FROM players")
+    # Clear Plan 3 tables if they exist
+    for tbl in ("injury_history", "transactions"):
+        try:
+            cursor.execute(f"DELETE FROM {tbl}")
+        except Exception:
+            pass
     conn.commit()
 
     # ── Hitters ──────────────────────────────────────────────────────
@@ -385,9 +391,53 @@ def generate_sample_data():
         player_id += 1
 
     conn.commit()
+
+    # ── Birth dates & MLB IDs ──────────────────────────────────────
+    # Get actual player IDs from the database (they may not start at 1)
+    all_player_ids = [row[0] for row in cursor.execute("SELECT player_id FROM projections").fetchall()]
+    for pid in all_player_ids:
+        birth_year = 2026 - rng.integers(22, 39)
+        birth_month = rng.integers(1, 13)
+        birth_day = rng.integers(1, 29)
+        birth_date = f"{birth_year}-{birth_month:02d}-{birth_day:02d}"
+        mlb_id = 600000 + pid * 7  # Fake but plausible MLB IDs
+        try:
+            cursor.execute(
+                "UPDATE projections SET birth_date = ?, mlb_id = ? WHERE player_id = ?",
+                (birth_date, mlb_id, pid),
+            )
+        except Exception:
+            pass  # Column may not exist if schema not updated
+
+    # ── Injury history ─────────────────────────────────────────────
+    # Generate 3 seasons of injury data for each player
+    for pid in all_player_ids:
+        for season in (2023, 2024, 2025):
+            # Most players healthy (162 games), some injured
+            if rng.random() < 0.25:  # 25% chance of significant injury season
+                games_available = 162
+                games_played = rng.integers(60, 140)
+                il_stints = rng.integers(1, 4)
+                il_days = rng.integers(15, 90)
+            else:
+                games_available = 162
+                games_played = rng.integers(140, 163)
+                il_stints = 0 if games_played > 155 else rng.integers(0, 2)
+                il_days = 0 if il_stints == 0 else rng.integers(10, 30)
+            try:
+                cursor.execute(
+                    """INSERT INTO injury_history
+                       (player_id, season, games_played, games_available, il_stints, il_days)
+                       VALUES (?, ?, ?, ?, ?, ?)""",
+                    (pid, season, int(games_played), games_available, int(il_stints), int(il_days)),
+                )
+            except Exception:
+                pass  # Table may not exist
+
+    conn.commit()
     conn.close()
 
-    logger.info("Sample data loaded: %d total players", player_id - 1)
+    logger.info("Sample data loaded: %d total players (with injury history)", player_id - 1)
     return player_id - 1
 
 

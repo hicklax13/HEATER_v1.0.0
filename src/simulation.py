@@ -104,15 +104,25 @@ class DraftSimulator:
         return urgency
 
     def opponent_pick_probability(
-        self, available: pd.DataFrame, pick_num: int, team_positions: list = None, roster_slots: dict = None
+        self,
+        available: pd.DataFrame,
+        pick_num: int,
+        team_positions: list = None,
+        roster_slots: dict = None,
+        team_preferences: dict = None,
+        team_needs: dict = None,
+        history_bias: float = 0.2,
     ) -> np.ndarray:
-        """Compute pick probabilities for an opponent, factoring in positional need.
+        """Compute pick probabilities for an opponent, factoring in positional need and history.
 
         Args:
             available: DataFrame of available players (must have 'adp' column).
             pick_num: The overall pick number for this opponent pick.
             team_positions: List of position strings the opponent has already drafted.
             roster_slots: Dict of {position: count} from league config for slot limits.
+            team_preferences: Dict with "positional_bias" from historical drafts.
+            team_needs: Dict mapping position -> remaining slots needed.
+            history_bias: Weight for historical preference (0.0-1.0). Default 0.2.
 
         Returns:
             Normalized probability array over available players.
@@ -121,45 +131,80 @@ class DraftSimulator:
         # ADP-based weight
         weights = np.exp(-np.abs(adp_vals - pick_num) / self.sigma)
 
-        # Positional need boost using actual roster data
-        if team_positions is not None:
-            # Count how many of each position the team has filled
-            filled_counts = {}
-            for p in team_positions:
-                filled_counts[p] = filled_counts.get(p, 0) + 1
+        has_needs = team_positions is not None or team_needs is not None
+        has_history = team_preferences is not None and len(team_preferences.get("positional_bias", {})) > 0
 
-            # Determine slots per position
-            slots = roster_slots or {
-                "C": 1,
-                "1B": 1,
-                "2B": 1,
-                "3B": 1,
-                "SS": 1,
-                "OF": 3,
-                "SP": 2,
-                "RP": 2,
-            }
+        # Determine blending weights
+        if has_history and has_needs:
+            w_adp = 1.0 - 0.3 - history_bias  # default: 0.5
+            w_need = 0.3
+            w_hist = history_bias  # default: 0.2
+        elif has_needs:
+            w_adp = 0.7
+            w_need = 0.3
+            w_hist = 0.0
+        else:
+            w_adp = 1.0
+            w_need = 0.0
+            w_hist = 0.0
+
+        # Start with ADP-weighted base
+        need_weights = np.ones(len(available))
+        history_weights = np.ones(len(available))
+
+        # --- Positional need boost ---
+        if has_needs:
+            # Build filled counts from team_positions if team_needs not provided
+            if team_needs is not None:
+                remaining_needs = team_needs
+            else:
+                filled_counts = {}
+                for p in team_positions or []:
+                    filled_counts[p] = filled_counts.get(p, 0) + 1
+                slots = roster_slots or {
+                    "C": 1,
+                    "1B": 1,
+                    "2B": 1,
+                    "3B": 1,
+                    "SS": 1,
+                    "OF": 3,
+                    "SP": 2,
+                    "RP": 2,
+                }
+                remaining_needs = {}
+                for pos, limit in slots.items():
+                    filled = filled_counts.get(pos, 0)
+                    if filled < limit:
+                        remaining_needs[pos] = limit - filled
 
             for i, (_, player) in enumerate(available.iterrows()):
                 pos_list = [p.strip() for p in str(player.get("positions", "")).split(",")]
                 max_boost = 1.0
                 for pos in pos_list:
-                    filled = filled_counts.get(pos, 0)
-                    limit = slots.get(pos, 0)
-                    if limit > 0 and filled < limit:
-                        # More urgently needed positions get bigger boost
-                        remaining_need = (limit - filled) / limit
-                        boost = 1.0 + remaining_need * 0.8  # up to 1.8x boost
+                    need = remaining_needs.get(pos, 0)
+                    if need > 0:
+                        boost = 1.0 + need * 0.8
                         max_boost = max(max_boost, boost)
-                    elif limit > 0 and filled >= limit:
-                        # Position already filled — slight penalty
-                        max_boost = max(max_boost, 0.6)
-                weights[i] *= max_boost
+                need_weights[i] = max_boost
 
-        weight_sum = weights.sum()
+        # --- Historical preference boost ---
+        if has_history:
+            bias = team_preferences.get("positional_bias", {})
+            for i, (_, player) in enumerate(available.iterrows()):
+                pos_list = [p.strip() for p in str(player.get("positions", "")).split(",")]
+                max_pref = 0.0
+                for pos in pos_list:
+                    max_pref = max(max_pref, bias.get(pos, 0.0))
+                # Scale: a position with 30%+ historical bias gets up to 1.6x boost
+                history_weights[i] = 1.0 + max_pref * 2.0
+
+        # Blend all factors
+        combined = (w_adp * weights) + (w_need * weights * need_weights) + (w_hist * weights * history_weights)
+
+        weight_sum = combined.sum()
         if weight_sum <= 0:
             return np.ones(len(available)) / len(available)
-        return weights / weight_sum
+        return combined / weight_sum
 
     def greedy_rollout_value(self, candidate: pd.Series, available: pd.DataFrame, draft_state, config) -> float:
         """Estimate total team value if we pick this candidate, then draft greedily.
@@ -212,6 +257,8 @@ class DraftSimulator:
         candidate_id: int,
         n_simulations: int = 300,
         team_positions: dict = None,
+        use_percentile_sampling: bool = False,
+        sgp_volatility: np.ndarray | None = None,
     ) -> dict:
         """Run Monte Carlo draft simulations for a candidate pick.
 
@@ -228,19 +275,31 @@ class DraftSimulator:
             candidate_id: Player ID the user is considering drafting now.
             n_simulations: Number of simulations to run.
             team_positions: Dict {team_index: [drafted_positions]} for opponent modeling.
+            use_percentile_sampling: When True, sample player SGP values
+                from Normal(mean_sgp, volatility_sgp) each simulation
+                instead of using fixed values. Produces a risk-adjusted
+                score = MC_mean - 0.5 * MC_std.
+            sgp_volatility: Array of per-player SGP volatility (aligned
+                with *sgp_values*). Required when *use_percentile_sampling*
+                is True; ignored otherwise.
 
         Returns:
-            dict with 'mean_sgp', 'std_sgp', 'p25_sgp' for expected roster outcome.
+            dict with 'mean_sgp', 'std_sgp', 'p25_sgp', and
+            'risk_adjusted_sgp' for expected roster outcome.
         """
         n_players = len(available_ids)
         if n_players == 0:
-            return {"mean_sgp": 0, "std_sgp": 0, "p25_sgp": 0}
+            return {"mean_sgp": 0, "std_sgp": 0, "p25_sgp": 0, "risk_adjusted_sgp": 0}
 
         results = np.zeros(n_simulations)
         rng = np.random.default_rng()
 
         # Pre-parse positions for each player into lists for fast lookup
         pos_lists = [str(p).split(",") for p in positions]
+
+        # Prepare volatility array for percentile sampling
+        if use_percentile_sampling:
+            vol = np.asarray(sgp_volatility, dtype=float) if sgp_volatility is not None else np.zeros(n_players)
 
         for sim in range(n_simulations):
             is_available = np.ones(n_players, dtype=bool)
@@ -253,12 +312,19 @@ class DraftSimulator:
                 for k in range(num_teams):
                     sim_team_pos[k] = []
 
+            # When percentile sampling is enabled, draw a realization
+            # of each player's SGP for this simulation run.
+            if use_percentile_sampling:
+                sim_sgp = rng.normal(sgp_values, vol)
+            else:
+                sim_sgp = sgp_values
+
             # Draft the candidate for the user
             candidate_idx = np.where(available_ids == candidate_id)[0]
             if len(candidate_idx) > 0:
                 is_available[candidate_idx[0]] = False
 
-            user_sgp_total = sgp_values[candidate_idx[0]] if len(candidate_idx) > 0 else 0
+            user_sgp_total = sim_sgp[candidate_idx[0]] if len(candidate_idx) > 0 else 0
 
             # Limit simulation horizon to ~6 rounds ahead for performance
             sim_horizon = min(total_picks, current_pick + 1 + num_teams * 6)
@@ -275,10 +341,10 @@ class DraftSimulator:
                     team_idx = num_teams - 1 - pos_in_round
 
                 if team_idx == user_team_index:
-                    avail_sgp = np.where(is_available, sgp_values, -999)
+                    avail_sgp = np.where(is_available, sim_sgp, -999)
                     best_idx = np.argmax(avail_sgp)
                     is_available[best_idx] = False
-                    user_sgp_total += sgp_values[best_idx]
+                    user_sgp_total += sim_sgp[best_idx]
                 else:
                     avail_indices = np.where(is_available)[0]
                     if len(avail_indices) == 0:
@@ -318,10 +384,20 @@ class DraftSimulator:
 
             results[sim] = user_sgp_total
 
+        mean_sgp = float(np.mean(results))
+        std_sgp = float(np.std(results))
+
+        # Risk-adjusted score: penalize high-variance picks
+        if use_percentile_sampling:
+            risk_adjusted = mean_sgp - 0.5 * std_sgp
+        else:
+            risk_adjusted = mean_sgp
+
         return {
-            "mean_sgp": float(np.mean(results)),
-            "std_sgp": float(np.std(results)),
+            "mean_sgp": mean_sgp,
+            "std_sgp": std_sgp,
             "p25_sgp": float(np.percentile(results, 25)),
+            "risk_adjusted_sgp": risk_adjusted,
         }
 
     def evaluate_candidates(
@@ -415,6 +491,42 @@ class DraftSimulator:
         if not results_df.empty:
             results_df = results_df.sort_values("combined_score", ascending=False)
         return results_df
+
+
+def compute_team_preferences(draft_history: pd.DataFrame | None = None) -> dict[str, dict]:
+    """Analyze historical draft data to compute per-team positional preferences.
+
+    Args:
+        draft_history: DataFrame with columns 'team_key', 'positions', and optionally 'round'.
+                       Each row is one historical draft pick. If None, returns empty dict
+                       (fallback to ADP-only opponent modeling).
+
+    Returns:
+        Dict mapping team_key (str) to preference dict with:
+        - "positional_bias": {position: fraction} summing to ~1.0
+    """
+    if draft_history is None or draft_history.empty:
+        return {}
+
+    result = {}
+    for team_key, group in draft_history.groupby("team_key"):
+        position_counts = {}
+        total = 0
+        for _, row in group.iterrows():
+            pos_str = str(row.get("positions", ""))
+            primary_pos = pos_str.split(",")[0].strip() if pos_str else ""
+            if primary_pos:
+                position_counts[primary_pos] = position_counts.get(primary_pos, 0) + 1
+                total += 1
+
+        bias = {}
+        if total > 0:
+            for pos, count in position_counts.items():
+                bias[pos] = round(count / total, 4)
+
+        result[str(team_key)] = {"positional_bias": bias}
+
+    return result
 
 
 def detect_position_run(pick_log: list, lookback: int = 8, threshold: int = 3) -> list:
