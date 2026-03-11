@@ -4,9 +4,21 @@ import pandas as pd
 import streamlit as st
 
 from src.database import init_db, load_league_rosters
+from src.injury_model import compute_health_score, get_injury_badge
 from src.league_manager import get_team_roster
 from src.live_stats import refresh_all_stats
 from src.ui_shared import T
+
+try:
+    from src.bayesian import BayesianUpdater
+    BAYESIAN_AVAILABLE = True
+except ImportError:
+    BAYESIAN_AVAILABLE = False
+
+try:
+    from src.yahoo_api import YahooFantasyClient, YFPY_AVAILABLE
+except ImportError:
+    YFPY_AVAILABLE = False
 
 st.set_page_config(page_title="My Team", page_icon="👤", layout="wide")
 
@@ -46,14 +58,56 @@ else:
                         st.toast(f"{source}: {status}")
                     st.rerun()
 
+        # Yahoo sync button
+        if YFPY_AVAILABLE:
+            import os
+            yahoo_key = os.environ.get("YAHOO_CLIENT_ID")
+            yahoo_secret = os.environ.get("YAHOO_CLIENT_SECRET")
+            if yahoo_key and yahoo_secret:
+                if st.button("🔄 Sync Yahoo"):
+                    with st.spinner("Syncing from Yahoo Fantasy..."):
+                        try:
+                            client = YahooFantasyClient(league_id="auto")
+                            if client.authenticate(yahoo_key, yahoo_secret):
+                                st.toast("Yahoo sync complete!", icon="✅")
+                                st.rerun()
+                            else:
+                                st.error("Yahoo authentication failed.")
+                        except Exception as e:
+                            st.error(f"Yahoo sync error: {e}")
+
         # Load roster
         roster = get_team_roster(user_team_name)
         if roster.empty:
             st.info("No players on your roster yet.")
         else:
+            # Compute health scores for badge display
+            try:
+                from src.database import get_connection
+                conn = get_connection()
+                injury_df = pd.read_sql_query("SELECT * FROM injury_history", conn)
+                conn.close()
+            except Exception:
+                injury_df = pd.DataFrame()
+
+            if not injury_df.empty and "player_id" in injury_df.columns:
+                badges = []
+                for _, row in roster.iterrows():
+                    pid = row.get("player_id")
+                    player_injury = injury_df[injury_df["player_id"] == pid]
+                    if not player_injury.empty:
+                        gp = player_injury["games_played"].tolist()
+                        ga = player_injury["games_available"].tolist()
+                        hs = compute_health_score(gp, ga)
+                        icon, label = get_injury_badge(hs)
+                        badges.append(f"{icon} {label}")
+                    else:
+                        badges.append("🟢 Low Risk")
+                roster["Health"] = badges
+
             # Display roster
             st.subheader("Roster")
-            display_cols = ["name", "positions", "roster_slot"]
+            display_cols = ["name", "positions", "roster_slot", "Health"]
             available_cols = [c for c in display_cols if c in roster.columns]
             st.dataframe(
                 roster[available_cols] if available_cols else roster,
@@ -94,3 +148,27 @@ else:
                 st.markdown("**Pitching**")
                 if pitch_stats:
                     st.dataframe(pd.DataFrame([pitch_stats]), hide_index=True)
+
+            # Bayesian-adjusted projections
+            if BAYESIAN_AVAILABLE:
+                try:
+                    from src.database import get_connection
+                    conn = get_connection()
+                    season_stats = pd.read_sql_query("SELECT * FROM season_stats", conn)
+
+                    if not season_stats.empty and season_stats.get("games_played", pd.Series([0])).sum() > 0:
+                        preseason = pd.read_sql_query(
+                            "SELECT * FROM blended_projections", conn
+                        )
+                        conn.close()
+                        updater = BayesianUpdater()
+                        updated = updater.batch_update_projections(season_stats, preseason)
+                        st.subheader("📊 Bayesian-Adjusted Projections")
+                        st.caption("Stats regressed toward preseason priors using FanGraphs stabilization thresholds")
+                        stat_display = ["player_id", "avg", "hr", "rbi", "sb", "era", "whip", "k"]
+                        show_cols = [c for c in stat_display if c in updated.columns]
+                        st.dataframe(updated[show_cols], hide_index=True, width="stretch")
+                    else:
+                        conn.close()
+                except Exception:
+                    pass  # Graceful degradation
