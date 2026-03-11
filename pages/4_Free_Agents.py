@@ -1,5 +1,7 @@
 """Free Agents — Rank available players by marginal value to your team."""
 
+import logging
+
 import pandas as pd
 import streamlit as st
 
@@ -8,6 +10,8 @@ from src.in_season import rank_free_agents
 from src.league_manager import get_free_agents, get_team_roster
 from src.ui_shared import T
 from src.valuation import LeagueConfig
+
+logger = logging.getLogger(__name__)
 
 st.set_page_config(page_title="Free Agents", page_icon="🏷️", layout="wide")
 
@@ -75,6 +79,7 @@ else:
                     try:
                         ranked = rank_free_agents(user_roster_ids, fa_pool, pool, config)
                     except Exception as e:
+                        logger.exception("Failed to rank free agents")
                         st.error(f"Error computing free agent rankings: {e}")
                         ranked = pd.DataFrame()
 

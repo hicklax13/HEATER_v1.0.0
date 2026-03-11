@@ -140,6 +140,8 @@ class SGPCalculator:
 
     def _rate_stat_sgp(self, player: pd.Series, cat: str, denom: float) -> float:
         """Volume-weighted SGP for rate stats using a baseline roster assumption."""
+        if abs(denom) < 1e-9:
+            return 0.0
         if cat == "AVG":
             ab = player.get("ab", 0) or 0
             h = player.get("h", 0) or 0
