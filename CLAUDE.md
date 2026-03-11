@@ -267,3 +267,22 @@ The sidebar will show navigation links to all 4 in-season pages once the app is 
 
 ### Dependabot
 Configured in `.github/dependabot.yml` for weekly pip and GitHub Actions updates.
+
+## Progress Log
+
+### 2026-03-10: In-Season Management — Implementation Complete
+- 10 commits implementing full in-season management system (commits `8fe65b0`..`a26b169`)
+- 4 Streamlit pages: My Team, Trade Analyzer, Player Compare, Free Agents
+- 3 new backend modules: `live_stats.py`, `in_season.py`, `league_manager.py`
+- 6 new database tables, 22 tests passing
+- Yahoo API eliminated; replaced by MLB Stats API + pybaseball
+- Setup wizard Step 4 changed from Yahoo OAuth to League Import CSV
+
+### 2026-03-10: Cleanup & Verification Pass (`f87451b`)
+- Fixed `datetime.utcnow()` deprecation → `datetime.now(UTC)` (3 sites in database.py)
+- Fixed 30 ruff lint errors (unused imports, sort order, UP017, F541) across 11 files
+- Auto-formatted 14 files to pass `ruff format --check`
+- Added `if/else` guard pattern to pages 1/2/4 (prevents `st.stop()` no-op crash outside Streamlit)
+- Replaced deprecated `use_container_width=True` → `width="stretch"` (18 sites across 4 files + app.py)
+- Updated CLAUDE.md with full in-season documentation
+- **Final state:** 22/22 tests pass, 0 lint errors, 0 format issues, all 4 pages import cleanly, draft engine verified (190 players valued)
