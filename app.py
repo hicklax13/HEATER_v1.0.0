@@ -24,6 +24,14 @@ from src.draft_state import DraftState
 from src.league_manager import import_league_rosters_csv, import_standings_csv
 from src.simulation import DraftSimulator, detect_position_run
 from src.ui_shared import ROSTER_CONFIG, T
+from src.injury_model import (
+    PITCHER_AGE_THRESHOLD,
+    POSITION_PLAYER_AGE_THRESHOLD,
+    apply_injury_adjustment,
+    compute_health_score,
+    get_injury_badge,
+    workload_flag,
+)
 from src.valuation import (
     LeagueConfig,
     SGPCalculator,
@@ -1114,6 +1122,33 @@ def render_draft_page():
             st.rerun()
         return
 
+    # ── Compute health scores ────────────────────────────────
+    if "health_scores" not in st.session_state:
+        from src.database import get_connection
+
+        conn = get_connection()
+        try:
+            injury_df = pd.read_sql_query("SELECT * FROM injury_history", conn)
+        except Exception:
+            injury_df = pd.DataFrame()
+        finally:
+            conn.close()
+
+        health_dict = {}
+        if not injury_df.empty and "player_id" in injury_df.columns:
+            for pid, group in injury_df.groupby("player_id"):
+                gp = group["games_played"].tolist()
+                ga = group["games_available"].tolist()
+                health_dict[pid] = compute_health_score(gp, ga)
+        st.session_state.health_scores = health_dict
+
+        # Apply injury adjustment to counting stats so injured players rank lower
+        if health_dict:
+            health_scores_df = pd.DataFrame(
+                [{"player_id": pid, "health_score": hs} for pid, hs in health_dict.items()]
+            )
+            pool = apply_injury_adjustment(pool, health_scores_df)
+
     inject_custom_css()
 
     # ── Sidebar ──────────────────────────────────────────────────
@@ -1321,6 +1356,30 @@ def render_hero_pick(rec, ds, pool):
     tier = int(rec.get("tier", 1))
     tier = max(1, min(tier, 8))
 
+    # Injury & risk badges
+    pid = rec.get("player_id", None)
+    hs = st.session_state.get("health_scores", {}).get(pid, 0.85)
+    badge_icon, badge_label = get_injury_badge(hs)
+    injury_html = f'<span style="margin-left:8px;">{badge_icon} {badge_label}</span>'
+
+    # Age flag
+    age = rec.get("age", None)
+    is_hitter = rec.get("is_hitter", 1)
+    age_threshold = POSITION_PLAYER_AGE_THRESHOLD if is_hitter else PITCHER_AGE_THRESHOLD
+    age_html = (
+        f' <span style="color:{T["warn"]};">&#9888;&#65039; Age {age}</span>'
+        if age and age >= age_threshold
+        else ""
+    )
+
+    # Workload flag (pitchers only — >40 IP increase)
+    workload_html = ""
+    if not is_hitter:
+        ip_current = rec.get("ip", 0)
+        ip_prev = rec.get("ip_prev", ip_current)  # Fallback to current if no prev
+        if workload_flag(ip_current, ip_prev):
+            workload_html = f' <span style="color:{T["danger"]};">&#128293; Workload</span>'
+
     st.markdown(
         f'<div class="hero">'
         f'<div class="score-badge">{score:.1f}</div>'
@@ -1331,7 +1390,7 @@ def render_hero_pick(rec, ds, pool):
         f'display:flex;align-items:center;justify-content:center;">{surv:.0f}%</div></div>'
         f"<div>"
         f'<div class="p-name">{name}</div>'
-        f'<div class="p-meta">{pos} &middot; Tier {tier} {vb}</div>'
+        f'<div class="p-meta">{pos} &middot; Tier {tier} {vb}{injury_html}{age_html}{workload_html}</div>'
         f"</div></div>"
         f'<div class="reason">{reason}</div>'
         f'<div class="sgp-row">{chips_html}</div>'
@@ -1365,11 +1424,16 @@ def render_alternatives(alts):
             else:
                 risk_badge = '<span class="badge badge-risk-high">High Risk</span>'
 
+            # Compact injury badge
+            alt_pid = row.get("player_id", None)
+            alt_hs = st.session_state.get("health_scores", {}).get(alt_pid, 0.85)
+            alt_icon, _ = get_injury_badge(alt_hs)
+
             st.markdown(
                 f'<div class="alt tier-{tier}">'
                 f'<div class="a-rank">#{i + 2}</div>'
                 f'<div class="a-name">{name}</div>'
-                f'<div class="a-meta">{pos} {risk_badge}</div>'
+                f'<div class="a-meta">{pos} {alt_icon} {risk_badge}</div>'
                 f'<div class="a-score">{score:.1f}</div>'
                 f"</div>",
                 unsafe_allow_html=True,
