@@ -1,5 +1,6 @@
 """Free Agents — Rank available players by marginal value to your team."""
 
+import pandas as pd
 import streamlit as st
 
 from src.database import init_db, load_league_rosters, load_player_pool
@@ -54,7 +55,12 @@ else:
             col1, col2 = st.columns([1, 2])
             with col1:
                 positions = sorted(
-                    set(pos for poslist in fa_pool["positions"].dropna() for pos in str(poslist).split(","))
+                    set(
+                        pos.strip()
+                        for poslist in fa_pool["positions"].dropna()
+                        for pos in str(poslist).split(",")
+                        if pos.strip()
+                    )
                 )
                 pos_filter = st.selectbox("Position Filter", ["All"] + positions)
 
@@ -66,7 +72,11 @@ else:
             else:
                 # Rank
                 with st.spinner("Computing marginal values..."):
-                    ranked = rank_free_agents(user_roster_ids, fa_pool, pool, config)
+                    try:
+                        ranked = rank_free_agents(user_roster_ids, fa_pool, pool, config)
+                    except Exception as e:
+                        st.error(f"Error computing free agent rankings: {e}")
+                        ranked = pd.DataFrame()
 
                 if ranked.empty:
                     st.info("No ranked free agents found.")

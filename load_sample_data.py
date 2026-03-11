@@ -4,9 +4,13 @@ Run this to populate the database with realistic sample data.
 For the real draft, replace this with actual FanGraphs CSV imports.
 """
 
+import logging
+
 import numpy as np
 
 from src.database import get_connection, init_db
+
+logger = logging.getLogger(__name__)
 
 # Seed for reproducibility
 rng = np.random.default_rng(42)
@@ -383,10 +387,11 @@ def generate_sample_data():
     conn.commit()
     conn.close()
 
-    print(f"Sample data loaded: {player_id - 1} total players")
+    logger.info("Sample data loaded: %d total players", player_id - 1)
     return player_id - 1
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
     count = generate_sample_data()
-    print(f"Done! {count} players ready for drafting.")
+    logger.info("Done! %d players ready for drafting.", count)

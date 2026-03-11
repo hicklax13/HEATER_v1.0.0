@@ -85,8 +85,8 @@ def analyze_trade(
     category_impact = {}
     total_sgp_change = 0.0
     for cat in config.all_categories:
-        denom = config.sgp_denominators[cat]
-        if denom == 0:
+        denom = config.sgp_denominators.get(cat, 1.0)
+        if abs(denom) < 1e-9:
             denom = 1.0
 
         before_val = before_totals.get(cat, 0)
@@ -175,7 +175,7 @@ def compare_players(
         vals = player_pool[col].dropna()
         mean = vals.mean()
         std = vals.std()
-        if std == 0:
+        if std == 0 or pd.isna(std):
             std = 1.0
 
         val_a = float(pa.get(col, 0) or 0)

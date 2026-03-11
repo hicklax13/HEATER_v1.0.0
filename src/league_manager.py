@@ -49,6 +49,15 @@ def import_league_rosters_csv(csv_path: str, user_team_name: str) -> int:
                     (f"%{parts[0]}%", f"%{parts[-1]}%"),
                 )
                 result = cursor.fetchone()
+            elif len(parts) == 1:
+                # Single-name player (e.g., "Ohtani"): match on last name
+                cursor.execute(
+                    "SELECT player_id FROM players WHERE name LIKE ?",
+                    (f"% {parts[0]}",),
+                )
+                results = cursor.fetchall()
+                if len(results) == 1:
+                    result = results[0]
         if not result:
             continue
 

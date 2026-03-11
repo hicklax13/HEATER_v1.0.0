@@ -1,6 +1,7 @@
 """Draft state management: tracks picks, rosters, and category totals."""
 
 import json
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -338,7 +339,7 @@ class DraftState:
         """
         all_positions = self.get_all_teams_positions()
         needed = {}
-        for pos in ["C", "1B", "2B", "3B", "SS", "OF", "SP", "RP"]:
+        for pos in ["C", "1B", "2B", "3B", "SS", "OF", "Util", "SP", "RP", "P"]:
             slots = config_roster_slots.get(pos, 0)
             count = 0
             for team_idx, team_pos in all_positions.items():
@@ -365,8 +366,15 @@ class DraftState:
             "pick_log": self.pick_log,
             "drafted_player_ids": list(self.drafted_player_ids),
         }
-        with open(filepath, "w") as f:
-            json.dump(data, f, indent=2)
+        # Atomic write: write to temp file first, then rename to prevent corruption
+        fd, tmp_path = tempfile.mkstemp(dir=str(BACKUP_DIR), suffix=".tmp")
+        try:
+            with open(fd, "w") as f:
+                json.dump(data, f, indent=2)
+            Path(tmp_path).replace(filepath)
+        except Exception:
+            Path(tmp_path).unlink(missing_ok=True)
+            raise
         return str(filepath)
 
     @classmethod

@@ -4,14 +4,10 @@ Fetches current season stats, ROS projections, and park factors
 from free public data sources. No Yahoo dependency.
 """
 
+import logging
 from datetime import UTC, datetime
 
 import pandas as pd
-
-try:
-    import statsapi
-except ImportError:
-    statsapi = None
 
 from src.database import (
     get_connection,
@@ -19,6 +15,13 @@ from src.database import (
     update_refresh_log,
     upsert_season_stats,
 )
+
+logger = logging.getLogger(__name__)
+
+try:
+    import statsapi
+except ImportError:
+    statsapi = None
 
 
 def match_player_id(player_name: str, team_abbr: str) -> int | None:
@@ -109,8 +112,8 @@ def fetch_season_stats(season: int = 2026) -> pd.DataFrame:
                     "h_allowed": 0,
                 }
             )
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Failed to fetch hitting stats from MLB API: %s", e)
 
     try:
         pitching = statsapi.get(
@@ -155,8 +158,8 @@ def fetch_season_stats(season: int = 2026) -> pd.DataFrame:
                     "games_played": int(s.get("gamesPlayed", 0)),
                 }
             )
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Failed to fetch pitching stats from MLB API: %s", e)
 
     return pd.DataFrame(rows) if rows else pd.DataFrame()
 
@@ -180,7 +183,9 @@ def _get_refresh_age_hours(source: str) -> float:
         return 999.0
     try:
         last = datetime.fromisoformat(status["last_refresh"])
-        return (datetime.now(UTC) - last.replace(tzinfo=UTC)).total_seconds() / 3600
+        if last.tzinfo is None:
+            last = last.replace(tzinfo=UTC)
+        return (datetime.now(UTC) - last).total_seconds() / 3600
     except (ValueError, TypeError):
         return 999.0
 

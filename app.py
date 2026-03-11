@@ -1024,7 +1024,7 @@ def _build_player_pool():
             return None
 
         # Build league config
-        num_teams = st.session_state.get("num_teams", 12) if hasattr(st.session_state, "num_teams") else 12
+        num_teams = st.session_state.get("num_teams", 12)
         lc = LeagueConfig(num_teams=num_teams)
 
         if not st.session_state.auto_sgp:
@@ -1066,9 +1066,9 @@ def _build_player_pool():
 
 def _start_new_draft(pool, practice, resume):
     """Initialize draft state and switch to draft page."""
-    num_teams = st.session_state.get("num_teams", 12) if hasattr(st.session_state, "num_teams") else 12
-    num_rounds = st.session_state.get("num_rounds", 23) if hasattr(st.session_state, "num_rounds") else 23
-    draft_pos = st.session_state.get("draft_pos", 1) if hasattr(st.session_state, "draft_pos") else 1
+    num_teams = st.session_state.get("num_teams", 12)
+    num_rounds = st.session_state.get("num_rounds", 23)
+    draft_pos = st.session_state.get("draft_pos", 1)
 
     if resume:
         try:
@@ -1171,6 +1171,7 @@ def render_draft_page():
     available = ds.available_players(pool)
     rec = None
     alts = []
+    pos_runs = []
 
     if ds.is_user_turn and len(available) > 0:
         with st.status("Analyzing best picks...", expanded=False) as status:
@@ -1207,13 +1208,12 @@ def render_draft_page():
                 st.info("No recommendation available.")
 
             # Position run alerts
-            if "pos_runs" in dir() and pos_runs:
-                for pos, info in pos_runs.items():
-                    severity = "critical" if info.get("severity", 0) > 0.7 else ""
+            if pos_runs:
+                for pos in pos_runs:
                     st.markdown(
-                        f'<div class="alert-card {severity}">'
+                        f'<div class="alert-card">'
                         f'<strong style="color:{T["warn"]};">⚡ {pos} Run!</strong> '
-                        f"{info.get('message', 'Position being drafted heavily')}</div>",
+                        f"Position being drafted heavily</div>",
                         unsafe_allow_html=True,
                     )
         else:
@@ -1476,6 +1476,8 @@ def _auto_pick_opponent(ds, pool, sgp, lc):
             break
 
     if best is None:
+        if candidates.empty:
+            return
         best = candidates.iloc[0]
 
     ds.make_pick(

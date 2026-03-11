@@ -76,6 +76,10 @@ else:
                 giving_ids = [name_to_id[n] for n in giving_names if n in name_to_id]
                 receiving_ids = [name_to_id[n] for n in receiving_names if n in name_to_id]
 
+                if not giving_ids or not receiving_ids:
+                    st.error("One or more selected players could not be matched. Please reselect.")
+                    st.stop()
+
                 with st.status("Running trade analysis...", expanded=True) as status:
                     st.write("Computing category impacts...")
                     st.write("Running Monte Carlo simulation (200 iterations)...")

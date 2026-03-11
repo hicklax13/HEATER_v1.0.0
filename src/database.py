@@ -501,6 +501,38 @@ def load_player_pool() -> pd.DataFrame:
 
 # ── In-Season Data Functions ──────────────────────────────────────────
 
+# Whitelist of valid column names for SQL interpolation safety
+_VALID_STAT_COLUMNS = frozenset(
+    [
+        "pa",
+        "ab",
+        "h",
+        "r",
+        "hr",
+        "rbi",
+        "sb",
+        "avg",
+        "ip",
+        "w",
+        "sv",
+        "k",
+        "era",
+        "whip",
+        "er",
+        "bb_allowed",
+        "h_allowed",
+        "games_played",
+    ]
+)
+
+
+def _validate_columns(cols: list) -> list:
+    """Validate column names against whitelist to prevent SQL injection."""
+    for c in cols:
+        if c not in _VALID_STAT_COLUMNS:
+            raise ValueError(f"Invalid column name: {c!r}")
+    return cols
+
 
 def upsert_season_stats(player_id: int, stats: dict, season: int = 2026):
     """Insert or update a player's season stats."""
@@ -525,6 +557,7 @@ def upsert_season_stats(player_id: int, stats: dict, season: int = 2026):
         "h_allowed",
         "games_played",
     ]
+    _validate_columns(cols)
     values = {c: stats.get(c, 0) for c in cols}
     values["last_updated"] = datetime.now(UTC).isoformat()
 
@@ -570,6 +603,7 @@ def upsert_ros_projection(player_id: int, system: str, stats: dict):
         "bb_allowed",
         "h_allowed",
     ]
+    _validate_columns(cols)
     values = {c: stats.get(c, 0) for c in cols}
     values["updated_at"] = datetime.now(UTC).isoformat()
 

@@ -46,8 +46,13 @@ with col2:
     player_b_name = st.selectbox("Player B", options=player_names, index=min(1, len(player_names) - 1), key="pb")
 
 if player_a_name and player_b_name and player_a_name != player_b_name:
-    id_a = pool[pool["player_name"] == player_a_name].iloc[0]["player_id"]
-    id_b = pool[pool["player_name"] == player_b_name].iloc[0]["player_id"]
+    match_a = pool[pool["player_name"] == player_a_name]
+    match_b = pool[pool["player_name"] == player_b_name]
+    if match_a.empty or match_b.empty:
+        st.error("Could not find one or both selected players in the pool.")
+        st.stop()
+    id_a = match_a.iloc[0]["player_id"]
+    id_b = match_b.iloc[0]["player_id"]
 
     result = compare_players(int(id_a), int(id_b), pool, config)
 

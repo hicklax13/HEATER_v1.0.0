@@ -93,7 +93,9 @@ class SGPCalculator:
         """Compute raw SGP per category for a single player."""
         sgp = {}
         for cat in self.config.all_categories:
-            denom = self.config.sgp_denominators[cat]
+            denom = self.config.sgp_denominators.get(cat, 1.0)
+            if abs(denom) < 1e-9:
+                denom = 1.0
             stat_val = self._get_stat(player, cat)
 
             if cat in self.config.rate_stats:
@@ -118,7 +120,9 @@ class SGPCalculator:
         """
         sgp = {}
         for cat in self.config.all_categories:
-            denom = self.config.sgp_denominators[cat]
+            denom = self.config.sgp_denominators.get(cat, 1.0)
+            if abs(denom) < 1e-9:
+                denom = 1.0
             weight = (category_weights or {}).get(cat, 1.0)
 
             if cat == "AVG":
@@ -173,10 +177,12 @@ class SGPCalculator:
         h = player.get("h", 0) or 0
         if ab == 0:
             return 0
+        if abs(denom) < 1e-9:
+            denom = 1.0
         r_ab = roster.get("ab", 0)
         r_h = roster.get("h", 0)
         if r_ab == 0:
-            return (h / ab - 0.265) * ab / (ab * denom) if ab > 0 else 0
+            return (h / ab - 0.265) / denom if ab > 0 else 0
         old_avg = r_h / r_ab
         new_avg = (r_h + h) / (r_ab + ab)
         return (new_avg - old_avg) / denom
@@ -186,6 +192,8 @@ class SGPCalculator:
         er = player.get("er", 0) or 0
         if ip == 0:
             return 0
+        if abs(denom) < 1e-9:
+            denom = 1.0
         r_ip = roster.get("ip", 0)
         r_er = roster.get("er", 0)
         if r_ip == 0:
@@ -200,6 +208,8 @@ class SGPCalculator:
         ha = player.get("h_allowed", 0) or 0
         if ip == 0:
             return 0
+        if abs(denom) < 1e-9:
+            denom = 1.0
         r_ip = roster.get("ip", 0)
         r_bb = roster.get("bb_allowed", 0)
         r_ha = roster.get("h_allowed", 0)
