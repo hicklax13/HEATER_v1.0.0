@@ -88,6 +88,8 @@ jobs:
           python -c "from src.draft_state import *; print('✅ draft_state.py')"
           python -c "from src.simulation import *; print('✅ simulation.py')"
           python -c "from src.validation import *; print('✅ validation.py')"
+          python -c "from src.injury_model import *; print('✅ injury_model.py')"
+          python -c "from src.lineup_optimizer import *; print('✅ lineup_optimizer.py')"
           python -c "import app; print('✅ app.py')"
 
       - name: Generate sample data

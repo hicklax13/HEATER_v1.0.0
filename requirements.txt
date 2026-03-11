@@ -5,7 +5,13 @@ scipy>=1.10.0
 plotly>=5.18.0
 MLB-StatsAPI>=1.7
 pybaseball>=2.2.7
-# Optional: Yahoo API integration
-# yfpy>=15.0.0
+# Yahoo Fantasy API integration
+yfpy>=17.0
+streamlit-oauth>=0.1.14
+# Bayesian projection updates
+pymc>=5.0
+arviz>=0.15.0
+# Lineup optimization
+PuLP>=2.7
 # Optional: Excel cheat sheet export
 # openpyxl>=3.1.0

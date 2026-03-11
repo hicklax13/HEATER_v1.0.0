@@ -133,12 +133,54 @@ def init_db():
             status TEXT DEFAULT 'success'
         );
 
+        CREATE TABLE IF NOT EXISTS injury_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            player_id INTEGER NOT NULL,
+            season INTEGER NOT NULL,
+            games_played INTEGER DEFAULT 0,
+            games_available INTEGER DEFAULT 162,
+            il_stints INTEGER DEFAULT 0,
+            il_days INTEGER DEFAULT 0,
+            created_at TEXT,
+            FOREIGN KEY (player_id) REFERENCES players(player_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS transactions (
+            transaction_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            league_id TEXT,
+            player_id INTEGER NOT NULL,
+            type TEXT NOT NULL,  -- 'add', 'drop', 'trade'
+            team_from TEXT,
+            team_to TEXT,
+            timestamp TEXT,
+            created_at TEXT,
+            FOREIGN KEY (player_id) REFERENCES players(player_id)
+        );
+
         CREATE INDEX IF NOT EXISTS idx_season_stats_player ON season_stats(player_id);
         CREATE INDEX IF NOT EXISTS idx_ros_proj_player ON ros_projections(player_id);
         CREATE INDEX IF NOT EXISTS idx_league_rosters_team ON league_rosters(team_name);
+        CREATE INDEX IF NOT EXISTS idx_injury_history_player ON injury_history(player_id);
+        CREATE INDEX IF NOT EXISTS idx_transactions_player ON transactions(player_id);
     """)
     conn.commit()
+
+    # Add new columns to existing tables (safe ALTER — ignores if already exists)
+    _safe_add_column(conn, "players", "birth_date", "TEXT")
+    _safe_add_column(conn, "players", "mlb_id", "INTEGER")
+    _safe_add_column(conn, "projections", "birth_date", "TEXT")
+    _safe_add_column(conn, "projections", "mlb_id", "INTEGER")
+
     conn.close()
+
+
+def _safe_add_column(conn: sqlite3.Connection, table: str, column: str, col_type: str):
+    """Add a column to a table if it doesn't already exist."""
+    try:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass  # Column already exists
 
 
 def import_hitter_csv(csv_path: str, system: str):

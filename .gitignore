@@ -34,6 +34,11 @@ data/draft_tool.db
 data/backups/
 data/yahoo_creds.json
 
+# Yahoo API credentials
+yahoo_credentials.json
+oauth_token.json
+*.pem
+
 # Claude Code local settings (keep launch.json for dev server)
 .claude/settings.local.json
 .claude/projects/
