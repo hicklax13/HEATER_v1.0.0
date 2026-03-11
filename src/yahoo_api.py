@@ -4,14 +4,17 @@ Provides authenticated access to Yahoo Fantasy Sports data including league
 settings, rosters, standings, free agents, transactions, and draft results.
 All data can be synced to the local SQLite database for offline use.
 
-Setup:
+Setup (Streamlit web app):
     1. Go to https://developer.yahoo.com/apps/ and click "Create an App"
-    2. Select "Installed Application" (not web-based)
+    2. Select "Web Application"
     3. Under API Permissions, check "Fantasy Sports (Read)"
-    4. Copy your Consumer Key and Consumer Secret
-    5. Install the yfpy package: pip install 'yfpy>=17.0'
-    6. On first authenticate() call, yfpy will open a browser for OAuth consent.
-       Paste the verifier code back into the terminal prompt.
+    4. Set Redirect URI to your Streamlit app URL (e.g. http://localhost:8501/)
+    5. Copy your Consumer Key and Consumer Secret
+    6. Set environment variables:
+       - YAHOO_CLIENT_ID=<your consumer key>
+       - YAHOO_CLIENT_SECRET=<your consumer secret>
+       - YAHOO_LEAGUE_ID=<your numeric league ID from the Yahoo URL>
+    7. The app will handle OAuth via streamlit-oauth browser redirect.
 
 Token persistence:
     yfpy stores OAuth tokens in the auth_dir (data/ by default). Subsequent
@@ -64,13 +67,45 @@ def build_oauth_url(consumer_key: str, redirect_uri: str = "oob") -> str:
 
     Args:
         consumer_key: Yahoo app consumer key.
-        redirect_uri: Redirect URI. Use "oob" for installed applications.
+        redirect_uri: Redirect URI. Use "oob" for installed applications,
+            or your app URL for web-based flow.
 
     Returns:
         The authorization URL string the user should visit in a browser.
     """
     base = "https://api.login.yahoo.com/oauth2/request_auth"
     return f"{base}?client_id={consumer_key}&redirect_uri={redirect_uri}&response_type=code&language=en-us"
+
+
+def get_league_id_from_env() -> str | None:
+    """Read YAHOO_LEAGUE_ID from environment.
+
+    Returns:
+        The numeric league ID string, or None if not set.
+    """
+    import os
+
+    lid = os.environ.get("YAHOO_LEAGUE_ID", "").strip()
+    return lid if lid else None
+
+
+def create_streamlit_oauth_component(consumer_key: str, consumer_secret: str):
+    """Create a streamlit-oauth OAuth2Component for Yahoo Fantasy.
+
+    Returns the component if streamlit-oauth is available, else None.
+    """
+    try:
+        from streamlit_oauth import OAuth2Component
+
+        return OAuth2Component(
+            client_id=consumer_key,
+            client_secret=consumer_secret,
+            authorize_endpoint="https://api.login.yahoo.com/oauth2/request_auth",
+            token_endpoint="https://api.login.yahoo.com/oauth2/get_token",
+        )
+    except ImportError:
+        logger.warning("streamlit-oauth not installed. Yahoo browser OAuth unavailable.")
+        return None
 
 
 def validate_credentials(consumer_key: str, consumer_secret: str) -> bool:

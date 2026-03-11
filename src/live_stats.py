@@ -27,39 +27,38 @@ except ImportError:
 def match_player_id(player_name: str, team_abbr: str) -> int | None:
     """Match an external player name to our players table."""
     conn = get_connection()
-    cursor = conn.cursor()
+    try:
+        cursor = conn.cursor()
 
-    cursor.execute("SELECT player_id FROM players WHERE name = ?", (player_name,))
-    result = cursor.fetchone()
-    if result:
-        conn.close()
-        return result[0]
-
-    parts = player_name.replace(".", "").split()
-    if len(parts) >= 2:
-        last_name = parts[-1]
-        cursor.execute(
-            "SELECT player_id FROM players WHERE name LIKE ? AND team = ?",
-            (f"%{last_name}%", team_abbr),
-        )
+        cursor.execute("SELECT player_id FROM players WHERE name = ?", (player_name,))
         result = cursor.fetchone()
         if result:
-            conn.close()
             return result[0]
 
-    if len(parts) >= 1:
-        last_name = parts[-1]
-        cursor.execute(
-            "SELECT player_id FROM players WHERE name LIKE ?",
-            (f"% {last_name}",),
-        )
-        results = cursor.fetchall()
-        if len(results) == 1:
-            conn.close()
-            return results[0][0]
+        parts = player_name.replace(".", "").split()
+        if len(parts) >= 2:
+            last_name = parts[-1]
+            cursor.execute(
+                "SELECT player_id FROM players WHERE name LIKE ? AND team = ?",
+                (f"%{last_name}%", team_abbr),
+            )
+            result = cursor.fetchone()
+            if result:
+                return result[0]
 
-    conn.close()
-    return None
+        if len(parts) >= 1:
+            last_name = parts[-1]
+            cursor.execute(
+                "SELECT player_id FROM players WHERE name LIKE ?",
+                (f"% {last_name}",),
+            )
+            results = cursor.fetchall()
+            if len(results) == 1:
+                return results[0][0]
+
+        return None
+    finally:
+        conn.close()
 
 
 def fetch_season_stats(season: int = 2026) -> pd.DataFrame:

@@ -727,7 +727,8 @@ def render_step_import():
     if YFPY_AVAILABLE:
         yahoo_key = os.environ.get("YAHOO_CLIENT_ID")
         yahoo_secret = os.environ.get("YAHOO_CLIENT_SECRET")
-        if yahoo_key and yahoo_secret:
+        yahoo_league_id = os.environ.get("YAHOO_LEAGUE_ID", "").strip()
+        if yahoo_key and yahoo_secret and yahoo_league_id:
             st.markdown(
                 f'<div style="background:{T["card"]};border:1px solid {T["card_h"]};'
                 f'border-radius:12px;padding:16px;margin-bottom:16px;">'
@@ -737,30 +738,47 @@ def render_step_import():
                 f"Auto-import league settings, rosters, and standings</div></div>",
                 unsafe_allow_html=True,
             )
-            if st.button("Authorize with Yahoo", type="secondary"):
-                with st.spinner("Connecting to Yahoo Fantasy..."):
-                    try:
-                        client = YahooFantasyClient(league_id="auto")
-                        if client.authenticate(yahoo_key, yahoo_secret):
-                            st.session_state.yahoo_client = client
-                            try:
-                                settings = client.get_league_settings()
-                                if settings:
-                                    st.session_state.yahoo_settings = settings
-                                client.sync_to_db()
-                            except Exception:
-                                pass  # Sync failures are non-fatal
-                            st.success("Connected to Yahoo Fantasy!")
-                            st.toast("League data auto-populated!", icon="✅")
-                        else:
-                            st.error("Authentication failed. Check your credentials.")
-                    except Exception as e:
-                        st.error(f"Connection error: {e}")
+
+            # Try streamlit-oauth browser flow first
+            from src.yahoo_api import create_streamlit_oauth_component
+
+            oauth_comp = create_streamlit_oauth_component(yahoo_key, yahoo_secret)
+            if oauth_comp is not None:
+                token_result = oauth_comp.authorize_button(
+                    name="Authorize with Yahoo",
+                    redirect_uri="http://localhost:8501/",
+                    scope="fspt-r",
+                    key="yahoo_oauth_btn",
+                    use_container_width=False,
+                )
+                if token_result and token_result.get("token"):
+                    with st.spinner("Connecting to Yahoo Fantasy..."):
+                        try:
+                            client = YahooFantasyClient(league_id=yahoo_league_id)
+                            if client.authenticate(yahoo_key, yahoo_secret, token_data=token_result["token"]):
+                                st.session_state.yahoo_client = client
+                                try:
+                                    settings = client.get_league_settings()
+                                    if settings:
+                                        st.session_state.yahoo_settings = settings
+                                    client.sync_to_db()
+                                except Exception:
+                                    pass  # Sync failures are non-fatal
+                                st.success("Connected to Yahoo Fantasy!")
+                                st.toast("League data auto-populated!", icon="✅")
+                            else:
+                                st.error("Authentication failed. Check your credentials.")
+                        except Exception as e:
+                            st.error(f"Connection error: {e}")
+            else:
+                st.info("Install `streamlit-oauth` for browser-based Yahoo login.")
 
             st.markdown(
                 f'<div style="text-align:center;color:{T["tx2"]};margin:12px 0;">── or ──</div>',
                 unsafe_allow_html=True,
             )
+        elif yahoo_key and yahoo_secret and not yahoo_league_id:
+            st.caption("Set YAHOO_LEAGUE_ID env var to enable Yahoo Fantasy sync.")
 
     # ── Auto-Fetch Projections from FanGraphs ──────────────────────────
     if HAS_DATA_PIPELINE:

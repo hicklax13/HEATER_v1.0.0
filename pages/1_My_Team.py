@@ -65,12 +65,14 @@ else:
 
             yahoo_key = os.environ.get("YAHOO_CLIENT_ID")
             yahoo_secret = os.environ.get("YAHOO_CLIENT_SECRET")
-            if yahoo_key and yahoo_secret:
+            yahoo_league_id = os.environ.get("YAHOO_LEAGUE_ID", "").strip()
+            if yahoo_key and yahoo_secret and yahoo_league_id:
                 if st.button("🔄 Sync Yahoo"):
                     with st.spinner("Syncing from Yahoo Fantasy..."):
                         try:
-                            client = YahooFantasyClient(league_id="auto")
+                            client = YahooFantasyClient(league_id=yahoo_league_id)
                             if client.authenticate(yahoo_key, yahoo_secret):
+                                client.sync_to_db()
                                 st.toast("Yahoo sync complete!", icon="✅")
                                 st.rerun()
                             else:
@@ -161,7 +163,7 @@ else:
                     season_stats = pd.read_sql_query("SELECT * FROM season_stats", conn)
 
                     if not season_stats.empty and season_stats.get("games_played", pd.Series([0])).sum() > 0:
-                        preseason = pd.read_sql_query("SELECT * FROM blended_projections", conn)
+                        preseason = pd.read_sql_query("SELECT * FROM projections WHERE system = 'blended'", conn)
                         conn.close()
                         updater = BayesianUpdater()
                         updated = updater.batch_update_projections(season_stats, preseason)

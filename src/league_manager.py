@@ -19,56 +19,64 @@ def import_league_rosters_csv(csv_path: str, user_team_name: str) -> int:
     """
     clear_league_rosters()
     conn = get_connection()
-    df = pd.read_csv(csv_path)
-    df.columns = df.columns.str.strip()
-    imported = 0
+    try:
+        df = pd.read_csv(csv_path)
+        df.columns = df.columns.str.strip()
+        imported = 0
 
-    teams = sorted(df["team_name"].unique())
-    team_index_map = {}
-    idx = 1
-    for t in teams:
-        if t == user_team_name:
-            team_index_map[t] = 0
-        else:
-            team_index_map[t] = idx
-            idx += 1
+        teams = sorted(df["team_name"].unique())
+        team_index_map = {}
+        idx = 1
+        for t in teams:
+            if t == user_team_name:
+                team_index_map[t] = 0
+            else:
+                team_index_map[t] = idx
+                idx += 1
 
-    for _, row in df.iterrows():
-        team = str(row["team_name"]).strip()
-        player_name = str(row["player_name"]).strip()
-        roster_slot = str(row.get("roster_slot", "")).strip() if "roster_slot" in row.index else None
+        for _, row in df.iterrows():
+            team = str(row["team_name"]).strip()
+            player_name = str(row["player_name"]).strip()
+            roster_slot = str(row.get("roster_slot", "")).strip() if "roster_slot" in row.index else None
 
-        cursor = conn.cursor()
-        cursor.execute("SELECT player_id FROM players WHERE name = ?", (player_name,))
-        result = cursor.fetchone()
-        if not result:
-            parts = player_name.split()
-            if len(parts) >= 2:
-                cursor.execute(
-                    "SELECT player_id FROM players WHERE name LIKE ? AND name LIKE ?",
-                    (f"%{parts[0]}%", f"%{parts[-1]}%"),
-                )
-                result = cursor.fetchone()
-            elif len(parts) == 1:
-                # Single-name player (e.g., "Ohtani"): match on last name
-                cursor.execute(
-                    "SELECT player_id FROM players WHERE name LIKE ?",
-                    (f"% {parts[0]}",),
-                )
-                results = cursor.fetchall()
-                if len(results) == 1:
-                    result = results[0]
-        if not result:
-            continue
+            cursor = conn.cursor()
+            cursor.execute("SELECT player_id FROM players WHERE name = ?", (player_name,))
+            result = cursor.fetchone()
+            if not result:
+                parts = player_name.split()
+                if len(parts) >= 2:
+                    cursor.execute(
+                        "SELECT player_id FROM players WHERE name LIKE ? AND name LIKE ?",
+                        (f"%{parts[0]}%", f"%{parts[-1]}%"),
+                    )
+                    result = cursor.fetchone()
+                elif len(parts) == 1:
+                    # Single-name player (e.g., "Ohtani"): match on last name
+                    cursor.execute(
+                        "SELECT player_id FROM players WHERE name LIKE ?",
+                        (f"% {parts[0]}",),
+                    )
+                    results = cursor.fetchall()
+                    if len(results) == 1:
+                        result = results[0]
+            if not result:
+                continue
 
-        player_id = result[0]
-        is_user = team == user_team_name
-        team_idx = team_index_map.get(team, 0)
+            player_id = result[0]
+            is_user = team == user_team_name
+            team_idx = team_index_map.get(team, 0)
 
-        upsert_league_roster_entry(team, team_idx, player_id, roster_slot, is_user_team=is_user)
-        imported += 1
+            # Inline insert instead of calling upsert_league_roster_entry to avoid double connection
+            conn.execute(
+                """INSERT INTO league_rosters (team_name, team_index, player_id, roster_slot, is_user_team)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (team, team_idx, player_id, roster_slot, 1 if is_user else 0),
+            )
+            imported += 1
 
-    conn.close()
+        conn.commit()
+    finally:
+        conn.close()
     return imported
 
 
@@ -95,17 +103,43 @@ def import_standings_csv(csv_path: str) -> int:
 
 
 def get_team_roster(team_name: str) -> pd.DataFrame:
-    """Return roster for a specific team with player info."""
+    """Return roster for a specific team with player info and stats.
+
+    JOINs season_stats (actual in-season performance) when available,
+    falling back to blended projections for stat columns.
+    """
     conn = get_connection()
-    df = pd.read_sql_query(
-        """SELECT lr.*, p.name, p.team, p.positions, p.is_hitter
-           FROM league_rosters lr
-           JOIN players p ON lr.player_id = p.player_id
-           WHERE lr.team_name = ?""",
-        conn,
-        params=(team_name,),
-    )
-    conn.close()
+    try:
+        df = pd.read_sql_query(
+            """SELECT lr.*, p.name, p.team, p.positions, p.is_hitter,
+                  COALESCE(ss.pa, pr.pa, 0) AS pa,
+                  COALESCE(ss.ab, pr.ab, 0) AS ab,
+                  COALESCE(ss.h, pr.h, 0) AS h,
+                  COALESCE(ss.r, pr.r, 0) AS r,
+                  COALESCE(ss.hr, pr.hr, 0) AS hr,
+                  COALESCE(ss.rbi, pr.rbi, 0) AS rbi,
+                  COALESCE(ss.sb, pr.sb, 0) AS sb,
+                  COALESCE(ss.avg, pr.avg, 0) AS avg,
+                  COALESCE(ss.ip, pr.ip, 0) AS ip,
+                  COALESCE(ss.w, pr.w, 0) AS w,
+                  COALESCE(ss.sv, pr.sv, 0) AS sv,
+                  COALESCE(ss.k, pr.k, 0) AS k,
+                  COALESCE(ss.era, pr.era, 0) AS era,
+                  COALESCE(ss.whip, pr.whip, 0) AS whip,
+                  COALESCE(ss.er, pr.er, 0) AS er,
+                  COALESCE(ss.bb_allowed, pr.bb_allowed, 0) AS bb_allowed,
+                  COALESCE(ss.h_allowed, pr.h_allowed, 0) AS h_allowed
+               FROM league_rosters lr
+               JOIN players p ON lr.player_id = p.player_id
+               LEFT JOIN season_stats ss ON lr.player_id = ss.player_id
+               LEFT JOIN projections pr ON lr.player_id = pr.player_id
+                   AND pr.system = 'blended'
+               WHERE lr.team_name = ?""",
+            conn,
+            params=(team_name,),
+        )
+    finally:
+        conn.close()
     return df
 
 

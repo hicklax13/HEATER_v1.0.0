@@ -153,7 +153,11 @@ if player_a_name and player_b_name and player_a_name != player_b_name:
             conn = get_connection()
             systems = {}
             for sys_name in ["steamer", "zips", "depthcharts", "blended"]:
-                df = pd.read_sql_query(f"SELECT * FROM projections WHERE system = '{sys_name}'", conn)
+                df = pd.read_sql_query(
+                    "SELECT * FROM projections WHERE system = ?",
+                    conn,
+                    params=(sys_name,),
+                )
                 if not df.empty:
                     systems[sys_name] = df
             conn.close()
