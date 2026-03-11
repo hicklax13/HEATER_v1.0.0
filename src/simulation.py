@@ -401,7 +401,13 @@ class DraftSimulator:
         }
 
     def evaluate_candidates(
-        self, player_pool: pd.DataFrame, draft_state, top_n: int = 8, n_simulations: int = 300
+        self,
+        player_pool: pd.DataFrame,
+        draft_state,
+        top_n: int = 8,
+        n_simulations: int = 300,
+        use_percentile_sampling: bool = False,
+        sgp_volatility: np.ndarray | None = None,
     ) -> pd.DataFrame:
         """Evaluate the top N candidate picks using Monte Carlo simulation.
 
@@ -410,6 +416,12 @@ class DraftSimulator:
             draft_state: DraftState instance.
             top_n: Number of top candidates to simulate.
             n_simulations: Simulations per candidate.
+            use_percentile_sampling: When True, sample player SGP values from
+                Normal(mean_sgp, volatility_sgp) each simulation instead of
+                using fixed values. Produces a risk-adjusted score per candidate.
+            sgp_volatility: Per-player SGP volatility array aligned with
+                player_pool. Required when use_percentile_sampling is True;
+                ignored otherwise.
 
         Returns:
             DataFrame with simulation results for each candidate.
@@ -462,6 +474,8 @@ class DraftSimulator:
                 candidate_id=candidate["player_id"],
                 n_simulations=n_simulations,
                 team_positions=team_positions,
+                use_percentile_sampling=use_percentile_sampling,
+                sgp_volatility=sgp_volatility,
             )
 
             p_survive = self.survival_probability(
@@ -484,6 +498,7 @@ class DraftSimulator:
                     "mc_std_sgp": sim_result["std_sgp"],
                     "mc_p25_sgp": sim_result["p25_sgp"],
                     "combined_score": sim_result["mean_sgp"] + urgency * 0.4,
+                    "risk_adjusted_sgp": sim_result.get("risk_adjusted_sgp", sim_result["mean_sgp"]),
                 }
             )
 
