@@ -26,7 +26,7 @@ st.title("📋 Lineup Optimizer")
 # ── Load user team ────────────────────────────────────────────────
 rosters = load_league_rosters()
 if rosters.empty:
-    st.warning("No league data loaded. Go to the main app and import your league rosters.")
+    st.warning("No league data loaded. Import your league rosters in the main app (Setup Step 3).")
     st.stop()
 
 user_teams = rosters[rosters["is_user_team"] == 1]

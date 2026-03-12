@@ -25,7 +25,7 @@ ruff check .
 # Format
 ruff format .
 
-# Run all tests (~182 tests, 4 skipped for optional deps)
+# Run all tests (186 collected, 185 pass, 1 skipped for PyMC)
 python -m pytest
 
 # Run a single test file
@@ -53,7 +53,7 @@ python -m pytest tests/test_in_season.py::test_trade_analyzer -v
 - **Yahoo API:** yfpy + streamlit-oauth (optional OAuth integration)
 - **Linter:** ruff (lint + format)
 - **CI:** GitHub Actions — ruff lint/format, pytest (Python 3.11-3.13), build check
-- **Python:** Local dev uses 3.14; CI tests 3.11-3.13
+- **Python:** Local dev uses 3.13; CI tests 3.11-3.13
 
 ## File Structure
 
@@ -241,6 +241,8 @@ SYSTEM_MAP = {"steamer": "steamer", "zips": "zips", "fangraphsdc": "depthcharts"
 - **`get_team_draft_patterns()` uses int team_id** — `team_id` is 0-based team index, not team name string. Filters on `pick.get("team_index")`.
 - **health_score range** — Always 0.0 to 1.0. Missing seasons default to 0.85 (league average). Empty history returns 0.85.
 - **Yahoo API graceful degradation** — All Yahoo features wrapped in `YFPY_AVAILABLE` checks. App works fully without Yahoo credentials. Setup wizard Yahoo connect requires `YAHOO_CLIENT_ID` and `YAHOO_CLIENT_SECRET` env vars.
+- **yfpy `--no-deps` install needs extras** — Installing `yfpy>=17.0 --no-deps` strips `stringcase`, `yahoo-oauth`, and their transitive deps. Must also `pip install stringcase yahoo-oauth==2.1.1`. Similarly, `streamlit-oauth --no-deps` needs `httpx-oauth`. The python-dotenv version mismatch (1.2.2 vs pinned 1.1.1) is a pip warning but works at runtime.
+- **In-season page warnings** — All pages that require league data use the standardized message: "No league data loaded. Import your league rosters in the main app (Setup Step 3)."
 - **FanGraphs API SYSTEM_MAP** — FG API uses `"fangraphsdc"` for Depth Charts, but DB stores as `"depthcharts"`. Always use `SYSTEM_MAP` dict, never hardcode system names. `SYSTEMS = list(SYSTEM_MAP.keys())` derives the list.
 - **FanGraphs `minpos` field** — Returns primary position only (e.g., "SS"), not multi-position eligibility. Sometimes returns `"0"` or `"-"` meaning no position; these are guarded to fall back to `"Util"`.
 - **Auto-fetch session state** — `st.session_state.projections_fetched` gates the fetch-once logic. Delete the key to allow retry. `HAS_DATA_PIPELINE` flag handles import failure gracefully.
@@ -253,3 +255,13 @@ SYSTEM_MAP = {"steamer": "steamer", "zips": "zips", "fangraphsdc": "depthcharts"
 - **Repo:** https://github.com/hicklax13/fantasy-baseball-draft-tool (public)
 - **Current release:** v1.0.0
 - **Release workflow:** Auto-creates GitHub releases on `v*.*.*` tags
+
+## E2E Testing (2026-03-12)
+
+Full end-to-end Playwright browser testing completed across all user flows:
+- **Unit tests:** 186 collected, 185 passed, 1 skipped (PyMC), 0 failures
+- **Playwright flows tested:** Setup wizard (4 steps), draft page (hero card, picks, 5 tabs), practice mode, all 5 in-season pages, Yahoo OAuth card
+- **Issues found and fixed:** "Step 5" reference → "Step 3", inconsistent warning messages across pages
+- **Yahoo OAuth:** Authorize button renders correctly when yfpy + streamlit-oauth + env vars are configured
+- **FanGraphs auto-fetch:** Steamer + ZiPS + Depth Charts fetch and display on startup
+- **Coverage:** 64% (below 75% CI threshold; pre-existing, no regressions)
