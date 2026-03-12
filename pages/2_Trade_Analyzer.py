@@ -34,8 +34,10 @@ try:
     from src.database import get_connection
 
     conn = get_connection()
-    injury_df = pd.read_sql_query("SELECT * FROM injury_history", conn)
-    conn.close()
+    try:
+        injury_df = pd.read_sql_query("SELECT * FROM injury_history", conn)
+    finally:
+        conn.close()
     if not injury_df.empty and "player_id" in injury_df.columns:
         for pid, group in injury_df.groupby("player_id"):
             gp = group["games_played"].tolist()

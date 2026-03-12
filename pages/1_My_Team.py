@@ -85,8 +85,10 @@ else:
                 from src.database import get_connection
 
                 conn = get_connection()
-                injury_df = pd.read_sql_query("SELECT * FROM injury_history", conn)
-                conn.close()
+                try:
+                    injury_df = pd.read_sql_query("SELECT * FROM injury_history", conn)
+                finally:
+                    conn.close()
             except Exception:
                 injury_df = pd.DataFrame()
 
@@ -114,7 +116,6 @@ else:
                 width="stretch",
                 hide_index=True,
             )
-            st.caption(METRIC_TOOLTIPS["avg"])
 
             # Category totals
             st.subheader("Category Totals")
@@ -145,6 +146,7 @@ else:
                 st.markdown("**Hitting**")
                 if hit_stats:
                     st.dataframe(pd.DataFrame([hit_stats]), hide_index=True)
+                    st.caption(METRIC_TOOLTIPS["avg"])
             with col2:
                 st.markdown("**Pitching**")
                 if pitch_stats:

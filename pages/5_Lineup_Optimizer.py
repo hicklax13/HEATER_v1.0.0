@@ -6,8 +6,14 @@ import streamlit as st
 from src.database import init_db, load_league_rosters, load_league_standings
 from src.injury_model import compute_health_score, get_injury_badge
 from src.league_manager import get_team_roster
-from src.lineup_optimizer import LineupOptimizer
 from src.ui_shared import METRIC_TOOLTIPS, inject_custom_css, render_theme_toggle
+
+try:
+    from src.lineup_optimizer import LineupOptimizer
+
+    OPTIMIZER_AVAILABLE = True
+except ImportError:
+    OPTIMIZER_AVAILABLE = False
 
 st.set_page_config(page_title="Lineup Optimizer", page_icon="📋", layout="wide")
 
@@ -38,16 +44,16 @@ if roster is None or roster.empty:
     st.stop()
 
 # ── Build optimizer config ────────────────────────────────────────
+# Normalize player_name → name FIRST (before filling missing columns)
+if "player_name" in roster.columns and "name" not in roster.columns:
+    roster = roster.rename(columns={"player_name": "name"})
+
 # Ensure required columns exist for the optimizer
 required_cols = ["player_id", "name", "positions", "is_hitter"]
 stat_cols = ["r", "hr", "rbi", "sb", "avg", "w", "sv", "k", "era", "whip"]
 for col in required_cols + stat_cols:
     if col not in roster.columns:
         roster[col] = 0
-
-# Normalize player_name → name if needed
-if "player_name" in roster.columns and "name" not in roster.columns:
-    roster = roster.rename(columns={"player_name": "name"})
 
 # Build league config dict for optimizer
 config = {
@@ -66,6 +72,10 @@ config = {
         "P": 4,
     },
 }
+
+if not OPTIMIZER_AVAILABLE:
+    st.error("Lineup Optimizer requires PuLP. Install it with: `pip install pulp`")
+    st.stop()
 
 optimizer = LineupOptimizer(roster, config)
 
@@ -135,8 +145,10 @@ try:
     from src.database import get_connection
 
     conn = get_connection()
-    injury_df = pd.read_sql_query("SELECT * FROM injury_history", conn)
-    conn.close()
+    try:
+        injury_df = pd.read_sql_query("SELECT * FROM injury_history", conn)
+    finally:
+        conn.close()
 
     if not injury_df.empty:
         health_badges = []
