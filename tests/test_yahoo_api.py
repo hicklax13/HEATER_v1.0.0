@@ -13,6 +13,7 @@ from src.yahoo_api import (
     YFPY_AVAILABLE,
     YahooFantasyClient,
     build_oauth_url,
+    exchange_code_for_token,
     validate_credentials,
 )
 
@@ -31,6 +32,32 @@ def test_build_oauth_url():
 def test_build_oauth_url_custom_redirect():
     url = build_oauth_url("key123", redirect_uri="https://example.com/callback")
     assert "redirect_uri=https://example.com/callback" in url
+
+
+def test_exchange_code_for_token_success():
+    """Test successful token exchange with mocked HTTP response."""
+    import json
+    from unittest.mock import MagicMock
+
+    mock_response = MagicMock()
+    mock_response.read.return_value = json.dumps(
+        {"access_token": "tok123", "refresh_token": "ref456", "token_type": "bearer"}
+    ).encode("utf-8")
+    mock_response.__enter__ = lambda s: s
+    mock_response.__exit__ = MagicMock(return_value=False)
+
+    with patch("urllib.request.urlopen", return_value=mock_response):
+        result = exchange_code_for_token("key123", "secret456", "verifier789")
+    assert result is not None
+    assert result["access_token"] == "tok123"
+    assert result["refresh_token"] == "ref456"
+
+
+def test_exchange_code_for_token_failure():
+    """Test token exchange returns None on network error."""
+    with patch("urllib.request.urlopen", side_effect=Exception("Network error")):
+        result = exchange_code_for_token("key123", "secret456", "bad_code")
+    assert result is None
 
 
 def test_validate_credentials_valid():

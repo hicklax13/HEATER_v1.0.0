@@ -6,15 +6,15 @@ All data can be synced to the local SQLite database for offline use.
 
 Setup (Streamlit web app):
     1. Go to https://developer.yahoo.com/apps/ and click "Create an App"
-    2. Select "Web Application"
+    2. Select "Installed Application" (recommended) or "Web Application"
     3. Under API Permissions, check "Fantasy Sports (Read)"
-    4. Set Redirect URI to your Streamlit app URL (e.g. http://localhost:8501/)
-    5. Copy your Consumer Key and Consumer Secret
-    6. Set environment variables:
+    4. Copy your Consumer Key and Consumer Secret
+    5. Set environment variables:
        - YAHOO_CLIENT_ID=<your consumer key>
        - YAHOO_CLIENT_SECRET=<your consumer secret>
        - YAHOO_LEAGUE_ID=<your numeric league ID from the Yahoo URL>
-    7. The app will handle OAuth via streamlit-oauth browser redirect.
+    6. The app uses Yahoo's out-of-band (oob) OAuth flow: click a link,
+       authorize on Yahoo, paste the verification code back in the app.
 
 Token persistence:
     yfpy stores OAuth tokens in the auth_dir (data/ by default). Subsequent
@@ -89,10 +89,68 @@ def get_league_id_from_env() -> str | None:
     return lid if lid else None
 
 
+def exchange_code_for_token(
+    consumer_key: str,
+    consumer_secret: str,
+    code: str,
+) -> dict | None:
+    """Exchange a Yahoo OAuth verification code for an access token.
+
+    Uses Yahoo's token endpoint with the oob redirect_uri. This is the
+    second step of Yahoo's out-of-band OAuth 2.0 flow: the user authorizes
+    the app on Yahoo's site, receives a verification code, and pastes it
+    back into the Streamlit app.
+
+    Args:
+        consumer_key: Yahoo app consumer key.
+        consumer_secret: Yahoo app consumer secret.
+        code: The verification code from Yahoo's authorization page.
+
+    Returns:
+        Token dict with access_token, refresh_token, token_type, etc.
+        Returns None if the exchange fails.
+    """
+    import base64
+    import json
+    import urllib.parse
+    import urllib.request
+
+    token_url = "https://api.login.yahoo.com/oauth2/get_token"
+    credentials = base64.b64encode(f"{consumer_key}:{consumer_secret}".encode()).decode("utf-8")
+    headers = {
+        "Authorization": f"Basic {credentials}",
+        "Content-Type": "application/x-www-form-urlencoded",
+    }
+    data = urllib.parse.urlencode(
+        {
+            "grant_type": "authorization_code",
+            "redirect_uri": "oob",
+            "code": code.strip(),
+        }
+    ).encode("utf-8")
+
+    try:
+        req = urllib.request.Request(token_url, data=data, headers=headers)
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            token_data = json.loads(resp.read().decode("utf-8"))
+        logger.info("Yahoo OAuth token exchange successful.")
+        return token_data
+    except Exception as exc:
+        logger.error("Yahoo token exchange failed: %s", exc)
+        return None
+
+
 def create_streamlit_oauth_component(consumer_key: str, consumer_secret: str):
     """Create a streamlit-oauth OAuth2Component for Yahoo Fantasy.
 
     Returns the component if streamlit-oauth is available, else None.
+
+    .. deprecated::
+        Use :func:`build_oauth_url` + :func:`exchange_code_for_token` instead.
+        The streamlit-oauth popup flow requires a redirect-based OAuth callback,
+        but Yahoo Fantasy uses out-of-band (oob) OAuth which shows a verification
+        code instead of redirecting. This function is kept for backward compatibility
+        but the oob flow is recommended.
     """
     try:
         from streamlit_oauth import OAuth2Component

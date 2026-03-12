@@ -25,7 +25,7 @@ ruff check .
 # Format
 ruff format .
 
-# Run all tests (186 collected, 185 pass, 1 skipped for PyMC)
+# Run all tests (188 collected, 187 pass, 1 skipped for PyMC)
 python -m pytest
 
 # Run a single test file
@@ -94,7 +94,7 @@ tests/
   test_bayesian.py          — Bayesian updater: regression, age curves, stabilization, batch update (31 tests)
   test_injury_model.py      — Injury model: health scores, age risk, workload flags (17 tests)
   test_lineup_optimizer.py  — Lineup optimizer: LP solver, constraints, category targeting (20 tests)
-  test_yahoo_api.py         — Yahoo API: OAuth, sync, mock endpoints (38 tests)
+  test_yahoo_api.py         — Yahoo API: OAuth, sync, mock endpoints (40 tests)
   test_percentiles.py       — Percentile forecasts: volatility, P10/P50/P90 bounds (7 tests)
   test_opponent_model.py    — Enhanced opponent modeling: preferences, needs, history (8 tests)
   test_percentile_sampling.py — Percentile sampling passthrough in evaluate_candidates (4 tests)
@@ -133,7 +133,7 @@ docs/plans/             — Implementation plan archives
 - **P10/P90 range bars** — Floor/ceiling projections displayed on hero pick and alternatives
 - **Opponent intel tab** — Threat alerts when opponents need your target position, plus full opponent roster/needs breakdown
 - **Practice mode** — Ephemeral DraftState clone for what-if scenarios, resets on refresh or button click
-- **Yahoo OAuth** — Setup wizard Step 1 shows Yahoo connect card when env vars are set
+- **Yahoo OAuth** — Setup wizard Step 1 shows Yahoo connect card when env vars are set. Uses out-of-band (oob) flow: user clicks link, authorizes on Yahoo, pastes verification code back in the app.
 
 ### Auto-Fetch Pipeline
 - **FanGraphs JSON API** — Fetches Steamer, ZiPS, Depth Charts projections (3 systems × bat/pit = 6 endpoints) on app startup
@@ -220,6 +220,10 @@ optimizer.optimize_lineup()  # returns {slot: player_name, projected_stats: {...
 optimizer.category_targeting(standings_df, team_name)  # returns {cat: weight}
 
 # Data pipeline (src/data_pipeline.py)
+# Yahoo OAuth helpers (src/yahoo_api.py)
+build_oauth_url(consumer_key, redirect_uri="oob")  # returns auth URL string
+exchange_code_for_token(consumer_key, consumer_secret, code)  # returns token dict or None
+
 refresh_if_stale(force=False)  # returns bool; auto-skips if projections table has data
 fetch_projections(system, stats)  # returns (DataFrame, raw_json_list)
 SYSTEM_MAP = {"steamer": "steamer", "zips": "zips", "fangraphsdc": "depthcharts"}
@@ -241,6 +245,7 @@ SYSTEM_MAP = {"steamer": "steamer", "zips": "zips", "fangraphsdc": "depthcharts"
 - **`get_team_draft_patterns()` uses int team_id** — `team_id` is 0-based team index, not team name string. Filters on `pick.get("team_index")`.
 - **health_score range** — Always 0.0 to 1.0. Missing seasons default to 0.85 (league average). Empty history returns 0.85.
 - **Yahoo API graceful degradation** — All Yahoo features wrapped in `YFPY_AVAILABLE` checks. App works fully without Yahoo credentials. Setup wizard Yahoo connect requires `YAHOO_CLIENT_ID` and `YAHOO_CLIENT_SECRET` env vars.
+- **Yahoo OAuth uses oob (out-of-band)** — Yahoo Fantasy API requires `redirect_uri=oob`. Do NOT use `http://localhost:8501/` or any redirect-based flow — Yahoo rejects all non-oob redirect URIs for fantasy apps. The `yahoo-oauth` library hardcodes `CALLBACK_URI='oob'`. Our Streamlit UI mirrors this: user clicks a link, authorizes on Yahoo, pastes the verification code back.
 - **yfpy `--no-deps` install needs extras** — Installing `yfpy>=17.0 --no-deps` strips `stringcase`, `yahoo-oauth`, and their transitive deps. Must also `pip install stringcase yahoo-oauth==2.1.1`. Similarly, `streamlit-oauth --no-deps` needs `httpx-oauth`. The python-dotenv version mismatch (1.2.2 vs pinned 1.1.1) is a pip warning but works at runtime.
 - **In-season page warnings** — All pages that require league data use the standardized message: "No league data loaded. Import your league rosters in the main app (Setup Step 3)."
 - **FanGraphs API SYSTEM_MAP** — FG API uses `"fangraphsdc"` for Depth Charts, but DB stores as `"depthcharts"`. Always use `SYSTEM_MAP` dict, never hardcode system names. `SYSTEMS = list(SYSTEM_MAP.keys())` derives the list.
@@ -259,7 +264,7 @@ SYSTEM_MAP = {"steamer": "steamer", "zips": "zips", "fangraphsdc": "depthcharts"
 ## E2E Testing (2026-03-12)
 
 Full end-to-end Playwright browser testing completed across all user flows:
-- **Unit tests:** 186 collected, 185 passed, 1 skipped (PyMC), 0 failures
+- **Unit tests:** 188 collected, 187 passed, 1 skipped (PyMC), 0 failures
 - **Playwright flows tested:** Setup wizard (4 steps), draft page (hero card, picks, 5 tabs), practice mode, all 5 in-season pages, Yahoo OAuth card
 - **Issues found and fixed:** "Step 5" reference → "Step 3", inconsistent warning messages across pages
 - **Yahoo OAuth:** Authorize button renders correctly when yfpy + streamlit-oauth + env vars are configured

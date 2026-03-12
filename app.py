@@ -747,39 +747,62 @@ def render_step_import():
                 unsafe_allow_html=True,
             )
 
-            # Try streamlit-oauth browser flow first
-            from src.yahoo_api import create_streamlit_oauth_component
+            # Yahoo uses out-of-band (oob) OAuth: user clicks link,
+            # authorizes on Yahoo, gets a code, pastes it back here.
+            from src.yahoo_api import build_oauth_url, exchange_code_for_token
 
-            oauth_comp = create_streamlit_oauth_component(yahoo_key, yahoo_secret)
-            if oauth_comp is not None:
-                token_result = oauth_comp.authorize_button(
-                    name="Authorize with Yahoo",
-                    redirect_uri="http://localhost:8501/",
-                    scope="fspt-r",
-                    key="yahoo_oauth_btn",
-                    use_container_width=False,
-                )
-                if token_result and token_result.get("token"):
-                    with st.spinner("Connecting to Yahoo Fantasy..."):
-                        try:
-                            client = YahooFantasyClient(league_id=yahoo_league_id)
-                            if client.authenticate(yahoo_key, yahoo_secret, token_data=token_result["token"]):
-                                st.session_state.yahoo_client = client
-                                try:
-                                    settings = client.get_league_settings()
-                                    if settings:
-                                        st.session_state.yahoo_settings = settings
-                                    client.sync_to_db()
-                                except Exception:
-                                    pass  # Sync failures are non-fatal
-                                st.success("Connected to Yahoo Fantasy!")
-                                st.toast("League data auto-populated!", icon="✅")
-                            else:
-                                st.error("Authentication failed. Check your credentials.")
-                        except Exception as e:
-                            st.error(f"Connection error: {e}")
+            if st.session_state.get("yahoo_connected"):
+                st.success("Connected to Yahoo Fantasy!")
             else:
-                st.info("Install `streamlit-oauth` for browser-based Yahoo login.")
+                auth_url = build_oauth_url(yahoo_key, redirect_uri="oob")
+                st.markdown(
+                    f'<a href="{auth_url}" target="_blank" style="'
+                    f"display:inline-block;padding:8px 20px;"
+                    f"background:{T['amber']};color:{T['bg']};"
+                    f"border-radius:8px;font-weight:700;font-family:Oswald,sans-serif;"
+                    f'text-decoration:none;font-size:14px;">'
+                    f"Authorize with Yahoo</a>",
+                    unsafe_allow_html=True,
+                )
+                st.caption(
+                    "Click above to open Yahoo login. After authorizing, "
+                    "Yahoo will show a **verification code**. Paste it below."
+                )
+                yahoo_code = st.text_input(
+                    "Yahoo verification code",
+                    key="yahoo_oob_code",
+                    placeholder="Paste the code from Yahoo here",
+                )
+                if yahoo_code:
+                    with st.spinner("Exchanging code for token..."):
+                        token_data = exchange_code_for_token(yahoo_key, yahoo_secret, yahoo_code)
+                    if token_data and token_data.get("access_token"):
+                        with st.spinner("Connecting to Yahoo Fantasy..."):
+                            try:
+                                client = YahooFantasyClient(league_id=yahoo_league_id)
+                                if client.authenticate(
+                                    yahoo_key,
+                                    yahoo_secret,
+                                    token_data=token_data,
+                                ):
+                                    st.session_state.yahoo_client = client
+                                    st.session_state.yahoo_connected = True
+                                    try:
+                                        settings = client.get_league_settings()
+                                        if settings:
+                                            st.session_state.yahoo_settings = settings
+                                        client.sync_to_db()
+                                    except Exception:
+                                        pass  # Sync failures are non-fatal
+                                    st.success("Connected to Yahoo Fantasy!")
+                                    st.toast("League data synced!", icon="✅")
+                                    st.rerun()
+                                else:
+                                    st.error("Authentication failed. Check your credentials.")
+                            except Exception as e:
+                                st.error(f"Connection error: {e}")
+                    else:
+                        st.error("Invalid or expired code. Click the link above to get a new one.")
 
             st.markdown(
                 f'<div style="text-align:center;color:{T["tx2"]};margin:12px 0;">── or ──</div>',
