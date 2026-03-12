@@ -112,6 +112,7 @@ def exchange_code_for_token(
     """
     import base64
     import json
+    import urllib.error
     import urllib.parse
     import urllib.request
 
@@ -135,6 +136,10 @@ def exchange_code_for_token(
             token_data = json.loads(resp.read().decode("utf-8"))
         logger.info("Yahoo OAuth token exchange successful.")
         return token_data
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace") if exc.fp else ""
+        logger.error("Yahoo token exchange HTTP %s: %s", exc.code, body)
+        return None
     except Exception as exc:
         logger.error("Yahoo token exchange failed: %s", exc)
         return None
@@ -231,17 +236,16 @@ class YahooFantasyClient:
     ) -> bool:
         """Initialize yfpy Game object with OAuth credentials.
 
-        On the very first call yfpy will open a browser window for the user
-        to authorize the app.  The resulting token is cached in *data/* so
-        future calls skip the browser flow.
+        When *token_data* is provided (from :func:`exchange_code_for_token`),
+        the token is written to a JSON file so yfpy can load it natively
+        without triggering its terminal-based OAuth consent prompt.
 
         Args:
             consumer_key: Yahoo app consumer key.
             consumer_secret: Yahoo app consumer secret.
-            token_data: Optional pre-existing token dict from streamlit-oauth
-                browser flow.  When provided, the token is written to disk so
-                yfpy can pick it up without triggering its terminal-based
-                OAuth consent prompt.
+            token_data: Optional token dict from ``exchange_code_for_token()``.
+                Must contain ``access_token``, ``refresh_token``, and
+                ``token_type``.
 
         Returns:
             True on successful authentication, False otherwise.
@@ -255,7 +259,27 @@ class YahooFantasyClient:
             return False
 
         try:
+            import json
+
             _AUTH_DIR.mkdir(parents=True, exist_ok=True)
+
+            # If the caller supplies a fresh OAuth token, persist it to disk
+            # in the format yahoo-oauth/yfpy expect. This prevents yfpy from
+            # triggering its own interactive auth flow (which calls input()).
+            token_json_path: str | None = None
+            if token_data is not None:
+                token_file = _AUTH_DIR / "yahoo_token.json"
+                persisted = {
+                    "access_token": token_data.get("access_token"),
+                    "consumer_key": consumer_key,
+                    "consumer_secret": consumer_secret,
+                    "refresh_token": token_data.get("refresh_token"),
+                    "token_time": time.time(),
+                    "token_type": token_data.get("token_type", "bearer"),
+                }
+                token_file.write_text(json.dumps(persisted, indent=2))
+                token_json_path = str(token_file)
+                logger.info("Wrote Yahoo token to %s", token_file)
 
             # Build constructor kwargs for yfpy v17+
             query_kwargs: dict = {
@@ -263,13 +287,11 @@ class YahooFantasyClient:
                 "game_code": self.game_code,
                 "yahoo_consumer_key": consumer_key,
                 "yahoo_consumer_secret": consumer_secret,
-                "browser_callback": False,  # We handle OAuth via streamlit-oauth
+                "browser_callback": False,
             }
 
-            # If the caller supplies a pre-existing OAuth token (e.g. from
-            # streamlit-oauth), pass it directly so yfpy skips the browser flow.
-            if token_data is not None:
-                query_kwargs["yahoo_access_token_json"] = token_data
+            if token_json_path is not None:
+                query_kwargs["yahoo_access_token_json"] = token_json_path
 
             self._query = YahooFantasySportsQuery(**query_kwargs)
             # Force a lightweight call to confirm the token is valid.

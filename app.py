@@ -768,12 +768,16 @@ def render_step_import():
                     "Click above to open Yahoo login. After authorizing, "
                     "Yahoo will show a **verification code**. Paste it below."
                 )
-                yahoo_code = st.text_input(
-                    "Yahoo verification code",
-                    key="yahoo_oob_code",
-                    placeholder="Paste the code from Yahoo here",
-                )
-                if yahoo_code:
+                # Use a form so Streamlit doesn't rerun on every keystroke.
+                # Yahoo codes are single-use; auto-reruns would re-submit
+                # and invalidate the code before we can exchange it.
+                with st.form("yahoo_oob_form"):
+                    yahoo_code = st.text_input(
+                        "Yahoo verification code",
+                        placeholder="Paste the code from Yahoo here",
+                    )
+                    submitted = st.form_submit_button("Connect", type="primary")
+                if submitted and yahoo_code:
                     with st.spinner("Exchanging code for token..."):
                         token_data = exchange_code_for_token(yahoo_key, yahoo_secret, yahoo_code)
                     if token_data and token_data.get("access_token"):
