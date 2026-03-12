@@ -855,6 +855,49 @@ def inject_custom_css():
         border-right: 1px solid {t["card_h"]} !important;
     }}
 
+    /* ── ADDITIONAL STREAMLIT WIDGET OVERRIDES ─ */
+    /* Covers widgets that config.toml dark theme would otherwise force dark */
+    div[data-testid="stExpander"] {{
+        background: {t["card"]} !important;
+        border-color: {t["card_h"]} !important;
+    }}
+    div[data-testid="stExpander"] summary {{
+        color: {t["tx"]} !important;
+    }}
+    div[data-testid="stMetric"] {{
+        background: transparent;
+        color: {t["tx"]} !important;
+    }}
+    div[data-testid="stMetric"] label {{
+        color: {t["tx2"]} !important;
+    }}
+    div[data-testid="stMetric"] [data-testid="stMetricValue"] {{
+        color: {t["tx"]} !important;
+    }}
+    div[data-testid="stMultiSelect"] > div {{
+        background: {t["card"]} !important;
+        color: {t["tx"]} !important;
+        border-color: {t["card_h"]} !important;
+    }}
+    div[data-testid="stSlider"] {{
+        color: {t["tx"]} !important;
+    }}
+    .stMarkdown, .stMarkdown p {{
+        color: {t["tx"]};
+    }}
+    .stCaption, div[data-testid="stCaptionContainer"] {{
+        color: {t["tx2"]} !important;
+    }}
+    div[data-testid="stCheckbox"] label {{
+        color: {t["tx"]} !important;
+    }}
+    div[data-testid="stRadio"] label {{
+        color: {t["tx"]} !important;
+    }}
+    .stAlert {{
+        color: {t["tx"]} !important;
+    }}
+
     /* ── TOOLTIP (CSS-based, on title attr) ─── */
     [title] {{
         cursor: help;
@@ -872,7 +915,12 @@ def inject_custom_css():
 
 
 class _ThemeProxy(dict):
-    """Dict-like proxy that delegates reads to the active theme."""
+    """Dict-like proxy that delegates all reads to the active theme.
+
+    Subclasses dict for isinstance() compat, but overrides every read
+    method so len(), bool(), keys(), values(), items(), and iteration
+    all reflect the current theme — not the empty internal store.
+    """
 
     def __getitem__(self, key):
         return get_theme()[key]
@@ -885,6 +933,24 @@ class _ThemeProxy(dict):
 
     def __repr__(self):
         return repr(get_theme())
+
+    def __len__(self):
+        return len(get_theme())
+
+    def __iter__(self):
+        return iter(get_theme())
+
+    def __bool__(self):
+        return True
+
+    def keys(self):
+        return get_theme().keys()
+
+    def values(self):
+        return get_theme().values()
+
+    def items(self):
+        return get_theme().items()
 
 
 T = _ThemeProxy()
