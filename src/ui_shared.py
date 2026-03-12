@@ -41,7 +41,7 @@ LIGHT_THEME = {
     "warn": "#fb923c",
     "tx": "#1a1a2e",
     "tx2": "#5a6170",
-    "border": "#1a1f2e",
+    "border": "#d1d5db",
     "tiers": [
         "#f59e0b",
         "#fbbf24",
