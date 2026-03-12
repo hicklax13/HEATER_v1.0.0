@@ -199,21 +199,21 @@ class YahooFantasyClient:
         try:
             _AUTH_DIR.mkdir(parents=True, exist_ok=True)
 
+            # Build constructor kwargs for yfpy v17+
+            query_kwargs: dict = {
+                "league_id": self.league_id,
+                "game_code": self.game_code,
+                "yahoo_consumer_key": consumer_key,
+                "yahoo_consumer_secret": consumer_secret,
+                "browser_callback": False,  # We handle OAuth via streamlit-oauth
+            }
+
             # If the caller supplies a pre-existing OAuth token (e.g. from
-            # streamlit-oauth), persist it so yfpy skips the browser flow.
+            # streamlit-oauth), pass it directly so yfpy skips the browser flow.
             if token_data is not None:
-                import json
+                query_kwargs["yahoo_access_token_json"] = token_data
 
-                token_path = _AUTH_DIR / "token.json"
-                token_path.write_text(json.dumps(token_data))
-
-            self._query = YahooFantasySportsQuery(
-                auth_dir=str(_AUTH_DIR),
-                league_id=self.league_id,
-                game_code=self.game_code,
-                consumer_key=consumer_key,
-                consumer_secret=consumer_secret,
-            )
+            self._query = YahooFantasySportsQuery(**query_kwargs)
             # Force a lightweight call to confirm the token is valid.
             _rate_limit()
             self._query.get_league_metadata()

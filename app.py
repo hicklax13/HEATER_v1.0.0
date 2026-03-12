@@ -9,6 +9,14 @@ import os
 import tempfile
 import time
 
+# Load .env file for Yahoo credentials (and any other env overrides)
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv()
+except ImportError:
+    pass  # python-dotenv not installed — rely on system env vars
+
 import numpy as np
 import pandas as pd
 import streamlit as st
