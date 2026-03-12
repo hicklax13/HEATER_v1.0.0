@@ -34,6 +34,7 @@ desktop.ini
 data/draft_tool.db
 data/backups/
 data/yahoo_creds.json
+data/yahoo_token.json
 
 # Yahoo API credentials
 yahoo_credentials.json

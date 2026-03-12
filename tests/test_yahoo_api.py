@@ -31,7 +31,8 @@ def test_build_oauth_url():
 
 def test_build_oauth_url_custom_redirect():
     url = build_oauth_url("key123", redirect_uri="https://example.com/callback")
-    assert "redirect_uri=https://example.com/callback" in url
+    # URL-encoded: https://example.com/callback → https%3A%2F%2Fexample.com%2Fcallback
+    assert "redirect_uri=https%3A%2F%2Fexample.com%2Fcallback" in url
 
 
 def test_exchange_code_for_token_success():

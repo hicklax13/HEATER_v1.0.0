@@ -73,8 +73,18 @@ def build_oauth_url(consumer_key: str, redirect_uri: str = "oob") -> str:
     Returns:
         The authorization URL string the user should visit in a browser.
     """
+    import urllib.parse
+
     base = "https://api.login.yahoo.com/oauth2/request_auth"
-    return f"{base}?client_id={consumer_key}&redirect_uri={redirect_uri}&response_type=code&language=en-us"
+    params = urllib.parse.urlencode(
+        {
+            "client_id": consumer_key,
+            "redirect_uri": redirect_uri,
+            "response_type": "code",
+            "language": "en-us",
+        }
+    )
+    return f"{base}?{params}"
 
 
 def get_league_id_from_env() -> str | None:
@@ -295,8 +305,15 @@ class YahooFantasyClient:
 
             self._query = YahooFantasySportsQuery(**query_kwargs)
             # Force a lightweight call to confirm the token is valid.
+            # Method name varies across yfpy versions — try several.
             _rate_limit()
-            self._query.get_league_metadata()
+            for method_name in ("get_league_metadata", "get_league_info", "get_league_settings"):
+                fn = getattr(self._query, method_name, None)
+                if fn is not None:
+                    fn()
+                    break
+            else:
+                logger.warning("No known yfpy metadata method found; skipping validation call.")
             logger.info("Yahoo Fantasy API authenticated successfully.")
             return True
         except Exception:
@@ -344,6 +361,28 @@ class YahooFantasyClient:
     def _safe_attr(obj, attr: str, default=None):
         """Safely read an attribute from a yfpy model object."""
         return getattr(obj, attr, default)
+
+    def _get_user_team_key(self) -> str | None:
+        """Discover the authenticated user's team key.
+
+        Iterates league teams and looks for the ``is_owned_by_current_login``
+        flag that yfpy sets on the team owned by the OAuth token holder.
+
+        Returns:
+            The team_key string for the user's team, or None if not found.
+        """
+        if not self._ensure_auth():
+            return None
+        try:
+            _rate_limit()
+            teams = self._query.get_league_teams()
+            for entry in teams or []:
+                team = getattr(entry, "team", entry)
+                if self._safe_attr(team, "is_owned_by_current_login"):
+                    return str(self._safe_attr(team, "team_key", ""))
+        except Exception:
+            logger.debug("Could not determine user team key.", exc_info=True)
+        return None
 
     # ------------------------------------------------------------------
     # League data
@@ -548,6 +587,8 @@ class YahooFantasyClient:
             return pd.DataFrame()
         try:
             _rate_limit()
+            # Note: yfpy's get_league_players() doesn't support server-side
+            # position filtering, so we filter client-side below.
             fa_list = self._query.get_league_players(
                 player_count=count,
                 player_count_start=0,
@@ -589,15 +630,17 @@ class YahooFantasyClient:
             logger.exception("Failed to fetch free agents.")
             return pd.DataFrame()
 
-    def get_league_transactions(self, days: int = 7) -> pd.DataFrame:
+    def get_league_transactions(self) -> pd.DataFrame:
         """Get recent adds/drops/trades.
-
-        Args:
-            days: Number of past days to include.
 
         Returns:
             DataFrame with columns: ``transaction_id``, ``type``,
             ``player_name``, ``team_from``, ``team_to``, ``timestamp``.
+
+        Note:
+            Yahoo's API returns all recent transactions without a date
+            filter parameter. Client-side filtering by date can be applied
+            on the ``timestamp`` column after calling this method.
         """
         if not self._ensure_auth():
             return pd.DataFrame()
@@ -758,6 +801,11 @@ class YahooFantasyClient:
             rosters_df = self.get_all_rosters()
             if not rosters_df.empty:
                 clear_league_rosters()
+
+                # Identify the authenticated user's team so we can flag it
+                user_team_key = self._get_user_team_key()
+                logger.debug("User team key: %s", user_team_key)
+
                 team_indices: dict[str, int] = {}
                 idx = 0
                 for _, row in rosters_df.iterrows():
@@ -772,11 +820,15 @@ class YahooFantasyClient:
                     except (ValueError, TypeError):
                         player_id = hash(player_id_str) % (10**9)
 
+                    team_key = row.get("team_key", "")
+                    is_user = user_team_key is not None and team_key == user_team_key
+
                     upsert_league_roster_entry(
                         team_name=team_name,
                         team_index=team_indices[team_name],
                         player_id=player_id,
                         roster_slot=row.get("position", ""),
+                        is_user_team=is_user,
                     )
                     counts["rosters"] += 1
 

@@ -714,9 +714,11 @@ def load_league_standings() -> pd.DataFrame:
 def clear_league_rosters():
     """Remove all league roster entries (for re-import)."""
     conn = get_connection()
-    conn.execute("DELETE FROM league_rosters")
-    conn.commit()
-    conn.close()
+    try:
+        conn.execute("DELETE FROM league_rosters")
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def upsert_league_standing(team_name: str, category: str, total: float, rank: int = None, points: float = None):
