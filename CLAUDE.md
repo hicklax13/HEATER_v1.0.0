@@ -4,7 +4,7 @@
 
 A fantasy baseball draft assistant + in-season manager for a 12-team Yahoo Sports 5x5 roto snake draft league. Two pillars:
 
-1. **Draft Tool** (`app.py`, ~2100 lines) — "Broadcast Booth" dark-theme Streamlit app: 4-step setup wizard (with optional Yahoo OAuth), 3-column draft page with injury badges, percentile ranges, opponent intel tab, and practice mode. Monte Carlo recommendations with percentile sampling.
+1. **Draft Tool** (`app.py`, ~2450 lines) — "Broadcast Booth" dark-theme Streamlit app: 4-step setup wizard (with optional Yahoo OAuth), 3-column draft page with injury badges, percentile ranges, opponent intel tab, and practice mode. Monte Carlo recommendations with percentile sampling.
 2. **In-Season Management** (`pages/`) — 5 Streamlit pages: team overview, trade analysis, player comparison, free agent rankings, lineup optimizer. Powered by MLB Stats API + pybaseball + optional Yahoo Fantasy API.
 
 ## Commands
@@ -27,6 +27,9 @@ ruff format .
 
 # Run all tests (188 collected, 187 pass, 1 skipped for PyMC)
 python -m pytest
+
+# Run with verbose output
+python -m pytest -v
 
 # Run a single test file
 python -m pytest tests/test_in_season.py -v
@@ -53,7 +56,7 @@ python -m pytest tests/test_in_season.py::test_trade_analyzer -v
 - **Yahoo API:** yfpy + streamlit-oauth (optional OAuth integration)
 - **Linter:** ruff (lint + format)
 - **CI:** GitHub Actions — ruff lint/format, pytest (Python 3.11-3.13), build check
-- **Python:** Local dev uses 3.13; CI tests 3.11-3.13
+- **Python:** Local dev uses 3.14; CI tests 3.11-3.13
 
 ## File Structure
 
@@ -94,7 +97,7 @@ tests/
   test_bayesian.py          — Bayesian updater: regression, age curves, stabilization, batch update (31 tests)
   test_injury_model.py      — Injury model: health scores, age risk, workload flags (17 tests)
   test_lineup_optimizer.py  — Lineup optimizer: LP solver, constraints, category targeting (20 tests)
-  test_yahoo_api.py         — Yahoo API: OAuth, sync, mock endpoints (40 tests)
+  test_yahoo_api.py         — Yahoo API: OAuth, oob flow, sync, mock endpoints (40 tests)
   test_percentiles.py       — Percentile forecasts: volatility, P10/P50/P90 bounds (7 tests)
   test_opponent_model.py    — Enhanced opponent modeling: preferences, needs, history (8 tests)
   test_percentile_sampling.py — Percentile sampling passthrough in evaluate_candidates (4 tests)
@@ -156,7 +159,7 @@ docs/plans/             — Implementation plan archives
 - **Injury Model:** `health_score = avg(GP/games_available)` over 3 seasons. Age-risk curves: hitters +2%/yr after 30, pitchers +3%/yr after 28. Workload flag for >40 IP increase. Counting stats scaled by health score.
 - **Percentile Forecasts:** Inter-projection volatility (StdDev across Steamer/ZiPS/Depth Charts). P10/P50/P90 using ±1.28σ. Process risk widening for low-correlation stats (AVG r²=0.41 vs HR r²=0.72).
 - **Enhanced Opponent Model:** `P(pick) = 0.5*ADP + 0.3*team_need + 0.2*historical_preference`. Computes per-team positional bias from draft history. Falls back to ADP-only when no history available.
-- **Yahoo API:** OAuth 2.0 via yfpy v17+, streamlit-oauth browser flow. League settings, rosters, standings, FA pool, draft results sync. Graceful degradation when not connected.
+- **Yahoo API:** OAuth 2.0 via yfpy v17+, out-of-band (oob) flow. User clicks link → authorizes on Yahoo → pastes verification code. League settings, rosters, standings, FA pool, draft results sync. Graceful degradation when not connected.
 
 ### Database Tables (14)
 
@@ -207,6 +210,7 @@ get_injury_badge(health_score) -> tuple[str, str]  # (icon, label)
 
 # Percentiles (src/valuation.py)
 compute_projection_volatility(projections_by_system: dict[str, DataFrame]) -> DataFrame
+add_process_risk(volatility_df) -> DataFrame  # widens CI for low-correlation stats
 compute_percentile_projections(base_df, volatility_df, percentiles=[10,50,90]) -> dict[int, DataFrame]
 
 # Opponent model (src/simulation.py, src/draft_state.py)
@@ -253,7 +257,9 @@ SYSTEM_MAP = {"steamer": "steamer", "zips": "zips", "fangraphsdc": "depthcharts"
 - **Auto-fetch session state** — `st.session_state.projections_fetched` gates the fetch-once logic. Delete the key to allow retry. `HAS_DATA_PIPELINE` flag handles import failure gracefully.
 - **sgp_volatility alignment** — When `evaluate_candidates()` receives `sgp_volatility`, the array is aligned to the full pool. After filtering drafted players, it must be re-indexed via `pd.Series.reindex()` to match the filtered `available` pool.
 - **Practice mode isolation** — Uses separate `st.session_state["practice_draft_state"]` DraftState, never persisted to disk/DB. Resets on page refresh or "Reset Practice" button click.
-- **Percentile pipeline ordering** — `compute_projection_volatility()` → `add_process_risk()` → `compute_percentile_projections()`. Skip entirely when only one projection system exists (zero variance).
+- **Percentile pipeline ordering** — `compute_projection_volatility()` → `add_process_risk()` → `compute_percentile_projections()`. Skip entirely when only one projection system exists (zero variance). All 3 consumers (app.py, Trade Analyzer, Player Compare) must follow this exact ordering.
+- **Connection leak pattern in pages** — Always wrap `get_connection()` + queries in `try/finally` with `conn.close()` in the `finally` block. Do NOT put `conn.close()` inline after queries — if a query throws, the connection leaks.
+- **Scarcity toast dedup** — `st.toast()` fires on every Streamlit rerender. Use `st.session_state` keys to deduplicate (e.g., `f"scarcity_toast_{pos}_{count}"`).
 
 ## GitHub
 
@@ -261,12 +267,10 @@ SYSTEM_MAP = {"steamer": "steamer", "zips": "zips", "fangraphsdc": "depthcharts"
 - **Current release:** v1.0.0
 - **Release workflow:** Auto-creates GitHub releases on `v*.*.*` tags
 
-## E2E Testing (2026-03-12)
+## Testing Status
 
-Full end-to-end Playwright browser testing completed across all user flows:
-- **Unit tests:** 188 collected, 187 passed, 1 skipped (PyMC), 0 failures
-- **Playwright flows tested:** Setup wizard (4 steps), draft page (hero card, picks, 5 tabs), practice mode, all 5 in-season pages, Yahoo OAuth card
-- **Issues found and fixed:** "Step 5" reference → "Step 3", inconsistent warning messages across pages
-- **Yahoo OAuth:** Authorize button renders correctly when yfpy + streamlit-oauth + env vars are configured
-- **FanGraphs auto-fetch:** Steamer + ZiPS + Depth Charts fetch and display on startup
+- **Unit tests:** 188 collected, 187 passed, 1 skipped (PyMC optional dep)
+- **Test files:** 14 test files across draft engine, in-season, analytics, data pipeline, and integration
+- **CI:** GitHub Actions runs ruff lint/format + pytest on Python 3.11, 3.12, 3.13
 - **Coverage:** 64% (below 75% CI threshold; pre-existing, no regressions)
+- **Systematic code reviews:** Two rounds of full codebase review completed; all bugs fixed and pushed

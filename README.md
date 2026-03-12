@@ -2,15 +2,15 @@
 
 A fantasy baseball draft assistant + in-season manager for Yahoo Sports 5x5 roto leagues. Features a dark-themed "Broadcast Booth" UI, Monte Carlo draft recommendations, Bayesian projection updates, and full in-season roster management.
 
-Built for the **FourzynBurn** league (12-team snake draft, 23 rounds).
+Built for the **FourzynBurn** league (12-team snake draft, 23 rounds). ~10,000 lines of Python across 20 source files with 188 tests.
 
-## Screenshots
+## Overview
 
-The app features a dark navy + amber "Broadcast Booth" theme with sports broadcast typography.
+The app features a dark navy + amber "Broadcast Booth" theme with sports broadcast typography (Oswald + DM Sans).
 
-- **Setup Wizard** — 4-step guided setup: import projections, configure league, import rosters, launch draft
-- **Draft Page** — 3-column layout: MC recommendations with hero card, draft board, player search + opponent intel
-- **In-Season Pages** — Team overview, trade analyzer, player compare, free agent rankings, lineup optimizer
+- **Setup Wizard** — 4-step guided setup: auto-fetch projections from FanGraphs, configure league, import rosters, launch draft
+- **Draft Page** — 3-column layout: MC recommendations with hero card (injury badges, P10/P90 ranges, survival probability), draft board, player search + opponent intel
+- **In-Season Pages** — 5 Streamlit pages: team overview, trade analyzer, player compare, free agent rankings, lineup optimizer
 
 ## Quick Start
 
@@ -49,19 +49,21 @@ The app opens at `http://localhost:8501`.
 
 | Page | Description |
 |------|-------------|
-| **My Team** | Roster display, category standings, Yahoo sync |
-| **Trade Analyzer** | MC simulation (200 sims), park-adjusted SGP delta, confidence % |
-| **Player Compare** | Z-score normalization, composite scores, Plotly radar charts |
-| **Free Agents** | Marginal SGP rankings by category need |
-| **Lineup Optimizer** | PuLP LP solver, category targeting, two-start SP detection |
+| **My Team** | Roster display with injury badges, category standings, Bayesian-adjusted projections, Yahoo sync |
+| **Trade Analyzer** | MC simulation (200 sims), park-adjusted SGP delta, confidence %, P10/P90 risk assessment |
+| **Player Compare** | Z-score normalization, composite scores, Plotly radar charts, health badges, projection confidence |
+| **Free Agents** | Marginal SGP rankings by category need, position filtering |
+| **Lineup Optimizer** | PuLP LP solver, category targeting, two-start SP detection, health-adjusted SGP |
 
-### Data Pipeline
+### Analytics & Data Pipeline
 
-- **FanGraphs auto-fetch** — Steamer, ZiPS, Depth Charts projections on app startup
+- **FanGraphs auto-fetch** — Steamer, ZiPS, Depth Charts projections (3 systems x bat/pit = 6 endpoints) on app startup
 - **MLB Stats API** — daily auto-refresh of current season stats
-- **Yahoo Fantasy API** — OAuth 2.0 league sync (settings, rosters, standings, FA pool)
-- **Bayesian updater** — PyMC 5 hierarchical model for in-season stat updates (Marcel regression fallback)
-- **Injury model** — health scores, age-risk curves, workload flags
+- **Yahoo Fantasy API** — OAuth 2.0 out-of-band flow for league sync (settings, rosters, standings, FA pool)
+- **Bayesian updater** — PyMC 5 hierarchical beta-binomial model for in-season stat updates; Marcel regression fallback when PyMC unavailable. Uses FanGraphs stabilization thresholds (K=60 PA, AVG=910 AB, ERA=70 IP)
+- **Injury model** — 3-year health scores, age-risk curves (hitters +2%/yr after 30, pitchers +3%/yr after 28), workload flags for IP spikes
+- **Percentile forecasts** — P10/P50/P90 floor/ceiling projections using inter-system volatility with process risk widening for low-correlation stats
+- **Enhanced opponent modeling** — History-aware pick probability combining ADP, team needs, and draft history preferences
 
 ## Setup
 
@@ -83,7 +85,7 @@ Upload league rosters and standings CSVs to enable in-season pages (My Team, Tra
 
 ### 4. (Optional) Connect Yahoo Fantasy
 
-Set environment variables and the app shows an "Authorize with Yahoo" button on Step 1:
+Set environment variables and the app shows a Yahoo connect card on Step 1:
 
 ```bash
 export YAHOO_CLIENT_ID=<your consumer key>
@@ -91,7 +93,9 @@ export YAHOO_CLIENT_SECRET=<your consumer secret>
 export YAHOO_LEAGUE_ID=<your numeric league ID>
 ```
 
-See [Yahoo Developer Apps](https://developer.yahoo.com/apps/) to create credentials.
+The OAuth flow uses out-of-band (oob): click the authorization link, approve on Yahoo, paste the verification code back in the app.
+
+See [Yahoo Developer Apps](https://developer.yahoo.com/apps/) to create credentials (select "Fantasy Sports" API).
 
 ## During the Draft
 
@@ -117,33 +121,33 @@ See [Yahoo Developer Apps](https://developer.yahoo.com/apps/) to create credenti
 ## File Structure
 
 ```
-app.py                  — Draft tool: 4-step setup wizard + 3-column draft page
+app.py                  — Draft tool (~2450 lines): 4-step setup wizard + 3-column draft page
 requirements.txt        — pip dependencies
-load_sample_data.py     — Generates ~190 sample players + injury history
+load_sample_data.py     — Generates ~190 sample players + injury history for testing
 .streamlit/config.toml  — Dark theme configuration
 pages/
-  1_My_Team.py          — Team overview, roster, category standings
-  2_Trade_Analyzer.py   — Trade proposal builder + MC analysis
-  3_Player_Compare.py   — Head-to-head player comparison
+  1_My_Team.py          — Team overview, roster, injury badges, Bayesian projections
+  2_Trade_Analyzer.py   — Trade proposal builder + MC analysis + P10/P90 risk
+  3_Player_Compare.py   — Head-to-head comparison with radar charts + health badges
   4_Free_Agents.py      — Free agent rankings by marginal value
   5_Lineup_Optimizer.py — PuLP LP solver for start/sit + category targeting
 src/
   database.py           — SQLite schema (14 tables), CSV import, queries
   valuation.py          — SGP, VORP, replacement levels, percentile forecasts
-  draft_state.py        — Draft state management, roster tracking
-  simulation.py         — Monte Carlo simulation, opponent modeling
+  draft_state.py        — Draft state management, roster tracking, opponent patterns
+  simulation.py         — Monte Carlo simulation, history-aware opponent modeling
   in_season.py          — Trade analyzer, player comparison, FA ranker
   live_stats.py         — MLB Stats API + pybaseball data fetcher
   league_manager.py     — League roster/standings management
-  bayesian.py           — PyMC hierarchical model + Marcel regression fallback
+  bayesian.py           — PyMC 5 hierarchical model + Marcel regression fallback
   injury_model.py       — Health scores, age-risk curves, workload flags
-  lineup_optimizer.py   — PuLP LP solver, category targeting
-  yahoo_api.py          — Yahoo Fantasy OAuth + league sync
-  data_pipeline.py      — FanGraphs auto-fetch pipeline
+  lineup_optimizer.py   — PuLP LP solver, category targeting, two-start SP detection
+  yahoo_api.py          — Yahoo Fantasy OAuth (oob flow) + league sync
+  data_pipeline.py      — FanGraphs auto-fetch pipeline (Steamer/ZiPS/Depth Charts)
   ui_shared.py          — Shared theme constants + CSS injection
   validation.py         — Validation utilities
   data_2026.py          — Hardcoded 2026 projections for sample data
-tests/                  — 186 tests (14 test files, 64% coverage)
+tests/                  — 188 tests (14 test files), 187 pass, 1 skipped (PyMC)
 data/                   — SQLite DB + draft state backups (gitignored)
 .github/
   workflows/ci.yml      — CI pipeline (lint + test + build)
@@ -169,6 +173,15 @@ urgency = (1 - P_survive) * positional_dropoff
 
 Where survival probability uses Normal CDF with positional scarcity adjustment.
 
+### Percentile Forecasts
+
+Floor/ceiling projections using cross-system volatility:
+
+1. Compute StdDev across Steamer, ZiPS, Depth Charts for each player/stat
+2. Apply process risk widening for low year-over-year correlation stats (e.g., AVG r^2=0.41 vs HR r^2=0.72)
+3. P10 (floor) = base - 1.28 * volatility, P90 (ceiling) = base + 1.28 * volatility
+4. Bounded by physical limits (AVG in [.150, .400], ERA in [1.50, 7.00])
+
 ### Opponent Modeling
 
 ```
@@ -186,8 +199,11 @@ ruff check .
 # Format
 ruff format .
 
-# Run all tests
+# Run all tests (188 collected, 187 pass, 1 skipped for PyMC)
 python -m pytest
+
+# Run with verbose output
+python -m pytest -v
 
 # Run with coverage
 python -m pytest tests/ -v --cov=src --cov-report=term-missing
@@ -195,6 +211,8 @@ python -m pytest tests/ -v --cov=src --cov-report=term-missing
 # Run a specific test file
 python -m pytest tests/test_yahoo_api.py -v
 ```
+
+Python 3.11+ required. CI tests on 3.11, 3.12, and 3.13.
 
 ## Optional Dependencies
 
