@@ -7,7 +7,7 @@ from src.database import init_db, load_player_pool
 from src.in_season import compare_players
 from src.injury_model import compute_health_score, get_injury_badge
 from src.ui_shared import ALL_CATEGORIES, T
-from src.valuation import LeagueConfig, compute_percentile_projections, compute_projection_volatility
+from src.valuation import LeagueConfig, add_process_risk, compute_percentile_projections, compute_projection_volatility
 
 try:
     import plotly.graph_objects as go
@@ -164,6 +164,7 @@ if player_a_name and player_b_name and player_a_name != player_b_name:
 
             if len(systems) >= 2:
                 vol = compute_projection_volatility(systems)
+                vol = add_process_risk(vol)
                 # pool uses 'player_name' column; pass the pool renamed back to 'name' for base
                 base_df = pool.rename(columns={"player_name": "name"})
                 pct = compute_percentile_projections(base=base_df, volatility=vol)

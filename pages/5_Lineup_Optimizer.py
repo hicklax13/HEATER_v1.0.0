@@ -169,11 +169,11 @@ if health_dict and "projected_sgp" in roster.columns:
 
 # Two-start SP detection via MLB schedule
 try:
-    from datetime import datetime, timedelta
+    from datetime import UTC, datetime, timedelta
 
     import statsapi
 
-    today = datetime.now()
+    today = datetime.now(UTC)
     end = today + timedelta(days=7)
     schedule = statsapi.schedule(start_date=today.strftime("%Y-%m-%d"), end_date=end.strftime("%Y-%m-%d"))
 

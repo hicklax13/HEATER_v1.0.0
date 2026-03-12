@@ -8,7 +8,7 @@ from src.in_season import analyze_trade
 from src.injury_model import compute_health_score, get_injury_badge
 from src.league_manager import get_team_roster
 from src.ui_shared import T
-from src.valuation import LeagueConfig, compute_percentile_projections, compute_projection_volatility
+from src.valuation import LeagueConfig, add_process_risk, compute_percentile_projections, compute_projection_volatility
 
 st.set_page_config(page_title="Trade Analyzer", page_icon="🔄", layout="wide")
 
@@ -173,19 +173,22 @@ else:
                     from src.database import get_connection
 
                     conn = get_connection()
-                    systems = {}
-                    for sys_name in ["steamer", "zips", "depthcharts", "blended"]:
-                        df = pd.read_sql_query(
-                            "SELECT * FROM projections WHERE system = ?",
-                            conn,
-                            params=(sys_name,),
-                        )
-                        if not df.empty:
-                            systems[sys_name] = df
-                    conn.close()
+                    try:
+                        systems = {}
+                        for sys_name in ["steamer", "zips", "depthcharts", "blended"]:
+                            df = pd.read_sql_query(
+                                "SELECT * FROM projections WHERE system = ?",
+                                conn,
+                                params=(sys_name,),
+                            )
+                            if not df.empty:
+                                systems[sys_name] = df
+                    finally:
+                        conn.close()
 
                     if len(systems) >= 2:
                         vol = compute_projection_volatility(systems)
+                        vol = add_process_risk(vol)
                         pct = compute_percentile_projections(base=pool, volatility=vol)
                         p10_df, p90_df = pct.get(10), pct.get(90)
                         if p10_df is not None and p90_df is not None:

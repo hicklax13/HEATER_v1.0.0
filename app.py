@@ -1351,8 +1351,9 @@ def render_draft_page():
             systems = {}
             for system_name in ["steamer", "zips", "depthcharts", "blended"]:
                 df = pd.read_sql_query(
-                    f"SELECT * FROM projections WHERE system = '{system_name}'",
+                    "SELECT * FROM projections WHERE system = ?",
                     conn,
+                    params=(system_name,),
                 )
                 if not df.empty:
                     systems[system_name] = df
@@ -2047,7 +2048,10 @@ def render_scarcity_rings(ds, pool):
             )
 
             if critical:
-                st.toast(f"⚠️ {pos} scarce! Only {avail_count} left", icon="🚨")
+                toast_key = f"scarcity_toast_{pos}_{avail_count}"
+                if toast_key not in st.session_state:
+                    st.session_state[toast_key] = True
+                    st.toast(f"⚠️ {pos} scarce! Only {avail_count} left", icon="🚨")
 
 
 # ═══════════════════════════════════════════════════════════════════

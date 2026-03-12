@@ -160,19 +160,21 @@ else:
                     from src.database import get_connection
 
                     conn = get_connection()
-                    season_stats = pd.read_sql_query("SELECT * FROM season_stats", conn)
+                    try:
+                        season_stats = pd.read_sql_query("SELECT * FROM season_stats", conn)
 
-                    if not season_stats.empty and season_stats.get("games_played", pd.Series([0])).sum() > 0:
-                        preseason = pd.read_sql_query("SELECT * FROM projections WHERE system = 'blended'", conn)
-                        conn.close()
-                        updater = BayesianUpdater()
-                        updated = updater.batch_update_projections(season_stats, preseason)
-                        st.subheader("📊 Bayesian-Adjusted Projections")
-                        st.caption("Stats regressed toward preseason priors using FanGraphs stabilization thresholds")
-                        stat_display = ["player_id", "avg", "hr", "rbi", "sb", "era", "whip", "k"]
-                        show_cols = [c for c in stat_display if c in updated.columns]
-                        st.dataframe(updated[show_cols], hide_index=True, width="stretch")
-                    else:
+                        if not season_stats.empty and season_stats.get("games_played", pd.Series([0])).sum() > 0:
+                            preseason = pd.read_sql_query("SELECT * FROM projections WHERE system = 'blended'", conn)
+                            updater = BayesianUpdater()
+                            updated = updater.batch_update_projections(season_stats, preseason)
+                            st.subheader("📊 Bayesian-Adjusted Projections")
+                            st.caption(
+                                "Stats regressed toward preseason priors using FanGraphs stabilization thresholds"
+                            )
+                            stat_display = ["player_id", "avg", "hr", "rbi", "sb", "era", "whip", "k"]
+                            show_cols = [c for c in stat_display if c in updated.columns]
+                            st.dataframe(updated[show_cols], hide_index=True, width="stretch")
+                    finally:
                         conn.close()
                 except Exception:
                     pass  # Graceful degradation
