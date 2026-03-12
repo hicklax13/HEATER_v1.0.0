@@ -166,9 +166,11 @@ def add_player_to_roster(
 def remove_player_from_roster(team_name: str, player_id: int):
     """Remove a player from a team roster."""
     conn = get_connection()
-    conn.execute(
-        "DELETE FROM league_rosters WHERE team_name = ? AND player_id = ?",
-        (team_name, player_id),
-    )
-    conn.commit()
-    conn.close()
+    try:
+        conn.execute(
+            "DELETE FROM league_rosters WHERE team_name = ? AND player_id = ?",
+            (team_name, player_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()

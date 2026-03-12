@@ -194,43 +194,45 @@ def import_hitter_csv(csv_path: str, system: str):
 
     col_map = _build_column_map(df, is_hitter=True)
     conn = get_connection()
-    cursor = conn.cursor()
-    imported = 0
+    try:
+        cursor = conn.cursor()
+        imported = 0
 
-    for _, row in df.iterrows():
-        name = str(row[col_map["name"]]).strip()
-        team = str(row.get(col_map.get("team", "Team"), "")).strip() if col_map.get("team") else ""
-        pa = int(_safe_num(row, col_map.get("pa", "PA")))
-        if pa < 50:
-            continue  # Skip trivial playing time
+        for _, row in df.iterrows():
+            name = str(row[col_map["name"]]).strip()
+            team = str(row.get(col_map.get("team", "Team"), "")).strip() if col_map.get("team") else ""
+            pa = int(_safe_num(row, col_map.get("pa", "PA")))
+            if pa < 50:
+                continue  # Skip trivial playing time
 
-        # Determine positions
-        positions = _extract_positions(row, col_map)
-        if not positions:
-            positions = "Util"
+            # Determine positions
+            positions = _extract_positions(row, col_map)
+            if not positions:
+                positions = "Util"
 
-        # Upsert player
-        player_id = _upsert_player(cursor, name, team, positions, is_hitter=True)
+            # Upsert player
+            player_id = _upsert_player(cursor, name, team, positions, is_hitter=True)
 
-        ab = int(_safe_num(row, col_map.get("ab", "AB")))
-        h = int(_safe_num(row, col_map.get("h", "H")))
-        r = int(_safe_num(row, col_map.get("r", "R")))
-        hr = int(_safe_num(row, col_map.get("hr", "HR")))
-        rbi = int(_safe_num(row, col_map.get("rbi", "RBI")))
-        sb = int(_safe_num(row, col_map.get("sb", "SB")))
-        avg = float(_safe_num(row, col_map.get("avg", "AVG")))
+            ab = int(_safe_num(row, col_map.get("ab", "AB")))
+            h = int(_safe_num(row, col_map.get("h", "H")))
+            r = int(_safe_num(row, col_map.get("r", "R")))
+            hr = int(_safe_num(row, col_map.get("hr", "HR")))
+            rbi = int(_safe_num(row, col_map.get("rbi", "RBI")))
+            sb = int(_safe_num(row, col_map.get("sb", "SB")))
+            avg = float(_safe_num(row, col_map.get("avg", "AVG")))
 
-        cursor.execute(
-            """
-            INSERT INTO projections (player_id, system, pa, ab, h, r, hr, rbi, sb, avg)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-            (player_id, system, pa, ab, h, r, hr, rbi, sb, avg),
-        )
-        imported += 1
+            cursor.execute(
+                """
+                INSERT INTO projections (player_id, system, pa, ab, h, r, hr, rbi, sb, avg)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+                (player_id, system, pa, ab, h, r, hr, rbi, sb, avg),
+            )
+            imported += 1
 
-    conn.commit()
-    conn.close()
+        conn.commit()
+    finally:
+        conn.close()
     return imported
 
 
@@ -241,149 +243,153 @@ def import_pitcher_csv(csv_path: str, system: str):
 
     col_map = _build_column_map(df, is_hitter=False)
     conn = get_connection()
-    cursor = conn.cursor()
-    imported = 0
+    try:
+        cursor = conn.cursor()
+        imported = 0
 
-    for _, row in df.iterrows():
-        name = str(row[col_map["name"]]).strip()
-        team = str(row.get(col_map.get("team", "Team"), "")).strip() if col_map.get("team") else ""
-        ip = float(_safe_num(row, col_map.get("ip", "IP")))
-        if ip < 10:
-            continue
+        for _, row in df.iterrows():
+            name = str(row[col_map["name"]]).strip()
+            team = str(row.get(col_map.get("team", "Team"), "")).strip() if col_map.get("team") else ""
+            ip = float(_safe_num(row, col_map.get("ip", "IP")))
+            if ip < 10:
+                continue
 
-        # Determine SP vs RP
-        sv = int(_safe_num(row, col_map.get("sv", "SV")))
-        gs = int(_safe_num(row, col_map.get("gs", "GS"))) if col_map.get("gs") else 0
-        if gs >= 5 or ip >= 80:
-            positions = "SP"
-        elif sv >= 3:
-            positions = "RP"
-        else:
-            positions = "SP,RP" if gs >= 1 else "RP"
+            # Determine SP vs RP
+            sv = int(_safe_num(row, col_map.get("sv", "SV")))
+            gs = int(_safe_num(row, col_map.get("gs", "GS"))) if col_map.get("gs") else 0
+            if gs >= 5 or ip >= 80:
+                positions = "SP"
+            elif sv >= 3:
+                positions = "RP"
+            else:
+                positions = "SP,RP" if gs >= 1 else "RP"
 
-        player_id = _upsert_player(cursor, name, team, positions, is_hitter=False)
+            player_id = _upsert_player(cursor, name, team, positions, is_hitter=False)
 
-        w = int(_safe_num(row, col_map.get("w", "W")))
-        k = int(_safe_num(row, col_map.get("k", "K")))
-        if not k and col_map.get("so"):
-            k = int(_safe_num(row, col_map["so"]))
-        era = float(_safe_num(row, col_map.get("era", "ERA")))
-        whip = float(_safe_num(row, col_map.get("whip", "WHIP")))
-        er = int(_safe_num(row, col_map.get("er", "ER")))
-        bb_allowed = int(_safe_num(row, col_map.get("bb", "BB")))
-        h_allowed = int(_safe_num(row, col_map.get("h_allowed", "H")))
+            w = int(_safe_num(row, col_map.get("w", "W")))
+            k = int(_safe_num(row, col_map.get("k", "K")))
+            if not k and col_map.get("so"):
+                k = int(_safe_num(row, col_map["so"]))
+            era = float(_safe_num(row, col_map.get("era", "ERA")))
+            whip = float(_safe_num(row, col_map.get("whip", "WHIP")))
+            er = int(_safe_num(row, col_map.get("er", "ER")))
+            bb_allowed = int(_safe_num(row, col_map.get("bb", "BB")))
+            h_allowed = int(_safe_num(row, col_map.get("h_allowed", "H")))
 
-        # Compute ER from ERA if not directly available
-        if er == 0 and era > 0 and ip > 0:
-            er = int(round(era * ip / 9))
-        # Compute H allowed and BB from WHIP if needed
-        if h_allowed == 0 and bb_allowed == 0 and whip > 0 and ip > 0:
-            total = whip * ip
-            bb_allowed = int(total * 0.3)
-            h_allowed = int(total * 0.7)
+            # Compute ER from ERA if not directly available
+            if er == 0 and era > 0 and ip > 0:
+                er = int(round(era * ip / 9))
+            # Compute H allowed and BB from WHIP if needed
+            if h_allowed == 0 and bb_allowed == 0 and whip > 0 and ip > 0:
+                total = whip * ip
+                bb_allowed = int(total * 0.3)
+                h_allowed = int(total * 0.7)
 
-        cursor.execute(
-            """
-            INSERT INTO projections (player_id, system, ip, w, sv, k, era, whip, er, bb_allowed, h_allowed)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-            (player_id, system, ip, w, sv, k, era, whip, er, bb_allowed, h_allowed),
-        )
-        imported += 1
+            cursor.execute(
+                """
+                INSERT INTO projections (player_id, system, ip, w, sv, k, era, whip, er, bb_allowed, h_allowed)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+                (player_id, system, ip, w, sv, k, era, whip, er, bb_allowed, h_allowed),
+            )
+            imported += 1
 
-    conn.commit()
-    conn.close()
+        conn.commit()
+    finally:
+        conn.close()
     return imported
 
 
 def create_blended_projections():
     """Create blended projections by averaging all imported systems."""
     conn = get_connection()
-    cursor = conn.cursor()
+    try:
+        cursor = conn.cursor()
 
-    # Remove old blended projections
-    cursor.execute("DELETE FROM projections WHERE system = 'blended'")
+        # Remove old blended projections
+        cursor.execute("DELETE FROM projections WHERE system = 'blended'")
 
-    # Get all players with projections
-    cursor.execute("SELECT DISTINCT player_id FROM projections WHERE system != 'blended'")
-    player_ids = [row[0] for row in cursor.fetchall()]
+        # Get all players with projections
+        cursor.execute("SELECT DISTINCT player_id FROM projections WHERE system != 'blended'")
+        player_ids = [row[0] for row in cursor.fetchall()]
 
-    for pid in player_ids:
-        cursor.execute(
-            """
-            SELECT pa, ab, h, r, hr, rbi, sb, avg,
-                   ip, w, sv, k, era, whip, er, bb_allowed, h_allowed
-            FROM projections WHERE player_id = ? AND system != 'blended'
-        """,
-            (pid,),
-        )
-        rows = cursor.fetchall()
-        if not rows:
-            continue
+        for pid in player_ids:
+            cursor.execute(
+                """
+                SELECT pa, ab, h, r, hr, rbi, sb, avg,
+                       ip, w, sv, k, era, whip, er, bb_allowed, h_allowed
+                FROM projections WHERE player_id = ? AND system != 'blended'
+            """,
+                (pid,),
+            )
+            rows = cursor.fetchall()
+            if not rows:
+                continue
 
-        n = len(rows)
-        # Average all stats
-        avg_stats = {}
-        stat_names = [
-            "pa",
-            "ab",
-            "h",
-            "r",
-            "hr",
-            "rbi",
-            "sb",
-            "avg",
-            "ip",
-            "w",
-            "sv",
-            "k",
-            "era",
-            "whip",
-            "er",
-            "bb_allowed",
-            "h_allowed",
-        ]
-        for i, name in enumerate(stat_names):
-            vals = [row[i] or 0 for row in rows]
-            avg_stats[name] = sum(vals) / n
+            n = len(rows)
+            # Average all stats
+            avg_stats = {}
+            stat_names = [
+                "pa",
+                "ab",
+                "h",
+                "r",
+                "hr",
+                "rbi",
+                "sb",
+                "avg",
+                "ip",
+                "w",
+                "sv",
+                "k",
+                "era",
+                "whip",
+                "er",
+                "bb_allowed",
+                "h_allowed",
+            ]
+            for i, name in enumerate(stat_names):
+                vals = [row[i] or 0 for row in rows]
+                avg_stats[name] = sum(vals) / n
 
-        # For rate stats, recompute from components rather than averaging rates
-        if avg_stats["ab"] > 0:
-            avg_stats["avg"] = avg_stats["h"] / avg_stats["ab"]
-        if avg_stats["ip"] > 0:
-            avg_stats["era"] = avg_stats["er"] * 9 / avg_stats["ip"]
-            avg_stats["whip"] = (avg_stats["bb_allowed"] + avg_stats["h_allowed"]) / avg_stats["ip"]
+            # For rate stats, recompute from components rather than averaging rates
+            if avg_stats["ab"] > 0:
+                avg_stats["avg"] = avg_stats["h"] / avg_stats["ab"]
+            if avg_stats["ip"] > 0:
+                avg_stats["era"] = avg_stats["er"] * 9 / avg_stats["ip"]
+                avg_stats["whip"] = (avg_stats["bb_allowed"] + avg_stats["h_allowed"]) / avg_stats["ip"]
 
-        cursor.execute(
-            """
-            INSERT INTO projections (player_id, system, pa, ab, h, r, hr, rbi, sb, avg,
-                                     ip, w, sv, k, era, whip, er, bb_allowed, h_allowed)
-            VALUES (?, 'blended', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-            (
-                pid,
-                int(avg_stats["pa"]),
-                int(avg_stats["ab"]),
-                int(avg_stats["h"]),
-                int(avg_stats["r"]),
-                int(avg_stats["hr"]),
-                int(avg_stats["rbi"]),
-                int(avg_stats["sb"]),
-                round(avg_stats["avg"], 3),
-                round(avg_stats["ip"], 1),
-                int(avg_stats["w"]),
-                int(avg_stats["sv"]),
-                int(avg_stats["k"]),
-                round(avg_stats["era"], 2),
-                round(avg_stats["whip"], 2),
-                int(avg_stats["er"]),
-                int(avg_stats["bb_allowed"]),
-                int(avg_stats["h_allowed"]),
-            ),
-        )
+            cursor.execute(
+                """
+                INSERT INTO projections (player_id, system, pa, ab, h, r, hr, rbi, sb, avg,
+                                         ip, w, sv, k, era, whip, er, bb_allowed, h_allowed)
+                VALUES (?, 'blended', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+                (
+                    pid,
+                    int(avg_stats["pa"]),
+                    int(avg_stats["ab"]),
+                    int(avg_stats["h"]),
+                    int(avg_stats["r"]),
+                    int(avg_stats["hr"]),
+                    int(avg_stats["rbi"]),
+                    int(avg_stats["sb"]),
+                    round(avg_stats["avg"], 3),
+                    round(avg_stats["ip"], 1),
+                    int(avg_stats["w"]),
+                    int(avg_stats["sv"]),
+                    int(avg_stats["k"]),
+                    round(avg_stats["era"], 2),
+                    round(avg_stats["whip"], 2),
+                    int(avg_stats["er"]),
+                    int(avg_stats["bb_allowed"]),
+                    int(avg_stats["h_allowed"]),
+                ),
+            )
 
-    conn.commit()
-    conn.close()
+        conn.commit()
+    finally:
+        conn.close()
     return len(player_ids)
 
 
@@ -414,51 +420,53 @@ def import_adp_csv(csv_path: str, source: str = "fantasypros"):
         raise ValueError(f"Cannot find ADP column. Columns: {list(df.columns)}")
 
     conn = get_connection()
-    cursor = conn.cursor()
-    imported = 0
+    try:
+        cursor = conn.cursor()
+        imported = 0
 
-    for _, row in df.iterrows():
-        name = str(row[name_col]).strip()
-        adp_val = _safe_num(row, adp_col)
-        if adp_val <= 0:
-            continue
+        for _, row in df.iterrows():
+            name = str(row[name_col]).strip()
+            adp_val = _safe_num(row, adp_col)
+            if adp_val <= 0:
+                continue
 
-        # Find matching player
-        cursor.execute("SELECT player_id FROM players WHERE name = ?", (name,))
-        result = cursor.fetchone()
-        if not result:
-            # Try fuzzy match (first + last name)
-            parts = name.split()
-            if len(parts) >= 2:
+            # Find matching player
+            cursor.execute("SELECT player_id FROM players WHERE name = ?", (name,))
+            result = cursor.fetchone()
+            if not result:
+                # Try fuzzy match (first + last name)
+                parts = name.split()
+                if len(parts) >= 2:
+                    cursor.execute(
+                        "SELECT player_id FROM players WHERE name LIKE ? AND name LIKE ?",
+                        (f"%{parts[0]}%", f"%{parts[-1]}%"),
+                    )
+                    result = cursor.fetchone()
+            if not result:
+                continue
+
+            player_id = result[0]
+            if source == "yahoo":
                 cursor.execute(
-                    "SELECT player_id FROM players WHERE name LIKE ? AND name LIKE ?",
-                    (f"%{parts[0]}%", f"%{parts[-1]}%"),
+                    """
+                    INSERT INTO adp (player_id, yahoo_adp, adp) VALUES (?, ?, ?)
+                    ON CONFLICT(player_id) DO UPDATE SET yahoo_adp = ?, adp = min(adp, ?)
+                """,
+                    (player_id, adp_val, adp_val, adp_val, adp_val),
                 )
-                result = cursor.fetchone()
-        if not result:
-            continue
+            else:
+                cursor.execute(
+                    """
+                    INSERT INTO adp (player_id, fantasypros_adp, adp) VALUES (?, ?, ?)
+                    ON CONFLICT(player_id) DO UPDATE SET fantasypros_adp = ?, adp = min(adp, ?)
+                """,
+                    (player_id, adp_val, adp_val, adp_val, adp_val),
+                )
+            imported += 1
 
-        player_id = result[0]
-        if source == "yahoo":
-            cursor.execute(
-                """
-                INSERT INTO adp (player_id, yahoo_adp, adp) VALUES (?, ?, ?)
-                ON CONFLICT(player_id) DO UPDATE SET yahoo_adp = ?, adp = min(adp, ?)
-            """,
-                (player_id, adp_val, adp_val, adp_val, adp_val),
-            )
-        else:
-            cursor.execute(
-                """
-                INSERT INTO adp (player_id, fantasypros_adp, adp) VALUES (?, ?, ?)
-                ON CONFLICT(player_id) DO UPDATE SET fantasypros_adp = ?, adp = min(adp, ?)
-            """,
-                (player_id, adp_val, adp_val, adp_val, adp_val),
-            )
-        imported += 1
-
-    conn.commit()
-    conn.close()
+        conn.commit()
+    finally:
+        conn.close()
     return imported
 
 
