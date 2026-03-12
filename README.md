@@ -2,7 +2,7 @@
 
 A fantasy baseball draft assistant + in-season manager for Yahoo Sports 5x5 roto leagues. Features a dark-themed "Broadcast Booth" UI, Monte Carlo draft recommendations, Bayesian projection updates, and full in-season roster management.
 
-Built for the **FourzynBurn** league (12-team snake draft, 23 rounds). ~10,000 lines of Python across 20 source files with 188 tests.
+Built for the **FourzynBurn** league (12-team snake draft, 23 rounds). ~10,000 lines of Python across 20 source files with 300 tests.
 
 ## Overview
 
@@ -121,7 +121,7 @@ See [Yahoo Developer Apps](https://developer.yahoo.com/apps/) to create credenti
 ## File Structure
 
 ```
-app.py                  — Draft tool (~2450 lines): 4-step setup wizard + 3-column draft page
+app.py                  — Draft tool (~1900 lines): 4-step setup wizard + 3-column draft page
 requirements.txt        — pip dependencies
 load_sample_data.py     — Generates ~190 sample players + injury history for testing
 .streamlit/config.toml  — Dark theme configuration
@@ -147,7 +147,7 @@ src/
   ui_shared.py          — Shared theme constants + CSS injection
   validation.py         — Validation utilities
   data_2026.py          — Hardcoded 2026 projections for sample data
-tests/                  — 188 tests (14 test files), 187 pass, 1 skipped (PyMC)
+tests/                  — 300 tests (17 test files), 299 pass, 1 skipped (PyMC)
 data/                   — SQLite DB + draft state backups (gitignored)
 .github/
   workflows/ci.yml      — CI pipeline (lint + test + build)
@@ -199,7 +199,7 @@ ruff check .
 # Format
 ruff format .
 
-# Run all tests (188 collected, 187 pass, 1 skipped for PyMC)
+# Run all tests (300 collected, 299 pass, 1 skipped for PyMC)
 python -m pytest
 
 # Run with verbose output

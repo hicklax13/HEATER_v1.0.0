@@ -4,7 +4,7 @@
 
 A fantasy baseball draft assistant + in-season manager for a 12-team Yahoo Sports 5x5 roto snake draft league. Two pillars:
 
-1. **Draft Tool** (`app.py`, ~2450 lines) — "Broadcast Booth" dark-theme Streamlit app: 4-step setup wizard (with optional Yahoo OAuth), 3-column draft page with injury badges, percentile ranges, opponent intel tab, and practice mode. Monte Carlo recommendations with percentile sampling.
+1. **Draft Tool** (`app.py`, ~1900 lines) — "Broadcast Booth" dark-theme Streamlit app: 4-step setup wizard (with optional Yahoo OAuth), 3-column draft page with injury badges, percentile ranges, opponent intel tab, and practice mode. Monte Carlo recommendations with percentile sampling.
 2. **In-Season Management** (`pages/`) — 5 Streamlit pages: team overview, trade analysis, player comparison, free agent rankings, lineup optimizer. Powered by MLB Stats API + pybaseball + optional Yahoo Fantasy API.
 
 ## Commands
@@ -25,7 +25,7 @@ ruff check .
 # Format
 ruff format .
 
-# Run all tests (188 collected, 187 pass, 1 skipped for PyMC)
+# Run all tests (300 collected, 299 pass, 1 skipped for PyMC)
 python -m pytest
 
 # Run with verbose output
@@ -103,6 +103,9 @@ tests/
   test_percentile_sampling.py — Percentile sampling passthrough in evaluate_candidates (4 tests)
   test_data_pipeline.py     — FanGraphs auto-fetch: normalization, fetch, storage, ADP, orchestration (28 tests)
   test_integration.py       — End-to-end pipeline: injury → Bayesian → percentiles → valuation (11 tests)
+  test_valuation_math.py    — Math verification: SGP, VORP, replacement levels, percentiles, process risk (40 tests)
+  test_simulation_math.py   — Math verification: survival probability, urgency, combined score, tiers, MC convergence (37 tests)
+  test_trade_math.py        — Math verification: trade SGP delta, MC noise, verdict, z-scores, rate stats (35 tests)
   profile_latency.py        — Performance profiling utility
 data/
   draft_tool.db         — SQLite database (created at runtime)
@@ -269,8 +272,9 @@ SYSTEM_MAP = {"steamer": "steamer", "zips": "zips", "fangraphsdc": "depthcharts"
 
 ## Testing Status
 
-- **Unit tests:** 188 collected, 187 passed, 1 skipped (PyMC optional dep)
-- **Test files:** 14 test files across draft engine, in-season, analytics, data pipeline, and integration
+- **Unit tests:** 300 collected, 299 passed, 1 skipped (PyMC optional dep)
+- **Test files:** 17 test files across draft engine, in-season, analytics, data pipeline, integration, and math verification
+- **Math verification suite:** 112 tests across 3 files (valuation, simulation, trade) — hand-calculated expected values verified against code formulas
 - **CI:** GitHub Actions runs ruff lint/format + pytest on Python 3.11, 3.12, 3.13
 - **Coverage:** 64% (below 75% CI threshold; pre-existing, no regressions)
 - **Systematic code reviews:** Two rounds of full codebase review completed; all bugs fixed and pushed
