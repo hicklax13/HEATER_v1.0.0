@@ -7,19 +7,14 @@ from src.database import init_db, load_league_rosters, load_league_standings
 from src.injury_model import compute_health_score, get_injury_badge
 from src.league_manager import get_team_roster
 from src.lineup_optimizer import LineupOptimizer
-from src.ui_shared import T
+from src.ui_shared import METRIC_TOOLTIPS, inject_custom_css, render_theme_toggle
 
 st.set_page_config(page_title="Lineup Optimizer", page_icon="📋", layout="wide")
 
 init_db()
 
-st.markdown(
-    f"""<style>
-    .stApp {{ background-color: {T["bg"]}; }}
-    h1, h2, h3 {{ color: {T["amber"]}; font-family: 'Oswald', sans-serif; }}
-    </style>""",
-    unsafe_allow_html=True,
-)
+inject_custom_css()
+render_theme_toggle()
 
 st.title("📋 Lineup Optimizer")
 
@@ -126,6 +121,7 @@ else:
             bar_len = int(weight * 20)
             emoji = "🔥" if weight > 1.5 else "📈" if weight > 1.0 else "➖"
             st.markdown(f"{emoji} **{cat.upper()}**: {'█' * bar_len}{'░' * (20 - bar_len)} ({weight:.2f}x)")
+        st.caption(METRIC_TOOLTIPS["cat_targeting"])
     else:
         st.info("Could not compute targeting weights from standings data.")
 
@@ -166,6 +162,7 @@ if health_dict and "projected_sgp" in roster.columns:
         lambda r: r["projected_sgp"] * (1.0 - HEALTH_PENALTY_WEIGHT * (1.0 - health_dict.get(r.get("player_id"), 1.0))),
         axis=1,
     )
+    st.caption("Health-adjusted SGP applies a 15% penalty weight based on injury history risk.")
 
 # Two-start SP detection via MLB schedule
 try:

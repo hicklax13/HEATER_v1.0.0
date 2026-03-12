@@ -40,7 +40,14 @@ from src.injury_model import (
 )
 from src.league_manager import import_league_rosters_csv, import_standings_csv
 from src.simulation import DraftSimulator, compute_team_preferences, detect_position_run
-from src.ui_shared import ROSTER_CONFIG, T
+from src.ui_shared import (
+    METRIC_TOOLTIPS,
+    ROSTER_CONFIG,
+    T,
+    inject_custom_css,
+    render_theme_toggle,
+    sec,
+)
 from src.valuation import (
     LeagueConfig,
     SGPCalculator,
@@ -80,572 +87,6 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-# ── Design Tokens ────────────────────────────────────────────────────
-
-
-# ── CSS Injection ────────────────────────────────────────────────────
-
-
-def inject_custom_css():
-    st.markdown(
-        f"""
-    <style>
-    @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
-
-    /* ── BASE ─────────────────────────────────── */
-    .stApp {{
-        background: {T["bg"]};
-        font-family: 'DM Sans', sans-serif;
-        color: {T["tx"]};
-    }}
-    .block-container {{ padding-top: 1rem; padding-bottom: 1rem; }}
-
-    /* ── SECTION HEADER ───────────────────────── */
-    .sec-head {{
-        font-family: 'Oswald', sans-serif;
-        font-weight: 700;
-        font-size: 13px;
-        text-transform: uppercase;
-        letter-spacing: 2.5px;
-        color: {T["tx2"]};
-        margin-bottom: 10px;
-        padding-bottom: 6px;
-        border-bottom: 1px solid {T["card_h"]};
-    }}
-
-    /* ── GLASS CARD ───────────────────────────── */
-    .glass {{
-        background: {T["card"]};
-        border: 1px solid {T["card_h"]};
-        border-radius: 12px;
-        padding: 16px;
-        margin-bottom: 12px;
-    }}
-    .glass:hover {{
-        background: {T["card_h"]};
-        transform: translateY(-1px);
-        transition: all 0.2s ease;
-    }}
-
-    /* ── COMMAND BAR ──────────────────────────── */
-    .cmd-bar {{
-        background: linear-gradient(135deg, {T["card"]} 0%, {T["bg"]} 100%);
-        border: 1px solid {T["card_h"]};
-        border-radius: 14px;
-        padding: 14px 24px;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        margin-bottom: 16px;
-        flex-wrap: wrap;
-        gap: 10px;
-    }}
-    .cmd-left {{
-        font-family: 'Oswald', sans-serif;
-        font-weight: 600;
-        font-size: 18px;
-        text-transform: uppercase;
-        letter-spacing: 1.5px;
-        color: {T["tx"]};
-    }}
-    .cmd-center {{ display: flex; align-items: center; gap: 12px; }}
-    .cmd-right {{
-        display: flex; align-items: center; gap: 10px;
-        font-family: 'JetBrains Mono', monospace;
-        font-size: 13px;
-        color: {T["tx2"]};
-    }}
-
-    /* ── YOUR TURN BADGE ─────────────────────── */
-    .your-turn {{
-        background: {T["amber"]};
-        color: {T["bg"]};
-        font-family: 'Oswald', sans-serif;
-        font-weight: 700;
-        font-size: 16px;
-        text-transform: uppercase;
-        letter-spacing: 2px;
-        padding: 8px 20px;
-        border-radius: 8px;
-        animation: amberGlow 2s ease-in-out infinite;
-    }}
-    .waiting {{
-        background: {T["card_h"]};
-        color: {T["tx2"]};
-        font-family: 'Oswald', sans-serif;
-        font-weight: 600;
-        font-size: 14px;
-        text-transform: uppercase;
-        letter-spacing: 1.5px;
-        padding: 8px 16px;
-        border-radius: 8px;
-    }}
-    @keyframes amberGlow {{
-        0%, 100% {{ box-shadow: 0 0 8px {T["amber"]}66; }}
-        50% {{ box-shadow: 0 0 24px {T["amber"]}cc, 0 0 48px {T["amber"]}44; }}
-    }}
-
-    /* ── PROGRESS BAR ────────────────────────── */
-    .prog-track {{
-        width: 120px; height: 6px;
-        background: {T["card_h"]};
-        border-radius: 3px;
-        overflow: hidden;
-    }}
-    .prog-fill {{
-        height: 100%;
-        background: linear-gradient(90deg, {T["amber"]}, {T["amber_l"]});
-        border-radius: 3px;
-        transition: width 0.5s ease;
-    }}
-
-    /* ── HERO PICK CARD ──────────────────────── */
-    .hero {{
-        background: {T["card"]};
-        border: 2px solid {T["amber"]};
-        border-radius: 16px;
-        padding: 24px;
-        margin-bottom: 16px;
-        position: relative;
-        box-shadow: 0 0 30px {T["amber"]}22, 0 8px 32px rgba(0,0,0,0.4);
-    }}
-    .hero .p-name {{
-        font-family: 'Oswald', sans-serif;
-        font-weight: 700;
-        font-size: 36px;
-        color: {T["tx"]};
-        text-transform: uppercase;
-        letter-spacing: 1px;
-        line-height: 1.1;
-    }}
-    .hero .p-meta {{
-        font-family: 'DM Sans', sans-serif;
-        font-size: 14px;
-        color: {T["tx2"]};
-        margin-top: 4px;
-    }}
-    .hero .score-badge {{
-        position: absolute;
-        top: 16px; right: 20px;
-        background: {T["amber"]};
-        color: {T["bg"]};
-        font-family: 'JetBrains Mono', monospace;
-        font-weight: 700;
-        font-size: 22px;
-        padding: 8px 14px;
-        border-radius: 10px;
-    }}
-    .hero .reason {{
-        font-family: 'DM Sans', sans-serif;
-        font-size: 15px;
-        color: {T["amber_l"]};
-        margin-top: 12px;
-        font-style: italic;
-    }}
-
-    /* ── SURVIVAL GAUGE ──────────────────────── */
-    .surv-gauge {{
-        width: 64px; height: 64px;
-        border-radius: 50%;
-        display: flex; align-items: center; justify-content: center;
-        font-family: 'JetBrains Mono', monospace;
-        font-weight: 700;
-        font-size: 16px;
-        color: {T["tx"]};
-    }}
-
-    /* ── SGP CHIPS ───────────────────────────── */
-    .sgp-row {{ display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }}
-    .sgp-chip {{
-        font-family: 'JetBrains Mono', monospace;
-        font-size: 11px;
-        padding: 4px 10px;
-        border-radius: 6px;
-        border: 1px solid {T["card_h"]};
-        background: {T["bg"]};
-        color: {T["tx2"]};
-    }}
-    .sgp-chip.pos {{ border-color: {T["teal"]}; color: {T["teal"]}; }}
-    .sgp-chip.neg {{ border-color: {T["danger"]}; color: {T["danger"]}; }}
-
-    /* ── ALTERNATIVE CARDS ───────────────────── */
-    .alt {{
-        background: {T["card"]};
-        border: 1px solid {T["card_h"]};
-        border-left: 4px solid {T["card_h"]};
-        border-radius: 10px;
-        padding: 12px 14px;
-        transition: all 0.2s ease;
-        cursor: default;
-    }}
-    .alt:hover {{
-        background: {T["card_h"]};
-        transform: translateY(-2px);
-        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-    }}
-    .alt .a-rank {{
-        font-family: 'JetBrains Mono', monospace;
-        font-size: 11px;
-        color: {T["tx2"]};
-    }}
-    .alt .a-name {{
-        font-family: 'Oswald', sans-serif;
-        font-weight: 600;
-        font-size: 16px;
-        color: {T["tx"]};
-        text-transform: uppercase;
-        margin: 2px 0;
-    }}
-    .alt .a-meta {{
-        font-family: 'DM Sans', sans-serif;
-        font-size: 12px;
-        color: {T["tx2"]};
-    }}
-    .alt .a-score {{
-        font-family: 'JetBrains Mono', monospace;
-        font-weight: 600;
-        font-size: 14px;
-        color: {T["amber"]};
-        margin-top: 4px;
-    }}
-
-    /* ── TIER BORDERS ────────────────────────── */
-    .tier-1 {{ border-left-color: {T["tiers"][0]}; }}
-    .tier-2 {{ border-left-color: {T["tiers"][1]}; }}
-    .tier-3 {{ border-left-color: {T["tiers"][2]}; }}
-    .tier-4 {{ border-left-color: {T["tiers"][3]}; }}
-    .tier-5 {{ border-left-color: {T["tiers"][4]}; }}
-    .tier-6 {{ border-left-color: {T["tiers"][5]}; }}
-    .tier-7 {{ border-left-color: {T["tiers"][6]}; }}
-    .tier-8 {{ border-left-color: {T["tiers"][7]}; }}
-
-    /* ── BADGES ───────────────────────────────── */
-    .badge {{
-        display: inline-block;
-        font-family: 'JetBrains Mono', monospace;
-        font-size: 10px;
-        font-weight: 600;
-        padding: 2px 8px;
-        border-radius: 4px;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-    }}
-    .badge-value {{ background: {T["ok"]}22; color: {T["ok"]}; border: 1px solid {T["ok"]}44; }}
-    .badge-reach {{ background: {T["danger"]}22; color: {T["danger"]}; border: 1px solid {T["danger"]}44; }}
-    .badge-fair {{ background: {T["card_h"]}; color: {T["tx2"]}; }}
-    .badge-risk-low {{ background: {T["ok"]}22; color: {T["ok"]}; }}
-    .badge-risk-med {{ background: {T["warn"]}22; color: {T["warn"]}; }}
-    .badge-risk-high {{ background: {T["danger"]}22; color: {T["danger"]}; }}
-
-    /* ── ROSTER GRID ─────────────────────────── */
-    .roster-grid {{
-        display: grid;
-        gap: 6px;
-    }}
-    .roster-slot {{
-        background: {T["card"]};
-        border: 1px solid {T["card_h"]};
-        border-radius: 8px;
-        padding: 6px 10px;
-        text-align: center;
-        min-height: 48px;
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-    }}
-    .roster-slot.filled {{
-        border-color: {T["ok"]}66;
-        background: {T["card_h"]};
-    }}
-    .roster-slot.empty {{
-        border-style: dashed;
-        border-color: {T["tx2"]}44;
-    }}
-    .roster-slot .s-label {{
-        font-family: 'Oswald', sans-serif;
-        font-size: 10px;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-        color: {T["tx2"]};
-    }}
-    .roster-slot .s-player {{
-        font-family: 'DM Sans', sans-serif;
-        font-size: 12px;
-        font-weight: 600;
-        color: {T["tx"]};
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }}
-
-    /* ── SCARCITY RINGS ──────────────────────── */
-    .scar-wrap {{
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: 4px;
-    }}
-    .scar-ring {{
-        width: 52px; height: 52px;
-        border-radius: 50%;
-        display: flex; align-items: center; justify-content: center;
-        font-family: 'JetBrains Mono', monospace;
-        font-weight: 600;
-        font-size: 13px;
-        color: {T["tx"]};
-    }}
-    .scar-ring.critical {{
-        animation: scarPulse 1.5s ease-in-out infinite;
-    }}
-    @keyframes scarPulse {{
-        0%, 100% {{ transform: scale(1); }}
-        50% {{ transform: scale(1.08); }}
-    }}
-    .scar-label {{
-        font-family: 'Oswald', sans-serif;
-        font-size: 10px;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-        color: {T["tx2"]};
-    }}
-
-    /* ── DRAFT BOARD ─────────────────────────── */
-    .draft-board {{
-        width: 100%;
-        border-collapse: collapse;
-        font-family: 'DM Sans', sans-serif;
-        font-size: 11px;
-    }}
-    .draft-board th {{
-        background: {T["card"]};
-        color: {T["tx2"]};
-        font-family: 'Oswald', sans-serif;
-        font-weight: 600;
-        font-size: 10px;
-        text-transform: uppercase;
-        letter-spacing: 1.5px;
-        padding: 8px 6px;
-        border-bottom: 2px solid {T["card_h"]};
-        position: sticky;
-        top: 0;
-        z-index: 10;
-    }}
-    .draft-board td {{
-        padding: 5px 6px;
-        border-bottom: 1px solid {T["card_h"]}44;
-        color: {T["tx2"]};
-    }}
-    .draft-board .user-col {{
-        background: {T["amber"]}11;
-        border-left: 2px solid {T["amber"]};
-        border-right: 2px solid {T["amber"]};
-    }}
-    .draft-board .user-col th {{
-        background: {T["amber"]};
-        color: {T["bg"]};
-    }}
-    .draft-board .current-pick {{
-        border: 2px solid {T["amber"]};
-        animation: amberGlow 2s ease-in-out infinite;
-    }}
-    .draft-board .picked {{
-        color: {T["tx"]};
-        font-weight: 600;
-    }}
-
-    /* ── CATEGORY CARDS ──────────────────────── */
-    .cat-card {{
-        background: {T["card"]};
-        border: 1px solid {T["card_h"]};
-        border-radius: 8px;
-        padding: 10px 12px;
-        text-align: center;
-    }}
-    .cat-name {{
-        font-family: 'Oswald', sans-serif;
-        font-size: 11px;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-        color: {T["tx2"]};
-    }}
-    .cat-val {{
-        font-family: 'JetBrains Mono', monospace;
-        font-size: 18px;
-        font-weight: 700;
-        color: {T["tx"]};
-        margin-top: 2px;
-    }}
-
-    /* ── ALERTS, FEED, WIZARD ────────────────── */
-    .alert-card {{
-        background: {T["card"]};
-        border-left: 4px solid {T["warn"]};
-        border-radius: 8px;
-        padding: 10px 14px;
-        margin-bottom: 8px;
-        font-size: 13px;
-        color: {T["tx"]};
-    }}
-    .alert-card.critical {{ border-left-color: {T["danger"]}; }}
-
-    .feed-card {{
-        background: {T["card"]};
-        border: 1px solid {T["card_h"]};
-        border-radius: 8px;
-        padding: 10px 14px;
-        margin-bottom: 6px;
-        font-size: 13px;
-    }}
-    .feed-card.user-pick {{
-        border-left: 3px solid {T["amber"]};
-    }}
-    .feed-pick-num {{
-        font-family: 'JetBrains Mono', monospace;
-        font-size: 11px;
-        color: {T["tx2"]};
-    }}
-    .feed-name {{
-        font-family: 'DM Sans', sans-serif;
-        font-weight: 600;
-        color: {T["tx"]};
-    }}
-    .feed-team {{
-        font-size: 11px;
-        color: {T["tx2"]};
-    }}
-
-    .wizard-bar {{
-        display: flex;
-        justify-content: center;
-        gap: 0;
-        margin-bottom: 24px;
-    }}
-    .wizard-step {{
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        padding: 10px 20px;
-        font-family: 'Oswald', sans-serif;
-        font-weight: 600;
-        font-size: 13px;
-        text-transform: uppercase;
-        letter-spacing: 1.5px;
-        color: {T["tx2"]};
-        background: {T["card"]};
-        border: 1px solid {T["card_h"]};
-    }}
-    .wizard-step:first-child {{ border-radius: 8px 0 0 8px; }}
-    .wizard-step:last-child {{ border-radius: 0 8px 8px 0; }}
-    .wizard-step.active {{
-        background: {T["amber"]};
-        color: {T["bg"]};
-        border-color: {T["amber"]};
-    }}
-    .wizard-step.done {{
-        background: {T["ok"]}22;
-        color: {T["ok"]};
-        border-color: {T["ok"]}44;
-    }}
-
-    /* ── LOCK-IN BANNER ──────────────────────── */
-    .lock-in {{
-        background: linear-gradient(135deg, {T["ok"]}33, {T["ok"]}11);
-        border: 1px solid {T["ok"]}66;
-        border-radius: 10px;
-        padding: 12px 20px;
-        text-align: center;
-        font-family: 'Oswald', sans-serif;
-        font-weight: 600;
-        font-size: 16px;
-        text-transform: uppercase;
-        letter-spacing: 2px;
-        color: {T["ok"]};
-        animation: lockFade 3s ease-out forwards;
-    }}
-    @keyframes lockFade {{
-        0% {{ opacity: 1; }}
-        70% {{ opacity: 1; }}
-        100% {{ opacity: 0; }}
-    }}
-
-    /* ── STREAMLIT OVERRIDES ─────────────────── */
-    .stButton > button {{
-        font-family: 'Oswald', sans-serif;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 1.5px;
-        border-radius: 8px;
-        transition: all 0.2s ease;
-    }}
-    .stButton > button[kind="primary"],
-    .stButton > button[data-testid="stBaseButton-primary"] {{
-        background: {T["amber"]};
-        color: {T["bg"]};
-        border: none;
-    }}
-    .stButton > button[kind="primary"]:hover,
-    .stButton > button[data-testid="stBaseButton-primary"]:hover {{
-        background: {T["amber_l"]};
-        box-shadow: 0 4px 16px {T["amber"]}44;
-    }}
-    .stButton > button[kind="secondary"],
-    .stButton > button[data-testid="stBaseButton-secondary"] {{
-        background: {T["card"]};
-        color: {T["tx"]};
-        border: 1px solid {T["card_h"]};
-    }}
-    div[data-testid="stTextInput"] input,
-    div[data-testid="stNumberInput"] input,
-    div[data-testid="stSelectbox"] > div {{
-        background: {T["card"]} !important;
-        color: {T["tx"]} !important;
-        border-color: {T["card_h"]} !important;
-        border-radius: 8px !important;
-    }}
-    .stTabs [data-baseweb="tab-list"] {{
-        gap: 0;
-        background: {T["card"]};
-        border-radius: 10px;
-        padding: 4px;
-    }}
-    .stTabs [data-baseweb="tab"] {{
-        font-family: 'Oswald', sans-serif;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-        font-size: 13px;
-        border-radius: 8px;
-        color: {T["tx2"]};
-    }}
-    .stTabs [aria-selected="true"] {{
-        background: {T["amber"]} !important;
-        color: {T["bg"]} !important;
-    }}
-    div[data-testid="stFileUploader"] {{
-        background: {T["card"]};
-        border: 2px dashed {T["card_h"]};
-        border-radius: 12px;
-        padding: 16px;
-    }}
-    div[data-testid="stFileUploader"]:hover {{
-        border-color: {T["amber"]};
-    }}
-    div[data-testid="stDataFrame"] {{
-        border: 1px solid {T["card_h"]};
-        border-radius: 10px;
-    }}
-    .stSidebar {{
-        background: {T["card"]} !important;
-        border-right: 1px solid {T["card_h"]} !important;
-    }}
-    </style>
-    """,
-        unsafe_allow_html=True,
-    )
-
 
 # ── Session Init ─────────────────────────────────────────────────────
 
@@ -671,13 +112,6 @@ def init_session():
     for k, v in defaults.items():
         if k not in st.session_state:
             st.session_state[k] = v
-
-
-# ── Helper: section header ───────────────────────────────────────────
-
-
-def sec(title):
-    st.markdown(f'<div class="sec-head">{title}</div>', unsafe_allow_html=True)
 
 
 # ── Wizard Progress Bar ─────────────────────────────────────────────
@@ -1009,16 +443,17 @@ def render_step_league():
         st.session_state.auto_sgp = auto_sgp
 
         if not auto_sgp:
-            sgp_r = st.number_input("R", value=32.0, step=1.0, key="sgp_r")
-            sgp_hr = st.number_input("HR", value=12.0, step=1.0, key="sgp_hr")
-            sgp_rbi = st.number_input("RBI", value=30.0, step=1.0, key="sgp_rbi")
-            sgp_sb = st.number_input("SB", value=8.0, step=1.0, key="sgp_sb")
-            sgp_avg = st.number_input("AVG", value=0.008, step=0.001, format="%.4f", key="sgp_avg")
-            sgp_w = st.number_input("W", value=3.0, step=1.0, key="sgp_w")
-            sgp_sv = st.number_input("SV", value=7.0, step=1.0, key="sgp_sv")
-            sgp_k = st.number_input("K", value=25.0, step=1.0, key="sgp_k")
-            sgp_era = st.number_input("ERA", value=0.30, step=0.01, format="%.3f", key="sgp_era")
-            sgp_whip = st.number_input("WHIP", value=0.03, step=0.01, format="%.3f", key="sgp_whip")
+            _sgp_help = "Stat increase needed to gain one roto standings point"
+            sgp_r = st.number_input("R", value=32.0, step=1.0, key="sgp_r", help=_sgp_help)
+            sgp_hr = st.number_input("HR", value=12.0, step=1.0, key="sgp_hr", help=_sgp_help)
+            sgp_rbi = st.number_input("RBI", value=30.0, step=1.0, key="sgp_rbi", help=_sgp_help)
+            sgp_sb = st.number_input("SB", value=8.0, step=1.0, key="sgp_sb", help=_sgp_help)
+            sgp_avg = st.number_input("AVG", value=0.008, step=0.001, format="%.4f", key="sgp_avg", help=_sgp_help)
+            sgp_w = st.number_input("W", value=3.0, step=1.0, key="sgp_w", help=_sgp_help)
+            sgp_sv = st.number_input("SV", value=7.0, step=1.0, key="sgp_sv", help=_sgp_help)
+            sgp_k = st.number_input("K", value=25.0, step=1.0, key="sgp_k", help=_sgp_help)
+            sgp_era = st.number_input("ERA", value=0.30, step=0.01, format="%.3f", key="sgp_era", help=_sgp_help)
+            sgp_whip = st.number_input("WHIP", value=0.03, step=0.01, format="%.3f", key="sgp_whip", help=_sgp_help)
         st.markdown("</div>", unsafe_allow_html=True)
 
     with col2:
@@ -1372,8 +807,6 @@ def render_draft_page():
             st.session_state.percentile_data = {}
             st.session_state.has_percentiles = False
 
-    inject_custom_css()
-
     # ── Sidebar ──────────────────────────────────────────────────
     with st.sidebar:
         st.markdown(
@@ -1673,11 +1106,11 @@ def render_hero_pick(rec, ds, pool, threat_alerts=None):
     if adp and adp > 0:
         diff = adp - pick_num
         if diff > 10:
-            vb = '<span class="badge badge-value">Value</span>'
+            vb = f'<span class="badge badge-value" title="{METRIC_TOOLTIPS["adp_value"]}">Value</span>'
         elif diff < -10:
-            vb = '<span class="badge badge-reach">Reach</span>'
+            vb = f'<span class="badge badge-reach" title="{METRIC_TOOLTIPS["adp_reach"]}">Reach</span>'
         else:
-            vb = '<span class="badge badge-fair">Fair</span>'
+            vb = f'<span class="badge badge-fair" title="{METRIC_TOOLTIPS["adp_fair"]}">Fair</span>'
     else:
         vb = ""
 
@@ -1723,7 +1156,7 @@ def render_hero_pick(rec, ds, pool, threat_alerts=None):
                 fill_pct = int(((score - p10_val) / range_width) * 100)
                 fill_pct = max(5, min(95, fill_pct))
                 pct_html = (
-                    f'<div style="margin-top:8px;font-family:JetBrains Mono,monospace;'
+                    f'<div title="{METRIC_TOOLTIPS["p10_p90"]}" style="margin-top:8px;font-family:JetBrains Mono,monospace;'
                     f'font-size:12px;color:{T["tx2"]};">'
                     f"P10: {p10_val:.1f} "
                     f'<span style="display:inline-block;width:120px;height:8px;'
@@ -1747,9 +1180,9 @@ def render_hero_pick(rec, ds, pool, threat_alerts=None):
 
     st.markdown(
         f'<div class="hero">'
-        f'<div class="score-badge">{score:.1f}</div>'
+        f'<div class="score-badge" title="{METRIC_TOOLTIPS["pick_score"]}">{score:.1f}</div>'
         f'<div style="display:flex;align-items:center;gap:16px;">'
-        f'<div class="surv-gauge" style="background:conic-gradient({surv_color} {surv_deg}deg, '
+        f'<div class="surv-gauge" title="{METRIC_TOOLTIPS["survival"]}" style="background:conic-gradient({surv_color} {surv_deg}deg, '
         f'{T["card_h"]} {surv_deg}deg);">'
         f'<div style="width:48px;height:48px;border-radius:50%;background:{T["card"]};'
         f'display:flex;align-items:center;justify-content:center;">{surv:.0f}%</div></div>'
@@ -1758,7 +1191,7 @@ def render_hero_pick(rec, ds, pool, threat_alerts=None):
         f'<div class="p-meta">{pos} &middot; Tier {tier} {vb}{injury_html}{age_html}{workload_html}</div>'
         f"</div></div>"
         f'<div class="reason">{reason}</div>'
-        f'<div class="sgp-row">{chips_html}</div>'
+        f'<div class="sgp-row" title="{METRIC_TOOLTIPS["sgp"]}">{chips_html}</div>'
         f"{pct_html}"
         f"{alerts_html}"
         f"</div>",
@@ -1785,11 +1218,17 @@ def render_alternatives(alts):
             # Risk badge
             risk = row.get("risk_score", 0.5)
             if risk < 0.3:
-                risk_badge = '<span class="badge badge-risk-low">Low Risk</span>'
+                risk_badge = (
+                    f'<span class="badge badge-risk-low" title="{METRIC_TOOLTIPS["health_green"]}">Low Risk</span>'
+                )
             elif risk < 0.7:
-                risk_badge = '<span class="badge badge-risk-med">Med Risk</span>'
+                risk_badge = (
+                    f'<span class="badge badge-risk-med" title="{METRIC_TOOLTIPS["health_yellow"]}">Med Risk</span>'
+                )
             else:
-                risk_badge = '<span class="badge badge-risk-high">High Risk</span>'
+                risk_badge = (
+                    f'<span class="badge badge-risk-high" title="{METRIC_TOOLTIPS["health_red"]}">High Risk</span>'
+                )
 
             # Compact injury badge
             alt_pid = row.get("player_id", None)
@@ -1808,7 +1247,7 @@ def render_alternatives(alts):
                     if not p10_r.empty and not p90_r.empty:
                         p10_s = p10_r.iloc[0].get("pick_score", score * 0.7)
                         p90_s = p90_r.iloc[0].get("pick_score", score * 1.3)
-                        range_text = f'<div style="font-size:10px;color:{T["tx2"]};">{p10_s:.1f} — {p90_s:.1f}</div>'
+                        range_text = f'<div title="{METRIC_TOOLTIPS["p10_p90"]}" style="font-size:10px;color:{T["tx2"]};">{p10_s:.1f} — {p90_s:.1f}</div>'
 
             st.markdown(
                 f'<div class="alt tier-{tier}">'
@@ -2437,6 +1876,7 @@ def render_draft_log(ds):
 def main():
     init_session()
     inject_custom_css()
+    render_theme_toggle()
 
     if st.session_state.page == "setup":
         render_setup_page()

@@ -8,7 +8,7 @@ import streamlit as st
 from src.database import init_db, load_league_rosters, load_player_pool
 from src.in_season import rank_free_agents
 from src.league_manager import get_free_agents, get_team_roster
-from src.ui_shared import T
+from src.ui_shared import METRIC_TOOLTIPS, inject_custom_css, render_theme_toggle
 from src.valuation import LeagueConfig
 
 logger = logging.getLogger(__name__)
@@ -17,13 +17,8 @@ st.set_page_config(page_title="Free Agents", page_icon="🏷️", layout="wide")
 
 init_db()
 
-st.markdown(
-    f"""<style>
-    .stApp {{ background-color: {T["bg"]}; }}
-    h1, h2, h3 {{ color: {T["amber"]}; font-family: 'Oswald', sans-serif; }}
-    </style>""",
-    unsafe_allow_html=True,
-)
+inject_custom_css()
+render_theme_toggle()
 
 st.title("🏷️ Free Agent Rankings")
 
@@ -92,3 +87,4 @@ else:
                         width="stretch",
                         hide_index=True,
                     )
+                    st.caption(METRIC_TOOLTIPS["marginal_value"])

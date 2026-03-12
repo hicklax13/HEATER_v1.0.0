@@ -6,7 +6,15 @@ import streamlit as st
 from src.database import init_db, load_player_pool
 from src.in_season import compare_players
 from src.injury_model import compute_health_score, get_injury_badge
-from src.ui_shared import ALL_CATEGORIES, T
+from src.ui_shared import (
+    ALL_CATEGORIES,
+    METRIC_TOOLTIPS,
+    get_plotly_layout,
+    get_plotly_polar,
+    get_theme,
+    inject_custom_css,
+    render_theme_toggle,
+)
 from src.valuation import LeagueConfig, add_process_risk, compute_percentile_projections, compute_projection_volatility
 
 try:
@@ -20,13 +28,8 @@ st.set_page_config(page_title="Player Compare", page_icon="⚔️", layout="wide
 
 init_db()
 
-st.markdown(
-    f"""<style>
-    .stApp {{ background-color: {T["bg"]}; }}
-    h1, h2, h3 {{ color: {T["amber"]}; font-family: 'Oswald', sans-serif; }}
-    </style>""",
-    unsafe_allow_html=True,
-)
+inject_custom_css()
+render_theme_toggle()
 
 st.title("⚔️ Player Compare")
 
@@ -78,11 +81,22 @@ if player_a_name and player_b_name and player_a_name != player_b_name:
     else:
         # Composite scores
         col1, col2 = st.columns(2)
-        col1.metric(result["player_a"], f"{result['composite_a']:+.2f}", label_visibility="visible")
-        col2.metric(result["player_b"], f"{result['composite_b']:+.2f}", label_visibility="visible")
+        col1.metric(
+            result["player_a"],
+            f"{result['composite_a']:+.2f}",
+            label_visibility="visible",
+            help=METRIC_TOOLTIPS["composite_score"],
+        )
+        col2.metric(
+            result["player_b"],
+            f"{result['composite_b']:+.2f}",
+            label_visibility="visible",
+            help=METRIC_TOOLTIPS["composite_score"],
+        )
 
         # Radar chart
         if HAS_PLOTLY:
+            t = get_theme()
             cats = ALL_CATEGORIES
             z_a = [result["z_scores_a"].get(c, 0) for c in cats]
             z_b = [result["z_scores_b"].get(c, 0) for c in cats]
@@ -93,7 +107,7 @@ if player_a_name and player_b_name and player_a_name != player_b_name:
                     r=z_a + [z_a[0]],
                     theta=cats + [cats[0]],
                     name=result["player_a"],
-                    line=dict(color=T["amber"]),
+                    line=dict(color=t["amber"]),
                     fill="toself",
                     fillcolor="rgba(245,158,11,0.15)",
                 )
@@ -103,22 +117,15 @@ if player_a_name and player_b_name and player_a_name != player_b_name:
                     r=z_b + [z_b[0]],
                     theta=cats + [cats[0]],
                     name=result["player_b"],
-                    line=dict(color=T["teal"]),
+                    line=dict(color=t["teal"]),
                     fill="toself",
                     fillcolor="rgba(6,182,212,0.15)",
                 )
             )
-            fig.update_layout(
-                polar=dict(
-                    bgcolor=T["card"],
-                    radialaxis=dict(gridcolor=T["card_h"], tickfont=dict(color=T["tx2"])),
-                    angularaxis=dict(gridcolor=T["card_h"], tickfont=dict(color=T["tx"])),
-                ),
-                paper_bgcolor=T["bg"],
-                font=dict(color=T["tx"]),
-                legend=dict(font=dict(color=T["tx"])),
-                margin=dict(l=60, r=60, t=40, b=40),
-            )
+            layout_kwargs = get_plotly_layout(t)
+            layout_kwargs["polar"] = get_plotly_polar(t)
+            layout_kwargs["legend"] = dict(font=dict(color=t["tx"]))
+            fig.update_layout(**layout_kwargs)
             st.plotly_chart(fig, width="stretch")
 
         # Z-score comparison table
@@ -137,6 +144,7 @@ if player_a_name and player_b_name and player_a_name != player_b_name:
                 }
             )
         st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
+        st.caption(METRIC_TOOLTIPS["z_score"])
 
         # Health comparison
         st.subheader("Health & Confidence")

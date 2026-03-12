@@ -7,7 +7,7 @@ from src.database import init_db, load_league_rosters
 from src.injury_model import compute_health_score, get_injury_badge
 from src.league_manager import get_team_roster
 from src.live_stats import refresh_all_stats
-from src.ui_shared import T
+from src.ui_shared import METRIC_TOOLTIPS, inject_custom_css, render_theme_toggle
 
 try:
     from src.bayesian import BayesianUpdater
@@ -25,13 +25,8 @@ st.set_page_config(page_title="My Team", page_icon="👤", layout="wide")
 
 init_db()
 
-st.markdown(
-    f"""<style>
-    .stApp {{ background-color: {T["bg"]}; }}
-    h1, h2, h3 {{ color: {T["amber"]}; font-family: 'Oswald', sans-serif; }}
-    </style>""",
-    unsafe_allow_html=True,
-)
+inject_custom_css()
+render_theme_toggle()
 
 st.title("👤 My Team")
 
@@ -119,6 +114,7 @@ else:
                 width="stretch",
                 hide_index=True,
             )
+            st.caption(METRIC_TOOLTIPS["avg"])
 
             # Category totals
             st.subheader("Category Totals")
@@ -153,6 +149,7 @@ else:
                 st.markdown("**Pitching**")
                 if pitch_stats:
                     st.dataframe(pd.DataFrame([pitch_stats]), hide_index=True)
+                    st.caption(METRIC_TOOLTIPS["era"] + " | " + METRIC_TOOLTIPS["whip"])
 
             # Bayesian-adjusted projections
             if BAYESIAN_AVAILABLE:

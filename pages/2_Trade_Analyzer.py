@@ -7,20 +7,15 @@ from src.database import init_db, load_league_rosters, load_player_pool
 from src.in_season import analyze_trade
 from src.injury_model import compute_health_score, get_injury_badge
 from src.league_manager import get_team_roster
-from src.ui_shared import T
+from src.ui_shared import METRIC_TOOLTIPS, T, inject_custom_css, render_theme_toggle
 from src.valuation import LeagueConfig, add_process_risk, compute_percentile_projections, compute_projection_volatility
 
 st.set_page_config(page_title="Trade Analyzer", page_icon="🔄", layout="wide")
 
 init_db()
 
-st.markdown(
-    f"""<style>
-    .stApp {{ background-color: {T["bg"]}; }}
-    h1, h2, h3 {{ color: {T["amber"]}; font-family: 'Oswald', sans-serif; }}
-    </style>""",
-    unsafe_allow_html=True,
-)
+inject_custom_css()
+render_theme_toggle()
 
 st.title("🔄 Trade Analyzer")
 
@@ -127,12 +122,13 @@ else:
                     f"{result['confidence_pct']:.1f}% confidence</span></div>",
                     unsafe_allow_html=True,
                 )
+                st.caption(METRIC_TOOLTIPS["trade_verdict"])
 
                 # Metrics
                 col1, col2, col3 = st.columns(3)
-                col1.metric("Total SGP Change", f"{result['total_sgp_change']:+.3f}")
-                col2.metric("MC Mean", f"{result['mc_mean']:+.3f}")
-                col3.metric("MC Std Dev", f"{result['mc_std']:.3f}")
+                col1.metric("Total SGP Change", f"{result['total_sgp_change']:+.3f}", help=METRIC_TOOLTIPS["sgp"])
+                col2.metric("MC Mean", f"{result['mc_mean']:+.3f}", help=METRIC_TOOLTIPS["mc_mean"])
+                col3.metric("MC Std Dev", f"{result['mc_std']:.3f}", help=METRIC_TOOLTIPS["mc_std"])
 
                 # Category impact table
                 st.subheader("Category Impact")
@@ -223,5 +219,6 @@ else:
                                     )
                             if risk_rows:
                                 st.dataframe(pd.DataFrame(risk_rows), hide_index=True, width="stretch")
+                                st.caption(METRIC_TOOLTIPS["p10_p90"])
                 except Exception:
                     pass  # Graceful degradation
