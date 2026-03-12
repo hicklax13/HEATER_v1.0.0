@@ -289,15 +289,23 @@ def load_injury_history_from_api(
 
 
 def get_injury_badge(health_score: float) -> tuple[str, str]:
-    """Return an ``(emoji, label)`` tuple for UI display.
+    """Return an ``(icon_html, label)`` tuple for UI display.
+
+    Returns a small inline CSS dot (colored circle) instead of emoji
+    for consistent cross-platform rendering.
 
     Thresholds:
     * >= 0.90 : green / Low Risk
-    * >= 0.75 : yellow / Moderate Risk
+    * >= 0.75 : amber / Moderate Risk
     * <  0.75 : red / High Risk
     """
+    _dot = (
+        '<span style="display:inline-block;width:10px;height:10px;'
+        "border-radius:50%;vertical-align:middle;margin-right:4px;"
+        'background:{color};"></span>'
+    )
     if health_score is None or health_score >= 0.9:
-        return ("\U0001f7e2", "Low Risk")
+        return (_dot.format(color="#84cc16"), "Low Risk")
     if health_score >= 0.75:
-        return ("\U0001f7e1", "Moderate Risk")
-    return ("\U0001f534", "High Risk")
+        return (_dot.format(color="#fb923c"), "Moderate Risk")
+    return (_dot.format(color="#f43f5e"), "High Risk")

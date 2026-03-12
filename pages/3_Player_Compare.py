@@ -24,14 +24,14 @@ try:
 except ImportError:
     HAS_PLOTLY = False
 
-st.set_page_config(page_title="Player Compare", page_icon="⚔️", layout="wide")
+st.set_page_config(page_title="Player Compare", page_icon="", layout="wide")
 
 init_db()
 
 inject_custom_css()
 render_theme_toggle()
 
-st.title("⚔️ Player Compare")
+st.title("Player Compare")
 
 pool = load_player_pool()
 if pool.empty:

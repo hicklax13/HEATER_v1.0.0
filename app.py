@@ -42,6 +42,7 @@ from src.league_manager import import_league_rosters_csv, import_standings_csv
 from src.simulation import DraftSimulator, compute_team_preferences, detect_position_run
 from src.ui_shared import (
     METRIC_TOOLTIPS,
+    PAGE_ICONS,
     ROSTER_CONFIG,
     T,
     inject_custom_css,
@@ -82,7 +83,7 @@ logger = logging.getLogger(__name__)
 
 st.set_page_config(
     page_title="Draft Command Center",
-    page_icon="⚾",
+    page_icon="",
     layout="wide",
     initial_sidebar_state="collapsed",
 )
@@ -175,7 +176,7 @@ def render_step_import():
                 f'<div style="background:{T["card"]};border:1px solid {T["card_h"]};'
                 f'border-radius:12px;padding:16px;margin-bottom:16px;">'
                 f'<div style="font-family:Oswald,sans-serif;color:{T["amber"]};'
-                f'font-size:16px;">⚾ Connect Yahoo Fantasy</div>'
+                f'font-size:16px;">{PAGE_ICONS["baseball"]} Connect Yahoo Fantasy</div>'
                 f'<div style="color:{T["tx2"]};font-size:13px;margin-top:4px;">'
                 f"Auto-import league settings, rosters, and standings</div></div>",
                 unsafe_allow_html=True,
@@ -192,7 +193,7 @@ def render_step_import():
                 st.markdown(
                     f'<a href="{auth_url}" target="_blank" style="'
                     f"display:inline-block;padding:8px 20px;"
-                    f"background:{T['amber']};color:{T['bg']};"
+                    f"background:{T['amber']};color:{T['ink']};"
                     f"border-radius:8px;font-weight:700;font-family:Oswald,sans-serif;"
                     f'text-decoration:none;font-size:14px;">'
                     f"Authorize with Yahoo</a>",
@@ -233,7 +234,7 @@ def render_step_import():
                                     except Exception:
                                         pass  # Sync failures are non-fatal
                                     st.success("Connected to Yahoo Fantasy!")
-                                    st.toast("League data synced!", icon="✅")
+                                    st.toast("League data synced!")
                                     st.rerun()
                                 else:
                                     st.error("Authentication failed. Check your credentials.")
@@ -261,7 +262,7 @@ def render_step_import():
                     st.session_state.projections_fetched = False
 
             if st.session_state.projections_fetched:
-                st.toast("Projections updated!", icon="✅")
+                st.toast("Projections updated!")
 
         if st.session_state.get("projections_fetched"):
             # Validate both hitter and pitcher data exist before flagging ready
@@ -280,7 +281,7 @@ def render_step_import():
                 f'<div style="background:{T["card"]};border:1px solid {T["ok"]};'
                 f'border-radius:12px;padding:16px;margin-bottom:16px;">'
                 f'<div style="font-family:Oswald,sans-serif;color:{T["ok"]};'
-                f'font-size:16px;">✅ Projections Loaded</div>'
+                f'font-size:16px;">{PAGE_ICONS["check"]} Projections Loaded</div>'
                 f'<div style="color:{T["tx2"]};font-size:13px;margin-top:4px;">'
                 f"Steamer + ZiPS + Depth Charts fetched from FanGraphs</div></div>",
                 unsafe_allow_html=True,
@@ -288,12 +289,12 @@ def render_step_import():
             st.session_state.hitter_data = _has_hit > 0
             st.session_state.pitcher_data = _has_pit > 0
 
-            if st.button("🔄 Refresh Projections", type="secondary"):
+            if st.button("Refresh Projections", type="secondary"):
                 with st.spinner("Refreshing..."):
                     result = fetch_projections_from_fg(force=True)
                     st.session_state.projections_fetched = result
                     if result:
-                        st.toast("Projections refreshed!", icon="✅")
+                        st.toast("Projections refreshed!")
                         st.rerun()
                     else:
                         st.warning("Refresh failed. Data may be stale.")
@@ -302,12 +303,12 @@ def render_step_import():
                 f'<div style="background:{T["card"]};border:1px solid {T["card_h"]};'
                 f'border-radius:12px;padding:16px;margin-bottom:16px;">'
                 f'<div style="font-family:Oswald,sans-serif;color:{T["amber"]};'
-                f'font-size:16px;">⚠️ Auto-Fetch Unavailable</div>'
+                f'font-size:16px;">{PAGE_ICONS["warning"]} Auto-Fetch Unavailable</div>'
                 f'<div style="color:{T["tx2"]};font-size:13px;margin-top:4px;">'
                 f"Upload CSV files below to load projections manually</div></div>",
                 unsafe_allow_html=True,
             )
-            if st.button("🔄 Retry Auto-Fetch"):
+            if st.button("Retry Auto-Fetch"):
                 del st.session_state["projections_fetched"]
                 st.rerun()
 
@@ -330,7 +331,7 @@ def render_step_import():
                 init_db()
                 import_hitter_csv(hitter_file, system="steamer")
                 st.session_state.hitter_data = True
-                st.toast("Hitters imported!", icon="✅")
+                st.toast("Hitters imported!")
             except Exception as e:
                 st.error(f"Import error: {e}")
 
@@ -347,7 +348,7 @@ def render_step_import():
                 init_db()
                 import_pitcher_csv(pitcher_file, system="steamer")
                 st.session_state.pitcher_data = True
-                st.toast("Pitchers imported!", icon="✅")
+                st.toast("Pitchers imported!")
             except Exception as e:
                 st.error(f"Import error: {e}")
 
@@ -357,7 +358,7 @@ def render_step_import():
     if adp_file:
         try:
             import_adp_csv(adp_file)
-            st.toast("ADP imported!", icon="✅")
+            st.toast("ADP imported!")
         except Exception as e:
             st.error(f"ADP import error: {e}")
 
@@ -396,9 +397,9 @@ def render_step_import():
     # Status chips
     chips = []
     if st.session_state.hitter_data:
-        chips.append('<span class="badge badge-value">Hitters ✓</span>')
+        chips.append('<span class="badge badge-value">Hitters</span>')
     if st.session_state.pitcher_data:
-        chips.append('<span class="badge badge-value">Pitchers ✓</span>')
+        chips.append('<span class="badge badge-value">Pitchers</span>')
     if chips:
         st.markdown(" ".join(chips), unsafe_allow_html=True)
 
@@ -600,7 +601,7 @@ def render_step_launch():
     ]
 
     for label, ok, detail in checks:
-        icon = "✅" if ok else "❌"
+        icon = PAGE_ICONS["check"] if ok else PAGE_ICONS["x_mark"]
         badge_cls = "badge-value" if ok else "badge-reach"
         st.markdown(
             f'<div class="glass" style="display:flex;align-items:center;gap:12px;padding:12px 16px;">'
@@ -694,7 +695,7 @@ def _start_new_draft(pool, practice, resume):
     if resume:
         try:
             ds = DraftState.load(roster_config=ROSTER_CONFIG)
-            st.toast("Resumed saved draft!", icon="✅")
+            st.toast("Resumed saved draft!")
         except FileNotFoundError:
             st.warning("No saved draft found. Starting fresh.")
             ds = DraftState(
@@ -821,24 +822,24 @@ def render_draft_page():
         )
 
         if st.session_state.practice_mode:
-            if st.button("🔄 Reset Practice", width="stretch"):
+            if st.button("Reset Practice", width="stretch"):
                 st.session_state.practice_draft_state = DraftState(
                     num_teams=ds.num_teams,
                     num_rounds=ds.num_rounds,
                     user_team_index=ds.user_team_index,
                     roster_config=ROSTER_CONFIG,
                 )
-                st.toast("Practice reset!", icon="🎮")
+                st.toast("Practice reset!")
                 st.rerun()
 
         if st.button("Undo Last Pick", width="stretch"):
             ds.undo_last_pick()
-            st.toast("Pick undone!", icon="↩️")
+            st.toast("Pick undone!")
             st.rerun()
 
         if st.button("Save Draft", width="stretch"):
             path = ds.save()
-            st.toast("Saved!", icon="💾")
+            st.toast("Saved!")
 
         st.markdown("---")
         if st.button("← Back to Setup", width="stretch"):
@@ -851,7 +852,7 @@ def render_draft_page():
             f'<div style="background:rgba(245,158,11,0.15);border:2px solid {T["warn"]};'
             f'border-radius:8px;padding:10px;text-align:center;margin-bottom:12px;">'
             f'<span style="font-family:Oswald,sans-serif;color:{T["warn"]};">'
-            f"🎮 PRACTICE MODE — Picks will not be saved</span></div>",
+            f"PRACTICE MODE — Picks will not be saved</span></div>",
             unsafe_allow_html=True,
         )
 
@@ -877,7 +878,7 @@ def render_draft_page():
 
     # ── Lock-in banner ───────────────────────────────────────────
     if st.session_state.last_drafted and (time.time() - st.session_state.last_lock_in) < 3:
-        st.markdown(f'<div class="lock-in">✓ {st.session_state.last_drafted} — Locked In</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="lock-in">{PAGE_ICONS["check"]} {st.session_state.last_drafted} — Locked In</div>', unsafe_allow_html=True)
 
     # ── Run recommendation engine ────────────────────────────────
     available = ds.available_players(pool)
@@ -1009,7 +1010,7 @@ def render_draft_page():
                 for pos in pos_runs:
                     st.markdown(
                         f'<div class="alert-card">'
-                        f'<strong style="color:{T["warn"]};">⚡ {pos} Run!</strong> '
+                        f'<strong style="color:{T["warn"]};">{PAGE_ICONS["zap"]} {pos} Run!</strong> '
                         f"Position being drafted heavily</div>",
                         unsafe_allow_html=True,
                     )
@@ -1329,7 +1330,7 @@ def _execute_pick(ds, player_row, pool):
     st.session_state.last_drafted = player_row["player_name"]
     st.session_state.last_lock_in = time.time()
     ds.save()
-    st.toast(f"Drafted {player_row['player_name']}!", icon="✅")
+    st.toast(f"Drafted {player_row['player_name']}!")
     st.rerun()
 
 
@@ -1490,7 +1491,7 @@ def render_scarcity_rings(ds, pool):
                 toast_key = f"scarcity_toast_{pos}_{avail_count}"
                 if toast_key not in st.session_state:
                     st.session_state[toast_key] = True
-                    st.toast(f"⚠️ {pos} scarce! Only {avail_count} left", icon="🚨")
+                    st.toast(f"{pos} scarce! Only {avail_count} left")
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -1763,7 +1764,7 @@ def render_draft_board(ds):
     for i in range(ds.num_teams):
         team_name = ds.teams[i].team_name
         cls = 'class="user-col"' if i == ds.user_team_index else ""
-        short_name = team_name[:8]
+        short_name = team_name[:14]
         headers += f"<th {cls}>{short_name}</th>"
 
     rows = ""
@@ -1800,7 +1801,7 @@ def render_draft_board(ds):
 
             if entry:
                 name = entry["player_name"]
-                short = name[:12] if len(name) > 12 else name
+                short = name[:18] if len(name) > 18 else name
                 row_html += f"<td {cls}>{short}</td>"
             else:
                 row_html += f'<td {cls} style="color:{T["tx2"]}44;">—</td>'

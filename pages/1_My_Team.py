@@ -21,14 +21,14 @@ try:
 except ImportError:
     YFPY_AVAILABLE = False
 
-st.set_page_config(page_title="My Team", page_icon="👤", layout="wide")
+st.set_page_config(page_title="My Team", page_icon="", layout="wide")
 
 init_db()
 
 inject_custom_css()
 render_theme_toggle()
 
-st.title("👤 My Team")
+st.title("My Team")
 
 # Determine user team
 rosters = load_league_rosters()
@@ -47,7 +47,7 @@ else:
         # Refresh button
         col1, col2 = st.columns([1, 4])
         with col1:
-            if st.button("🔄 Refresh Stats"):
+            if st.button("Refresh Stats"):
                 with st.spinner("Pulling live stats from MLB..."):
                     result = refresh_all_stats(force=True)
                     for source, status in result.items():
@@ -62,13 +62,13 @@ else:
             yahoo_secret = os.environ.get("YAHOO_CLIENT_SECRET")
             yahoo_league_id = os.environ.get("YAHOO_LEAGUE_ID", "").strip()
             if yahoo_key and yahoo_secret and yahoo_league_id:
-                if st.button("🔄 Sync Yahoo"):
+                if st.button("Sync Yahoo"):
                     with st.spinner("Syncing from Yahoo Fantasy..."):
                         try:
                             client = YahooFantasyClient(league_id=yahoo_league_id)
                             if client.authenticate(yahoo_key, yahoo_secret):
                                 client.sync_to_db()
-                                st.toast("Yahoo sync complete!", icon="✅")
+                                st.toast("Yahoo sync complete!")
                                 st.rerun()
                             else:
                                 st.error("Yahoo authentication failed.")
@@ -104,7 +104,10 @@ else:
                         icon, label = get_injury_badge(hs)
                         badges.append(f"{icon} {label}")
                     else:
-                        badges.append("🟢 Low Risk")
+                        badges.append(
+                            '<span style="display:inline-block;width:10px;height:10px;border-radius:50%;'
+                            'vertical-align:middle;margin-right:4px;background:#84cc16;"></span>Low Risk'
+                        )
                 roster["Health"] = badges
 
             # Display roster
@@ -166,7 +169,7 @@ else:
                             preseason = pd.read_sql_query("SELECT * FROM projections WHERE system = 'blended'", conn)
                             updater = BayesianUpdater()
                             updated = updater.batch_update_projections(season_stats, preseason)
-                            st.subheader("📊 Bayesian-Adjusted Projections")
+                            st.subheader("Bayesian-Adjusted Projections")
                             st.caption(
                                 "Stats regressed toward preseason priors using FanGraphs stabilization thresholds"
                             )

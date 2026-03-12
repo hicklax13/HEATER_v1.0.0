@@ -7,17 +7,17 @@ from src.database import init_db, load_league_rosters, load_player_pool
 from src.in_season import analyze_trade
 from src.injury_model import compute_health_score, get_injury_badge
 from src.league_manager import get_team_roster
-from src.ui_shared import METRIC_TOOLTIPS, T, inject_custom_css, render_theme_toggle
+from src.ui_shared import METRIC_TOOLTIPS, PAGE_ICONS, T, inject_custom_css, render_theme_toggle
 from src.valuation import LeagueConfig, add_process_risk, compute_percentile_projections, compute_projection_volatility
 
-st.set_page_config(page_title="Trade Analyzer", page_icon="🔄", layout="wide")
+st.set_page_config(page_title="Trade Analyzer", page_icon="", layout="wide")
 
 init_db()
 
 inject_custom_css()
 render_theme_toggle()
 
-st.title("🔄 Trade Analyzer")
+st.title("Trade Analyzer")
 
 # Load data
 pool = load_player_pool()
@@ -83,7 +83,7 @@ else:
                 key="receiving",
             )
 
-        if st.button("⚡ Analyze Trade", type="primary", width="stretch"):
+        if st.button("Analyze Trade", type="primary", width="stretch"):
             if not giving_names or not receiving_names:
                 st.error("Select at least one player on each side.")
             else:
@@ -109,15 +109,15 @@ else:
                 # Verdict banner
                 if result["verdict"] == "ACCEPT":
                     color = T["ok"]
-                    icon = "✅"
+                    icon = PAGE_ICONS["accept"]
                 else:
                     color = T["danger"]
-                    icon = "🚫"
+                    icon = PAGE_ICONS["reject"]
 
                 st.markdown(
                     f'<div style="background:{color}20;border:2px solid {color};'
                     f'border-radius:12px;padding:20px;text-align:center;margin:16px 0;">'
-                    f'<span style="font-size:32px;">{icon}</span>'
+                    f'{icon}'
                     f'<span style="font-family:Oswald,sans-serif;font-size:28px;color:{color};'
                     f'margin-left:12px;">{result["verdict"]}</span>'
                     f'<span style="color:{T["tx2"]};margin-left:12px;font-size:18px;">'
@@ -141,7 +141,7 @@ else:
 
                 # Risk flags
                 if result["risk_flags"]:
-                    st.subheader("⚠️ Risk Flags")
+                    st.subheader("Risk Flags")
                     for flag in result["risk_flags"]:
                         st.warning(flag)
 
@@ -190,7 +190,7 @@ else:
                         pct = compute_percentile_projections(base=pool, volatility=vol)
                         p10_df, p90_df = pct.get(10), pct.get(90)
                         if p10_df is not None and p90_df is not None:
-                            st.subheader("📊 Upside/Downside Risk")
+                            st.subheader("Upside/Downside Risk")
                             all_names = list(giving_names) + list(receiving_names)
                             risk_rows = []
                             for name in all_names:

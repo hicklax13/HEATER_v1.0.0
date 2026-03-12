@@ -1,6 +1,166 @@
-"""Shared UI constants, theme system, and CSS injection for all pages."""
+"""Shared UI constants, theme system, CSS injection, and SVG icons for all pages."""
 
 import streamlit as st
+
+# ── Inline SVG Page Icons ─────────────────────────────────────────
+# Unique vector icons for each page, replacing emoji. Each is a compact
+# inline SVG string (24x24 viewBox) that can be embedded in st.markdown().
+# Colors are applied via CSS `currentColor` so they respect the theme.
+
+PAGE_ICONS = {
+    "configurations": (
+        '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
+        'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:8px;">'
+        '<circle cx="12" cy="12" r="3"/>'
+        '<path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06'
+        "a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09"
+        "A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83"
+        "l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09"
+        "A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83"
+        "l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09"
+        "a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83"
+        "l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09"
+        'a1.65 1.65 0 0 0-1.51 1z"/></svg>'
+    ),
+    "my_team": (
+        '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
+        'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:8px;">'
+        '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>'
+        '<circle cx="9" cy="7" r="4"/>'
+        '<path d="M23 21v-2a4 4 0 0 0-3-3.87"/>'
+        '<path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>'
+    ),
+    "trade_analyzer": (
+        '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
+        'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:8px;">'
+        '<polyline points="17 1 21 5 17 9"/>'
+        '<path d="M3 11V9a4 4 0 0 1 4-4h14"/>'
+        '<polyline points="7 23 3 19 7 15"/>'
+        '<path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>'
+    ),
+    "player_compare": (
+        '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
+        'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:8px;">'
+        '<line x1="18" y1="20" x2="18" y2="10"/>'
+        '<line x1="12" y1="20" x2="12" y2="4"/>'
+        '<line x1="6" y1="20" x2="6" y2="14"/>'
+        '<line x1="3" y1="20" x2="21" y2="20"/></svg>'
+    ),
+    "free_agents": (
+        '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
+        'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:8px;">'
+        '<circle cx="11" cy="11" r="8"/>'
+        '<line x1="21" y1="21" x2="16.65" y2="16.65"/>'
+        '<line x1="11" y1="8" x2="11" y2="14"/>'
+        '<line x1="8" y1="11" x2="14" y2="11"/></svg>'
+    ),
+    "lineup_optimizer": (
+        '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
+        'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:8px;">'
+        '<rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>'
+        '<line x1="3" y1="9" x2="21" y2="9"/>'
+        '<line x1="3" y1="15" x2="21" y2="15"/>'
+        '<line x1="9" y1="3" x2="9" y2="21"/></svg>'
+    ),
+    # Utility icons used across pages
+    "refresh": (
+        '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
+        'stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:4px;">'
+        '<polyline points="23 4 23 10 17 10"/>'
+        '<path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>'
+    ),
+    "check": (
+        '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#84cc16" '
+        'stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:4px;">'
+        '<polyline points="20 6 9 17 4 12"/></svg>'
+    ),
+    "x_mark": (
+        '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#f43f5e" '
+        'stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:4px;">'
+        '<line x1="18" y1="6" x2="6" y2="18"/>'
+        '<line x1="6" y1="6" x2="18" y2="18"/></svg>'
+    ),
+    "warning": (
+        '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fb923c" '
+        'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:4px;">'
+        '<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86'
+        'a2 2 0 0 0-3.42 0z"/>'
+        '<line x1="12" y1="9" x2="12" y2="13"/>'
+        '<line x1="12" y1="17" x2="12.01" y2="17"/></svg>'
+    ),
+    "alert": (
+        '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#f43f5e" '
+        'stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:4px;">'
+        '<circle cx="12" cy="12" r="10"/>'
+        '<line x1="12" y1="8" x2="12" y2="12"/>'
+        '<line x1="12" y1="16" x2="12.01" y2="16"/></svg>'
+    ),
+    "baseball": (
+        '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
+        'stroke-width="2" stroke-linecap="round" style="vertical-align:middle;margin-right:8px;">'
+        '<circle cx="12" cy="12" r="10"/>'
+        '<path d="M4.93 4.93c4.08 2.38 4.08 11.76 0 14.14"/>'
+        '<path d="M19.07 4.93c-4.08 2.38-4.08 11.76 0 14.14"/></svg>'
+    ),
+    "bar_chart": (
+        '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
+        'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:4px;">'
+        '<line x1="18" y1="20" x2="18" y2="10"/>'
+        '<line x1="12" y1="20" x2="12" y2="4"/>'
+        '<line x1="6" y1="20" x2="6" y2="14"/></svg>'
+    ),
+    "zap": (
+        '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
+        'stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:4px;">'
+        '<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>'
+    ),
+    "calendar": (
+        '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
+        'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:4px;">'
+        '<rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>'
+        '<line x1="16" y1="2" x2="16" y2="6"/>'
+        '<line x1="8" y1="2" x2="8" y2="6"/>'
+        '<line x1="3" y1="10" x2="21" y2="10"/></svg>'
+    ),
+    "accept": (
+        '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#84cc16" '
+        'stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:6px;">'
+        '<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>'
+        '<polyline points="22 4 12 14.01 9 11.01"/></svg>'
+    ),
+    "reject": (
+        '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#f43f5e" '
+        'stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:6px;">'
+        '<circle cx="12" cy="12" r="10"/>'
+        '<line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>'
+    ),
+    "fire": (
+        '<svg width="14" height="14" viewBox="0 0 24 24" fill="#f43f5e" stroke="none" '
+        'style="vertical-align:middle;margin-right:3px;">'
+        '<path d="M12 23c-3.866 0-7-3.134-7-7 0-3 2-5.5 4-8 .667 1.333 1.333 2 2 2'
+        ' 0-4 1.5-7.5 4-10 .667 2.667 2 5.333 4 8 1.333-1.333 2-3.333 2-6'
+        ' 2 2 3 4.5 3 7 0 3.866-3.134 7-7 7z"/></svg>'
+    ),
+    "trending_up": (
+        '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
+        'stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:3px;">'
+        '<polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/>'
+        '<polyline points="17 6 23 6 23 12"/></svg>'
+    ),
+    "minus": (
+        '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
+        'stroke-width="2.5" stroke-linecap="round" style="vertical-align:middle;margin-right:3px;">'
+        '<line x1="5" y1="12" x2="19" y2="12"/></svg>'
+    ),
+    "users": (
+        '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
+        'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:4px;">'
+        '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>'
+        '<circle cx="9" cy="7" r="4"/>'
+        '<path d="M23 21v-2a4 4 0 0 0-3-3.87"/>'
+        '<path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>'
+    ),
+}
 
 # ── Theme Dictionaries ──────────────────────────────────────────────
 
@@ -17,6 +177,7 @@ DARK_THEME = {
     "tx": "#f0f0f0",
     "tx2": "#8b95a5",
     "border": "#1a1f2e",
+    "ink": "#0a0e1a",
     "tiers": [
         "#f59e0b",
         "#fbbf24",
@@ -42,6 +203,7 @@ LIGHT_THEME = {
     "tx": "#1a1a2e",
     "tx2": "#5a6170",
     "border": "#d1d5db",
+    "ink": "#1a1a2e",
     "tiers": [
         "#f59e0b",
         "#fbbf24",
@@ -176,7 +338,7 @@ def render_theme_toggle():
         with st.sidebar:
             current_mode = st.session_state.get("theme_mode", "dark")
             is_dark = current_mode == "dark"
-            label = "🌙 Dark Mode" if is_dark else "☀️ Light Mode"
+            label = "Dark Mode" if is_dark else "Light Mode"
             new_is_dark = st.toggle(label, value=is_dark, key="_theme_toggle")
             new_mode = "dark" if new_is_dark else "light"
             if new_mode != current_mode:
@@ -320,7 +482,7 @@ def inject_custom_css():
     /* ── YOUR TURN BADGE ─────────────────────── */
     .your-turn {{
         background: {t["amber"]};
-        color: {t["bg"]};
+        color: {t["ink"]};
         font-family: 'Oswald', sans-serif;
         font-weight: 700;
         font-size: 16px;
@@ -390,7 +552,7 @@ def inject_custom_css():
         position: absolute;
         top: 16px; right: 20px;
         background: {t["amber"]};
-        color: {t["bg"]};
+        color: {t["ink"]};
         font-family: 'JetBrains Mono', monospace;
         font-weight: 700;
         font-size: 22px;
@@ -538,9 +700,9 @@ def inject_custom_css():
         font-size: 12px;
         font-weight: 600;
         color: {t["tx"]};
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
+        word-break: break-word;
+        overflow-wrap: anywhere;
+        line-height: 1.3;
     }}
 
     /* ── SCARCITY RINGS ──────────────────────── */
@@ -600,10 +762,9 @@ def inject_custom_css():
         padding: 5px 6px;
         border-bottom: 1px solid {t["card_h"]}44;
         color: {t["tx2"]};
-        max-width: 120px;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
+        max-width: 200px;
+        overflow-wrap: anywhere;
+        word-break: break-word;
     }}
     .draft-board .user-col {{
         background: {t["amber"]}11;
@@ -612,7 +773,7 @@ def inject_custom_css():
     }}
     .draft-board .user-col th {{
         background: {t["amber"]};
-        color: {t["bg"]};
+        color: {t["ink"]};
     }}
     .draft-board .current-pick {{
         border: 2px solid {t["amber"]};
@@ -710,7 +871,7 @@ def inject_custom_css():
     .wizard-step:last-child {{ border-radius: 0 8px 8px 0; }}
     .wizard-step.active {{
         background: {t["amber"]};
-        color: {t["bg"]};
+        color: {t["ink"]};
         border-color: {t["amber"]};
     }}
     .wizard-step.done {{
@@ -796,7 +957,7 @@ def inject_custom_css():
     .stButton > button[kind="primary"],
     .stButton > button[data-testid="stBaseButton-primary"] {{
         background: {t["amber"]};
-        color: {t["bg"]};
+        color: {t["ink"]};
         border: none;
     }}
     .stButton > button[kind="primary"]:hover,
@@ -835,7 +996,7 @@ def inject_custom_css():
     }}
     .stTabs [aria-selected="true"] {{
         background: {t["amber"]} !important;
-        color: {t["bg"]} !important;
+        color: {t["ink"]} !important;
     }}
     div[data-testid="stFileUploader"] {{
         background: {t["card"]};
@@ -901,6 +1062,15 @@ def inject_custom_css():
     /* ── TOOLTIP (CSS-based, on title attr) ─── */
     [title] {{
         cursor: help;
+    }}
+
+    /* ── SIDEBAR NAV: rename "app" → "Configurations" ─── */
+    [data-testid="stSidebarNav"] a[href="/"] span {{
+        font-size: 0 !important;
+    }}
+    [data-testid="stSidebarNav"] a[href="/"] span::after {{
+        content: "Configurations";
+        font-size: 14px;
     }}
     </style>
     """,

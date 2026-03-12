@@ -6,7 +6,7 @@ import streamlit as st
 from src.database import init_db, load_league_rosters, load_league_standings
 from src.injury_model import compute_health_score, get_injury_badge
 from src.league_manager import get_team_roster
-from src.ui_shared import METRIC_TOOLTIPS, inject_custom_css, render_theme_toggle
+from src.ui_shared import METRIC_TOOLTIPS, PAGE_ICONS, inject_custom_css, render_theme_toggle
 
 try:
     from src.lineup_optimizer import LineupOptimizer
@@ -15,14 +15,14 @@ try:
 except ImportError:
     OPTIMIZER_AVAILABLE = False
 
-st.set_page_config(page_title="Lineup Optimizer", page_icon="📋", layout="wide")
+st.set_page_config(page_title="Lineup Optimizer", page_icon="", layout="wide")
 
 init_db()
 
 inject_custom_css()
 render_theme_toggle()
 
-st.title("📋 Lineup Optimizer")
+st.title("Lineup Optimizer")
 
 # ── Load user team ────────────────────────────────────────────────
 rosters = load_league_rosters()
@@ -82,7 +82,7 @@ optimizer = LineupOptimizer(roster, config)
 # ── Optimize button ───────────────────────────────────────────────
 col1, col2 = st.columns([1, 4])
 with col1:
-    optimize_clicked = st.button("⚡ Optimize Lineup", type="primary")
+    optimize_clicked = st.button("Optimize Lineup", type="primary")
 
 if optimize_clicked:
     with st.spinner("Running LP solver..."):
@@ -114,7 +114,7 @@ if optimize_clicked:
 
 # ── Category Targeting ────────────────────────────────────────────
 st.divider()
-st.subheader("📊 Category Targeting")
+st.subheader("Category Targeting")
 
 standings = load_league_standings()
 if standings.empty:
@@ -129,15 +129,15 @@ else:
         weights_sorted = sorted(weights.items(), key=lambda x: x[1], reverse=True)
         for cat, weight in weights_sorted:
             bar_len = int(weight * 20)
-            emoji = "🔥" if weight > 1.5 else "📈" if weight > 1.0 else "➖"
-            st.markdown(f"{emoji} **{cat.upper()}**: {'█' * bar_len}{'░' * (20 - bar_len)} ({weight:.2f}x)")
+            icon = PAGE_ICONS["fire"] if weight > 1.5 else PAGE_ICONS["trending_up"] if weight > 1.0 else PAGE_ICONS["minus"]
+            st.markdown(f"{icon} **{cat.upper()}**: {'█' * bar_len}{'░' * (20 - bar_len)} ({weight:.2f}x)", unsafe_allow_html=True)
         st.caption(METRIC_TOOLTIPS["cat_targeting"])
     else:
         st.info("Could not compute targeting weights from standings data.")
 
 # ── Current Roster Overview ───────────────────────────────────────
 st.divider()
-st.subheader("👥 Current Roster")
+st.subheader("Current Roster")
 
 # Add health info to roster overview
 health_dict = {}
@@ -161,7 +161,7 @@ try:
                 health_badges.append(icon)
                 health_dict[pid] = hs
             else:
-                health_badges.append("🟢")
+                health_badges.append('<span style="display:inline-block;width:10px;height:10px;border-radius:50%;vertical-align:middle;margin-right:4px;background:#84cc16;"></span>')
                 health_dict[pid] = 1.0
         roster["Health"] = health_badges
 except Exception:
@@ -201,7 +201,7 @@ try:
                 two_start_sps.append(row.get("name", row.get("player_name", "")))
 
     if two_start_sps:
-        st.info(f"📅 Potential two-start SPs this week: {', '.join(two_start_sps)}")
+        st.info(f"Potential two-start SPs this week: {', '.join(two_start_sps)}")
 except Exception:
     pass  # Graceful degradation when MLB Stats API unavailable
 
