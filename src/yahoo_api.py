@@ -783,6 +783,7 @@ class YahooFantasyClient:
         # free of Streamlit imports.
         from src.database import (
             clear_league_rosters,
+            get_connection,
             update_refresh_log,
             upsert_league_roster_entry,
             upsert_league_standing,
@@ -826,19 +827,46 @@ class YahooFantasyClient:
                 user_team_key = self._get_user_team_key()
                 logger.debug("User team key: %s", user_team_key)
 
+                # Resolve Yahoo player names to local player_ids before storing
+                from src.live_stats import match_player_id
+
                 team_indices: dict[str, int] = {}
                 idx = 0
+                skipped = 0
                 for _, row in rosters_df.iterrows():
                     team_name = row.get("team_name", "")
                     if team_name not in team_indices:
                         team_indices[team_name] = idx
                         idx += 1
 
-                    player_id_str = row.get("player_id", "0")
-                    try:
-                        player_id = int(player_id_str)
-                    except (ValueError, TypeError):
-                        player_id = hash(player_id_str) % (10**9)
+                    # Resolve player name → local player_id (not Yahoo's ID)
+                    player_name = row.get("player_name", "")
+                    team_abbr = ""  # Yahoo roster doesn't have MLB team abbreviation
+                    player_id = match_player_id(player_name, team_abbr)
+                    if player_id is None:
+                        # Fallback: try fuzzy match via DB query
+                        conn = get_connection()
+                        try:
+                            parts = player_name.split()
+                            if len(parts) >= 2:
+                                cursor = conn.cursor()
+                                cursor.execute(
+                                    "SELECT player_id FROM players WHERE name LIKE ? AND name LIKE ?",
+                                    (f"%{parts[0]}%", f"%{parts[-1]}%"),
+                                )
+                                result = cursor.fetchone()
+                                if result:
+                                    player_id = result[0]
+                        finally:
+                            conn.close()
+
+                    if player_id is None:
+                        skipped += 1
+                        logger.debug(
+                            "Could not match Yahoo player '%s' to local DB, skipping.",
+                            player_name,
+                        )
+                        continue
 
                     team_key = row.get("team_key", "")
                     is_user = user_team_key is not None and team_key == user_team_key
@@ -851,6 +879,13 @@ class YahooFantasyClient:
                         is_user_team=is_user,
                     )
                     counts["rosters"] += 1
+
+                if skipped:
+                    logger.info(
+                        "Skipped %d players not found in local DB (sync %d).",
+                        skipped,
+                        counts["rosters"],
+                    )
 
                 update_refresh_log("yahoo_rosters", "success")
                 logger.info("Synced %d roster entries to DB.", counts["rosters"])
