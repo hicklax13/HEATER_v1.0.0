@@ -144,7 +144,7 @@ def exchange_code_for_token(
         req = urllib.request.Request(token_url, data=data, headers=headers)
         with urllib.request.urlopen(req, timeout=15) as resp:
             token_data = json.loads(resp.read().decode("utf-8"))
-        logger.info("Yahoo OAuth token exchange successful.")
+        logger.info("Yahoo OAuth token exchange successful. Keys: %s", list(token_data.keys()))
         return token_data
     except urllib.error.HTTPError as exc:
         body = exc.read().decode("utf-8", errors="replace") if exc.fp else ""
@@ -273,23 +273,26 @@ class YahooFantasyClient:
 
             _AUTH_DIR.mkdir(parents=True, exist_ok=True)
 
-            # If the caller supplies a fresh OAuth token, persist it to disk
-            # in the format yahoo-oauth/yfpy expect. This prevents yfpy from
-            # triggering its own interactive auth flow (which calls input()).
-            token_json_path: str | None = None
+            # If the caller supplies a fresh OAuth token, build the dict
+            # in the format yfpy expects. yfpy's yahoo_access_token_json
+            # param accepts a dict or JSON *string* (NOT a file path).
+            # Required fields: access_token, consumer_key, consumer_secret,
+            # guid, refresh_token, token_time, token_type.
+            token_dict: dict | None = None
             if token_data is not None:
-                token_file = _AUTH_DIR / "yahoo_token.json"
-                persisted = {
+                token_dict = {
                     "access_token": token_data.get("access_token"),
                     "consumer_key": consumer_key,
                     "consumer_secret": consumer_secret,
                     "expires_in": token_data.get("expires_in", 3600),
+                    "guid": token_data.get("xoauth_yahoo_guid", ""),
                     "refresh_token": token_data.get("refresh_token"),
                     "token_time": time.time(),
                     "token_type": token_data.get("token_type", "bearer"),
                 }
-                token_file.write_text(json.dumps(persisted, indent=2))
-                token_json_path = str(token_file)
+                # Also persist to disk for future sessions
+                token_file = _AUTH_DIR / "yahoo_token.json"
+                token_file.write_text(json.dumps(token_dict, indent=2))
                 logger.info("Wrote Yahoo token to %s", token_file)
 
             # Build constructor kwargs for yfpy v17+
@@ -301,8 +304,8 @@ class YahooFantasyClient:
                 "browser_callback": False,
             }
 
-            if token_json_path is not None:
-                query_kwargs["yahoo_access_token_json"] = token_json_path
+            if token_dict is not None:
+                query_kwargs["yahoo_access_token_json"] = token_dict
 
             self._query = YahooFantasySportsQuery(**query_kwargs)
             # Force a lightweight call to confirm the token is valid.

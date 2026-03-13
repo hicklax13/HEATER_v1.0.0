@@ -5,7 +5,7 @@
 A fantasy baseball draft assistant + in-season manager for a 12-team Yahoo Sports 5x5 roto snake draft league. Two pillars:
 
 1. **Draft Tool** (`app.py`, ~1600 lines) — "Broadcast Booth" themed Streamlit app with dark/light mode toggle: splash screen data bootstrap + 2-step setup wizard (Settings, Launch), 3-column draft page with SVG injury badges, percentile ranges, opponent intel tab, and practice mode. Monte Carlo recommendations with percentile sampling. Zero CSV uploads — all data auto-fetched from MLB Stats API + FanGraphs on every launch.
-2. **In-Season Management** (`pages/`) — 5 Streamlit pages: team overview, trade analysis, player comparison, free agent rankings, lineup optimizer. Powered by MLB Stats API + pybaseball + optional Yahoo Fantasy API. All pages share centralized theme system with dark/light toggle.
+2. **In-Season Management** (`pages/`) — 6 Streamlit pages: team overview, mock draft simulator, trade analysis, player comparison, free agent rankings, lineup optimizer. Powered by MLB Stats API + pybaseball + optional Yahoo Fantasy API. All pages share centralized theme system with dark/light toggle.
 
 ## Commands
 
@@ -68,10 +68,11 @@ load_sample_data.py     — Generates ~190 sample players + injury history for t
 .claude/launch.json     — Dev server config for preview tools
 pages/
   1_My_Team.py          — In-season: team overview, roster, category standings
-  2_Trade_Analyzer.py   — In-season: trade proposal builder + MC analysis
-  3_Player_Compare.py   — In-season: head-to-head player comparison
-  4_Free_Agents.py      — In-season: free agent rankings by marginal value
-  5_Lineup_Optimizer.py — In-season: PuLP LP solver for start/sit + category targeting
+  2_Mock_Draft.py       — Standalone mock draft simulator (AI opponents, MC recommendations, draft board)
+  3_Trade_Analyzer.py   — In-season: trade proposal builder + MC analysis
+  4_Player_Compare.py   — In-season: head-to-head player comparison
+  5_Free_Agents.py      — In-season: free agent rankings by marginal value
+  6_Lineup_Optimizer.py — In-season: PuLP LP solver for start/sit + category targeting
 src/
   database.py           — SQLite schema (14 tables), CSV import, projection blending, player pool + in-season queries
   valuation.py          — SGP calculator, replacement levels, VORP, category weights, percentile forecasts
@@ -300,6 +301,8 @@ SYSTEM_MAP = {"steamer": "steamer", "zips": "zips", "fangraphsdc": "depthcharts"
 - **Park factors schema** — Uses columns `team_code`, `factor_hitting`, `factor_pitching` (not just `team` and `park_factor`). `upsert_park_factors()` accepts both naming conventions via flexible getter.
 - **sgp_volatility alignment** — When `evaluate_candidates()` receives `sgp_volatility`, the array is aligned to the full pool. After filtering drafted players, it must be re-indexed via `pd.Series.reindex()` to match the filtered `available` pool.
 - **Practice mode isolation** — Uses separate `st.session_state["practice_draft_state"]` DraftState, never persisted to disk/DB. Resets on page refresh or "Reset Practice" button click.
+- **Mock Draft session state** — All keys prefixed `mock_` (`mock_ds`, `mock_pool`, `mock_lc`, `mock_sgp`, `mock_started`, `mock_draft_pos`, `mock_num_sims`). Ephemeral — never saved to DB/disk. Resets on "Reset Draft" button click.
+- **`evaluate_candidates()` returns `name`, not `player_name`** — The result DataFrame uses `"name"` from the pool. Always alias to `"player_name"` after calling: `recs["player_name"] = recs["name"]`.
 - **Percentile pipeline ordering** — `compute_projection_volatility()` → `add_process_risk()` → `compute_percentile_projections()`. Skip entirely when only one projection system exists (zero variance). All 3 consumers (app.py, Trade Analyzer, Player Compare) must follow this exact ordering.
 - **Connection leak pattern in pages** — Always wrap `get_connection()` + queries in `try/finally` with `conn.close()` in the `finally` block. Do NOT put `conn.close()` inline after queries — if a query throws, the connection leaks.
 - **Scarcity toast dedup** — `st.toast()` fires on every Streamlit rerender. Use `st.session_state` keys to deduplicate (e.g., `f"scarcity_toast_{pos}_{count}"`).

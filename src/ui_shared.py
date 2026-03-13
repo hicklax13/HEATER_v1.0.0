@@ -1068,6 +1068,7 @@ def inject_custom_css():
         text-transform: uppercase;
         letter-spacing: 3px;
         text-align: center;
+        margin-top: 16px;
         margin-bottom: 8px;
         word-break: break-word;
         overflow-wrap: anywhere;
@@ -1078,14 +1079,7 @@ def inject_custom_css():
         cursor: help;
     }}
 
-    /* ── SIDEBAR NAV: rename "app" → "Configurations" ─── */
-    [data-testid="stSidebarNav"] a[href="/"] span {{
-        font-size: 0 !important;
-    }}
-    [data-testid="stSidebarNav"] a[href="/"] span::after {{
-        content: "Configurations";
-        font-size: 14px;
-    }}
+    /* ── SIDEBAR NAV: styling for renamed "app" entry ─── */
 
     /* ── RESPONSIVE: scale down large text on narrow viewports ─── */
     @media (max-width: 768px) {{
@@ -1128,6 +1122,24 @@ def inject_custom_css():
     </style>
     """,
         unsafe_allow_html=True,
+    )
+
+    # Rename sidebar "app" → "Configurations" via JS (CSS pseudo-elements
+    # are blocked by Streamlit's internal styles).
+    import streamlit.components.v1 as components
+
+    components.html(
+        """<script>
+        (function rename() {
+            const nav = parent.document.querySelector('[data-testid="stSidebarNav"]');
+            if (!nav) { setTimeout(rename, 200); return; }
+            const span = nav.querySelector('li:first-child a span');
+            if (span && span.textContent.trim() === 'app') {
+                span.textContent = 'Configurations';
+            } else { setTimeout(rename, 200); }
+        })();
+        </script>""",
+        height=0,
     )
 
 

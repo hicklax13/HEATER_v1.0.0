@@ -29,14 +29,14 @@ render_theme_toggle()
 def build_mock_pool() -> pd.DataFrame:
     """Load player pool and run full valuation pipeline."""
     raw = load_player_pool()
-    if raw.empty:
-        return raw
+    if raw is None or raw.empty:
+        return pd.DataFrame()
     raw["player_name"] = raw["name"]
 
     lc = LeagueConfig()
-    sgp = SGPCalculator(lc)
     denoms = compute_sgp_denominators(raw, lc)
     lc.sgp_denominators.update(denoms)
+    sgp = SGPCalculator(lc)
     repl = compute_replacement_levels(raw, lc, sgp)
     valued = value_all_players(raw, lc, replacement_levels=repl, num_rounds=23)
     if "player_name" not in valued.columns:
@@ -103,6 +103,10 @@ def render_recommendations(pool: pd.DataFrame, ds: DraftState, n_sims: int) -> N
         except Exception:
             recs = pd.DataFrame()
 
+    # evaluate_candidates returns "name"; alias to "player_name" for rendering
+    if not recs.empty and "name" in recs.columns and "player_name" not in recs.columns:
+        recs["player_name"] = recs["name"]
+
     available = ds.available_players(pool)
 
     if recs.empty or available.empty:
@@ -118,7 +122,7 @@ def render_recommendations(pool: pd.DataFrame, ds: DraftState, n_sims: int) -> N
         surv = float(row.get("survival_pct", 0))
         urg = float(row.get("urgency", 0))
         border_color = T["amber"] if rank == 1 else T["border"]
-        label_color = T["amber"] if rank == 1 else T["text"]
+        label_color = T["amber"] if rank == 1 else T["tx"]
         st.markdown(
             f"""
 <div style="background:{T["card"]};border:2px solid {border_color};border-radius:12px;
@@ -126,10 +130,10 @@ def render_recommendations(pool: pd.DataFrame, ds: DraftState, n_sims: int) -> N
     <div style="color:{label_color};font-size:1.05rem;font-weight:700;">
         #{rank} {name}
     </div>
-    <div style="color:{T["muted"]};font-size:0.82rem;margin-top:2px;">
+    <div style="color:{T["tx2"]};font-size:0.82rem;margin-top:2px;">
         {pos} &nbsp;|&nbsp; ADP: {adp:.0f}
     </div>
-    <div style="color:{T["text"]};font-size:0.88rem;margin-top:8px;">
+    <div style="color:{T["tx"]};font-size:0.88rem;margin-top:8px;">
         Score: {score:.1f} &nbsp;&nbsp; Survival: {surv:.0%} &nbsp;&nbsp; Urgency: {urg:.2f}
     </div>
 </div>
@@ -180,7 +184,7 @@ def render_user_roster(ds: DraftState) -> None:
             }
         )
     df = pd.DataFrame(rows)
-    st.dataframe(df, use_container_width=True, hide_index=True, height=500)
+    st.dataframe(df, width="stretch", hide_index=True, height=500)
 
 
 # ── Recent Picks Feed ───────────────────────────────────────────────────────
@@ -193,19 +197,19 @@ def render_recent_picks(ds: DraftState) -> None:
     )
     log = ds.pick_log[-10:][::-1] if ds.pick_log else []
     if not log:
-        st.markdown(f'<div style="color:{T["muted"]};font-size:0.85rem;">No picks yet.</div>', unsafe_allow_html=True)
+        st.markdown(f'<div style="color:{T["tx2"]};font-size:0.85rem;">No picks yet.</div>', unsafe_allow_html=True)
         return
     for entry in log:
         is_user = entry["team_index"] == ds.user_team_index
-        name_color = T["amber"] if is_user else T["text"]
+        name_color = T["amber"] if is_user else T["tx"]
         st.markdown(
             f"""
 <div style="background:{T["card"]};border:1px solid {T["border"]};border-radius:8px;
             padding:8px 12px;margin-bottom:6px;">
-    <span style="color:{T["muted"]};font-size:0.75rem;">R{entry["round"]} P{entry["pick_in_round"]}</span>
-    <span style="color:{T["muted"]};font-size:0.75rem;"> &nbsp;{entry["team_name"]}</span><br>
+    <span style="color:{T["tx2"]};font-size:0.75rem;">R{entry["round"]} P{entry["pick_in_round"]}</span>
+    <span style="color:{T["tx2"]};font-size:0.75rem;"> &nbsp;{entry["team_name"]}</span><br>
     <span style="color:{name_color};font-size:0.9rem;font-weight:600;">{entry["player_name"]}</span>
-    <span style="color:{T["muted"]};font-size:0.78rem;"> {entry["positions"]}</span>
+    <span style="color:{T["tx2"]};font-size:0.78rem;"> {entry["positions"]}</span>
 </div>
 """,
             unsafe_allow_html=True,
@@ -284,7 +288,7 @@ def render_draft_summary(pool: pd.DataFrame, ds: DraftState) -> None:
 <div style="background:{T["card"]};border:2px solid {grade_color};border-radius:12px;
             padding:24px;text-align:center;margin-top:20px;">
     <div style="color:{grade_color};font-size:3rem;font-weight:900;">{grade}</div>
-    <div style="color:{T["text"]};font-size:1rem;margin-top:4px;">
+    <div style="color:{T["tx"]};font-size:1rem;margin-top:4px;">
         Draft Grade &nbsp;|&nbsp; SGP: {user_sgp:.1f} &nbsp; (Avg: {avg_sgp:.1f})
     </div>
 </div>
@@ -294,7 +298,7 @@ def render_draft_summary(pool: pd.DataFrame, ds: DraftState) -> None:
 
     st.markdown("### Final Roster")
     rows = [{"Slot": s.position, "Player": s.player_name or "—"} for s in ds.user_team.slots]
-    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+    st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
 
     if st.button("Start New Mock Draft", type="primary"):
         for key in list(st.session_state.keys()):
@@ -325,7 +329,7 @@ def render_tabs(pool: pd.DataFrame, ds: DraftState) -> None:
             cols = ["player_name", "positions", "team", "adp", "pick_score"]
             cols = [c for c in cols if c in disp.columns]
             disp_sorted = disp[cols].sort_values("pick_score", ascending=False)
-            st.dataframe(disp_sorted, use_container_width=True, hide_index=True, height=400)
+            st.dataframe(disp_sorted, width="stretch", hide_index=True, height=400)
 
     with tab_board:
         if not ds.pick_log:
@@ -347,7 +351,7 @@ def render_tabs(pool: pd.DataFrame, ds: DraftState) -> None:
                 grid_rows.append(row)
 
             board_df = pd.DataFrame(grid_rows).set_index("Round")
-            st.dataframe(board_df, use_container_width=True, height=500)
+            st.dataframe(board_df, width="stretch", height=500)
 
     with tab_log:
         if not ds.pick_log:
@@ -357,7 +361,7 @@ def render_tabs(pool: pd.DataFrame, ds: DraftState) -> None:
                 ["pick", "round", "pick_in_round", "team_name", "player_name", "positions"]
             ]
             log_df.columns = ["#", "Round", "Pick", "Team", "Player", "Pos"]
-            st.dataframe(log_df[::-1].reset_index(drop=True), use_container_width=True, hide_index=True, height=400)
+            st.dataframe(log_df[::-1].reset_index(drop=True), width="stretch", hide_index=True, height=400)
 
 
 # ── Main ────────────────────────────────────────────────────────────────────
@@ -379,7 +383,7 @@ if pool.empty:
 
 if not st.session_state.get("mock_started", False):
     st.markdown(
-        f'<div style="color:{T["text"]};font-size:1rem;margin-bottom:16px;">'
+        f'<div style="color:{T["tx"]};font-size:1rem;margin-bottom:16px;">'
         "Configure your mock draft settings, then click Start.</div>",
         unsafe_allow_html=True,
     )
@@ -427,7 +431,7 @@ if is_user:
     )
 else:
     header_html = (
-        f'<div style="background:{T["card"]};color:{T["text"]};border:1px solid {T["border"]};'
+        f'<div style="background:{T["card"]};color:{T["tx"]};border:1px solid {T["border"]};'
         f'border-radius:10px;padding:12px 20px;font-size:1.1rem;font-weight:600;margin-bottom:12px;">'
         f"Round {round_num} / Pick {pick_num} &nbsp;&mdash;&nbsp; On the Clock: {picking_team}</div>"
     )
@@ -459,7 +463,7 @@ with center_col:
         render_recommendations(pool, ds, n_sims)
     else:
         st.markdown(
-            f'<div style="color:{T["muted"]};font-size:0.95rem;padding:20px 0;">'
+            f'<div style="color:{T["tx2"]};font-size:0.95rem;padding:20px 0;">'
             f"Waiting for <b>{picking_team}</b> to pick...</div>",
             unsafe_allow_html=True,
         )
