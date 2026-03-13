@@ -181,6 +181,9 @@ def test_authenticate_invalid_credentials(client):
 def test_authenticate_success(client):
     """Successful auth sets _query and returns True."""
     mock_query = MagicMock()
+    # _resolve_game_key() calls get_game_key_by_season() which must
+    # return a string that int() can parse (e.g. a Yahoo game key).
+    mock_query.get_game_key_by_season.return_value = "449"
     with (
         patch("src.yahoo_api.YFPY_AVAILABLE", True),
         patch("src.yahoo_api.YahooFantasySportsQuery", create=True, return_value=mock_query),
@@ -188,6 +191,9 @@ def test_authenticate_success(client):
         result = client.authenticate("a" * 72, "b" * 32)
     assert result is True
     assert client.is_authenticated is True
+    # Verify game_id and league_key were set on the query object
+    assert mock_query.game_id == 449
+    assert mock_query.league_key == "449.l.12345"
 
 
 def test_authenticate_api_failure(client):

@@ -308,16 +308,56 @@ class YahooFantasyClient:
                 query_kwargs["yahoo_access_token_json"] = token_dict
 
             self._query = YahooFantasySportsQuery(**query_kwargs)
+
+            # --- Resolve the correct game_key for our season ---
+            # yfpy needs EITHER game_id in the constructor OR league_key
+            # cached.  Without either, it falls back to "current game"
+            # which may be the WRONG season (e.g. 2025 MLB when we
+            # need 2026).  The multi-strategy resolver handles pre-season
+            # edge cases where Yahoo hasn't registered the new game_key.
+            game_key = self._resolve_game_key()
+            if game_key:
+                self._query.game_id = int(game_key)
+                self._query.league_key = f"{game_key}.l.{self.league_id}"
+                logger.info(
+                    "Resolved Yahoo game_key=%s -> league_key=%s (season %d)",
+                    game_key,
+                    self._query.league_key,
+                    self.season,
+                )
+            else:
+                logger.error(
+                    "Could not resolve game_key for season %d. "
+                    "Yahoo sync will likely return empty data.",
+                    self.season,
+                )
+
             # Force a lightweight call to confirm the token is valid.
             # Method name varies across yfpy versions — try several.
-            _rate_limit()
-            for method_name in ("get_league_metadata", "get_league_info", "get_league_settings"):
-                fn = getattr(self._query, method_name, None)
-                if fn is not None:
-                    fn()
-                    break
-            else:
-                logger.warning("No known yfpy metadata method found; skipping validation call.")
+            try:
+                _rate_limit()
+                for method_name in (
+                    "get_league_metadata",
+                    "get_league_info",
+                    "get_league_settings",
+                ):
+                    fn = getattr(self._query, method_name, None)
+                    if fn is not None:
+                        result = fn()
+                        logger.info(
+                            "Auth validation via %s succeeded", method_name
+                        )
+                        break
+                else:
+                    logger.warning(
+                        "No known yfpy metadata method found; "
+                        "skipping validation call."
+                    )
+            except Exception as exc:
+                logger.warning(
+                    "Auth validation call failed: %s (sync may still work)",
+                    exc,
+                )
             logger.info("Yahoo Fantasy API authenticated successfully.")
             return True
         except Exception:
@@ -373,6 +413,92 @@ class YahooFantasyClient:
     def _safe_attr(obj, attr: str, default=None):
         """Safely read an attribute from a yfpy model object."""
         return getattr(obj, attr, default)
+
+    def _resolve_game_key(self) -> str | None:
+        """Resolve Yahoo game_key for ``self.season`` using 3 fallback strategies.
+
+        Strategy 1: ``get_game_key_by_season(year)`` — direct lookup.
+        Strategy 2: ``get_all_yahoo_fantasy_game_keys()`` — enumerate all, filter.
+        Strategy 3: ``get_current_game_metadata()`` — use "current" if season matches
+                     (or as last resort if nothing else works).
+
+        Returns:
+            Game key string (e.g. ``"468"``) or ``None`` if all strategies fail.
+        """
+        # Strategy 1 — direct season lookup
+        try:
+            _rate_limit()
+            gk = self._query.get_game_key_by_season(self.season)
+            logger.info(
+                "Strategy 1 succeeded: game_key=%s for season %d", gk, self.season
+            )
+            return str(gk)
+        except Exception as exc:
+            logger.warning(
+                "Strategy 1 (get_game_key_by_season(%d)) failed: %s",
+                self.season,
+                exc,
+            )
+
+        # Strategy 2 — enumerate all game keys and filter by season
+        try:
+            _rate_limit()
+            all_games = self._query.get_all_yahoo_fantasy_game_keys()
+            for game_obj in all_games:
+                game = (
+                    game_obj.get("game") if isinstance(game_obj, dict) else game_obj
+                )
+                season_val = getattr(game, "season", None)
+                if str(season_val) == str(self.season):
+                    gk = getattr(game, "game_key", None)
+                    if gk:
+                        logger.info(
+                            "Strategy 2 succeeded: game_key=%s for season %d",
+                            gk,
+                            self.season,
+                        )
+                        return str(gk)
+            logger.warning(
+                "Strategy 2: no game found for season %d among %d games",
+                self.season,
+                len(all_games),
+            )
+        except Exception as exc:
+            logger.warning(
+                "Strategy 2 (get_all_yahoo_fantasy_game_keys) failed: %s", exc
+            )
+
+        # Strategy 3 — use current game metadata, accept if season matches
+        # or use as last resort even if it doesn't
+        try:
+            _rate_limit()
+            current = self._query.get_current_game_metadata()
+            current_season = getattr(current, "season", None)
+            gk = getattr(current, "game_key", None)
+            logger.info(
+                "Strategy 3: current game is season=%s, game_key=%s",
+                current_season,
+                gk,
+            )
+            if str(current_season) == str(self.season) and gk:
+                return str(gk)
+            # Even if seasons don't match, this may be the game hosting the
+            # user's league.  Accept it as the last resort.
+            if gk:
+                logger.warning(
+                    "Strategy 3: current season %s != requested %d, "
+                    "but using game_key=%s as last resort",
+                    current_season,
+                    self.season,
+                    gk,
+                )
+                return str(gk)
+        except Exception as exc:
+            logger.warning(
+                "Strategy 3 (get_current_game_metadata) failed: %s", exc
+            )
+
+        return None
 
     def _get_user_team_key(self) -> str | None:
         """Discover the authenticated user's team key.
@@ -460,12 +586,30 @@ class YahooFantasyClient:
             rows: list[dict] = []
             for entry in teams:
                 team = getattr(entry, "team", entry)
+
+                # Decode bytes team name (Python 3.14 + yfpy edge case)
+                raw_name = self._safe_attr(team, "name", "")
+                team_name = (
+                    raw_name.decode("utf-8", errors="replace")
+                    if isinstance(raw_name, bytes)
+                    else str(raw_name)
+                )
+
+                # Rank may live directly on team OR inside team_standings
+                rank_val = self._safe_attr(team, "rank")
+                if rank_val is None:
+                    ts = self._safe_attr(team, "team_standings")
+                    if ts is not None:
+                        rank_val = self._safe_attr(ts, "rank")
+                rank_val = int(rank_val or 0)
+
                 row: dict = {
-                    "team_name": str(self._safe_attr(team, "name", "")),
+                    "team_name": team_name,
                     "team_key": str(self._safe_attr(team, "team_key", "")),
-                    "rank": int(self._safe_attr(team, "rank", 0) or 0),
+                    "rank": rank_val,
                 }
-                # Extract per-category stat values
+                # Extract per-category stat values from team_stats
+                # (may be None pre-season when no games have been played)
                 team_stats = self._safe_attr(team, "team_stats")
                 if team_stats:
                     for s in getattr(team_stats, "stats", []):
@@ -504,7 +648,14 @@ class YahooFantasyClient:
 
             for entry in teams:
                 team = getattr(entry, "team", entry)
-                team_name = str(self._safe_attr(team, "name", ""))
+
+                # Decode bytes team name (Python 3.14 + yfpy edge case)
+                raw_name = self._safe_attr(team, "name", "")
+                team_name = (
+                    raw_name.decode("utf-8", errors="replace")
+                    if isinstance(raw_name, bytes)
+                    else str(raw_name)
+                )
                 team_key = str(self._safe_attr(team, "team_key", ""))
 
                 # yfpy's get_team_roster_by_week() internally builds
@@ -515,12 +666,21 @@ class YahooFantasyClient:
 
                 _rate_limit()
                 roster = self._query.get_team_roster_by_week(team_id)
-                for player_entry in roster or []:
+
+                # roster is a yfpy Roster object — iterate .players,
+                # NOT the Roster itself (which yields attribute names).
+                player_list = getattr(roster, "players", None) or []
+                for player_entry in player_list:
                     player = getattr(player_entry, "player", player_entry)
                     name_obj = self._safe_attr(player, "name")
                     full_name = ""
                     if name_obj:
-                        full_name = str(self._safe_attr(name_obj, "full", name_obj))
+                        raw_full = self._safe_attr(name_obj, "full", name_obj)
+                        full_name = (
+                            raw_full.decode("utf-8", errors="replace")
+                            if isinstance(raw_full, bytes)
+                            else str(raw_full)
+                        )
 
                     positions = self._safe_attr(player, "eligible_positions", [])
                     pos_str = "/".join(str(p) for p in positions) if positions else ""
@@ -558,13 +718,22 @@ class YahooFantasyClient:
             team_id = team_key.rsplit(".t.", 1)[-1] if ".t." in team_key else team_key
             _rate_limit()
             roster = self._query.get_team_roster_by_week(team_id)
+
+            # roster is a yfpy Roster object — iterate .players,
+            # NOT the Roster itself (which yields attribute names).
+            player_list = getattr(roster, "players", None) or []
             rows: list[dict] = []
-            for player_entry in roster or []:
+            for player_entry in player_list:
                 player = getattr(player_entry, "player", player_entry)
                 name_obj = self._safe_attr(player, "name")
                 full_name = ""
                 if name_obj:
-                    full_name = str(self._safe_attr(name_obj, "full", name_obj))
+                    raw_full = self._safe_attr(name_obj, "full", name_obj)
+                    full_name = (
+                        raw_full.decode("utf-8", errors="replace")
+                        if isinstance(raw_full, bytes)
+                        else str(raw_full)
+                    )
 
                 positions = self._safe_attr(player, "eligible_positions", [])
                 pos_str = "/".join(str(p) for p in positions) if positions else ""

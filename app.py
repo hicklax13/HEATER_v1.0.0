@@ -144,6 +144,59 @@ def render_setup_page():
 # ── Step 1: Import ──────────────────────────────────────────────────
 
 
+def _try_reconnect_yahoo() -> "YahooFantasyClient | None":
+    """Attempt to reconnect to Yahoo Fantasy using a saved token on disk.
+
+    When Streamlit restarts, session state is cleared — but the token file
+    persists at ``data/yahoo_token.json``. This function loads it, recreates
+    the ``YahooFantasyClient``, and authenticates, so that bootstrap and
+    subsequent pages have an active Yahoo connection without re-OAuth.
+
+    Returns:
+        An authenticated ``YahooFantasyClient`` or ``None`` on failure.
+    """
+    import json
+
+    from src.yahoo_api import _AUTH_DIR
+
+    token_file = _AUTH_DIR / "yahoo_token.json"
+    if not token_file.exists():
+        return None
+
+    try:
+        token_data = json.loads(token_file.read_text(encoding="utf-8"))
+    except Exception:
+        logger.debug("Could not read Yahoo token file.", exc_info=True)
+        return None
+
+    consumer_key = token_data.get(
+        "consumer_key", os.environ.get("YAHOO_CLIENT_ID", "")
+    )
+    consumer_secret = token_data.get(
+        "consumer_secret", os.environ.get("YAHOO_CLIENT_SECRET", "")
+    )
+
+    if not consumer_key or not consumer_secret:
+        logger.debug("Yahoo token file missing consumer_key/secret.")
+        return None
+
+    yahoo_league_id = os.environ.get("YAHOO_LEAGUE_ID", "").strip()
+    if not yahoo_league_id:
+        logger.debug("YAHOO_LEAGUE_ID env var not set; skipping reconnect.")
+        return None
+
+    try:
+        client = YahooFantasyClient(league_id=yahoo_league_id)
+        if client.authenticate(consumer_key, consumer_secret, token_data=token_data):
+            logger.info("Yahoo Fantasy auto-reconnected from saved token.")
+            return client
+        logger.warning("Yahoo auto-reconnect: authentication returned False.")
+    except Exception:
+        logger.debug("Yahoo auto-reconnect failed.", exc_info=True)
+
+    return None
+
+
 def render_splash_screen():
     """Show loading splash while data bootstraps on every app launch."""
     if st.session_state.get("bootstrap_complete"):
@@ -167,6 +220,14 @@ def render_splash_screen():
             status_text.text(f"{p.phase}: {p.detail}")
 
         yahoo_client = st.session_state.get("yahoo_client")
+
+        # Auto-reconnect from saved token if no active client
+        if yahoo_client is None and YFPY_AVAILABLE:
+            yahoo_client = _try_reconnect_yahoo()
+            if yahoo_client is not None:
+                st.session_state.yahoo_client = yahoo_client
+                st.session_state.yahoo_connected = True
+
         results = bootstrap_all_data(
             yahoo_client=yahoo_client,
             on_progress=on_progress,
