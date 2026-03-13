@@ -49,9 +49,24 @@ except Exception:
 # Get user team roster
 rosters = load_league_rosters()
 if rosters.empty:
-    st.warning(
-        "No league data loaded. Connect your Yahoo league in Settings, or league data will load automatically on next app launch."
-    )
+    if st.session_state.get("yahoo_connected"):
+        st.warning("Yahoo is connected but no roster data found in the database. Try syncing:")
+        if st.button("Sync League Data Now"):
+            client = st.session_state.get("yahoo_client")
+            if client:
+                with st.spinner("Syncing league data from Yahoo..."):
+                    try:
+                        client.sync_to_db()
+                        st.toast("Sync complete!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Sync failed: {e}")
+            else:
+                st.error("Yahoo client not found in session. Return to Settings and reconnect.")
+    else:
+        st.warning(
+            "No league data loaded. Connect your Yahoo league in Settings, or league data will load automatically on next app launch."
+        )
     st.stop()
 else:
     user_teams = rosters[rosters["is_user_team"] == 1]
@@ -130,14 +145,14 @@ else:
 
                 # Metrics
                 col1, col2, col3 = st.columns(3)
-                col1.metric("Total SGP Change", f"{result['total_sgp_change']:+.3f}", help=METRIC_TOOLTIPS["sgp"])
-                col2.metric("MC Mean", f"{result['mc_mean']:+.3f}", help=METRIC_TOOLTIPS["mc_mean"])
-                col3.metric("MC Std Dev", f"{result['mc_std']:.3f}", help=METRIC_TOOLTIPS["mc_std"])
+                col1.metric("Total Standings Gained Points Change", f"{result['total_sgp_change']:+.3f}", help=METRIC_TOOLTIPS["sgp"])
+                col2.metric("Monte Carlo Mean", f"{result['mc_mean']:+.3f}", help=METRIC_TOOLTIPS["mc_mean"])
+                col3.metric("Monte Carlo Standard Deviation", f"{result['mc_std']:.3f}", help=METRIC_TOOLTIPS["mc_std"])
 
                 # Category impact table
                 st.subheader("Category Impact")
                 impact_df = pd.DataFrame(
-                    [{"Category": cat, "SGP Change": f"{val:+.3f}"} for cat, val in result["category_impact"].items()]
+                    [{"Category": cat, "Standings Gained Points Change": f"{val:+.3f}"} for cat, val in result["category_impact"].items()]
                 )
                 st.dataframe(impact_df, width="stretch", hide_index=True)
 
@@ -215,10 +230,10 @@ else:
                                     risk_rows.append(
                                         {
                                             "Player": name,
-                                            "P10 HR (Floor)": f"{p10_hr:.0f}",
-                                            "P90 HR (Ceiling)": f"{p90_hr:.0f}",
-                                            "P10 AVG (Floor)": f"{p10_avg:.3f}",
-                                            "P90 AVG (Ceiling)": f"{p90_avg:.3f}",
+                                            "10th Percentile Home Runs (Floor)": f"{p10_hr:.0f}",
+                                            "90th Percentile Home Runs (Ceiling)": f"{p90_hr:.0f}",
+                                            "10th Percentile Batting Average (Floor)": f"{p10_avg:.3f}",
+                                            "90th Percentile Batting Average (Ceiling)": f"{p90_avg:.3f}",
                                         }
                                     )
                             if risk_rows:

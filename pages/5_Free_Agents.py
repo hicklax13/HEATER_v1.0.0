@@ -33,9 +33,24 @@ config = LeagueConfig()
 # Get user roster
 rosters = load_league_rosters()
 if rosters.empty:
-    st.warning(
-        "No league data loaded. Connect your Yahoo league in Settings, or league data will load automatically on next app launch."
-    )
+    if st.session_state.get("yahoo_connected"):
+        st.warning("Yahoo is connected but no roster data found in the database. Try syncing:")
+        if st.button("Sync League Data Now"):
+            client = st.session_state.get("yahoo_client")
+            if client:
+                with st.spinner("Syncing league data from Yahoo..."):
+                    try:
+                        client.sync_to_db()
+                        st.toast("Sync complete!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Sync failed: {e}")
+            else:
+                st.error("Yahoo client not found in session. Return to Settings and reconnect.")
+    else:
+        st.warning(
+            "No league data loaded. Connect your Yahoo league in Settings, or league data will load automatically on next app launch."
+        )
     st.stop()
 else:
     user_teams = rosters[rosters["is_user_team"] == 1]

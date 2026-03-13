@@ -33,9 +33,25 @@ st.title("My Team")
 # Determine user team
 rosters = load_league_rosters()
 if rosters.empty:
-    st.warning(
-        "No league data loaded. Connect your Yahoo league in Settings, or league data will load automatically on next app launch."
-    )
+    # If Yahoo is connected, offer immediate sync instead of a dead-end message
+    if st.session_state.get("yahoo_connected"):
+        st.warning("Yahoo is connected but no roster data found in the database. Try syncing:")
+        if st.button("Sync League Data Now"):
+            client = st.session_state.get("yahoo_client")
+            if client:
+                with st.spinner("Syncing league data from Yahoo..."):
+                    try:
+                        client.sync_to_db()
+                        st.toast("Sync complete!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Sync failed: {e}")
+            else:
+                st.error("Yahoo client not found in session. Return to Settings and reconnect.")
+    else:
+        st.warning(
+            "No league data loaded. Connect your Yahoo league in Settings, or league data will load automatically on next app launch."
+        )
     st.stop()
 else:
     user_teams = rosters[rosters["is_user_team"] == 1]
@@ -67,13 +83,22 @@ else:
                 if st.button("Sync Yahoo"):
                     with st.spinner("Syncing from Yahoo Fantasy..."):
                         try:
-                            client = YahooFantasyClient(league_id=yahoo_league_id)
-                            if client.authenticate(yahoo_key, yahoo_secret):
+                            # Reuse authenticated client from session if available
+                            client = st.session_state.get("yahoo_client")
+                            if client is None:
+                                # Fall back: try to authenticate with saved token data
+                                token_data = st.session_state.get("yahoo_token_data")
+                                client = YahooFantasyClient(league_id=yahoo_league_id)
+                                if not client.authenticate(yahoo_key, yahoo_secret, token_data=token_data):
+                                    st.error("Yahoo authentication failed. Reconnect in Settings.")
+                                    client = None
+                                else:
+                                    # Cache the successfully authenticated client
+                                    st.session_state.yahoo_client = client
+                            if client is not None:
                                 client.sync_to_db()
                                 st.toast("Yahoo sync complete!")
                                 st.rerun()
-                            else:
-                                st.error("Yahoo authentication failed.")
                         except Exception as e:
                             st.error(f"Yahoo sync error: {e}")
 
@@ -129,22 +154,22 @@ else:
 
             hit_stats = {}
             if not hitters.empty:
-                for cat, col in [("R", "r"), ("HR", "hr"), ("RBI", "rbi"), ("SB", "sb")]:
+                for cat, col in [("Runs", "r"), ("Home Runs", "hr"), ("Runs Batted In", "rbi"), ("Stolen Bases", "sb")]:
                     hit_stats[cat] = int(hitters[col].sum()) if col in hitters.columns else 0
                 ab = hitters["ab"].sum() if "ab" in hitters.columns else 0
                 h = hitters["h"].sum() if "h" in hitters.columns else 0
-                hit_stats["AVG"] = f"{h / ab:.3f}" if ab > 0 else ".000"
+                hit_stats["Batting Average"] = f"{h / ab:.3f}" if ab > 0 else ".000"
 
             pitch_stats = {}
             if not pitchers.empty:
-                for cat, col in [("W", "w"), ("SV", "sv"), ("K", "k")]:
+                for cat, col in [("Wins", "w"), ("Saves", "sv"), ("Strikeouts", "k")]:
                     pitch_stats[cat] = int(pitchers[col].sum()) if col in pitchers.columns else 0
                 ip = pitchers["ip"].sum() if "ip" in pitchers.columns else 0
                 er = pitchers["er"].sum() if "er" in pitchers.columns else 0
                 bb = pitchers["bb_allowed"].sum() if "bb_allowed" in pitchers.columns else 0
                 ha = pitchers["h_allowed"].sum() if "h_allowed" in pitchers.columns else 0
-                pitch_stats["ERA"] = f"{er * 9 / ip:.2f}" if ip > 0 else "0.00"
-                pitch_stats["WHIP"] = f"{(bb + ha) / ip:.3f}" if ip > 0 else "0.000"
+                pitch_stats["Earned Run Average"] = f"{er * 9 / ip:.2f}" if ip > 0 else "0.00"
+                pitch_stats["Walks + Hits per Inning Pitched"] = f"{(bb + ha) / ip:.3f}" if ip > 0 else "0.000"
 
             col1, col2 = st.columns(2)
             with col1:

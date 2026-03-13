@@ -100,6 +100,13 @@ if player_a_name and player_b_name and player_a_name != player_b_name:
         if HAS_PLOTLY:
             t = get_theme()
             cats = ALL_CATEGORIES
+            cat_display_names = {
+                "R": "Runs", "HR": "Home Runs", "RBI": "Runs Batted In",
+                "SB": "Stolen Bases", "AVG": "Batting Average",
+                "W": "Wins", "SV": "Saves", "K": "Strikeouts",
+                "ERA": "Earned Run Average", "WHIP": "Walks + Hits per Inning Pitched",
+            }
+            cat_labels = [cat_display_names.get(c, c) for c in cats]
             z_a = [result["z_scores_a"].get(c, 0) for c in cats]
             z_b = [result["z_scores_b"].get(c, 0) for c in cats]
 
@@ -107,7 +114,7 @@ if player_a_name and player_b_name and player_a_name != player_b_name:
             fig.add_trace(
                 go.Scatterpolar(
                     r=z_a + [z_a[0]],
-                    theta=cats + [cats[0]],
+                    theta=cat_labels + [cat_labels[0]],
                     name=result["player_a"],
                     line=dict(color=t["amber"]),
                     fill="toself",
@@ -117,7 +124,7 @@ if player_a_name and player_b_name and player_a_name != player_b_name:
             fig.add_trace(
                 go.Scatterpolar(
                     r=z_b + [z_b[0]],
-                    theta=cats + [cats[0]],
+                    theta=cat_labels + [cat_labels[0]],
                     name=result["player_b"],
                     line=dict(color=t["teal"]),
                     fill="toself",
@@ -132,6 +139,12 @@ if player_a_name and player_b_name and player_a_name != player_b_name:
 
         # Z-score comparison table
         st.subheader("Category Breakdown")
+        cat_full_names = {
+            "R": "Runs", "HR": "Home Runs", "RBI": "Runs Batted In",
+            "SB": "Stolen Bases", "AVG": "Batting Average",
+            "W": "Wins", "SV": "Saves", "K": "Strikeouts",
+            "ERA": "Earned Run Average", "WHIP": "Walks + Hits per Inning Pitched",
+        }
         rows = []
         for cat in ALL_CATEGORIES:
             za = result["z_scores_a"].get(cat, 0)
@@ -139,9 +152,9 @@ if player_a_name and player_b_name and player_a_name != player_b_name:
             adv = result["advantages"].get(cat, "TIE")
             rows.append(
                 {
-                    "Category": cat,
-                    f"{result['player_a']} Z": f"{za:+.2f}",
-                    f"{result['player_b']} Z": f"{zb:+.2f}",
+                    "Category": cat_full_names.get(cat, cat),
+                    f"{result['player_a']} Z-Score": f"{za:+.2f}",
+                    f"{result['player_b']} Z-Score": f"{zb:+.2f}",
                     "Advantage": adv,
                 }
             )

@@ -27,9 +27,24 @@ st.title("Lineup Optimizer")
 # ── Load user team ────────────────────────────────────────────────
 rosters = load_league_rosters()
 if rosters.empty:
-    st.warning(
-        "No league data loaded. Connect your Yahoo league in Settings, or league data will load automatically on next app launch."
-    )
+    if st.session_state.get("yahoo_connected"):
+        st.warning("Yahoo is connected but no roster data found in the database. Try syncing:")
+        if st.button("Sync League Data Now"):
+            client = st.session_state.get("yahoo_client")
+            if client:
+                with st.spinner("Syncing league data from Yahoo..."):
+                    try:
+                        client.sync_to_db()
+                        st.toast("Sync complete!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Sync failed: {e}")
+            else:
+                st.error("Yahoo client not found in session. Return to Settings and reconnect.")
+    else:
+        st.warning(
+            "No league data loaded. Connect your Yahoo league in Settings, or league data will load automatically on next app launch."
+        )
     st.stop()
 
 user_teams = rosters[rosters["is_user_team"] == 1]
@@ -87,7 +102,7 @@ with col1:
     optimize_clicked = st.button("Optimize Lineup", type="primary")
 
 if optimize_clicked:
-    with st.spinner("Running LP solver..."):
+    with st.spinner("Running Linear Programming solver..."):
         result = optimizer.optimize_lineup()
 
     if not result or not result.get("lineup"):
@@ -127,6 +142,12 @@ if standings.empty:
 else:
     weights = optimizer.category_targeting(standings, user_team_name)
     if weights:
+        cat_full_names = {
+            "r": "Runs", "hr": "Home Runs", "rbi": "Runs Batted In",
+            "sb": "Stolen Bases", "avg": "Batting Average",
+            "w": "Wins", "sv": "Saves", "k": "Strikeouts",
+            "era": "Earned Run Average", "whip": "Walks + Hits per Inning Pitched",
+        }
         st.markdown("**Priority categories** (higher weight = bigger standings impact):")
         weights_sorted = sorted(weights.items(), key=lambda x: x[1], reverse=True)
         for cat, weight in weights_sorted:
@@ -138,8 +159,9 @@ else:
                 if weight > 1.0
                 else PAGE_ICONS["minus"]
             )
+            display_name = cat_full_names.get(cat, cat.upper())
             st.markdown(
-                f"{icon} **{cat.upper()}**: {'█' * bar_len}{'░' * (20 - bar_len)} ({weight:.2f}x)",
+                f"{icon} **{display_name}**: {'█' * bar_len}{'░' * (20 - bar_len)} ({weight:.2f}x)",
                 unsafe_allow_html=True,
             )
         st.caption(METRIC_TOOLTIPS["cat_targeting"])
@@ -187,7 +209,7 @@ if health_dict and "projected_sgp" in roster.columns:
         lambda r: r["projected_sgp"] * (1.0 - HEALTH_PENALTY_WEIGHT * (1.0 - health_dict.get(r.get("player_id"), 1.0))),
         axis=1,
     )
-    st.caption("Health-adjusted SGP applies a 15% penalty weight based on injury history risk.")
+    st.caption("Health-adjusted Standings Gained Points applies a 15% penalty weight based on injury history risk.")
 
 # Two-start SP detection via MLB schedule
 try:
@@ -214,7 +236,7 @@ try:
                 two_start_sps.append(row.get("name", row.get("player_name", "")))
 
     if two_start_sps:
-        st.info(f"Potential two-start SPs this week: {', '.join(two_start_sps)}")
+        st.info(f"Potential two-start Starting Pitchers this week: {', '.join(two_start_sps)}")
 except Exception:
     pass  # Graceful degradation when MLB Stats API unavailable
 

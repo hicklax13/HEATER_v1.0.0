@@ -242,13 +242,16 @@ def render_step_settings():
                                 ):
                                     st.session_state.yahoo_client = client
                                     st.session_state.yahoo_connected = True
+                                    st.session_state.yahoo_token_data = token_data
                                     try:
                                         settings = client.get_league_settings()
                                         if settings:
                                             st.session_state.yahoo_settings = settings
-                                        client.sync_to_db()
-                                    except Exception:
-                                        pass  # Sync failures are non-fatal
+                                        sync_result = client.sync_to_db()
+                                        if sync_result:
+                                            st.session_state.yahoo_sync_result = sync_result
+                                    except Exception as e:
+                                        st.warning(f"Yahoo connected but sync encountered an issue: {e}")
                                     st.success("Connected to Yahoo Fantasy!")
                                     st.toast("League data synced!")
                                     st.rerun()
@@ -286,32 +289,34 @@ def render_step_settings():
 
     with col1:
         st.markdown('<div class="glass">', unsafe_allow_html=True)
-        st.markdown("**SGP Denominators**")
-        auto_sgp = st.toggle("Auto-compute SGP", value=st.session_state.auto_sgp, key="auto_sgp_toggle")
+        st.markdown("**Standings Gained Points Denominators**")
+        auto_sgp = st.toggle(
+            "Auto-compute Standings Gained Points", value=st.session_state.auto_sgp, key="auto_sgp_toggle"
+        )
         st.session_state.auto_sgp = auto_sgp
 
         if not auto_sgp:
             _sgp_help = "Stat increase needed to gain one roto standings point"
-            sgp_r = st.number_input("R", value=32.0, step=1.0, key="sgp_r", help=_sgp_help)
-            sgp_hr = st.number_input("HR", value=12.0, step=1.0, key="sgp_hr", help=_sgp_help)
-            sgp_rbi = st.number_input("RBI", value=30.0, step=1.0, key="sgp_rbi", help=_sgp_help)
-            sgp_sb = st.number_input("SB", value=8.0, step=1.0, key="sgp_sb", help=_sgp_help)
-            sgp_avg = st.number_input("AVG", value=0.008, step=0.001, format="%.4f", key="sgp_avg", help=_sgp_help)
-            sgp_w = st.number_input("W", value=3.0, step=1.0, key="sgp_w", help=_sgp_help)
-            sgp_sv = st.number_input("SV", value=7.0, step=1.0, key="sgp_sv", help=_sgp_help)
-            sgp_k = st.number_input("K", value=25.0, step=1.0, key="sgp_k", help=_sgp_help)
-            sgp_era = st.number_input("ERA", value=0.30, step=0.01, format="%.3f", key="sgp_era", help=_sgp_help)
-            sgp_whip = st.number_input("WHIP", value=0.03, step=0.01, format="%.3f", key="sgp_whip", help=_sgp_help)
+            sgp_r = st.number_input("Runs", value=32.0, step=1.0, key="sgp_r", help=_sgp_help)
+            sgp_hr = st.number_input("Home Runs", value=12.0, step=1.0, key="sgp_hr", help=_sgp_help)
+            sgp_rbi = st.number_input("Runs Batted In", value=30.0, step=1.0, key="sgp_rbi", help=_sgp_help)
+            sgp_sb = st.number_input("Stolen Bases", value=8.0, step=1.0, key="sgp_sb", help=_sgp_help)
+            sgp_avg = st.number_input(
+                "Batting Average", value=0.008, step=0.001, format="%.4f", key="sgp_avg", help=_sgp_help
+            )
+            sgp_w = st.number_input("Wins", value=3.0, step=1.0, key="sgp_w", help=_sgp_help)
+            sgp_sv = st.number_input("Saves", value=7.0, step=1.0, key="sgp_sv", help=_sgp_help)
+            sgp_k = st.number_input("Strikeouts", value=25.0, step=1.0, key="sgp_k", help=_sgp_help)
+            sgp_era = st.number_input(
+                "Earned Run Average", value=0.30, step=0.01, format="%.3f", key="sgp_era", help=_sgp_help
+            )
+            sgp_whip = st.number_input(
+                "Walks + Hits per Inning Pitched", value=0.03, step=0.01, format="%.3f", key="sgp_whip", help=_sgp_help
+            )
         st.markdown("</div>", unsafe_allow_html=True)
 
     with col2:
         st.markdown('<div class="glass">', unsafe_allow_html=True)
-        st.markdown("**Draft Settings**")
-        num_teams = st.number_input("Number of teams", value=12, min_value=6, max_value=20, key="num_teams")
-        num_rounds = st.number_input("Rounds", value=23, min_value=10, max_value=30, key="num_rounds")
-        draft_pos = st.number_input("Your draft position", value=1, min_value=1, max_value=num_teams, key="draft_pos")
-
-        st.markdown("---")
         st.markdown("**Risk Tolerance**")
         risk = st.slider(
             "Risk appetite",
@@ -366,7 +371,11 @@ def render_step_launch():
         ("Player Pool", pool_size > 0, f"{pool_size} players loaded"),
         ("Hitters", hitters > 0, f"{hitters} hitters"),
         ("Pitchers", pitchers > 0, f"{pitchers} pitchers"),
-        ("Valuations", "pick_score" in pool.columns, "SGP + VORP computed"),
+        (
+            "Valuations",
+            "pick_score" in pool.columns,
+            "Standings Gained Points + Value Over Replacement Player computed",
+        ),
     ]
 
     for label, ok, detail in checks:
@@ -847,18 +856,18 @@ def render_hero_pick(rec, ds, pool, threat_alerts=None):
         surv_color = T["danger"]
     surv_deg = int(surv * 3.6)
 
-    # SGP chips
+    # Standings Gained Points chips
     sgp_cats = [
-        ("R", rec.get("sgp_r", 0)),
-        ("HR", rec.get("sgp_hr", 0)),
-        ("RBI", rec.get("sgp_rbi", 0)),
-        ("SB", rec.get("sgp_sb", 0)),
-        ("AVG", rec.get("sgp_avg", 0)),
-        ("W", rec.get("sgp_w", 0)),
-        ("SV", rec.get("sgp_sv", 0)),
-        ("K", rec.get("sgp_k", 0)),
-        ("ERA", rec.get("sgp_era", 0)),
-        ("WHIP", rec.get("sgp_whip", 0)),
+        ("Runs", rec.get("sgp_r", 0)),
+        ("Home Runs", rec.get("sgp_hr", 0)),
+        ("Runs Batted In", rec.get("sgp_rbi", 0)),
+        ("Stolen Bases", rec.get("sgp_sb", 0)),
+        ("Batting Average", rec.get("sgp_avg", 0)),
+        ("Wins", rec.get("sgp_w", 0)),
+        ("Saves", rec.get("sgp_sv", 0)),
+        ("Strikeouts", rec.get("sgp_k", 0)),
+        ("Earned Run Average", rec.get("sgp_era", 0)),
+        ("Walks + Hits per Inning Pitched", rec.get("sgp_whip", 0)),
     ]
     chips_html = ""
     for cat, val in sgp_cats:
@@ -927,13 +936,13 @@ def render_hero_pick(rec, ds, pool, threat_alerts=None):
                 pct_html = (
                     f'<div title="{METRIC_TOOLTIPS["p10_p90"]}" style="margin-top:8px;font-family:JetBrains Mono,monospace;'
                     f'font-size:12px;color:{T["tx2"]};">'
-                    f"P10: {p10_val:.1f} "
+                    f"10th Percentile: {p10_val:.1f} "
                     f'<span style="display:inline-block;width:120px;height:8px;'
                     f'background:{T["card_h"]};border-radius:4px;vertical-align:middle;">'
                     f'<span style="display:inline-block;width:{fill_pct}%;height:100%;'
                     f'background:{T["amber"]};border-radius:4px;"></span>'
                     f"</span>"
-                    f" P90: {p90_val:.1f}</div>"
+                    f" 90th Percentile: {p90_val:.1f}</div>"
                 )
     else:
         pct_html = (
@@ -1159,7 +1168,7 @@ def render_recent_feed(ds):
         cls = "user-pick" if is_user else ""
         st.markdown(
             f'<div class="feed-card {cls}">'
-            f'<div class="feed-pick-num">#{entry["pick"] + 1} &middot; R{entry["round"]}</div>'
+            f'<div class="feed-pick-num">#{entry["pick"] + 1} &middot; Round {entry["round"]}</div>'
             f'<div class="feed-name">{entry["player_name"]}</div>'
             f'<div class="feed-team">{entry["team_name"]} &middot; {entry["positions"]}</div>'
             f"</div>",
@@ -1362,16 +1371,16 @@ def render_category_balance(ds, pool):
 
     # Category cards row
     cats = [
-        ("R", totals.get("R", 0), ""),
-        ("HR", totals.get("HR", 0), ""),
-        ("RBI", totals.get("RBI", 0), ""),
-        ("SB", totals.get("SB", 0), ""),
-        ("AVG", totals.get("AVG", 0), ".3f"),
-        ("W", totals.get("W", 0), ""),
-        ("SV", totals.get("SV", 0), ""),
-        ("K", totals.get("K", 0), ""),
-        ("ERA", totals.get("ERA", 0), ".2f"),
-        ("WHIP", totals.get("WHIP", 0), ".3f"),
+        ("Runs", totals.get("R", 0), ""),
+        ("Home Runs", totals.get("HR", 0), ""),
+        ("Runs Batted In", totals.get("RBI", 0), ""),
+        ("Stolen Bases", totals.get("SB", 0), ""),
+        ("Batting Average", totals.get("AVG", 0), ".3f"),
+        ("Wins", totals.get("W", 0), ""),
+        ("Saves", totals.get("SV", 0), ""),
+        ("Strikeouts", totals.get("K", 0), ""),
+        ("Earned Run Average", totals.get("ERA", 0), ".2f"),
+        ("Walks + Hits per Inning Pitched", totals.get("WHIP", 0), ".3f"),
     ]
 
     cols = st.columns(5)
@@ -1395,12 +1404,16 @@ def _render_radar_chart(ds, pool):
     user_totals = ds.get_user_roster_totals(pool)
     all_totals = ds.get_all_team_roster_totals(pool)
 
-    categories = ["R", "HR", "RBI", "SB", "AVG", "W", "SV", "K", "ERA", "WHIP"]
+    cat_keys = ["R", "HR", "RBI", "SB", "AVG", "W", "SV", "K", "ERA", "WHIP"]
+    cat_display = [
+        "Runs", "Home Runs", "Runs Batted In", "Stolen Bases", "Batting Average",
+        "Wins", "Saves", "Strikeouts", "Earned Run Average", "Walks + Hits per Inning Pitched",
+    ]
     invert = {"ERA", "WHIP"}  # lower is better
 
     user_vals = []
     avg_vals = []
-    for cat in categories:
+    for cat in cat_keys:
         uv = user_totals.get(cat, 0)
         avgs = [t.get(cat, 0) for t in all_totals]
         league_avg = np.mean(avgs) if avgs else 0
@@ -1423,7 +1436,7 @@ def _render_radar_chart(ds, pool):
     fig.add_trace(
         go.Scatterpolar(
             r=user_vals + [user_vals[0]],
-            theta=categories + [categories[0]],
+            theta=cat_display + [cat_display[0]],
             fill="toself",
             name="My Team",
             line=dict(color=T["amber"], width=2),
@@ -1433,8 +1446,8 @@ def _render_radar_chart(ds, pool):
     fig.add_trace(
         go.Scatterpolar(
             r=avg_vals + [avg_vals[0]],
-            theta=categories + [categories[0]],
-            name="League Avg",
+            theta=cat_display + [cat_display[0]],
+            name="League Average",
             line=dict(color=T["tx2"], width=1, dash="dot"),
         )
     )
@@ -1461,8 +1474,13 @@ def _render_balance_bars(ds, pool):
     totals = ds.get_user_roster_totals(pool)
     all_totals = ds.get_all_team_roster_totals(pool)
 
-    categories = ["R", "HR", "RBI", "SB", "AVG", "W", "SV", "K", "ERA", "WHIP"]
-    for cat in categories:
+    cat_keys = ["R", "HR", "RBI", "SB", "AVG", "W", "SV", "K", "ERA", "WHIP"]
+    cat_names = {
+        "R": "Runs", "HR": "Home Runs", "RBI": "Runs Batted In", "SB": "Stolen Bases",
+        "AVG": "Batting Average", "W": "Wins", "SV": "Saves", "K": "Strikeouts",
+        "ERA": "Earned Run Average", "WHIP": "Walks + Hits per Inning Pitched",
+    }
+    for cat in cat_keys:
         uv = totals.get(cat, 0)
         avgs = [t.get(cat, 0) for t in all_totals]
         max_val = max(avgs) if avgs else 1
@@ -1470,7 +1488,8 @@ def _render_balance_bars(ds, pool):
             max_val = 1
         pct = min(uv / max_val, 1.0) if cat not in {"ERA", "WHIP"} else min(1 - (uv / max(max_val, 0.01)), 1.0)
         pct = max(pct, 0)
-        st.markdown(f"**{cat}**: {uv:.3f}" if cat in {"AVG", "ERA", "WHIP"} else f"**{cat}**: {int(uv)}")
+        display = cat_names[cat]
+        st.markdown(f"**{display}**: {uv:.3f}" if cat in {"AVG", "ERA", "WHIP"} else f"**{display}**: {int(uv)}")
         st.progress(pct)
 
 
@@ -1517,7 +1536,13 @@ def render_available_players(ds, pool):
     display_df = filtered[display_cols].head(50).copy()
 
     # Rename for display
-    rename_map = {"player_name": "Player", "positions": "Pos", "pick_score": "Score", "tier": "Tier", "adp": "ADP"}
+    rename_map = {
+        "player_name": "Player",
+        "positions": "Position",
+        "pick_score": "Score",
+        "tier": "Tier",
+        "adp": "Average Draft Position",
+    }
     display_df = display_df.rename(columns={k: v for k, v in rename_map.items() if k in display_df.columns})
 
     col_config = {}
@@ -1525,8 +1550,8 @@ def render_available_players(ds, pool):
         col_config["Score"] = st.column_config.NumberColumn(format="%.1f")
     if "Tier" in display_df.columns:
         col_config["Tier"] = st.column_config.NumberColumn(format="%d")
-    if "ADP" in display_df.columns:
-        col_config["ADP"] = st.column_config.NumberColumn(format="%.0f")
+    if "Average Draft Position" in display_df.columns:
+        col_config["Average Draft Position"] = st.column_config.NumberColumn(format="%.0f")
 
     st.dataframe(display_df, width="stretch", hide_index=True, column_config=col_config, height=400)
 
@@ -1547,7 +1572,7 @@ def render_draft_board(ds):
     for r in range(ds.current_round + 2):  # show current + next round
         if r >= ds.num_rounds:
             break
-        row_html = f'<td style="font-weight:600;color:{T["amber"]};">R{r + 1}</td>'
+        row_html = f'<td style="font-weight:600;color:{T["amber"]};">Round {r + 1}</td>'
         for team_idx in range(ds.num_teams):
             # In snake draft, determine which overall pick this team had in this round
             if r % 2 == 0:
@@ -1587,7 +1612,7 @@ def render_draft_board(ds):
     st.markdown(
         f'<div style="overflow-x:auto;max-height:500px;overflow-y:auto;">'
         f'<table class="draft-board">'
-        f"<thead><tr><th>Rd</th>{headers}</tr></thead>"
+        f"<thead><tr><th>Round</th>{headers}</tr></thead>"
         f"<tbody>{rows}</tbody>"
         f"</table></div>",
         unsafe_allow_html=True,
@@ -1634,7 +1659,7 @@ def render_draft_log(ds):
             f'<div class="feed-card {cls}">'
             f'<div style="display:flex;justify-content:space-between;align-items:center;">'
             f"<div>"
-            f'<div class="feed-pick-num">#{entry["pick"] + 1} &middot; R{entry["round"]}.{entry["pick_in_round"]}</div>'
+            f'<div class="feed-pick-num">#{entry["pick"] + 1} &middot; Round {entry["round"]} Pick {entry["pick_in_round"]}</div>'
             f'<div class="feed-name">{entry["player_name"]}</div>'
             f"</div>"
             f'<div style="text-align:right;">'

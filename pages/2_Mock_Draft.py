@@ -38,7 +38,8 @@ def build_mock_pool() -> pd.DataFrame:
     lc.sgp_denominators.update(denoms)
     sgp = SGPCalculator(lc)
     repl = compute_replacement_levels(raw, lc, sgp)
-    valued = value_all_players(raw, lc, replacement_levels=repl, num_rounds=23)
+    num_rounds = st.session_state.get("mock_num_rounds", 23)
+    valued = value_all_players(raw, lc, replacement_levels=repl, num_rounds=num_rounds)
     if "player_name" not in valued.columns:
         valued["player_name"] = valued["name"]
 
@@ -62,7 +63,9 @@ def refresh_pool() -> pd.DataFrame:
 
 
 def init_mock_draft(pool: pd.DataFrame, draft_pos: int) -> None:
-    ds = DraftState(num_teams=12, num_rounds=23, user_team_index=draft_pos - 1)
+    num_teams = st.session_state.get("mock_num_teams", 12)
+    num_rounds = st.session_state.get("mock_num_rounds", 23)
+    ds = DraftState(num_teams=num_teams, num_rounds=num_rounds, user_team_index=draft_pos - 1)
     st.session_state.mock_ds = ds
     st.session_state.mock_started = True
 
@@ -131,7 +134,7 @@ def render_recommendations(pool: pd.DataFrame, ds: DraftState, n_sims: int) -> N
         #{rank} {name}
     </div>
     <div style="color:{T["tx2"]};font-size:0.82rem;margin-top:2px;">
-        {pos} &nbsp;|&nbsp; ADP: {adp:.0f}
+        {pos} &nbsp;|&nbsp; Average Draft Position: {adp:.0f}
     </div>
     <div style="color:{T["tx"]};font-size:0.88rem;margin-top:8px;">
         Score: {score:.1f} &nbsp;&nbsp; Survival: {surv:.0%} &nbsp;&nbsp; Urgency: {urg:.2f}
@@ -206,7 +209,7 @@ def render_recent_picks(ds: DraftState) -> None:
             f"""
 <div style="background:{T["card"]};border:1px solid {T["border"]};border-radius:8px;
             padding:8px 12px;margin-bottom:6px;">
-    <span style="color:{T["tx2"]};font-size:0.75rem;">R{entry["round"]} P{entry["pick_in_round"]}</span>
+    <span style="color:{T["tx2"]};font-size:0.75rem;">Round {entry["round"]} Pick {entry["pick_in_round"]}</span>
     <span style="color:{T["tx2"]};font-size:0.75rem;"> &nbsp;{entry["team_name"]}</span><br>
     <span style="color:{name_color};font-size:0.9rem;font-weight:600;">{entry["player_name"]}</span>
     <span style="color:{T["tx2"]};font-size:0.78rem;"> {entry["positions"]}</span>
@@ -227,18 +230,18 @@ def render_draft_summary(pool: pd.DataFrame, ds: DraftState) -> None:
     totals = ds.get_user_roster_totals(pool)
 
     col_r, col_hr, col_rbi, col_sb, col_avg = st.columns(5)
-    col_r.metric("R", int(totals.get("R", 0)))
-    col_hr.metric("HR", int(totals.get("HR", 0)))
-    col_rbi.metric("RBI", int(totals.get("RBI", 0)))
-    col_sb.metric("SB", int(totals.get("SB", 0)))
-    col_avg.metric("AVG", f"{totals.get('AVG', 0):.3f}")
+    col_r.metric("Runs", int(totals.get("R", 0)))
+    col_hr.metric("Home Runs", int(totals.get("HR", 0)))
+    col_rbi.metric("Runs Batted In", int(totals.get("RBI", 0)))
+    col_sb.metric("Stolen Bases", int(totals.get("SB", 0)))
+    col_avg.metric("Batting Average", f"{totals.get('AVG', 0):.3f}")
 
     col_w, col_sv, col_k, col_era, col_whip = st.columns(5)
-    col_w.metric("W", int(totals.get("W", 0)))
-    col_sv.metric("SV", int(totals.get("SV", 0)))
-    col_k.metric("K", int(totals.get("K", 0)))
-    col_era.metric("ERA", f"{totals.get('ERA', 0):.2f}")
-    col_whip.metric("WHIP", f"{totals.get('WHIP', 0):.3f}")
+    col_w.metric("Wins", int(totals.get("W", 0)))
+    col_sv.metric("Saves", int(totals.get("SV", 0)))
+    col_k.metric("Strikeouts", int(totals.get("K", 0)))
+    col_era.metric("Earned Run Average", f"{totals.get('ERA', 0):.2f}")
+    col_whip.metric("Walks + Hits per Inning Pitched", f"{totals.get('WHIP', 0):.3f}")
 
     # Estimate grade: sum SGP of user's picks vs other teams
     all_totals = ds.get_all_team_roster_totals(pool)
@@ -289,7 +292,7 @@ def render_draft_summary(pool: pd.DataFrame, ds: DraftState) -> None:
             padding:24px;text-align:center;margin-top:20px;">
     <div style="color:{grade_color};font-size:3rem;font-weight:900;">{grade}</div>
     <div style="color:{T["tx"]};font-size:1rem;margin-top:4px;">
-        Draft Grade &nbsp;|&nbsp; SGP: {user_sgp:.1f} &nbsp; (Avg: {avg_sgp:.1f})
+        Draft Grade &nbsp;|&nbsp; Standings Gained Points: {user_sgp:.1f} &nbsp; (Average: {avg_sgp:.1f})
     </div>
 </div>
 """,
@@ -360,7 +363,7 @@ def render_tabs(pool: pd.DataFrame, ds: DraftState) -> None:
             log_df = pd.DataFrame(ds.pick_log)[
                 ["pick", "round", "pick_in_round", "team_name", "player_name", "positions"]
             ]
-            log_df.columns = ["#", "Round", "Pick", "Team", "Player", "Pos"]
+            log_df.columns = ["#", "Round", "Pick", "Team", "Player", "Position"]
             st.dataframe(log_df[::-1].reset_index(drop=True), width="stretch", hide_index=True, height=400)
 
 
@@ -388,13 +391,34 @@ if not st.session_state.get("mock_started", False):
         unsafe_allow_html=True,
     )
 
+    st.subheader("Draft Settings")
+    col_a, col_b, col_c = st.columns(3)
+    with col_a:
+        num_teams = st.number_input(
+            "Number of teams", value=12, min_value=6, max_value=20, key="mock_num_teams_input"
+        )
+    with col_b:
+        num_rounds = st.number_input(
+            "Rounds", value=23, min_value=10, max_value=30, key="mock_num_rounds_input"
+        )
+    with col_c:
+        draft_pos = st.number_input(
+            "Your draft position", value=1, min_value=1, max_value=num_teams, key="mock_draft_pos_input"
+        )
+
+    # Store in mock-prefixed session state
+    st.session_state["mock_num_teams"] = num_teams
+    st.session_state["mock_num_rounds"] = num_rounds
+    st.session_state["mock_draft_pos"] = draft_pos
+
+    # Also write to shared session_state keys so the main draft can read them
+    st.session_state["num_teams"] = num_teams
+    st.session_state["num_rounds"] = num_rounds
+    st.session_state["draft_pos"] = draft_pos
+
     cfg_col, _ = st.columns([1, 2])
     with cfg_col:
-        draft_pos = st.selectbox(
-            "Your Draft Position (1=first overall)", list(range(1, 13)), index=5, key="mock_draft_pos_select"
-        )
         n_sims_choice = st.radio("Simulation Depth", [50, 100, 200], index=0, horizontal=True, key="mock_sims_radio")
-        st.session_state.mock_draft_pos = draft_pos
         st.session_state.mock_num_sims = n_sims_choice
 
         if st.button("Start Mock Draft", type="primary"):
@@ -442,7 +466,7 @@ btn_col1, btn_col2, btn_col3 = st.columns([1, 1, 2])
 with btn_col1:
     if st.button("Reset Draft"):
         for key in list(st.session_state.keys()):
-            if key.startswith("mock_") and key not in ("mock_draft_pos", "mock_num_sims"):
+            if key.startswith("mock_") and key not in ("mock_draft_pos", "mock_num_sims", "mock_num_teams", "mock_num_rounds"):
                 del st.session_state[key]
         st.rerun()
 with btn_col2:

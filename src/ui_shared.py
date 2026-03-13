@@ -241,7 +241,7 @@ ALL_CATEGORIES = HITTING_CATEGORIES + PITCHING_CATEGORIES
 
 METRIC_TOOLTIPS = {
     "sgp": (
-        "Standings Gain Points (SGP) — how many roto standings points "
+        "Standings Gained Points — how many roto standings points "
         "this stat is worth. Higher = more impact on your league rank."
     ),
     "vorp": (
@@ -271,10 +271,11 @@ METRIC_TOOLTIPS = {
         "often the trade helps across all simulations."
     ),
     "mc_mean": (
-        "Monte Carlo Mean — the average SGP change across 200 simulated seasons. Positive = trade helps your team."
+        "Monte Carlo Mean — the average Standings Gained Points change across 200 simulated seasons. "
+        "Positive = trade helps your team."
     ),
     "mc_std": (
-        "Monte Carlo Std Dev — how much the outcome varies across "
+        "Monte Carlo Standard Deviation — how much the outcome varies across "
         "simulations. Lower = more predictable; higher = riskier trade."
     ),
     "z_score": (
@@ -283,14 +284,14 @@ METRIC_TOOLTIPS = {
     ),
     "marginal_value": (
         "Marginal Value — how much this free agent would improve your "
-        "team's SGP compared to your current worst player at the position."
+        "team's Standings Gained Points compared to your current worst player at the position."
     ),
     "cat_targeting": (
         "Category Targeting Weight — higher weight means bigger "
         "standings impact. Higher = more room to gain in standings."
     ),
     "p10_p90": (
-        "P10/P90 Range — the floor (10th percentile) and ceiling "
+        "10th Percentile / 90th Percentile Range — the floor (10th percentile) and ceiling "
         "(90th percentile) projections. Wider range = more uncertain."
     ),
     "composite_score": (
@@ -306,15 +307,15 @@ METRIC_TOOLTIPS = {
     ),
     "avg": ("Batting Average — hits divided by at-bats. Higher is better. League average is ~.250."),
     "adp_value": (
-        "Value pick — this player's ADP is later than the current "
+        "Value pick — this player's Average Draft Position is later than the current "
         "pick, meaning you are getting them earlier than most drafts."
     ),
     "adp_reach": (
-        "Reach pick — this player's ADP is earlier than the current "
+        "Reach pick — this player's Average Draft Position is earlier than the current "
         "pick, meaning you are drafting them before most leagues would."
     ),
     "adp_fair": (
-        "Fair pick — this player's ADP is close to the current pick, "
+        "Fair pick — this player's Average Draft Position is close to the current pick, "
         "meaning this is roughly where they are expected to go."
     ),
 }
