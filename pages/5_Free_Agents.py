@@ -1,6 +1,7 @@
 """Free Agents — Rank available players by marginal value to your team."""
 
 import logging
+import time
 
 import pandas as pd
 import streamlit as st
@@ -35,16 +36,29 @@ rosters = load_league_rosters()
 if rosters.empty:
     if st.session_state.get("yahoo_connected"):
         st.warning("Yahoo is connected but no roster data found in the database. Try syncing:")
-        if st.button("Sync League Data Now"):
+        if st.button("Sync League Data Now", key="sync_league_fa"):
             client = st.session_state.get("yahoo_client")
             if client:
-                with st.spinner("Syncing league data from Yahoo..."):
-                    try:
-                        client.sync_to_db()
-                        st.toast("Sync complete!")
+                progress = st.progress(0, text="Connecting to Yahoo Fantasy...")
+                try:
+                    progress.progress(30, text="Fetching league standings...")
+                    sync_result = client.sync_to_db()
+                    progress.progress(100, text="Sync complete!")
+                    standings_count = sync_result.get("standings", 0) if sync_result else 0
+                    rosters_count = sync_result.get("rosters", 0) if sync_result else 0
+                    if rosters_count > 0:
+                        st.success(f"Synced {rosters_count} roster entries and {standings_count} standing entries.")
+                        time.sleep(1)
                         st.rerun()
-                    except Exception as e:
-                        st.error(f"Sync failed: {e}")
+                    else:
+                        st.warning(
+                            f"Sync completed but Yahoo returned no roster data "
+                            f"(standings: {standings_count}). This may mean the league "
+                            f"season hasn't started yet on Yahoo, or rosters haven't been set."
+                        )
+                except Exception as e:
+                    progress.empty()
+                    st.error(f"Sync failed: {e}")
             else:
                 st.error("Yahoo client not found in session. Return to Settings and reconnect.")
     else:
@@ -87,13 +101,17 @@ else:
                 st.info(f"No free agents at position: {pos_filter}")
             else:
                 # Rank
-                with st.spinner("Computing marginal values..."):
-                    try:
-                        ranked = rank_free_agents(user_roster_ids, fa_pool, pool, config)
-                    except Exception as e:
-                        logger.exception("Failed to rank free agents")
-                        st.error(f"Error computing free agent rankings: {e}")
-                        ranked = pd.DataFrame()
+                fa_progress = st.progress(0, text="Computing marginal values for free agents...")
+                try:
+                    fa_progress.progress(20, text="Evaluating category-need weighting...")
+                    ranked = rank_free_agents(user_roster_ids, fa_pool, pool, config)
+                    fa_progress.progress(100, text="Free agent rankings complete!")
+                except Exception as e:
+                    logger.exception("Failed to rank free agents")
+                    st.error(f"Error computing free agent rankings: {e}")
+                    ranked = pd.DataFrame()
+                time.sleep(0.3)
+                fa_progress.empty()
 
                 if ranked.empty:
                     st.info("No ranked free agents found.")

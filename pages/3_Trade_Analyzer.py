@@ -1,5 +1,7 @@
 """Trade Analyzer — Evaluate trade proposals with MC simulation + Live SGP."""
 
+import time
+
 import pandas as pd
 import streamlit as st
 
@@ -51,16 +53,31 @@ rosters = load_league_rosters()
 if rosters.empty:
     if st.session_state.get("yahoo_connected"):
         st.warning("Yahoo is connected but no roster data found in the database. Try syncing:")
-        if st.button("Sync League Data Now"):
+        if st.button("Sync League Data Now", key="sync_league_trade"):
             client = st.session_state.get("yahoo_client")
             if client:
-                with st.spinner("Syncing league data from Yahoo..."):
-                    try:
-                        client.sync_to_db()
-                        st.toast("Sync complete!")
+                progress = st.progress(0, text="Connecting to Yahoo Fantasy...")
+                try:
+                    progress.progress(30, text="Fetching league standings...")
+                    sync_result = client.sync_to_db()
+                    progress.progress(100, text="Sync complete!")
+                    standings_count = sync_result.get("standings", 0) if sync_result else 0
+                    rosters_count = sync_result.get("rosters", 0) if sync_result else 0
+                    if rosters_count > 0:
+                        st.success(f"Synced {rosters_count} roster entries and {standings_count} standing entries.")
+                        import time
+
+                        time.sleep(1)
                         st.rerun()
-                    except Exception as e:
-                        st.error(f"Sync failed: {e}")
+                    else:
+                        st.warning(
+                            f"Sync completed but Yahoo returned no roster data "
+                            f"(standings: {standings_count}). This may mean the league "
+                            f"season hasn't started yet on Yahoo, or rosters haven't been set."
+                        )
+                except Exception as e:
+                    progress.empty()
+                    st.error(f"Sync failed: {e}")
             else:
                 st.error("Yahoo client not found in session. Return to Settings and reconnect.")
     else:
@@ -111,17 +128,19 @@ else:
                     st.error("One or more selected players could not be matched. Please reselect.")
                     st.stop()
 
-                with st.status("Running trade analysis...", expanded=True) as status:
-                    st.write("Computing category impacts...")
-                    st.write("Running Monte Carlo simulation (200 iterations)...")
-                    result = analyze_trade(
-                        giving_ids=giving_ids,
-                        receiving_ids=receiving_ids,
-                        user_roster_ids=user_roster_ids,
-                        player_pool=pool,
-                        config=config,
-                    )
-                    status.update(label="Analysis complete!", state="complete")
+                trade_progress = st.progress(0, text="Computing category impacts...")
+                trade_progress.progress(20, text="Computing category impacts...")
+                trade_progress.progress(40, text="Running Monte Carlo simulation (200 iterations)...")
+                result = analyze_trade(
+                    giving_ids=giving_ids,
+                    receiving_ids=receiving_ids,
+                    user_roster_ids=user_roster_ids,
+                    player_pool=pool,
+                    config=config,
+                )
+                trade_progress.progress(100, text="Trade analysis complete!")
+                time.sleep(0.3)
+                trade_progress.empty()
 
                 # Verdict banner
                 if result["verdict"] == "ACCEPT":
@@ -145,14 +164,21 @@ else:
 
                 # Metrics
                 col1, col2, col3 = st.columns(3)
-                col1.metric("Total Standings Gained Points Change", f"{result['total_sgp_change']:+.3f}", help=METRIC_TOOLTIPS["sgp"])
+                col1.metric(
+                    "Total Standings Gained Points Change",
+                    f"{result['total_sgp_change']:+.3f}",
+                    help=METRIC_TOOLTIPS["sgp"],
+                )
                 col2.metric("Monte Carlo Mean", f"{result['mc_mean']:+.3f}", help=METRIC_TOOLTIPS["mc_mean"])
                 col3.metric("Monte Carlo Standard Deviation", f"{result['mc_std']:.3f}", help=METRIC_TOOLTIPS["mc_std"])
 
                 # Category impact table
                 st.subheader("Category Impact")
                 impact_df = pd.DataFrame(
-                    [{"Category": cat, "Standings Gained Points Change": f"{val:+.3f}"} for cat, val in result["category_impact"].items()]
+                    [
+                        {"Category": cat, "Standings Gained Points Change": f"{val:+.3f}"}
+                        for cat, val in result["category_impact"].items()
+                    ]
                 )
                 st.dataframe(impact_df, width="stretch", hide_index=True)
 

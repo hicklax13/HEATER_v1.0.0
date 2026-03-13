@@ -1,5 +1,7 @@
 """Player Compare — Head-to-head comparison with z-scores and radar chart."""
 
+import time
+
 import pandas as pd
 import streamlit as st
 
@@ -58,7 +60,11 @@ if player_a_name and player_b_name and player_a_name != player_b_name:
     id_a = match_a.iloc[0]["player_id"]
     id_b = match_b.iloc[0]["player_id"]
 
+    compare_progress = st.progress(0, text="Comparing players across 10 categories...")
     result = compare_players(int(id_a), int(id_b), pool, config)
+    compare_progress.progress(100, text="Comparison complete!")
+    time.sleep(0.3)
+    compare_progress.empty()
 
     # Load health scores from injury_history table
     health_dict = {}
@@ -101,10 +107,16 @@ if player_a_name and player_b_name and player_a_name != player_b_name:
             t = get_theme()
             cats = ALL_CATEGORIES
             cat_display_names = {
-                "R": "Runs", "HR": "Home Runs", "RBI": "Runs Batted In",
-                "SB": "Stolen Bases", "AVG": "Batting Average",
-                "W": "Wins", "SV": "Saves", "K": "Strikeouts",
-                "ERA": "Earned Run Average", "WHIP": "Walks + Hits per Inning Pitched",
+                "R": "Runs",
+                "HR": "Home Runs",
+                "RBI": "Runs Batted In",
+                "SB": "Stolen Bases",
+                "AVG": "Batting Average",
+                "W": "Wins",
+                "SV": "Saves",
+                "K": "Strikeouts",
+                "ERA": "Earned Run Average",
+                "WHIP": "Walks + Hits per Inning Pitched",
             }
             cat_labels = [cat_display_names.get(c, c) for c in cats]
             z_a = [result["z_scores_a"].get(c, 0) for c in cats]
@@ -140,10 +152,16 @@ if player_a_name and player_b_name and player_a_name != player_b_name:
         # Z-score comparison table
         st.subheader("Category Breakdown")
         cat_full_names = {
-            "R": "Runs", "HR": "Home Runs", "RBI": "Runs Batted In",
-            "SB": "Stolen Bases", "AVG": "Batting Average",
-            "W": "Wins", "SV": "Saves", "K": "Strikeouts",
-            "ERA": "Earned Run Average", "WHIP": "Walks + Hits per Inning Pitched",
+            "R": "Runs",
+            "HR": "Home Runs",
+            "RBI": "Runs Batted In",
+            "SB": "Stolen Bases",
+            "AVG": "Batting Average",
+            "W": "Wins",
+            "SV": "Saves",
+            "K": "Strikeouts",
+            "ERA": "Earned Run Average",
+            "WHIP": "Walks + Hits per Inning Pitched",
         }
         rows = []
         for cat in ALL_CATEGORIES:

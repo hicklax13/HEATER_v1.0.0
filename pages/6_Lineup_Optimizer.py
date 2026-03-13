@@ -1,5 +1,7 @@
 """Lineup Optimizer — Start/sit decisions using LP solver."""
 
+import time
+
 import pandas as pd
 import streamlit as st
 
@@ -29,16 +31,29 @@ rosters = load_league_rosters()
 if rosters.empty:
     if st.session_state.get("yahoo_connected"):
         st.warning("Yahoo is connected but no roster data found in the database. Try syncing:")
-        if st.button("Sync League Data Now"):
+        if st.button("Sync League Data Now", key="sync_league_lineup"):
             client = st.session_state.get("yahoo_client")
             if client:
-                with st.spinner("Syncing league data from Yahoo..."):
-                    try:
-                        client.sync_to_db()
-                        st.toast("Sync complete!")
+                progress = st.progress(0, text="Connecting to Yahoo Fantasy...")
+                try:
+                    progress.progress(30, text="Fetching league standings...")
+                    sync_result = client.sync_to_db()
+                    progress.progress(100, text="Sync complete!")
+                    standings_count = sync_result.get("standings", 0) if sync_result else 0
+                    rosters_count = sync_result.get("rosters", 0) if sync_result else 0
+                    if rosters_count > 0:
+                        st.success(f"Synced {rosters_count} roster entries and {standings_count} standing entries.")
+                        time.sleep(1)
                         st.rerun()
-                    except Exception as e:
-                        st.error(f"Sync failed: {e}")
+                    else:
+                        st.warning(
+                            f"Sync completed but Yahoo returned no roster data "
+                            f"(standings: {standings_count}). This may mean the league "
+                            f"season hasn't started yet on Yahoo, or rosters haven't been set."
+                        )
+                except Exception as e:
+                    progress.empty()
+                    st.error(f"Sync failed: {e}")
             else:
                 st.error("Yahoo client not found in session. Return to Settings and reconnect.")
     else:
@@ -102,8 +117,12 @@ with col1:
     optimize_clicked = st.button("Optimize Lineup", type="primary")
 
 if optimize_clicked:
-    with st.spinner("Running Linear Programming solver..."):
-        result = optimizer.optimize_lineup()
+    lp_progress = st.progress(0, text="Running Linear Programming solver...")
+    lp_progress.progress(20, text="Building constraint matrix for roster slots...")
+    result = optimizer.optimize_lineup()
+    lp_progress.progress(100, text="Optimization complete!")
+    time.sleep(0.3)
+    lp_progress.empty()
 
     if not result or not result.get("lineup"):
         st.warning("Could not produce a valid lineup. Check your roster data.")
@@ -143,10 +162,16 @@ else:
     weights = optimizer.category_targeting(standings, user_team_name)
     if weights:
         cat_full_names = {
-            "r": "Runs", "hr": "Home Runs", "rbi": "Runs Batted In",
-            "sb": "Stolen Bases", "avg": "Batting Average",
-            "w": "Wins", "sv": "Saves", "k": "Strikeouts",
-            "era": "Earned Run Average", "whip": "Walks + Hits per Inning Pitched",
+            "r": "Runs",
+            "hr": "Home Runs",
+            "rbi": "Runs Batted In",
+            "sb": "Stolen Bases",
+            "avg": "Batting Average",
+            "w": "Wins",
+            "sv": "Saves",
+            "k": "Strikeouts",
+            "era": "Earned Run Average",
+            "whip": "Walks + Hits per Inning Pitched",
         }
         st.markdown("**Priority categories** (higher weight = bigger standings impact):")
         weights_sorted = sorted(weights.items(), key=lambda x: x[1], reverse=True)

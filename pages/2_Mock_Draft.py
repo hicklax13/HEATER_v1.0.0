@@ -1,5 +1,7 @@
 """Mock Draft — Practice snake draft simulator."""
 
+import time
+
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -28,16 +30,23 @@ render_theme_toggle()
 
 def build_mock_pool() -> pd.DataFrame:
     """Load player pool and run full valuation pipeline."""
+    progress = st.progress(0, text="Loading player data...")
     raw = load_player_pool()
     if raw is None or raw.empty:
+        progress.empty()
         return pd.DataFrame()
     raw["player_name"] = raw["name"]
 
+    progress.progress(20, text="Computing Standings Gained Points denominators...")
     lc = LeagueConfig()
     denoms = compute_sgp_denominators(raw, lc)
     lc.sgp_denominators.update(denoms)
     sgp = SGPCalculator(lc)
+
+    progress.progress(45, text="Computing replacement levels...")
     repl = compute_replacement_levels(raw, lc, sgp)
+
+    progress.progress(70, text="Calculating player valuations...")
     num_rounds = st.session_state.get("mock_num_rounds", 23)
     valued = value_all_players(raw, lc, replacement_levels=repl, num_rounds=num_rounds)
     if "player_name" not in valued.columns:
@@ -45,6 +54,10 @@ def build_mock_pool() -> pd.DataFrame:
 
     st.session_state.mock_lc = lc
     st.session_state.mock_sgp = sgp
+
+    progress.progress(100, text="Player pool ready!")
+    time.sleep(0.3)
+    progress.empty()
     return valued
 
 
@@ -100,11 +113,14 @@ def render_recommendations(pool: pd.DataFrame, ds: DraftState, n_sims: int) -> N
     lc: LeagueConfig = st.session_state.get("mock_lc", LeagueConfig())
     sim = DraftSimulator(lc, sigma=10.0)
 
-    with st.spinner("Analyzing picks..."):
-        try:
-            recs = sim.evaluate_candidates(pool, ds, top_n=8, n_simulations=n_sims)
-        except Exception:
-            recs = pd.DataFrame()
+    rec_progress = st.progress(0, text="Running Monte Carlo simulation...")
+    try:
+        recs = sim.evaluate_candidates(pool, ds, top_n=8, n_simulations=n_sims)
+        rec_progress.progress(100, text="Analysis complete!")
+    except Exception:
+        recs = pd.DataFrame()
+    time.sleep(0.3)
+    rec_progress.empty()
 
     # evaluate_candidates returns "name"; alias to "player_name" for rendering
     if not recs.empty and "name" in recs.columns and "player_name" not in recs.columns:
@@ -394,13 +410,9 @@ if not st.session_state.get("mock_started", False):
     st.subheader("Draft Settings")
     col_a, col_b, col_c = st.columns(3)
     with col_a:
-        num_teams = st.number_input(
-            "Number of teams", value=12, min_value=6, max_value=20, key="mock_num_teams_input"
-        )
+        num_teams = st.number_input("Number of teams", value=12, min_value=6, max_value=20, key="mock_num_teams_input")
     with col_b:
-        num_rounds = st.number_input(
-            "Rounds", value=23, min_value=10, max_value=30, key="mock_num_rounds_input"
-        )
+        num_rounds = st.number_input("Rounds", value=23, min_value=10, max_value=30, key="mock_num_rounds_input")
     with col_c:
         draft_pos = st.number_input(
             "Your draft position", value=1, min_value=1, max_value=num_teams, key="mock_draft_pos_input"
@@ -466,7 +478,12 @@ btn_col1, btn_col2, btn_col3 = st.columns([1, 1, 2])
 with btn_col1:
     if st.button("Reset Draft"):
         for key in list(st.session_state.keys()):
-            if key.startswith("mock_") and key not in ("mock_draft_pos", "mock_num_sims", "mock_num_teams", "mock_num_rounds"):
+            if key.startswith("mock_") and key not in (
+                "mock_draft_pos",
+                "mock_num_sims",
+                "mock_num_teams",
+                "mock_num_rounds",
+            ):
                 del st.session_state[key]
         st.rerun()
 with btn_col2:

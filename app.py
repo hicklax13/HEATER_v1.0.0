@@ -243,6 +243,7 @@ def render_step_settings():
                                     st.session_state.yahoo_client = client
                                     st.session_state.yahoo_connected = True
                                     st.session_state.yahoo_token_data = token_data
+                                    sync_result = None
                                     try:
                                         settings = client.get_league_settings()
                                         if settings:
@@ -252,8 +253,15 @@ def render_step_settings():
                                             st.session_state.yahoo_sync_result = sync_result
                                     except Exception as e:
                                         st.warning(f"Yahoo connected but sync encountered an issue: {e}")
+                                    standings_n = sync_result.get("standings", 0) if sync_result else 0
+                                    rosters_n = sync_result.get("rosters", 0) if sync_result else 0
                                     st.success("Connected to Yahoo Fantasy!")
-                                    st.toast("League data synced!")
+                                    if rosters_n > 0:
+                                        st.toast(f"Synced {rosters_n} roster and {standings_n} standing entries.")
+                                    elif standings_n > 0:
+                                        st.toast(f"Synced {standings_n} standings but no roster data yet.")
+                                    else:
+                                        st.toast("Connected, but Yahoo returned no data. Season may not have started.")
                                     st.rerun()
                                 else:
                                     st.error("Authentication failed. Check your credentials.")
@@ -351,7 +359,9 @@ def render_step_launch():
     sec("Step 2 — Ready to Launch")
 
     # Build league config + player pool
-    pool = _build_player_pool()
+    pool_progress = st.progress(0, text="Building player pool...")
+    pool = _build_player_pool(progress=pool_progress)
+    pool_progress.empty()
     if pool is None:
         st.error("No player data found. Data may still be loading — try refreshing.")
         if st.button("← Back to Settings"):
@@ -415,10 +425,15 @@ def render_step_launch():
         st.rerun()
 
 
-def _build_player_pool():
+def _build_player_pool(progress=None):
     """Load player pool and run valuation pipeline."""
     try:
+        if progress:
+            progress.progress(5, text="Initializing database...")
         init_db()
+
+        if progress:
+            progress.progress(10, text="Loading player pool from database...")
         pool = load_player_pool()
         if pool is None or pool.empty:
             return None
@@ -439,6 +454,8 @@ def _build_player_pool():
             lc.sgp_era = st.session_state.get("sgp_era", 0.30)
             lc.sgp_whip = st.session_state.get("sgp_whip", 0.03)
 
+        if progress:
+            progress.progress(30, text="Computing Standings Gained Points denominators...")
         sgp = SGPCalculator(lc)
         if st.session_state.auto_sgp:
             denoms = compute_sgp_denominators(pool, lc)
@@ -448,7 +465,12 @@ def _build_player_pool():
                     setattr(lc, attr, val)
             sgp = SGPCalculator(lc)  # Rebuild with new denominators
 
+        if progress:
+            progress.progress(55, text="Computing replacement levels...")
         repl = compute_replacement_levels(pool, lc, sgp)
+
+        if progress:
+            progress.progress(75, text="Computing player valuations...")
         pool = value_all_players(pool, lc, replacement_levels=repl)
 
         # Add player_name alias for UI while keeping 'name' for backend modules
@@ -458,6 +480,10 @@ def _build_player_pool():
         st.session_state.player_pool = pool
         st.session_state.league_config = lc
         st.session_state.sgp_calc = sgp
+
+        if progress:
+            progress.progress(100, text="Player pool ready!")
+            time.sleep(0.3)
         return pool
     except Exception as e:
         st.error(f"Error building player pool: {e}")
@@ -660,39 +686,44 @@ def render_draft_page():
     pos_runs = []
 
     if ds.is_user_turn and len(available) > 0:
-        with st.status("Analyzing best picks...", expanded=False) as status:
-            try:
-                sim = DraftSimulator(lc)
+        rec_progress = st.progress(0, text="Preparing Monte Carlo simulation...")
+        try:
+            sim = DraftSimulator(lc)
 
-                # Build volatility array for MC sampling
-                perc_kwargs = {}
-                if st.session_state.get("has_percentiles", False):
-                    vol_array = np.zeros(len(pool))
-                    if "total_sgp" in pool.columns:
-                        vol_array = np.full(len(pool), pool["total_sgp"].std() * 0.3)
-                    perc_kwargs = {
-                        "use_percentile_sampling": True,
-                        "sgp_volatility": vol_array,
-                    }
+            # Build volatility array for MC sampling
+            perc_kwargs = {}
+            if st.session_state.get("has_percentiles", False):
+                vol_array = np.zeros(len(pool))
+                if "total_sgp" in pool.columns:
+                    vol_array = np.full(len(pool), pool["total_sgp"].std() * 0.3)
+                perc_kwargs = {
+                    "use_percentile_sampling": True,
+                    "sgp_volatility": vol_array,
+                }
 
-                candidates = sim.evaluate_candidates(
-                    pool,
-                    ds,
-                    n_simulations=st.session_state.num_sims,
-                    **perc_kwargs,
-                )
+            rec_progress.progress(20, text="Running Monte Carlo simulation...")
+            candidates = sim.evaluate_candidates(
+                pool,
+                ds,
+                n_simulations=st.session_state.num_sims,
+                **perc_kwargs,
+            )
 
-                if candidates is not None and len(candidates) > 0:
-                    rec = candidates.iloc[0]
-                    alts = candidates.iloc[1:6] if len(candidates) > 1 else pd.DataFrame()
+            rec_progress.progress(80, text="Computing survival probabilities and urgency...")
 
-                # Position run detection
-                pos_runs = detect_position_run(ds.pick_log)
+            if candidates is not None and len(candidates) > 0:
+                rec = candidates.iloc[0]
+                alts = candidates.iloc[1:6] if len(candidates) > 1 else pd.DataFrame()
 
-                status.update(label="Ready", state="complete")
-            except Exception as e:
-                st.error(f"Engine error: {e}")
-                status.update(label="Error", state="error")
+            # Position run detection
+            pos_runs = detect_position_run(ds.pick_log)
+
+            rec_progress.progress(100, text="Analysis complete!")
+            time.sleep(0.3)
+        except Exception as e:
+            st.error(f"Engine error: {e}")
+        finally:
+            rec_progress.empty()
 
     # ── Compute opponent intel ───────────────────────────────────
     threat_alerts = []
@@ -1406,8 +1437,16 @@ def _render_radar_chart(ds, pool):
 
     cat_keys = ["R", "HR", "RBI", "SB", "AVG", "W", "SV", "K", "ERA", "WHIP"]
     cat_display = [
-        "Runs", "Home Runs", "Runs Batted In", "Stolen Bases", "Batting Average",
-        "Wins", "Saves", "Strikeouts", "Earned Run Average", "Walks + Hits per Inning Pitched",
+        "Runs",
+        "Home Runs",
+        "Runs Batted In",
+        "Stolen Bases",
+        "Batting Average",
+        "Wins",
+        "Saves",
+        "Strikeouts",
+        "Earned Run Average",
+        "Walks + Hits per Inning Pitched",
     ]
     invert = {"ERA", "WHIP"}  # lower is better
 
@@ -1476,9 +1515,16 @@ def _render_balance_bars(ds, pool):
 
     cat_keys = ["R", "HR", "RBI", "SB", "AVG", "W", "SV", "K", "ERA", "WHIP"]
     cat_names = {
-        "R": "Runs", "HR": "Home Runs", "RBI": "Runs Batted In", "SB": "Stolen Bases",
-        "AVG": "Batting Average", "W": "Wins", "SV": "Saves", "K": "Strikeouts",
-        "ERA": "Earned Run Average", "WHIP": "Walks + Hits per Inning Pitched",
+        "R": "Runs",
+        "HR": "Home Runs",
+        "RBI": "Runs Batted In",
+        "SB": "Stolen Bases",
+        "AVG": "Batting Average",
+        "W": "Wins",
+        "SV": "Saves",
+        "K": "Strikeouts",
+        "ERA": "Earned Run Average",
+        "WHIP": "Walks + Hits per Inning Pitched",
     }
     for cat in cat_keys:
         uv = totals.get(cat, 0)

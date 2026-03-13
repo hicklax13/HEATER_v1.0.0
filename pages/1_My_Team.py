@@ -1,5 +1,7 @@
 """My Team — Roster overview and category standings."""
 
+import time
+
 import pandas as pd
 import streamlit as st
 
@@ -36,16 +38,31 @@ if rosters.empty:
     # If Yahoo is connected, offer immediate sync instead of a dead-end message
     if st.session_state.get("yahoo_connected"):
         st.warning("Yahoo is connected but no roster data found in the database. Try syncing:")
-        if st.button("Sync League Data Now"):
+        if st.button("Sync League Data Now", key="sync_league_now"):
             client = st.session_state.get("yahoo_client")
             if client:
-                with st.spinner("Syncing league data from Yahoo..."):
-                    try:
-                        client.sync_to_db()
-                        st.toast("Sync complete!")
+                progress = st.progress(0, text="Connecting to Yahoo Fantasy...")
+                try:
+                    progress.progress(30, text="Fetching league standings...")
+                    sync_result = client.sync_to_db()
+                    progress.progress(100, text="Sync complete!")
+                    standings_count = sync_result.get("standings", 0) if sync_result else 0
+                    rosters_count = sync_result.get("rosters", 0) if sync_result else 0
+                    if rosters_count > 0:
+                        st.success(f"Synced {rosters_count} roster entries and {standings_count} standing entries.")
+                        import time
+
+                        time.sleep(1)
                         st.rerun()
-                    except Exception as e:
-                        st.error(f"Sync failed: {e}")
+                    else:
+                        st.warning(
+                            f"Sync completed but Yahoo returned no roster data "
+                            f"(standings: {standings_count}). This may mean the league "
+                            f"season hasn't started yet on Yahoo, or rosters haven't been set."
+                        )
+                except Exception as e:
+                    progress.empty()
+                    st.error(f"Sync failed: {e}")
             else:
                 st.error("Yahoo client not found in session. Return to Settings and reconnect.")
     else:
@@ -66,11 +83,16 @@ else:
         col1, col2 = st.columns([1, 4])
         with col1:
             if st.button("Refresh Stats"):
-                with st.spinner("Pulling live stats from MLB..."):
-                    result = refresh_all_stats(force=True)
-                    for source, status in result.items():
-                        st.toast(f"{source}: {status}")
-                    st.rerun()
+                refresh_progress = st.progress(0, text="Pulling live stats from MLB Stats API...")
+                refresh_progress.progress(20, text="Fetching current season statistics...")
+                result = refresh_all_stats(force=True)
+                refresh_progress.progress(90, text="Processing updated statistics...")
+                for source, status in result.items():
+                    st.toast(f"{source}: {status}")
+                refresh_progress.progress(100, text="Stats refresh complete!")
+                time.sleep(0.3)
+                refresh_progress.empty()
+                st.rerun()
 
         # Yahoo sync button
         if YFPY_AVAILABLE:
@@ -80,27 +102,45 @@ else:
             yahoo_secret = os.environ.get("YAHOO_CLIENT_SECRET")
             yahoo_league_id = os.environ.get("YAHOO_LEAGUE_ID", "").strip()
             if yahoo_key and yahoo_secret and yahoo_league_id:
-                if st.button("Sync Yahoo"):
-                    with st.spinner("Syncing from Yahoo Fantasy..."):
-                        try:
-                            # Reuse authenticated client from session if available
-                            client = st.session_state.get("yahoo_client")
-                            if client is None:
-                                # Fall back: try to authenticate with saved token data
-                                token_data = st.session_state.get("yahoo_token_data")
-                                client = YahooFantasyClient(league_id=yahoo_league_id)
-                                if not client.authenticate(yahoo_key, yahoo_secret, token_data=token_data):
-                                    st.error("Yahoo authentication failed. Reconnect in Settings.")
-                                    client = None
-                                else:
-                                    # Cache the successfully authenticated client
-                                    st.session_state.yahoo_client = client
-                            if client is not None:
-                                client.sync_to_db()
-                                st.toast("Yahoo sync complete!")
+                if st.button("Sync Yahoo", key="sync_yahoo_roster"):
+                    progress = st.progress(0, text="Connecting to Yahoo Fantasy...")
+                    try:
+                        # Reuse authenticated client from session if available
+                        client = st.session_state.get("yahoo_client")
+                        if client is None:
+                            # Fall back: try to authenticate with saved token data
+                            token_data = st.session_state.get("yahoo_token_data")
+                            client = YahooFantasyClient(league_id=yahoo_league_id)
+                            if not client.authenticate(yahoo_key, yahoo_secret, token_data=token_data):
+                                progress.empty()
+                                st.error("Yahoo authentication failed. Reconnect in Settings.")
+                                client = None
+                            else:
+                                # Cache the successfully authenticated client
+                                st.session_state.yahoo_client = client
+                        if client is not None:
+                            progress.progress(30, text="Fetching league data...")
+                            sync_result = client.sync_to_db()
+                            progress.progress(100, text="Sync complete!")
+                            standings_count = sync_result.get("standings", 0) if sync_result else 0
+                            rosters_count = sync_result.get("rosters", 0) if sync_result else 0
+                            if rosters_count > 0:
+                                st.success(
+                                    f"Synced {rosters_count} roster entries and {standings_count} standing entries."
+                                )
+                                import time
+
+                                time.sleep(1)
                                 st.rerun()
-                        except Exception as e:
-                            st.error(f"Yahoo sync error: {e}")
+                            else:
+                                st.warning(
+                                    f"Sync completed but Yahoo returned no roster data "
+                                    f"(standings: {standings_count}). This may mean the league "
+                                    f"season hasn't started yet on Yahoo, or rosters haven't been set."
+                                )
+                    except Exception as e:
+                        progress.empty()
+                        st.error(f"Yahoo sync error: {e}")
 
         # Load roster
         roster = get_team_roster(user_team_name)
@@ -193,9 +233,16 @@ else:
                         season_stats = pd.read_sql_query("SELECT * FROM season_stats", conn)
 
                         if not season_stats.empty and season_stats.get("games_played", pd.Series([0])).sum() > 0:
+                            bayes_progress = st.progress(0, text="Loading preseason projections for Bayesian update...")
                             preseason = pd.read_sql_query("SELECT * FROM projections WHERE system = 'blended'", conn)
+                            bayes_progress.progress(
+                                30, text="Applying Bayesian regression with stabilization thresholds..."
+                            )
                             updater = BayesianUpdater()
                             updated = updater.batch_update_projections(season_stats, preseason)
+                            bayes_progress.progress(100, text="Bayesian projections complete!")
+                            time.sleep(0.3)
+                            bayes_progress.empty()
                             st.subheader("Bayesian-Adjusted Projections")
                             st.caption(
                                 "Stats regressed toward preseason priors using FanGraphs stabilization thresholds"
