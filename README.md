@@ -2,13 +2,14 @@
 
 A fantasy baseball draft assistant + in-season manager for Yahoo Sports 5x5 roto leagues. Features a "Broadcast Booth" UI with dark/light theme toggle, Monte Carlo draft recommendations, Bayesian projection updates, and full in-season roster management.
 
-Built for the **FourzynBurn** league (12-team snake draft, 23 rounds). ~10,000 lines of Python across 20 source files with 300 tests. Zero emoji — all icons are inline SVGs.
+Built for the **FourzynBurn** league (12-team snake draft, 23 rounds). ~10,000 lines of Python across 20 source files with 330 tests. Zero CSV uploads — all data auto-fetched from MLB Stats API + FanGraphs on every launch. Zero emoji — all icons are inline SVGs.
 
 ## Overview
 
 The app features a navy + amber "Broadcast Booth" theme with dark/light mode toggle and sports broadcast typography (Oswald + DM Sans). All icons are custom inline SVGs — no emoji.
 
-- **Setup Wizard** — 4-step guided setup: auto-fetch projections from FanGraphs, configure league, import rosters, launch draft
+- **Splash Screen** — Zero-interaction data bootstrap on every launch: 750+ MLB players, 3 years of history, projections, park factors, live stats — all auto-fetched with staleness-based refresh
+- **Setup Wizard** — 2-step guided setup (Settings → Launch). No CSV uploads needed — all data loaded automatically
 - **Draft Page** — 3-column layout: MC recommendations with hero card (CSS dot health badges, P10/P90 ranges, survival probability), draft board, player search + opponent intel
 - **In-Season Pages** — 5 Streamlit pages with shared theme system: team overview, trade analyzer, player compare, free agent rankings, lineup optimizer
 - **Dark/Light Toggle** — one-click theme switch that persists across pages; navy borders + amber accent in both modes
@@ -38,7 +39,8 @@ The app opens at `http://localhost:8501`.
 
 ### Draft Tool (`app.py`)
 
-- **4-step setup wizard** with optional Yahoo OAuth and FanGraphs auto-fetch
+- **Splash screen bootstrap** — auto-loads all data on every launch with progress bar
+- **2-step setup wizard** (Settings → Launch) with optional Yahoo OAuth
 - **Monte Carlo simulation** (100-300 sims, 6-round horizon) for pick recommendations
 - **Hero card** with survival probability, CSS dot health badges, P10/P90 range bars, SGP chips
 - **Opponent intel** — threat alerts when opponents need your target position
@@ -66,10 +68,11 @@ The app opens at `http://localhost:8501`.
 - **`_ThemeProxy`** — dict subclass that makes `T["color"]` always resolve to the active theme
 - **Educational tooltips** — `METRIC_TOOLTIPS` dict with explanations for SGP, VORP, survival %, health badges, and more
 
-### Analytics & Data Pipeline
+### Data Pipeline & Analytics
 
-- **FanGraphs auto-fetch** — Steamer, ZiPS, Depth Charts projections (3 systems x bat/pit = 6 endpoints) on app startup
-- **MLB Stats API** — daily auto-refresh of current season stats
+- **Zero-interaction bootstrap** — `bootstrap_all_data()` orchestrates 7 data phases with staleness-based smart refresh (1h live stats, 6h Yahoo, 7d projections, 30d historical/park factors)
+- **FanGraphs auto-fetch** — Steamer, ZiPS, Depth Charts projections (3 systems × bat/pit = 6 endpoints) on app startup
+- **MLB Stats API** — 750+ active player roster fetch, current season stats, 3-year historical stats for injury modeling
 - **Yahoo Fantasy API** — OAuth 2.0 out-of-band flow for league sync (settings, rosters, standings, FA pool)
 - **Bayesian updater** — PyMC 5 hierarchical beta-binomial model for in-season stat updates; Marcel regression fallback when PyMC unavailable. Uses FanGraphs stabilization thresholds (K=60 PA, AVG=910 AB, ERA=70 IP)
 - **Injury model** — 3-year health scores, age-risk curves (hitters +2%/yr after 30, pitchers +3%/yr after 28), workload flags for IP spikes
@@ -78,11 +81,16 @@ The app opens at `http://localhost:8501`.
 
 ## Setup
 
-### 1. Import Projections
+### 1. Launch
 
-On first launch, the app auto-fetches projections from FanGraphs (Steamer, ZiPS, Depth Charts). Alternatively:
-- Upload CSV files from [FanGraphs Projections](https://www.fangraphs.com/projections)
-- Click "Load Sample Data" for testing with ~190 sample players
+On every launch, the splash screen automatically fetches all data:
+- **750+ MLB players** from MLB Stats API
+- **3 projection systems** (Steamer, ZiPS, Depth Charts) from FanGraphs
+- **3 years of historical stats** for injury modeling
+- **Current season stats** from MLB Stats API
+- **30-team park factors** for park-adjusted analysis
+
+For testing without API access, run `python load_sample_data.py` first.
 
 ### 2. Configure League Settings
 
@@ -90,13 +98,9 @@ On first launch, the app auto-fetches projections from FanGraphs (Steamer, ZiPS,
 - SGP denominators (auto-computed or manual)
 - Risk tolerance slider
 
-### 3. (Optional) Import League Data
+### 3. (Optional) Connect Yahoo Fantasy
 
-Upload league rosters and standings CSVs to enable in-season pages (My Team, Trade Analyzer, Free Agents, Lineup Optimizer).
-
-### 4. (Optional) Connect Yahoo Fantasy
-
-Set environment variables and the app shows a Yahoo connect card on Step 1:
+Set environment variables and the app shows a Yahoo connect card in Settings:
 
 ```bash
 export YAHOO_CLIENT_ID=<your consumer key>
@@ -132,7 +136,7 @@ See [Yahoo Developer Apps](https://developer.yahoo.com/apps/) to create credenti
 ## File Structure
 
 ```
-app.py                  — Draft tool (~1890 lines): 4-step setup wizard + 3-column draft page
+app.py                  — Draft tool (~1670 lines): splash screen bootstrap + 2-step setup wizard + 3-column draft page
 requirements.txt        — pip dependencies
 load_sample_data.py     — Generates ~190 sample players + injury history for testing
 .streamlit/config.toml  — Dark theme configuration
@@ -148,7 +152,8 @@ src/
   draft_state.py        — Draft state management, roster tracking, opponent patterns
   simulation.py         — Monte Carlo simulation, history-aware opponent modeling
   in_season.py          — Trade analyzer, player comparison, FA ranker
-  live_stats.py         — MLB Stats API + pybaseball data fetcher
+  live_stats.py         — MLB Stats API: roster fetch, season/historical stats, injury data extraction
+  data_bootstrap.py     — Zero-interaction bootstrap orchestrator: staleness-based refresh of all data sources
   league_manager.py     — League roster/standings management
   bayesian.py           — PyMC 5 hierarchical model + Marcel regression fallback
   injury_model.py       — Health scores, age-risk curves, workload flags
@@ -158,7 +163,7 @@ src/
   ui_shared.py          — Centralized theme system (dark/light), PAGE_ICONS (inline SVGs), CSS injection, metric tooltips
   validation.py         — Validation utilities
   data_2026.py          — Hardcoded 2026 projections for sample data
-tests/                  — 300 tests (17 test files), 299 pass, 1 skipped (PyMC)
+tests/                  — 330 tests (18 test files), 329 pass, 1 skipped (PyMC)
 data/                   — SQLite DB + draft state backups (gitignored)
 .github/
   workflows/ci.yml      — CI pipeline (lint + test + build)
@@ -210,7 +215,7 @@ ruff check .
 # Format
 ruff format .
 
-# Run all tests (300 collected, 299 pass, 1 skipped for PyMC)
+# Run all tests (330 collected, 329 pass, 1 skipped for PyMC)
 python -m pytest
 
 # Run with verbose output

@@ -152,7 +152,7 @@ docs/plans/             — Implementation plan archives
 ### Auto-Fetch Pipeline (`src/data_pipeline.py`)
 - **FanGraphs JSON API** — Fetches Steamer, ZiPS, Depth Charts projections (3 systems × bat/pit = 6 endpoints) on app startup
 - **Normalization** — Maps FG JSON fields to DB schema; SP/RP classification mirrors CSV import logic (GS≥5→SP, SV≥3→RP)
-- **Staleness check** — `refresh_if_stale()` skips fetch if projections table already has data; `force=True` overrides
+- **Staleness check** — `refresh_if_stale()` uses `check_staleness("fangraphs_projections", 168)` to skip if fresh; `force=True` overrides
 - **ADP extraction** — Pulls ADP from Steamer JSON responses, resolves names→player_ids with fuzzy fallback
 - **Graceful degradation** — Partial system failures proceed with available data
 - **Rate limiting** — 0.5s between requests, User-Agent header to avoid CloudFlare blocks
@@ -254,7 +254,7 @@ PARK_FACTORS: dict[str, float]  # 30-team dict, e.g. {"COL": 1.38, "MIA": 0.88}
 
 # Database bulk helpers (src/database.py)
 check_staleness(source, max_age_hours)  # returns bool — True if needs refresh
-upsert_player_bulk(players: list[dict])  # dict needs: name, team, positions, is_hitter
+upsert_player_bulk(players: list[dict])  # dict needs: name, team, positions, is_hitter; optional: mlb_id
 upsert_injury_history_bulk(records: list[dict])  # dict needs: player_id, season, games_played, games_available
 upsert_park_factors(factors: list[dict])  # dict needs: team_code, factor_hitting, factor_pitching
 
@@ -268,7 +268,7 @@ fetch_injury_data_bulk(historical_stats)  # returns list[dict] with player_name,
 build_oauth_url(consumer_key, redirect_uri="oob")  # returns auth URL string
 exchange_code_for_token(consumer_key, consumer_secret, code)  # returns token dict or None
 
-refresh_if_stale(force=False)  # returns bool; auto-skips if projections table has data
+refresh_if_stale(force=False)  # returns bool; uses check_staleness() with 168h threshold
 fetch_projections(system, stats)  # returns (DataFrame, raw_json_list)
 SYSTEM_MAP = {"steamer": "steamer", "zips": "zips", "fangraphsdc": "depthcharts"}
 ```
@@ -296,7 +296,7 @@ SYSTEM_MAP = {"steamer": "steamer", "zips": "zips", "fangraphsdc": "depthcharts"
 - **FanGraphs `minpos` field** — Returns primary position only (e.g., "SS"), not multi-position eligibility. Sometimes returns `"0"` or `"-"` meaning no position; these are guarded to fall back to `"Util"`.
 - **Bootstrap session state** — `st.session_state.bootstrap_complete` gates the bootstrap-once logic. Delete the key to force re-bootstrap. Results stored in `st.session_state.bootstrap_results`.
 - **Bootstrap lazy imports** — `data_bootstrap.py` imports from `database.py` and `live_stats.py` inside functions to avoid circular imports and enable graceful degradation.
-- **Players table has no UNIQUE constraint** — `upsert_player_bulk()` uses SELECT-first pattern (check if name exists, then INSERT or UPDATE). Do NOT use `ON CONFLICT(name)`.
+- **Players table has no UNIQUE constraint on name** — `upsert_player_bulk()` uses SELECT-first pattern (check if name exists, then INSERT or UPDATE). Do NOT use `ON CONFLICT(name)`. However, `injury_history` DOES have a UNIQUE index on `(player_id, season)` so `ON CONFLICT` is safe there.
 - **Park factors schema** — Uses columns `team_code`, `factor_hitting`, `factor_pitching` (not just `team` and `park_factor`). `upsert_park_factors()` accepts both naming conventions via flexible getter.
 - **sgp_volatility alignment** — When `evaluate_candidates()` receives `sgp_volatility`, the array is aligned to the full pool. After filtering drafted players, it must be re-indexed via `pd.Series.reindex()` to match the filtered `available` pool.
 - **Practice mode isolation** — Uses separate `st.session_state["practice_draft_state"]` DraftState, never persisted to disk/DB. Resets on page refresh or "Reset Practice" button click.
@@ -307,6 +307,12 @@ SYSTEM_MAP = {"steamer": "steamer", "zips": "zips", "fangraphsdc": "depthcharts"
 - **No emoji in the codebase** — All icons are inline SVGs from `PAGE_ICONS` dict in `ui_shared.py`. Injury badges use CSS dots (`border-radius:50%`), not emoji. Do NOT re-introduce emoji.
 - **`_ThemeProxy` dict subclass** — `T` in `ui_shared.py` is a `_ThemeProxy` that delegates all reads to `get_theme()`. This makes `T["amber"]` theme-aware without changing call sites. Do not replace `T` with a plain dict.
 - **Sidebar nav rename via CSS** — The sidebar "app" label is renamed to "Configurations" using `font-size:0` + `::after { content: "Configurations" }` pseudo-element trick in `inject_custom_css()`.
+- **Rate-stat aggregation** — AVG=sum(h)/sum(ab), ERA=sum(er)*9/sum(ip), WHIP=sum(bb+h)/sum(ip). Weighted averages, NOT simple averages. `_fix_rate_stats()` in `lineup_optimizer.py` recalculates these after LP solves.
+- **Injury model scales rate stats** — `apply_injury_adjustment()` scales ER, BB_allowed, H_allowed by `_combined_factor` (health×age×workload), not just counting stats. Without this, injured pitchers show artificially low ERA/WHIP.
+- **LP inverse stat weighting** — ERA/WHIP in lineup optimizer LP objective must be weighted by IP: `player_value -= val * ip * weight`. Without IP weighting, a 1-IP reliever with 0.00 ERA dominates a 200-IP starter.
+- **`compare_players()` peer-group filtering** — Z-scores computed against `is_hitter`-filtered pool only. Hitter HR z-score uses hitter pool mean/std, not full pool (which includes pitchers with HR=0).
+- **`check_staleness()` edge case** — `max_age_hours <= 0` returns `True` (always stale). Prevents division-by-zero and logical errors.
+- **`ruff` command on Windows** — Use `python -m ruff check .` and `python -m ruff format .` instead of bare `ruff` — the binary may not be on PATH.
 
 ## GitHub
 
@@ -321,4 +327,4 @@ SYSTEM_MAP = {"steamer": "steamer", "zips": "zips", "fangraphsdc": "depthcharts"
 - **Math verification suite:** 112 tests across 3 files (valuation, simulation, trade) — hand-calculated expected values verified against code formulas
 - **CI:** GitHub Actions runs ruff lint/format + pytest on Python 3.11, 3.12, 3.13
 - **Coverage:** 64% (below 75% CI threshold; pre-existing, no regressions)
-- **Systematic code reviews:** Two rounds of full codebase review completed; all bugs fixed and pushed
+- **Systematic code reviews:** Three rounds of full codebase review completed (including parallel 7-agent sweep); all bugs fixed and pushed
