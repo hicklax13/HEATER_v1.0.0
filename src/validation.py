@@ -1,5 +1,7 @@
 """Validation and backtesting framework for the draft tool."""
 
+import copy
+
 import numpy as np
 import pandas as pd
 
@@ -82,8 +84,7 @@ def simulate_full_draft(
         all_team_sgp.append(team_sgp)
 
     user_sgp = all_team_sgp[user_team_index]
-    sorted_sgp = sorted(all_team_sgp, reverse=True)
-    user_rank = sorted_sgp.index(user_sgp) + 1
+    user_rank = sum(1 for s in all_team_sgp if s > user_sgp) + 1
 
     user_roster = []
     for _, pid, pname in ds.user_team.picks:
@@ -160,7 +161,7 @@ def sensitivity_analysis(player_pool: pd.DataFrame, config: LeagueConfig, n_per_
 
     # Test different SGP denominator scales
     for scale in [0.8, 1.0, 1.2]:
-        test_config = LeagueConfig()
+        test_config = copy.deepcopy(config)
         test_config.sgp_denominators = {k: v * scale for k, v in config.sgp_denominators.items()}
         benchmark = run_benchmark(player_pool, test_config, n_per_test)
         results[f"sgp_scale_{scale}"] = benchmark["tool"]["avg_rank"]
@@ -260,7 +261,7 @@ def _format_key_stats(player, is_hitter: bool) -> str:
         if r > 0:
             parts.append(f"{r}R")
         if avg > 0:
-            parts.append(f".{int(avg * 1000):03d}")
+            parts.append(f".{round(avg * 1000):03d}")
         return " | ".join(parts[:4])
     else:
         parts = []

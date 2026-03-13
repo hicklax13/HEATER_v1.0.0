@@ -14,6 +14,7 @@ import pandas as pd
 import requests
 
 from src.database import (
+    check_staleness,
     create_blended_projections,
     get_connection,
     init_db,
@@ -311,6 +312,9 @@ def _store_projections(projections: dict[str, pd.DataFrame]) -> int:
 
         conn.commit()
         return total
+    except Exception:
+        logger.exception("Failed to store projections")
+        raise
     finally:
         conn.close()
 
@@ -349,7 +353,15 @@ def _store_adp(adp_df: pd.DataFrame) -> int:
                         "SELECT player_id FROM players WHERE name LIKE ? AND name LIKE ?",
                         (f"%{parts[0]}%", f"%{parts[-1]}%"),
                     )
-                    result = cursor.fetchone()
+                    matches = cursor.fetchall()
+                    if len(matches) == 1:
+                        result = matches[0]
+                    elif len(matches) > 1:
+                        logger.warning(
+                            "ADP: fuzzy match for '%s' returned %d players, skipping",
+                            name,
+                            len(matches),
+                        )
             if result is None:
                 logger.warning("ADP: no player_id found for '%s', skipping", name)
                 continue
@@ -403,24 +415,26 @@ def fetch_all_projections() -> tuple[dict[str, pd.DataFrame], dict[str, list[dic
 
 
 def refresh_if_stale(force: bool = False) -> bool:
-    """Fetch projections if not yet fetched this session.
+    """Fetch projections if stale or missing.
 
     Calls init_db() to ensure tables exist.
-    When force=False, skips fetch if projections table already has data.
+    When force=False, skips fetch if projections were refreshed within 7 days.
     Orchestrates: fetch → normalize → upsert players → store projections
                   → blend → ADP → refresh log.
-    Returns True if data was refreshed or already exists,
+    Returns True if data was refreshed or already fresh,
     False if all fetches failed.
     """
     init_db()
 
-    # Skip if data already exists and not forcing refresh
+    # Skip if data is fresh and not forcing refresh
     if not force:
-        conn = get_connection()
-        count = conn.execute("SELECT COUNT(*) FROM projections").fetchone()[0]
-        conn.close()
-        if count > 0:
-            return True  # Data already exists, skip fetch
+        try:
+            is_stale = check_staleness("fangraphs_projections", max_age_hours=168)
+        except Exception:
+            logger.exception("Staleness check failed, proceeding with fetch")
+            is_stale = True
+        if not is_stale:
+            return True  # Data is fresh, skip fetch
 
     # Fetch from FanGraphs
     projections, raw_data = fetch_all_projections()

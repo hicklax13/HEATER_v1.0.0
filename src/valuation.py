@@ -259,7 +259,8 @@ def compute_replacement_levels(player_pool: pd.DataFrame, config: LeagueConfig, 
     hitting_positions = ["C", "1B", "2B", "3B", "SS", "OF"]
     for pos in hitting_positions:
         eligible = player_pool[
-            player_pool["positions"].str.contains(pos, na=False) & (player_pool["is_hitter"] == 1)
+            player_pool["positions"].apply(lambda x: pos in [p.strip() for p in str(x).split(",")])
+            & (player_pool["is_hitter"] == 1)
         ].copy()
         if eligible.empty:
             replacement[pos] = 0
@@ -278,7 +279,8 @@ def compute_replacement_levels(player_pool: pd.DataFrame, config: LeagueConfig, 
     pitcher_counts = config.pitcher_starters()
     for pos in ["SP", "RP"]:
         eligible = player_pool[
-            player_pool["positions"].str.contains(pos, na=False) & (player_pool["is_hitter"] == 0)
+            player_pool["positions"].apply(lambda x: pos in [p.strip() for p in str(x).split(",")])
+            & (player_pool["is_hitter"] == 0)
         ].copy()
         if eligible.empty:
             replacement[pos] = 0
@@ -391,7 +393,10 @@ def compute_category_weights(
 
             if cat in config.inverse_stats:
                 if current == 0:
-                    ratio = 0.5
+                    # No pitching stats yet — desperately need pitching
+                    weight = 1.8
+                    weights[cat] = weight
+                    continue
                 else:
                     ratio = current / avg
             else:

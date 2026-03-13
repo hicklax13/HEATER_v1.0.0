@@ -429,11 +429,12 @@ class TestZScoreCompare:
     """Verify z-score normalization: z = (val - mean) / std."""
 
     def test_z_score_hand_calc(self, config, pool, hitter_a, hitter_b):
-        """Verify z-scores computed from pool-wide mean and std."""
+        """Verify z-scores computed from hitter-filtered pool mean and std."""
         result = compare_players(1, 2, pool, config)
 
-        # Hand-calc for HR
-        hr_vals = pool["hr"].dropna()
+        # Hand-calc for HR — use hitter-only pool (matching compare_players peer filtering)
+        hitter_pool = pool[pool["is_hitter"] == 1]
+        hr_vals = hitter_pool["hr"].dropna()
         hr_mean = hr_vals.mean()
         hr_std = hr_vals.std()
 

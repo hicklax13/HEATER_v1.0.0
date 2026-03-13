@@ -161,6 +161,7 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_ros_proj_player ON ros_projections(player_id);
         CREATE INDEX IF NOT EXISTS idx_league_rosters_team ON league_rosters(team_name);
         CREATE INDEX IF NOT EXISTS idx_injury_history_player ON injury_history(player_id);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_injury_history_player_season ON injury_history(player_id, season);
         CREATE INDEX IF NOT EXISTS idx_transactions_player ON transactions(player_id);
     """)
     conn.commit()
@@ -770,6 +771,8 @@ def get_refresh_status(source: str) -> dict | None:
 
 def check_staleness(source: str, max_age_hours: float) -> bool:
     """Return True if source needs refresh (no record or older than max_age_hours)."""
+    if max_age_hours <= 0:
+        return True
     status = get_refresh_status(source)
     if status is None or status["last_refresh"] is None:
         return True
@@ -793,17 +796,18 @@ def upsert_player_bulk(players: list[dict]) -> int:
         saved = 0
         for p in players:
             existing = conn.execute("SELECT player_id FROM players WHERE name = ?", (p["name"],)).fetchone()
+            mlb_id = p.get("mlb_id")
             if existing:
                 conn.execute(
-                    """UPDATE players SET team = ?, positions = ?, is_hitter = ?
+                    """UPDATE players SET team = ?, positions = ?, is_hitter = ?, mlb_id = COALESCE(?, mlb_id)
                        WHERE player_id = ?""",
-                    (p["team"], p["positions"], int(p["is_hitter"]), existing[0]),
+                    (p["team"], p["positions"], int(p["is_hitter"]), mlb_id, existing[0]),
                 )
             else:
                 conn.execute(
-                    """INSERT INTO players (name, team, positions, is_hitter, is_injured)
-                       VALUES (?, ?, ?, ?, 0)""",
-                    (p["name"], p["team"], p["positions"], int(p["is_hitter"])),
+                    """INSERT INTO players (name, team, positions, is_hitter, is_injured, mlb_id)
+                       VALUES (?, ?, ?, ?, 0, ?)""",
+                    (p["name"], p["team"], p["positions"], int(p["is_hitter"]), mlb_id),
                 )
             saved += 1
         conn.commit()
@@ -815,28 +819,20 @@ def upsert_player_bulk(players: list[dict]) -> int:
 def upsert_injury_history_bulk(records: list[dict]) -> int:
     """Bulk upsert injury history. Each dict: player_id, season, games_played, games_available.
 
-    Uses SELECT-first approach since injury_history has no compound unique constraint.
+    Uses ON CONFLICT with the UNIQUE index on (player_id, season).
     """
     conn = get_connection()
     try:
         saved = 0
         for r in records:
-            existing = conn.execute(
-                "SELECT id FROM injury_history WHERE player_id = ? AND season = ?",
-                (r["player_id"], r["season"]),
-            ).fetchone()
-            if existing:
-                conn.execute(
-                    """UPDATE injury_history SET games_played = ?, games_available = ?
-                       WHERE id = ?""",
-                    (r["games_played"], r["games_available"], existing[0]),
-                )
-            else:
-                conn.execute(
-                    """INSERT INTO injury_history (player_id, season, games_played, games_available)
-                       VALUES (?, ?, ?, ?)""",
-                    (r["player_id"], r["season"], r["games_played"], r["games_available"]),
-                )
+            conn.execute(
+                """INSERT INTO injury_history (player_id, season, games_played, games_available)
+                   VALUES (?, ?, ?, ?)
+                   ON CONFLICT(player_id, season) DO UPDATE SET
+                     games_played = excluded.games_played,
+                     games_available = excluded.games_available""",
+                (r["player_id"], r["season"], r["games_played"], r["games_available"]),
+            )
             saved += 1
         conn.commit()
         return saved

@@ -215,7 +215,7 @@ class BayesianUpdater:
 
         obs = observed_rates[mask]
         ns = sample_sizes[mask].astype(int)
-        successes = (obs * ns).astype(int)
+        successes = np.round(obs * ns).astype(int)
 
         try:
             with pm.Model() as model:
@@ -392,9 +392,12 @@ class BayesianUpdater:
                     updated[stat] = int(obs_val + blended_rate * remaining_pa)
 
                 updated["pa"] = int(pre_pa)
+                obs_ab = int(_safe_val(row, "ab_obs"))
                 updated["ab"] = int(_safe_val(row, "ab_pre"))
-                # Recalculate h from blended avg
-                updated["h"] = int(updated["avg"] * updated["ab"])
+                # Recalculate h: observed hits + blended avg * remaining AB
+                obs_h = int(_safe_val(row, "h_obs"))
+                remaining_ab = max(0, updated["ab"] - obs_ab)
+                updated["h"] = int(obs_h + updated["avg"] * remaining_ab)
 
             if is_pitcher and (obs_ip > 0 or pre_ip > 0):
                 # Update pitching rate stats
@@ -448,10 +451,11 @@ class BayesianUpdater:
 
         result = pd.DataFrame(result_rows)
 
-        # Fill any missing columns with preseason values
+        # Fill any missing columns with preseason values (merge-based to avoid positional mismatch)
         for col in preseason.columns:
             if col not in result.columns and col != "system":
-                result[col] = preseason[col].values[: len(result)] if len(result) <= len(preseason) else 0
+                col_map = preseason.set_index("player_id")[col]
+                result[col] = result["player_id"].map(col_map)
 
         return result
 

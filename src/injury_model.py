@@ -7,6 +7,8 @@ the MLB Stats API for historical games-played data.
 
 from __future__ import annotations
 
+import logging
+
 import numpy as np
 import pandas as pd
 
@@ -14,6 +16,8 @@ try:
     import statsapi
 except ImportError:
     statsapi = None
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Module-level constants
@@ -203,6 +207,11 @@ def apply_injury_adjustment(
         if col in adj.columns:
             adj[col] = adj[col] * adj["_combined_factor"]
 
+    # Scale rate-stat component columns so ERA/WHIP recalculation is correct.
+    for col in ["er", "bb_allowed", "h_allowed"]:
+        if col in adj.columns:
+            adj[col] = adj[col] * adj["_combined_factor"]
+
     # Recalculate rate stats from adjusted components.
     if "h" in adj.columns and "ab" in adj.columns:
         adj["avg"] = np.where(adj["ab"] > 0, adj["h"] / adj["ab"], 0.0)
@@ -244,6 +253,10 @@ def load_injury_history_from_api(
     """
     columns = ["player_id", "season", "games_played", "games_available"]
 
+    if statsapi is None:
+        logger.warning("MLB-StatsAPI not installed, cannot fetch injury history")
+        return pd.DataFrame(columns=columns)
+
     if not player_ids:
         return pd.DataFrame(columns=columns)
 
@@ -255,32 +268,33 @@ def load_injury_history_from_api(
     rows: list[dict] = []
 
     for pid in player_ids:
-        for season in seasons:
-            try:
-                stats = statsapi.player_stat_data(
-                    pid,
-                    group="hitting,pitching",
-                    type="season",
-                    sportId=1,
-                )
-                games_played = 0
-                for stat_group in stats.get("stats", []):
-                    for split in stat_group.get("splits", []):
-                        if split.get("season") == str(season):
-                            games_played = int(split.get("stat", {}).get("gamesPlayed", 0))
-                            break
+        try:
+            stats = statsapi.player_stat_data(
+                pid,
+                group="hitting,pitching",
+                type="season",
+                sportId=1,
+            )
+        except Exception:  # noqa: BLE001
+            # Network failure, missing player, etc. — skip this player.
+            continue
 
-                rows.append(
-                    {
-                        "player_id": pid,
-                        "season": season,
-                        "games_played": games_played,
-                        "games_available": GAMES_AVAILABLE_HITTER,
-                    }
-                )
-            except Exception:  # noqa: BLE001
-                # Network failure, missing player, etc. — skip silently.
-                continue
+        for season in seasons:
+            games_played = 0
+            for stat_group in stats.get("stats", []):
+                for split in stat_group.get("splits", []):
+                    if split.get("season") == str(season):
+                        games_played = int(split.get("stat", {}).get("gamesPlayed", 0))
+                        break
+
+            rows.append(
+                {
+                    "player_id": pid,
+                    "season": season,
+                    "games_played": games_played,
+                    "games_available": GAMES_AVAILABLE_HITTER,
+                }
+            )
 
     if not rows:
         return pd.DataFrame(columns=columns)
@@ -304,7 +318,9 @@ def get_injury_badge(health_score: float) -> tuple[str, str]:
         "border-radius:50%;vertical-align:middle;margin-right:4px;"
         'background:{color};"></span>'
     )
-    if health_score is None or health_score >= 0.9:
+    if health_score is None:
+        return (_dot.format(color="#fb923c"), "Unknown")
+    if health_score >= 0.9:
         return (_dot.format(color="#84cc16"), "Low Risk")
     if health_score >= 0.75:
         return (_dot.format(color="#fb923c"), "Moderate Risk")

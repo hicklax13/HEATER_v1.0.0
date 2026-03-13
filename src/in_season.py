@@ -172,7 +172,17 @@ def compare_players(
     z_a, z_b = {}, {}
     for cat in config.all_categories:
         col = stat_map[cat]
-        vals = player_pool[col].dropna()
+
+        # Filter pool by player type so z-scores reflect the correct peer group
+        if cat in config.hitting_categories:
+            peer_pool = player_pool[player_pool["is_hitter"] == 1]
+        else:
+            peer_pool = player_pool[player_pool["is_hitter"] == 0]
+            # Filter out 0-IP pitchers for ERA/WHIP to avoid inflated z-scores
+            if cat in config.inverse_stats and "ip" in peer_pool.columns:
+                peer_pool = peer_pool[peer_pool["ip"].fillna(0) > 0]
+
+        vals = peer_pool[col].dropna()
         mean = vals.mean()
         std = vals.std()
         if std == 0 or pd.isna(std):

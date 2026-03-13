@@ -283,6 +283,7 @@ class YahooFantasyClient:
                     "access_token": token_data.get("access_token"),
                     "consumer_key": consumer_key,
                     "consumer_secret": consumer_secret,
+                    "expires_in": token_data.get("expires_in", 3600),
                     "refresh_token": token_data.get("refresh_token"),
                     "token_time": time.time(),
                     "token_type": token_data.get("token_type", "bearer"),
@@ -338,8 +339,16 @@ class YahooFantasyClient:
         try:
             # yfpy automatically refreshes on the next API call, but we
             # trigger it explicitly with a lightweight metadata request.
+            # Use the same fallback loop as authenticate() since method
+            # names vary across yfpy versions.
             _rate_limit()
-            self._query.get_league_metadata()
+            for method_name in ("get_league_metadata", "get_league_info", "get_league_settings"):
+                fn = getattr(self._query, method_name, None)
+                if fn is not None:
+                    fn()
+                    break
+            else:
+                logger.warning("No known yfpy metadata method found; skipping refresh call.")
             logger.info("OAuth token refreshed successfully.")
             return True
         except Exception:

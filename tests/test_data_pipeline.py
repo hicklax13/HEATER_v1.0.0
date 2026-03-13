@@ -13,7 +13,7 @@ import requests
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import src.database as db_mod
-from src.database import init_db
+from src.database import init_db, update_refresh_log
 
 
 @pytest.fixture(autouse=True)
@@ -530,6 +530,8 @@ class TestRefreshIfStale:
         # Pre-populate DB with some projections
         hitters = normalize_hitter_json(SAMPLE_HITTER_JSON)
         _store_projections({"steamer_bat": hitters})
+        # Mark projections as recently refreshed so check_staleness sees fresh data
+        update_refresh_log("fangraphs_projections", "success")
 
         result = refresh_if_stale(force=False)
         assert result is True

@@ -136,7 +136,7 @@ class DraftSimulator:
 
         # Determine blending weights
         if has_history and has_needs:
-            w_adp = 1.0 - 0.3 - history_bias  # default: 0.5
+            w_adp = max(0.0, 1.0 - 0.3 - history_bias)  # default: 0.5, clamped to 0
             w_need = 0.3
             w_hist = history_bias  # default: 0.2
         elif has_needs:
@@ -272,6 +272,8 @@ class DraftSimulator:
             total_picks: Total picks in the draft.
             num_teams: Number of teams.
             user_roster_needs: Set of positions the user still needs.
+                Reserved for future use (e.g., positional need weighting
+                for user picks); currently unused.
             candidate_id: Player ID the user is considering drafting now.
             n_simulations: Number of simulations to run.
             team_positions: Dict {team_index: [drafted_positions]} for opponent modeling.
@@ -355,6 +357,19 @@ class DraftSimulator:
 
                     # Apply positional need boost for this opponent
                     opp_positions = sim_team_pos.get(team_idx, [])
+                    # Default slot limits per position
+                    default_roster_slots = {
+                        "C": 1,
+                        "1B": 1,
+                        "2B": 1,
+                        "3B": 1,
+                        "SS": 1,
+                        "OF": 3,
+                        "SP": 2,
+                        "RP": 2,
+                        "P": 4,
+                        "Util": 2,
+                    }
                     if opp_positions:
                         filled = {}
                         for p in opp_positions:
@@ -362,7 +377,7 @@ class DraftSimulator:
                         for j, ai in enumerate(avail_indices):
                             for pos in pos_lists[ai]:
                                 pos = pos.strip()
-                                if pos and filled.get(pos, 0) == 0:
+                                if pos and filled.get(pos, 0) < max(1, default_roster_slots.get(pos, 1)):
                                     weights[j] *= 1.4
                                     break
 

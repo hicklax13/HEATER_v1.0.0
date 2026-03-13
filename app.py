@@ -4,6 +4,7 @@ Live draft assistant for 12-team snake draft with in-season management.
 Dark navy + amber accents + sports broadcast typography.
 """
 
+import copy
 import logging
 import os
 import time
@@ -500,18 +501,9 @@ def render_draft_page():
     # Practice mode state isolation: use separate ephemeral DraftState
     if ds is not None and st.session_state.practice_mode:
         if st.session_state.practice_draft_state is None:
-            # Clone current real state into a practice-only copy
-            st.session_state.practice_draft_state = DraftState(
-                num_teams=ds.num_teams,
-                num_rounds=ds.num_rounds,
-                user_team_index=ds.user_team_index,
-                roster_config=ROSTER_CONFIG,
-            )
-            # Copy existing picks into practice state
-            for pick in ds.pick_log:
-                st.session_state.practice_draft_state.pick_log.append(pick)
-                st.session_state.practice_draft_state.drafted_player_ids.add(pick["player_id"])
-            st.session_state.practice_draft_state.current_pick = ds.current_pick
+            # Deep-copy current real state into a practice-only copy
+            # This clones ALL attributes including team roster slot data
+            st.session_state.practice_draft_state = copy.deepcopy(ds)
         ds = st.session_state.practice_draft_state  # Swap — all reads/writes go to practice state
 
     if ds is None or pool is None:
@@ -605,9 +597,10 @@ def render_draft_page():
             st.toast("Pick undone!")
             st.rerun()
 
-        if st.button("Save Draft", width="stretch"):
-            path = ds.save()
-            st.toast("Saved!")
+        if not st.session_state.get("practice_mode"):
+            if st.button("Save Draft", width="stretch"):
+                path = ds.save()
+                st.toast("Saved!")
 
         st.markdown("---")
         if st.button("← Back to Setup", width="stretch"):
@@ -743,7 +736,7 @@ def render_draft_page():
                 teams_needing_pos += 1
 
             if bias > 0.6:
-                threat_alerts.append(f"\U0001f525 {team_name} targets {hero_pos} early ({bias:.0%} bias)")
+                threat_alerts.append(f"{PAGE_ICONS['fire']} {team_name} targets {hero_pos} early ({bias:.0%} bias)")
 
             opponent_data.append(
                 {
@@ -754,11 +747,13 @@ def render_draft_page():
             )
 
         if teams_needing_pos >= 3:
-            threat_alerts.insert(0, f"\u26a0\ufe0f Low survival: {teams_needing_pos} teams need {hero_pos} before you")
+            threat_alerts.insert(
+                0, f"{PAGE_ICONS['warning']} Low survival: {teams_needing_pos} teams need {hero_pos} before you"
+            )
 
         surv = rec.get("p_survive", rec.get("survival_pct", 50))
         if surv > 80 and not threat_alerts:
-            threat_alerts.append("\u2705 Likely available next round")
+            threat_alerts.append(f"{PAGE_ICONS['check']} Likely available next round")
 
     # ── 3-Column Layout ──────────────────────────────────────────
     left, center, right = st.columns([1.2, 3, 1.3])
@@ -901,7 +896,9 @@ def render_hero_pick(rec, ds, pool, threat_alerts=None):
     is_hitter = rec.get("is_hitter", 1)
     age_threshold = POSITION_PLAYER_AGE_THRESHOLD if is_hitter else PITCHER_AGE_THRESHOLD
     age_html = (
-        f' <span style="color:{T["warn"]};">&#9888;&#65039; Age {age}</span>' if age and age >= age_threshold else ""
+        f' <span style="color:{T["warn"]};">{PAGE_ICONS["warning"]} Age {age}</span>'
+        if age and age >= age_threshold
+        else ""
     )
 
     # Workload flag (pitchers only — >40 IP increase)
@@ -910,7 +907,7 @@ def render_hero_pick(rec, ds, pool, threat_alerts=None):
         ip_current = rec.get("ip", 0)
         ip_prev = rec.get("ip_prev", ip_current)  # Fallback to current if no prev
         if workload_flag(ip_current, ip_prev):
-            workload_html = f' <span style="color:{T["danger"]};">&#128293; Workload</span>'
+            workload_html = f' <span style="color:{T["danger"]};">{PAGE_ICONS["fire"]} Workload</span>'
 
     # Percentile range bar
     pct_html = ""
@@ -1100,7 +1097,9 @@ def _execute_pick(ds, player_row, pool):
     )
     st.session_state.last_drafted = player_row["player_name"]
     st.session_state.last_lock_in = time.time()
-    ds.save()
+    # Only persist to disk/DB when NOT in practice mode
+    if not st.session_state.get("practice_mode"):
+        ds.save()
     st.toast(f"Drafted {player_row['player_name']}!")
     st.rerun()
 
@@ -1330,7 +1329,13 @@ def render_opponent_intel(ds):
 
         # Threat level
         picks_made = sum(1 for p in ds.pick_log if p.get("team_index") == team_idx)
-        threat = "\U0001f534" if len(needs) <= 3 else "\U0001f7e1" if len(needs) <= 8 else "\U0001f7e2"
+        threat = (
+            PAGE_ICONS["alert"]
+            if len(needs) <= 3
+            else PAGE_ICONS["warning"]
+            if len(needs) <= 8
+            else PAGE_ICONS["check"]
+        )
 
         rows.append(
             {

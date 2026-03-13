@@ -12,11 +12,11 @@ from src.database import get_connection, init_db
 
 logger = logging.getLogger(__name__)
 
-# Seed for reproducibility
-rng = np.random.default_rng(42)
-
 
 def generate_sample_data():
+    # Seed for reproducibility — inside function for idempotent results
+    rng = np.random.default_rng(42)
+
     """Generate ~300 hitters and ~200 pitchers with realistic projections."""
     init_db()
     conn = get_connection()
@@ -394,7 +394,7 @@ def generate_sample_data():
 
     # ── Birth dates & MLB IDs ──────────────────────────────────────
     # Get actual player IDs from the database (they may not start at 1)
-    all_player_ids = [row[0] for row in cursor.execute("SELECT player_id FROM projections").fetchall()]
+    all_player_ids = [row[0] for row in cursor.execute("SELECT player_id FROM players").fetchall()]
     for pid in all_player_ids:
         birth_year = 2026 - rng.integers(22, 39)
         birth_month = rng.integers(1, 13)
@@ -403,7 +403,7 @@ def generate_sample_data():
         mlb_id = 600000 + pid * 7  # Fake but plausible MLB IDs
         try:
             cursor.execute(
-                "UPDATE projections SET birth_date = ?, mlb_id = ? WHERE player_id = ?",
+                "UPDATE players SET birth_date = ?, mlb_id = ? WHERE player_id = ?",
                 (birth_date, mlb_id, pid),
             )
         except Exception:

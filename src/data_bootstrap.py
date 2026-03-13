@@ -7,6 +7,7 @@ Uses staleness-based smart refresh to avoid unnecessary API calls.
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -88,9 +89,7 @@ def _bootstrap_players(progress: BootstrapProgress) -> str:
         update_refresh_log("players", "success")
         return f"Saved {count} players"
     except Exception as e:
-        from src.database import update_refresh_log as _url
-
-        _url("players", f"error: {e}")
+        update_refresh_log("players", f"error: {e}")
         return f"Error: {e}"
 
 
@@ -119,9 +118,10 @@ def _bootstrap_live_stats(progress: BootstrapProgress) -> str:
     from src.live_stats import fetch_season_stats, save_season_stats_to_db
 
     progress.phase = "Live Stats"
-    progress.detail = "Fetching 2026 season stats..."
+    current_year = datetime.now().year
+    progress.detail = f"Fetching {current_year} season stats..."
     try:
-        df = fetch_season_stats(season=2026)
+        df = fetch_season_stats(season=current_year)
         if not df.empty:
             count = save_season_stats_to_db(df)
             update_refresh_log("season_stats", "success")
@@ -132,8 +132,12 @@ def _bootstrap_live_stats(progress: BootstrapProgress) -> str:
         return f"Error: {e}"
 
 
-def _bootstrap_historical(progress: BootstrapProgress) -> str:
-    """Fetch 3 years of historical stats."""
+def _bootstrap_historical(progress: BootstrapProgress) -> tuple[str, dict | None]:
+    """Fetch 3 years of historical stats.
+
+    Returns:
+        Tuple of (result_string, historical_data_dict_or_None).
+    """
     from src.database import update_refresh_log
     from src.live_stats import fetch_historical_stats, save_season_stats_to_db
 
@@ -147,10 +151,10 @@ def _bootstrap_historical(progress: BootstrapProgress) -> str:
             total += count
         if total > 0:
             update_refresh_log("historical_stats", "success")
-        return f"Saved {total} historical records across {len(historical)} seasons"
+        return (f"Saved {total} historical records across {len(historical)} seasons", historical)
     except Exception as e:
         update_refresh_log("historical_stats", f"error: {e}")
-        return f"Error: {e}"
+        return (f"Error: {e}", None)
 
 
 def _bootstrap_injury_data(progress: BootstrapProgress, historical: dict | None = None) -> str:
@@ -206,20 +210,18 @@ def _bootstrap_park_factors(progress: BootstrapProgress) -> str:
 
 def _bootstrap_yahoo(progress: BootstrapProgress, yahoo_client=None) -> str:
     """Sync Yahoo league data if client is available."""
+    from src.database import update_refresh_log
+
     progress.phase = "Yahoo Sync"
     if yahoo_client is None:
         return "Skipped (no Yahoo connection)"
     progress.detail = "Syncing Yahoo league data..."
     try:
-        from src.database import update_refresh_log
-
         yahoo_client.sync_to_db()
         update_refresh_log("yahoo_data", "success")
         return "Yahoo league data synced"
     except Exception as e:
-        from src.database import update_refresh_log as _url
-
-        _url("yahoo_data", f"error: {e}")
+        update_refresh_log("yahoo_data", f"error: {e}")
         return f"Error: {e}"
 
 
@@ -285,15 +287,17 @@ def bootstrap_all_data(
 
     # Phase 5: Historical stats (3 years)
     _notify(0.65)
+    historical_data = None
     if force or check_staleness("historical_stats", staleness.historical_hours):
-        results["historical"] = _bootstrap_historical(progress)
+        hist_result, historical_data = _bootstrap_historical(progress)
+        results["historical"] = hist_result
     else:
         results["historical"] = "Fresh"
 
     # Phase 6: Injury data (derived from historical)
     _notify(0.80)
     if force or check_staleness("injury_data", staleness.historical_hours):
-        results["injury_data"] = _bootstrap_injury_data(progress)
+        results["injury_data"] = _bootstrap_injury_data(progress, historical=historical_data)
     else:
         results["injury_data"] = "Fresh"
 

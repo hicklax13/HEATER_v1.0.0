@@ -134,18 +134,21 @@ class LineupOptimizer:
                 x[(p_idx, slot_name)] = LpVariable(f"x_{p_idx}_{slot_name}", cat=LpBinary)
 
         # Objective: maximize weighted stat contributions of starters
+        # For ERA/WHIP, weight by IP so high-workload pitchers' rates matter more
         objective_terms = []
         for p_idx in players:
             row = self.roster.loc[p_idx]
             player_value = 0.0
+            ip = float(row.get("ip", 0) or 0)
             for cat in ALL_CATS:
                 if cat not in row.index:
                     continue
                 val = float(row.get(cat, 0) or 0)
                 w = weights.get(cat, 1.0)
                 if cat in INVERSE_CATS:
-                    # For ERA/WHIP, lower is better — negate contribution
-                    player_value -= val * w
+                    # For ERA/WHIP, lower is better — weight by IP so
+                    # high-workload pitchers' rates count proportionally more
+                    player_value -= val * ip * w
                 else:
                     player_value += val * w
 
@@ -161,10 +164,12 @@ class LineupOptimizer:
                 f"max_one_slot_{p_idx}",
             )
 
-        # Constraint 2: Each slot filled by exactly one player
+        # Constraint 2: Each slot filled by at most one player
+        # Using <= 1 instead of == 1 so partial lineups are valid
+        # when roster has fewer players than available slots
         for slot_name, eligible in expanded_slots:
             prob += (
-                lpSum(x[(p_idx, slot_name)] for p_idx in players) == 1,
+                lpSum(x[(p_idx, slot_name)] for p_idx in players) <= 1,
                 f"fill_slot_{slot_name}",
             )
 
@@ -213,6 +218,9 @@ class LineupOptimizer:
         for cat in ALL_CATS:
             if cat in starter_rows.columns:
                 projected[cat] = float(starter_rows[cat].sum())
+
+        # Fix rate stats: compute weighted averages instead of sums
+        projected = _fix_rate_stats(projected, starter_rows)
 
         return {
             "assignments": assignments,
@@ -414,6 +422,9 @@ class LineupOptimizer:
                 if cat in starters.columns:
                     projected[cat] = float(starters[cat].sum())
 
+            # Fix rate stats: compute weighted averages instead of sums
+            projected = _fix_rate_stats(projected, starters)
+
         return {
             "assignments": assignments,
             "bench": bench,
@@ -430,6 +441,46 @@ def _parse_positions(positions_str: str | None) -> list[str]:
     if not positions_str or pd.isna(positions_str):
         return []
     return [p.strip() for p in str(positions_str).split(",") if p.strip()]
+
+
+def _fix_rate_stats(projected: dict, starter_rows: pd.DataFrame) -> dict:
+    """Recompute rate stats as weighted averages instead of sums.
+
+    AVG = sum(h) / sum(ab), ERA = sum(er)*9 / sum(ip),
+    WHIP = sum(bb_allowed + h_allowed) / sum(ip).
+    """
+    result = dict(projected)
+
+    # AVG: weighted by at-bats
+    if "avg" in result:
+        if "h" in starter_rows.columns and "ab" in starter_rows.columns:
+            total_ab = float(starter_rows["ab"].sum())
+            total_h = float(starter_rows["h"].sum())
+            result["avg"] = total_h / total_ab if total_ab > 0 else 0.0
+        else:
+            # Fallback: if component columns missing, leave as-is
+            pass
+
+    # ERA: weighted by innings pitched
+    if "era" in result:
+        if "er" in starter_rows.columns and "ip" in starter_rows.columns:
+            total_ip = float(starter_rows["ip"].sum())
+            total_er = float(starter_rows["er"].sum())
+            result["era"] = (total_er * 9) / total_ip if total_ip > 0 else 0.0
+        else:
+            pass
+
+    # WHIP: weighted by innings pitched
+    if "whip" in result:
+        if "ip" in starter_rows.columns:
+            total_ip = float(starter_rows["ip"].sum())
+            bb = float(starter_rows["bb_allowed"].sum()) if "bb_allowed" in starter_rows.columns else 0.0
+            ha = float(starter_rows["h_allowed"].sum()) if "h_allowed" in starter_rows.columns else 0.0
+            result["whip"] = (bb + ha) / total_ip if total_ip > 0 else 0.0
+        else:
+            pass
+
+    return result
 
 
 def _compute_player_value(player: pd.Series, weights: dict[str, float]) -> float:

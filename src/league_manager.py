@@ -1,5 +1,7 @@
 """League management: roster imports, standings, free agents."""
 
+import logging
+
 import pandas as pd
 
 from src.database import (
@@ -9,6 +11,8 @@ from src.database import (
     upsert_league_roster_entry,
     upsert_league_standing,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def import_league_rosters_csv(csv_path: str, user_team_name: str) -> int:
@@ -27,12 +31,16 @@ def import_league_rosters_csv(csv_path: str, user_team_name: str) -> int:
         teams = sorted(df["team_name"].unique())
         team_index_map = {}
         idx = 1
+        user_found = False
         for t in teams:
-            if t == user_team_name:
+            if t.lower() == user_team_name.lower():
                 team_index_map[t] = 0
+                user_found = True
             else:
                 team_index_map[t] = idx
                 idx += 1
+        if not user_found:
+            logger.warning("User team '%s' not found in CSV teams", user_team_name)
 
         for _, row in df.iterrows():
             team = str(row["team_name"]).strip()
@@ -63,7 +71,7 @@ def import_league_rosters_csv(csv_path: str, user_team_name: str) -> int:
                 continue
 
             player_id = result[0]
-            is_user = team == user_team_name
+            is_user = team.lower() == user_team_name.lower()
             team_idx = team_index_map.get(team, 0)
 
             # Inline insert instead of calling upsert_league_roster_entry to avoid double connection
@@ -131,10 +139,16 @@ def get_team_roster(team_name: str) -> pd.DataFrame:
                   COALESCE(ss.h_allowed, pr.h_allowed, 0) AS h_allowed
                FROM league_rosters lr
                JOIN players p ON lr.player_id = p.player_id
-               LEFT JOIN season_stats ss ON lr.player_id = ss.player_id
+               LEFT JOIN (
+                   SELECT player_id, pa, ab, h, r, hr, rbi, sb, avg, ip, w, sv, k, era, whip, er, bb_allowed, h_allowed
+                   FROM season_stats
+                   GROUP BY player_id
+                   HAVING season = MAX(season)
+               ) ss ON lr.player_id = ss.player_id
                LEFT JOIN projections pr ON lr.player_id = pr.player_id
                    AND pr.system = 'blended'
-               WHERE lr.team_name = ?""",
+               WHERE lr.team_name = ?
+               GROUP BY lr.player_id""",
             conn,
             params=(team_name,),
         )

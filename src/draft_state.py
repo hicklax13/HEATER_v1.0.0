@@ -53,9 +53,10 @@ class TeamRoster:
             if assigned:
                 break
 
-        # Try Util (for hitters) or P (for pitchers)
+        # Try Util (for hitters) or P (for pitchers) — pitchers skip Util
         if not assigned:
-            flex_positions = ["Util", "P", "BN"]
+            is_pitcher = any(p in ("P", "SP", "RP") for p in pos_list)
+            flex_positions = ["P", "BN"] if is_pitcher else ["Util", "P", "BN"]
             for flex in flex_positions:
                 for s in self.slots:
                     if s.position == flex and s.player_id is None:
@@ -262,15 +263,14 @@ class DraftState:
         return totals
 
     def get_team_drafted_positions(self, team_index: int) -> list:
-        """Get list of primary positions drafted by a specific team."""
-        positions = []
-        for entry in self.pick_log:
-            if entry["team_index"] == team_index:
-                for p in entry["positions"].split(","):
-                    p = p.strip()
-                    if p:
-                        positions.append(p)
-        return positions
+        """Get list of assigned slot positions for a specific team.
+
+        Uses the actual roster slot each player was assigned to (not all
+        eligible positions) to avoid over-counting when a player has
+        multi-position eligibility.
+        """
+        team = self.teams[team_index]
+        return [s.position for s in team.slots if s.player_id is not None]
 
     def get_all_teams_positions(self) -> dict:
         """Get drafted positions for every team. Returns {team_index: [positions]}."""
@@ -403,6 +403,7 @@ class DraftState:
                 entry["player_id"],
                 entry["player_name"],
                 entry["positions"],
+                team_index=entry["team_index"],
             )
 
         return state
@@ -496,20 +497,39 @@ def get_positional_needs(
     picks = draft_state.get("picks", [])
     team_picks = [p for p in picks if p.get("team_index") == team_id]
 
-    # Count filled positions (use primary position)
-    filled_counts = {}
+    # Simulate slot assignment to determine which slot each pick fills,
+    # mirroring the logic in TeamRoster.add_player().
+    # Build available slot counts from roster_config.
+    remaining_slots = {pos: count for pos, count in roster_config.items()}
+
     for pick in team_picks:
         pos_str = pick.get("positions", "")
-        primary_pos = pos_str.split(",")[0].strip() if pos_str else ""
-        if primary_pos:
-            filled_counts[primary_pos] = filled_counts.get(primary_pos, 0) + 1
+        pos_list = [p.strip() for p in pos_str.split(",") if p.strip()]
+        assigned = False
 
-    # Compute remaining needs
-    needs = {}
-    for pos, required in roster_config.items():
-        filled = filled_counts.get(pos, 0)
-        remaining = required - filled
-        if remaining > 0:
-            needs[pos] = remaining
+        # Try specific position slots first
+        for pos in pos_list:
+            if remaining_slots.get(pos, 0) > 0:
+                remaining_slots[pos] -= 1
+                assigned = True
+                break
 
-    return needs
+        # Try flex slots (Util for hitters, P for pitchers, then BN)
+        if not assigned:
+            is_pitcher = any(p in ("P", "SP", "RP") for p in pos_list)
+            flex_order = ["P", "BN"] if is_pitcher else ["Util", "P", "BN"]
+            for flex in flex_order:
+                if remaining_slots.get(flex, 0) > 0:
+                    remaining_slots[flex] -= 1
+                    assigned = True
+                    break
+
+        # Last resort: any remaining slot
+        if not assigned:
+            for pos in remaining_slots:
+                if remaining_slots[pos] > 0:
+                    remaining_slots[pos] -= 1
+                    break
+
+    # Return only positions with remaining slots > 0
+    return {pos: count for pos, count in remaining_slots.items() if count > 0}
