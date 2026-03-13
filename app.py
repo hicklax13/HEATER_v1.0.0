@@ -6,7 +6,6 @@ Dark navy + amber accents + sports broadcast typography.
 
 import logging
 import os
-import tempfile
 import time
 
 # Load .env file for Yahoo credentials (and any other env overrides)
@@ -21,11 +20,9 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
+from src.data_bootstrap import BootstrapProgress, bootstrap_all_data
 from src.database import (
     create_blended_projections,
-    import_adp_csv,
-    import_hitter_csv,
-    import_pitcher_csv,
     init_db,
     load_player_pool,
 )
@@ -38,7 +35,6 @@ from src.injury_model import (
     get_injury_badge,
     workload_flag,
 )
-from src.league_manager import import_league_rosters_csv, import_standings_csv
 from src.simulation import DraftSimulator, compute_team_preferences, detect_position_run
 from src.ui_shared import (
     METRIC_TOOLTIPS,
@@ -72,13 +68,6 @@ try:
 except ImportError:
     YFPY_AVAILABLE = False
 
-try:
-    from src.data_pipeline import refresh_if_stale as fetch_projections_from_fg
-
-    HAS_DATA_PIPELINE = True
-except ImportError:
-    HAS_DATA_PIPELINE = False
-
 logger = logging.getLogger(__name__)
 
 st.set_page_config(
@@ -96,8 +85,6 @@ def init_session():
     defaults = {
         "page": "setup",
         "setup_step": 1,
-        "hitter_data": None,
-        "pitcher_data": None,
         "player_pool": None,
         "draft_state": None,
         "league_config": None,
@@ -117,7 +104,7 @@ def init_session():
 
 # ── Wizard Progress Bar ─────────────────────────────────────────────
 
-WIZARD_STEPS = ["Import", "Settings", "League", "Launch"]
+WIZARD_STEPS = ["Settings", "Launch"]
 
 
 def render_wizard_progress(current_step):
@@ -148,44 +135,78 @@ def render_setup_page():
     render_wizard_progress(step)
 
     if step == 1:
-        render_step_import()
+        render_step_settings()
     elif step == 2:
-        render_step_league()
-    elif step == 3:
-        render_step_connect()
-    elif step == 4:
         render_step_launch()
 
 
 # ── Step 1: Import ──────────────────────────────────────────────────
 
 
-def render_step_import():
-    sec("Step 1 — Import Your Data")
+def render_splash_screen():
+    """Show loading splash while data bootstraps on every app launch."""
+    if st.session_state.get("bootstrap_complete"):
+        return True  # Already done this session
 
-    # ── Yahoo Fantasy Auto-Connect (optional) ────────────────────────
-    if YFPY_AVAILABLE:
+    placeholder = st.empty()
+    with placeholder.container():
+        st.markdown(
+            f'<div style="text-align:center; padding:4rem 2rem;">'
+            f'<h1 style="color:{T["amber"]}; font-family:Oswald;'
+            f' letter-spacing:3px;">DRAFT COMMAND CENTER</h1>'
+            f'<p style="color:{T["tx2"]};">Loading MLB data...</p>'
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+        progress_bar = st.progress(0.0)
+        status_text = st.empty()
+
+        def on_progress(p: BootstrapProgress):
+            progress_bar.progress(min(p.pct, 1.0))
+            status_text.text(f"{p.phase}: {p.detail}")
+
+        yahoo_client = st.session_state.get("yahoo_client")
+        results = bootstrap_all_data(
+            yahoo_client=yahoo_client,
+            on_progress=on_progress,
+        )
+
+        # Blend projections if we have multi-system data
+        try:
+            import sqlite3 as _sql
+
+            from src.database import DB_PATH as _dbp
+
+            _tc = _sql.connect(str(_dbp))
+            _non_blended = _tc.execute("SELECT COUNT(*) FROM projections WHERE system != 'blended'").fetchone()[0]
+            _tc.close()
+            if _non_blended > 0:
+                create_blended_projections()
+        except Exception:
+            pass  # Blending failures are non-fatal
+
+        st.session_state["bootstrap_complete"] = True
+        st.session_state["bootstrap_results"] = results
+
+    placeholder.empty()
+    return True
+
+
+# ── Step 1: Settings ───────────────────────────────────────────────
+
+
+def render_step_settings():
+    sec("Step 1 — League Settings")
+
+    # ── Yahoo Fantasy Connect (optional) ──────────────────────────────
+    if YFPY_AVAILABLE and not st.session_state.get("yahoo_connected"):
         yahoo_key = os.environ.get("YAHOO_CLIENT_ID")
         yahoo_secret = os.environ.get("YAHOO_CLIENT_SECRET")
         yahoo_league_id = os.environ.get("YAHOO_LEAGUE_ID", "").strip()
         if yahoo_key and yahoo_secret and yahoo_league_id:
-            st.markdown(
-                f'<div style="background:{T["card"]};border:1px solid {T["card_h"]};'
-                f'border-radius:12px;padding:16px;margin-bottom:16px;">'
-                f'<div style="font-family:Oswald,sans-serif;color:{T["amber"]};'
-                f'font-size:16px;">{PAGE_ICONS["baseball"]} Connect Yahoo Fantasy</div>'
-                f'<div style="color:{T["tx2"]};font-size:13px;margin-top:4px;">'
-                f"Auto-import league settings, rosters, and standings</div></div>",
-                unsafe_allow_html=True,
-            )
+            with st.expander(f"{PAGE_ICONS['baseball']} Connect Yahoo Fantasy (optional)", expanded=False):
+                from src.yahoo_api import build_oauth_url, exchange_code_for_token
 
-            # Yahoo uses out-of-band (oob) OAuth: user clicks link,
-            # authorizes on Yahoo, gets a code, pastes it back here.
-            from src.yahoo_api import build_oauth_url, exchange_code_for_token
-
-            if st.session_state.get("yahoo_connected"):
-                st.success("Connected to Yahoo Fantasy!")
-            else:
                 auth_url = build_oauth_url(yahoo_key, redirect_uri="oob")
                 st.markdown(
                     f'<a href="{auth_url}" target="_blank" style="'
@@ -200,9 +221,6 @@ def render_step_import():
                     "Click above to open Yahoo login. After authorizing, "
                     "Yahoo will show a **verification code**. Paste it below."
                 )
-                # Use a form so Streamlit doesn't rerun on every keystroke.
-                # Yahoo codes are single-use; auto-reruns would re-submit
-                # and invalidate the code before we can exchange it.
                 with st.form("yahoo_oob_form"):
                     yahoo_code = st.text_input(
                         "Yahoo verification code",
@@ -239,198 +257,29 @@ def render_step_import():
                                 st.error(f"Connection error: {e}")
                     else:
                         st.error("Invalid or expired code. Click the link above to get a new one.")
-
-            st.markdown(
-                f'<div style="text-align:center;color:{T["tx2"]};margin:12px 0;">── or ──</div>',
-                unsafe_allow_html=True,
-            )
-        elif yahoo_key and yahoo_secret and not yahoo_league_id:
-            st.caption("Set YAHOO_LEAGUE_ID env var to enable Yahoo Fantasy sync.")
-
-    # ── Auto-Fetch Projections from FanGraphs ──────────────────────────
-    if HAS_DATA_PIPELINE:
-        if "projections_fetched" not in st.session_state:
-            with st.spinner("Fetching latest projections from FanGraphs..."):
-                try:
-                    result = fetch_projections_from_fg(force=False)
-                    st.session_state.projections_fetched = result
-                except Exception as exc:
-                    logger.warning("Auto-fetch failed: %s", exc)
-                    st.session_state.projections_fetched = False
-
-            if st.session_state.projections_fetched:
-                st.toast("Projections updated!")
-
-        if st.session_state.get("projections_fetched"):
-            # Validate both hitter and pitcher data exist before flagging ready
-            from src.database import get_connection as _gc
-
-            _conn = _gc()
-            _has_hit = _conn.execute(
-                "SELECT COUNT(*) FROM projections p JOIN players pl ON p.player_id=pl.player_id WHERE pl.is_hitter=1"
-            ).fetchone()[0]
-            _has_pit = _conn.execute(
-                "SELECT COUNT(*) FROM projections p JOIN players pl ON p.player_id=pl.player_id WHERE pl.is_hitter=0"
-            ).fetchone()[0]
-            _conn.close()
-
-            st.markdown(
-                f'<div style="background:{T["card"]};border:1px solid {T["ok"]};'
-                f'border-radius:12px;padding:16px;margin-bottom:16px;">'
-                f'<div style="font-family:Oswald,sans-serif;color:{T["ok"]};'
-                f'font-size:16px;">{PAGE_ICONS["check"]} Projections Loaded</div>'
-                f'<div style="color:{T["tx2"]};font-size:13px;margin-top:4px;">'
-                f"Steamer + ZiPS + Depth Charts fetched from FanGraphs</div></div>",
-                unsafe_allow_html=True,
-            )
-            st.session_state.hitter_data = _has_hit > 0
-            st.session_state.pitcher_data = _has_pit > 0
-
-            if st.button("Refresh Projections", type="secondary"):
-                with st.spinner("Refreshing..."):
-                    result = fetch_projections_from_fg(force=True)
-                    st.session_state.projections_fetched = result
-                    if result:
-                        st.toast("Projections refreshed!")
-                        st.rerun()
-                    else:
-                        st.warning("Refresh failed. Data may be stale.")
-        else:
-            st.markdown(
-                f'<div style="background:{T["card"]};border:1px solid {T["card_h"]};'
-                f'border-radius:12px;padding:16px;margin-bottom:16px;">'
-                f'<div style="font-family:Oswald,sans-serif;color:{T["amber"]};'
-                f'font-size:16px;">{PAGE_ICONS["warning"]} Auto-Fetch Unavailable</div>'
-                f'<div style="color:{T["tx2"]};font-size:13px;margin-top:4px;">'
-                f"Upload CSV files below to load projections manually</div></div>",
-                unsafe_allow_html=True,
-            )
-            if st.button("Retry Auto-Fetch"):
-                del st.session_state["projections_fetched"]
-                st.rerun()
-
+    elif st.session_state.get("yahoo_connected"):
         st.markdown(
-            f'<div style="text-align:center;color:{T["tx2"]};margin:12px 0;">── Manual Override ──</div>',
+            f'<div style="background:{T["card"]};border:1px solid {T["ok"]};'
+            f'border-radius:12px;padding:12px 16px;margin-bottom:16px;">'
+            f'<span style="font-family:Oswald,sans-serif;color:{T["ok"]};'
+            f'font-size:14px;">{PAGE_ICONS["check"]} Yahoo Fantasy Connected</span></div>',
             unsafe_allow_html=True,
         )
 
-    col1, col2 = st.columns(2)
-    with col1:
-        st.markdown(
-            f'<div class="glass"><div style="font-family:Oswald,sans-serif;'
-            f"font-weight:600;font-size:16px;color:{T['tx']};text-transform:uppercase;"
-            f'letter-spacing:1px;margin-bottom:8px;">Hitter Projections</div></div>',
-            unsafe_allow_html=True,
-        )
-        hitter_file = st.file_uploader("Upload hitter CSV", type=["csv"], key="hitter_upload")
-        if hitter_file:
-            try:
-                init_db()
-                import_hitter_csv(hitter_file, system="steamer")
-                st.session_state.hitter_data = True
-                st.toast("Hitters imported!")
-            except Exception as e:
-                st.error(f"Import error: {e}")
-
-    with col2:
-        st.markdown(
-            f'<div class="glass"><div style="font-family:Oswald,sans-serif;'
-            f"font-weight:600;font-size:16px;color:{T['tx']};text-transform:uppercase;"
-            f'letter-spacing:1px;margin-bottom:8px;">Pitcher Projections</div></div>',
-            unsafe_allow_html=True,
-        )
-        pitcher_file = st.file_uploader("Upload pitcher CSV", type=["csv"], key="pitcher_upload")
-        if pitcher_file:
-            try:
-                init_db()
-                import_pitcher_csv(pitcher_file, system="steamer")
-                st.session_state.pitcher_data = True
-                st.toast("Pitchers imported!")
-            except Exception as e:
-                st.error(f"Import error: {e}")
-
-    # ADP
-    st.markdown("---")
-    adp_file = st.file_uploader("Upload ADP data (optional)", type=["csv"], key="adp_upload")
-    if adp_file:
-        try:
-            import_adp_csv(adp_file)
-            st.toast("ADP imported!")
-        except Exception as e:
-            st.error(f"ADP import error: {e}")
-
-    # Sample data
-    st.markdown("---")
-    c1, c2, c3 = st.columns([1, 2, 1])
-    with c2:
-        if st.button("Load Sample Data (for testing)", width="stretch"):
-            with st.status("Loading sample data..."):
-                try:
-                    import importlib
-
-                    import load_sample_data
-
-                    importlib.reload(load_sample_data)
-                    load_sample_data.generate_sample_data()
-                    # Verify data persisted
-                    import sqlite3
-
-                    from src.database import DB_PATH
-
-                    _vconn = sqlite3.connect(str(DB_PATH))
-                    _vc = _vconn.cursor()
-                    _vc.execute("SELECT COUNT(*) FROM projections")
-                    _proj_count = _vc.fetchone()[0]
-                    _vc.execute("SELECT COUNT(*) FROM players")
-                    _player_count = _vc.fetchone()[0]
-                    _vconn.close()
-                    if _proj_count > 0:
-                        st.session_state.hitter_data = True
-                        st.session_state.pitcher_data = True
-                except Exception as e:
-                    st.error(f"Sample data verification failed: {e}")
-            st.rerun()
-
-    # Status chips
-    chips = []
-    if st.session_state.hitter_data:
-        chips.append('<span class="badge badge-value">Hitters</span>')
-    if st.session_state.pitcher_data:
-        chips.append('<span class="badge badge-value">Pitchers</span>')
-    if chips:
-        st.markdown(" ".join(chips), unsafe_allow_html=True)
-
-    # Navigation
-    st.markdown("")
-    c1, c2, c3 = st.columns([2, 1, 2])
-    with c2:
-        if st.button("Next →", type="primary", width="stretch"):
-            if st.session_state.hitter_data and st.session_state.pitcher_data:
-                # Blend projections (skip if only blended exists, e.g. sample data)
-                with st.status("Blending projections..."):
-                    init_db()
-                    import sqlite3 as _sql
-
-                    from src.database import DB_PATH as _dbp
-
-                    _tc = _sql.connect(str(_dbp))
-                    _non_blended = _tc.execute("SELECT COUNT(*) FROM projections WHERE system != 'blended'").fetchone()[
-                        0
-                    ]
-                    _tc.close()
-                    if _non_blended > 0:
-                        create_blended_projections()
-                st.session_state.setup_step = 2
-                st.rerun()
-            else:
-                st.warning("Import both hitter and pitcher data first.")
-
-
-# ── Step 2: League Settings ─────────────────────────────────────────
-
-
-def render_step_league():
-    sec("Step 2 — League Settings")
+    # ── Data Status ───────────────────────────────────────────────────
+    bootstrap_results = st.session_state.get("bootstrap_results", {})
+    if bootstrap_results:
+        with st.expander("Data Status", expanded=False):
+            for source, result in bootstrap_results.items():
+                icon = PAGE_ICONS["check"] if "Error" not in str(result) else PAGE_ICONS["x_mark"]
+                st.markdown(
+                    f'<div style="display:flex;align-items:center;gap:8px;padding:4px 0;">'
+                    f'<span style="font-size:14px;">{icon}</span>'
+                    f'<span style="color:{T["tx"]};font-size:13px;font-weight:600;">'
+                    f"{source.replace('_', ' ').title()}</span>"
+                    f'<span style="color:{T["tx2"]};font-size:12px;">— {result}</span></div>',
+                    unsafe_allow_html=True,
+                )
 
     col1, col2 = st.columns(2)
 
@@ -482,102 +331,24 @@ def render_step_league():
 
     # Nav
     st.markdown("")
-    c1, c2, c3 = st.columns([1, 1, 1])
-    with c1:
-        if st.button("← Back", width="stretch"):
-            st.session_state.setup_step = 1
-            st.rerun()
-    with c3:
+    c1, c2, c3 = st.columns([2, 1, 2])
+    with c2:
         if st.button("Next →", type="primary", width="stretch"):
-            st.session_state.setup_step = 3
-            st.rerun()
-
-
-# ── Step 3: Import League Data (Optional) ─────────────────────────
-
-
-def render_step_connect():
-    sec("Step 3 — Import League Data (Optional)")
-
-    st.markdown(
-        f'<div class="glass" style="text-align:center;padding:24px;">'
-        f'<div style="font-family:Oswald,sans-serif;font-size:18px;color:{T["tx"]};'
-        f'text-transform:uppercase;letter-spacing:2px;margin-bottom:8px;">League Import</div>'
-        f'<div style="color:{T["tx2"]};font-size:14px;margin-bottom:16px;">'
-        f"Upload your league rosters and standings from CSV. You can skip this.</div>"
-        f"</div>",
-        unsafe_allow_html=True,
-    )
-
-    team_name = st.text_input(
-        "Your Team Name",
-        value=st.session_state.get("user_team_name", "Team Hickey"),
-        key="import_team_name",
-    )
-    st.session_state["user_team_name"] = team_name
-
-    roster_file = st.file_uploader(
-        "Upload Roster CSV (team_name, player_name, position, roster_slot)",
-        type=["csv"],
-        key="roster_csv_upload",
-    )
-    if roster_file is not None:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".csv") as tmp:
-            tmp.write(roster_file.getvalue())
-            tmp_path = tmp.name
-        try:
-            count = import_league_rosters_csv(tmp_path, user_team_name=team_name)
-            st.success(f"Imported {count} roster entries!")
-        except Exception as e:
-            st.error(f"Import error: {e}")
-        finally:
-            os.unlink(tmp_path)
-
-    standings_file = st.file_uploader(
-        "Upload Standings CSV (team_name, R, HR, RBI, SB, AVG, W, SV, K, ERA, WHIP)",
-        type=["csv"],
-        key="standings_csv_upload",
-    )
-    if standings_file is not None:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".csv") as tmp:
-            tmp.write(standings_file.getvalue())
-            tmp_path = tmp.name
-        try:
-            count = import_standings_csv(tmp_path)
-            st.success(f"Imported standings for {count} teams!")
-        except Exception as e:
-            st.error(f"Import error: {e}")
-        finally:
-            os.unlink(tmp_path)
-
-    # Nav
-    st.markdown("")
-    c1, c2, c3 = st.columns([1, 1, 1])
-    with c1:
-        if st.button("← Back", width="stretch", key="s3_back"):
             st.session_state.setup_step = 2
             st.rerun()
-    with c2:
-        if st.button("Skip →", width="stretch", key="s3_skip"):
-            st.session_state.setup_step = 4
-            st.rerun()
-    with c3:
-        if st.button("Next →", type="primary", width="stretch", key="s3_next"):
-            st.session_state.setup_step = 4
-            st.rerun()
 
 
-# ── Step 4: Launch ──────────────────────────────────────────────────
+# ── Step 2: Launch ──────────────────────────────────────────────────
 
 
 def render_step_launch():
-    sec("Step 4 — Ready to Launch")
+    sec("Step 2 — Ready to Launch")
 
     # Build league config + player pool
     pool = _build_player_pool()
     if pool is None:
-        st.error("No player data found. Go back to Step 1.")
-        if st.button("← Back to Import"):
+        st.error("No player data found. Data may still be loading — try refreshing.")
+        if st.button("← Back to Settings"):
             st.session_state.setup_step = 1
             st.rerun()
         return
@@ -630,7 +401,7 @@ def render_step_launch():
 
     # Back
     if st.button("← Back", key="s4_back"):
-        st.session_state.setup_step = 3
+        st.session_state.setup_step = 1
         st.rerun()
 
 
@@ -875,7 +646,10 @@ def render_draft_page():
 
     # ── Lock-in banner ───────────────────────────────────────────
     if st.session_state.last_drafted and (time.time() - st.session_state.last_lock_in) < 3:
-        st.markdown(f'<div class="lock-in">{PAGE_ICONS["check"]} {st.session_state.last_drafted} — Locked In</div>', unsafe_allow_html=True)
+        st.markdown(
+            f'<div class="lock-in">{PAGE_ICONS["check"]} {st.session_state.last_drafted} — Locked In</div>',
+            unsafe_allow_html=True,
+        )
 
     # ── Run recommendation engine ────────────────────────────────
     available = ds.available_players(pool)
@@ -1875,6 +1649,10 @@ def main():
     init_session()
     inject_custom_css()
     render_theme_toggle()
+
+    # Bootstrap all data on every session start (splash screen with progress)
+    init_db()
+    render_splash_screen()
 
     if st.session_state.page == "setup":
         render_setup_page()

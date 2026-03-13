@@ -768,6 +768,110 @@ def get_refresh_status(source: str) -> dict | None:
     return {"source": row[0], "last_refresh": row[1], "status": row[2]}
 
 
+def check_staleness(source: str, max_age_hours: float) -> bool:
+    """Return True if source needs refresh (no record or older than max_age_hours)."""
+    status = get_refresh_status(source)
+    if status is None or status["last_refresh"] is None:
+        return True
+    try:
+        last = datetime.fromisoformat(status["last_refresh"])
+        if last.tzinfo is None:
+            last = last.replace(tzinfo=UTC)
+        age_hours = (datetime.now(UTC) - last).total_seconds() / 3600
+        return age_hours > max_age_hours
+    except (ValueError, TypeError):
+        return True
+
+
+def upsert_player_bulk(players: list[dict]) -> int:
+    """Bulk upsert players. Each dict needs: name, team, positions, is_hitter. Optional: mlb_id.
+
+    Uses SELECT-first approach since players table has no UNIQUE constraint on name.
+    """
+    conn = get_connection()
+    try:
+        saved = 0
+        for p in players:
+            existing = conn.execute("SELECT player_id FROM players WHERE name = ?", (p["name"],)).fetchone()
+            if existing:
+                conn.execute(
+                    """UPDATE players SET team = ?, positions = ?, is_hitter = ?
+                       WHERE player_id = ?""",
+                    (p["team"], p["positions"], int(p["is_hitter"]), existing[0]),
+                )
+            else:
+                conn.execute(
+                    """INSERT INTO players (name, team, positions, is_hitter, is_injured)
+                       VALUES (?, ?, ?, ?, 0)""",
+                    (p["name"], p["team"], p["positions"], int(p["is_hitter"])),
+                )
+            saved += 1
+        conn.commit()
+        return saved
+    finally:
+        conn.close()
+
+
+def upsert_injury_history_bulk(records: list[dict]) -> int:
+    """Bulk upsert injury history. Each dict: player_id, season, games_played, games_available.
+
+    Uses SELECT-first approach since injury_history has no compound unique constraint.
+    """
+    conn = get_connection()
+    try:
+        saved = 0
+        for r in records:
+            existing = conn.execute(
+                "SELECT id FROM injury_history WHERE player_id = ? AND season = ?",
+                (r["player_id"], r["season"]),
+            ).fetchone()
+            if existing:
+                conn.execute(
+                    """UPDATE injury_history SET games_played = ?, games_available = ?
+                       WHERE id = ?""",
+                    (r["games_played"], r["games_available"], existing[0]),
+                )
+            else:
+                conn.execute(
+                    """INSERT INTO injury_history (player_id, season, games_played, games_available)
+                       VALUES (?, ?, ?, ?)""",
+                    (r["player_id"], r["season"], r["games_played"], r["games_available"]),
+                )
+            saved += 1
+        conn.commit()
+        return saved
+    finally:
+        conn.close()
+
+
+def upsert_park_factors(factors: list[dict]) -> int:
+    """Bulk upsert park factors. Each dict: team_code, factor_hitting, factor_pitching.
+
+    park_factors table uses team_code as PRIMARY KEY, so ON CONFLICT works.
+    """
+    conn = get_connection()
+    try:
+        saved = 0
+        for f in factors:
+            conn.execute(
+                """INSERT INTO park_factors (team_code, factor_hitting, factor_pitching)
+                   VALUES (?, ?, ?)
+                   ON CONFLICT(team_code) DO UPDATE SET
+                     factor_hitting = excluded.factor_hitting,
+                     factor_pitching = excluded.factor_pitching""",
+                (
+                    f["team_code"],
+                    f.get("factor_hitting", f.get("park_factor", 1.0)),
+                    f.get("factor_pitching", f.get("park_factor", 1.0)),
+                ),
+            )
+            saved += 1
+        conn.commit()
+        return saved
+    finally:
+        conn.close()
+
+
 # ── Helpers ──────────────────────────────────────────────────────────
 
 

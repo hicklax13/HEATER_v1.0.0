@@ -211,3 +211,84 @@ def refresh_all_stats(force: bool = False) -> dict:
         results["season_stats"] = f"Fresh (updated {age:.1f}h ago)"
 
     return results
+
+
+def fetch_all_mlb_players(season: int = 2026) -> pd.DataFrame:
+    """Fetch all active MLB players (750+) from MLB Stats API."""
+    if statsapi is None:
+        raise ImportError("MLB-StatsAPI required. pip install MLB-StatsAPI")
+
+    try:
+        data = statsapi.get(
+            "sports_players",
+            {"season": season, "sportId": 1, "gameType": "R"},
+        )
+    except Exception as e:
+        logger.warning("Failed to fetch player roster: %s", e)
+        return pd.DataFrame()
+
+    rows = []
+    for p in data.get("people", []):
+        if not p.get("active", False):
+            continue
+        pos_info = p.get("primaryPosition", {})
+        pos_abbr = pos_info.get("abbreviation", "Util")
+        pos_type = pos_info.get("type", "")
+        is_hitter = pos_type != "Pitcher" and pos_abbr != "P"
+        rows.append(
+            {
+                "mlb_id": p.get("id"),
+                "name": p.get("fullName", ""),
+                "team": p.get("currentTeam", {}).get("abbreviation", ""),
+                "positions": pos_abbr if pos_abbr not in ("0", "-", "") else "Util",
+                "is_hitter": is_hitter,
+            }
+        )
+
+    return pd.DataFrame(rows) if rows else pd.DataFrame()
+
+
+def fetch_historical_stats(
+    seasons: list[int] | None = None,
+) -> dict[int, pd.DataFrame]:
+    """Fetch season stats for multiple years. Returns {year: DataFrame}."""
+    if seasons is None:
+        seasons = [2023, 2024, 2025]
+    results = {}
+    for year in seasons:
+        try:
+            df = fetch_season_stats(season=year)
+            if not df.empty:
+                results[year] = df
+                logger.info("Fetched %d player stats for %d", len(df), year)
+        except Exception as e:
+            logger.warning("Failed to fetch %d stats: %s", year, e)
+    return results
+
+
+def fetch_injury_data_bulk(
+    historical_stats: dict[int, pd.DataFrame],
+) -> list[dict]:
+    """Convert historical stats DataFrames into injury_history records.
+
+    Returns list of dicts: {player_name, team, season, games_played, games_available}.
+    Caller must resolve player_name → player_id before DB insert.
+    """
+    records = []
+    for season, df in historical_stats.items():
+        if df.empty:
+            continue
+        games_available = 162
+        for _, row in df.iterrows():
+            gp = int(row.get("games_played", 0))
+            if gp > 0:
+                records.append(
+                    {
+                        "player_name": row.get("player_name", ""),
+                        "team": row.get("team", ""),
+                        "season": season,
+                        "games_played": gp,
+                        "games_available": games_available,
+                    }
+                )
+    return records

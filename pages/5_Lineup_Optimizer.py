@@ -27,7 +27,9 @@ st.title("Lineup Optimizer")
 # ── Load user team ────────────────────────────────────────────────
 rosters = load_league_rosters()
 if rosters.empty:
-    st.warning("No league data loaded. Import your league rosters in the main app (Setup Step 3).")
+    st.warning(
+        "No league data loaded. Connect your Yahoo league in Settings, or league data will load automatically on next app launch."
+    )
     st.stop()
 
 user_teams = rosters[rosters["is_user_team"] == 1]
@@ -129,8 +131,17 @@ else:
         weights_sorted = sorted(weights.items(), key=lambda x: x[1], reverse=True)
         for cat, weight in weights_sorted:
             bar_len = int(weight * 20)
-            icon = PAGE_ICONS["fire"] if weight > 1.5 else PAGE_ICONS["trending_up"] if weight > 1.0 else PAGE_ICONS["minus"]
-            st.markdown(f"{icon} **{cat.upper()}**: {'█' * bar_len}{'░' * (20 - bar_len)} ({weight:.2f}x)", unsafe_allow_html=True)
+            icon = (
+                PAGE_ICONS["fire"]
+                if weight > 1.5
+                else PAGE_ICONS["trending_up"]
+                if weight > 1.0
+                else PAGE_ICONS["minus"]
+            )
+            st.markdown(
+                f"{icon} **{cat.upper()}**: {'█' * bar_len}{'░' * (20 - bar_len)} ({weight:.2f}x)",
+                unsafe_allow_html=True,
+            )
         st.caption(METRIC_TOOLTIPS["cat_targeting"])
     else:
         st.info("Could not compute targeting weights from standings data.")
@@ -161,7 +172,9 @@ try:
                 health_badges.append(icon)
                 health_dict[pid] = hs
             else:
-                health_badges.append('<span style="display:inline-block;width:10px;height:10px;border-radius:50%;vertical-align:middle;margin-right:4px;background:#84cc16;"></span>')
+                health_badges.append(
+                    '<span style="display:inline-block;width:10px;height:10px;border-radius:50%;vertical-align:middle;margin-right:4px;background:#84cc16;"></span>'
+                )
                 health_dict[pid] = 1.0
         roster["Health"] = health_badges
 except Exception:

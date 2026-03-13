@@ -33,7 +33,9 @@ st.title("My Team")
 # Determine user team
 rosters = load_league_rosters()
 if rosters.empty:
-    st.warning("No league data loaded. Import your league rosters in the main app (Setup Step 3).")
+    st.warning(
+        "No league data loaded. Connect your Yahoo league in Settings, or league data will load automatically on next app launch."
+    )
     st.stop()
 else:
     user_teams = rosters[rosters["is_user_team"] == 1]

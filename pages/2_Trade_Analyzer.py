@@ -49,7 +49,9 @@ except Exception:
 # Get user team roster
 rosters = load_league_rosters()
 if rosters.empty:
-    st.warning("No league data loaded. Import your league rosters in the main app (Setup Step 3).")
+    st.warning(
+        "No league data loaded. Connect your Yahoo league in Settings, or league data will load automatically on next app launch."
+    )
     st.stop()
 else:
     user_teams = rosters[rosters["is_user_team"] == 1]
@@ -117,7 +119,7 @@ else:
                 st.markdown(
                     f'<div style="background:{color}20;border:2px solid {color};'
                     f'border-radius:12px;padding:20px;text-align:center;margin:16px 0;">'
-                    f'{icon}'
+                    f"{icon}"
                     f'<span style="font-family:Oswald,sans-serif;font-size:28px;color:{color};'
                     f'margin-left:12px;">{result["verdict"]}</span>'
                     f'<span style="color:{T["tx2"]};margin-left:12px;font-size:18px;">'
