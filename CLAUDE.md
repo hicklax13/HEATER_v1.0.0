@@ -4,7 +4,7 @@
 
 A fantasy baseball draft assistant + in-season manager for a 12-team Yahoo Sports 5x5 roto snake draft league. Two pillars:
 
-1. **Draft Tool** (`app.py`, ~1900 lines) — "Broadcast Booth" themed Streamlit app with dark/light mode toggle: 4-step setup wizard (with optional Yahoo OAuth), 3-column draft page with SVG injury badges, percentile ranges, opponent intel tab, and practice mode. Monte Carlo recommendations with percentile sampling.
+1. **Draft Tool** (`app.py`, ~1600 lines) — "Broadcast Booth" themed Streamlit app with dark/light mode toggle: splash screen data bootstrap + 2-step setup wizard (Settings, Launch), 3-column draft page with SVG injury badges, percentile ranges, opponent intel tab, and practice mode. Monte Carlo recommendations with percentile sampling. Zero CSV uploads — all data auto-fetched from MLB Stats API + FanGraphs on every launch.
 2. **In-Season Management** (`pages/`) — 5 Streamlit pages: team overview, trade analysis, player comparison, free agent rankings, lineup optimizer. Powered by MLB Stats API + pybaseball + optional Yahoo Fantasy API. All pages share centralized theme system with dark/light toggle.
 
 ## Commands
@@ -25,7 +25,7 @@ ruff check .
 # Format
 ruff format .
 
-# Run all tests (300 collected, 299 pass, 1 skipped for PyMC)
+# Run all tests (330 collected, 329 pass, 1 skipped for PyMC)
 python -m pytest
 
 # Run with verbose output
@@ -61,7 +61,7 @@ python -m pytest tests/test_in_season.py::test_trade_analyzer -v
 ## File Structure
 
 ```
-app.py                  — Draft tool: 4-step setup wizard + 3-column draft page
+app.py                  — Draft tool: splash screen bootstrap + 2-step setup wizard + 3-column draft page
 requirements.txt        — pip dependencies (streamlit, pandas, numpy, scipy, plotly, MLB-StatsAPI, pybaseball, pymc, PuLP, yfpy)
 load_sample_data.py     — Generates ~190 sample players + injury history for testing
 .streamlit/config.toml  — Dark theme configuration
@@ -78,7 +78,8 @@ src/
   draft_state.py        — Draft state management, roster tracking, snake pick order, opponent patterns
   simulation.py         — Monte Carlo draft simulation, opponent modeling (history-aware), survival probability
   in_season.py          — Trade analyzer, player comparison engine, FA ranker
-  live_stats.py         — MLB Stats API + pybaseball data fetcher, daily refresh logic
+  live_stats.py         — MLB Stats API data fetcher: roster, season/historical stats, injury data extraction
+  data_bootstrap.py     — Zero-interaction bootstrap orchestrator: staleness-based refresh of all data sources on app launch
   league_manager.py     — League roster/standings management, CSV import for all 12 teams
   ui_shared.py          — Centralized theme system (dark/light), PAGE_ICONS (inline SVGs), inject_custom_css(), METRIC_TOOLTIPS
   data_2026.py          — Hardcoded 2026 projections (~200 hitters, ~80 pitchers) for sample data
@@ -94,6 +95,7 @@ tests/
   test_in_season.py         — Trade analyzer, comparison, FA ranker tests
   test_league_manager.py    — League roster/standings management tests
   test_live_stats.py        — Live stats pipeline tests
+  test_data_bootstrap.py    — Bootstrap pipeline: staleness, bulk upserts, orchestrator (30 tests)
   test_bayesian.py          — Bayesian updater: regression, age curves, stabilization, batch update (31 tests)
   test_injury_model.py      — Injury model: health scores, age risk, workload flags (17 tests)
   test_lineup_optimizer.py  — Lineup optimizer: LP solver, constraints, category targeting (20 tests)
@@ -139,14 +141,20 @@ docs/plans/             — Implementation plan archives
 - **P10/P90 range bars** — Floor/ceiling projections displayed on hero pick and alternatives
 - **Opponent intel tab** — Threat alerts when opponents need your target position, plus full opponent roster/needs breakdown
 - **Practice mode** — Ephemeral DraftState clone for what-if scenarios, resets on refresh or button click
-- **Yahoo OAuth** — Setup wizard Step 1 shows Yahoo connect card when env vars are set. Uses out-of-band (oob) flow: user clicks link, authorizes on Yahoo, pastes verification code back in the app.
+- **Yahoo OAuth** — Setup wizard Settings step shows Yahoo connect expander when env vars are set. Uses out-of-band (oob) flow: user clicks link, authorizes on Yahoo, pastes verification code back in the app.
 
-### Auto-Fetch Pipeline
+### Bootstrap Pipeline (`src/data_bootstrap.py`)
+- **Splash screen** — Every app launch shows progress bar while `bootstrap_all_data()` runs all 7 data phases
+- **Staleness-based refresh** — Each data source has its own max-age threshold (`StalenessConfig`): 1h live stats, 6h Yahoo, 7d players/projections, 30d historical/park factors
+- **Phase ordering** — Players first (other phases need player_ids), then park factors, projections, live stats, historical, injury data, Yahoo sync
+- **Zero interaction** — No CSV uploads required; all data fetched from free APIs automatically
+
+### Auto-Fetch Pipeline (`src/data_pipeline.py`)
 - **FanGraphs JSON API** — Fetches Steamer, ZiPS, Depth Charts projections (3 systems × bat/pit = 6 endpoints) on app startup
 - **Normalization** — Maps FG JSON fields to DB schema; SP/RP classification mirrors CSV import logic (GS≥5→SP, SV≥3→RP)
 - **Staleness check** — `refresh_if_stale()` skips fetch if projections table already has data; `force=True` overrides
 - **ADP extraction** — Pulls ADP from Steamer JSON responses, resolves names→player_ids with fuzzy fallback
-- **Graceful degradation** — Partial system failures proceed with available data; total failure falls back to CSV upload
+- **Graceful degradation** — Partial system failures proceed with available data
 - **Rate limiting** — 0.5s between requests, User-Agent header to avoid CloudFlare blocks
 
 ### In-Season Algorithms
@@ -174,12 +182,14 @@ docs/plans/             — Implementation plan archives
 
 ## Data Sources
 
-- **Draft projections:** Auto-fetched from FanGraphs JSON API (Steamer, ZiPS, Depth Charts) on startup; CSV upload as manual fallback
+- **Players:** Auto-fetched from MLB Stats API on every launch (750+ active players); staleness: 7 days
+- **Draft projections:** Auto-fetched from FanGraphs JSON API (Steamer, ZiPS, Depth Charts) on startup; staleness: 7 days
 - **ADP:** Extracted from FanGraphs Steamer JSON (filters ADP ≥ 999 and nulls); FantasyPros consensus as fallback
-- **Current stats:** MLB Stats API (`MLB-StatsAPI` package, auto-refreshed daily)
-- **ROS projections:** FanGraphs Depth Charts (`pybaseball`, on-demand or daily)
-- **Park factors:** pybaseball / FanGraphs
-- **League rosters/standings:** Manual CSV upload via League Import wizard step
+- **Current stats:** MLB Stats API (`MLB-StatsAPI` package, auto-refreshed on launch); staleness: 1 hour
+- **Historical stats:** 3 years (2023-2025) from MLB Stats API for injury modeling; staleness: 30 days
+- **Park factors:** Hardcoded FanGraphs 2024 values (30 teams) in `data_bootstrap.py`; staleness: 30 days
+- **Injury history:** Derived from historical stats (games played vs available); staleness: 30 days
+- **League rosters/standings:** Yahoo Fantasy API sync (optional, auto-syncs when connected); staleness: 6 hours
 
 ## Key API Signatures
 
@@ -236,6 +246,23 @@ LineupOptimizer(roster_df, config_dict)
 optimizer.optimize_lineup()  # returns {slot: player_name, projected_stats: {...}}
 optimizer.category_targeting(standings_df, team_name)  # returns {cat: weight}
 
+# Data bootstrap (src/data_bootstrap.py)
+bootstrap_all_data(yahoo_client=None, on_progress=None, force=False, staleness=None)  # returns dict[str, str]
+StalenessConfig(players_hours=168, live_stats_hours=1, projections_hours=168, historical_hours=720, park_factors_hours=720, yahoo_hours=6)
+BootstrapProgress(phase="", detail="", pct=0.0)  # callback dataclass for splash screen
+PARK_FACTORS: dict[str, float]  # 30-team dict, e.g. {"COL": 1.38, "MIA": 0.88}
+
+# Database bulk helpers (src/database.py)
+check_staleness(source, max_age_hours)  # returns bool — True if needs refresh
+upsert_player_bulk(players: list[dict])  # dict needs: name, team, positions, is_hitter
+upsert_injury_history_bulk(records: list[dict])  # dict needs: player_id, season, games_played, games_available
+upsert_park_factors(factors: list[dict])  # dict needs: team_code, factor_hitting, factor_pitching
+
+# Live stats extensions (src/live_stats.py)
+fetch_all_mlb_players(season=2026)  # returns DataFrame with mlb_id, name, team, positions, is_hitter
+fetch_historical_stats(seasons=[2023,2024,2025])  # returns {year: DataFrame}
+fetch_injury_data_bulk(historical_stats)  # returns list[dict] with player_name, team, season, games_played, games_available
+
 # Data pipeline (src/data_pipeline.py)
 # Yahoo OAuth helpers (src/yahoo_api.py)
 build_oauth_url(consumer_key, redirect_uri="oob")  # returns auth URL string
@@ -264,10 +291,13 @@ SYSTEM_MAP = {"steamer": "steamer", "zips": "zips", "fangraphsdc": "depthcharts"
 - **Yahoo API graceful degradation** — All Yahoo features wrapped in `YFPY_AVAILABLE` checks. App works fully without Yahoo credentials. Setup wizard Yahoo connect requires `YAHOO_CLIENT_ID` and `YAHOO_CLIENT_SECRET` env vars.
 - **Yahoo OAuth uses oob (out-of-band)** — Yahoo Fantasy API requires `redirect_uri=oob`. Do NOT use `http://localhost:8501/` or any redirect-based flow — Yahoo rejects all non-oob redirect URIs for fantasy apps. The `yahoo-oauth` library hardcodes `CALLBACK_URI='oob'`. Our Streamlit UI mirrors this: user clicks a link, authorizes on Yahoo, pastes the verification code back.
 - **yfpy `--no-deps` install needs extras** — Installing `yfpy>=17.0 --no-deps` strips `stringcase`, `yahoo-oauth`, and their transitive deps. Must also `pip install stringcase yahoo-oauth==2.1.1`. Similarly, `streamlit-oauth --no-deps` needs `httpx-oauth`. The python-dotenv version mismatch (1.2.2 vs pinned 1.1.1) is a pip warning but works at runtime.
-- **In-season page warnings** — All pages that require league data use the standardized message: "No league data loaded. Import your league rosters in the main app (Setup Step 3)."
+- **In-season page warnings** — All pages that require league data use the standardized message: "No league data loaded. Connect your Yahoo league in Settings, or league data will load automatically on next app launch."
 - **FanGraphs API SYSTEM_MAP** — FG API uses `"fangraphsdc"` for Depth Charts, but DB stores as `"depthcharts"`. Always use `SYSTEM_MAP` dict, never hardcode system names. `SYSTEMS = list(SYSTEM_MAP.keys())` derives the list.
 - **FanGraphs `minpos` field** — Returns primary position only (e.g., "SS"), not multi-position eligibility. Sometimes returns `"0"` or `"-"` meaning no position; these are guarded to fall back to `"Util"`.
-- **Auto-fetch session state** — `st.session_state.projections_fetched` gates the fetch-once logic. Delete the key to allow retry. `HAS_DATA_PIPELINE` flag handles import failure gracefully.
+- **Bootstrap session state** — `st.session_state.bootstrap_complete` gates the bootstrap-once logic. Delete the key to force re-bootstrap. Results stored in `st.session_state.bootstrap_results`.
+- **Bootstrap lazy imports** — `data_bootstrap.py` imports from `database.py` and `live_stats.py` inside functions to avoid circular imports and enable graceful degradation.
+- **Players table has no UNIQUE constraint** — `upsert_player_bulk()` uses SELECT-first pattern (check if name exists, then INSERT or UPDATE). Do NOT use `ON CONFLICT(name)`.
+- **Park factors schema** — Uses columns `team_code`, `factor_hitting`, `factor_pitching` (not just `team` and `park_factor`). `upsert_park_factors()` accepts both naming conventions via flexible getter.
 - **sgp_volatility alignment** — When `evaluate_candidates()` receives `sgp_volatility`, the array is aligned to the full pool. After filtering drafted players, it must be re-indexed via `pd.Series.reindex()` to match the filtered `available` pool.
 - **Practice mode isolation** — Uses separate `st.session_state["practice_draft_state"]` DraftState, never persisted to disk/DB. Resets on page refresh or "Reset Practice" button click.
 - **Percentile pipeline ordering** — `compute_projection_volatility()` → `add_process_risk()` → `compute_percentile_projections()`. Skip entirely when only one projection system exists (zero variance). All 3 consumers (app.py, Trade Analyzer, Player Compare) must follow this exact ordering.
@@ -286,8 +316,8 @@ SYSTEM_MAP = {"steamer": "steamer", "zips": "zips", "fangraphsdc": "depthcharts"
 
 ## Testing Status
 
-- **Unit tests:** 300 collected, 299 passed, 1 skipped (PyMC optional dep)
-- **Test files:** 17 test files across draft engine, in-season, analytics, data pipeline, integration, and math verification
+- **Unit tests:** 330 collected, 329 passed, 1 skipped (PyMC optional dep)
+- **Test files:** 18 test files across draft engine, in-season, analytics, data pipeline, bootstrap, integration, and math verification
 - **Math verification suite:** 112 tests across 3 files (valuation, simulation, trade) — hand-calculated expected values verified against code formulas
 - **CI:** GitHub Actions runs ruff lint/format + pytest on Python 3.11, 3.12, 3.13
 - **Coverage:** 64% (below 75% CI threshold; pre-existing, no regressions)
