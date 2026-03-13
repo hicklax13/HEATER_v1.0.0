@@ -1125,7 +1125,7 @@ def inject_custom_css():
         unsafe_allow_html=True,
     )
 
-    # Rename sidebar "app" → "Configurations" via JS (CSS pseudo-elements
+    # Rename sidebar "app" → "Connect League" via JS (CSS pseudo-elements
     # are blocked by Streamlit's internal styles).
     import streamlit.components.v1 as components
 
@@ -1136,7 +1136,7 @@ def inject_custom_css():
             if (!nav) { setTimeout(rename, 200); return; }
             const span = nav.querySelector('li:first-child a span');
             if (span && span.textContent.trim() === 'app') {
-                span.textContent = 'Configurations';
+                span.textContent = 'Connect League';
             } else { setTimeout(rename, 200); }
         })();
         </script>""",

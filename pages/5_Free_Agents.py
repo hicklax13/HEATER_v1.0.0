@@ -60,10 +60,10 @@ if rosters.empty:
                     progress.empty()
                     st.error(f"Sync failed: {e}")
             else:
-                st.error("Yahoo client not found in session. Return to Settings and reconnect.")
+                st.error("Yahoo client not found in session. Return to Connect League and reconnect.")
     else:
         st.warning(
-            "No league data loaded. Connect your Yahoo league in Settings, or league data will load automatically on next app launch."
+            "No league data loaded. Connect your Yahoo league in Connect League, or league data will load automatically on next app launch."
         )
     st.stop()
 else:
