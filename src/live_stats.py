@@ -61,105 +61,147 @@ def match_player_id(player_name: str, team_abbr: str) -> int | None:
         conn.close()
 
 
+def _parse_hitting_stat(player_info: dict, stat: dict) -> dict:
+    """Parse a hitting stat split into a row dict."""
+    return {
+        "player_name": player_info.get("fullName", ""),
+        "team": player_info.get("team_abbr", ""),
+        "is_hitter": True,
+        "pa": int(stat.get("plateAppearances", 0)),
+        "ab": int(stat.get("atBats", 0)),
+        "h": int(stat.get("hits", 0)),
+        "r": int(stat.get("runs", 0)),
+        "hr": int(stat.get("homeRuns", 0)),
+        "rbi": int(stat.get("rbi", 0)),
+        "sb": int(stat.get("stolenBases", 0)),
+        "avg": float(stat.get("avg", "0") or 0),
+        "games_played": int(stat.get("gamesPlayed", 0)),
+        "ip": 0,
+        "w": 0,
+        "sv": 0,
+        "k": 0,
+        "era": 0,
+        "whip": 0,
+        "er": 0,
+        "bb_allowed": 0,
+        "h_allowed": 0,
+    }
+
+
+def _parse_pitching_stat(player_info: dict, stat: dict) -> dict:
+    """Parse a pitching stat split into a row dict."""
+    return {
+        "player_name": player_info.get("fullName", ""),
+        "team": player_info.get("team_abbr", ""),
+        "is_hitter": False,
+        "pa": 0,
+        "ab": 0,
+        "h": 0,
+        "r": 0,
+        "hr": 0,
+        "rbi": 0,
+        "sb": 0,
+        "avg": 0,
+        "ip": float(stat.get("inningsPitched", "0") or 0),
+        "w": int(stat.get("wins", 0)),
+        "sv": int(stat.get("saves", 0)),
+        "k": int(stat.get("strikeOuts", 0)),
+        "era": float(stat.get("era", "0") or 0),
+        "whip": float(stat.get("whip", "0") or 0),
+        "er": int(stat.get("earnedRuns", 0)),
+        "bb_allowed": int(stat.get("baseOnBalls", 0)),
+        "h_allowed": int(stat.get("hits", 0)),
+        "games_played": int(stat.get("gamesPlayed", 0)),
+    }
+
+
 def fetch_season_stats(season: int = 2026) -> pd.DataFrame:
-    """Pull current season stats for all MLB players via MLB Stats API."""
+    """Pull season stats for all MLB players via MLB Stats API.
+
+    Uses team rosters with hydrated stats, which is the reliable way to
+    get bulk player statistics from the MLB Stats API.
+    """
     if statsapi is None:
         raise ImportError("MLB-StatsAPI is required. Install with: pip install MLB-StatsAPI")
 
     rows = []
+    seen_players: set[str] = set()  # Avoid duplicates across teams
 
     try:
-        hitting = statsapi.get(
-            "sports_players",
-            {
-                "season": season,
-                "gameType": "R",
-                "group": "hitting",
-                "stats": "season",
-                "limit": 1000,
-                "sportId": 1,
-            },
-        )
-        for player in hitting.get("people", []):
-            stats_list = player.get("stats", [])
-            if not stats_list or not stats_list[0].get("splits"):
-                continue
-            s = stats_list[0]["splits"][0]["stat"]
-            team_info = player.get("currentTeam", {})
-            rows.append(
-                {
-                    "player_name": player.get("fullName", ""),
-                    "team": team_info.get("abbreviation", ""),
-                    "is_hitter": True,
-                    "pa": int(s.get("plateAppearances", 0)),
-                    "ab": int(s.get("atBats", 0)),
-                    "h": int(s.get("hits", 0)),
-                    "r": int(s.get("runs", 0)),
-                    "hr": int(s.get("homeRuns", 0)),
-                    "rbi": int(s.get("rbi", 0)),
-                    "sb": int(s.get("stolenBases", 0)),
-                    "avg": float(s.get("avg", "0") or 0),
-                    "games_played": int(s.get("gamesPlayed", 0)),
-                    "ip": 0,
-                    "w": 0,
-                    "sv": 0,
-                    "k": 0,
-                    "era": 0,
-                    "whip": 0,
-                    "er": 0,
-                    "bb_allowed": 0,
-                    "h_allowed": 0,
-                }
-            )
+        # Get all MLB team IDs for the season
+        teams_data = statsapi.get("teams", {"sportId": 1, "season": season})
+        team_ids = [t["id"] for t in teams_data.get("teams", [])]
+        logger.info("Fetching %d season stats from %d teams...", season, len(team_ids))
     except Exception as e:
-        logger.warning("Failed to fetch hitting stats from MLB API: %s", e)
+        logger.warning("Failed to get MLB teams for %d: %s", season, e)
+        return pd.DataFrame()
 
-    try:
-        pitching = statsapi.get(
-            "sports_players",
-            {
-                "season": season,
-                "gameType": "R",
-                "group": "pitching",
-                "stats": "season",
-                "limit": 1000,
-                "sportId": 1,
-            },
-        )
-        for player in pitching.get("people", []):
-            stats_list = player.get("stats", [])
-            if not stats_list or not stats_list[0].get("splits"):
-                continue
-            s = stats_list[0]["splits"][0]["stat"]
-            team_info = player.get("currentTeam", {})
-            rows.append(
+    hydrate = (
+        f"person(stats(type=season,season={season},gameType=R),"
+        f"currentTeam)"
+    )
+
+    for team_id in team_ids:
+        try:
+            roster = statsapi.get(
+                "team_roster",
                 {
-                    "player_name": player.get("fullName", ""),
-                    "team": team_info.get("abbreviation", ""),
-                    "is_hitter": False,
-                    "pa": 0,
-                    "ab": 0,
-                    "h": 0,
-                    "r": 0,
-                    "hr": 0,
-                    "rbi": 0,
-                    "sb": 0,
-                    "avg": 0,
-                    "ip": float(s.get("inningsPitched", "0") or 0),
-                    "w": int(s.get("wins", 0)),
-                    "sv": int(s.get("saves", 0)),
-                    "k": int(s.get("strikeOuts", 0)),
-                    "era": float(s.get("era", "0") or 0),
-                    "whip": float(s.get("whip", "0") or 0),
-                    "er": int(s.get("earnedRuns", 0)),
-                    "bb_allowed": int(s.get("baseOnBalls", 0)),
-                    "h_allowed": int(s.get("hits", 0)),
-                    "games_played": int(s.get("gamesPlayed", 0)),
-                }
+                    "teamId": team_id,
+                    "season": season,
+                    "rosterType": "fullSeason",
+                    "hydrate": hydrate,
+                },
             )
-    except Exception as e:
-        logger.warning("Failed to fetch pitching stats from MLB API: %s", e)
+            for entry in roster.get("roster", []):
+                person = entry.get("person", {})
+                full_name = person.get("fullName", "")
+                if not full_name or full_name in seen_players:
+                    continue
+                seen_players.add(full_name)
 
+                current_team = person.get("currentTeam", {})
+                team_abbr = current_team.get("abbreviation", "")
+                player_info = {"fullName": full_name, "team_abbr": team_abbr}
+
+                # Determine position type from roster entry
+                position = entry.get("position", {})
+                pos_type = position.get("type", "")
+                is_pitcher = pos_type == "Pitcher"
+
+                stats_list = person.get("stats", [])
+                if not stats_list:
+                    continue
+
+                for stat_group in stats_list:
+                    splits = stat_group.get("splits", [])
+                    if not splits:
+                        continue
+                    s = splits[0].get("stat", {})
+                    if not s:
+                        continue
+
+                    group_name = stat_group.get("group", {}).get("displayName", "")
+
+                    if group_name == "hitting" and not is_pitcher:
+                        rows.append(_parse_hitting_stat(player_info, s))
+                    elif group_name == "pitching" and is_pitcher:
+                        rows.append(_parse_pitching_stat(player_info, s))
+                    elif group_name == "hitting" and is_pitcher:
+                        pass  # Skip pitcher hitting stats
+                    elif group_name == "pitching" and not is_pitcher:
+                        pass  # Skip position player pitching stats
+                    elif not rows or full_name not in {r["player_name"] for r in rows}:
+                        # Fallback: use position type
+                        if is_pitcher:
+                            rows.append(_parse_pitching_stat(player_info, s))
+                        else:
+                            rows.append(_parse_hitting_stat(player_info, s))
+
+        except Exception as e:
+            logger.debug("Error fetching team %d roster for %d: %s", team_id, season, e)
+            continue
+
+    logger.info("Fetched %d season stats for %d players", season, len(rows))
     return pd.DataFrame(rows) if rows else pd.DataFrame()
 
 

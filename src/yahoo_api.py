@@ -463,7 +463,7 @@ class YahooFantasyClient:
                 row: dict = {
                     "team_name": str(self._safe_attr(team, "name", "")),
                     "team_key": str(self._safe_attr(team, "team_key", "")),
-                    "rank": int(self._safe_attr(team, "rank", 0)),
+                    "rank": int(self._safe_attr(team, "rank", 0) or 0),
                 }
                 # Extract per-category stat values
                 team_stats = self._safe_attr(team, "team_stats")
@@ -507,8 +507,14 @@ class YahooFantasyClient:
                 team_name = str(self._safe_attr(team, "name", ""))
                 team_key = str(self._safe_attr(team, "team_key", ""))
 
+                # yfpy's get_team_roster_by_week() internally builds
+                # {league_key}.t.{team_id}, so we must pass only the
+                # numeric team ID (the part after the last ".t."), not
+                # the full team_key — otherwise the key gets doubled.
+                team_id = team_key.rsplit(".t.", 1)[-1] if ".t." in team_key else team_key
+
                 _rate_limit()
-                roster = self._query.get_team_roster_by_week(team_key)
+                roster = self._query.get_team_roster_by_week(team_id)
                 for player_entry in roster or []:
                     player = getattr(player_entry, "player", player_entry)
                     name_obj = self._safe_attr(player, "name")
@@ -548,8 +554,10 @@ class YahooFantasyClient:
         if not self._ensure_auth():
             return pd.DataFrame()
         try:
+            # Extract numeric team ID — yfpy internally prepends league key
+            team_id = team_key.rsplit(".t.", 1)[-1] if ".t." in team_key else team_key
             _rate_limit()
-            roster = self._query.get_team_roster_by_week(team_key)
+            roster = self._query.get_team_roster_by_week(team_id)
             rows: list[dict] = []
             for player_entry in roster or []:
                 player = getattr(player_entry, "player", player_entry)

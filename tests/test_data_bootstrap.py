@@ -277,34 +277,42 @@ class TestFetchHistoricalStats:
         """fetch_historical_stats returns data for multiple seasons."""
         with patch("src.live_stats.statsapi") as mock_api:
 
-            def mock_get(endpoint, params):
-                return {
-                    "people": [
-                        {
-                            "fullName": "Test Player",
-                            "currentTeam": {"abbreviation": "NYY"},
-                            "stats": [
-                                {
-                                    "splits": [
+            def mock_get(endpoint, params=None):
+                if endpoint == "teams":
+                    return {"teams": [{"id": 147}]}
+                if endpoint == "team_roster":
+                    return {
+                        "roster": [
+                            {
+                                "person": {
+                                    "fullName": "Test Player",
+                                    "currentTeam": {"abbreviation": "NYY"},
+                                    "stats": [
                                         {
-                                            "stat": {
-                                                "plateAppearances": "500",
-                                                "atBats": "450",
-                                                "hits": "120",
-                                                "runs": "70",
-                                                "homeRuns": "25",
-                                                "rbi": "80",
-                                                "stolenBases": "10",
-                                                "avg": ".267",
-                                                "gamesPlayed": "140",
-                                            }
+                                            "group": {"displayName": "hitting"},
+                                            "splits": [
+                                                {
+                                                    "stat": {
+                                                        "plateAppearances": 500,
+                                                        "atBats": 450,
+                                                        "hits": 120,
+                                                        "runs": 70,
+                                                        "homeRuns": 25,
+                                                        "rbi": 80,
+                                                        "stolenBases": 10,
+                                                        "avg": ".267",
+                                                        "gamesPlayed": 140,
+                                                    }
+                                                }
+                                            ],
                                         }
-                                    ]
-                                }
-                            ],
-                        }
-                    ]
-                }
+                                    ],
+                                },
+                                "position": {"type": "Outfielder"},
+                            }
+                        ]
+                    }
+                return {}
 
             mock_api.get.side_effect = mock_get
             from src.live_stats import fetch_historical_stats
@@ -316,33 +324,45 @@ class TestFetchHistoricalStats:
     def test_defaults_to_three_years(self):
         """Default seasons are [2023, 2024, 2025]."""
         with patch("src.live_stats.statsapi") as mock_api:
-            mock_api.get.return_value = {
-                "people": [
-                    {
-                        "fullName": "Test",
-                        "currentTeam": {"abbreviation": "NYY"},
-                        "stats": [
+
+            def mock_get(endpoint, params=None):
+                if endpoint == "teams":
+                    return {"teams": [{"id": 147}]}
+                if endpoint == "team_roster":
+                    return {
+                        "roster": [
                             {
-                                "splits": [
-                                    {
-                                        "stat": {
-                                            "plateAppearances": "100",
-                                            "atBats": "90",
-                                            "hits": "25",
-                                            "runs": "10",
-                                            "homeRuns": "5",
-                                            "rbi": "15",
-                                            "stolenBases": "2",
-                                            "avg": ".278",
-                                            "gamesPlayed": "50",
+                                "person": {
+                                    "fullName": "Test",
+                                    "currentTeam": {"abbreviation": "NYY"},
+                                    "stats": [
+                                        {
+                                            "group": {"displayName": "hitting"},
+                                            "splits": [
+                                                {
+                                                    "stat": {
+                                                        "plateAppearances": 100,
+                                                        "atBats": 90,
+                                                        "hits": 25,
+                                                        "runs": 10,
+                                                        "homeRuns": 5,
+                                                        "rbi": 15,
+                                                        "stolenBases": 2,
+                                                        "avg": ".278",
+                                                        "gamesPlayed": 50,
+                                                    }
+                                                }
+                                            ],
                                         }
-                                    }
-                                ]
+                                    ],
+                                },
+                                "position": {"type": "Outfielder"},
                             }
-                        ],
+                        ]
                     }
-                ]
-            }
+                return {}
+
+            mock_api.get.side_effect = mock_get
             from src.live_stats import fetch_historical_stats
 
             results = fetch_historical_stats()

@@ -58,34 +58,44 @@ def test_match_player_id_not_found(temp_db):
 def test_fetch_season_stats_structure(mock_statsapi, temp_db):
     from src.live_stats import fetch_season_stats
 
-    mock_statsapi.get.return_value = {
-        "people": [
-            {
-                "id": 592450,
-                "fullName": "Aaron Judge",
-                "currentTeam": {"abbreviation": "NYY"},
-                "stats": [
+    def mock_get(endpoint, params=None):
+        if endpoint == "teams":
+            return {"teams": [{"id": 147}]}
+        if endpoint == "team_roster":
+            return {
+                "roster": [
                     {
-                        "splits": [
-                            {
-                                "stat": {
-                                    "plateAppearances": 500,
-                                    "atBats": 450,
-                                    "hits": 130,
-                                    "runs": 80,
-                                    "homeRuns": 35,
-                                    "rbi": 90,
-                                    "stolenBases": 5,
-                                    "avg": ".289",
-                                    "gamesPlayed": 120,
+                        "person": {
+                            "fullName": "Aaron Judge",
+                            "currentTeam": {"abbreviation": "NYY"},
+                            "stats": [
+                                {
+                                    "group": {"displayName": "hitting"},
+                                    "splits": [
+                                        {
+                                            "stat": {
+                                                "plateAppearances": 500,
+                                                "atBats": 450,
+                                                "hits": 130,
+                                                "runs": 80,
+                                                "homeRuns": 35,
+                                                "rbi": 90,
+                                                "stolenBases": 5,
+                                                "avg": ".289",
+                                                "gamesPlayed": 120,
+                                            }
+                                        }
+                                    ],
                                 }
-                            }
-                        ]
+                            ],
+                        },
+                        "position": {"type": "Outfielder"},
                     }
-                ],
+                ]
             }
-        ]
-    }
+        return {}
+
+    mock_statsapi.get.side_effect = mock_get
 
     df = fetch_season_stats(season=2026)
     assert isinstance(df, pd.DataFrame)
