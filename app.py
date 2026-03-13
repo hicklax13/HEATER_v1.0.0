@@ -205,7 +205,7 @@ def render_step_settings():
         yahoo_secret = os.environ.get("YAHOO_CLIENT_SECRET")
         yahoo_league_id = os.environ.get("YAHOO_LEAGUE_ID", "").strip()
         if yahoo_key and yahoo_secret and yahoo_league_id:
-            with st.expander(f"{PAGE_ICONS['baseball']} Connect Yahoo Fantasy (optional)", expanded=False):
+            with st.expander("Connect Yahoo Fantasy (optional)", expanded=False):
                 from src.yahoo_api import build_oauth_url, exchange_code_for_token
 
                 auth_url = build_oauth_url(yahoo_key, redirect_uri="oob")
