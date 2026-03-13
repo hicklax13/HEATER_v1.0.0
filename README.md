@@ -1,16 +1,17 @@
 # Fantasy Baseball Draft Tool
 
-A fantasy baseball draft assistant + in-season manager for Yahoo Sports 5x5 roto leagues. Features a dark-themed "Broadcast Booth" UI, Monte Carlo draft recommendations, Bayesian projection updates, and full in-season roster management.
+A fantasy baseball draft assistant + in-season manager for Yahoo Sports 5x5 roto leagues. Features a "Broadcast Booth" UI with dark/light theme toggle, Monte Carlo draft recommendations, Bayesian projection updates, and full in-season roster management.
 
-Built for the **FourzynBurn** league (12-team snake draft, 23 rounds). ~10,000 lines of Python across 20 source files with 300 tests.
+Built for the **FourzynBurn** league (12-team snake draft, 23 rounds). ~10,000 lines of Python across 20 source files with 300 tests. Zero emoji — all icons are inline SVGs.
 
 ## Overview
 
-The app features a dark navy + amber "Broadcast Booth" theme with sports broadcast typography (Oswald + DM Sans).
+The app features a navy + amber "Broadcast Booth" theme with dark/light mode toggle and sports broadcast typography (Oswald + DM Sans). All icons are custom inline SVGs — no emoji.
 
 - **Setup Wizard** — 4-step guided setup: auto-fetch projections from FanGraphs, configure league, import rosters, launch draft
-- **Draft Page** — 3-column layout: MC recommendations with hero card (injury badges, P10/P90 ranges, survival probability), draft board, player search + opponent intel
-- **In-Season Pages** — 5 Streamlit pages: team overview, trade analyzer, player compare, free agent rankings, lineup optimizer
+- **Draft Page** — 3-column layout: MC recommendations with hero card (CSS dot health badges, P10/P90 ranges, survival probability), draft board, player search + opponent intel
+- **In-Season Pages** — 5 Streamlit pages with shared theme system: team overview, trade analyzer, player compare, free agent rankings, lineup optimizer
+- **Dark/Light Toggle** — one-click theme switch that persists across pages; navy borders + amber accent in both modes
 
 ## Quick Start
 
@@ -39,7 +40,7 @@ The app opens at `http://localhost:8501`.
 
 - **4-step setup wizard** with optional Yahoo OAuth and FanGraphs auto-fetch
 - **Monte Carlo simulation** (100-300 sims, 6-round horizon) for pick recommendations
-- **Hero card** with survival probability, injury badges, P10/P90 range bars, SGP chips
+- **Hero card** with survival probability, CSS dot health badges, P10/P90 range bars, SGP chips
 - **Opponent intel** — threat alerts when opponents need your target position
 - **Practice mode** — ephemeral draft state for what-if scenarios
 - **Snake draft engine** with dynamic replacement levels and positional scarcity
@@ -54,6 +55,16 @@ The app opens at `http://localhost:8501`.
 | **Player Compare** | Z-score normalization, composite scores, Plotly radar charts, health badges, projection confidence |
 | **Free Agents** | Marginal SGP rankings by category need, position filtering |
 | **Lineup Optimizer** | PuLP LP solver, category targeting, two-start SP detection, health-adjusted SGP |
+
+### UI & Theme System (`src/ui_shared.py`)
+
+- **Dark/light theme toggle** — one-click switch persists across all pages via `st.session_state`
+- **Centralized CSS** — 1100+ lines of shared styles injected via `inject_custom_css()`
+- **Inline SVG icon system** — ~20 Feather-style icons in `PAGE_ICONS` dict (no emoji anywhere)
+- **CSS dot health badges** — colored circles for injury indicators instead of emoji
+- **Dual theme dictionaries** — `DARK_THEME` and `LIGHT_THEME` with `ink` key for text-on-accent contrast
+- **`_ThemeProxy`** — dict subclass that makes `T["color"]` always resolve to the active theme
+- **Educational tooltips** — `METRIC_TOOLTIPS` dict with explanations for SGP, VORP, survival %, health badges, and more
 
 ### Analytics & Data Pipeline
 
@@ -121,7 +132,7 @@ See [Yahoo Developer Apps](https://developer.yahoo.com/apps/) to create credenti
 ## File Structure
 
 ```
-app.py                  — Draft tool (~1900 lines): 4-step setup wizard + 3-column draft page
+app.py                  — Draft tool (~1890 lines): 4-step setup wizard + 3-column draft page
 requirements.txt        — pip dependencies
 load_sample_data.py     — Generates ~190 sample players + injury history for testing
 .streamlit/config.toml  — Dark theme configuration
@@ -144,7 +155,7 @@ src/
   lineup_optimizer.py   — PuLP LP solver, category targeting, two-start SP detection
   yahoo_api.py          — Yahoo Fantasy OAuth (oob flow) + league sync
   data_pipeline.py      — FanGraphs auto-fetch pipeline (Steamer/ZiPS/Depth Charts)
-  ui_shared.py          — Shared theme constants + CSS injection
+  ui_shared.py          — Centralized theme system (dark/light), PAGE_ICONS (inline SVGs), CSS injection, metric tooltips
   validation.py         — Validation utilities
   data_2026.py          — Hardcoded 2026 projections for sample data
 tests/                  — 300 tests (17 test files), 299 pass, 1 skipped (PyMC)

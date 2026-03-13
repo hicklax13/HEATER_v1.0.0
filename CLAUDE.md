@@ -4,8 +4,8 @@
 
 A fantasy baseball draft assistant + in-season manager for a 12-team Yahoo Sports 5x5 roto snake draft league. Two pillars:
 
-1. **Draft Tool** (`app.py`, ~1900 lines) — "Broadcast Booth" dark-theme Streamlit app: 4-step setup wizard (with optional Yahoo OAuth), 3-column draft page with injury badges, percentile ranges, opponent intel tab, and practice mode. Monte Carlo recommendations with percentile sampling.
-2. **In-Season Management** (`pages/`) — 5 Streamlit pages: team overview, trade analysis, player comparison, free agent rankings, lineup optimizer. Powered by MLB Stats API + pybaseball + optional Yahoo Fantasy API.
+1. **Draft Tool** (`app.py`, ~1900 lines) — "Broadcast Booth" themed Streamlit app with dark/light mode toggle: 4-step setup wizard (with optional Yahoo OAuth), 3-column draft page with SVG injury badges, percentile ranges, opponent intel tab, and practice mode. Monte Carlo recommendations with percentile sampling.
+2. **In-Season Management** (`pages/`) — 5 Streamlit pages: team overview, trade analysis, player comparison, free agent rankings, lineup optimizer. Powered by MLB Stats API + pybaseball + optional Yahoo Fantasy API. All pages share centralized theme system with dark/light toggle.
 
 ## Commands
 
@@ -80,7 +80,7 @@ src/
   in_season.py          — Trade analyzer, player comparison engine, FA ranker
   live_stats.py         — MLB Stats API + pybaseball data fetcher, daily refresh logic
   league_manager.py     — League roster/standings management, CSV import for all 12 teams
-  ui_shared.py          — Shared THEME dict + inject_custom_css() used by app.py and pages/
+  ui_shared.py          — Centralized theme system (dark/light), PAGE_ICONS (inline SVGs), inject_custom_css(), METRIC_TOOLTIPS
   data_2026.py          — Hardcoded 2026 projections (~200 hitters, ~80 pitchers) for sample data
   validation.py         — Validation utilities
   bayesian.py           — Bayesian projection updater: PyMC hierarchical model + Marcel regression fallback
@@ -135,7 +135,7 @@ docs/plans/             — Implementation plan archives
 - Projection confidence discount (low PA/IP get up to 20% discount)
 - Bench slot optimization (late-draft bonus for multi-position flexibility)
 - **Percentile sampling** — MC sims sample from P10-P90 distributions when multiple projection systems available
-- **Injury badges** — Hero card shows 🟢/🟡/🔴 health icons, age flags for aging curves, workload flags for IP spikes
+- **Injury badges** — Hero card shows CSS dot health indicators (green/yellow/red), age flags for aging curves, workload flags for IP spikes. No emoji — all icons are inline SVGs from `PAGE_ICONS` dict.
 - **P10/P90 range bars** — Floor/ceiling projections displayed on hero pick and alternatives
 - **Opponent intel tab** — Threat alerts when opponents need your target position, plus full opponent roster/needs breakdown
 - **Practice mode** — Ephemeral DraftState clone for what-if scenarios, resets on refresh or button click
@@ -209,7 +209,17 @@ updater.age_adjustment(age, stat)  # returns float multiplier
 # Injury model (src/injury_model.py)
 compute_health_score(games_played_3yr: list, games_available_3yr: list) -> float
 apply_injury_adjustment(projections_df, health_scores_df) -> pd.DataFrame
-get_injury_badge(health_score) -> tuple[str, str]  # (icon, label)
+get_injury_badge(health_score) -> tuple[str, str]  # (css_dot_html, label) — returns <span> with colored dot, NOT emoji
+
+# UI shared (src/ui_shared.py)
+PAGE_ICONS: dict[str, str]  # ~20 inline SVG icons keyed by name ("baseball", "fire", "accept", etc.)
+METRIC_TOOLTIPS: dict[str, str]  # Educational tooltip text for every metric (sgp, vorp, survival, etc.)
+DARK_THEME: dict  # bg=#0a0e1a, ink=#0a0e1a, card=#1a1f2e, amber=#f59e0b, ...
+LIGHT_THEME: dict  # bg=#f8f9fc, ink=#1a1a2e, card=#ffffff, amber=#f59e0b, ...
+T = _ThemeProxy()  # Dict-like proxy — reads delegate to active theme via get_theme()
+get_theme() -> dict  # Returns DARK_THEME or LIGHT_THEME based on session_state["theme_mode"]
+render_theme_toggle()  # Renders dark/light toggle in sidebar
+inject_custom_css()  # Injects full CSS (1000+ lines) — call once per page
 
 # Percentiles (src/valuation.py)
 compute_projection_volatility(projections_by_system: dict[str, DataFrame]) -> DataFrame
@@ -263,6 +273,10 @@ SYSTEM_MAP = {"steamer": "steamer", "zips": "zips", "fangraphsdc": "depthcharts"
 - **Percentile pipeline ordering** — `compute_projection_volatility()` → `add_process_risk()` → `compute_percentile_projections()`. Skip entirely when only one projection system exists (zero variance). All 3 consumers (app.py, Trade Analyzer, Player Compare) must follow this exact ordering.
 - **Connection leak pattern in pages** — Always wrap `get_connection()` + queries in `try/finally` with `conn.close()` in the `finally` block. Do NOT put `conn.close()` inline after queries — if a query throws, the connection leaks.
 - **Scarcity toast dedup** — `st.toast()` fires on every Streamlit rerender. Use `st.session_state` keys to deduplicate (e.g., `f"scarcity_toast_{pos}_{count}"`).
+- **`T["ink"]` vs `T["bg"]` for text-on-accent** — `T["bg"]` is for page backgrounds. `T["ink"]` is for dark text on colored surfaces (amber buttons, badges, tabs). Never use `T["bg"]` as a text color — it's invisible on amber in light mode.
+- **No emoji in the codebase** — All icons are inline SVGs from `PAGE_ICONS` dict in `ui_shared.py`. Injury badges use CSS dots (`border-radius:50%`), not emoji. Do NOT re-introduce emoji.
+- **`_ThemeProxy` dict subclass** — `T` in `ui_shared.py` is a `_ThemeProxy` that delegates all reads to `get_theme()`. This makes `T["amber"]` theme-aware without changing call sites. Do not replace `T` with a plain dict.
+- **Sidebar nav rename via CSS** — The sidebar "app" label is renamed to "Configurations" using `font-size:0` + `::after { content: "Configurations" }` pseudo-element trick in `inject_custom_css()`.
 
 ## GitHub
 
