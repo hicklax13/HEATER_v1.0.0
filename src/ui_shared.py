@@ -1059,6 +1059,20 @@ def inject_custom_css():
         color: {t["tx"]} !important;
     }}
 
+    /* ── PAGE TITLE ────────────────────────────── */
+    .page-title {{
+        font-family: 'Oswald', sans-serif;
+        font-weight: 700;
+        font-size: 32px;
+        color: {t["amber"]};
+        text-transform: uppercase;
+        letter-spacing: 3px;
+        text-align: center;
+        margin-bottom: 8px;
+        word-break: break-word;
+        overflow-wrap: anywhere;
+    }}
+
     /* ── TOOLTIP (CSS-based, on title attr) ─── */
     [title] {{
         cursor: help;
@@ -1071,6 +1085,45 @@ def inject_custom_css():
     [data-testid="stSidebarNav"] a[href="/"] span::after {{
         content: "Configurations";
         font-size: 14px;
+    }}
+
+    /* ── RESPONSIVE: scale down large text on narrow viewports ─── */
+    @media (max-width: 768px) {{
+        .page-title {{
+            font-size: 22px;
+            letter-spacing: 1.5px;
+        }}
+        .hero .p-name {{
+            font-size: 24px;
+            letter-spacing: 0.5px;
+        }}
+        .hero .score-badge {{
+            font-size: 16px;
+            padding: 6px 10px;
+        }}
+        .verdict-banner .verdict-text {{
+            font-size: 20px;
+            letter-spacing: 1px;
+        }}
+        .wizard-step {{
+            font-size: 10px;
+            letter-spacing: 1px;
+            padding: 8px 10px;
+        }}
+    }}
+    @media (max-width: 480px) {{
+        .page-title {{
+            font-size: 18px;
+            letter-spacing: 1px;
+        }}
+        .hero .p-name {{
+            font-size: 20px;
+            letter-spacing: 0px;
+        }}
+        .verdict-banner .verdict-text {{
+            font-size: 16px;
+            letter-spacing: 0.5px;
+        }}
     }}
     </style>
     """,

@@ -141,10 +141,7 @@ def render_wizard_progress(current_step):
 
 def render_setup_page():
     st.markdown(
-        f'<div style="text-align:center;margin-bottom:8px;">'
-        f'<span style="font-family:Oswald,sans-serif;font-weight:700;font-size:32px;'
-        f'color:{T["amber"]};text-transform:uppercase;letter-spacing:3px;">'
-        f"Draft Command Center</span></div>",
+        '<div class="page-title">Draft Command Center</div>',
         unsafe_allow_html=True,
     )
     step = st.session_state.setup_step
