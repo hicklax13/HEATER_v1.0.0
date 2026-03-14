@@ -1,8 +1,9 @@
-"""Master trade evaluator — orchestrates Phase 1 + Phase 2 engine modules.
+"""Master trade evaluator — orchestrates Phase 1 + Phase 2 + Phase 4 engine modules.
 
 Spec reference: Section 14 L11 (decision output / grading)
                Section 17 Phase 1 item 7 (trade surplus + grade)
                Section 17 Phase 2 items 9-12 (BMA, KDE, copula, MC)
+               Section 17 Phase 4 items 17-20 (context engine)
 
 Wires into:
   - src/engine/portfolio/valuation.py: z-scores, SGP, VORP
@@ -12,6 +13,9 @@ Wires into:
   - src/engine/projections/projection_client.py: ROS projections
   - src/engine/projections/bayesian_blend.py: BMA for projection weighting
   - src/engine/monte_carlo/trade_simulator.py: paired MC simulation
+  - src/engine/context/concentration.py: roster concentration risk (HHI)
+  - src/engine/context/bench_value.py: enhanced bench option value
+  - src/engine/context/injury_process.py: injury availability modeling
   - src/in_season.py: _roster_category_totals (aggregate roster stats)
   - src/valuation.py: LeagueConfig, SGPCalculator
 
@@ -29,6 +33,11 @@ The evaluation pipeline:
     8. Build player marginals (KDE or Gaussian)
     9. Run paired Monte Carlo (10K sims) with copula-correlated sampling
     10. Overlay MC distribution metrics onto result
+
+  Phase 4 (context, when enabled):
+    11. Compute roster concentration risk (HHI delta + penalty)
+    12. Enhanced bench option value (flexibility + injury cushion)
+    13. Concentration risk flags
 """
 
 from __future__ import annotations
@@ -39,6 +48,14 @@ from typing import Any
 import pandas as pd
 
 from src.database import load_league_standings
+from src.engine.context.bench_value import (
+    compute_roster_flexibility,
+    enhanced_bench_option_value,
+)
+from src.engine.context.concentration import (
+    compute_concentration_delta,
+    team_exposure_breakdown,
+)
 from src.engine.monte_carlo.trade_simulator import (
     build_roster_stats,
     run_paired_monte_carlo,
@@ -118,6 +135,7 @@ def evaluate_trade(
     weeks_remaining: int = 16,
     enable_mc: bool = False,
     n_sims: int = 10_000,
+    enable_context: bool = True,
 ) -> dict[str, Any]:
     """Full trade evaluation using Phase 1 + Phase 2 engine pipeline.
 
@@ -148,6 +166,8 @@ def evaluate_trade(
         weeks_remaining: Weeks left in the season.
         enable_mc: Whether to run Phase 2 Monte Carlo simulation.
         n_sims: Number of MC simulations (default 10K).
+        enable_context: Whether to run Phase 4 context analysis
+            (concentration risk, enhanced bench value). Default True.
 
     Returns:
         Dict with keys:
@@ -243,16 +263,48 @@ def evaluate_trade(
     players_gained = len(receiving_ids)
     bench_slots_lost = players_gained - players_lost  # Positive = gained slots, negative = lost
     bench_cost = 0.0
+    bench_detail: dict[str, float] | None = None
 
     if bench_slots_lost < 0:
-        # Lost bench slots (e.g., 2-for-1 trade where you receive 2 and give 1)
-        bench_cost = abs(bench_slots_lost) * bench_option_value(weeks_remaining=weeks_remaining)
+        if enable_context:
+            # Phase 4: Enhanced bench value with flexibility + injury cushion
+            after_roster = player_pool[player_pool["player_id"].isin(after_ids)]
+            flex_score = compute_roster_flexibility(after_roster)
+            bench_detail_dict = enhanced_bench_option_value(
+                weeks_remaining=weeks_remaining,
+                roster_flexibility=flex_score,
+            )
+            bench_detail = bench_detail_dict
+            bench_cost = abs(bench_slots_lost) * bench_detail_dict["total"]
+        else:
+            bench_cost = abs(bench_slots_lost) * bench_option_value(weeks_remaining=weeks_remaining)
         total_surplus -= bench_cost
     elif bench_slots_lost > 0:
-        # Gained bench slots (e.g., 1-for-2 trade) — add option value
-        bench_bonus = bench_slots_lost * bench_option_value(weeks_remaining=weeks_remaining)
+        if enable_context:
+            after_roster = player_pool[player_pool["player_id"].isin(after_ids)]
+            flex_score = compute_roster_flexibility(after_roster)
+            bench_detail_dict = enhanced_bench_option_value(
+                weeks_remaining=weeks_remaining,
+                roster_flexibility=flex_score,
+            )
+            bench_detail = bench_detail_dict
+            bench_bonus = bench_slots_lost * bench_detail_dict["total"]
+        else:
+            bench_bonus = bench_slots_lost * bench_option_value(weeks_remaining=weeks_remaining)
         total_surplus += bench_bonus
         bench_cost = -bench_bonus  # Negative cost = benefit
+
+    # Step 6a: Concentration risk (Phase 4)
+    concentration_data: dict[str, float] | None = None
+    if enable_context:
+        try:
+            concentration_data = compute_concentration_delta(before_ids, after_ids, player_pool)
+            # Apply concentration penalty delta to surplus
+            penalty_delta = concentration_data.get("penalty_delta", 0.0)
+            if penalty_delta > 0:
+                total_surplus -= penalty_delta
+        except Exception as exc:
+            logger.warning("Concentration risk calculation failed: %s", exc)
 
     # Step 7: Grade the trade
     trade_grade = grade_trade(total_surplus)
@@ -265,6 +317,15 @@ def evaluate_trade(
         sgp_calc=sgp_calc,
         cat_analysis=cat_analysis,
     )
+
+    # Phase 4 risk flags: concentration risk
+    if enable_context and concentration_data:
+        if concentration_data.get("hhi_delta", 0) > 0.05:
+            # Significant increase in concentration
+            after_exposure = team_exposure_breakdown(after_ids, player_pool)
+            worst_team = max(after_exposure.items(), key=lambda x: x[1]["count"]) if after_exposure else None
+            if worst_team and worst_team[1]["count"] >= 4:
+                risk_flags.append(f"High roster concentration: {worst_team[1]['count']} players from {worst_team[0]}")
 
     # Verdict
     verdict = "ACCEPT" if total_surplus > 0 else "DECLINE"
@@ -295,6 +356,16 @@ def evaluate_trade(
         "mc_mean": round(total_surplus, 3),
         "mc_std": 0.0,
     }
+
+    # Phase 4: Context analysis keys
+    if enable_context:
+        if concentration_data:
+            result["concentration_hhi_before"] = concentration_data["hhi_before"]
+            result["concentration_hhi_after"] = concentration_data["hhi_after"]
+            result["concentration_delta"] = concentration_data["hhi_delta"]
+            result["concentration_penalty"] = concentration_data.get("penalty_delta", 0.0)
+        if bench_detail:
+            result["bench_option_detail"] = bench_detail
 
     # Phase 2: Monte Carlo simulation overlay
     if enable_mc:
