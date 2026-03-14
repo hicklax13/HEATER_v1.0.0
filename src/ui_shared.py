@@ -1316,9 +1316,9 @@ def inject_custom_css():
         position: relative;
     }}
 
-    /* Sidebar */
+    /* Sidebar — navy top for header, orange below */
     .stSidebar {{
-        background: linear-gradient(180deg, #e65c00 0%, #cc5200 100%) !important;
+        background: linear-gradient(180deg, #16213e 0%, #16213e 70px, #e65c00 70px, #cc5200 100%) !important;
         border-right: none !important;
     }}
     .stSidebar, .stSidebar * {{
@@ -1341,10 +1341,7 @@ def inject_custom_css():
         font-weight: 800 !important;
     }}
     .stSidebar [data-testid="stSidebarHeader"] {{
-        background: linear-gradient(135deg, #1a1a2e, #16213e) !important;
-        border-radius: 0 !important;
-        margin: 0 -1rem !important;
-        padding: 0 1rem !important;
+        background: transparent !important;
     }}
     .stSidebar button[data-testid="stBaseButton-header"] {{
         color: #ffffff !important;
