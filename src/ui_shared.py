@@ -1284,21 +1284,21 @@ def inject_custom_css():
         box-shadow: 0 2px 10px rgba(0, 0, 0, 0.06), 0 0 0 1px rgba(0,0,0,0.03) !important;
         background: #faf8f5 !important;
     }}
+    /* Glide Data Grid canvas theming via CSS custom properties */
+    div[data-testid="stDataFrame"] [data-testid="glideDataEditor"],
+    div[data-testid="stDataFrame"] .dvn-scroller,
+    div[data-testid="stDataFrame"] {{
+        --gdg-bg-header: #16213e !important;
+        --gdg-bg-header-has-focus: #1a1a2e !important;
+        --gdg-bg-header-hovered: #1e2a45 !important;
+        --gdg-text-header: #ffffff !important;
+        --gdg-bg-cell: #faf8f5 !important;
+        --gdg-bg-cell-medium: #f5f2ed !important;
+        --gdg-text-dark: #1d1d1f !important;
+        --gdg-border-color: #d4c5b0 !important;
+        --gdg-header-font-style: 700 14px Figtree, sans-serif !important;
+    }}
     div[data-testid="stDataFrame"] [data-testid="glideDataEditor"] {{
-        background: #faf8f5 !important;
-    }}
-    /* Bold column headers */
-    div[data-testid="stDataFrame"] th,
-    div[data-testid="stDataFrame"] [role="columnheader"],
-    div[data-testid="stDataFrame"] .gdg-header-cell {{
-        font-weight: 700 !important;
-        font-family: 'Figtree', sans-serif !important;
-        background: #16213e !important;
-        color: #ffffff !important;
-    }}
-    /* Table cell background for contrast against page bg */
-    div[data-testid="stDataFrame"] td,
-    div[data-testid="stDataFrame"] [role="gridcell"] {{
         background: #faf8f5 !important;
     }}
     /* Left accent border for visual anchor */
