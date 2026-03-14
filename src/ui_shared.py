@@ -1293,7 +1293,8 @@ def inject_custom_css():
     div[data-testid="stDataFrame"] .gdg-header-cell {{
         font-weight: 700 !important;
         font-family: 'Figtree', sans-serif !important;
-        background: #ede8e0 !important;
+        background: #16213e !important;
+        color: #ffffff !important;
     }}
     /* Table cell background for contrast against page bg */
     div[data-testid="stDataFrame"] td,
