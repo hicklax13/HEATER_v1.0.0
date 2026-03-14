@@ -1521,8 +1521,8 @@ def inject_custom_css():
             if (header && !header.querySelector('.heater-logo')) {
                 const logoDiv = parent.document.createElement('div');
                 logoDiv.className = 'heater-logo';
-                logoDiv.style.cssText = 'display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;padding:14px 8px 10px 8px;';
-                logoDiv.innerHTML = '<svg width="48" height="48" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">'
+                logoDiv.style.cssText = 'display:flex;align-items:center;justify-content:center;gap:6px;padding:14px 6px 10px 6px;';
+                logoDiv.innerHTML = '<svg width="36" height="36" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" style="flex-shrink:0;">'
                     + '<defs><radialGradient id="sbl" cx="40%" cy="35%" r="55%">'
                     + '<stop offset="0%" stop-color="#fff"/><stop offset="60%" stop-color="#f5f0e8"/>'
                     + '<stop offset="100%" stop-color="#e8ddd0"/></radialGradient>'
