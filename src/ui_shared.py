@@ -1309,26 +1309,36 @@ def inject_custom_css():
 
     /* Sidebar */
     .stSidebar {{
-        background: linear-gradient(180deg, #fff3e6 0%, #ffe8cc 100%) !important;
-        border-right: 1px solid {t["border"]} !important;
+        background: linear-gradient(180deg, #ff7a00 0%, #ff6200 100%) !important;
+        border-right: none !important;
     }}
     .stSidebar, .stSidebar * {{
-        color: #1d1d1f !important;
+        color: #ffffff !important;
     }}
     .stSidebar a {{
-        color: #1d1d1f !important;
+        color: rgba(255,255,255,0.85) !important;
         font-weight: 500;
     }}
     .stSidebar a:hover {{
-        color: {t["primary"]} !important;
+        color: #ffffff !important;
     }}
     .stSidebar [data-testid="stSidebarNav"] li a[aria-current="page"] {{
-        background: rgba(230, 57, 70, 0.12) !important;
+        background: rgba(255,255,255,0.2) !important;
         border-radius: 8px;
     }}
     .stSidebar [data-testid="stSidebarNav"] li a[aria-current="page"] span {{
-        color: {t["primary"]} !important;
+        color: #ffffff !important;
         font-weight: 700;
+    }}
+    .stSidebar [data-testid="stSidebarHeader"] {{
+        background: transparent !important;
+    }}
+    .stSidebar button[data-testid="stBaseButton-header"] {{
+        color: #ffffff !important;
+    }}
+    .stSidebar button[data-testid="stBaseButton-header"] svg {{
+        fill: #ffffff !important;
+        stroke: #ffffff !important;
     }}
 
     /* Expanders */
@@ -1444,7 +1454,7 @@ def inject_custom_css():
         unsafe_allow_html=True,
     )
 
-    # Rename sidebar "app" → "Heater" and inject logo via JS
+    # Rename sidebar "app" → "Connect League" and inject logo via JS
     import streamlit.components.v1 as components
 
     components.html(
@@ -1454,8 +1464,8 @@ def inject_custom_css():
             const nav = parent.document.querySelector('[data-testid="stSidebarNav"]');
             if (!nav) { setTimeout(setup, 200); return; }
             const span = nav.querySelector('li:first-child a span');
-            if (span && span.textContent.trim() === 'app') {
-                span.textContent = 'Heater';
+            if (span && (span.textContent.trim() === 'app' || span.textContent.trim() === 'Heater')) {
+                span.textContent = 'Connect League';
             }
 
             // Inject logo into sidebar header
@@ -1469,14 +1479,14 @@ def inject_custom_css():
                     + '<stop offset="0%" stop-color="#fff"/><stop offset="60%" stop-color="#f5f0e8"/>'
                     + '<stop offset="100%" stop-color="#e8ddd0"/></radialGradient>'
                     + '<linearGradient id="ssl" x1="0" y1="0" x2="1" y2="0">'
-                    + '<stop offset="0%" stop-color="#ff6d00" stop-opacity="0.7"/>'
-                    + '<stop offset="100%" stop-color="#ff6d00" stop-opacity="0"/></linearGradient></defs>'
+                    + '<stop offset="0%" stop-color="rgba(255,255,255,0.9)"/>'
+                    + '<stop offset="100%" stop-color="rgba(255,255,255,0)"/></linearGradient></defs>'
                     + '<line x1="2" y1="22" x2="18" y2="28" stroke="url(#ssl)" stroke-width="2.5" stroke-linecap="round"/>'
                     + '<line x1="0" y1="32" x2="16" y2="33" stroke="url(#ssl)" stroke-width="2" stroke-linecap="round"/>'
                     + '<line x1="4" y1="42" x2="17" y2="39" stroke="url(#ssl)" stroke-width="1.5" stroke-linecap="round"/>'
                     + '<circle cx="38" cy="32" r="18" fill="url(#sbl)"/>'
-                    + '<circle cx="38" cy="32" r="18" fill="none" stroke="#c8b8a8" stroke-width="0.8"/>'
-                    + '<ellipse cx="39" cy="50" rx="12" ry="2" fill="rgba(0,0,0,0.06)"/>'
+                    + '<circle cx="38" cy="32" r="18" fill="none" stroke="rgba(255,255,255,0.4)" stroke-width="0.8"/>'
+                    + '<ellipse cx="39" cy="50" rx="12" ry="2" fill="rgba(0,0,0,0.1)"/>'
                     + '<path d="M29 16 C24 22 22 27 23 32 C22 37 24 42 29 48" fill="none" stroke="#e63946" stroke-width="1.6" stroke-linecap="round"/>'
                     + '<path d="M47 16 C52 22 54 27 53 32 C54 37 52 42 47 48" fill="none" stroke="#e63946" stroke-width="1.6" stroke-linecap="round"/>'
                     + '<line x1="27" y1="19" x2="30" y2="20" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
@@ -1491,7 +1501,7 @@ def inject_custom_css():
                     + '<line x1="52" y1="36.5" x2="49" y2="36.5" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
                     + '<line x1="51" y1="41" x2="48" y2="40.5" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
                     + '<line x1="49" y1="45" x2="46" y2="44" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
-                    + '<circle cx="38" cy="32" r="21" fill="none" stroke="#ff6d00" stroke-width="1.2" opacity="0.25"/>'
+                    + '<circle cx="38" cy="32" r="21" fill="none" stroke="rgba(255,255,255,0.3)" stroke-width="1.2"/>'
                     + '</svg>';
                 header.insertBefore(logoDiv, header.firstChild);
             }

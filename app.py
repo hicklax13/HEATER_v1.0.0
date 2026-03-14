@@ -128,7 +128,7 @@ def render_wizard_progress(current_step):
 
 def render_setup_page():
     st.markdown(
-        '<div class="page-title-wrap"><div class="page-title"><span>HEATER</span></div></div>',
+        f'<div class="page-title-wrap"><div class="page-title"><span>{PAGE_ICONS["logo"]} HEATER</span></div></div>',
         unsafe_allow_html=True,
     )
     step = st.session_state.setup_step
@@ -352,10 +352,44 @@ def render_step_settings():
                     unsafe_allow_html=True,
                 )
 
+    # League quick-stats summary cards
+    num_teams = st.session_state.get("num_teams", 12)
+    num_rounds = st.session_state.get("num_rounds", 23)
+    pool_count = len(load_player_pool()) if "bootstrap_complete" in st.session_state else 0
+    yahoo_ok = st.session_state.get("yahoo_connected", False)
+    qs1, qs2 = st.columns(2)
+    with qs1:
+        st.markdown(
+            f'<div class="metric-card">'
+            f'<div style="font-family:Bebas Neue,sans-serif;font-size:14px;letter-spacing:2px;'
+            f'color:{T["tx2"]};text-transform:uppercase;">League Format</div>'
+            f'<div style="font-family:IBM Plex Mono,monospace;font-size:28px;font-weight:700;'
+            f'color:{T["tx"]};margin-top:4px;">{num_teams} Teams</div>'
+            f'<div style="font-size:13px;color:{T["tx2"]};">{num_rounds} Rounds &middot; Snake &middot; 5x5 Roto</div>'
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+    with qs2:
+        pool_label = f"{pool_count:,}" if pool_count > 0 else "Loading..."
+        conn_badge = (
+            f'<span style="color:{T["ok"]};font-weight:600;">Yahoo Connected</span>'
+            if yahoo_ok
+            else f'<span style="color:{T["tx2"]};">Yahoo Not Connected</span>'
+        )
+        st.markdown(
+            f'<div class="metric-card">'
+            f'<div style="font-family:Bebas Neue,sans-serif;font-size:14px;letter-spacing:2px;'
+            f'color:{T["tx2"]};text-transform:uppercase;">Player Pool</div>'
+            f'<div style="font-family:IBM Plex Mono,monospace;font-size:28px;font-weight:700;'
+            f'color:{T["tx"]};margin-top:4px;">{pool_label}</div>'
+            f'<div style="font-size:13px;">{conn_badge}</div>'
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+
     col1, col2 = st.columns(2)
 
     with col1:
-        st.markdown('<div class="glass">', unsafe_allow_html=True)
         st.markdown("**Standings Gained Points Denominators**")
         auto_sgp = st.toggle(
             "Auto-compute Standings Gained Points", value=st.session_state.auto_sgp, key="auto_sgp_toggle"
@@ -380,10 +414,8 @@ def render_step_settings():
             sgp_whip = st.number_input(
                 "Walks + Hits per Inning Pitched", value=0.03, step=0.01, format="%.3f", key="sgp_whip", help=_sgp_help
             )
-        st.markdown("</div>", unsafe_allow_html=True)
 
     with col2:
-        st.markdown('<div class="glass">', unsafe_allow_html=True)
         st.markdown("**Risk Tolerance**")
         risk = st.slider(
             "Risk appetite",
@@ -400,7 +432,6 @@ def render_step_settings():
         labels = ["Conservative", "Balanced", "Moderate", "Aggressive", "YOLO"]
         idx = min(int(risk * 4), 4)
         st.markdown(f'<span class="badge badge-fair">{labels[idx]}</span>', unsafe_allow_html=True)
-        st.markdown("</div>", unsafe_allow_html=True)
 
     # Nav
     st.markdown("")
