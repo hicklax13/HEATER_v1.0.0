@@ -1342,8 +1342,8 @@ def inject_custom_css():
     }}
     .stSidebar [data-testid="stSidebarHeader"] {{
         background: linear-gradient(135deg, #1a1a2e, #16213e) !important;
-        border-radius: 0 0 12px 12px !important;
-        margin: 0 8px !important;
+        border-radius: 0 !important;
+        margin: 0 !important;
     }}
     .stSidebar button[data-testid="stBaseButton-header"] {{
         color: #ffffff !important;
