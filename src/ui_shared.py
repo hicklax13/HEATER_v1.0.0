@@ -1604,7 +1604,7 @@ def inject_custom_css():
                     + '</svg>'
                     + '<span style="font-family:Bebas Neue,sans-serif;font-size:28px;letter-spacing:4px;font-style:italic;'
                     + 'color:#ffffff;font-weight:700;text-shadow:0 1px 4px rgba(0,0,0,0.25);line-height:1;">HEATER</span></div>'
-                    + '<div style="width:100%;height:3px;background:linear-gradient(90deg,#e65c00,#ff8c00);border-radius:2px;margin-top:8px;"></div>';
+                    + '<div style="width:100%;height:3px;background:linear-gradient(90deg,#e65c00,#ff8c00);border-radius:2px;margin-top:3px;"></div>';
                 header.insertBefore(logoDiv, header.firstChild);
             }
 
