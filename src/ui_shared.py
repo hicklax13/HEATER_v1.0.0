@@ -1327,18 +1327,39 @@ def inject_custom_css():
     .stSidebar a {{
         color: rgba(255,255,255,0.9) !important;
         font-weight: 600 !important;
-        font-size: 15px !important;
+        font-size: 14px !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
     }}
     .stSidebar a:hover {{
         color: #ffffff !important;
     }}
+    .stSidebar [data-testid="stSidebarNav"] li {{
+        margin-bottom: 4px !important;
+    }}
+    .stSidebar [data-testid="stSidebarNav"] li a {{
+        display: flex !important;
+        align-items: center !important;
+        gap: 10px !important;
+        padding: 10px 12px !important;
+        border-radius: 10px !important;
+        transition: background 0.2s ease !important;
+    }}
+    .stSidebar [data-testid="stSidebarNav"] li a:hover {{
+        background: rgba(255,255,255,0.1) !important;
+    }}
     .stSidebar [data-testid="stSidebarNav"] li a[aria-current="page"] {{
-        background: rgba(0,0,0,0.15) !important;
-        border-radius: 8px;
+        background: rgba(0,0,0,0.18) !important;
+        border-radius: 10px !important;
     }}
     .stSidebar [data-testid="stSidebarNav"] li a[aria-current="page"] span {{
         color: #ffffff !important;
         font-weight: 800 !important;
+    }}
+    .stSidebar [data-testid="stSidebarNav"] li a .nav-icon {{
+        flex-shrink: 0;
+        display: inline-flex;
     }}
     .stSidebar [data-testid="stSidebarHeader"] {{
         background: transparent !important;
@@ -1506,14 +1527,44 @@ def inject_custom_css():
     components.html(
         """<script>
         (function setup() {
-            // Rename sidebar nav items
+            // Rename sidebar nav items and inject page icons
             const nav = parent.document.querySelector('[data-testid="stSidebarNav"]');
             if (!nav) { setTimeout(setup, 200); return; }
-            const spans = nav.querySelectorAll('li a span');
-            spans.forEach(function(span) {
+
+            // Icon SVGs — 20x20 white stroke icons
+            var icons = {
+                'Connect League': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>',
+                'My Team': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>',
+                'Draft Simulator': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>',
+                'Trade Analyzer': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>',
+                'Player Compare': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/><line x1="3" y1="20" x2="21" y2="20"/></svg>',
+                'Free Agents': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="8" y1="11" x2="14" y2="11"/><line x1="11" y1="8" x2="11" y2="14"/></svg>',
+                'Lineup Optimizer': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>'
+            };
+
+            // Map original names → display names
+            var nameMap = {
+                'app': 'Connect League',
+                'Heater': 'Connect League',
+                'Mock Draft': 'Draft Simulator'
+            };
+
+            var links = nav.querySelectorAll('li a');
+            links.forEach(function(link) {
+                var span = link.querySelector('span');
+                if (!span) return;
                 var t = span.textContent.trim();
-                if (t === 'app' || t === 'Heater') { span.textContent = 'Connect League'; }
-                if (t === 'Mock Draft') { span.textContent = 'Draft Simulator'; }
+
+                // Rename if needed
+                if (nameMap[t]) { span.textContent = nameMap[t]; t = nameMap[t]; }
+
+                // Inject icon if not already present
+                if (!link.querySelector('.nav-icon') && icons[t]) {
+                    var iconSpan = parent.document.createElement('span');
+                    iconSpan.className = 'nav-icon';
+                    iconSpan.innerHTML = icons[t];
+                    link.insertBefore(iconSpan, span);
+                }
             });
 
             // Inject logo + HEATER branding into sidebar header
@@ -1556,8 +1607,8 @@ def inject_custom_css():
                 header.insertBefore(logoDiv, header.firstChild);
             }
 
-            var firstSpan = nav.querySelector('li:first-child a span');
-            if (!firstSpan || firstSpan.textContent.trim() === 'app') { setTimeout(setup, 200); }
+            var firstLink = nav.querySelector('li:first-child a');
+            if (!firstLink || !firstLink.querySelector('.nav-icon')) { setTimeout(setup, 200); }
         })();
         </script>""",
         height=0,
