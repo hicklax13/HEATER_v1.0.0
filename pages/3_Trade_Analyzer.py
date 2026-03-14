@@ -95,17 +95,31 @@ else:
         user_roster = get_team_roster(user_team_name)
         user_roster_ids = user_roster["player_id"].tolist() if not user_roster.empty else []
 
-        # Player selection
+        # Player selection — build name-to-id mapping from both pool AND roster
+        # so that roster players missing from player_pool still appear.
         player_names = pool[["player_id", "player_name"]].drop_duplicates()
         name_to_id = dict(zip(player_names["player_name"], player_names["player_id"]))
+
+        # Also add roster player names (roster JOIN players gives "name")
+        if not user_roster.empty and "name" in user_roster.columns:
+            for _, r in user_roster.iterrows():
+                pname = r.get("name", "")
+                pid = r.get("player_id")
+                if pname and pid and pname not in name_to_id:
+                    name_to_id[pname] = pid
 
         col1, col2 = st.columns(2)
         with col1:
             st.subheader("You Give")
-            your_players = pool[pool["player_id"].isin(user_roster_ids)]
+            # Use the actual roster for the dropdown — player_pool may not
+            # contain all roster players (only those with projections).
+            if not user_roster.empty and "name" in user_roster.columns:
+                give_options = sorted(user_roster["name"].dropna().unique().tolist())
+            else:
+                give_options = sorted(pool[pool["player_id"].isin(user_roster_ids)]["player_name"].tolist())
             giving_names = st.multiselect(
                 "Select players to trade away",
-                options=your_players["player_name"].tolist(),
+                options=give_options,
                 key="giving",
             )
         with col2:
