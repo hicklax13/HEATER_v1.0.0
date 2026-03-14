@@ -18,7 +18,7 @@ from src.valuation import (
     value_all_players,
 )
 
-st.set_page_config(page_title="Heater | Mock Draft", page_icon="", layout="wide")
+st.set_page_config(page_title="Heater | Draft Simulator", page_icon="", layout="wide")
 
 init_db()
 inject_custom_css()
@@ -425,7 +425,7 @@ def render_tabs(pool: pd.DataFrame, ds: DraftState) -> None:
 # ── Main ────────────────────────────────────────────────────────────────────
 
 st.markdown(
-    '<div class="page-title-wrap"><div class="page-title"><span>MOCK DRAFT</span></div></div>',
+    '<div class="page-title-wrap"><div class="page-title"><span>DRAFT SIMULATOR</span></div></div>',
     unsafe_allow_html=True,
 )
 

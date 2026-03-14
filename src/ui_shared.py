@@ -1309,26 +1309,27 @@ def inject_custom_css():
 
     /* Sidebar */
     .stSidebar {{
-        background: linear-gradient(180deg, #ff7a00 0%, #ff6200 100%) !important;
+        background: linear-gradient(180deg, #e65c00 0%, #cc5200 100%) !important;
         border-right: none !important;
     }}
     .stSidebar, .stSidebar * {{
         color: #ffffff !important;
     }}
     .stSidebar a {{
-        color: rgba(255,255,255,0.85) !important;
-        font-weight: 500;
+        color: rgba(255,255,255,0.9) !important;
+        font-weight: 600 !important;
+        font-size: 15px !important;
     }}
     .stSidebar a:hover {{
         color: #ffffff !important;
     }}
     .stSidebar [data-testid="stSidebarNav"] li a[aria-current="page"] {{
-        background: rgba(255,255,255,0.2) !important;
+        background: rgba(0,0,0,0.15) !important;
         border-radius: 8px;
     }}
     .stSidebar [data-testid="stSidebarNav"] li a[aria-current="page"] span {{
         color: #ffffff !important;
-        font-weight: 700;
+        font-weight: 800 !important;
     }}
     .stSidebar [data-testid="stSidebarHeader"] {{
         background: transparent !important;
@@ -1454,26 +1455,28 @@ def inject_custom_css():
         unsafe_allow_html=True,
     )
 
-    # Rename sidebar "app" → "Connect League" and inject logo via JS
+    # Rename sidebar "app" → "Connect League" and inject logo + branding via JS
     import streamlit.components.v1 as components
 
     components.html(
         """<script>
         (function setup() {
-            // Rename sidebar nav
+            // Rename sidebar nav items
             const nav = parent.document.querySelector('[data-testid="stSidebarNav"]');
             if (!nav) { setTimeout(setup, 200); return; }
-            const span = nav.querySelector('li:first-child a span');
-            if (span && (span.textContent.trim() === 'app' || span.textContent.trim() === 'Heater')) {
-                span.textContent = 'Connect League';
-            }
+            const spans = nav.querySelectorAll('li a span');
+            spans.forEach(function(span) {
+                var t = span.textContent.trim();
+                if (t === 'app' || t === 'Heater') { span.textContent = 'Connect League'; }
+                if (t === 'Mock Draft') { span.textContent = 'Draft Simulator'; }
+            });
 
-            // Inject logo into sidebar header
+            // Inject logo + HEATER branding into sidebar header
             const header = parent.document.querySelector('[data-testid="stSidebarHeader"]');
             if (header && !header.querySelector('.heater-logo')) {
                 const logoDiv = parent.document.createElement('div');
                 logoDiv.className = 'heater-logo';
-                logoDiv.style.cssText = 'text-align:center;padding:12px 0 4px 0;';
+                logoDiv.style.cssText = 'display:flex;align-items:center;justify-content:center;gap:10px;padding:14px 0 6px 0;';
                 logoDiv.innerHTML = '<svg width="40" height="40" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">'
                     + '<defs><radialGradient id="sbl" cx="40%" cy="35%" r="55%">'
                     + '<stop offset="0%" stop-color="#fff"/><stop offset="60%" stop-color="#f5f0e8"/>'
@@ -1502,11 +1505,14 @@ def inject_custom_css():
                     + '<line x1="51" y1="41" x2="48" y2="40.5" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
                     + '<line x1="49" y1="45" x2="46" y2="44" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
                     + '<circle cx="38" cy="32" r="21" fill="none" stroke="rgba(255,255,255,0.3)" stroke-width="1.2"/>'
-                    + '</svg>';
+                    + '</svg>'
+                    + '<span style="font-family:Bebas Neue,sans-serif;font-size:22px;letter-spacing:3px;'
+                    + 'color:#ffffff;font-weight:700;text-shadow:0 1px 3px rgba(0,0,0,0.2);">HEATER</span>';
                 header.insertBefore(logoDiv, header.firstChild);
             }
 
-            if (!span || span.textContent.trim() === 'app') { setTimeout(setup, 200); }
+            var firstSpan = nav.querySelector('li:first-child a span');
+            if (!firstSpan || firstSpan.textContent.trim() === 'app') { setTimeout(setup, 200); }
         })();
         </script>""",
         height=0,
