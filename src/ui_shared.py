@@ -1136,34 +1136,34 @@ def inject_custom_css():
         50% {{ background-position: 100% 50%; }}
     }}
     .page-title {{
-        font-family: 'Bebas Neue', sans-serif;
-        font-size: 42px;
-        letter-spacing: 4px;
-        text-transform: uppercase;
-        text-align: center;
-        margin-top: 16px;
-        margin-bottom: 12px;
-        word-break: break-word;
-        overflow-wrap: anywhere;
-        display: inline-block;
-        padding: 10px 36px;
-        border-radius: 50px;
-        background: #1d1d1f;
-        box-shadow: 0 4px 20px rgba(0,0,0,0.15), inset 0 1px 0 rgba(255,255,255,0.05);
-        position: relative;
+        font-family: 'Bebas Neue', sans-serif !important;
+        font-size: 42px !important;
+        letter-spacing: 4px !important;
+        text-transform: uppercase !important;
+        text-align: center !important;
+        margin-top: 16px !important;
+        margin-bottom: 12px !important;
+        word-break: break-word !important;
+        overflow-wrap: anywhere !important;
+        display: inline-block !important;
+        padding: 10px 36px !important;
+        border-radius: 50px !important;
+        background: #1d1d1f !important;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.15), inset 0 1px 0 rgba(255,255,255,0.05) !important;
+        position: relative !important;
     }}
     .page-title-wrap {{
-        text-align: center;
-        margin-top: 8px;
-        margin-bottom: 4px;
+        text-align: center !important;
+        margin-top: 8px !important;
+        margin-bottom: 4px !important;
     }}
     .page-title span {{
-        background: linear-gradient(135deg, {t["primary"]}, {t["hot"]}, {t["gold"]});
-        background-size: 200% 200%;
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        background-clip: text;
-        animation: gradientShift 4s ease infinite;
+        background: linear-gradient(135deg, {t["primary"]}, {t["hot"]}, {t["gold"]}) !important;
+        background-size: 200% 200% !important;
+        -webkit-background-clip: text !important;
+        -webkit-text-fill-color: transparent !important;
+        background-clip: text !important;
+        animation: gradientShift 4s ease infinite !important;
     }}
 
     /* ── SPLASH SCREEN TITLE ─────────────────── */
@@ -1396,9 +1396,9 @@ def inject_custom_css():
     /* ── RESPONSIVE ──────────────────────────── */
     @media (max-width: 768px) {{
         .page-title {{
-            font-size: 28px;
-            letter-spacing: 2px;
-            padding: 8px 24px;
+            font-size: 28px !important;
+            letter-spacing: 2px !important;
+            padding: 8px 24px !important;
         }}
         .splash-title {{
             font-size: 36px;
@@ -1423,9 +1423,9 @@ def inject_custom_css():
     }}
     @media (max-width: 480px) {{
         .page-title {{
-            font-size: 22px;
-            letter-spacing: 1px;
-            padding: 6px 18px;
+            font-size: 22px !important;
+            letter-spacing: 1px !important;
+            padding: 6px 18px !important;
         }}
         .splash-title {{
             font-size: 28px;
