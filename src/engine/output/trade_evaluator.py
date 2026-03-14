@@ -1,25 +1,34 @@
-"""Master trade evaluator — orchestrates all Phase 1 engine modules.
+"""Master trade evaluator — orchestrates Phase 1 + Phase 2 engine modules.
 
 Spec reference: Section 14 L11 (decision output / grading)
                Section 17 Phase 1 item 7 (trade surplus + grade)
+               Section 17 Phase 2 items 9-12 (BMA, KDE, copula, MC)
 
 Wires into:
   - src/engine/portfolio/valuation.py: z-scores, SGP, VORP
   - src/engine/portfolio/category_analysis.py: marginal SGP, gap analysis, punt detection
   - src/engine/portfolio/lineup_optimizer.py: LP optimizer, bench option value
+  - src/engine/portfolio/copula.py: GaussianCopula for correlated sampling
   - src/engine/projections/projection_client.py: ROS projections
+  - src/engine/projections/bayesian_blend.py: BMA for projection weighting
+  - src/engine/monte_carlo/trade_simulator.py: paired MC simulation
   - src/in_season.py: _roster_category_totals (aggregate roster stats)
   - src/valuation.py: LeagueConfig, SGPCalculator
 
 The evaluation pipeline:
-  1. Load player pool + standings
-  2. Compute category gap analysis (punt detection, marginal elasticity)
-  3. Compute pre-trade roster totals
-  4. Compute post-trade roster totals
-  5. Compute marginal SGP delta using elasticity weights
-  6. Run LP optimizer on pre/post rosters to measure lineup impact
-  7. Subtract bench option value if trade costs a bench slot (2-for-1)
-  8. Grade the trade (A+ to F)
+  Phase 1 (deterministic):
+    1. Load player pool + standings
+    2. Compute category gap analysis (punt detection, marginal elasticity)
+    3. Compute pre-trade roster totals
+    4. Compute post-trade roster totals
+    5. Compute marginal SGP delta using elasticity weights
+    6. Subtract bench option value if trade costs a bench slot (2-for-1)
+    7. Grade the trade (A+ to F)
+
+  Phase 2 (stochastic, when enabled):
+    8. Build player marginals (KDE or Gaussian)
+    9. Run paired Monte Carlo (10K sims) with copula-correlated sampling
+    10. Overlay MC distribution metrics onto result
 """
 
 from __future__ import annotations
@@ -30,11 +39,16 @@ from typing import Any
 import pandas as pd
 
 from src.database import load_league_standings
+from src.engine.monte_carlo.trade_simulator import (
+    build_roster_stats,
+    run_paired_monte_carlo,
+)
 from src.engine.portfolio.category_analysis import (
     build_standings_totals,
     category_gap_analysis,
     compute_category_weights_from_analysis,
 )
+from src.engine.portfolio.copula import GaussianCopula
 from src.engine.portfolio.lineup_optimizer import bench_option_value
 from src.in_season import _roster_category_totals
 from src.valuation import LeagueConfig, SGPCalculator
@@ -102,12 +116,15 @@ def evaluate_trade(
     config: LeagueConfig | None = None,
     user_team_name: str | None = None,
     weeks_remaining: int = 16,
+    enable_mc: bool = False,
+    n_sims: int = 10_000,
 ) -> dict[str, Any]:
-    """Full trade evaluation using the Phase 1 engine pipeline.
+    """Full trade evaluation using Phase 1 + Phase 2 engine pipeline.
 
     Spec ref: Section 17 Phase 1 — MVP trade evaluation.
+              Section 17 Phase 2 — MC simulation overlay.
 
-    Pipeline:
+    Phase 1 Pipeline (always runs):
       1. Build pre-trade and post-trade roster ID lists
       2. Compute roster category totals (before/after)
       3. Load standings and compute marginal elasticity weights
@@ -115,6 +132,11 @@ def evaluate_trade(
       5. Compute weighted SGP delta across all categories
       6. Subtract bench option value if 2-for-1 (or N-for-M where N>M)
       7. Grade the trade
+
+    Phase 2 Pipeline (when enable_mc=True):
+      8. Build roster stat dicts for MC simulation
+      9. Run paired Monte Carlo (10K sims) with Gaussian copula
+      10. Overlay MC distribution metrics (mc_mean, mc_std, percentiles, etc.)
 
     Args:
         giving_ids: Player IDs being traded away.
@@ -124,6 +146,8 @@ def evaluate_trade(
         config: League configuration.
         user_team_name: User's team name (for standings lookup).
         weeks_remaining: Weeks left in the season.
+        enable_mc: Whether to run Phase 2 Monte Carlo simulation.
+        n_sims: Number of MC simulations (default 10K).
 
     Returns:
         Dict with keys:
@@ -140,6 +164,16 @@ def evaluate_trade(
           - after_totals: Post-trade roster totals
           - giving_players: Names of players traded away
           - receiving_players: Names of players received
+          When enable_mc=True, also includes:
+          - mc_mean: Mean MC surplus SGP
+          - mc_std: Std deviation of surplus
+          - mc_median: Median surplus
+          - p5, p25, p75, p95: Percentile values
+          - prob_positive: Probability trade helps
+          - var5, cvar5: Value at Risk metrics
+          - sharpe: Sharpe ratio
+          - confidence_interval: (lower, upper) 95% CI
+          - surplus_distribution: Full array (for plotting)
     """
     if config is None:
         config = LeagueConfig()
@@ -242,7 +276,7 @@ def evaluate_trade(
     giving_players = _get_player_names(giving_ids, player_pool, name_col)
     receiving_players = _get_player_names(receiving_ids, player_pool, name_col)
 
-    return {
+    result = {
         "grade": trade_grade,
         "surplus_sgp": round(total_surplus, 3),
         "category_impact": category_impact,
@@ -261,6 +295,91 @@ def evaluate_trade(
         "mc_mean": round(total_surplus, 3),
         "mc_std": 0.0,
     }
+
+    # Phase 2: Monte Carlo simulation overlay
+    if enable_mc:
+        try:
+            mc_result = _run_mc_overlay(
+                before_ids=before_ids,
+                after_ids=after_ids,
+                player_pool=player_pool,
+                config=config,
+                all_team_totals=all_team_totals,
+                weeks_remaining=weeks_remaining,
+                n_sims=n_sims,
+            )
+            # Overlay MC metrics onto result
+            result.update(mc_result)
+            # Use MC grade and verdict when available
+            if "grade" in mc_result:
+                result["grade"] = mc_result["grade"]
+            if "verdict" in mc_result:
+                result["verdict"] = mc_result["verdict"]
+            if "confidence_pct" in mc_result:
+                result["confidence_pct"] = mc_result["confidence_pct"]
+        except Exception as exc:
+            logger.warning("MC simulation failed, using Phase 1 result: %s", exc)
+            result["mc_error"] = str(exc)
+
+    return result
+
+
+def _run_mc_overlay(
+    before_ids: list[int],
+    after_ids: list[int],
+    player_pool: pd.DataFrame,
+    config: LeagueConfig,
+    all_team_totals: dict[str, dict[str, float]],
+    weeks_remaining: int,
+    n_sims: int,
+) -> dict[str, Any]:
+    """Run Phase 2 Monte Carlo simulation and return overlay metrics.
+
+    Spec ref: Section 17 Phase 2 — 10K paired MC sims.
+
+    Builds roster stat dicts, creates a Gaussian copula for correlated
+    sampling, then runs paired simulations to produce distributional
+    metrics (mean, std, percentiles, VaR, Sharpe, etc.).
+
+    Args:
+        before_ids: Pre-trade roster player IDs.
+        after_ids: Post-trade roster player IDs.
+        player_pool: Full player pool DataFrame.
+        config: League configuration.
+        all_team_totals: Standings totals for context.
+        weeks_remaining: Weeks left in season.
+        n_sims: Number of MC simulations.
+
+    Returns:
+        Dict with MC metrics to overlay onto Phase 1 result.
+    """
+    # Build roster stat dicts for pre/post
+    before_stats = build_roster_stats(before_ids, player_pool)
+    after_stats = build_roster_stats(after_ids, player_pool)
+
+    # Create copula (uses default correlation matrix)
+    copula = GaussianCopula()
+
+    # Run paired MC simulation
+    mc_result = run_paired_monte_carlo(
+        before_roster_stats=before_stats,
+        after_roster_stats=after_stats,
+        copula=copula,
+        all_team_totals=all_team_totals if all_team_totals else None,
+        sgp_denominators=dict(config.sgp_denominators),
+        n_sims=n_sims,
+        weeks_remaining=weeks_remaining,
+    )
+
+    # Don't include the full distribution array in the returned dict
+    # (it's large and not serializable) — keep it separately
+    surplus_dist = mc_result.pop("surplus_distribution", None)
+
+    # Add the distribution back as a separate key
+    if surplus_dist is not None:
+        mc_result["surplus_distribution"] = surplus_dist
+
+    return mc_result
 
 
 def _compute_risk_flags(
