@@ -25,7 +25,7 @@ ruff check .
 # Format
 ruff format .
 
-# Run all tests (467 collected, 466 pass, 1 skipped for PyMC)
+# Run all tests (537 collected, 536 pass, 1 skipped for PyMC)
 python -m pytest
 
 # Run with verbose output
@@ -118,9 +118,20 @@ src/
       injury_process.py — Injury stochastic process: Weibull duration sampling, frailty multipliers, season availability MC
       bench_value.py    — Enhanced bench option value: streaming + hot FA + flexibility premium + injury replacement cushion
       concentration.py  — Roster concentration risk: HHI scoring, diversification delta, team exposure breakdown
+    game_theory/
+      __init__.py
+      opponent_valuation.py — Opponent willingness-to-pay + Nash equilibrium market clearing price (L8A)
+      adverse_selection.py — Bayesian adverse selection discount from manager trade history (L8B)
+      dynamic_programming.py — Bellman rollout for future trade option value, playoff-aware discounting (L9)
+      sensitivity.py     — Category/player sensitivity analysis, breakeven, counter-offer generation (L11)
+    production/
+      __init__.py
+      convergence.py     — MC convergence diagnostics: ESS via FFT, split-R̂, running mean stability
+      cache.py           — Precomputation cache: TTL staleness, get_or_compute pattern, singleton
+      sim_config.py      — Adaptive simulation scaling: 1K-100K by trade complexity + time budget
     output/
       __init__.py
-      trade_evaluator.py — Master trade orchestrator: Phase 1 deterministic + Phase 2 MC + Phase 4 context, enable_mc/enable_context flags
+      trade_evaluator.py — Master trade orchestrator: Phase 1-5 + enable_mc/enable_context/enable_game_theory flags
 tests/
   test_database_schema.py   — DB schema and table existence tests
   test_database_queries.py  — Query function tests
@@ -144,6 +155,8 @@ tests/
   test_trade_engine_phase2.py — Trade engine Phase 2: BMA, KDE marginals, copula, paired MC, integration (33 tests)
   test_trade_engine_phase3.py — Trade engine Phase 3: Statcast aggregation, signal decay, Kalman filter, BOCPD, HMM regime, rolling features (32 tests)
   test_trade_engine_phase4.py — Trade engine Phase 4: Log5 matchup, Weibull injury, enhanced bench, HHI concentration, context integration (40 tests)
+  test_trade_engine_phase5.py — Trade engine Phase 5: opponent valuations, adverse selection, Bellman rollout, sensitivity, counter-offers (38 tests)
+  test_trade_engine_phase6.py — Trade engine Phase 6: ESS convergence, split-R̂, cache TTL, adaptive sim scaling (32 tests)
   profile_latency.py        — Performance profiling utility
 data/
   draft_tool.db         — SQLite database (created at runtime)
@@ -224,6 +237,17 @@ Phase 1 SGP-based evaluation pipeline (7 modules):
 18. **Enhanced bench option value** — Extends simple streaming value (0.166 SGP/week) with 4 components: streaming, hot FA pickup (15%/week × 0.5 SGP), roster flexibility premium (multi-position eligibility normalized to [0,1]), and injury replacement cushion. Returns component breakdown dict.
 19. **Roster concentration risk** — Herfindahl-Hirschman Index (HHI = Σshare²) measuring team exposure. PA-weighted for hitters, IP-weighted for pitchers. Penalty = `(HHI - 0.15) * 3.0` when above 0.15 threshold. `compute_concentration_delta()` compares before/after trade rosters. Team alias normalization (WSN→WSH, AZ→ARI).
 
+**Phase 5 (game theory, `src/engine/game_theory/`, `enable_game_theory=True`):**
+20. **Opponent valuations** — Estimates each opponent's willingness-to-pay based on THEIR category needs. Market clearing price via Vickrey auction (second-highest bidder = Nash equilibrium). Player demand count (teams valuing player above 0.5 SGP threshold).
+21. **Adverse selection** — Bayesian P(flaw|offered) discount. Prior P(flaw)=0.15, P(offered|flaw)=0.60, P(offered|ok)=0.20. Calibrated from manager trade history when ≥3 trades available. Discount factor capped at 0.75 (max 25% haircut).
+22. **Dynamic programming** — Bellman rollout approximates future trade option value via MC. Discount factor γ depends on playoff probability (contending=0.98, bubble=0.95, rebuilding=0.85). Roster balance score affects future trade opportunity probability.
+23. **Sensitivity + counter-offers** — Category sensitivity ranking by absolute SGP impact. Breakeven gap analysis with vulnerability classification (robust/moderate/fragile/razor-thin). Counter-offer generation tries swapping each given player with roster alternatives, returning top 3 improvements.
+
+**Phase 6 (production, `src/engine/production/`):**
+24. **Convergence diagnostics** — Effective Sample Size (ESS) via FFT autocorrelation, split-R̂ (Gelman-Rubin), running mean stability normalized by sample std. Quality classification: excellent (ESS>1000 + all pass), good, marginal, poor.
+25. **Precomputation cache** — In-memory cache with TTL staleness tracking. `get_or_compute()` pattern for lazy refresh. Default TTLs: copula 24h, SGP 1h, gap analysis 1h, market values 30min. Module-level singleton via `get_trade_cache()`.
+26. **Adaptive simulation scaling** — 1K (quick) → 10K (standard) → 50K (production) → 100K (full). Scales by trade complexity (+5K per extra player beyond 1-for-1). Time budget cap ensures interactive responsiveness. `recommend_n_sims()` uses current ESS to suggest optimal count.
+
 ### In-Season Algorithms
 - **Trade Analyzer (legacy):** Roster swap → projected season totals (YTD + ROS) → park-adjusted SGP delta → MC simulation (200 sims) → verdict with confidence %. Now includes injury badges for both sides and P10/P90 risk assessment.
 - **Player Compare:** ROS projections → Z-score normalization across 10 categories → composite weighted score, optional marginal SGP team impact. Now includes health badges and projection confidence (P10-P90 range width).
@@ -280,12 +304,13 @@ value_all_players(pool, config, roster_totals=None, category_weights=None,
 # Trade evaluator (src/engine/output/trade_evaluator.py)
 evaluate_trade(giving_ids, receiving_ids, user_roster_ids, player_pool,
                config=None, user_team_name=None, weeks_remaining=16,
-               enable_mc=False, enable_context=True)
+               enable_mc=False, enable_context=True, enable_game_theory=True)
 # Returns: {grade, surplus_sgp, category_impact, category_analysis, punt_categories,
 #           bench_cost, risk_flags, verdict, confidence_pct, before_totals, after_totals,
 #           giving_players, receiving_players, total_sgp_change, mc_mean, mc_std,
 #           concentration_hhi_before, concentration_hhi_after, concentration_delta,
-#           concentration_penalty, bench_option_detail}
+#           concentration_penalty, bench_option_detail,
+#           adverse_selection, market_values, sensitivity_report}
 grade_trade(surplus_sgp: float) -> str  # A+ through F
 
 # Z-score + SGP valuation (src/engine/portfolio/valuation.py)
@@ -418,6 +443,65 @@ compute_concentration_delta(before_df, after_df) -> dict
 # Returns: {before_hhi, after_hhi, delta, penalty_before, penalty_after, penalty_delta}
 team_exposure_breakdown(roster_df) -> list[dict]  # [{team, count, share}, ...]
 TEAM_ALIASES: dict[str, str]  # WSN→WSH, AZ→ARI, etc.
+
+# --- Trade Engine Phase 5 APIs (src/engine/game_theory/) ---
+
+# Opponent valuation (src/engine/game_theory/opponent_valuation.py)
+estimate_opponent_valuations(player_projections, all_team_totals, your_team_id,
+    sgp_denominators=None) -> dict[str, float]  # {team_name: valuation_sgp}
+market_clearing_price(valuations) -> float  # Nash equilibrium = 2nd highest bid
+player_market_value(player_projections, all_team_totals, your_team_id,
+    sgp_denominators=None) -> dict  # {valuations, market_price, max_bidder, max_bid, demand}
+get_player_projections_from_pool(player_id, player_pool) -> dict[str, float]
+
+# Adverse selection (src/engine/game_theory/adverse_selection.py)
+adverse_selection_discount(offering_manager_history=None, p_flaw_prior=0.15) -> float  # (0.75, 1.0]
+compute_discount_for_trade(receiving_player_count=1, offering_manager_history=None) -> dict
+# Returns: {discount_factor, p_flaw, p_flaw_given_offered, sgp_adjustment, total_sgp_adjustment, risk_level}
+
+# Dynamic programming (src/engine/game_theory/dynamic_programming.py)
+get_gamma(playoff_probability) -> float  # 0.85-0.98
+estimate_playoff_probability(standings_rank, num_teams=12, weeks_remaining=16) -> float
+bellman_rollout(immediate_surplus, weeks_remaining=16, playoff_probability=0.50,
+    roster_balance_before=0.0, roster_balance_after=0.0,
+    n_lookahead=2, n_sims=200, seed=42) -> dict
+# Returns: {immediate, future_before, future_after, option_value, gamma, total_value}
+compute_roster_balance(roster_category_ranks, num_teams=12) -> float  # [-1, 1]
+
+# Sensitivity (src/engine/game_theory/sensitivity.py)
+category_sensitivity(category_impact, category_weights=None) -> list[dict]  # sorted by |impact|
+player_sensitivity(giving_ids, receiving_ids, ..., evaluate_fn, base_surplus) -> list[dict]
+suggest_counter_offers(giving_ids, receiving_ids, ..., evaluate_fn, base_surplus,
+    max_suggestions=3) -> list[dict]  # [{swap_out, swap_in, improvement, new_grade}]
+trade_sensitivity_report(category_impact, category_weights=None, surplus_sgp=0.0) -> dict
+# Returns: {category_ranking, biggest_driver, biggest_drag, breakeven_gap, vulnerability}
+
+# --- Trade Engine Phase 6 APIs (src/engine/production/) ---
+
+# Convergence diagnostics (src/engine/production/convergence.py)
+effective_sample_size(samples) -> float  # ESS via FFT autocorrelation
+split_rhat(samples) -> float  # split-R̂ (near 1.0 = converged)
+running_mean_stability(samples, window=500) -> float  # lower = more stable
+check_convergence(samples) -> dict  # {ess, rhat, stability, converged, quality}
+recommend_n_sims(current_ess, target_ess=500, current_n=10000) -> int  # capped at 100K
+
+# Cache (src/engine/production/cache.py)
+TradeEvalCache()  # In-memory cache with TTL
+# .get(key) -> value | None
+# .set(key, value, ttl=3600)
+# .get_or_compute(key, compute_fn, ttl=None) -> value
+# .invalidate(key) -> bool
+# .clear() -> int
+# .stats() -> dict
+get_trade_cache() -> TradeEvalCache  # Module-level singleton
+reset_trade_cache() -> None
+
+# Simulation config (src/engine/production/sim_config.py)
+compute_adaptive_n_sims(n_giving=1, n_receiving=1, mode="standard",
+    time_budget_s=None) -> int  # 1K-100K
+get_sim_mode(interactive=True) -> str  # "standard" or "production"
+estimate_runtime_seconds(n_sims) -> float
+sim_config_summary(n_giving, n_receiving, mode, time_budget_s=None) -> dict
 
 # --- Plan 3 new APIs ---
 
@@ -567,6 +651,19 @@ SYSTEM_MAP = {"steamer": "steamer", "zips": "zips", "fangraphsdc": "depthcharts"
 - **`concentration_risk_penalty` applied to `total_surplus`** — The penalty is subtracted from the trade surplus AFTER all other SGP calculations. This means concentration risk can flip a marginal "Accept" to "Reject" but won't dominate large surplus trades.
 - **Enhanced bench value backward compat** — When `enable_context=False`, trade evaluator uses the simple `bench_option_value()` from `src/engine/portfolio/lineup_optimizer.py`. Both produce compatible float results.
 - **Injury process imports from `src/injury_model.py`** — `injury_process.py` reuses `age_risk_adjustment()` from the existing module rather than duplicating the age-risk curve logic.
+- **`enable_game_theory=True` activates Phase 5** — By default, `evaluate_trade()` runs game theory analysis. Set `enable_game_theory=False` to skip adverse selection, market values, and sensitivity. Phase 5 wraps in try/except for graceful fallback.
+- **Market clearing price = second-highest bid** — Vickrey auction principle: the fair trade price is what the second-most-interested team would pay, not the top bidder. `market_clearing_price()` sorts valuations descending and returns index [1].
+- **Adverse selection MAX_DISCOUNT = 0.25** — The discount factor never goes below 0.75 (1.0 - 0.25). Even with the worst possible manager history, received player value is reduced by at most 25%. This prevents the model from overreacting to small sample sizes.
+- **Adverse selection needs ≥3 trades** — `MIN_HISTORY_FOR_CALIBRATION = 3`. With fewer trades, falls back to default prior (P_flaw=0.15). This prevents volatile estimates from 1-2 data points.
+- **Bellman rollout uses paired scenarios** — For each sim, BOTH "no trade" and "trade" scenarios are evaluated with the same RNG state, ensuring variance reduction identical to the paired MC technique in Phase 2.
+- **`compute_roster_balance()` normalizes by median rank** — Deviation is `|rank - median| / median`, not raw difference. This makes the score invariant to league size.
+- **Sensitivity `player_sensitivity()` calls `evaluate_fn` with `enable_mc=False, enable_context=False`** — To avoid expensive MC/context calls during sensitivity analysis (which may call evaluate_trade N times for N players). Only the deterministic Phase 1 surplus is used for marginal impact computation.
+- **Counter-offer `MIN_SWAP_IMPROVEMENT = 0.2`** — Only suggests player swaps that improve trade surplus by at least 0.2 SGP. Prevents suggesting trivial lateral moves.
+- **Running mean stability normalizes by sample std, not mean** — Using `std(running_means) / std(samples)` instead of coefficient of variation (`std/mean`) avoids division-by-near-zero for zero-mean distributions (which are common in trade surplus samples centered at 0).
+- **ESS via FFT** — `effective_sample_size()` uses `np.fft.fft()` for fast autocorrelation computation. O(N log N) instead of O(N²) for the naive approach. Uses Geyer's initial positive sequence estimator: stops summing ACF when it drops below 0.05.
+- **Cache TTL = 0 means immediately stale** — Setting `ttl=0` in `TradeEvalCache.set()` creates an entry that `is_stale` returns True for on the next `.get()`. Used in tests but should never be used in production.
+- **`get_trade_cache()` is a module-level singleton** — All trade evaluations within a Streamlit session share the same cache. Call `reset_trade_cache()` to force a full refresh (e.g., after standings update).
+- **Adaptive sim scaling caps at 100K** — `compute_adaptive_n_sims()` never returns more than 100K regardless of trade complexity. The minimum is 1K (quick mode). The `time_budget_s` parameter allows capping by estimated runtime.
 
 ## GitHub
 
@@ -576,10 +673,10 @@ SYSTEM_MAP = {"steamer": "steamer", "zips": "zips", "fangraphsdc": "depthcharts"
 
 ## Testing Status
 
-- **Unit tests:** 467 collected, 466 passed, 1 skipped (PyMC optional dep)
-- **Test files:** 22 test files across draft engine, trade engine (Phase 1-4), in-season, analytics, data pipeline, bootstrap, integration, and math verification
+- **Unit tests:** 537 collected, 536 passed, 1 skipped (PyMC optional dep)
+- **Test files:** 24 test files across draft engine, trade engine (Phase 1-6), in-season, analytics, data pipeline, bootstrap, integration, and math verification
 - **Math verification suite:** 112 tests across 3 files (valuation, simulation, trade) — hand-calculated expected values verified against code formulas
-- **Trade engine tests:** 137 tests total — Phase 1 (32): marginal SGP, punt detection, z-scores, grading, fuzzy match, integration. Phase 2 (33): BMA, KDE marginals, Gaussian copula, paired MC, correlated sampling, distributional metrics, integration. Phase 3 (32): Statcast aggregation, signal decay, Kalman filter, BOCPD changepoint detection, HMM regime classification, rolling features. Phase 4 (40): Log5 matchup math, Weibull injury duration, frailty, season availability, enhanced bench value, roster flexibility, HHI concentration, penalty thresholds, trade context integration.
+- **Trade engine tests:** 207 tests total — Phase 1 (32): marginal SGP, punt detection, z-scores, grading, fuzzy match, integration. Phase 2 (33): BMA, KDE marginals, Gaussian copula, paired MC, correlated sampling, distributional metrics, integration. Phase 3 (32): Statcast aggregation, signal decay, Kalman filter, BOCPD changepoint detection, HMM regime classification, rolling features. Phase 4 (40): Log5 matchup math, Weibull injury duration, frailty, season availability, enhanced bench value, roster flexibility, HHI concentration, penalty thresholds, trade context integration. Phase 5 (38): opponent valuations, market clearing price, adverse selection Bayesian discount, Bellman rollout, roster balance, sensitivity ranking, counter-offers, game theory integration. Phase 6 (32): ESS convergence, split-R̂, running mean stability, cache TTL/invalidation/get_or_compute, adaptive sim scaling, time budget caps.
 - **CI:** GitHub Actions runs ruff lint/format + pytest on Python 3.11, 3.12, 3.13
 - **Coverage:** 64% (below 75% CI threshold; pre-existing, no regressions)
 - **Systematic code reviews:** Three rounds of full codebase review completed (including parallel 7-agent sweep); all bugs fixed and pushed
