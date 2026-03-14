@@ -213,7 +213,8 @@ def detect_changepoints(
 
         # Detect changepoint: mode run length drops sharply
         # (from tracking a long run to a short one)
-        if t > 5 and prev_mode_rl > 3 and mode_rl <= 2:
+        # threshold scales detection sensitivity — lower threshold = more sensitive
+        if t > 5 and prev_mode_rl > threshold * t and mode_rl <= 2:
             changepoints.append(t)
 
         prev_mode_rl = mode_rl

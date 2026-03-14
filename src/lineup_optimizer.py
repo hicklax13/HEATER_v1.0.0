@@ -484,15 +484,23 @@ def _fix_rate_stats(projected: dict, starter_rows: pd.DataFrame) -> dict:
 
 
 def _compute_player_value(player: pd.Series, weights: dict[str, float]) -> float:
-    """Compute weighted stat value for a player."""
+    """Compute weighted stat value for a player.
+
+    For inverse stats (ERA, WHIP), the contribution is weighted by IP so that
+    high-workload pitchers' rates count proportionally more than relievers with
+    minimal innings. This mirrors the LP solver's objective function.
+    """
     value = 0.0
+    ip = float(player.get("ip", 0) or 0)
     for cat in ALL_CATS:
         if cat not in player.index:
             continue
         val = float(player.get(cat, 0) or 0)
         w = weights.get(cat, 1.0)
         if cat in INVERSE_CATS:
-            value -= val * w
+            # Weight by IP so a 200-IP starter's ERA matters more than
+            # a 1-IP reliever's ERA
+            value -= val * ip * w
         else:
             value += val * w
     return value

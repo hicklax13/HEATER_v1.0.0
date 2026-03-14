@@ -434,6 +434,42 @@ class YahooFantasyClient:
         """Safely read an attribute from a yfpy model object."""
         return getattr(obj, attr, default)
 
+    @staticmethod
+    def _safe_str(value, default: str = "") -> str:
+        """Convert a value to str, decoding bytes if needed (Python 3.14 + yfpy)."""
+        if value is None:
+            return default
+        if isinstance(value, bytes):
+            return value.decode("utf-8", errors="replace")
+        return str(value)
+
+    @staticmethod
+    def _extract_position(pos_obj) -> str:
+        """Extract a clean position abbreviation from a yfpy position object.
+
+        yfpy eligible_positions entries may be model objects with a
+        ``position`` attribute rather than plain strings.  Calling ``str()``
+        on the model object produces its repr, not "SS".  This helper
+        extracts the ``position`` attribute when present, and falls back to
+        ``_safe_str`` otherwise.
+        """
+        # If it's already a plain string (or bytes), decode and return
+        if isinstance(pos_obj, (str, bytes)):
+            return pos_obj.decode("utf-8", errors="replace") if isinstance(pos_obj, bytes) else pos_obj
+        # yfpy EligiblePosition model objects have a .position attribute
+        raw = getattr(pos_obj, "position", None)
+        if raw is not None:
+            if isinstance(raw, bytes):
+                return raw.decode("utf-8", errors="replace")
+            return str(raw)
+        # Last resort: try .display_name, then str()
+        raw = getattr(pos_obj, "display_name", None)
+        if raw is not None:
+            if isinstance(raw, bytes):
+                return raw.decode("utf-8", errors="replace")
+            return str(raw)
+        return str(pos_obj)
+
     def _resolve_game_key(self) -> str | None:
         """Resolve Yahoo game_key for ``self.season`` using 3 fallback strategies.
 
@@ -684,7 +720,7 @@ class YahooFantasyClient:
                         )
 
                     positions = self._safe_attr(player, "eligible_positions", [])
-                    pos_str = "/".join(str(p) for p in positions) if positions else ""
+                    pos_str = "/".join(self._extract_position(p) for p in positions) if positions else ""
 
                     all_rows.append(
                         {
@@ -693,7 +729,7 @@ class YahooFantasyClient:
                             "player_name": full_name,
                             "player_id": str(self._safe_attr(player, "player_id", "")),
                             "position": pos_str,
-                            "status": str(self._safe_attr(player, "status", "active")),
+                            "status": self._safe_str(self._safe_attr(player, "status", "active")),
                         }
                     )
 
@@ -735,14 +771,14 @@ class YahooFantasyClient:
                     )
 
                 positions = self._safe_attr(player, "eligible_positions", [])
-                pos_str = "/".join(str(p) for p in positions) if positions else ""
+                pos_str = "/".join(self._extract_position(p) for p in positions) if positions else ""
 
                 rows.append(
                     {
                         "player_name": full_name,
                         "player_id": str(self._safe_attr(player, "player_id", "")),
                         "position": pos_str,
-                        "status": str(self._safe_attr(player, "status", "active")),
+                        "status": self._safe_str(self._safe_attr(player, "status", "active")),
                     }
                 )
 
@@ -789,10 +825,11 @@ class YahooFantasyClient:
                 name_obj = self._safe_attr(player, "name")
                 full_name = ""
                 if name_obj:
-                    full_name = str(self._safe_attr(name_obj, "full", name_obj))
+                    raw_full = self._safe_attr(name_obj, "full", name_obj)
+                    full_name = self._safe_str(raw_full)
 
                 positions = self._safe_attr(player, "eligible_positions", [])
-                pos_list = [str(p) for p in positions] if positions else []
+                pos_list = [self._extract_position(p) for p in positions] if positions else []
 
                 # Apply position filter if requested
                 if position and position not in pos_list:
@@ -850,14 +887,15 @@ class YahooFantasyClient:
                     name_obj = self._safe_attr(player, "name")
                     full_name = ""
                     if name_obj:
-                        full_name = str(self._safe_attr(name_obj, "full", name_obj))
+                        raw_full = self._safe_attr(name_obj, "full", name_obj)
+                        full_name = self._safe_str(raw_full)
 
                     tx_data = self._safe_attr(player, "transaction_data")
                     team_from = ""
                     team_to = ""
                     if tx_data:
-                        team_from = str(self._safe_attr(tx_data, "source_team_name", ""))
-                        team_to = str(self._safe_attr(tx_data, "destination_team_name", ""))
+                        team_from = self._safe_str(self._safe_attr(tx_data, "source_team_name", ""))
+                        team_to = self._safe_str(self._safe_attr(tx_data, "destination_team_name", ""))
 
                     rows.append(
                         {
@@ -903,9 +941,10 @@ class YahooFantasyClient:
                 if player:
                     name_obj = self._safe_attr(player, "name")
                     if name_obj:
-                        player_name = str(self._safe_attr(name_obj, "full", name_obj))
+                        raw_full = self._safe_attr(name_obj, "full", name_obj)
+                        player_name = self._safe_str(raw_full)
                     else:
-                        player_name = str(player)
+                        player_name = self._safe_str(player)
 
                 player_key = str(self._safe_attr(pick_data, "player_key", ""))
                 if not player_name:
@@ -915,7 +954,7 @@ class YahooFantasyClient:
                     {
                         "pick_number": int(self._safe_attr(pick_data, "pick", 0)),
                         "round": int(self._safe_attr(pick_data, "round", 0)),
-                        "team_name": str(self._safe_attr(pick_data, "team_name", "")),
+                        "team_name": self._safe_str(self._safe_attr(pick_data, "team_name", "")),
                         "team_key": str(self._safe_attr(pick_data, "team_key", "")),
                         "player_name": player_name,
                         "player_id": player_key,

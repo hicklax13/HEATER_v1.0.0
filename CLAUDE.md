@@ -25,7 +25,7 @@ ruff check .
 # Format
 ruff format .
 
-# Run all tests (587 collected, 586 pass, 1 skipped for PyMC)
+# Run all tests (603 collected, 602 pass, 1 skipped for PyMC)
 python -m pytest
 
 # Run with verbose output
@@ -329,7 +329,7 @@ compute_category_weights_from_analysis(analysis) -> dict[str, float]  # punts = 
 # Lineup optimizer wrapper (src/engine/portfolio/lineup_optimizer.py)
 compute_optimal_lineup_value(roster, config, category_weights=None) -> float
 compute_lineup_delta(before_roster, after_roster, config, category_weights=None) -> float
-bench_option_value(weeks_remaining=16, streaming_sgp_per_week=0.166) -> float
+bench_option_value(weeks_remaining=16, streaming_sgp_per_week=0.15) -> float
 
 # Projection client (src/engine/projections/projection_client.py)
 fuzzy_match_player(name, candidates, name_col="name", threshold=0.7) -> str | None
@@ -674,7 +674,7 @@ SYSTEM_MAP = {"steamer": "steamer", "zips": "zips", "fangraphsdc": "depthcharts"
 
 ## Testing Status
 
-- **Unit tests:** 587 collected, 586 passed, 1 skipped (PyMC optional dep)
+- **Unit tests:** 603 collected, 602 passed, 1 skipped (PyMC optional dep)
 - **Test files:** 25 test files across draft engine, trade engine (Phase 1-6), in-season, analytics, data pipeline, bootstrap, integration, and math verification
 - **Math verification suite:** 162 tests across 4 files (valuation, simulation, trade, trade engine math) — hand-calculated expected values verified against code formulas
 - **Trade engine tests:** 207 tests total — Phase 1 (32): marginal SGP, punt detection, z-scores, grading, fuzzy match, integration. Phase 2 (33): BMA, KDE marginals, Gaussian copula, paired MC, correlated sampling, distributional metrics, integration. Phase 3 (32): Statcast aggregation, signal decay, Kalman filter, BOCPD changepoint detection, HMM regime classification, rolling features. Phase 4 (40): Log5 matchup math, Weibull injury duration, frailty, season availability, enhanced bench value, roster flexibility, HHI concentration, penalty thresholds, trade context integration. Phase 5 (38): opponent valuations, market clearing price, adverse selection Bayesian discount, Bellman rollout, roster balance, sensitivity ranking, counter-offers, game theory integration. Phase 6 (32): ESS convergence, split-R̂, running mean stability, cache TTL/invalidation/get_or_compute, adaptive sim scaling, time budget caps.

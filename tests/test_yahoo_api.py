@@ -442,3 +442,292 @@ def test_get_league_transactions_api_error(client):
     result = client.get_league_transactions()
     assert isinstance(result, pd.DataFrame)
     assert result.empty
+
+
+# ---------------------------------------------------------------------------
+# _safe_str helper
+# ---------------------------------------------------------------------------
+
+
+def test_safe_str_with_bytes():
+    assert YahooFantasyClient._safe_str(b"Aaron Judge") == "Aaron Judge"
+
+
+def test_safe_str_with_str():
+    assert YahooFantasyClient._safe_str("Aaron Judge") == "Aaron Judge"
+
+
+def test_safe_str_with_none():
+    assert YahooFantasyClient._safe_str(None) == ""
+    assert YahooFantasyClient._safe_str(None, "fallback") == "fallback"
+
+
+# ---------------------------------------------------------------------------
+# _extract_position helper
+# ---------------------------------------------------------------------------
+
+
+def test_extract_position_plain_string():
+    assert YahooFantasyClient._extract_position("SS") == "SS"
+
+
+def test_extract_position_bytes():
+    assert YahooFantasyClient._extract_position(b"3B") == "3B"
+
+
+def test_extract_position_model_object():
+    """yfpy EligiblePosition model objects have a .position attribute."""
+    mock_pos = MagicMock(spec=[])  # spec=[] prevents auto-creating attrs
+    mock_pos.position = "CF"
+    assert YahooFantasyClient._extract_position(mock_pos) == "CF"
+
+
+def test_extract_position_model_object_bytes():
+    """Position attribute itself may be bytes on Python 3.14."""
+    mock_pos = MagicMock(spec=[])
+    mock_pos.position = b"1B"
+    assert YahooFantasyClient._extract_position(mock_pos) == "1B"
+
+
+def test_extract_position_display_name_fallback():
+    """Falls back to display_name if position attr is missing."""
+    mock_pos = MagicMock(spec=[])
+    mock_pos.display_name = "LF"
+    assert YahooFantasyClient._extract_position(mock_pos) == "LF"
+
+
+# ---------------------------------------------------------------------------
+# BUG 3: get_free_agents bytes decode
+# ---------------------------------------------------------------------------
+
+
+def test_get_free_agents_bytes_player_name(client):
+    """Player names from yfpy may be bytes on Python 3.14."""
+    mock_player = MagicMock()
+    mock_name = MagicMock()
+    mock_name.full = b"Shohei Ohtani"  # bytes
+    mock_player.name = mock_name
+    mock_player.eligible_positions = ["DH", "SP"]
+    mock_player.percent_owned = 99.5
+    mock_player.player_id = "12345"
+    mock_entry = MagicMock()
+    mock_entry.player = mock_player
+
+    client._query = MagicMock()
+    client._query.get_league_players.return_value = [mock_entry]
+
+    result = client.get_free_agents()
+    assert len(result) == 1
+    assert result.iloc[0]["player_name"] == "Shohei Ohtani"
+    assert "DH" in result.iloc[0]["positions"]
+
+
+def test_get_free_agents_position_model_objects(client):
+    """eligible_positions may be yfpy model objects, not plain strings."""
+    mock_player = MagicMock()
+    mock_name = MagicMock()
+    mock_name.full = "Mookie Betts"
+    mock_player.name = mock_name
+    mock_player.player_id = "99"
+    mock_player.percent_owned = 85.0
+
+    # Simulate yfpy EligiblePosition model objects
+    mock_pos_ss = MagicMock(spec=[])
+    mock_pos_ss.position = "SS"
+    mock_pos_of = MagicMock(spec=[])
+    mock_pos_of.position = "OF"
+    mock_player.eligible_positions = [mock_pos_ss, mock_pos_of]
+
+    mock_entry = MagicMock()
+    mock_entry.player = mock_player
+
+    client._query = MagicMock()
+    client._query.get_league_players.return_value = [mock_entry]
+
+    result = client.get_free_agents()
+    assert len(result) == 1
+    assert result.iloc[0]["positions"] == "SS/OF"
+
+
+def test_get_free_agents_position_filter_with_model_objects(client):
+    """Position filter should work even when positions are model objects."""
+    mock_player = MagicMock()
+    mock_name = MagicMock()
+    mock_name.full = "Player A"
+    mock_player.name = mock_name
+    mock_player.player_id = "1"
+    mock_player.percent_owned = 10.0
+
+    mock_pos = MagicMock(spec=[])
+    mock_pos.position = "C"
+    mock_player.eligible_positions = [mock_pos]
+
+    mock_entry = MagicMock()
+    mock_entry.player = mock_player
+
+    client._query = MagicMock()
+    client._query.get_league_players.return_value = [mock_entry]
+
+    # Filter for SS should exclude this C-only player
+    result = client.get_free_agents(position="SS")
+    assert result.empty
+
+    # Filter for C should include this player
+    result = client.get_free_agents(position="C")
+    assert len(result) == 1
+
+
+# ---------------------------------------------------------------------------
+# BUG 4: get_league_transactions bytes decode
+# ---------------------------------------------------------------------------
+
+
+def test_get_league_transactions_bytes_names(client):
+    """Player and team names from transactions may be bytes."""
+    mock_player = MagicMock()
+    mock_name_obj = MagicMock()
+    mock_name_obj.full = b"Juan Soto"
+    mock_player.name = mock_name_obj
+
+    mock_tx_data = MagicMock()
+    mock_tx_data.source_team_name = b"BUBBA CROSBY"
+    mock_tx_data.destination_team_name = b"Team Hickey"
+    mock_player.transaction_data = mock_tx_data
+
+    mock_p_entry = MagicMock()
+    mock_p_entry.player = mock_player
+
+    mock_tx = MagicMock()
+    mock_tx.transaction = mock_tx
+    mock_tx.transaction_id = "tx123"
+    mock_tx.type = "trade"
+    mock_tx.timestamp = "1710000000"
+    mock_tx.players = [mock_p_entry]
+
+    client._query = MagicMock()
+    client._query.get_league_transactions.return_value = [mock_tx]
+
+    result = client.get_league_transactions()
+    assert len(result) == 1
+    assert result.iloc[0]["player_name"] == "Juan Soto"
+    assert result.iloc[0]["team_from"] == "BUBBA CROSBY"
+    assert result.iloc[0]["team_to"] == "Team Hickey"
+
+
+# ---------------------------------------------------------------------------
+# BUG 5: get_draft_results bytes decode
+# ---------------------------------------------------------------------------
+
+
+def test_get_draft_results_bytes_names(client):
+    """Player and team names from draft results may be bytes."""
+    mock_pick = MagicMock()
+    mock_pick.draft_result = mock_pick
+    mock_pick.pick = 1
+    mock_pick.round = 1
+    mock_pick.team_name = b"BUBBA CROSBY"  # bytes team name
+    mock_pick.team_key = "469.l.109662.t.3"
+    mock_pick.player_key = "469.p.10566"
+
+    mock_player = MagicMock()
+    mock_player.name = MagicMock()
+    mock_player.name.full = b"Aaron Judge"  # bytes player name
+    mock_pick.player = mock_player
+
+    client._query = MagicMock()
+    client._query.get_league_draft_results.return_value = [mock_pick]
+
+    result = client.get_draft_results()
+    assert len(result) == 1
+    assert result.iloc[0]["player_name"] == "Aaron Judge"
+    assert result.iloc[0]["team_name"] == "BUBBA CROSBY"
+
+
+def test_get_draft_results_no_name_obj_bytes(client):
+    """When player has no name obj, str(player) bytes should be handled."""
+    mock_pick = MagicMock()
+    mock_pick.draft_result = mock_pick
+    mock_pick.pick = 5
+    mock_pick.round = 1
+    mock_pick.team_name = "Team Normal"
+    mock_pick.team_key = "469.l.109662.t.1"
+    mock_pick.player_key = "469.p.999"
+
+    # player exists but has no .name attribute
+    mock_player = MagicMock(spec=[])
+    mock_pick.player = mock_player
+
+    client._query = MagicMock()
+    client._query.get_league_draft_results.return_value = [mock_pick]
+
+    result = client.get_draft_results()
+    assert len(result) == 1
+    # Should not crash and should produce some string for the name
+    assert isinstance(result.iloc[0]["player_name"], str)
+    assert len(result.iloc[0]["player_name"]) > 0
+
+
+# ---------------------------------------------------------------------------
+# BUG 6: eligible_positions model objects in rosters
+# ---------------------------------------------------------------------------
+
+
+def test_get_all_rosters_position_model_objects(client):
+    """Roster position extraction should handle yfpy model objects."""
+    mock_team = MagicMock()
+    mock_team.name = "Test Team"
+    mock_team.team_key = "469.l.12345.t.1"
+
+    mock_player = MagicMock()
+    mock_player.name = MagicMock()
+    mock_player.name.full = "Trea Turner"
+    mock_player.player_id = "42"
+    mock_player.status = "active"
+
+    # Simulate yfpy EligiblePosition model objects
+    mock_pos_ss = MagicMock(spec=[])
+    mock_pos_ss.position = "SS"
+    mock_pos_2b = MagicMock(spec=[])
+    mock_pos_2b.position = "2B"
+    mock_player.eligible_positions = [mock_pos_ss, mock_pos_2b]
+
+    mock_p_entry = MagicMock()
+    mock_p_entry.player = mock_player
+
+    mock_roster = MagicMock()
+    mock_roster.players = [mock_p_entry]
+
+    client._query = MagicMock()
+    client._query.get_league_teams.return_value = [mock_team]
+    client._query.get_team_roster_by_week.return_value = mock_roster
+
+    result = client.get_all_rosters()
+    assert len(result) == 1
+    assert result.iloc[0]["position"] == "SS/2B"
+
+
+def test_get_team_roster_position_model_objects(client):
+    """Team roster position extraction should handle yfpy model objects."""
+    mock_player = MagicMock()
+    mock_player.name = MagicMock()
+    mock_player.name.full = "Francisco Lindor"
+    mock_player.player_id = "55"
+    mock_player.status = b"active"  # also test bytes status
+
+    mock_pos = MagicMock(spec=[])
+    mock_pos.position = b"SS"  # bytes position
+    mock_player.eligible_positions = [mock_pos]
+
+    mock_p_entry = MagicMock()
+    mock_p_entry.player = mock_player
+
+    mock_roster = MagicMock()
+    mock_roster.players = [mock_p_entry]
+
+    client._query = MagicMock()
+    client._query.get_team_roster_by_week.return_value = mock_roster
+
+    result = client.get_team_roster("469.l.12345.t.1")
+    assert len(result) == 1
+    assert result.iloc[0]["position"] == "SS"
+    assert result.iloc[0]["status"] == "active"

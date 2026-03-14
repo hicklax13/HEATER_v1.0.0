@@ -202,14 +202,14 @@ def fetch_season_stats(season: int = 2026) -> pd.DataFrame:
     return pd.DataFrame(rows) if rows else pd.DataFrame()
 
 
-def save_season_stats_to_db(stats_df: pd.DataFrame) -> int:
+def save_season_stats_to_db(stats_df: pd.DataFrame, season: int = 2026) -> int:
     """Match fetched stats to players table and save to season_stats."""
     saved = 0
     for _, row in stats_df.iterrows():
         player_id = match_player_id(row["player_name"], row.get("team", ""))
         if player_id is None:
             continue
-        upsert_season_stats(player_id, row.to_dict())
+        upsert_season_stats(player_id, row.to_dict(), season=season)
         saved += 1
     return saved
 

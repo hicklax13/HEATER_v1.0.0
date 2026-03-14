@@ -7,7 +7,7 @@ Uses staleness-based smart refresh to avoid unnecessary API calls.
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 
 logger = logging.getLogger(__name__)
 
@@ -118,7 +118,7 @@ def _bootstrap_live_stats(progress: BootstrapProgress) -> str:
     from src.live_stats import fetch_season_stats, save_season_stats_to_db
 
     progress.phase = "Live Stats"
-    current_year = datetime.now().year
+    current_year = datetime.now(UTC).year
     progress.detail = f"Fetching {current_year} season stats..."
     try:
         df = fetch_season_stats(season=current_year)
@@ -146,8 +146,8 @@ def _bootstrap_historical(progress: BootstrapProgress) -> tuple[str, dict | None
     try:
         historical = fetch_historical_stats(seasons=[2023, 2024, 2025])
         total = 0
-        for _year, df in historical.items():
-            count = save_season_stats_to_db(df)
+        for year, df in historical.items():
+            count = save_season_stats_to_db(df, season=year)
             total += count
         if total > 0:
             update_refresh_log("historical_stats", "success")
