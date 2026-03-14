@@ -117,18 +117,31 @@ def estimate_opponent_valuations(
             gap_to_next = _gap_to_next_team(team_cat_total, cat, team_id, all_team_totals)
 
             if gap_to_next > 0:
-                # Marginal value = projected contribution / gap
-                marginal = min(proj / gap_to_next, 1.0) if cat not in INVERSE_CATEGORIES else 0.0
-
                 if cat in INVERSE_CATEGORIES:
-                    # For ERA/WHIP, lower is better. Negative proj change helps.
-                    # A pitcher with low ERA helps a team with high ERA.
-                    marginal = min(abs(proj) / gap_to_next, 1.0) if gap_to_next > 0 else 0.0
-
-                team_val += marginal * (abs(proj) / denom)
+                    # For ERA/WHIP, lower is better. A pitcher with low ERA
+                    # helps a team with high ERA. The "contribution" is how
+                    # much the pitcher's rate pulls the team closer to the
+                    # next team — approximated as: if the team's ERA is above
+                    # the next team's, a pitcher with ERA below the team avg
+                    # helps. Use (team_ERA - pitcher_ERA) as the benefit,
+                    # clamped to [0, gap].
+                    benefit = max(0.0, team_cat_total - proj)
+                    marginal = min(benefit / gap_to_next, 1.0)
+                    # SGP contribution: benefit relative to denominator
+                    team_val += marginal * min(benefit, gap_to_next) / denom
+                else:
+                    # Counting stats: projected contribution / gap
+                    marginal = min(proj / gap_to_next, 1.0)
+                    team_val += marginal * (proj / denom)
             else:
-                # Team is already last; any help has marginal value
-                team_val += abs(proj) / denom * 0.5
+                if cat in INVERSE_CATEGORIES:
+                    # Team is already best in inverse stat;
+                    # lower-is-better pitchers still have marginal value
+                    benefit = max(0.0, team_cat_total - proj)
+                    team_val += benefit / denom * 0.5
+                else:
+                    # Team is already last; any help has marginal value
+                    team_val += proj / denom * 0.5
 
         valuations[team_id] = round(team_val, 3)
 

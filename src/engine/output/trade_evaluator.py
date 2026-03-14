@@ -484,14 +484,6 @@ def _run_mc_overlay(
         weeks_remaining=weeks_remaining,
     )
 
-    # Don't include the full distribution array in the returned dict
-    # (it's large and not serializable) — keep it separately
-    surplus_dist = mc_result.pop("surplus_distribution", None)
-
-    # Add the distribution back as a separate key
-    if surplus_dist is not None:
-        mc_result["surplus_distribution"] = surplus_dist
-
     return mc_result
 
 

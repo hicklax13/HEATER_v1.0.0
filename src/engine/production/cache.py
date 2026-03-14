@@ -25,6 +25,9 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+# Sentinel for distinguishing "not in cache" from cached None
+_SENTINEL = object()
+
 # Default TTLs (in seconds)
 DEFAULT_TTL_COPULA: int = 86400  # 24 hours — correlation structure is stable
 DEFAULT_TTL_SGP: int = 3600  # 1 hour — standings-based, may change
@@ -180,9 +183,17 @@ class TradeEvalCache:
         Returns:
             Cached or freshly computed value.
         """
-        cached = self.get(key)
-        if cached is not None:
-            return cached
+        # Use sentinel to distinguish "not in cache" from cached None
+        entry = self._store.get(key)
+        if entry is not None and not entry.is_stale:
+            entry.hits += 1
+            self._total_hits += 1
+            return entry.value
+
+        # Miss or stale — recompute
+        if entry is not None:
+            del self._store[key]
+        self._total_misses += 1
 
         value = compute_fn()
         self.set(key, value, ttl=ttl)

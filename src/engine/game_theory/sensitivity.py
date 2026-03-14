@@ -142,6 +142,7 @@ def player_sensitivity(
                 weeks_remaining=weeks_remaining,
                 enable_mc=False,
                 enable_context=False,
+                enable_game_theory=False,
             )
             alt_surplus = alt_result.get("surplus_sgp", 0.0)
         except Exception:
@@ -179,6 +180,7 @@ def player_sensitivity(
                 weeks_remaining=weeks_remaining,
                 enable_mc=False,
                 enable_context=False,
+                enable_game_theory=False,
             )
             alt_surplus = alt_result.get("surplus_sgp", 0.0)
         except Exception:
@@ -260,6 +262,7 @@ def suggest_counter_offers(
                     weeks_remaining=weeks_remaining,
                     enable_mc=False,
                     enable_context=False,
+                    enable_game_theory=False,
                 )
                 new_surplus = alt_result.get("surplus_sgp", 0.0)
             except Exception:
