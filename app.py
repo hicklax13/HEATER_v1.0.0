@@ -239,8 +239,10 @@ def render_splash_screen():
             from src.database import DB_PATH as _dbp
 
             _tc = _sql.connect(str(_dbp))
-            _non_blended = _tc.execute("SELECT COUNT(*) FROM projections WHERE system != 'blended'").fetchone()[0]
-            _tc.close()
+            try:
+                _non_blended = _tc.execute("SELECT COUNT(*) FROM projections WHERE system != 'blended'").fetchone()[0]
+            finally:
+                _tc.close()
             if _non_blended > 0:
                 create_blended_projections()
         except Exception:
@@ -803,6 +805,9 @@ def render_draft_page():
             rec_progress.progress(80, text="Computing survival probabilities and urgency...")
 
             if candidates is not None and len(candidates) > 0:
+                # evaluate_candidates() returns "name", not "player_name" — alias it
+                if "name" in candidates.columns and "player_name" not in candidates.columns:
+                    candidates["player_name"] = candidates["name"]
                 rec = candidates.iloc[0]
                 alts = candidates.iloc[1:6] if len(candidates) > 1 else pd.DataFrame()
 
@@ -1765,19 +1770,18 @@ def render_draft_log(ds):
         st.info("No picks recorded yet.")
         return
 
-    # Export buttons
+    # Export buttons — use st.download_button directly (not nested in st.button,
+    # which only returns True for a single render frame)
+    import json
+
+    df = pd.DataFrame(ds.pick_log)
+    csv = df.to_csv(index=False)
+    j = json.dumps(ds.pick_log, indent=2)
     c1, c2, c3 = st.columns([1, 1, 2])
     with c1:
-        if st.button("Export CSV", key="export_csv"):
-            df = pd.DataFrame(ds.pick_log)
-            csv = df.to_csv(index=False)
-            st.download_button("Download CSV", csv, "draft_log.csv", "text/csv", key="dl_csv")
+        st.download_button("Export CSV", csv, "draft_log.csv", "text/csv", key="dl_csv")
     with c2:
-        if st.button("Export JSON", key="export_json"):
-            import json
-
-            j = json.dumps(ds.pick_log, indent=2)
-            st.download_button("Download JSON", j, "draft_log.json", "application/json", key="dl_json")
+        st.download_button("Export JSON", j, "draft_log.json", "application/json", key="dl_json")
 
     # Feed-style log (most recent first)
     for entry in reversed(ds.pick_log):
