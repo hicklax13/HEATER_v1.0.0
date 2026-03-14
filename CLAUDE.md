@@ -25,7 +25,7 @@ ruff check .
 # Format
 ruff format .
 
-# Run all tests (427 collected, 426 pass, 1 skipped for PyMC)
+# Run all tests (467 collected, 466 pass, 1 skipped for PyMC)
 python -m pytest
 
 # Run with verbose output
@@ -90,7 +90,7 @@ src/
   lineup_optimizer.py   — PuLP LP solver: lineup optimization, category targeting, two-start SP detection
   yahoo_api.py          — Yahoo Fantasy API: OAuth integration via yfpy, league sync, roster import
   data_pipeline.py      — FanGraphs auto-fetch: Steamer/ZiPS/Depth Charts JSON API, normalize, upsert, ADP extraction
-  engine/               — Trade Analyzer Engine (Phase 1 + Phase 2 + Phase 3)
+  engine/               — Trade Analyzer Engine (Phase 1-4)
     __init__.py
     portfolio/
       __init__.py
@@ -112,9 +112,15 @@ src/
       decay.py          — Exponential decay weighting: signal-specific half-lives, recency-weighted mean/variance
       kalman.py         — Kalman filter: true talent estimation, sample-size-aware observation variance
       regime.py         — Regime detection: BOCPD changepoint detection (run length mode) + 4-state HMM
+    context/
+      __init__.py
+      matchup.py        — Log5 matchup engine: batter-pitcher odds ratio, park/weather adjustments, game-level projections
+      injury_process.py — Injury stochastic process: Weibull duration sampling, frailty multipliers, season availability MC
+      bench_value.py    — Enhanced bench option value: streaming + hot FA + flexibility premium + injury replacement cushion
+      concentration.py  — Roster concentration risk: HHI scoring, diversification delta, team exposure breakdown
     output/
       __init__.py
-      trade_evaluator.py — Master trade orchestrator: Phase 1 deterministic + Phase 2 MC overlay, enable_mc flag
+      trade_evaluator.py — Master trade orchestrator: Phase 1 deterministic + Phase 2 MC + Phase 4 context, enable_mc/enable_context flags
 tests/
   test_database_schema.py   — DB schema and table existence tests
   test_database_queries.py  — Query function tests
@@ -137,6 +143,7 @@ tests/
   test_trade_engine.py      — Trade engine Phase 1: marginal SGP, punt detection, z-scores, grading, fuzzy match, integration (32 tests)
   test_trade_engine_phase2.py — Trade engine Phase 2: BMA, KDE marginals, copula, paired MC, integration (33 tests)
   test_trade_engine_phase3.py — Trade engine Phase 3: Statcast aggregation, signal decay, Kalman filter, BOCPD, HMM regime, rolling features (32 tests)
+  test_trade_engine_phase4.py — Trade engine Phase 4: Log5 matchup, Weibull injury, enhanced bench, HHI concentration, context integration (40 tests)
   profile_latency.py        — Performance profiling utility
 data/
   draft_tool.db         — SQLite database (created at runtime)
@@ -211,6 +218,12 @@ Phase 1 SGP-based evaluation pipeline (7 modules):
 14. **Kalman filter** — State-space model separating true talent from observation noise. Sample-size-aware observation variance (more PAs → lower noise → trust data more). Process variance models how much true talent can drift per time step.
 15. **Regime detection** — BOCPD (Adams & MacKay 2007) detects structural changepoints via run length mode drops. 4-state HMM (Elite/Above/Below/Replacement) provides soft regime probabilities for projection blending. Graceful fallback when hmmlearn unavailable.
 
+**Phase 4 (context engine, `src/engine/context/`, `enable_context=True`):**
+16. **Log5 matchup** — Odds-ratio method for batter-pitcher matchup prediction. Combines batter rate, pitcher rate, and league average via `M_odds = (B_odds * P_odds) / L_odds`. Park factor and weather (temp/wind) adjustments. Game-level stat projections by lineup slot (PA scaling: leadoff 4.65 → 9-hole 3.85).
+17. **Injury stochastic process** — Weibull-distributed injury durations by body part (hamstring shape=1.8/scale=18, UCL shape=3.0/scale=365). Frailty multiplier from health score (`1/max(hs, 0.5)`, max 2.0). Season availability sampling for MC integration via `sample_season_availability()`.
+18. **Enhanced bench option value** — Extends simple streaming value (0.166 SGP/week) with 4 components: streaming, hot FA pickup (15%/week × 0.5 SGP), roster flexibility premium (multi-position eligibility normalized to [0,1]), and injury replacement cushion. Returns component breakdown dict.
+19. **Roster concentration risk** — Herfindahl-Hirschman Index (HHI = Σshare²) measuring team exposure. PA-weighted for hitters, IP-weighted for pitchers. Penalty = `(HHI - 0.15) * 3.0` when above 0.15 threshold. `compute_concentration_delta()` compares before/after trade rosters. Team alias normalization (WSN→WSH, AZ→ARI).
+
 ### In-Season Algorithms
 - **Trade Analyzer (legacy):** Roster swap → projected season totals (YTD + ROS) → park-adjusted SGP delta → MC simulation (200 sims) → verdict with confidence %. Now includes injury badges for both sides and P10/P90 risk assessment.
 - **Player Compare:** ROS projections → Z-score normalization across 10 categories → composite weighted score, optional marginal SGP team impact. Now includes health badges and projection confidence (P10-P90 range width).
@@ -266,10 +279,13 @@ value_all_players(pool, config, roster_totals=None, category_weights=None,
 
 # Trade evaluator (src/engine/output/trade_evaluator.py)
 evaluate_trade(giving_ids, receiving_ids, user_roster_ids, player_pool,
-               config=None, user_team_name=None, weeks_remaining=16)
+               config=None, user_team_name=None, weeks_remaining=16,
+               enable_mc=False, enable_context=True)
 # Returns: {grade, surplus_sgp, category_impact, category_analysis, punt_categories,
 #           bench_cost, risk_flags, verdict, confidence_pct, before_totals, after_totals,
-#           giving_players, receiving_players, total_sgp_change, mc_mean, mc_std}
+#           giving_players, receiving_players, total_sgp_change, mc_mean, mc_std,
+#           concentration_hhi_before, concentration_hhi_after, concentration_delta,
+#           concentration_penalty, bench_option_detail}
 grade_trade(surplus_sgp: float) -> str  # A+ through F
 
 # Z-score + SGP valuation (src/engine/portfolio/valuation.py)
@@ -364,6 +380,44 @@ regime_conditional_projection(current_probs, projections_by_state) -> dict[str, 
 classify_regime_simple(recent_xwoba, season_xwoba, league_avg_xwoba=0.315) -> tuple[str, np.ndarray]
 REGIME_STATES: list[str]  # ["Elite", "Above-avg", "Below-avg", "Replacement"]
 HMM_AVAILABLE: bool  # True if hmmlearn is installed
+
+# --- Trade Engine Phase 4 APIs (src/engine/context/) ---
+
+# Log5 matchup (src/engine/context/matchup.py)
+log5_matchup(batter_rate, pitcher_rate, league_avg) -> float  # odds-ratio matchup rate
+park_adjust(stat_value, park_factor) -> float  # multiplicative park adjustment
+game_projection(batter_xwoba, pitcher_xwoba_against=None, park_factor=1.0,
+    lineup_slot=5, league_avg_woba=0.315, temp_f=None, wind_out_mph=None) -> dict
+# Returns: {hr, r, rbi, sb, h, ab, pa}
+matchup_adjustment_factor(player_xwoba=None, opponent_xwoba_against=None,
+    park_factor=1.0, league_avg=0.315) -> float  # multiplicative factor (1.0=neutral)
+LINEUP_SLOT_PA: dict[int, float]  # 1:4.65 → 9:3.85
+
+# Injury stochastic process (src/engine/context/injury_process.py)
+sample_injury_duration(injury_type="other", frailty=1.0, rng=None) -> int  # days
+frailty_from_health_score(health_score) -> float  # 1.0/max(hs, 0.5)
+estimate_injury_probability(health_score, age=None, is_pitcher=False, horizon_days=30) -> float
+sample_season_availability(health_score, age=None, is_pitcher=False,
+    weeks_remaining=16, rng=None) -> float  # fraction in [0, 1]
+sample_availability_batch(health_scores, ages=None, is_pitcher_flags=None,
+    weeks_remaining=16, n_sims=1, rng=None) -> np.ndarray  # (n_sims, n_players)
+INJURY_DURATION: dict[str, dict[str, float]]  # 6 body parts: hamstring, oblique, ucl, shoulder, back, other
+
+# Enhanced bench value (src/engine/context/bench_value.py)
+enhanced_bench_option_value(weeks_remaining=16, streaming_sgp_per_week=0.15,
+    roster_flexibility=0.0, injury_replacement_value=0.0) -> dict
+# Returns: {streaming, hot_fa, flexibility, injury_cushion, total}
+compute_roster_flexibility(roster_df) -> float  # normalized [0, 1]
+compute_injury_replacement_value(roster_df, bench_count=5, avg_health_score=0.85,
+    weeks_remaining=16) -> float  # expected SGP saved
+
+# Concentration risk (src/engine/context/concentration.py)
+roster_concentration_hhi(roster_df) -> float  # HHI in [0, 1]
+concentration_risk_penalty(hhi, threshold=0.15, scale=3.0) -> float  # SGP penalty
+compute_concentration_delta(before_df, after_df) -> dict
+# Returns: {before_hhi, after_hhi, delta, penalty_before, penalty_after, penalty_delta}
+team_exposure_breakdown(roster_df) -> list[dict]  # [{team, count, share}, ...]
+TEAM_ALIASES: dict[str, str]  # WSN→WSH, AZ→ARI, etc.
 
 # --- Plan 3 new APIs ---
 
@@ -504,6 +558,15 @@ SYSTEM_MAP = {"steamer": "steamer", "zips": "zips", "fangraphsdc": "depthcharts"
 - **BOCPD cp_prob is bounded by 1/hazard_lambda** — The raw `P(r_t=0)` returned by `BOCPD.update()` can never exceed ~`1/hazard_lambda` (e.g., 0.005 for λ=200). The real detection signal is the run length distribution's **mode** dropping from a long run (mode ≈ 30) to near zero (mode ≤ 2). `detect_changepoints()` uses this mode-drop approach.
 - **HMM graceful fallback** — `fit_player_hmm()` returns `(None, DEFAULT_STATE_PROBS)` when: (a) hmmlearn not installed, (b) fewer than 10 observations, or (c) fitting raises an exception. Always usable.
 - **`classify_regime_simple()` is the fallback** — When no Statcast data exists for HMM, this rule-based function uses just `recent_xwoba` and `season_xwoba` to estimate regime probabilities. Good enough for non-Savant players.
+- **`enable_context=True` activates Phase 4** — By default, `evaluate_trade()` runs with context analysis enabled. Set `enable_context=False` to skip concentration risk and enhanced bench value. Phase 4 gracefully wraps in try/except with fallback to Phase 1 behavior.
+- **Log5 rate clamping** — `RATE_FLOOR=0.001`, `RATE_CEILING=0.999` prevent division-by-zero in the odds-ratio formula. Applied via `np.clip()` to all three inputs (batter, pitcher, league avg).
+- **`matchup_adjustment_factor()` returns 1.0 gracefully** — When `player_xwoba is None`, returns 1.0 (neutral). When `opponent_xwoba_against is None`, returns just `park_factor`. Never crashes with missing schedule data.
+- **Weibull frailty cap at 2.0** — `frailty_from_health_score()` uses `1/max(hs, 0.5)`. Health scores below 0.5 are floored, so frailty never exceeds 2.0× normal duration. This prevents unrealistically long injury predictions.
+- **HHI concentration threshold is 0.15** — Penalty only applies when `HHI > 0.15`. A perfectly diversified 10-team roster has HHI=0.1. The `scale=3.0` parameter maps `HHI=0.25` to a 0.3 SGP penalty — meaningful but not dominant.
+- **Team alias normalization** — `TEAM_ALIASES` maps 8 common variants (WSN→WSH, AZ→ARI, CHW→CWS, etc.). Applied in `roster_concentration_hhi()` before grouping. Without this, "WSN" and "WSH" are counted as separate teams.
+- **`concentration_risk_penalty` applied to `total_surplus`** — The penalty is subtracted from the trade surplus AFTER all other SGP calculations. This means concentration risk can flip a marginal "Accept" to "Reject" but won't dominate large surplus trades.
+- **Enhanced bench value backward compat** — When `enable_context=False`, trade evaluator uses the simple `bench_option_value()` from `src/engine/portfolio/lineup_optimizer.py`. Both produce compatible float results.
+- **Injury process imports from `src/injury_model.py`** — `injury_process.py` reuses `age_risk_adjustment()` from the existing module rather than duplicating the age-risk curve logic.
 
 ## GitHub
 
@@ -513,10 +576,10 @@ SYSTEM_MAP = {"steamer": "steamer", "zips": "zips", "fangraphsdc": "depthcharts"
 
 ## Testing Status
 
-- **Unit tests:** 427 collected, 426 passed, 1 skipped (PyMC optional dep)
-- **Test files:** 21 test files across draft engine, trade engine (Phase 1+2+3), in-season, analytics, data pipeline, bootstrap, integration, and math verification
+- **Unit tests:** 467 collected, 466 passed, 1 skipped (PyMC optional dep)
+- **Test files:** 22 test files across draft engine, trade engine (Phase 1-4), in-season, analytics, data pipeline, bootstrap, integration, and math verification
 - **Math verification suite:** 112 tests across 3 files (valuation, simulation, trade) — hand-calculated expected values verified against code formulas
-- **Trade engine tests:** 97 tests total — Phase 1 (32): marginal SGP, punt detection, z-scores, grading, fuzzy match, integration. Phase 2 (33): BMA, KDE marginals, Gaussian copula, paired MC, correlated sampling, distributional metrics, integration. Phase 3 (32): Statcast aggregation, signal decay, Kalman filter, BOCPD changepoint detection, HMM regime classification, rolling features.
+- **Trade engine tests:** 137 tests total — Phase 1 (32): marginal SGP, punt detection, z-scores, grading, fuzzy match, integration. Phase 2 (33): BMA, KDE marginals, Gaussian copula, paired MC, correlated sampling, distributional metrics, integration. Phase 3 (32): Statcast aggregation, signal decay, Kalman filter, BOCPD changepoint detection, HMM regime classification, rolling features. Phase 4 (40): Log5 matchup math, Weibull injury duration, frailty, season availability, enhanced bench value, roster flexibility, HHI concentration, penalty thresholds, trade context integration.
 - **CI:** GitHub Actions runs ruff lint/format + pytest on Python 3.11, 3.12, 3.13
 - **Coverage:** 64% (below 75% CI threshold; pre-existing, no regressions)
 - **Systematic code reviews:** Three rounds of full codebase review completed (including parallel 7-agent sweep); all bugs fixed and pushed
