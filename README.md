@@ -73,7 +73,7 @@ The app opens at `http://localhost:8501`.
 - **Zero-interaction bootstrap** — `bootstrap_all_data()` orchestrates 7 data phases with staleness-based smart refresh (1h live stats, 6h Yahoo, 7d projections, 30d historical/park factors)
 - **FanGraphs auto-fetch** — Steamer, ZiPS, Depth Charts projections (3 systems × bat/pit = 6 endpoints) on app startup
 - **MLB Stats API** — 750+ active player roster fetch, current season stats, 3-year historical stats for injury modeling
-- **Yahoo Fantasy API** — OAuth 2.0 out-of-band flow for league sync (settings, rosters, standings, FA pool)
+- **Yahoo Fantasy API** — OAuth 2.0 out-of-band flow with persistent auto-reconnect. Multi-strategy game key resolution handles pre-season edge cases. Syncs settings, rosters (12 teams x 23 players), standings, FA pool. Token auto-refreshes on every restart
 - **Bayesian updater** — PyMC 5 hierarchical beta-binomial model for in-season stat updates; Marcel regression fallback when PyMC unavailable. Uses FanGraphs stabilization thresholds (K=60 PA, AVG=910 AB, ERA=70 IP)
 - **Injury model** — 3-year health scores, age-risk curves (hitters +2%/yr after 30, pitchers +3%/yr after 28), workload flags for IP spikes
 - **Percentile forecasts** — P10/P50/P90 floor/ceiling projections using inter-system volatility with process risk widening for low-correlation stats
@@ -108,7 +108,11 @@ export YAHOO_CLIENT_SECRET=<your consumer secret>
 export YAHOO_LEAGUE_ID=<your numeric league ID>
 ```
 
-The OAuth flow uses out-of-band (oob): click the authorization link, approve on Yahoo, paste the verification code back in the app.
+The OAuth flow uses out-of-band (oob): click the authorization link, approve on Yahoo, paste the verification code back in the app. **You only need to do this once** — the token is saved to `data/yahoo_token.json` and the app auto-reconnects on every restart.
+
+**Auto-reconnect:** On each app launch, the splash screen automatically loads the saved Yahoo token, refreshes it if expired, resolves the correct game key for the current season, and syncs league data. No manual re-authorization needed.
+
+**Multi-strategy game key resolution:** The app uses 3 fallback strategies to find the correct Yahoo game key for the current MLB season, handling pre-season edge cases where Yahoo may not have registered the new game key yet.
 
 See [Yahoo Developer Apps](https://developer.yahoo.com/apps/) to create credentials (select "Fantasy Sports" API).
 
@@ -158,7 +162,7 @@ src/
   bayesian.py           — PyMC 5 hierarchical model + Marcel regression fallback
   injury_model.py       — Health scores, age-risk curves, workload flags
   lineup_optimizer.py   — PuLP LP solver, category targeting, two-start SP detection
-  yahoo_api.py          — Yahoo Fantasy OAuth (oob flow) + league sync
+  yahoo_api.py          — Yahoo Fantasy OAuth (oob flow) + auto-reconnect + multi-strategy game key resolution + league sync
   data_pipeline.py      — FanGraphs auto-fetch pipeline (Steamer/ZiPS/Depth Charts)
   ui_shared.py          — Centralized theme system (dark/light), PAGE_ICONS (inline SVGs), CSS injection, metric tooltips
   validation.py         — Validation utilities

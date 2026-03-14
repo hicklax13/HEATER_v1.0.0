@@ -168,21 +168,26 @@ else:
                         gp = player_injury["games_played"].tolist()
                         ga = player_injury["games_available"].tolist()
                         hs = compute_health_score(gp, ga)
-                        icon, label = get_injury_badge(hs)
-                        badges.append(f"{icon} {label}")
+                        _icon, label = get_injury_badge(hs)
+                        # Use text label only — st.dataframe() cannot render HTML
+                        badges.append(label)
                     else:
-                        badges.append(
-                            '<span style="display:inline-block;width:10px;height:10px;border-radius:50%;'
-                            'vertical-align:middle;margin-right:4px;background:#84cc16;"></span>Low Risk'
-                        )
+                        badges.append("Low Risk")
                 roster["Health"] = badges
 
             # Display roster
             st.subheader("Roster")
             display_cols = ["name", "positions", "roster_slot", "Health"]
             available_cols = [c for c in display_cols if c in roster.columns]
+            col_config = {
+                "name": st.column_config.TextColumn("Player"),
+                "positions": st.column_config.TextColumn("Position(s)"),
+                "roster_slot": st.column_config.TextColumn("Slot"),
+                "Health": st.column_config.TextColumn("Health"),
+            }
             st.dataframe(
                 roster[available_cols] if available_cols else roster,
+                column_config=col_config,
                 width="stretch",
                 hide_index=True,
             )

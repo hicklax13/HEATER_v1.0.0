@@ -169,12 +169,8 @@ def _try_reconnect_yahoo() -> "YahooFantasyClient | None":
         logger.debug("Could not read Yahoo token file.", exc_info=True)
         return None
 
-    consumer_key = token_data.get(
-        "consumer_key", os.environ.get("YAHOO_CLIENT_ID", "")
-    )
-    consumer_secret = token_data.get(
-        "consumer_secret", os.environ.get("YAHOO_CLIENT_SECRET", "")
-    )
+    consumer_key = token_data.get("consumer_key", os.environ.get("YAHOO_CLIENT_ID", ""))
+    consumer_secret = token_data.get("consumer_secret", os.environ.get("YAHOO_CLIENT_SECRET", ""))
 
     if not consumer_key or not consumer_secret:
         logger.debug("Yahoo token file missing consumer_key/secret.")
@@ -189,6 +185,8 @@ def _try_reconnect_yahoo() -> "YahooFantasyClient | None":
         client = YahooFantasyClient(league_id=yahoo_league_id)
         if client.authenticate(consumer_key, consumer_secret, token_data=token_data):
             logger.info("Yahoo Fantasy auto-reconnected from saved token.")
+            # Persist token data in session for other pages that need it
+            st.session_state.yahoo_token_data = token_data
             return client
         logger.warning("Yahoo auto-reconnect: authentication returned False.")
     except Exception:
