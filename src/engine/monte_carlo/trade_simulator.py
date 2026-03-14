@@ -216,7 +216,45 @@ def _simulate_roster_sgp(
     # Aggregate roster totals with noise
     roster_totals: dict[str, float] = {cat: 0.0 for cat in CATEGORIES}
 
+    # Track rate-stat components for proper aggregation
+    # Rate stats (AVG, ERA, WHIP) must NOT be summed across players.
+    # Instead, accumulate component stats and derive rate stats at the end.
+    total_h = 0.0
+    total_ab = 0.0
+    total_ip = 0.0
+    total_er = 0.0
+    total_bb_h_allowed = 0.0  # bb_allowed + h_allowed
+
+    # Categories that are rate stats and need special aggregation
+    _RATE_CATS = {"AVG", "ERA", "WHIP"}
+
     for player_id, stats in roster_stats.items():
+        # Collect component stats for rate-stat aggregation.
+        # If components (h, ab, ip, er, etc.) are available, use them directly.
+        # Otherwise, derive from rate stats and playing time estimates.
+        p_ab = stats.get("ab", 0.0)
+        p_h = stats.get("h", 0.0)
+        p_ip = stats.get("ip", 0.0)
+        p_er = stats.get("er", 0.0)
+        p_bb_allowed = stats.get("bb_allowed", 0.0)
+        p_h_allowed = stats.get("h_allowed", 0.0)
+
+        # If component stats are missing but rate stats exist, derive them
+        if p_ab == 0.0 and stats.get("avg", 0.0) > 0:
+            # Estimate AB from PA or use a default for a typical hitter
+            p_ab = stats.get("pa", 0.0) * 0.92 if stats.get("pa", 0.0) > 0 else 500.0
+            p_h = stats["avg"] * p_ab
+        if p_ip == 0.0 and (stats.get("era", 0.0) > 0 or stats.get("whip", 0.0) > 0):
+            p_ip = 150.0  # Default estimate for a typical pitcher
+            if stats.get("era", 0.0) > 0:
+                p_er = stats["era"] * p_ip / 9.0
+            if stats.get("whip", 0.0) > 0:
+                p_bb_h_allowed = stats["whip"] * p_ip
+            else:
+                p_bb_h_allowed = 0.0
+            p_bb_allowed = p_bb_h_allowed * 0.4  # rough split
+            p_h_allowed = p_bb_h_allowed * 0.6
+
         # Generate noise for this player
         if marginals and player_id in marginals and copula is not None:
             # Use copula + marginals for correlated sampling
@@ -225,6 +263,9 @@ def _simulate_roster_sgp(
 
             for i, cat in enumerate(CATEGORIES):
                 cat_lower = cat.lower()
+                if cat in _RATE_CATS:
+                    # Skip rate stats — they'll be computed from components below
+                    continue
                 if cat_lower in player_marg and cat_lower in stats:
                     m = player_marg[cat_lower]
                     # Sample from marginal using copula quantile
@@ -235,16 +276,45 @@ def _simulate_roster_sgp(
                     roster_totals[cat] += float(sampled)
                 elif cat_lower in stats:
                     roster_totals[cat] += stats[cat_lower]
+
+            # Accumulate components (with noise applied via marginals if available)
+            # For rate stat components, apply proportional noise from the copula samples
+            # to maintain consistency
+            noise_factor = 1.0 + rng.normal(0, 0.05 * noise_scale)
+            total_h += p_h * max(noise_factor, 0.5)
+            total_ab += p_ab * max(noise_factor, 0.5)
+            total_ip += p_ip * max(noise_factor, 0.5)
+            total_er += p_er * max(noise_factor, 0.5)
+            total_bb_h_allowed += (p_bb_allowed + p_h_allowed) * max(noise_factor, 0.5)
         else:
             # Fallback: independent Gaussian noise
             for cat in CATEGORIES:
                 cat_lower = cat.lower()
+                if cat in _RATE_CATS:
+                    # Skip rate stats — they'll be computed from components below
+                    continue
                 if cat_lower in stats:
                     base_val = stats[cat_lower]
                     # Noise proportional to the stat value (coefficient of variation ~15%)
                     noise_sigma = abs(base_val) * 0.15 * noise_scale
                     noisy_val = base_val + rng.normal(0, max(noise_sigma, 0.01))
                     roster_totals[cat] += noisy_val
+
+            # Accumulate components with noise for rate stats
+            noise_factor = 1.0 + rng.normal(0, 0.05 * noise_scale)
+            total_h += p_h * max(noise_factor, 0.5)
+            total_ab += p_ab * max(noise_factor, 0.5)
+            total_ip += p_ip * max(noise_factor, 0.5)
+            total_er += p_er * max(noise_factor, 0.5)
+            total_bb_h_allowed += (p_bb_allowed + p_h_allowed) * max(noise_factor, 0.5)
+
+    # Compute rate stats from accumulated components (not naive sums)
+    # AVG = sum(H) / sum(AB)
+    roster_totals["AVG"] = total_h / total_ab if total_ab > 0 else 0.0
+    # ERA = sum(ER) * 9 / sum(IP)
+    roster_totals["ERA"] = total_er * 9.0 / total_ip if total_ip > 0 else 0.0
+    # WHIP = sum(BB + H_allowed) / sum(IP)
+    roster_totals["WHIP"] = total_bb_h_allowed / total_ip if total_ip > 0 else 0.0
 
     # Convert totals to SGP
     total_sgp = 0.0
@@ -354,7 +424,25 @@ def build_roster_stats(
     """
     import pandas as pd
 
-    stat_cols = ["r", "hr", "rbi", "sb", "avg", "w", "k", "sv", "era", "whip"]
+    stat_cols = [
+        "r",
+        "hr",
+        "rbi",
+        "sb",
+        "avg",
+        "w",
+        "k",
+        "sv",
+        "era",
+        "whip",
+        "h",
+        "ab",
+        "pa",
+        "ip",
+        "er",
+        "bb_allowed",
+        "h_allowed",
+    ]
     roster_stats: dict[str, dict[str, float]] = {}
 
     if isinstance(player_pool, pd.DataFrame):

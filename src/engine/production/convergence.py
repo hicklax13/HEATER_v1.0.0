@@ -97,23 +97,26 @@ def split_rhat(samples: np.ndarray) -> float:
         return 1.0  # Not enough data to assess
 
     mid = n // 2
-    chain1 = samples[:mid]
-    chain2 = samples[mid:]
+    n1 = mid
+    n2 = n - mid
+    chain1 = samples[:n1]
+    chain2 = samples[n1:]
 
     # Within-chain variance
     w = (np.var(chain1, ddof=1) + np.var(chain2, ddof=1)) / 2.0
 
-    # Between-chain variance
+    # Between-chain variance (weighted average for unequal chain lengths)
     mean1 = np.mean(chain1)
     mean2 = np.mean(chain2)
-    overall_mean = (mean1 + mean2) / 2.0
-    b = mid * ((mean1 - overall_mean) ** 2 + (mean2 - overall_mean) ** 2)
+    overall_mean = (mean1 * n1 + mean2 * n2) / (n1 + n2)
+    b = n1 * (mean1 - overall_mean) ** 2 + n2 * (mean2 - overall_mean) ** 2
 
     if w < 1e-12:
         return 1.0  # No variance — trivially converged
 
     # Pooled variance estimate
-    var_hat = ((mid - 1) / mid) * w + (1.0 / mid) * b
+    n_avg = (n1 + n2) / 2.0
+    var_hat = ((n_avg - 1) / n_avg) * w + (1.0 / n_avg) * b
 
     rhat = np.sqrt(var_hat / w)
     return float(rhat)

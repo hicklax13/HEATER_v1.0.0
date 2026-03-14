@@ -71,8 +71,6 @@ if rosters.empty:
                     rosters_count = sync_result.get("rosters", 0) if sync_result else 0
                     if rosters_count > 0:
                         st.success(f"Synced {rosters_count} roster entries and {standings_count} standing entries.")
-                        import time
-
                         time.sleep(1)
                         st.rerun()
                     else:
@@ -319,7 +317,7 @@ else:
                             pid = p.iloc[0]["player_id"]
                             hs = health_dict.get(pid, 0.85)
                             badge_icon, label = get_injury_badge(hs)
-                            st.markdown(f"{badge_icon} {name} — {label}")
+                            st.markdown(f"{badge_icon} {name} — {label}", unsafe_allow_html=True)
                 with trade_col2:
                     st.markdown("**Receiving:**")
                     for name in receiving_names:
@@ -328,7 +326,7 @@ else:
                             pid = p.iloc[0]["player_id"]
                             hs = health_dict.get(pid, 0.85)
                             badge_icon, label = get_injury_badge(hs)
-                            st.markdown(f"{badge_icon} {name} — {label}")
+                            st.markdown(f"{badge_icon} {name} — {label}", unsafe_allow_html=True)
 
                 # P10/P90 risk assessment for traded players
                 try:

@@ -78,12 +78,12 @@ if roster is None or roster.empty:
     st.stop()
 
 # ── Build optimizer config ────────────────────────────────────────
-# Normalize player_name → name FIRST (before filling missing columns)
-if "player_name" in roster.columns and "name" not in roster.columns:
-    roster = roster.rename(columns={"player_name": "name"})
+# Normalize name → player_name FIRST (optimizer expects "player_name" column)
+if "name" in roster.columns and "player_name" not in roster.columns:
+    roster = roster.rename(columns={"name": "player_name"})
 
 # Ensure required columns exist for the optimizer
-required_cols = ["player_id", "name", "positions", "is_hitter"]
+required_cols = ["player_id", "player_name", "positions", "is_hitter"]
 stat_cols = ["r", "hr", "rbi", "sb", "avg", "w", "sv", "k", "era", "whip"]
 for col in required_cols + stat_cols:
     if col not in roster.columns:
@@ -126,16 +126,18 @@ if optimize_clicked:
     time.sleep(0.3)
     lp_progress.empty()
 
-    if not result or not result.get("lineup"):
+    if not result or not result.get("assignments"):
         st.warning("Could not produce a valid lineup. Check your roster data.")
     else:
         st.success("Optimal lineup found!")
 
-        # Display lineup
-        lineup = result["lineup"]
+        # Display lineup from assignments list
+        assignments = result["assignments"]
         lineup_data = []
-        for slot, player_name in sorted(lineup.items()):
-            lineup_data.append({"Slot": slot, "Player": player_name})
+        for entry in assignments:
+            slot = entry.get("slot", "")
+            player = entry.get("player_name", "")
+            lineup_data.append({"Slot": slot, "Player": player})
 
         st.subheader("Recommended Lineup")
         render_styled_table(pd.DataFrame(lineup_data))
@@ -250,27 +252,30 @@ try:
             team_name = game.get(team_key, "")
             team_game_counts[team_name] = team_game_counts.get(team_name, 0) + 1
 
-    # Flag SPs whose team has 2+ games in the period
+    # Flag SPs whose team has 7+ games in the week (5-man rotation means
+    # one pitcher gets a second start when the team plays 7+ games).
+    # All teams play 6-7 games, so >= 2 would flag everyone.
+    TWO_START_THRESHOLD = 7
     two_start_sps = []
     for _, row in roster.iterrows():
         if not row.get("is_hitter", True) and "SP" in str(row.get("positions", "")):
             team = row.get("team", "")
-            if team_game_counts.get(team, 0) >= 2:
-                two_start_sps.append(row.get("name", row.get("player_name", "")))
+            if team_game_counts.get(team, 0) >= TWO_START_THRESHOLD:
+                two_start_sps.append(row.get("player_name", row.get("name", "")))
 
     if two_start_sps:
         st.info(f"Potential two-start Starting Pitchers this week: {', '.join(two_start_sps)}")
 except Exception:
     pass  # Graceful degradation when MLB Stats API unavailable
 
-display_cols = ["name", "positions", "is_hitter"] + [c for c in stat_cols if c in roster.columns]
+display_cols = ["player_name", "positions", "is_hitter"] + [c for c in stat_cols if c in roster.columns]
 if "Health" in roster.columns:
-    display_cols = ["name", "positions", "is_hitter", "Health"] + [c for c in stat_cols if c in roster.columns]
+    display_cols = ["player_name", "positions", "is_hitter", "Health"] + [c for c in stat_cols if c in roster.columns]
 roster_display = roster[[c for c in display_cols if c in roster.columns]].copy()
 roster_display["is_hitter"] = roster_display["is_hitter"].map(lambda x: "Yes" if x else "No")
 roster_display = roster_display.rename(
     columns={
-        "name": "Player",
+        "player_name": "Player",
         "positions": "Position",
         "is_hitter": "Hitter",
     }

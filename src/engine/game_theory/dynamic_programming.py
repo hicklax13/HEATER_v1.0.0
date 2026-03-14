@@ -176,18 +176,26 @@ def bellman_rollout(
     future_after_values: list[float] = []
 
     for _ in range(n_sims):
+        # Generate a per-sim seed from the master RNG, then use
+        # identical seeds for both scenarios (paired draws) so the
+        # comparison isolates the causal effect of roster balance
+        # rather than including random noise.
+        sim_seed = int(rng.randint(0, 2**31))
+
         # Scenario 1: Don't make this trade (keep current roster)
+        rng_before = np.random.RandomState(sim_seed)
         cum_before = 0.0
         for week in range(min(n_lookahead, weeks_remaining)):
-            surplus = sample_plausible_trade_surplus(rng, roster_balance_before)
+            surplus = sample_plausible_trade_surplus(rng_before, roster_balance_before)
             if surplus is not None:
                 cum_before += surplus * (gamma ** (week + 1))
         future_before_values.append(cum_before)
 
         # Scenario 2: Make this trade (post-trade roster)
+        rng_after = np.random.RandomState(sim_seed)
         cum_after = 0.0
         for week in range(min(n_lookahead, weeks_remaining)):
-            surplus = sample_plausible_trade_surplus(rng, roster_balance_after)
+            surplus = sample_plausible_trade_surplus(rng_after, roster_balance_after)
             if surplus is not None:
                 cum_after += surplus * (gamma ** (week + 1))
         future_after_values.append(cum_after)

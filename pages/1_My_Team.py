@@ -51,8 +51,6 @@ if rosters.empty:
                     rosters_count = sync_result.get("rosters", 0) if sync_result else 0
                     if rosters_count > 0:
                         st.success(f"Synced {rosters_count} roster entries and {standings_count} standing entries.")
-                        import time
-
                         time.sleep(1)
                         st.rerun()
                     else:
@@ -144,8 +142,6 @@ else:
                                 st.success(
                                     f"Synced {rosters_count} roster entries and {standings_count} standing entries."
                                 )
-                                import time
-
                                 time.sleep(1)
                                 st.rerun()
                             else:
