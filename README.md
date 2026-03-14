@@ -2,7 +2,7 @@
 
 A fantasy baseball draft assistant + in-season manager for Yahoo Sports 5x5 roto leagues. Features the **Heater** UI — a modern glassmorphic design system with vibrant thermal color palette, 3D inflatable buttons, kinetic gradient typography, and pill-based navigation. Monte Carlo draft recommendations, Bayesian projection updates, and full in-season roster management.
 
-Built for the **FourzynBurn** league (12-team snake draft, 23 rounds). ~10,000 lines of Python across 20 source files with 330 tests. Zero CSV uploads — all data auto-fetched from MLB Stats API + FanGraphs on every launch. Zero emoji — all icons are inline SVGs.
+Built for the **FourzynBurn** league (12-team snake draft, 23 rounds). ~20,000 lines of Python across 50+ source files with 603 tests (25 test files). Zero CSV uploads — all data auto-fetched from MLB Stats API + FanGraphs on every launch. Zero emoji — all icons are inline SVGs.
 
 ## Overview
 
@@ -55,7 +55,7 @@ The app opens at `http://localhost:8501`.
 |------|-------------|
 | **My Team** | Roster display with injury badges, team monogram avatar, category standings, Bayesian-adjusted projections, Yahoo sync |
 | **Draft Simulator** | Standalone mock draft with AI opponents, MC recommendations, position pill filters, card-based player selection |
-| **Trade Analyzer** | MC simulation (200 sims), park-adjusted SGP delta, confidence %, glassmorphic verdict banners |
+| **Trade Analyzer** | 6-phase engine: Phase 1 deterministic SGP grading (A+ to F), Phase 2 MC (10K paired sims), game theory opponent modeling, Bayesian model averaging, Gaussian copula correlated sampling, glassmorphic verdict banners |
 | **Player Compare** | Z-score normalization, dual search + card pickers, Plotly radar charts, health badges |
 | **Free Agents** | Marginal SGP rankings by category need, position pill filters |
 | **Lineup Optimizer** | PuLP LP solver, category targeting, two-start SP detection, health-adjusted SGP |
@@ -84,6 +84,21 @@ The app opens at `http://localhost:8501`.
 - **Injury model** — 3-year health scores, age-risk curves (hitters +2%/yr after 30, pitchers +3%/yr after 28), workload flags for IP spikes
 - **Percentile forecasts** — P10/P50/P90 floor/ceiling projections using inter-system volatility with process risk widening for low-correlation stats
 - **Enhanced opponent modeling** — History-aware pick probability combining ADP, team needs, and draft history preferences
+
+### Trade Analyzer Engine (`src/engine/`)
+
+A 6-phase pipeline for rigorous trade evaluation:
+
+| Phase | Module | What It Does |
+|-------|--------|-------------|
+| **1. Deterministic SGP** | `portfolio/` | Peer-group z-scores, standings-based SGP denominators, marginal elasticity (1/gap), punt detection, LP lineup delta, weighted SGP delta → grade (A+ to F) |
+| **2. Stochastic MC** | `monte_carlo/` | Bayesian model averaging, KDE marginals, Gaussian copula (10×10 correlation matrix), 10K paired Monte Carlo sims → VaR, CVaR, Sharpe, confidence intervals |
+| **3. Signal Intelligence** | `signals/` | Statcast harvesting (barrel%, xwOBA), exponential decay weighting, Kalman filter (true talent vs noise), BOCPD changepoint detection, HMM regime classification |
+| **4. Contextual Adjustments** | `context/` | Log5 matchup probabilities, Weibull injury duration modeling, enhanced bench option value, HHI roster concentration risk |
+| **5. Game Theory** | `game_theory/` | Vickrey auction opponent valuation, Bayesian adverse selection discount, Bellman DP rollout (future trade option value), sensitivity analysis + counter-offer generation |
+| **6. Production** | `production/` | Monte Carlo convergence diagnostics (ESS, split-R̂), adaptive simulation scaling, precomputation cache with TTL |
+
+207 dedicated tests across 6 test files verify each phase independently and in integration.
 
 ## Setup
 
@@ -147,7 +162,7 @@ See [Yahoo Developer Apps](https://developer.yahoo.com/apps/) to create credenti
 ## File Structure
 
 ```
-app.py                  — Draft tool (~1800 lines): splash screen bootstrap + 2-step setup wizard + 3-column draft page
+app.py                  — Draft tool (~1835 lines): splash screen bootstrap + 2-step setup wizard + 3-column draft page
 requirements.txt        — pip dependencies
 load_sample_data.py     — Generates ~190 sample players + injury history for testing
 .streamlit/config.toml  — Light theme configuration (Heater palette)
@@ -175,7 +190,16 @@ src/
   ui_shared.py          — Heater design system: single THEME dict, PAGE_ICONS (inline SVGs), glassmorphic CSS injection, metric tooltips
   validation.py         — Validation utilities
   data_2026.py          — Hardcoded 2026 projections for sample data
-tests/                  — 330 tests (18 test files), 329 pass, 1 skipped (PyMC)
+  engine/               — Trade Analyzer Engine (6 phases, 11 modules)
+    portfolio/          — Z-score valuation, category analysis, LP lineup optimization, Gaussian copula
+    projections/        — ROS projection client, Bayesian model averaging, KDE marginals
+    monte_carlo/        — Paired MC simulation (10K sims, variance reduction)
+    output/             — Master trade orchestrator (Phase 1 + Phase 2 overlay)
+    signals/            — Statcast harvesting, exponential decay, Kalman filter, BOCPD regime detection
+    context/            — Log5 matchups, Weibull injury process, bench value, concentration risk
+    game_theory/        — Opponent valuation, adverse selection, Bellman DP rollout, sensitivity analysis
+    production/         — Convergence diagnostics, adaptive sim scaling, precomputation cache
+tests/                  — 603 tests (25 test files), 602 pass, 1 skipped (PyMC)
 data/                   — SQLite DB + draft state backups (gitignored)
 .github/
   workflows/ci.yml      — CI pipeline (lint + test + build)
@@ -227,7 +251,7 @@ ruff check .
 # Format
 ruff format .
 
-# Run all tests (330 collected, 329 pass, 1 skipped for PyMC)
+# Run all tests (603 collected, 602 pass, 1 skipped for PyMC)
 python -m pytest
 
 # Run with verbose output
