@@ -361,9 +361,9 @@ def render_step_settings():
     with qs1:
         st.markdown(
             f'<div class="metric-card">'
-            f'<div style="font-family:Bebas Neue,sans-serif;font-size:14px;letter-spacing:2px;'
+            f'<div style="font-family:Bebas Neue,sans-serif;font-size:13px;letter-spacing:2px;'
             f'color:{T["tx2"]};text-transform:uppercase;">League Format</div>'
-            f'<div style="font-family:IBM Plex Mono,monospace;font-size:28px;font-weight:700;'
+            f'<div style="font-family:Figtree,sans-serif;font-size:18px;font-weight:700;'
             f'color:{T["tx"]};margin-top:4px;">{num_teams} Teams</div>'
             f'<div style="font-size:13px;color:{T["tx2"]};">{num_rounds} Rounds &middot; Snake &middot; 5x5 Roto</div>'
             f"</div>",
@@ -378,9 +378,9 @@ def render_step_settings():
         )
         st.markdown(
             f'<div class="metric-card">'
-            f'<div style="font-family:Bebas Neue,sans-serif;font-size:14px;letter-spacing:2px;'
+            f'<div style="font-family:Bebas Neue,sans-serif;font-size:13px;letter-spacing:2px;'
             f'color:{T["tx2"]};text-transform:uppercase;">Player Pool</div>'
-            f'<div style="font-family:IBM Plex Mono,monospace;font-size:28px;font-weight:700;'
+            f'<div style="font-family:Figtree,sans-serif;font-size:18px;font-weight:700;'
             f'color:{T["tx"]};margin-top:4px;">{pool_label}</div>'
             f'<div style="font-size:13px;">{conn_badge}</div>'
             f"</div>",

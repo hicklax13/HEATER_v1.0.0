@@ -1148,8 +1148,8 @@ def inject_custom_css():
         display: inline-block !important;
         padding: 10px 36px !important;
         border-radius: 50px !important;
-        background: #1d1d1f !important;
-        box-shadow: 0 4px 20px rgba(0,0,0,0.15), inset 0 1px 0 rgba(255,255,255,0.05) !important;
+        background: linear-gradient(135deg, #1a1a2e, #16213e) !important;
+        box-shadow: 0 4px 20px rgba(22,33,62,0.35), inset 0 1px 0 rgba(255,255,255,0.08) !important;
         position: relative !important;
     }}
     .page-title-wrap {{
@@ -1218,29 +1218,6 @@ def inject_custom_css():
         box-shadow: 0 1px 0 #b71c1c, 0 2px 4px rgba(0, 0, 0, 0.1);
         transition: all 0.08s ease;
     }}
-    .stButton > button[kind="secondary"],
-    .stButton > button[data-testid="stBaseButton-secondary"] {{
-        background: rgba(255, 255, 255, 0.6);
-        backdrop-filter: blur(8px);
-        color: {t["tx"]};
-        border: 1px solid {t["border"]};
-        transform: translateY(-1px);
-        box-shadow: 0 2px 0 {t["border"]}, 0 3px 8px rgba(0, 0, 0, 0.06);
-    }}
-    .stButton > button[kind="secondary"]:hover,
-    .stButton > button[data-testid="stBaseButton-secondary"]:hover {{
-        transform: translateY(-2px);
-        box-shadow: 0 3px 0 {t["border"]}, 0 4px 12px rgba(0, 0, 0, 0.08);
-        border-color: {t["primary"]};
-        color: {t["primary"]};
-    }}
-    .stButton > button[kind="secondary"]:active,
-    .stButton > button[data-testid="stBaseButton-secondary"]:active {{
-        transform: translateY(0);
-        box-shadow: 0 1px 0 {t["border"]};
-        transition: all 0.08s ease;
-    }}
-
     /* Inputs */
     div[data-testid="stTextInput"] input,
     div[data-testid="stNumberInput"] input {{
@@ -1299,12 +1276,28 @@ def inject_custom_css():
         border-color: {t["primary"]};
     }}
 
-    /* DataFrames */
+    /* DataFrames — contrasting background + bold headers */
     div[data-testid="stDataFrame"] {{
         border: 1px solid {t["border"]};
         border-radius: 14px;
         overflow: hidden;
         box-shadow: 0 2px 12px rgba(0, 0, 0, 0.04);
+        background: #ffffff !important;
+    }}
+    div[data-testid="stDataFrame"] [data-testid="glideDataEditor"] {{
+        background: #ffffff !important;
+    }}
+    /* Bold column headers */
+    div[data-testid="stDataFrame"] th,
+    div[data-testid="stDataFrame"] [role="columnheader"],
+    div[data-testid="stDataFrame"] .gdg-header-cell {{
+        font-weight: 700 !important;
+        font-family: 'Figtree', sans-serif !important;
+    }}
+    /* Table cell background for contrast against page bg */
+    div[data-testid="stDataFrame"] td,
+    div[data-testid="stDataFrame"] [role="gridcell"] {{
+        background: #ffffff !important;
     }}
 
     /* Sidebar */
@@ -1399,6 +1392,39 @@ def inject_custom_css():
         border-radius: 12px !important;
     }}
 
+    /* Bold ALL titles — subheaders, headers, markdown bold */
+    .stMarkdown h1, .stMarkdown h2, .stMarkdown h3,
+    h1, h2, h3,
+    [data-testid="stSubheader"],
+    .stSubheader {{
+        font-weight: 700 !important;
+        font-family: 'Figtree', sans-serif !important;
+        color: {t["tx"]} !important;
+    }}
+
+    /* Orange action buttons — "Refresh Stats", "Sync Yahoo", etc. */
+    .stButton > button[kind="secondary"],
+    .stButton > button[data-testid="stBaseButton-secondary"] {{
+        background: linear-gradient(135deg, #e65c00, #cc5200) !important;
+        color: #ffffff !important;
+        font-weight: 700 !important;
+        border: none !important;
+        transform: translateY(-1px);
+        box-shadow: 0 3px 0 #993d00, 0 4px 12px rgba(230, 92, 0, 0.25) !important;
+    }}
+    .stButton > button[kind="secondary"]:hover,
+    .stButton > button[data-testid="stBaseButton-secondary"]:hover {{
+        background: linear-gradient(135deg, #ff6d00, #e65c00) !important;
+        color: #ffffff !important;
+        transform: translateY(-2px);
+        box-shadow: 0 4px 0 #993d00, 0 6px 16px rgba(230, 92, 0, 0.35) !important;
+    }}
+    .stButton > button[kind="secondary"]:active,
+    .stButton > button[data-testid="stBaseButton-secondary"]:active {{
+        transform: translateY(0) scale(0.98);
+        box-shadow: 0 1px 0 #993d00, 0 2px 4px rgba(0, 0, 0, 0.1) !important;
+    }}
+
     /* ── TOOLTIP (CSS-based, on title attr) ─── */
     [title] {{
         cursor: help;
@@ -1476,8 +1502,8 @@ def inject_custom_css():
             if (header && !header.querySelector('.heater-logo')) {
                 const logoDiv = parent.document.createElement('div');
                 logoDiv.className = 'heater-logo';
-                logoDiv.style.cssText = 'display:flex;align-items:center;justify-content:center;gap:10px;padding:14px 0 6px 0;';
-                logoDiv.innerHTML = '<svg width="40" height="40" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">'
+                logoDiv.style.cssText = 'display:flex;align-items:center;justify-content:center;gap:14px;padding:22px 0 14px 0;';
+                logoDiv.innerHTML = '<svg width="56" height="56" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">'
                     + '<defs><radialGradient id="sbl" cx="40%" cy="35%" r="55%">'
                     + '<stop offset="0%" stop-color="#fff"/><stop offset="60%" stop-color="#f5f0e8"/>'
                     + '<stop offset="100%" stop-color="#e8ddd0"/></radialGradient>'
@@ -1506,8 +1532,8 @@ def inject_custom_css():
                     + '<line x1="49" y1="45" x2="46" y2="44" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
                     + '<circle cx="38" cy="32" r="21" fill="none" stroke="rgba(255,255,255,0.3)" stroke-width="1.2"/>'
                     + '</svg>'
-                    + '<span style="font-family:Bebas Neue,sans-serif;font-size:22px;letter-spacing:3px;'
-                    + 'color:#ffffff;font-weight:700;text-shadow:0 1px 3px rgba(0,0,0,0.2);">HEATER</span>';
+                    + '<span style="font-family:Bebas Neue,sans-serif;font-size:36px;letter-spacing:5px;'
+                    + 'color:#ffffff;font-weight:700;text-shadow:0 2px 6px rgba(0,0,0,0.3);">HEATER</span>';
                 header.insertBefore(logoDiv, header.firstChild);
             }
 

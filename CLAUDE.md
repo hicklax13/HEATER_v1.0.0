@@ -1,11 +1,11 @@
-# Heater — Fantasy Baseball Draft Tool
+# HEATER — Fantasy Baseball Draft Tool
 
 ## Overview
 
 A fantasy baseball draft assistant + in-season manager for a 12-team Yahoo Sports 5x5 roto snake draft league. Two pillars:
 
-1. **Draft Tool** (`app.py`, ~1800 lines) — "Heater" themed Streamlit app with light-mode glassmorphic design: splash screen data bootstrap + 2-step setup wizard (Settings, Launch), 3-column draft page with SVG injury badges, percentile ranges, opponent intel tab, and practice mode. Monte Carlo recommendations with percentile sampling. Zero CSV uploads — all data auto-fetched from MLB Stats API + FanGraphs on every launch.
-2. **In-Season Management** (`pages/`) — 6 Streamlit pages: team overview, mock draft simulator, trade analysis, player comparison, free agent rankings, lineup optimizer. Powered by MLB Stats API + pybaseball + optional Yahoo Fantasy API. All pages share centralized single-theme system (light mode only).
+1. **Draft Tool** (`app.py`, ~1800 lines) — "Heater" themed Streamlit app with light-mode-only glassmorphic design system: splash screen data bootstrap + 2-step setup wizard (Settings, Launch), 3-column draft page with SVG injury badges, percentile ranges, opponent intel tab, and practice mode. Monte Carlo recommendations with percentile sampling. Zero CSV uploads — all data auto-fetched from MLB Stats API + FanGraphs on every launch. Pill button navigation replaces dropdowns. Search + card grids for player selection.
+2. **In-Season Management** (`pages/`) — 6 Streamlit pages: team overview, draft simulator, trade analysis, player comparison, free agent rankings, lineup optimizer. Powered by MLB Stats API + pybaseball + optional Yahoo Fantasy API. All pages share centralized single-theme system (light mode only) with glassmorphic design, orange sidebar branding, and bold Heater identity.
 
 ## Commands
 
@@ -64,14 +64,14 @@ python -m pytest tests/test_in_season.py::test_trade_analyzer -v
 app.py                  — Draft tool: splash screen bootstrap + 2-step setup wizard + 3-column draft page
 requirements.txt        — pip dependencies (streamlit, pandas, numpy, scipy, plotly, MLB-StatsAPI, pybaseball, pymc, PuLP, yfpy)
 load_sample_data.py     — Generates ~190 sample players + injury history for testing
-.streamlit/config.toml  — Dark theme configuration
+.streamlit/config.toml  — Light theme configuration (Heater palette)
 .claude/launch.json     — Dev server config for preview tools
 pages/
-  1_My_Team.py          — In-season: team overview, roster, category standings
-  2_Mock_Draft.py       — Standalone mock draft simulator (AI opponents, MC recommendations, draft board)
-  3_Trade_Analyzer.py   — In-season: trade proposal builder + MC analysis
-  4_Player_Compare.py   — In-season: head-to-head player comparison
-  5_Free_Agents.py      — In-season: free agent rankings by marginal value
+  1_My_Team.py          — In-season: team overview with monogram avatar, roster, category standings, Yahoo sync
+  2_Draft_Simulator.py  — Standalone draft simulator (AI opponents, MC recommendations, pill filters, card-based picks)
+  3_Trade_Analyzer.py   — In-season: trade proposal builder + MC analysis + glassmorphic verdict banners
+  4_Player_Compare.py   — In-season: head-to-head player comparison with dual search + card pickers
+  5_Free_Agents.py      — In-season: free agent rankings by marginal value, position pill filters
   6_Lineup_Optimizer.py — In-season: PuLP LP solver for start/sit + category targeting
 src/
   database.py           — SQLite schema (14 tables), CSV import, projection blending, player pool + in-season queries
@@ -82,7 +82,7 @@ src/
   live_stats.py         — MLB Stats API data fetcher: roster, season/historical stats, injury data extraction
   data_bootstrap.py     — Zero-interaction bootstrap orchestrator: staleness-based refresh of all data sources on app launch
   league_manager.py     — League roster/standings management, CSV import for all 12 teams
-  ui_shared.py          — Centralized theme system (dark/light), PAGE_ICONS (inline SVGs), inject_custom_css(), METRIC_TOOLTIPS
+  ui_shared.py          — Heater design system: single THEME dict, PAGE_ICONS (inline SVGs), glassmorphic CSS injection (~1500 lines), metric tooltips, sidebar branding
   data_2026.py          — Hardcoded 2026 projections (~200 hitters, ~80 pitchers) for sample data
   validation.py         — Validation utilities
   bayesian.py           — Bayesian projection updater: PyMC hierarchical model + Marcel regression fallback
@@ -230,7 +230,7 @@ THEME: dict  # Single light-mode palette: bg=#f4f5f0, primary=#e63946, hot=#ff6d
 T = THEME  # Direct dict alias — no proxy needed without dark mode. Backward compat: T["amber"]→#e63946, T["teal"]→#457b9d
 get_theme() -> dict  # Stub — always returns THEME (kept for backward compat)
 render_theme_toggle()  # No-op stub (kept for backward compat)
-inject_custom_css()  # Injects full CSS (1100+ lines) with glassmorphism, 3D buttons, kinetic typography, 7 animations
+inject_custom_css()  # Injects full CSS (1500+ lines) with glassmorphism, 3D buttons, kinetic typography, 7 animations, orange sidebar, bold titles, contrasting data tables
 
 # Percentiles (src/valuation.py)
 compute_projection_volatility(projections_by_system: dict[str, DataFrame]) -> DataFrame
@@ -314,10 +314,16 @@ SYSTEM_MAP = {"steamer": "steamer", "zips": "zips", "fangraphsdc": "depthcharts"
 - **`T["ink"]` vs `T["bg"]` for text-on-accent** — `T["bg"]` is for page backgrounds. `T["ink"]` is for dark text on colored surfaces (amber buttons, badges, tabs). Never use `T["bg"]` as a text color — it's invisible on amber in light mode.
 - **No emoji in the codebase** — All icons are inline SVGs from `PAGE_ICONS` dict in `ui_shared.py`. Injury badges use CSS dots (`border-radius:50%`), not emoji. Do NOT re-introduce emoji.
 - **No abbreviations in UI text** — All user-facing text uses full terms: "Standings Gained Points" (not SGP), "Value Over Replacement Player" (not VORP), "Average Draft Position" (not ADP), "Monte Carlo" (not MC), "Runs Batted In" (not RBI), etc. Variable names and DB columns stay abbreviated. Category display uses `cat_names`/`cat_display_names` mapping dicts.
-- **Draft Settings live on Mock Draft page** — Number of teams, Rounds, and Draft position inputs are on `pages/2_Mock_Draft.py`, not on the Connect League page. Stored in `mock_num_teams`, `mock_num_rounds`, `mock_draft_pos` session state. Also written to shared `num_teams`/`num_rounds`/`draft_pos` keys for the main draft.
+- **Draft Settings live on Draft Simulator page** — Number of teams, Rounds, and Draft position inputs are on `pages/2_Draft_Simulator.py`, not on the Connect League page. Stored in `mock_num_teams`, `mock_num_rounds`, `mock_draft_pos` session state. Also written to shared `num_teams`/`num_rounds`/`draft_pos` keys for the main draft.
 - **Yahoo sync across pages** — Pages reuse `st.session_state.yahoo_client` for Yahoo sync instead of creating new clients. Token data stored in `st.session_state.yahoo_token_data` for re-authentication. Pages show "Sync League Data Now" button when Yahoo connected but DB empty.
 - **`T = THEME` is now a plain dict** — `T` in `ui_shared.py` is just `THEME` (the single color palette dict). The old `_ThemeProxy` class was removed along with dark mode. Backward-compat aliases: `T["amber"]`→`"#e63946"` (primary red), `T["teal"]`→`"#457b9d"` (sky blue).
-- **Sidebar nav rename via JS** — The sidebar "app" label is renamed to "Connect League" using JS `textContent` replacement in `inject_custom_css()`.
+- **Sidebar nav rename via JS** — The sidebar "app" label is renamed to "Connect League" and "Mock Draft" to "Draft Simulator" using JS `textContent` replacement in `inject_custom_css()`. Same JS block also injects the HEATER logo + text into the sidebar header.
+- **Streamlit CSS `!important` requirement** — Streamlit's React-based renderer applies high-specificity inline CSS. ALL custom CSS properties on injected HTML (`.page-title`, `.metric-card`, etc.) need `!important` to override. Without it, custom backgrounds, font-sizes, and display properties silently revert to Streamlit defaults.
+- **Streamlit HTML sanitization** — `st.markdown('<div class="glass">')` immediately auto-closes the tag. Cannot use split open/close div patterns with Streamlit widgets between them. Content renders outside the wrapper. Use self-contained HTML blocks only.
+- **Orange sidebar + white text** — Sidebar background is `linear-gradient(180deg, #e65c00, #cc5200)`. All sidebar text forced to `#ffffff !important`. Active nav item uses dark overlay `rgba(0,0,0,0.15)` instead of white highlight for contrast.
+- **Title badge deep navy gradient** — Page title badges use `linear-gradient(135deg, #1a1a2e, #16213e)` background with gradient text overlay (red > orange > gold via `background-clip: text`).
+- **All buttons are orange** — Secondary buttons globally styled with `linear-gradient(135deg, #e65c00, #cc5200)` + white bold text. This matches the sidebar branding and creates visual consistency.
+- **Data table white background** — All `st.dataframe()` tables get `background: #ffffff !important` to contrast against the page's `#f4f5f0` chalk background. Column headers get `font-weight: 700 !important`.
 - **Rate-stat aggregation** — AVG=sum(h)/sum(ab), ERA=sum(er)*9/sum(ip), WHIP=sum(bb+h)/sum(ip). Weighted averages, NOT simple averages. `_fix_rate_stats()` in `lineup_optimizer.py` recalculates these after LP solves.
 - **Injury model scales rate stats** — `apply_injury_adjustment()` scales ER, BB_allowed, H_allowed by `_combined_factor` (health×age×workload), not just counting stats. Without this, injured pitchers show artificially low ERA/WHIP.
 - **LP inverse stat weighting** — ERA/WHIP in lineup optimizer LP objective must be weighted by IP: `player_value -= val * ip * weight`. Without IP weighting, a 1-IP reliever with 0.00 ERA dominates a 200-IP starter.

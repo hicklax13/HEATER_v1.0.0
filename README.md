@@ -1,18 +1,18 @@
-# Fantasy Baseball Draft Tool
+# HEATER — Fantasy Baseball Draft Tool
 
-A fantasy baseball draft assistant + in-season manager for Yahoo Sports 5x5 roto leagues. Features a "Broadcast Booth" UI with dark/light theme toggle, Monte Carlo draft recommendations, Bayesian projection updates, and full in-season roster management.
+A fantasy baseball draft assistant + in-season manager for Yahoo Sports 5x5 roto leagues. Features the **Heater** UI — a modern glassmorphic design system with vibrant thermal color palette, 3D inflatable buttons, kinetic gradient typography, and pill-based navigation. Monte Carlo draft recommendations, Bayesian projection updates, and full in-season roster management.
 
 Built for the **FourzynBurn** league (12-team snake draft, 23 rounds). ~10,000 lines of Python across 20 source files with 330 tests. Zero CSV uploads — all data auto-fetched from MLB Stats API + FanGraphs on every launch. Zero emoji — all icons are inline SVGs.
 
 ## Overview
 
-The app features a navy + amber "Broadcast Booth" theme with dark/light mode toggle and sports broadcast typography (Oswald + DM Sans). All icons are custom inline SVGs — no emoji.
+The app features the **Heater** design system — a light-mode-only interface with glassmorphic cards, stadium red + thermal orange + scoreboard gold accents, and modern typography (Bebas Neue headers, Figtree body, IBM Plex Mono stats). All dropdowns replaced with pill button groups and search + card grids.
 
 - **Splash Screen** — Zero-interaction data bootstrap on every launch: 750+ MLB players, 3 years of history, projections, park factors, live stats — all auto-fetched with staleness-based refresh
-- **Setup Wizard** — 2-step guided setup (Settings → Launch). No CSV uploads needed — all data loaded automatically
+- **Setup Wizard** — 2-step guided setup (Settings > Launch). No CSV uploads needed — all data loaded automatically
 - **Draft Page** — 3-column layout: MC recommendations with hero card (CSS dot health badges, P10/P90 ranges, survival probability), draft board, player search + opponent intel
-- **In-Season Pages** — 5 Streamlit pages with shared theme system: team overview, trade analyzer, player compare, free agent rankings, lineup optimizer
-- **Dark/Light Toggle** — one-click theme switch that persists across pages; navy borders + amber accent in both modes
+- **In-Season Pages** — 6 Streamlit pages with shared theme system: team overview, draft simulator, trade analyzer, player compare, free agent rankings, lineup optimizer
+- **Glassmorphic UI** — translucent cards with backdrop blur, 3D inflatable buttons, staggered entrance animations, kinetic gradient page titles
 
 ## Quick Start
 
@@ -40,9 +40,10 @@ The app opens at `http://localhost:8501`.
 ### Draft Tool (`app.py`)
 
 - **Splash screen bootstrap** — auto-loads all data on every launch with progress bar
-- **2-step setup wizard** (Settings → Launch) with optional Yahoo OAuth
+- **2-step setup wizard** (Settings > Launch) with optional Yahoo OAuth
 - **Monte Carlo simulation** (100-300 sims, 6-round horizon) for pick recommendations
 - **Hero card** with survival probability, CSS dot health badges, P10/P90 range bars, SGP chips
+- **Search + card grid** player selection — replaces traditional dropdowns
 - **Opponent intel** — threat alerts when opponents need your target position
 - **Practice mode** — ephemeral draft state for what-if scenarios
 - **Snake draft engine** with dynamic replacement levels and positional scarcity
@@ -52,26 +53,31 @@ The app opens at `http://localhost:8501`.
 
 | Page | Description |
 |------|-------------|
-| **My Team** | Roster display with injury badges, category standings, Bayesian-adjusted projections, Yahoo sync |
-| **Trade Analyzer** | MC simulation (200 sims), park-adjusted SGP delta, confidence %, P10/P90 risk assessment |
-| **Player Compare** | Z-score normalization, composite scores, Plotly radar charts, health badges, projection confidence |
-| **Free Agents** | Marginal SGP rankings by category need, position filtering |
+| **My Team** | Roster display with injury badges, team monogram avatar, category standings, Bayesian-adjusted projections, Yahoo sync |
+| **Draft Simulator** | Standalone mock draft with AI opponents, MC recommendations, position pill filters, card-based player selection |
+| **Trade Analyzer** | MC simulation (200 sims), park-adjusted SGP delta, confidence %, glassmorphic verdict banners |
+| **Player Compare** | Z-score normalization, dual search + card pickers, Plotly radar charts, health badges |
+| **Free Agents** | Marginal SGP rankings by category need, position pill filters |
 | **Lineup Optimizer** | PuLP LP solver, category targeting, two-start SP detection, health-adjusted SGP |
 
-### UI & Theme System (`src/ui_shared.py`)
+### Heater Design System (`src/ui_shared.py`)
 
-- **Dark/light theme toggle** — one-click switch persists across all pages via `st.session_state`
-- **Centralized CSS** — 1100+ lines of shared styles injected via `inject_custom_css()`
+- **Light-mode-only** — single vibrant `THEME` dict with stadium red, thermal orange, scoreboard gold, outfield green, sky blue accents
+- **Glassmorphic cards** — `backdrop-filter: blur(20px) saturate(180%)` with translucent borders, hover lift + spring-back
+- **3D inflatable buttons** — bottom shadow creates depth illusion, `:active` press-down effect
+- **Kinetic gradient text** — animated `background-clip: text` on page titles (red > orange > gold gradient shift)
+- **Deep navy title badges** — rounded pill-shaped header badges with gradient fill
+- **Orange sidebar** — bold gradient sidebar with baseball logo + HEATER branding
+- **Pill button navigation** — position filters use styled button groups instead of dropdowns
+- **Centralized CSS** — 1500+ lines of shared styles injected via `inject_custom_css()`
 - **Inline SVG icon system** — ~20 Feather-style icons in `PAGE_ICONS` dict (no emoji anywhere)
-- **CSS dot health badges** — colored circles for injury indicators instead of emoji
-- **Dual theme dictionaries** — `DARK_THEME` and `LIGHT_THEME` with `ink` key for text-on-accent contrast
-- **`_ThemeProxy`** — dict subclass that makes `T["color"]` always resolve to the active theme
 - **Educational tooltips** — `METRIC_TOOLTIPS` dict with explanations for SGP, VORP, survival %, health badges, and more
+- **Fonts:** Bebas Neue (headers), Figtree (body), IBM Plex Mono (stats/metrics)
 
 ### Data Pipeline & Analytics
 
 - **Zero-interaction bootstrap** — `bootstrap_all_data()` orchestrates 7 data phases with staleness-based smart refresh (1h live stats, 6h Yahoo, 7d projections, 30d historical/park factors)
-- **FanGraphs auto-fetch** — Steamer, ZiPS, Depth Charts projections (3 systems × bat/pit = 6 endpoints) on app startup
+- **FanGraphs auto-fetch** — Steamer, ZiPS, Depth Charts projections (3 systems x bat/pit = 6 endpoints) on app startup
 - **MLB Stats API** — 750+ active player roster fetch, current season stats, 3-year historical stats for injury modeling
 - **Yahoo Fantasy API** — OAuth 2.0 out-of-band flow with persistent auto-reconnect. Multi-strategy game key resolution handles pre-season edge cases. Syncs settings, rosters (12 teams x 23 players), standings, FA pool. Token auto-refreshes on every restart
 - **Bayesian updater** — PyMC 5 hierarchical beta-binomial model for in-season stat updates; Marcel regression fallback when PyMC unavailable. Uses FanGraphs stabilization thresholds (K=60 PA, AVG=910 AB, ERA=70 IP)
@@ -120,7 +126,7 @@ See [Yahoo Developer Apps](https://developer.yahoo.com/apps/) to create credenti
 
 1. **START DRAFT** from the setup wizard (toggle Practice Mode for mock drafts)
 2. The **hero card** shows the top recommendation with survival probability, injury badge, and P10/P90 ranges
-3. Select a player from the dropdown and click **DRAFT** to lock in your pick
+3. Search for a player or select from the card grid and click **DRAFT** to lock in your pick
 4. In practice mode, opponents auto-pick based on ADP + team needs
 5. Use the **tabs** to view category balance, available players, draft board, draft log, and opponent intel
 
@@ -134,22 +140,24 @@ See [Yahoo Developer Apps](https://developer.yahoo.com/apps/) to create credenti
 | Analytics | PyMC 5 (Bayesian), PuLP (LP optimizer), arviz |
 | Live data | MLB-StatsAPI, pybaseball |
 | Yahoo API | yfpy v17+ + streamlit-oauth |
+| Design | Glassmorphism, Bebas Neue/Figtree/IBM Plex Mono |
 | Linting | ruff (lint + format) |
 | CI | GitHub Actions (ruff, pytest on Python 3.11-3.13) |
 
 ## File Structure
 
 ```
-app.py                  — Draft tool (~1670 lines): splash screen bootstrap + 2-step setup wizard + 3-column draft page
+app.py                  — Draft tool (~1800 lines): splash screen bootstrap + 2-step setup wizard + 3-column draft page
 requirements.txt        — pip dependencies
 load_sample_data.py     — Generates ~190 sample players + injury history for testing
-.streamlit/config.toml  — Dark theme configuration
+.streamlit/config.toml  — Light theme configuration (Heater palette)
 pages/
-  1_My_Team.py          — Team overview, roster, injury badges, Bayesian projections
-  2_Trade_Analyzer.py   — Trade proposal builder + MC analysis + P10/P90 risk
-  3_Player_Compare.py   — Head-to-head comparison with radar charts + health badges
-  4_Free_Agents.py      — Free agent rankings by marginal value
-  5_Lineup_Optimizer.py — PuLP LP solver for start/sit + category targeting
+  1_My_Team.py          — Team overview, roster, injury badges, Bayesian projections, Yahoo sync
+  2_Draft_Simulator.py  — Standalone draft simulator with AI opponents, pill filters, card-based picks
+  3_Trade_Analyzer.py   — Trade proposal builder + MC analysis + glassmorphic verdict banners
+  4_Player_Compare.py   — Head-to-head comparison with dual search + radar charts + health badges
+  5_Free_Agents.py      — Free agent rankings by marginal value, position pill filters
+  6_Lineup_Optimizer.py — PuLP LP solver for start/sit + category targeting
 src/
   database.py           — SQLite schema (14 tables), CSV import, queries
   valuation.py          — SGP, VORP, replacement levels, percentile forecasts
@@ -164,7 +172,7 @@ src/
   lineup_optimizer.py   — PuLP LP solver, category targeting, two-start SP detection
   yahoo_api.py          — Yahoo Fantasy OAuth (oob flow) + auto-reconnect + multi-strategy game key resolution + league sync
   data_pipeline.py      — FanGraphs auto-fetch pipeline (Steamer/ZiPS/Depth Charts)
-  ui_shared.py          — Centralized theme system (dark/light), PAGE_ICONS (inline SVGs), CSS injection, metric tooltips
+  ui_shared.py          — Heater design system: single THEME dict, PAGE_ICONS (inline SVGs), glassmorphic CSS injection, metric tooltips
   validation.py         — Validation utilities
   data_2026.py          — Hardcoded 2026 projections for sample data
 tests/                  — 330 tests (18 test files), 329 pass, 1 skipped (PyMC)

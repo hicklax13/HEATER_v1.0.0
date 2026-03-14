@@ -78,7 +78,20 @@ else:
         st.stop()
     else:
         user_team_name = user_teams.iloc[0]["team_name"]
-        st.markdown(f"**Team:** {user_team_name}")
+        # Team name with styled monogram avatar
+        initials = "".join(w[0].upper() for w in user_team_name.split()[:2]) if user_team_name else "T"
+        st.markdown(
+            f'<div style="display:flex;align-items:center;gap:14px;margin-bottom:10px;">'
+            f'<div style="width:48px;height:48px;border-radius:50%;'
+            f"background:linear-gradient(135deg,#e65c00,#cc5200);"
+            f"display:flex;align-items:center;justify-content:center;"
+            f"font-family:Bebas Neue,sans-serif;font-size:20px;letter-spacing:1px;"
+            f'color:#ffffff;font-weight:700;box-shadow:0 3px 12px rgba(230,92,0,0.3);">'
+            f"{initials}</div>"
+            f'<span style="font-family:Figtree,sans-serif;font-size:20px;font-weight:700;'
+            f'color:#1d1d1f;">Team: {user_team_name}</span></div>',
+            unsafe_allow_html=True,
+        )
 
         # Refresh button
         col1, col2 = st.columns([1, 4])
