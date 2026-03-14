@@ -9,7 +9,7 @@ from src.database import init_db, load_league_rosters, load_player_pool
 from src.in_season import analyze_trade
 from src.injury_model import compute_health_score, get_injury_badge
 from src.league_manager import get_team_roster
-from src.ui_shared import METRIC_TOOLTIPS, PAGE_ICONS, T, inject_custom_css
+from src.ui_shared import METRIC_TOOLTIPS, PAGE_ICONS, T, inject_custom_css, render_styled_table
 from src.valuation import LeagueConfig, add_process_risk, compute_percentile_projections, compute_projection_volatility
 
 st.set_page_config(page_title="Heater | Trade Analyzer", page_icon="", layout="wide")
@@ -197,7 +197,7 @@ else:
                         for cat, val in result["category_impact"].items()
                     ]
                 )
-                st.dataframe(impact_df, width="stretch", hide_index=True)
+                render_styled_table(impact_df)
 
                 # Risk flags
                 if result["risk_flags"]:
@@ -280,7 +280,7 @@ else:
                                         }
                                     )
                             if risk_rows:
-                                st.dataframe(pd.DataFrame(risk_rows), hide_index=True, width="stretch")
+                                render_styled_table(pd.DataFrame(risk_rows))
                                 st.caption(METRIC_TOOLTIPS["p10_p90"])
                 except Exception:
                     pass  # Graceful degradation

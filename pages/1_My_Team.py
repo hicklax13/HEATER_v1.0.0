@@ -9,7 +9,7 @@ from src.database import init_db, load_league_rosters
 from src.injury_model import compute_health_score, get_injury_badge
 from src.league_manager import get_team_roster
 from src.live_stats import refresh_all_stats
-from src.ui_shared import METRIC_TOOLTIPS, inject_custom_css
+from src.ui_shared import METRIC_TOOLTIPS, inject_custom_css, render_styled_table
 
 try:
     from src.bayesian import BayesianUpdater
@@ -195,18 +195,17 @@ else:
             st.subheader("Roster (2026 Season)")
             display_cols = ["name", "positions", "roster_slot", "Health"]
             available_cols = [c for c in display_cols if c in roster.columns]
-            col_config = {
-                "name": st.column_config.TextColumn("Player"),
-                "positions": st.column_config.TextColumn("Position(s)"),
-                "roster_slot": st.column_config.TextColumn("Slot"),
-                "Health": st.column_config.TextColumn("Health"),
+            display_df = (roster[available_cols] if available_cols else roster).copy()
+            rename_map = {
+                "name": "Player",
+                "positions": "Position(s)",
+                "roster_slot": "Slot",
             }
-            st.dataframe(
-                roster[available_cols] if available_cols else roster,
-                column_config=col_config,
-                width="stretch",
-                hide_index=True,
+            display_df.rename(
+                columns={k: v for k, v in rename_map.items() if k in display_df.columns},
+                inplace=True,
             )
+            render_styled_table(display_df)
 
             # Category totals
             st.subheader("Category Totals (2026 Projected)")
@@ -241,12 +240,12 @@ else:
             with col1:
                 st.markdown("**Hitting**")
                 if hit_stats:
-                    st.dataframe(pd.DataFrame([hit_stats]), hide_index=True)
+                    render_styled_table(pd.DataFrame([hit_stats]))
                     st.caption(METRIC_TOOLTIPS["avg"])
             with col2:
                 st.markdown("**Pitching**")
                 if pitch_stats:
-                    st.dataframe(pd.DataFrame([pitch_stats]), hide_index=True)
+                    render_styled_table(pd.DataFrame([pitch_stats]))
                     st.caption(METRIC_TOOLTIPS["era"] + " | " + METRIC_TOOLTIPS["whip"])
 
             # Bayesian-adjusted projections
@@ -275,21 +274,32 @@ else:
                             )
                             stat_display = ["player_id", "avg", "hr", "rbi", "sb", "era", "whip", "k"]
                             show_cols = [c for c in stat_display if c in updated.columns]
-                            st.dataframe(
-                                updated[show_cols],
-                                hide_index=True,
-                                width="stretch",
-                                column_config={
-                                    "player_id": st.column_config.NumberColumn("ID"),
-                                    "avg": st.column_config.NumberColumn("AVG", format="%.3f"),
-                                    "hr": st.column_config.NumberColumn("HR", format="%.0f"),
-                                    "rbi": st.column_config.NumberColumn("RBI", format="%.0f"),
-                                    "sb": st.column_config.NumberColumn("SB", format="%.0f"),
-                                    "era": st.column_config.NumberColumn("ERA", format="%.2f"),
-                                    "whip": st.column_config.NumberColumn("WHIP", format="%.3f"),
-                                    "k": st.column_config.NumberColumn("K", format="%.0f"),
-                                },
+                            bayes_df = updated[show_cols].copy()
+                            bayes_rename = {
+                                "player_id": "ID",
+                                "avg": "AVG",
+                                "hr": "HR",
+                                "rbi": "RBI",
+                                "sb": "SB",
+                                "era": "ERA",
+                                "whip": "WHIP",
+                                "k": "K",
+                            }
+                            bayes_df.rename(
+                                columns={k: v for k, v in bayes_rename.items() if k in bayes_df.columns},
+                                inplace=True,
                             )
+                            # Format numeric columns for display
+                            for c in ["AVG", "WHIP"]:
+                                if c in bayes_df.columns:
+                                    bayes_df[c] = bayes_df[c].map(lambda x: f"{x:.3f}")
+                            for c in ["ERA"]:
+                                if c in bayes_df.columns:
+                                    bayes_df[c] = bayes_df[c].map(lambda x: f"{x:.2f}")
+                            for c in ["HR", "RBI", "SB", "K", "ID"]:
+                                if c in bayes_df.columns:
+                                    bayes_df[c] = bayes_df[c].map(lambda x: f"{x:.0f}")
+                            render_styled_table(bayes_df)
                     finally:
                         conn.close()
                 except Exception:

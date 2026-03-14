@@ -9,7 +9,7 @@ import streamlit as st
 from src.database import init_db, load_league_rosters, load_player_pool
 from src.in_season import rank_free_agents
 from src.league_manager import get_free_agents, get_team_roster
-from src.ui_shared import METRIC_TOOLTIPS, inject_custom_css
+from src.ui_shared import METRIC_TOOLTIPS, inject_custom_css, render_styled_table
 from src.valuation import LeagueConfig
 
 logger = logging.getLogger(__name__)
@@ -118,16 +118,19 @@ else:
                     st.info("No ranked free agents found.")
                 else:
                     st.subheader(f"Top Free Agents ({len(ranked)} available)")
-                    st.dataframe(
-                        ranked[["player_name", "positions", "marginal_value", "best_category", "best_cat_impact"]],
-                        width="stretch",
-                        hide_index=True,
-                        column_config={
-                            "player_name": st.column_config.TextColumn("Player"),
-                            "positions": st.column_config.TextColumn("Position"),
-                            "marginal_value": st.column_config.NumberColumn("Marginal Value", format="%.2f"),
-                            "best_category": st.column_config.TextColumn("Best Category"),
-                            "best_cat_impact": st.column_config.NumberColumn("Category Impact", format="%.2f"),
-                        },
+                    display_df = ranked[
+                        ["player_name", "positions", "marginal_value", "best_category", "best_cat_impact"]
+                    ].copy()
+                    display_df["marginal_value"] = display_df["marginal_value"].map(lambda x: f"{x:.2f}")
+                    display_df["best_cat_impact"] = display_df["best_cat_impact"].map(lambda x: f"{x:.2f}")
+                    display_df = display_df.rename(
+                        columns={
+                            "player_name": "Player",
+                            "positions": "Position",
+                            "marginal_value": "Marginal Value",
+                            "best_category": "Best Category",
+                            "best_cat_impact": "Category Impact",
+                        }
                     )
+                    render_styled_table(display_df)
                     st.caption(METRIC_TOOLTIPS["marginal_value"])

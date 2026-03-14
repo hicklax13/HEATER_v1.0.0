@@ -9,7 +9,7 @@ import streamlit as st
 from src.database import init_db, load_player_pool
 from src.draft_state import DraftState
 from src.simulation import DraftSimulator
-from src.ui_shared import T, inject_custom_css
+from src.ui_shared import T, inject_custom_css, render_styled_table
 from src.valuation import (
     LeagueConfig,
     SGPCalculator,
@@ -225,7 +225,7 @@ def render_user_roster(ds: DraftState) -> None:
             }
         )
     df = pd.DataFrame(rows)
-    st.dataframe(df, width="stretch", hide_index=True, height=500)
+    render_styled_table(df, max_height=500)
 
 
 # ── Recent Picks Feed ───────────────────────────────────────────────────────
@@ -339,7 +339,7 @@ def render_draft_summary(pool: pd.DataFrame, ds: DraftState) -> None:
 
     st.markdown("### Final Roster")
     rows = [{"Slot": s.position, "Player": s.player_name or "—"} for s in ds.user_team.slots]
-    st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
+    render_styled_table(pd.DataFrame(rows))
 
     if st.button("Start New Mock Draft", type="primary"):
         for key in list(st.session_state.keys()):
@@ -374,20 +374,21 @@ def render_tabs(pool: pd.DataFrame, ds: DraftState) -> None:
                 disp = disp[disp["positions"].str.contains(pos_filter, na=False)]
             cols = ["player_name", "positions", "team", "adp", "pick_score"]
             cols = [c for c in cols if c in disp.columns]
-            disp_sorted = disp[cols].sort_values("pick_score", ascending=False)
-            st.dataframe(
-                disp_sorted,
-                width="stretch",
-                hide_index=True,
-                height=400,
-                column_config={
-                    "player_name": st.column_config.TextColumn("Player"),
-                    "positions": st.column_config.TextColumn("Position"),
-                    "team": st.column_config.TextColumn("Team"),
-                    "adp": st.column_config.NumberColumn("ADP", format="%.0f"),
-                    "pick_score": st.column_config.NumberColumn("Pick Score", format="%.1f"),
-                },
+            disp_sorted = disp[cols].sort_values("pick_score", ascending=False).copy()
+            if "adp" in disp_sorted.columns:
+                disp_sorted["adp"] = disp_sorted["adp"].apply(lambda x: f"{x:.0f}" if pd.notna(x) else "")
+            if "pick_score" in disp_sorted.columns:
+                disp_sorted["pick_score"] = disp_sorted["pick_score"].apply(lambda x: f"{x:.1f}" if pd.notna(x) else "")
+            disp_sorted = disp_sorted.rename(
+                columns={
+                    "player_name": "Player",
+                    "positions": "Position",
+                    "team": "Team",
+                    "adp": "ADP",
+                    "pick_score": "Pick Score",
+                }
             )
+            render_styled_table(disp_sorted, max_height=400)
 
     with tab_board:
         if not ds.pick_log:
@@ -409,7 +410,7 @@ def render_tabs(pool: pd.DataFrame, ds: DraftState) -> None:
                 grid_rows.append(row)
 
             board_df = pd.DataFrame(grid_rows).set_index("Round")
-            st.dataframe(board_df, width="stretch", height=500)
+            render_styled_table(board_df, hide_index=False, max_height=500)
 
     with tab_log:
         if not ds.pick_log:
@@ -419,7 +420,7 @@ def render_tabs(pool: pd.DataFrame, ds: DraftState) -> None:
                 ["pick", "round", "pick_in_round", "team_name", "player_name", "positions"]
             ]
             log_df.columns = ["#", "Round", "Pick", "Team", "Player", "Position"]
-            st.dataframe(log_df[::-1].reset_index(drop=True), width="stretch", hide_index=True, height=400)
+            render_styled_table(log_df[::-1].reset_index(drop=True), max_height=400)
 
 
 # ── Main ────────────────────────────────────────────────────────────────────

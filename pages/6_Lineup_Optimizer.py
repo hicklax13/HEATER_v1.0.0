@@ -8,7 +8,7 @@ import streamlit as st
 from src.database import init_db, load_league_rosters, load_league_standings
 from src.injury_model import compute_health_score, get_injury_badge
 from src.league_manager import get_team_roster
-from src.ui_shared import METRIC_TOOLTIPS, PAGE_ICONS, inject_custom_css
+from src.ui_shared import METRIC_TOOLTIPS, PAGE_ICONS, inject_custom_css, render_styled_table
 
 try:
     from src.lineup_optimizer import LineupOptimizer
@@ -138,17 +138,13 @@ if optimize_clicked:
             lineup_data.append({"Slot": slot, "Player": player_name})
 
         st.subheader("Recommended Lineup")
-        st.dataframe(
-            pd.DataFrame(lineup_data),
-            hide_index=True,
-            width="stretch",
-        )
+        render_styled_table(pd.DataFrame(lineup_data))
 
         # Display projected stats if available
         if "projected_stats" in result and result["projected_stats"]:
             st.subheader("Projected Category Totals")
             stats_df = pd.DataFrame([result["projected_stats"]])
-            st.dataframe(stats_df, hide_index=True, width="stretch")
+            render_styled_table(stats_df)
 
 # ── Category Targeting ────────────────────────────────────────────
 st.divider()
@@ -270,14 +266,13 @@ except Exception:
 display_cols = ["name", "positions", "is_hitter"] + [c for c in stat_cols if c in roster.columns]
 if "Health" in roster.columns:
     display_cols = ["name", "positions", "is_hitter", "Health"] + [c for c in stat_cols if c in roster.columns]
-st.dataframe(
-    roster[[c for c in display_cols if c in roster.columns]],
-    hide_index=True,
-    width="stretch",
-    column_config={
-        "name": st.column_config.TextColumn("Player"),
-        "positions": st.column_config.TextColumn("Position"),
-        "is_hitter": st.column_config.CheckboxColumn("Hitter"),
-        "Health": st.column_config.TextColumn("Health"),
-    },
+roster_display = roster[[c for c in display_cols if c in roster.columns]].copy()
+roster_display["is_hitter"] = roster_display["is_hitter"].map(lambda x: "Yes" if x else "No")
+roster_display = roster_display.rename(
+    columns={
+        "name": "Player",
+        "positions": "Position",
+        "is_hitter": "Hitter",
+    }
 )
+render_styled_table(roster_display)

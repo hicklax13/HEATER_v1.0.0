@@ -15,6 +15,7 @@ from src.ui_shared import (
     get_plotly_polar,
     get_theme,
     inject_custom_css,
+    render_styled_table,
 )
 from src.valuation import LeagueConfig, add_process_risk, compute_percentile_projections, compute_projection_volatility
 
@@ -213,7 +214,7 @@ if player_a_name and player_b_name and player_a_name != player_b_name:
                     "Advantage": adv,
                 }
             )
-        st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
+        render_styled_table(pd.DataFrame(rows))
         st.caption(METRIC_TOOLTIPS["z_score"])
 
         # Health comparison
@@ -274,7 +275,7 @@ if player_a_name and player_b_name and player_a_name != player_b_name:
             for row in health_rows:
                 row["Confidence"] = "—"
 
-        st.dataframe(pd.DataFrame(health_rows), hide_index=True, width="stretch")
+        render_styled_table(pd.DataFrame(health_rows))
 else:
     if player_a_name == player_b_name:
         st.info("Select two different players to compare.")

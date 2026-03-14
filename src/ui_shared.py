@@ -448,6 +448,29 @@ def render_theme_toggle():
     pass
 
 
+# ── Styled Table Helper ────────────────────────────────────────────
+
+
+def render_styled_table(df, hide_index=True, max_height=None):
+    """Render a DataFrame as an HTML table with navy headers and full CSS control.
+
+    Use this instead of st.dataframe() when navy column headers are needed.
+    Glide Data Grid (used by st.dataframe) renders on canvas and can't be
+    CSS-styled, so we render as an HTML table instead.
+
+    Args:
+        df: pandas DataFrame to render.
+        hide_index: If True (default), hides the DataFrame index column.
+        max_height: Optional max height in pixels for scrollable tables.
+    """
+    html = df.to_html(index=not hide_index, classes="heater-table", escape=False)
+    scroll_style = f"max-height:{max_height}px;overflow-y:auto;" if max_height else ""
+    st.markdown(
+        f'<div class="heater-table-wrap" style="{scroll_style}">{html}</div>',
+        unsafe_allow_html=True,
+    )
+
+
 # ── CSS Injection ──────────────────────────────────────────────────
 
 
@@ -462,6 +485,19 @@ def inject_custom_css():
         f"""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Figtree:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+    /* ── Glide Data Grid root-level theme overrides ── */
+    :root {{
+        --gdg-bg-header: #16213e !important;
+        --gdg-bg-header-has-focus: #1a1a2e !important;
+        --gdg-bg-header-hovered: #1e2a45 !important;
+        --gdg-text-header: #ffffff !important;
+        --gdg-bg-cell: #faf8f5 !important;
+        --gdg-bg-cell-medium: #f5f2ed !important;
+        --gdg-text-dark: #1d1d1f !important;
+        --gdg-border-color: #d4c5b0 !important;
+        --gdg-header-font-style: 700 14px Figtree, sans-serif !important;
+    }}
 
     /* ── BASE ─────────────────────────────────── */
     .stApp {{
@@ -1284,7 +1320,7 @@ def inject_custom_css():
         box-shadow: 0 2px 10px rgba(0, 0, 0, 0.06), 0 0 0 1px rgba(0,0,0,0.03) !important;
         background: #faf8f5 !important;
     }}
-    /* Glide Data Grid canvas theming via CSS custom properties */
+    /* Glide Data Grid canvas theming via CSS custom properties (belt-and-suspenders) */
     div[data-testid="stDataFrame"] [data-testid="glideDataEditor"],
     div[data-testid="stDataFrame"] .dvn-scroller,
     div[data-testid="stDataFrame"] {{
@@ -1301,6 +1337,63 @@ def inject_custom_css():
     div[data-testid="stDataFrame"] [data-testid="glideDataEditor"] {{
         background: #faf8f5 !important;
     }}
+
+    /* Override navy secondaryBackgroundColor on non-dataframe elements */
+    pre, code, .stCodeBlock, [data-testid="stCodeBlock"] {{
+        background: rgba(245, 242, 237, 0.9) !important;
+        color: {t["tx"]} !important;
+    }}
+    .stToast, [data-testid="stToast"] {{
+        background: #ffffff !important;
+        color: {t["tx"]} !important;
+    }}
+    [data-testid="stPopover"], .stPopover {{
+        background: #ffffff !important;
+        color: {t["tx"]} !important;
+    }}
+    [data-testid="stChatMessage"], .stChatMessage {{
+        background: rgba(255, 255, 255, 0.7) !important;
+        color: {t["tx"]} !important;
+    }}
+    .stForm, [data-testid="stForm"] {{
+        background: rgba(255, 255, 255, 0.5) !important;
+        border: 1px solid {t["border"]} !important;
+        border-radius: 14px !important;
+    }}
+    [data-testid="stVerticalBlockBorderWrapper"] {{
+        background: transparent !important;
+    }}
+    div[data-testid="stColumn"] {{
+        background: transparent !important;
+    }}
+    [data-testid="stBottomBlockContainer"] {{
+        background: {t["bg"]} !important;
+    }}
+    /* Multiselect tags/pills — override navy bg */
+    [data-baseweb="tag"] {{
+        background: rgba(230, 57, 70, 0.1) !important;
+        color: {t["primary"]} !important;
+    }}
+    /* Select/dropdown menus */
+    [data-baseweb="popover"], [data-baseweb="menu"] {{
+        background: #ffffff !important;
+        color: {t["tx"]} !important;
+    }}
+    [data-baseweb="select"] [data-baseweb="input"] {{
+        background: rgba(255, 255, 255, 0.7) !important;
+    }}
+    /* Number input steppers */
+    div[data-testid="stNumberInput"] [data-testid="stNumberInputStepUp"],
+    div[data-testid="stNumberInput"] [data-testid="stNumberInputStepDown"] {{
+        background: rgba(255, 255, 255, 0.7) !important;
+    }}
+    /* Progress bars */
+    .stProgress > div > div {{
+        background: rgba(245, 242, 237, 0.5) !important;
+    }}
+    .stProgress > div > div > div {{
+        background: linear-gradient(90deg, {t["primary"]}, {t["hot"]}) !important;
+    }}
     /* Left accent border for visual anchor */
     div[data-testid="stDataFrame"]::before {{
         content: '';
@@ -1315,6 +1408,62 @@ def inject_custom_css():
     }}
     div[data-testid="stDataFrame"] {{
         position: relative;
+    }}
+
+    /* Styled HTML tables (render_styled_table helper) */
+    .heater-table-wrap {{
+        border: 2px solid #d4c5b0;
+        border-radius: 12px;
+        overflow: hidden;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.06), 0 0 0 1px rgba(0,0,0,0.03);
+        background: #faf8f5;
+        position: relative;
+        border-left: 4px solid #e65c00;
+    }}
+    .heater-table {{
+        width: 100%;
+        border-collapse: collapse;
+        font-family: 'Figtree', sans-serif;
+        font-size: 14px;
+        color: {t["tx"]};
+    }}
+    .heater-table thead th {{
+        background: linear-gradient(135deg, #16213e, #1a1a2e) !important;
+        color: #ffffff !important;
+        font-weight: 700 !important;
+        font-family: 'Figtree', sans-serif !important;
+        font-size: 13px !important;
+        letter-spacing: 0.5px;
+        text-transform: uppercase;
+        padding: 12px 14px !important;
+        border: none !important;
+        text-align: left;
+        white-space: nowrap;
+        position: sticky;
+        top: 0;
+        z-index: 2;
+    }}
+    .heater-table thead th:first-child {{
+        border-radius: 0;
+    }}
+    .heater-table thead th:last-child {{
+        border-radius: 0;
+    }}
+    .heater-table tbody td {{
+        padding: 10px 14px !important;
+        border-bottom: 1px solid #e8e0d4 !important;
+        border-top: none !important;
+        border-left: none !important;
+        border-right: none !important;
+        background: #faf8f5 !important;
+        font-family: 'Figtree', sans-serif;
+        color: {t["tx"]};
+    }}
+    .heater-table tbody tr:hover td {{
+        background: #f0ece4 !important;
+    }}
+    .heater-table tbody tr:last-child td {{
+        border-bottom: none !important;
     }}
 
     /* Sidebar — navy top for header, orange below */

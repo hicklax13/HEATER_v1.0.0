@@ -43,6 +43,7 @@ from src.ui_shared import (
     ROSTER_CONFIG,
     T,
     inject_custom_css,
+    render_styled_table,
     sec,
 )
 from src.valuation import (
@@ -1479,7 +1480,7 @@ def render_opponent_intel(ds):
         )
 
     if rows:
-        st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
+        render_styled_table(pd.DataFrame(rows))
     else:
         st.info("No opponent data yet.")
 
@@ -1681,15 +1682,16 @@ def render_available_players(ds, pool):
     }
     display_df = display_df.rename(columns={k: v for k, v in rename_map.items() if k in display_df.columns})
 
-    col_config = {}
     if "Score" in display_df.columns:
-        col_config["Score"] = st.column_config.NumberColumn(format="%.1f")
+        display_df["Score"] = display_df["Score"].map(lambda x: f"{x:.1f}" if pd.notna(x) else "")
     if "Tier" in display_df.columns:
-        col_config["Tier"] = st.column_config.NumberColumn(format="%d")
+        display_df["Tier"] = display_df["Tier"].map(lambda x: f"{x:.0f}" if pd.notna(x) else "")
     if "Average Draft Position" in display_df.columns:
-        col_config["Average Draft Position"] = st.column_config.NumberColumn(format="%.0f")
+        display_df["Average Draft Position"] = display_df["Average Draft Position"].map(
+            lambda x: f"{x:.0f}" if pd.notna(x) else ""
+        )
 
-    st.dataframe(display_df, width="stretch", hide_index=True, column_config=col_config, height=400)
+    render_styled_table(display_df, max_height=400)
 
 
 # ── Draft Board ─────────────────────────────────────────────────────
