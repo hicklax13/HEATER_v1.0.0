@@ -25,7 +25,7 @@ ruff check .
 # Format
 ruff format .
 
-# Run all tests (362 collected, 361 pass, 1 skipped for PyMC)
+# Run all tests (395 collected, 394 pass, 1 skipped for PyMC)
 python -m pytest
 
 # Run with verbose output
@@ -90,19 +90,25 @@ src/
   lineup_optimizer.py   — PuLP LP solver: lineup optimization, category targeting, two-start SP detection
   yahoo_api.py          — Yahoo Fantasy API: OAuth integration via yfpy, league sync, roster import
   data_pipeline.py      — FanGraphs auto-fetch: Steamer/ZiPS/Depth Charts JSON API, normalize, upsert, ADP extraction
-  engine/               — Trade Analyzer Engine (Phase 1)
+  engine/               — Trade Analyzer Engine (Phase 1 + Phase 2)
     __init__.py
     portfolio/
       __init__.py
       valuation.py      — Z-score + SGP valuation: peer-group z-scores, standings-based SGP denominators, VORP
       category_analysis.py — Marginal SGP elasticity (1/gap), category gap analysis, punt detection, category weights
       lineup_optimizer.py — LP optimizer wrapper: optimal lineup value, pre/post trade lineup delta, bench option value
+      copula.py         — Gaussian copula: correlated stat sampling, empirical 10×10 correlation matrix, nearest-PD correction
     projections/
       __init__.py
       projection_client.py — ROS projections loader, 3-pass fuzzy name matching, trade player resolution
+      bayesian_blend.py — BMA: posterior-weighted projection blending, system forecast sigmas, total variance decomposition
+      marginals.py      — KDE marginals: kernel density estimation with Normal fallback, stat bounds clipping, ppf for copula
+    monte_carlo/
+      __init__.py
+      trade_simulator.py — Paired MC: 10K sims, variance reduction via identical seeds, VaR/CVaR/Sharpe/CI metrics
     output/
       __init__.py
-      trade_evaluator.py — Master trade orchestrator: SGP delta → grade (A+ to F), risk flags, verdict
+      trade_evaluator.py — Master trade orchestrator: Phase 1 deterministic + Phase 2 MC overlay, enable_mc flag
 tests/
   test_database_schema.py   — DB schema and table existence tests
   test_database_queries.py  — Query function tests
@@ -123,6 +129,7 @@ tests/
   test_simulation_math.py   — Math verification: survival probability, urgency, combined score, tiers, MC convergence (37 tests)
   test_trade_math.py        — Math verification: trade SGP delta, MC noise, verdict, z-scores, rate stats (35 tests)
   test_trade_engine.py      — Trade engine Phase 1: marginal SGP, punt detection, z-scores, grading, fuzzy match, integration (32 tests)
+  test_trade_engine_phase2.py — Trade engine Phase 2: BMA, KDE marginals, copula, paired MC, integration (33 tests)
   profile_latency.py        — Performance profiling utility
 data/
   draft_tool.db         — SQLite database (created at runtime)
@@ -184,6 +191,12 @@ Phase 1 SGP-based evaluation pipeline (7 modules):
 7. **Grade** — Surplus SGP maps to A+ (>2.0) through F (≤-1.0). Verdict: ACCEPT if surplus > 0.
 - **Graceful fallback** — Trade Analyzer page tries Phase 1 engine first, falls back to legacy `analyze_trade()` from `src/in_season.py`
 - **Risk flags** — Injured players received, elite players given away (SGP>3.0), weak non-punt categories (rank≥8)
+
+**Phase 2 (stochastic, when `enable_mc=True`):**
+8. **Bayesian Model Averaging** — Posterior weights for each projection system based on P(YTD | System_i). Systems closer to reality get higher weight. Variance = within-model + between-model.
+9. **KDE marginals** — Non-Gaussian stat distributions via kernel density estimation. Normal fallback when <20 historical data points. Stat bounds clipping (AVG: 0.100–0.400, ERA: 0.50–12.00).
+10. **Gaussian copula** — Correlated stat sampling via Cholesky decomposition of empirical 10×10 correlation matrix (HR↔RBI: 0.85, ERA↔WHIP: 0.90, SB↔HR: -0.15). Nearest-PD correction for non-PD matrices.
+11. **Paired Monte Carlo** — 10K sims with identical seeds for before/after (variance reduction). Produces: mc_mean, mc_std, p5/p25/median/p75/p95, prob_positive, VaR5, CVaR5, Sharpe ratio, 95% CI. Grade via composite = mean*0.4 + sharpe*0.3 + kelly_approx*0.3.
 
 ### In-Season Algorithms
 - **Trade Analyzer (legacy):** Roster swap → projected season totals (YTD + ROS) → park-adjusted SGP delta → MC simulation (200 sims) → verdict with confidence %. Now includes injury badges for both sides and P10/P90 risk assessment.
@@ -267,6 +280,38 @@ bench_option_value(weeks_remaining=16, streaming_sgp_per_week=0.166) -> float
 fuzzy_match_player(name, candidates, name_col="name", threshold=0.7) -> str | None
 get_ros_projections(player_ids) -> DataFrame
 resolve_trade_players(giving_names, receiving_names, player_pool) -> tuple[list[int], list[int]]
+
+# --- Trade Engine Phase 2 APIs (src/engine/) ---
+
+# BMA (src/engine/projections/bayesian_blend.py)
+bayesian_model_average(ytd_stats, projections, prior_weights=None)
+# Returns: (posterior_weights, blended_projection, blended_variance)
+compute_bma_for_player(player_ytd, system_projections) -> dict[str, float]
+compute_bma_variance(player_ytd, system_projections) -> dict[str, float]
+SYSTEM_FORECAST_SIGMA: dict[str, dict[str, float]]  # steamer/zips/depthcharts × 10 stats
+
+# KDE marginals (src/engine/projections/marginals.py)
+PlayerMarginal(stat_name, projected_value, variance, historical_values=None)
+# .ppf(quantile) -> stat_value  (inverse CDF for copula integration)
+# .sample(n, rng) -> np.ndarray
+# .uses_kde -> bool
+build_player_marginals(projected_stats, variances, historical_by_stat=None)
+
+# Copula (src/engine/portfolio/copula.py)
+GaussianCopula(correlation=None)  # defaults to 10×10 DEFAULT_CORRELATION
+# .sample(n, rng) -> np.ndarray of shape (n, 10) in [0, 1]
+sample_correlated_stats(copula, player_marginals, n=1, rng=None) -> np.ndarray
+fit_copula_from_data(player_seasons) -> GaussianCopula
+
+# Paired MC (src/engine/monte_carlo/trade_simulator.py)
+run_paired_monte_carlo(before_roster_stats, after_roster_stats,
+    before_marginals=None, after_marginals=None, copula=None,
+    all_team_totals=None, sgp_denominators=None,
+    n_sims=10000, seed=42, weeks_remaining=16)
+# Returns: {mc_mean, mc_std, mc_median, p5..p95, prob_positive,
+#           var5, cvar5, sharpe, grade, verdict, confidence_pct,
+#           confidence_interval, surplus_distribution, n_sims}
+build_roster_stats(player_ids, player_pool) -> dict[str, dict[str, float]]
 
 # --- Plan 3 new APIs ---
 
@@ -393,6 +438,13 @@ SYSTEM_MAP = {"steamer": "steamer", "zips": "zips", "fangraphsdc": "depthcharts"
 - **Punt detection requires BOTH conditions** — A category is punt only when `gainable_positions == 0 AND rank >= 10`. Being rank 10 alone isn't enough if positions are still gainable; having 0 gainable alone isn't enough if you're already ranked high.
 - **Bench option value sign convention** — `bench_cost` in the trade result is positive when you LOSE bench slots (2-for-1 trade receiving side), negative when you GAIN them (1-for-2). The surplus already accounts for this.
 - **`_roster_category_totals()` lives in `src/in_season.py`** — The trade engine's `evaluate_trade()` imports this from the legacy module. Don't duplicate it.
+- **`enable_mc=True` activates Phase 2** — By default, `evaluate_trade()` runs Phase 1 only (deterministic). Set `enable_mc=True` for MC overlay. MC gracefully falls back to Phase 1 on failure.
+- **BMA sigma difference → unequal weights** — Even when all systems project the same value, posterior weights differ slightly because forecast sigmas differ by system (Steamer HR sigma=5.2 vs ZiPS sigma=5.5). Tighter sigma → higher likelihood density → more weight.
+- **KDE needs ≥20 samples** — `PlayerMarginal` falls back to Normal when `len(historical_values) < MIN_KDE_SAMPLES`. KDE with too few points produces unreliable density estimates.
+- **Gaussian copula nearest-PD** — The `_nearest_pd()` function clips negative eigenvalues to 1e-10 and re-normalizes the diagonal to 1.0. This ensures Cholesky decomposition always succeeds, even with user-provided non-PD correlation matrices.
+- **Paired MC seed discipline** — `run_paired_monte_carlo` uses a master RNG to generate per-sim seeds. Each seed is used identically for both before/after rosters. NEVER use different seeds for before vs after — this breaks the variance reduction.
+- **MC roster stats use string keys** — `build_roster_stats()` converts int player_ids to str keys (e.g., `"1"`, `"42"`). This avoids int/str key mismatches between the pool DataFrame and the MC simulator.
+- **Copula inverse categories** — ERA/WHIP correlations in `DEFAULT_CORRELATION` are already negative against W/K (e.g., ERA↔K = -0.65). In `sample_correlated_stats()`, inverse categories use `ppf(1-u)` to flip the quantile direction.
 - **`ruff` command on Windows** — Use `python -m ruff check .` and `python -m ruff format .` instead of bare `ruff` — the binary may not be on PATH.
 
 ## GitHub
@@ -403,10 +455,10 @@ SYSTEM_MAP = {"steamer": "steamer", "zips": "zips", "fangraphsdc": "depthcharts"
 
 ## Testing Status
 
-- **Unit tests:** 362 collected, 361 passed, 1 skipped (PyMC optional dep)
-- **Test files:** 19 test files across draft engine, trade engine, in-season, analytics, data pipeline, bootstrap, integration, and math verification
+- **Unit tests:** 395 collected, 394 passed, 1 skipped (PyMC optional dep)
+- **Test files:** 20 test files across draft engine, trade engine (Phase 1+2), in-season, analytics, data pipeline, bootstrap, integration, and math verification
 - **Math verification suite:** 112 tests across 3 files (valuation, simulation, trade) — hand-calculated expected values verified against code formulas
-- **Trade engine tests:** 32 tests covering marginal SGP, punt detection, z-scores, SGP from standings, grading (A+ to F), fuzzy matching, bench option value, risk flags, integration
+- **Trade engine tests:** 65 tests total — Phase 1 (32): marginal SGP, punt detection, z-scores, grading, fuzzy match, integration. Phase 2 (33): BMA, KDE marginals, Gaussian copula, paired MC, correlated sampling, distributional metrics, integration.
 - **CI:** GitHub Actions runs ruff lint/format + pytest on Python 3.11, 3.12, 3.13
 - **Coverage:** 64% (below 75% CI threshold; pre-existing, no regressions)
 - **Systematic code reviews:** Three rounds of full codebase review completed (including parallel 7-agent sweep); all bugs fixed and pushed
