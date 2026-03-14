@@ -136,10 +136,7 @@ def fetch_season_stats(season: int = 2026) -> pd.DataFrame:
         logger.warning("Failed to get MLB teams for %d: %s", season, e)
         return pd.DataFrame()
 
-    hydrate = (
-        f"person(stats(type=season,season={season},gameType=R),"
-        f"currentTeam)"
-    )
+    hydrate = f"person(stats(type=season,season={season},gameType=R),currentTeam)"
 
     for team_id in team_ids:
         try:
