@@ -25,7 +25,7 @@ ruff check .
 # Format
 ruff format .
 
-# Run all tests (395 collected, 394 pass, 1 skipped for PyMC)
+# Run all tests (427 collected, 426 pass, 1 skipped for PyMC)
 python -m pytest
 
 # Run with verbose output
@@ -90,7 +90,7 @@ src/
   lineup_optimizer.py   — PuLP LP solver: lineup optimization, category targeting, two-start SP detection
   yahoo_api.py          — Yahoo Fantasy API: OAuth integration via yfpy, league sync, roster import
   data_pipeline.py      — FanGraphs auto-fetch: Steamer/ZiPS/Depth Charts JSON API, normalize, upsert, ADP extraction
-  engine/               — Trade Analyzer Engine (Phase 1 + Phase 2)
+  engine/               — Trade Analyzer Engine (Phase 1 + Phase 2 + Phase 3)
     __init__.py
     portfolio/
       __init__.py
@@ -106,6 +106,12 @@ src/
     monte_carlo/
       __init__.py
       trade_simulator.py — Paired MC: 10K sims, variance reduction via identical seeds, VaR/CVaR/Sharpe/CI metrics
+    signals/
+      __init__.py
+      statcast.py       — Statcast harvesting: pitch-level data → rolling features (EV, barrel%, xwOBA, whiff%)
+      decay.py          — Exponential decay weighting: signal-specific half-lives, recency-weighted mean/variance
+      kalman.py         — Kalman filter: true talent estimation, sample-size-aware observation variance
+      regime.py         — Regime detection: BOCPD changepoint detection (run length mode) + 4-state HMM
     output/
       __init__.py
       trade_evaluator.py — Master trade orchestrator: Phase 1 deterministic + Phase 2 MC overlay, enable_mc flag
@@ -130,6 +136,7 @@ tests/
   test_trade_math.py        — Math verification: trade SGP delta, MC noise, verdict, z-scores, rate stats (35 tests)
   test_trade_engine.py      — Trade engine Phase 1: marginal SGP, punt detection, z-scores, grading, fuzzy match, integration (32 tests)
   test_trade_engine_phase2.py — Trade engine Phase 2: BMA, KDE marginals, copula, paired MC, integration (33 tests)
+  test_trade_engine_phase3.py — Trade engine Phase 3: Statcast aggregation, signal decay, Kalman filter, BOCPD, HMM regime, rolling features (32 tests)
   profile_latency.py        — Performance profiling utility
 data/
   draft_tool.db         — SQLite database (created at runtime)
@@ -197,6 +204,12 @@ Phase 1 SGP-based evaluation pipeline (7 modules):
 9. **KDE marginals** — Non-Gaussian stat distributions via kernel density estimation. Normal fallback when <20 historical data points. Stat bounds clipping (AVG: 0.100–0.400, ERA: 0.50–12.00).
 10. **Gaussian copula** — Correlated stat sampling via Cholesky decomposition of empirical 10×10 correlation matrix (HR↔RBI: 0.85, ERA↔WHIP: 0.90, SB↔HR: -0.15). Nearest-PD correction for non-PD matrices.
 11. **Paired Monte Carlo** — 10K sims with identical seeds for before/after (variance reduction). Produces: mc_mean, mc_std, p5/p25/median/p75/p95, prob_positive, VaR5, CVaR5, Sharpe ratio, 95% CI. Grade via composite = mean*0.4 + sharpe*0.3 + kelly_approx*0.3.
+
+**Phase 3 (signal intelligence, `src/engine/signals/`):**
+12. **Statcast harvesting** — Pitch-level data from Baseball Savant via pybaseball. Aggregated into rolling 14-day features: exit velocity (mean/p90), barrel%, hard hit%, xBA, xwOBA, whiff%, chase rate (batters); fastball speed/spin, K%, BB%, GB% (pitchers).
+13. **Signal decay** — Exponential recency weighting with sport-specific half-lives: EV/barrel (35d), spin rate (46d), plate discipline (58d), traditional stats (87d), sprint speed (139d). λ=0 for counting stats (no decay).
+14. **Kalman filter** — State-space model separating true talent from observation noise. Sample-size-aware observation variance (more PAs → lower noise → trust data more). Process variance models how much true talent can drift per time step.
+15. **Regime detection** — BOCPD (Adams & MacKay 2007) detects structural changepoints via run length mode drops. 4-state HMM (Elite/Above/Below/Replacement) provides soft regime probabilities for projection blending. Graceful fallback when hmmlearn unavailable.
 
 ### In-Season Algorithms
 - **Trade Analyzer (legacy):** Roster swap → projected season totals (YTD + ROS) → park-adjusted SGP delta → MC simulation (200 sims) → verdict with confidence %. Now includes injury badges for both sides and P10/P90 risk assessment.
@@ -312,6 +325,45 @@ run_paired_monte_carlo(before_roster_stats, after_roster_stats,
 #           var5, cvar5, sharpe, grade, verdict, confidence_pct,
 #           confidence_interval, surplus_distribution, n_sims}
 build_roster_stats(player_ids, player_pool) -> dict[str, dict[str, float]]
+
+# --- Trade Engine Phase 3 APIs (src/engine/signals/) ---
+
+# Statcast harvesting (src/engine/signals/statcast.py)
+fetch_batter_statcast(player_name, start_date, end_date) -> pd.DataFrame
+fetch_pitcher_statcast(player_name, start_date, end_date) -> pd.DataFrame
+aggregate_batter_statcast(df) -> dict[str, float]  # ev_mean, ev_p90, barrel_pct, hard_hit_pct, xba, xwoba, whiff_pct, chase_rate
+aggregate_pitcher_statcast(df) -> dict[str, float]  # ff_avg_speed, ff_spin_rate, k_pct, bb_pct, gb_pct, xba_against, xwoba_against
+compute_rolling_features(df, window_days=14, step_days=7, is_pitcher=False) -> list[dict]
+
+# Signal decay (src/engine/signals/decay.py)
+DECAY_LAMBDAS: dict[str, float]  # 7 categories: batted_ball=0.020, spin=0.015, discipline=0.012, ...
+FEATURE_DECAY_MAP: dict[str, str]  # feature_name -> decay category
+decay_weight(obs_date, reference_date, lambda_param) -> float  # e^(-λ * days_diff)
+apply_decay_weights(observations, feature_name, reference_date) -> tuple[np.ndarray, np.ndarray]
+weighted_mean(values, weights) -> float
+weighted_variance(values, weights) -> float
+get_feature_lambda(feature_name) -> float
+half_life_days(lambda_param) -> float  # ln(2) / lambda
+
+# Kalman filter (src/engine/signals/kalman.py)
+kalman_true_talent(observations, obs_variance, process_variance, prior_mean, prior_variance)
+# Returns: (filtered_means, filtered_variances) — np.ndarray pair
+observation_variance(feature_name, sample_size) -> float
+get_process_variance(feature_name) -> float
+run_kalman_for_feature(rolling_data, feature_name, prior_mean=None)
+# Returns: {filtered_mean, filtered_var, kalman_gain_final}
+
+# Regime detection (src/engine/signals/regime.py)
+BOCPD(hazard_lambda=200, mu0=0.0, kappa0=1.0, alpha0=1.0, beta0=1.0)
+# .update(x) -> (changepoint_prob, run_length_probs)
+# .reset() -> None
+detect_changepoints(time_series, hazard_lambda=200, threshold=0.7)
+# Returns: {changepoint_indices, changepoint_probs, last_changepoint, current_regime_length}
+fit_player_hmm(obs_matrix, n_states=4) -> tuple[model | None, state_probs]
+regime_conditional_projection(current_probs, projections_by_state) -> dict[str, float]
+classify_regime_simple(recent_xwoba, season_xwoba, league_avg_xwoba=0.315) -> tuple[str, np.ndarray]
+REGIME_STATES: list[str]  # ["Elite", "Above-avg", "Below-avg", "Replacement"]
+HMM_AVAILABLE: bool  # True if hmmlearn is installed
 
 # --- Plan 3 new APIs ---
 
@@ -446,6 +498,12 @@ SYSTEM_MAP = {"steamer": "steamer", "zips": "zips", "fangraphsdc": "depthcharts"
 - **MC roster stats use string keys** — `build_roster_stats()` converts int player_ids to str keys (e.g., `"1"`, `"42"`). This avoids int/str key mismatches between the pool DataFrame and the MC simulator.
 - **Copula inverse categories** — ERA/WHIP correlations in `DEFAULT_CORRELATION` are already negative against W/K (e.g., ERA↔K = -0.65). In `sample_correlated_stats()`, inverse categories use `ppf(1-u)` to flip the quantile direction.
 - **`ruff` command on Windows** — Use `python -m ruff check .` and `python -m ruff format .` instead of bare `ruff` — the binary may not be on PATH.
+- **Statcast requires pybaseball** — `PYBASEBALL_AVAILABLE` flag in `statcast.py`. Functions return empty results when pybaseball not installed. All rolling feature computation works without it (just no raw data to aggregate).
+- **Signal decay λ=0 means no decay** — `decay_weight()` returns 1.0 when `lambda_param=0`. Used for counting stats (HR, RBI) that don't lose relevance over time.
+- **Kalman observation variance is sample-size-aware** — `observation_variance("ba", 20)` >> `observation_variance("ba", 500)`. This is critical: early-season observations with 20 PA get high noise → filter trusts prior. Late-season with 500 PA → filter trusts data.
+- **BOCPD cp_prob is bounded by 1/hazard_lambda** — The raw `P(r_t=0)` returned by `BOCPD.update()` can never exceed ~`1/hazard_lambda` (e.g., 0.005 for λ=200). The real detection signal is the run length distribution's **mode** dropping from a long run (mode ≈ 30) to near zero (mode ≤ 2). `detect_changepoints()` uses this mode-drop approach.
+- **HMM graceful fallback** — `fit_player_hmm()` returns `(None, DEFAULT_STATE_PROBS)` when: (a) hmmlearn not installed, (b) fewer than 10 observations, or (c) fitting raises an exception. Always usable.
+- **`classify_regime_simple()` is the fallback** — When no Statcast data exists for HMM, this rule-based function uses just `recent_xwoba` and `season_xwoba` to estimate regime probabilities. Good enough for non-Savant players.
 
 ## GitHub
 
@@ -455,10 +513,10 @@ SYSTEM_MAP = {"steamer": "steamer", "zips": "zips", "fangraphsdc": "depthcharts"
 
 ## Testing Status
 
-- **Unit tests:** 395 collected, 394 passed, 1 skipped (PyMC optional dep)
-- **Test files:** 20 test files across draft engine, trade engine (Phase 1+2), in-season, analytics, data pipeline, bootstrap, integration, and math verification
+- **Unit tests:** 427 collected, 426 passed, 1 skipped (PyMC optional dep)
+- **Test files:** 21 test files across draft engine, trade engine (Phase 1+2+3), in-season, analytics, data pipeline, bootstrap, integration, and math verification
 - **Math verification suite:** 112 tests across 3 files (valuation, simulation, trade) — hand-calculated expected values verified against code formulas
-- **Trade engine tests:** 65 tests total — Phase 1 (32): marginal SGP, punt detection, z-scores, grading, fuzzy match, integration. Phase 2 (33): BMA, KDE marginals, Gaussian copula, paired MC, correlated sampling, distributional metrics, integration.
+- **Trade engine tests:** 97 tests total — Phase 1 (32): marginal SGP, punt detection, z-scores, grading, fuzzy match, integration. Phase 2 (33): BMA, KDE marginals, Gaussian copula, paired MC, correlated sampling, distributional metrics, integration. Phase 3 (32): Statcast aggregation, signal decay, Kalman filter, BOCPD changepoint detection, HMM regime classification, rolling features.
 - **CI:** GitHub Actions runs ruff lint/format + pytest on Python 3.11, 3.12, 3.13
 - **Coverage:** 64% (below 75% CI threshold; pre-existing, no regressions)
 - **Systematic code reviews:** Three rounds of full codebase review completed (including parallel 7-agent sweep); all bugs fixed and pushed
