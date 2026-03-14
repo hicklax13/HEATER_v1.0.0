@@ -1,4 +1,4 @@
-"""Trade Analyzer Engine — Phases 1-5.
+"""Trade Analyzer Engine — Phases 1-6 (complete).
 
 Implements the roster-portfolio trade evaluation pipeline from trade-analyzer-spec.md.
   Phase 1: Z-score+SGP valuation, marginal category elasticity, gap analysis,
@@ -12,4 +12,6 @@ Implements the roster-portfolio trade evaluation pipeline from trade-analyzer-sp
   Phase 5: Opponent valuations (market clearing price), adverse selection
            (Bayesian flaw discount), dynamic programming (Bellman rollout),
            sensitivity analysis + counter-offer generation.
+  Phase 6: Adaptive simulation scaling (10K→100K), MC convergence diagnostics
+           (ESS, split-R̂, running mean stability), precomputation cache.
 """
