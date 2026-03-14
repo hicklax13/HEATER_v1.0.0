@@ -1,4 +1,4 @@
-"""Trade Analyzer Engine — Phases 1-4.
+"""Trade Analyzer Engine — Phases 1-5.
 
 Implements the roster-portfolio trade evaluation pipeline from trade-analyzer-spec.md.
   Phase 1: Z-score+SGP valuation, marginal category elasticity, gap analysis,
@@ -9,4 +9,7 @@ Implements the roster-portfolio trade evaluation pipeline from trade-analyzer-sp
            BOCPD changepoint detection, HMM regime classification.
   Phase 4: Log5 matchup engine, injury stochastic process (Weibull),
            enhanced bench option value, roster concentration risk (HHI).
+  Phase 5: Opponent valuations (market clearing price), adverse selection
+           (Bayesian flaw discount), dynamic programming (Bellman rollout),
+           sensitivity analysis + counter-offer generation.
 """

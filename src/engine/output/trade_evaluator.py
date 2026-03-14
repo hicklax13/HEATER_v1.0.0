@@ -1,9 +1,10 @@
-"""Master trade evaluator — orchestrates Phase 1 + Phase 2 + Phase 4 engine modules.
+"""Master trade evaluator — orchestrates Phase 1-5 engine modules.
 
 Spec reference: Section 14 L11 (decision output / grading)
                Section 17 Phase 1 item 7 (trade surplus + grade)
                Section 17 Phase 2 items 9-12 (BMA, KDE, copula, MC)
                Section 17 Phase 4 items 17-20 (context engine)
+               Section 17 Phase 5 items 21-24 (game theory + optimization)
 
 Wires into:
   - src/engine/portfolio/valuation.py: z-scores, SGP, VORP
@@ -16,6 +17,10 @@ Wires into:
   - src/engine/context/concentration.py: roster concentration risk (HHI)
   - src/engine/context/bench_value.py: enhanced bench option value
   - src/engine/context/injury_process.py: injury availability modeling
+  - src/engine/game_theory/opponent_valuation.py: opponent market analysis
+  - src/engine/game_theory/adverse_selection.py: Bayesian flaw discount
+  - src/engine/game_theory/dynamic_programming.py: Bellman rollout
+  - src/engine/game_theory/sensitivity.py: sensitivity + counter-offers
   - src/in_season.py: _roster_category_totals (aggregate roster stats)
   - src/valuation.py: LeagueConfig, SGPCalculator
 
@@ -38,6 +43,12 @@ The evaluation pipeline:
     11. Compute roster concentration risk (HHI delta + penalty)
     12. Enhanced bench option value (flexibility + injury cushion)
     13. Concentration risk flags
+
+  Phase 5 (game theory, when enabled):
+    14. Adverse selection discount on received players
+    15. Opponent valuation + market clearing price
+    16. Sensitivity analysis (category + player-level)
+    17. Counter-offer suggestions for sub-optimal trades
 """
 
 from __future__ import annotations
@@ -55,6 +66,14 @@ from src.engine.context.bench_value import (
 from src.engine.context.concentration import (
     compute_concentration_delta,
     team_exposure_breakdown,
+)
+from src.engine.game_theory.adverse_selection import compute_discount_for_trade
+from src.engine.game_theory.opponent_valuation import (
+    get_player_projections_from_pool,
+    player_market_value,
+)
+from src.engine.game_theory.sensitivity import (
+    trade_sensitivity_report,
 )
 from src.engine.monte_carlo.trade_simulator import (
     build_roster_stats,
@@ -136,11 +155,13 @@ def evaluate_trade(
     enable_mc: bool = False,
     n_sims: int = 10_000,
     enable_context: bool = True,
+    enable_game_theory: bool = True,
 ) -> dict[str, Any]:
-    """Full trade evaluation using Phase 1 + Phase 2 engine pipeline.
+    """Full trade evaluation using Phase 1-5 engine pipeline.
 
     Spec ref: Section 17 Phase 1 — MVP trade evaluation.
               Section 17 Phase 2 — MC simulation overlay.
+              Section 17 Phase 5 — Game theory + optimization.
 
     Phase 1 Pipeline (always runs):
       1. Build pre-trade and post-trade roster ID lists
@@ -156,6 +177,11 @@ def evaluate_trade(
       9. Run paired Monte Carlo (10K sims) with Gaussian copula
       10. Overlay MC distribution metrics (mc_mean, mc_std, percentiles, etc.)
 
+    Phase 5 Pipeline (when enable_game_theory=True):
+      14. Adverse selection discount on received players
+      15. Opponent valuation + market clearing price (when standings available)
+      16. Sensitivity analysis (category ranking + breakeven)
+
     Args:
         giving_ids: Player IDs being traded away.
         receiving_ids: Player IDs being received.
@@ -168,6 +194,8 @@ def evaluate_trade(
         n_sims: Number of MC simulations (default 10K).
         enable_context: Whether to run Phase 4 context analysis
             (concentration risk, enhanced bench value). Default True.
+        enable_game_theory: Whether to run Phase 5 game theory analysis
+            (adverse selection, opponent valuations, sensitivity). Default True.
 
     Returns:
         Dict with keys:
@@ -185,15 +213,12 @@ def evaluate_trade(
           - giving_players: Names of players traded away
           - receiving_players: Names of players received
           When enable_mc=True, also includes:
-          - mc_mean: Mean MC surplus SGP
-          - mc_std: Std deviation of surplus
-          - mc_median: Median surplus
-          - p5, p25, p75, p95: Percentile values
-          - prob_positive: Probability trade helps
-          - var5, cvar5: Value at Risk metrics
-          - sharpe: Sharpe ratio
-          - confidence_interval: (lower, upper) 95% CI
-          - surplus_distribution: Full array (for plotting)
+          - mc_mean, mc_std, mc_median, p5, p25, p75, p95
+          - prob_positive, var5, cvar5, sharpe, confidence_interval
+          When enable_game_theory=True, also includes:
+          - adverse_selection: discount analysis dict
+          - market_values: per-player market analysis
+          - sensitivity_report: category sensitivity + breakeven
     """
     if config is None:
         config = LeagueConfig()
@@ -367,6 +392,23 @@ def evaluate_trade(
         if bench_detail:
             result["bench_option_detail"] = bench_detail
 
+    # Phase 5: Game theory analysis
+    if enable_game_theory:
+        try:
+            _apply_game_theory(
+                result=result,
+                giving_ids=giving_ids,
+                receiving_ids=receiving_ids,
+                player_pool=player_pool,
+                all_team_totals=all_team_totals,
+                user_team_name=user_team_name,
+                category_impact=category_impact,
+                category_weights=category_weights,
+                config=config,
+            )
+        except Exception as exc:
+            logger.warning("Game theory analysis failed: %s", exc)
+
     # Phase 2: Monte Carlo simulation overlay
     if enable_mc:
         try:
@@ -522,3 +564,75 @@ def _get_player_names(
         else:
             names.append(f"Unknown (ID: {pid})")
     return names
+
+
+def _apply_game_theory(
+    result: dict[str, Any],
+    giving_ids: list[int],
+    receiving_ids: list[int],
+    player_pool: pd.DataFrame,
+    all_team_totals: dict[str, dict[str, float]],
+    user_team_name: str | None,
+    category_impact: dict[str, float],
+    category_weights: dict[str, float],
+    config: LeagueConfig | None = None,
+) -> None:
+    """Apply Phase 5 game theory analysis and add keys to result.
+
+    Spec ref: Section 17 Phase 5 — game theory + optimization.
+
+    Runs three sub-analyses:
+      1. Adverse selection discount (Bayesian flaw probability)
+      2. Opponent valuation + market clearing price (when standings available)
+      3. Sensitivity report (category ranking + breakeven analysis)
+
+    Modifies result dict in-place by adding Phase 5 keys.
+
+    Args:
+        result: The result dict from Phase 1 (modified in-place).
+        giving_ids: Players being given away.
+        receiving_ids: Players being received.
+        player_pool: Full player pool.
+        all_team_totals: Standings totals (may be empty).
+        user_team_name: User's team name.
+        category_impact: Per-category SGP change.
+        category_weights: Category weights.
+        config: League configuration.
+    """
+    # 1. Adverse selection discount
+    adverse_data = compute_discount_for_trade(
+        receiving_player_count=len(receiving_ids),
+    )
+    result["adverse_selection"] = adverse_data
+
+    # Add adverse selection risk flag if high risk
+    if adverse_data["risk_level"] == "high":
+        result["risk_flags"].append(
+            f"High adverse selection risk: {adverse_data['p_flaw_given_offered']:.0%} probability of hidden flaw"
+        )
+
+    # 2. Opponent valuation + market clearing price
+    if all_team_totals and user_team_name:
+        sgp_denoms = dict(config.sgp_denominators) if config else None
+        market_values: dict[str, dict] = {}
+
+        for pid in giving_ids:
+            proj = get_player_projections_from_pool(pid, player_pool)
+            if proj:
+                mv = player_market_value(
+                    player_projections=proj,
+                    all_team_totals=all_team_totals,
+                    your_team_id=user_team_name,
+                    sgp_denominators=sgp_denoms,
+                )
+                market_values[str(pid)] = mv
+
+        result["market_values"] = market_values
+
+    # 3. Sensitivity report (category-level)
+    sensitivity = trade_sensitivity_report(
+        category_impact=category_impact,
+        category_weights=category_weights,
+        surplus_sgp=result.get("surplus_sgp", 0.0),
+    )
+    result["sensitivity_report"] = sensitivity
