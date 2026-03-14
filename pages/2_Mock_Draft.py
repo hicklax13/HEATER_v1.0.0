@@ -9,7 +9,7 @@ import streamlit as st
 from src.database import init_db, load_player_pool
 from src.draft_state import DraftState
 from src.simulation import DraftSimulator
-from src.ui_shared import T, inject_custom_css, render_theme_toggle
+from src.ui_shared import T, inject_custom_css
 from src.valuation import (
     LeagueConfig,
     SGPCalculator,
@@ -18,11 +18,10 @@ from src.valuation import (
     value_all_players,
 )
 
-st.set_page_config(page_title="Mock Draft", page_icon="", layout="wide")
+st.set_page_config(page_title="Heater | Mock Draft", page_icon="", layout="wide")
 
 init_db()
 inject_custom_css()
-render_theme_toggle()
 
 
 # ── Pool / Valuation ────────────────────────────────────────────────────────
@@ -162,27 +161,50 @@ def render_recommendations(pool: pd.DataFrame, ds: DraftState, n_sims: int) -> N
 
     st.markdown("---")
 
-    player_options = available.sort_values("pick_score", ascending=False)["player_name"].tolist()
-    if not player_options:
+    sorted_avail = available.sort_values("pick_score", ascending=False)
+    if sorted_avail.empty:
         st.info("No available players.")
         return
 
-    default_name = top3.iloc[0].get("player_name", player_options[0]) if not top3.empty else player_options[0]
-    default_idx = player_options.index(default_name) if default_name in player_options else 0
+    # Search bar
+    mock_search = st.text_input(
+        "Search players...",
+        key="mock_player_search",
+        placeholder="Type a player name...",
+        label_visibility="collapsed",
+    )
 
-    chosen_name = st.selectbox("Draft Player", player_options, index=default_idx, key="mock_pick_select")
+    # Filter by search
+    if mock_search:
+        filtered = sorted_avail[sorted_avail["player_name"].str.contains(mock_search, case=False, na=False)]
+    else:
+        filtered = sorted_avail
 
-    if st.button("Draft Selected Player", type="primary", key="mock_draft_btn"):
-        match = available[available["player_name"] == chosen_name]
-        if not match.empty:
-            p = match.iloc[0]
-            ds.make_pick(
-                player_id=int(p["player_id"]),
-                player_name=str(p["player_name"]),
-                positions=str(p.get("positions", "Util")),
-            )
-            auto_pick_opponents(pool)
-            st.rerun()
+    # Show top 5 as card buttons
+    top_picks = filtered.head(5)
+    if not top_picks.empty:
+        card_cols = st.columns(len(top_picks))
+        for ci, (_, prow) in enumerate(top_picks.iterrows()):
+            with card_cols[ci]:
+                pname = prow.get("player_name", "?")
+                ppos = prow.get("positions", "?")
+                pscore = prow.get("pick_score", 0)
+                st.markdown(
+                    f'<div class="player-card">'
+                    f'<div class="pc-name">{pname}</div>'
+                    f'<div class="pc-pos">{ppos}</div>'
+                    f'<div class="pc-score">{pscore:.1f}</div>'
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+                if st.button("Draft", key=f"mock_draft_{prow.get('player_id', ci)}", type="primary", width="stretch"):
+                    ds.make_pick(
+                        player_id=int(prow["player_id"]),
+                        player_name=str(prow["player_name"]),
+                        positions=str(prow.get("positions", "Util")),
+                    )
+                    auto_pick_opponents(pool)
+                    st.rerun()
 
 
 # ── User Roster Panel ───────────────────────────────────────────────────────
@@ -337,11 +359,16 @@ def render_tabs(pool: pd.DataFrame, ds: DraftState) -> None:
         if available.empty:
             st.info("No available players.")
         else:
-            pos_filter = st.selectbox(
-                "Filter by position",
-                ["All", "C", "1B", "2B", "3B", "SS", "OF", "SP", "RP"],
-                key="mock_pos_filter",
-            )
+            mock_positions = ["All", "C", "1B", "2B", "3B", "SS", "OF", "SP", "RP"]
+            mock_pill_cols = st.columns(len(mock_positions))
+            pos_filter = st.session_state.get("mock_pos_filter", "All")
+            for pi, mpos in enumerate(mock_positions):
+                with mock_pill_cols[pi]:
+                    mtype = "primary" if pos_filter == mpos else "secondary"
+                    if st.button(mpos, key=f"mock_pill_{mpos}", type=mtype, width="stretch"):
+                        st.session_state.mock_pos_filter = mpos
+                        st.rerun()
+
             disp = available.copy()
             if pos_filter != "All":
                 disp = disp[disp["positions"].str.contains(pos_filter, na=False)]
@@ -386,7 +413,7 @@ def render_tabs(pool: pd.DataFrame, ds: DraftState) -> None:
 # ── Main ────────────────────────────────────────────────────────────────────
 
 st.markdown(
-    f'<h1 style="color:{T["amber"]};margin-bottom:4px;">Mock Draft Simulator</h1>',
+    '<div class="page-title">MOCK DRAFT</div>',
     unsafe_allow_html=True,
 )
 

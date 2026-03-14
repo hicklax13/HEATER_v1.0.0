@@ -9,17 +9,16 @@ from src.database import init_db, load_league_rosters, load_player_pool
 from src.in_season import analyze_trade
 from src.injury_model import compute_health_score, get_injury_badge
 from src.league_manager import get_team_roster
-from src.ui_shared import METRIC_TOOLTIPS, PAGE_ICONS, T, inject_custom_css, render_theme_toggle
+from src.ui_shared import METRIC_TOOLTIPS, PAGE_ICONS, T, inject_custom_css
 from src.valuation import LeagueConfig, add_process_risk, compute_percentile_projections, compute_projection_volatility
 
-st.set_page_config(page_title="Trade Analyzer", page_icon="", layout="wide")
+st.set_page_config(page_title="Heater | Trade Analyzer", page_icon="", layout="wide")
 
 init_db()
 
 inject_custom_css()
-render_theme_toggle()
 
-st.title("Trade Analyzer")
+st.markdown('<div class="page-title">TRADE ANALYZER</div>', unsafe_allow_html=True)
 
 # Load data
 pool = load_player_pool()
@@ -165,11 +164,12 @@ else:
                     icon = PAGE_ICONS["reject"]
 
                 st.markdown(
-                    f'<div style="background:{color}20;border:2px solid {color};'
-                    f'border-radius:12px;padding:20px;text-align:center;margin:16px 0;">'
+                    f'<div class="glass" style="border:2px solid {color};'
+                    f"padding:20px;text-align:center;margin:16px 0;"
+                    f'animation:slideUp 0.4s ease-out both;">'
                     f"{icon}"
-                    f'<span style="font-family:Oswald,sans-serif;font-size:28px;color:{color};'
-                    f'margin-left:12px;">{result["verdict"]}</span>'
+                    f'<span style="font-family:Bebas Neue,sans-serif;font-size:28px;color:{color};'
+                    f'letter-spacing:2px;margin-left:12px;">{result["verdict"]}</span>'
                     f'<span style="color:{T["tx2"]};margin-left:12px;font-size:18px;">'
                     f"{result['confidence_pct']:.1f}% confidence</span></div>",
                     unsafe_allow_html=True,

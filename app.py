@@ -1,7 +1,7 @@
-"""Fantasy Baseball Draft Tool — Broadcast Booth Edition.
+"""Heater — Fantasy Baseball Draft Tool.
 
 Live draft assistant for 12-team snake draft with in-season management.
-Dark navy + amber accents + sports broadcast typography.
+Thermal-inspired design with glassmorphic cards and kinetic typography.
 """
 
 import copy
@@ -43,7 +43,6 @@ from src.ui_shared import (
     ROSTER_CONFIG,
     T,
     inject_custom_css,
-    render_theme_toggle,
     sec,
 )
 from src.valuation import (
@@ -72,7 +71,7 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 st.set_page_config(
-    page_title="Draft Command Center",
+    page_title="Heater",
     page_icon="",
     layout="wide",
     initial_sidebar_state="collapsed",
@@ -129,7 +128,7 @@ def render_wizard_progress(current_step):
 
 def render_setup_page():
     st.markdown(
-        '<div class="page-title">Draft Command Center</div>',
+        '<div class="page-title">HEATER</div>',
         unsafe_allow_html=True,
     )
     step = st.session_state.setup_step
@@ -204,9 +203,10 @@ def render_splash_screen():
     with placeholder.container():
         st.markdown(
             f'<div style="text-align:center; padding:4rem 2rem;">'
-            f'<h1 style="color:{T["amber"]}; font-family:Oswald;'
-            f' letter-spacing:3px;">DRAFT COMMAND CENTER</h1>'
-            f'<p style="color:{T["tx2"]};">Loading MLB data...</p>'
+            f"{PAGE_ICONS['logo_lg']}"
+            f'<div class="splash-title">HEATER</div>'
+            f'<p style="color:{T["tx2"]};font-family:Figtree,sans-serif;">'
+            f"Loading MLB data...</p>"
             f"</div>",
             unsafe_allow_html=True,
         )
@@ -272,7 +272,7 @@ def render_step_settings():
                     f'<a href="{auth_url}" target="_blank" style="'
                     f"display:inline-block;padding:8px 20px;"
                     f"background:{T['amber']};color:{T['ink']};"
-                    f"border-radius:8px;font-weight:700;font-family:Oswald,sans-serif;"
+                    f"border-radius:8px;font-weight:700;font-family:Bebas Neue,sans-serif;"
                     f'text-decoration:none;font-size:14px;">'
                     f"Authorize with Yahoo</a>",
                     unsafe_allow_html=True,
@@ -332,7 +332,7 @@ def render_step_settings():
         st.markdown(
             f'<div style="background:{T["card"]};border:1px solid {T["ok"]};'
             f'border-radius:12px;padding:12px 16px;margin-bottom:16px;">'
-            f'<span style="font-family:Oswald,sans-serif;color:{T["ok"]};'
+            f'<span style="font-family:Bebas Neue,sans-serif;color:{T["ok"]};'
             f'font-size:14px;">{PAGE_ICONS["check"]} Yahoo Fantasy Connected</span></div>',
             unsafe_allow_html=True,
         )
@@ -453,7 +453,7 @@ def render_step_launch():
         st.markdown(
             f'<div class="glass" style="display:flex;align-items:center;gap:12px;padding:12px 16px;">'
             f'<span style="font-size:20px;">{icon}</span>'
-            f'<div><span style="font-family:Oswald,sans-serif;font-weight:600;font-size:14px;'
+            f'<div><span style="font-family:Bebas Neue,sans-serif;font-weight:600;font-size:14px;'
             f'text-transform:uppercase;letter-spacing:1px;color:{T["tx"]};">{label}</span>'
             f'<br><span class="badge {badge_cls}">{detail}</span></div></div>',
             unsafe_allow_html=True,
@@ -665,7 +665,7 @@ def render_draft_page():
     # ── Sidebar ──────────────────────────────────────────────────
     with st.sidebar:
         st.markdown(
-            f'<div style="font-family:Oswald,sans-serif;font-weight:700;font-size:18px;'
+            f'<div style="font-family:Bebas Neue,sans-serif;font-weight:700;font-size:18px;'
             f'color:{T["amber"]};text-transform:uppercase;letter-spacing:2px;margin-bottom:12px;">'
             f"Controls</div>",
             unsafe_allow_html=True,
@@ -704,9 +704,9 @@ def render_draft_page():
     # ── Practice mode banner ──────────────────────────────────────
     if st.session_state.practice_mode:
         st.markdown(
-            f'<div style="background:rgba(245,158,11,0.15);border:2px solid {T["warn"]};'
-            f'border-radius:8px;padding:10px;text-align:center;margin-bottom:12px;">'
-            f'<span style="font-family:Oswald,sans-serif;color:{T["warn"]};">'
+            f'<div class="glass" style="border:2px solid {T["warn"]};'
+            f'padding:10px;text-align:center;margin-bottom:12px;">'
+            f'<span style="font-family:Bebas Neue,sans-serif;letter-spacing:2px;color:{T["warn"]};">'
             f"PRACTICE MODE — Picks will not be saved</span></div>",
             unsafe_allow_html=True,
         )
@@ -885,9 +885,9 @@ def render_draft_page():
             picks_away = ds.picks_until_user_turn()
             st.markdown(
                 f'<div class="glass" style="text-align:center;padding:32px;">'
-                f'<div style="font-family:Oswald,sans-serif;font-size:20px;color:{T["tx2"]};">'
+                f'<div style="font-family:Bebas Neue,sans-serif;font-size:20px;color:{T["tx2"]};">'
                 f"{team_name} is on the clock</div>"
-                f'<div style="font-family:JetBrains Mono,monospace;font-size:14px;color:{T["tx2"]};'
+                f'<div style="font-family:IBM Plex Mono,monospace;font-size:14px;color:{T["tx2"]};'
                 f'margin-top:8px;">{picks_away} picks until your turn</div></div>',
                 unsafe_allow_html=True,
             )
@@ -1024,7 +1024,7 @@ def render_hero_pick(rec, ds, pool, threat_alerts=None):
                 fill_pct = int(((score - p10_val) / range_width) * 100)
                 fill_pct = max(5, min(95, fill_pct))
                 pct_html = (
-                    f'<div title="{METRIC_TOOLTIPS["p10_p90"]}" style="margin-top:8px;font-family:JetBrains Mono,monospace;'
+                    f'<div title="{METRIC_TOOLTIPS["p10_p90"]}" style="margin-top:8px;font-family:IBM Plex Mono,monospace;'
                     f'font-size:12px;color:{T["tx2"]};">'
                     f"10th Percentile: {p10_val:.1f} "
                     f'<span style="display:inline-block;width:120px;height:8px;'
@@ -1159,7 +1159,7 @@ def render_pick_entry(ds, pool, available):
             # Confirmation card
             st.markdown(
                 f'<div class="glass" style="border-color:{T["amber"]}44;">'
-                f'<div style="font-family:Oswald,sans-serif;font-size:16px;color:{T["tx"]};">'
+                f'<div style="font-family:Bebas Neue,sans-serif;font-size:16px;color:{T["tx"]};">'
                 f"{p['player_name']}</div>"
                 f'<div style="font-size:12px;color:{T["tx2"]};">{p.get("positions", "?")}</div>'
                 f"</div>",
@@ -1538,7 +1538,7 @@ def _render_radar_chart(ds, pool):
             fill="toself",
             name="My Team",
             line=dict(color=T["amber"], width=2),
-            fillcolor="rgba(245, 158, 11, 0.13)",
+            fillcolor="rgba(230, 57, 70, 0.13)",
         )
     )
     fig.add_trace(
@@ -1558,7 +1558,7 @@ def _render_radar_chart(ds, pool):
         ),
         paper_bgcolor=T["bg"],
         plot_bgcolor=T["bg"],
-        font=dict(family="DM Sans", color=T["tx2"]),
+        font=dict(family="Figtree", color=T["tx2"]),
         showlegend=True,
         legend=dict(font=dict(color=T["tx2"])),
         margin=dict(l=40, r=40, t=30, b=30),
@@ -1754,7 +1754,7 @@ def render_draft_log(ds):
         # Round break
         if entry["pick_in_round"] == 1 and entry["pick"] > 0:
             st.markdown(
-                f'<div style="text-align:center;padding:4px;font-family:Oswald,sans-serif;'
+                f'<div style="text-align:center;padding:4px;font-family:Bebas Neue,sans-serif;'
                 f'font-size:11px;color:{T["tx2"]};text-transform:uppercase;letter-spacing:2px;">'
                 f"— Round {entry['round']} —</div>",
                 unsafe_allow_html=True,
@@ -1783,7 +1783,6 @@ def render_draft_log(ds):
 def main():
     init_session()
     inject_custom_css()
-    render_theme_toggle()
 
     # Bootstrap all data on every session start (splash screen with progress)
     init_db()

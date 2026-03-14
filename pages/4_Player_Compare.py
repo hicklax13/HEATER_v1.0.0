@@ -15,7 +15,6 @@ from src.ui_shared import (
     get_plotly_polar,
     get_theme,
     inject_custom_css,
-    render_theme_toggle,
 )
 from src.valuation import LeagueConfig, add_process_risk, compute_percentile_projections, compute_projection_volatility
 
@@ -26,14 +25,13 @@ try:
 except ImportError:
     HAS_PLOTLY = False
 
-st.set_page_config(page_title="Player Compare", page_icon="", layout="wide")
+st.set_page_config(page_title="Heater | Player Compare", page_icon="", layout="wide")
 
 init_db()
 
 inject_custom_css()
-render_theme_toggle()
 
-st.title("Player Compare")
+st.markdown('<div class="page-title">PLAYER COMPARE</div>', unsafe_allow_html=True)
 
 pool = load_player_pool()
 if pool.empty:
@@ -47,9 +45,45 @@ player_names = sorted(pool["player_name"].tolist())
 
 col1, col2 = st.columns(2)
 with col1:
-    player_a_name = st.selectbox("Player A", options=player_names, index=0, key="pa")
+    search_a = st.text_input("Search Player A", key="search_a", placeholder="Type a player name...")
+    filtered_a = [n for n in player_names if search_a.lower() in n.lower()] if search_a else player_names
+    if filtered_a:
+        # Show top matches as selectable cards
+        top_a = filtered_a[:5]
+        a_cols = st.columns(min(len(top_a), 5))
+        player_a_name = st.session_state.get("compare_a", top_a[0])
+        for ai, aname in enumerate(top_a):
+            with a_cols[ai]:
+                a_type = "primary" if player_a_name == aname else "secondary"
+                if st.button(aname, key=f"comp_a_{ai}", type=a_type, width="stretch"):
+                    st.session_state.compare_a = aname
+                    st.rerun()
+        player_a_name = st.session_state.get("compare_a", top_a[0])
+    else:
+        st.info("No players match search.")
+        player_a_name = None
+
 with col2:
-    player_b_name = st.selectbox("Player B", options=player_names, index=min(1, len(player_names) - 1), key="pb")
+    search_b = st.text_input("Search Player B", key="search_b", placeholder="Type a player name...")
+    filtered_b = [n for n in player_names if search_b.lower() in n.lower()] if search_b else player_names
+    if filtered_b:
+        top_b = filtered_b[:5]
+        b_cols = st.columns(min(len(top_b), 5))
+        player_b_name = st.session_state.get(
+            "compare_b", top_b[0] if len(top_b) == 1 else top_b[1] if len(top_b) > 1 else top_b[0]
+        )
+        for bi, bname in enumerate(top_b):
+            with b_cols[bi]:
+                b_type = "primary" if player_b_name == bname else "secondary"
+                if st.button(bname, key=f"comp_b_{bi}", type=b_type, width="stretch"):
+                    st.session_state.compare_b = bname
+                    st.rerun()
+        player_b_name = st.session_state.get(
+            "compare_b", top_b[0] if len(top_b) == 1 else top_b[1] if len(top_b) > 1 else top_b[0]
+        )
+    else:
+        st.info("No players match search.")
+        player_b_name = None
 
 if player_a_name and player_b_name and player_a_name != player_b_name:
     match_a = pool[pool["player_name"] == player_a_name]
@@ -130,7 +164,7 @@ if player_a_name and player_b_name and player_a_name != player_b_name:
                     name=result["player_a"],
                     line=dict(color=t["amber"]),
                     fill="toself",
-                    fillcolor="rgba(245,158,11,0.15)",
+                    fillcolor="rgba(230,57,70,0.15)",
                 )
             )
             fig.add_trace(
@@ -140,7 +174,7 @@ if player_a_name and player_b_name and player_a_name != player_b_name:
                     name=result["player_b"],
                     line=dict(color=t["teal"]),
                     fill="toself",
-                    fillcolor="rgba(6,182,212,0.15)",
+                    fillcolor="rgba(69,123,157,0.15)",
                 )
             )
             layout_kwargs = get_plotly_layout(t)

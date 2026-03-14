@@ -1,11 +1,11 @@
-# Fantasy Baseball Draft Tool
+# Heater — Fantasy Baseball Draft Tool
 
 ## Overview
 
 A fantasy baseball draft assistant + in-season manager for a 12-team Yahoo Sports 5x5 roto snake draft league. Two pillars:
 
-1. **Draft Tool** (`app.py`, ~1600 lines) — "Broadcast Booth" themed Streamlit app with dark/light mode toggle: splash screen data bootstrap + 2-step setup wizard (Settings, Launch), 3-column draft page with SVG injury badges, percentile ranges, opponent intel tab, and practice mode. Monte Carlo recommendations with percentile sampling. Zero CSV uploads — all data auto-fetched from MLB Stats API + FanGraphs on every launch.
-2. **In-Season Management** (`pages/`) — 6 Streamlit pages: team overview, mock draft simulator, trade analysis, player comparison, free agent rankings, lineup optimizer. Powered by MLB Stats API + pybaseball + optional Yahoo Fantasy API. All pages share centralized theme system with dark/light toggle.
+1. **Draft Tool** (`app.py`, ~1800 lines) — "Heater" themed Streamlit app with light-mode glassmorphic design: splash screen data bootstrap + 2-step setup wizard (Settings, Launch), 3-column draft page with SVG injury badges, percentile ranges, opponent intel tab, and practice mode. Monte Carlo recommendations with percentile sampling. Zero CSV uploads — all data auto-fetched from MLB Stats API + FanGraphs on every launch.
+2. **In-Season Management** (`pages/`) — 6 Streamlit pages: team overview, mock draft simulator, trade analysis, player comparison, free agent rankings, lineup optimizer. Powered by MLB Stats API + pybaseball + optional Yahoo Fantasy API. All pages share centralized single-theme system (light mode only).
 
 ## Commands
 
@@ -224,14 +224,13 @@ apply_injury_adjustment(projections_df, health_scores_df) -> pd.DataFrame
 get_injury_badge(health_score) -> tuple[str, str]  # (css_dot_html, label) — returns <span> with colored dot, NOT emoji
 
 # UI shared (src/ui_shared.py)
-PAGE_ICONS: dict[str, str]  # ~20 inline SVG icons keyed by name ("baseball", "fire", "accept", etc.)
+PAGE_ICONS: dict[str, str]  # ~22 inline SVG icons keyed by name ("logo", "logo_lg", "baseball", "fire", "accept", etc.)
 METRIC_TOOLTIPS: dict[str, str]  # Educational tooltip text for every metric (sgp, vorp, survival, etc.)
-DARK_THEME: dict  # bg=#0a0e1a, ink=#0a0e1a, card=#1a1f2e, amber=#f59e0b, ...
-LIGHT_THEME: dict  # bg=#f8f9fc, ink=#1a1a2e, card=#ffffff, amber=#f59e0b, ...
-T = _ThemeProxy()  # Dict-like proxy — reads delegate to active theme via get_theme()
-get_theme() -> dict  # Returns DARK_THEME or LIGHT_THEME based on session_state["theme_mode"]
-render_theme_toggle()  # Renders dark/light toggle in sidebar
-inject_custom_css()  # Injects full CSS (1000+ lines) — call once per page
+THEME: dict  # Single light-mode palette: bg=#f4f5f0, primary=#e63946, hot=#ff6d00, gold=#ffd60a, green=#2d6a4f, sky=#457b9d, purple=#6c63ff
+T = THEME  # Direct dict alias — no proxy needed without dark mode. Backward compat: T["amber"]→#e63946, T["teal"]→#457b9d
+get_theme() -> dict  # Stub — always returns THEME (kept for backward compat)
+render_theme_toggle()  # No-op stub (kept for backward compat)
+inject_custom_css()  # Injects full CSS (1100+ lines) with glassmorphism, 3D buttons, kinetic typography, 7 animations
 
 # Percentiles (src/valuation.py)
 compute_projection_volatility(projections_by_system: dict[str, DataFrame]) -> DataFrame
@@ -317,7 +316,7 @@ SYSTEM_MAP = {"steamer": "steamer", "zips": "zips", "fangraphsdc": "depthcharts"
 - **No abbreviations in UI text** — All user-facing text uses full terms: "Standings Gained Points" (not SGP), "Value Over Replacement Player" (not VORP), "Average Draft Position" (not ADP), "Monte Carlo" (not MC), "Runs Batted In" (not RBI), etc. Variable names and DB columns stay abbreviated. Category display uses `cat_names`/`cat_display_names` mapping dicts.
 - **Draft Settings live on Mock Draft page** — Number of teams, Rounds, and Draft position inputs are on `pages/2_Mock_Draft.py`, not on the Connect League page. Stored in `mock_num_teams`, `mock_num_rounds`, `mock_draft_pos` session state. Also written to shared `num_teams`/`num_rounds`/`draft_pos` keys for the main draft.
 - **Yahoo sync across pages** — Pages reuse `st.session_state.yahoo_client` for Yahoo sync instead of creating new clients. Token data stored in `st.session_state.yahoo_token_data` for re-authentication. Pages show "Sync League Data Now" button when Yahoo connected but DB empty.
-- **`_ThemeProxy` dict subclass** — `T` in `ui_shared.py` is a `_ThemeProxy` that delegates all reads to `get_theme()`. This makes `T["amber"]` theme-aware without changing call sites. Do not replace `T` with a plain dict.
+- **`T = THEME` is now a plain dict** — `T` in `ui_shared.py` is just `THEME` (the single color palette dict). The old `_ThemeProxy` class was removed along with dark mode. Backward-compat aliases: `T["amber"]`→`"#e63946"` (primary red), `T["teal"]`→`"#457b9d"` (sky blue).
 - **Sidebar nav rename via JS** — The sidebar "app" label is renamed to "Connect League" using JS `textContent` replacement in `inject_custom_css()`.
 - **Rate-stat aggregation** — AVG=sum(h)/sum(ab), ERA=sum(er)*9/sum(ip), WHIP=sum(bb+h)/sum(ip). Weighted averages, NOT simple averages. `_fix_rate_stats()` in `lineup_optimizer.py` recalculates these after LP solves.
 - **Injury model scales rate stats** — `apply_injury_adjustment()` scales ER, BB_allowed, H_allowed by `_combined_factor` (health×age×workload), not just counting stats. Without this, injured pitchers show artificially low ERA/WHIP.

@@ -9,7 +9,7 @@ from src.database import init_db, load_league_rosters
 from src.injury_model import compute_health_score, get_injury_badge
 from src.league_manager import get_team_roster
 from src.live_stats import refresh_all_stats
-from src.ui_shared import METRIC_TOOLTIPS, inject_custom_css, render_theme_toggle
+from src.ui_shared import METRIC_TOOLTIPS, inject_custom_css
 
 try:
     from src.bayesian import BayesianUpdater
@@ -23,14 +23,13 @@ try:
 except ImportError:
     YFPY_AVAILABLE = False
 
-st.set_page_config(page_title="My Team", page_icon="", layout="wide")
+st.set_page_config(page_title="Heater | My Team", page_icon="", layout="wide")
 
 init_db()
 
 inject_custom_css()
-render_theme_toggle()
 
-st.title("My Team")
+st.markdown('<div class="page-title">MY TEAM</div>', unsafe_allow_html=True)
 
 # Determine user team
 rosters = load_league_rosters()

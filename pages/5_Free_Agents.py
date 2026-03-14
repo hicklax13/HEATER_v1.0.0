@@ -9,19 +9,18 @@ import streamlit as st
 from src.database import init_db, load_league_rosters, load_player_pool
 from src.in_season import rank_free_agents
 from src.league_manager import get_free_agents, get_team_roster
-from src.ui_shared import METRIC_TOOLTIPS, inject_custom_css, render_theme_toggle
+from src.ui_shared import METRIC_TOOLTIPS, inject_custom_css
 from src.valuation import LeagueConfig
 
 logger = logging.getLogger(__name__)
 
-st.set_page_config(page_title="Free Agents", page_icon="", layout="wide")
+st.set_page_config(page_title="Heater | Free Agents", page_icon="", layout="wide")
 
 init_db()
 
 inject_custom_css()
-render_theme_toggle()
 
-st.title("Free Agent Rankings")
+st.markdown('<div class="page-title">FREE AGENT RANKINGS</div>', unsafe_allow_html=True)
 
 pool = load_player_pool()
 if pool.empty:
@@ -81,18 +80,17 @@ else:
         if fa_pool.empty:
             st.info("No free agents available (all players are rostered).")
         else:
-            # Filters
-            col1, col2 = st.columns([1, 2])
-            with col1:
-                positions = sorted(
-                    set(
-                        pos.strip()
-                        for poslist in fa_pool["positions"].dropna()
-                        for pos in str(poslist).split(",")
-                        if pos.strip()
-                    )
-                )
-                pos_filter = st.selectbox("Position Filter", ["All"] + positions)
+            # Position filter pills
+            positions = ["All", "C", "1B", "2B", "3B", "SS", "OF", "SP", "RP"]
+            pill_cols = st.columns(len(positions))
+            pos_filter = st.session_state.get("fa_pos_filter", "All")
+
+            for i, pos in enumerate(positions):
+                with pill_cols[i]:
+                    btn_type = "primary" if pos_filter == pos else "secondary"
+                    if st.button(pos, key=f"fa_pill_{pos}", type=btn_type, width="stretch"):
+                        st.session_state.fa_pos_filter = pos
+                        st.rerun()
 
             if pos_filter != "All":
                 fa_pool = fa_pool[fa_pool["positions"].str.contains(pos_filter, na=False)]
