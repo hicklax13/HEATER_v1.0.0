@@ -1137,25 +1137,25 @@ def inject_custom_css():
     }}
     .page-title {{
         font-family: 'Bebas Neue', sans-serif !important;
-        font-size: 42px !important;
-        letter-spacing: 4px !important;
+        font-size: 28px !important;
+        letter-spacing: 3px !important;
         text-transform: uppercase !important;
         text-align: center !important;
-        margin-top: 16px !important;
-        margin-bottom: 12px !important;
+        margin-top: 8px !important;
+        margin-bottom: 8px !important;
         word-break: break-word !important;
         overflow-wrap: anywhere !important;
         display: inline-block !important;
-        padding: 10px 36px !important;
+        padding: 8px 28px !important;
         border-radius: 50px !important;
         background: linear-gradient(135deg, #1a1a2e, #16213e) !important;
-        box-shadow: 0 4px 20px rgba(22,33,62,0.35), inset 0 1px 0 rgba(255,255,255,0.08) !important;
+        box-shadow: 0 3px 14px rgba(22,33,62,0.3), inset 0 1px 0 rgba(255,255,255,0.08) !important;
         position: relative !important;
     }}
     .page-title-wrap {{
         text-align: center !important;
-        margin-top: 8px !important;
-        margin-bottom: 4px !important;
+        margin-top: 4px !important;
+        margin-bottom: 2px !important;
     }}
     .page-title span {{
         background: linear-gradient(135deg, {t["primary"]}, {t["hot"]}, {t["gold"]}) !important;
@@ -1175,7 +1175,7 @@ def inject_custom_css():
     }}
     .splash-title {{
         font-family: 'Bebas Neue', sans-serif;
-        font-size: 56px;
+        font-size: 42px;
         text-align: center;
         background: linear-gradient(135deg, {t["primary"]}, {t["hot"]}, {t["gold"]});
         background-size: 200% 200%;
@@ -1401,6 +1401,9 @@ def inject_custom_css():
         font-family: 'Figtree', sans-serif !important;
         color: {t["tx"]} !important;
     }}
+    .stMarkdown h1, h1 {{ font-size: 24px !important; }}
+    .stMarkdown h2, h2, [data-testid="stSubheader"], .stSubheader {{ font-size: 18px !important; }}
+    .stMarkdown h3, h3 {{ font-size: 15px !important; }}
 
     /* Orange action buttons — "Refresh Stats", "Sync Yahoo", etc. */
     .stButton > button[kind="secondary"],
@@ -1433,9 +1436,9 @@ def inject_custom_css():
     /* ── RESPONSIVE ──────────────────────────── */
     @media (max-width: 768px) {{
         .page-title {{
-            font-size: 28px !important;
+            font-size: 22px !important;
             letter-spacing: 2px !important;
-            padding: 8px 24px !important;
+            padding: 6px 20px !important;
         }}
         .splash-title {{
             font-size: 36px;
@@ -1460,9 +1463,9 @@ def inject_custom_css():
     }}
     @media (max-width: 480px) {{
         .page-title {{
-            font-size: 22px !important;
+            font-size: 18px !important;
             letter-spacing: 1px !important;
-            padding: 6px 18px !important;
+            padding: 5px 14px !important;
         }}
         .splash-title {{
             font-size: 28px;
@@ -1502,8 +1505,8 @@ def inject_custom_css():
             if (header && !header.querySelector('.heater-logo')) {
                 const logoDiv = parent.document.createElement('div');
                 logoDiv.className = 'heater-logo';
-                logoDiv.style.cssText = 'display:flex;align-items:center;justify-content:center;gap:14px;padding:22px 0 14px 0;';
-                logoDiv.innerHTML = '<svg width="56" height="56" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">'
+                logoDiv.style.cssText = 'display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;padding:12px 8px 8px 8px;';
+                logoDiv.innerHTML = '<svg width="38" height="38" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">'
                     + '<defs><radialGradient id="sbl" cx="40%" cy="35%" r="55%">'
                     + '<stop offset="0%" stop-color="#fff"/><stop offset="60%" stop-color="#f5f0e8"/>'
                     + '<stop offset="100%" stop-color="#e8ddd0"/></radialGradient>'
@@ -1532,8 +1535,8 @@ def inject_custom_css():
                     + '<line x1="49" y1="45" x2="46" y2="44" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
                     + '<circle cx="38" cy="32" r="21" fill="none" stroke="rgba(255,255,255,0.3)" stroke-width="1.2"/>'
                     + '</svg>'
-                    + '<span style="font-family:Bebas Neue,sans-serif;font-size:36px;letter-spacing:5px;'
-                    + 'color:#ffffff;font-weight:700;text-shadow:0 2px 6px rgba(0,0,0,0.3);">HEATER</span>';
+                    + '<span style="font-family:Bebas Neue,sans-serif;font-size:22px;letter-spacing:4px;'
+                    + 'color:#ffffff;font-weight:700;text-shadow:0 1px 3px rgba(0,0,0,0.25);line-height:1;">HEATER</span>';
                 header.insertBefore(logoDiv, header.firstChild);
             }
 
