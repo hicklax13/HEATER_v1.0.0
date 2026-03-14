@@ -25,7 +25,7 @@ ruff check .
 # Format
 ruff format .
 
-# Run all tests (330 collected, 329 pass, 1 skipped for PyMC)
+# Run all tests (362 collected, 361 pass, 1 skipped for PyMC)
 python -m pytest
 
 # Run with verbose output
@@ -69,7 +69,7 @@ load_sample_data.py     — Generates ~190 sample players + injury history for t
 pages/
   1_My_Team.py          — In-season: team overview with monogram avatar, roster, category standings, Yahoo sync
   2_Draft_Simulator.py  — Standalone draft simulator (AI opponents, MC recommendations, pill filters, card-based picks)
-  3_Trade_Analyzer.py   — In-season: trade proposal builder + MC analysis + glassmorphic verdict banners
+  3_Trade_Analyzer.py   — In-season: trade proposal builder + Phase 1 SGP engine (grade A+ to F, punt detection, marginal elasticity) with legacy fallback
   4_Player_Compare.py   — In-season: head-to-head player comparison with dual search + card pickers
   5_Free_Agents.py      — In-season: free agent rankings by marginal value, position pill filters
   6_Lineup_Optimizer.py — In-season: PuLP LP solver for start/sit + category targeting
@@ -90,6 +90,19 @@ src/
   lineup_optimizer.py   — PuLP LP solver: lineup optimization, category targeting, two-start SP detection
   yahoo_api.py          — Yahoo Fantasy API: OAuth integration via yfpy, league sync, roster import
   data_pipeline.py      — FanGraphs auto-fetch: Steamer/ZiPS/Depth Charts JSON API, normalize, upsert, ADP extraction
+  engine/               — Trade Analyzer Engine (Phase 1)
+    __init__.py
+    portfolio/
+      __init__.py
+      valuation.py      — Z-score + SGP valuation: peer-group z-scores, standings-based SGP denominators, VORP
+      category_analysis.py — Marginal SGP elasticity (1/gap), category gap analysis, punt detection, category weights
+      lineup_optimizer.py — LP optimizer wrapper: optimal lineup value, pre/post trade lineup delta, bench option value
+    projections/
+      __init__.py
+      projection_client.py — ROS projections loader, 3-pass fuzzy name matching, trade player resolution
+    output/
+      __init__.py
+      trade_evaluator.py — Master trade orchestrator: SGP delta → grade (A+ to F), risk flags, verdict
 tests/
   test_database_schema.py   — DB schema and table existence tests
   test_database_queries.py  — Query function tests
@@ -109,6 +122,7 @@ tests/
   test_valuation_math.py    — Math verification: SGP, VORP, replacement levels, percentiles, process risk (40 tests)
   test_simulation_math.py   — Math verification: survival probability, urgency, combined score, tiers, MC convergence (37 tests)
   test_trade_math.py        — Math verification: trade SGP delta, MC noise, verdict, z-scores, rate stats (35 tests)
+  test_trade_engine.py      — Trade engine Phase 1: marginal SGP, punt detection, z-scores, grading, fuzzy match, integration (32 tests)
   profile_latency.py        — Performance profiling utility
 data/
   draft_tool.db         — SQLite database (created at runtime)
@@ -159,8 +173,20 @@ docs/plans/             — Implementation plan archives
 - **Graceful degradation** — Partial system failures proceed with available data
 - **Rate limiting** — 0.5s between requests, User-Agent header to avoid CloudFlare blocks
 
+### Trade Analyzer Engine (`src/engine/`)
+Phase 1 SGP-based evaluation pipeline (7 modules):
+1. **Peer-group z-scores** — Hitters scored against hitters, pitchers against pitchers (IP>0). ERA/WHIP sign-flipped.
+2. **Standings-based SGP** — Median gap between adjacent teams replaces static denominators. Falls back to defaults when standings unavailable.
+3. **Marginal elasticity** — `1/gap_to_next_team` per category. Close gap = high marginal value, dominant = near-zero.
+4. **Punt detection** — Category is PUNT when: (a) cannot gain any standings position in remaining weeks, AND (b) ranked 10th or worse. Punted categories get zero weight.
+5. **Bench option value** — `streaming_sgp_per_week * weeks_remaining` (~0.166 SGP/week). Penalizes 2-for-1 trades, rewards 1-for-2.
+6. **Weighted SGP delta** — Per-category `(after - before) / SGP_denom * marginal_weight`. Inverse stats (ERA/WHIP) sign-flipped.
+7. **Grade** — Surplus SGP maps to A+ (>2.0) through F (≤-1.0). Verdict: ACCEPT if surplus > 0.
+- **Graceful fallback** — Trade Analyzer page tries Phase 1 engine first, falls back to legacy `analyze_trade()` from `src/in_season.py`
+- **Risk flags** — Injured players received, elite players given away (SGP>3.0), weak non-punt categories (rank≥8)
+
 ### In-Season Algorithms
-- **Trade Analyzer:** Roster swap → projected season totals (YTD + ROS) → park-adjusted SGP delta → MC simulation (200 sims) → verdict with confidence %. Now includes injury badges for both sides and P10/P90 risk assessment.
+- **Trade Analyzer (legacy):** Roster swap → projected season totals (YTD + ROS) → park-adjusted SGP delta → MC simulation (200 sims) → verdict with confidence %. Now includes injury badges for both sides and P10/P90 risk assessment.
 - **Player Compare:** ROS projections → Z-score normalization across 10 categories → composite weighted score, optional marginal SGP team impact. Now includes health badges and projection confidence (P10-P90 range width).
 - **FA Ranker:** Marginal SGP per FA vs. user's roster → category-need weighting → replacement target identification → sort by net marginal value
 - **Live Stats:** MLB Stats API (daily auto-refresh) + pybaseball ROS projections, staleness tracking via `refresh_log` table
@@ -209,6 +235,38 @@ value_all_players(pool, config, roster_totals=None, category_weights=None,
 # load_player_pool() columns:
 # player_id, name, team, positions, is_hitter, is_injured,
 # pa, ab, h, r, hr, rbi, sb, avg, ip, w, sv, k, era, whip, er, bb_allowed, h_allowed, adp
+
+# --- Trade Engine Phase 1 APIs (src/engine/) ---
+
+# Trade evaluator (src/engine/output/trade_evaluator.py)
+evaluate_trade(giving_ids, receiving_ids, user_roster_ids, player_pool,
+               config=None, user_team_name=None, weeks_remaining=16)
+# Returns: {grade, surplus_sgp, category_impact, category_analysis, punt_categories,
+#           bench_cost, risk_flags, verdict, confidence_pct, before_totals, after_totals,
+#           giving_players, receiving_players, total_sgp_change, mc_mean, mc_std}
+grade_trade(surplus_sgp: float) -> str  # A+ through F
+
+# Z-score + SGP valuation (src/engine/portfolio/valuation.py)
+compute_player_zscores(player_pool, config=None) -> DataFrame  # adds z_{cat} + z_composite columns
+compute_sgp_from_standings(standings, config=None) -> dict[str, float]  # standings-based SGP denoms
+compute_player_vorp(player_pool, config=None) -> DataFrame  # adds vorp column
+build_valuation_context(config=None) -> dict  # full context from DB state
+
+# Category analysis (src/engine/portfolio/category_analysis.py)
+compute_marginal_sgp(your_totals, all_team_totals, categories=None) -> dict[str, float]
+category_gap_analysis(your_totals, all_team_totals, your_team_id, weeks_remaining=16) -> dict[str, dict]
+build_standings_totals(standings: DataFrame) -> dict[str, dict[str, float]]
+compute_category_weights_from_analysis(analysis) -> dict[str, float]  # punts = 0.0
+
+# Lineup optimizer wrapper (src/engine/portfolio/lineup_optimizer.py)
+compute_optimal_lineup_value(roster, config, category_weights=None) -> float
+compute_lineup_delta(before_roster, after_roster, config, category_weights=None) -> float
+bench_option_value(weeks_remaining=16, streaming_sgp_per_week=0.166) -> float
+
+# Projection client (src/engine/projections/projection_client.py)
+fuzzy_match_player(name, candidates, name_col="name", threshold=0.7) -> str | None
+get_ros_projections(player_ids) -> DataFrame
+resolve_trade_players(giving_names, receiving_names, player_pool) -> tuple[list[int], list[int]]
 
 # --- Plan 3 new APIs ---
 
@@ -329,6 +387,12 @@ SYSTEM_MAP = {"steamer": "steamer", "zips": "zips", "fangraphsdc": "depthcharts"
 - **LP inverse stat weighting** — ERA/WHIP in lineup optimizer LP objective must be weighted by IP: `player_value -= val * ip * weight`. Without IP weighting, a 1-IP reliever with 0.00 ERA dominates a 200-IP starter.
 - **`compare_players()` peer-group filtering** — Z-scores computed against `is_hitter`-filtered pool only. Hitter HR z-score uses hitter pool mean/std, not full pool (which includes pitchers with HR=0).
 - **`check_staleness()` edge case** — `max_age_hours <= 0` returns `True` (always stale). Prevents division-by-zero and logical errors.
+- **Trade engine graceful fallback** — `pages/3_Trade_Analyzer.py` wraps `from src.engine.output.trade_evaluator import evaluate_trade` in try/except. If the engine module is missing or broken, falls back to legacy `analyze_trade()` from `src/in_season.py`. Both code paths produce compatible output dicts.
+- **Trade engine backward compat keys** — `evaluate_trade()` returns both new keys (`grade`, `surplus_sgp`, `category_analysis`) AND legacy keys (`total_sgp_change`, `mc_mean`, `mc_std`) so existing UI code doesn't break.
+- **`compute_marginal_sgp()` uses `.get()` for missing categories** — Team totals may not have all 10 categories. Always use `team_totals.get(cat, 0.0)`, never `team_totals[cat]`.
+- **Punt detection requires BOTH conditions** — A category is punt only when `gainable_positions == 0 AND rank >= 10`. Being rank 10 alone isn't enough if positions are still gainable; having 0 gainable alone isn't enough if you're already ranked high.
+- **Bench option value sign convention** — `bench_cost` in the trade result is positive when you LOSE bench slots (2-for-1 trade receiving side), negative when you GAIN them (1-for-2). The surplus already accounts for this.
+- **`_roster_category_totals()` lives in `src/in_season.py`** — The trade engine's `evaluate_trade()` imports this from the legacy module. Don't duplicate it.
 - **`ruff` command on Windows** — Use `python -m ruff check .` and `python -m ruff format .` instead of bare `ruff` — the binary may not be on PATH.
 
 ## GitHub
@@ -339,9 +403,10 @@ SYSTEM_MAP = {"steamer": "steamer", "zips": "zips", "fangraphsdc": "depthcharts"
 
 ## Testing Status
 
-- **Unit tests:** 330 collected, 329 passed, 1 skipped (PyMC optional dep)
-- **Test files:** 18 test files across draft engine, in-season, analytics, data pipeline, bootstrap, integration, and math verification
+- **Unit tests:** 362 collected, 361 passed, 1 skipped (PyMC optional dep)
+- **Test files:** 19 test files across draft engine, trade engine, in-season, analytics, data pipeline, bootstrap, integration, and math verification
 - **Math verification suite:** 112 tests across 3 files (valuation, simulation, trade) — hand-calculated expected values verified against code formulas
+- **Trade engine tests:** 32 tests covering marginal SGP, punt detection, z-scores, SGP from standings, grading (A+ to F), fuzzy matching, bench option value, risk flags, integration
 - **CI:** GitHub Actions runs ruff lint/format + pytest on Python 3.11, 3.12, 3.13
 - **Coverage:** 64% (below 75% CI threshold; pre-existing, no regressions)
 - **Systematic code reviews:** Three rounds of full codebase review completed (including parallel 7-agent sweep); all bugs fixed and pushed
