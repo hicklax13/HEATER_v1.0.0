@@ -137,7 +137,7 @@ def render_recommendations(pool: pd.DataFrame, ds: DraftState, n_sims: int) -> N
         pos = row.get("positions", "?")
         adp = row.get("adp", 999)
         score = float(row.get("combined_score", row.get("pick_score", 0)))
-        surv = float(row.get("survival_pct", 0))
+        surv = float(row.get("p_survive", 0)) * 100
         urg = float(row.get("urgency", 0))
         border_color = T["amber"] if rank == 1 else T["border"]
         label_color = T["amber"] if rank == 1 else T["tx"]

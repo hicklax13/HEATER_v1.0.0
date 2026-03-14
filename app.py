@@ -534,27 +534,23 @@ def _build_player_pool(progress=None):
         lc = LeagueConfig(num_teams=num_teams)
 
         if not st.session_state.auto_sgp:
-            lc.sgp_r = st.session_state.get("sgp_r", 32.0)
-            lc.sgp_hr = st.session_state.get("sgp_hr", 12.0)
-            lc.sgp_rbi = st.session_state.get("sgp_rbi", 30.0)
-            lc.sgp_sb = st.session_state.get("sgp_sb", 8.0)
-            lc.sgp_avg = st.session_state.get("sgp_avg", 0.008)
-            lc.sgp_w = st.session_state.get("sgp_w", 3.0)
-            lc.sgp_sv = st.session_state.get("sgp_sv", 7.0)
-            lc.sgp_k = st.session_state.get("sgp_k", 25.0)
-            lc.sgp_era = st.session_state.get("sgp_era", 0.30)
-            lc.sgp_whip = st.session_state.get("sgp_whip", 0.03)
+            lc.sgp_denominators["R"] = st.session_state.get("sgp_r", 32.0)
+            lc.sgp_denominators["HR"] = st.session_state.get("sgp_hr", 12.0)
+            lc.sgp_denominators["RBI"] = st.session_state.get("sgp_rbi", 30.0)
+            lc.sgp_denominators["SB"] = st.session_state.get("sgp_sb", 8.0)
+            lc.sgp_denominators["AVG"] = st.session_state.get("sgp_avg", 0.008)
+            lc.sgp_denominators["W"] = st.session_state.get("sgp_w", 3.0)
+            lc.sgp_denominators["SV"] = st.session_state.get("sgp_sv", 7.0)
+            lc.sgp_denominators["K"] = st.session_state.get("sgp_k", 25.0)
+            lc.sgp_denominators["ERA"] = st.session_state.get("sgp_era", 0.30)
+            lc.sgp_denominators["WHIP"] = st.session_state.get("sgp_whip", 0.03)
 
         if progress:
             progress.progress(30, text="Computing Standings Gained Points denominators...")
-        sgp = SGPCalculator(lc)
         if st.session_state.auto_sgp:
             denoms = compute_sgp_denominators(pool, lc)
-            for cat, val in denoms.items():
-                attr = f"sgp_{cat.lower()}"
-                if hasattr(lc, attr):
-                    setattr(lc, attr, val)
-            sgp = SGPCalculator(lc)  # Rebuild with new denominators
+            lc.sgp_denominators.update(denoms)
+        sgp = SGPCalculator(lc)
 
         if progress:
             progress.progress(55, text="Computing replacement levels...")
@@ -663,6 +659,7 @@ def render_draft_page():
         if health_dict:
             health_scores_df = pd.DataFrame([{"player_id": pid, "health_score": hs} for pid, hs in health_dict.items()])
             pool = apply_injury_adjustment(pool, health_scores_df)
+            st.session_state.player_pool = pool
 
     # ── Compute percentile ranges ────────────────────────────────
     if "percentile_data" not in st.session_state:
@@ -671,7 +668,10 @@ def render_draft_page():
         conn = get_connection()
         try:
             systems = {}
-            for system_name in ["steamer", "zips", "depthcharts", "blended"]:
+            # Only use independent projection systems — "blended" is a
+            # derived average of the others, so including it dampens
+            # measured inter-system volatility by ~25-30%.
+            for system_name in ["steamer", "zips", "depthcharts"]:
                 df = pd.read_sql_query(
                     "SELECT * FROM projections WHERE system = ?",
                     conn,
@@ -882,8 +882,8 @@ def render_draft_page():
                 0, f"{PAGE_ICONS['warning']} Low survival: {teams_needing_pos} teams need {hero_pos} before you"
             )
 
-        surv = rec.get("p_survive", rec.get("survival_pct", 50))
-        if surv > 80 and not threat_alerts:
+        surv = rec.get("p_survive", 0.5)
+        if surv > 0.80 and not threat_alerts:
             threat_alerts.append(f"{PAGE_ICONS['check']} Likely available next round")
 
     # ── 3-Column Layout ──────────────────────────────────────────
@@ -968,8 +968,8 @@ def render_hero_pick(rec, ds, pool, threat_alerts=None):
     score = rec.get("pick_score", rec.get("combined_score", 0))
     reason = rec.get("reason", "Best available by combined score")
 
-    # Survival gauge
-    surv = rec.get("survival_pct", rec.get("survival", 50))
+    # Survival gauge — p_survive is 0-1, convert to percentage
+    surv = rec.get("p_survive", 0.5) * 100
     if surv > 70:
         surv_color = T["ok"]
     elif surv > 40:

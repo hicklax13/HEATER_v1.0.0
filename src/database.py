@@ -510,6 +510,7 @@ def load_player_pool() -> pd.DataFrame:
             JOIN projections proj ON p.player_id = proj.player_id
             LEFT JOIN adp a ON p.player_id = a.player_id
             WHERE p.is_injured = 0
+            GROUP BY p.player_id
             ORDER BY COALESCE(a.adp, 999)
         """,
             conn,

@@ -335,7 +335,7 @@ else:
                     conn = get_connection()
                     try:
                         systems = {}
-                        for sys_name in ["steamer", "zips", "depthcharts", "blended"]:
+                        for sys_name in ["steamer", "zips", "depthcharts"]:
                             df = pd.read_sql_query(
                                 "SELECT * FROM projections WHERE system = ?",
                                 conn,
