@@ -23,7 +23,10 @@ init_db()
 
 inject_custom_css()
 
-st.markdown('<div class="page-title">LINEUP OPTIMIZER</div>', unsafe_allow_html=True)
+st.markdown(
+    '<div class="page-title-wrap"><div class="page-title"><span>LINEUP OPTIMIZER</span></div></div>',
+    unsafe_allow_html=True,
+)
 
 # ── Load user team ────────────────────────────────────────────────
 rosters = load_league_rosters()
@@ -271,4 +274,10 @@ st.dataframe(
     roster[[c for c in display_cols if c in roster.columns]],
     hide_index=True,
     width="stretch",
+    column_config={
+        "name": st.column_config.TextColumn("Player"),
+        "positions": st.column_config.TextColumn("Position"),
+        "is_hitter": st.column_config.CheckboxColumn("Hitter"),
+        "Health": st.column_config.TextColumn("Health"),
+    },
 )

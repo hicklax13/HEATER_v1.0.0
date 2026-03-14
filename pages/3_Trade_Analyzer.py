@@ -18,7 +18,10 @@ init_db()
 
 inject_custom_css()
 
-st.markdown('<div class="page-title">TRADE ANALYZER</div>', unsafe_allow_html=True)
+st.markdown(
+    '<div class="page-title-wrap"><div class="page-title"><span>TRADE ANALYZER</span></div></div>',
+    unsafe_allow_html=True,
+)
 
 # Load data
 pool = load_player_pool()

@@ -375,7 +375,19 @@ def render_tabs(pool: pd.DataFrame, ds: DraftState) -> None:
             cols = ["player_name", "positions", "team", "adp", "pick_score"]
             cols = [c for c in cols if c in disp.columns]
             disp_sorted = disp[cols].sort_values("pick_score", ascending=False)
-            st.dataframe(disp_sorted, width="stretch", hide_index=True, height=400)
+            st.dataframe(
+                disp_sorted,
+                width="stretch",
+                hide_index=True,
+                height=400,
+                column_config={
+                    "player_name": st.column_config.TextColumn("Player"),
+                    "positions": st.column_config.TextColumn("Position"),
+                    "team": st.column_config.TextColumn("Team"),
+                    "adp": st.column_config.NumberColumn("ADP", format="%.0f"),
+                    "pick_score": st.column_config.NumberColumn("Pick Score", format="%.1f"),
+                },
+            )
 
     with tab_board:
         if not ds.pick_log:
@@ -413,7 +425,7 @@ def render_tabs(pool: pd.DataFrame, ds: DraftState) -> None:
 # ── Main ────────────────────────────────────────────────────────────────────
 
 st.markdown(
-    '<div class="page-title">MOCK DRAFT</div>',
+    '<div class="page-title-wrap"><div class="page-title"><span>MOCK DRAFT</span></div></div>',
     unsafe_allow_html=True,
 )
 

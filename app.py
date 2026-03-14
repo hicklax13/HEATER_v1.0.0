@@ -128,7 +128,7 @@ def render_wizard_progress(current_step):
 
 def render_setup_page():
     st.markdown(
-        '<div class="page-title">HEATER</div>',
+        '<div class="page-title-wrap"><div class="page-title"><span>HEATER</span></div></div>',
         unsafe_allow_html=True,
     )
     step = st.session_state.setup_step

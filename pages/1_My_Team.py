@@ -29,7 +29,9 @@ init_db()
 
 inject_custom_css()
 
-st.markdown('<div class="page-title">MY TEAM</div>', unsafe_allow_html=True)
+st.markdown(
+    '<div class="page-title-wrap"><div class="page-title"><span>MY TEAM</span></div></div>', unsafe_allow_html=True
+)
 
 # Determine user team
 rosters = load_league_rosters()
@@ -258,7 +260,21 @@ else:
                             )
                             stat_display = ["player_id", "avg", "hr", "rbi", "sb", "era", "whip", "k"]
                             show_cols = [c for c in stat_display if c in updated.columns]
-                            st.dataframe(updated[show_cols], hide_index=True, width="stretch")
+                            st.dataframe(
+                                updated[show_cols],
+                                hide_index=True,
+                                width="stretch",
+                                column_config={
+                                    "player_id": st.column_config.NumberColumn("ID"),
+                                    "avg": st.column_config.NumberColumn("AVG", format="%.3f"),
+                                    "hr": st.column_config.NumberColumn("HR", format="%.0f"),
+                                    "rbi": st.column_config.NumberColumn("RBI", format="%.0f"),
+                                    "sb": st.column_config.NumberColumn("SB", format="%.0f"),
+                                    "era": st.column_config.NumberColumn("ERA", format="%.2f"),
+                                    "whip": st.column_config.NumberColumn("WHIP", format="%.3f"),
+                                    "k": st.column_config.NumberColumn("K", format="%.0f"),
+                                },
+                            )
                     finally:
                         conn.close()
                 except Exception:

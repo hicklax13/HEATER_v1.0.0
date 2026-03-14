@@ -7,72 +7,91 @@ import streamlit as st
 # (24x24 viewBox) that can be embedded in st.markdown().
 
 PAGE_ICONS = {
-    # ── Logo: baseball with heat trail, stitches form an "H" ──
+    # ── Logo: realistic baseball with classic stitching + heat trail ──
     "logo": (
         '<svg width="40" height="40" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" '
         'style="vertical-align:middle;margin-right:8px;">'
         "<defs>"
-        '<linearGradient id="hg" x1="0" y1="0" x2="1" y2="1">'
-        '<stop offset="0%" stop-color="#e63946"/>'
-        '<stop offset="100%" stop-color="#ff6d00"/>'
-        "</linearGradient>"
+        '<radialGradient id="bl" cx="40%" cy="35%" r="55%">'
+        '<stop offset="0%" stop-color="#fff"/>'
+        '<stop offset="60%" stop-color="#f5f0e8"/>'
+        '<stop offset="100%" stop-color="#e8ddd0"/>'
+        "</radialGradient>"
         '<linearGradient id="sg" x1="0" y1="0" x2="1" y2="0">'
-        '<stop offset="0%" stop-color="#ffd60a" stop-opacity="0.8"/>'
-        '<stop offset="100%" stop-color="#ffd60a" stop-opacity="0"/>'
+        '<stop offset="0%" stop-color="#ff6d00" stop-opacity="0.7"/>'
+        '<stop offset="100%" stop-color="#ff6d00" stop-opacity="0"/>'
         "</linearGradient>"
         "</defs>"
         "<!-- speed lines -->"
-        '<line x1="4" y1="20" x2="22" y2="28" stroke="url(#sg)" stroke-width="2.5" stroke-linecap="round"/>'
-        '<line x1="2" y1="32" x2="18" y2="34" stroke="url(#sg)" stroke-width="2" stroke-linecap="round"/>'
-        '<line x1="6" y1="44" x2="20" y2="40" stroke="url(#sg)" stroke-width="1.5" stroke-linecap="round"/>'
-        "<!-- ball -->"
-        '<circle cx="38" cy="32" r="18" fill="url(#hg)" opacity="0.95"/>'
-        "<!-- heat glow -->"
-        '<circle cx="38" cy="32" r="20" fill="none" stroke="#ff6d00" stroke-width="1" opacity="0.3"/>'
-        "<!-- stitches forming H -->"
-        '<path d="M30 18 C28 22 28 26 30 32 C28 38 28 42 30 46" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/>'
-        '<path d="M46 18 C48 22 48 26 46 32 C48 38 48 42 46 46" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/>'
-        '<line x1="30" y1="32" x2="46" y2="32" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/>'
-        "<!-- stitch details -->"
-        '<line x1="31" y1="21" x2="33" y2="22" stroke="#fff" stroke-width="0.8" opacity="0.6"/>'
-        '<line x1="31" y1="25" x2="33" y2="26" stroke="#fff" stroke-width="0.8" opacity="0.6"/>'
-        '<line x1="31" y1="37" x2="33" y2="38" stroke="#fff" stroke-width="0.8" opacity="0.6"/>'
-        '<line x1="31" y1="41" x2="33" y2="42" stroke="#fff" stroke-width="0.8" opacity="0.6"/>'
-        '<line x1="45" y1="21" x2="43" y2="22" stroke="#fff" stroke-width="0.8" opacity="0.6"/>'
-        '<line x1="45" y1="25" x2="43" y2="26" stroke="#fff" stroke-width="0.8" opacity="0.6"/>'
-        '<line x1="45" y1="37" x2="43" y2="38" stroke="#fff" stroke-width="0.8" opacity="0.6"/>'
-        '<line x1="45" y1="41" x2="43" y2="42" stroke="#fff" stroke-width="0.8" opacity="0.6"/>'
+        '<line x1="2" y1="22" x2="18" y2="28" stroke="url(#sg)" stroke-width="2.5" stroke-linecap="round"/>'
+        '<line x1="0" y1="32" x2="16" y2="33" stroke="url(#sg)" stroke-width="2" stroke-linecap="round"/>'
+        '<line x1="4" y1="42" x2="17" y2="39" stroke="url(#sg)" stroke-width="1.5" stroke-linecap="round"/>'
+        "<!-- ball body -->"
+        '<circle cx="38" cy="32" r="18" fill="url(#bl)"/>'
+        '<circle cx="38" cy="32" r="18" fill="none" stroke="#c8b8a8" stroke-width="0.8"/>'
+        "<!-- shadow for 3D depth -->"
+        '<ellipse cx="39" cy="50" rx="12" ry="2" fill="#00000010"/>'
+        "<!-- classic V-stitching left arc -->"
+        '<path d="M29 16 C24 22 22 27 23 32 C22 37 24 42 29 48" '
+        'fill="none" stroke="#e63946" stroke-width="1.6" stroke-linecap="round"/>'
+        "<!-- classic V-stitching right arc -->"
+        '<path d="M47 16 C52 22 54 27 53 32 C54 37 52 42 47 48" '
+        'fill="none" stroke="#e63946" stroke-width="1.6" stroke-linecap="round"/>'
+        "<!-- stitch tick marks left -->"
+        '<line x1="27" y1="19" x2="30" y2="20" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
+        '<line x1="25" y1="23" x2="28" y2="23.5" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
+        '<line x1="24" y1="27.5" x2="27" y2="27.5" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
+        '<line x1="24" y1="36.5" x2="27" y2="36.5" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
+        '<line x1="25" y1="41" x2="28" y2="40.5" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
+        '<line x1="27" y1="45" x2="30" y2="44" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
+        "<!-- stitch tick marks right -->"
+        '<line x1="49" y1="19" x2="46" y2="20" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
+        '<line x1="51" y1="23" x2="48" y2="23.5" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
+        '<line x1="52" y1="27.5" x2="49" y2="27.5" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
+        '<line x1="52" y1="36.5" x2="49" y2="36.5" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
+        '<line x1="51" y1="41" x2="48" y2="40.5" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
+        '<line x1="49" y1="45" x2="46" y2="44" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
+        "<!-- heat glow ring -->"
+        '<circle cx="38" cy="32" r="21" fill="none" stroke="#ff6d00" stroke-width="1.2" opacity="0.25"/>'
         "</svg>"
     ),
     "logo_lg": (
         '<svg width="64" height="64" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" '
         'style="vertical-align:middle;">'
         "<defs>"
-        '<linearGradient id="hgl" x1="0" y1="0" x2="1" y2="1">'
-        '<stop offset="0%" stop-color="#e63946"/>'
-        '<stop offset="100%" stop-color="#ff6d00"/>'
-        "</linearGradient>"
+        '<radialGradient id="bll" cx="40%" cy="35%" r="55%">'
+        '<stop offset="0%" stop-color="#fff"/>'
+        '<stop offset="60%" stop-color="#f5f0e8"/>'
+        '<stop offset="100%" stop-color="#e8ddd0"/>'
+        "</radialGradient>"
         '<linearGradient id="sgl" x1="0" y1="0" x2="1" y2="0">'
-        '<stop offset="0%" stop-color="#ffd60a" stop-opacity="0.8"/>'
-        '<stop offset="100%" stop-color="#ffd60a" stop-opacity="0"/>'
+        '<stop offset="0%" stop-color="#ff6d00" stop-opacity="0.7"/>'
+        '<stop offset="100%" stop-color="#ff6d00" stop-opacity="0"/>'
         "</linearGradient>"
         "</defs>"
-        '<line x1="4" y1="20" x2="22" y2="28" stroke="url(#sgl)" stroke-width="2.5" stroke-linecap="round"/>'
-        '<line x1="2" y1="32" x2="18" y2="34" stroke="url(#sgl)" stroke-width="2" stroke-linecap="round"/>'
-        '<line x1="6" y1="44" x2="20" y2="40" stroke="url(#sgl)" stroke-width="1.5" stroke-linecap="round"/>'
-        '<circle cx="38" cy="32" r="18" fill="url(#hgl)" opacity="0.95"/>'
-        '<circle cx="38" cy="32" r="20" fill="none" stroke="#ff6d00" stroke-width="1" opacity="0.3"/>'
-        '<path d="M30 18 C28 22 28 26 30 32 C28 38 28 42 30 46" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/>'
-        '<path d="M46 18 C48 22 48 26 46 32 C48 38 48 42 46 46" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/>'
-        '<line x1="30" y1="32" x2="46" y2="32" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/>'
-        '<line x1="31" y1="21" x2="33" y2="22" stroke="#fff" stroke-width="0.8" opacity="0.6"/>'
-        '<line x1="31" y1="25" x2="33" y2="26" stroke="#fff" stroke-width="0.8" opacity="0.6"/>'
-        '<line x1="31" y1="37" x2="33" y2="38" stroke="#fff" stroke-width="0.8" opacity="0.6"/>'
-        '<line x1="31" y1="41" x2="33" y2="42" stroke="#fff" stroke-width="0.8" opacity="0.6"/>'
-        '<line x1="45" y1="21" x2="43" y2="22" stroke="#fff" stroke-width="0.8" opacity="0.6"/>'
-        '<line x1="45" y1="25" x2="43" y2="26" stroke="#fff" stroke-width="0.8" opacity="0.6"/>'
-        '<line x1="45" y1="37" x2="43" y2="38" stroke="#fff" stroke-width="0.8" opacity="0.6"/>'
-        '<line x1="45" y1="41" x2="43" y2="42" stroke="#fff" stroke-width="0.8" opacity="0.6"/>'
+        '<line x1="2" y1="22" x2="18" y2="28" stroke="url(#sgl)" stroke-width="2.5" stroke-linecap="round"/>'
+        '<line x1="0" y1="32" x2="16" y2="33" stroke="url(#sgl)" stroke-width="2" stroke-linecap="round"/>'
+        '<line x1="4" y1="42" x2="17" y2="39" stroke="url(#sgl)" stroke-width="1.5" stroke-linecap="round"/>'
+        '<circle cx="38" cy="32" r="18" fill="url(#bll)"/>'
+        '<circle cx="38" cy="32" r="18" fill="none" stroke="#c8b8a8" stroke-width="0.8"/>'
+        '<ellipse cx="39" cy="50" rx="12" ry="2" fill="#00000010"/>'
+        '<path d="M29 16 C24 22 22 27 23 32 C22 37 24 42 29 48" '
+        'fill="none" stroke="#e63946" stroke-width="1.6" stroke-linecap="round"/>'
+        '<path d="M47 16 C52 22 54 27 53 32 C54 37 52 42 47 48" '
+        'fill="none" stroke="#e63946" stroke-width="1.6" stroke-linecap="round"/>'
+        '<line x1="27" y1="19" x2="30" y2="20" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
+        '<line x1="25" y1="23" x2="28" y2="23.5" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
+        '<line x1="24" y1="27.5" x2="27" y2="27.5" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
+        '<line x1="24" y1="36.5" x2="27" y2="36.5" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
+        '<line x1="25" y1="41" x2="28" y2="40.5" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
+        '<line x1="27" y1="45" x2="30" y2="44" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
+        '<line x1="49" y1="19" x2="46" y2="20" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
+        '<line x1="51" y1="23" x2="48" y2="23.5" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
+        '<line x1="52" y1="27.5" x2="49" y2="27.5" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
+        '<line x1="52" y1="36.5" x2="49" y2="36.5" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
+        '<line x1="51" y1="41" x2="48" y2="40.5" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
+        '<line x1="49" y1="45" x2="46" y2="44" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
+        '<circle cx="38" cy="32" r="21" fill="none" stroke="#ff6d00" stroke-width="1.2" opacity="0.25"/>'
         "</svg>"
     ),
     # ── Page navigation icons ──
@@ -1123,9 +1142,22 @@ def inject_custom_css():
         text-transform: uppercase;
         text-align: center;
         margin-top: 16px;
-        margin-bottom: 8px;
+        margin-bottom: 12px;
         word-break: break-word;
         overflow-wrap: anywhere;
+        display: inline-block;
+        padding: 10px 36px;
+        border-radius: 50px;
+        background: #1d1d1f;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.15), inset 0 1px 0 rgba(255,255,255,0.05);
+        position: relative;
+    }}
+    .page-title-wrap {{
+        text-align: center;
+        margin-top: 8px;
+        margin-bottom: 4px;
+    }}
+    .page-title span {{
         background: linear-gradient(135deg, {t["primary"]}, {t["hot"]}, {t["gold"]});
         background-size: 200% 200%;
         -webkit-background-clip: text;
@@ -1277,8 +1309,26 @@ def inject_custom_css():
 
     /* Sidebar */
     .stSidebar {{
-        background: linear-gradient(180deg, #ffffff 0%, {t["bg"]} 100%) !important;
+        background: linear-gradient(180deg, #fff3e6 0%, #ffe8cc 100%) !important;
         border-right: 1px solid {t["border"]} !important;
+    }}
+    .stSidebar, .stSidebar * {{
+        color: #1d1d1f !important;
+    }}
+    .stSidebar a {{
+        color: #1d1d1f !important;
+        font-weight: 500;
+    }}
+    .stSidebar a:hover {{
+        color: {t["primary"]} !important;
+    }}
+    .stSidebar [data-testid="stSidebarNav"] li a[aria-current="page"] {{
+        background: rgba(230, 57, 70, 0.12) !important;
+        border-radius: 8px;
+    }}
+    .stSidebar [data-testid="stSidebarNav"] li a[aria-current="page"] span {{
+        color: {t["primary"]} !important;
+        font-weight: 700;
     }}
 
     /* Expanders */
@@ -1348,6 +1398,7 @@ def inject_custom_css():
         .page-title {{
             font-size: 28px;
             letter-spacing: 2px;
+            padding: 8px 24px;
         }}
         .splash-title {{
             font-size: 36px;
@@ -1374,6 +1425,7 @@ def inject_custom_css():
         .page-title {{
             font-size: 22px;
             letter-spacing: 1px;
+            padding: 6px 18px;
         }}
         .splash-title {{
             font-size: 28px;
@@ -1413,28 +1465,33 @@ def inject_custom_css():
                 logoDiv.className = 'heater-logo';
                 logoDiv.style.cssText = 'text-align:center;padding:12px 0 4px 0;';
                 logoDiv.innerHTML = '<svg width="40" height="40" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">'
-                    + '<defs><linearGradient id="hlg" x1="0" y1="0" x2="1" y2="1">'
-                    + '<stop offset="0%" stop-color="#e63946"/><stop offset="100%" stop-color="#ff6d00"/>'
-                    + '</linearGradient><linearGradient id="hsg" x1="0" y1="0" x2="1" y2="0">'
-                    + '<stop offset="0%" stop-color="#ffd60a" stop-opacity="0.8"/>'
-                    + '<stop offset="100%" stop-color="#ffd60a" stop-opacity="0"/>'
-                    + '</linearGradient></defs>'
-                    + '<line x1="4" y1="20" x2="22" y2="28" stroke="url(#hsg)" stroke-width="2.5" stroke-linecap="round"/>'
-                    + '<line x1="2" y1="32" x2="18" y2="34" stroke="url(#hsg)" stroke-width="2" stroke-linecap="round"/>'
-                    + '<line x1="6" y1="44" x2="20" y2="40" stroke="url(#hsg)" stroke-width="1.5" stroke-linecap="round"/>'
-                    + '<circle cx="38" cy="32" r="18" fill="url(#hlg)" opacity="0.95"/>'
-                    + '<circle cx="38" cy="32" r="20" fill="none" stroke="#ff6d00" stroke-width="1" opacity="0.3"/>'
-                    + '<path d="M30 18 C28 22 28 26 30 32 C28 38 28 42 30 46" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/>'
-                    + '<path d="M46 18 C48 22 48 26 46 32 C48 38 48 42 46 46" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/>'
-                    + '<line x1="30" y1="32" x2="46" y2="32" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/>'
-                    + '<line x1="31" y1="21" x2="33" y2="22" stroke="#fff" stroke-width="0.8" opacity="0.6"/>'
-                    + '<line x1="31" y1="25" x2="33" y2="26" stroke="#fff" stroke-width="0.8" opacity="0.6"/>'
-                    + '<line x1="31" y1="37" x2="33" y2="38" stroke="#fff" stroke-width="0.8" opacity="0.6"/>'
-                    + '<line x1="31" y1="41" x2="33" y2="42" stroke="#fff" stroke-width="0.8" opacity="0.6"/>'
-                    + '<line x1="45" y1="21" x2="43" y2="22" stroke="#fff" stroke-width="0.8" opacity="0.6"/>'
-                    + '<line x1="45" y1="25" x2="43" y2="26" stroke="#fff" stroke-width="0.8" opacity="0.6"/>'
-                    + '<line x1="45" y1="37" x2="43" y2="38" stroke="#fff" stroke-width="0.8" opacity="0.6"/>'
-                    + '<line x1="45" y1="41" x2="43" y2="42" stroke="#fff" stroke-width="0.8" opacity="0.6"/>'
+                    + '<defs><radialGradient id="sbl" cx="40%" cy="35%" r="55%">'
+                    + '<stop offset="0%" stop-color="#fff"/><stop offset="60%" stop-color="#f5f0e8"/>'
+                    + '<stop offset="100%" stop-color="#e8ddd0"/></radialGradient>'
+                    + '<linearGradient id="ssl" x1="0" y1="0" x2="1" y2="0">'
+                    + '<stop offset="0%" stop-color="#ff6d00" stop-opacity="0.7"/>'
+                    + '<stop offset="100%" stop-color="#ff6d00" stop-opacity="0"/></linearGradient></defs>'
+                    + '<line x1="2" y1="22" x2="18" y2="28" stroke="url(#ssl)" stroke-width="2.5" stroke-linecap="round"/>'
+                    + '<line x1="0" y1="32" x2="16" y2="33" stroke="url(#ssl)" stroke-width="2" stroke-linecap="round"/>'
+                    + '<line x1="4" y1="42" x2="17" y2="39" stroke="url(#ssl)" stroke-width="1.5" stroke-linecap="round"/>'
+                    + '<circle cx="38" cy="32" r="18" fill="url(#sbl)"/>'
+                    + '<circle cx="38" cy="32" r="18" fill="none" stroke="#c8b8a8" stroke-width="0.8"/>'
+                    + '<ellipse cx="39" cy="50" rx="12" ry="2" fill="rgba(0,0,0,0.06)"/>'
+                    + '<path d="M29 16 C24 22 22 27 23 32 C22 37 24 42 29 48" fill="none" stroke="#e63946" stroke-width="1.6" stroke-linecap="round"/>'
+                    + '<path d="M47 16 C52 22 54 27 53 32 C54 37 52 42 47 48" fill="none" stroke="#e63946" stroke-width="1.6" stroke-linecap="round"/>'
+                    + '<line x1="27" y1="19" x2="30" y2="20" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
+                    + '<line x1="25" y1="23" x2="28" y2="23.5" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
+                    + '<line x1="24" y1="27.5" x2="27" y2="27.5" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
+                    + '<line x1="24" y1="36.5" x2="27" y2="36.5" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
+                    + '<line x1="25" y1="41" x2="28" y2="40.5" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
+                    + '<line x1="27" y1="45" x2="30" y2="44" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
+                    + '<line x1="49" y1="19" x2="46" y2="20" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
+                    + '<line x1="51" y1="23" x2="48" y2="23.5" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
+                    + '<line x1="52" y1="27.5" x2="49" y2="27.5" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
+                    + '<line x1="52" y1="36.5" x2="49" y2="36.5" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
+                    + '<line x1="51" y1="41" x2="48" y2="40.5" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
+                    + '<line x1="49" y1="45" x2="46" y2="44" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
+                    + '<circle cx="38" cy="32" r="21" fill="none" stroke="#ff6d00" stroke-width="1.2" opacity="0.25"/>'
                     + '</svg>';
                 header.insertBefore(logoDiv, header.firstChild);
             }

@@ -20,7 +20,10 @@ init_db()
 
 inject_custom_css()
 
-st.markdown('<div class="page-title">FREE AGENT RANKINGS</div>', unsafe_allow_html=True)
+st.markdown(
+    '<div class="page-title-wrap"><div class="page-title"><span>FREE AGENT RANKINGS</span></div></div>',
+    unsafe_allow_html=True,
+)
 
 pool = load_player_pool()
 if pool.empty:
@@ -119,5 +122,12 @@ else:
                         ranked[["player_name", "positions", "marginal_value", "best_category", "best_cat_impact"]],
                         width="stretch",
                         hide_index=True,
+                        column_config={
+                            "player_name": st.column_config.TextColumn("Player"),
+                            "positions": st.column_config.TextColumn("Position"),
+                            "marginal_value": st.column_config.NumberColumn("Marginal Value", format="%.2f"),
+                            "best_category": st.column_config.TextColumn("Best Category"),
+                            "best_cat_impact": st.column_config.NumberColumn("Category Impact", format="%.2f"),
+                        },
                     )
                     st.caption(METRIC_TOOLTIPS["marginal_value"])
