@@ -1162,6 +1162,9 @@ def inject_custom_css():
         letter-spacing: 2px;
         text-transform: uppercase;
         border-radius: 12px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
         transition: all 0.15s ease;
     }}
     .stButton > button[kind="primary"],
@@ -1389,18 +1392,54 @@ def inject_custom_css():
         unsafe_allow_html=True,
     )
 
-    # Rename sidebar "app" → "Heater" via JS
+    # Rename sidebar "app" → "Heater" and inject logo via JS
     import streamlit.components.v1 as components
 
     components.html(
         """<script>
-        (function rename() {
+        (function setup() {
+            // Rename sidebar nav
             const nav = parent.document.querySelector('[data-testid="stSidebarNav"]');
-            if (!nav) { setTimeout(rename, 200); return; }
+            if (!nav) { setTimeout(setup, 200); return; }
             const span = nav.querySelector('li:first-child a span');
             if (span && span.textContent.trim() === 'app') {
                 span.textContent = 'Heater';
-            } else { setTimeout(rename, 200); }
+            }
+
+            // Inject logo into sidebar header
+            const header = parent.document.querySelector('[data-testid="stSidebarHeader"]');
+            if (header && !header.querySelector('.heater-logo')) {
+                const logoDiv = parent.document.createElement('div');
+                logoDiv.className = 'heater-logo';
+                logoDiv.style.cssText = 'text-align:center;padding:12px 0 4px 0;';
+                logoDiv.innerHTML = '<svg width="40" height="40" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">'
+                    + '<defs><linearGradient id="hlg" x1="0" y1="0" x2="1" y2="1">'
+                    + '<stop offset="0%" stop-color="#e63946"/><stop offset="100%" stop-color="#ff6d00"/>'
+                    + '</linearGradient><linearGradient id="hsg" x1="0" y1="0" x2="1" y2="0">'
+                    + '<stop offset="0%" stop-color="#ffd60a" stop-opacity="0.8"/>'
+                    + '<stop offset="100%" stop-color="#ffd60a" stop-opacity="0"/>'
+                    + '</linearGradient></defs>'
+                    + '<line x1="4" y1="20" x2="22" y2="28" stroke="url(#hsg)" stroke-width="2.5" stroke-linecap="round"/>'
+                    + '<line x1="2" y1="32" x2="18" y2="34" stroke="url(#hsg)" stroke-width="2" stroke-linecap="round"/>'
+                    + '<line x1="6" y1="44" x2="20" y2="40" stroke="url(#hsg)" stroke-width="1.5" stroke-linecap="round"/>'
+                    + '<circle cx="38" cy="32" r="18" fill="url(#hlg)" opacity="0.95"/>'
+                    + '<circle cx="38" cy="32" r="20" fill="none" stroke="#ff6d00" stroke-width="1" opacity="0.3"/>'
+                    + '<path d="M30 18 C28 22 28 26 30 32 C28 38 28 42 30 46" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/>'
+                    + '<path d="M46 18 C48 22 48 26 46 32 C48 38 48 42 46 46" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/>'
+                    + '<line x1="30" y1="32" x2="46" y2="32" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/>'
+                    + '<line x1="31" y1="21" x2="33" y2="22" stroke="#fff" stroke-width="0.8" opacity="0.6"/>'
+                    + '<line x1="31" y1="25" x2="33" y2="26" stroke="#fff" stroke-width="0.8" opacity="0.6"/>'
+                    + '<line x1="31" y1="37" x2="33" y2="38" stroke="#fff" stroke-width="0.8" opacity="0.6"/>'
+                    + '<line x1="31" y1="41" x2="33" y2="42" stroke="#fff" stroke-width="0.8" opacity="0.6"/>'
+                    + '<line x1="45" y1="21" x2="43" y2="22" stroke="#fff" stroke-width="0.8" opacity="0.6"/>'
+                    + '<line x1="45" y1="25" x2="43" y2="26" stroke="#fff" stroke-width="0.8" opacity="0.6"/>'
+                    + '<line x1="45" y1="37" x2="43" y2="38" stroke="#fff" stroke-width="0.8" opacity="0.6"/>'
+                    + '<line x1="45" y1="41" x2="43" y2="42" stroke="#fff" stroke-width="0.8" opacity="0.6"/>'
+                    + '</svg>';
+                header.insertBefore(logoDiv, header.firstChild);
+            }
+
+            if (!span || span.textContent.trim() === 'app') { setTimeout(setup, 200); }
         })();
         </script>""",
         height=0,
