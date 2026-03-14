@@ -25,7 +25,7 @@ ruff check .
 # Format
 ruff format .
 
-# Run all tests (537 collected, 536 pass, 1 skipped for PyMC)
+# Run all tests (587 collected, 586 pass, 1 skipped for PyMC)
 python -m pytest
 
 # Run with verbose output
@@ -151,6 +151,7 @@ tests/
   test_valuation_math.py    — Math verification: SGP, VORP, replacement levels, percentiles, process risk (40 tests)
   test_simulation_math.py   — Math verification: survival probability, urgency, combined score, tiers, MC convergence (37 tests)
   test_trade_math.py        — Math verification: trade SGP delta, MC noise, verdict, z-scores, rate stats (35 tests)
+  test_trade_engine_math.py — Math verification: all 6 phases hand-calculated — SGP, BMA, copula, decay, Kalman, HHI, Bayes, Vickrey, Bellman, ESS, R̂ (50 tests)
   test_trade_engine.py      — Trade engine Phase 1: marginal SGP, punt detection, z-scores, grading, fuzzy match, integration (32 tests)
   test_trade_engine_phase2.py — Trade engine Phase 2: BMA, KDE marginals, copula, paired MC, integration (33 tests)
   test_trade_engine_phase3.py — Trade engine Phase 3: Statcast aggregation, signal decay, Kalman filter, BOCPD, HMM regime, rolling features (32 tests)
@@ -673,9 +674,9 @@ SYSTEM_MAP = {"steamer": "steamer", "zips": "zips", "fangraphsdc": "depthcharts"
 
 ## Testing Status
 
-- **Unit tests:** 537 collected, 536 passed, 1 skipped (PyMC optional dep)
-- **Test files:** 24 test files across draft engine, trade engine (Phase 1-6), in-season, analytics, data pipeline, bootstrap, integration, and math verification
-- **Math verification suite:** 112 tests across 3 files (valuation, simulation, trade) — hand-calculated expected values verified against code formulas
+- **Unit tests:** 587 collected, 586 passed, 1 skipped (PyMC optional dep)
+- **Test files:** 25 test files across draft engine, trade engine (Phase 1-6), in-season, analytics, data pipeline, bootstrap, integration, and math verification
+- **Math verification suite:** 162 tests across 4 files (valuation, simulation, trade, trade engine math) — hand-calculated expected values verified against code formulas
 - **Trade engine tests:** 207 tests total — Phase 1 (32): marginal SGP, punt detection, z-scores, grading, fuzzy match, integration. Phase 2 (33): BMA, KDE marginals, Gaussian copula, paired MC, correlated sampling, distributional metrics, integration. Phase 3 (32): Statcast aggregation, signal decay, Kalman filter, BOCPD changepoint detection, HMM regime classification, rolling features. Phase 4 (40): Log5 matchup math, Weibull injury duration, frailty, season availability, enhanced bench value, roster flexibility, HHI concentration, penalty thresholds, trade context integration. Phase 5 (38): opponent valuations, market clearing price, adverse selection Bayesian discount, Bellman rollout, roster balance, sensitivity ranking, counter-offers, game theory integration. Phase 6 (32): ESS convergence, split-R̂, running mean stability, cache TTL/invalidation/get_or_compute, adaptive sim scaling, time budget caps.
 - **CI:** GitHub Actions runs ruff lint/format + pytest on Python 3.11, 3.12, 3.13
 - **Coverage:** 64% (below 75% CI threshold; pre-existing, no regressions)
