@@ -1572,8 +1572,8 @@ def inject_custom_css():
             if (header && !header.querySelector('.heater-logo')) {
                 const logoDiv = parent.document.createElement('div');
                 logoDiv.className = 'heater-logo';
-                logoDiv.style.cssText = 'display:flex;align-items:center;justify-content:center;gap:6px;padding:14px 6px 10px 6px;';
-                logoDiv.innerHTML = '<svg width="36" height="36" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" style="flex-shrink:0;">'
+                logoDiv.style.cssText = 'display:flex;flex-direction:column;align-items:center;padding:14px 6px 10px 6px;';
+                logoDiv.innerHTML = '<div style="display:flex;align-items:center;gap:6px;"><svg width="36" height="36" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" style="flex-shrink:0;">'
                     + '<defs><radialGradient id="sbl" cx="40%" cy="35%" r="55%">'
                     + '<stop offset="0%" stop-color="#fff"/><stop offset="60%" stop-color="#f5f0e8"/>'
                     + '<stop offset="100%" stop-color="#e8ddd0"/></radialGradient>'
@@ -1602,8 +1602,9 @@ def inject_custom_css():
                     + '<line x1="49" y1="45" x2="46" y2="44" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
                     + '<circle cx="38" cy="32" r="21" fill="none" stroke="rgba(255,255,255,0.3)" stroke-width="1.2"/>'
                     + '</svg>'
-                    + '<span style="font-family:Bebas Neue,sans-serif;font-size:28px;letter-spacing:4px;'
-                    + 'color:#ffffff;font-weight:700;text-shadow:0 1px 4px rgba(0,0,0,0.25);line-height:1;">HEATER</span>';
+                    + '<span style="font-family:Bebas Neue,sans-serif;font-size:28px;letter-spacing:4px;font-style:italic;'
+                    + 'color:#ffffff;font-weight:700;text-shadow:0 1px 4px rgba(0,0,0,0.25);line-height:1;">HEATER</span></div>'
+                    + '<div style="width:100%;height:3px;background:linear-gradient(90deg,#e65c00,#ff8c00);border-radius:2px;margin-top:8px;"></div>';
                 header.insertBefore(logoDiv, header.firstChild);
             }
 
