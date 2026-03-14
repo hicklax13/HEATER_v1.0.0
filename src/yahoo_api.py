@@ -280,14 +280,19 @@ class YahooFantasyClient:
             # guid, refresh_token, token_time, token_type.
             token_dict: dict | None = None
             if token_data is not None:
+                # Preserve original token_time from saved tokens so that
+                # yfpy/yahoo-oauth can detect expiry and auto-refresh.
+                # Only use time.time() for genuinely fresh tokens (those
+                # that don't already have a token_time).
+                saved_token_time = token_data.get("token_time")
                 token_dict = {
                     "access_token": token_data.get("access_token"),
                     "consumer_key": consumer_key,
                     "consumer_secret": consumer_secret,
                     "expires_in": token_data.get("expires_in", 3600),
-                    "guid": token_data.get("xoauth_yahoo_guid", ""),
+                    "guid": token_data.get("guid", token_data.get("xoauth_yahoo_guid", "")),
                     "refresh_token": token_data.get("refresh_token"),
-                    "token_time": time.time(),
+                    "token_time": saved_token_time if saved_token_time else time.time(),
                     "token_type": token_data.get("token_type", "bearer"),
                 }
                 # Also persist to disk for future sessions
@@ -327,8 +332,7 @@ class YahooFantasyClient:
                 )
             else:
                 logger.error(
-                    "Could not resolve game_key for season %d. "
-                    "Yahoo sync will likely return empty data.",
+                    "Could not resolve game_key for season %d. Yahoo sync will likely return empty data.",
                     self.season,
                 )
 
@@ -344,20 +348,36 @@ class YahooFantasyClient:
                     fn = getattr(self._query, method_name, None)
                     if fn is not None:
                         result = fn()
-                        logger.info(
-                            "Auth validation via %s succeeded", method_name
-                        )
+                        logger.info("Auth validation via %s succeeded", method_name)
                         break
                 else:
-                    logger.warning(
-                        "No known yfpy metadata method found; "
-                        "skipping validation call."
-                    )
+                    logger.warning("No known yfpy metadata method found; skipping validation call.")
             except Exception as exc:
                 logger.warning(
                     "Auth validation call failed: %s (sync may still work)",
                     exc,
                 )
+            # Write back the (possibly refreshed) token to disk so that
+            # subsequent restarts use the latest access_token/token_time.
+            try:
+                refreshed = getattr(self._query, "_yahoo_access_token_dict", None)
+                if refreshed and refreshed.get("access_token"):
+                    updated_dict = {
+                        "access_token": refreshed.get("access_token"),
+                        "consumer_key": consumer_key,
+                        "consumer_secret": consumer_secret,
+                        "expires_in": refreshed.get("expires_in", 3600),
+                        "guid": refreshed.get("guid", ""),
+                        "refresh_token": refreshed.get("refresh_token"),
+                        "token_time": refreshed.get("token_time", time.time()),
+                        "token_type": refreshed.get("token_type", "bearer"),
+                    }
+                    token_file = _AUTH_DIR / "yahoo_token.json"
+                    token_file.write_text(json.dumps(updated_dict, indent=2))
+                    logger.info("Wrote refreshed Yahoo token to %s", token_file)
+            except Exception:
+                logger.debug("Could not write refreshed token.", exc_info=True)
+
             logger.info("Yahoo Fantasy API authenticated successfully.")
             return True
         except Exception:
@@ -429,9 +449,7 @@ class YahooFantasyClient:
         try:
             _rate_limit()
             gk = self._query.get_game_key_by_season(self.season)
-            logger.info(
-                "Strategy 1 succeeded: game_key=%s for season %d", gk, self.season
-            )
+            logger.info("Strategy 1 succeeded: game_key=%s for season %d", gk, self.season)
             return str(gk)
         except Exception as exc:
             logger.warning(
@@ -445,9 +463,7 @@ class YahooFantasyClient:
             _rate_limit()
             all_games = self._query.get_all_yahoo_fantasy_game_keys()
             for game_obj in all_games:
-                game = (
-                    game_obj.get("game") if isinstance(game_obj, dict) else game_obj
-                )
+                game = game_obj.get("game") if isinstance(game_obj, dict) else game_obj
                 season_val = getattr(game, "season", None)
                 if str(season_val) == str(self.season):
                     gk = getattr(game, "game_key", None)
@@ -464,9 +480,7 @@ class YahooFantasyClient:
                 len(all_games),
             )
         except Exception as exc:
-            logger.warning(
-                "Strategy 2 (get_all_yahoo_fantasy_game_keys) failed: %s", exc
-            )
+            logger.warning("Strategy 2 (get_all_yahoo_fantasy_game_keys) failed: %s", exc)
 
         # Strategy 3 — use current game metadata, accept if season matches
         # or use as last resort even if it doesn't
@@ -486,17 +500,14 @@ class YahooFantasyClient:
             # user's league.  Accept it as the last resort.
             if gk:
                 logger.warning(
-                    "Strategy 3: current season %s != requested %d, "
-                    "but using game_key=%s as last resort",
+                    "Strategy 3: current season %s != requested %d, but using game_key=%s as last resort",
                     current_season,
                     self.season,
                     gk,
                 )
                 return str(gk)
         except Exception as exc:
-            logger.warning(
-                "Strategy 3 (get_current_game_metadata) failed: %s", exc
-            )
+            logger.warning("Strategy 3 (get_current_game_metadata) failed: %s", exc)
 
         return None
 
@@ -589,11 +600,7 @@ class YahooFantasyClient:
 
                 # Decode bytes team name (Python 3.14 + yfpy edge case)
                 raw_name = self._safe_attr(team, "name", "")
-                team_name = (
-                    raw_name.decode("utf-8", errors="replace")
-                    if isinstance(raw_name, bytes)
-                    else str(raw_name)
-                )
+                team_name = raw_name.decode("utf-8", errors="replace") if isinstance(raw_name, bytes) else str(raw_name)
 
                 # Rank may live directly on team OR inside team_standings
                 rank_val = self._safe_attr(team, "rank")
@@ -651,11 +658,7 @@ class YahooFantasyClient:
 
                 # Decode bytes team name (Python 3.14 + yfpy edge case)
                 raw_name = self._safe_attr(team, "name", "")
-                team_name = (
-                    raw_name.decode("utf-8", errors="replace")
-                    if isinstance(raw_name, bytes)
-                    else str(raw_name)
-                )
+                team_name = raw_name.decode("utf-8", errors="replace") if isinstance(raw_name, bytes) else str(raw_name)
                 team_key = str(self._safe_attr(team, "team_key", ""))
 
                 # yfpy's get_team_roster_by_week() internally builds
@@ -677,9 +680,7 @@ class YahooFantasyClient:
                     if name_obj:
                         raw_full = self._safe_attr(name_obj, "full", name_obj)
                         full_name = (
-                            raw_full.decode("utf-8", errors="replace")
-                            if isinstance(raw_full, bytes)
-                            else str(raw_full)
+                            raw_full.decode("utf-8", errors="replace") if isinstance(raw_full, bytes) else str(raw_full)
                         )
 
                     positions = self._safe_attr(player, "eligible_positions", [])
@@ -730,9 +731,7 @@ class YahooFantasyClient:
                 if name_obj:
                     raw_full = self._safe_attr(name_obj, "full", name_obj)
                     full_name = (
-                        raw_full.decode("utf-8", errors="replace")
-                        if isinstance(raw_full, bytes)
-                        else str(raw_full)
+                        raw_full.decode("utf-8", errors="replace") if isinstance(raw_full, bytes) else str(raw_full)
                     )
 
                 positions = self._safe_attr(player, "eligible_positions", [])

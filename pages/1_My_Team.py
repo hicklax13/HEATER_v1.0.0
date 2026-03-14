@@ -176,7 +176,7 @@ else:
                 roster["Health"] = badges
 
             # Display roster
-            st.subheader("Roster")
+            st.subheader("Roster (2026 Season)")
             display_cols = ["name", "positions", "roster_slot", "Health"]
             available_cols = [c for c in display_cols if c in roster.columns]
             col_config = {
@@ -193,7 +193,12 @@ else:
             )
 
             # Category totals
-            st.subheader("Category Totals")
+            st.subheader("Category Totals (2026 Projected)")
+            st.caption(
+                "Projected full-season totals based on preseason projections "
+                "(Steamer/ZiPS/Depth Charts blend). Updates to actual stats "
+                "once the 2026 MLB season begins."
+            )
             hitters = roster[roster["is_hitter"] == 1]
             pitchers = roster[roster["is_hitter"] == 0]
 
