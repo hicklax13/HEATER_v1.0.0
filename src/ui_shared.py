@@ -1521,8 +1521,8 @@ def inject_custom_css():
             if (header && !header.querySelector('.heater-logo')) {
                 const logoDiv = parent.document.createElement('div');
                 logoDiv.className = 'heater-logo';
-                logoDiv.style.cssText = 'display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;padding:12px 8px 8px 8px;';
-                logoDiv.innerHTML = '<svg width="38" height="38" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">'
+                logoDiv.style.cssText = 'display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;padding:14px 8px 10px 8px;';
+                logoDiv.innerHTML = '<svg width="48" height="48" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">'
                     + '<defs><radialGradient id="sbl" cx="40%" cy="35%" r="55%">'
                     + '<stop offset="0%" stop-color="#fff"/><stop offset="60%" stop-color="#f5f0e8"/>'
                     + '<stop offset="100%" stop-color="#e8ddd0"/></radialGradient>'
@@ -1551,8 +1551,8 @@ def inject_custom_css():
                     + '<line x1="49" y1="45" x2="46" y2="44" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
                     + '<circle cx="38" cy="32" r="21" fill="none" stroke="rgba(255,255,255,0.3)" stroke-width="1.2"/>'
                     + '</svg>'
-                    + '<span style="font-family:Bebas Neue,sans-serif;font-size:22px;letter-spacing:4px;'
-                    + 'color:#ffffff;font-weight:700;text-shadow:0 1px 3px rgba(0,0,0,0.25);line-height:1;">HEATER</span>';
+                    + '<span style="font-family:Bebas Neue,sans-serif;font-size:28px;letter-spacing:4px;'
+                    + 'color:#ffffff;font-weight:700;text-shadow:0 1px 4px rgba(0,0,0,0.25);line-height:1;">HEATER</span>';
                 header.insertBefore(logoDiv, header.firstChild);
             }
 
