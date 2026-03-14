@@ -1,4 +1,9 @@
-"""Trade Analyzer — Evaluate trade proposals with MC simulation + Live SGP."""
+"""Trade Analyzer — Evaluate trade proposals with Phase 1 engine pipeline.
+
+Uses the new engine modules for marginal SGP elasticity, punt detection,
+LP lineup optimization, and deterministic grading (A+ to F).
+Falls back to the legacy analyzer if the engine is unavailable.
+"""
 
 import time
 
@@ -6,7 +11,6 @@ import pandas as pd
 import streamlit as st
 
 from src.database import init_db, load_league_rosters, load_player_pool
-from src.in_season import analyze_trade
 from src.injury_model import compute_health_score, get_injury_badge
 from src.league_manager import get_team_roster
 from src.ui_shared import METRIC_TOOLTIPS, PAGE_ICONS, T, inject_custom_css, render_styled_table
@@ -145,15 +149,39 @@ else:
                     st.stop()
 
                 trade_progress = st.progress(0, text="Computing category impacts...")
-                trade_progress.progress(20, text="Computing category impacts...")
-                trade_progress.progress(40, text="Running Monte Carlo simulation (200 iterations)...")
-                result = analyze_trade(
-                    giving_ids=giving_ids,
-                    receiving_ids=receiving_ids,
-                    user_roster_ids=user_roster_ids,
-                    player_pool=pool,
-                    config=config,
-                )
+
+                # Try the new Phase 1 engine first, fall back to legacy
+                try:
+                    from src.engine.output.trade_evaluator import evaluate_trade
+
+                    trade_progress.progress(20, text="Running marginal elasticity analysis...")
+                    trade_progress.progress(40, text="Computing category gaps and punt detection...")
+                    trade_progress.progress(60, text="Optimizing lineup assignments...")
+
+                    result = evaluate_trade(
+                        giving_ids=giving_ids,
+                        receiving_ids=receiving_ids,
+                        user_roster_ids=user_roster_ids,
+                        player_pool=pool,
+                        config=config,
+                        user_team_name=user_team_name,
+                        weeks_remaining=16,
+                    )
+                    engine_used = "phase1"
+                except Exception:
+                    # Fall back to legacy analyzer
+                    from src.in_season import analyze_trade
+
+                    trade_progress.progress(40, text="Running Monte Carlo simulation (200 iterations)...")
+                    result = analyze_trade(
+                        giving_ids=giving_ids,
+                        receiving_ids=receiving_ids,
+                        user_roster_ids=user_roster_ids,
+                        player_pool=pool,
+                        config=config,
+                    )
+                    engine_used = "legacy"
+
                 trade_progress.progress(100, text="Trade analysis complete!")
                 time.sleep(0.3)
                 trade_progress.empty()
@@ -166,6 +194,25 @@ else:
                     color = T["danger"]
                     icon = PAGE_ICONS["reject"]
 
+                # Show trade grade if available (Phase 1 engine)
+                grade_html = ""
+                if "grade" in result:
+                    grade = result["grade"]
+                    # Color the grade based on quality
+                    if grade.startswith("A"):
+                        grade_color = T["ok"]
+                    elif grade.startswith("B"):
+                        grade_color = T["sky"]
+                    elif grade.startswith("C"):
+                        grade_color = T["hot"]
+                    else:
+                        grade_color = T["danger"]
+                    grade_html = (
+                        f'<span style="font-family:Bebas Neue,sans-serif;font-size:36px;'
+                        f"color:{grade_color};letter-spacing:3px;margin-left:16px;"
+                        f'font-weight:bold;">{grade}</span>'
+                    )
+
                 st.markdown(
                     f'<div class="glass" style="border:2px solid {color};'
                     f"padding:20px;text-align:center;margin:16px 0;"
@@ -173,31 +220,88 @@ else:
                     f"{icon}"
                     f'<span style="font-family:Bebas Neue,sans-serif;font-size:28px;color:{color};'
                     f'letter-spacing:2px;margin-left:12px;">{result["verdict"]}</span>'
+                    f"{grade_html}"
                     f'<span style="color:{T["tx2"]};margin-left:12px;font-size:18px;">'
                     f"{result['confidence_pct']:.1f}% confidence</span></div>",
                     unsafe_allow_html=True,
                 )
                 st.caption(METRIC_TOOLTIPS["trade_verdict"])
 
-                # Metrics
-                col1, col2, col3 = st.columns(3)
-                col1.metric(
-                    "Total Standings Gained Points Change",
-                    f"{result['total_sgp_change']:+.3f}",
-                    help=METRIC_TOOLTIPS["sgp"],
-                )
-                col2.metric("Monte Carlo Mean", f"{result['mc_mean']:+.3f}", help=METRIC_TOOLTIPS["mc_mean"])
-                col3.metric("Monte Carlo Standard Deviation", f"{result['mc_std']:.3f}", help=METRIC_TOOLTIPS["mc_std"])
+                # Metrics row — different layout for Phase 1 vs legacy
+                if engine_used == "phase1":
+                    col1, col2, col3, col4 = st.columns(4)
+                    col1.metric(
+                        "Trade Grade",
+                        result.get("grade", "N/A"),
+                    )
+                    col2.metric(
+                        "Surplus Standings Gained Points",
+                        f"{result.get('surplus_sgp', 0):+.3f}",
+                        help=METRIC_TOOLTIPS["sgp"],
+                    )
+                    col3.metric(
+                        "Bench Slot Cost",
+                        f"{result.get('bench_cost', 0):+.3f}",
+                        help="Standings Gained Points cost of lost bench slot(s) from uneven trades. "
+                        "Accounts for streaming value and hot free agent pickup potential.",
+                    )
+                    col4.metric(
+                        "Punted Categories",
+                        str(len(result.get("punt_categories", []))),
+                        help="Categories where gaining standings positions is impossible. "
+                        "These are zero-weighted in the trade evaluation.",
+                    )
 
-                # Category impact table
+                    # Show punted categories if any
+                    if result.get("punt_categories"):
+                        punt_text = ", ".join(result["punt_categories"])
+                        st.info(f"Punted categories (zero-weighted): {punt_text}")
+                else:
+                    col1, col2, col3 = st.columns(3)
+                    col1.metric(
+                        "Total Standings Gained Points Change",
+                        f"{result['total_sgp_change']:+.3f}",
+                        help=METRIC_TOOLTIPS["sgp"],
+                    )
+                    col2.metric(
+                        "Monte Carlo Mean",
+                        f"{result['mc_mean']:+.3f}",
+                        help=METRIC_TOOLTIPS["mc_mean"],
+                    )
+                    col3.metric(
+                        "Monte Carlo Standard Deviation",
+                        f"{result['mc_std']:.3f}",
+                        help=METRIC_TOOLTIPS["mc_std"],
+                    )
+
+                # Category impact table — enhanced for Phase 1
                 st.subheader("Category Impact")
-                impact_df = pd.DataFrame(
-                    [
-                        {"Category": cat, "Standings Gained Points Change": f"{val:+.3f}"}
-                        for cat, val in result["category_impact"].items()
-                    ]
-                )
-                render_styled_table(impact_df)
+                if engine_used == "phase1" and result.get("category_analysis"):
+                    impact_rows = []
+                    for cat, sgp_val in result["category_impact"].items():
+                        analysis = result["category_analysis"].get(cat, {})
+                        rank = analysis.get("rank", "-")
+                        is_punt = analysis.get("is_punt", False)
+                        gap = analysis.get("gap_to_next", 0)
+                        status = "PUNT" if is_punt else f"Rank {rank}"
+
+                        impact_rows.append(
+                            {
+                                "Category": cat,
+                                "Standings Gained Points Change": f"{sgp_val:+.3f}",
+                                "Your Rank": status,
+                                "Gap to Next": f"{gap:.1f}" if not is_punt else "-",
+                            }
+                        )
+                    render_styled_table(pd.DataFrame(impact_rows))
+                else:
+                    impact_df = pd.DataFrame(
+                        [
+                            {"Category": cat, "Standings Gained Points Change": f"{val:+.3f}"}
+                            for cat, val in result["category_impact"].items()
+                        ]
+                    )
+                    render_styled_table(impact_df)
 
                 # Risk flags
                 if result["risk_flags"]:
@@ -214,8 +318,8 @@ else:
                         if not p.empty:
                             pid = p.iloc[0]["player_id"]
                             hs = health_dict.get(pid, 0.85)
-                            icon, label = get_injury_badge(hs)
-                            st.markdown(f"{icon} {name} — {label}")
+                            badge_icon, label = get_injury_badge(hs)
+                            st.markdown(f"{badge_icon} {name} — {label}")
                 with trade_col2:
                     st.markdown("**Receiving:**")
                     for name in receiving_names:
@@ -223,8 +327,8 @@ else:
                         if not p.empty:
                             pid = p.iloc[0]["player_id"]
                             hs = health_dict.get(pid, 0.85)
-                            icon, label = get_injury_badge(hs)
-                            st.markdown(f"{icon} {name} — {label}")
+                            badge_icon, label = get_injury_badge(hs)
+                            st.markdown(f"{badge_icon} {name} — {label}")
 
                 # P10/P90 risk assessment for traded players
                 try:
