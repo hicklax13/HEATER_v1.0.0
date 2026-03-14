@@ -1341,7 +1341,9 @@ def inject_custom_css():
         font-weight: 800 !important;
     }}
     .stSidebar [data-testid="stSidebarHeader"] {{
-        background: transparent !important;
+        background: linear-gradient(135deg, #1a1a2e, #16213e) !important;
+        border-radius: 0 0 12px 12px !important;
+        margin: 0 8px !important;
     }}
     .stSidebar button[data-testid="stBaseButton-header"] {{
         color: #ffffff !important;
