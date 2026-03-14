@@ -1278,14 +1278,14 @@ def inject_custom_css():
 
     /* DataFrames — contrasting background + bold headers */
     div[data-testid="stDataFrame"] {{
-        border: 1px solid {t["border"]};
-        border-radius: 14px;
+        border: 2px solid #d4c5b0 !important;
+        border-radius: 12px !important;
         overflow: hidden;
-        box-shadow: 0 2px 12px rgba(0, 0, 0, 0.04);
-        background: #ffffff !important;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.06), 0 0 0 1px rgba(0,0,0,0.03) !important;
+        background: #faf8f5 !important;
     }}
     div[data-testid="stDataFrame"] [data-testid="glideDataEditor"] {{
-        background: #ffffff !important;
+        background: #faf8f5 !important;
     }}
     /* Bold column headers */
     div[data-testid="stDataFrame"] th,
@@ -1293,11 +1293,27 @@ def inject_custom_css():
     div[data-testid="stDataFrame"] .gdg-header-cell {{
         font-weight: 700 !important;
         font-family: 'Figtree', sans-serif !important;
+        background: #ede8e0 !important;
     }}
     /* Table cell background for contrast against page bg */
     div[data-testid="stDataFrame"] td,
     div[data-testid="stDataFrame"] [role="gridcell"] {{
-        background: #ffffff !important;
+        background: #faf8f5 !important;
+    }}
+    /* Left accent border for visual anchor */
+    div[data-testid="stDataFrame"]::before {{
+        content: '';
+        position: absolute;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        width: 4px;
+        background: linear-gradient(180deg, #e65c00, #cc5200);
+        border-radius: 12px 0 0 12px;
+        z-index: 1;
+    }}
+    div[data-testid="stDataFrame"] {{
+        position: relative;
     }}
 
     /* Sidebar */

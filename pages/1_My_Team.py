@@ -81,21 +81,21 @@ else:
         # Team name with styled monogram avatar
         initials = "".join(w[0].upper() for w in user_team_name.split()[:2]) if user_team_name else "T"
         st.markdown(
-            f'<div style="display:flex;align-items:center;gap:14px;margin-bottom:10px;">'
-            f'<div style="width:48px;height:48px;border-radius:50%;'
+            f'<div style="display:flex;align-items:center;gap:10px;padding:4px 0 8px 2px;">'
+            f'<div style="width:36px;height:36px;min-width:36px;border-radius:50%;'
             f"background:linear-gradient(135deg,#e65c00,#cc5200);"
             f"display:flex;align-items:center;justify-content:center;"
-            f"font-family:Bebas Neue,sans-serif;font-size:20px;letter-spacing:1px;"
-            f'color:#ffffff;font-weight:700;box-shadow:0 3px 12px rgba(230,92,0,0.3);">'
+            f"font-family:Bebas Neue,sans-serif;font-size:15px;letter-spacing:1px;"
+            f'color:#ffffff;font-weight:700;box-shadow:0 2px 8px rgba(230,92,0,0.25);">'
             f"{initials}</div>"
-            f'<span style="font-family:Figtree,sans-serif;font-size:20px;font-weight:700;'
+            f'<span style="font-family:Figtree,sans-serif;font-size:16px;font-weight:700;'
             f'color:#1d1d1f;">Team: {user_team_name}</span></div>',
             unsafe_allow_html=True,
         )
 
-        # Refresh button
-        col1, col2 = st.columns([1, 4])
-        with col1:
+        # Action buttons — inline row
+        btn1, btn2, btn_spacer = st.columns([1, 1, 3])
+        with btn1:
             if st.button("Refresh Stats"):
                 refresh_progress = st.progress(0, text="Pulling live stats from MLB Stats API...")
                 refresh_progress.progress(20, text="Fetching current season statistics...")
@@ -108,7 +108,7 @@ else:
                 refresh_progress.empty()
                 st.rerun()
 
-        # Yahoo sync button
+        # Yahoo sync button — in btn2 column (same row as Refresh)
         if YFPY_AVAILABLE:
             import os
 
@@ -116,7 +116,9 @@ else:
             yahoo_secret = os.environ.get("YAHOO_CLIENT_SECRET")
             yahoo_league_id = os.environ.get("YAHOO_LEAGUE_ID", "").strip()
             if yahoo_key and yahoo_secret and yahoo_league_id:
-                if st.button("Sync Yahoo", key="sync_yahoo_roster"):
+                with btn2:
+                    yahoo_clicked = st.button("Sync Yahoo", key="sync_yahoo_roster")
+                if yahoo_clicked:
                     progress = st.progress(0, text="Connecting to Yahoo Fantasy...")
                     try:
                         # Reuse authenticated client from session if available
