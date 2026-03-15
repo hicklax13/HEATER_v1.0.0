@@ -220,11 +220,15 @@ def season_balance_weights(
                     raw_urgency[cat] = _MAX_URGENCY
                 else:
                     raw_urgency[cat] = _MIN_URGENCY
+            elif remaining_available > 0 and remaining_needed > _EPSILON:
+                # Rate is worsening (ERA/WHIP rising) AND behind pace —
+                # maximum urgency.
+                raw_urgency[cat] = _MAX_URGENCY
             else:
                 # For inverse stats, "available" is how much the stat
                 # might move (weekly rate * weeks).  Higher urgency when
                 # the remaining gap is a large fraction of what is left.
-                urgency = remaining_needed / abs(remaining_available)
+                urgency = remaining_needed / max(abs(remaining_available), _EPSILON)
                 raw_urgency[cat] = urgency
         else:
             # Standard categories (R, HR, RBI, SB, AVG, W, SV, K):
@@ -238,6 +242,12 @@ def season_balance_weights(
                     raw_urgency[cat] = _MIN_URGENCY
                 else:
                     raw_urgency[cat] = 1.0
+            elif remaining_available < 0 and remaining_needed > _EPSILON:
+                # Behind pace AND rate is declining — maximum urgency
+                raw_urgency[cat] = _MAX_URGENCY
+            elif remaining_available < 0 and remaining_needed < -_EPSILON:
+                # Ahead of pace AND rate is declining — moderate urgency
+                raw_urgency[cat] = 1.0
             else:
                 urgency = remaining_needed / remaining_available
                 raw_urgency[cat] = urgency

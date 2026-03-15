@@ -97,12 +97,27 @@ else:
     else:
         user_team_name = user_teams.iloc[0]["team_name"]
         user_roster = get_team_roster(user_team_name)
-        user_roster_ids = user_roster["player_id"].tolist() if not user_roster.empty else []
 
         # Player selection — build name-to-id mapping from both pool AND roster
         # so that roster players missing from player_pool still appear.
         player_names = pool[["player_id", "player_name"]].drop_duplicates()
         name_to_id = dict(zip(player_names["player_name"], player_names["player_id"]))
+
+        # Remap roster IDs to player_pool IDs via name matching.
+        # Yahoo roster uses Yahoo Fantasy IDs; the pool uses MLB Stats API IDs.
+        # They share player names, so we map: roster name → pool player_id.
+        user_roster_ids = []
+        if not user_roster.empty and "name" in user_roster.columns:
+            for _, r in user_roster.iterrows():
+                pname = r.get("name", "")
+                pool_pid = name_to_id.get(pname)
+                if pool_pid is not None:
+                    user_roster_ids.append(pool_pid)
+                else:
+                    # Fallback: keep the roster ID (player may lack projections)
+                    user_roster_ids.append(r["player_id"])
+        else:
+            user_roster_ids = user_roster["player_id"].tolist() if not user_roster.empty else []
 
         # Also add roster player names (roster JOIN players gives "name")
         if not user_roster.empty and "name" in user_roster.columns:

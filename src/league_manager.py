@@ -158,12 +158,40 @@ def get_team_roster(team_name: str) -> pd.DataFrame:
 
 
 def get_free_agents(player_pool: pd.DataFrame) -> pd.DataFrame:
-    """Return all players NOT on any league_rosters team."""
+    """Return all players NOT on any league_rosters team.
+
+    Uses both player_id matching AND name matching to handle cases where
+    league_rosters has different IDs than player_pool (Yahoo vs MLB Stats API).
+    """
     rostered = load_league_rosters()
     if rostered.empty:
         return player_pool
+
+    # Primary: filter by player_id
     rostered_ids = set(rostered["player_id"].values)
-    return player_pool[~player_pool["player_id"].isin(rostered_ids)].copy()
+
+    # Secondary: also collect rostered player names for defense-in-depth
+    # This handles the case where league_rosters uses Yahoo IDs but
+    # player_pool uses MLB Stats API IDs (before deduplication runs)
+    rostered_names = set()
+    if "player_id" in rostered.columns:
+        conn = get_connection()
+        try:
+            for pid in rostered_ids:
+                row = conn.execute("SELECT name FROM players WHERE player_id = ?", (pid,)).fetchone()
+                if row and row[0]:
+                    rostered_names.add(row[0])
+        finally:
+            conn.close()
+
+    # Exclude players matched by EITHER id or name
+    name_col = "name" if "name" in player_pool.columns else None
+    if name_col and rostered_names:
+        mask = player_pool["player_id"].isin(rostered_ids) | player_pool[name_col].isin(rostered_names)
+    else:
+        mask = player_pool["player_id"].isin(rostered_ids)
+
+    return player_pool[~mask].copy()
 
 
 def add_player_to_roster(

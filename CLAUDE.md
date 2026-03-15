@@ -7,6 +7,7 @@ A fantasy baseball draft assistant + in-season manager for a 12-team Yahoo Sport
 1. **Draft Tool** (`app.py`, ~1800 lines) — "Heater" themed Streamlit app with light-mode-only glassmorphic design system: splash screen data bootstrap + 2-step setup wizard (Settings, Launch), 3-column draft page with SVG injury badges, percentile ranges, opponent intel tab, and practice mode. Monte Carlo recommendations with percentile sampling. Zero CSV uploads — all data auto-fetched from MLB Stats API + FanGraphs on every launch. Pill button navigation replaces dropdowns. Search + card grids for player selection.
 2. **In-Season Management** (`pages/`) — 6 Streamlit pages: team overview, draft simulator, trade analysis, player comparison, free agent rankings, lineup optimizer. Powered by MLB Stats API + pybaseball + optional Yahoo Fantasy API. All pages share centralized single-theme system (light mode only) with glassmorphic design, orange sidebar branding, and bold Heater identity.
 3. **Trade Analyzer Engine** (`src/engine/`) — 6-phase pipeline: Phase 1 deterministic SGP, Phase 2 stochastic MC (10K sims), Phase 3 signal intelligence (Statcast/Kalman/BOCPD), Phase 4 contextual adjustments (matchups/injuries/bench value), Phase 5 game theory (opponent modeling/adverse selection/Bellman), Phase 6 production (convergence/caching/adaptive scaling). 11 modules, 207 dedicated tests.
+4. **Enhanced Lineup Optimizer** (`src/optimizer/`) — 11-module pipeline with 20 mathematical techniques: enhanced projections (Bayesian/Kalman/regime/injury), weekly matchup adjustments (park/platoon/weather), H2H category weights (Normal PDF), non-linear SGP (bell-curve proximity), pitcher streaming, stochastic scenarios (copula/CVaR), multi-period planning, dual H2H/Roto objective, advanced LP (maximin/epsilon-constraint/stochastic MIP). Three modes: Quick (<1s), Standard (2-3s), Full (5-10s). 204 dedicated tests across 10 test files.
 
 ## Commands
 
@@ -73,7 +74,7 @@ pages/
   3_Trade_Analyzer.py   — In-season: trade proposal builder + Phase 1 SGP engine (grade A+ to F, punt detection, marginal elasticity) with legacy fallback
   4_Player_Compare.py   — In-season: head-to-head player comparison with dual search + card pickers
   5_Free_Agents.py      — In-season: free agent rankings by marginal value, position pill filters
-  6_Lineup_Optimizer.py — In-season: PuLP LP solver for start/sit + category targeting
+  6_Lineup_Optimizer.py — In-season: 5-tab lineup optimizer (Optimize, H2H Matchup, Streaming, Category Analysis, Roster) powered by LineupOptimizerPipeline
 src/
   database.py           — SQLite schema (14 tables), CSV import, projection blending, player pool + in-season queries
   valuation.py          — SGP calculator, replacement levels, VORP, category weights, percentile forecasts
@@ -91,6 +92,18 @@ src/
   lineup_optimizer.py   — PuLP LP solver: lineup optimization, category targeting, two-start SP detection
   yahoo_api.py          — Yahoo Fantasy API: OAuth integration via yfpy, league sync, roster import
   data_pipeline.py      — FanGraphs auto-fetch: Steamer/ZiPS/Depth Charts JSON API, normalize, upsert, ADP extraction
+  optimizer/            — Enhanced Lineup Optimizer (11 modules, 20 mathematical techniques)
+    __init__.py         — Package exports with lazy import documentation
+    pipeline.py         — Master orchestrator: 9-stage chain, Quick/Standard/Full modes, LineupOptimizerPipeline class
+    projections.py      — Enhanced projections: Bayesian→Kalman→regime→decay→Statcast→injury availability chain
+    matchup_adjustments.py — Weekly matchup adjustments: park factors, platoon splits (The Book regression), weather HR model
+    h2h_engine.py       — H2H category weights (Normal PDF peaks at tie) + per-category win probability (Normal CDF)
+    sgp_theory.py       — Non-linear marginal SGP (bell-curve proximity), SLOPE regression SGP denominators
+    streaming.py        — Pitcher streaming value (counting SGP − rate damage), two-start quantification, optimal schedule
+    scenario_generator.py — Gaussian copula correlated scenarios, mean-variance adjustments, CVaR linearization data
+    multi_period.py     — Rolling horizon optimization with discount factor, season balance urgency weights
+    dual_objective.py   — H2H/Roto weight blending (alpha parameter), auto-alpha recommendation
+    advanced_lp.py      — Maximin LP (balanced worst-category), epsilon-constraint (Pareto frontier), stochastic MIP
   engine/               — Trade Analyzer Engine (Phase 1-4)
     __init__.py
     portfolio/
@@ -142,7 +155,17 @@ tests/
   test_data_bootstrap.py    — Bootstrap pipeline: staleness, bulk upserts, orchestrator (30 tests)
   test_bayesian.py          — Bayesian updater: regression, age curves, stabilization, batch update (31 tests)
   test_injury_model.py      — Injury model: health scores, age risk, workload flags (17 tests)
-  test_lineup_optimizer.py  — Lineup optimizer: LP solver, constraints, category targeting (20 tests)
+  test_lineup_optimizer.py  — Lineup optimizer: LP solver, constraints, category targeting, scale normalization (24 tests)
+  test_optimizer_projections.py — Enhanced projections pipeline: Bayesian, Kalman, regime, injury, integration (28 tests)
+  test_optimizer_matchups.py — Matchup adjustments: platoon, park factors, weather, schedule pipeline (19 tests)
+  test_optimizer_h2h.py    — H2H engine: category weights, win probability, inverse cats, edge cases (18 tests)
+  test_optimizer_sgp.py    — Non-linear SGP: bell-curve proximity, SLOPE denominators, weight normalization (16 tests)
+  test_optimizer_streaming.py — Streaming: pitcher value, two-start, optimal schedule, rate damage (16 tests)
+  test_optimizer_scenarios.py — Scenarios: copula generation, mean-variance, CVaR constraints, risk metrics (19 tests)
+  test_optimizer_multi_period.py — Multi-period: rolling horizon, season balance, urgency weights (16 tests)
+  test_optimizer_dual_objective.py — Dual objective: alpha blending, auto-alpha, edge cases (21 tests)
+  test_optimizer_advanced_lp.py — Advanced LP: maximin, epsilon-constraint, stochastic MIP (25 tests)
+  test_optimizer_pipeline.py — Pipeline orchestrator: init, optimize, weights, risk metrics, integration (26 tests)
   test_yahoo_api.py         — Yahoo API: OAuth, oob flow, sync, mock endpoints (40 tests)
   test_percentiles.py       — Percentile forecasts: volatility, P10/P50/P90 bounds (7 tests)
   test_opponent_model.py    — Enhanced opponent modeling: preferences, needs, history (8 tests)
@@ -505,6 +528,66 @@ get_sim_mode(interactive=True) -> str  # "standard" or "production"
 estimate_runtime_seconds(n_sims) -> float
 sim_config_summary(n_giving, n_receiving, mode, time_budget_s=None) -> dict
 
+# --- Enhanced Lineup Optimizer APIs (src/optimizer/) ---
+
+# Pipeline orchestrator (src/optimizer/pipeline.py)
+LineupOptimizerPipeline(roster, mode="standard", alpha=0.5, weeks_remaining=16, config=None)
+# .optimize(standings=None, team_name=None, h2h_opponent_totals=None,
+#           my_totals=None, week_schedule=None, park_factors=None,
+#           free_agents=None, ytd_totals=None, target_totals=None,
+#           weekly_rates=None, roto_rank=None, h2h_wins=None, h2h_losses=None) -> dict
+# Returns: {lineup, category_weights, h2h_analysis, streaming_suggestions,
+#           risk_metrics, maximin_comparison, recommendations, timing, mode, matchup_adjusted}
+MODE_PRESETS: dict[str, dict]  # quick/standard/full with enable flags + n_scenarios + risk_aversion
+
+# Enhanced projections (src/optimizer/projections.py)
+build_enhanced_projections(roster, config=None, enable_bayesian=True, enable_kalman=True,
+    enable_regime=True, enable_statcast=False, enable_injury=True, weeks_remaining=16) -> DataFrame
+
+# Matchup adjustments (src/optimizer/matchup_adjustments.py)
+get_weekly_schedule(days_ahead=7) -> list[dict]  # MLB Stats API schedule
+platoon_adjustment(batter_hand, pitcher_hand, batter_avg=0.260, regression_pa=1000) -> float
+park_factor_adjustment(player_team, opponent_team, park_factors, is_hitter=True) -> float
+weather_hr_adjustment(temp_f) -> float  # +0.9%/degree above 72°F
+compute_weekly_matchup_adjustments(roster, week_schedule, park_factors) -> DataFrame
+
+# H2H engine (src/optimizer/h2h_engine.py)
+compute_h2h_category_weights(my_totals, opp_totals, category_variances=None) -> dict[str, float]
+estimate_h2h_win_probability(my_totals, opp_totals, category_variances=None) -> dict
+# Returns: {per_category: {cat: p_win}, expected_wins, overall_win_prob}
+default_category_variances() -> dict[str, float]
+
+# Non-linear SGP (src/optimizer/sgp_theory.py)
+nonlinear_marginal_sgp(your_total, opponent_totals, sigma, is_inverse=False) -> float
+compute_nonlinear_weights(standings, team_name, sigmas=None) -> dict[str, float]
+slope_sgp_denominators(standings) -> dict[str, float]
+default_category_sigmas() -> dict[str, float]
+
+# Streaming (src/optimizer/streaming.py)
+compute_streaming_value(pitcher, weekly_games, team_park_factor=1.0, ...) -> dict
+rank_streaming_candidates(free_agent_pitchers, park_factors=None, ...) -> list[dict]
+quantify_two_start_value(pitcher_stats, team_era=4.0, team_whip=1.25, ...) -> dict
+optimal_streaming_schedule(candidates, max_adds=7) -> list[dict]
+
+# Scenario generator (src/optimizer/scenario_generator.py)
+generate_stat_scenarios(roster, n_scenarios=200, seed=42) -> np.ndarray  # (n, players, 10)
+mean_variance_adjustments(roster, lambda_risk=0.15) -> dict[int, float]
+build_cvar_constraints(scenarios, player_indices, category_weights, alpha=0.05) -> dict
+compute_scenario_lineup_values(scenarios, assignments, category_weights) -> np.ndarray
+
+# Multi-period (src/optimizer/multi_period.py)
+rolling_horizon_optimization(weekly_projections, category_weights, horizon_weeks=4, discount=0.95) -> dict
+season_balance_weights(ytd_totals, target_totals, weeks_remaining, weekly_rates) -> dict[str, float]
+
+# Dual objective (src/optimizer/dual_objective.py)
+blend_h2h_roto_weights(h2h_weights, roto_weights, alpha=0.5) -> dict[str, float]
+recommend_alpha(weeks_remaining, roto_rank=None, h2h_record_wins=None, h2h_record_losses=None) -> float
+
+# Advanced LP (src/optimizer/advanced_lp.py)
+maximin_lineup(roster, scale_factors, category_weights, active_categories=None) -> dict
+epsilon_constraint_lineup(roster, scale_factors, primary_category, epsilon_bounds, ...) -> dict
+stochastic_mip(roster, scenarios, category_weights, scale_factors, ...) -> dict
+
 # --- Plan 3 new APIs ---
 
 # Bayesian updater (src/bayesian.py)
@@ -675,10 +758,11 @@ SYSTEM_MAP = {"steamer": "steamer", "zips": "zips", "fangraphsdc": "depthcharts"
 
 ## Testing Status
 
-- **Unit tests:** 603 collected, 602 passed, 1 skipped (PyMC optional dep)
-- **Test files:** 25 test files across draft engine, trade engine (Phase 1-6), in-season, analytics, data pipeline, bootstrap, integration, and math verification
+- **Unit tests:** 822 collected, 822 passed, 1 skipped (PyMC optional dep)
+- **Test files:** 35 test files across draft engine, trade engine (Phase 1-6), lineup optimizer (10 files), in-season, analytics, data pipeline, bootstrap, integration, and math verification
 - **Math verification suite:** 162 tests across 4 files (valuation, simulation, trade, trade engine math) — hand-calculated expected values verified against code formulas
 - **Trade engine tests:** 207 tests total — Phase 1 (32): marginal SGP, punt detection, z-scores, grading, fuzzy match, integration. Phase 2 (33): BMA, KDE marginals, Gaussian copula, paired MC, correlated sampling, distributional metrics, integration. Phase 3 (32): Statcast aggregation, signal decay, Kalman filter, BOCPD changepoint detection, HMM regime classification, rolling features. Phase 4 (40): Log5 matchup math, Weibull injury duration, frailty, season availability, enhanced bench value, roster flexibility, HHI concentration, penalty thresholds, trade context integration. Phase 5 (38): opponent valuations, market clearing price, adverse selection Bayesian discount, Bellman rollout, roster balance, sensitivity ranking, counter-offers, game theory integration. Phase 6 (32): ESS convergence, split-R̂, running mean stability, cache TTL/invalidation/get_or_compute, adaptive sim scaling, time budget caps.
+- **Lineup optimizer tests:** 204 tests total across 10 files — projections (28), matchups (19), H2H engine (18), SGP theory (16), streaming (16), scenarios (19), multi-period (16), dual objective (21), advanced LP (25), pipeline orchestrator (26)
 - **CI:** GitHub Actions runs ruff lint/format + pytest on Python 3.11, 3.12, 3.13
 - **Coverage:** 64% (below 75% CI threshold; pre-existing, no regressions)
 - **Systematic code reviews:** Four rounds of full codebase debugging (30 bugs fixed): Round 1 (10 bugs — data pipeline, Yahoo API, lineup optimizer, CI), Round 2 (9 bugs — MC rate stats, regime detection, bellman DP, convergence, lineup optimizer UI, trade analyzer HTML), Round 3 (8 bugs — SGP denominators, survival gauge, injury persistence, percentile volatility, player pool duplicates), Round 4 (3 bugs — connection leak, player_name alias, export buttons). All pushed to master, all CI green.

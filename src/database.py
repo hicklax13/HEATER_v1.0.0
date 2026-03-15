@@ -817,6 +817,228 @@ def upsert_player_bulk(players: list[dict]) -> int:
         conn.close()
 
 
+def deduplicate_players() -> dict[str, int]:
+    """Find and merge duplicate player entries in the players table.
+
+    When the same player has multiple rows (from different insertion paths like
+    MLB Stats API vs FanGraphs), this function:
+    1. Identifies duplicates by name (case-insensitive)
+    2. Picks the canonical entry (the one with projections, or lowest player_id)
+    3. Remaps all FK references in dependent tables to the canonical ID
+    4. Deletes the duplicate rows
+
+    Returns:
+        Dict with keys: duplicates_found, players_merged, fk_remapped
+    """
+    import logging
+
+    logger = logging.getLogger(__name__)
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+
+        # Step 1: Find all names with more than one player_id
+        cursor.execute("""
+            SELECT LOWER(TRIM(name)) as norm_name, COUNT(*) as cnt
+            FROM players
+            GROUP BY norm_name
+            HAVING cnt > 1
+        """)
+        duplicates = cursor.fetchall()
+        if not duplicates:
+            logger.info("No duplicate players found.")
+            return {"duplicates_found": 0, "players_merged": 0, "fk_remapped": 0}
+
+        dup_names = [row[0] for row in duplicates]
+        logger.info("Found %d duplicate player names: %s", len(dup_names), dup_names[:10])
+
+        total_merged = 0
+        total_remapped = 0
+
+        for norm_name in dup_names:
+            # Get all player_ids for this name
+            cursor.execute(
+                "SELECT player_id FROM players WHERE LOWER(TRIM(name)) = ? ORDER BY player_id",
+                (norm_name,),
+            )
+            ids = [row[0] for row in cursor.fetchall()]
+            if len(ids) < 2:
+                continue
+
+            # Step 2: Pick canonical — prefer the one with projections (blended first)
+            canonical_id = ids[0]  # default to lowest
+            for pid in ids:
+                cursor.execute(
+                    "SELECT COUNT(*) FROM projections WHERE player_id = ? AND system = 'blended'",
+                    (pid,),
+                )
+                if cursor.fetchone()[0] > 0:
+                    canonical_id = pid
+                    break
+            else:
+                # No blended — try any projection system
+                for pid in ids:
+                    cursor.execute(
+                        "SELECT COUNT(*) FROM projections WHERE player_id = ?",
+                        (pid,),
+                    )
+                    if cursor.fetchone()[0] > 0:
+                        canonical_id = pid
+                        break
+
+            duplicate_ids = [pid for pid in ids if pid != canonical_id]
+            if not duplicate_ids:
+                continue
+
+            logger.info(
+                "Merging player '%s': canonical=%d, duplicates=%s",
+                norm_name,
+                canonical_id,
+                duplicate_ids,
+            )
+
+            # Step 3: Remap FK references in all dependent tables
+            # Tables with simple player_id FK (safe UPDATE)
+            simple_fk_tables = ["league_rosters", "transactions", "adp"]
+            for table in simple_fk_tables:
+                for dup_id in duplicate_ids:
+                    cursor.execute(
+                        f"UPDATE {table} SET player_id = ? WHERE player_id = ?",
+                        (canonical_id, dup_id),
+                    )
+                    total_remapped += cursor.rowcount
+
+            # Tables with composite PK including player_id — need conflict handling
+            # projections: (id PK autoincrement, player_id FK) — safe UPDATE
+            for dup_id in duplicate_ids:
+                cursor.execute(
+                    "UPDATE projections SET player_id = ? WHERE player_id = ?",
+                    (canonical_id, dup_id),
+                )
+                total_remapped += cursor.rowcount
+
+            # season_stats: PRIMARY KEY (player_id, season) — may conflict
+            for dup_id in duplicate_ids:
+                cursor.execute(
+                    "SELECT player_id, season FROM season_stats WHERE player_id = ?",
+                    (dup_id,),
+                )
+                dup_rows = cursor.fetchall()
+                for _, season in dup_rows:
+                    # Check if canonical already has this season
+                    cursor.execute(
+                        "SELECT 1 FROM season_stats WHERE player_id = ? AND season = ?",
+                        (canonical_id, season),
+                    )
+                    if cursor.fetchone() is None:
+                        # Safe to remap
+                        cursor.execute(
+                            "UPDATE season_stats SET player_id = ? WHERE player_id = ? AND season = ?",
+                            (canonical_id, dup_id, season),
+                        )
+                        total_remapped += 1
+                    else:
+                        # Canonical already has data for this season — delete duplicate
+                        cursor.execute(
+                            "DELETE FROM season_stats WHERE player_id = ? AND season = ?",
+                            (dup_id, season),
+                        )
+
+            # ros_projections: PRIMARY KEY (player_id, system) — may conflict
+            for dup_id in duplicate_ids:
+                cursor.execute(
+                    "SELECT player_id, system FROM ros_projections WHERE player_id = ?",
+                    (dup_id,),
+                )
+                dup_rows = cursor.fetchall()
+                for _, system in dup_rows:
+                    cursor.execute(
+                        "SELECT 1 FROM ros_projections WHERE player_id = ? AND system = ?",
+                        (canonical_id, system),
+                    )
+                    if cursor.fetchone() is None:
+                        cursor.execute(
+                            "UPDATE ros_projections SET player_id = ? WHERE player_id = ? AND system = ?",
+                            (canonical_id, dup_id, system),
+                        )
+                        total_remapped += 1
+                    else:
+                        cursor.execute(
+                            "DELETE FROM ros_projections WHERE player_id = ? AND system = ?",
+                            (dup_id, system),
+                        )
+
+            # injury_history: UNIQUE(player_id, season) — may conflict
+            for dup_id in duplicate_ids:
+                cursor.execute(
+                    "SELECT player_id, season FROM injury_history WHERE player_id = ?",
+                    (dup_id,),
+                )
+                dup_rows = cursor.fetchall()
+                for _, season in dup_rows:
+                    cursor.execute(
+                        "SELECT 1 FROM injury_history WHERE player_id = ? AND season = ?",
+                        (canonical_id, season),
+                    )
+                    if cursor.fetchone() is None:
+                        cursor.execute(
+                            "UPDATE injury_history SET player_id = ? WHERE player_id = ? AND season = ?",
+                            (canonical_id, dup_id, season),
+                        )
+                        total_remapped += 1
+                    else:
+                        cursor.execute(
+                            "DELETE FROM injury_history WHERE player_id = ? AND season = ?",
+                            (dup_id, season),
+                        )
+
+            # Step 4: Merge any useful data from duplicates into canonical
+            # (e.g., mlb_id, team info, positions)
+            for dup_id in duplicate_ids:
+                cursor.execute(
+                    "SELECT team, positions, mlb_id FROM players WHERE player_id = ?",
+                    (dup_id,),
+                )
+                dup_data = cursor.fetchone()
+                if dup_data:
+                    dup_team, dup_positions, dup_mlb_id = dup_data
+                    # Merge positions
+                    cursor.execute(
+                        "SELECT positions, mlb_id, team FROM players WHERE player_id = ?",
+                        (canonical_id,),
+                    )
+                    canon_data = cursor.fetchone()
+                    if canon_data:
+                        canon_pos = set(canon_data[0].split(",")) if canon_data[0] else set()
+                        dup_pos = set(dup_positions.split(",")) if dup_positions else set()
+                        merged_pos = ",".join(sorted(canon_pos | dup_pos))
+                        # Take mlb_id if canonical doesn't have one
+                        new_mlb_id = canon_data[1] or dup_mlb_id
+                        # Prefer non-empty team
+                        new_team = canon_data[2] if canon_data[2] else dup_team
+                        cursor.execute(
+                            "UPDATE players SET positions = ?, mlb_id = ?, team = ? WHERE player_id = ?",
+                            (merged_pos, new_mlb_id, new_team, canonical_id),
+                        )
+
+            # Step 5: Delete duplicate player rows
+            for dup_id in duplicate_ids:
+                cursor.execute("DELETE FROM players WHERE player_id = ?", (dup_id,))
+
+            total_merged += len(duplicate_ids)
+
+        conn.commit()
+        result = {
+            "duplicates_found": len(dup_names),
+            "players_merged": total_merged,
+            "fk_remapped": total_remapped,
+        }
+        logger.info("Deduplication complete: %s", result)
+        return result
+    finally:
+        conn.close()
+
+
 def upsert_injury_history_bulk(records: list[dict]) -> int:
     """Bulk upsert injury history. Each dict: player_id, season, games_played, games_available.
 
@@ -940,9 +1162,21 @@ def _extract_positions(row, col_map) -> str:
 
 
 def _upsert_player(cursor, name: str, team: str, positions: str, is_hitter: bool) -> int:
-    """Insert or find a player. Returns player_id."""
+    """Insert or find a player. Returns player_id.
+
+    Tries name+team first for precision, then falls back to name-only
+    to prevent creating duplicate entries when the same player appears
+    with different team values from different data sources.
+    """
+    # Try exact match: name + team
     cursor.execute("SELECT player_id, positions FROM players WHERE name = ? AND team = ?", (name, team))
     result = cursor.fetchone()
+
+    # Fallback: name-only match (prevents duplicates from team mismatches)
+    if result is None and name:
+        cursor.execute("SELECT player_id, positions FROM players WHERE name = ?", (name,))
+        result = cursor.fetchone()
+
     if result:
         # Merge positions
         existing = set(result[1].split(","))
@@ -950,6 +1184,12 @@ def _upsert_player(cursor, name: str, team: str, positions: str, is_hitter: bool
         merged = ",".join(sorted(existing | new))
         if merged != result[1]:
             cursor.execute("UPDATE players SET positions = ? WHERE player_id = ?", (merged, result[0]))
+        # Update team if it was empty and we have a real value
+        if team:
+            cursor.execute(
+                "UPDATE players SET team = ? WHERE player_id = ? AND (team IS NULL OR team = '')",
+                (team, result[0]),
+            )
         return result[0]
     else:
         cursor.execute(

@@ -25,15 +25,24 @@ except ImportError:
 
 
 def match_player_id(player_name: str, team_abbr: str) -> int | None:
-    """Match an external player name to our players table."""
+    """Match an external player name to our players table.
+
+    When multiple entries exist for the same name (duplicates from different
+    data sources), prefers the entry that has projection data attached — this
+    is the canonical ID used by load_player_pool() and the trade engine.
+    """
     conn = get_connection()
     try:
         cursor = conn.cursor()
 
+        # Primary: exact name match, prefer entry with projections
         cursor.execute("SELECT player_id FROM players WHERE name = ?", (player_name,))
-        result = cursor.fetchone()
-        if result:
-            return result[0]
+        results = cursor.fetchall()
+        if results:
+            if len(results) == 1:
+                return results[0][0]
+            # Multiple matches — prefer the one with projections (canonical)
+            return _pick_canonical_id(cursor, [r[0] for r in results])
 
         parts = player_name.replace(".", "").split()
         if len(parts) >= 2:
@@ -59,6 +68,33 @@ def match_player_id(player_name: str, team_abbr: str) -> int | None:
         return None
     finally:
         conn.close()
+
+
+def _pick_canonical_id(cursor, player_ids: list[int]) -> int:
+    """Given multiple player_ids for the same name, pick the canonical one.
+
+    Preference order:
+    1. Has blended projections (used by player_pool)
+    2. Has any projections
+    3. Lowest player_id (oldest entry)
+    """
+    for pid in player_ids:
+        cursor.execute(
+            "SELECT COUNT(*) FROM projections WHERE player_id = ? AND system = 'blended'",
+            (pid,),
+        )
+        if cursor.fetchone()[0] > 0:
+            return pid
+
+    for pid in player_ids:
+        cursor.execute(
+            "SELECT COUNT(*) FROM projections WHERE player_id = ?",
+            (pid,),
+        )
+        if cursor.fetchone()[0] > 0:
+            return pid
+
+    return min(player_ids)
 
 
 def _parse_hitting_stat(player_info: dict, stat: dict) -> dict:

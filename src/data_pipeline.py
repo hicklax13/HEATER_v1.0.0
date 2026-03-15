@@ -210,14 +210,25 @@ def extract_adp(hitters_raw: list[dict], pitchers_raw: list[dict]) -> pd.DataFra
 def _upsert_player(cursor, name: str, team: str, positions: str, is_hitter: bool) -> int:
     """Insert or find a player. Returns player_id.
 
-    Mirrors database.py's _upsert_player() — match on (name, team),
-    merge positions if existing.
+    Mirrors database.py's _upsert_player() — tries name+team first,
+    then falls back to name-only to prevent duplicates from team mismatches
+    between MLB Stats API and FanGraphs.
     """
+    # Try exact match: name + team
     cursor.execute(
         "SELECT player_id, positions FROM players WHERE name = ? AND team = ?",
         (name, team),
     )
     result = cursor.fetchone()
+
+    # Fallback: name-only match (prevents duplicates from team mismatches)
+    if result is None and name:
+        cursor.execute(
+            "SELECT player_id, positions FROM players WHERE name = ?",
+            (name,),
+        )
+        result = cursor.fetchone()
+
     if result:
         existing = set(result[1].split(","))
         new = set(positions.split(","))
@@ -226,6 +237,12 @@ def _upsert_player(cursor, name: str, team: str, positions: str, is_hitter: bool
             cursor.execute(
                 "UPDATE players SET positions = ? WHERE player_id = ?",
                 (merged, result[0]),
+            )
+        # Update team if canonical entry has empty team
+        if team:
+            cursor.execute(
+                "UPDATE players SET team = ? WHERE player_id = ? AND (team IS NULL OR team = '')",
+                (team, result[0]),
             )
         return result[0]
     else:

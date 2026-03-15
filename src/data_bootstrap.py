@@ -308,6 +308,23 @@ def bootstrap_all_data(
     else:
         results["yahoo"] = "Fresh"
 
+    # Phase 8: Deduplicate players (fix ID mismatches from different data sources)
+    _notify(0.95)
+    progress.phase = "Deduplication"
+    progress.detail = "Merging duplicate player entries..."
+    if on_progress:
+        on_progress(progress)
+    try:
+        from src.database import deduplicate_players
+
+        dedup_result = deduplicate_players()
+        merged = dedup_result.get("players_merged", 0)
+        results["deduplication"] = f"Merged {merged} duplicates" if merged > 0 else "No duplicates"
+        logger.info("Deduplication: %s", dedup_result)
+    except Exception as exc:
+        logger.warning("Deduplication failed (non-fatal): %s", exc)
+        results["deduplication"] = f"Skipped: {exc}"
+
     _notify(1.0)
     progress.phase = "Complete"
     progress.detail = "All data loaded!"

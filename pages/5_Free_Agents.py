@@ -76,7 +76,20 @@ else:
     else:
         user_team_name = user_teams.iloc[0]["team_name"]
         user_roster = get_team_roster(user_team_name)
-        user_roster_ids = user_roster["player_id"].tolist() if not user_roster.empty else []
+        # Remap roster IDs to player pool IDs via name matching
+        # (league_rosters may use Yahoo IDs while player_pool uses MLB Stats API IDs)
+        name_to_pool_id = dict(zip(pool["name"], pool["player_id"])) if not pool.empty else {}
+        user_roster_ids = []
+        if not user_roster.empty and "name" in user_roster.columns:
+            for _, r in user_roster.iterrows():
+                pname = r.get("name", "")
+                pool_pid = name_to_pool_id.get(pname)
+                if pool_pid is not None:
+                    user_roster_ids.append(pool_pid)
+                else:
+                    user_roster_ids.append(r["player_id"])
+        else:
+            user_roster_ids = user_roster["player_id"].tolist() if not user_roster.empty else []
 
         # Get free agents
         fa_pool = get_free_agents(pool)

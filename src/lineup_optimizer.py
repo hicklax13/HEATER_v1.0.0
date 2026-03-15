@@ -133,8 +133,18 @@ class LineupOptimizer:
             for slot_name, eligible in expanded_slots:
                 x[(p_idx, slot_name)] = LpVariable(f"x_{p_idx}_{slot_name}", cat=LpBinary)
 
-        # Objective: maximize weighted stat contributions of starters
-        # For ERA/WHIP, weight by IP so high-workload pitchers' rates matter more
+        # Objective: maximize normalized stat contributions of starters.
+        #
+        # In 5x5 roto, each category is worth 1 standings point, so the LP
+        # objective must put all categories on comparable scales. Without
+        # normalization, ERA*IP (~700) would dominate HR (~30) and AVG (~0.28).
+        #
+        # Scale factors: per-category standard deviation across the roster.
+        # After dividing by stdev, each category contributes roughly ±1-3 units
+        # to the objective. For inverse stats (ERA/WHIP), we use the IP-weighted
+        # contribution's stdev so the IP-weighting is preserved but normalized.
+        scale = _compute_scale_factors(self.roster)
+
         objective_terms = []
         for p_idx in players:
             row = self.roster.loc[p_idx]
@@ -145,12 +155,14 @@ class LineupOptimizer:
                     continue
                 val = float(row.get(cat, 0) or 0)
                 w = weights.get(cat, 1.0)
+                s = scale.get(cat, 1.0)
                 if cat in INVERSE_CATS:
                     # For ERA/WHIP, lower is better — weight by IP so
-                    # high-workload pitchers' rates count proportionally more
-                    player_value -= val * ip * w
+                    # high-workload pitchers' rates count proportionally more,
+                    # then normalize by scale factor
+                    player_value -= (val * ip / s) * w
                 else:
-                    player_value += val * w
+                    player_value += (val / s) * w
 
             for slot_name, _ in expanded_slots:
                 objective_terms.append(x[(p_idx, slot_name)] * player_value)
@@ -336,10 +348,11 @@ class LineupOptimizer:
             return []
 
         weights = category_weights or self._category_weights
+        scale = _compute_scale_factors(self.roster)
         suggestions = []
 
         for _, fa in free_agents.iterrows():
-            fa_value = _compute_player_value(fa, weights)
+            fa_value = _compute_player_value(fa, weights, scale)
             fa_positions = _parse_positions(fa.get("positions", ""))
             fa_name = fa.get("player_name", fa.get("name", "Unknown"))
 
@@ -350,7 +363,7 @@ class LineupOptimizer:
             for _, starter in self.roster.iterrows():
                 starter_positions = _parse_positions(starter.get("positions", ""))
                 if any(p in fa_positions for p in starter_positions):
-                    starter_value = _compute_player_value(starter, weights)
+                    starter_value = _compute_player_value(starter, weights, scale)
                     if starter_value < worst_value:
                         worst_value = starter_value
                         worst_starter = starter
@@ -388,9 +401,10 @@ class LineupOptimizer:
         assigned = set()
 
         # Sort players by total stat value descending
+        scale = _compute_scale_factors(self.roster)
         roster_scored = self.roster.copy()
         roster_scored["_value"] = roster_scored.apply(
-            lambda r: _compute_player_value(r, self._category_weights), axis=1
+            lambda r: _compute_player_value(r, self._category_weights, scale), axis=1
         )
         roster_scored = roster_scored.sort_values("_value", ascending=False)
 
@@ -483,12 +497,107 @@ def _fix_rate_stats(projected: dict, starter_rows: pd.DataFrame) -> dict:
     return result
 
 
-def _compute_player_value(player: pd.Series, weights: dict[str, float]) -> float:
-    """Compute weighted stat value for a player.
+def _compute_scale_factors(roster: pd.DataFrame) -> dict[str, float]:
+    """Compute per-category scale factors for LP objective normalization.
 
-    For inverse stats (ERA, WHIP), the contribution is weighted by IP so that
-    high-workload pitchers' rates count proportionally more than relievers with
-    minimal innings. This mirrors the LP solver's objective function.
+    For counting stats (R, HR, RBI, SB, W, SV, K): stdev of that column
+    across all players with nonzero values (hitters for hit cats, pitchers
+    for pitch cats).
+
+    For rate stats (AVG): stdev of AVG across hitters.
+
+    For inverse IP-weighted stats (ERA, WHIP): stdev of (stat * IP) across
+    pitchers, so the IP-weighting is preserved but on a normalized scale.
+
+    Returns dict mapping category name to scale factor (always >= 1.0 floor
+    to prevent division by near-zero when all players have identical stats).
+    """
+    scale = {}
+    MIN_SCALE = 1.0  # Floor to prevent division by tiny values
+
+    # Pre-compute group masks
+    hitter_mask = (
+        roster["is_hitter"].astype(bool) if "is_hitter" in roster.columns else pd.Series(True, index=roster.index)
+    )
+    pitcher_mask = ~hitter_mask
+    hitters = roster[hitter_mask]
+    pitchers_all = roster[pitcher_mask]
+
+    for cat in ALL_CATS:
+        if cat not in roster.columns:
+            scale[cat] = MIN_SCALE
+            continue
+
+        if cat in INVERSE_CATS:
+            # ERA/WHIP: normalize the IP-weighted contribution (stat * IP)
+            if "ip" in roster.columns:
+                pitchers = pitchers_all[pitchers_all["ip"].fillna(0).astype(float) > 0]
+                if not pitchers.empty:
+                    contributions = pitchers[cat].fillna(0).astype(float) * pitchers["ip"].fillna(0).astype(float)
+                    if len(pitchers) > 1:
+                        std = float(contributions.std())
+                        scale[cat] = max(std, MIN_SCALE)
+                    else:
+                        # Single pitcher: use magnitude of contribution as scale
+                        # so the normalized value is ~1.0
+                        mag = float(abs(contributions.iloc[0]))
+                        scale[cat] = max(mag, MIN_SCALE)
+                else:
+                    scale[cat] = MIN_SCALE
+            else:
+                scale[cat] = MIN_SCALE
+        elif cat == "avg":
+            # AVG: stdev across hitters only (much smaller scale than counting stats)
+            if not hitters.empty and cat in hitters.columns:
+                vals = hitters[cat].fillna(0).astype(float)
+                nonzero = vals[vals > 0]
+                if len(nonzero) > 1:
+                    scale[cat] = max(float(nonzero.std()), 0.005)
+                elif len(nonzero) == 1:
+                    # Single hitter: use AVG value itself as scale
+                    scale[cat] = max(float(nonzero.iloc[0]), 0.005)
+                else:
+                    scale[cat] = 0.015  # Typical AVG stdev across a roster
+            else:
+                scale[cat] = 0.015
+        elif cat in HITTING_CATS:
+            # Counting hitting stats: stdev across hitters
+            if not hitters.empty and len(hitters) > 1 and cat in hitters.columns:
+                std = float(hitters[cat].fillna(0).astype(float).std())
+                scale[cat] = max(std, MIN_SCALE)
+            elif not hitters.empty and cat in hitters.columns:
+                # Single hitter: use the value itself as scale
+                mag = float(abs(hitters[cat].fillna(0).astype(float).iloc[0]))
+                scale[cat] = max(mag, MIN_SCALE)
+            else:
+                scale[cat] = MIN_SCALE
+        else:
+            # Counting pitching stats (W, SV, K): stdev across pitchers
+            if not pitchers_all.empty and len(pitchers_all) > 1 and cat in pitchers_all.columns:
+                std = float(pitchers_all[cat].fillna(0).astype(float).std())
+                scale[cat] = max(std, MIN_SCALE)
+            elif not pitchers_all.empty and cat in pitchers_all.columns:
+                # Single pitcher: use the value itself as scale
+                mag = float(abs(pitchers_all[cat].fillna(0).astype(float).iloc[0]))
+                scale[cat] = max(mag, MIN_SCALE)
+            else:
+                scale[cat] = MIN_SCALE
+
+    return scale
+
+
+def _compute_player_value(player: pd.Series, weights: dict[str, float], scale: dict[str, float] | None = None) -> float:
+    """Compute weighted, normalized stat value for a player.
+
+    Normalizes each category by its scale factor so that all categories
+    contribute comparably to the total value. For inverse stats (ERA, WHIP),
+    the contribution is IP-weighted then normalized.
+
+    Args:
+        player: Series with stat columns.
+        weights: Per-category weight multipliers.
+        scale: Per-category scale factors from _compute_scale_factors().
+               If None, uses raw values (backward compat for tests).
     """
     value = 0.0
     ip = float(player.get("ip", 0) or 0)
@@ -497,10 +606,9 @@ def _compute_player_value(player: pd.Series, weights: dict[str, float]) -> float
             continue
         val = float(player.get(cat, 0) or 0)
         w = weights.get(cat, 1.0)
+        s = scale.get(cat, 1.0) if scale else 1.0
         if cat in INVERSE_CATS:
-            # Weight by IP so a 200-IP starter's ERA matters more than
-            # a 1-IP reliever's ERA
-            value -= val * ip * w
+            value -= (val * ip / s) * w
         else:
-            value += val * w
+            value += (val / s) * w
     return value

@@ -60,13 +60,21 @@ PITCHER_CATS: list[str] = ["w", "sv", "k", "era", "whip"]
 # ── Helpers ──────────────────────────────────────────────────────────
 
 
-def _get_player_name(row: pd.Series) -> str:
-    """Extract player name from a roster row, checking both column names."""
+def _get_player_name(row: pd.Series, seen: set | None = None) -> str:
+    """Extract player name from a roster row, disambiguating duplicates."""
+    name = f"Player_{row.name}"
     for col in ("name", "player_name"):
         val = row.get(col, None)
         if val is not None and str(val).strip():
-            return str(val)
-    return f"Player_{row.name}"
+            name = str(val)
+            break
+    # Disambiguate duplicate names by appending team
+    if seen is not None and name in seen:
+        team = str(row.get("team", "")).strip()
+        name = f"{name} ({team})" if team else f"{name} #{row.name}"
+    if seen is not None:
+        seen.add(name)
+    return name
 
 
 def _extract_stat(roster: pd.DataFrame, cat: str) -> np.ndarray:
@@ -159,7 +167,8 @@ def maximin_lineup(
 
     # Pre-extract stats and metadata
     is_hitter = roster["is_hitter"].astype(bool).values if "is_hitter" in roster.columns else np.ones(n, dtype=bool)
-    names = [_get_player_name(roster.iloc[i]) for i in range(n)]
+    _seen: set[str] = set()
+    names = [_get_player_name(roster.iloc[i], _seen) for i in range(n)]
     stat_vals: dict[str, np.ndarray] = {cat: _extract_stat(roster, cat) for cat in cats}
 
     # Build LP
@@ -293,7 +302,8 @@ def epsilon_constraint_lineup(
     n = len(roster)
 
     is_hitter = roster["is_hitter"].astype(bool).values if "is_hitter" in roster.columns else np.ones(n, dtype=bool)
-    names = [_get_player_name(roster.iloc[i]) for i in range(n)]
+    _seen: set[str] = set()
+    names = [_get_player_name(roster.iloc[i], _seen) for i in range(n)]
 
     # Build LP
     prob = LpProblem("epsilon_constraint_lineup", LpMaximize)
@@ -461,14 +471,15 @@ def stochastic_mip(
     n_scen = scenarios.shape[0]
     n_players = min(len(roster), scenarios.shape[1])
     n_cats = len(ALL_CATEGORIES)
-    max_hit, max_pit = _starter_limits(roster)
+    max_hit, max_pit = _starter_limits(roster.iloc[:n_players])
 
     is_hitter = (
         roster["is_hitter"].astype(bool).values[:n_players]
         if "is_hitter" in roster.columns
         else np.ones(n_players, dtype=bool)
     )
-    names = [_get_player_name(roster.iloc[i]) for i in range(n_players)]
+    _seen: set[str] = set()
+    names = [_get_player_name(roster.iloc[i], _seen) for i in range(n_players)]
 
     # Build weight vector (with scale and sign)
     w_vec = np.zeros(n_cats, dtype=float)

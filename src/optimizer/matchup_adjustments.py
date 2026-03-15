@@ -438,6 +438,19 @@ def compute_weekly_matchup_adjustments(
                         factor *= pf
                     # Pitchers: park factor is neutral for counting stats
 
+                # Weather HR adjustment (when temperature data is present)
+                if enable_weather and stat == "hr" and is_hitter:
+                    temp = game.get("temp_f")
+                    if temp is not None:
+                        factor *= weather_hr_adjustment(float(temp))
+
+                # Platoon adjustment (when handedness data is present)
+                if enable_platoon and is_hitter:
+                    batter_hand = str(row.get("bats", "")).strip()
+                    pitcher_hand = game.get("opposing_pitcher_hand", "")
+                    if batter_hand and pitcher_hand:
+                        factor *= platoon_adjustment(batter_hand, pitcher_hand)
+
                 factor = float(factor)
                 total_factor += factor
 

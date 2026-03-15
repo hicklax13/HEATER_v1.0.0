@@ -490,9 +490,10 @@ class LineupOptimizerPipeline:
             except Exception:
                 logger.warning("H2H category weights failed", exc_info=True)
 
-        # Auto-recommend alpha if not set
+        # Use user-provided alpha; only auto-recommend when caller
+        # left it at the default 0.5 AND record data is available.
         alpha = self.alpha
-        if _DUAL_AVAILABLE:
+        if _DUAL_AVAILABLE and alpha == 0.5 and (roto_rank is not None or h2h_wins is not None):
             try:
                 alpha = recommend_alpha(
                     self.weeks_remaining,
@@ -501,7 +502,7 @@ class LineupOptimizerPipeline:
                     h2h_record_losses=h2h_losses,
                 )
             except Exception:
-                pass  # Keep manual alpha
+                pass  # Keep user alpha
 
         # Blend H2H and roto
         if _DUAL_AVAILABLE:

@@ -1174,8 +1174,9 @@ def inject_custom_css():
     .page-title {{
         font-family: 'Bebas Neue', sans-serif !important;
         font-size: 28px !important;
-        letter-spacing: 3px !important;
-        text-transform: uppercase !important;
+        letter-spacing: 4px !important;
+        font-style: italic !important;
+        font-weight: 700 !important;
         text-align: center !important;
         margin-top: 8px !important;
         margin-bottom: 8px !important;
@@ -1194,14 +1195,10 @@ def inject_custom_css():
         margin-bottom: 2px !important;
     }}
     .page-title span {{
-        background: linear-gradient(135deg, {t["primary"]}, {t["hot"]}, {t["gold"]}) !important;
-        background-size: 200% 200% !important;
-        -webkit-background-clip: text !important;
-        -webkit-text-fill-color: transparent !important;
-        background-clip: text !important;
-        animation: gradientShift 4s ease infinite !important;
+        color: #ffffff !important;
+        -webkit-text-fill-color: #ffffff !important;
+        text-shadow: 0 1px 4px rgba(0,0,0,0.25) !important;
     }}
-
     /* ── SPLASH SCREEN TITLE ─────────────────── */
     @keyframes titleReveal {{
         0% {{ letter-spacing: 20px; opacity: 0; transform: scale(1.3); }}
@@ -1757,6 +1754,21 @@ def inject_custom_css():
                     + '<div style="width:100%;height:3px;background:linear-gradient(90deg,#e65c00,#ff8c00);border-radius:2px;margin-top:3px;"></div>';
                 header.insertBefore(logoDiv, header.firstChild);
             }
+
+            // Inject orange bar under page title badges (with retry for timing)
+            function injectTitleBars() {
+                var pts = parent.document.querySelectorAll('.page-title');
+                pts.forEach(function(pt) {
+                    if (!pt.nextElementSibling || !pt.nextElementSibling.classList.contains('page-title-bar')) {
+                        var bar = parent.document.createElement('div');
+                        bar.className = 'page-title-bar';
+                        bar.style.cssText = 'width:180px;height:3px;background:linear-gradient(90deg,#e65c00,#ff8c00);border-radius:2px;margin:3px auto 0;';
+                        pt.parentNode.insertBefore(bar, pt.nextSibling);
+                    }
+                });
+                if (pts.length === 0) { setTimeout(injectTitleBars, 300); }
+            }
+            injectTitleBars();
 
             var firstLink = nav.querySelector('li:first-child a');
             if (!firstLink || !firstLink.querySelector('.nav-icon')) { setTimeout(setup, 200); }

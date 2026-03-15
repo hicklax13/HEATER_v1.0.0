@@ -211,14 +211,25 @@ def generate_stat_scenarios(
     if _COPULA_AVAILABLE:
         try:
             copula = GaussianCopula()  # uses 10x10 DEFAULT_CORRELATION
+
+            # The copula module uses a different category ordering than this
+            # module.  Build a mapping from copula column index to our index.
+            from src.engine.portfolio.copula import CATEGORIES as _COPULA_CATS
+
+            _copula_to_local = []
+            for copula_cat in _COPULA_CATS:
+                _copula_to_local.append(_CAT_IDX[copula_cat.lower()])
+
             for i in range(n_players):
                 # Draw correlated uniforms: (n_scenarios, 10)
                 u = copula.sample(n_scenarios, rng=rng)
-                # Convert to stat values via inverse CDF
-                for j, cat in enumerate(ALL_CATS):
-                    mu = stats[i, j]
-                    sigma = std_matrix[i, j]
-                    scenarios[:, i, j] = norm.ppf(u[:, j], loc=mu, scale=sigma)
+                # Convert to stat values via inverse CDF, remapping columns
+                for copula_j in range(len(_COPULA_CATS)):
+                    local_j = _copula_to_local[copula_j]
+                    cat = ALL_CATS[local_j]
+                    mu = stats[i, local_j]
+                    sigma = std_matrix[i, local_j]
+                    scenarios[:, i, local_j] = norm.ppf(u[:, copula_j], loc=mu, scale=sigma)
             logger.debug(
                 "Generated %d scenarios with GaussianCopula for %d players",
                 n_scenarios,

@@ -242,37 +242,42 @@ def _apply_kalman_filter(roster: pd.DataFrame) -> pd.DataFrame:
                 continue
 
             # Apply Kalman to key rate stats where noise matters most
-            stats_to_filter = ["avg", "era", "whip"] if not is_hitter or is_hitter else ["avg"]
-            if not is_hitter:
-                stats_to_filter = ["era", "whip"]
+            stats_to_filter = ["avg"] if is_hitter else ["era", "whip"]
+
+            # Map optimizer stat names to Kalman module stat names
+            _KALMAN_STAT_MAP = {"avg": "ba", "era": "era", "whip": "whip"}
 
             for stat in stats_to_filter:
                 observed = float(row.get(stat, 0) or 0)
                 if observed == 0:
                     continue
 
+                # The prior is the current projection value (already blended
+                # from Bayesian/preseason stages).  The "observation" is this
+                # same value treated as in-season data.  With only one column
+                # we split the signal: prior = projection, observation = projection,
+                # but Kalman gain still adjusts confidence by sample size.
+                prior_mean = observed
+
                 # Get observation noise (smaller sample → more noise)
+                kalman_stat = _KALMAN_STAT_MAP.get(stat, stat)
                 try:
-                    obs_var = observation_variance(stat, int(sample))
+                    obs_var = observation_variance(kalman_stat, int(sample))
                 except Exception:
                     obs_var = 0.01
 
-                proc_var = get_process_variance(stat)
+                proc_var = get_process_variance(kalman_stat)
 
-                # Simple one-step Kalman update:
-                # K = P_prior / (P_prior + R)
-                # x_filtered = x_prior + K * (observed - x_prior)
-                prior_var = proc_var + obs_var  # conservative prior variance
+                # One-step Kalman: K = P_prior / (P_prior + R)
+                prior_var = proc_var + obs_var
                 kalman_gain = prior_var / (prior_var + obs_var)
-                # Prior is the current projection (may already be blended)
-                prior_mean = observed  # If no separate prior, observed IS the estimate
                 filtered = prior_mean + kalman_gain * (observed - prior_mean)
 
-                # The Kalman update narrows the variance
+                # Narrowed posterior variance
                 filtered_var = (1 - kalman_gain) * prior_var
 
                 roster.at[idx, stat] = filtered
-                # Increase confidence when Kalman gain is high (data is trustworthy)
+                # Adjust confidence by Kalman gain (high gain = data trustworthy)
                 current_conf = float(roster.at[idx, "projection_confidence"])
                 roster.at[idx, "projection_confidence"] = min(1.0, current_conf * (0.9 + 0.1 * kalman_gain))
 
@@ -299,14 +304,23 @@ def _apply_regime_adjustment(roster: pd.DataFrame) -> pd.DataFrame:
 
     try:
         for idx, row in roster.iterrows():
-            # Try to use xwOBA if available, else approximate from AVG
-            avg = float(row.get("avg", 0) or 0)
-            if avg == 0:
-                continue
+            is_hitter = bool(row.get("is_hitter", True))
 
-            # Approximate xwOBA from AVG (rough correlation: xwOBA ≈ AVG * 1.15)
-            # This is a crude approximation; Statcast data improves this significantly
-            approx_xwoba = avg * 1.15
+            # Approximate xwOBA from available rate stats
+            if is_hitter:
+                avg = float(row.get("avg", 0) or 0)
+                if avg == 0:
+                    continue
+                # Approximate xwOBA from AVG (rough: xwOBA ≈ AVG * 1.15)
+                approx_xwoba = avg * 1.15
+            else:
+                # For pitchers, invert ERA to approximate opposing xwOBA
+                # League avg ERA ≈ 4.00 maps to xwOBA ≈ 0.315
+                era = float(row.get("era", 0) or 0)
+                if era == 0:
+                    continue
+                approx_xwoba = era / 4.00 * _LEAGUE_AVG_XWOBA
+
             season_xwoba = approx_xwoba  # Without separate recent data, use same
 
             regime_label, state_probs = classify_regime_simple(
