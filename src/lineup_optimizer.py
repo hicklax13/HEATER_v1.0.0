@@ -25,8 +25,9 @@ try:
     )
 
     PULP_AVAILABLE = True
-except ImportError:
+except ImportError as _pulp_err:
     PULP_AVAILABLE = False
+    logging.getLogger(__name__).debug("PuLP import failed: %s", _pulp_err)
 
 if TYPE_CHECKING:
     from src.valuation import LeagueConfig
@@ -100,7 +101,7 @@ class LineupOptimizer:
             - status: solver status string
         """
         if not PULP_AVAILABLE:
-            logger.warning("PuLP not installed — returning greedy lineup")
+            logger.warning("PuLP not installed -- returning greedy lineup")
             return self._greedy_fallback()
 
         if self.roster.empty:

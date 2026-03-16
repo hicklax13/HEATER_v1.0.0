@@ -2,7 +2,7 @@
 
 A fantasy baseball draft assistant + in-season manager for Yahoo Sports 5x5 roto leagues. Features the **Heater** UI — a modern glassmorphic design system with vibrant thermal color palette, 3D inflatable buttons, kinetic gradient typography, and pill-based navigation. Monte Carlo draft recommendations, Bayesian projection updates, and full in-season roster management.
 
-Built for the **FourzynBurn** league (12-team snake draft, 23 rounds). ~20,000 lines of Python across 50+ source files with 603 tests (25 test files). Zero CSV uploads — all data auto-fetched from MLB Stats API + FanGraphs on every launch. Zero emoji — all icons are inline SVGs.
+Built for the **FourzynBurn** league (12-team snake draft, 23 rounds). ~25,000 lines of Python across 60+ source files with 822 tests (36 test files). Zero CSV uploads — all data auto-fetched from MLB Stats API + FanGraphs on every launch. Zero emoji — all icons are inline SVGs.
 
 ## Overview
 
@@ -58,7 +58,7 @@ The app opens at `http://localhost:8501`.
 | **Trade Analyzer** | 6-phase engine: Phase 1 deterministic SGP grading (A+ to F), Phase 2 MC (10K paired sims), game theory opponent modeling, Bayesian model averaging, Gaussian copula correlated sampling, glassmorphic verdict banners |
 | **Player Compare** | Z-score normalization, dual search + card pickers, Plotly radar charts, health badges |
 | **Free Agents** | Marginal SGP rankings by category need, position pill filters |
-| **Lineup Optimizer** | PuLP LP solver, category targeting, two-start SP detection, health-adjusted SGP |
+| **Lineup Optimizer** | 11-module pipeline with 20 mathematical techniques: enhanced projections (Bayesian/Kalman/regime/injury), weekly matchup adjustments (park/platoon/weather), H2H category weights (Normal PDF), non-linear SGP (bell-curve proximity), pitcher streaming, stochastic scenarios (copula/CVaR), multi-period planning, dual H2H/Roto objective, advanced LP (maximin/epsilon-constraint/stochastic MIP). 5-tab UI: Optimize, H2H Matchup, Streaming, Category Analysis, Roster. Three modes: Quick (<1s), Standard (2-3s), Full (5-10s) |
 
 ### Heater Design System (`src/ui_shared.py`)
 
@@ -99,6 +99,25 @@ A 6-phase pipeline for rigorous trade evaluation:
 | **6. Production** | `production/` | Monte Carlo convergence diagnostics (ESS, split-R̂), adaptive simulation scaling, precomputation cache with TTL |
 
 207 dedicated tests across 6 test files verify each phase independently and in integration.
+
+### Enhanced Lineup Optimizer (`src/optimizer/`)
+
+An 11-module pipeline with 20 mathematical techniques for lineup optimization:
+
+| Module | What It Does |
+|--------|-------------|
+| **Pipeline** | Master orchestrator: 9-stage chain, Quick/Standard/Full modes |
+| **Projections** | Enhanced projections: Bayesian → Kalman → regime → decay → Statcast → injury availability chain |
+| **Matchup Adjustments** | Weekly matchup adjustments: park factors, platoon splits (The Book regression), weather HR model |
+| **H2H Engine** | H2H category weights (Normal PDF peaks at tie) + per-category win probability (Normal CDF) |
+| **SGP Theory** | Non-linear marginal SGP (bell-curve proximity), SLOPE regression SGP denominators |
+| **Streaming** | Pitcher streaming value (counting SGP - rate damage), two-start quantification, optimal schedule |
+| **Scenario Generator** | Gaussian copula correlated scenarios, mean-variance adjustments, CVaR linearization |
+| **Multi-Period** | Rolling horizon optimization with discount factor, season balance urgency weights |
+| **Dual Objective** | H2H/Roto weight blending (alpha parameter), auto-alpha recommendation |
+| **Advanced LP** | Maximin LP (balanced worst-category), epsilon-constraint (Pareto frontier), stochastic MIP |
+
+204 dedicated tests across 10 test files. 5-tab Streamlit UI: Optimize, H2H Matchup, Streaming, Category Analysis, Roster.
 
 ## Setup
 
@@ -172,7 +191,7 @@ pages/
   3_Trade_Analyzer.py   — Trade proposal builder + MC analysis + glassmorphic verdict banners
   4_Player_Compare.py   — Head-to-head comparison with dual search + radar charts + health badges
   5_Free_Agents.py      — Free agent rankings by marginal value, position pill filters
-  6_Lineup_Optimizer.py — PuLP LP solver for start/sit + category targeting
+  6_Lineup_Optimizer.py — 5-tab lineup optimizer powered by LineupOptimizerPipeline (Optimize, H2H Matchup, Streaming, Category Analysis, Roster)
 src/
   database.py           — SQLite schema (14 tables), CSV import, queries
   valuation.py          — SGP, VORP, replacement levels, percentile forecasts
@@ -190,6 +209,17 @@ src/
   ui_shared.py          — Heater design system: single THEME dict, PAGE_ICONS (inline SVGs), glassmorphic CSS injection, metric tooltips
   validation.py         — Validation utilities
   data_2026.py          — Hardcoded 2026 projections for sample data
+  optimizer/            — Enhanced Lineup Optimizer (11 modules, 20 mathematical techniques)
+    pipeline.py         — Master orchestrator: 9-stage chain, Quick/Standard/Full modes
+    projections.py      — Enhanced projections: Bayesian→Kalman→regime→decay→Statcast→injury chain
+    matchup_adjustments.py — Weekly matchup adjustments: park factors, platoon splits, weather HR model
+    h2h_engine.py       — H2H category weights (Normal PDF) + per-category win probability (Normal CDF)
+    sgp_theory.py       — Non-linear marginal SGP (bell-curve proximity), SLOPE regression denominators
+    streaming.py        — Pitcher streaming value, two-start quantification, optimal schedule
+    scenario_generator.py — Gaussian copula scenarios, mean-variance adjustments, CVaR linearization
+    multi_period.py     — Rolling horizon optimization with discount factor, season balance urgency
+    dual_objective.py   — H2H/Roto weight blending (alpha parameter), auto-alpha recommendation
+    advanced_lp.py      — Maximin LP, epsilon-constraint (Pareto frontier), stochastic MIP
   engine/               — Trade Analyzer Engine (6 phases, 11 modules)
     portfolio/          — Z-score valuation, category analysis, LP lineup optimization, Gaussian copula
     projections/        — ROS projection client, Bayesian model averaging, KDE marginals
@@ -199,7 +229,7 @@ src/
     context/            — Log5 matchups, Weibull injury process, bench value, concentration risk
     game_theory/        — Opponent valuation, adverse selection, Bellman DP rollout, sensitivity analysis
     production/         — Convergence diagnostics, adaptive sim scaling, precomputation cache
-tests/                  — 603 tests (25 test files), 602 pass, 1 skipped (PyMC)
+tests/                  — 822 tests (36 test files), 822 pass, 1 skipped (PyMC)
 data/                   — SQLite DB + draft state backups (gitignored)
 .github/
   workflows/ci.yml      — CI pipeline (lint + test + build)
@@ -251,7 +281,7 @@ ruff check .
 # Format
 ruff format .
 
-# Run all tests (603 collected, 602 pass, 1 skipped for PyMC)
+# Run all tests (822 pass, 1 skipped for PyMC)
 python -m pytest
 
 # Run with verbose output

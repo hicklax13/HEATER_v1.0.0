@@ -238,7 +238,17 @@ else:
                     f"{result['confidence_pct']:.1f}% confidence</span></div>",
                     unsafe_allow_html=True,
                 )
-                st.caption(METRIC_TOOLTIPS["trade_verdict"])
+                verdict_key = "trade_verdict" if engine_used == "phase1" else "trade_verdict_legacy"
+                st.caption(METRIC_TOOLTIPS[verdict_key])
+
+                # Warning when no standings data is loaded
+                if engine_used == "phase1" and not result.get("category_analysis"):
+                    st.warning(
+                        "No league standings data available. All categories are weighted equally, "
+                        "so the analysis cannot account for your team's strategic position "
+                        "(punt detection, marginal elasticity). Sync your Yahoo league for "
+                        "a more accurate evaluation."
+                    )
 
                 # Metrics row — different layout for Phase 1 vs legacy
                 if engine_used == "phase1":

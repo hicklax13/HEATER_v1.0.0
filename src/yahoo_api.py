@@ -301,16 +301,22 @@ class YahooFantasyClient:
                 logger.info("Wrote Yahoo token to %s", token_file)
 
             # Build constructor kwargs for yfpy v17+
+            # When a token is provided, it already contains consumer_key/secret
+            # inside the JSON -- passing them separately triggers a yfpy warning.
             query_kwargs: dict = {
                 "league_id": self.league_id,
                 "game_code": self.game_code,
-                "yahoo_consumer_key": consumer_key,
-                "yahoo_consumer_secret": consumer_secret,
                 "browser_callback": False,
             }
 
             if token_dict is not None:
                 query_kwargs["yahoo_access_token_json"] = token_dict
+                # Disable env var fallback to suppress yfpy warning about
+                # token overriding consumer_key/secret (we don't pass those)
+                query_kwargs["env_var_fallback"] = False
+            else:
+                query_kwargs["yahoo_consumer_key"] = consumer_key
+                query_kwargs["yahoo_consumer_secret"] = consumer_secret
 
             self._query = YahooFantasySportsQuery(**query_kwargs)
 

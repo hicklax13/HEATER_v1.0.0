@@ -575,11 +575,11 @@ class TestBenchOptionValue:
         assert bov_16 > bov_8
 
     def test_two_for_one_trade_cost(self, sample_pool, config):
-        """2-for-1 trade should subtract bench option value from surplus."""
+        """Give 1, receive 2: roster grows, LOSE bench slot = penalty."""
         pool = sample_pool.copy()
         user_roster_ids = list(range(1, 16))  # 15 players
 
-        # 2-for-1: give player 1, receive players 16 and 17
+        # Give 1, receive 2: roster grows by 1 → lose a bench slot
         result = evaluate_trade(
             giving_ids=[1],
             receiving_ids=[16, 17],
@@ -589,19 +589,15 @@ class TestBenchOptionValue:
             weeks_remaining=8,
         )
 
-        # bench_cost should be negative (gained a slot = bonus)
-        # Wait — giving 1 and receiving 2 means NET +1 player
-        # That's gaining a player, not losing a bench slot
-        # Actually the bench_cost is computed as: players_gained - players_lost
-        # 2 - 1 = +1, so bench_slots_lost = +1 (gained), bench_cost is negative (bonus)
-        assert result["bench_cost"] < 0  # Gained a slot, so negative cost (bonus)
+        # Roster grew → lost a bench slot → bench_cost is positive (penalty)
+        assert result["bench_cost"] > 0
 
     def test_one_for_two_trade_cost(self, sample_pool, config):
-        """1-for-2 trade should add bench option value as a cost."""
+        """Give 2, receive 1: roster shrinks, GAIN bench slot = bonus."""
         pool = sample_pool.copy()
         user_roster_ids = list(range(1, 16))
 
-        # 1-for-2: give players 1 and 2, receive player 16
+        # Give 2, receive 1: roster shrinks by 1 → gain a bench slot
         result = evaluate_trade(
             giving_ids=[1, 2],
             receiving_ids=[16],
@@ -611,8 +607,8 @@ class TestBenchOptionValue:
             weeks_remaining=8,
         )
 
-        # Lost a bench slot: bench_cost should be positive
-        assert result["bench_cost"] > 0
+        # Roster shrank → gained a bench slot → bench_cost is negative (bonus)
+        assert result["bench_cost"] < 0
 
 
 # ── Z-Score Computation Tests ──────────────────────────────────────

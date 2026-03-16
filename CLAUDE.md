@@ -27,7 +27,7 @@ ruff check .
 # Format
 ruff format .
 
-# Run all tests (603 collected, 602 pass, 1 skipped for PyMC)
+# Run all tests (822 pass, 1 skipped for PyMC)
 python -m pytest
 
 # Run with verbose output
@@ -167,6 +167,7 @@ tests/
   test_optimizer_advanced_lp.py — Advanced LP: maximin, epsilon-constraint, stochastic MIP (25 tests)
   test_optimizer_pipeline.py — Pipeline orchestrator: init, optimize, weights, risk metrics, integration (26 tests)
   test_yahoo_api.py         — Yahoo API: OAuth, oob flow, sync, mock endpoints (40 tests)
+  test_deduplication.py     — Player deduplication: merge duplicates, remap foreign keys, case-insensitive matching (12 tests)
   test_percentiles.py       — Percentile forecasts: volatility, P10/P50/P90 bounds (7 tests)
   test_opponent_model.py    — Enhanced opponent modeling: preferences, needs, history (8 tests)
   test_percentile_sampling.py — Percentile sampling passthrough in evaluate_candidates (4 tests)
@@ -675,6 +676,7 @@ SYSTEM_MAP = {"steamer": "steamer", "zips": "zips", "fangraphsdc": "depthcharts"
 - **Python 3.14 bytes in yfpy** — `team.name` and `player.name.full` may return `bytes` instead of `str`. Always guard with `raw.decode("utf-8") if isinstance(raw, bytes) else str(raw)`.
 - **Health badges in st.dataframe()** — `get_injury_badge()` returns HTML `<span>` tags, but `st.dataframe()` renders raw text only. My Team page uses text labels ("Low Risk", "Moderate Risk", "High Risk") for the dataframe Health column. HTML badges are used only in `st.markdown(unsafe_allow_html=True)` contexts like the draft hero card.
 - **yfpy `--no-deps` install needs extras** — Installing `yfpy>=17.0 --no-deps` strips `stringcase`, `yahoo-oauth`, and their transitive deps. Must also `pip install stringcase yahoo-oauth==2.1.1`. Similarly, `streamlit-oauth --no-deps` needs `httpx-oauth`. The python-dotenv version mismatch (1.2.2 vs pinned 1.1.1) is a pip warning but works at runtime.
+- **yfpy token override warning** — When `yahoo_access_token_json` is provided to `YahooFantasySportsQuery`, do NOT also pass `yahoo_consumer_key`/`yahoo_consumer_secret` — the token already contains them. Passing both triggers a yfpy warning. `src/yahoo_api.py` conditionally excludes consumer_key/secret when a token dict is present.
 - **In-season page warnings** — All pages that require league data use the standardized message: "No league data loaded. Connect your Yahoo league in Settings, or league data will load automatically on next app launch."
 - **FanGraphs API SYSTEM_MAP** — FG API uses `"fangraphsdc"` for Depth Charts, but DB stores as `"depthcharts"`. Always use `SYSTEM_MAP` dict, never hardcode system names. `SYSTEMS = list(SYSTEM_MAP.keys())` derives the list.
 - **FanGraphs `minpos` field** — Returns primary position only (e.g., "SS"), not multi-position eligibility. Sometimes returns `"0"` or `"-"` meaning no position; these are guarded to fall back to `"Util"`.
@@ -702,6 +704,7 @@ SYSTEM_MAP = {"steamer": "steamer", "zips": "zips", "fangraphsdc": "depthcharts"
 - **Title badge deep navy gradient** — Page title badges use `linear-gradient(135deg, #1a1a2e, #16213e)` background with gradient text overlay (red > orange > gold via `background-clip: text`).
 - **All buttons are orange** — Secondary buttons globally styled with `linear-gradient(135deg, #e65c00, #cc5200)` + white bold text. This matches the sidebar branding and creates visual consistency.
 - **Data table white background** — All `st.dataframe()` tables get `background: #ffffff !important` to contrast against the page's `#f4f5f0` chalk background. Column headers get `font-weight: 700 !important`.
+- **Trade analyzer needs standings for accuracy** — Without `league_standings` data, `evaluate_trade()` uses equal category weights (1.0 for all 10 categories). This means no marginal elasticity, no punt detection, and no strategic context. The trade may grade as A+ purely from raw stat exchange without knowing if those stat gains actually help in standings. UI shows a warning when standings are missing.
 - **Rate-stat aggregation** — AVG=sum(h)/sum(ab), ERA=sum(er)*9/sum(ip), WHIP=sum(bb+h)/sum(ip). Weighted averages, NOT simple averages. `_fix_rate_stats()` in `lineup_optimizer.py` recalculates these after LP solves.
 - **Injury model scales rate stats** — `apply_injury_adjustment()` scales ER, BB_allowed, H_allowed by `_combined_factor` (health×age×workload), not just counting stats. Without this, injured pitchers show artificially low ERA/WHIP.
 - **LP inverse stat weighting** — ERA/WHIP in lineup optimizer LP objective must be weighted by IP: `player_value -= val * ip * weight`. Without IP weighting, a 1-IP reliever with 0.00 ERA dominates a 200-IP starter.
@@ -711,7 +714,7 @@ SYSTEM_MAP = {"steamer": "steamer", "zips": "zips", "fangraphsdc": "depthcharts"
 - **Trade engine backward compat keys** — `evaluate_trade()` returns both new keys (`grade`, `surplus_sgp`, `category_analysis`) AND legacy keys (`total_sgp_change`, `mc_mean`, `mc_std`) so existing UI code doesn't break.
 - **`compute_marginal_sgp()` uses `.get()` for missing categories** — Team totals may not have all 10 categories. Always use `team_totals.get(cat, 0.0)`, never `team_totals[cat]`.
 - **Punt detection requires BOTH conditions** — A category is punt only when `gainable_positions == 0 AND rank >= 10`. Being rank 10 alone isn't enough if positions are still gainable; having 0 gainable alone isn't enough if you're already ranked high.
-- **Bench option value sign convention** — `bench_cost` in the trade result is positive when you LOSE bench slots (2-for-1 trade receiving side), negative when you GAIN them (1-for-2). The surplus already accounts for this.
+- **Bench option value sign convention** — `bench_cost` in the trade result is positive when you LOSE bench slots (receive more than you give → roster grows → penalty), negative when you GAIN them (give more than you receive → roster shrinks → bonus). `net_roster_growth = players_gained - players_lost`: positive→penalty subtracted from surplus, negative→bonus added to surplus.
 - **`_roster_category_totals()` lives in `src/in_season.py`** — The trade engine's `evaluate_trade()` imports this from the legacy module. Don't duplicate it.
 - **`enable_mc=True` activates Phase 2** — By default, `evaluate_trade()` runs Phase 1 only (deterministic). Set `enable_mc=True` for MC overlay. MC gracefully falls back to Phase 1 on failure.
 - **BMA sigma difference → unequal weights** — Even when all systems project the same value, posterior weights differ slightly because forecast sigmas differ by system (Steamer HR sigma=5.2 vs ZiPS sigma=5.5). Tighter sigma → higher likelihood density → more weight.
@@ -759,10 +762,10 @@ SYSTEM_MAP = {"steamer": "steamer", "zips": "zips", "fangraphsdc": "depthcharts"
 ## Testing Status
 
 - **Unit tests:** 822 collected, 822 passed, 1 skipped (PyMC optional dep)
-- **Test files:** 35 test files across draft engine, trade engine (Phase 1-6), lineup optimizer (10 files), in-season, analytics, data pipeline, bootstrap, integration, and math verification
+- **Test files:** 36 test files across draft engine, trade engine (Phase 1-6), lineup optimizer (10 files), in-season, analytics, data pipeline, bootstrap, integration, and math verification
 - **Math verification suite:** 162 tests across 4 files (valuation, simulation, trade, trade engine math) — hand-calculated expected values verified against code formulas
 - **Trade engine tests:** 207 tests total — Phase 1 (32): marginal SGP, punt detection, z-scores, grading, fuzzy match, integration. Phase 2 (33): BMA, KDE marginals, Gaussian copula, paired MC, correlated sampling, distributional metrics, integration. Phase 3 (32): Statcast aggregation, signal decay, Kalman filter, BOCPD changepoint detection, HMM regime classification, rolling features. Phase 4 (40): Log5 matchup math, Weibull injury duration, frailty, season availability, enhanced bench value, roster flexibility, HHI concentration, penalty thresholds, trade context integration. Phase 5 (38): opponent valuations, market clearing price, adverse selection Bayesian discount, Bellman rollout, roster balance, sensitivity ranking, counter-offers, game theory integration. Phase 6 (32): ESS convergence, split-R̂, running mean stability, cache TTL/invalidation/get_or_compute, adaptive sim scaling, time budget caps.
 - **Lineup optimizer tests:** 204 tests total across 10 files — projections (28), matchups (19), H2H engine (18), SGP theory (16), streaming (16), scenarios (19), multi-period (16), dual objective (21), advanced LP (25), pipeline orchestrator (26)
 - **CI:** GitHub Actions runs ruff lint/format + pytest on Python 3.11, 3.12, 3.13
 - **Coverage:** 64% (below 75% CI threshold; pre-existing, no regressions)
-- **Systematic code reviews:** Four rounds of full codebase debugging (30 bugs fixed): Round 1 (10 bugs — data pipeline, Yahoo API, lineup optimizer, CI), Round 2 (9 bugs — MC rate stats, regime detection, bellman DP, convergence, lineup optimizer UI, trade analyzer HTML), Round 3 (8 bugs — SGP denominators, survival gauge, injury persistence, percentile volatility, player pool duplicates), Round 4 (3 bugs — connection leak, player_name alias, export buttons). All pushed to master, all CI green.
+- **Systematic code reviews:** Five rounds of full codebase debugging (33 bugs fixed): Round 1 (10 bugs — data pipeline, Yahoo API, lineup optimizer, CI), Round 2 (9 bugs — MC rate stats, regime detection, bellman DP, convergence, lineup optimizer UI, trade analyzer HTML), Round 3 (8 bugs — SGP denominators, survival gauge, injury persistence, percentile volatility, player pool duplicates), Round 4 (3 bugs — connection leak, player_name alias, export buttons), Round 5 (3 bugs — standings long-format parsing, maximin display format, emoji in H2H subheader). All pushed to master, all CI green.

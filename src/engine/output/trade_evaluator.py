@@ -283,14 +283,17 @@ def evaluate_trade(
         category_impact[cat] = round(weighted_sgp, 3)
         total_surplus += weighted_sgp
 
-    # Step 6: Bench option value penalty for uneven trades
+    # Step 6: Bench option value adjustment for uneven trades
+    # Net roster growth: positive = roster grows (lose bench slots),
+    #                    negative = roster shrinks (gain bench slots)
     players_lost = len(giving_ids)
     players_gained = len(receiving_ids)
-    bench_slots_lost = players_gained - players_lost  # Positive = gained slots, negative = lost
+    net_roster_growth = players_gained - players_lost
     bench_cost = 0.0
     bench_detail: dict[str, float] | None = None
 
-    if bench_slots_lost < 0:
+    if net_roster_growth > 0:
+        # Roster grows → you LOSE bench slots → PENALTY
         if enable_context:
             # Phase 4: Enhanced bench value with flexibility + injury cushion
             after_roster = player_pool[player_pool["player_id"].isin(after_ids)]
@@ -300,11 +303,12 @@ def evaluate_trade(
                 roster_flexibility=flex_score,
             )
             bench_detail = bench_detail_dict
-            bench_cost = abs(bench_slots_lost) * bench_detail_dict["total"]
+            bench_cost = net_roster_growth * bench_detail_dict["total"]
         else:
-            bench_cost = abs(bench_slots_lost) * bench_option_value(weeks_remaining=weeks_remaining)
+            bench_cost = net_roster_growth * bench_option_value(weeks_remaining=weeks_remaining)
         total_surplus -= bench_cost
-    elif bench_slots_lost > 0:
+    elif net_roster_growth < 0:
+        # Roster shrinks → you GAIN bench slots → BONUS
         if enable_context:
             after_roster = player_pool[player_pool["player_id"].isin(after_ids)]
             flex_score = compute_roster_flexibility(after_roster)
@@ -313,9 +317,9 @@ def evaluate_trade(
                 roster_flexibility=flex_score,
             )
             bench_detail = bench_detail_dict
-            bench_bonus = bench_slots_lost * bench_detail_dict["total"]
+            bench_bonus = abs(net_roster_growth) * bench_detail_dict["total"]
         else:
-            bench_bonus = bench_slots_lost * bench_option_value(weeks_remaining=weeks_remaining)
+            bench_bonus = abs(net_roster_growth) * bench_option_value(weeks_remaining=weeks_remaining)
         total_surplus += bench_bonus
         bench_cost = -bench_bonus  # Negative cost = benefit
 

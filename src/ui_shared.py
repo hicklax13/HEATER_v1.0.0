@@ -339,6 +339,10 @@ METRIC_TOOLTIPS = {
         "High Risk — significant injury history (under 75% games played). Counting stats are heavily discounted."
     ),
     "trade_verdict": (
+        "ACCEPT means your team improves overall across the 10 scoring categories. "
+        "The grade (A+ to F) reflects surplus Standings Gained Points from the trade."
+    ),
+    "trade_verdict_legacy": (
         "Trade verdict based on 200 Monte Carlo simulations. ACCEPT "
         "means your team improves on average. Confidence % shows how "
         "often the trade helps across all simulations."
