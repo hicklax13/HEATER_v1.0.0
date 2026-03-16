@@ -402,6 +402,13 @@ METRIC_TOOLTIPS = {
         "fewer replacement options available. Discounted by 50% to account for "
         "free agent pool turnover over the season."
     ),
+    "roster_move": (
+        "Roster Move — in uneven trades, you must adjust your roster to stay at 23 players. "
+        "When receiving more players than you give (e.g., 1-for-2), the system identifies "
+        "the worst bench player to drop. When giving more than you receive (e.g., 2-for-1), "
+        "the system identifies the best available free agent to pick up. "
+        "Only starting lineup production counts — bench players contribute zero to standings."
+    ),
 }
 
 

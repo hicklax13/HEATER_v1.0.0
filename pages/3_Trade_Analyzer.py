@@ -262,11 +262,16 @@ else:
                         f"{result.get('surplus_sgp', 0):+.3f}",
                         help=METRIC_TOOLTIPS["sgp"],
                     )
+                    # Roster move indicator (drop or pickup for uneven trades)
+                    roster_move = "None"
+                    if result.get("drop_candidate"):
+                        roster_move = f"Drop {result['drop_candidate']}"
+                    elif result.get("fa_pickup"):
+                        roster_move = f"Add {result['fa_pickup']}"
                     col3.metric(
-                        "Bench Slot Cost",
-                        f"{result.get('bench_cost', 0):+.3f}",
-                        help="Standings Gained Points cost of lost bench slot(s) from uneven trades. "
-                        "Accounts for streaming value and hot free agent pickup potential.",
+                        "Roster Move",
+                        roster_move,
+                        help=METRIC_TOOLTIPS.get("roster_move", ""),
                     )
                     col4.metric(
                         "Replacement Penalty",

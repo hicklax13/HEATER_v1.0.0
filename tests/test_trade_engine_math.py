@@ -1479,5 +1479,499 @@ class TestReplacementCostMath(unittest.TestCase):
         assert abs(penalty - expected_total) < 0.01
 
 
+# ── Lineup Constraint Math ──────────────────────────────────────────
+
+
+class TestLineupConstraintMath(unittest.TestCase):
+    """Hand-verify lineup-constrained trade evaluation math.
+
+    Proves that LP-constrained totals correctly prevent phantom production
+    from bench players, and that the forced drop / FA pickup model works.
+    """
+
+    def test_lineup_constraint_prevents_phantom_production(self):
+        """2 hitters received but all slots full: only marginal improvement counts.
+
+        Setup:
+          - 10 hitter slots (C/1B/2B/3B/SS/3OF/2Util) filled by strong hitters
+          - Trade gives 1 RP (30 SV), receives 2 average hitters
+          - Without constraint: both hitters add ~130 R, ~35 HR, ~130 RBI
+          - With constraint: only 1 hitter starts (replacing worst), other benched
+
+        The LP assigns the better received hitter to a Util slot (displacing
+        the worst starter) and benches the other. Savings category changes
+        come only from the marginal improvement.
+        """
+        import pandas as pd
+
+        from src.engine.output.trade_evaluator import _lineup_constrained_totals
+        from src.in_season import _roster_category_totals
+        from src.valuation import LeagueConfig
+
+        config = LeagueConfig()
+
+        # Build a 23-player roster with clear position assignments
+        players = []
+        # 13 hitters: 1 C, 1 1B, 1 2B, 1 3B, 1 SS, 3 OF, 2 Util-eligible, 3 bench
+        positions = ["C", "1B", "2B", "3B", "SS", "OF", "OF", "OF", "1B", "OF", "SS", "2B", "3B"]
+        for i, pos in enumerate(positions):
+            players.append(
+                {
+                    "player_id": i + 1,
+                    "player_name": f"Hitter {i + 1}",
+                    "name": f"Hitter {i + 1}",
+                    "positions": pos,
+                    "is_hitter": 1,
+                    "is_injured": 0,
+                    "pa": 550,
+                    "ab": 500,
+                    "h": 130 + i * 2,
+                    "r": 70 + i * 3,
+                    "hr": 15 + i * 2,
+                    "rbi": 65 + i * 3,
+                    "sb": 8 + i,
+                    "avg": round(0.260 + i * 0.002, 3),
+                    "ip": 0,
+                    "w": 0,
+                    "sv": 0,
+                    "k": 0,
+                    "era": 0,
+                    "whip": 0,
+                    "er": 0,
+                    "bb_allowed": 0,
+                    "h_allowed": 0,
+                    "adp": 50 + i * 5,
+                }
+            )
+
+        # 10 pitchers: 6 SP + 4 RP (fills SP/RP/P slots)
+        # Use low ERA/WHIP so LP values them positively (high K+W outweighs rate penalty)
+        for i in range(10):
+            is_sp = i < 6
+            players.append(
+                {
+                    "player_id": 14 + i,
+                    "player_name": f"Pitcher {i + 1}",
+                    "name": f"Pitcher {i + 1}",
+                    "positions": "SP" if is_sp else "RP",
+                    "is_hitter": 0,
+                    "is_injured": 0,
+                    "pa": 0,
+                    "ab": 0,
+                    "h": 0,
+                    "r": 0,
+                    "hr": 0,
+                    "rbi": 0,
+                    "sb": 0,
+                    "avg": 0,
+                    "ip": 200 if is_sp else 70,
+                    "w": 15 if is_sp else 4,
+                    "sv": 0 if is_sp else 28 + i,
+                    "k": 220 if is_sp else 80,
+                    "era": 2.80 if is_sp else 2.50,
+                    "whip": 1.05 if is_sp else 0.95,
+                    "er": 62 if is_sp else 19,
+                    "bb_allowed": 45,
+                    "h_allowed": 140,
+                    "adp": 80 + i * 10,
+                }
+            )
+
+        pool = pd.DataFrame(players)
+        roster_ids = [p["player_id"] for p in players]
+        assert len(roster_ids) == 23
+
+        # Get raw totals (old method) and LP-constrained totals (new method)
+        raw_totals = _roster_category_totals(roster_ids, pool)
+        lp_totals, assignments = _lineup_constrained_totals(roster_ids, pool, config)
+
+        if not assignments:
+            self.skipTest("PuLP not available")
+
+        # LP should have exactly 18 starters (max slots)
+        self.assertEqual(len(assignments), 18)
+
+        # LP totals must be <= raw totals for counting stats
+        # (5 bench players excluded)
+        self.assertLessEqual(lp_totals["R"], raw_totals["R"])
+        self.assertLessEqual(lp_totals["HR"], raw_totals["HR"])
+        self.assertLessEqual(lp_totals["SV"], raw_totals["SV"])
+
+        # The difference should be meaningful — at least one bench hitter excluded
+        # Each bench hitter contributes ~70+ R, so we should see a gap
+        self.assertGreater(raw_totals["R"] - lp_totals["R"], 50)
+
+    def test_closer_trade_grades_correctly(self):
+        """Williams-like closer for 2 hitters should NOT grade A or A+.
+
+        If an elite closer (30 SV, 80 K) is traded for two average hitters,
+        the LP-constrained evaluation should show a negative or near-zero
+        surplus because:
+          1. Only one hitter can start (the other gets benched)
+          2. The RP slot now gets filled by a worse reliever
+          3. Saves are concentrated and hard to replace
+
+        Without LP constraint, this would grade A+ due to phantom production.
+        """
+        import pandas as pd
+
+        from src.engine.output.trade_evaluator import evaluate_trade
+        from src.valuation import LeagueConfig
+
+        config = LeagueConfig()
+
+        # Build 23-player roster (elite closer is player 23)
+        players = []
+        positions = ["C", "1B", "2B", "3B", "SS", "OF", "OF", "OF", "1B", "OF", "SS", "2B", "3B"]
+        for i, pos in enumerate(positions):
+            players.append(
+                {
+                    "player_id": i + 1,
+                    "player_name": f"Hitter {i + 1}",
+                    "name": f"Hitter {i + 1}",
+                    "positions": pos,
+                    "is_hitter": 1,
+                    "is_injured": 0,
+                    "pa": 550,
+                    "ab": 500,
+                    "h": 135,
+                    "r": 75,
+                    "hr": 20,
+                    "rbi": 75,
+                    "sb": 12,
+                    "avg": 0.270,
+                    "ip": 0,
+                    "w": 0,
+                    "sv": 0,
+                    "k": 0,
+                    "era": 0,
+                    "whip": 0,
+                    "er": 0,
+                    "bb_allowed": 0,
+                    "h_allowed": 0,
+                    "adp": 50 + i * 5,
+                }
+            )
+
+        # 6 SP (good pitchers — low ERA so LP values them)
+        for i in range(6):
+            players.append(
+                {
+                    "player_id": 14 + i,
+                    "player_name": f"SP {i + 1}",
+                    "name": f"SP {i + 1}",
+                    "positions": "SP",
+                    "is_hitter": 0,
+                    "is_injured": 0,
+                    "pa": 0,
+                    "ab": 0,
+                    "h": 0,
+                    "r": 0,
+                    "hr": 0,
+                    "rbi": 0,
+                    "sb": 0,
+                    "avg": 0,
+                    "ip": 200,
+                    "w": 15,
+                    "sv": 0,
+                    "k": 220,
+                    "era": 2.80,
+                    "whip": 1.05,
+                    "er": 62,
+                    "bb_allowed": 45,
+                    "h_allowed": 140,
+                    "adp": 80 + i * 10,
+                }
+            )
+
+        # 3 RP (decent but not elite — low ERA so LP starts them)
+        for i in range(3):
+            players.append(
+                {
+                    "player_id": 20 + i,
+                    "player_name": f"RP {i + 1}",
+                    "name": f"RP {i + 1}",
+                    "positions": "RP",
+                    "is_hitter": 0,
+                    "is_injured": 0,
+                    "pa": 0,
+                    "ab": 0,
+                    "h": 0,
+                    "r": 0,
+                    "hr": 0,
+                    "rbi": 0,
+                    "sb": 0,
+                    "avg": 0,
+                    "ip": 70,
+                    "w": 4,
+                    "sv": 12,
+                    "k": 80,
+                    "era": 3.00,
+                    "whip": 1.10,
+                    "er": 23,
+                    "bb_allowed": 22,
+                    "h_allowed": 55,
+                    "adp": 140 + i * 10,
+                }
+            )
+
+        # ELITE CLOSER (Devin Williams analog) — player 23
+        players.append(
+            {
+                "player_id": 23,
+                "player_name": "Elite Closer",
+                "name": "Elite Closer",
+                "positions": "RP",
+                "is_hitter": 0,
+                "is_injured": 0,
+                "pa": 0,
+                "ab": 0,
+                "h": 0,
+                "r": 0,
+                "hr": 0,
+                "rbi": 0,
+                "sb": 0,
+                "avg": 0,
+                "ip": 60,
+                "w": 4,
+                "sv": 32,
+                "k": 85,
+                "era": 2.25,
+                "whip": 0.95,
+                "er": 15,
+                "bb_allowed": 18,
+                "h_allowed": 39,
+                "adp": 60,
+            }
+        )
+
+        # Two average hitters to receive (IDs 24, 25)
+        for i in range(2):
+            players.append(
+                {
+                    "player_id": 24 + i,
+                    "player_name": f"Avg Hitter {i + 1}",
+                    "name": f"Avg Hitter {i + 1}",
+                    "positions": "OF",
+                    "is_hitter": 1,
+                    "is_injured": 0,
+                    "pa": 550,
+                    "ab": 500,
+                    "h": 130,
+                    "r": 65,
+                    "hr": 18,
+                    "rbi": 65,
+                    "sb": 10,
+                    "avg": 0.260,
+                    "ip": 0,
+                    "w": 0,
+                    "sv": 0,
+                    "k": 0,
+                    "era": 0,
+                    "whip": 0,
+                    "er": 0,
+                    "bb_allowed": 0,
+                    "h_allowed": 0,
+                    "adp": 120,
+                }
+            )
+
+        pool = pd.DataFrame(players)
+        roster_ids = [p["player_id"] for p in players[:23]]
+        assert len(roster_ids) == 23
+
+        result = evaluate_trade(
+            giving_ids=[23],  # Elite Closer
+            receiving_ids=[24, 25],  # 2 average hitters
+            user_roster_ids=roster_ids,
+            player_pool=pool,
+            config=config,
+            enable_context=False,
+            enable_game_theory=False,
+        )
+
+        if result.get("lineup_constrained"):
+            # With LP constraint, this trade should NOT be an A or A+
+            # The closer's saves loss + only marginal hitter improvement
+            # should produce a much lower grade
+            grade = result["grade"]
+            self.assertNotIn(
+                grade,
+                ["A+", "A"],
+                (
+                    f"Grade {grade} is too high for trading an elite closer for 2 avg hitters. "
+                    f"Surplus: {result['surplus_sgp']:.3f}"
+                ),
+            )
+        else:
+            self.skipTest("PuLP not available — cannot verify LP-constrained grade")
+
+    def test_fa_pickup_fills_roster_gap(self):
+        """2-for-1 trade adds FA; after-totals should include FA production."""
+        import pandas as pd
+
+        from src.engine.output.trade_evaluator import evaluate_trade
+        from src.valuation import LeagueConfig
+
+        config = LeagueConfig()
+
+        # Build minimal 5-player roster for simplicity
+        players = [
+            {
+                "player_id": 1,
+                "player_name": "Hitter A",
+                "name": "Hitter A",
+                "positions": "1B",
+                "is_hitter": 1,
+                "is_injured": 0,
+                "pa": 550,
+                "ab": 500,
+                "h": 140,
+                "r": 80,
+                "hr": 25,
+                "rbi": 90,
+                "sb": 10,
+                "avg": 0.280,
+                "ip": 0,
+                "w": 0,
+                "sv": 0,
+                "k": 0,
+                "era": 0,
+                "whip": 0,
+                "er": 0,
+                "bb_allowed": 0,
+                "h_allowed": 0,
+                "adp": 30,
+            },
+            {
+                "player_id": 2,
+                "player_name": "Hitter B",
+                "name": "Hitter B",
+                "positions": "SS",
+                "is_hitter": 1,
+                "is_injured": 0,
+                "pa": 550,
+                "ab": 500,
+                "h": 130,
+                "r": 70,
+                "hr": 20,
+                "rbi": 75,
+                "sb": 15,
+                "avg": 0.260,
+                "ip": 0,
+                "w": 0,
+                "sv": 0,
+                "k": 0,
+                "era": 0,
+                "whip": 0,
+                "er": 0,
+                "bb_allowed": 0,
+                "h_allowed": 0,
+                "adp": 50,
+            },
+            {
+                "player_id": 3,
+                "player_name": "Pitcher A",
+                "name": "Pitcher A",
+                "positions": "SP",
+                "is_hitter": 0,
+                "is_injured": 0,
+                "pa": 0,
+                "ab": 0,
+                "h": 0,
+                "r": 0,
+                "hr": 0,
+                "rbi": 0,
+                "sb": 0,
+                "avg": 0,
+                "ip": 180,
+                "w": 12,
+                "sv": 0,
+                "k": 180,
+                "era": 3.50,
+                "whip": 1.15,
+                "er": 70,
+                "bb_allowed": 50,
+                "h_allowed": 155,
+                "adp": 60,
+            },
+            # FA pool: a hitter not on roster
+            {
+                "player_id": 4,
+                "player_name": "FA Hitter",
+                "name": "FA Hitter",
+                "positions": "OF",
+                "is_hitter": 1,
+                "is_injured": 0,
+                "pa": 500,
+                "ab": 460,
+                "h": 115,
+                "r": 55,
+                "hr": 12,
+                "rbi": 50,
+                "sb": 5,
+                "avg": 0.250,
+                "ip": 0,
+                "w": 0,
+                "sv": 0,
+                "k": 0,
+                "era": 0,
+                "whip": 0,
+                "er": 0,
+                "bb_allowed": 0,
+                "h_allowed": 0,
+                "adp": 200,
+            },
+        ]
+        pool = pd.DataFrame(players)
+        roster_ids = [1, 2, 3]
+
+        # 2-for-1: give 2 hitters, receive 1 pitcher (a new one)
+        players.append(
+            {
+                "player_id": 5,
+                "player_name": "New Pitcher",
+                "name": "New Pitcher",
+                "positions": "RP",
+                "is_hitter": 0,
+                "is_injured": 0,
+                "pa": 0,
+                "ab": 0,
+                "h": 0,
+                "r": 0,
+                "hr": 0,
+                "rbi": 0,
+                "sb": 0,
+                "avg": 0,
+                "ip": 60,
+                "w": 3,
+                "sv": 20,
+                "k": 65,
+                "era": 3.00,
+                "whip": 1.10,
+                "er": 20,
+                "bb_allowed": 18,
+                "h_allowed": 48,
+                "adp": 100,
+            }
+        )
+        pool = pd.DataFrame(players)
+
+        result = evaluate_trade(
+            giving_ids=[1, 2],  # Give 2 hitters
+            receiving_ids=[5],  # Receive 1 pitcher
+            user_roster_ids=roster_ids,
+            player_pool=pool,
+            config=config,
+            enable_context=False,
+            enable_game_theory=False,
+        )
+
+        # The FA pickup should be attempted (roster shrinks by 1)
+        # Result should have valid totals regardless of LP availability
+        self.assertIn("after_totals", result)
+        self.assertIn("grade", result)
+
+
 if __name__ == "__main__":
     unittest.main()

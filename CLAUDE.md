@@ -6,7 +6,7 @@ A fantasy baseball draft assistant + in-season manager for a 12-team Yahoo Sport
 
 1. **Draft Tool** (`app.py`, ~1800 lines) — "Heater" themed Streamlit app with light-mode-only glassmorphic design system: splash screen data bootstrap + 2-step setup wizard (Settings, Launch), 3-column draft page with SVG injury badges, percentile ranges, opponent intel tab, and practice mode. Monte Carlo recommendations with percentile sampling. Zero CSV uploads — all data auto-fetched from MLB Stats API + FanGraphs on every launch. Pill button navigation replaces dropdowns. Search + card grids for player selection.
 2. **In-Season Management** (`pages/`) — 6 Streamlit pages: team overview, draft simulator, trade analysis, player comparison, free agent rankings, lineup optimizer. Powered by MLB Stats API + pybaseball + optional Yahoo Fantasy API. All pages share centralized single-theme system (light mode only) with glassmorphic design, orange sidebar branding, and bold Heater identity.
-3. **Trade Analyzer Engine** (`src/engine/`) — 6-phase pipeline: Phase 1 deterministic SGP, Phase 2 stochastic MC (10K sims), Phase 3 signal intelligence (Statcast/Kalman/BOCPD), Phase 4 contextual adjustments (matchups/injuries/bench value), Phase 5 game theory (opponent modeling/adverse selection/Bellman), Phase 6 production (convergence/caching/adaptive scaling). 11 modules, 207 dedicated tests.
+3. **Trade Analyzer Engine** (`src/engine/`) — 6-phase pipeline: Phase 1 deterministic SGP with LP-constrained lineup totals, Phase 2 stochastic MC (10K sims), Phase 3 signal intelligence (Statcast/Kalman/BOCPD), Phase 4 contextual adjustments (matchups/injuries/concentration), Phase 5 game theory (opponent modeling/adverse selection/Bellman), Phase 6 production (convergence/caching/adaptive scaling). 11 modules, 219 dedicated tests.
 4. **Enhanced Lineup Optimizer** (`src/optimizer/`) — 11-module pipeline with 20 mathematical techniques: enhanced projections (Bayesian/Kalman/regime/injury), weekly matchup adjustments (park/platoon/weather), H2H category weights (Normal PDF), non-linear SGP (bell-curve proximity), pitcher streaming, stochastic scenarios (copula/CVaR), multi-period planning, dual H2H/Roto objective, advanced LP (maximin/epsilon-constraint/stochastic MIP). Three modes: Quick (<1s), Standard (2-3s), Full (5-10s). 204 dedicated tests across 10 test files.
 
 ## Commands
@@ -27,7 +27,7 @@ ruff check .
 # Format
 ruff format .
 
-# Run all tests (831 pass, 1 skipped for PyMC)
+# Run all tests (843 pass, 1 skipped for PyMC)
 python -m pytest
 
 # Run with verbose output
@@ -71,7 +71,7 @@ load_sample_data.py     — Generates ~190 sample players + injury history for t
 pages/
   1_My_Team.py          — In-season: team overview with monogram avatar, roster, category standings, Yahoo sync
   2_Draft_Simulator.py  — Standalone draft simulator (AI opponents, MC recommendations, pill filters, card-based picks)
-  3_Trade_Analyzer.py   — In-season: trade proposal builder + Phase 1 SGP engine (grade A+ to F, punt detection, marginal elasticity, category replacement cost penalty) with legacy fallback
+  3_Trade_Analyzer.py   — In-season: trade proposal builder + Phase 1 SGP engine (grade A+ to F, LP-constrained lineup totals, roster cap enforcement, punt detection, marginal elasticity, category replacement cost penalty) with legacy fallback
   4_Player_Compare.py   — In-season: head-to-head player comparison with dual search + card pickers
   5_Free_Agents.py      — In-season: free agent rankings by marginal value, position pill filters
   6_Lineup_Optimizer.py — In-season: 5-tab lineup optimizer (Optimize, H2H Matchup, Streaming, Category Analysis, Roster) powered by LineupOptimizerPipeline
@@ -145,7 +145,7 @@ src/
       sim_config.py      — Adaptive simulation scaling: 1K-100K by trade complexity + time budget
     output/
       __init__.py
-      trade_evaluator.py — Master trade orchestrator: Phase 1-5 + enable_mc/enable_context/enable_game_theory flags
+      trade_evaluator.py — Master trade orchestrator: Phase 1-5 + LP-constrained lineup totals + roster cap enforcement + enable_mc/enable_context/enable_game_theory flags
 tests/
   test_database_schema.py   — DB schema and table existence tests
   test_database_queries.py  — Query function tests
@@ -176,8 +176,8 @@ tests/
   test_valuation_math.py    — Math verification: SGP, VORP, replacement levels, percentiles, process risk (40 tests)
   test_simulation_math.py   — Math verification: survival probability, urgency, combined score, tiers, MC convergence (37 tests)
   test_trade_math.py        — Math verification: trade SGP delta, MC noise, verdict, z-scores, rate stats (35 tests)
-  test_trade_engine_math.py — Math verification: all 6 phases hand-calculated — SGP, BMA, copula, decay, Kalman, HHI, Bayes, Vickrey, Bellman, ESS, R̂, replacement cost (53 tests)
-  test_trade_engine.py      — Trade engine Phase 1: marginal SGP, punt detection, z-scores, grading, fuzzy match, replacement cost penalty, integration (38 tests)
+  test_trade_engine_math.py — Math verification: all 6 phases hand-calculated — SGP, BMA, copula, decay, Kalman, HHI, Bayes, Vickrey, Bellman, ESS, R̂, replacement cost, lineup constraint (56 tests)
+  test_trade_engine.py      — Trade engine Phase 1: marginal SGP, punt detection, z-scores, grading, fuzzy match, replacement cost penalty, lineup-constrained eval, integration (47 tests)
   test_trade_engine_phase2.py — Trade engine Phase 2: BMA, KDE marginals, copula, paired MC, integration (33 tests)
   test_trade_engine_phase3.py — Trade engine Phase 3: Statcast aggregation, signal decay, Kalman filter, BOCPD, HMM regime, rolling features (32 tests)
   test_trade_engine_phase4.py — Trade engine Phase 4: Log5 matchup, Weibull injury, enhanced bench, HHI concentration, context integration (40 tests)
@@ -239,8 +239,9 @@ Phase 1 SGP-based evaluation pipeline (7 modules):
 2. **Standings-based SGP** — Median gap between adjacent teams replaces static denominators. Falls back to defaults when standings unavailable.
 3. **Marginal elasticity** — `1/gap_to_next_team` per category. Close gap = high marginal value, dominant = near-zero.
 4. **Punt detection** — Category is PUNT when: (a) cannot gain any standings position in remaining weeks, AND (b) ranked 10th or worse. Punted categories get zero weight.
-5. **Bench option value** — `streaming_sgp_per_week * weeks_remaining` (~0.166 SGP/week). Penalizes 2-for-1 trades, rewards 1-for-2.
-5b. **Category replacement cost penalty** — Scans FA pool for each counting stat where trade is negative. `unrecoverable = max(0, raw_loss - best_FA)`, penalty = `(unrecoverable / SGP_denom) * 0.5`. Rate stats (AVG/ERA/WHIP) excluded. Punted categories skipped.
+5. **LP-constrained lineup totals** — PuLP `LineupOptimizer` assigns best players to starting slots (C/1B/2B/3B/SS/3OF/2Util/2SP/2RP/4P = 18 starters). Only starters' stats feed SGP delta — bench players are excluded, preventing phantom production inflation in uneven trades. Falls back to `_roster_category_totals()` when PuLP unavailable.
+5b. **Roster cap enforcement** — Yahoo 23-man limit modeled: 2-for-1 trades trigger forced drop (lowest-SGP bench player removed); 1-for-2 trades trigger FA pickup (best available FA added, capped at type-specific median SGP when no league rosters loaded). Ensures realistic post-trade rosters.
+5c. **Category replacement cost penalty** — Scans FA pool for each counting stat where trade is negative. `unrecoverable = max(0, raw_loss - best_FA)`, penalty = `(unrecoverable / SGP_denom) * 0.5`. Rate stats (AVG/ERA/WHIP) excluded. Punted categories skipped.
 6. **Weighted SGP delta** — Per-category `(after - before) / SGP_denom * marginal_weight`. Inverse stats (ERA/WHIP) sign-flipped.
 7. **Grade** — Surplus SGP maps to A+ (>2.0) through F (≤-1.0). Verdict: ACCEPT if surplus > 0.
 - **Graceful fallback** — Trade Analyzer page tries Phase 1 engine first, falls back to legacy `analyze_trade()` from `src/in_season.py`
@@ -338,8 +339,20 @@ evaluate_trade(giving_ids, receiving_ids, user_roster_ids, player_pool,
 #           giving_players, receiving_players, total_sgp_change, mc_mean, mc_std,
 #           concentration_hhi_before, concentration_hhi_after, concentration_delta,
 #           concentration_penalty, bench_option_detail,
-#           adverse_selection, market_values, sensitivity_report}
+#           adverse_selection, market_values, sensitivity_report,
+#           lineup_constrained, drop_candidate, fa_pickup}
 grade_trade(surplus_sgp: float) -> str  # A+ through F
+
+# LP-constrained lineup helpers (src/engine/output/trade_evaluator.py)
+_lineup_constrained_totals(roster_ids, player_pool, config) -> tuple[dict, list[dict]]
+# Returns: (totals_dict, starter_details_list)  — only starters' stats, bench excluded
+_find_drop_candidate(bench_ids, player_pool, sgp_calc) -> int | None
+# Returns: player_id of lowest-SGP bench player to drop in 2-for-1 trades
+_find_fa_pickup(player_pool, sgp_calc, need_hitter, median_sgp_cap, exclude_ids) -> int | None
+# Returns: player_id of best FA to add in 1-for-2 trades, capped at median SGP
+_compute_median_sgp_cap(player_pool, sgp_calc, is_hitter) -> float
+# Returns: median SGP for hitter/pitcher pool (cap for FA pickup when no rosters loaded)
+ROSTER_CAP: int = 23  # Yahoo 23-man roster limit
 
 # Category replacement cost penalty (src/engine/output/trade_evaluator.py)
 _compute_replacement_penalty(before_totals, after_totals, player_pool, config, category_weights, punt_categories)
@@ -723,10 +736,14 @@ SYSTEM_MAP = {"steamer": "steamer", "zips": "zips", "fangraphsdc": "depthcharts"
 - **Trade engine backward compat keys** — `evaluate_trade()` returns both new keys (`grade`, `surplus_sgp`, `category_analysis`) AND legacy keys (`total_sgp_change`, `mc_mean`, `mc_std`) so existing UI code doesn't break.
 - **`compute_marginal_sgp()` uses `.get()` for missing categories** — Team totals may not have all 10 categories. Always use `team_totals.get(cat, 0.0)`, never `team_totals[cat]`.
 - **Punt detection requires BOTH conditions** — A category is punt only when `gainable_positions == 0 AND rank >= 10`. Being rank 10 alone isn't enough if positions are still gainable; having 0 gainable alone isn't enough if you're already ranked high.
-- **Bench option value sign convention** — `bench_cost` in the trade result is positive when you LOSE bench slots (receive more than you give → roster grows → penalty), negative when you GAIN them (give more than you receive → roster shrinks → bonus). `net_roster_growth = players_gained - players_lost`: positive→penalty subtracted from surplus, negative→bonus added to surplus.
+- **LP-constrained lineup totals replace raw roster totals** — `evaluate_trade()` uses `_lineup_constrained_totals()` (PuLP LP solver) to compute before/after category totals from only the 18 starting slots. Bench players are excluded from SGP calculations. This prevents "phantom production" where bench players inflate trade value in uneven trades. Falls back to `_roster_category_totals()` when PuLP is unavailable.
+- **Roster cap enforcement (ROSTER_CAP=23)** — Uneven trades model forced drops and FA pickups. 2-for-1: `_find_drop_candidate()` removes lowest-SGP bench player. 1-for-2: `_find_fa_pickup()` adds best available FA, capped at type-specific median SGP when no league rosters loaded (prevents picking elite "FAs" who are actually rostered). Equal trades skip both.
+- **`bench_cost` is always 0.0 now** — The old bench option value formula (`streaming_sgp_per_week * weeks_remaining * net_roster_change`) was replaced by explicit roster cap modeling. `bench_cost` key remains in the result dict for backward compatibility but is always 0.0. The real roster adjustment happens via `drop_candidate` and `fa_pickup` keys.
+- **LP `<= 1` slot constraints mean slots can be empty** — The lineup optimizer uses `<= 1` (not `== 1`) constraints. If filling a slot hurts the objective (e.g., a pitcher with terrible ERA), the LP leaves it empty. This is correct behavior — a bad player's stats shouldn't count toward team totals.
+- **FA pickup median SGP cap** — When no league rosters are loaded, `get_free_agents()` returns the full player pool. Without a cap, `_find_fa_pickup()` would add elite "FAs" (actually rostered players). `_compute_median_sgp_cap()` caps the pickup at the type-specific (hitter/pitcher) median SGP to prevent unrealistic acquisitions.
 - **Replacement cost penalty uses `get_free_agents()`** — `_compute_replacement_penalty()` calls `get_free_agents()` from `src/league_manager.py`, which internally calls `load_league_rosters()` from the DB. When no rosters are loaded, `get_free_agents()` returns the full `player_pool` as the FA pool (graceful degradation → penalty ≈ 0 for most categories). The penalty only becomes meaningful when league roster data exists to identify which players are actually unavailable.
 - **Replacement penalty skips rate stats** — AVG, ERA, WHIP are excluded from the replacement cost penalty because they are roster-aggregate stats. Adding a .300 hitter matters differently with 600 AB vs 100 AB, so "best FA replacement" doesn't translate to a simple counting gap. The `replacement_detail` dict shows `"skipped": "rate_stat"` for these categories.
-- **`_roster_category_totals()` lives in `src/in_season.py`** — The trade engine's `evaluate_trade()` imports this from the legacy module. Don't duplicate it.
+- **`_roster_category_totals()` lives in `src/in_season.py`** — Used as fallback when PuLP is unavailable. The primary path uses `_lineup_constrained_totals()` which runs PuLP's LP solver. Don't duplicate `_roster_category_totals()`.
 - **`enable_mc=True` activates Phase 2** — By default, `evaluate_trade()` runs Phase 1 only (deterministic). Set `enable_mc=True` for MC overlay. MC gracefully falls back to Phase 1 on failure.
 - **BMA sigma difference → unequal weights** — Even when all systems project the same value, posterior weights differ slightly because forecast sigmas differ by system (Steamer HR sigma=5.2 vs ZiPS sigma=5.5). Tighter sigma → higher likelihood density → more weight.
 - **KDE needs ≥20 samples** — `PlayerMarginal` falls back to Normal when `len(historical_values) < MIN_KDE_SAMPLES`. KDE with too few points produces unreliable density estimates.
@@ -748,7 +765,7 @@ SYSTEM_MAP = {"steamer": "steamer", "zips": "zips", "fangraphsdc": "depthcharts"
 - **HHI concentration threshold is 0.15** — Penalty only applies when `HHI > 0.15`. A perfectly diversified 10-team roster has HHI=0.1. The `scale=3.0` parameter maps `HHI=0.25` to a 0.3 SGP penalty — meaningful but not dominant.
 - **Team alias normalization** — `TEAM_ALIASES` maps 8 common variants (WSN→WSH, AZ→ARI, CHW→CWS, etc.). Applied in `roster_concentration_hhi()` before grouping. Without this, "WSN" and "WSH" are counted as separate teams.
 - **`concentration_risk_penalty` applied to `total_surplus`** — The penalty is subtracted from the trade surplus AFTER all other SGP calculations. This means concentration risk can flip a marginal "Accept" to "Reject" but won't dominate large surplus trades.
-- **Enhanced bench value backward compat** — When `enable_context=False`, trade evaluator uses the simple `bench_option_value()` from `src/engine/portfolio/lineup_optimizer.py`. Both produce compatible float results.
+- **Enhanced bench value removed from trade evaluator** — Bench option value (both simple and enhanced) has been replaced by LP-constrained lineup totals + roster cap enforcement. The `bench_option_detail` key in the result dict is always `None`. Phase 4 context engine still handles concentration risk but no longer adjusts bench value.
 - **Injury process imports from `src/injury_model.py`** — `injury_process.py` reuses `age_risk_adjustment()` from the existing module rather than duplicating the age-risk curve logic.
 - **`enable_game_theory=True` activates Phase 5** — By default, `evaluate_trade()` runs game theory analysis. Set `enable_game_theory=False` to skip adverse selection, market values, and sensitivity. Phase 5 wraps in try/except for graceful fallback.
 - **Market clearing price = second-highest bid** — Vickrey auction principle: the fair trade price is what the second-most-interested team would pay, not the top bidder. `market_clearing_price()` sorts valuations descending and returns index [1].
@@ -772,10 +789,10 @@ SYSTEM_MAP = {"steamer": "steamer", "zips": "zips", "fangraphsdc": "depthcharts"
 
 ## Testing Status
 
-- **Unit tests:** 831 collected, 831 passed, 1 skipped (PyMC optional dep)
+- **Unit tests:** 843 collected, 843 passed, 1 skipped (PyMC optional dep)
 - **Test files:** 36 test files across draft engine, trade engine (Phase 1-6), lineup optimizer (10 files), in-season, analytics, data pipeline, bootstrap, integration, and math verification
-- **Math verification suite:** 165 tests across 4 files (valuation, simulation, trade, trade engine math) — hand-calculated expected values verified against code formulas
-- **Trade engine tests:** 216 tests total — Phase 1 (38): marginal SGP, punt detection, z-scores, grading, fuzzy match, replacement cost penalty (6), integration. Phase 2 (33): BMA, KDE marginals, Gaussian copula, paired MC, correlated sampling, distributional metrics, integration. Phase 3 (32): Statcast aggregation, signal decay, Kalman filter, BOCPD changepoint detection, HMM regime classification, rolling features. Phase 4 (40): Log5 matchup math, Weibull injury duration, frailty, season availability, enhanced bench value, roster flexibility, HHI concentration, penalty thresholds, trade context integration. Phase 5 (38): opponent valuations, market clearing price, adverse selection Bayesian discount, Bellman rollout, roster balance, sensitivity ranking, counter-offers, game theory integration. Phase 6 (32): ESS convergence, split-R̂, running mean stability, cache TTL/invalidation/get_or_compute, adaptive sim scaling, time budget caps. Math (3): replacement cost formula hand-calcs.
+- **Math verification suite:** 168 tests across 4 files (valuation, simulation, trade, trade engine math) — hand-calculated expected values verified against code formulas
+- **Trade engine tests:** 228 tests total — Phase 1 (47): marginal SGP, punt detection, z-scores, grading, fuzzy match, replacement cost penalty (6), lineup-constrained eval (9), integration. Phase 2 (33): BMA, KDE marginals, Gaussian copula, paired MC, correlated sampling, distributional metrics, integration. Phase 3 (32): Statcast aggregation, signal decay, Kalman filter, BOCPD changepoint detection, HMM regime classification, rolling features. Phase 4 (40): Log5 matchup math, Weibull injury duration, frailty, season availability, enhanced bench value, roster flexibility, HHI concentration, penalty thresholds, trade context integration. Phase 5 (38): opponent valuations, market clearing price, adverse selection Bayesian discount, Bellman rollout, roster balance, sensitivity ranking, counter-offers, game theory integration. Phase 6 (32): ESS convergence, split-R̂, running mean stability, cache TTL/invalidation/get_or_compute, adaptive sim scaling, time budget caps. Math (6): replacement cost formula hand-calcs (3) + lineup constraint math (3).
 - **Lineup optimizer tests:** 204 tests total across 10 files — projections (28), matchups (19), H2H engine (18), SGP theory (16), streaming (16), scenarios (19), multi-period (16), dual objective (21), advanced LP (25), pipeline orchestrator (26)
 - **CI:** GitHub Actions runs ruff lint/format + pytest on Python 3.11, 3.12, 3.13
 - **Coverage:** 64% (below 75% CI threshold; pre-existing, no regressions)
