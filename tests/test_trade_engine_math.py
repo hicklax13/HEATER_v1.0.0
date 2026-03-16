@@ -1284,5 +1284,200 @@ class TestCrossPhaseIntegration(unittest.TestCase):
         assert abs(result["surplus_sgp"]) < 0.01
 
 
+class TestReplacementCostMath(unittest.TestCase):
+    """Hand-calculated math verification for the replacement cost penalty.
+
+    Formula: sgp_penalty = (unrecoverable / sgp_denom) * FA_TURNOVER_DISCOUNT
+    where:   unrecoverable = max(0, raw_loss - best_FA)
+             FA_TURNOVER_DISCOUNT = 0.5
+    """
+
+    def test_replacement_cost_formula_hand_calc(self):
+        """Verify: SV loss=32, best FA=19, denom=9 → penalty = (13/9)*0.5 = 0.722."""
+        from unittest.mock import patch
+
+        import pandas as pd
+
+        from src.engine.output.trade_evaluator import _compute_replacement_penalty
+        from src.valuation import LeagueConfig
+
+        config = LeagueConfig()
+
+        before_totals = {"SV": 32, "R": 100, "HR": 30, "RBI": 90, "SB": 20, "W": 12, "K": 180}
+        after_totals = {"SV": 0, "R": 100, "HR": 30, "RBI": 90, "SB": 20, "W": 12, "K": 180}
+
+        # Create a minimal FA pool with one closer projecting 19 SV
+        fa_pool = pd.DataFrame(
+            [
+                {
+                    "player_id": 999,
+                    "player_name": "FA Closer",
+                    "team": "FA",
+                    "positions": "RP",
+                    "is_hitter": 0,
+                    "r": 0,
+                    "hr": 0,
+                    "rbi": 0,
+                    "sb": 0,
+                    "w": 2,
+                    "sv": 19,
+                    "k": 50,
+                    "avg": 0,
+                    "era": 3.50,
+                    "whip": 1.20,
+                }
+            ]
+        )
+
+        with patch(
+            "src.engine.output.trade_evaluator.get_free_agents",
+            return_value=fa_pool,
+        ):
+            penalty, detail = _compute_replacement_penalty(
+                before_totals=before_totals,
+                after_totals=after_totals,
+                player_pool=fa_pool,
+                config=config,
+                category_weights={"SV": 1.0},
+                punt_categories=[],
+            )
+
+        # Hand calculation:
+        # raw_loss = 32 - 0 = 32
+        # best_FA = 19
+        # unrecoverable = 32 - 19 = 13
+        # denom = 9.0 (SV SGP denominator)
+        # sgp_penalty = (13 / 9.0) * 0.5 = 0.7222...
+        expected_penalty = (13.0 / 9.0) * 0.5
+        assert abs(detail["SV"]["sgp_penalty"] - expected_penalty) < 0.01
+        assert detail["SV"]["raw_loss"] == 32.0
+        assert detail["SV"]["best_fa"] == 19.0
+        assert detail["SV"]["unrecoverable"] == 13.0
+
+    def test_replacement_cost_fully_recoverable(self):
+        """Verify: HR loss=5, best FA=30 → unrecoverable=0 → penalty=0."""
+        from unittest.mock import patch
+
+        import pandas as pd
+
+        from src.engine.output.trade_evaluator import _compute_replacement_penalty
+        from src.valuation import LeagueConfig
+
+        config = LeagueConfig()
+
+        before_totals = {"HR": 35, "R": 100, "RBI": 90, "SB": 20, "SV": 10, "W": 12, "K": 180}
+        after_totals = {"HR": 30, "R": 100, "RBI": 90, "SB": 20, "SV": 10, "W": 12, "K": 180}
+
+        # FA pool has a slugger with 30 HR — more than enough to cover the 5 HR loss
+        fa_pool = pd.DataFrame(
+            [
+                {
+                    "player_id": 888,
+                    "player_name": "FA Slugger",
+                    "team": "FA",
+                    "positions": "OF",
+                    "is_hitter": 1,
+                    "r": 80,
+                    "hr": 30,
+                    "rbi": 80,
+                    "sb": 5,
+                    "w": 0,
+                    "sv": 0,
+                    "k": 0,
+                    "avg": 0.260,
+                    "era": 0,
+                    "whip": 0,
+                }
+            ]
+        )
+
+        with patch(
+            "src.engine.output.trade_evaluator.get_free_agents",
+            return_value=fa_pool,
+        ):
+            penalty, detail = _compute_replacement_penalty(
+                before_totals=before_totals,
+                after_totals=after_totals,
+                player_pool=fa_pool,
+                config=config,
+                category_weights={"HR": 1.0},
+                punt_categories=[],
+            )
+
+        # Hand calculation:
+        # raw_loss = 35 - 30 = 5
+        # best_FA = 30
+        # unrecoverable = max(0, 5 - 30) = 0
+        # sgp_penalty = 0
+        assert detail["HR"]["unrecoverable"] == 0.0
+        assert detail["HR"]["sgp_penalty"] == 0.0
+
+    def test_replacement_cost_multi_category_sum(self):
+        """Verify: SV penalty + K penalty sum correctly.
+
+        SV: loss=32, FA=19, unrec=13, penalty=(13/9)*0.5 = 0.722
+        K: loss=60, FA=40, unrec=20, penalty=(20/45)*0.5 = 0.222
+        Total = 0.944
+        """
+        from unittest.mock import patch
+
+        import pandas as pd
+
+        from src.engine.output.trade_evaluator import _compute_replacement_penalty
+        from src.valuation import LeagueConfig
+
+        config = LeagueConfig()
+
+        before_totals = {"SV": 32, "K": 200, "R": 100, "HR": 30, "RBI": 90, "SB": 20, "W": 12}
+        after_totals = {"SV": 0, "K": 140, "R": 100, "HR": 30, "RBI": 90, "SB": 20, "W": 12}
+
+        fa_pool = pd.DataFrame(
+            [
+                {
+                    "player_id": 999,
+                    "player_name": "FA Closer",
+                    "team": "FA",
+                    "positions": "RP",
+                    "is_hitter": 0,
+                    "r": 0,
+                    "hr": 0,
+                    "rbi": 0,
+                    "sb": 0,
+                    "w": 2,
+                    "sv": 19,
+                    "k": 40,
+                    "avg": 0,
+                    "era": 3.50,
+                    "whip": 1.20,
+                },
+            ]
+        )
+
+        with patch(
+            "src.engine.output.trade_evaluator.get_free_agents",
+            return_value=fa_pool,
+        ):
+            penalty, detail = _compute_replacement_penalty(
+                before_totals=before_totals,
+                after_totals=after_totals,
+                player_pool=fa_pool,
+                config=config,
+                category_weights={"SV": 1.0, "K": 1.0},
+                punt_categories=[],
+            )
+
+        # Hand calculation:
+        # SV: raw_loss=32, best_FA=19, unrec=13, penalty=(13/9)*0.5 = 0.7222
+        # K: raw_loss=60, best_FA=40, unrec=20, penalty=(20/45)*0.5 = 0.2222
+        # Total = 0.9444
+        expected_sv = (13.0 / 9.0) * 0.5
+        expected_k = (20.0 / 45.0) * 0.5
+        expected_total = expected_sv + expected_k
+
+        assert abs(detail["SV"]["sgp_penalty"] - expected_sv) < 0.01
+        assert abs(detail["K"]["sgp_penalty"] - expected_k) < 0.01
+        assert abs(penalty - expected_total) < 0.01
+
+
 if __name__ == "__main__":
     unittest.main()

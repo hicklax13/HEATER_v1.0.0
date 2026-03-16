@@ -252,7 +252,7 @@ else:
 
                 # Metrics row — different layout for Phase 1 vs legacy
                 if engine_used == "phase1":
-                    col1, col2, col3, col4 = st.columns(4)
+                    col1, col2, col3, col4, col5 = st.columns(5)
                     col1.metric(
                         "Trade Grade",
                         result.get("grade", "N/A"),
@@ -269,6 +269,11 @@ else:
                         "Accounts for streaming value and hot free agent pickup potential.",
                     )
                     col4.metric(
+                        "Replacement Penalty",
+                        f"{result.get('replacement_penalty', 0):+.3f}",
+                        help=METRIC_TOOLTIPS["replacement_penalty"],
+                    )
+                    col5.metric(
                         "Punted Categories",
                         str(len(result.get("punt_categories", []))),
                         help="Categories where gaining standings positions is impossible. "
@@ -325,6 +330,34 @@ else:
                         ]
                     )
                     render_styled_table(impact_df)
+
+                # Category Replacement Difficulty
+                if engine_used == "phase1" and result.get("replacement_detail"):
+                    detail = result["replacement_detail"]
+                    # Only show section if there's at least one non-skipped category with a penalty
+                    active_entries = {
+                        cat: d for cat, d in detail.items() if not d.get("skipped") and d.get("sgp_penalty", 0) > 0
+                    }
+                    if active_entries:
+                        st.subheader("Category Replacement Difficulty")
+                        st.caption(METRIC_TOOLTIPS["replacement_penalty"])
+                        repl_rows = []
+                        for cat, d in detail.items():
+                            if d.get("skipped"):
+                                continue
+                            if d.get("sgp_penalty", 0) <= 0:
+                                continue
+                            repl_rows.append(
+                                {
+                                    "Category": cat,
+                                    "Raw Loss": f"{d['raw_loss']:.1f}",
+                                    "Best Free Agent": f"{d.get('best_fa_name', 'N/A')} ({d['best_fa']:.1f})",
+                                    "Unrecoverable Gap": f"{d['unrecoverable']:.1f}",
+                                    "Standings Gained Points Penalty": f"{d['sgp_penalty']:+.3f}",
+                                }
+                            )
+                        if repl_rows:
+                            render_styled_table(pd.DataFrame(repl_rows))
 
                 # Risk flags
                 if result["risk_flags"]:

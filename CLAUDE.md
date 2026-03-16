@@ -27,7 +27,7 @@ ruff check .
 # Format
 ruff format .
 
-# Run all tests (822 pass, 1 skipped for PyMC)
+# Run all tests (831 pass, 1 skipped for PyMC)
 python -m pytest
 
 # Run with verbose output
@@ -71,7 +71,7 @@ load_sample_data.py     — Generates ~190 sample players + injury history for t
 pages/
   1_My_Team.py          — In-season: team overview with monogram avatar, roster, category standings, Yahoo sync
   2_Draft_Simulator.py  — Standalone draft simulator (AI opponents, MC recommendations, pill filters, card-based picks)
-  3_Trade_Analyzer.py   — In-season: trade proposal builder + Phase 1 SGP engine (grade A+ to F, punt detection, marginal elasticity) with legacy fallback
+  3_Trade_Analyzer.py   — In-season: trade proposal builder + Phase 1 SGP engine (grade A+ to F, punt detection, marginal elasticity, category replacement cost penalty) with legacy fallback
   4_Player_Compare.py   — In-season: head-to-head player comparison with dual search + card pickers
   5_Free_Agents.py      — In-season: free agent rankings by marginal value, position pill filters
   6_Lineup_Optimizer.py — In-season: 5-tab lineup optimizer (Optimize, H2H Matchup, Streaming, Category Analysis, Roster) powered by LineupOptimizerPipeline
@@ -176,8 +176,8 @@ tests/
   test_valuation_math.py    — Math verification: SGP, VORP, replacement levels, percentiles, process risk (40 tests)
   test_simulation_math.py   — Math verification: survival probability, urgency, combined score, tiers, MC convergence (37 tests)
   test_trade_math.py        — Math verification: trade SGP delta, MC noise, verdict, z-scores, rate stats (35 tests)
-  test_trade_engine_math.py — Math verification: all 6 phases hand-calculated — SGP, BMA, copula, decay, Kalman, HHI, Bayes, Vickrey, Bellman, ESS, R̂ (50 tests)
-  test_trade_engine.py      — Trade engine Phase 1: marginal SGP, punt detection, z-scores, grading, fuzzy match, integration (32 tests)
+  test_trade_engine_math.py — Math verification: all 6 phases hand-calculated — SGP, BMA, copula, decay, Kalman, HHI, Bayes, Vickrey, Bellman, ESS, R̂, replacement cost (53 tests)
+  test_trade_engine.py      — Trade engine Phase 1: marginal SGP, punt detection, z-scores, grading, fuzzy match, replacement cost penalty, integration (38 tests)
   test_trade_engine_phase2.py — Trade engine Phase 2: BMA, KDE marginals, copula, paired MC, integration (33 tests)
   test_trade_engine_phase3.py — Trade engine Phase 3: Statcast aggregation, signal decay, Kalman filter, BOCPD, HMM regime, rolling features (32 tests)
   test_trade_engine_phase4.py — Trade engine Phase 4: Log5 matchup, Weibull injury, enhanced bench, HHI concentration, context integration (40 tests)
@@ -240,6 +240,7 @@ Phase 1 SGP-based evaluation pipeline (7 modules):
 3. **Marginal elasticity** — `1/gap_to_next_team` per category. Close gap = high marginal value, dominant = near-zero.
 4. **Punt detection** — Category is PUNT when: (a) cannot gain any standings position in remaining weeks, AND (b) ranked 10th or worse. Punted categories get zero weight.
 5. **Bench option value** — `streaming_sgp_per_week * weeks_remaining` (~0.166 SGP/week). Penalizes 2-for-1 trades, rewards 1-for-2.
+5b. **Category replacement cost penalty** — Scans FA pool for each counting stat where trade is negative. `unrecoverable = max(0, raw_loss - best_FA)`, penalty = `(unrecoverable / SGP_denom) * 0.5`. Rate stats (AVG/ERA/WHIP) excluded. Punted categories skipped.
 6. **Weighted SGP delta** — Per-category `(after - before) / SGP_denom * marginal_weight`. Inverse stats (ERA/WHIP) sign-flipped.
 7. **Grade** — Surplus SGP maps to A+ (>2.0) through F (≤-1.0). Verdict: ACCEPT if surplus > 0.
 - **Graceful fallback** — Trade Analyzer page tries Phase 1 engine first, falls back to legacy `analyze_trade()` from `src/in_season.py`
@@ -332,12 +333,20 @@ evaluate_trade(giving_ids, receiving_ids, user_roster_ids, player_pool,
                config=None, user_team_name=None, weeks_remaining=16,
                enable_mc=False, enable_context=True, enable_game_theory=True)
 # Returns: {grade, surplus_sgp, category_impact, category_analysis, punt_categories,
-#           bench_cost, risk_flags, verdict, confidence_pct, before_totals, after_totals,
+#           bench_cost, replacement_penalty, replacement_detail,
+#           risk_flags, verdict, confidence_pct, before_totals, after_totals,
 #           giving_players, receiving_players, total_sgp_change, mc_mean, mc_std,
 #           concentration_hhi_before, concentration_hhi_after, concentration_delta,
 #           concentration_penalty, bench_option_detail,
 #           adverse_selection, market_values, sensitivity_report}
 grade_trade(surplus_sgp: float) -> str  # A+ through F
+
+# Category replacement cost penalty (src/engine/output/trade_evaluator.py)
+_compute_replacement_penalty(before_totals, after_totals, player_pool, config, category_weights, punt_categories)
+# Returns: (total_penalty: float, detail: dict[str, dict])
+#   detail per-cat: {raw_loss, best_fa, best_fa_name, unrecoverable, sgp_penalty} or {skipped: str}
+COUNTING_CATEGORIES: set[str] = {"R", "HR", "RBI", "SB", "W", "SV", "K"}
+FA_TURNOVER_DISCOUNT: float = 0.5
 
 # Z-score + SGP valuation (src/engine/portfolio/valuation.py)
 compute_player_zscores(player_pool, config=None) -> DataFrame  # adds z_{cat} + z_composite columns
@@ -715,6 +724,8 @@ SYSTEM_MAP = {"steamer": "steamer", "zips": "zips", "fangraphsdc": "depthcharts"
 - **`compute_marginal_sgp()` uses `.get()` for missing categories** — Team totals may not have all 10 categories. Always use `team_totals.get(cat, 0.0)`, never `team_totals[cat]`.
 - **Punt detection requires BOTH conditions** — A category is punt only when `gainable_positions == 0 AND rank >= 10`. Being rank 10 alone isn't enough if positions are still gainable; having 0 gainable alone isn't enough if you're already ranked high.
 - **Bench option value sign convention** — `bench_cost` in the trade result is positive when you LOSE bench slots (receive more than you give → roster grows → penalty), negative when you GAIN them (give more than you receive → roster shrinks → bonus). `net_roster_growth = players_gained - players_lost`: positive→penalty subtracted from surplus, negative→bonus added to surplus.
+- **Replacement cost penalty uses `get_free_agents()`** — `_compute_replacement_penalty()` calls `get_free_agents()` from `src/league_manager.py`, which internally calls `load_league_rosters()` from the DB. When no rosters are loaded, `get_free_agents()` returns the full `player_pool` as the FA pool (graceful degradation → penalty ≈ 0 for most categories). The penalty only becomes meaningful when league roster data exists to identify which players are actually unavailable.
+- **Replacement penalty skips rate stats** — AVG, ERA, WHIP are excluded from the replacement cost penalty because they are roster-aggregate stats. Adding a .300 hitter matters differently with 600 AB vs 100 AB, so "best FA replacement" doesn't translate to a simple counting gap. The `replacement_detail` dict shows `"skipped": "rate_stat"` for these categories.
 - **`_roster_category_totals()` lives in `src/in_season.py`** — The trade engine's `evaluate_trade()` imports this from the legacy module. Don't duplicate it.
 - **`enable_mc=True` activates Phase 2** — By default, `evaluate_trade()` runs Phase 1 only (deterministic). Set `enable_mc=True` for MC overlay. MC gracefully falls back to Phase 1 on failure.
 - **BMA sigma difference → unequal weights** — Even when all systems project the same value, posterior weights differ slightly because forecast sigmas differ by system (Steamer HR sigma=5.2 vs ZiPS sigma=5.5). Tighter sigma → higher likelihood density → more weight.
@@ -761,10 +772,10 @@ SYSTEM_MAP = {"steamer": "steamer", "zips": "zips", "fangraphsdc": "depthcharts"
 
 ## Testing Status
 
-- **Unit tests:** 822 collected, 822 passed, 1 skipped (PyMC optional dep)
+- **Unit tests:** 831 collected, 831 passed, 1 skipped (PyMC optional dep)
 - **Test files:** 36 test files across draft engine, trade engine (Phase 1-6), lineup optimizer (10 files), in-season, analytics, data pipeline, bootstrap, integration, and math verification
-- **Math verification suite:** 162 tests across 4 files (valuation, simulation, trade, trade engine math) — hand-calculated expected values verified against code formulas
-- **Trade engine tests:** 207 tests total — Phase 1 (32): marginal SGP, punt detection, z-scores, grading, fuzzy match, integration. Phase 2 (33): BMA, KDE marginals, Gaussian copula, paired MC, correlated sampling, distributional metrics, integration. Phase 3 (32): Statcast aggregation, signal decay, Kalman filter, BOCPD changepoint detection, HMM regime classification, rolling features. Phase 4 (40): Log5 matchup math, Weibull injury duration, frailty, season availability, enhanced bench value, roster flexibility, HHI concentration, penalty thresholds, trade context integration. Phase 5 (38): opponent valuations, market clearing price, adverse selection Bayesian discount, Bellman rollout, roster balance, sensitivity ranking, counter-offers, game theory integration. Phase 6 (32): ESS convergence, split-R̂, running mean stability, cache TTL/invalidation/get_or_compute, adaptive sim scaling, time budget caps.
+- **Math verification suite:** 165 tests across 4 files (valuation, simulation, trade, trade engine math) — hand-calculated expected values verified against code formulas
+- **Trade engine tests:** 216 tests total — Phase 1 (38): marginal SGP, punt detection, z-scores, grading, fuzzy match, replacement cost penalty (6), integration. Phase 2 (33): BMA, KDE marginals, Gaussian copula, paired MC, correlated sampling, distributional metrics, integration. Phase 3 (32): Statcast aggregation, signal decay, Kalman filter, BOCPD changepoint detection, HMM regime classification, rolling features. Phase 4 (40): Log5 matchup math, Weibull injury duration, frailty, season availability, enhanced bench value, roster flexibility, HHI concentration, penalty thresholds, trade context integration. Phase 5 (38): opponent valuations, market clearing price, adverse selection Bayesian discount, Bellman rollout, roster balance, sensitivity ranking, counter-offers, game theory integration. Phase 6 (32): ESS convergence, split-R̂, running mean stability, cache TTL/invalidation/get_or_compute, adaptive sim scaling, time budget caps. Math (3): replacement cost formula hand-calcs.
 - **Lineup optimizer tests:** 204 tests total across 10 files — projections (28), matchups (19), H2H engine (18), SGP theory (16), streaming (16), scenarios (19), multi-period (16), dual objective (21), advanced LP (25), pipeline orchestrator (26)
 - **CI:** GitHub Actions runs ruff lint/format + pytest on Python 3.11, 3.12, 3.13
 - **Coverage:** 64% (below 75% CI threshold; pre-existing, no regressions)

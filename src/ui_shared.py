@@ -395,6 +395,13 @@ METRIC_TOOLTIPS = {
         "Fair pick — this player's Average Draft Position is close to the current pick, "
         "meaning this is roughly where they are expected to go."
     ),
+    "replacement_penalty": (
+        "Category Replacement Cost Penalty — measures how much production you lose "
+        "in each category that cannot be recovered from the free agent pool. "
+        "Scarce categories (like Saves) are penalized more heavily because there are "
+        "fewer replacement options available. Discounted by 50% to account for "
+        "free agent pool turnover over the season."
+    ),
 }
 
 

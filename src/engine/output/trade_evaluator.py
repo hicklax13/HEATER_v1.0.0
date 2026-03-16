@@ -87,6 +87,7 @@ from src.engine.portfolio.category_analysis import (
 from src.engine.portfolio.copula import GaussianCopula
 from src.engine.portfolio.lineup_optimizer import bench_option_value
 from src.in_season import _roster_category_totals
+from src.league_manager import get_free_agents
 from src.valuation import LeagueConfig, SGPCalculator
 
 logger = logging.getLogger(__name__)
@@ -122,6 +123,16 @@ STAT_MAP: dict[str, str] = {
     "ERA": "era",
     "WHIP": "whip",
 }
+
+# Categories where replacement cost penalty applies (counting stats only).
+# Rate stats (AVG, ERA, WHIP) are excluded — they are roster-aggregate
+# and "best FA replacement" doesn't map cleanly to a counting-stat gap.
+COUNTING_CATEGORIES: set[str] = {"R", "HR", "RBI", "SB", "W", "SV", "K"}
+
+# Discount factor for FA pool turnover (drops, injuries, call-ups, role changes).
+# 0.5 means we assume half the unrecoverable gap will eventually become
+# recoverable as the FA pool changes over the season.
+FA_TURNOVER_DISCOUNT: float = 0.5
 
 
 def grade_trade(surplus_sgp: float) -> str:
@@ -335,6 +346,25 @@ def evaluate_trade(
         except Exception as exc:
             logger.warning("Concentration risk calculation failed: %s", exc)
 
+    # Step 6b: Category replacement cost penalty
+    # Scans the FA pool to penalize trades where lost production in counting
+    # stats (especially scarce categories like SV) cannot be replaced.
+    replacement_penalty = 0.0
+    replacement_detail: dict[str, dict] = {}
+    try:
+        replacement_penalty, replacement_detail = _compute_replacement_penalty(
+            before_totals=before_totals,
+            after_totals=after_totals,
+            player_pool=player_pool,
+            config=config,
+            category_weights=category_weights,
+            punt_categories=punt_categories,
+        )
+        if replacement_penalty > 0:
+            total_surplus -= replacement_penalty
+    except Exception as exc:
+        logger.warning("Replacement cost penalty calculation failed: %s", exc)
+
     # Step 7: Grade the trade
     trade_grade = grade_trade(total_surplus)
 
@@ -373,6 +403,8 @@ def evaluate_trade(
         "category_analysis": cat_analysis,
         "punt_categories": punt_categories,
         "bench_cost": round(bench_cost, 3),
+        "replacement_penalty": round(replacement_penalty, 3),
+        "replacement_detail": replacement_detail,
         "risk_flags": risk_flags,
         "verdict": verdict,
         "confidence_pct": round(confidence_pct, 1),
@@ -560,6 +592,108 @@ def _get_player_names(
         else:
             names.append(f"Unknown (ID: {pid})")
     return names
+
+
+def _compute_replacement_penalty(
+    before_totals: dict[str, float],
+    after_totals: dict[str, float],
+    player_pool: pd.DataFrame,
+    config: LeagueConfig,
+    category_weights: dict[str, float],
+    punt_categories: list[str],
+) -> tuple[float, dict[str, dict]]:
+    """Compute SGP penalty for categories where lost production is unrecoverable.
+
+    For each counting-stat category where the trade makes the user worse:
+      1. Compute raw loss (before - after)
+      2. Find best available FA replacement in that category
+      3. Unrecoverable gap = max(0, raw_loss - best_FA)
+      4. SGP penalty = (unrecoverable / sgp_denom) * FA_TURNOVER_DISCOUNT
+
+    Rate stats (AVG, ERA, WHIP) are skipped — they are roster-aggregate
+    and the single-player replacement concept doesn't apply cleanly.
+
+    Punted categories (weight=0) are skipped — no penalty for losing
+    production you've strategically abandoned.
+
+    Args:
+        before_totals: Pre-trade roster category totals.
+        after_totals: Post-trade roster category totals.
+        player_pool: Full player pool DataFrame.
+        config: League configuration with sgp_denominators.
+        category_weights: Category weights (0 for punted categories).
+        punt_categories: List of punted category names.
+
+    Returns:
+        Tuple of (total_penalty, detail) where:
+          - total_penalty: Total SGP penalty (float, >= 0).
+          - detail: Per-category breakdown dict. Each entry has keys:
+              raw_loss, best_fa, best_fa_name, unrecoverable, sgp_penalty
+              OR skipped (str) explaining why the category was excluded.
+    """
+    # Get the free agent pool (unrostered players)
+    fa_pool = get_free_agents(player_pool)
+    if fa_pool.empty:
+        return 0.0, {}
+
+    # Detect name column (player_pool may use "name" or "player_name")
+    name_col = "player_name" if "player_name" in fa_pool.columns else "name"
+
+    detail: dict[str, dict] = {}
+    total_penalty = 0.0
+
+    for cat in config.all_categories:
+        # Skip rate stats — roster-aggregate, replacement concept doesn't apply
+        if cat not in COUNTING_CATEGORIES:
+            detail[cat] = {"skipped": "rate_stat"}
+            continue
+
+        # Skip punted categories — no penalty for strategic abandonment
+        if cat in punt_categories:
+            detail[cat] = {"skipped": "punted"}
+            continue
+
+        # Compute raw loss in this category
+        raw_loss = before_totals.get(cat, 0) - after_totals.get(cat, 0)
+        if raw_loss <= 0:
+            detail[cat] = {"skipped": "no_loss"}
+            continue
+
+        # Map category to DataFrame column name
+        col = STAT_MAP.get(cat)
+        if col is None or col not in fa_pool.columns:
+            detail[cat] = {"skipped": "no_data"}
+            continue
+
+        # Find best FA replacement in this category
+        fa_vals = pd.to_numeric(fa_pool[col], errors="coerce").fillna(0)
+        if fa_vals.empty or fa_vals.max() <= 0:
+            best_fa_val = 0.0
+            best_fa_name = "None available"
+        else:
+            best_fa_idx = fa_vals.idxmax()
+            best_fa_val = float(fa_vals.loc[best_fa_idx])
+            best_fa_name = str(fa_pool.loc[best_fa_idx].get(name_col, "Unknown"))
+
+        # Compute unrecoverable gap
+        unrecoverable = max(0.0, raw_loss - best_fa_val)
+
+        # Convert to SGP and apply discount
+        denom = config.sgp_denominators.get(cat, 1.0)
+        if abs(denom) < 1e-9:
+            denom = 1.0
+        sgp_penalty = (unrecoverable / denom) * FA_TURNOVER_DISCOUNT
+
+        detail[cat] = {
+            "raw_loss": round(float(raw_loss), 1),
+            "best_fa": round(best_fa_val, 1),
+            "best_fa_name": best_fa_name,
+            "unrecoverable": round(unrecoverable, 1),
+            "sgp_penalty": round(sgp_penalty, 3),
+        }
+        total_penalty += sgp_penalty
+
+    return round(total_penalty, 3), detail
 
 
 def _apply_game_theory(

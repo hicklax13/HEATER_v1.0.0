@@ -6,11 +6,14 @@ plus integration tests for the full evaluation pipeline.
 Spec reference: Section 16 (Test Cases)
 """
 
+from unittest.mock import patch
+
 import numpy as np
 import pandas as pd
 import pytest
 
 from src.engine.output.trade_evaluator import (
+    _compute_replacement_penalty,
     evaluate_trade,
     grade_trade,
 )
@@ -810,3 +813,160 @@ class TestIntegration:
 
         for cat in config.all_categories:
             assert cat in result["category_impact"]
+
+
+# ── Replacement Cost Penalty Tests ───────────────────────────────────
+
+
+class TestReplacementCostPenalty:
+    """Tests for the category replacement cost penalty (Step 6b)."""
+
+    def test_replacement_penalty_returns_keys(self, sample_pool, config):
+        """Result dict should contain replacement_penalty and replacement_detail keys."""
+        user_roster_ids = list(range(1, 12))
+
+        result = evaluate_trade(
+            giving_ids=[1],
+            receiving_ids=[15],
+            user_roster_ids=user_roster_ids,
+            player_pool=sample_pool,
+            config=config,
+        )
+
+        assert "replacement_penalty" in result
+        assert "replacement_detail" in result
+        assert isinstance(result["replacement_penalty"], float)
+        assert isinstance(result["replacement_detail"], dict)
+
+    def test_replacement_penalty_abundant_fa_pool(self, sample_pool, config):
+        """When no rosters are loaded (full pool is FAs), penalty should be minimal.
+
+        With the entire player pool available as free agents, any lost production
+        can likely be replaced, so the penalty should be zero or very small.
+        """
+        user_roster_ids = list(range(1, 12))
+
+        # Mock load_league_rosters to return empty (no rosters → full pool is FA)
+        with patch("src.league_manager.load_league_rosters", return_value=pd.DataFrame()):
+            result = evaluate_trade(
+                giving_ids=[1],
+                receiving_ids=[15],
+                user_roster_ids=user_roster_ids,
+                player_pool=sample_pool,
+                config=config,
+            )
+
+        # With the entire pool available as FAs, penalty should be zero
+        # (best FA easily covers any individual player's production)
+        assert result["replacement_penalty"] >= 0
+        assert result["replacement_penalty"] < 1.0  # Should be very small
+
+    def test_replacement_penalty_scarce_category(self, sample_pool, config):
+        """When FA pool has no closers, trading away saves should incur a penalty."""
+        # User roster includes the only closer (ID 28, sv=32)
+        user_roster_ids = list(range(1, 12)) + [28]
+
+        # Create a minimal FA pool with NO closers (only a weak hitter)
+        empty_closer_fa = pd.DataFrame(
+            [
+                {
+                    "player_id": 999,
+                    "player_name": "Weak FA",
+                    "name": "Weak FA",
+                    "team": "FA",
+                    "positions": "OF",
+                    "is_hitter": 1,
+                    "r": 30,
+                    "hr": 5,
+                    "rbi": 20,
+                    "sb": 2,
+                    "w": 0,
+                    "sv": 0,
+                    "k": 0,
+                    "avg": 0.220,
+                    "era": 0,
+                    "whip": 0,
+                    "pa": 200,
+                    "ab": 180,
+                    "h": 40,
+                    "ip": 0,
+                    "er": 0,
+                    "bb_allowed": 0,
+                    "h_allowed": 0,
+                    "adp": 300,
+                    "is_injured": 0,
+                }
+            ]
+        )
+
+        # Mock get_free_agents to return our controlled FA pool with no closers
+        with patch(
+            "src.engine.output.trade_evaluator.get_free_agents",
+            return_value=empty_closer_fa,
+        ):
+            result = evaluate_trade(
+                giving_ids=[28],  # Trade away the closer (sv=32)
+                receiving_ids=[15],  # Receive a hitter (sv=0)
+                user_roster_ids=user_roster_ids,
+                player_pool=sample_pool,
+                config=config,
+            )
+
+        # FA pool has zero saves → full SV loss is unrecoverable
+        assert result["replacement_penalty"] > 0
+        detail = result["replacement_detail"]
+        assert "SV" in detail
+        assert not detail["SV"].get("skipped")
+        assert detail["SV"]["unrecoverable"] > 0
+
+    def test_replacement_penalty_skips_rate_stats(self, sample_pool, config):
+        """Rate stats (AVG, ERA, WHIP) should be skipped in replacement detail."""
+        user_roster_ids = list(range(1, 12))
+
+        result = evaluate_trade(
+            giving_ids=[1],
+            receiving_ids=[15],
+            user_roster_ids=user_roster_ids,
+            player_pool=sample_pool,
+            config=config,
+        )
+
+        detail = result["replacement_detail"]
+        for rate_cat in ["AVG", "ERA", "WHIP"]:
+            if rate_cat in detail:
+                assert detail[rate_cat].get("skipped") == "rate_stat"
+
+    def test_replacement_penalty_skips_punted_categories(self, sample_pool, config):
+        """Punted categories should be skipped (no penalty for strategic abandonment)."""
+        # Directly test the helper function with explicit punt list
+        before_totals = {"R": 100, "HR": 50, "SB": 30, "SV": 40, "AVG": 0.270}
+        after_totals = {"R": 80, "HR": 40, "SB": 20, "SV": 30, "AVG": 0.260}
+
+        with patch("src.league_manager.load_league_rosters", return_value=pd.DataFrame()):
+            penalty, detail = _compute_replacement_penalty(
+                before_totals=before_totals,
+                after_totals=after_totals,
+                player_pool=sample_pool,
+                config=config,
+                category_weights={"SB": 0.0, "SV": 1.0},
+                punt_categories=["SB"],
+            )
+
+        # SB is punted, so it should be skipped
+        assert detail.get("SB", {}).get("skipped") == "punted"
+
+    def test_replacement_penalty_no_penalty_when_improving(self, sample_pool, config):
+        """When trade improves all counting stats, penalty should be zero."""
+        # Trade a weak hitter (ID 1) for a strong hitter (ID 20)
+        user_roster_ids = list(range(1, 12))
+
+        result = evaluate_trade(
+            giving_ids=[1],  # Weakest hitter (hr=15, r=70, rbi=65, sb=8)
+            receiving_ids=[20],  # Strongest hitter (hr=34, r=108, rbi=122, sb=27)
+            user_roster_ids=user_roster_ids,
+            player_pool=sample_pool,
+            config=config,
+        )
+
+        # All counting stats should improve, so no penalty
+        assert result["replacement_penalty"] == 0.0
