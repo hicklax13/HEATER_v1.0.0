@@ -13,7 +13,7 @@ import time
 import pandas as pd
 import streamlit as st
 
-from src.database import get_connection, init_db, load_league_rosters, load_league_standings
+from src.database import coerce_numeric_df, get_connection, init_db, load_league_rosters, load_league_standings
 from src.injury_model import compute_health_score, get_injury_badge
 from src.league_manager import get_team_roster
 from src.ui_shared import METRIC_TOOLTIPS, PAGE_ICONS, inject_custom_css, render_styled_table
@@ -166,6 +166,11 @@ for col in required_cols + stat_cols + component_cols:
     if col not in roster.columns:
         roster[col] = 0
 
+# Coerce numeric columns (Python 3.13+ SQLite may return bytes)
+for col in stat_cols + component_cols:
+    if col in roster.columns:
+        roster[col] = pd.to_numeric(roster[col], errors="coerce").fillna(0)
+
 
 # ── League config for optimizer ───────────────────────────────────
 
@@ -199,6 +204,7 @@ try:
     conn = get_connection()
     try:
         injury_df = pd.read_sql_query("SELECT * FROM injury_history", conn)
+        injury_df = coerce_numeric_df(injury_df)
     finally:
         conn.close()
 

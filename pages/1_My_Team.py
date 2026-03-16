@@ -5,7 +5,7 @@ import time
 import pandas as pd
 import streamlit as st
 
-from src.database import init_db, load_league_rosters
+from src.database import coerce_numeric_df, init_db, load_league_rosters
 from src.injury_model import compute_health_score, get_injury_badge
 from src.league_manager import get_team_roster
 from src.live_stats import refresh_all_stats
@@ -166,6 +166,7 @@ else:
                 conn = get_connection()
                 try:
                     injury_df = pd.read_sql_query("SELECT * FROM injury_history", conn)
+                    injury_df = coerce_numeric_df(injury_df)
                 finally:
                     conn.close()
             except Exception:
@@ -213,6 +214,14 @@ else:
             hitters = roster[roster["is_hitter"] == 1]
             pitchers = roster[roster["is_hitter"] == 0]
 
+            # Coerce numeric columns (Python 3.13+ SQLite may return bytes)
+            num_cols = ["r", "hr", "rbi", "sb", "ab", "h", "w", "sv", "k", "ip", "er", "bb_allowed", "h_allowed"]
+            for c in num_cols:
+                if c in roster.columns:
+                    roster[c] = pd.to_numeric(roster[c], errors="coerce").fillna(0)
+            hitters = roster[roster["is_hitter"] == 1]
+            pitchers = roster[roster["is_hitter"] == 0]
+
             hit_stats = {}
             if not hitters.empty:
                 for cat, col in [("Runs", "r"), ("Home Runs", "hr"), ("Runs Batted In", "rbi"), ("Stolen Bases", "sb")]:
@@ -252,10 +261,12 @@ else:
                     conn = get_connection()
                     try:
                         season_stats = pd.read_sql_query("SELECT * FROM season_stats", conn)
+                        season_stats = coerce_numeric_df(season_stats)
 
                         if not season_stats.empty and season_stats.get("games_played", pd.Series([0])).sum() > 0:
                             bayes_progress = st.progress(0, text="Loading preseason projections for Bayesian update...")
                             preseason = pd.read_sql_query("SELECT * FROM projections WHERE system = 'blended'", conn)
+                            preseason = coerce_numeric_df(preseason)
                             bayes_progress.progress(
                                 30, text="Applying Bayesian regression with stabilization thresholds..."
                             )

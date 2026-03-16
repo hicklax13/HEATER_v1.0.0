@@ -5,7 +5,7 @@ import time
 import pandas as pd
 import streamlit as st
 
-from src.database import init_db, load_player_pool
+from src.database import coerce_numeric_df, init_db, load_player_pool
 from src.in_season import compare_players
 from src.injury_model import compute_health_score, get_injury_badge
 from src.ui_shared import (
@@ -112,6 +112,7 @@ if player_a_name and player_b_name and player_a_name != player_b_name:
         conn = get_connection()
         try:
             injury_df = pd.read_sql_query("SELECT * FROM injury_history", conn)
+            injury_df = coerce_numeric_df(injury_df)
         finally:
             conn.close()
         if not injury_df.empty and "player_id" in injury_df.columns:
@@ -239,6 +240,7 @@ if player_a_name and player_b_name and player_a_name != player_b_name:
                         params=(sys_name,),
                     )
                     if not df.empty:
+                        df = coerce_numeric_df(df)
                         systems[sys_name] = df
             finally:
                 conn.close()

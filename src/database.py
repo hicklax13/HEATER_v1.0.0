@@ -8,6 +8,53 @@ import pandas as pd
 
 DB_PATH = Path(__file__).parent.parent / "data" / "draft_tool.db"
 
+# ── Stat column lists for bytes coercion ─────────────────────────
+# Python 3.13+ SQLite returns bytes for some integer columns.
+# These lists define all numeric stat columns used across tables.
+_INT_STAT_COLS = [
+    "pa",
+    "ab",
+    "h",
+    "r",
+    "hr",
+    "rbi",
+    "sb",
+    "w",
+    "sv",
+    "k",
+    "er",
+    "bb_allowed",
+    "h_allowed",
+    "player_id",
+    "is_hitter",
+    "is_injured",
+    "games_played",
+    "games_available",
+    "il_stints",
+    "il_days",
+    "season",
+    "team_index",
+    "is_user_team",
+    "rank",
+]
+_FLOAT_STAT_COLS = ["avg", "ip", "era", "whip", "adp", "total", "points"]
+
+
+def coerce_numeric_df(df: pd.DataFrame) -> pd.DataFrame:
+    """Coerce known numeric columns from bytes to proper types.
+
+    Python 3.13+ with SQLite may return raw bytes for integer columns.
+    This function applies pd.to_numeric() to all known stat columns,
+    safely ignoring columns that don't exist in the DataFrame.
+    """
+    for col in _INT_STAT_COLS:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0).astype(int)
+    for col in _FLOAT_STAT_COLS:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0.0)
+    return df
+
 
 def get_connection() -> sqlite3.Connection:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -518,35 +565,8 @@ def load_player_pool() -> pd.DataFrame:
 
     conn.close()
 
-    # Fix Python 3.14 SQLite bytes issue: NumPy ints may be stored as raw bytes
-    import struct
-
-    def _fix_bytes_col(series, as_float=False):
-        def _decode(val):
-            if isinstance(val, bytes):
-                if len(val) == 8:
-                    return struct.unpack("<q", val)[0]
-                elif len(val) == 4:
-                    return struct.unpack("<i", val)[0]
-                try:
-                    return float(val) if as_float else int(val)
-                except (ValueError, TypeError):
-                    return 0.0 if as_float else 0
-            return val
-
-        return series.map(_decode)
-
-    # Ensure numeric columns are properly typed
-    int_cols = ["pa", "ab", "h", "r", "hr", "rbi", "sb", "w", "sv", "k", "er", "bb_allowed", "h_allowed"]
-    float_cols = ["avg", "ip", "era", "whip", "adp"]
-    for col in int_cols:
-        if col in df.columns:
-            df[col] = _fix_bytes_col(df[col])
-            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0).astype(int)
-    for col in float_cols:
-        if col in df.columns:
-            df[col] = _fix_bytes_col(df[col], as_float=True)
-            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0.0)
+    # Fix Python 3.13+ SQLite bytes issue
+    df = coerce_numeric_df(df)
 
     return df
 
@@ -632,7 +652,7 @@ def load_season_stats(season: int = 2026) -> pd.DataFrame:
     conn = get_connection()
     df = pd.read_sql_query("SELECT * FROM season_stats WHERE season = ?", conn, params=(season,))
     conn.close()
-    return df
+    return coerce_numeric_df(df)
 
 
 def upsert_ros_projection(player_id: int, system: str, stats: dict):
@@ -698,9 +718,11 @@ def upsert_league_roster_entry(
 def load_league_rosters() -> pd.DataFrame:
     """Load all league rosters as a DataFrame."""
     conn = get_connection()
-    df = pd.read_sql_query("SELECT * FROM league_rosters", conn)
-    conn.close()
-    return df
+    try:
+        df = pd.read_sql_query("SELECT * FROM league_rosters", conn)
+    finally:
+        conn.close()
+    return coerce_numeric_df(df)
 
 
 def load_league_standings() -> pd.DataFrame:
@@ -710,7 +732,7 @@ def load_league_standings() -> pd.DataFrame:
         df = pd.read_sql_query("SELECT * FROM league_standings", conn)
     finally:
         conn.close()
-    return df
+    return coerce_numeric_df(df)
 
 
 def clear_league_rosters():

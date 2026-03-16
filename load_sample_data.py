@@ -26,8 +26,8 @@ def generate_sample_data():
     cursor.execute("DELETE FROM projections")
     cursor.execute("DELETE FROM adp")
     cursor.execute("DELETE FROM players")
-    # Clear Plan 3 tables if they exist
-    for tbl in ("injury_history", "transactions"):
+    # Clear Plan 3 and in-season tables if they exist
+    for tbl in ("injury_history", "transactions", "league_rosters", "league_standings"):
         try:
             cursor.execute(f"DELETE FROM {tbl}")
         except Exception:
@@ -81,78 +81,78 @@ def generate_sample_data():
         ("Jackson Merrill", "OF", (560, 600), (20, 28), (10, 18), (0.270, 0.290), 3),
     ]
 
-    # Generate additional filler hitters
-    filler_names = [
-        "Alex Bregman",
-        "Nolan Arenado",
-        "Manny Machado",
-        "Xander Bogaerts",
-        "Carlos Correa",
-        "Tim Anderson",
-        "Dansby Swanson",
-        "Ketel Marte",
-        "Gleyber Torres",
-        "Jonathan India",
-        "Andres Gimenez",
-        "Ha-Seong Kim",
-        "Yandy Diaz",
-        "Vladimir Guerrero Jr.",
-        "Spencer Torkelson",
-        "Vinnie Pasquantino",
-        "Rhys Hoskins",
-        "Cody Bellinger",
-        "Bryce Harper",
-        "Luis Robert Jr.",
-        "Mike Yastrzemski",
-        "Lane Thomas",
-        "Bryan Reynolds",
-        "Starling Marte",
-        "Randy Arozarena",
-        "George Springer",
-        "Teoscar Hernandez",
-        "Giancarlo Stanton",
-        "Marcell Ozuna",
-        "Austin Riley",
-        "Max Muncy",
-        "Willson Contreras",
-        "Gabriel Moreno",
-        "MJ Melendez",
-        "Logan O'Hoppe",
-        "Patrick Bailey",
-        "Jonah Heim",
-        "Alejandro Kirk",
-        "Ryan McMahon",
-        "Brandon Lowe",
-        "Jeff McNeil",
-        "Nico Hoerner",
-        "CJ Abrams",
-        "Masataka Yoshida",
-        "Seiya Suzuki",
-        "Fernando Tatis Jr.",
-        "Cedric Mullins",
-        "Corbin Carroll",
-        "Colton Cowser",
-        "James Outman",
-        "Michael Harris II",
-        "Riley Greene",
-        "Evan Carter",
-        "Wyatt Langford",
-        "Jordan Walker",
-        "Spencer Steer",
-        "Josh Lowe",
-        "Willy Adames",
-        "Tyler O'Neill",
-        "Brendan Donovan",
-        "Isaac Paredes",
-        "Christopher Morel",
-        "Maikel Garcia",
-        "Ezequiel Tovar",
-        "Noelvi Marte",
-        "Royce Lewis",
-        "Mookie Betts",
-        "Jake Cronenworth",
-    ]
-    filler_positions = ["1B", "2B", "3B", "SS", "OF", "OF", "OF", "1B,3B", "2B,SS", "C", "OF,1B"]
+    # Generate additional filler hitters with real positions
+    filler_hitters = {
+        "Alex Bregman": "3B",
+        "Nolan Arenado": "3B",
+        "Manny Machado": "3B",
+        "Xander Bogaerts": "SS",
+        "Carlos Correa": "SS",
+        "Tim Anderson": "SS",
+        "Dansby Swanson": "SS",
+        "Ketel Marte": "2B,OF",
+        "Gleyber Torres": "2B",
+        "Jonathan India": "2B",
+        "Andres Gimenez": "2B",
+        "Ha-Seong Kim": "SS,2B,3B",
+        "Yandy Diaz": "1B,3B",
+        "Vladimir Guerrero Jr.": "1B",
+        "Spencer Torkelson": "1B",
+        "Vinnie Pasquantino": "1B",
+        "Rhys Hoskins": "1B",
+        "Cody Bellinger": "OF,1B",
+        "Bryce Harper": "1B",
+        "Luis Robert Jr.": "OF",
+        "Mike Yastrzemski": "OF",
+        "Lane Thomas": "OF",
+        "Bryan Reynolds": "OF",
+        "Starling Marte": "OF",
+        "Randy Arozarena": "OF",
+        "George Springer": "OF",
+        "Teoscar Hernandez": "OF",
+        "Giancarlo Stanton": "OF",
+        "Marcell Ozuna": "Util",
+        "Austin Riley": "3B",
+        "Max Muncy": "1B,3B",
+        "Willson Contreras": "C",
+        "Gabriel Moreno": "C",
+        "MJ Melendez": "C",
+        "Logan O'Hoppe": "C",
+        "Patrick Bailey": "C",
+        "Jonah Heim": "C",
+        "Alejandro Kirk": "C",
+        "Ryan McMahon": "2B,3B",
+        "Brandon Lowe": "2B",
+        "Jeff McNeil": "2B",
+        "Nico Hoerner": "2B,SS",
+        "CJ Abrams": "SS",
+        "Masataka Yoshida": "OF",
+        "Seiya Suzuki": "OF",
+        "Fernando Tatis Jr.": "OF,SS",
+        "Cedric Mullins": "OF",
+        "Corbin Carroll": "OF",
+        "Colton Cowser": "OF",
+        "James Outman": "OF",
+        "Michael Harris II": "OF",
+        "Riley Greene": "OF",
+        "Evan Carter": "OF",
+        "Wyatt Langford": "OF",
+        "Jordan Walker": "OF",
+        "Spencer Steer": "1B,2B,3B",
+        "Josh Lowe": "OF",
+        "Willy Adames": "SS",
+        "Tyler O'Neill": "OF",
+        "Brendan Donovan": "2B,OF",
+        "Isaac Paredes": "3B",
+        "Christopher Morel": "OF,3B",
+        "Maikel Garcia": "3B,SS",
+        "Ezequiel Tovar": "SS",
+        "Noelvi Marte": "3B",
+        "Royce Lewis": "SS,3B",
+        "Mookie Betts": "OF,SS",
+        "Jake Cronenworth": "1B,2B",
+    }
+    filler_names = list(filler_hitters.keys())
 
     player_id = 1
     for name, pos, pa_r, hr_r, sb_r, avg_r, tier in hitter_archetypes:
@@ -185,7 +185,7 @@ def generate_sample_data():
         if name in seen_names:
             continue
         seen_names.add(name)
-        pos = rng.choice(filler_positions)
+        pos = filler_hitters[name]
         pa = rng.integers(400, 600)
         avg = round(rng.uniform(0.235, 0.280), 3)
         ab = int(pa * 0.87)
@@ -434,10 +434,70 @@ def generate_sample_data():
             except Exception:
                 pass  # Table may not exist
 
+    # ── League rosters (12 teams, 23 players each) ────────────────
+    # Distribute all players across 12 teams via snake draft order
+    team_names = [
+        "Team Hickey",
+        "The Bombers",
+        "Steal Squad",
+        "Ace Hunters",
+        "Diamond Dogs",
+        "Bench Warmers",
+        "Clutch Hitters",
+        "Mound Masters",
+        "Rally Caps",
+        "Stat Padders",
+        "Waiver Wire",
+        "Pine Riders",
+    ]
+    roster_size = 23
+    all_pids = [row[0] for row in cursor.execute("SELECT player_id FROM players ORDER BY player_id").fetchall()]
+    # Assign players round-robin (snake style) to fill 23-man rosters
+    team_rosters = {t: [] for t in team_names}
+    idx = 0
+    for pid in all_pids:
+        team = team_names[idx % len(team_names)]
+        if len(team_rosters[team]) < roster_size:
+            team_rosters[team].append(pid)
+        idx += 1
+
+    for ti, team in enumerate(team_names):
+        is_user = 1 if team == "Team Hickey" else 0
+        team_idx = 0 if is_user else ti
+        for pid in team_rosters[team]:
+            cursor.execute(
+                """INSERT INTO league_rosters (team_name, team_index, player_id, is_user_team)
+                   VALUES (?, ?, ?, ?)""",
+                (team, team_idx, pid, is_user),
+            )
+
+    # ── League standings (sample category totals) ────────────────
+    cat_ranges = {
+        "R": (280, 420),
+        "HR": (80, 160),
+        "RBI": (300, 450),
+        "SB": (40, 120),
+        "AVG": (0.240, 0.275),
+        "W": (35, 65),
+        "SV": (20, 55),
+        "K": (550, 850),
+        "ERA": (3.20, 4.60),
+        "WHIP": (1.10, 1.35),
+    }
+    for team in team_names:
+        for cat, (lo, hi) in cat_ranges.items():
+            val = round(rng.uniform(lo, hi), 3)
+            cursor.execute(
+                """INSERT INTO league_standings (team_name, category, total)
+                   VALUES (?, ?, ?)""",
+                (team, cat, val),
+            )
+
     conn.commit()
     conn.close()
 
     logger.info("Sample data loaded: %d total players (with injury history)", player_id - 1)
+    logger.info("League rosters: %d teams x %d players", len(team_names), roster_size)
     return player_id - 1
 
 

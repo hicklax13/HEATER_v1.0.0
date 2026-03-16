@@ -132,7 +132,7 @@ def _apply_bayesian_update(
     """
     try:
         from src.bayesian import BayesianUpdater
-        from src.database import get_connection
+        from src.database import coerce_numeric_df, get_connection
     except ImportError:
         logger.debug("Bayesian updater not available; skipping step 1")
         return roster
@@ -151,6 +151,9 @@ def _apply_bayesian_update(
             )
         finally:
             conn.close()
+        # Coerce bytes from SQLite (Python 3.13+)
+        season_stats = coerce_numeric_df(season_stats)
+        preseason = coerce_numeric_df(preseason)
 
         if season_stats.empty or preseason.empty:
             logger.debug("No season stats or preseason projections; skipping Bayesian update")
@@ -454,13 +457,14 @@ def _apply_injury_availability(
         return roster
 
     try:
-        from src.database import get_connection
+        from src.database import coerce_numeric_df, get_connection
 
         conn = get_connection()
         try:
             injury_df = pd.read_sql_query("SELECT * FROM injury_history", conn)
         finally:
             conn.close()
+        injury_df = coerce_numeric_df(injury_df)
 
         if injury_df.empty:
             logger.debug("No injury history data; skipping availability scaling")

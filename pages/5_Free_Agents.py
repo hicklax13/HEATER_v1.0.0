@@ -78,7 +78,7 @@ else:
         user_roster = get_team_roster(user_team_name)
         # Remap roster IDs to player pool IDs via name matching
         # (league_rosters may use Yahoo IDs while player_pool uses MLB Stats API IDs)
-        name_to_pool_id = dict(zip(pool["name"], pool["player_id"])) if not pool.empty else {}
+        name_to_pool_id = dict(zip(pool["player_name"], pool["player_id"])) if not pool.empty else {}
         user_roster_ids = []
         if not user_roster.empty and "name" in user_roster.columns:
             for _, r in user_roster.iterrows():
@@ -109,7 +109,9 @@ else:
                         st.rerun()
 
             if pos_filter != "All":
-                fa_pool = fa_pool[fa_pool["positions"].str.contains(pos_filter, na=False)]
+                fa_pool = fa_pool[
+                    fa_pool["positions"].apply(lambda p: pos_filter in str(p).split(",") if pd.notna(p) else False)
+                ]
 
             if fa_pool.empty:
                 st.info(f"No free agents at position: {pos_filter}")

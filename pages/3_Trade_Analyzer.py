@@ -10,7 +10,7 @@ import time
 import pandas as pd
 import streamlit as st
 
-from src.database import init_db, load_league_rosters, load_player_pool
+from src.database import coerce_numeric_df, init_db, load_league_rosters, load_player_pool
 from src.injury_model import compute_health_score, get_injury_badge
 from src.league_manager import get_team_roster
 from src.ui_shared import METRIC_TOOLTIPS, PAGE_ICONS, T, inject_custom_css, render_styled_table
@@ -44,6 +44,7 @@ try:
     conn = get_connection()
     try:
         injury_df = pd.read_sql_query("SELECT * FROM injury_history", conn)
+        injury_df = coerce_numeric_df(injury_df)
     finally:
         conn.close()
     if not injury_df.empty and "player_id" in injury_df.columns:
@@ -405,6 +406,7 @@ else:
                                 params=(sys_name,),
                             )
                             if not df.empty:
+                                df = coerce_numeric_df(df)
                                 systems[sys_name] = df
                     finally:
                         conn.close()

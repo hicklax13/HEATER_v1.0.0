@@ -169,12 +169,16 @@ def compare_players(
         "WHIP": "whip",
     }
 
+    is_hitter_a = bool(pa.get("is_hitter", 1))
+    is_hitter_b = bool(pb.get("is_hitter", 1))
+
     z_a, z_b = {}, {}
     for cat in config.all_categories:
         col = stat_map[cat]
+        is_hitting_cat = cat in config.hitting_categories
 
         # Filter pool by player type so z-scores reflect the correct peer group
-        if cat in config.hitting_categories:
+        if is_hitting_cat:
             peer_pool = player_pool[player_pool["is_hitter"] == 1]
         else:
             peer_pool = player_pool[player_pool["is_hitter"] == 0]
@@ -191,12 +195,17 @@ def compare_players(
         val_a = float(pa.get(col, 0) or 0)
         val_b = float(pb.get(col, 0) or 0)
 
+        # Skip categories that don't apply to the player's type
+        # (hitters don't have meaningful ERA/WHIP, pitchers don't have meaningful R/HR/RBI/SB/AVG)
+        a_applicable = is_hitting_cat == is_hitter_a
+        b_applicable = is_hitting_cat == is_hitter_b
+
         if cat in config.inverse_stats:
-            z_a[cat] = -(val_a - mean) / std
-            z_b[cat] = -(val_b - mean) / std
+            z_a[cat] = -(val_a - mean) / std if a_applicable else 0.0
+            z_b[cat] = -(val_b - mean) / std if b_applicable else 0.0
         else:
-            z_a[cat] = (val_a - mean) / std
-            z_b[cat] = (val_b - mean) / std
+            z_a[cat] = (val_a - mean) / std if a_applicable else 0.0
+            z_b[cat] = (val_b - mean) / std if b_applicable else 0.0
 
     composite_a = sum(z_a.values())
     composite_b = sum(z_b.values())

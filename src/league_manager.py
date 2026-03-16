@@ -154,6 +154,17 @@ def get_team_roster(team_name: str) -> pd.DataFrame:
         )
     finally:
         conn.close()
+
+    # Coerce numeric columns (Python 3.13+ SQLite may return bytes)
+    int_cols = ["pa", "ab", "h", "r", "hr", "rbi", "sb", "w", "sv", "k", "er", "bb_allowed", "h_allowed"]
+    float_cols = ["avg", "ip", "era", "whip"]
+    for col in int_cols:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0).astype(int)
+    for col in float_cols:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0.0)
+
     return df
 
 
@@ -185,7 +196,9 @@ def get_free_agents(player_pool: pd.DataFrame) -> pd.DataFrame:
             conn.close()
 
     # Exclude players matched by EITHER id or name
-    name_col = "name" if "name" in player_pool.columns else None
+    name_col = (
+        "name" if "name" in player_pool.columns else ("player_name" if "player_name" in player_pool.columns else None)
+    )
     if name_col and rostered_names:
         mask = player_pool["player_id"].isin(rostered_ids) | player_pool[name_col].isin(rostered_names)
     else:
