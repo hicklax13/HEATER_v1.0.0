@@ -229,22 +229,25 @@ except Exception:
 
 standings = load_league_standings()
 
-# Build team totals from standings for H2H and SGP
+# Build team totals from standings for H2H and SGP.
+# league_standings is LONG format: one row per (team_name, category) with a
+# ``total`` column, NOT wide format with category names as column headers.
 team_totals: dict[str, dict[str, float]] = {}
 my_totals: dict[str, float] = {}
-if not standings.empty:
+if not standings.empty and "category" in standings.columns:
     for _, srow in standings.iterrows():
         tname = srow.get("team_name", "")
-        totals = {}
-        for cat in ALL_CATS:
-            val = srow.get(cat, 0)
-            try:
-                totals[cat] = float(val) if val is not None else 0.0
-            except (ValueError, TypeError):
-                totals[cat] = 0.0
-        team_totals[tname] = totals
+        cat = str(srow.get("category", "")).strip()
+        raw_total = srow.get("total", 0)
+        if not tname or not cat:
+            continue
+        try:
+            val = float(raw_total) if raw_total is not None else 0.0
+        except (ValueError, TypeError):
+            val = 0.0
+        team_totals.setdefault(tname, {})[cat] = val
         if tname == user_team_name:
-            my_totals = totals
+            my_totals[cat] = val
 
 # Fetch weekly schedule (cached in session state to avoid repeated API calls)
 week_schedule = []
@@ -537,7 +540,8 @@ with tab_h2h:
     elif not my_totals:
         st.info("League standings data required for H2H analysis. Sync your Yahoo league to get standings.")
     else:
-        st.subheader(f"Matchup Analysis: {user_team_name} vs {selected_opponent}")
+        _opp_display = "".join(c for c in selected_opponent if ord(c) < 0x10000).strip()
+        st.subheader(f"Matchup Analysis: {_display_team_name} vs {_opp_display}")
 
         # Compute win probabilities
         h2h_result = estimate_h2h_win_probability(my_totals, opp_totals)
@@ -803,8 +807,10 @@ with tab_analysis:
 
         maximin_assignments = maximin.get("assignments", {})
         if maximin_assignments:
-            maximin_data = [{"Slot": slot, "Player": player} for slot, player in maximin_assignments.items()]
-            render_styled_table(pd.DataFrame(maximin_data))
+            # maximin_lineup() returns {player_name: 0/1} — show only starters
+            maximin_data = [{"Player": name} for name, val in maximin_assignments.items() if val == 1]
+            if maximin_data:
+                render_styled_table(pd.DataFrame(maximin_data))
         st.caption(
             "The maximin lineup maximizes the WORST category instead of the total. "
             "Compare with your main lineup to see if you're sacrificing too much balance."
