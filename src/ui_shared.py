@@ -1275,7 +1275,7 @@ def inject_custom_css():
 
     /* Tabs — glassmorphic */
     .stTabs [data-baseweb="tab-list"] {{
-        gap: 0;
+        gap: 4px;
         background: rgba(255, 255, 255, 0.5);
         backdrop-filter: blur(8px);
         border-radius: 14px;
@@ -1288,6 +1288,7 @@ def inject_custom_css():
         letter-spacing: 1.5px;
         font-size: 13px;
         border-radius: 10px;
+        padding: 8px 16px !important;
         color: {t["tx2"]};
         transition: all 0.2s ease;
     }}

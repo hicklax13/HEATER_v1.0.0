@@ -144,7 +144,9 @@ if user_teams.empty:
     st.stop()
 
 user_team_name = user_teams.iloc[0]["team_name"]
-st.markdown(f"**Team:** {user_team_name}")
+# Strip emoji for display (Yahoo team names may contain emoji)
+_display_team_name = "".join(c for c in user_team_name if ord(c) < 0x10000).strip()
+st.markdown(f"**Team:** {_display_team_name}")
 
 roster = get_team_roster(user_team_name)
 if roster is None or roster.empty:
@@ -202,6 +204,10 @@ try:
 
     if not injury_df.empty:
         counting_cols = ["r", "hr", "rbi", "sb", "w", "sv", "k"]
+        # Cast int64 columns to float64 before applying fractional penalties
+        for col in counting_cols:
+            if col in roster.columns:
+                roster[col] = pd.to_numeric(roster[col], errors="coerce").astype(float)
         for idx, row in roster.iterrows():
             pid = row.get("player_id")
             pi = injury_df[injury_df["player_id"] == pid]
@@ -335,9 +341,7 @@ tab_optimize, tab_h2h, tab_streaming, tab_analysis, tab_roster = st.tabs(
 # ════════════════════════════════════════════════════════════════════
 
 with tab_optimize:
-    col1, col2 = st.columns([1, 4])
-    with col1:
-        optimize_clicked = st.button("Optimize Lineup", type="primary")
+    optimize_clicked = st.button("Optimize Lineup", type="primary")
 
     if optimize_clicked:
         progress_bar = st.progress(0, text="Initializing optimizer pipeline...")
@@ -428,7 +432,7 @@ with tab_optimize:
                     {
                         "Slot": slot,
                         "Player": player,
-                        "Health": badge,
+                        "Health": f"{badge} {label}",
                     }
                 )
             render_styled_table(pd.DataFrame(lineup_data))
@@ -481,17 +485,22 @@ with tab_optimize:
             bench = lineup.get("bench", [])
             if bench:
                 st.subheader("Bench")
+                # Build name->positions lookup from roster for bench display
+                name_col = "player_name" if "player_name" in roster.columns else "name"
+                _pos_lookup = dict(zip(roster[name_col].astype(str), roster["positions"].astype(str)))
                 bench_data = []
                 for entry in bench:
                     if isinstance(entry, dict):
+                        pname = entry.get("player_name", "")
                         bench_data.append(
                             {
-                                "Player": entry.get("player_name", ""),
-                                "Position": entry.get("positions", ""),
+                                "Player": pname,
+                                "Position": entry.get("positions", _pos_lookup.get(pname, "")),
                             }
                         )
                     else:
-                        bench_data.append({"Player": str(entry), "Position": ""})
+                        pname = str(entry)
+                        bench_data.append({"Player": pname, "Position": _pos_lookup.get(pname, "")})
                 if bench_data:
                     render_styled_table(pd.DataFrame(bench_data))
 
@@ -515,10 +524,16 @@ with tab_h2h:
     if not H2H_AVAILABLE:
         st.info("H2H analysis module not available. Ensure scipy is installed.")
     elif not selected_opponent or not opp_totals:
-        st.info(
-            "Select a H2H opponent above to see per-category win probabilities "
-            "and matchup-specific strategy recommendations."
-        )
+        if not opponent_names:
+            st.info(
+                "League standings required for H2H analysis. "
+                "Connect your Yahoo league in Connect League to import standings data."
+            )
+        else:
+            st.info(
+                "Select a H2H opponent above to see per-category win probabilities "
+                "and matchup-specific strategy recommendations."
+            )
     elif not my_totals:
         st.info("League standings data required for H2H analysis. Sync your Yahoo league to get standings.")
     else:
@@ -847,37 +862,31 @@ with tab_roster:
 
     # Add health badges
     try:
-        health_badges = []
+        health_labels = []
         for _, row in roster.iterrows():
             pid = row.get("player_id")
             hs = health_dict.get(pid, 1.0)
-            icon, _ = get_injury_badge(hs)
-            health_badges.append(icon)
+            _, label = get_injury_badge(hs)
+            health_labels.append(label)
         roster_display = roster.copy()
-        roster_display["Health"] = health_badges
+        roster_display["Health"] = health_labels
     except Exception:
         roster_display = roster.copy()
 
     if health_dict:
         st.caption("Health-adjusted projections: counting stats reduced by up to 15% based on injury history risk.")
 
-    # Build display columns
-    display_cols = ["player_name", "positions", "is_hitter", "Health"] + [
-        c for c in stat_cols if c in roster_display.columns
-    ]
+    # Build display columns — exclude is_hitter (internal) and use display names
+    display_cols = ["player_name", "positions", "Health"] + [c for c in stat_cols if c in roster_display.columns]
     display_cols = [c for c in display_cols if c in roster_display.columns]
 
     roster_show = roster_display[display_cols].copy()
-    roster_show["is_hitter"] = roster_show["is_hitter"].map(lambda x: "Yes" if x else "No")
-    roster_show = roster_show.rename(
-        columns={
-            "player_name": "Player",
-            "positions": "Position",
-            "is_hitter": "Hitter",
-        }
-    )
 
-    # Format numeric columns
+    # Format numeric columns before renaming
+    counting = ["r", "hr", "rbi", "sb", "w", "sv", "k"]
+    for col in counting:
+        if col in roster_show.columns:
+            roster_show[col] = pd.to_numeric(roster_show[col], errors="coerce").round(0).astype("Int64")
     for col in ["avg"]:
         if col in roster_show.columns:
             roster_show[col] = roster_show[col].apply(lambda v: f"{float(v):.3f}" if pd.notna(v) and v != 0 else "")
@@ -888,4 +897,12 @@ with tab_roster:
         if col in roster_show.columns:
             roster_show[col] = roster_show[col].apply(lambda v: f"{float(v):.3f}" if pd.notna(v) and v != 0 else "")
 
-    render_styled_table(roster_show)
+    # Rename all columns to user-friendly display names
+    col_rename = {
+        "player_name": "Player",
+        "positions": "Position",
+    }
+    col_rename.update({cat: CAT_DISPLAY_NAMES.get(cat, cat.upper()) for cat in stat_cols})
+    roster_show = roster_show.rename(columns=col_rename)
+
+    st.dataframe(roster_show, hide_index=True)
