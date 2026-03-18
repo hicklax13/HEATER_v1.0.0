@@ -1,8 +1,8 @@
 # HEATER — Fantasy Baseball Draft Tool
 
-A fantasy baseball draft assistant + in-season manager for Yahoo Sports 5x5 roto leagues. Features the **Heater** UI — a modern glassmorphic design system with vibrant thermal color palette, 3D inflatable buttons, kinetic gradient typography, and pill-based navigation. Monte Carlo draft recommendations, Bayesian projection updates, and full in-season roster management.
+A fantasy baseball draft assistant + in-season manager for Yahoo Sports H2H Categories leagues. Features the **Heater** UI — a modern glassmorphic design system with vibrant thermal color palette, 3D inflatable buttons, kinetic gradient typography, and pill-based navigation. Monte Carlo draft recommendations, Bayesian projection updates, and full in-season roster management.
 
-Built for the **FourzynBurn** league (12-team snake draft, 23 rounds). ~25,000 lines of Python across 60+ source files with 822 tests (36 test files). Zero CSV uploads — all data auto-fetched from MLB Stats API + FanGraphs on every launch. Zero emoji — all icons are inline SVGs.
+Built for the **FourzynBurn** league (12-team H2H Categories, snake draft, 23 rounds, 12 scoring categories). ~25,000 lines of Python across 60+ source files with 843 tests (36 test files). Zero CSV uploads — all data auto-fetched from MLB Stats API + FanGraphs on every launch. Zero emoji — all icons are inline SVGs.
 
 ## Overview
 
@@ -92,13 +92,13 @@ A 6-phase pipeline for rigorous trade evaluation:
 | Phase | Module | What It Does |
 |-------|--------|-------------|
 | **1. Deterministic SGP** | `portfolio/` | Peer-group z-scores, standings-based SGP denominators, marginal elasticity (1/gap), punt detection, LP lineup delta, weighted SGP delta → grade (A+ to F) |
-| **2. Stochastic MC** | `monte_carlo/` | Bayesian model averaging, KDE marginals, Gaussian copula (10×10 correlation matrix), 10K paired Monte Carlo sims → VaR, CVaR, Sharpe, confidence intervals |
+| **2. Stochastic MC** | `monte_carlo/` | Bayesian model averaging, KDE marginals, Gaussian copula (12×12 correlation matrix), 10K paired Monte Carlo sims → VaR, CVaR, Sharpe, confidence intervals |
 | **3. Signal Intelligence** | `signals/` | Statcast harvesting (barrel%, xwOBA), exponential decay weighting, Kalman filter (true talent vs noise), BOCPD changepoint detection, HMM regime classification |
 | **4. Contextual Adjustments** | `context/` | Log5 matchup probabilities, Weibull injury duration modeling, enhanced bench option value, HHI roster concentration risk |
 | **5. Game Theory** | `game_theory/` | Vickrey auction opponent valuation, Bayesian adverse selection discount, Bellman DP rollout (future trade option value), sensitivity analysis + counter-offer generation |
 | **6. Production** | `production/` | Monte Carlo convergence diagnostics (ESS, split-R̂), adaptive simulation scaling, precomputation cache with TTL |
 
-207 dedicated tests across 6 test files verify each phase independently and in integration.
+219 dedicated tests across 6 test files verify each phase independently and in integration.
 
 ### Enhanced Lineup Optimizer (`src/optimizer/`)
 
@@ -114,7 +114,7 @@ An 11-module pipeline with 20 mathematical techniques for lineup optimization:
 | **Streaming** | Pitcher streaming value (counting SGP - rate damage), two-start quantification, optimal schedule |
 | **Scenario Generator** | Gaussian copula correlated scenarios, mean-variance adjustments, CVaR linearization |
 | **Multi-Period** | Rolling horizon optimization with discount factor, season balance urgency weights |
-| **Dual Objective** | H2H/Roto weight blending (alpha parameter), auto-alpha recommendation |
+| **Dual Objective** | H2H/season-long weight blending (alpha parameter), auto-alpha recommendation |
 | **Advanced LP** | Maximin LP (balanced worst-category), epsilon-constraint (Pareto frontier), stochastic MIP |
 
 204 dedicated tests across 10 test files. 5-tab Streamlit UI: Optimize, H2H Matchup, Streaming, Category Analysis, Roster.
@@ -218,7 +218,7 @@ src/
     streaming.py        — Pitcher streaming value, two-start quantification, optimal schedule
     scenario_generator.py — Gaussian copula scenarios, mean-variance adjustments, CVaR linearization
     multi_period.py     — Rolling horizon optimization with discount factor, season balance urgency
-    dual_objective.py   — H2H/Roto weight blending (alpha parameter), auto-alpha recommendation
+    dual_objective.py   — H2H/season-long weight blending (alpha parameter), auto-alpha recommendation
     advanced_lp.py      — Maximin LP, epsilon-constraint (Pareto frontier), stochastic MIP
   engine/               — Trade Analyzer Engine (6 phases, 11 modules)
     portfolio/          — Z-score valuation, category analysis, LP lineup optimization, Gaussian copula
@@ -229,7 +229,7 @@ src/
     context/            — Log5 matchups, Weibull injury process, bench value, concentration risk
     game_theory/        — Opponent valuation, adverse selection, Bellman DP rollout, sensitivity analysis
     production/         — Convergence diagnostics, adaptive sim scaling, precomputation cache
-tests/                  — 822 tests (36 test files), 822 pass, 1 skipped (PyMC)
+tests/                  — 843 tests (36 test files), 843 pass, 1 skipped (PyMC)
 data/                   — SQLite DB + draft state backups (gitignored)
 .github/
   workflows/ci.yml      — CI pipeline (lint + test + build)
@@ -281,7 +281,7 @@ ruff check .
 # Format
 ruff format .
 
-# Run all tests (822 pass, 1 skipped for PyMC)
+# Run all tests (843 pass, 1 skipped for PyMC)
 python -m pytest
 
 # Run with verbose output
@@ -311,8 +311,9 @@ All optional features degrade gracefully when dependencies are missing.
 
 - **League:** FourzynBurn (Yahoo Sports)
 - **Team:** Team Hickey
-- **Format:** 12-team snake draft, 23 rounds
-- **Scoring:** 5x5 roto (R, HR, RBI, SB, AVG / W, SV, K, ERA, WHIP)
+- **Format:** 12-team snake draft, 23 rounds, Head-to-Head Categories
+- **Hitting cats (6):** R, HR, RBI, SB, AVG, OBP
+- **Pitching cats (6):** W, L, SV, K, ERA, WHIP
 - **Roster:** C/1B/2B/3B/SS/3OF/2Util/2SP/2RP/4P/5BN = 23 slots
 
 ## License
