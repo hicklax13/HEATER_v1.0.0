@@ -106,9 +106,8 @@ src/
   adp_sources.py        — Multi-source ADP: FantasyPros ECR scraper + NFBC ADP scraper, name→player_id resolution
   contract_data.py      — Contract year detection from Baseball Reference free agent list scraper
   depth_charts.py       — FanGraphs depth chart scraper, role classification (starter/platoon/closer/setup/committee)
-  extended_projections.py — ATC/THE BAT/THE BAT X fetcher (FanGraphs JSON API), 10 new schema columns
   marcel.py             — Marcel projection system: 3yr weighted avg (5/4/3) with regression to mean + age adjustment
-  engine_output.py      — Draft board output enrichment: composite value (0-100), position/overall ranks, confidence level, LAST CHANCE badge
+  backtesting.py        — Draft engine accuracy backtesting: projected vs actual comparison, RMSE, rank correlation, value capture rate
   scheduler.py          — Background data refresh daemon thread (5-min interval, staleness-aware, idempotent start/stop)
   optimizer/            — Enhanced Lineup Optimizer (11 modules, 20 mathematical techniques)
     __init__.py         — Package exports with lazy import documentation

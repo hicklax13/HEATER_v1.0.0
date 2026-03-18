@@ -259,6 +259,8 @@ class DraftSimulator:
         team_positions: dict = None,
         use_percentile_sampling: bool = False,
         sgp_volatility: np.ndarray | None = None,
+        category_weights: dict[str, float] | None = None,
+        per_category_sgp: np.ndarray | None = None,
     ) -> dict:
         """Run Monte Carlo draft simulations for a candidate pick.
 
@@ -284,6 +286,15 @@ class DraftSimulator:
             sgp_volatility: Array of per-player SGP volatility (aligned
                 with *sgp_values*). Required when *use_percentile_sampling*
                 is True; ignored otherwise.
+            category_weights: Optional dict mapping category name (lowercase)
+                to weight float. When provided together with *per_category_sgp*,
+                user-pick selection uses weighted per-category SGP instead of
+                raw total SGP. Backward-compatible: when None, behavior is
+                unchanged.
+            per_category_sgp: Optional array of shape (n_players, n_categories)
+                containing per-category SGP values aligned with *available_ids*.
+                Categories are ordered as ``self.config.all_categories``.
+                Required when *category_weights* is not None; ignored otherwise.
 
         Returns:
             dict with 'mean_sgp', 'std_sgp', 'p25_sgp', and
@@ -343,7 +354,17 @@ class DraftSimulator:
                     team_idx = num_teams - 1 - pos_in_round
 
                 if team_idx == user_team_index:
-                    avail_sgp = np.where(is_available, sim_sgp, -999)
+                    # Category-aware pick selection: weight per-category SGP
+                    if category_weights is not None and per_category_sgp is not None:
+                        weighted = np.zeros(n_players)
+                        for cat_idx, cat in enumerate(self.config.all_categories):
+                            cat_lower = cat.lower()
+                            w = category_weights.get(cat_lower, 1.0)
+                            if cat_idx < per_category_sgp.shape[1]:
+                                weighted += per_category_sgp[:, cat_idx] * w
+                        avail_sgp = np.where(is_available, weighted, -999)
+                    else:
+                        avail_sgp = np.where(is_available, sim_sgp, -999)
                     best_idx = np.argmax(avail_sgp)
                     is_available[best_idx] = False
                     user_sgp_total += sim_sgp[best_idx]
@@ -423,6 +444,8 @@ class DraftSimulator:
         n_simulations: int = 300,
         use_percentile_sampling: bool = False,
         sgp_volatility: np.ndarray | None = None,
+        category_weights: dict[str, float] | None = None,
+        per_category_sgp: np.ndarray | None = None,
     ) -> pd.DataFrame:
         """Evaluate the top N candidate picks using Monte Carlo simulation.
 
@@ -437,6 +460,13 @@ class DraftSimulator:
             sgp_volatility: Per-player SGP volatility array aligned with
                 player_pool. Required when use_percentile_sampling is True;
                 ignored otherwise.
+            category_weights: Optional dict mapping category name (lowercase)
+                to weight float for category-aware MC pick selection.
+                Passed through to simulate_draft().
+            per_category_sgp: Optional array of shape (n_players, n_categories)
+                for category-aware MC pick selection. When provided, must
+                be aligned with *player_pool*; this method re-aligns it to
+                the available subset before passing to simulate_draft().
 
         Returns:
             DataFrame with simulation results for each candidate.
@@ -466,6 +496,19 @@ class DraftSimulator:
             aligned_vol = vol_series.reindex(available["player_id"].values).fillna(0.0).values
         else:
             aligned_vol = None
+
+        # Re-align per_category_sgp to the available subset
+        aligned_cat_sgp = None
+        if category_weights is not None and per_category_sgp is not None:
+            pool_ids = player_pool["player_id"].values
+            avail_ids_set = set(available["player_id"].values)
+            # Build index mapping: pool position -> available position
+            avail_indices = [i for i, pid in enumerate(pool_ids) if pid in avail_ids_set]
+            if len(avail_indices) == len(available):
+                aligned_cat_sgp = per_category_sgp[avail_indices]
+            else:
+                # Fallback: disable category-aware selection
+                aligned_cat_sgp = None
 
         user_needs = set(draft_state.user_team.open_positions())
         current_pick = draft_state.current_pick
@@ -500,6 +543,8 @@ class DraftSimulator:
                 team_positions=team_positions,
                 use_percentile_sampling=use_percentile_sampling,
                 sgp_volatility=aligned_vol,
+                category_weights=category_weights,
+                per_category_sgp=aligned_cat_sgp,
             )
 
             p_survive = self.survival_probability(
