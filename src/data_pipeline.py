@@ -34,6 +34,9 @@ SYSTEM_MAP = {
     "steamer": "steamer",
     "zips": "zips",
     "fangraphsdc": "depthcharts",
+    "atc": "atc",
+    "thebat": "thebat",
+    "thebatx": "thebatx",
 }
 
 SYSTEMS = list(SYSTEM_MAP.keys())
