@@ -422,9 +422,7 @@ class TestFanGraphsExtraction:
 
         conn = get_connection()
         try:
-            row = conn.execute(
-                "SELECT fip, xfip, siera FROM projections WHERE system='steamer'"
-            ).fetchone()
+            row = conn.execute("SELECT fip, xfip, siera FROM projections WHERE system='steamer'").fetchone()
             assert row is not None
             assert float(row[0]) == pytest.approx(3.40)
             assert float(row[1]) == pytest.approx(3.30)
@@ -449,21 +447,21 @@ class TestYahooADP:
         assert hasattr(client, "fetch_yahoo_adp")
         assert callable(client.fetch_yahoo_adp)
 
-    def test_fetch_yahoo_adp_returns_dataframe(self):
-        """fetch_yahoo_adp should return a DataFrame."""
+    def test_fetch_yahoo_adp_returns_list(self):
+        """fetch_yahoo_adp should return a list of dicts."""
         from src.yahoo_api import YahooFantasyClient
 
         client = YahooFantasyClient(league_id="12345")
         result = client.fetch_yahoo_adp()
-        assert isinstance(result, pd.DataFrame)
+        assert isinstance(result, list)
 
     def test_fetch_yahoo_adp_unauthenticated_returns_empty(self):
-        """fetch_yahoo_adp should return empty DataFrame when not authenticated."""
+        """fetch_yahoo_adp should return empty list when not authenticated."""
         from src.yahoo_api import YahooFantasyClient
 
         client = YahooFantasyClient(league_id="12345")
         result = client.fetch_yahoo_adp()
-        assert result.empty
+        assert result == []
 
 
 # ---------------------------------------------------------------------------
@@ -591,7 +589,7 @@ class TestDraftStateFix:
         ds = DraftState(num_teams=2, num_rounds=1, user_team_index=0)
         pool = self._make_pool()
 
-        ds.make_pick(1, "Hitter One", "SS")   # pick 0 -> team 0
+        ds.make_pick(1, "Hitter One", "SS")  # pick 0 -> team 0
         ds.make_pick(2, "Pitcher One", "SP")  # pick 1 -> team 1
 
         all_totals = ds.get_all_team_roster_totals(pool)
@@ -661,9 +659,7 @@ class TestUpsertPlayerBulkNewFields:
 
         conn = get_connection()
         try:
-            row = conn.execute(
-                "SELECT bats, throws, birth_date FROM players WHERE name = 'Test Player'"
-            ).fetchone()
+            row = conn.execute("SELECT bats, throws, birth_date FROM players WHERE name = 'Test Player'").fetchone()
             assert row is not None
             assert row[0] == "R"
             assert row[1] == "R"
@@ -689,9 +685,7 @@ class TestUpsertPlayerBulkNewFields:
 
         conn = get_connection()
         try:
-            row = conn.execute(
-                "SELECT bats, throws, birth_date FROM players WHERE name = 'Test Player'"
-            ).fetchone()
+            row = conn.execute("SELECT bats, throws, birth_date FROM players WHERE name = 'Test Player'").fetchone()
             assert row is not None
             # Should be None/NULL when not provided
         finally:
@@ -710,9 +704,7 @@ class TestSampleDataUpdates:
         """_make_hitter should include bats parameter."""
         from src.data_2026 import _make_hitter
 
-        result = _make_hitter(
-            "Test", "NYY", "SS", 600, 30, 15, 0.280, 90, 95, 10, bats="L"
-        )
+        result = _make_hitter("Test", "NYY", "SS", 600, 30, 15, 0.280, 90, 95, 10, bats="L")
         assert result["bats"] == "L"
 
     def test_make_hitter_default_bats(self):
@@ -726,36 +718,28 @@ class TestSampleDataUpdates:
         """_make_pitcher should include throws parameter."""
         from src.data_2026 import _make_pitcher
 
-        result = _make_pitcher(
-            "Test", "NYY", "SP", 180, 12, 0, 200, 3.50, 1.15, 50, throws="L"
-        )
+        result = _make_pitcher("Test", "NYY", "SP", 180, 12, 0, 200, 3.50, 1.15, 50, throws="L")
         assert result["throws"] == "L"
 
     def test_make_pitcher_default_throws(self):
         """_make_pitcher should default throws to 'R' when not provided."""
         from src.data_2026 import _make_pitcher
 
-        result = _make_pitcher(
-            "Test", "NYY", "SP", 180, 12, 0, 200, 3.50, 1.15, 50
-        )
+        result = _make_pitcher("Test", "NYY", "SP", 180, 12, 0, 200, 3.50, 1.15, 50)
         assert result["throws"] == "R"
 
     def test_make_pitcher_has_fip(self):
         """_make_pitcher should include fip parameter."""
         from src.data_2026 import _make_pitcher
 
-        result = _make_pitcher(
-            "Test", "NYY", "SP", 180, 12, 0, 200, 3.50, 1.15, 50, fip=3.40
-        )
+        result = _make_pitcher("Test", "NYY", "SP", 180, 12, 0, 200, 3.50, 1.15, 50, fip=3.40)
         assert result["fip"] == 3.40
 
     def test_make_pitcher_default_fip(self):
         """_make_pitcher should derive FIP from ERA when not provided."""
         from src.data_2026 import _make_pitcher
 
-        result = _make_pitcher(
-            "Test", "NYY", "SP", 180, 12, 0, 200, 3.50, 1.15, 50
-        )
+        result = _make_pitcher("Test", "NYY", "SP", 180, 12, 0, 200, 3.50, 1.15, 50)
         # Default: fip ~= ERA - 0.10
         assert "fip" in result
         assert result["fip"] == pytest.approx(3.40, abs=0.01)
@@ -764,36 +748,26 @@ class TestSampleDataUpdates:
         """_make_pitcher should include xfip parameter."""
         from src.data_2026 import _make_pitcher
 
-        result = _make_pitcher(
-            "Test", "NYY", "SP", 180, 12, 0, 200, 3.50, 1.15, 50, xfip=3.30
-        )
+        result = _make_pitcher("Test", "NYY", "SP", 180, 12, 0, 200, 3.50, 1.15, 50, xfip=3.30)
         assert result["xfip"] == 3.30
 
     def test_make_pitcher_has_siera(self):
         """_make_pitcher should include siera parameter."""
         from src.data_2026 import _make_pitcher
 
-        result = _make_pitcher(
-            "Test", "NYY", "SP", 180, 12, 0, 200, 3.50, 1.15, 50, siera=3.20
-        )
+        result = _make_pitcher("Test", "NYY", "SP", 180, 12, 0, 200, 3.50, 1.15, 50, siera=3.20)
         assert result["siera"] == 3.20
 
     def test_make_hitter_has_birth_date(self):
         """_make_hitter should accept birth_date parameter."""
         from src.data_2026 import _make_hitter
 
-        result = _make_hitter(
-            "Test", "NYY", "SS", 600, 30, 15, 0.280, 90, 95, 10,
-            birth_date="1998-05-15"
-        )
+        result = _make_hitter("Test", "NYY", "SS", 600, 30, 15, 0.280, 90, 95, 10, birth_date="1998-05-15")
         assert result["birth_date"] == "1998-05-15"
 
     def test_make_pitcher_has_birth_date(self):
         """_make_pitcher should accept birth_date parameter."""
         from src.data_2026 import _make_pitcher
 
-        result = _make_pitcher(
-            "Test", "NYY", "SP", 180, 12, 0, 200, 3.50, 1.15, 50,
-            birth_date="2000-01-20"
-        )
+        result = _make_pitcher("Test", "NYY", "SP", 180, 12, 0, 200, 3.50, 1.15, 50, birth_date="2000-01-20")
         assert result["birth_date"] == "2000-01-20"
