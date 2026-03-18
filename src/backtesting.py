@@ -120,7 +120,7 @@ class BacktestEngine:
         Returns:
             DataFrame of actual stats with player_id and stat columns.
         """
-        season = season or self.season
+        season = self.season if season is None else season
 
         # Try database first
         try:
@@ -286,9 +286,9 @@ class BacktestEngine:
 
         for cat in ALL_EVAL_CATEGORIES:
             proj_col = f"{cat}_proj" if f"{cat}_proj" in merged.columns else cat
-            actual_col = f"{cat}_actual" if f"{cat}_actual" in merged.columns else None
+            actual_col = f"{cat}_actual" if f"{cat}_actual" in merged.columns else cat
 
-            if actual_col is None or proj_col not in merged.columns:
+            if actual_col not in merged.columns or proj_col not in merged.columns:
                 continue
 
             proj_vals = pd.to_numeric(merged[proj_col], errors="coerce").fillna(0)
@@ -327,7 +327,7 @@ class BacktestEngine:
         metrics["category_win_rate"] = win_count / total_cats if total_cats > 0 else 0.0
 
         # Value capture rate: SGP captured vs pool average
-        metrics["value_capture_rate"] = self._compute_value_capture(projected_roster)
+        metrics["value_capture_rate"] = self._compute_value_capture(projected_roster, pool=actual_stats)
 
         # Bust rate: picks below replacement level
         metrics["bust_rate"] = self._compute_bust_rate(projected_roster, actual_stats)
@@ -488,6 +488,14 @@ class BacktestEngine:
         if merged.empty:
             return 0.0
 
+        # Compute replacement level from full pool (not just roster)
+        all_sgps = []
+        for _, row in actual_stats.iterrows():
+            sgp = self.sgp_calc.total_sgp(row)
+            all_sgps.append(sgp)
+        all_sgps_arr = np.array(all_sgps)
+        replacement_level = float(np.percentile(all_sgps_arr, 25))
+
         # Compute actual SGP for each rostered player
         actual_sgps = []
         for _, row in merged.iterrows():
@@ -495,10 +503,6 @@ class BacktestEngine:
             actual_sgps.append(sgp)
 
         actual_sgps_arr = np.array(actual_sgps)
-
-        # Replacement level: 25th percentile of actual SGP values
-        # (approximation when full pool actuals are not available)
-        replacement_level = float(np.percentile(actual_sgps_arr, 25))
 
         busts = int(np.sum(actual_sgps_arr < replacement_level))
         return float(busts / len(actual_sgps_arr))

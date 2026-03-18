@@ -189,12 +189,15 @@ def fetch_nfbc_adp() -> pd.DataFrame:
                     except (ValueError, TypeError):
                         pass
             else:
-                # Fallback: heuristic scan — name is first alpha cell, ADP is first float
+                # Fallback: heuristic scan — name is first alpha cell,
+                # ADP is first float AFTER the name cell (skip rank column).
+                name_found = False
                 for cell in cells:
                     text = cell.get_text(strip=True)
-                    if text and any(c.isalpha() for c in text) and not player_name:
+                    if not name_found and text and any(c.isalpha() for c in text):
                         player_name = text
-                    else:
+                        name_found = True
+                    elif name_found and player_name:
                         try:
                             val = float(text)
                             if nfbc_adp is None and 0 < val < 1000:
@@ -243,7 +246,7 @@ def compute_composite_adp(row: dict) -> float:
         if val is not None:
             try:
                 fval = float(val)
-                if not math.isnan(fval) and fval > 0:
+                if not math.isnan(fval) and not math.isinf(fval) and fval > 0:
                     return fval
             except (ValueError, TypeError):
                 continue

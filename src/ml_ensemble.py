@@ -36,7 +36,7 @@ MIN_TRAINING_SAMPLES: int = 50
 DEFAULT_PARAMS: dict = {
     "objective": "reg:squarederror",
     "max_depth": 4,
-    "learning_rate": 0.05,
+    "eta": 0.05,
     "n_estimators": 100,
     "subsample": 0.8,
     "colsample_bytree": 0.8,
@@ -58,8 +58,6 @@ class DraftMLEnsemble:
     Used as SUPPLEMENTAL signal (weight=0.1), not primary.
     Falls back to zero corrections when model unavailable.
     """
-
-    MODEL_AVAILABLE: bool = False  # Set True when trained model exists
 
     FEATURE_COLUMNS: list[str] = [
         "age",
@@ -84,7 +82,6 @@ class DraftMLEnsemble:
                 try:
                     self._model = xgb.Booster()
                     self._model.load_model(str(model_file))
-                    DraftMLEnsemble.MODEL_AVAILABLE = True
                     logger.info("Loaded ML model from %s", model_path)
                 except Exception as exc:
                     logger.warning("Could not load ML model: %s", exc)
@@ -206,8 +203,6 @@ class DraftMLEnsemble:
                 dtrain,
                 num_boost_round=num_rounds,
             )
-            DraftMLEnsemble.MODEL_AVAILABLE = True
-
             # Compute training metrics
             preds = self._model.predict(dtrain)
             residuals = target.values - preds
@@ -262,6 +257,11 @@ class DraftMLEnsemble:
             return dict(model.get_score(importance_type="gain"))
         except Exception:
             return {}
+
+    @property
+    def MODEL_AVAILABLE(self) -> bool:
+        """Backward-compat property. Use is_ready instead."""
+        return self.is_ready
 
     @property
     def is_ready(self) -> bool:

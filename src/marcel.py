@@ -50,7 +50,7 @@ LEAGUE_AVG_HITTING: dict[str, float] = {
 LEAGUE_AVG_PITCHING: dict[str, float] = {
     "w": 9.0,
     "l": 9.0,
-    "sv": 0.0,
+    "sv": 2.0,
     "k": 160.0,
     "era": 4.20,
     "whip": 1.28,
@@ -166,9 +166,8 @@ def _weighted_rate_projection(
     total_weighted_stat = 0.0
 
     for stat_val, year_weight, pa in valid:
-        effective_pa = pa * year_weight
-        total_weighted_pa += effective_pa
-        total_weighted_stat += stat_val * effective_pa
+        total_weighted_pa += year_weight
+        total_weighted_stat += stat_val * year_weight
 
     if total_weighted_pa == 0:
         return league_avg
@@ -287,15 +286,6 @@ def project_player_marcel(
     )
     # PA/IP also subject to age adjustment (older players lose playing time)
     projection[pa_key] = max(0.0, pa_projection * age_adj)
-
-    # Scale counting stats by projected PA relative to full season
-    if not is_hitter:
-        # Pitcher counting stats scale with IP
-        ip_ratio = projection.get("ip", full_season) / full_season if full_season else 1.0
-        for stat in stat_cats:
-            if stat not in RATE_STATS:
-                # Already computed relative to historical totals; no extra scaling
-                pass
 
     return projection
 

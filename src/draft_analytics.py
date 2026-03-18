@@ -323,11 +323,11 @@ def compute_streaming_draft_value(
     k = float(pitcher.get("k", 0) or 0)
 
     # RP / closers — saves are scarce and not streamable
-    if sv > _SAVES_STREAMABLE_THRESHOLD:
+    if sv >= _SAVES_STREAMABLE_THRESHOLD:
         return 0.0
 
     # Elite ERA anchor — keep
-    if era > 0 and era < _ELITE_ERA_THRESHOLD:
+    if ip > 0 and era < _ELITE_ERA_THRESHOLD:
         return 0.0
 
     # Low IP → barely rosterable anyway, small penalty

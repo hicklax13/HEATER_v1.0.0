@@ -920,7 +920,7 @@ def check_staleness(source: str, max_age_hours: float) -> bool:
 def upsert_player_bulk(players: list[dict]) -> int:
     """Bulk upsert players. Each dict needs: name, team, positions, is_hitter.
 
-    Optional: mlb_id, bats, throws, birth_date.
+    Optional: mlb_id, bats, throws, birth_date, roster_type.
 
     Uses SELECT-first approach since players table has no UNIQUE constraint on name.
     """
@@ -933,22 +933,44 @@ def upsert_player_bulk(players: list[dict]) -> int:
             bats = p.get("bats")
             throws = p.get("throws")
             birth_date = p.get("birth_date")
+            roster_type = p.get("roster_type", "active")
             if existing:
                 conn.execute(
                     """UPDATE players SET team = ?, positions = ?, is_hitter = ?,
                        mlb_id = COALESCE(?, mlb_id),
                        bats = COALESCE(?, bats),
                        throws = COALESCE(?, throws),
-                       birth_date = COALESCE(?, birth_date)
+                       birth_date = COALESCE(?, birth_date),
+                       roster_type = COALESCE(?, roster_type)
                        WHERE player_id = ?""",
-                    (p["team"], p["positions"], int(p["is_hitter"]), mlb_id, bats, throws, birth_date, existing[0]),
+                    (
+                        p["team"],
+                        p["positions"],
+                        int(p["is_hitter"]),
+                        mlb_id,
+                        bats,
+                        throws,
+                        birth_date,
+                        roster_type,
+                        existing[0],
+                    ),
                 )
             else:
                 conn.execute(
                     """INSERT INTO players (name, team, positions, is_hitter, is_injured,
-                       mlb_id, bats, throws, birth_date)
-                       VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?)""",
-                    (p["name"], p["team"], p["positions"], int(p["is_hitter"]), mlb_id, bats, throws, birth_date),
+                       mlb_id, bats, throws, birth_date, roster_type)
+                       VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?, ?)""",
+                    (
+                        p["name"],
+                        p["team"],
+                        p["positions"],
+                        int(p["is_hitter"]),
+                        mlb_id,
+                        bats,
+                        throws,
+                        birth_date,
+                        roster_type,
+                    ),
                 )
             saved += 1
         conn.commit()

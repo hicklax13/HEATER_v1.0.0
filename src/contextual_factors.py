@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 # ── Constants ─────────────────────────────────────────────────────────
 
 # Closer-role SV thresholds and associated bonuses
-_CLOSER_SV_THRESHOLD: int = 25
+_CLOSER_SV_THRESHOLD: int = 20
 _SETUP_SV_THRESHOLD: int = 15
 _COMMITTEE_SV_THRESHOLD: int = 5
 
@@ -142,9 +142,9 @@ def detect_closer_role(player: pd.Series) -> dict:
 
     Thresholds
     ----------
-    * SV >= 25 → **Closer** (confidence 0.9, bonus scales linearly
-      from +1.5 at SV=25 to +2.0 at SV>=35, capped at 2.0)
-    * SV 15-24 → **Setup** (confidence 0.6, bonus +0.5)
+    * SV >= 20 → **Closer** (confidence 0.9, bonus scales linearly
+      from +1.5 at SV=20 to +2.0 at SV>=30, capped at 2.0)
+    * SV 15-19 → **Setup** (confidence 0.6, bonus +0.5)
     * SV 5-14  → **Committee** (confidence 0.4, bonus +0.3)
     * SV < 5 or not RP → **Middle** (confidence 0.0, bonus 0.0)
 
@@ -168,15 +168,15 @@ def detect_closer_role(player: pd.Series) -> dict:
         return middle
 
     positions = str(player.get("positions", ""))
-    if "RP" not in positions.upper() and is_hitter is not False and is_hitter != 0:
+    if "RP" not in positions.upper():
         # If we can't confirm this is a pitcher AND can't find RP, bail
         return middle
 
     sv = float(player.get("sv", 0) or 0)
 
     if sv >= _CLOSER_SV_THRESHOLD:
-        # Linear bonus: 1.5 at SV=25, increasing by 0.05 per SV up to 2.0
-        bonus = np.clip(1.5 + (sv - 25) * 0.05, 1.5, 2.0)
+        # Linear bonus: 1.5 at threshold, increasing by 0.05 per SV up to 2.0
+        bonus = np.clip(1.5 + (sv - _CLOSER_SV_THRESHOLD) * 0.05, 1.5, 2.0)
         return {
             "role": "Closer",
             "confidence": _CLOSER_CONFIDENCE,
@@ -272,7 +272,7 @@ def compute_lineup_protection(player: pd.Series) -> float:
         Additive SGP bonus >= 0.0.
     """
     is_hitter = player.get("is_hitter", None)
-    if is_hitter is False or is_hitter == 0:
+    if not (is_hitter is True or is_hitter == 1):
         return 0.0
 
     sb = float(player.get("sb", 0) or 0)

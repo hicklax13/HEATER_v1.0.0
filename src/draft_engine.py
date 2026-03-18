@@ -85,10 +85,6 @@ except ImportError:
 
 # ── Constants ──────────────────────────────────────────────────────
 
-# Counting stat columns affected by park factors
-COUNTING_HITTING_STATS: list[str] = ["r", "hr", "rbi", "sb", "h"]
-COUNTING_PITCHING_STATS: list[str] = ["w", "sv", "k"]
-
 # Default health score when column is missing
 DEFAULT_HEALTH_SCORE: float = 0.85
 
@@ -467,14 +463,14 @@ class DraftRecommendationEngine:
         # For each row, store {position: rank}
         row_pos_ranks: list[dict[str, int]] = [{} for _ in range(len(candidates))]
 
-        for idx, row in candidates.iterrows():
+        for i, (idx, row) in enumerate(candidates.iterrows()):
             positions_str = row.get("positions", "")
             if not positions_str or not isinstance(positions_str, str):
                 continue
             pos_list = [p.strip() for p in positions_str.split(",") if p.strip()]
             for pos in pos_list:
                 pos_counters[pos] = pos_counters.get(pos, 0) + 1
-                row_pos_ranks[idx][pos] = pos_counters[pos]
+                row_pos_ranks[i][pos] = pos_counters[pos]
 
         result = []
         for ranks in row_pos_ranks:
@@ -623,7 +619,13 @@ class DraftRecommendationEngine:
                     age = int(age)
                 except (ValueError, TypeError):
                     age = None
-            is_pitcher = not bool(row.get("is_hitter", True))
+            is_hitter_val = row.get("is_hitter", None)
+            if is_hitter_val is None:
+                # Infer from position if is_hitter column missing
+                positions = str(row.get("positions", ""))
+                is_pitcher = any(p in positions for p in ("SP", "RP"))
+            else:
+                is_pitcher = not bool(is_hitter_val)
             try:
                 return estimate_injury_probability(
                     health_score=hs,
