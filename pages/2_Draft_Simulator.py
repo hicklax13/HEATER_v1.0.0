@@ -9,7 +9,7 @@ import streamlit as st
 from src.database import init_db, load_player_pool
 from src.draft_state import DraftState
 from src.simulation import DraftSimulator
-from src.ui_shared import T, inject_custom_css, render_styled_table
+from src.ui_shared import METRIC_TOOLTIPS, T, inject_custom_css, render_styled_table
 from src.valuation import (
     LeagueConfig,
     SGPCalculator,
@@ -24,6 +24,13 @@ try:
     _HAS_DRAFT_ENGINE = True
 except ImportError:
     _HAS_DRAFT_ENGINE = False
+
+try:
+    from src.draft_grader import grade_draft
+
+    _HAS_DRAFT_GRADER = True
+except ImportError:
+    _HAS_DRAFT_GRADER = False
 
 st.set_page_config(page_title="Heater | Draft Simulator", page_icon="", layout="wide")
 
@@ -422,11 +429,157 @@ def render_draft_summary(pool: pd.DataFrame, ds: DraftState) -> None:
     rows = [{"Slot": s.position, "Player": s.player_name or "—"} for s in ds.user_team.slots]
     render_styled_table(pd.DataFrame(rows))
 
+    # ── Draft Report Card ──────────────────────────────────────────────────
+    if _HAS_DRAFT_GRADER:
+        _render_draft_report_card(pool, ds)
+
     if st.button("Start New Mock Draft", type="primary"):
         for key in list(st.session_state.keys()):
             if key.startswith("mock_"):
                 del st.session_state[key]
         st.rerun()
+
+
+# ── Draft Report Card ───────────────────────────────────────────────────────
+
+
+def _render_draft_report_card(pool: pd.DataFrame, ds: DraftState) -> None:
+    """Show detailed draft analysis using the draft grader module."""
+    with st.expander("Draft Report Card", expanded=False):
+        # Build draft_picks list from pick_log (user picks only)
+        lc: LeagueConfig = st.session_state.get("mock_lc", LeagueConfig())
+        num_teams = int(st.session_state.get("mock_num_teams", lc.num_teams))
+        user_picks = []
+        for entry in ds.pick_log:
+            if entry.get("team_index") == 0:  # user is always team 0
+                pick_num = entry.get("pick", 0)
+                round_num = (pick_num // num_teams) + 1
+                user_picks.append(
+                    {
+                        "round": round_num,
+                        "pick_number": pick_num,
+                        "player_id": entry.get("player_id"),
+                        "player_name": entry.get("player_name", "Unknown"),
+                    }
+                )
+
+        if not user_picks:
+            st.info("No user picks found to grade.")
+            return
+
+        try:
+            report = grade_draft(user_picks, pool, lc)
+        except Exception as e:
+            st.error(f"Draft grading failed: {e}")
+            return
+
+        if report.get("overall_grade") == "N/A":
+            st.info("Not enough data to grade the draft.")
+            return
+
+        # Overall grade banner
+        grade = report["overall_grade"]
+        score = report.get("overall_score", 0)
+        if grade.startswith("A"):
+            gc = T["green"]
+        elif grade.startswith("B"):
+            gc = T["sky"]
+        elif grade.startswith("C"):
+            gc = T["hot"]
+        else:
+            gc = T["danger"]
+
+        st.markdown(
+            f'<div class="glass" style="border:2px solid {gc};padding:20px;text-align:center;margin:12px 0;">'
+            f'<span style="font-family:Bebas Neue,sans-serif;font-size:48px;color:{gc};'
+            f'font-weight:900;">{grade}</span>'
+            f'<div style="color:{T["tx2"]};font-size:14px;margin-top:4px;">'
+            f"Composite Score: {score:.2f}</div></div>",
+            unsafe_allow_html=True,
+        )
+
+        # Component breakdown
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Team Value (40%)", f"{report.get('team_value_score', 0):.2f}")
+        c2.metric("Pick Efficiency (35%)", f"{report.get('pick_efficiency_score', 0):.2f}")
+        c3.metric("Category Balance (25%)", f"{report.get('category_balance_score', 0):.2f}")
+
+        # Steals and Reaches
+        steals = report.get("steals", [])
+        reaches = report.get("reaches", [])
+        if steals or reaches:
+            sc1, sc2 = st.columns(2)
+            with sc1:
+                if steals:
+                    st.markdown(
+                        f'<div style="color:{T["green"]};font-weight:700;">Best Steals</div>', unsafe_allow_html=True
+                    )
+                    for p in steals[:3]:
+                        surplus = p.get("sgp_surplus", 0)
+                        st.markdown(
+                            f"- **{p.get('player_name', '?')}** (Round {p.get('round', '?')}) — +{surplus:.1f} SGP surplus"
+                        )
+            with sc2:
+                if reaches:
+                    st.markdown(
+                        f'<div style="color:{T["danger"]};font-weight:700;">Notable Reaches</div>',
+                        unsafe_allow_html=True,
+                    )
+                    for p in reaches[:3]:
+                        surplus = p.get("sgp_surplus", 0)
+                        st.markdown(
+                            f"- **{p.get('player_name', '?')}** (Round {p.get('round', '?')}) — {surplus:.1f} SGP surplus"
+                        )
+
+        # Pick-by-pick table
+        picks_data = report.get("picks", [])
+        if picks_data:
+            st.markdown("#### Pick-by-Pick Analysis")
+            pick_rows = []
+            for p in picks_data:
+                cls = p.get("classification", "FAIR")
+                pick_rows.append(
+                    {
+                        "Round": p.get("round", ""),
+                        "Player": p.get("player_name", ""),
+                        "Position": p.get("positions", ""),
+                        "SGP": f"{p.get('total_sgp', 0):.1f}",
+                        "Expected": f"{p.get('expected_sgp', 0):.1f}",
+                        "Surplus": f"{p.get('sgp_surplus', 0):+.1f}",
+                        "Classification": cls,
+                    }
+                )
+            render_styled_table(pd.DataFrame(pick_rows))
+
+        # Category projections - strengths/weaknesses
+        strengths = report.get("strengths", [])
+        weaknesses = report.get("weaknesses", [])
+        if strengths or weaknesses:
+            st.markdown("#### Category Analysis")
+            ca1, ca2 = st.columns(2)
+            with ca1:
+                if strengths:
+                    st.markdown(
+                        f'<div style="color:{T["green"]};font-weight:700;">Strengths</div>', unsafe_allow_html=True
+                    )
+                    for cat in strengths:
+                        st.markdown(f"- {cat}")
+            with ca2:
+                if weaknesses:
+                    st.markdown(
+                        f'<div style="color:{T["danger"]};font-weight:700;">Weaknesses</div>', unsafe_allow_html=True
+                    )
+                    for cat in weaknesses:
+                        st.markdown(f"- {cat}")
+
+        # Total SGP comparison
+        total_sgp = report.get("total_sgp", 0)
+        expected_sgp = report.get("expected_sgp", 0)
+        st.caption(
+            f"Total SGP: {total_sgp:.1f} | Expected SGP at draft position: {expected_sgp:.1f} | "
+            f"Surplus: {total_sgp - expected_sgp:+.1f}"
+        )
+        st.caption(METRIC_TOOLTIPS.get("sgp", ""))
 
 
 # ── Tabs: Available / Draft Board / Pick Log ────────────────────────────────
