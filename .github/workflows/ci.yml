@@ -115,6 +115,13 @@ jobs:
           python -c "from src.engine.production.sim_config import *; print('✅ engine/production/sim_config.py')"
           python -c "from src.engine.production.convergence import *; print('✅ engine/production/convergence.py')"
           python -c "from src.engine.production.cache import *; print('✅ engine/production/cache.py')"
+          python -c "from src.trade_value import *; print('✅ trade_value.py')"
+          python -c "from src.two_start import *; print('✅ two_start.py')"
+          python -c "from src.start_sit import *; print('✅ start_sit.py')"
+          python -c "from src.matchup_planner import *; print('✅ matchup_planner.py')"
+          python -c "from src.waiver_wire import *; print('✅ waiver_wire.py')"
+          python -c "from src.trade_finder import *; print('✅ trade_finder.py')"
+          python -c "from src.draft_grader import *; print('✅ draft_grader.py')"
           python -c "import app; print('✅ app.py')"
 
       - name: Generate sample data
