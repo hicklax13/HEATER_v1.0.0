@@ -10,11 +10,25 @@ import time
 import pandas as pd
 import streamlit as st
 
-from src.database import coerce_numeric_df, init_db, load_league_rosters, load_player_pool
+from src.database import coerce_numeric_df, init_db, load_league_rosters, load_league_standings, load_player_pool
 from src.injury_model import compute_health_score, get_injury_badge
 from src.league_manager import get_team_roster
 from src.ui_shared import METRIC_TOOLTIPS, PAGE_ICONS, T, inject_custom_css, render_styled_table
 from src.valuation import LeagueConfig, add_process_risk, compute_percentile_projections, compute_projection_volatility
+
+try:
+    from src.trade_finder import find_trade_opportunities
+
+    _HAS_TRADE_FINDER = True
+except ImportError:
+    _HAS_TRADE_FINDER = False
+
+try:
+    from src.trade_value import compute_trade_values  # noqa: F401
+
+    _HAS_TRADE_VALUE = True
+except ImportError:
+    _HAS_TRADE_VALUE = False
 
 st.set_page_config(page_title="Heater | Trade Analyzer", page_icon="", layout="wide")
 
@@ -162,6 +176,14 @@ else:
                     st.error("One or more selected players could not be matched. Please reselect.")
                     st.stop()
 
+                # Deep analysis toggle (Phases 2-6)
+                deep_analysis = st.checkbox(
+                    "Enable Deep Analysis (Monte Carlo + Game Theory)",
+                    key="deep_analysis",
+                    help="Activates Phases 2-6: stochastic MC simulation, signal intelligence, "
+                    "context engine, game theory (opponent modeling, adverse selection). Takes 5-15s.",
+                )
+
                 trade_progress = st.progress(0, text="Computing category impacts...")
 
                 # Try the new Phase 1 engine first, fall back to legacy
@@ -180,6 +202,9 @@ else:
                         config=config,
                         user_team_name=user_team_name,
                         weeks_remaining=16,
+                        enable_mc=deep_analysis,
+                        enable_context=True,
+                        enable_game_theory=deep_analysis,
                     )
                     engine_used = "phase1"
                 except Exception:
@@ -451,3 +476,119 @@ else:
                                 st.caption(METRIC_TOOLTIPS["p10_p90"])
                 except Exception:
                     pass  # Graceful degradation
+
+                # ── Deep Analysis Results (Phases 2-6) ──────────────────────
+                if deep_analysis and engine_used == "phase1":
+                    with st.expander("Deep Analysis Results", expanded=True):
+                        # MC metrics
+                        mc_mean = result.get("mc_mean")
+                        if mc_mean is not None:
+                            st.markdown("#### Monte Carlo Simulation")
+                            mc1, mc2, mc3, mc4 = st.columns(4)
+                            mc1.metric("MC Mean SGP", f"{mc_mean:+.3f}")
+                            mc2.metric("P(Positive)", f"{result.get('prob_positive', 0):.0%}")
+                            mc3.metric("Sharpe Ratio", f"{result.get('sharpe', 0):.2f}")
+                            mc4.metric("MC Std Dev", f"{result.get('mc_std', 0):.3f}")
+
+                            # VaR/CVaR
+                            var5 = result.get("var5") or result.get("mc_p5")
+                            cvar5 = result.get("cvar5")
+                            if var5 is not None:
+                                v1, v2 = st.columns(2)
+                                v1.metric("Value at Risk (5%)", f"{var5:+.3f}", help="Worst-case SGP at 5th percentile")
+                                if cvar5 is not None:
+                                    v2.metric(
+                                        "Conditional VaR (5%)",
+                                        f"{cvar5:+.3f}",
+                                        help="Expected loss in worst 5% of scenarios",
+                                    )
+
+                        # Concentration risk
+                        conc_before = result.get("concentration_hhi_before")
+                        if conc_before is not None:
+                            st.markdown("#### Concentration Risk")
+                            h1, h2, h3 = st.columns(3)
+                            h1.metric("HHI Before", f"{conc_before:.3f}")
+                            h2.metric("HHI After", f"{result.get('concentration_hhi_after', 0):.3f}")
+                            h3.metric("Penalty", f"{result.get('concentration_penalty', 0):+.3f} SGP")
+
+                        # Adverse selection
+                        adv = result.get("adverse_selection", {})
+                        if adv and adv.get("discount_factor") is not None:
+                            st.markdown("#### Adverse Selection Analysis")
+                            a1, a2 = st.columns(2)
+                            a1.metric("Discount Factor", f"{adv['discount_factor']:.2f}")
+                            a2.metric("Risk Level", adv.get("risk_level", "unknown"))
+
+                        # Sensitivity
+                        sens = result.get("sensitivity_report", {})
+                        if sens:
+                            st.markdown("#### Trade Sensitivity")
+                            s1, s2, s3 = st.columns(3)
+                            s1.metric("Biggest Driver", sens.get("biggest_driver", "—"))
+                            s2.metric("Biggest Drag", sens.get("biggest_drag", "—"))
+                            s3.metric("Vulnerability", sens.get("vulnerability", "—"))
+
+        # ── Trade Finder Section ────────────────────────────────────────
+        if _HAS_TRADE_FINDER:
+            with st.expander("Trade Finder — Scan for Opportunities", expanded=False):
+                standings = load_league_standings()
+                all_team_totals: dict[str, dict[str, float]] = {}
+                if not standings.empty and "category" in standings.columns:
+                    for _, srow in standings.iterrows():
+                        t_name = str(srow.get("team_name", ""))
+                        cat_name = str(srow.get("category", "")).strip()
+                        all_team_totals.setdefault(t_name, {})[cat_name] = float(srow.get("total", 0))
+
+                # Build league_rosters dict
+                league_rosters_dict: dict[str, list[int]] = {}
+                all_rosters = load_league_rosters()
+                if not all_rosters.empty:
+                    for _, rr in all_rosters.iterrows():
+                        t_name = str(rr.get("team_name", ""))
+                        rpid = rr.get("player_id")
+                        if t_name and rpid:
+                            league_rosters_dict.setdefault(t_name, []).append(int(rpid))
+
+                if not league_rosters_dict or not all_team_totals:
+                    st.warning("Trade Finder requires league rosters and standings. Connect your Yahoo league.")
+                elif st.button("Scan for Trade Opportunities", type="primary", key="find_trades"):
+                    find_progress = st.progress(0, text="Scanning rosters for complementary trades...")
+                    try:
+                        find_progress.progress(30, text="Computing team complementarity...")
+                        opportunities = find_trade_opportunities(
+                            user_roster_ids=user_roster_ids,
+                            player_pool=pool,
+                            config=config,
+                            all_team_totals=all_team_totals,
+                            user_team_name=user_team_name,
+                            league_rosters=league_rosters_dict,
+                        )
+                        find_progress.progress(100, text="Done!")
+                        time.sleep(0.3)
+                        find_progress.empty()
+                        st.session_state["trade_finder_results"] = opportunities
+                    except Exception as e:
+                        find_progress.empty()
+                        st.error(f"Trade finder failed: {e}")
+
+                finder_results = st.session_state.get("trade_finder_results", [])
+                if finder_results:
+                    st.markdown(f"**{len(finder_results)} trade opportunities found**")
+                    for i, opp in enumerate(finder_results[:15]):
+                        giving = ", ".join(opp.get("giving_names", []))
+                        receiving = ", ".join(opp.get("receiving_names", []))
+                        gain = opp.get("user_sgp_gain", 0)
+                        p_accept = opp.get("acceptance_probability", 0)
+                        opp_team = opp.get("opponent_team", "?")
+
+                        gain_color = T["green"] if gain > 0 else T["danger"]
+                        st.markdown(
+                            f'<div class="glass" style="padding:12px;margin:8px 0;'
+                            f'border-left:4px solid {gain_color};">'
+                            f"<strong>Send</strong> {giving} <strong>to {opp_team} for</strong> {receiving}"
+                            f'<br><span style="color:{gain_color};">SGP Gain: {gain:+.2f}</span>'
+                            f" | Acceptance: {p_accept:.0%}"
+                            f"</div>",
+                            unsafe_allow_html=True,
+                        )

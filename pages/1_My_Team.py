@@ -311,3 +311,56 @@ else:
                         conn.close()
                 except Exception:
                     pass  # Graceful degradation
+
+        # ── Injury Impact Analyzer ──────────────────────────────────────
+        with st.expander("Injury Impact Analyzer", expanded=False):
+            if not roster.empty and "name" in roster.columns:
+                injury_player = st.selectbox(
+                    "Select a player to simulate injury:",
+                    options=sorted(roster["name"].dropna().tolist()),
+                    key="injury_player",
+                )
+                weeks_out = st.slider("Weeks out:", min_value=1, max_value=16, value=4, key="injury_weeks")
+
+                if st.button("Analyze Impact", key="injury_analyze"):
+                    # Get player's projected stats from roster
+                    player_match = roster[roster["name"] == injury_player]
+                    if player_match.empty:
+                        st.warning(f"Could not find projections for {injury_player}.")
+                    else:
+                        player = player_match.iloc[0]
+                        is_hitter = bool(player.get("is_hitter", 1))
+
+                        # Estimate production lost per week
+                        if is_hitter:
+                            cats = ["r", "hr", "rbi", "sb"]
+                            games_per_week = 6.5
+                            games_total = 140  # approximate
+                        else:
+                            cats = ["w", "sv", "k"]
+                            games_per_week = 1.5  # starts per week for SP
+                            games_total = 30
+
+                        st.markdown(f"#### Impact of {injury_player} missing {weeks_out} weeks")
+
+                        impact_rows = []
+                        for cat in cats:
+                            season_total = float(player.get(cat, 0))
+                            weekly_rate = season_total / max(games_total / games_per_week, 1)
+                            production_lost = weekly_rate * weeks_out
+                            impact_rows.append(
+                                {
+                                    "Category": cat.upper(),
+                                    "Season Projection": f"{season_total:.0f}",
+                                    "Weekly Rate": f"{weekly_rate:.1f}",
+                                    "Production Lost": f"{production_lost:.1f}",
+                                }
+                            )
+
+                        render_styled_table(pd.DataFrame(impact_rows))
+                        st.caption(
+                            f"Estimated production lost over {weeks_out} weeks. "
+                            "Check the Waiver Wire page for replacement suggestions."
+                        )
+            else:
+                st.info("Roster data needed to use the Injury Impact Analyzer.")

@@ -102,18 +102,18 @@ def generate_schedule(
         teams.append("__BYE__")
         n += 1
 
-    # Standard round-robin algorithm (rotate all but first team)
+    # Standard round-robin: fix team 0, rotate the rest
+    # Uses the "circle method" — team 0 stays, others rotate clockwise
     rounds: list[list[tuple[str, str]]] = []
-    rotation = list(range(1, n))
+    rotation = list(range(1, n))  # indices of teams 1..n-1
     for _ in range(n - 1):
         week_matchups: list[tuple[str, str]] = []
-        # First team vs last in rotation
-        week_matchups.append((teams[0], teams[rotation[-1]]))
+        # Team 0 plays the team at the "top" of the rotation
+        week_matchups.append((teams[0], teams[rotation[0]]))
         # Pair remaining from outside in
-        half = (n - 1) // 2
-        for j in range(half):
+        for j in range(1, n // 2):
             a_idx = rotation[j]
-            b_idx = rotation[n - 2 - j]
+            b_idx = rotation[n - 1 - j]
             week_matchups.append((teams[a_idx], teams[b_idx]))
         rounds.append(week_matchups)
         # Rotate: shift right by one
