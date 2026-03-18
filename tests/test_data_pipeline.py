@@ -221,10 +221,17 @@ class TestSystemMapping:
         assert SYSTEM_MAP["fangraphsdc"] == "depthcharts"
 
     def test_all_systems_present(self):
-        """All 3 projection systems are in SYSTEM_MAP."""
+        """All 6 projection systems are in SYSTEM_MAP."""
         from src.data_pipeline import SYSTEM_MAP
 
-        assert set(SYSTEM_MAP.keys()) == {"steamer", "zips", "fangraphsdc"}
+        assert set(SYSTEM_MAP.keys()) == {
+            "steamer",
+            "zips",
+            "fangraphsdc",
+            "atc",
+            "thebat",
+            "thebatx",
+        }
 
     def test_steamer_identity(self):
         """Steamer maps to itself."""
@@ -427,7 +434,7 @@ class TestStoreAdp:
 class TestFetchAllProjections:
     @patch("src.data_pipeline.fetch_projections")
     def test_partial_failure(self, mock_fetch):
-        """1 system fails, 2 succeed → returns dicts with 4 entries."""
+        """1 system fails, rest succeed → returns entries for all non-failing systems."""
         from src.data_pipeline import FetchError, fetch_all_projections
 
         def side_effect(system, stats):
@@ -473,9 +480,12 @@ class TestFetchAllProjections:
 
         mock_fetch.side_effect = side_effect
         projections, raw_data = fetch_all_projections()
-        assert len(projections) == 4
+        # 5 working systems × 2 (bat+pit) = 10 entries (zips failed)
+        assert len(projections) == 10
         assert "steamer_bat" in projections
         assert "depthcharts_pit" in projections
+        assert "atc_bat" in projections
+        assert "thebat_pit" in projections
         assert "zips_bat" not in projections
 
     @patch("src.data_pipeline.fetch_projections")
