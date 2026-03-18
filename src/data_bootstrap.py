@@ -208,6 +208,70 @@ def _bootstrap_park_factors(progress: BootstrapProgress) -> str:
         return f"Error: {e}"
 
 
+def _store_yahoo_adp(adp_records: list[dict]) -> int:
+    """Store Yahoo ADP records in the adp table via fuzzy name matching.
+
+    Args:
+        adp_records: List of dicts with keys ``name`` and ``yahoo_adp``.
+
+    Returns:
+        Number of rows upserted.
+    """
+    if not adp_records:
+        return 0
+
+    from src.database import get_connection
+
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        count = 0
+        for rec in adp_records:
+            name = str(rec.get("name", "")).strip()
+            adp_val = float(rec.get("yahoo_adp", 0))
+            if not name or adp_val <= 0:
+                continue
+
+            # Exact name match
+            cursor.execute("SELECT player_id FROM players WHERE name = ?", (name,))
+            result = cursor.fetchone()
+
+            # Fuzzy fallback: first + last name LIKE match
+            if result is None:
+                parts = name.split()
+                if len(parts) >= 2:
+                    cursor.execute(
+                        "SELECT player_id FROM players WHERE name LIKE ? AND name LIKE ?",
+                        (f"%{parts[0]}%", f"%{parts[-1]}%"),
+                    )
+                    matches = cursor.fetchall()
+                    if len(matches) == 1:
+                        result = matches[0]
+                    elif len(matches) > 1:
+                        logger.debug(
+                            "Yahoo ADP: fuzzy match for '%s' returned %d players, skipping",
+                            name,
+                            len(matches),
+                        )
+
+            if result is None:
+                logger.debug("Yahoo ADP: no player_id found for '%s'", name)
+                continue
+
+            player_id = result[0]
+            cursor.execute(
+                """INSERT INTO adp (player_id, yahoo_adp, adp) VALUES (?, ?, ?)
+                   ON CONFLICT(player_id) DO UPDATE SET yahoo_adp = ?, adp = min(adp, ?)""",
+                (player_id, adp_val, adp_val, adp_val, adp_val),
+            )
+            count += 1
+
+        conn.commit()
+        return count
+    finally:
+        conn.close()
+
+
 def _bootstrap_yahoo(progress: BootstrapProgress, yahoo_client=None) -> str:
     """Sync Yahoo league data if client is available."""
     from src.database import update_refresh_log
@@ -218,6 +282,18 @@ def _bootstrap_yahoo(progress: BootstrapProgress, yahoo_client=None) -> str:
     progress.detail = "Syncing Yahoo league data..."
     try:
         yahoo_client.sync_to_db()
+
+        # Fetch and store Yahoo ADP from draft results
+        progress.detail = "Fetching Yahoo ADP..."
+        try:
+            adp_records = yahoo_client.fetch_yahoo_adp()
+            if adp_records:
+                adp_count = _store_yahoo_adp(adp_records)
+                logger.info("Stored %d Yahoo ADP records", adp_count)
+        except Exception as adp_exc:
+            # ADP may not be available pre-draft — non-fatal
+            logger.warning("Yahoo ADP fetch failed (non-fatal): %s", adp_exc)
+
         update_refresh_log("yahoo_data", "success")
         return "Yahoo league data synced"
     except Exception as e:
@@ -264,13 +340,18 @@ def _bootstrap_adp_sources(progress: BootstrapProgress) -> str:
 
 
 def _bootstrap_contracts(progress: BootstrapProgress) -> str:
-    """Phase 10: Contract year data from BB-Ref."""
+    """Phase 10: Contract year data from BB-Ref.
+
+    Persists contract_year=1 on matching players in the DB.
+    """
     progress.phase = "Contract Data"
     progress.detail = "Fetching free agent list..."
     try:
         from src.contract_data import fetch_contract_year_players
 
         names = fetch_contract_year_players()
+        if names:
+            _persist_contract_years(names)
         return f"Contracts: {len(names)} players in contract year"
     except Exception as e:
         logger.warning("Contract data bootstrap failed: %s", e)
@@ -278,17 +359,159 @@ def _bootstrap_contracts(progress: BootstrapProgress) -> str:
 
 
 def _bootstrap_news(progress: BootstrapProgress) -> str:
-    """Phase 11: Recent MLB transactions/news."""
+    """Phase 11: Recent MLB transactions/news.
+
+    Also computes and persists per-player news_sentiment to the DB.
+    """
     progress.phase = "News"
     progress.detail = "Fetching recent transactions..."
     try:
         from src.news_fetcher import fetch_recent_transactions
 
         items = fetch_recent_transactions(days_back=7)
+        if items:
+            _persist_news_sentiment(items)
         return f"News: {len(items)} transactions"
     except Exception as e:
         logger.warning("News bootstrap failed: %s", e)
         return f"News: error ({e})"
+
+
+# ── Computed field persistence helpers ────────────────────────────────
+
+
+def _persist_contract_years(contract_names: set[str]) -> int:
+    """Set contract_year=1 for players matching the contract-year name set.
+
+    Resets all players to 0 first, then marks matching names as 1.
+
+    Args:
+        contract_names: Set of lowercased player names in their contract year.
+
+    Returns:
+        Number of players marked as contract year.
+    """
+    from src.database import get_connection
+
+    conn = get_connection()
+    try:
+        # Reset all to 0
+        conn.execute("UPDATE players SET contract_year = 0")
+        updated = 0
+        for name in contract_names:
+            cursor = conn.execute(
+                "UPDATE players SET contract_year = 1 WHERE LOWER(name) = ?",
+                (name.lower(),),
+            )
+            updated += cursor.rowcount
+        conn.commit()
+        logger.info("Persisted contract_year=1 for %d players", updated)
+        return updated
+    except Exception:
+        logger.exception("Failed to persist contract years")
+        return 0
+    finally:
+        conn.close()
+
+
+def _persist_news_sentiment(transactions: list[dict]) -> int:
+    """Compute per-player news sentiment and persist to players table.
+
+    Uses the existing news_sentiment module for scoring and
+    aggregate_player_news for name→player_id resolution.
+
+    Args:
+        transactions: List of transaction dicts from fetch_recent_transactions().
+
+    Returns:
+        Number of players updated with sentiment scores.
+    """
+    from src.database import get_connection
+    from src.news_fetcher import aggregate_player_news
+    from src.news_sentiment import compute_news_sentiment
+
+    conn = get_connection()
+    try:
+        # Build name->id mapping from DB
+        rows = conn.execute("SELECT player_id, name FROM players").fetchall()
+        name_to_id = {row[1]: row[0] for row in rows if row[1]}
+
+        # Aggregate transactions by player_id
+        player_news = aggregate_player_news(transactions, name_to_id)
+        if not player_news:
+            return 0
+
+        updated = 0
+        for pid, descriptions in player_news.items():
+            sentiment = compute_news_sentiment(descriptions)
+            conn.execute(
+                "UPDATE players SET news_sentiment = ? WHERE player_id = ?",
+                (sentiment, pid),
+            )
+            updated += 1
+        conn.commit()
+        logger.info("Persisted news_sentiment for %d players", updated)
+        return updated
+    except Exception:
+        logger.exception("Failed to persist news sentiment")
+        return 0
+    finally:
+        conn.close()
+
+
+def _persist_depth_chart_roles(depth_data: dict) -> int:
+    """Persist depth_chart_role and lineup_slot to players table.
+
+    Args:
+        depth_data: Output from fetch_depth_charts() — mapping of
+            team code to {lineup, rotation, bullpen}.
+
+    Returns:
+        Number of players updated.
+    """
+    from src.database import get_connection
+    from src.depth_charts import get_player_lineup_slot, get_player_role
+
+    conn = get_connection()
+    try:
+        rows = conn.execute("SELECT player_id, name FROM players").fetchall()
+        updated = 0
+        for player_id, name in rows:
+            if not name:
+                continue
+            role = get_player_role(name, depth_data)
+            slot = get_player_lineup_slot(name, depth_data)
+            if role != "bench" or slot is not None:
+                conn.execute(
+                    "UPDATE players SET depth_chart_role = ?, lineup_slot = ? WHERE player_id = ?",
+                    (role, slot, player_id),
+                )
+                updated += 1
+        conn.commit()
+        logger.info("Persisted depth_chart_role for %d players", updated)
+        return updated
+    except Exception:
+        logger.exception("Failed to persist depth chart roles")
+        return 0
+    finally:
+        conn.close()
+
+
+def _bootstrap_depth_charts(progress: BootstrapProgress) -> str:
+    """Fetch depth charts and persist roles/lineup slots to DB."""
+    progress.phase = "Depth Charts"
+    progress.detail = "Fetching depth charts..."
+    try:
+        from src.depth_charts import fetch_depth_charts
+
+        depth_data = fetch_depth_charts()
+        if depth_data:
+            count = _persist_depth_chart_roles(depth_data)
+            return f"Depth charts: {len(depth_data)} teams, {count} roles persisted"
+        return "Depth charts: no data"
+    except Exception as e:
+        logger.warning("Depth chart bootstrap failed: %s", e)
+        return f"Depth charts: error ({e})"
 
 
 # ── Master Orchestrator ──────────────────────────────────────────────
@@ -387,6 +610,13 @@ def bootstrap_all_data(
         results["adp_sources"] = _bootstrap_adp_sources(progress)
     else:
         results["adp_sources"] = "Fresh"
+
+    # Phase 9b: Depth charts (roles + lineup slots)
+    _notify(0.87)
+    if force or check_staleness("depth_charts", 168):
+        results["depth_charts"] = _bootstrap_depth_charts(progress)
+    else:
+        results["depth_charts"] = "Fresh"
 
     # Phase 10: Contract year data
     _notify(0.88)

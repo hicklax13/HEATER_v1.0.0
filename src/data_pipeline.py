@@ -357,6 +357,57 @@ def _store_projections(projections: dict[str, pd.DataFrame]) -> int:
         conn.close()
 
 
+def _update_fangraphs_ids(raw_data: dict[str, list[dict]]) -> int:
+    """Update fangraphs_id on players table from raw FanGraphs JSON.
+
+    The FanGraphs JSON includes a 'playerid' field (numeric) for each player.
+    Match by name to the players table and set fangraphs_id = playerid.
+
+    Args:
+        raw_data: Dict keyed by "{db_system}_{stats}" containing raw JSON lists.
+
+    Returns:
+        Number of players updated.
+    """
+    # Collect unique (name, fg_id) pairs from all raw data
+    fg_ids: dict[str, str] = {}
+    for _key, records in raw_data.items():
+        for player in records:
+            name = player.get("PlayerName", "")
+            fg_id = player.get("playerid")
+            if name and fg_id is not None:
+                fg_ids[name] = str(fg_id)
+
+    if not fg_ids:
+        return 0
+
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        updated = 0
+        for name, fg_id in fg_ids.items():
+            # Exact name match first
+            cursor.execute(
+                "SELECT player_id FROM players WHERE name = ?",
+                (name,),
+            )
+            result = cursor.fetchone()
+            if result:
+                cursor.execute(
+                    "UPDATE players SET fangraphs_id = ? WHERE player_id = ?",
+                    (fg_id, result[0]),
+                )
+                updated += 1
+        conn.commit()
+        logger.info("Updated fangraphs_id for %d players", updated)
+        return updated
+    except Exception:
+        logger.exception("Failed to update fangraphs_ids")
+        return 0
+    finally:
+        conn.close()
+
+
 def _store_adp(adp_df: pd.DataFrame) -> int:
     """Resolve player names to player_ids and store ADP.
 
@@ -484,6 +535,13 @@ def refresh_if_stale(force: bool = False) -> bool:
     # Store projections (upserts players automatically)
     total = _store_projections(projections)
     logger.info("Stored %d projection rows", total)
+
+    # Cross-reference FanGraphs IDs from raw JSON
+    try:
+        fg_count = _update_fangraphs_ids(raw_data)
+        logger.info("Updated %d FanGraphs IDs", fg_count)
+    except Exception as exc:
+        logger.warning("FanGraphs ID update failed (non-fatal): %s", exc)
 
     # Create blended projections from all available systems
     try:

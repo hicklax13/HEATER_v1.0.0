@@ -208,12 +208,26 @@ def init_db():
             FOREIGN KEY (player_id) REFERENCES players(player_id)
         );
 
+        CREATE TABLE IF NOT EXISTS statcast_archive (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            player_id INTEGER NOT NULL,
+            season INTEGER NOT NULL,
+            ev_mean REAL, ev_p90 REAL, barrel_pct REAL, hard_hit_pct REAL,
+            xba REAL, xslg REAL, xwoba REAL, whiff_pct REAL, chase_rate REAL,
+            sprint_speed REAL, ff_avg_speed REAL, ff_spin_rate REAL,
+            k_pct REAL, bb_pct REAL, gb_pct REAL,
+            stuff_plus REAL, location_plus REAL, pitching_plus REAL,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(player_id, season)
+        );
+
         CREATE INDEX IF NOT EXISTS idx_season_stats_player ON season_stats(player_id);
         CREATE INDEX IF NOT EXISTS idx_ros_proj_player ON ros_projections(player_id);
         CREATE INDEX IF NOT EXISTS idx_league_rosters_team ON league_rosters(team_name);
         CREATE INDEX IF NOT EXISTS idx_injury_history_player ON injury_history(player_id);
         CREATE UNIQUE INDEX IF NOT EXISTS idx_injury_history_player_season ON injury_history(player_id, season);
         CREATE INDEX IF NOT EXISTS idx_transactions_player ON transactions(player_id);
+        CREATE INDEX IF NOT EXISTS idx_statcast_archive_player ON statcast_archive(player_id);
     """)
     conn.commit()
 
@@ -262,6 +276,13 @@ def init_db():
         _safe_add_column(conn, table, "stuff_plus", "REAL")
         _safe_add_column(conn, table, "location_plus", "REAL")
         _safe_add_column(conn, table, "pitching_plus", "REAL")
+
+    # Gap 6: Persist computed fields on players table
+    _safe_add_column(conn, "players", "depth_chart_role", "TEXT")
+    _safe_add_column(conn, "players", "contract_year", "INTEGER DEFAULT 0")
+    _safe_add_column(conn, "players", "news_sentiment", "REAL")
+    _safe_add_column(conn, "players", "lineup_slot", "INTEGER")
+    _safe_add_column(conn, "players", "spring_training_era", "REAL")
 
     conn.close()
 
@@ -1201,6 +1222,58 @@ def upsert_park_factors(factors: list[dict]) -> int:
                     f["team_code"],
                     f.get("factor_hitting", f.get("park_factor", 1.0)),
                     f.get("factor_pitching", f.get("park_factor", 1.0)),
+                ),
+            )
+            saved += 1
+        conn.commit()
+        return saved
+    finally:
+        conn.close()
+
+
+def upsert_statcast_bulk(records: list[dict]) -> int:
+    """Bulk upsert statcast archive records.
+
+    Each dict needs: player_id, season.
+    Optional: ev_mean, ev_p90, barrel_pct, hard_hit_pct, xba, xslg, xwoba,
+              whiff_pct, chase_rate, sprint_speed, ff_avg_speed, ff_spin_rate,
+              k_pct, bb_pct, gb_pct, stuff_plus, location_plus, pitching_plus.
+
+    Uses INSERT OR REPLACE with the UNIQUE(player_id, season) constraint.
+    """
+    conn = get_connection()
+    try:
+        saved = 0
+        for r in records:
+            conn.execute(
+                """INSERT OR REPLACE INTO statcast_archive
+                   (player_id, season, ev_mean, ev_p90, barrel_pct, hard_hit_pct,
+                    xba, xslg, xwoba, whiff_pct, chase_rate, sprint_speed,
+                    ff_avg_speed, ff_spin_rate, k_pct, bb_pct, gb_pct,
+                    stuff_plus, location_plus, pitching_plus, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                           CURRENT_TIMESTAMP)""",
+                (
+                    r["player_id"],
+                    r["season"],
+                    r.get("ev_mean"),
+                    r.get("ev_p90"),
+                    r.get("barrel_pct"),
+                    r.get("hard_hit_pct"),
+                    r.get("xba"),
+                    r.get("xslg"),
+                    r.get("xwoba"),
+                    r.get("whiff_pct"),
+                    r.get("chase_rate"),
+                    r.get("sprint_speed"),
+                    r.get("ff_avg_speed"),
+                    r.get("ff_spin_rate"),
+                    r.get("k_pct"),
+                    r.get("bb_pct"),
+                    r.get("gb_pct"),
+                    r.get("stuff_plus"),
+                    r.get("location_plus"),
+                    r.get("pitching_plus"),
                 ),
             )
             saved += 1
