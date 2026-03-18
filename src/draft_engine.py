@@ -148,6 +148,7 @@ class DraftRecommendationEngine:
             "enable_streaming": False,
             "enable_contextual": False,
             "enable_ml": False,
+            "enable_spring_training": False,
         },
         "standard": {
             "enable_bayesian": True,
@@ -158,6 +159,7 @@ class DraftRecommendationEngine:
             "enable_streaming": True,
             "enable_contextual": True,
             "enable_ml": False,
+            "enable_spring_training": True,
         },
         "full": {
             "enable_bayesian": True,
@@ -168,6 +170,7 @@ class DraftRecommendationEngine:
             "enable_streaming": True,
             "enable_contextual": True,
             "enable_ml": True,
+            "enable_spring_training": True,
         },
     }
 
@@ -240,6 +243,8 @@ class DraftRecommendationEngine:
         pool["ml_correction"] = 0.0
         pool["flex_bonus"] = 0.0
         pool["buy_fair_avoid"] = "fair"
+        pool["st_signal"] = 0.0
+        pool["risk_score"] = 50.0
 
         # Stage 1: Park factor adjustment
         if self.settings["enable_park_factors"]:
@@ -258,6 +263,12 @@ class DraftRecommendationEngine:
             t0 = time.perf_counter()
             pool = self._apply_injury_probability(pool)
             self._timing["injury_prob"] = time.perf_counter() - t0
+
+        # Stage 3b: Spring training K-rate signal (standard/full only)
+        if self.settings.get("enable_spring_training", False):
+            t0 = time.perf_counter()
+            pool = self._apply_spring_training_signal(pool)
+            self._timing["spring_training"] = time.perf_counter() - t0
 
         # Stage 4: Statcast delta (standard/full only)
         if self.settings["enable_statcast"]:
@@ -291,6 +302,11 @@ class DraftRecommendationEngine:
 
         # Buy/fair/avoid classification
         pool["buy_fair_avoid"] = pool.apply(self._classify_buy_fair_avoid, axis=1)
+
+        # Composite risk score (0-100)
+        t0 = time.perf_counter()
+        pool = self._compute_risk_score(pool)
+        self._timing["risk_score"] = time.perf_counter() - t0
 
         self._timing["total"] = time.perf_counter() - t_start
         return pool
@@ -361,6 +377,8 @@ class DraftRecommendationEngine:
                 "platoon_factor",
                 "contract_year_factor",
                 "ml_correction",
+                "st_signal",
+                "risk_score",
             ]
             available_cols = [c for c in enhance_cols if c in enhanced_pool.columns]
             merge_df = enhanced_pool[available_cols].drop_duplicates(subset=["player_id"])
@@ -799,6 +817,210 @@ class DraftRecommendationEngine:
         pool["ml_correction"] = 0.0
         return pool
 
+    # ── Spring Training & Risk ────────────────────────────────────────
+
+    def _apply_spring_training_signal(self, pool: pd.DataFrame) -> pd.DataFrame:
+        """Apply a small spring-training K-rate signal for pitchers.
+
+        Per FanGraphs research, spring training K-rate has a weak but real
+        predictive signal for in-season pitcher performance.
+
+        Rules (pitchers only, ``is_hitter == 0``):
+          - If spring training K-rate is 20%+ above projected K-rate: +0.02
+          - If spring training K-rate is 20%+ below projected K-rate: -0.01
+          - Otherwise: 0.0
+
+        Requires at least one ST column to be present in the pool (e.g.
+        ``spring_training_k_rate``, ``spring_training_k``, or
+        ``spring_training_era`` as a sentinel that ST data was loaded).
+        """
+        # Ensure st_signal column exists with default
+        if "st_signal" not in pool.columns:
+            pool["st_signal"] = 0.0
+
+        # Detect spring training data availability
+        st_k_rate_col = None
+        for candidate in ("spring_training_k_rate", "st_k_rate", "st_k_pct"):
+            if candidate in pool.columns:
+                st_k_rate_col = candidate
+                break
+
+        # If no dedicated K-rate column, try to derive from raw K + IP/BF
+        if st_k_rate_col is None:
+            has_st_k = "spring_training_k" in pool.columns
+            has_st_bf = "spring_training_bf" in pool.columns or "spring_training_ip" in pool.columns
+            if has_st_k and has_st_bf:
+                bf_col = "spring_training_bf" if "spring_training_bf" in pool.columns else None
+                if bf_col:
+                    bf = pool[bf_col].fillna(0).replace(0, np.nan)
+                    pool["_st_k_rate_derived"] = pool["spring_training_k"].fillna(0) / bf
+                    st_k_rate_col = "_st_k_rate_derived"
+                elif "spring_training_ip" in pool.columns:
+                    # Approximate BF from IP: ~4.3 BF per IP
+                    ip = pool["spring_training_ip"].fillna(0).replace(0, np.nan)
+                    approx_bf = ip * 4.3
+                    pool["_st_k_rate_derived"] = pool["spring_training_k"].fillna(0) / approx_bf
+                    st_k_rate_col = "_st_k_rate_derived"
+
+        # Also check for generic sentinel columns indicating ST data exists
+        has_st_sentinel = any(
+            c in pool.columns for c in ("spring_training_era", "spring_training_k_rate", "st_k_rate", "st_k_pct")
+        )
+
+        if st_k_rate_col is None and not has_st_sentinel:
+            # No spring training data at all — leave st_signal at 0.0
+            return pool
+
+        if st_k_rate_col is None:
+            # ST data sentinel exists but no K-rate derivable — no signal
+            return pool
+
+        is_pitcher = pool.get("is_hitter", True) == False  # noqa: E712
+
+        # Compute projected K-rate from projected K and IP (approximate BF)
+        proj_ip = pool["ip"].fillna(0).replace(0, np.nan)
+        proj_bf = proj_ip * 4.3  # approximate batters faced from IP
+        proj_k_rate = pool["k"].fillna(0) / proj_bf
+
+        st_k_rate = pool[st_k_rate_col].fillna(0)
+
+        def _signal(row_idx: int) -> float:
+            if not is_pitcher.iloc[row_idx]:
+                return 0.0
+            st_kr = st_k_rate.iloc[row_idx]
+            proj_kr = proj_k_rate.iloc[row_idx]
+            if np.isnan(st_kr) or np.isnan(proj_kr) or proj_kr <= 0 or st_kr <= 0:
+                return 0.0
+            ratio = st_kr / proj_kr
+            if ratio >= 1.20:
+                return 0.02  # positive signal
+            elif ratio <= 0.80:
+                return -0.01  # weak negative signal
+            return 0.0
+
+        pool["st_signal"] = [_signal(i) for i in range(len(pool))]
+
+        # Clean up temporary column
+        if "_st_k_rate_derived" in pool.columns:
+            pool = pool.drop(columns=["_st_k_rate_derived"])
+
+        return pool
+
+    def _compute_risk_score(self, pool: pd.DataFrame) -> pd.DataFrame:
+        """Compute a composite 0-100 risk score per player.
+
+        Higher score = higher risk.  Components (weighted):
+          - Health risk (40%): based on ``injury_probability``
+          - Projection uncertainty (30%): based on MC std/mean ratio
+          - Age risk (15%): peaks for very young (<24) and old (35+)
+          - Role instability (15%): platoon/committee roles are riskier
+
+        Formula::
+
+            risk_score = 100 - (
+                0.40 * (1 - injury_probability) * 100 +
+                0.30 * projection_confidence * 100 +
+                0.15 * age_factor * 100 +
+                0.15 * role_stability * 100
+            )
+
+        Clamped to [0, 100].
+        """
+
+        def _age_factor(age: float | None) -> float:
+            """Return age stability factor in [0, 1].
+
+            1.0 for prime age (24-30), lower for young/old.
+            """
+            if age is None or np.isnan(age):
+                return 0.7  # unknown age — moderate risk
+            age = int(age)
+            if 24 <= age <= 30:
+                return 1.0
+            elif 31 <= age <= 34:
+                return 0.8
+            elif age >= 35:
+                return 0.5
+            else:
+                # < 24
+                return 0.7
+
+        def _role_stability(row: pd.Series) -> float:
+            """Return role stability in [0, 1].
+
+            Uses depth_chart_role if available, else infers from position.
+            """
+            dcr = row.get("depth_chart_role", None)
+            if dcr and isinstance(dcr, str):
+                dcr_lower = dcr.strip().lower()
+                if dcr_lower in ("starter", "closer", "primary"):
+                    return 1.0
+                elif dcr_lower in ("platoon", "setup", "backup"):
+                    return 0.7
+                elif dcr_lower in ("committee", "spot", "long relief"):
+                    return 0.5
+                # Unknown role string — fall through to position-based
+            # Fallback: infer from positions
+            positions = row.get("positions", "")
+            if not positions or not isinstance(positions, str):
+                return 0.7  # unknown
+            if "SP" in positions or "C" in positions:
+                return 1.0  # defined starter role
+            if "RP" in positions:
+                # Closer (high SV) is stable; setup/committee is not
+                sv = float(row.get("sv", 0) or 0)
+                if sv >= 15:
+                    return 1.0
+                elif sv >= 5:
+                    return 0.7
+                return 0.5
+            # Hitter — check for multi-position (may indicate super-utility / platoon risk)
+            pos_list = [p.strip() for p in positions.split(",") if p.strip()]
+            if len(pos_list) >= 3:
+                return 0.8  # super-util — slight role uncertainty
+            return 1.0  # standard starter
+
+        def _projection_confidence(row: pd.Series) -> float:
+            """Return projection confidence in [0, 1].
+
+            Uses mc_std_sgp / mc_mean_sgp coefficient of variation when
+            available; falls back to a moderate default.
+            """
+            mean_val = row.get("mc_mean_sgp", None)
+            std_val = row.get("mc_std_sgp", None)
+            if mean_val is not None and std_val is not None:
+                try:
+                    mean_f = float(mean_val)
+                    std_f = float(std_val)
+                    if abs(mean_f) > 0.01 and not np.isnan(mean_f) and not np.isnan(std_f):
+                        cv = std_f / abs(mean_f)
+                        return float(np.clip(1.0 - cv, 0.0, 1.0))
+                except (ValueError, TypeError):
+                    pass
+            return 0.7  # moderate default when no MC data
+
+        def _row_risk(row: pd.Series) -> float:
+            inj_prob = float(row.get("injury_probability", 0.0) or 0.0)
+            age = row.get("age", None)
+            if age is not None:
+                try:
+                    age = float(age)
+                except (ValueError, TypeError):
+                    age = None
+
+            health_component = (1.0 - inj_prob) * 100.0
+            proj_component = _projection_confidence(row) * 100.0
+            age_component = _age_factor(age) * 100.0
+            role_component = _role_stability(row) * 100.0
+
+            score = 100.0 - (
+                0.40 * health_component + 0.30 * proj_component + 0.15 * age_component + 0.15 * role_component
+            )
+            return float(np.clip(score, 0.0, 100.0))
+
+        pool["risk_score"] = pool.apply(_row_risk, axis=1)
+        return pool
+
     # ── Score Computation ─────────────────────────────────────────────
 
     def _compute_enhanced_pick_score(self, row: pd.Series) -> float:
@@ -822,6 +1044,7 @@ class DraftRecommendationEngine:
         mult *= 1 + float(row.get("statcast_delta", 0) or 0) * 0.15
         mult *= float(row.get("platoon_factor", 1.0) or 1.0)
         mult *= float(row.get("contract_year_factor", 1.0) or 1.0)
+        mult *= 1 + float(row.get("st_signal", 0) or 0)
         mult = np.clip(mult, MULT_FLOOR, MULT_CEILING)
 
         # Additive bonuses
