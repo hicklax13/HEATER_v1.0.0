@@ -15,5 +15,13 @@ jobs:
           python-version: '3.13'
       - name: Install dependencies
         run: pip install -r requirements.txt
-      - name: Run data bootstrap
-        run: python -c "from src.data_bootstrap import bootstrap_all_data; print(bootstrap_all_data(force=True))"
+      - name: Initialize database and run bootstrap
+        run: |
+          python -c "
+          from src.database import init_db
+          init_db()
+          from src.data_bootstrap import bootstrap_all_data
+          results = bootstrap_all_data(force=True)
+          for k, v in results.items():
+              print(f'  {k}: {v}')
+          "
