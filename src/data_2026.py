@@ -18,6 +18,7 @@ performance trends, age curves, and team context.
 def _make_hitter(
     name, team, positions, pa, hr, sb, avg, r, rbi, adp,
     spread=0.1, risk=0.1, obp=None, bb=None, hbp=None, sf=None,
+    bats="R", birth_date=None,
 ):
     """Create a hitter projection dict. Computes ab, h from pa and avg.
 
@@ -57,6 +58,8 @@ def _make_hitter(
         "adp": adp,
         "projection_spread": spread,
         "risk_score": risk,
+        "bats": bats,
+        "birth_date": birth_date,
     }
 
 
@@ -65,12 +68,21 @@ def _make_hitter(
 # ---------------------------------------------------------------------------
 
 
-def _make_pitcher(name, team, positions, ip, w, sv, k, era, whip, adp, spread=0.1, risk=0.1, gs=0, l=None):
+def _make_pitcher(
+    name, team, positions, ip, w, sv, k, era, whip, adp,
+    spread=0.1, risk=0.1, gs=0, l=None,
+    throws="R", birth_date=None, fip=None, xfip=None, siera=None,
+):
     """Create a pitcher projection dict. Computes er, bb_allowed, h_allowed.
 
     Losses (l) derived when not explicitly provided:
       For SP: l = max(0, int(gs * 0.45) - w)
       For RP: l = max(0, int(w * 0.6))
+
+    Advanced metrics (fip, xfip, siera) derived from ERA when not provided:
+      fip   = ERA - 0.10
+      xfip  = ERA + 0.05
+      siera = ERA - 0.05
     """
     er = int(ip * era / 9)
     total_br = ip * whip
@@ -84,6 +96,12 @@ def _make_pitcher(name, team, positions, ip, w, sv, k, era, whip, adp, spread=0.
         else:
             # RP: typically few losses, roughly proportional to wins
             l = max(0, int(w * 0.6))
+    if fip is None:
+        fip = round(era - 0.10, 2)
+    if xfip is None:
+        xfip = round(era + 0.05, 2)
+    if siera is None:
+        siera = round(era - 0.05, 2)
     return {
         "name": name,
         "team": team,
@@ -102,6 +120,11 @@ def _make_pitcher(name, team, positions, ip, w, sv, k, era, whip, adp, spread=0.
         "adp": adp,
         "projection_spread": spread,
         "risk_score": risk,
+        "throws": throws,
+        "birth_date": birth_date,
+        "fip": fip,
+        "xfip": xfip,
+        "siera": siera,
     }
 
 

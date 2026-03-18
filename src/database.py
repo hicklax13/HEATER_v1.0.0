@@ -41,7 +41,7 @@ _INT_STAT_COLS = [
     "is_user_team",
     "rank",
 ]
-_FLOAT_STAT_COLS = ["avg", "obp", "ip", "era", "whip", "adp", "total", "points"]
+_FLOAT_STAT_COLS = ["avg", "obp", "ip", "era", "whip", "adp", "total", "points", "fip", "xfip", "siera"]
 
 
 def coerce_numeric_df(df: pd.DataFrame) -> pd.DataFrame:
@@ -230,6 +230,16 @@ def init_db():
         _safe_add_column(conn, table, "bb", "INTEGER DEFAULT 0")
         _safe_add_column(conn, table, "hbp", "INTEGER DEFAULT 0")
         _safe_add_column(conn, table, "sf", "INTEGER DEFAULT 0")
+
+    # Phase 2 data foundation: player bio fields
+    _safe_add_column(conn, "players", "bats", "TEXT")
+    _safe_add_column(conn, "players", "throws", "TEXT")
+
+    # Phase 2 data foundation: advanced pitcher metrics
+    for table in ("projections", "season_stats", "ros_projections"):
+        _safe_add_column(conn, table, "fip", "REAL DEFAULT 0")
+        _safe_add_column(conn, table, "xfip", "REAL DEFAULT 0")
+        _safe_add_column(conn, table, "siera", "REAL DEFAULT 0")
 
     conn.close()
 
@@ -560,6 +570,7 @@ def load_player_pool() -> pd.DataFrame:
             proj.obp, proj.bb, proj.hbp, proj.sf,
             proj.ip, proj.w, proj.l, proj.sv, proj.k, proj.era, proj.whip,
             proj.er, proj.bb_allowed, proj.h_allowed,
+            proj.fip, proj.xfip, proj.siera,
             COALESCE(a.adp, 999) as adp
         FROM players p
         JOIN projections proj ON p.player_id = proj.player_id
@@ -581,6 +592,7 @@ def load_player_pool() -> pd.DataFrame:
                 proj.obp, proj.bb, proj.hbp, proj.sf,
                 proj.ip, proj.w, proj.l, proj.sv, proj.k, proj.era, proj.whip,
                 proj.er, proj.bb_allowed, proj.h_allowed,
+                proj.fip, proj.xfip, proj.siera,
                 COALESCE(a.adp, 999) as adp
             FROM players p
             JOIN projections proj ON p.player_id = proj.player_id
@@ -627,6 +639,9 @@ _VALID_STAT_COLUMNS = frozenset(
         "h_allowed",
         "hbp",
         "sf",
+        "fip",
+        "xfip",
+        "siera",
         "games_played",
     ]
 )
@@ -667,6 +682,9 @@ def upsert_season_stats(player_id: int, stats: dict, season: int = 2026):
             "er",
             "bb_allowed",
             "h_allowed",
+            "fip",
+            "xfip",
+            "siera",
             "games_played",
         ]
         _validate_columns(cols)
@@ -721,6 +739,9 @@ def upsert_ros_projection(player_id: int, system: str, stats: dict):
             "er",
             "bb_allowed",
             "h_allowed",
+            "fip",
+            "xfip",
+            "siera",
         ]
         _validate_columns(cols)
         values = {c: stats.get(c, 0) for c in cols}
@@ -854,7 +875,9 @@ def check_staleness(source: str, max_age_hours: float) -> bool:
 
 
 def upsert_player_bulk(players: list[dict]) -> int:
-    """Bulk upsert players. Each dict needs: name, team, positions, is_hitter. Optional: mlb_id.
+    """Bulk upsert players. Each dict needs: name, team, positions, is_hitter.
+
+    Optional: mlb_id, bats, throws, birth_date.
 
     Uses SELECT-first approach since players table has no UNIQUE constraint on name.
     """
@@ -864,17 +887,27 @@ def upsert_player_bulk(players: list[dict]) -> int:
         for p in players:
             existing = conn.execute("SELECT player_id FROM players WHERE name = ?", (p["name"],)).fetchone()
             mlb_id = p.get("mlb_id")
+            bats = p.get("bats")
+            throws = p.get("throws")
+            birth_date = p.get("birth_date")
             if existing:
                 conn.execute(
-                    """UPDATE players SET team = ?, positions = ?, is_hitter = ?, mlb_id = COALESCE(?, mlb_id)
+                    """UPDATE players SET team = ?, positions = ?, is_hitter = ?,
+                       mlb_id = COALESCE(?, mlb_id),
+                       bats = COALESCE(?, bats),
+                       throws = COALESCE(?, throws),
+                       birth_date = COALESCE(?, birth_date)
                        WHERE player_id = ?""",
-                    (p["team"], p["positions"], int(p["is_hitter"]), mlb_id, existing[0]),
+                    (p["team"], p["positions"], int(p["is_hitter"]), mlb_id,
+                     bats, throws, birth_date, existing[0]),
                 )
             else:
                 conn.execute(
-                    """INSERT INTO players (name, team, positions, is_hitter, is_injured, mlb_id)
-                       VALUES (?, ?, ?, ?, 0, ?)""",
-                    (p["name"], p["team"], p["positions"], int(p["is_hitter"]), mlb_id),
+                    """INSERT INTO players (name, team, positions, is_hitter, is_injured,
+                       mlb_id, bats, throws, birth_date)
+                       VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?)""",
+                    (p["name"], p["team"], p["positions"], int(p["is_hitter"]),
+                     mlb_id, bats, throws, birth_date),
                 )
             saved += 1
         conn.commit()

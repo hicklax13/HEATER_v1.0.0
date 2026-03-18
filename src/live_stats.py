@@ -327,6 +327,9 @@ def fetch_all_mlb_players(season: int = 2026) -> pd.DataFrame:
                 "team": p.get("currentTeam", {}).get("abbreviation", ""),
                 "positions": pos_abbr if pos_abbr not in ("0", "-", "") else "Util",
                 "is_hitter": is_hitter,
+                "bats": p.get("batSide", {}).get("code", ""),
+                "throws": p.get("pitchHand", {}).get("code", ""),
+                "birth_date": p.get("birthDate", ""),
             }
         )
 

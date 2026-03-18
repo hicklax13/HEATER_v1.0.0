@@ -134,6 +134,9 @@ def normalize_pitcher_json(raw: list[dict]) -> pd.DataFrame:
                 "er": er,
                 "bb_allowed": bb_allowed,
                 "h_allowed": h_allowed,
+                "fip": float(player.get("FIP", 0) or 0),
+                "xfip": float(player.get("xFIP", 0) or 0),
+                "siera": float(player.get("SIERA", 0) or 0),
             }
         )
     return pd.DataFrame(records)
@@ -320,8 +323,8 @@ def _store_projections(projections: dict[str, pd.DataFrame]) -> int:
                     cursor.execute(
                         """INSERT INTO projections
                            (player_id, system, ip, w, l, sv, k, era, whip, er,
-                            bb_allowed, h_allowed)
-                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                            bb_allowed, h_allowed, fip, xfip, siera)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                         (
                             player_id,
                             db_system,
@@ -335,6 +338,9 @@ def _store_projections(projections: dict[str, pd.DataFrame]) -> int:
                             int(row.get("er", 0)),
                             int(row.get("bb_allowed", 0)),
                             int(row.get("h_allowed", 0)),
+                            float(row.get("fip", 0)),
+                            float(row.get("xfip", 0)),
+                            float(row.get("siera", 0)),
                         ),
                     )
                 total += 1

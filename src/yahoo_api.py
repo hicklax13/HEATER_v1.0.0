@@ -976,6 +976,40 @@ class YahooFantasyClient:
             return pd.DataFrame()
 
     # ------------------------------------------------------------------
+    # ADP data
+    # ------------------------------------------------------------------
+
+    def fetch_yahoo_adp(self) -> pd.DataFrame:
+        """Fetch Yahoo Average Draft Position data.
+
+        Uses draft results from the league to compute per-player ADP.
+        Returns a DataFrame with columns: ``name``, ``yahoo_adp``.
+
+        When not authenticated or on failure, returns an empty DataFrame
+        with the expected columns (graceful degradation).
+        """
+        empty = pd.DataFrame(columns=["name", "yahoo_adp"])
+        if not self._ensure_auth():
+            return empty
+        try:
+            draft_df = self.get_draft_results()
+            if draft_df.empty:
+                return empty
+
+            # Compute average pick position per player (ADP)
+            adp_df = (
+                draft_df.groupby("player_name")["pick_number"]
+                .mean()
+                .reset_index()
+            )
+            adp_df.columns = ["name", "yahoo_adp"]
+            adp_df = adp_df.sort_values("yahoo_adp").reset_index(drop=True)
+            return adp_df
+        except Exception:
+            logger.exception("Failed to fetch Yahoo ADP.")
+            return empty
+
+    # ------------------------------------------------------------------
     # Database sync
     # ------------------------------------------------------------------
 

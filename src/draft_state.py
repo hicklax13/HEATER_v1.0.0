@@ -211,17 +211,26 @@ class DraftState:
                 break
 
     def get_user_roster_totals(self, player_pool: pd.DataFrame) -> dict:
-        """Compute category totals for the user's current roster."""
+        """Compute category totals for the user's current roster.
+
+        Tracks all 12 H2H categories: R, HR, RBI, SB, AVG, OBP, W, L, SV, K, ERA, WHIP.
+        Also tracks intermediate stats (ab, h, bb, hbp, sf, ip, er, bb_allowed, h_allowed)
+        needed for rate stat computation.
+        """
         totals = {
             "R": 0,
             "HR": 0,
             "RBI": 0,
             "SB": 0,
             "W": 0,
+            "L": 0,
             "SV": 0,
             "K": 0,
             "ab": 0,
             "h": 0,
+            "bb": 0,
+            "hbp": 0,
+            "sf": 0,
             "ip": 0,
             "er": 0,
             "bb_allowed": 0,
@@ -239,10 +248,14 @@ class DraftState:
             totals["RBI"] += int(p.get("rbi", 0) or 0)
             totals["SB"] += int(p.get("sb", 0) or 0)
             totals["W"] += int(p.get("w", 0) or 0)
+            totals["L"] += int(p.get("l", 0) or 0)
             totals["SV"] += int(p.get("sv", 0) or 0)
             totals["K"] += int(p.get("k", 0) or 0)
             totals["ab"] += int(p.get("ab", 0) or 0)
             totals["h"] += int(p.get("h", 0) or 0)
+            totals["bb"] += int(p.get("bb", 0) or 0)
+            totals["hbp"] += int(p.get("hbp", 0) or 0)
+            totals["sf"] += int(p.get("sf", 0) or 0)
             totals["ip"] += float(p.get("ip", 0) or 0)
             totals["er"] += int(p.get("er", 0) or 0)
             totals["bb_allowed"] += int(p.get("bb_allowed", 0) or 0)
@@ -253,6 +266,12 @@ class DraftState:
             totals["AVG"] = totals["h"] / totals["ab"]
         else:
             totals["AVG"] = 0
+        # OBP = (H + BB + HBP) / (AB + BB + HBP + SF)
+        obp_denom = totals["ab"] + totals["bb"] + totals["hbp"] + totals["sf"]
+        if obp_denom > 0:
+            totals["OBP"] = (totals["h"] + totals["bb"] + totals["hbp"]) / obp_denom
+        else:
+            totals["OBP"] = 0
         if totals["ip"] > 0:
             totals["ERA"] = totals["er"] * 9 / totals["ip"]
             totals["WHIP"] = (totals["bb_allowed"] + totals["h_allowed"]) / totals["ip"]
@@ -283,6 +302,7 @@ class DraftState:
         """Get projected stat totals for all teams (for standings estimation).
 
         Returns list of dicts (one per team) with category totals.
+        Tracks all 12 H2H categories: R, HR, RBI, SB, AVG, OBP, W, L, SV, K, ERA, WHIP.
         """
         all_totals = []
         for team in self.teams:
@@ -292,10 +312,14 @@ class DraftState:
                 "RBI": 0,
                 "SB": 0,
                 "W": 0,
+                "L": 0,
                 "SV": 0,
                 "K": 0,
                 "ab": 0,
                 "h": 0,
+                "bb": 0,
+                "hbp": 0,
+                "sf": 0,
                 "ip": 0,
                 "er": 0,
                 "bb_allowed": 0,
@@ -311,10 +335,14 @@ class DraftState:
                 t["RBI"] += int(p.get("rbi", 0) or 0)
                 t["SB"] += int(p.get("sb", 0) or 0)
                 t["W"] += int(p.get("w", 0) or 0)
+                t["L"] += int(p.get("l", 0) or 0)
                 t["SV"] += int(p.get("sv", 0) or 0)
                 t["K"] += int(p.get("k", 0) or 0)
                 t["ab"] += int(p.get("ab", 0) or 0)
                 t["h"] += int(p.get("h", 0) or 0)
+                t["bb"] += int(p.get("bb", 0) or 0)
+                t["hbp"] += int(p.get("hbp", 0) or 0)
+                t["sf"] += int(p.get("sf", 0) or 0)
                 t["ip"] += float(p.get("ip", 0) or 0)
                 t["er"] += int(p.get("er", 0) or 0)
                 t["bb_allowed"] += int(p.get("bb_allowed", 0) or 0)
@@ -323,6 +351,12 @@ class DraftState:
                 t["AVG"] = t["h"] / t["ab"]
             else:
                 t["AVG"] = 0
+            # OBP = (H + BB + HBP) / (AB + BB + HBP + SF)
+            obp_denom = t["ab"] + t["bb"] + t["hbp"] + t["sf"]
+            if obp_denom > 0:
+                t["OBP"] = (t["h"] + t["bb"] + t["hbp"]) / obp_denom
+            else:
+                t["OBP"] = 0
             if t["ip"] > 0:
                 t["ERA"] = t["er"] * 9 / t["ip"]
                 t["WHIP"] = (t["bb_allowed"] + t["h_allowed"]) / t["ip"]
