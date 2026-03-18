@@ -366,8 +366,133 @@ class DraftRecommendationEngine:
             merge_df = enhanced_pool[available_cols].drop_duplicates(subset=["player_id"])
             results = results.merge(merge_df, on="player_id", how="left")
 
+        # Step 3: Enrich output with ranks, composite value, confidence
+        if not results.empty:
+            results = self._enrich_output(results)
+
         self._timing["recommend_total"] = time.perf_counter() - t_total_start
         return results
+
+    # ── Output Enrichment ──────────────────────────────────────────────
+
+    def _enrich_output(self, candidates: pd.DataFrame) -> pd.DataFrame:
+        """Add derived columns to recommendation output.
+
+        Adds four columns to the already-sorted candidates DataFrame:
+
+        1. ``overall_rank`` (int): Sequential rank 1, 2, 3... based on
+           current sort order (combined_score descending).
+        2. ``composite_value`` (float): ``combined_score`` normalized to a
+           0-100 scale.  ``(score - min) / (max - min) * 100``.  When all
+           scores are identical the value is 50.0.
+        3. ``position_rank`` (str): Per-position rank for each of the
+           player's eligible positions.  Format ``"SS:1/2B:3"``.
+        4. ``confidence_level`` (str): ``"HIGH"``, ``"MEDIUM"``, or
+           ``"LOW"`` derived from the coefficient of variation of MC
+           simulation results.
+
+        Args:
+            candidates: DataFrame sorted by combined_score descending,
+                produced by ``evaluate_candidates()`` + enhancement merge.
+
+        Returns:
+            Same DataFrame with the four new columns appended.
+        """
+        if candidates.empty:
+            candidates["overall_rank"] = pd.Series(dtype="int64")
+            candidates["composite_value"] = pd.Series(dtype="float64")
+            candidates["position_rank"] = pd.Series(dtype="object")
+            candidates["confidence_level"] = pd.Series(dtype="object")
+            return candidates
+
+        # 1. Overall rank — sequential starting at 1
+        candidates = candidates.reset_index(drop=True)
+        candidates["overall_rank"] = candidates.index + 1
+
+        # 2. Composite value — normalize combined_score to [0, 100]
+        scores = candidates["combined_score"]
+        score_min = scores.min()
+        score_max = scores.max()
+        if score_max == score_min:
+            candidates["composite_value"] = 50.0
+        else:
+            candidates["composite_value"] = (scores - score_min) / (score_max - score_min) * 100.0
+
+        # 3. Position rank — rank within each eligible position
+        candidates["position_rank"] = self._compute_position_ranks(candidates)
+
+        # 4. Confidence level — based on MC coefficient of variation
+        candidates["confidence_level"] = candidates.apply(self._compute_confidence_level, axis=1)
+
+        return candidates
+
+    @staticmethod
+    def _compute_position_ranks(candidates: pd.DataFrame) -> pd.Series:
+        """Rank each player within every position they are eligible for.
+
+        Positions are parsed from the comma-separated ``positions`` column.
+        Players are ranked within each position by their row order (which
+        is already sorted by combined_score descending, so rank 1 = best).
+
+        Returns:
+            Series of strings like ``"SS:1/2B:3"`` or ``"SP:2"``.
+        """
+        # Build a mapping: position -> ordered list of row indices
+        pos_counters: dict[str, int] = {}
+        # For each row, store {position: rank}
+        row_pos_ranks: list[dict[str, int]] = [{} for _ in range(len(candidates))]
+
+        for idx, row in candidates.iterrows():
+            positions_str = row.get("positions", "")
+            if not positions_str or not isinstance(positions_str, str):
+                continue
+            pos_list = [p.strip() for p in positions_str.split(",") if p.strip()]
+            for pos in pos_list:
+                pos_counters[pos] = pos_counters.get(pos, 0) + 1
+                row_pos_ranks[idx][pos] = pos_counters[pos]
+
+        result = []
+        for ranks in row_pos_ranks:
+            if not ranks:
+                result.append("")
+            else:
+                parts = [f"{pos}:{rank}" for pos, rank in sorted(ranks.items())]
+                result.append("/".join(parts))
+
+        return pd.Series(result, index=candidates.index)
+
+    @staticmethod
+    def _compute_confidence_level(row: pd.Series) -> str:
+        """Derive confidence level from MC simulation variance.
+
+        Uses the coefficient of variation (CV = std / mean):
+          - CV < 0.15 → HIGH (stable projection)
+          - CV < 0.35 → MEDIUM (moderate uncertainty)
+          - CV >= 0.35 or mean ≈ 0 → LOW (high uncertainty)
+
+        When ``mc_mean_sgp`` is 0, NaN, or missing → LOW.
+        """
+        mean_val = row.get("mc_mean_sgp", None)
+        std_val = row.get("mc_std_sgp", None)
+
+        # Guard: missing or zero mean
+        if mean_val is None or std_val is None:
+            return "LOW"
+        try:
+            mean_val = float(mean_val)
+            std_val = float(std_val)
+        except (ValueError, TypeError):
+            return "LOW"
+
+        if np.isnan(mean_val) or np.isnan(std_val) or abs(mean_val) < 0.01:
+            return "LOW"
+
+        cv = std_val / abs(mean_val)
+        if cv < 0.15:
+            return "HIGH"
+        elif cv < 0.35:
+            return "MEDIUM"
+        return "LOW"
 
     # ── Enhancement Stages (private) ──────────────────────────────────
 
