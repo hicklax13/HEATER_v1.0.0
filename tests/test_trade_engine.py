@@ -1041,13 +1041,12 @@ class TestLineupConstrainedEval:
         # Roster of 23: IDs 1-13 (hitters) + 21-30 (pitchers)
         user_roster_ids = list(range(1, 14)) + list(range(21, 31))
 
-        # Give 2 hitters (IDs 1, 2), receive 1 pitcher (ID 30 not on roster)
-        # Use ID 30 which IS on roster — need a player NOT on roster
+        # Give 2 hitters (IDs 1, 2), receive 1 hitter not on roster
         # sample_pool has IDs 1-30, roster has 1-13 + 21-30
         # IDs 14-20 are free agents (hitters not on roster)
         result = evaluate_trade(
             giving_ids=[1, 2],
-            receiving_ids=[21],  # Already on roster — let's use a non-roster player
+            receiving_ids=[14],  # Not on roster — valid FA to receive
             user_roster_ids=user_roster_ids,
             player_pool=sample_pool,
             config=config,
