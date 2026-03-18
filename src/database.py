@@ -241,6 +241,9 @@ def init_db():
         _safe_add_column(conn, table, "xfip", "REAL DEFAULT 0")
         _safe_add_column(conn, table, "siera", "REAL DEFAULT 0")
 
+    # Contract year / arbitration tracking
+    _safe_add_column(conn, "players", "arbitration_eligible", "INTEGER DEFAULT 0")
+
     conn.close()
 
 
@@ -898,16 +901,14 @@ def upsert_player_bulk(players: list[dict]) -> int:
                        throws = COALESCE(?, throws),
                        birth_date = COALESCE(?, birth_date)
                        WHERE player_id = ?""",
-                    (p["team"], p["positions"], int(p["is_hitter"]), mlb_id,
-                     bats, throws, birth_date, existing[0]),
+                    (p["team"], p["positions"], int(p["is_hitter"]), mlb_id, bats, throws, birth_date, existing[0]),
                 )
             else:
                 conn.execute(
                     """INSERT INTO players (name, team, positions, is_hitter, is_injured,
                        mlb_id, bats, throws, birth_date)
                        VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?)""",
-                    (p["name"], p["team"], p["positions"], int(p["is_hitter"]),
-                     mlb_id, bats, throws, birth_date),
+                    (p["name"], p["team"], p["positions"], int(p["is_hitter"]), mlb_id, bats, throws, birth_date),
                 )
             saved += 1
         conn.commit()
