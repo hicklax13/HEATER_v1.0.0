@@ -6,10 +6,24 @@ import time
 import pandas as pd
 import streamlit as st
 
-from src.database import init_db, load_league_rosters, load_player_pool
+from src.database import init_db, load_league_rosters, load_league_standings, load_player_pool
 from src.league_manager import get_team_roster
 from src.ui_shared import METRIC_TOOLTIPS, T, inject_custom_css, render_styled_table
 from src.valuation import LeagueConfig
+
+try:
+    from src.optimizer.h2h_engine import estimate_h2h_win_probability
+
+    _HAS_H2H = True
+except ImportError:
+    _HAS_H2H = False
+
+try:
+    from src.optimizer.streaming import rank_streaming_candidates
+
+    _HAS_STREAMING = True
+except ImportError:
+    _HAS_STREAMING = False
 
 logger = logging.getLogger(__name__)
 
@@ -189,7 +203,9 @@ def _positions_for_player(row: pd.Series) -> list[str]:
 
 # ── Tabs ──────────────────────────────────────────────────────────
 
-tab_heatmap, tab_start_sit, tab_two_start = st.tabs(["Matchup Heatmap", "Start / Sit Advisor", "Two-Start Pitchers"])
+tab_heatmap, tab_start_sit, tab_two_start, tab_projector, tab_streaming = st.tabs(
+    ["Matchup Heatmap", "Start / Sit Advisor", "Two-Start Pitchers", "H2H Matchup Projector", "Streaming Calendar"]
+)
 
 
 # ── Tab 1: Matchup Heatmap ───────────────────────────────────────
@@ -451,3 +467,137 @@ with tab_two_start:
                 "your team's rate stats from starting this pitcher. Streaming value measures the "
                 "net Standings Gained Points contribution."
             )
+
+
+# ── Tab 4: H2H Matchup Projector ───────────────────────────────────────
+
+with tab_projector:
+    if not _HAS_H2H:
+        st.info("H2H engine not available. Install required dependencies.")
+    else:
+        standings = load_league_standings()
+        all_team_totals: dict[str, dict[str, float]] = {}
+        if not standings.empty and "category" in standings.columns:
+            for _, row in standings.iterrows():
+                team_nm = str(row.get("team_name", ""))
+                cat_nm = str(row.get("category", "")).strip()
+                val = float(row.get("total", 0))
+                all_team_totals.setdefault(team_nm, {})[cat_nm] = val
+
+        if not all_team_totals:
+            st.warning("No standings data available. Connect your Yahoo league to see matchup projections.")
+        else:
+            my_totals = all_team_totals.get(user_team_name, {})
+            other_teams = [t for t in sorted(all_team_totals.keys()) if t != user_team_name]
+            if not other_teams:
+                st.info("No opponent data available.")
+            else:
+                opponent = st.selectbox("Select opponent:", other_teams, key="h2h_opponent")
+                opp_totals = all_team_totals.get(opponent, {})
+
+                if my_totals and opp_totals:
+                    try:
+                        result = estimate_h2h_win_probability(my_totals, opp_totals)
+                        per_cat = result.get("per_category", {})
+                        expected_wins = result.get("expected_wins", 6)
+                        overall_prob = result.get("overall_win_prob", 0.5)
+
+                        # Scoreboard
+                        my_wins = round(expected_wins, 1)
+                        opp_wins = round(12 - expected_wins, 1)
+                        if overall_prob > 0.55:
+                            score_color = T["green"]
+                        elif overall_prob < 0.45:
+                            score_color = T["danger"]
+                        else:
+                            score_color = T["hot"]
+
+                        proj_html = (
+                            f'<div class="glass" style="text-align:center;padding:20px;margin:12px 0;'
+                            f'border:2px solid {score_color};">'
+                            f'<span style="font-family:Bebas Neue,sans-serif;font-size:24px;color:{score_color};">'
+                            f"Projected: {user_team_name} {my_wins:.0f} - {opp_wins:.0f} {opponent}</span>"
+                            f'<div style="color:{T["tx2"]};font-size:14px;margin-top:4px;">'
+                            f"Win Probability: {overall_prob:.0%}</div></div>"
+                        )
+                        st.markdown(proj_html, unsafe_allow_html=True)
+
+                        # Category breakdown
+                        cat_rows = []
+                        config_local = LeagueConfig()
+                        for cat in config_local.all_categories:
+                            p_win = per_cat.get(cat, 0.5)
+                            my_val = my_totals.get(cat, 0)
+                            opp_val = opp_totals.get(cat, 0)
+
+                            if cat in config_local.rate_stats:
+                                my_str = f"{my_val:.3f}"
+                                opp_str = f"{opp_val:.3f}"
+                            else:
+                                my_str = f"{my_val:.0f}"
+                                opp_str = f"{opp_val:.0f}"
+
+                            if p_win > 0.6:
+                                status = "WIN"
+                            elif p_win < 0.4:
+                                status = "LOSS"
+                            else:
+                                status = "CLOSE"
+
+                            cat_rows.append(
+                                {
+                                    "Category": cat,
+                                    "Your Total": my_str,
+                                    "Opp Total": opp_str,
+                                    "Win %": f"{p_win:.0%}",
+                                    "Status": status,
+                                }
+                            )
+
+                        render_styled_table(pd.DataFrame(cat_rows))
+                        st.caption("Win % based on Normal CDF with category-specific variance estimates.")
+                    except Exception as e:
+                        st.error(f"Matchup projection failed: {e}")
+                else:
+                    st.warning("Incomplete team data for projection.")
+
+
+# ── Tab 5: Streaming Calendar ──────────────────────────────────────────
+
+with tab_streaming:
+    if not _HAS_STREAMING:
+        st.info("Streaming module not available.")
+    else:
+        st.markdown("#### Pitcher Streaming Candidates")
+        st.caption("Free agent pitchers ranked by streaming value for the upcoming week.")
+
+        try:
+            from src.league_manager import get_free_agents
+
+            fa_pitchers = get_free_agents(pool)
+            if not fa_pitchers.empty and "is_hitter" in fa_pitchers.columns:
+                fa_pitchers = fa_pitchers[fa_pitchers["is_hitter"] == 0]
+
+            if fa_pitchers.empty:
+                st.info("No free agent pitchers available for streaming.")
+            else:
+                from src.data_bootstrap import PARK_FACTORS
+
+                candidates = rank_streaming_candidates(fa_pitchers, park_factors=PARK_FACTORS)
+                if candidates:
+                    stream_rows = []
+                    for c in candidates[:15]:
+                        stream_rows.append(
+                            {
+                                "Pitcher": c.get("name", c.get("player_name", "Unknown")),
+                                "Team": c.get("team", "?"),
+                                "Streaming Value": f"{c.get('streaming_value', 0):.2f}",
+                                "Two-Start": "Yes" if c.get("two_start", False) else "No",
+                            }
+                        )
+                    render_styled_table(pd.DataFrame(stream_rows))
+                    st.caption(METRIC_TOOLTIPS.get("streaming_value", "Streaming value = net SGP from a one-week add."))
+                else:
+                    st.info("No streaming candidates found for this week.")
+        except Exception as e:
+            st.error(f"Streaming analysis failed: {e}")
