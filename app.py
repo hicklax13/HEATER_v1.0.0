@@ -445,7 +445,6 @@ def render_step_settings():
         st.markdown(f'<span class="badge badge-fair">{labels[idx]}</span>', unsafe_allow_html=True)
 
         st.markdown("")
-        st.markdown("**Draft Engine Mode**")
         engine_mode_label = st.radio(
             "Draft Engine Mode",
             ["Quick (< 1 second)", "Standard (2-3 seconds)", "Full (5-10 seconds)"],
@@ -813,6 +812,7 @@ def render_draft_page():
                 # Enhanced recommendation engine with multi-factor analysis
                 rec_progress.progress(10, text=f"Running {engine_mode} engine analysis...")
                 engine = DraftRecommendationEngine(lc, mode=engine_mode)
+                st.session_state.draft_engine = engine
                 candidates = engine.recommend(
                     pool,
                     ds,
@@ -1794,7 +1794,13 @@ def build_category_heatmap_html(user_totals: dict, all_totals: list[dict]) -> st
         # Compute rank (1 = best)
         if cat in inverse_cats:
             # Lower is better — count teams with strictly lower value
-            rank = sum(1 for t in all_totals if t.get(cat, 0) < my_val) + 1
+            # But if user has 0 IP, pitching inverse stats (ERA, WHIP, L) are
+            # meaningless — treat as worst rank instead of best.
+            pitching_inverse = {"ERA", "WHIP", "L"}
+            if cat in pitching_inverse and user_totals.get("ip", 0) == 0:
+                rank = num_teams  # worst rank
+            else:
+                rank = sum(1 for t in all_totals if t.get(cat, 0) < my_val) + 1
         else:
             # Higher is better — count teams with strictly higher value
             rank = sum(1 for t in all_totals if t.get(cat, 0) > my_val) + 1
