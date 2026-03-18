@@ -65,6 +65,13 @@ except ImportError:
     HAS_PLOTLY = False
 
 try:
+    from src.draft_engine import DraftRecommendationEngine
+
+    HAS_DRAFT_ENGINE = True
+except ImportError:
+    HAS_DRAFT_ENGINE = False
+
+try:
     from src.yahoo_api import YFPY_AVAILABLE, YahooFantasyClient
 except ImportError:
     YFPY_AVAILABLE = False
@@ -97,6 +104,7 @@ def init_session():
         "num_sims": 100,
         "last_lock_in": 0,
         "last_drafted": "",
+        "engine_mode": "standard",
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -435,6 +443,23 @@ def render_step_settings():
         labels = ["Conservative", "Balanced", "Moderate", "Aggressive", "YOLO"]
         idx = min(int(risk * 4), 4)
         st.markdown(f'<span class="badge badge-fair">{labels[idx]}</span>', unsafe_allow_html=True)
+
+        st.markdown("")
+        st.markdown("**Draft Engine Mode**")
+        engine_mode_label = st.radio(
+            "Draft Engine Mode",
+            ["Quick (< 1 second)", "Standard (2-3 seconds)", "Full (5-10 seconds)"],
+            index=1,
+            help="Quick: base analysis. Standard: Bayesian + injury + Statcast. Full: all contextual factors.",
+            key="engine_mode_selection",
+        )
+        # Map display label to engine mode key
+        _mode_map = {
+            "Quick (< 1 second)": "quick",
+            "Standard (2-3 seconds)": "standard",
+            "Full (5-10 seconds)": "full",
+        }
+        st.session_state.engine_mode = _mode_map.get(engine_mode_label, "standard")
 
     # Nav
     st.markdown("")
@@ -779,28 +804,44 @@ def render_draft_page():
     pos_runs = []
 
     if ds.is_user_turn and len(available) > 0:
-        rec_progress = st.progress(0, text="Preparing Monte Carlo simulation...")
+        engine_mode = st.session_state.get("engine_mode", "standard")
+        use_enhanced = HAS_DRAFT_ENGINE
+
+        rec_progress = st.progress(0, text="Preparing analysis...")
         try:
-            sim = DraftSimulator(lc)
+            if use_enhanced:
+                # Enhanced recommendation engine with multi-factor analysis
+                rec_progress.progress(10, text=f"Running {engine_mode} engine analysis...")
+                engine = DraftRecommendationEngine(lc, mode=engine_mode)
+                candidates = engine.recommend(
+                    pool,
+                    ds,
+                    top_n=8,
+                    n_simulations=st.session_state.num_sims,
+                    park_factors=st.session_state.get("park_factors"),
+                )
+            else:
+                # Fallback to raw DraftSimulator
+                rec_progress.progress(10, text="Running Monte Carlo simulation...")
+                sim = DraftSimulator(lc)
 
-            # Build volatility array for MC sampling
-            perc_kwargs = {}
-            if st.session_state.get("has_percentiles", False):
-                vol_array = np.zeros(len(pool))
-                if "total_sgp" in pool.columns:
-                    vol_array = np.full(len(pool), pool["total_sgp"].std() * 0.3)
-                perc_kwargs = {
-                    "use_percentile_sampling": True,
-                    "sgp_volatility": vol_array,
-                }
+                # Build volatility array for MC sampling
+                perc_kwargs = {}
+                if st.session_state.get("has_percentiles", False):
+                    vol_array = np.zeros(len(pool))
+                    if "total_sgp" in pool.columns:
+                        vol_array = np.full(len(pool), pool["total_sgp"].std() * 0.3)
+                    perc_kwargs = {
+                        "use_percentile_sampling": True,
+                        "sgp_volatility": vol_array,
+                    }
 
-            rec_progress.progress(20, text="Running Monte Carlo simulation...")
-            candidates = sim.evaluate_candidates(
-                pool,
-                ds,
-                n_simulations=st.session_state.num_sims,
-                **perc_kwargs,
-            )
+                candidates = sim.evaluate_candidates(
+                    pool,
+                    ds,
+                    n_simulations=st.session_state.num_sims,
+                    **perc_kwargs,
+                )
 
             rec_progress.progress(80, text="Computing survival probabilities and urgency...")
 
@@ -902,6 +943,10 @@ def render_draft_page():
         if ds.is_user_turn:
             if rec is not None:
                 render_hero_pick(rec, ds, pool, threat_alerts=threat_alerts)
+
+                # Enhanced metrics bar (from DraftRecommendationEngine)
+                _render_enhanced_metrics(rec)
+
                 if len(alts) > 0:
                     render_alternatives(alts)
             else:
@@ -916,6 +961,14 @@ def render_draft_page():
                         f"Position being drafted heavily</div>",
                         unsafe_allow_html=True,
                     )
+
+            # Engine timing caption
+            if HAS_DRAFT_ENGINE and "draft_engine" in st.session_state:
+                _eng = st.session_state.draft_engine
+                if hasattr(_eng, "timing") and _eng.timing:
+                    _total = _eng.timing.get("total", 0)
+                    _mode = st.session_state.get("engine_mode", "standard")
+                    st.caption(f"Engine: {_total:.1f}s ({_mode} mode)")
         else:
             team_idx = ds.picking_team_index()
             team_name = ds.teams[team_idx].team_name
@@ -1077,6 +1130,58 @@ def render_hero_pick(rec, ds, pool, threat_alerts=None):
             f"Single projection source — range unavailable</div>"
         )
 
+    # BUY/FAIR/AVOID badge (from enhanced engine)
+    bfa_label = rec.get("buy_fair_avoid", "fair") if hasattr(rec, "get") else "fair"
+    bfa_label = str(bfa_label).lower() if bfa_label else "fair"
+    if bfa_label == "buy":
+        bfa_html = (
+            f'<span style="display:inline-block;padding:2px 10px;border-radius:12px;'
+            f"background:{T['green']};color:#ffffff;font-size:11px;font-weight:700;"
+            f'letter-spacing:1px;text-transform:uppercase;margin-left:8px;">BUY</span>'
+        )
+    elif bfa_label == "avoid":
+        bfa_html = (
+            f'<span style="display:inline-block;padding:2px 10px;border-radius:12px;'
+            f"background:{T['primary']};color:#ffffff;font-size:11px;font-weight:700;"
+            f'letter-spacing:1px;text-transform:uppercase;margin-left:8px;">AVOID</span>'
+        )
+    else:
+        bfa_html = (
+            f'<span style="display:inline-block;padding:2px 10px;border-radius:12px;'
+            f"background:{T['sky']};color:#ffffff;font-size:11px;font-weight:700;"
+            f'letter-spacing:1px;text-transform:uppercase;margin-left:8px;">FAIR</span>'
+        )
+
+    # Injury probability indicator (from enhanced engine)
+    inj_prob = float(rec.get("injury_probability", 0) or 0)
+    inj_prob_html = ""
+    if inj_prob > 0.01:
+        if inj_prob > 0.30:
+            inj_color = T["danger"]
+        elif inj_prob > 0.15:
+            inj_color = T["warn"]
+        else:
+            inj_color = T["ok"]
+        inj_prob_html = (
+            f'<span style="font-size:12px;color:{inj_color};margin-left:8px;">'
+            f"{PAGE_ICONS['warning']} {inj_prob:.0%} injury risk</span>"
+        )
+
+    # Confidence level badge
+    mc_std = float(rec.get("mc_std_sgp", 0) or 0)
+    mc_mean = float(rec.get("mc_mean_sgp", 1) or 1)
+    if mc_mean > 0 and mc_std / max(mc_mean, 0.01) < 0.15:
+        conf_label, conf_color = "HIGH", T["ok"]
+    elif mc_mean > 0 and mc_std / max(mc_mean, 0.01) < 0.35:
+        conf_label, conf_color = "MEDIUM", T["warn"]
+    else:
+        conf_label, conf_color = "LOW", T["danger"]
+    conf_html = (
+        f'<span style="display:inline-block;padding:1px 8px;border-radius:10px;'
+        f"border:1px solid {conf_color};color:{conf_color};font-size:10px;"
+        f'font-weight:700;letter-spacing:1px;margin-left:8px;">{conf_label}</span>'
+    )
+
     # Threat alerts
     alerts_html = ""
     if threat_alerts:
@@ -1092,8 +1197,8 @@ def render_hero_pick(rec, ds, pool, threat_alerts=None):
         f'<div style="width:48px;height:48px;border-radius:50%;background:{T["card"]};'
         f'display:flex;align-items:center;justify-content:center;">{surv:.0f}%</div></div>'
         f"<div>"
-        f'<div class="p-name">{name}</div>'
-        f'<div class="p-meta">{pos} &middot; Tier {tier} {vb}{injury_html}{age_html}{workload_html}</div>'
+        f'<div class="p-name">{name}{bfa_html}{conf_html}</div>'
+        f'<div class="p-meta">{pos} &middot; Tier {tier} {vb}{injury_html}{age_html}{workload_html}{inj_prob_html}</div>'
         f"</div></div>"
         f'<div class="reason">{reason}</div>'
         f'<div class="sgp-row" title="{METRIC_TOOLTIPS["sgp"]}">{chips_html}</div>'
@@ -1102,6 +1207,101 @@ def render_hero_pick(rec, ds, pool, threat_alerts=None):
         f"</div>",
         unsafe_allow_html=True,
     )
+
+
+# ── Enhanced Metrics Bar ──────────────────────────────────────────
+
+
+def _render_enhanced_metrics(rec):
+    """Show category balance meter + contextual factor highlights below hero card."""
+    if rec is None:
+        return
+
+    # Collect metrics that have non-default values
+    metrics = []
+    cat_mult = float(rec.get("category_balance_multiplier", 1.0) or 1.0)
+    stat_delta = float(rec.get("statcast_delta", 0) or 0)
+    closer_bonus = float(rec.get("closer_hierarchy_bonus", 0) or 0)
+    stream_pen = float(rec.get("streaming_penalty", 0) or 0)
+    lineup_bonus = float(rec.get("lineup_protection_bonus", 0) or 0)
+    flex_bonus = float(rec.get("flex_bonus", 0) or 0)
+
+    # Only show bar if engine produced any of these
+    has_data = abs(cat_mult - 1.0) > 0.01 or stat_delta != 0 or closer_bonus > 0 or stream_pen < 0
+
+    if not has_data:
+        return
+
+    # Category need meter
+    need_pct = int(min(100, max(0, (cat_mult - 0.8) / 0.4 * 100)))
+    if need_pct > 60:
+        need_color = T["primary"]
+        need_label = "High Need"
+    elif need_pct > 30:
+        need_color = T["hot"]
+        need_label = "Moderate"
+    else:
+        need_color = T["green"]
+        need_label = "Low Need"
+
+    # Build metric chips
+    chips = []
+    if abs(cat_mult - 1.0) > 0.01:
+        chips.append(
+            f'<div style="flex:1;min-width:120px;">'
+            f'<div style="font-size:10px;color:{T["tx2"]};margin-bottom:2px;">Category Need</div>'
+            f'<div style="background:{T["border"]};border-radius:4px;height:6px;">'
+            f'<div style="background:{need_color};width:{need_pct}%;height:100%;border-radius:4px;"></div>'
+            f"</div>"
+            f'<div style="font-size:10px;color:{need_color};margin-top:1px;">{need_label} ({cat_mult:.2f}x)</div>'
+            f"</div>"
+        )
+    if stat_delta != 0:
+        sd_color = T["green"] if stat_delta > 0 else T["primary"]
+        sd_icon = PAGE_ICONS.get("trending_up", "") if stat_delta > 0 else PAGE_ICONS.get("trending_down", "")
+        chips.append(
+            f'<div style="text-align:center;min-width:80px;">'
+            f'<div style="font-size:10px;color:{T["tx2"]};">Skill Delta</div>'
+            f'<div style="font-size:14px;font-weight:700;color:{sd_color};">{sd_icon} {stat_delta:+.3f}</div>'
+            f"</div>"
+        )
+    if closer_bonus > 0:
+        chips.append(
+            f'<div style="text-align:center;min-width:80px;">'
+            f'<div style="font-size:10px;color:{T["tx2"]};">Closer Bonus</div>'
+            f'<div style="font-size:14px;font-weight:700;color:{T["green"]};">+{closer_bonus:.1f}</div>'
+            f"</div>"
+        )
+    if stream_pen < 0:
+        chips.append(
+            f'<div style="text-align:center;min-width:80px;">'
+            f'<div style="font-size:10px;color:{T["tx2"]};">Stream Penalty</div>'
+            f'<div style="font-size:14px;font-weight:700;color:{T["primary"]};">{stream_pen:.1f}</div>'
+            f"</div>"
+        )
+    if lineup_bonus > 0.01:
+        chips.append(
+            f'<div style="text-align:center;min-width:80px;">'
+            f'<div style="font-size:10px;color:{T["tx2"]};">Lineup Bonus</div>'
+            f'<div style="font-size:14px;font-weight:700;color:{T["green"]};">+{lineup_bonus:.2f}</div>'
+            f"</div>"
+        )
+    if flex_bonus > 0.01:
+        chips.append(
+            f'<div style="text-align:center;min-width:80px;">'
+            f'<div style="font-size:10px;color:{T["tx2"]};">Flex Bonus</div>'
+            f'<div style="font-size:14px;font-weight:700;color:{T["sky"]};">+{flex_bonus:.2f}</div>'
+            f"</div>"
+        )
+
+    if chips:
+        chips_row = "".join(chips)
+        st.markdown(
+            f'<div style="display:flex;gap:16px;align-items:flex-end;padding:8px 12px;'
+            f"margin:4px 0 8px 0;background:{T['card']};border-radius:8px;"
+            f'border:1px solid {T["border"]};">{chips_row}</div>',
+            unsafe_allow_html=True,
+        )
 
 
 # ── Alternative Cards ───────────────────────────────────────────────
@@ -1154,10 +1354,27 @@ def render_alternatives(alts):
                         p90_s = p90_r.iloc[0].get("pick_score", score * 1.3)
                         range_text = f'<div title="{METRIC_TOOLTIPS["p10_p90"]}" style="font-size:10px;color:{T["tx2"]};">{p10_s:.1f} — {p90_s:.1f}</div>'
 
+            # BUY/FAIR/AVOID mini-badge for alternatives
+            alt_bfa = str(row.get("buy_fair_avoid", "fair") or "fair").lower()
+            if alt_bfa == "buy":
+                bfa_pill = (
+                    f'<span style="display:inline-block;padding:1px 6px;border-radius:8px;'
+                    f"background:{T['green']};color:#fff;font-size:9px;font-weight:700;"
+                    f'letter-spacing:0.5px;">BUY</span>'
+                )
+            elif alt_bfa == "avoid":
+                bfa_pill = (
+                    f'<span style="display:inline-block;padding:1px 6px;border-radius:8px;'
+                    f"background:{T['primary']};color:#fff;font-size:9px;font-weight:700;"
+                    f'letter-spacing:0.5px;">AVOID</span>'
+                )
+            else:
+                bfa_pill = ""  # Don't show FAIR pill on alts to reduce clutter
+
             st.markdown(
                 f'<div class="alt tier-{tier}">'
                 f'<div class="a-rank">#{i + 2}</div>'
-                f'<div class="a-name">{name}</div>'
+                f'<div class="a-name">{name} {bfa_pill}</div>'
                 f'<div class="a-meta">{pos} {alt_icon} {risk_badge}</div>'
                 f'<div class="a-score">{score:.1f}</div>'
                 f"{range_text}"

@@ -18,6 +18,13 @@ from src.valuation import (
     value_all_players,
 )
 
+try:
+    from src.draft_engine import DraftRecommendationEngine
+
+    _HAS_DRAFT_ENGINE = True
+except ImportError:
+    _HAS_DRAFT_ENGINE = False
+
 st.set_page_config(page_title="Heater | Draft Simulator", page_icon="", layout="wide")
 
 init_db()
@@ -110,11 +117,19 @@ def auto_pick_opponents(pool: pd.DataFrame) -> None:
 
 def render_recommendations(pool: pd.DataFrame, ds: DraftState, n_sims: int) -> None:
     lc: LeagueConfig = st.session_state.get("mock_lc", LeagueConfig())
-    sim = DraftSimulator(lc, sigma=10.0)
+    engine_mode = st.session_state.get("mock_engine_mode", "standard")
+    use_enhanced = _HAS_DRAFT_ENGINE
 
-    rec_progress = st.progress(0, text="Running Monte Carlo simulation...")
+    rec_progress = st.progress(0, text="Preparing analysis...")
     try:
-        recs = sim.evaluate_candidates(pool, ds, top_n=8, n_simulations=n_sims)
+        if use_enhanced:
+            rec_progress.progress(10, text=f"Running {engine_mode} engine analysis...")
+            engine = DraftRecommendationEngine(lc, mode=engine_mode)
+            recs = engine.recommend(pool, ds, top_n=8, n_simulations=n_sims)
+        else:
+            rec_progress.progress(10, text="Running Monte Carlo simulation...")
+            sim = DraftSimulator(lc, sigma=10.0)
+            recs = sim.evaluate_candidates(pool, ds, top_n=8, n_simulations=n_sims)
         rec_progress.progress(100, text="Analysis complete!")
     except Exception:
         recs = pd.DataFrame()
@@ -141,15 +156,46 @@ def render_recommendations(pool: pd.DataFrame, ds: DraftState, n_sims: int) -> N
         urg = float(row.get("urgency", 0))
         border_color = T["amber"] if rank == 1 else T["border"]
         label_color = T["amber"] if rank == 1 else T["tx"]
+
+        # BUY/FAIR/AVOID badge
+        bfa = str(row.get("buy_fair_avoid", "fair") or "fair").lower()
+        if bfa == "buy":
+            bfa_pill = (
+                f'<span style="display:inline-block;padding:2px 8px;border-radius:10px;'
+                f"background:{T['green']};color:#fff;font-size:10px;font-weight:700;"
+                f'letter-spacing:0.5px;margin-left:6px;">BUY</span>'
+            )
+        elif bfa == "avoid":
+            bfa_pill = (
+                f'<span style="display:inline-block;padding:2px 8px;border-radius:10px;'
+                f"background:{T['primary']};color:#fff;font-size:10px;font-weight:700;"
+                f'letter-spacing:0.5px;margin-left:6px;">AVOID</span>'
+            )
+        else:
+            bfa_pill = (
+                f'<span style="display:inline-block;padding:2px 8px;border-radius:10px;'
+                f"background:{T['sky']};color:#fff;font-size:10px;font-weight:700;"
+                f'letter-spacing:0.5px;margin-left:6px;">FAIR</span>'
+            )
+
+        # Injury probability indicator
+        inj_prob = float(row.get("injury_probability", 0) or 0)
+        inj_html = ""
+        if inj_prob > 0.01:
+            inj_color = T["danger"] if inj_prob > 0.30 else (T["warn"] if inj_prob > 0.15 else T["ok"])
+            inj_html = (
+                f'<span style="color:{inj_color};font-size:0.78rem;margin-left:8px;">{inj_prob:.0%} injury risk</span>'
+            )
+
         st.markdown(
             f"""
 <div style="background:{T["card"]};border:2px solid {border_color};border-radius:12px;
             padding:16px;margin-bottom:10px;">
     <div style="color:{label_color};font-size:1.05rem;font-weight:700;">
-        #{rank} {name}
+        #{rank} {name}{bfa_pill}
     </div>
     <div style="color:{T["tx2"]};font-size:0.82rem;margin-top:2px;">
-        {pos} &nbsp;|&nbsp; Average Draft Position: {adp:.0f}
+        {pos} &nbsp;|&nbsp; Average Draft Position: {adp:.0f}{inj_html}
     </div>
     <div style="color:{T["tx"]};font-size:0.88rem;margin-top:8px;">
         Score: {score:.1f} &nbsp;&nbsp; Survival: {surv:.0%} &nbsp;&nbsp; Urgency: {urg:.2f}
@@ -158,6 +204,40 @@ def render_recommendations(pool: pd.DataFrame, ds: DraftState, n_sims: int) -> N
 """,
             unsafe_allow_html=True,
         )
+
+    # Enhanced metrics for top recommendation
+    if not top3.empty:
+        top = top3.iloc[0]
+        _metrics = []
+        cat_m = float(top.get("category_balance_multiplier", 1.0) or 1.0)
+        if abs(cat_m - 1.0) > 0.01:
+            need_pct = int(min(100, max(0, (cat_m - 0.8) / 0.4 * 100)))
+            need_c = T["primary"] if need_pct > 60 else (T["hot"] if need_pct > 30 else T["green"])
+            _metrics.append(f'<span style="font-size:11px;color:{need_c};">Need: {cat_m:.2f}x</span>')
+        sd = float(top.get("statcast_delta", 0) or 0)
+        if sd != 0:
+            sd_c = T["green"] if sd > 0 else T["primary"]
+            _metrics.append(f'<span style="font-size:11px;color:{sd_c};">Skill: {sd:+.3f}</span>')
+        cb = float(top.get("closer_hierarchy_bonus", 0) or 0)
+        if cb > 0:
+            _metrics.append(f'<span style="font-size:11px;color:{T["green"]};">Closer: +{cb:.1f}</span>')
+        sp = float(top.get("streaming_penalty", 0) or 0)
+        if sp < 0:
+            _metrics.append(f'<span style="font-size:11px;color:{T["primary"]};">Stream: {sp:.1f}</span>')
+        if _metrics:
+            st.markdown(
+                '<div style="display:flex;gap:12px;padding:4px 8px;margin-bottom:8px;">'
+                + " ".join(_metrics)
+                + "</div>",
+                unsafe_allow_html=True,
+            )
+
+    # Engine timing
+    _eng = st.session_state.get("mock_draft_engine")
+    if _eng and hasattr(_eng, "timing") and _eng.timing:
+        _t = _eng.timing.get("total", 0)
+        _m = st.session_state.get("mock_engine_mode", "standard")
+        st.caption(f"Engine: {_t:.1f}s ({_m} mode)")
 
     st.markdown("---")
 
@@ -468,11 +548,28 @@ if not st.session_state.get("mock_started", False):
     st.session_state["num_rounds"] = num_rounds
     st.session_state["draft_pos"] = draft_pos
 
-    cfg_col, _ = st.columns([1, 2])
+    cfg_col, cfg_col2 = st.columns([1, 1])
     with cfg_col:
         n_sims_choice = st.radio("Simulation Depth", [50, 100, 200], index=0, horizontal=True, key="mock_sims_radio")
         st.session_state.mock_num_sims = n_sims_choice
 
+    with cfg_col2:
+        mock_engine_label = st.radio(
+            "Engine Mode",
+            ["Quick (< 1 second)", "Standard (2-3 seconds)", "Full (5-10 seconds)"],
+            index=1,
+            help="Quick: base analysis. Standard: Bayesian + injury + Statcast. Full: all contextual factors.",
+            key="mock_engine_mode_radio",
+        )
+        _mock_mode_map = {
+            "Quick (< 1 second)": "quick",
+            "Standard (2-3 seconds)": "standard",
+            "Full (5-10 seconds)": "full",
+        }
+        st.session_state.mock_engine_mode = _mock_mode_map.get(mock_engine_label, "standard")
+
+    cfg_col_btn, _ = st.columns([1, 2])
+    with cfg_col_btn:
         if st.button("Start Mock Draft", type="primary"):
             refresh_pool()
             pool = get_pool()
