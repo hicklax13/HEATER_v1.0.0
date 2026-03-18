@@ -336,6 +336,61 @@ def fetch_all_mlb_players(season: int = 2026) -> pd.DataFrame:
     return pd.DataFrame(rows) if rows else pd.DataFrame()
 
 
+def fetch_extended_roster(season: int = 2026) -> pd.DataFrame:
+    """Fetch extended player pool: active roster + spring training.
+
+    Queries MLB Stats API with multiple gameTypes to capture players
+    beyond the active roster (~1,200+ vs ~750 active-only).
+    Deduplicates by mlb_id, preferring active roster entries.
+    Falls back to fetch_all_mlb_players() on failure.
+    """
+    if statsapi is None:
+        return fetch_all_mlb_players(season)
+
+    all_players = []
+    roster_configs = [
+        ("R", "active"),
+        ("S", "spring"),
+    ]
+
+    for game_type, roster_label in roster_configs:
+        try:
+            data = statsapi.get(
+                "sports_players",
+                {"season": season, "sportId": 1, "gameType": game_type},
+            )
+            for p in data.get("people", []):
+                if not p.get("active", False):
+                    continue
+                pos_info = p.get("primaryPosition", {})
+                pos_abbr = pos_info.get("abbreviation", "Util")
+                pos_type = pos_info.get("type", "")
+                is_hitter = pos_type != "Pitcher" and pos_abbr != "P"
+                all_players.append(
+                    {
+                        "mlb_id": p.get("id"),
+                        "name": p.get("fullName", ""),
+                        "team": p.get("currentTeam", {}).get("abbreviation", ""),
+                        "positions": pos_abbr if pos_abbr not in ("0", "-", "") else "Util",
+                        "is_hitter": is_hitter,
+                        "bats": p.get("batSide", {}).get("code", ""),
+                        "throws": p.get("pitchHand", {}).get("code", ""),
+                        "birth_date": p.get("birthDate", ""),
+                        "roster_type": roster_label,
+                    }
+                )
+        except Exception:
+            logger.warning("Failed to fetch %s roster for season %d", game_type, season)
+
+    if not all_players:
+        return fetch_all_mlb_players(season)
+
+    df = pd.DataFrame(all_players)
+    # Deduplicate — keep first occurrence (active > spring)
+    df = df.drop_duplicates(subset="mlb_id", keep="first")
+    return df.reset_index(drop=True)
+
+
 def fetch_historical_stats(
     seasons: list[int] | None = None,
 ) -> dict[int, pd.DataFrame]:

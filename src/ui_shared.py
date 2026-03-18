@@ -784,6 +784,23 @@ def inject_custom_css():
     .badge-risk-low {{ background: rgba(45, 106, 79, 0.1); color: {t["ok"]}; }}
     .badge-risk-med {{ background: rgba(255, 159, 28, 0.1); color: {t["warn"]}; }}
     .badge-risk-high {{ background: rgba(230, 57, 70, 0.1); color: {t["danger"]}; }}
+    .badge-last-chance {{
+        display: inline-block;
+        padding: 2px 10px;
+        border-radius: 12px;
+        background: {t["danger"]};
+        color: #ffffff;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 1px;
+        text-transform: uppercase;
+        margin-left: 8px;
+        animation: pulse-lc 1.5s infinite;
+    }}
+    @keyframes pulse-lc {{
+        0%, 100% {{ opacity: 1; }}
+        50% {{ opacity: 0.6; }}
+    }}
 
     /* ── ROSTER GRID ─────────────────────────── */
     .roster-grid {{

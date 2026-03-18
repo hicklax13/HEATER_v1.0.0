@@ -125,11 +125,11 @@ def render_recommendations(pool: pd.DataFrame, ds: DraftState, n_sims: int) -> N
         if use_enhanced:
             rec_progress.progress(10, text=f"Running {engine_mode} engine analysis...")
             engine = DraftRecommendationEngine(lc, mode=engine_mode)
-            recs = engine.recommend(pool, ds, top_n=8, n_simulations=n_sims)
+            recs = engine.recommend(pool, ds, top_n=10, n_simulations=n_sims)
         else:
             rec_progress.progress(10, text="Running Monte Carlo simulation...")
             sim = DraftSimulator(lc, sigma=10.0)
-            recs = sim.evaluate_candidates(pool, ds, top_n=8, n_simulations=n_sims)
+            recs = sim.evaluate_candidates(pool, ds, top_n=10, n_simulations=n_sims)
         rec_progress.progress(100, text="Analysis complete!")
     except Exception:
         recs = pd.DataFrame()

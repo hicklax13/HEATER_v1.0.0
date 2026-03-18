@@ -816,7 +816,7 @@ def render_draft_page():
                 candidates = engine.recommend(
                     pool,
                     ds,
-                    top_n=8,
+                    top_n=10,
                     n_simulations=st.session_state.num_sims,
                     park_factors=st.session_state.get("park_factors"),
                 )
@@ -850,7 +850,7 @@ def render_draft_page():
                 if "name" in candidates.columns and "player_name" not in candidates.columns:
                     candidates["player_name"] = candidates["name"]
                 rec = candidates.iloc[0]
-                alts = candidates.iloc[1:6] if len(candidates) > 1 else pd.DataFrame()
+                alts = candidates.iloc[1:10] if len(candidates) > 1 else pd.DataFrame()
 
             # Position run detection
             pos_runs = detect_position_run(ds.pick_log)
@@ -1182,6 +1182,11 @@ def render_hero_pick(rec, ds, pool, threat_alerts=None):
         f'font-weight:700;letter-spacing:1px;margin-left:8px;">{conf_label}</span>'
     )
 
+    # LAST CHANCE badge — pulsing red when survival < 20%
+    last_chance_html = ""
+    if surv < 0.20:
+        last_chance_html = '<span class="badge-last-chance">LAST CHANCE</span>'
+
     # Threat alerts
     alerts_html = ""
     if threat_alerts:
@@ -1197,7 +1202,7 @@ def render_hero_pick(rec, ds, pool, threat_alerts=None):
         f'<div style="width:48px;height:48px;border-radius:50%;background:{T["card"]};'
         f'display:flex;align-items:center;justify-content:center;">{surv:.0f}%</div></div>'
         f"<div>"
-        f'<div class="p-name">{name}{bfa_html}{conf_html}</div>'
+        f'<div class="p-name">{name}{bfa_html}{conf_html}{last_chance_html}</div>'
         f'<div class="p-meta">{pos} &middot; Tier {tier} {vb}{injury_html}{age_html}{workload_html}{inj_prob_html}</div>'
         f"</div></div>"
         f'<div class="reason">{reason}</div>'
@@ -1309,11 +1314,12 @@ def _render_enhanced_metrics(rec):
 
 def render_alternatives(alts):
     sec("Alternatives")
-    cols = st.columns(min(len(alts), 5))
+    n_show = min(len(alts), 9)
+    cols = st.columns(min(n_show, 3))
     for i, (_, row) in enumerate(alts.iterrows()):
-        if i >= 5:
+        if i >= n_show:
             break
-        with cols[i]:
+        with cols[i % 3]:
             name = row.get("player_name", row.get("name", "?"))
             pos = row.get("positions", row.get("position", ""))
             score = row.get("pick_score", row.get("combined_score", 0))
