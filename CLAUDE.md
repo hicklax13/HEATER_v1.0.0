@@ -29,7 +29,7 @@ ruff check .
 # Format
 ruff format .
 
-# Run all tests (1261 pass, 3 skipped for PyMC/xgboost, 2 pre-existing failures)
+# Run all tests (1314 pass, 3 skipped for PyMC/xgboost)
 python -m pytest
 
 # Run with verbose output
@@ -883,7 +883,7 @@ batch_sentiment(player_news: dict[int, list[str]]) -> dict[int, float]
 
 ## Testing Status
 
-- **Unit tests:** 1317 collected, 1312 passed, 3 skipped (PyMC/xgboost optional deps), 2 pre-existing failures (FA pickup)
+- **Unit tests:** 1317 collected, 1314 passed, 3 skipped (PyMC/xgboost optional deps)
 - **Test files:** 53 test files across draft engine, trade engine (Phase 1-6), lineup optimizer (10 files), draft recommendation engine (5 files), gap closure (14 files), in-season, analytics, data pipeline, bootstrap, integration, backtesting, and math verification
 - **Gap closure tests:** 153 tests total — extended roster (6), LAST CHANCE badge (8), Marcel projections (12), contract data (10), depth charts (12), news fetcher (18), ADP sources (15), extended projections (16), engine output (14), data pipeline schema (12), scheduler (5), bootstrap integration (25)
 - **Spec completion tests:** 51 tests total — risk score + ST signal (16), schema persistence + Statcast archive + FG IDs (10), Yahoo ADP (5), category heatmap (5), backtesting harness (15)
@@ -892,5 +892,5 @@ batch_sentiment(player_news: dict[int, list[str]]) -> dict[int, float]
 - **Trade engine tests:** 228 tests total — Phase 1 (47): marginal SGP, punt detection, z-scores, grading, fuzzy match, replacement cost penalty (6), lineup-constrained eval (9), integration. Phase 2 (33): BMA, KDE marginals, Gaussian copula, paired MC, correlated sampling, distributional metrics, integration. Phase 3 (32): Statcast aggregation, signal decay, Kalman filter, BOCPD changepoint detection, HMM regime classification, rolling features. Phase 4 (40): Log5 matchup math, Weibull injury duration, frailty, season availability, enhanced bench value, roster flexibility, HHI concentration, penalty thresholds, trade context integration. Phase 5 (38): opponent valuations, market clearing price, adverse selection Bayesian discount, Bellman rollout, roster balance, sensitivity ranking, counter-offers, game theory integration. Phase 6 (32): ESS convergence, split-R̂, running mean stability, cache TTL/invalidation/get_or_compute, adaptive sim scaling, time budget caps. Math (6): replacement cost formula hand-calcs (3) + lineup constraint math (3).
 - **Lineup optimizer tests:** 204 tests total across 10 files — projections (28), matchups (19), H2H engine (18), SGP theory (16), streaming (16), scenarios (19), multi-period (16), dual objective (21), advanced LP (25), pipeline orchestrator (26)
 - **CI:** GitHub Actions runs ruff lint/format + pytest on Python 3.11, 3.12, 3.13
-- **Coverage:** 64% (below 75% CI threshold; pre-existing, no regressions)
+- **Coverage:** 64% (above 60% CI threshold; pre-existing, no regressions)
 - **Systematic code reviews:** Five rounds of full codebase debugging (33 bugs fixed): Round 1 (10 bugs — data pipeline, Yahoo API, lineup optimizer, CI), Round 2 (9 bugs — MC rate stats, regime detection, bellman DP, convergence, lineup optimizer UI, trade analyzer HTML), Round 3 (8 bugs — SGP denominators, survival gauge, injury persistence, percentile volatility, player pool duplicates), Round 4 (3 bugs — connection leak, player_name alias, export buttons), Round 5 (3 bugs — standings long-format parsing, maximin display format, emoji in H2H subheader). All pushed to master, all CI green.

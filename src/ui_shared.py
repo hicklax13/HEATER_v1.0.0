@@ -1,6 +1,9 @@
 """Shared UI constants, theme system, CSS injection, and SVG icons — Heater Edition."""
 
-import streamlit as st
+try:
+    import streamlit as st
+except ImportError:
+    st = None  # type: ignore[assignment]
 
 from src.valuation import LeagueConfig as _LC_Class
 
@@ -1807,3 +1810,115 @@ def inject_custom_css():
         </script>""",
         height=0,
     )
+
+
+def build_category_heatmap_html(user_totals: dict, all_totals: list[dict]) -> str:
+    """Build HTML heatmap grid for 12 scoring categories.
+
+    Args:
+        user_totals: Dict of category totals for the user's roster.
+        all_totals: List of dicts (one per team) with category totals.
+
+    Returns:
+        HTML table string. Returns empty string when *all_totals* is empty.
+    """
+    if not all_totals:
+        return ""
+
+    cat_keys = ["R", "HR", "RBI", "SB", "AVG", "OBP", "W", "L", "SV", "K", "ERA", "WHIP"]
+    cat_display = {
+        "R": "Runs",
+        "HR": "Home Runs",
+        "RBI": "Runs Batted In",
+        "SB": "Stolen Bases",
+        "AVG": "Batting Average",
+        "OBP": "On-Base Percentage",
+        "W": "Wins",
+        "L": "Losses",
+        "SV": "Saves",
+        "K": "Strikeouts",
+        "ERA": "Earned Run Average",
+        "WHIP": "Walks + Hits per Inning Pitched",
+    }
+    rate_fmt = {"AVG", "OBP", "ERA", "WHIP"}
+    # Inverse stats: lower is better
+    inverse_cats = {"L", "ERA", "WHIP"}
+
+    num_teams = len(all_totals)
+
+    rows_html = ""
+    for cat in cat_keys:
+        my_val = user_totals.get(cat, 0)
+
+        # Compute rank (1 = best)
+        if cat in inverse_cats:
+            # Lower is better — count teams with strictly lower value
+            # But if user has 0 IP, pitching inverse stats (ERA, WHIP, L) are
+            # meaningless — treat as worst rank instead of best.
+            pitching_inverse = {"ERA", "WHIP", "L"}
+            if cat in pitching_inverse and "ip" in user_totals and user_totals["ip"] == 0:
+                rank = num_teams  # worst rank
+            else:
+                rank = sum(1 for t in all_totals if t.get(cat, 0) < my_val) + 1
+        else:
+            # Higher is better — count teams with strictly higher value
+            rank = sum(1 for t in all_totals if t.get(cat, 0) > my_val) + 1
+
+        # Percentile thresholds based on rank among teams
+        # Top 25% = green (Strong), Bottom 25% = red (Weak), Middle = yellow (Average)
+        top_cutoff = max(int(num_teams * 0.25), 1)
+        bottom_cutoff = num_teams - max(int(num_teams * 0.25), 1) + 1
+
+        if rank <= top_cutoff:
+            bg_color = f"{T['green']}22"
+            status_color = T["green"]
+            status_text = "Strong"
+        elif rank >= bottom_cutoff:
+            bg_color = f"{T['primary']}22"
+            status_color = T["primary"]
+            status_text = "Weak"
+        else:
+            bg_color = f"{T['hot']}22"
+            status_color = T["hot"]
+            status_text = "Average"
+
+        # Format value
+        if cat in rate_fmt:
+            val_str = f"{my_val:.3f}"
+        else:
+            val_str = str(int(my_val))
+
+        # Ordinal suffix for rank
+        if rank % 10 == 1 and rank != 11:
+            suffix = "st"
+        elif rank % 10 == 2 and rank != 12:
+            suffix = "nd"
+        elif rank % 10 == 3 and rank != 13:
+            suffix = "rd"
+        else:
+            suffix = "th"
+
+        rows_html += (
+            f'<tr style="background:{bg_color}">'
+            f'<td style="padding:6px 12px;font-weight:600;">{cat_display[cat]}</td>'
+            f'<td style="padding:6px 12px;text-align:right;">{val_str}</td>'
+            f'<td style="padding:6px 12px;text-align:center;">{rank}{suffix}</td>'
+            f'<td style="padding:6px 12px;text-align:center;color:{status_color};font-weight:700;">{status_text}</td>'
+            f"</tr>"
+        )
+
+    html = (
+        f'<table class="heatmap-grid" style="width:100%;border-collapse:collapse;'
+        f"background:{T['card']};border-radius:12px;overflow:hidden;margin-top:16px;"
+        f'font-family:Figtree,sans-serif;font-size:14px;color:{T["tx"]};">'
+        f'<tr style="background:{T["bg"]};border-bottom:2px solid {T["card_h"]};">'
+        f'<th style="padding:8px 12px;text-align:left;font-weight:700;">Category</th>'
+        f'<th style="padding:8px 12px;text-align:right;font-weight:700;">My Total</th>'
+        f'<th style="padding:8px 12px;text-align:center;font-weight:700;">Rank</th>'
+        f'<th style="padding:8px 12px;text-align:center;font-weight:700;">Status</th>'
+        f"</tr>"
+        f"{rows_html}"
+        f"</table>"
+    )
+
+    return html

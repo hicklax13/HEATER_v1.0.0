@@ -737,9 +737,11 @@ class DraftRecommendationEngine:
             is_hitter = pool.get("is_hitter", True) == True  # noqa: E712
             team_hitter_counts = pool[is_hitter].groupby("team").size().to_dict()
             pool["lineup_protection_bonus"] = pool.apply(
-                lambda row: min(0.3, team_hitter_counts.get(row.get("team", ""), 0) * 0.05)
-                if row.get("is_hitter", True)
-                else 0.0,
+                lambda row: (
+                    min(0.3, team_hitter_counts.get(row.get("team", ""), 0) * 0.05)
+                    if row.get("is_hitter", True)
+                    else 0.0
+                ),
                 axis=1,
             )
 

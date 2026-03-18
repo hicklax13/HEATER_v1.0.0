@@ -40,7 +40,7 @@ class TestHeatmapHas12Rows:
     """Heatmap HTML contains exactly 12 data rows (one per category)."""
 
     def test_heatmap_html_has_12_rows(self):
-        from app import build_category_heatmap_html
+        from src.ui_shared import build_category_heatmap_html
 
         user_totals = _make_all_totals(12)[0]
         all_totals = _make_all_totals(12)
@@ -73,7 +73,7 @@ class TestHeatmapInverseColorFlip:
     """Inverse stats (L, ERA, WHIP) flip color logic — low = green."""
 
     def test_heatmap_inverse_color_flip(self):
-        from app import build_category_heatmap_html
+        from src.ui_shared import build_category_heatmap_html
 
         all_totals = _make_all_totals(12)
         # User team has best inverse stats (lowest L, ERA, WHIP)
@@ -99,7 +99,7 @@ class TestHeatmapGreenForTop3:
     """Categories ranked in top 25% (top 3 of 12) should show 'Strong'."""
 
     def test_heatmap_green_for_top_3(self):
-        from app import build_category_heatmap_html
+        from src.ui_shared import build_category_heatmap_html
 
         all_totals = _make_all_totals(12)
         # Team 0 is best in all counting stats
@@ -118,7 +118,7 @@ class TestHeatmapRedForBottom3:
     """Categories ranked in bottom 25% (bottom 3 of 12) should show 'Weak'."""
 
     def test_heatmap_red_for_bottom_3(self):
-        from app import build_category_heatmap_html
+        from src.ui_shared import build_category_heatmap_html
 
         all_totals = _make_all_totals(12)
         # Team 11 is worst in all counting stats
@@ -137,7 +137,7 @@ class TestHeatmapRendersWithoutError:
     """Heatmap generates valid HTML for edge cases."""
 
     def test_heatmap_renders_without_error(self):
-        from app import build_category_heatmap_html
+        from src.ui_shared import build_category_heatmap_html
 
         # Empty all_totals — should return empty string
         html_empty = build_category_heatmap_html({}, [])
