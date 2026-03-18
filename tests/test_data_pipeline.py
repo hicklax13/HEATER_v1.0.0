@@ -541,7 +541,7 @@ class TestRefreshIfStale:
         hitters = normalize_hitter_json(SAMPLE_HITTER_JSON)
         _store_projections({"steamer_bat": hitters})
         # Mark projections as recently refreshed so check_staleness sees fresh data
-        update_refresh_log("fangraphs_projections", "success")
+        update_refresh_log("projections", "success")
 
         result = refresh_if_stale(force=False)
         assert result is True

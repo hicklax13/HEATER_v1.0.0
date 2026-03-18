@@ -445,7 +445,6 @@ def render_step_settings():
         st.markdown(f'<span class="badge badge-fair">{labels[idx]}</span>', unsafe_allow_html=True)
 
         st.markdown("")
-        st.markdown("**Draft Engine Mode**")
         engine_mode_label = st.radio(
             "Draft Engine Mode",
             ["Quick (< 1 second)", "Standard (2-3 seconds)", "Full (5-10 seconds)"],
@@ -813,6 +812,7 @@ def render_draft_page():
                 # Enhanced recommendation engine with multi-factor analysis
                 rec_progress.progress(10, text=f"Running {engine_mode} engine analysis...")
                 engine = DraftRecommendationEngine(lc, mode=engine_mode)
+                st.session_state.draft_engine = engine
                 candidates = engine.recommend(
                     pool,
                     ds,
@@ -1184,7 +1184,7 @@ def render_hero_pick(rec, ds, pool, threat_alerts=None):
 
     # LAST CHANCE badge — pulsing red when survival < 20%
     last_chance_html = ""
-    if surv < 0.20:
+    if surv < 20:
         last_chance_html = '<span class="badge-last-chance">LAST CHANCE</span>'
 
     # Threat alerts
@@ -1794,7 +1794,13 @@ def build_category_heatmap_html(user_totals: dict, all_totals: list[dict]) -> st
         # Compute rank (1 = best)
         if cat in inverse_cats:
             # Lower is better — count teams with strictly lower value
-            rank = sum(1 for t in all_totals if t.get(cat, 0) < my_val) + 1
+            # But if user has 0 IP, pitching inverse stats (ERA, WHIP, L) are
+            # meaningless — treat as worst rank instead of best.
+            pitching_inverse = {"ERA", "WHIP", "L"}
+            if cat in pitching_inverse and user_totals.get("ip", 0) == 0:
+                rank = num_teams  # worst rank
+            else:
+                rank = sum(1 for t in all_totals if t.get(cat, 0) < my_val) + 1
         else:
             # Higher is better — count teams with strictly higher value
             rank = sum(1 for t in all_totals if t.get(cat, 0) > my_val) + 1
@@ -1886,7 +1892,7 @@ def _render_radar_chart(ds, pool):
         "Earned Run Average",
         "Walks + Hits per Inning Pitched",
     ]
-    invert = {"ERA", "WHIP"}  # lower is better
+    invert = {"ERA", "WHIP", "L"}  # lower is better
 
     user_vals = []
     avg_vals = []
@@ -1943,7 +1949,7 @@ def _render_radar_chart(ds, pool):
         margin=dict(l=40, r=40, t=30, b=30),
         height=350,
     )
-    st.plotly_chart(fig, width="stretch")
+    st.plotly_chart(fig, use_container_width=True)
 
 
 def _render_balance_bars(ds, pool):

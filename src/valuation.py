@@ -465,8 +465,11 @@ def compute_category_weights(
 
             if cat in config.inverse_stats:
                 if current == 0:
-                    # No pitching stats yet — desperately need pitching
-                    weight = 1.8
+                    if cat.upper() == "L":
+                        weight = 0.5  # 0 losses = dominant, low priority
+                    else:
+                        # No pitching stats yet — desperately need pitching
+                        weight = 1.8
                     weights[cat] = weight
                     continue
                 else:
@@ -478,7 +481,7 @@ def compute_category_weights(
                     ratio = current / avg
 
             if cat in config.inverse_stats:
-                weight = min(2.0, max(0.2, ratio * 1.2))
+                weight = min(2.0, max(0.2, ratio))
             else:
                 weight = min(2.0, max(0.2, 2.0 - ratio))
 
@@ -622,18 +625,20 @@ def compute_sgp_denominators(player_pool: pd.DataFrame, config: LeagueConfig) ->
         denoms["AVG"] = config.sgp_denominators.get("AVG", 0.004)
 
     # OBP: compute team-level on-base percentages
-    if "pa" in hitters.columns and "h" in hitters.columns:
-        top_h_obp = hitters.nlargest(top_n_h, "pa")
+    if "ab" in hitters.columns and "h" in hitters.columns:
+        top_h_obp = hitters.nlargest(top_n_h, "ab")
         if len(top_h_obp) >= n:
             team_obps = []
             for i in range(n):
                 team = top_h_obp.iloc[i::n]
-                total_pa = team["pa"].fillna(0).sum()
+                total_ab = team["ab"].fillna(0).sum()
                 total_h = team["h"].fillna(0).sum()
                 total_bb = team["bb"].fillna(0).sum() if "bb" in team.columns else 0
                 total_hbp = team["hbp"].fillna(0).sum() if "hbp" in team.columns else 0
-                if total_pa > 0:
-                    team_obps.append((total_h + total_bb + total_hbp) / total_pa)
+                total_sf = team["sf"].fillna(0).sum() if "sf" in team.columns else 0
+                denom = total_ab + total_bb + total_hbp + total_sf
+                if denom > 0:
+                    team_obps.append((total_h + total_bb + total_hbp) / denom)
             if len(team_obps) >= 2:
                 denoms["OBP"] = max(0.001, float(np.std(team_obps)))
             else:
@@ -645,11 +650,21 @@ def compute_sgp_denominators(player_pool: pd.DataFrame, config: LeagueConfig) ->
 
     # Counting stats for pitchers
     top_n_p = n * 8
+    # Pre-compute IP-sorted pool for rate stats and L (losses)
+    top_pit = None
+    if "ip" in pitchers.columns:
+        top_pit = pitchers.nlargest(top_n_p, "ip")
+
     for cat, col in [("W", "w"), ("L", "l"), ("SV", "sv"), ("K", "k")]:
         if col not in pitchers.columns:
             denoms[cat] = config.sgp_denominators.get(cat, 1.0)
             continue
-        vals = pitchers[col].fillna(0).sort_values(ascending=False).head(top_n_p).values
+        # L (losses) uses IP-sorted pool (representative starters),
+        # not L-sorted (which selects the worst pitchers)
+        if cat == "L" and top_pit is not None and len(top_pit) >= n:
+            vals = top_pit[col].fillna(0).values
+        else:
+            vals = pitchers[col].fillna(0).sort_values(ascending=False).head(top_n_p).values
         if len(vals) >= n:
             team_totals = [vals[i::n].sum() for i in range(n)]
             denoms[cat] = max(0.5, float(np.std(team_totals)))
@@ -657,8 +672,9 @@ def compute_sgp_denominators(player_pool: pd.DataFrame, config: LeagueConfig) ->
             denoms[cat] = config.sgp_denominators.get(cat, 1.0)
 
     # ERA and WHIP: team-level rate stats
-    if "ip" in pitchers.columns:
+    if top_pit is None and "ip" in pitchers.columns:
         top_pit = pitchers.nlargest(top_n_p, "ip")
+    if top_pit is not None:
         if len(top_pit) >= n:
             team_eras, team_whips = [], []
             for i in range(n):
@@ -798,7 +814,7 @@ def compute_projection_volatility(
                     if v is not None and not (isinstance(v, float) and np.isnan(v)):
                         vals.append(float(v))
             if len(vals) >= 2:
-                row[col] = float(np.std(vals, ddof=0))
+                row[col] = float(np.std(vals, ddof=1)) if len(vals) > 1 else 0.0
             else:
                 row[col] = 0.0
         vol_rows.append(row)

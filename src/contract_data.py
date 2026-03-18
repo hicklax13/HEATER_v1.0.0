@@ -94,7 +94,7 @@ def is_contract_year(player_name: str, contract_year_set: set[str]) -> bool:
     bool
         ``True`` if the player is in the contract-year set.
     """
-    if not player_name or not contract_year_set:
+    if not player_name or not isinstance(player_name, str) or not contract_year_set:
         return False
     return player_name.strip().lower() in contract_year_set
 
@@ -115,6 +115,7 @@ def mark_contract_years(player_pool: pd.DataFrame, contract_year_set: set[str]) 
         The input DataFrame with a ``contract_year`` column added/updated.
         Values are ``True`` / ``False``.
     """
+    player_pool = player_pool.copy()
     if contract_year_set and "name" in player_pool.columns:
         player_pool["contract_year"] = player_pool["name"].apply(lambda n: is_contract_year(n, contract_year_set))
     else:

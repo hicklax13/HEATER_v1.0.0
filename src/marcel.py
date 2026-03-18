@@ -50,7 +50,7 @@ LEAGUE_AVG_HITTING: dict[str, float] = {
 LEAGUE_AVG_PITCHING: dict[str, float] = {
     "w": 9.0,
     "l": 9.0,
-    "sv": 0.0,
+    "sv": 2.0,
     "k": 160.0,
     "era": 4.20,
     "whip": 1.28,
@@ -97,8 +97,8 @@ def marcel_age_adjustment(age: int | float, is_hitter: bool = True) -> float:
         improvement = min(abs(years_from_peak) * rate, 0.02)
         return 1.0 + improvement
     else:
-        # Post-peak decline
-        return 1.0 - years_from_peak * rate
+        # Post-peak decline — floor at 0.5 to prevent negative multipliers
+        return max(0.5, 1.0 - years_from_peak * rate)
 
 
 def compute_marcel_projection(
@@ -166,9 +166,8 @@ def _weighted_rate_projection(
     total_weighted_stat = 0.0
 
     for stat_val, year_weight, pa in valid:
-        effective_pa = pa * year_weight
-        total_weighted_pa += effective_pa
-        total_weighted_stat += stat_val * effective_pa
+        total_weighted_pa += year_weight
+        total_weighted_stat += stat_val * year_weight
 
     if total_weighted_pa == 0:
         return league_avg
@@ -260,13 +259,20 @@ def project_player_marcel(
 
         # Apply age adjustment
         if is_rate:
-            # For rate stats, apply as a multiplicative factor toward the mean
+            # For rate stats, apply as a multiplicative factor toward the mean.
+            # For inverse stats (ERA/WHIP), aging makes them worse (higher),
+            # so we invert the adjustment direction: decline (age_adj < 1.0)
+            # should push ERA UP, not down.
             league_avg = LEAGUE_AVERAGES.get(stat, 0.0)
             delta = raw - league_avg
-            projection[stat] = league_avg + delta * age_adj
+            if stat in ("era", "whip"):
+                # Inverse: age_adj < 1 means decline, so use (2 - age_adj) to flip
+                projection[stat] = league_avg + delta * (2.0 - age_adj)
+            else:
+                projection[stat] = league_avg + delta * age_adj
         else:
-            # For counting stats, straightforward multiplication
-            projection[stat] = raw * age_adj
+            # For counting stats, straightforward multiplication (floor at 0)
+            projection[stat] = max(0.0, raw * age_adj)
 
     # Project PA/IP as well (useful for downstream consumers)
     pa_hist = [season.get(pa_key) if season else None for season in _pad_hist(hist)]
@@ -280,15 +286,6 @@ def project_player_marcel(
     )
     # PA/IP also subject to age adjustment (older players lose playing time)
     projection[pa_key] = max(0.0, pa_projection * age_adj)
-
-    # Scale counting stats by projected PA relative to full season
-    if not is_hitter:
-        # Pitcher counting stats scale with IP
-        ip_ratio = projection.get("ip", full_season) / full_season if full_season else 1.0
-        for stat in stat_cats:
-            if stat not in RATE_STATS:
-                # Already computed relative to historical totals; no extra scaling
-                pass
 
     return projection
 

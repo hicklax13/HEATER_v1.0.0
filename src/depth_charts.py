@@ -24,6 +24,7 @@ get_player_role
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
 import requests
@@ -128,39 +129,46 @@ def classify_role(
     lineup_slot: int | None,
     rotation_slot: int | None,
     bullpen_role: str | None,
+    *,
+    is_committee: bool = False,
 ) -> str:
     """Classify a player's role from depth chart position data.
 
-    Priority order: lineup starter > closer > setup > rotation >
-    generic bullpen > bench.
+    Priority order: lineup starter > platoon > closer/committee > setup >
+    rotation > generic bullpen > bench.
 
     Parameters
     ----------
     lineup_slot : int or None
         Batting order position (1-9) if the player is in the starting
-        lineup.
+        lineup.  Slots 10-18 indicate a backup/platoon player.
     rotation_slot : int or None
         Rotation order (1-5) if the player is a starting pitcher.
     bullpen_role : str or None
         Bullpen role tag (``"CL"``, ``"SU"``, ``"MR"``, etc.).
+    is_committee : bool
+        If ``True`` and `bullpen_role` is ``"CL"``, return ``"committee"``
+        instead of ``"closer"``.
 
     Returns
     -------
     str
-        One of ``"starter"``, ``"closer"``, ``"setup"``, ``"rotation"``,
-        ``"bullpen"``, ``"bench"``.
+        One of ``"starter"``, ``"platoon"``, ``"closer"``, ``"committee"``,
+        ``"setup"``, ``"rotation"``, ``"bullpen"``, ``"bench"``.
     """
     # Position players in the batting order
     if lineup_slot is not None and isinstance(lineup_slot, (int, float)):
         slot = int(lineup_slot)
         if 1 <= slot <= 9:
             return "starter"
+        if 10 <= slot <= 18:
+            return "platoon"
 
     # Pitching roles — check bullpen first (closer/setup are more specific)
     if bullpen_role is not None and isinstance(bullpen_role, str):
         role_upper = bullpen_role.strip().upper()
         if role_upper == "CL":
-            return "closer"
+            return "committee" if is_committee else "closer"
         if role_upper == "SU":
             return "setup"
         # Any other bullpen tag (MR, LR, etc.)
@@ -263,13 +271,18 @@ def get_player_role(
         bullpen = team_data.get("bullpen", {})
         if isinstance(bullpen, dict):
             for role_tag, names in bullpen.items():
+                # Detect committee closers: CL entry with comma-separated names
+                _is_committee = role_tag.upper() == "CL" and isinstance(names, str) and "," in names
                 if isinstance(names, str):
-                    if names.strip().lower() == target:
-                        return classify_role(
-                            lineup_slot=None,
-                            rotation_slot=None,
-                            bullpen_role=role_tag,
-                        )
+                    # Check each name in a potentially comma-separated string
+                    for individual_name in names.split(","):
+                        if individual_name.strip().lower() == target:
+                            return classify_role(
+                                lineup_slot=None,
+                                rotation_slot=None,
+                                bullpen_role=role_tag,
+                                is_committee=_is_committee,
+                            )
                 elif isinstance(names, list):
                     for name in names:
                         if isinstance(name, str) and name.strip().lower() == target:
@@ -319,6 +332,7 @@ def _parse_index_page(soup: BeautifulSoup) -> dict[str, dict[str, Any]]:
         except Exception:
             logger.warning("Failed to parse depth chart for %s", team_code)
             continue
+        time.sleep(0.5)
 
     return result
 
@@ -473,7 +487,7 @@ def _extract_bullpen(soup: BeautifulSoup) -> dict[str, Any]:
                                     names_in_row.append(name)
                         if names_in_row:
                             if role == "CL":
-                                result["CL"] = names_in_row[0]
+                                result["CL"] = ", ".join(names_in_row) if len(names_in_row) > 1 else names_in_row[0]
                             elif role == "SU":
                                 result.setdefault("SU", []).extend(names_in_row)
                             else:
@@ -502,7 +516,13 @@ def _extract_bullpen(soup: BeautifulSoup) -> dict[str, Any]:
 def _detect_bullpen_role(text: str) -> str | None:
     """Detect bullpen role from row/cell text content."""
     text_lower = text.lower()
-    if "closer" in text_lower or "cl " in text_lower or text_lower.startswith("cl"):
+    if (
+        "closer" in text_lower
+        or "cl " in text_lower
+        or text_lower == "cl"
+        or text_lower.startswith("cl\t")
+        or text_lower.startswith("cl:")
+    ):
         return "CL"
     if "setup" in text_lower or "set up" in text_lower or "su " in text_lower:
         return "SU"

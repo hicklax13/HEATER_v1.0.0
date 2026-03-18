@@ -100,14 +100,24 @@ def compute_news_sentiment(news_items: list[str]) -> float:
     positive_count = 0
     negative_count = 0
 
+    news_items = [item for item in news_items if isinstance(item, str)]
+    if not news_items:
+        return 0.0
+
     for item in news_items:
         item_lower = item.lower()
         for kw in POSITIVE_KEYWORDS:
             if kw in item_lower:
-                positive_count += 1
+                if kw in HIGH_IMPACT_POSITIVE:
+                    positive_count += 2
+                else:
+                    positive_count += 1
         for kw in NEGATIVE_KEYWORDS:
             if kw in item_lower:
-                negative_count += 1
+                if kw in HIGH_IMPACT_NEGATIVE:
+                    negative_count += 2
+                else:
+                    negative_count += 1
 
     total = positive_count + negative_count
     if total == 0:
@@ -200,6 +210,7 @@ def sentiment_adjustment(score: float, weight: float = 0.05) -> float:
     Returns:
         Multiplicative factor in [1.0 - weight, 1.0 + weight].
     """
+    score = max(-1.0, min(1.0, score))
     return 1.0 + score * weight
 
 

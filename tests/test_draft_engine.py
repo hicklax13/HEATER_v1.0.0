@@ -1025,36 +1025,42 @@ class TestEnhancedPickScore:
 
 
 class TestBuyFairAvoid:
-    """Test buy/fair/avoid classification."""
+    """Test buy/fair/avoid classification (rank-gap based)."""
 
-    def test_buy_classification(self):
-        row = pd.Series({"statcast_delta": 0.05, "injury_probability": 0.10})
-        assert DraftRecommendationEngine._classify_buy_fair_avoid(row) == "buy"
+    def test_buy_classification_early(self):
+        """Early draft: ADP 50, enhanced rank 25 -> gap 25 >= 20 -> BUY."""
+        row = pd.Series({"_enhanced_rank": 25, "adp": 50})
+        assert DraftRecommendationEngine._classify_buy_fair_avoid(row, current_pick=10) == "BUY"
 
-    def test_avoid_high_injury(self):
-        row = pd.Series({"statcast_delta": 0.00, "injury_probability": 0.40})
-        assert DraftRecommendationEngine._classify_buy_fair_avoid(row) == "avoid"
+    def test_avoid_overvalued(self):
+        """Enhanced rank 50, ADP 20 -> gap -30 <= -20 -> AVOID."""
+        row = pd.Series({"_enhanced_rank": 50, "adp": 20})
+        assert DraftRecommendationEngine._classify_buy_fair_avoid(row, current_pick=10) == "AVOID"
 
-    def test_avoid_negative_statcast(self):
-        row = pd.Series({"statcast_delta": -0.05, "injury_probability": 0.10})
-        assert DraftRecommendationEngine._classify_buy_fair_avoid(row) == "avoid"
+    def test_fair_small_gap(self):
+        """ADP and enhanced rank close -> FAIR."""
+        row = pd.Series({"_enhanced_rank": 30, "adp": 35})
+        assert DraftRecommendationEngine._classify_buy_fair_avoid(row, current_pick=10) == "FAIR"
 
-    def test_fair_classification(self):
-        row = pd.Series({"statcast_delta": 0.01, "injury_probability": 0.12})
-        assert DraftRecommendationEngine._classify_buy_fair_avoid(row) == "fair"
+    def test_fair_zero_adp(self):
+        """ADP of 0 (invalid) -> FAIR."""
+        row = pd.Series({"_enhanced_rank": 10, "adp": 0})
+        assert DraftRecommendationEngine._classify_buy_fair_avoid(row, current_pick=10) == "FAIR"
 
     def test_fair_zero_everything(self):
-        row = pd.Series({"statcast_delta": 0.0, "injury_probability": 0.0})
-        assert DraftRecommendationEngine._classify_buy_fair_avoid(row) == "fair"
+        """Both ranks 0 -> FAIR."""
+        row = pd.Series({"_enhanced_rank": 0, "adp": 0})
+        assert DraftRecommendationEngine._classify_buy_fair_avoid(row) == "FAIR"
 
-    def test_avoid_borderline_statcast(self):
-        # Exactly at threshold
-        row = pd.Series({"statcast_delta": -0.021, "injury_probability": 0.0})
-        assert DraftRecommendationEngine._classify_buy_fair_avoid(row) == "avoid"
+    def test_mid_draft_lower_threshold(self):
+        """Mid draft (pick 150): gap 15 >= 15 -> BUY."""
+        row = pd.Series({"_enhanced_rank": 135, "adp": 150})
+        assert DraftRecommendationEngine._classify_buy_fair_avoid(row, current_pick=150) == "BUY"
 
-    def test_buy_borderline(self):
-        row = pd.Series({"statcast_delta": 0.021, "injury_probability": 0.14})
-        assert DraftRecommendationEngine._classify_buy_fair_avoid(row) == "buy"
+    def test_late_draft_lowest_threshold(self):
+        """Late draft (pick 250): gap 10 >= 10 -> BUY."""
+        row = pd.Series({"_enhanced_rank": 240, "adp": 250})
+        assert DraftRecommendationEngine._classify_buy_fair_avoid(row, current_pick=250) == "BUY"
 
 
 # ═══════════════════════════════════════════════════════════════════

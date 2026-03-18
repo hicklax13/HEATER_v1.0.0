@@ -579,12 +579,12 @@ class TestPercentileForecasts:
         assert vol.iloc[0]["hr"] > 0
         assert vol.iloc[0]["avg"] > 0
 
-    def test_volatility_is_population_stddev(self):
-        """Volatility should use ddof=0 (population stddev)."""
+    def test_volatility_is_sample_stddev(self):
+        """Volatility should use ddof=1 (sample stddev) for unbiased estimate."""
         sys_a = pd.DataFrame([{"player_id": 1, "name": "A", "hr": 30}])
         sys_b = pd.DataFrame([{"player_id": 1, "name": "A", "hr": 20}])
         vol = compute_projection_volatility({"a": sys_a, "b": sys_b})
-        expected = np.std([30, 20], ddof=0)  # = 5.0
+        expected = np.std([30, 20], ddof=1)  # = 7.071...
         assert vol.iloc[0]["hr"] == pytest.approx(expected, rel=1e-6)
 
     def test_p10_le_p50_le_p90(self):

@@ -266,7 +266,7 @@ class LineupOptimizer:
 
         weights = {}
         for cat in ALL_CATS:
-            cat_standings = standings[standings["category"] == cat].sort_values("total")
+            cat_standings = standings[standings["category"] == cat.upper()].sort_values("total")
             if cat_standings.empty:
                 weights[cat] = 1.0
                 continue

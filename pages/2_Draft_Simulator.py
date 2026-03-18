@@ -125,6 +125,7 @@ def render_recommendations(pool: pd.DataFrame, ds: DraftState, n_sims: int) -> N
         if use_enhanced:
             rec_progress.progress(10, text=f"Running {engine_mode} engine analysis...")
             engine = DraftRecommendationEngine(lc, mode=engine_mode)
+            st.session_state.mock_draft_engine = engine
             recs = engine.recommend(pool, ds, top_n=10, n_simulations=n_sims)
         else:
             rec_progress.progress(10, text="Running Monte Carlo simulation...")

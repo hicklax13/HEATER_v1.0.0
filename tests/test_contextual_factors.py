@@ -87,17 +87,17 @@ class TestDetectCloserRole:
         assert result["draft_bonus"] == pytest.approx(2.0)
 
     def test_closer_threshold_exact(self):
-        p = _make_player(is_hitter=False, positions="RP", sv=25)
+        p = _make_player(is_hitter=False, positions="RP", sv=20)
         result = detect_closer_role(p)
         assert result["role"] == "Closer"
         assert result["confidence"] == 0.9
         assert result["draft_bonus"] == pytest.approx(1.5)
 
     def test_closer_bonus_scales_linearly(self):
-        p = _make_player(is_hitter=False, positions="RP", sv=30)
+        p = _make_player(is_hitter=False, positions="RP", sv=25)
         result = detect_closer_role(p)
         assert result["role"] == "Closer"
-        expected_bonus = 1.5 + (30 - 25) * 0.05  # 1.75
+        expected_bonus = 1.5 + (25 - 20) * 0.05  # 1.75
         assert result["draft_bonus"] == pytest.approx(expected_bonus)
 
     def test_closer_bonus_capped_at_2(self):
@@ -106,7 +106,7 @@ class TestDetectCloserRole:
         assert result["draft_bonus"] == pytest.approx(2.0)
 
     def test_setup_role(self):
-        p = _make_player(is_hitter=False, positions="RP", sv=20)
+        p = _make_player(is_hitter=False, positions="RP", sv=18)
         result = detect_closer_role(p)
         assert result["role"] == "Setup"
         assert result["confidence"] == 0.6
