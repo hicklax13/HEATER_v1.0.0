@@ -2,7 +2,7 @@
 
 ## Overview
 
-A fantasy baseball draft assistant + in-season manager for a 12-team Yahoo Sports 5x5 roto snake draft league. Two pillars:
+A fantasy baseball draft assistant + in-season manager for a 12-team Yahoo Sports H2H Categories snake draft league. Two pillars:
 
 1. **Draft Tool** (`app.py`, ~1800 lines) — "Heater" themed Streamlit app with light-mode-only glassmorphic design system: splash screen data bootstrap + 2-step setup wizard (Settings, Launch), 3-column draft page with SVG injury badges, percentile ranges, opponent intel tab, and practice mode. Monte Carlo recommendations with percentile sampling. Zero CSV uploads — all data auto-fetched from MLB Stats API + FanGraphs on every launch. Pill button navigation replaces dropdowns. Search + card grids for player selection.
 2. **In-Season Management** (`pages/`) — 6 Streamlit pages: team overview, draft simulator, trade analysis, player comparison, free agent rankings, lineup optimizer. Powered by MLB Stats API + pybaseball + optional Yahoo Fantasy API. All pages share centralized single-theme system (light mode only) with glassmorphic design, orange sidebar branding, and bold Heater identity.
@@ -43,8 +43,11 @@ python -m pytest tests/test_in_season.py::test_trade_analyzer -v
 ## League Context
 
 - **League:** FourzynBurn (Yahoo Sports) | **Team:** Team Hickey
-- **Format:** 12-team snake draft, 23 rounds
-- **Scoring:** 5x5 roto (R, HR, RBI, SB, AVG / W, SV, K, ERA, WHIP)
+- **Format:** 12-team snake draft, 23 rounds, Head-to-Head Categories
+- **Hitting cats (6):** R, HR, RBI, SB, AVG, OBP
+- **Pitching cats (6):** W, L, SV, K, ERA, WHIP
+- **Inverse cats:** L, ERA, WHIP (lower is better)
+- **Rate stats:** AVG, OBP, ERA, WHIP
 - **Roster:** C/1B/2B/3B/SS/3OF/2Util/2SP/2RP/4P/5BN = 23 slots
 - **Manager skill:** Opponents extremely high-skilled; user is a novice
 
@@ -102,7 +105,7 @@ src/
     streaming.py        — Pitcher streaming value (counting SGP − rate damage), two-start quantification, optimal schedule
     scenario_generator.py — Gaussian copula correlated scenarios, mean-variance adjustments, CVaR linearization data
     multi_period.py     — Rolling horizon optimization with discount factor, season balance urgency weights
-    dual_objective.py   — H2H/Roto weight blending (alpha parameter), auto-alpha recommendation
+    dual_objective.py   — H2H/season-long weight blending (alpha parameter), auto-alpha recommendation
     advanced_lp.py      — Maximin LP (balanced worst-category), epsilon-constraint (Pareto frontier), stochastic MIP
   engine/               — Trade Analyzer Engine (Phase 1-4)
     __init__.py
@@ -111,7 +114,7 @@ src/
       valuation.py      — Z-score + SGP valuation: peer-group z-scores, standings-based SGP denominators, VORP
       category_analysis.py — Marginal SGP elasticity (1/gap), category gap analysis, punt detection, category weights
       lineup_optimizer.py — LP optimizer wrapper: optimal lineup value, pre/post trade lineup delta, bench option value
-      copula.py         — Gaussian copula: correlated stat sampling, empirical 10×10 correlation matrix, nearest-PD correction
+      copula.py         — Gaussian copula: correlated stat sampling, empirical 12×12 correlation matrix, nearest-PD correction
     projections/
       __init__.py
       projection_client.py — ROS projections loader, 3-pass fuzzy name matching, trade player resolution
@@ -250,7 +253,7 @@ Phase 1 SGP-based evaluation pipeline (7 modules):
 **Phase 2 (stochastic, when `enable_mc=True`):**
 8. **Bayesian Model Averaging** — Posterior weights for each projection system based on P(YTD | System_i). Systems closer to reality get higher weight. Variance = within-model + between-model.
 9. **KDE marginals** — Non-Gaussian stat distributions via kernel density estimation. Normal fallback when <20 historical data points. Stat bounds clipping (AVG: 0.100–0.400, ERA: 0.50–12.00).
-10. **Gaussian copula** — Correlated stat sampling via Cholesky decomposition of empirical 10×10 correlation matrix (HR↔RBI: 0.85, ERA↔WHIP: 0.90, SB↔HR: -0.15). Nearest-PD correction for non-PD matrices.
+10. **Gaussian copula** — Correlated stat sampling via Cholesky decomposition of empirical 12×12 correlation matrix (HR↔RBI: 0.85, ERA↔WHIP: 0.90, OBP↔AVG: 0.80, L↔ERA: 0.50). Nearest-PD correction for non-PD matrices.
 11. **Paired Monte Carlo** — 10K sims with identical seeds for before/after (variance reduction). Produces: mc_mean, mc_std, p5/p25/median/p75/p95, prob_positive, VaR5, CVaR5, Sharpe ratio, 95% CI. Grade via composite = mean*0.4 + sharpe*0.3 + kelly_approx*0.3.
 
 **Phase 3 (signal intelligence, `src/engine/signals/`):**
@@ -278,7 +281,7 @@ Phase 1 SGP-based evaluation pipeline (7 modules):
 
 ### In-Season Algorithms
 - **Trade Analyzer (legacy):** Roster swap → projected season totals (YTD + ROS) → park-adjusted SGP delta → MC simulation (200 sims) → verdict with confidence %. Now includes injury badges for both sides and P10/P90 risk assessment.
-- **Player Compare:** ROS projections → Z-score normalization across 10 categories → composite weighted score, optional marginal SGP team impact. Now includes health badges and projection confidence (P10-P90 range width).
+- **Player Compare:** ROS projections → Z-score normalization across 12 categories → composite weighted score, optional marginal SGP team impact. Now includes health badges and projection confidence (P10-P90 range width).
 - **FA Ranker:** Marginal SGP per FA vs. user's roster → category-need weighting → replacement target identification → sort by net marginal value
 - **Live Stats:** MLB Stats API (daily auto-refresh) + pybaseball ROS projections, staleness tracking via `refresh_log` table
 - **Lineup Optimizer:** PuLP LP solver with binary assignment per player/slot, category targeting based on standings gaps, two-start SP detection. Now includes health-adjusted SGP penalties and auto-detected two-start SP highlights.
@@ -325,7 +328,7 @@ value_all_players(pool, config, roster_totals=None, category_weights=None,
 
 # load_player_pool() columns:
 # player_id, name, team, positions, is_hitter, is_injured,
-# pa, ab, h, r, hr, rbi, sb, avg, ip, w, sv, k, era, whip, er, bb_allowed, h_allowed, adp
+# pa, ab, h, r, hr, rbi, sb, avg, obp, bb, hbp, sf, ip, w, l, sv, k, era, whip, er, bb_allowed, h_allowed, adp
 
 # --- Trade Engine Phase 1 APIs (src/engine/) ---
 
@@ -400,7 +403,7 @@ PlayerMarginal(stat_name, projected_value, variance, historical_values=None)
 build_player_marginals(projected_stats, variances, historical_by_stat=None)
 
 # Copula (src/engine/portfolio/copula.py)
-GaussianCopula(correlation=None)  # defaults to 10×10 DEFAULT_CORRELATION
+GaussianCopula(correlation=None)  # defaults to 12×12 DEFAULT_CORRELATION
 # .sample(n, rng) -> np.ndarray of shape (n, 10) in [0, 1]
 sample_correlated_stats(copula, player_marginals, n=1, rng=None) -> np.ndarray
 fit_copula_from_data(player_seasons) -> GaussianCopula
@@ -726,15 +729,18 @@ SYSTEM_MAP = {"steamer": "steamer", "zips": "zips", "fangraphsdc": "depthcharts"
 - **Title badge deep navy gradient** — Page title badges use `linear-gradient(135deg, #1a1a2e, #16213e)` background with gradient text overlay (red > orange > gold via `background-clip: text`).
 - **All buttons are orange** — Secondary buttons globally styled with `linear-gradient(135deg, #e65c00, #cc5200)` + white bold text. This matches the sidebar branding and creates visual consistency.
 - **Data table white background** — All `st.dataframe()` tables get `background: #ffffff !important` to contrast against the page's `#f4f5f0` chalk background. Column headers get `font-weight: 700 !important`.
-- **Trade analyzer needs standings for accuracy** — Without `league_standings` data, `evaluate_trade()` uses equal category weights (1.0 for all 10 categories). This means no marginal elasticity, no punt detection, and no strategic context. The trade may grade as A+ purely from raw stat exchange without knowing if those stat gains actually help in standings. UI shows a warning when standings are missing.
-- **Rate-stat aggregation** — AVG=sum(h)/sum(ab), ERA=sum(er)*9/sum(ip), WHIP=sum(bb+h)/sum(ip). Weighted averages, NOT simple averages. `_fix_rate_stats()` in `lineup_optimizer.py` recalculates these after LP solves.
+- **Trade analyzer needs standings for accuracy** — Without `league_standings` data, `evaluate_trade()` uses equal category weights (1.0 for all 12 categories). This means no marginal elasticity, no punt detection, and no strategic context. The trade may grade as A+ purely from raw stat exchange without knowing if those stat gains actually help in standings. UI shows a warning when standings are missing.
+- **Rate-stat aggregation** — AVG=sum(h)/sum(ab), OBP=sum(h+bb+hbp)/sum(ab+bb+hbp+sf), ERA=sum(er)*9/sum(ip), WHIP=sum(bb+h)/sum(ip). Weighted averages, NOT simple averages. `_fix_rate_stats()` in `lineup_optimizer.py` recalculates these after LP solves.
 - **Injury model scales rate stats** — `apply_injury_adjustment()` scales ER, BB_allowed, H_allowed by `_combined_factor` (health×age×workload), not just counting stats. Without this, injured pitchers show artificially low ERA/WHIP.
 - **LP inverse stat weighting** — ERA/WHIP in lineup optimizer LP objective must be weighted by IP: `player_value -= val * ip * weight`. Without IP weighting, a 1-IP reliever with 0.00 ERA dominates a 200-IP starter.
 - **`compare_players()` peer-group filtering** — Z-scores computed against `is_hitter`-filtered pool only. Hitter HR z-score uses hitter pool mean/std, not full pool (which includes pitchers with HR=0).
 - **`check_staleness()` edge case** — `max_age_hours <= 0` returns `True` (always stale). Prevents division-by-zero and logical errors.
 - **Trade engine graceful fallback** — `pages/3_Trade_Analyzer.py` wraps `from src.engine.output.trade_evaluator import evaluate_trade` in try/except. If the engine module is missing or broken, falls back to legacy `analyze_trade()` from `src/in_season.py`. Both code paths produce compatible output dicts.
 - **Trade engine backward compat keys** — `evaluate_trade()` returns both new keys (`grade`, `surplus_sgp`, `category_analysis`) AND legacy keys (`total_sgp_change`, `mc_mean`, `mc_std`) so existing UI code doesn't break.
-- **`compute_marginal_sgp()` uses `.get()` for missing categories** — Team totals may not have all 10 categories. Always use `team_totals.get(cat, 0.0)`, never `team_totals[cat]`.
+- **`compute_marginal_sgp()` uses `.get()` for missing categories** — Team totals may not have all 12 categories. Always use `team_totals.get(cat, 0.0)`, never `team_totals[cat]`.
+- **LeagueConfig is the single source of truth** — All category definitions (hitting/pitching categories, rate stats, inverse stats, counting stats, STAT_MAP, SGP denominators) live in `LeagueConfig` in `src/valuation.py`. All other files import from there. Do NOT add local hardcoded category lists to any file — import from LeagueConfig instead.
+- **OBP requires component stats** — OBP = (H+BB+HBP)/(AB+BB+HBP+SF). DB stores both the rate (`obp`) and intermediate columns (`bb`, `hbp`, `sf`) for proper roster-level aggregation. Same pattern as AVG=H/AB.
+- **L (Losses) is an inverse counting stat** — Unlike ERA/WHIP (inverse rate stats), L is counting but lower-is-better. Handled by sign-flip in SGP, no IP weighting needed in LP objective.
 - **Punt detection requires BOTH conditions** — A category is punt only when `gainable_positions == 0 AND rank >= 10`. Being rank 10 alone isn't enough if positions are still gainable; having 0 gainable alone isn't enough if you're already ranked high.
 - **LP-constrained lineup totals replace raw roster totals** — `evaluate_trade()` uses `_lineup_constrained_totals()` (PuLP LP solver) to compute before/after category totals from only the 18 starting slots. Bench players are excluded from SGP calculations. This prevents "phantom production" where bench players inflate trade value in uneven trades. Falls back to `_roster_category_totals()` when PuLP is unavailable.
 - **Roster cap enforcement (ROSTER_CAP=23)** — Uneven trades model forced drops and FA pickups. 2-for-1: `_find_drop_candidate()` removes lowest-SGP bench player. 1-for-2: `_find_fa_pickup()` adds best available FA, capped at type-specific median SGP when no league rosters loaded (prevents picking elite "FAs" who are actually rostered). Equal trades skip both.
