@@ -435,3 +435,135 @@ def fetch_injury_data_bulk(
                     }
                 )
     return records
+
+
+# ── Team Batting Stats (shared by Features 2, 4, 6) ──────────────────
+
+# Module-level cache for team batting stats
+_team_batting_cache: dict | None = None
+_team_batting_cache_time: datetime | None = None
+_TEAM_BATTING_CACHE_HOURS = 24
+
+
+def fetch_team_batting_stats(season: int = 2026) -> dict[str, dict[str, float]]:
+    """Fetch team-level batting stats via MLB Stats API.
+
+    Returns dict mapping team abbreviation to offensive metrics:
+        {team_abbr: {wrc_plus, k_pct, bb_pct, iso, woba, ops, avg}}
+
+    Cached in-memory with 24h staleness. Falls back to league-average
+    defaults if API is unavailable.
+    """
+    global _team_batting_cache, _team_batting_cache_time
+
+    # Check cache
+    if _team_batting_cache is not None and _team_batting_cache_time is not None:
+        age = (datetime.now(UTC) - _team_batting_cache_time).total_seconds() / 3600
+        if age < _TEAM_BATTING_CACHE_HOURS:
+            return _team_batting_cache
+
+    # League-average defaults (used as fallback)
+    league_defaults = {
+        "wrc_plus": 100.0,
+        "k_pct": 22.3,
+        "bb_pct": 8.5,
+        "iso": 0.150,
+        "woba": 0.315,
+        "ops": 0.720,
+        "avg": 0.248,
+    }
+
+    if statsapi is None:
+        logger.warning("MLB-StatsAPI not available, using league average defaults")
+        return _fallback_team_stats(league_defaults)
+
+    try:
+        # Fetch team stats from MLB Stats API
+        teams_data = statsapi.get(
+            "teams",
+            {"sportId": 1, "season": season, "fields": "teams,id,abbreviation,name"},
+        )
+        teams_list = teams_data.get("teams", [])
+
+        result: dict[str, dict[str, float]] = {}
+        for team in teams_list:
+            abbr = team.get("abbreviation", "")
+            team_id = team.get("id")
+            if not abbr or not team_id:
+                continue
+
+            try:
+                stats_data = statsapi.get(
+                    "team_stats",
+                    {"teamId": team_id, "season": season, "stats": "season", "group": "hitting"},
+                )
+                splits = stats_data.get("stats", [{}])[0].get("splits", [])
+                if splits:
+                    stat = splits[0].get("stat", {})
+                    result[abbr] = {
+                        "wrc_plus": 100.0,  # Not directly in API, use 100 as proxy
+                        "k_pct": _pct(stat.get("strikeOuts", 0), stat.get("plateAppearances", 1)),
+                        "bb_pct": _pct(stat.get("baseOnBalls", 0), stat.get("plateAppearances", 1)),
+                        "iso": float(stat.get("slg", 0.400)) - float(stat.get("avg", 0.250)),
+                        "woba": 0.315,  # Approximate, not directly in API
+                        "ops": float(stat.get("ops", 0.720)),
+                        "avg": float(stat.get("avg", 0.248)),
+                    }
+                else:
+                    result[abbr] = dict(league_defaults)
+            except Exception:
+                result[abbr] = dict(league_defaults)
+
+        if result:
+            _team_batting_cache = result
+            _team_batting_cache_time = datetime.now(UTC)
+            return result
+
+    except Exception:
+        logger.warning("Failed to fetch team batting stats, using defaults")
+
+    return _fallback_team_stats(league_defaults)
+
+
+def _pct(numerator: float, denominator: float) -> float:
+    """Compute percentage, avoiding division by zero."""
+    if denominator == 0:
+        return 0.0
+    return round(numerator / denominator * 100, 1)
+
+
+def _fallback_team_stats(defaults: dict) -> dict[str, dict[str, float]]:
+    """Return league-average defaults for all 30 teams."""
+    teams = [
+        "ARI",
+        "ATL",
+        "BAL",
+        "BOS",
+        "CHC",
+        "CWS",
+        "CIN",
+        "CLE",
+        "COL",
+        "DET",
+        "HOU",
+        "KC",
+        "LAA",
+        "LAD",
+        "MIA",
+        "MIL",
+        "MIN",
+        "NYM",
+        "NYY",
+        "OAK",
+        "PHI",
+        "PIT",
+        "SD",
+        "SF",
+        "SEA",
+        "STL",
+        "TB",
+        "TEX",
+        "TOR",
+        "WSH",
+    ]
+    return {t: dict(defaults) for t in teams}
