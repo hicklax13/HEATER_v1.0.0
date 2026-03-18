@@ -138,19 +138,21 @@ def compute_category_balance(
         # Normalised gap in sigma units (negative = below median = need help)
         z = gap / sigma
 
-        # Need score: use Normal CDF to map z -> [0, 1].
-        # CDF(-2) ~ 0.02 (very needy), CDF(0) = 0.5 (at median), CDF(2) ~ 0.98
-        # We want below-median -> weight > 1.0 (boost), above -> weight < 1.0
-        # Transform: weight = 1.0 + 0.3 * (0.5 - CDF(z))
-        # At z=0: weight=1.0; at z=-2: weight~1.14; at z=+2: weight~0.86
-        cdf_val = float(norm.cdf(z))
-        weight = 1.0 + 0.6 * (0.5 - cdf_val)
+        # Hybrid PDF + need weighting:
+        # - PDF component: peaks at z=0 (tied = max marginal value), captures closeness
+        # - Need component: below-median -> boost, above-median -> reduce
+        # Combined: categories near the median AND below it get highest weight,
+        # while dominant categories get reduced weight.
+        pdf_val = float(norm.pdf(z))  # [0, 0.399], peaks at z=0
+        cdf_val = float(norm.cdf(z))  # [0, 1], 0.5 at z=0
 
-        # Additional directional boost for categories clearly below median
-        if z < -0.5:
-            weight *= 1.2  # extra boost for weak categories
-        elif z > 0.5:
-            weight *= 0.9  # extra reduction for strong categories
+        # Need-based with PDF closeness bonus:
+        # - Need: below-median categories get higher base weight
+        # - Closeness bonus: categories near tie get marginal-value bump
+        need_weight = 1.0 + 0.8 * (0.5 - cdf_val)  # below median -> > 1.0
+        closeness_bonus = 0.2 * (pdf_val / 0.3989)  # peak 0.2 at z=0
+
+        weight = need_weight + closeness_bonus
 
         raw_weights[cat] = max(0.1, weight)
 
@@ -251,7 +253,9 @@ def compute_opportunity_cost(
     # Find max gap across all candidate positions
     max_gap = 0.0
     for pos in positions:
-        eligible = pool[pool["positions"].str.contains(pos, na=False, regex=False)]
+        eligible = pool[
+            pool["positions"].apply(lambda p: pos in [x.strip() for x in str(p).split(",")] if pd.notna(p) else False)
+        ]
         if eligible.empty:
             # No alternatives at this position — candidate is irreplaceable
             next_best = 0.0

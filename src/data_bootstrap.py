@@ -306,13 +306,14 @@ def _bootstrap_extended_roster(progress: BootstrapProgress) -> str:
     progress.phase = "Extended Roster"
     progress.detail = "Fetching 40-man + spring training rosters..."
     try:
-        from src.database import upsert_player_bulk
+        from src.database import update_refresh_log, upsert_player_bulk
         from src.live_stats import fetch_extended_roster
 
         df = fetch_extended_roster()
         if df.empty:
             return "Extended roster: no data"
         upsert_player_bulk(df.to_dict("records"))
+        update_refresh_log("extended_roster", "success")
         return f"Extended roster: {len(df)} players"
     except Exception as e:
         logger.warning("Extended roster bootstrap failed: %s", e)
@@ -325,6 +326,7 @@ def _bootstrap_adp_sources(progress: BootstrapProgress) -> str:
     progress.detail = "Fetching FantasyPros + NFBC ADP..."
     try:
         from src.adp_sources import fetch_fantasypros_ecr, fetch_nfbc_adp
+        from src.database import update_refresh_log
 
         results = []
         ecr = fetch_fantasypros_ecr()
@@ -333,6 +335,7 @@ def _bootstrap_adp_sources(progress: BootstrapProgress) -> str:
         nfbc = fetch_nfbc_adp()
         if not nfbc.empty:
             results.append(f"NFBC: {len(nfbc)}")
+        update_refresh_log("adp_sources", "success")
         return f"ADP sources: {', '.join(results)}" if results else "ADP sources: no data"
     except Exception as e:
         logger.warning("ADP sources bootstrap failed: %s", e)
@@ -348,10 +351,12 @@ def _bootstrap_contracts(progress: BootstrapProgress) -> str:
     progress.detail = "Fetching free agent list..."
     try:
         from src.contract_data import fetch_contract_year_players
+        from src.database import update_refresh_log
 
         names = fetch_contract_year_players()
         if names:
             _persist_contract_years(names)
+        update_refresh_log("contracts", "success")
         return f"Contracts: {len(names)} players in contract year"
     except Exception as e:
         logger.warning("Contract data bootstrap failed: %s", e)
@@ -366,11 +371,13 @@ def _bootstrap_news(progress: BootstrapProgress) -> str:
     progress.phase = "News"
     progress.detail = "Fetching recent transactions..."
     try:
+        from src.database import update_refresh_log
         from src.news_fetcher import fetch_recent_transactions
 
         items = fetch_recent_transactions(days_back=7)
         if items:
             _persist_news_sentiment(items)
+        update_refresh_log("news", "success")
         return f"News: {len(items)} transactions"
     except Exception as e:
         logger.warning("News bootstrap failed: %s", e)
@@ -502,11 +509,13 @@ def _bootstrap_depth_charts(progress: BootstrapProgress) -> str:
     progress.phase = "Depth Charts"
     progress.detail = "Fetching depth charts..."
     try:
+        from src.database import update_refresh_log
         from src.depth_charts import fetch_depth_charts
 
         depth_data = fetch_depth_charts()
         if depth_data:
             count = _persist_depth_chart_roles(depth_data)
+            update_refresh_log("depth_charts", "success")
             return f"Depth charts: {len(depth_data)} teams, {count} roles persisted"
         return "Depth charts: no data"
     except Exception as e:

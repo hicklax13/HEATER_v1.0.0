@@ -502,7 +502,13 @@ def _extract_bullpen(soup: BeautifulSoup) -> dict[str, Any]:
 def _detect_bullpen_role(text: str) -> str | None:
     """Detect bullpen role from row/cell text content."""
     text_lower = text.lower()
-    if "closer" in text_lower or "cl " in text_lower or text_lower.startswith("cl"):
+    if (
+        "closer" in text_lower
+        or "cl " in text_lower
+        or text_lower == "cl"
+        or text_lower.startswith("cl\t")
+        or text_lower.startswith("cl:")
+    ):
         return "CL"
     if "setup" in text_lower or "set up" in text_lower or "su " in text_lower:
         return "SU"

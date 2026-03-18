@@ -416,12 +416,15 @@ class BacktestEngine:
             "per_category": {},
         }
 
-    def _compute_value_capture(self, roster: pd.DataFrame) -> float:
+    def _compute_value_capture(self, roster: pd.DataFrame, pool: pd.DataFrame | None = None) -> float:
         """Compute what fraction of available SGP the roster captured.
 
         Value capture = roster total SGP / (top-N SGP from pool),
-        where N = roster size.
+        where N = roster size. Falls back to simple ratio when pool unavailable.
         """
+        if pool is not None and not pool.empty:
+            return self._compute_value_capture_vs_baseline(roster, pool)
+
         if roster.empty:
             return 0.0
 
@@ -431,16 +434,12 @@ class BacktestEngine:
 
         roster_sgp = roster["total_sgp"].sum()
 
-        # Avoid division by zero
-        if roster_sgp <= 0:
-            return 0.0
-
-        # Compare against top-N players by total_sgp
+        # Without a pool, return a normalized ratio (roster_sgp / reasonable baseline)
+        # Use N * median_sgp as a rough baseline
         n = len(roster)
-        # For ideal comparison, compute total_sgp for the full pool
-        # But since we don't have the full pool here, use roster as denominator
-        # A value > 0 indicates the draft captured some value
-        return float(min(1.0, max(0.0, roster_sgp / max(roster_sgp, 1.0))))
+        median_sgp = float(roster["total_sgp"].median()) if n > 0 else 1.0
+        baseline = max(n * max(median_sgp, 0.1), 1.0)
+        return float(np.clip(roster_sgp / baseline, 0.0, 1.0))
 
     def _compute_value_capture_vs_baseline(
         self,
@@ -538,6 +537,10 @@ def _spearman_correlation(x: np.ndarray, y: np.ndarray) -> float:
         Spearman correlation coefficient in [-1, 1].
     """
     if len(x) < 2 or len(y) < 2 or len(x) != len(y):
+        return 0.0
+
+    # Guard against constant arrays (undefined correlation)
+    if np.std(x) == 0 or np.std(y) == 0:
         return 0.0
 
     try:

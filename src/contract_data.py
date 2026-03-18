@@ -94,7 +94,7 @@ def is_contract_year(player_name: str, contract_year_set: set[str]) -> bool:
     bool
         ``True`` if the player is in the contract-year set.
     """
-    if not player_name or not contract_year_set:
+    if not player_name or not isinstance(player_name, str) or not contract_year_set:
         return False
     return player_name.strip().lower() in contract_year_set
 

@@ -10,12 +10,13 @@ Usage:
 
 import logging
 import threading
-import time
 
 logger = logging.getLogger(__name__)
 
 _scheduler_running = False
 _scheduler_thread: threading.Thread | None = None
+_scheduler_lock = threading.Lock()
+_stop_event = threading.Event()
 _CHECK_INTERVAL_SECONDS = 300  # Check every 5 minutes
 
 
@@ -26,18 +27,23 @@ def start_background_refresh():
     which internally checks staleness thresholds before fetching.
     """
     global _scheduler_running, _scheduler_thread
-    if _scheduler_running:
-        return
-    _scheduler_running = True
-    _scheduler_thread = threading.Thread(target=_refresh_loop, daemon=True, name="heater-refresh")
-    _scheduler_thread.start()
+    with _scheduler_lock:
+        if _scheduler_running:
+            return
+        _stop_event.clear()
+        _scheduler_running = True
+        _scheduler_thread = threading.Thread(target=_refresh_loop, daemon=True, name="heater-refresh")
+        _scheduler_thread.start()
     logger.info("Background refresh scheduler started (interval=%ds)", _CHECK_INTERVAL_SECONDS)
 
 
 def stop_background_refresh():
     """Stop the background refresh thread."""
-    global _scheduler_running
-    _scheduler_running = False
+    global _scheduler_running, _scheduler_thread
+    with _scheduler_lock:
+        _scheduler_running = False
+        _stop_event.set()
+        _scheduler_thread = None
     logger.info("Background refresh scheduler stopped")
 
 
@@ -58,4 +64,6 @@ def _refresh_loop():
                 logger.info("Background refresh updated: %s", refreshed)
         except Exception as e:
             logger.warning("Background refresh error: %s", e)
-        time.sleep(_CHECK_INTERVAL_SECONDS)
+        # Interruptible sleep — stop_event.set() wakes us immediately
+        if _stop_event.wait(timeout=_CHECK_INTERVAL_SECONDS):
+            break

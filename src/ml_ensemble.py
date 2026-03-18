@@ -179,9 +179,9 @@ class DraftMLEnsemble:
 
         try:
             features = self._prepare_features(historical_data)
-            target = pd.to_numeric(historical_data[target_col], errors="coerce").fillna(0)
+            target = pd.to_numeric(historical_data[target_col], errors="coerce")
 
-            # Remove rows where target is all NaN after coercion
+            # Remove rows where target is NaN (truly missing residuals)
             valid_mask = target.notna()
             features = features[valid_mask]
             target = target[valid_mask]

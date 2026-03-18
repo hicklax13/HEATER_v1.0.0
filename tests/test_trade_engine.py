@@ -600,9 +600,6 @@ class TestBenchOptionValue:
         if result.get("lineup_constrained"):
             assert result.get("drop_candidate") is not None
 
-    @pytest.mark.xfail(
-        reason="FA pickup requires league rosters loaded; sample pool has no rostered/unrostered distinction"
-    )
     def test_one_for_two_trade_has_fa_pickup(self, sample_pool, config):
         """Give 2, receive 1: roster shrinks, auto-picks-up best FA."""
         pool = sample_pool.copy()
@@ -1039,9 +1036,6 @@ class TestLineupConstrainedEval:
         # FA pickup should be None (we received more, not fewer)
         assert result.get("fa_pickup") is None
 
-    @pytest.mark.xfail(
-        reason="FA pickup requires league rosters loaded; sample pool has no rostered/unrostered distinction"
-    )
     def test_fa_pickup_in_2for1_trade(self, sample_pool, config):
         """2-for-1 trade: best FA should be auto-picked-up."""
         # Roster of 23: IDs 1-13 (hitters) + 21-30 (pitchers)

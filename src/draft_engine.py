@@ -300,8 +300,15 @@ class DraftRecommendationEngine:
         # Final: compute enhanced_pick_score
         pool["enhanced_pick_score"] = pool.apply(self._compute_enhanced_pick_score, axis=1)
 
-        # Buy/fair/avoid classification
-        pool["buy_fair_avoid"] = pool.apply(self._classify_buy_fair_avoid, axis=1)
+        # Buy/fair/avoid classification (rank-gap: enhanced_rank vs ADP)
+        pool = pool.sort_values("enhanced_pick_score", ascending=False).reset_index(drop=True)
+        pool["_enhanced_rank"] = pool.index + 1
+        current_pick = getattr(draft_state, "total_picks_made", 0) + 1
+        total_picks = getattr(draft_state, "total_picks", 276)
+        pool["buy_fair_avoid"] = pool.apply(
+            lambda row: self._classify_buy_fair_avoid(row, current_pick, total_picks), axis=1
+        )
+        pool = pool.drop(columns=["_enhanced_rank"], errors="ignore")
 
         # Composite risk score (0-100)
         t0 = time.perf_counter()
@@ -581,8 +588,16 @@ class DraftRecommendationEngine:
                 available_stat_cols = [c for c in stat_cols if c in updated.columns and c in pool.columns]
                 if available_stat_cols and "player_id" in updated.columns:
                     update_df = updated[["player_id"] + available_stat_cols]
+                    # Save original values to fill NaN after merge (Bayesian may return fewer players)
+                    backup = pool[["player_id"] + available_stat_cols].copy()
                     pool = pool.drop(columns=available_stat_cols)
                     pool = pool.merge(update_df, on="player_id", how="left")
+                    # Fill NaN with original values for players Bayesian didn't update
+                    backup_indexed = backup.set_index("player_id")
+                    pool_indexed = pool.set_index("player_id")
+                    for col in available_stat_cols:
+                        pool_indexed[col] = pool_indexed[col].fillna(backup_indexed[col])
+                    pool = pool_indexed.reset_index()
         except Exception as exc:
             logger.warning("Bayesian blend failed — using raw projections: %s", exc)
 
@@ -1058,21 +1073,39 @@ class DraftRecommendationEngine:
         return base_sgp * float(mult) + additive
 
     @staticmethod
-    def _classify_buy_fair_avoid(row: pd.Series) -> str:
-        """Classify player as buy/fair/avoid based on enhancement signals.
+    def _classify_buy_fair_avoid(row: pd.Series, current_pick: int = 1, total_picks: int = 276) -> str:
+        """Classify player as BUY/FAIR/AVOID based on enhanced rank vs ADP gap.
 
-        - "buy": Statcast delta positive AND injury prob low (undervalued skill)
-        - "avoid": Statcast delta negative OR high injury prob (overvalued/risky)
-        - "fair": Neither signal is strong
+        Threshold scales by draft phase:
+        - Early (picks 1-100): gap >= 20 = BUY
+        - Mid (picks 100-200): gap >= 15 = BUY
+        - Late (picks 200+): gap >= 10 = BUY
+
+        AVOID when ADP rank is much higher than enhanced rank (player overvalued).
         """
-        delta = float(row.get("statcast_delta", 0) or 0)
-        injury_prob = float(row.get("injury_probability", 0) or 0)
+        enhanced_rank = float(row.get("_enhanced_rank", 0) or 0)
+        adp_rank = float(row.get("adp", 0) or 0)
 
-        if delta > 0.02 and injury_prob < 0.15:
-            return "buy"
-        elif delta < -0.02 or injury_prob > 0.30:
-            return "avoid"
-        return "fair"
+        # Invalid ranks -> FAIR
+        if enhanced_rank <= 0 or adp_rank <= 0:
+            return "FAIR"
+
+        # Gap = ADP_rank - enhanced_rank. Positive means undervalued (BUY).
+        gap = adp_rank - enhanced_rank
+
+        # Threshold scales by draft phase
+        if current_pick <= 100:
+            threshold = 20
+        elif current_pick <= 200:
+            threshold = 15
+        else:
+            threshold = 10
+
+        if gap >= threshold:
+            return "BUY"
+        elif gap <= -threshold:
+            return "AVOID"
+        return "FAIR"
 
     # ── Helper Methods ────────────────────────────────────────────────
 
@@ -1114,7 +1147,9 @@ class DraftRecommendationEngine:
                 else:
                     weights[cat] = 0.9
             else:
-                if my_val < med_val:
+                if my_val == 0 and med_val == 0:
+                    weights[cat] = 1.0
+                elif my_val < med_val:
                     weights[cat] = 1.2
                 else:
                     weights[cat] = 0.9
