@@ -292,8 +292,9 @@ def _safe_add_column(conn: sqlite3.Connection, table: str, column: str, col_type
     try:
         conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}")
         conn.commit()
-    except sqlite3.OperationalError:
-        pass  # Column already exists
+    except sqlite3.OperationalError as e:
+        if "duplicate column" not in str(e).lower():
+            raise
 
 
 def import_hitter_csv(csv_path: str, system: str):
@@ -601,32 +602,10 @@ def import_adp_csv(csv_path: str, source: str = "fantasypros"):
 def load_player_pool() -> pd.DataFrame:
     """Load the full player pool with blended projections and ADP for the valuation engine."""
     conn = get_connection()
-
-    # Prefer blended, fall back to any available system
-    # Note: Do NOT use CAST on numeric columns — Python 3.14 SQLite returns raw bytes
-    # for NumPy integers, and CAST corrupts them. Fix bytes in Python after loading.
-    df = pd.read_sql_query(
-        """
-        SELECT
-            p.player_id, p.name, p.team, p.positions, p.is_hitter, p.is_injured,
-            proj.pa, proj.ab, proj.h, proj.r, proj.hr, proj.rbi, proj.sb, proj.avg,
-            proj.obp, proj.bb, proj.hbp, proj.sf,
-            proj.ip, proj.w, proj.l, proj.sv, proj.k, proj.era, proj.whip,
-            proj.er, proj.bb_allowed, proj.h_allowed,
-            proj.fip, proj.xfip, proj.siera,
-            COALESCE(a.adp, 999) as adp
-        FROM players p
-        JOIN projections proj ON p.player_id = proj.player_id
-        LEFT JOIN adp a ON p.player_id = a.player_id
-        WHERE proj.system = 'blended'
-          AND p.is_injured = 0
-        ORDER BY COALESCE(a.adp, 999)
-    """,
-        conn,
-    )
-
-    # If no blended projections exist, try any system
-    if df.empty:
+    try:
+        # Prefer blended, fall back to any available system
+        # Note: Do NOT use CAST on numeric columns — Python 3.14 SQLite returns raw bytes
+        # for NumPy integers, and CAST corrupts them. Fix bytes in Python after loading.
         df = pd.read_sql_query(
             """
             SELECT
@@ -640,14 +619,36 @@ def load_player_pool() -> pd.DataFrame:
             FROM players p
             JOIN projections proj ON p.player_id = proj.player_id
             LEFT JOIN adp a ON p.player_id = a.player_id
-            WHERE p.is_injured = 0
-            GROUP BY p.player_id
+            WHERE proj.system = 'blended'
+              AND p.is_injured = 0
             ORDER BY COALESCE(a.adp, 999)
         """,
             conn,
         )
 
-    conn.close()
+        # If no blended projections exist, try any system
+        if df.empty:
+            df = pd.read_sql_query(
+                """
+                SELECT
+                    p.player_id, p.name, p.team, p.positions, p.is_hitter, p.is_injured,
+                    proj.pa, proj.ab, proj.h, proj.r, proj.hr, proj.rbi, proj.sb, proj.avg,
+                    proj.obp, proj.bb, proj.hbp, proj.sf,
+                    proj.ip, proj.w, proj.l, proj.sv, proj.k, proj.era, proj.whip,
+                    proj.er, proj.bb_allowed, proj.h_allowed,
+                    proj.fip, proj.xfip, proj.siera,
+                    COALESCE(a.adp, 999) as adp
+                FROM players p
+                JOIN projections proj ON p.player_id = proj.player_id
+                LEFT JOIN adp a ON p.player_id = a.player_id
+                WHERE p.is_injured = 0
+                GROUP BY p.player_id
+                ORDER BY COALESCE(a.adp, 999)
+            """,
+                conn,
+            )
+    finally:
+        conn.close()
 
     # Fix Python 3.13+ SQLite bytes issue
     df = coerce_numeric_df(df)
@@ -750,8 +751,10 @@ def upsert_season_stats(player_id: int, stats: dict, season: int = 2026):
 def load_season_stats(season: int = 2026) -> pd.DataFrame:
     """Load all season stats as a DataFrame."""
     conn = get_connection()
-    df = pd.read_sql_query("SELECT * FROM season_stats WHERE season = ?", conn, params=(season,))
-    conn.close()
+    try:
+        df = pd.read_sql_query("SELECT * FROM season_stats WHERE season = ?", conn, params=(season,))
+    finally:
+        conn.close()
     return coerce_numeric_df(df)
 
 
@@ -889,12 +892,14 @@ def update_refresh_log(source: str, status: str = "success"):
 def get_refresh_status(source: str) -> dict | None:
     """Get the last refresh status for a data source."""
     conn = get_connection()
-    cursor = conn.execute(
-        "SELECT source, last_refresh, status FROM refresh_log WHERE source = ?",
-        (source,),
-    )
-    row = cursor.fetchone()
-    conn.close()
+    try:
+        cursor = conn.execute(
+            "SELECT source, last_refresh, status FROM refresh_log WHERE source = ?",
+            (source,),
+        )
+        row = cursor.fetchone()
+    finally:
+        conn.close()
     if row is None:
         return None
     return {"source": row[0], "last_refresh": row[1], "status": row[2]}

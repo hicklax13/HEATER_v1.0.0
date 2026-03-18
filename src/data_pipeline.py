@@ -413,7 +413,8 @@ def _store_adp(adp_df: pd.DataFrame) -> int:
 
     Uses exact-match against players table (name field).
     Falls back to fuzzy match (first + last name LIKE) for unresolved names.
-    DELETE FROM adp before INSERT (idempotency).
+    Deletes only FanGraphs-sourced ADP entries (by player_id) before INSERT.
+    Preserves Yahoo ADP and other sources.
     Returns row count inserted.
     """
     if adp_df.empty:
@@ -423,19 +424,15 @@ def _store_adp(adp_df: pd.DataFrame) -> int:
     try:
         cursor = conn.cursor()
 
-        # Clear existing ADP (idempotency)
-        cursor.execute("DELETE FROM adp")
-
-        count = 0
+        # Resolve all player_ids first so we only delete entries we're replacing
+        records = []
         for _, row in adp_df.iterrows():
             name = str(row["name"])
             adp_val = float(row["adp"])
 
-            # Resolve name → player_id (exact match first, fuzzy fallback)
             cursor.execute("SELECT player_id FROM players WHERE name = ?", (name,))
             result = cursor.fetchone()
             if result is None:
-                # Fuzzy fallback: first + last name LIKE match
                 parts = name.split()
                 if len(parts) >= 2:
                     cursor.execute(
@@ -454,12 +451,20 @@ def _store_adp(adp_df: pd.DataFrame) -> int:
             if result is None:
                 logger.warning("ADP: no player_id found for '%s', skipping", name)
                 continue
+            records.append({"player_id": result[0], "adp": adp_val})
 
-            player_id = result[0]
+        # Delete only entries for players in the new FanGraphs batch
+        new_ids = [rec["player_id"] for rec in records]
+        if new_ids:
+            placeholders = ",".join("?" * len(new_ids))
+            cursor.execute(f"DELETE FROM adp WHERE player_id IN ({placeholders})", new_ids)
+
+        count = 0
+        for rec in records:
             cursor.execute(
                 """INSERT INTO adp (player_id, adp) VALUES (?, ?)
                    ON CONFLICT(player_id) DO UPDATE SET adp=excluded.adp""",
-                (player_id, adp_val),
+                (rec["player_id"], rec["adp"]),
             )
             count += 1
 
@@ -518,7 +523,7 @@ def refresh_if_stale(force: bool = False) -> bool:
     # Skip if data is fresh and not forcing refresh
     if not force:
         try:
-            is_stale = check_staleness("fangraphs_projections", max_age_hours=168)
+            is_stale = check_staleness("projections", max_age_hours=168)
         except Exception:
             logger.exception("Staleness check failed, proceeding with fetch")
             is_stale = True
@@ -529,7 +534,7 @@ def refresh_if_stale(force: bool = False) -> bool:
     projections, raw_data = fetch_all_projections()
     if not projections:
         logger.error("All FanGraphs fetches failed")
-        update_refresh_log("fangraphs_projections", status="failed")
+        update_refresh_log("projections", status="failed")
         return False
 
     # Store projections (upserts players automatically)
@@ -559,5 +564,5 @@ def refresh_if_stale(force: bool = False) -> bool:
         logger.info("Stored %d ADP records", adp_count)
 
     # Log success
-    update_refresh_log("fangraphs_projections", status="success")
+    update_refresh_log("projections", status="success")
     return True

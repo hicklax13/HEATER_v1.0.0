@@ -550,7 +550,7 @@ class DraftSimulator:
             p_survive = self.survival_probability(
                 candidate.get("adp", 999),
                 current_pick,
-                next_pick if next_pick else current_pick + draft_state.num_teams,
+                next_pick if next_pick and next_pick > current_pick else current_pick + draft_state.num_teams,
             )
 
             results.append(

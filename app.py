@@ -1184,7 +1184,7 @@ def render_hero_pick(rec, ds, pool, threat_alerts=None):
 
     # LAST CHANCE badge — pulsing red when survival < 20%
     last_chance_html = ""
-    if surv < 0.20:
+    if surv < 20:
         last_chance_html = '<span class="badge-last-chance">LAST CHANCE</span>'
 
     # Threat alerts
@@ -1892,7 +1892,7 @@ def _render_radar_chart(ds, pool):
         "Earned Run Average",
         "Walks + Hits per Inning Pitched",
     ]
-    invert = {"ERA", "WHIP"}  # lower is better
+    invert = {"ERA", "WHIP", "L"}  # lower is better
 
     user_vals = []
     avg_vals = []
@@ -1949,7 +1949,7 @@ def _render_radar_chart(ds, pool):
         margin=dict(l=40, r=40, t=30, b=30),
         height=350,
     )
-    st.plotly_chart(fig, width="stretch")
+    st.plotly_chart(fig, use_container_width=True)
 
 
 def _render_balance_bars(ds, pool):

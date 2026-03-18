@@ -465,8 +465,11 @@ def compute_category_weights(
 
             if cat in config.inverse_stats:
                 if current == 0:
-                    # No pitching stats yet — desperately need pitching
-                    weight = 1.8
+                    if cat.upper() == "L":
+                        weight = 0.5  # 0 losses = dominant, low priority
+                    else:
+                        # No pitching stats yet — desperately need pitching
+                        weight = 1.8
                     weights[cat] = weight
                     continue
                 else:
@@ -478,7 +481,7 @@ def compute_category_weights(
                     ratio = current / avg
 
             if cat in config.inverse_stats:
-                weight = min(2.0, max(0.2, ratio * 1.2))
+                weight = min(2.0, max(0.2, ratio))
             else:
                 weight = min(2.0, max(0.2, 2.0 - ratio))
 
@@ -811,7 +814,7 @@ def compute_projection_volatility(
                     if v is not None and not (isinstance(v, float) and np.isnan(v)):
                         vals.append(float(v))
             if len(vals) >= 2:
-                row[col] = float(np.std(vals, ddof=0))
+                row[col] = float(np.std(vals, ddof=1)) if len(vals) > 1 else 0.0
             else:
                 row[col] = 0.0
         vol_rows.append(row)
