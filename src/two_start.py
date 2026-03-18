@@ -13,8 +13,11 @@ Wires into:
 from __future__ import annotations
 
 import logging
+import threading
 from datetime import UTC, datetime
 from typing import Any
+
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +76,7 @@ _DEFAULT_IP_PER_START: float = 5.5
 
 # Cached team batting stats (module-level, reset per session).
 _team_batting_cache: dict[str, dict[str, float]] | None = None
+_team_batting_lock = threading.Lock()
 
 
 # ── Team Batting Stats ───────────────────────────────────────────────
@@ -107,17 +111,24 @@ def fetch_team_batting_stats(season: int | None = None) -> dict[str, dict[str, f
         defaults for all 30 teams when the API is unavailable.
     """
     global _team_batting_cache
-    if _team_batting_cache is not None:
-        return _team_batting_cache
+    with _team_batting_lock:
+        if _team_batting_cache is not None:
+            return _team_batting_cache
 
     try:
         import statsapi
-
-        from src.optimizer.matchup_adjustments import _MLB_TEAM_ABBREVS
     except ImportError:
         logger.debug("statsapi not installed; using league-average batting defaults")
-        _team_batting_cache = {}
-        return _team_batting_cache
+        # Import failure is permanent — safe to cache empty.
+        with _team_batting_lock:
+            _team_batting_cache = {}
+            return _team_batting_cache
+
+    # Use module-level _MLB_TEAM_ABBREVS (already imported at top of file)
+    if not _MLB_TEAM_ABBREVS:
+        with _team_batting_lock:
+            _team_batting_cache = {}
+            return _team_batting_cache
 
     if season is None:
         season = datetime.now(UTC).year
@@ -163,19 +174,21 @@ def fetch_team_batting_stats(season: int | None = None) -> dict[str, dict[str, f
             except Exception:
                 result[abbrev] = _league_avg_batting()
 
-        _team_batting_cache = result
-        return _team_batting_cache
+        with _team_batting_lock:
+            _team_batting_cache = result
+            return _team_batting_cache
 
     except Exception:
         logger.warning("Failed to fetch team batting stats", exc_info=True)
-        _team_batting_cache = {}
-        return _team_batting_cache
+        # Transient failure — do NOT cache empty dict so retries are possible.
+        return {}
 
 
 def clear_team_batting_cache() -> None:
     """Clear the cached team batting stats, forcing a fresh fetch."""
     global _team_batting_cache
-    _team_batting_cache = None
+    with _team_batting_lock:
+        _team_batting_cache = None
 
 
 # ── Rate Stat Damage ─────────────────────────────────────────────────
@@ -332,6 +345,8 @@ def _confidence_tier(game_date_str: str) -> str:
     except (ValueError, TypeError):
         return "LOW"
 
+    if days_ahead < 0:
+        return "LOW"
     if days_ahead <= _HIGH_CONFIDENCE_DAYS:
         return "HIGH"
     elif days_ahead <= _MEDIUM_CONFIDENCE_DAYS:
@@ -348,6 +363,7 @@ def identify_two_start_pitchers(
     team_era: float = _LEAGUE_AVG_ERA,
     team_whip: float = _LEAGUE_AVG_WHIP,
     team_ip: float = 55.0,
+    player_pool: pd.DataFrame | None = None,
 ) -> list[dict[str, Any]]:
     """Identify pitchers with 2+ starts in an upcoming week.
 
@@ -431,11 +447,57 @@ def identify_two_start_pitchers(
     team_batting = fetch_team_batting_stats()
     results: list[dict[str, Any]] = []
 
+    # Build pitcher name lookup from player_pool for actual stats
+    pitcher_stats_lookup: dict[str, dict[str, float]] = {}
+    if player_pool is not None and not player_pool.empty:
+        pitchers = player_pool[player_pool.get("is_hitter", pd.Series(dtype=int)) == 0]
+        if not pitchers.empty:
+            name_col = "name" if "name" in pitchers.columns else "player_name"
+            for _, p in pitchers.iterrows():
+                pname = str(p.get(name_col, ""))
+                if pname:
+                    pitcher_stats_lookup[pname] = {
+                        "era": float(p.get("era", 0) or 0),
+                        "whip": float(p.get("whip", 0) or 0),
+                        "k": float(p.get("k", 0) or 0),
+                        "w": float(p.get("w", 0) or 0),
+                        "l": float(p.get("l", 0) or 0),
+                        "ip": float(p.get("ip", 0) or 0),
+                        "k_bb_pct": float(p.get("k_bb_pct", 0) or 0),
+                        "xfip": float(p.get("xfip", 0) or 0),
+                        "csw_pct": float(p.get("csw_pct", 0) or 0),
+                    }
+
     for pitcher_name, starts in pitcher_starts.items():
         if len(starts) < 2:
             continue
 
         team_abbrev = pitcher_teams.get(pitcher_name, "")
+
+        # Look up actual pitcher stats; fall back to league-average defaults
+        p_stats = pitcher_stats_lookup.get(pitcher_name, {})
+        p_era = p_stats.get("era") or _LEAGUE_AVG_ERA
+        p_whip = p_stats.get("whip") or _LEAGUE_AVG_WHIP
+        p_ip = p_stats.get("ip") or _DEFAULT_IP_PER_START
+        p_k = p_stats.get("k") or 6.0
+        p_w = p_stats.get("w") or 0.5
+        p_l = p_stats.get("l") or 0.3
+
+        # Compute per-start IP (if season totals provided, estimate per-start)
+        if p_ip > 30:
+            # Season totals: estimate per-start IP (typical SP ~30 starts)
+            ip_per_start = p_ip / max(p_ip / _DEFAULT_IP_PER_START, 1)
+        else:
+            ip_per_start = p_ip if p_ip > 0 else _DEFAULT_IP_PER_START
+
+        # Build pitcher skill dict for matchup scoring
+        pitcher_skill_stats = {
+            "k_bb_pct": p_stats.get("k_bb_pct", 0.10),
+            "xfip": p_stats.get("xfip") or _LEAGUE_AVG_XFIP,
+            "csw_pct": p_stats.get("csw_pct") or _LEAGUE_AVG_CSW_PCT,
+            "era": p_era,
+            "whip": p_whip,
+        }
 
         # Enrich each start with park factor, matchup score, confidence.
         enriched_starts: list[dict[str, Any]] = []
@@ -448,7 +510,7 @@ def identify_two_start_pitchers(
             opp_stats = team_batting.get(opp_abbrev) if team_batting else None
 
             matchup_score = compute_pitcher_matchup_score(
-                pitcher_stats={},  # no pitcher-specific stats from schedule alone
+                pitcher_stats=pitcher_skill_stats,
                 opponent_team_stats=opp_stats,
                 park_factor=pf,
                 is_home=start.get("is_home", False),
@@ -469,52 +531,64 @@ def identify_two_start_pitchers(
             total_matchup_score += matchup_score
 
         avg_matchup = total_matchup_score / len(enriched_starts) if enriched_starts else 0.0
+        num_starts = len(enriched_starts)
 
-        # Rate stat damage per start (using default pitcher stats).
-        damage = rate_stat_damage(
-            pitcher_era=_LEAGUE_AVG_ERA,
-            pitcher_whip=_LEAGUE_AVG_WHIP,
-            pitcher_ip=_DEFAULT_IP_PER_START,
+        # Rate stat damage per start using actual pitcher stats.
+        damage_per_start = rate_stat_damage(
+            pitcher_era=p_era,
+            pitcher_whip=p_whip,
+            pitcher_ip=ip_per_start,
             team_era=team_era,
             team_whip=team_whip,
             team_ip=team_ip,
         )
 
+        # Cumulative weekly rate damage across all starts
+        cumulative_damage = {
+            "era_change": round(damage_per_start["era_change"] * num_starts, 6),
+            "whip_change": round(damage_per_start["whip_change"] * num_starts, 6),
+        }
+
+        # Average park factor across starts for streaming value
+        avg_pf = sum(s["park_factor"] for s in enriched_starts) / num_starts if enriched_starts else 1.0
+
         # Two-start value from existing streaming module.
         two_start_val = quantify_two_start_value(
             pitcher_stats={
-                "k": 6.0,
-                "w": 0.5,
-                "l": 0.3,
-                "era": _LEAGUE_AVG_ERA,
-                "whip": _LEAGUE_AVG_WHIP,
-                "ip": _DEFAULT_IP_PER_START,
+                "k": p_k,
+                "w": p_w,
+                "l": p_l,
+                "era": p_era,
+                "whip": p_whip,
+                "ip": ip_per_start,
             },
             team_era=team_era,
             team_whip=team_whip,
         )
 
-        # Streaming value for the full week.
+        # Streaming value for the full week, with park factor.
         streaming_val = compute_streaming_value(
             pitcher={
-                "k": 6.0,
-                "w": 0.5,
-                "l": 0.3,
-                "era": _LEAGUE_AVG_ERA,
-                "whip": _LEAGUE_AVG_WHIP,
-                "ip": _DEFAULT_IP_PER_START,
+                "k": p_k,
+                "w": p_w,
+                "l": p_l,
+                "era": p_era,
+                "whip": p_whip,
+                "ip": ip_per_start,
             },
-            weekly_games=len(enriched_starts),
+            weekly_games=num_starts,
+            team_park_factor=avg_pf,
         )
 
         results.append(
             {
                 "pitcher_name": pitcher_name,
                 "team": team_abbrev,
-                "num_starts": len(enriched_starts),
+                "num_starts": num_starts,
                 "starts": enriched_starts,
                 "avg_matchup_score": round(avg_matchup, 2),
-                "rate_damage": damage,
+                "rate_damage_per_start": damage_per_start,
+                "rate_damage_weekly": cumulative_damage,
                 "two_start_value": two_start_val,
                 "streaming_value": streaming_val,
             }

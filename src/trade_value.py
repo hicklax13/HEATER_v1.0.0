@@ -26,6 +26,9 @@ from src.valuation import (
     compute_vorp,
 )
 
+# Minimum weeks_remaining to avoid degenerate scaling
+_MIN_WEEKS_REMAINING = 1
+
 # ── Weekly Variance Defaults (tau² per category) ──────────────────────
 # Empirical week-to-week standard deviation of a roster's category total
 # in a 12-team H2H league. Higher tau = more weekly randomness = lower
@@ -160,6 +163,9 @@ def compute_trade_values(
     if config is None:
         config = LeagueConfig()
 
+    # Clamp weeks_remaining to avoid degenerate scaling
+    weeks_remaining = max(weeks_remaining, _MIN_WEEKS_REMAINING)
+
     if player_pool.empty:
         return pd.DataFrame()
 
@@ -173,30 +179,18 @@ def compute_trade_values(
 
     # Update SGP denominators from standings if available
     if standings is not None and not standings.empty:
-        from src.engine.portfolio.valuation import compute_sgp_from_standings
+        try:
+            from src.engine.portfolio.valuation import compute_sgp_from_standings
 
-        live_denoms = compute_sgp_from_standings(standings, config)
-        config.sgp_denominators.update(live_denoms)
+            live_denoms = compute_sgp_from_standings(standings, config)
+            config.sgp_denominators.update(live_denoms)
+        except ImportError:
+            pass
 
     sgp_calc = SGPCalculator(config)
     replacement_levels = compute_replacement_levels(pool, config, sgp_calc)
 
     # ── Step 1: Compute per-player SGP and VORP ───────────────────────
-
-    stat_map = {
-        "R": "r",
-        "HR": "hr",
-        "RBI": "rbi",
-        "SB": "sb",
-        "AVG": "avg",
-        "OBP": "obp",
-        "W": "w",
-        "L": "l",
-        "SV": "sv",
-        "K": "k",
-        "ERA": "era",
-        "WHIP": "whip",
-    }
 
     per_cat_sgp_list = []
     total_sgp_list = []
@@ -229,6 +223,14 @@ def compute_trade_values(
     pool["g_score"] = g_scores
 
     # ── Step 4: Compute SGP surplus (G-Score adjusted) ────────────────
+    # Replacement levels are in raw SGP units; g_scores are variance-adjusted.
+    # Compute the pool-wide ratio to convert replacement levels to G-Score scale.
+    raw_sum = sum(total_sgp_list)
+    gscore_sum = sum(g_scores)
+    if abs(raw_sum) > 1e-9:
+        gscore_ratio = gscore_sum / raw_sum
+    else:
+        gscore_ratio = 1.0
 
     surplus_list = []
     for idx, row in pool.iterrows():
@@ -238,8 +240,8 @@ def compute_trade_values(
             best_repl = max(replacement_levels.get(p, 0) for p in valid)
         else:
             best_repl = 0
-        # Use G-Score for surplus instead of raw SGP
-        surplus = row["g_score"] - best_repl
+        # Scale replacement level to G-Score units for apples-to-apples comparison
+        surplus = row["g_score"] - best_repl * gscore_ratio
         surplus_list.append(surplus)
 
     pool["sgp_surplus"] = surplus_list
@@ -253,7 +255,14 @@ def compute_trade_values(
     # Non-linear scaling: exponent 0.7 compresses top, expands mid-range
     pool["trade_value"] = pool["sgp_surplus"].apply(lambda s: round(100.0 * (max(s, 0) / max_surplus) ** 0.7, 1))
 
-    # ── Step 6: Compute dollar values ─────────────────────────────────
+    # ── Step 6: Time decay adjustment ─────────────────────────────────
+    # Scale values by remaining season fraction (full season = 26 weeks)
+    # Applied BEFORE tier assignment so tiers reflect actual trade value.
+    total_weeks = 26.0
+    time_factor = min(weeks_remaining / total_weeks, 1.0)
+    pool["trade_value"] = (pool["trade_value"] * time_factor).round(1)
+
+    # ── Step 7: Compute dollar values ─────────────────────────────────
 
     positive_surplus = pool.loc[pool["sgp_surplus"] > 0, "sgp_surplus"]
     total_positive = positive_surplus.sum()
@@ -263,8 +272,9 @@ def compute_trade_values(
         )
     else:
         pool["dollar_value"] = 1.0
+    pool["dollar_value"] = (pool["dollar_value"] * time_factor).round(1)
 
-    # ── Step 7: Assign tiers and ranks ────────────────────────────────
+    # ── Step 8: Assign tiers and ranks ────────────────────────────────
 
     pool["tier"] = pool["trade_value"].apply(assign_tier)
 
@@ -280,13 +290,6 @@ def compute_trade_values(
         pos_counters[primary] = pos_counters.get(primary, 0) + 1
         pos_ranks.append(pos_counters[primary])
     pool["pos_rank"] = pos_ranks
-
-    # ── Step 8: Time decay adjustment ─────────────────────────────────
-    # Scale values by remaining season fraction (full season = 26 weeks)
-    total_weeks = 26.0
-    time_factor = min(weeks_remaining / total_weeks, 1.0)
-    pool["trade_value"] = (pool["trade_value"] * time_factor).round(1)
-    pool["dollar_value"] = (pool["dollar_value"] * time_factor).round(1)
 
     # Select output columns
     output_cols = [
@@ -341,6 +344,11 @@ def compute_contextual_values(
 
     result = trade_values.copy()
 
+    if result.empty:
+        result["contextual_value"] = pd.Series(dtype=float)
+        result["contextual_tier"] = pd.Series(dtype=str)
+        return result
+
     if not user_totals or not all_team_totals:
         result["contextual_value"] = result["trade_value"]
         result["contextual_tier"] = result["tier"]
@@ -349,22 +357,6 @@ def compute_contextual_values(
     # Get category weights from gap analysis
     analysis = category_gap_analysis(user_totals, all_team_totals, user_team_name)
     weights = compute_category_weights_from_analysis(analysis)
-
-    # Compute per-player contextual multiplier
-    stat_map = {
-        "R": "r",
-        "HR": "hr",
-        "RBI": "rbi",
-        "SB": "sb",
-        "AVG": "avg",
-        "OBP": "obp",
-        "W": "w",
-        "L": "l",
-        "SV": "sv",
-        "K": "k",
-        "ERA": "era",
-        "WHIP": "whip",
-    }
 
     sgp_calc = SGPCalculator(config)
     contextual_values = []
@@ -395,7 +387,10 @@ def filter_by_position(trade_values: pd.DataFrame, position: str) -> pd.DataFram
     if position == "All":
         return trade_values
 
-    mask = trade_values["positions"].apply(lambda x: position in [p.strip() for p in str(x).split(",")])
+    if trade_values.empty or "positions" not in trade_values.columns:
+        return trade_values
+
+    mask = trade_values["positions"].apply(lambda x: position in [p.strip() for p in str(x or "").split(",")])
     filtered = trade_values[mask].copy()
     filtered["pos_rank"] = range(1, len(filtered) + 1)
     return filtered

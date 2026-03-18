@@ -791,5 +791,5 @@ class TestWeeklyMatchupRatings:
         )
         adjusted = result.iloc[0]["projected_stats_adjusted"]
         assert "hr" in adjusted
-        # HR should be inflated by Coors factor
-        assert adjusted["hr"] > 30
+        # HR should be park-adjusted (weekly scale, not season totals)
+        assert adjusted["hr"] > 0

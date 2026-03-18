@@ -38,7 +38,7 @@ _ALPHA_MAP: dict[str, float] = {
 }
 
 # Home field advantage multiplier
-_HOME_ADVANTAGE: float = 1.0
+_HOME_ADVANTAGE: float = 1.02
 _AWAY_DISCOUNT: float = 0.97
 
 # Number of games in a typical MLB week
@@ -94,7 +94,7 @@ def classify_matchup_state(
         my_val = float(my_val)
         opp_val = float(opp_val)
 
-        if cat_lower in inverse or cat in config.inverse_stats:
+        if cat_lower in inverse:
             # Lower is better for inverse stats
             if my_val < opp_val:
                 wins += 1
@@ -418,13 +418,10 @@ def start_sit_recommendation(
     best_score = player_results[0]["_raw_score"]
     second_score = player_results[1]["_raw_score"] if len(player_results) > 1 else 0.0
 
-    score_sum = abs(best_score) + abs(second_score)
-    if score_sum > 0:
-        confidence = abs(best_score - second_score) / score_sum
-    else:
-        confidence = 0.0
-
-    confidence = min(confidence, 1.0)
+    # Use max absolute score as denominator to keep confidence in [0, 1]
+    max_abs = max(abs(best_score), abs(second_score), 1e-9)
+    confidence = abs(best_score - second_score) / (2.0 * max_abs)
+    confidence = min(max(confidence, 0.0), 1.0)
 
     if confidence > 0.30:
         confidence_label = "Clear Start"
@@ -561,7 +558,9 @@ def _average_park_factor(
 
             pf = park_factors.get(venue_team, 1.0)
             if not is_hitter:
-                pf = 1.0  # Neutral for pitchers
+                # Invert for pitchers: hitter-friendly parks hurt pitchers
+                pf = 2.0 - pf
+                pf = max(pf, 0.5)  # floor to avoid extreme values
             factors.append(pf)
 
     if not factors:
@@ -603,6 +602,14 @@ def _compute_matchup_factors(
     if not weekly_schedule:
         return factors
 
+    # Build reverse lookup once for all matchup computations
+    try:
+        from src.optimizer.matchup_adjustments import _MLB_TEAM_ABBREVS
+
+        abbrev_to_full = {v: k for k, v in _MLB_TEAM_ABBREVS.items()}
+    except ImportError:
+        abbrev_to_full = {}
+
     # Park factor average
     if park_factors:
         factors["park"] = _average_park_factor(team, weekly_schedule, park_factors, is_hitter)
@@ -613,11 +620,12 @@ def _compute_matchup_factors(
         try:
             from src.optimizer.matchup_adjustments import platoon_adjustment
 
+            full_name_plat = abbrev_to_full.get(team, team)
             platoon_adjustments = []
             for game in weekly_schedule:
                 home = game.get("home_name", "")
                 away = game.get("away_name", "")
-                if team in (home, away) or any(team == a for a in (home, away)):
+                if team in (home, away) or full_name_plat in (home, away):
                     # Get probable pitcher hand (simplified: assume unknown -> R)
                     pitcher_hand = "R"  # Default assumption
                     platoon_adjustments.append(platoon_adjustment(batter_hand, pitcher_hand))
@@ -629,13 +637,6 @@ def _compute_matchup_factors(
 
     # Home/away proportion
     if team:
-        try:
-            from src.optimizer.matchup_adjustments import _MLB_TEAM_ABBREVS
-
-            abbrev_to_full = {v: k for k, v in _MLB_TEAM_ABBREVS.items()}
-        except ImportError:
-            abbrev_to_full = {}
-
         full_name = abbrev_to_full.get(team, team)
         home_games = 0
         total_games = 0
@@ -682,6 +683,7 @@ def _compute_start_score(
     """
     combined_factor = matchup_factors.get("combined", 1.0)
     inverse = {c.lower() for c in config.inverse_stats}
+    rate_stats = {c.lower() for c in config.rate_stats}
 
     score = 0.0
     cats = config.hitting_categories if is_hitter else config.pitching_categories
@@ -698,11 +700,15 @@ def _compute_start_score(
         # Normalize to SGP-scale so categories are comparable
         sgp_contribution = proj_val / denom
 
+        # Rate stats (AVG, OBP, ERA, WHIP) are not scaled by matchup volume factor;
+        # only counting stats benefit from more/better games.
+        cat_factor = 1.0 if cat_lower in rate_stats else combined_factor
+
         if cat_lower in inverse:
             # Lower is better: negative contribution
-            score -= sgp_contribution * weight * combined_factor
+            score -= sgp_contribution * weight * cat_factor
         else:
-            score += sgp_contribution * weight * combined_factor
+            score += sgp_contribution * weight * cat_factor
 
     return score
 
@@ -807,11 +813,6 @@ def _generate_reasoning(
         if abs(top_val) > 0.01:
             direction = "strong" if top_val > 0 else "negative"
             reasons.append(f"Projected {direction} {top_cat} impact ({top_val:+.3f} Standings Gained Points)")
-
-    # Volume reasoning for hitters
-    if is_hitter:
-        games = _count_team_games(team, None)
-        # Can't determine without schedule, so skip if no data
 
     # Ensure at least one reason
     if not reasons:

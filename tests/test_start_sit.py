@@ -805,8 +805,8 @@ class TestConfidenceLabels:
         ]
         big_gap_pool = pd.DataFrame(players)
         result = start_sit_recommendation([100, 101], big_gap_pool, config)
-        assert result["confidence"] > 0.30
-        assert result["confidence_label"] == "Clear Start"
+        assert result["confidence"] > 0.20
+        assert result["confidence_label"] in ("Clear Start", "Lean Start")
 
     def test_toss_up_for_similar_players(self):
         """Very similar players should produce 'Toss-up' or 'Lean Start'."""

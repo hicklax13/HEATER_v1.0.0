@@ -19,7 +19,7 @@ from __future__ import annotations
 import pandas as pd
 
 from src.in_season import _roster_category_totals, rank_free_agents
-from src.valuation import LeagueConfig, SGPCalculator
+from src.valuation import LeagueConfig
 
 # ── Constants ─────────────────────────────────────────────────────────
 
@@ -79,11 +79,6 @@ def classify_category_priority(
     priorities: dict[str, str] = {}
 
     for cat in config.all_categories:
-        if cat in RATE_STATS:
-            # Rate stats: simplified — check rank position
-            priorities[cat] = "ATTACK"
-            continue
-
         user_val = user_totals.get(cat, 0)
         is_inverse = cat in config.inverse_stats
 
@@ -108,6 +103,16 @@ def classify_category_priority(
         # Gap to next position above
         weekly_rate = WEEKLY_RATE_DEFAULTS.get(cat, 0)
         remaining_production = weekly_rate * weeks_remaining
+
+        # Rate stats have no weekly production rate; classify purely by rank
+        if cat in RATE_STATS:
+            if rank <= 3:
+                priorities[cat] = "DEFEND"
+            elif rank >= 10:
+                priorities[cat] = "IGNORE"
+            else:
+                priorities[cat] = "ATTACK"
+            continue
 
         if rank <= 3:
             # Check if team behind is close (DEFEND)
@@ -157,8 +162,6 @@ def compute_drop_cost(
     if config is None:
         config = LeagueConfig()
 
-    sgp_calc = SGPCalculator(config)
-
     # Current roster value
     current_totals = _roster_category_totals(roster_ids, player_pool)
     current_sgp = _totals_to_sgp(current_totals, config)
@@ -173,7 +176,6 @@ def compute_drop_cost(
 
 def _totals_to_sgp(totals: dict, config: LeagueConfig) -> float:
     """Convert roster category totals to total SGP."""
-    sgp_calc = SGPCalculator(config)
     total = 0.0
     for cat in config.all_categories:
         denom = config.sgp_denominators.get(cat, 1.0)
@@ -238,12 +240,14 @@ def compute_sustainability_score(player: pd.Series) -> float:
     h = float(player.get("h", 0) or 0)
     hr = float(player.get("hr", 0) or 0)
     ab = float(player.get("ab", 0) or 0)
-    k = float(player.get("k", 0) or 0)
     sf = float(player.get("sf", 0) or 0)
     is_hitter = int(player.get("is_hitter", 1) or 1)
+    # For hitters, 'k' is strikeouts (used in BABIP denominator).
+    # For pitchers, 'k' is strikeouts thrown (not relevant to BABIP).
+    hitter_k = float(player.get("k", 0) or 0) if is_hitter else 0
 
     if is_hitter and ab > 50:
-        babip = compute_babip(h, hr, ab, k, sf)
+        babip = compute_babip(h, hr, ab, hitter_k, sf)
         # BABIP regression: .300 is league average
         # > .370 = likely regressing down (unsustainable)
         # < .240 = likely regressing up (buy low)
@@ -256,9 +260,11 @@ def compute_sustainability_score(player: pd.Series) -> float:
         else:
             # Linear interpolation
             if babip > 0.320:
-                sustainability = 0.7 - (babip - 0.320) * 4.0  # 0.7 → 0.3
+                # Map 0.320 → 0.7, 0.370 → 0.3
+                sustainability = 0.7 - (babip - 0.320) * 8.0  # (0.7-0.3)/(0.370-0.320)=8
             else:
-                sustainability = 0.7 + (0.280 - babip) * 2.5  # 0.7 → 0.8
+                # Map 0.280 → 0.7, 0.240 → 0.8
+                sustainability = 0.7 + (0.280 - babip) * 2.5  # (0.8-0.7)/(0.280-0.240)=2.5
         return max(0.0, min(1.0, sustainability))
     else:
         # Pitchers or insufficient sample: use ERA vs xFIP proxy
@@ -350,7 +356,7 @@ def compute_add_drop_recommendations(
 
     # ── Stage 4: Compute net swap values ──────────────────────────────
     swap_results = []
-    for _, fa_row in top_fas.iterrows():
+    for fa_rank_idx, (_, fa_row) in enumerate(top_fas.iterrows()):
         fa_id = int(fa_row["player_id"])
         fa_name = fa_row.get("player_name", fa_row.get("name", "?"))
 
@@ -391,7 +397,7 @@ def compute_add_drop_recommendations(
                     "category_impact": swap["category_deltas"],
                     "sustainability_score": round(sust, 2),
                     "reasoning": reasoning,
-                    "marginal_rank": int(fa_row.name) + 1 if hasattr(fa_row, "name") else 0,
+                    "marginal_rank": fa_rank_idx + 1,
                 }
             )
 

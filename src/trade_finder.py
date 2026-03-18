@@ -17,12 +17,12 @@ import numpy as np
 import pandas as pd
 
 from src.in_season import _roster_category_totals
-from src.valuation import LeagueConfig, SGPCalculator
+from src.valuation import LeagueConfig
 
 # ── Constants ─────────────────────────────────────────────────────────
 
 MIN_SGP_GAIN = 0.3  # Minimum user SGP gain to surface a trade
-MAX_OPP_LOSS = -0.5  # Maximum SGP loss opponent accepts
+MAX_OPP_LOSS = -0.5  # Reject trades where opponent loses more than this (e.g., opp_delta < -0.5)
 LOSS_AVERSION = 1.5  # Opponent values outgoing players 1.5x (Kahneman)
 
 
@@ -135,12 +135,18 @@ def estimate_acceptance_probability(
     Returns:
         float in [0, 1] — estimated acceptance probability.
     """
-    # Fairness gap (adjusted for loss aversion)
-    perceived_opp_gain = opponent_gain_sgp / LOSS_AVERSION  # Opponent perceives less gain
-    fairness_gap = abs(user_gain_sgp - perceived_opp_gain)
+    # Fairness gap (adjusted for loss aversion per Kahneman & Tversky):
+    # Losses feel LOSS_AVERSION× worse. If opponent loses, multiply loss magnitude.
+    if opponent_gain_sgp < 0:
+        perceived_opp_gain = opponent_gain_sgp * LOSS_AVERSION  # Losses feel worse
+    else:
+        perceived_opp_gain = opponent_gain_sgp
 
     # Sigmoid: P(accept) = 1 / (1 + exp(k * fairness - m * need))
+    fairness_gap = abs(user_gain_sgp - perceived_opp_gain)
     exponent = 2.0 * fairness_gap - 1.5 * need_match_score - 0.5 * max(opponent_gain_sgp, 0)
+    # Clamp exponent to avoid overflow
+    exponent = max(-20.0, min(20.0, exponent))
     prob = 1.0 / (1.0 + math.exp(exponent))
 
     return max(0.01, min(0.99, prob))
@@ -173,8 +179,6 @@ def scan_1_for_1(
     """
     if config is None:
         config = LeagueConfig()
-
-    sgp_calc = SGPCalculator(config)
 
     # Pre-compute baseline totals
     user_totals = _roster_category_totals(user_roster_ids, player_pool)
@@ -227,12 +231,12 @@ def scan_1_for_1(
 
             p_accept = estimate_acceptance_probability(user_delta, opp_delta, need_match)
 
-            # Composite score
+            # Composite score: SGP gain weighted by acceptance likelihood
             composite = (
-                0.35 * user_delta
-                + 0.30 * min(user_delta, 3.0)  # cap category wins proxy
-                + 0.20 * p_accept
+                0.50 * user_delta
+                + 0.25 * p_accept * 3.0  # scale probability to SGP-like range
                 + 0.15 * max(opp_delta, 0)  # bonus if opponent also benefits
+                + 0.10 * need_match * 2.0  # bonus for need-matching trades
             )
 
             results.append(

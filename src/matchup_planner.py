@@ -130,7 +130,16 @@ def compute_hitter_game_rating(
     # Home advantage
     home_away = _HITTER_HOME_ADVANTAGE if is_home else 1.0
 
-    raw_score = base_woba * pf * platoon_adj * home_away
+    # Opposing pitcher quality adjustment: weaker pitchers boost hitter score
+    pitcher_adj = 1.0
+    if opposing_pitcher_stats:
+        opp_era = float(opposing_pitcher_stats.get("era", 0) or opposing_pitcher_stats.get("xfip", 0) or _DEFAULT_XFIP)
+        if opp_era > 0:
+            # Higher opponent ERA = better for hitter. Normalize around league avg.
+            pitcher_adj = opp_era / _DEFAULT_XFIP
+            pitcher_adj = max(0.75, min(1.25, pitcher_adj))  # clamp to avoid extremes
+
+    raw_score = base_woba * pf * platoon_adj * home_away * pitcher_adj
 
     return {
         "raw_score": raw_score,
@@ -138,6 +147,7 @@ def compute_hitter_game_rating(
         "park_factor": pf,
         "platoon_adj": platoon_adj,
         "home_away": home_away,
+        "pitcher_adj": pitcher_adj,
     }
 
 
@@ -177,7 +187,7 @@ def compute_pitcher_game_rating(
     opp_wrc_plus = max(opp_wrc_plus, _MIN_OPP_WRC_PLUS)
 
     pf = float(park_factor) if park_factor else 1.0
-    inverse_park = 2.0 - pf
+    inverse_park = max(2.0 - pf, 0.5)  # floor to avoid negative/extreme values
 
     starts = int(pitcher_stats.get("starts", 1) or 1)
     if starts < 1:
@@ -229,7 +239,7 @@ def compute_all_ratings_with_percentiles(
         if n == 1:
             pct = 50.0
         else:
-            pct = float(np.sum(arr < val)) / (n - 1) * 100.0
+            pct = float(np.sum(arr < val)) / n * 100.0
         pct = max(0.0, min(100.0, pct))
         rating = 1.0 + 9.0 * (pct / 100.0)
         tier = color_tier(pct)
@@ -315,6 +325,7 @@ def compute_weekly_matchup_ratings(
             entry = {
                 "player_id": player_id,
                 "name": name,
+                "team": team,
                 "positions": positions,
                 "is_hitter": is_hitter,
                 "games": [],
@@ -361,6 +372,7 @@ def compute_weekly_matchup_ratings(
                 {
                     "player_id": player_id,
                     "name": name,
+                    "team": team,
                     "positions": positions,
                     "is_hitter": True,
                     "games": game_details,
@@ -398,6 +410,7 @@ def compute_weekly_matchup_ratings(
                 {
                     "player_id": player_id,
                     "name": name,
+                    "team": team,
                     "positions": positions,
                     "is_hitter": False,
                     "games": game_details,
@@ -420,6 +433,7 @@ def compute_weekly_matchup_ratings(
     output_cols = [
         "player_id",
         "name",
+        "team",
         "positions",
         "is_hitter",
         "games",
@@ -443,6 +457,7 @@ def _empty_result() -> pd.DataFrame:
         columns=[
             "player_id",
             "name",
+            "team",
             "positions",
             "is_hitter",
             "games",
@@ -469,6 +484,10 @@ def _extract_hitter_stats(row: pd.Series) -> dict[str, Any]:
 
 def _extract_pitcher_stats(row: pd.Series) -> dict[str, Any]:
     """Extract pitcher stat fields from a roster row."""
+    # 'starts' may not exist in the roster; default to 1
+    starts_val = row.get("starts", None)
+    if starts_val is None or starts_val == 0:
+        starts_val = 1
     return {
         "xfip": row.get("xfip", 0) or 0,
         "era": row.get("era", 0) or 0,
@@ -476,7 +495,7 @@ def _extract_pitcher_stats(row: pd.Series) -> dict[str, Any]:
         "k": row.get("k", 0) or 0,
         "w": row.get("w", 0) or 0,
         "sv": row.get("sv", 0) or 0,
-        "starts": row.get("starts", 1) or 1,
+        "starts": int(starts_val),
     }
 
 
@@ -505,26 +524,37 @@ def _projected_hitter_adjusted(
     games: list[dict[str, Any]],
     park_factors: dict[str, float],
 ) -> dict[str, float]:
-    """Compute park-adjusted projected stat totals for a hitter over the week.
+    """Compute park-adjusted projected stats for a hitter over the week.
 
-    Scales counting stats by the average park factor across games.
+    Estimates per-game production from season projections, scales by
+    park factor per game, and sums across the week's games.
 
     Args:
-        player_stats: Base stat projections for the hitter.
+        player_stats: Base stat projections for the hitter (season totals).
         games: List of game dicts (with ``park_team``).
         park_factors: Team abbreviation -> park factor.
 
     Returns:
-        Dict of stat name -> adjusted value.
+        Dict of stat name -> adjusted weekly total.
     """
     if not games:
         return {}
 
-    avg_pf = float(np.mean([park_factors.get(g.get("park_team", ""), 1.0) for g in games]))
+    n_games = len(games)
+    # Estimate per-game rates from season projections (~140 games)
+    season_games = 140.0
 
     adjusted: dict[str, float] = {}
     for stat in ("hr", "r", "rbi", "sb"):
-        base_val = float(player_stats.get(stat, 0) or 0)
-        adjusted[stat] = round(base_val * avg_pf, 3)
+        season_val = float(player_stats.get(stat, 0) or 0)
+        per_game = season_val / season_games if season_games > 0 else 0
+
+        # Sum across each game with its specific park factor
+        weekly_total = 0.0
+        for game in games:
+            pf = park_factors.get(game.get("park_team", ""), 1.0)
+            weekly_total += per_game * pf
+
+        adjusted[stat] = round(weekly_total, 3)
 
     return adjusted

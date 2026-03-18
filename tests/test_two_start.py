@@ -473,9 +473,11 @@ class TestIdentifyTwoStartPitchers:
             ]
         )
         result = identify_two_start_pitchers()
-        assert "rate_damage" in result[0]
-        assert "era_change" in result[0]["rate_damage"]
-        assert "whip_change" in result[0]["rate_damage"]
+        assert "rate_damage_per_start" in result[0]
+        assert "era_change" in result[0]["rate_damage_per_start"]
+        assert "whip_change" in result[0]["rate_damage_per_start"]
+        assert "rate_damage_weekly" in result[0]
+        assert "era_change" in result[0]["rate_damage_weekly"]
 
     @patch("src.two_start.fetch_team_batting_stats", return_value={})
     @patch("src.two_start.get_weekly_schedule")

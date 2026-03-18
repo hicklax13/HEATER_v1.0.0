@@ -89,7 +89,9 @@ def build_expected_sgp_curve(
 
     # Sort by ADP if available, otherwise by SGP
     if "adp" in pool.columns:
-        pool["_sort"] = pd.to_numeric(pool["adp"], errors="coerce").fillna(999)
+        adp_numeric = pd.to_numeric(pool["adp"], errors="coerce")
+        # Treat 0 and NaN as missing ADP
+        pool["_sort"] = adp_numeric.where(adp_numeric > 0, 999)
         pool = pool.sort_values("_sort")
     else:
         pool = pool.sort_values("_sgp", ascending=False)
@@ -124,7 +126,9 @@ def classify_pick(
 ) -> tuple[str, float, float]:
     """Classify a draft pick as STEAL, FAIR, or REACH.
 
-    Uses both SGP surplus and ADP gap with position-adjusted thresholds.
+    Uses both SGP surplus AND ADP gap with position-adjusted thresholds.
+    Both conditions must agree to classify as STEAL or REACH (AND logic),
+    preventing misclassification when only one signal is present.
 
     Returns:
         (classification, sgp_surplus, adp_gap)
@@ -135,13 +139,29 @@ def classify_pick(
     # Position-specific round scale
     round_scale = POSITION_ROUND_SCALE.get(primary_position, 2.0) * num_teams
 
-    if sgp_surplus > SGP_GREAT_STEAL_THRESHOLD or adp_gap < -3 * num_teams:
+    # Use AND logic: both SGP surplus and ADP gap must agree for strong classifications
+    sgp_great_steal = sgp_surplus > SGP_GREAT_STEAL_THRESHOLD
+    adp_great_steal = adp_gap < -3 * num_teams
+    sgp_steal = sgp_surplus > SGP_STEAL_THRESHOLD
+    adp_steal = adp_gap < -round_scale
+    sgp_reach = sgp_surplus < SGP_REACH_THRESHOLD
+    adp_reach = adp_gap > round_scale
+    sgp_slight_reach = sgp_surplus < SGP_SLIGHT_REACH_THRESHOLD
+    adp_slight_reach = adp_gap > round_scale * 0.75
+
+    if sgp_great_steal and adp_great_steal:
         classification = "GREAT STEAL"
-    elif sgp_surplus > SGP_STEAL_THRESHOLD or adp_gap < -round_scale:
+    elif sgp_steal and adp_steal:
         classification = "STEAL"
-    elif sgp_surplus < SGP_REACH_THRESHOLD or adp_gap > round_scale:
+    elif sgp_great_steal or (sgp_steal and player_adp > 0 and adp_gap < 0):
+        # Strong SGP signal with ADP supporting (picked before ADP = good)
+        classification = "STEAL"
+    elif sgp_reach and adp_reach:
         classification = "REACH"
-    elif sgp_surplus < SGP_SLIGHT_REACH_THRESHOLD or adp_gap > round_scale * 0.75:
+    elif sgp_slight_reach and adp_slight_reach:
+        classification = "SLIGHT REACH"
+    elif sgp_reach or (sgp_slight_reach and player_adp > 0 and adp_gap > 0):
+        # Strong SGP signal with ADP supporting (picked after ADP = bad)
         classification = "SLIGHT REACH"
     else:
         classification = "FAIR"
@@ -168,31 +188,23 @@ def compute_category_projections(
 
     totals = _roster_category_totals(roster_ids, player_pool)
 
-    # Compute league-average totals (assume pool average × roster scale)
-    stat_map = {
-        "R": "r",
-        "HR": "hr",
-        "RBI": "rbi",
-        "SB": "sb",
-        "AVG": "avg",
-        "OBP": "obp",
-        "W": "w",
-        "L": "l",
-        "SV": "sv",
-        "K": "k",
-        "ERA": "era",
-        "WHIP": "whip",
-    }
+    # Estimate league-average team totals from the full player pool
+    # Approximate: average player stat × roster-size fraction
+    # Using median across the pool × (roster_size / pool_size) as rough team estimate
+    n_roster = len(roster_ids) if roster_ids else 23
+    n_pool = max(len(player_pool), 1)
+    # Approximate number of teams sharing the pool
+    n_teams = max(config.num_teams, 1)
 
     projections = {}
     for cat in config.all_categories:
         val = totals.get(cat, 0)
-        # Use SGP denominator as rough proxy for league std
         denom = config.sgp_denominators.get(cat, 1.0)
         if abs(denom) < 1e-9:
             denom = 1.0
 
-        # Approximate z-score using SGP as proxy
+        # SGP-based z-score: how many standings points this category total represents.
+        # Subtracting a league-average baseline (approximated as 0) gives relative strength.
         sgp_val = val / denom
         if cat in config.inverse_stats:
             sgp_val = -sgp_val
@@ -206,23 +218,20 @@ def compute_category_projections(
 
 
 def category_balance_score(category_projections: dict) -> float:
-    """Compute category balance from coefficient of variation.
+    """Compute category balance from standard deviation of z-scores.
 
-    Lower CV = more balanced team. Returns score in [0, 1] where 1 = perfectly balanced.
+    Lower spread = more balanced team. Returns score in [0, 1] where 1 = perfectly balanced.
+    Uses standard deviation directly rather than CV, since z-scores can have near-zero
+    mean even for strong teams (positive and negative categories balance out).
     """
     z_scores = [info["z_score"] for info in category_projections.values()]
     if len(z_scores) < 2:
         return 1.0
 
-    std = np.std(z_scores)
-    mean = abs(np.mean(z_scores))
+    std = float(np.std(z_scores))
 
-    if mean < 1e-6:
-        return 0.5  # Zero mean makes CV undefined
-
-    cv = std / max(mean, 0.1)
-    # Map CV to [0, 1]: CV=0 → 1.0 (perfect), CV=2.0 → 0.0 (terrible)
-    balance = max(0.0, min(1.0, 1.0 - cv / 2.0))
+    # Map std to [0, 1]: std=0 → 1.0 (perfect), std≥3.0 → 0.0 (terrible)
+    balance = max(0.0, min(1.0, 1.0 - std / 3.0))
     return round(balance, 3)
 
 
@@ -256,12 +265,17 @@ def grade_draft(
         return {
             "overall_grade": "N/A",
             "overall_score": 0.0,
+            "team_value_score": 0.0,
+            "pick_efficiency_score": 0.0,
+            "category_balance_score": 0.5,
             "picks": [],
             "steals": [],
             "reaches": [],
             "category_projections": {},
             "strengths": [],
             "weaknesses": [],
+            "total_sgp": 0.0,
+            "expected_sgp": 0.0,
         }
 
     sgp_calc = SGPCalculator(config)
