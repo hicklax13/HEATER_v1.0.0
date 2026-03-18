@@ -28,9 +28,7 @@ ALL_CATS: list[str] = [c.lower() for c in _LC.all_categories]
 INVERSE_CATS: set[str] = {c.lower() for c in _LC.inverse_stats}
 
 # Fallback SGP denominators when regression is infeasible.
-_DEFAULT_SGP_DENOMS: dict[str, float] = {
-    c.lower(): v for c, v in _LC.sgp_denominators.items()
-}
+_DEFAULT_SGP_DENOMS: dict[str, float] = {c.lower(): v for c, v in _LC.sgp_denominators.items()}
 
 
 # ── Core Functions ───────────────────────────────────────────────────

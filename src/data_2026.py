@@ -16,9 +16,24 @@ performance trends, age curves, and team context.
 
 
 def _make_hitter(
-    name, team, positions, pa, hr, sb, avg, r, rbi, adp,
-    spread=0.1, risk=0.1, obp=None, bb=None, hbp=None, sf=None,
-    bats="R", birth_date=None,
+    name,
+    team,
+    positions,
+    pa,
+    hr,
+    sb,
+    avg,
+    r,
+    rbi,
+    adp,
+    spread=0.1,
+    risk=0.1,
+    obp=None,
+    bb=None,
+    hbp=None,
+    sf=None,
+    bats="R",
+    birth_date=None,
 ):
     """Create a hitter projection dict. Computes ab, h from pa and avg.
 
@@ -69,9 +84,25 @@ def _make_hitter(
 
 
 def _make_pitcher(
-    name, team, positions, ip, w, sv, k, era, whip, adp,
-    spread=0.1, risk=0.1, gs=0, l=None,
-    throws="R", birth_date=None, fip=None, xfip=None, siera=None,
+    name,
+    team,
+    positions,
+    ip,
+    w,
+    sv,
+    k,
+    era,
+    whip,
+    adp,
+    spread=0.1,
+    risk=0.1,
+    gs=0,
+    l=None,
+    throws="R",
+    birth_date=None,
+    fip=None,
+    xfip=None,
+    siera=None,
 ):
     """Create a pitcher projection dict. Computes er, bb_allowed, h_allowed.
 
