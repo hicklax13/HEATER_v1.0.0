@@ -225,6 +225,72 @@ def _bootstrap_yahoo(progress: BootstrapProgress, yahoo_client=None) -> str:
         return f"Error: {e}"
 
 
+def _bootstrap_extended_roster(progress: BootstrapProgress) -> str:
+    """Phase 8: Extended roster (40-man + spring training)."""
+    progress.phase = "Extended Roster"
+    progress.detail = "Fetching 40-man + spring training rosters..."
+    try:
+        from src.database import upsert_player_bulk
+        from src.live_stats import fetch_extended_roster
+
+        df = fetch_extended_roster()
+        if df.empty:
+            return "Extended roster: no data"
+        upsert_player_bulk(df.to_dict("records"))
+        return f"Extended roster: {len(df)} players"
+    except Exception as e:
+        logger.warning("Extended roster bootstrap failed: %s", e)
+        return f"Extended roster: error ({e})"
+
+
+def _bootstrap_adp_sources(progress: BootstrapProgress) -> str:
+    """Phase 9: Multi-source ADP (FantasyPros ECR + NFBC)."""
+    progress.phase = "ADP Sources"
+    progress.detail = "Fetching FantasyPros + NFBC ADP..."
+    try:
+        from src.adp_sources import fetch_fantasypros_ecr, fetch_nfbc_adp
+
+        results = []
+        ecr = fetch_fantasypros_ecr()
+        if not ecr.empty:
+            results.append(f"FantasyPros: {len(ecr)}")
+        nfbc = fetch_nfbc_adp()
+        if not nfbc.empty:
+            results.append(f"NFBC: {len(nfbc)}")
+        return f"ADP sources: {', '.join(results)}" if results else "ADP sources: no data"
+    except Exception as e:
+        logger.warning("ADP sources bootstrap failed: %s", e)
+        return f"ADP sources: error ({e})"
+
+
+def _bootstrap_contracts(progress: BootstrapProgress) -> str:
+    """Phase 10: Contract year data from BB-Ref."""
+    progress.phase = "Contract Data"
+    progress.detail = "Fetching free agent list..."
+    try:
+        from src.contract_data import fetch_contract_year_players
+
+        names = fetch_contract_year_players()
+        return f"Contracts: {len(names)} players in contract year"
+    except Exception as e:
+        logger.warning("Contract data bootstrap failed: %s", e)
+        return f"Contracts: error ({e})"
+
+
+def _bootstrap_news(progress: BootstrapProgress) -> str:
+    """Phase 11: Recent MLB transactions/news."""
+    progress.phase = "News"
+    progress.detail = "Fetching recent transactions..."
+    try:
+        from src.news_fetcher import fetch_recent_transactions
+
+        items = fetch_recent_transactions(days_back=7)
+        return f"News: {len(items)} transactions"
+    except Exception as e:
+        logger.warning("News bootstrap failed: %s", e)
+        return f"News: error ({e})"
+
+
 # ── Master Orchestrator ──────────────────────────────────────────────
 
 
@@ -308,7 +374,35 @@ def bootstrap_all_data(
     else:
         results["yahoo"] = "Fresh"
 
-    # Phase 8: Deduplicate players (fix ID mismatches from different data sources)
+    # Phase 8: Extended roster (40-man + spring training)
+    _notify(0.82)
+    if force or check_staleness("extended_roster", staleness.players_hours):
+        results["extended_roster"] = _bootstrap_extended_roster(progress)
+    else:
+        results["extended_roster"] = "Fresh"
+
+    # Phase 9: Multi-source ADP
+    _notify(0.85)
+    if force or check_staleness("adp_sources", 24):
+        results["adp_sources"] = _bootstrap_adp_sources(progress)
+    else:
+        results["adp_sources"] = "Fresh"
+
+    # Phase 10: Contract year data
+    _notify(0.88)
+    if force or check_staleness("contracts", 720):
+        results["contracts"] = _bootstrap_contracts(progress)
+    else:
+        results["contracts"] = "Fresh"
+
+    # Phase 11: News/transactions
+    _notify(0.91)
+    if force or check_staleness("news", 6):
+        results["news"] = _bootstrap_news(progress)
+    else:
+        results["news"] = "Fresh"
+
+    # Phase 12: Deduplicate players (fix ID mismatches from different data sources)
     _notify(0.95)
     progress.phase = "Deduplication"
     progress.detail = "Merging duplicate player entries..."

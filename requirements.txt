@@ -17,5 +17,9 @@ pybaseball>=2.2.7
 arviz>=0.15.0
 # Lineup optimization
 PuLP>=2.7
+# Gap closure: web scraping for ADP/depth charts/contracts
+beautifulsoup4>=4.12.0
+# Gap closure: background refresh scheduler
+# schedule>=1.2.0  # Optional — scheduler uses stdlib threading, no external dep needed
 # Optional: Excel cheat sheet export
 # openpyxl>=3.1.0
