@@ -210,3 +210,57 @@ if show_contextual:
         "My Team Needs mode adjusts values based on your category gaps. "
         "Players who fill weak categories are boosted; redundant strengths are discounted."
     )
+
+# ── Positional Scarcity Waterfall ──────────────────────────────────────
+
+with st.expander("Positional Scarcity Chart", expanded=False):
+    st.caption("Shows the value drop-off at each position. Steeper drop = scarcer position.")
+
+    try:
+        from src.valuation import SGPCalculator, compute_replacement_levels
+
+        sgp_calc = SGPCalculator(config)
+        rep_levels = compute_replacement_levels(pool, config, sgp_calc)
+
+        positions_chart = ["C", "1B", "2B", "3B", "SS", "OF", "SP", "RP"]
+        scarcity_rows = []
+
+        for pos in positions_chart:
+            pos_players = pool[pool["positions"].apply(lambda p: pos in str(p).split(",") if pd.notna(p) else False)]
+            if pos_players.empty:
+                continue
+
+            # Compute SGP for each player at this position
+            sgps = []
+            for _, p in pos_players.iterrows():
+                sgps.append(sgp_calc.total_sgp(p))
+
+            sgps_sorted = sorted(sgps, reverse=True)
+            top_5_avg = sum(sgps_sorted[:5]) / min(5, len(sgps_sorted)) if sgps_sorted else 0
+            top_10_avg = sum(sgps_sorted[:10]) / min(10, len(sgps_sorted)) if sgps_sorted else 0
+            rep_sgp = rep_levels.get(pos, {}).get("total", 0) if isinstance(rep_levels.get(pos), dict) else 0
+
+            # Scarcity score = drop-off steepness
+            if len(sgps_sorted) >= 3:
+                scarcity_score = (sgps_sorted[0] - sgps_sorted[min(2, len(sgps_sorted) - 1)]) / max(sgps_sorted[0], 0.1)
+            else:
+                scarcity_score = 0
+
+            scarcity_rows.append(
+                {
+                    "Position": pos,
+                    "Players": len(pos_players),
+                    "Top 5 Avg SGP": f"{top_5_avg:.1f}",
+                    "Top 10 Avg SGP": f"{top_10_avg:.1f}",
+                    "Drop-off (1 to 3)": f"{scarcity_score:.2f}",
+                }
+            )
+
+        if scarcity_rows:
+            render_styled_table(pd.DataFrame(scarcity_rows))
+            st.caption(
+                "Drop-off measures how quickly value falls from the top player to the 3rd-best. "
+                "Higher drop-off = scarcer position (C, SS typically highest)."
+            )
+    except Exception as e:
+        st.error(f"Scarcity analysis failed: {e}")

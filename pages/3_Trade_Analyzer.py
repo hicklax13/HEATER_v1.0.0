@@ -24,11 +24,18 @@ except ImportError:
     _HAS_TRADE_FINDER = False
 
 try:
-    from src.trade_value import compute_trade_values  # noqa: F401
+    from src.trade_value import compute_trade_values
 
     _HAS_TRADE_VALUE = True
 except ImportError:
     _HAS_TRADE_VALUE = False
+
+try:
+    from src.trade_finder import estimate_acceptance_probability
+
+    _HAS_ACCEPTANCE = True
+except ImportError:
+    _HAS_ACCEPTANCE = False
 
 st.set_page_config(page_title="Heater | Trade Analyzer", page_icon="", layout="wide")
 
@@ -592,3 +599,220 @@ else:
                             f"</div>",
                             unsafe_allow_html=True,
                         )
+
+        # ── "What Can I Get For X?" Tool ────────────────────────────────
+        if _HAS_TRADE_VALUE:
+            with st.expander("What Can I Get For X?", expanded=False):
+                st.caption("Select a player to trade away and see value-matched return candidates across the league.")
+
+                if not user_roster.empty and "name" in user_roster.columns:
+                    trade_away = st.selectbox(
+                        "Player to trade away:",
+                        options=sorted(user_roster["name"].dropna().tolist()),
+                        key="wcigfx_player",
+                    )
+
+                    if st.button("Find Return Candidates", key="wcigfx_go"):
+                        try:
+                            tv_df = compute_trade_values(pool, config)
+                            # Get selected player's trade value
+                            player_tv = tv_df[tv_df["name"] == trade_away]
+                            if player_tv.empty:
+                                st.warning(f"Could not find trade value for {trade_away}.")
+                            else:
+                                my_value = float(player_tv.iloc[0].get("trade_value", 50))
+                                my_tier = str(player_tv.iloc[0].get("tier", ""))
+                                st.markdown(
+                                    f"**{trade_away}** — Trade Value: **{my_value:.0f}** ({my_tier}). "
+                                    f"Searching for returns worth {max(0, my_value - 10):.0f}-{min(100, my_value + 10):.0f}."
+                                )
+
+                                # Find value-matched players NOT on user's roster
+                                margin = 10
+                                matches = tv_df[
+                                    (tv_df["trade_value"] >= my_value - margin)
+                                    & (tv_df["trade_value"] <= my_value + margin)
+                                    & (~tv_df["player_id"].isin(user_roster_ids))
+                                    & (tv_df["name"] != trade_away)
+                                ].sort_values("trade_value", ascending=False)
+
+                                if matches.empty:
+                                    st.info("No value-matched return candidates found.")
+                                else:
+                                    match_rows = []
+                                    for _, m in matches.head(20).iterrows():
+                                        p_accept = 0.5
+                                        if _HAS_ACCEPTANCE:
+                                            try:
+                                                user_gain = float(m.get("total_sgp", 0)) - float(
+                                                    player_tv.iloc[0].get("total_sgp", 0)
+                                                )
+                                                opp_gain = -user_gain
+                                                p_accept = estimate_acceptance_probability(user_gain, opp_gain)
+                                            except Exception:
+                                                p_accept = 0.5
+
+                                        match_rows.append(
+                                            {
+                                                "Player": str(m.get("name", "?")),
+                                                "Team": str(m.get("team", "?")),
+                                                "Pos": str(m.get("positions", "?")),
+                                                "Trade Value": f"{m.get('trade_value', 0):.0f}",
+                                                "Tier": str(m.get("tier", "")),
+                                                "Accept %": f"{p_accept:.0%}",
+                                            }
+                                        )
+                                    render_styled_table(pd.DataFrame(match_rows))
+                        except Exception as e:
+                            st.error(f"Value lookup failed: {e}")
+                else:
+                    st.info("Load roster data to use this tool.")
+
+        # ── Multi-Team Trade Builder ────────────────────────────────────
+        with st.expander("3-Team Trade Builder", expanded=False):
+            st.caption(
+                "Evaluate a 3-team trade by analyzing each bilateral leg independently. "
+                "All legs must be positive for the trade to be recommended."
+            )
+
+            all_rosters_df = load_league_rosters()
+            if all_rosters_df.empty:
+                st.warning("League rosters required for multi-team trades. Connect your Yahoo league.")
+            else:
+                team_names_all = sorted(all_rosters_df["team_name"].dropna().unique().tolist())
+
+                mt_col1, mt_col2, mt_col3 = st.columns(3)
+                with mt_col1:
+                    st.markdown(f"**Team A: {user_team_name}**")
+                    mt_a_give = st.multiselect(
+                        "Team A gives:",
+                        options=sorted(user_roster["name"].dropna().tolist())
+                        if not user_roster.empty and "name" in user_roster.columns
+                        else [],
+                        key="mt_a_give",
+                    )
+
+                with mt_col2:
+                    mt_team_b = st.selectbox(
+                        "Team B:",
+                        options=[t for t in team_names_all if t != user_team_name],
+                        key="mt_team_b",
+                    )
+                    team_b_roster = get_team_roster(mt_team_b)
+                    mt_b_give = st.multiselect(
+                        "Team B gives:",
+                        options=sorted(team_b_roster["name"].dropna().tolist())
+                        if not team_b_roster.empty and "name" in team_b_roster.columns
+                        else [],
+                        key="mt_b_give",
+                    )
+
+                with mt_col3:
+                    remaining_teams = [t for t in team_names_all if t != user_team_name and t != mt_team_b]
+                    mt_team_c = st.selectbox(
+                        "Team C:", options=remaining_teams if remaining_teams else ["—"], key="mt_team_c"
+                    )
+                    if mt_team_c != "—":
+                        team_c_roster = get_team_roster(mt_team_c)
+                        mt_c_give = st.multiselect(
+                            "Team C gives:",
+                            options=sorted(team_c_roster["name"].dropna().tolist())
+                            if not team_c_roster.empty and "name" in team_c_roster.columns
+                            else [],
+                            key="mt_c_give",
+                        )
+                    else:
+                        mt_c_give = []
+
+                st.markdown("**Trade Flow:** A gives → B, B gives → C, C gives → A")
+
+                if st.button("Evaluate 3-Team Trade", key="mt_evaluate"):
+                    if not mt_a_give or not mt_b_give or not mt_c_give:
+                        st.error("Each team must give at least one player.")
+                    else:
+                        try:
+                            from src.engine.output.trade_evaluator import evaluate_trade as mt_evaluate
+
+                            # Resolve IDs
+                            mt_a_ids = [name_to_id[n] for n in mt_a_give if n in name_to_id]
+                            mt_b_ids = [name_to_id.get(n) or 0 for n in mt_b_give]
+                            mt_c_ids = [name_to_id.get(n) or 0 for n in mt_c_give]
+
+                            # Build roster ID lists for teams B and C
+                            b_roster_ids = team_b_roster["player_id"].tolist() if not team_b_roster.empty else []
+                            c_roster_ids = (
+                                team_c_roster["player_id"].tolist()
+                                if not team_c_roster.empty and mt_team_c != "—"
+                                else []
+                            )
+
+                            # Leg 1: A gives to B, A receives from C
+                            leg1 = mt_evaluate(
+                                giving_ids=mt_a_ids,
+                                receiving_ids=mt_c_ids,
+                                user_roster_ids=user_roster_ids,
+                                player_pool=pool,
+                                config=config,
+                                enable_mc=False,
+                                enable_context=False,
+                                enable_game_theory=False,
+                            )
+                            # Leg 2: B gives to C, B receives from A
+                            leg2 = mt_evaluate(
+                                giving_ids=mt_b_ids,
+                                receiving_ids=mt_a_ids,
+                                user_roster_ids=b_roster_ids,
+                                player_pool=pool,
+                                config=config,
+                                enable_mc=False,
+                                enable_context=False,
+                                enable_game_theory=False,
+                            )
+                            # Leg 3: C gives to A, C receives from B
+                            leg3 = mt_evaluate(
+                                giving_ids=mt_c_ids,
+                                receiving_ids=mt_b_ids,
+                                user_roster_ids=c_roster_ids,
+                                player_pool=pool,
+                                config=config,
+                                enable_mc=False,
+                                enable_context=False,
+                                enable_game_theory=False,
+                            )
+
+                            # Display results
+                            r1, r2, r3 = st.columns(3)
+                            for col, leg, team_label in [
+                                (r1, leg1, user_team_name),
+                                (r2, leg2, mt_team_b),
+                                (r3, leg3, mt_team_c),
+                            ]:
+                                grade = leg.get("grade", "?")
+                                surplus = leg.get("surplus_sgp", 0)
+                                if grade.startswith("A") or grade.startswith("B"):
+                                    gc = T["green"]
+                                elif grade.startswith("C"):
+                                    gc = T["hot"]
+                                else:
+                                    gc = T["danger"]
+                                col.markdown(
+                                    f'<div style="text-align:center;padding:12px;border:2px solid {gc};border-radius:8px;">'
+                                    f'<div style="font-size:12px;color:{T["tx2"]};">{team_label}</div>'
+                                    f'<div style="font-size:32px;font-weight:900;color:{gc};">{grade}</div>'
+                                    f'<div style="font-size:14px;">SGP: {surplus:+.2f}</div></div>',
+                                    unsafe_allow_html=True,
+                                )
+
+                            # Combined verdict
+                            all_positive = all(leg.get("surplus_sgp", 0) > -0.5 for leg in [leg1, leg2, leg3])
+                            if all_positive:
+                                st.success("All teams benefit from this trade. Recommended to proceed.")
+                            else:
+                                losers = []
+                                for leg, name in [(leg1, user_team_name), (leg2, mt_team_b), (leg3, mt_team_c)]:
+                                    if leg.get("surplus_sgp", 0) <= -0.5:
+                                        losers.append(name)
+                                st.warning(f"Trade disadvantages: {', '.join(losers)}. Adjust terms.")
+
+                        except Exception as e:
+                            st.error(f"Multi-team evaluation failed: {e}")
