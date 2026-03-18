@@ -194,6 +194,11 @@ tests/
   test_draft_analytics.py   — Category balance, opportunity cost, streaming value, BUY/FAIR/AVOID (35 tests)
   test_contextual_factors.py — Closer hierarchy, platoon risk, lineup protection, schedule strength, contract year (25 tests)
   test_ml_ensemble.py       — ML ensemble + news sentiment: XGBoost fallback, feature prep, keyword scoring (40 tests)
+  test_risk_score.py        — Spring training K-rate signal + composite risk score (0-100) (16 tests)
+  test_schema_persistence.py — Statcast archive, FG ID cross-ref, computed field persistence (10 tests)
+  test_yahoo_adp.py         — Yahoo ADP extraction and bootstrap integration (5 tests)
+  test_heatmap.py           — Category heatmap grid: color coding, inverse stats, rendering (5 tests)
+  test_backtesting.py       — Draft engine backtesting: RMSE, rank correlation, value capture, bust rate (15 tests)
   test_integration.py       — End-to-end pipeline: injury → Bayesian → percentiles → valuation (11 tests)
   test_valuation_math.py    — Math verification: SGP, VORP, replacement levels, percentiles, process risk (40 tests)
   test_simulation_math.py   — Math verification: survival probability, urgency, combined score, tiers, MC convergence (37 tests)
@@ -210,8 +215,11 @@ data/
   draft_tool.db         — SQLite database (created at runtime)
   backups/              — Draft state JSON backups
 docs/plans/             — Implementation plan archives
+docs/
+  ROADMAP.md            — Phase history, acceptance criteria, infeasible items, future directions
 .github/
   workflows/ci.yml      — CI pipeline (lint + test + build)
+  workflows/refresh.yml — Scheduled daily data refresh (9:17 UTC) + manual trigger
   dependabot.yml        — Weekly pip + GitHub Actions updates
 ```
 
@@ -875,9 +883,10 @@ batch_sentiment(player_news: dict[int, list[str]]) -> dict[int, float]
 
 ## Testing Status
 
-- **Unit tests:** 1266 collected, 1261 passed, 3 skipped (PyMC/xgboost optional deps), 2 pre-existing failures (FA pickup)
-- **Test files:** 55 test files across draft engine, trade engine (Phase 1-6), lineup optimizer (10 files), draft recommendation engine (5 files), gap closure (14 files), in-season, analytics, data pipeline, bootstrap, integration, and math verification
+- **Unit tests:** 1317 collected, 1312 passed, 3 skipped (PyMC/xgboost optional deps), 2 pre-existing failures (FA pickup)
+- **Test files:** 53 test files across draft engine, trade engine (Phase 1-6), lineup optimizer (10 files), draft recommendation engine (5 files), gap closure (14 files), in-season, analytics, data pipeline, bootstrap, integration, backtesting, and math verification
 - **Gap closure tests:** 153 tests total — extended roster (6), LAST CHANCE badge (8), Marcel projections (12), contract data (10), depth charts (12), news fetcher (18), ADP sources (15), extended projections (16), engine output (14), data pipeline schema (12), scheduler (5), bootstrap integration (25)
+- **Spec completion tests:** 51 tests total — risk score + ST signal (16), schema persistence + Statcast archive + FG IDs (10), Yahoo ADP (5), category heatmap (5), backtesting harness (15)
 - **Math verification suite:** 168 tests across 4 files (valuation, simulation, trade, trade engine math) — hand-calculated expected values verified against code formulas
 - **Draft recommendation engine tests:** 270 tests total — DraftRecommendationEngine (50): all 8 stages, 3 modes, enhanced_pick_score formula, timing, integration. Draft analytics (35): category balance, opportunity cost, streaming value, BUY/FAIR/AVOID. Contextual factors (25): closer hierarchy, platoon risk, lineup protection, schedule strength, contract year. ML ensemble + sentiment (40): XGBoost fallback, feature prep, keyword scoring. Data foundation (30): LeagueConfig, Yahoo ADP, draft_state enhancements.
 - **Trade engine tests:** 228 tests total — Phase 1 (47): marginal SGP, punt detection, z-scores, grading, fuzzy match, replacement cost penalty (6), lineup-constrained eval (9), integration. Phase 2 (33): BMA, KDE marginals, Gaussian copula, paired MC, correlated sampling, distributional metrics, integration. Phase 3 (32): Statcast aggregation, signal decay, Kalman filter, BOCPD changepoint detection, HMM regime classification, rolling features. Phase 4 (40): Log5 matchup math, Weibull injury duration, frailty, season availability, enhanced bench value, roster flexibility, HHI concentration, penalty thresholds, trade context integration. Phase 5 (38): opponent valuations, market clearing price, adverse selection Bayesian discount, Bellman rollout, roster balance, sensitivity ranking, counter-offers, game theory integration. Phase 6 (32): ESS convergence, split-R̂, running mean stability, cache TTL/invalidation/get_or_compute, adaptive sim scaling, time budget caps. Math (6): replacement cost formula hand-calcs (3) + lineup constraint math (3).
