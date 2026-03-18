@@ -47,15 +47,17 @@ ALL_CATEGORIES: list[str] = [
     "rbi",
     "sb",
     "avg",
+    "obp",
     "w",
+    "l",
     "sv",
     "k",
     "era",
     "whip",
 ]
-INVERSE_CATS: set[str] = {"era", "whip"}
-HITTER_CATS: list[str] = ["r", "hr", "rbi", "sb", "avg"]
-PITCHER_CATS: list[str] = ["w", "sv", "k", "era", "whip"]
+INVERSE_CATS: set[str] = {"l", "era", "whip"}
+HITTER_CATS: list[str] = ["r", "hr", "rbi", "sb", "avg", "obp"]
+PITCHER_CATS: list[str] = ["w", "l", "sv", "k", "era", "whip"]
 
 # ── Helpers ──────────────────────────────────────────────────────────
 
@@ -99,7 +101,7 @@ def _count_by_type(roster: pd.DataFrame) -> tuple[int, int]:
 def _starter_limits(roster: pd.DataFrame) -> tuple[int, int]:
     """Compute how many hitters / pitchers to start.
 
-    Yahoo 5x5 defaults: up to 13 hitter slots, up to 10 pitcher slots.
+    Yahoo H2H defaults: up to 13 hitter slots, up to 10 pitcher slots.
     Capped by actual roster size in each group.
     """
     n_hit, n_pit = _count_by_type(roster)
@@ -143,7 +145,7 @@ def maximin_lineup(
         category_weights: Optional per-category multiplier applied to
             each constraint.  Categories with weight 0 are skipped.
         active_categories: Subset of categories to include.  Defaults
-            to all 10.  Use this to exclude punted categories.
+            to all 12.  Use this to exclude punted categories.
 
     Returns:
         Dict with keys: ``status``, ``z_value``, ``assignments``

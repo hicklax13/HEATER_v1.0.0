@@ -63,7 +63,7 @@ def _three_player_roster() -> list[dict]:
 
 
 def _equal_weights() -> dict[str, float]:
-    """Equal category weights for all 10 categories."""
+    """Equal category weights for all 12 categories."""
     return {cat: 1.0 for cat in ALL_CATS}
 
 
@@ -72,10 +72,10 @@ def _equal_weights() -> dict[str, float]:
 
 class TestGenerateStatScenarios:
     def test_scenarios_shape(self):
-        """Output shape is (n_scenarios, n_players, 10)."""
+        """Output shape is (n_scenarios, n_players, 12)."""
         roster = _three_player_roster()
         scenarios = generate_stat_scenarios(roster, n_scenarios=100, seed=42)
-        assert scenarios.shape == (100, 3, 10)
+        assert scenarios.shape == (100, 3, 12)
 
     def test_scenarios_deterministic_seed(self):
         """Same seed produces identical scenarios."""
@@ -316,6 +316,6 @@ class TestComputeScenarioLineupValues:
 
 class TestEmptyRoster:
     def test_empty_roster_scenarios(self):
-        """Empty roster produces shape (N, 0, 10)."""
+        """Empty roster produces shape (N, 0, 12)."""
         scenarios = generate_stat_scenarios([], n_scenarios=100, seed=42)
-        assert scenarios.shape == (100, 0, 10)
+        assert scenarios.shape == (100, 0, 12)

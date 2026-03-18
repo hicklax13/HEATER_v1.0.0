@@ -28,9 +28,10 @@ class LeagueConfig:
             "BN": 5,
         }
     )
-    hitting_categories: list = field(default_factory=lambda: ["R", "HR", "RBI", "SB", "AVG"])
-    pitching_categories: list = field(default_factory=lambda: ["W", "SV", "K", "ERA", "WHIP"])
-    # SGP denominators — defaults for 12-team 5x5 roto
+    hitting_categories: list = field(default_factory=lambda: ["R", "HR", "RBI", "SB", "AVG", "OBP"])
+    pitching_categories: list = field(default_factory=lambda: ["W", "L", "SV", "K", "ERA", "WHIP"])
+    scoring_format: str = "h2h_categories"
+    # SGP denominators — defaults for 12-team H2H categories
     sgp_denominators: dict = field(
         default_factory=lambda: {
             "R": 32.0,
@@ -38,7 +39,9 @@ class LeagueConfig:
             "RBI": 32.0,
             "SB": 14.0,
             "AVG": 0.004,
+            "OBP": 0.005,
             "W": 3.5,
+            "L": 3.0,
             "SV": 9.0,
             "K": 45.0,
             "ERA": 0.20,
@@ -47,18 +50,41 @@ class LeagueConfig:
     )
     risk_aversion: float = 0.15  # lambda for variance penalty
 
+    # Canonical mapping from display category to DB/DataFrame column name
+    STAT_MAP: dict = field(
+        default_factory=lambda: {
+            "R": "r",
+            "HR": "hr",
+            "RBI": "rbi",
+            "SB": "sb",
+            "AVG": "avg",
+            "OBP": "obp",
+            "W": "w",
+            "L": "l",
+            "SV": "sv",
+            "K": "k",
+            "ERA": "era",
+            "WHIP": "whip",
+        }
+    )
+
     @property
     def all_categories(self):
         return self.hitting_categories + self.pitching_categories
 
     @property
     def rate_stats(self):
-        return {"AVG", "ERA", "WHIP"}
+        return {"AVG", "OBP", "ERA", "WHIP"}
 
     @property
     def inverse_stats(self):
         """Stats where lower is better."""
-        return {"ERA", "WHIP"}
+        return {"L", "ERA", "WHIP"}
+
+    @property
+    def counting_stats(self):
+        """Stats that are pure counting totals."""
+        return {"R", "HR", "RBI", "SB", "W", "L", "SV", "K"}
 
     def hitter_starters_at(self, pos: str) -> int:
         """Number of league-wide starters at a hitting position."""
@@ -127,6 +153,8 @@ class SGPCalculator:
 
             if cat == "AVG":
                 sgp[cat] = self._marginal_avg_sgp(player, roster_totals, denom) * weight
+            elif cat == "OBP":
+                sgp[cat] = self._marginal_obp_sgp(player, roster_totals, denom) * weight
             elif cat == "ERA":
                 sgp[cat] = self._marginal_era_sgp(player, roster_totals, denom) * weight
             elif cat == "WHIP":
@@ -152,6 +180,22 @@ class SGPCalculator:
             new_avg = (roster_h + h) / (roster_ab + ab)
             old_avg = roster_h / roster_ab
             return (new_avg - old_avg) / denom
+        elif cat == "OBP":
+            pa = player.get("pa", 0) or 0
+            h = player.get("h", 0) or 0
+            bb = player.get("bb", 0) or 0
+            hbp = player.get("hbp", 0) or 0
+            sf = player.get("sf", 0) or 0
+            if pa == 0:
+                return 0
+            # Approximate: league-average roster has ~6100 PA, .317 OBP
+            roster_pa = 6100
+            roster_obp_num = int(roster_pa * 0.317)
+            player_obp_num = h + bb + hbp
+            player_denom = pa  # PA ≈ AB + BB + HBP + SF
+            new_obp = (roster_obp_num + player_obp_num) / (roster_pa + player_denom)
+            old_obp = roster_obp_num / roster_pa
+            return (new_obp - old_obp) / denom
         elif cat == "ERA":
             ip = player.get("ip", 0) or 0
             er = player.get("er", 0) or 0
@@ -221,6 +265,30 @@ class SGPCalculator:
         new_whip = (r_bb + bb + r_ha + ha) / (r_ip + ip)
         return -(new_whip - old_whip) / denom
 
+    def _marginal_obp_sgp(self, player: pd.Series, roster: dict, denom: float) -> float:
+        h = player.get("h", 0) or 0
+        bb = player.get("bb", 0) or 0
+        hbp = player.get("hbp", 0) or 0
+        sf = player.get("sf", 0) or 0
+        pa = player.get("pa", 0) or 0
+        if pa == 0:
+            return 0
+        if abs(denom) < 1e-9:
+            denom = 1.0
+        r_h = roster.get("h", 0)
+        r_bb = roster.get("bb", 0)
+        r_hbp = roster.get("hbp", 0)
+        r_sf = roster.get("sf", 0)
+        r_ab = roster.get("ab", 0)
+        r_pa = r_ab + r_bb + r_hbp + r_sf if r_ab > 0 else 0
+        if r_pa == 0:
+            return ((h + bb + hbp) / pa - 0.317) / denom if pa > 0 else 0
+        old_obp = (r_h + r_bb + r_hbp) / r_pa
+        new_num = r_h + h + r_bb + bb + r_hbp + hbp
+        new_denom = r_pa + pa
+        new_obp = new_num / new_denom
+        return (new_obp - old_obp) / denom
+
     @staticmethod
     def _get_stat(player: pd.Series, cat: str) -> float:
         mapping = {
@@ -229,7 +297,9 @@ class SGPCalculator:
             "RBI": "rbi",
             "SB": "sb",
             "AVG": "avg",
+            "OBP": "obp",
             "W": "w",
+            "L": "l",
             "SV": "sv",
             "K": "k",
             "ERA": "era",
@@ -358,14 +428,16 @@ def compute_category_weights(
             When provided, computes projected standings rank per category
             instead of comparing to static benchmarks.
     """
-    # League average stat totals per team (approximate for 12-team 5x5)
+    # League average stat totals per team (approximate for 12-team H2H 12-cat)
     league_avg = {
         "R": 780,
         "HR": 200,
         "RBI": 760,
         "SB": 110,
         "AVG": 0.262,
+        "OBP": 0.317,
         "W": 70,
+        "L": 55,
         "SV": 60,
         "K": 1100,
         "ERA": 3.90,
@@ -549,9 +621,31 @@ def compute_sgp_denominators(player_pool: pd.DataFrame, config: LeagueConfig) ->
     else:
         denoms["AVG"] = config.sgp_denominators.get("AVG", 0.004)
 
+    # OBP: compute team-level on-base percentages
+    if "pa" in hitters.columns and "h" in hitters.columns:
+        top_h_obp = hitters.nlargest(top_n_h, "pa")
+        if len(top_h_obp) >= n:
+            team_obps = []
+            for i in range(n):
+                team = top_h_obp.iloc[i::n]
+                total_pa = team["pa"].fillna(0).sum()
+                total_h = team["h"].fillna(0).sum()
+                total_bb = team["bb"].fillna(0).sum() if "bb" in team.columns else 0
+                total_hbp = team["hbp"].fillna(0).sum() if "hbp" in team.columns else 0
+                if total_pa > 0:
+                    team_obps.append((total_h + total_bb + total_hbp) / total_pa)
+            if len(team_obps) >= 2:
+                denoms["OBP"] = max(0.001, float(np.std(team_obps)))
+            else:
+                denoms["OBP"] = config.sgp_denominators.get("OBP", 0.005)
+        else:
+            denoms["OBP"] = config.sgp_denominators.get("OBP", 0.005)
+    else:
+        denoms["OBP"] = config.sgp_denominators.get("OBP", 0.005)
+
     # Counting stats for pitchers
     top_n_p = n * 8
-    for cat, col in [("W", "w"), ("SV", "sv"), ("K", "k")]:
+    for cat, col in [("W", "w"), ("L", "l"), ("SV", "sv"), ("K", "k")]:
         if col not in pitchers.columns:
             denoms[cat] = config.sgp_denominators.get(cat, 1.0)
             continue
@@ -666,7 +760,9 @@ def compute_projection_volatility(
         "rbi",
         "sb",
         "avg",
+        "obp",
         "w",
+        "l",
         "sv",
         "k",
         "era",
@@ -729,17 +825,19 @@ def compute_percentile_projections(
         *base*.  P10 = floor, P50 = median (= base), P90 = ceiling.
 
     Physical limits enforced:
-        - Counting stats (R, HR, RBI, SB, W, SV, K) ≥ 0
+        - Counting stats (R, HR, RBI, SB, W, L, SV, K) ≥ 0
         - AVG ∈ [0.150, 0.400]
+        - OBP ∈ [0.200, 0.500]
         - ERA ∈ [1.50, 7.00]
         - WHIP ∈ [0.80, 2.00]
     """
     if percentiles is None:
         percentiles = [10, 50, 90]
 
-    counting_stats = {"r", "hr", "rbi", "sb", "w", "sv", "k"}
+    counting_stats = {"r", "hr", "rbi", "sb", "w", "l", "sv", "k"}
     rate_bounds = {
         "avg": (0.150, 0.400),
+        "obp": (0.200, 0.500),
         "era": (1.50, 7.00),
         "whip": (0.80, 2.00),
     }
@@ -760,7 +858,9 @@ def compute_percentile_projections(
         "rbi",
         "sb",
         "avg",
+        "obp",
         "w",
+        "l",
         "sv",
         "k",
         "era",
@@ -819,9 +919,11 @@ def add_process_risk(
         "hr": 0.72,
         "sb": 0.55,
         "avg": 0.41,
+        "obp": 0.45,
         "r": 0.65,
         "rbi": 0.68,
         "w": 0.30,
+        "l": 0.28,
         "sv": 0.35,
         "k": 0.62,
         "era": 0.38,

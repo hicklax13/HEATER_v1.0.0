@@ -164,15 +164,20 @@ def generate_sample_data():
         sb = rng.integers(*sb_r)
         r = int(hr * 1.8 + sb * 0.3 + rng.integers(30, 60))
         rbi = int(hr * 2.5 + rng.integers(15, 45))
+        obp = round(avg + rng.uniform(0.055, 0.085), 3)
+        bb = int(pa * rng.uniform(0.06, 0.12))
+        hbp = int(pa * 0.01)
+        sf = int(pa * 0.008)
 
         cursor.execute("INSERT INTO players (name, team, positions, is_hitter) VALUES (?, ?, ?, 1)", (name, "MLB", pos))
         pid = cursor.lastrowid
         cursor.execute(
             """
-            INSERT INTO projections (player_id, system, pa, ab, h, r, hr, rbi, sb, avg)
-            VALUES (?, 'blended', ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO projections (player_id, system, pa, ab, h, r, hr, rbi, sb, avg,
+                                     obp, bb, hbp, sf)
+            VALUES (?, 'blended', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
-            (pid, pa, ab, h, r, hr, rbi, sb, avg),
+            (pid, pa, ab, h, r, hr, rbi, sb, avg, obp, bb, hbp, sf),
         )
 
         adp = tier * 25 + rng.integers(-10, 10) + (player_id - 1) * 1.5
@@ -194,15 +199,20 @@ def generate_sample_data():
         sb = rng.integers(2, 18)
         r = int(hr * 1.5 + sb * 0.3 + rng.integers(25, 50))
         rbi = int(hr * 2.2 + rng.integers(10, 35))
+        obp = round(avg + rng.uniform(0.055, 0.085), 3)
+        bb = int(pa * rng.uniform(0.06, 0.12))
+        hbp = int(pa * 0.01)
+        sf = int(pa * 0.008)
 
         cursor.execute("INSERT INTO players (name, team, positions, is_hitter) VALUES (?, ?, ?, 1)", (name, "MLB", pos))
         pid = cursor.lastrowid
         cursor.execute(
             """
-            INSERT INTO projections (player_id, system, pa, ab, h, r, hr, rbi, sb, avg)
-            VALUES (?, 'blended', ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO projections (player_id, system, pa, ab, h, r, hr, rbi, sb, avg,
+                                     obp, bb, hbp, sf)
+            VALUES (?, 'blended', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
-            (pid, pa, ab, h, r, hr, rbi, sb, avg),
+            (pid, pa, ab, h, r, hr, rbi, sb, avg, obp, bb, hbp, sf),
         )
 
         adp = 80 + player_id * 1.8 + rng.integers(-15, 15)
@@ -320,15 +330,17 @@ def generate_sample_data():
         total_baserunners = whip * ip
         bb = int(total_baserunners * 0.3)
         ha = int(total_baserunners * 0.7)
+        gs = int(ip / 6) if pos == "SP" else 0
+        l = max(0, int(round(gs * 0.45 - w + rng.integers(-2, 4))))
 
         cursor.execute("INSERT INTO players (name, team, positions, is_hitter) VALUES (?, ?, ?, 0)", (name, "MLB", pos))
         pid = cursor.lastrowid
         cursor.execute(
             """
-            INSERT INTO projections (player_id, system, ip, w, sv, k, era, whip, er, bb_allowed, h_allowed)
-            VALUES (?, 'blended', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO projections (player_id, system, ip, w, l, sv, k, era, whip, er, bb_allowed, h_allowed)
+            VALUES (?, 'blended', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
-            (pid, ip, w, sv, k, era, whip, er, bb, ha),
+            (pid, ip, w, l, sv, k, era, whip, er, bb, ha),
         )
 
         adp = tier * 30 + rng.integers(-10, 10) + player_id * 0.8
@@ -348,15 +360,17 @@ def generate_sample_data():
         total_br = whip * ip
         bb = int(total_br * 0.3)
         ha = int(total_br * 0.7)
+        gs = int(ip / 6)
+        l = max(0, int(round(gs * 0.45 - w + rng.integers(-2, 4))))
 
         cursor.execute("INSERT INTO players (name, team, positions, is_hitter) VALUES (?, ?, 'SP', 0)", (name, "MLB"))
         pid = cursor.lastrowid
         cursor.execute(
             """
-            INSERT INTO projections (player_id, system, ip, w, sv, k, era, whip, er, bb_allowed, h_allowed)
-            VALUES (?, 'blended', ?, ?, 0, ?, ?, ?, ?, ?, ?)
+            INSERT INTO projections (player_id, system, ip, w, l, sv, k, era, whip, er, bb_allowed, h_allowed)
+            VALUES (?, 'blended', ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)
         """,
-            (pid, ip, w, k, era, whip, er, bb, ha),
+            (pid, ip, w, l, k, era, whip, er, bb, ha),
         )
 
         adp = 100 + player_id * 1.5 + rng.integers(-10, 10)
@@ -375,15 +389,16 @@ def generate_sample_data():
         total_br = whip * ip
         bb = int(total_br * 0.3)
         ha = int(total_br * 0.7)
+        l = max(0, rng.integers(1, 5))  # RP typically 1-4 losses
 
         cursor.execute("INSERT INTO players (name, team, positions, is_hitter) VALUES (?, ?, 'RP', 0)", (name, "MLB"))
         pid = cursor.lastrowid
         cursor.execute(
             """
-            INSERT INTO projections (player_id, system, ip, w, sv, k, era, whip, er, bb_allowed, h_allowed)
-            VALUES (?, 'blended', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO projections (player_id, system, ip, w, l, sv, k, era, whip, er, bb_allowed, h_allowed)
+            VALUES (?, 'blended', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
-            (pid, ip, w, sv, k, era, whip, er, bb, ha),
+            (pid, ip, w, l, sv, k, era, whip, er, bb, ha),
         )
 
         adp = 140 + player_id * 1.2 + rng.integers(-10, 10)
@@ -478,7 +493,9 @@ def generate_sample_data():
         "RBI": (300, 450),
         "SB": (40, 120),
         "AVG": (0.240, 0.275),
+        "OBP": (0.305, 0.345),
         "W": (35, 65),
+        "L": (30, 55),
         "SV": (20, 55),
         "K": (550, 850),
         "ERA": (3.20, 4.60),

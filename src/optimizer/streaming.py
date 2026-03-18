@@ -2,7 +2,7 @@
 
 Provides marginal SGP calculations for streaming pitchers (one-start
 pickups) and for deciding whether a two-start pitcher's second start
-helps or hurts a roto team.
+helps or hurts the team's season-long totals.
 """
 
 from __future__ import annotations
@@ -20,7 +20,9 @@ DEFAULT_SGP_DENOMS: dict[str, float] = {
     "rbi": 20.0,
     "sb": 5.0,
     "avg": 0.005,
+    "obp": 0.005,
     "w": 3.0,
+    "l": 3.0,
     "sv": 5.0,
     "k": 25.0,
     "era": 0.30,
@@ -119,10 +121,19 @@ def compute_streaming_value(
     # Counting SGP contribution
     sgp_k = denoms.get("k", 25.0)
     sgp_w = denoms.get("w", 3.0)
+    sgp_l = denoms.get("l", 3.0)
     w_k = weights.get("k", 1.0)
     w_w = weights.get("w", 1.0)
+    w_l = weights.get("l", 1.0)
 
-    counting_sgp = (k_per_start / sgp_k) * w_k + (w_per_start / sgp_w) * w_w
+    # L (losses) is inverse: adding losses hurts, so subtract L contribution
+    total_l = _get(pitcher, "l", 0.0)
+    if ip > 30:
+        l_per_start = total_l / max(ip / _DEFAULT_IP_PER_START, 1.0)
+    else:
+        l_per_start = total_l
+
+    counting_sgp = (k_per_start / sgp_k) * w_k + (w_per_start / sgp_w) * w_w - (l_per_start / sgp_l) * w_l
     counting_sgp *= weekly_games
 
     # Rate impact: how much this pitcher's ERA/WHIP shifts team totals.
@@ -289,10 +300,19 @@ def quantify_two_start_value(
     # Counting SGP from the second start (same per-game rate)
     sgp_k = denoms.get("k", 25.0)
     sgp_w = denoms.get("w", 3.0)
+    sgp_l = denoms.get("l", 3.0)
     w_k = weights.get("k", 1.0)
     w_w = weights.get("w", 1.0)
+    w_l = weights.get("l", 1.0)
 
-    counting_sgp = (k_per_start / sgp_k) * w_k + (w_per_start / sgp_w) * w_w
+    # L (losses) from second start — inverse stat, subtract contribution
+    total_l = _get(pitcher_stats, "l", 0.0)
+    if ip > 30:
+        l_per_start = total_l / max(ip / _DEFAULT_IP_PER_START, 1.0)
+    else:
+        l_per_start = total_l
+
+    counting_sgp = (k_per_start / sgp_k) * w_k + (w_per_start / sgp_w) * w_w - (l_per_start / sgp_l) * w_l
 
     # Rate impact of the second start
     team_ip = _DEFAULT_TEAM_WEEKLY_IP

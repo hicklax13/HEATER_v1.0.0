@@ -212,12 +212,12 @@ class TestGaussianCopula:
     """Spec ref: Section 7 L4A — Vine/Gaussian Copula."""
 
     def test_sample_shape(self):
-        """Copula samples should have shape (n, 10) for 10 categories."""
+        """Copula samples should have shape (n, 12) for 12 categories."""
         from src.engine.portfolio.copula import GaussianCopula
 
         copula = GaussianCopula()
         samples = copula.sample(100)
-        assert samples.shape == (100, 10)
+        assert samples.shape == (100, 12)
 
     def test_samples_in_unit_interval(self):
         """All copula samples should be in (0, 1)."""
@@ -290,7 +290,7 @@ class TestCorrelatedStatSampling:
     """Test copula + marginals integration."""
 
     def test_sample_correlated_stats_shape(self):
-        """sample_correlated_stats returns (n, 10) array."""
+        """sample_correlated_stats returns (n, 12) array."""
         from src.engine.portfolio.copula import GaussianCopula, sample_correlated_stats
         from src.engine.projections.marginals import PlayerMarginal
 
@@ -309,7 +309,7 @@ class TestCorrelatedStatSampling:
         }
 
         stats = sample_correlated_stats(copula, marginals, n=100)
-        assert stats.shape == (100, 10)
+        assert stats.shape == (100, 12)
 
     def test_sampled_stats_reasonable(self):
         """Sampled HR values should be in a reasonable range around projection."""

@@ -99,14 +99,18 @@ def test_slope_denominators_few_teams():
     ]
     df = pd.DataFrame(rows)
     result = slope_sgp_denominators(df)
-    assert result["hr"] == 7.0  # Default
+    from src.optimizer.sgp_theory import _DEFAULT_SGP_DENOMS
+
+    assert result["hr"] == _DEFAULT_SGP_DENOMS["hr"]  # Default from LeagueConfig
 
 
 def test_slope_denominators_empty():
     """Empty standings returns all defaults."""
     result = slope_sgp_denominators(pd.DataFrame())
     assert len(result) == len(ALL_CATS)
-    assert result["r"] == 20.0
+    from src.optimizer.sgp_theory import _DEFAULT_SGP_DENOMS
+
+    assert result["r"] == _DEFAULT_SGP_DENOMS["r"]
 
 
 def test_slope_denominators_zero_variance():
@@ -114,7 +118,9 @@ def test_slope_denominators_zero_variance():
     rows = [{"category": "hr", "total": 10.0, "rank": float(i)} for i in range(1, 5)]
     df = pd.DataFrame(rows)
     result = slope_sgp_denominators(df)
-    assert result["hr"] == 7.0  # Default fallback
+    from src.optimizer.sgp_theory import _DEFAULT_SGP_DENOMS
+
+    assert result["hr"] == _DEFAULT_SGP_DENOMS["hr"]  # Default fallback
 
 
 # ── compute_nonlinear_weights ────────────────────────────────────────

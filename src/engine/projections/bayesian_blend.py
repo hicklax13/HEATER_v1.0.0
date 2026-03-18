@@ -33,7 +33,9 @@ SYSTEM_FORECAST_SIGMA: dict[str, dict[str, float]] = {
         "r": 12.8,
         "sb": 4.5,
         "avg": 0.022,
+        "obp": 0.025,
         "w": 2.8,
+        "l": 3.2,
         "k": 22.5,
         "sv": 6.1,
         "era": 0.65,
@@ -45,7 +47,9 @@ SYSTEM_FORECAST_SIGMA: dict[str, dict[str, float]] = {
         "r": 13.2,
         "sb": 4.8,
         "avg": 0.024,
+        "obp": 0.027,
         "w": 3.0,
+        "l": 3.5,
         "k": 23.0,
         "sv": 6.5,
         "era": 0.70,
@@ -57,7 +61,9 @@ SYSTEM_FORECAST_SIGMA: dict[str, dict[str, float]] = {
         "r": 12.5,
         "sb": 4.3,
         "avg": 0.021,
+        "obp": 0.024,
         "w": 2.7,
+        "l": 3.0,
         "k": 21.0,
         "sv": 5.8,
         "era": 0.62,
@@ -68,7 +74,7 @@ SYSTEM_FORECAST_SIGMA: dict[str, dict[str, float]] = {
 # Default sigma for unknown systems/stats
 DEFAULT_SIGMA: float = 10.0
 
-STAT_KEYS: list[str] = ["hr", "rbi", "r", "sb", "avg", "w", "k", "sv", "era", "whip"]
+STAT_KEYS: list[str] = ["hr", "rbi", "r", "sb", "avg", "obp", "w", "l", "k", "sv", "era", "whip"]
 
 
 def bayesian_model_average(

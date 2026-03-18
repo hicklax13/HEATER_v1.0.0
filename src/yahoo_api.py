@@ -623,7 +623,7 @@ class YahooFantasyClient:
             return {}
 
     def get_league_standings(self) -> pd.DataFrame:
-        """Get current roto standings for all teams.
+        """Get current standings for all teams.
 
         Returns:
             DataFrame with columns: ``team_name``, ``team_key``, ``rank``,

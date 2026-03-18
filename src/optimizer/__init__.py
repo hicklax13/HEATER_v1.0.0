@@ -3,10 +3,10 @@
 Provides advanced lineup optimization with:
 - Enhanced projections (Bayesian, Kalman, regime detection, injury modeling)
 - Matchup adjustments (park factors, platoon splits, opposing pitcher quality)
-- H2H weekly opponent targeting + roto season-long optimization
+- H2H weekly opponent targeting + season-long optimization
 - Non-linear SGP category targeting + pitcher streaming
 - Stochastic optimization (mean-variance, CVaR tail-risk protection)
-- Multi-period planning + dual H2H/Roto objective
+- Multi-period planning + dual H2H/season-long objective
 - Advanced LP formulations (maximin, epsilon-constraint, stochastic MIP)
 - Master pipeline orchestrator (quick/standard/full modes)
 """

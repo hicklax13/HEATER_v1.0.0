@@ -420,12 +420,12 @@ class TestPhase2CopulaMath(unittest.TestCase):
         rng = np.random.RandomState(42)
         samples = copula.sample(5000, rng)
 
-        assert samples.shape == (5000, 10)
+        assert samples.shape == (5000, 12)
         assert samples.min() >= 0.0
         assert samples.max() <= 1.0
 
         # Each marginal should be approximately uniform
-        for i in range(10):
+        for i in range(12):
             col = samples[:, i]
             assert abs(np.mean(col) - 0.5) < 0.05
             assert abs(np.std(col) - 1.0 / math.sqrt(12)) < 0.05

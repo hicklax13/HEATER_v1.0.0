@@ -20,11 +20,15 @@ _INT_STAT_COLS = [
     "rbi",
     "sb",
     "w",
+    "l",
     "sv",
     "k",
     "er",
+    "bb",
     "bb_allowed",
     "h_allowed",
+    "hbp",
+    "sf",
     "player_id",
     "is_hitter",
     "is_injured",
@@ -37,7 +41,7 @@ _INT_STAT_COLS = [
     "is_user_team",
     "rank",
 ]
-_FLOAT_STAT_COLS = ["avg", "ip", "era", "whip", "adp", "total", "points"]
+_FLOAT_STAT_COLS = ["avg", "obp", "ip", "era", "whip", "adp", "total", "points"]
 
 
 def coerce_numeric_df(df: pd.DataFrame) -> pd.DataFrame:
@@ -219,6 +223,14 @@ def init_db():
     _safe_add_column(conn, "projections", "birth_date", "TEXT")
     _safe_add_column(conn, "projections", "mlb_id", "INTEGER")
 
+    # Phase 1 league format migration: OBP/L/BB/HBP/SF columns
+    for table in ("projections", "season_stats", "ros_projections"):
+        _safe_add_column(conn, table, "obp", "REAL DEFAULT 0")
+        _safe_add_column(conn, table, "l", "INTEGER DEFAULT 0")
+        _safe_add_column(conn, table, "bb", "INTEGER DEFAULT 0")
+        _safe_add_column(conn, table, "hbp", "INTEGER DEFAULT 0")
+        _safe_add_column(conn, table, "sf", "INTEGER DEFAULT 0")
+
     conn.close()
 
 
@@ -364,8 +376,8 @@ def create_blended_projections():
         for pid in player_ids:
             cursor.execute(
                 """
-                SELECT pa, ab, h, r, hr, rbi, sb, avg,
-                       ip, w, sv, k, era, whip, er, bb_allowed, h_allowed
+                SELECT pa, ab, h, r, hr, rbi, sb, avg, obp, bb, hbp, sf,
+                       ip, w, l, sv, k, era, whip, er, bb_allowed, h_allowed
                 FROM projections WHERE player_id = ? AND system != 'blended'
             """,
                 (pid,),
@@ -386,8 +398,13 @@ def create_blended_projections():
                 "rbi",
                 "sb",
                 "avg",
+                "obp",
+                "bb",
+                "hbp",
+                "sf",
                 "ip",
                 "w",
+                "l",
                 "sv",
                 "k",
                 "era",
@@ -403,6 +420,10 @@ def create_blended_projections():
             # For rate stats, recompute from components rather than averaging rates
             if avg_stats["ab"] > 0:
                 avg_stats["avg"] = avg_stats["h"] / avg_stats["ab"]
+            # OBP = (H + BB + HBP) / (AB + BB + HBP + SF)
+            obp_denom = avg_stats["ab"] + avg_stats["bb"] + avg_stats["hbp"] + avg_stats["sf"]
+            if obp_denom > 0:
+                avg_stats["obp"] = (avg_stats["h"] + avg_stats["bb"] + avg_stats["hbp"]) / obp_denom
             if avg_stats["ip"] > 0:
                 avg_stats["era"] = avg_stats["er"] * 9 / avg_stats["ip"]
                 avg_stats["whip"] = (avg_stats["bb_allowed"] + avg_stats["h_allowed"]) / avg_stats["ip"]
@@ -410,8 +431,9 @@ def create_blended_projections():
             cursor.execute(
                 """
                 INSERT INTO projections (player_id, system, pa, ab, h, r, hr, rbi, sb, avg,
-                                         ip, w, sv, k, era, whip, er, bb_allowed, h_allowed)
-                VALUES (?, 'blended', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                         obp, bb, hbp, sf,
+                                         ip, w, l, sv, k, era, whip, er, bb_allowed, h_allowed)
+                VALUES (?, 'blended', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     pid,
@@ -423,8 +445,13 @@ def create_blended_projections():
                     int(avg_stats["rbi"]),
                     int(avg_stats["sb"]),
                     round(avg_stats["avg"], 3),
+                    round(avg_stats["obp"], 3),
+                    int(avg_stats["bb"]),
+                    int(avg_stats["hbp"]),
+                    int(avg_stats["sf"]),
                     round(avg_stats["ip"], 1),
                     int(avg_stats["w"]),
+                    int(avg_stats["l"]),
                     int(avg_stats["sv"]),
                     int(avg_stats["k"]),
                     round(avg_stats["era"], 2),
@@ -530,7 +557,8 @@ def load_player_pool() -> pd.DataFrame:
         SELECT
             p.player_id, p.name, p.team, p.positions, p.is_hitter, p.is_injured,
             proj.pa, proj.ab, proj.h, proj.r, proj.hr, proj.rbi, proj.sb, proj.avg,
-            proj.ip, proj.w, proj.sv, proj.k, proj.era, proj.whip,
+            proj.obp, proj.bb, proj.hbp, proj.sf,
+            proj.ip, proj.w, proj.l, proj.sv, proj.k, proj.era, proj.whip,
             proj.er, proj.bb_allowed, proj.h_allowed,
             COALESCE(a.adp, 999) as adp
         FROM players p
@@ -550,7 +578,8 @@ def load_player_pool() -> pd.DataFrame:
             SELECT
                 p.player_id, p.name, p.team, p.positions, p.is_hitter, p.is_injured,
                 proj.pa, proj.ab, proj.h, proj.r, proj.hr, proj.rbi, proj.sb, proj.avg,
-                proj.ip, proj.w, proj.sv, proj.k, proj.era, proj.whip,
+                proj.obp, proj.bb, proj.hbp, proj.sf,
+                proj.ip, proj.w, proj.l, proj.sv, proj.k, proj.era, proj.whip,
                 proj.er, proj.bb_allowed, proj.h_allowed,
                 COALESCE(a.adp, 999) as adp
             FROM players p
@@ -584,15 +613,20 @@ _VALID_STAT_COLUMNS = frozenset(
         "rbi",
         "sb",
         "avg",
+        "obp",
         "ip",
         "w",
+        "l",
         "sv",
         "k",
         "era",
         "whip",
         "er",
+        "bb",
         "bb_allowed",
         "h_allowed",
+        "hbp",
+        "sf",
         "games_played",
     ]
 )
@@ -619,8 +653,13 @@ def upsert_season_stats(player_id: int, stats: dict, season: int = 2026):
             "rbi",
             "sb",
             "avg",
+            "obp",
+            "bb",
+            "hbp",
+            "sf",
             "ip",
             "w",
+            "l",
             "sv",
             "k",
             "era",
@@ -668,8 +707,13 @@ def upsert_ros_projection(player_id: int, system: str, stats: dict):
             "rbi",
             "sb",
             "avg",
+            "obp",
+            "bb",
+            "hbp",
+            "sf",
             "ip",
             "w",
+            "l",
             "sv",
             "k",
             "era",

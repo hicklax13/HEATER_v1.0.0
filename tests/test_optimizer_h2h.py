@@ -218,7 +218,7 @@ class TestDefaultCategoryVariances:
             assert v > 0, f"Variance for {cat} must be positive"
 
     def test_all_categories_present(self) -> None:
-        """Default variances cover all 10 standard categories."""
+        """Default variances cover all 12 H2H categories."""
         variances = default_category_variances()
         for cat in ALL_CATEGORIES:
             assert cat in variances, f"Missing default variance for {cat}"

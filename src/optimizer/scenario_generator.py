@@ -26,8 +26,8 @@ logger = logging.getLogger(__name__)
 
 # ── Category definitions ─────────────────────────────────────────────
 
-ALL_CATS: list[str] = ["r", "hr", "rbi", "sb", "avg", "w", "sv", "k", "era", "whip"]
-INVERSE_CATS: set[str] = {"era", "whip"}
+ALL_CATS: list[str] = ["r", "hr", "rbi", "sb", "avg", "obp", "w", "l", "sv", "k", "era", "whip"]
+INVERSE_CATS: set[str] = {"l", "era", "whip"}
 
 # Category index lookup for fast access
 _CAT_IDX: dict[str, int] = {cat: i for i, cat in enumerate(ALL_CATS)}
@@ -42,7 +42,9 @@ DEFAULT_CV: dict[str, float] = {
     "rbi": 0.18,
     "sb": 0.30,
     "avg": 0.07,
+    "obp": 0.06,
     "w": 0.25,
+    "l": 0.25,
     "sv": 0.35,
     "k": 0.15,
     "era": 0.15,
@@ -50,9 +52,10 @@ DEFAULT_CV: dict[str, float] = {
 }
 
 # Rate stats use absolute standard deviation instead of CV
-_RATE_STATS: set[str] = {"avg", "era", "whip"}
+_RATE_STATS: set[str] = {"avg", "obp", "era", "whip"}
 _RATE_STD: dict[str, float] = {
     "avg": 0.020,
+    "obp": 0.018,
     "era": 0.50,
     "whip": 0.05,
 }
@@ -67,11 +70,17 @@ DEFAULT_CORRELATIONS: dict[tuple[str, str], float] = {
     ("r", "rbi"): 0.75,
     ("sb", "hr"): -0.15,
     ("sb", "avg"): 0.20,
+    ("avg", "obp"): 0.90,
+    ("obp", "r"): 0.55,
+    ("obp", "rbi"): 0.40,
     ("era", "whip"): 0.90,
     ("k", "era"): -0.65,
     ("k", "whip"): -0.50,
     ("w", "k"): 0.40,
     ("w", "era"): -0.45,
+    ("w", "l"): -0.30,
+    ("l", "era"): 0.50,
+    ("l", "whip"): 0.40,
 }
 
 # ── Copula import (optional) ─────────────────────────────────────────
@@ -88,7 +97,7 @@ except ImportError:
 
 
 def _build_correlation_matrix() -> np.ndarray:
-    """Build 10x10 correlation matrix from DEFAULT_CORRELATIONS."""
+    """Build 12x12 correlation matrix from DEFAULT_CORRELATIONS."""
     n = len(ALL_CATS)
     corr = np.eye(n, dtype=float)
 
@@ -127,7 +136,7 @@ def _extract_player_stats(roster: dict | list | np.ndarray) -> np.ndarray:
 
     Accepts:
       - list of dicts with category keys
-      - numpy array of shape (n_players, 10)
+      - numpy array of shape (n_players, n_cats)
       - pandas DataFrame with category columns
 
     Returns:
@@ -182,12 +191,12 @@ def generate_stat_scenarios(
 
     Args:
         roster: Player projections. List of dicts with stat keys, or
-            numpy array of shape (n_players, 10).
+            numpy array of shape (n_players, n_cats).
         n_scenarios: Number of scenarios to generate.
         seed: Random seed for reproducibility.
 
     Returns:
-        Array of shape (n_scenarios, n_players, 10) with sampled stats.
+        Array of shape (n_scenarios, n_players, n_cats) with sampled stats.
         Categories in order: r, hr, rbi, sb, avg, w, sv, k, era, whip.
     """
     stats = _extract_player_stats(roster)
@@ -327,7 +336,7 @@ def build_cvar_constraints(
     structures the LP solver needs to build those constraints.
 
     Args:
-        scenarios: Array of shape (n_scenarios, n_players, 10).
+        scenarios: Array of shape (n_scenarios, n_players, n_cats).
         player_indices: Indices of players eligible for lineup slots.
         category_weights: Dict mapping category name to weight.
             Inverse categories (era, whip) should have positive weights;
@@ -388,8 +397,8 @@ def estimate_player_variance(
     Returns:
         Total variance estimate (sum of per-category variances).
     """
-    hitting_cats = {"r", "hr", "rbi", "sb", "avg"}
-    pitching_cats = {"w", "sv", "k", "era", "whip"}
+    hitting_cats = {"r", "hr", "rbi", "sb", "avg", "obp"}
+    pitching_cats = {"w", "l", "sv", "k", "era", "whip"}
     relevant = hitting_cats if is_hitter else pitching_cats
 
     total_var = 0.0
@@ -416,7 +425,7 @@ def compute_scenario_lineup_values(
     CVaR metrics.
 
     Args:
-        scenarios: Array of shape (n_scenarios, n_players, 10).
+        scenarios: Array of shape (n_scenarios, n_players, n_cats).
         assignments: Dict mapping player index to assignment weight
             (typically 1.0 for starters, 0.0 for bench).
         category_weights: Dict mapping category name to weight.
@@ -466,6 +475,9 @@ def _is_hitter_from_stats(stat_row: np.ndarray) -> bool:
     Heuristic: if IP-related stats (w, sv, k, era, whip) are all zero
     or near-zero, the player is a hitter.
     """
-    # Pitching cat indices: w=5, sv=6, k=7, era=8, whip=9
-    pitching_sum = abs(stat_row[5]) + abs(stat_row[6]) + abs(stat_row[7])
+    # Pitching cat indices (from ALL_CATS): w=6, l=7, sv=8, k=9, era=10, whip=11
+    w_idx = _CAT_IDX.get("w", 6)
+    sv_idx = _CAT_IDX.get("sv", 8)
+    k_idx = _CAT_IDX.get("k", 9)
+    pitching_sum = abs(stat_row[w_idx]) + abs(stat_row[sv_idx]) + abs(stat_row[k_idx])
     return pitching_sum < 0.01

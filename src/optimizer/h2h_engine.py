@@ -25,27 +25,19 @@ import math
 import numpy as np
 from scipy.stats import norm
 
+from src.valuation import LeagueConfig as _LC_Class
+
 logger = logging.getLogger(__name__)
 
 
 # ── Constants ────────────────────────────────────────────────────────
 
+_LC = _LC_Class()
 # Categories where lower is better
-INVERSE_CATS: set[str] = {"era", "whip"}
+INVERSE_CATS: set[str] = {c.lower() for c in _LC.inverse_stats}
 
-# All 10 standard 5x5 roto categories
-ALL_CATEGORIES: list[str] = [
-    "r",
-    "hr",
-    "rbi",
-    "sb",
-    "avg",
-    "w",
-    "sv",
-    "k",
-    "era",
-    "whip",
-]
+# All 12 H2H categories
+ALL_CATEGORIES: list[str] = [c.lower() for c in _LC.all_categories]
 
 # Small epsilon to avoid division by zero
 _EPSILON: float = 1e-12
@@ -59,7 +51,7 @@ def default_category_variances() -> dict[str, float]:
 
     These represent the typical weekly fluctuation in each category
     for a single fantasy team. Derived from historical weekly data
-    of 12-team roto leagues.
+    of 12-team H2H leagues.
 
     Returns:
         Dict mapping category name to variance (sigma-squared).
@@ -71,7 +63,9 @@ def default_category_variances() -> dict[str, float]:
         "rbi": 14.0**2,  # ~196
         "sb": 3.0**2,  # ~9
         "avg": 0.015**2,  # ~0.000225
+        "obp": 0.012**2,  # ~0.000144
         "w": 1.5**2,  # ~2.25
+        "l": 1.5**2,  # ~2.25
         "sv": 1.5**2,  # ~2.25
         "k": 12.0**2,  # ~144
         "era": 0.5**2,  # ~0.25
@@ -218,7 +212,7 @@ def estimate_h2h_win_probability(
     if n_cats > 0:
         win_variance = sum(p * (1.0 - p) for p in per_category.values())
         win_sigma = math.sqrt(win_variance) if win_variance > _EPSILON else _EPSILON
-        # Win if > half the categories (>5 for 10 cats)
+        # Win if > half the categories (>6 for 12 cats)
         threshold = n_cats / 2.0
         overall_z = (expected_wins - threshold) / win_sigma
         overall_win_prob = float(norm.cdf(overall_z))

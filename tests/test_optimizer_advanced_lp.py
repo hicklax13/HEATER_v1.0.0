@@ -41,7 +41,9 @@ def roster() -> pd.DataFrame:
             "rbi": [90, 80, 70, 60, 0, 0],
             "sb": [10, 5, 15, 20, 0, 0],
             "avg": [0.290, 0.270, 0.260, 0.250, 0, 0],
+            "obp": [0.360, 0.340, 0.330, 0.320, 0, 0],
             "w": [0, 0, 0, 0, 12, 8],
+            "l": [0, 0, 0, 0, 8, 5],
             "sv": [0, 0, 0, 0, 0, 20],
             "k": [0, 0, 0, 0, 180, 60],
             "era": [0, 0, 0, 0, 3.20, 2.80],
@@ -58,7 +60,9 @@ def scale_factors() -> dict[str, float]:
         "rbi": 20,
         "sb": 5,
         "avg": 0.005,
+        "obp": 0.005,
         "w": 3,
+        "l": 3,
         "sv": 5,
         "k": 25,
         "era": 0.30,
@@ -68,7 +72,7 @@ def scale_factors() -> dict[str, float]:
 
 @pytest.fixture()
 def category_weights() -> dict[str, float]:
-    return {cat: 1.0 for cat in ["r", "hr", "rbi", "sb", "avg", "w", "sv", "k", "era", "whip"]}
+    return {cat: 1.0 for cat in ["r", "hr", "rbi", "sb", "avg", "obp", "w", "l", "sv", "k", "era", "whip"]}
 
 
 # ── Maximin tests ────────────────────────────────────────────────────
@@ -215,11 +219,11 @@ class TestEpsilonConstraintLineup:
 class TestStochasticMIP:
     @pytest.fixture()
     def scenarios(self, roster):
-        """Generate small scenario array (50 scenarios, 6 players, 10 cats)."""
+        """Generate small scenario array (50 scenarios, 6 players, 12 cats)."""
         rng = np.random.RandomState(42)
-        n_scen, n_players, n_cats = 50, len(roster), 10
+        n_scen, n_players, n_cats = 50, len(roster), 12
         base = np.zeros((n_players, n_cats), dtype=float)
-        cats = ["r", "hr", "rbi", "sb", "avg", "w", "sv", "k", "era", "whip"]
+        cats = ["r", "hr", "rbi", "sb", "avg", "obp", "w", "l", "sv", "k", "era", "whip"]
         for j, cat in enumerate(cats):
             base[:, j] = pd.to_numeric(roster[cat], errors="coerce").fillna(0).values
         # Add noise
@@ -280,9 +284,9 @@ class TestStochasticMIP:
     def test_high_variance_player_scenario(self, roster, scale_factors, category_weights):
         """With high-variance scenarios, CVaR weighting may differ from mean."""
         rng = np.random.RandomState(99)
-        n_scen, n_players, n_cats = 100, len(roster), 10
+        n_scen, n_players, n_cats = 100, len(roster), 12
         base = np.zeros((n_players, n_cats), dtype=float)
-        cats = ["r", "hr", "rbi", "sb", "avg", "w", "sv", "k", "era", "whip"]
+        cats = ["r", "hr", "rbi", "sb", "avg", "obp", "w", "l", "sv", "k", "era", "whip"]
         for j, cat in enumerate(cats):
             base[:, j] = pd.to_numeric(roster[cat], errors="coerce").fillna(0).values
 
@@ -305,7 +309,7 @@ class TestStochasticMIP:
 
     def test_empty_roster(self, category_weights, scale_factors):
         empty = pd.DataFrame(columns=["name", "is_hitter", "r"])
-        scenarios = np.zeros((10, 0, 10))
+        scenarios = np.zeros((10, 0, 12))
         result = stochastic_mip(empty, scenarios, category_weights, scale_factors)
         assert result["status"] == "empty_roster"
         assert result["assignments"] == {}
@@ -326,7 +330,7 @@ class TestPuLPUnavailable:
         assert result["status"] == "PuLP not available"
 
     def test_stochastic_no_pulp(self, roster, scale_factors, category_weights):
-        scenarios = np.zeros((10, 6, 10))
+        scenarios = np.zeros((10, 6, 12))
         with patch("src.optimizer.advanced_lp.PULP_AVAILABLE", False):
             result = stochastic_mip(roster, scenarios, category_weights, scale_factors)
         assert result["status"] == "PuLP not available"

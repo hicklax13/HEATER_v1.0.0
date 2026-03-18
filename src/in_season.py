@@ -23,10 +23,14 @@ def _roster_category_totals(roster_ids: list, player_pool: pd.DataFrame) -> dict
         "RBI": 0,
         "SB": 0,
         "W": 0,
+        "L": 0,
         "SV": 0,
         "K": 0,
         "ab": 0,
         "h": 0,
+        "bb": 0,
+        "hbp": 0,
+        "sf": 0,
         "ip": 0,
         "er": 0,
         "bb_allowed": 0,
@@ -38,10 +42,14 @@ def _roster_category_totals(roster_ids: list, player_pool: pd.DataFrame) -> dict
         totals["RBI"] += int(p.get("rbi", 0) or 0)
         totals["SB"] += int(p.get("sb", 0) or 0)
         totals["W"] += int(p.get("w", 0) or 0)
+        totals["L"] += int(p.get("l", 0) or 0)
         totals["SV"] += int(p.get("sv", 0) or 0)
         totals["K"] += int(p.get("k", 0) or 0)
         totals["ab"] += int(p.get("ab", 0) or 0)
         totals["h"] += int(p.get("h", 0) or 0)
+        totals["bb"] += int(p.get("bb", 0) or 0)
+        totals["hbp"] += int(p.get("hbp", 0) or 0)
+        totals["sf"] += int(p.get("sf", 0) or 0)
         totals["ip"] += float(p.get("ip", 0) or 0)
         totals["er"] += int(p.get("er", 0) or 0)
         totals["bb_allowed"] += int(p.get("bb_allowed", 0) or 0)
@@ -51,6 +59,12 @@ def _roster_category_totals(roster_ids: list, player_pool: pd.DataFrame) -> dict
         totals["AVG"] = totals["h"] / totals["ab"]
     else:
         totals["AVG"] = 0
+    # OBP = (H + BB + HBP) / (AB + BB + HBP + SF)
+    obp_denom = totals["ab"] + totals["bb"] + totals["hbp"] + totals["sf"]
+    if obp_denom > 0:
+        totals["OBP"] = (totals["h"] + totals["bb"] + totals["hbp"]) / obp_denom
+    else:
+        totals["OBP"] = 0
     if totals["ip"] > 0:
         totals["ERA"] = totals["er"] * 9 / totals["ip"]
         totals["WHIP"] = (totals["bb_allowed"] + totals["h_allowed"]) / totals["ip"]
@@ -156,18 +170,7 @@ def compare_players(
     pa = player_a.iloc[0]
     pb = player_b.iloc[0]
 
-    stat_map = {
-        "R": "r",
-        "HR": "hr",
-        "RBI": "rbi",
-        "SB": "sb",
-        "AVG": "avg",
-        "W": "w",
-        "SV": "sv",
-        "K": "k",
-        "ERA": "era",
-        "WHIP": "whip",
-    }
+    stat_map = dict(config.STAT_MAP)
 
     is_hitter_a = bool(pa.get("is_hitter", 1))
     is_hitter_b = bool(pb.get("is_hitter", 1))
@@ -196,7 +199,7 @@ def compare_players(
         val_b = float(pb.get(col, 0) or 0)
 
         # Skip categories that don't apply to the player's type
-        # (hitters don't have meaningful ERA/WHIP, pitchers don't have meaningful R/HR/RBI/SB/AVG)
+        # (hitters don't have meaningful pitching stats, pitchers don't have meaningful hitting stats)
         a_applicable = is_hitting_cat == is_hitter_a
         b_applicable = is_hitting_cat == is_hitter_b
 

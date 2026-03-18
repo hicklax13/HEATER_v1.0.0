@@ -207,13 +207,13 @@ def test_process_risk_widens_low_correlation():
 
 
 def test_process_risk_default_correlations():
-    """Default correlation dict should have all 10 standard 5x5 categories."""
+    """Default correlation dict should have all 12 H2H categories."""
     vol = pd.DataFrame(
         [{"player_id": 1, "r": 1, "hr": 1, "rbi": 1, "sb": 1, "avg": 1, "w": 1, "sv": 1, "k": 1, "era": 1, "whip": 1}]
     )
     adjusted = add_process_risk(vol)
 
-    # All 10 categories should be present and adjusted (> 1.0 since all
+    # All scoring categories should be present and adjusted (> 1.0 since all
     # default correlations are < 1.0 → division by sqrt(c) > 1)
     for col in ["r", "hr", "rbi", "sb", "avg", "w", "sv", "k", "era", "whip"]:
         assert adjusted.iloc[0][col] > 1.0, (

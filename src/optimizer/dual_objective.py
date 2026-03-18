@@ -1,19 +1,18 @@
-"""Dual objective blending for H2H weekly + roto season-long optimization.
+"""Dual objective blending for H2H weekly + season-long optimization.
 
-Fantasy leagues that combine H2H weekly matchups with season-long roto
-standings require balancing two competing objectives:
+H2H category leagues benefit from balancing two competing objectives:
 
   1. Win THIS WEEK's H2H matchup (short-term tactics).
-  2. Maximize roto standings position across the whole season (long-term
-     strategy).
+  2. Maximize season-long category totals across the whole season
+     (long-term strategy).
 
 The ``alpha`` parameter controls the blend:
-  - alpha = 0.0 -> pure roto (season-long focus)
+  - alpha = 0.0 -> pure season-long focus
   - alpha = 0.5 -> balanced
   - alpha = 1.0 -> pure H2H (weekly focus)
 
 ``recommend_alpha()`` auto-selects alpha based on the current situation:
-weeks remaining, roto rank, and H2H record.
+weeks remaining, standings rank, and H2H record.
 
 This module has no Streamlit dependency and no external API calls.
 """
@@ -33,14 +32,16 @@ ALL_CATEGORIES: list[str] = [
     "rbi",
     "sb",
     "avg",
+    "obp",
     "w",
+    "l",
     "sv",
     "k",
     "era",
     "whip",
 ]
 
-INVERSE_CATS: set[str] = {"era", "whip"}
+INVERSE_CATS: set[str] = {"l", "era", "whip"}
 
 # Small epsilon to avoid division by zero.
 _EPSILON: float = 1e-12

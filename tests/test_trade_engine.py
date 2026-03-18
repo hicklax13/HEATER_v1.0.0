@@ -38,7 +38,7 @@ from src.valuation import LeagueConfig
 
 @pytest.fixture
 def config():
-    """Standard 12-team 5x5 league config."""
+    """Standard 12-team H2H 12-cat league config."""
     return LeagueConfig()
 
 
@@ -808,7 +808,7 @@ class TestIntegration:
             assert result["verdict"] == "DECLINE"
 
     def test_category_impact_has_all_categories(self, sample_pool, config):
-        """Category impact should include all 10 categories."""
+        """Category impact should include all 12 categories."""
         user_roster_ids = list(range(1, 12))
 
         result = evaluate_trade(

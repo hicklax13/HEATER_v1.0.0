@@ -9,7 +9,7 @@ Wires into existing:
   - src/in_season.py: _roster_category_totals
 
 Computes:
-  - Per-player z-scores across all 10 fantasy categories
+  - Per-player z-scores across all 12 fantasy categories
   - Category-level SGP from league standings
   - VORP relative to the free agent pool
   - Composite valuation score combining z-score, SGP, and positional scarcity
@@ -40,22 +40,24 @@ STAT_MAP: dict[str, str] = {
     "RBI": "rbi",
     "SB": "sb",
     "AVG": "avg",
+    "OBP": "obp",
     "W": "w",
+    "L": "l",
     "SV": "sv",
     "K": "k",
     "ERA": "era",
     "WHIP": "whip",
 }
 
-CATEGORIES: list[str] = ["R", "HR", "RBI", "SB", "AVG", "W", "K", "SV", "ERA", "WHIP"]
-INVERSE_CATEGORIES: set[str] = {"ERA", "WHIP"}
+CATEGORIES: list[str] = ["R", "HR", "RBI", "SB", "AVG", "OBP", "W", "L", "SV", "K", "ERA", "WHIP"]
+INVERSE_CATEGORIES: set[str] = {"L", "ERA", "WHIP"}
 
 
 def compute_player_zscores(
     player_pool: pd.DataFrame,
     config: LeagueConfig | None = None,
 ) -> pd.DataFrame:
-    """Compute per-player z-scores across all 10 fantasy categories.
+    """Compute per-player z-scores across all 12 fantasy categories.
 
     Spec ref: Section 17 item 3 — Z-score normalization across draftable pool.
 
@@ -66,7 +68,7 @@ def compute_player_zscores(
 
     Args:
         player_pool: Full player pool DataFrame with stat columns.
-        config: League configuration. Defaults to standard 12-team 5x5.
+        config: League configuration. Defaults to standard 12-team H2H 12-cat.
 
     Returns:
         DataFrame with original columns plus z_{cat} columns for each category

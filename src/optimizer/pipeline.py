@@ -110,13 +110,15 @@ ALL_CATEGORIES: list[str] = [
     "rbi",
     "sb",
     "avg",
+    "obp",
     "w",
+    "l",
     "sv",
     "k",
     "era",
     "whip",
 ]
-INVERSE_CATS: set[str] = {"era", "whip"}
+INVERSE_CATS: set[str] = {"l", "era", "whip"}
 
 # Default SGP denominators for weight normalization
 _DEFAULT_SCALE: dict[str, float] = {
@@ -125,7 +127,9 @@ _DEFAULT_SCALE: dict[str, float] = {
     "rbi": 20.0,
     "sb": 5.0,
     "avg": 0.005,
+    "obp": 0.005,
     "w": 3.0,
+    "l": 3.0,
     "sv": 5.0,
     "k": 25.0,
     "era": 0.30,
@@ -192,7 +196,7 @@ class LineupOptimizerPipeline:
         Args:
             roster: Player DataFrame with stat projections and positions.
             mode: Optimization mode — "quick", "standard", or "full".
-            alpha: H2H vs Roto blend (0=pure roto, 1=pure H2H).
+            alpha: H2H vs season-long blend (0=pure season-long, 1=pure H2H).
             weeks_remaining: Weeks left in the season.
             config: Optional LeagueConfig for SGP denominators.
         """
@@ -322,15 +326,16 @@ class LineupOptimizerPipeline:
                     my_totals,
                     h2h_opponent_totals,
                 )
-                exp_wins = h2h_analysis.get("expected_wins", 5.0)
-                if exp_wins < 4.0:
+                n_cats = len(ALL_CATEGORIES)
+                exp_wins = h2h_analysis.get("expected_wins", n_cats / 2.0)
+                if exp_wins < n_cats * 0.4:
                     recommendations.append(
-                        f"Projected to win only {exp_wins:.1f}/10 categories — "
+                        f"Projected to win only {exp_wins:.1f}/{n_cats} categories — "
                         "consider streaming pitchers or targeting close categories."
                     )
-                elif exp_wins > 7.0:
+                elif exp_wins > n_cats * 0.7:
                     recommendations.append(
-                        f"Strong matchup ({exp_wins:.1f}/10 projected wins) — "
+                        f"Strong matchup ({exp_wins:.1f}/{n_cats} projected wins) — "
                         "consider resting borderline starters to preserve roster flexibility."
                     )
             except Exception:

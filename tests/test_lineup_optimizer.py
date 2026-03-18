@@ -337,7 +337,9 @@ class TestScaleNormalization:
         from src.lineup_optimizer import _compute_scale_factors
 
         scale = _compute_scale_factors(sample_roster)
-        assert set(scale.keys()) == set(["r", "hr", "rbi", "sb", "avg", "w", "sv", "k", "era", "whip"])
+        from src.lineup_optimizer import ALL_CATS
+
+        assert set(scale.keys()) == set(ALL_CATS)
         # All scale factors should be positive
         for cat, s in scale.items():
             assert s > 0, f"Scale for {cat} should be positive, got {s}"

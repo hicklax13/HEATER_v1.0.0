@@ -217,16 +217,20 @@ def _simulate_roster_sgp(
     roster_totals: dict[str, float] = {cat: 0.0 for cat in CATEGORIES}
 
     # Track rate-stat components for proper aggregation
-    # Rate stats (AVG, ERA, WHIP) must NOT be summed across players.
+    # Rate stats (AVG, OBP, ERA, WHIP) must NOT be summed across players.
     # Instead, accumulate component stats and derive rate stats at the end.
     total_h = 0.0
     total_ab = 0.0
+    total_pa = 0.0
+    total_bb = 0.0
+    total_hbp = 0.0
+    total_sf = 0.0
     total_ip = 0.0
     total_er = 0.0
     total_bb_h_allowed = 0.0  # bb_allowed + h_allowed
 
     # Categories that are rate stats and need special aggregation
-    _RATE_CATS = {"AVG", "ERA", "WHIP"}
+    _RATE_CATS = {"AVG", "OBP", "ERA", "WHIP"}
 
     for player_id, stats in roster_stats.items():
         # Collect component stats for rate-stat aggregation.
@@ -234,6 +238,10 @@ def _simulate_roster_sgp(
         # Otherwise, derive from rate stats and playing time estimates.
         p_ab = stats.get("ab", 0.0)
         p_h = stats.get("h", 0.0)
+        p_pa = stats.get("pa", 0.0)
+        p_bb = stats.get("bb", 0.0)
+        p_hbp = stats.get("hbp", 0.0)
+        p_sf = stats.get("sf", 0.0)
         p_ip = stats.get("ip", 0.0)
         p_er = stats.get("er", 0.0)
         p_bb_allowed = stats.get("bb_allowed", 0.0)
@@ -242,8 +250,16 @@ def _simulate_roster_sgp(
         # If component stats are missing but rate stats exist, derive them
         if p_ab == 0.0 and stats.get("avg", 0.0) > 0:
             # Estimate AB from PA or use a default for a typical hitter
-            p_ab = stats.get("pa", 0.0) * 0.92 if stats.get("pa", 0.0) > 0 else 500.0
+            p_ab = p_pa * 0.92 if p_pa > 0 else 500.0
             p_h = stats["avg"] * p_ab
+        if p_pa == 0.0 and p_ab > 0:
+            p_pa = p_ab / 0.92  # Estimate PA from AB
+        # Derive OBP components if OBP exists but BB missing
+        if p_bb == 0.0 and stats.get("obp", 0.0) > 0 and p_pa > 0:
+            # OBP = (H + BB + HBP) / (AB + BB + HBP + SF)
+            # Approximate: BB ≈ (OBP * PA - H) / (1 + OBP) when HBP/SF small
+            obp_val = stats["obp"]
+            p_bb = max(0.0, (obp_val * p_pa - p_h))
         if p_ip == 0.0 and (stats.get("era", 0.0) > 0 or stats.get("whip", 0.0) > 0):
             p_ip = 150.0  # Default estimate for a typical pitcher
             if stats.get("era", 0.0) > 0:
@@ -283,6 +299,10 @@ def _simulate_roster_sgp(
             noise_factor = 1.0 + rng.normal(0, 0.05 * noise_scale)
             total_h += p_h * max(noise_factor, 0.5)
             total_ab += p_ab * max(noise_factor, 0.5)
+            total_pa += p_pa * max(noise_factor, 0.5)
+            total_bb += p_bb * max(noise_factor, 0.5)
+            total_hbp += p_hbp * max(noise_factor, 0.5)
+            total_sf += p_sf * max(noise_factor, 0.5)
             total_ip += p_ip * max(noise_factor, 0.5)
             total_er += p_er * max(noise_factor, 0.5)
             total_bb_h_allowed += (p_bb_allowed + p_h_allowed) * max(noise_factor, 0.5)
@@ -304,6 +324,10 @@ def _simulate_roster_sgp(
             noise_factor = 1.0 + rng.normal(0, 0.05 * noise_scale)
             total_h += p_h * max(noise_factor, 0.5)
             total_ab += p_ab * max(noise_factor, 0.5)
+            total_pa += p_pa * max(noise_factor, 0.5)
+            total_bb += p_bb * max(noise_factor, 0.5)
+            total_hbp += p_hbp * max(noise_factor, 0.5)
+            total_sf += p_sf * max(noise_factor, 0.5)
             total_ip += p_ip * max(noise_factor, 0.5)
             total_er += p_er * max(noise_factor, 0.5)
             total_bb_h_allowed += (p_bb_allowed + p_h_allowed) * max(noise_factor, 0.5)
@@ -311,6 +335,9 @@ def _simulate_roster_sgp(
     # Compute rate stats from accumulated components (not naive sums)
     # AVG = sum(H) / sum(AB)
     roster_totals["AVG"] = total_h / total_ab if total_ab > 0 else 0.0
+    # OBP = (H + BB + HBP) / (AB + BB + HBP + SF)
+    obp_denom = total_ab + total_bb + total_hbp + total_sf
+    roster_totals["OBP"] = (total_h + total_bb + total_hbp) / obp_denom if obp_denom > 0 else 0.0
     # ERA = sum(ER) * 9 / sum(IP)
     roster_totals["ERA"] = total_er * 9.0 / total_ip if total_ip > 0 else 0.0
     # WHIP = sum(BB + H_allowed) / sum(IP)
@@ -390,19 +417,10 @@ def _grade_from_distribution(
 
 
 def _default_sgp_denoms() -> dict[str, float]:
-    """Default SGP denominators for a 12-team 5x5 roto league."""
-    return {
-        "R": 20.3,
-        "HR": 7.4,
-        "RBI": 20.5,
-        "SB": 5.3,
-        "AVG": 0.0045,
-        "W": 2.6,
-        "K": 20.1,
-        "SV": 4.5,
-        "ERA": 0.27,
-        "WHIP": 0.025,
-    }
+    """Default SGP denominators from LeagueConfig."""
+    from src.valuation import LeagueConfig
+
+    return dict(LeagueConfig().sgp_denominators)
 
 
 def build_roster_stats(
@@ -430,7 +448,9 @@ def build_roster_stats(
         "rbi",
         "sb",
         "avg",
+        "obp",
         "w",
+        "l",
         "k",
         "sv",
         "era",
@@ -440,6 +460,9 @@ def build_roster_stats(
         "pa",
         "ip",
         "er",
+        "bb",
+        "hbp",
+        "sf",
         "bb_allowed",
         "h_allowed",
     ]

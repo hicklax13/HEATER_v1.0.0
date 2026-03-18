@@ -98,7 +98,7 @@ if player_a_name and player_b_name and player_a_name != player_b_name:
     id_a = match_a.iloc[0]["player_id"]
     id_b = match_b.iloc[0]["player_id"]
 
-    compare_progress = st.progress(0, text="Comparing players across 10 categories...")
+    compare_progress = st.progress(0, text="Comparing players across 12 categories...")
     result = compare_players(int(id_a), int(id_b), pool, config)
     compare_progress.progress(100, text="Comparison complete!")
     time.sleep(0.3)

@@ -368,7 +368,7 @@ def render_step_settings():
             f'color:{T["tx2"]};text-transform:uppercase;">League Format</div>'
             f'<div style="font-family:Figtree,sans-serif;font-size:18px;font-weight:700;'
             f'color:{T["tx"]};margin-top:4px;">{num_teams} Teams</div>'
-            f'<div style="font-size:13px;color:{T["tx2"]};">{num_rounds} Rounds &middot; Snake &middot; 5x5 Roto</div>'
+            f'<div style="font-size:13px;color:{T["tx2"]};">{num_rounds} Rounds &middot; Snake &middot; H2H Categories</div>'
             f"</div>",
             unsafe_allow_html=True,
         )
@@ -400,7 +400,7 @@ def render_step_settings():
         st.session_state.auto_sgp = auto_sgp
 
         if not auto_sgp:
-            _sgp_help = "Stat increase needed to gain one roto standings point"
+            _sgp_help = "Stat increase needed to gain one H2H category win"
             sgp_r = st.number_input("Runs", value=32.0, step=1.0, key="sgp_r", help=_sgp_help)
             sgp_hr = st.number_input("Home Runs", value=12.0, step=1.0, key="sgp_hr", help=_sgp_help)
             sgp_rbi = st.number_input("Runs Batted In", value=30.0, step=1.0, key="sgp_rbi", help=_sgp_help)

@@ -2,6 +2,8 @@
 
 import streamlit as st
 
+from src.valuation import LeagueConfig as _LC_Class
+
 # ── Inline SVG Page Icons ─────────────────────────────────────────
 # Unique vector icons for each page. Each is a compact inline SVG string
 # (24x24 viewBox) that can be embedded in st.markdown().
@@ -292,29 +294,17 @@ THEME = {
 # All existing T["key"] call sites continue to work.
 T = THEME
 
-ROSTER_CONFIG = {
-    "C": 1,
-    "1B": 1,
-    "2B": 1,
-    "3B": 1,
-    "SS": 1,
-    "OF": 3,
-    "Util": 2,
-    "SP": 2,
-    "RP": 2,
-    "P": 4,
-    "BN": 5,
-}
-
-HITTING_CATEGORIES = ["R", "HR", "RBI", "SB", "AVG"]
-PITCHING_CATEGORIES = ["W", "SV", "K", "ERA", "WHIP"]
-ALL_CATEGORIES = HITTING_CATEGORIES + PITCHING_CATEGORIES
+_LC = _LC_Class()
+ROSTER_CONFIG = _LC.roster_slots
+HITTING_CATEGORIES = _LC.hitting_categories
+PITCHING_CATEGORIES = _LC.pitching_categories
+ALL_CATEGORIES = _LC.all_categories
 
 # ── Metric Tooltips ─────────────────────────────────────────────────
 
 METRIC_TOOLTIPS = {
     "sgp": (
-        "Standings Gained Points — how many roto standings points "
+        "Standings Gained Points — how many standings points "
         "this stat is worth. Higher = more impact on your league rank."
     ),
     "vorp": (
@@ -339,7 +329,7 @@ METRIC_TOOLTIPS = {
         "High Risk — significant injury history (under 75% games played). Counting stats are heavily discounted."
     ),
     "trade_verdict": (
-        "ACCEPT means your team improves overall across the 10 scoring categories. "
+        "ACCEPT means your team improves overall across the 12 scoring categories. "
         "The grade (A+ to F) reflects surplus Standings Gained Points from the trade."
     ),
     "trade_verdict_legacy": (
@@ -372,7 +362,7 @@ METRIC_TOOLTIPS = {
         "(90th percentile) projections. Wider range = more uncertain."
     ),
     "composite_score": (
-        "Composite Score — weighted sum of Z-scores across all 10 "
+        "Composite Score — weighted sum of Z-scores across all 12 "
         "fantasy categories. Higher = better overall fantasy value."
     ),
     "era": (
@@ -383,6 +373,11 @@ METRIC_TOOLTIPS = {
         "Walks + Hits per Inning Pitched — baserunners allowed per inning. LOWER is better. League average is ~1.25."
     ),
     "avg": ("Batting Average — hits divided by at-bats. Higher is better. League average is ~.250."),
+    "obp": (
+        "On-Base Percentage — fraction of plate appearances reaching base "
+        "(hits + walks + hit-by-pitch). Higher is better. League average is ~.320."
+    ),
+    "l": ("Losses — pitcher losses. LOWER is better (inverse category)."),
     "adp_value": (
         "Value pick — this player's Average Draft Position is later than the current "
         "pick, meaning you are getting them earlier than most drafts."

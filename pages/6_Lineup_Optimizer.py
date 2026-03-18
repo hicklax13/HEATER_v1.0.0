@@ -290,12 +290,12 @@ with st.expander("Optimization Settings", expanded=False):
 
     with settings_c2:
         alpha = st.slider(
-            "H2H vs Roto Balance",
+            "H2H vs Season-Long Balance",
             min_value=0.0,
             max_value=1.0,
             value=0.5,
             step=0.05,
-            help="0.0 = pure Roto optimization, 1.0 = pure H2H weekly focus, 0.5 = balanced.",
+            help="0.0 = pure season-long optimization, 1.0 = pure H2H weekly focus, 0.5 = balanced.",
         )
 
     with settings_c3:
@@ -328,11 +328,11 @@ if opponent_names:
     # Place opponent selector above tabs for use across multiple tabs
     selected_opponent = st.selectbox(
         "This Week's H2H Opponent",
-        options=["(None - Roto Only)"] + sorted(opponent_names),
+        options=["(None - Season-Long Only)"] + sorted(opponent_names),
         index=0,
         help="Select your H2H opponent to enable matchup-specific optimization.",
     )
-    if selected_opponent and selected_opponent != "(None - Roto Only)":
+    if selected_opponent and selected_opponent != "(None - Season-Long Only)":
         opp_totals = team_totals.get(selected_opponent, {})
     else:
         selected_opponent = None

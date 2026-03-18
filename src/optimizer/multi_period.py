@@ -35,14 +35,16 @@ ALL_CATEGORIES: list[str] = [
     "rbi",
     "sb",
     "avg",
+    "obp",
     "w",
+    "l",
     "sv",
     "k",
     "era",
     "whip",
 ]
 
-INVERSE_CATS: set[str] = {"era", "whip"}
+INVERSE_CATS: set[str] = {"l", "era", "whip"}
 
 # Maximum per-category urgency weight to prevent a single category from
 # dominating the entire objective function.
@@ -77,7 +79,7 @@ def rolling_horizon_optimization(
             ``horizon_weeks``; only the first ``horizon_weeks`` entries
             are used.
         category_weights: Base per-category weights (e.g. from H2H or
-            roto targeting).
+            category targeting).
         horizon_weeks: Number of weeks to look ahead.  Must be >= 1.
         discount: Per-week discount factor gamma in (0, 1].
             1.0 = equal weight on all weeks.
@@ -175,7 +177,7 @@ def season_balance_weights(
     Args:
         ytd_totals: Year-to-date accumulated totals per category.
         target_totals: Season-end target totals per category (e.g. the
-            projection total or the total needed for a certain roto rank).
+            projection total or the total needed for a certain standings rank).
         weeks_remaining: Number of weeks left in the season.  If <= 0,
             returns equal weights (no time to adjust).
         weekly_rates: Expected per-week production rate for each category

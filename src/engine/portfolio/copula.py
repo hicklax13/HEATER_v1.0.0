@@ -28,29 +28,31 @@ from __future__ import annotations
 import numpy as np
 from scipy.stats import norm
 
-CATEGORIES: list[str] = ["R", "HR", "RBI", "SB", "AVG", "W", "K", "SV", "ERA", "WHIP"]
-INVERSE_CATEGORIES: set[str] = {"ERA", "WHIP"}
+CATEGORIES: list[str] = ["R", "HR", "RBI", "SB", "AVG", "OBP", "W", "L", "SV", "K", "ERA", "WHIP"]
+INVERSE_CATEGORIES: set[str] = {"L", "ERA", "WHIP"}
 
 # Empirical correlation matrix for fantasy stat categories.
 # Derived from 5+ years of qualified MLB seasons (min 400 PA hitters, 100 IP pitchers).
-# Hitter cats (R, HR, RBI, SB, AVG) have strong internal correlations;
-# pitcher cats (W, K, SV, ERA, WHIP) have their own cluster.
+# Hitter cats (R, HR, RBI, SB, AVG, OBP) have strong internal correlations;
+# pitcher cats (W, L, SV, K, ERA, WHIP) have their own cluster.
 # Cross-cluster correlations are near zero (hitter stats don't predict pitcher stats).
 #
-# Order: R, HR, RBI, SB, AVG, W, K, SV, ERA, WHIP
+# Order: R, HR, RBI, SB, AVG, OBP, W, L, SV, K, ERA, WHIP
 DEFAULT_CORRELATION: np.ndarray = np.array(
     [
-        # R     HR    RBI   SB    AVG   W     K     SV    ERA   WHIP
-        [1.00, 0.75, 0.80, 0.20, 0.55, 0.00, 0.00, 0.00, 0.00, 0.00],  # R
-        [0.75, 1.00, 0.85, -0.15, 0.30, 0.00, 0.00, 0.00, 0.00, 0.00],  # HR
-        [0.80, 0.85, 1.00, -0.10, 0.40, 0.00, 0.00, 0.00, 0.00, 0.00],  # RBI
-        [0.20, -0.15, -0.10, 1.00, 0.15, 0.00, 0.00, 0.00, 0.00, 0.00],  # SB
-        [0.55, 0.30, 0.40, 0.15, 1.00, 0.00, 0.00, 0.00, 0.00, 0.00],  # AVG
-        [0.00, 0.00, 0.00, 0.00, 0.00, 1.00, 0.50, -0.20, -0.55, -0.50],  # W
-        [0.00, 0.00, 0.00, 0.00, 0.00, 0.50, 1.00, -0.10, -0.65, -0.60],  # K
-        [0.00, 0.00, 0.00, 0.00, 0.00, -0.20, -0.10, 1.00, -0.30, -0.25],  # SV
-        [0.00, 0.00, 0.00, 0.00, 0.00, -0.55, -0.65, -0.30, 1.00, 0.90],  # ERA
-        [0.00, 0.00, 0.00, 0.00, 0.00, -0.50, -0.60, -0.25, 0.90, 1.00],  # WHIP
+        # R     HR    RBI   SB    AVG   OBP   W     L     SV    K     ERA   WHIP
+        [1.00, 0.75, 0.80, 0.20, 0.55, 0.45, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00],  # R
+        [0.75, 1.00, 0.85, -0.15, 0.30, 0.20, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00],  # HR
+        [0.80, 0.85, 1.00, -0.10, 0.40, 0.35, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00],  # RBI
+        [0.20, -0.15, -0.10, 1.00, 0.15, 0.10, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00],  # SB
+        [0.55, 0.30, 0.40, 0.15, 1.00, 0.80, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00],  # AVG
+        [0.45, 0.20, 0.35, 0.10, 0.80, 1.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00],  # OBP
+        [0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 1.00, -0.30, -0.20, 0.50, -0.55, -0.50],  # W
+        [0.00, 0.00, 0.00, 0.00, 0.00, 0.00, -0.30, 1.00, -0.10, -0.20, 0.50, 0.45],  # L
+        [0.00, 0.00, 0.00, 0.00, 0.00, 0.00, -0.20, -0.10, 1.00, -0.10, -0.30, -0.25],  # SV
+        [0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.50, -0.20, -0.10, 1.00, -0.65, -0.60],  # K
+        [0.00, 0.00, 0.00, 0.00, 0.00, 0.00, -0.55, 0.50, -0.30, -0.65, 1.00, 0.90],  # ERA
+        [0.00, 0.00, 0.00, 0.00, 0.00, 0.00, -0.50, 0.45, -0.25, -0.60, 0.90, 1.00],  # WHIP
     ],
     dtype=float,
 )
@@ -74,7 +76,7 @@ class GaussianCopula:
 
         Args:
             correlation: n×n correlation matrix. Must be positive semi-definite.
-                Defaults to DEFAULT_CORRELATION (10×10 for all fantasy categories).
+                Defaults to DEFAULT_CORRELATION (12×12 for all fantasy categories).
         """
         if correlation is None:
             correlation = DEFAULT_CORRELATION.copy()
@@ -176,7 +178,7 @@ def fit_copula_from_data(
     """Fit a Gaussian copula from historical player-season data.
 
     Args:
-        player_seasons: Array of shape (n_seasons, 10) with columns in
+        player_seasons: Array of shape (n_seasons, 12) with columns in
             CATEGORIES order. For ERA/WHIP, pass raw values (they'll be
             inverted internally for correlation estimation).
 
@@ -185,11 +187,10 @@ def fit_copula_from_data(
     """
     data = player_seasons.copy()
 
-    # Invert ERA/WHIP so "better" = higher for correlation estimation
-    era_idx = CATEGORIES.index("ERA")
-    whip_idx = CATEGORIES.index("WHIP")
-    data[:, era_idx] = -data[:, era_idx]
-    data[:, whip_idx] = -data[:, whip_idx]
+    # Invert L/ERA/WHIP so "better" = higher for correlation estimation
+    for inv_cat in INVERSE_CATEGORIES:
+        idx = CATEGORIES.index(inv_cat)
+        data[:, idx] = -data[:, idx]
 
     # Compute Spearman rank correlation (more robust than Pearson for non-normal data)
     from scipy.stats import spearmanr

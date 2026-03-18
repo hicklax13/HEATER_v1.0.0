@@ -31,8 +31,8 @@ logger = logging.getLogger(__name__)
 
 # ── Constants ────────────────────────────────────────────────────────
 
-COUNTING_CATS: list[str] = ["r", "hr", "rbi", "sb", "w", "sv", "k"]
-RATE_CATS: list[str] = ["avg", "era", "whip"]
+COUNTING_CATS: list[str] = ["r", "hr", "rbi", "sb", "w", "l", "sv", "k"]
+RATE_CATS: list[str] = ["avg", "obp", "era", "whip"]
 ALL_CATS: list[str] = COUNTING_CATS + RATE_CATS
 
 # Regime multipliers: how much to adjust projections per regime state.

@@ -17,8 +17,11 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-CATEGORIES: list[str] = ["R", "HR", "RBI", "SB", "AVG", "W", "K", "SV", "ERA", "WHIP"]
-INVERSE_CATEGORIES: set[str] = {"ERA", "WHIP"}
+from src.valuation import LeagueConfig as _LC_Class
+
+_LC = _LC_Class()
+CATEGORIES: list[str] = _LC.all_categories
+INVERSE_CATEGORIES: set[str] = _LC.inverse_stats
 
 # Approximate weekly production rates per roster, used for punt estimation.
 # Based on a competitive 12-team roster in a full season (~22 weeks).
@@ -28,7 +31,9 @@ WEEKLY_RATE_DEFAULTS: dict[str, float] = {
     "RBI": 34.0,
     "SB": 5.0,
     "AVG": 0.0,  # Rate stat — handled differently
+    "OBP": 0.0,  # Rate stat — handled differently
     "W": 3.0,
+    "L": 3.0,
     "SV": 2.7,
     "K": 50.0,
     "ERA": 0.0,  # Rate stat — handled differently

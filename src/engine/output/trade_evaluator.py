@@ -109,34 +109,24 @@ GRADE_THRESHOLDS: list[tuple[float, str]] = [
     (-1.0, "D"),
 ]
 
-CATEGORIES: list[str] = ["R", "HR", "RBI", "SB", "AVG", "W", "K", "SV", "ERA", "WHIP"]
-INVERSE_CATEGORIES: set[str] = {"ERA", "WHIP"}
+_LC = LeagueConfig()
+CATEGORIES: list[str] = _LC.all_categories
+INVERSE_CATEGORIES: set[str] = _LC.inverse_stats
 
 # Stat column mapping for computing roster totals
-STAT_MAP: dict[str, str] = {
-    "R": "r",
-    "HR": "hr",
-    "RBI": "rbi",
-    "SB": "sb",
-    "AVG": "avg",
-    "W": "w",
-    "SV": "sv",
-    "K": "k",
-    "ERA": "era",
-    "WHIP": "whip",
-}
+STAT_MAP: dict[str, str] = _LC.STAT_MAP
 
 # Categories where replacement cost penalty applies (counting stats only).
-# Rate stats (AVG, ERA, WHIP) are excluded — they are roster-aggregate
+# Rate stats (AVG, OBP, ERA, WHIP) are excluded — they are roster-aggregate
 # and "best FA replacement" doesn't map cleanly to a counting-stat gap.
-COUNTING_CATEGORIES: set[str] = {"R", "HR", "RBI", "SB", "W", "SV", "K"}
+COUNTING_CATEGORIES: set[str] = _LC.counting_stats
 
 # Discount factor for FA pool turnover (drops, injuries, call-ups, role changes).
 # 0.5 means we assume half the unrecoverable gap will eventually become
 # recoverable as the FA pool changes over the season.
 FA_TURNOVER_DISCOUNT: float = 0.5
 
-# Roster cap — 23 slots (18 starting + 5 bench) for Yahoo 5x5 roto.
+# Roster cap — 23 slots (18 starting + 5 bench) for Yahoo H2H categories.
 ROSTER_CAP: int = 23
 
 

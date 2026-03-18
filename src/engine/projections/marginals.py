@@ -30,6 +30,7 @@ MIN_KDE_SAMPLES: int = 20
 # Stat bounds: prevent unrealistic samples
 STAT_BOUNDS: dict[str, tuple[float, float]] = {
     "avg": (0.100, 0.400),
+    "obp": (0.200, 0.500),
     "era": (0.50, 12.00),
     "whip": (0.60, 3.00),
     "hr": (0, 70),
@@ -37,6 +38,7 @@ STAT_BOUNDS: dict[str, tuple[float, float]] = {
     "rbi": (0, 160),
     "sb": (0, 80),
     "w": (0, 25),
+    "l": (0, 20),
     "k": (0, 350),
     "sv": (0, 55),
 }

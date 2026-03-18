@@ -71,6 +71,10 @@ def normalize_hitter_json(raw: list[dict]) -> pd.DataFrame:
                 "rbi": int(player.get("RBI", 0) or 0),
                 "sb": int(player.get("SB", 0) or 0),
                 "avg": float(player.get("AVG", 0) or 0),
+                "obp": float(player.get("OBP", 0) or 0),
+                "bb": int(player.get("BB", 0) or 0),
+                "hbp": int(player.get("HBP", 0) or 0),
+                "sf": int(player.get("SF", 0) or 0),
             }
         )
     return pd.DataFrame(records)
@@ -122,6 +126,7 @@ def normalize_pitcher_json(raw: list[dict]) -> pd.DataFrame:
                 "is_hitter": False,
                 "ip": ip,
                 "w": int(player.get("W", 0) or 0),
+                "l": int(player.get("L", 0) or 0),
                 "sv": sv,
                 "k": int(player.get("SO", 0) or 0),
                 "era": era,
@@ -291,8 +296,9 @@ def _store_projections(projections: dict[str, pd.DataFrame]) -> int:
                 if is_hitter:
                     cursor.execute(
                         """INSERT INTO projections
-                           (player_id, system, pa, ab, h, r, hr, rbi, sb, avg)
-                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                           (player_id, system, pa, ab, h, r, hr, rbi, sb, avg,
+                            obp, bb, hbp, sf)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                         (
                             player_id,
                             db_system,
@@ -304,18 +310,24 @@ def _store_projections(projections: dict[str, pd.DataFrame]) -> int:
                             int(row.get("rbi", 0)),
                             int(row.get("sb", 0)),
                             float(row.get("avg", 0)),
+                            float(row.get("obp", 0)),
+                            int(row.get("bb", 0)),
+                            int(row.get("hbp", 0)),
+                            int(row.get("sf", 0)),
                         ),
                     )
                 else:
                     cursor.execute(
                         """INSERT INTO projections
-                           (player_id, system, ip, w, sv, k, era, whip, er, bb_allowed, h_allowed)
-                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                           (player_id, system, ip, w, l, sv, k, era, whip, er,
+                            bb_allowed, h_allowed)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                         (
                             player_id,
                             db_system,
                             float(row.get("ip", 0)),
                             int(row.get("w", 0)),
+                            int(row.get("l", 0)),
                             int(row.get("sv", 0)),
                             int(row.get("k", 0)),
                             float(row.get("era", 0)),

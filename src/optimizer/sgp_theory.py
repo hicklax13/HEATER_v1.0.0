@@ -17,25 +17,19 @@ import numpy as np
 import pandas as pd
 from scipy.stats import norm
 
+from src.valuation import LeagueConfig as _LC_Class
+
 logger = logging.getLogger(__name__)
 
 # ── Constants ────────────────────────────────────────────────────────
 
-ALL_CATS: list[str] = ["r", "hr", "rbi", "sb", "avg", "w", "sv", "k", "era", "whip"]
-INVERSE_CATS: set[str] = {"era", "whip"}
+_LC = _LC_Class()
+ALL_CATS: list[str] = [c.lower() for c in _LC.all_categories]
+INVERSE_CATS: set[str] = {c.lower() for c in _LC.inverse_stats}
 
 # Fallback SGP denominators when regression is infeasible.
 _DEFAULT_SGP_DENOMS: dict[str, float] = {
-    "r": 20.0,
-    "hr": 7.0,
-    "rbi": 20.0,
-    "sb": 5.0,
-    "avg": 0.005,
-    "w": 3.0,
-    "sv": 5.0,
-    "k": 25.0,
-    "era": 0.30,
-    "whip": 0.03,
+    c.lower(): v for c, v in _LC.sgp_denominators.items()
 }
 
 
@@ -46,7 +40,7 @@ def default_category_sigmas() -> dict[str, float]:
     """Weekly standard deviation estimates for a competitive 12-team league.
 
     These represent expected season-end variance across the league in
-    each roto category.
+    each scoring category.
 
     Returns:
         dict mapping category name to sigma (positive float).
@@ -57,7 +51,9 @@ def default_category_sigmas() -> dict[str, float]:
         "rbi": 24.0,
         "sb": 5.0,
         "avg": 0.010,
+        "obp": 0.008,
         "w": 2.5,
+        "l": 2.0,
         "sv": 2.0,
         "k": 18.0,
         "era": 0.30,
