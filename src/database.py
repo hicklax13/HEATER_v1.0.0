@@ -244,6 +244,25 @@ def init_db():
     # Contract year / arbitration tracking
     _safe_add_column(conn, "players", "arbitration_eligible", "INTEGER DEFAULT 0")
 
+    # Multi-source ADP: NFBC ADP column
+    _safe_add_column(conn, "adp", "nfbc_adp", "REAL")
+
+    # Gap closure: cross-reference IDs
+    _safe_add_column(conn, "players", "fangraphs_id", "TEXT")
+    _safe_add_column(conn, "players", "yahoo_id", "TEXT")
+
+    # Gap closure: roster type, role, contract details
+    _safe_add_column(conn, "players", "roster_type", "TEXT DEFAULT 'active'")
+    _safe_add_column(conn, "players", "role_status", "TEXT")
+    _safe_add_column(conn, "players", "contract_details", "TEXT")
+    _safe_add_column(conn, "players", "spring_training_stats", "TEXT")
+
+    # Gap closure: Statcast Stuff+/Location+/Pitching+
+    for table in ("projections", "season_stats", "ros_projections"):
+        _safe_add_column(conn, table, "stuff_plus", "REAL")
+        _safe_add_column(conn, table, "location_plus", "REAL")
+        _safe_add_column(conn, table, "pitching_plus", "REAL")
+
     conn.close()
 
 
