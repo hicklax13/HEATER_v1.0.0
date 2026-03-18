@@ -500,12 +500,14 @@ def evaluate_trade(
             if use_median_cap:
                 cap = _compute_median_sgp_cap(player_pool, sgp_calc, is_hitter=need_hitter)
 
+            # Exclude both already-picked-up FAs and the current post-trade roster
+            all_exclude = picked_up_ids | set(after_ids)
             fa_id = _find_fa_pickup(
                 player_pool,
                 sgp_calc,
                 need_hitter=need_hitter,
                 median_sgp_cap=cap,
-                exclude_ids=picked_up_ids,
+                exclude_ids=all_exclude,
             )
             if fa_id is not None:
                 after_ids.append(fa_id)

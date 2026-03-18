@@ -2,7 +2,7 @@
 
 A fantasy baseball draft assistant + in-season manager for Yahoo Sports H2H Categories leagues. Features the **Heater** UI — a modern glassmorphic design system with vibrant thermal color palette, 3D inflatable buttons, kinetic gradient typography, and pill-based navigation. Monte Carlo draft recommendations, Bayesian projection updates, and full in-season roster management.
 
-Built for the **FourzynBurn** league (12-team H2H Categories, snake draft, 23 rounds, 12 scoring categories). ~35,000 lines of Python across 75+ source files with 1,312 tests (53 test files). Zero CSV uploads — all data auto-fetched from MLB Stats API + FanGraphs on every launch. Zero emoji — all icons are inline SVGs.
+Built for the **FourzynBurn** league (12-team H2H Categories, snake draft, 23 rounds, 12 scoring categories). ~35,000 lines of Python across 80+ source files with 1,590 tests (60 test files). Zero CSV uploads — all data auto-fetched from MLB Stats API + FanGraphs on every launch. Zero emoji — all icons are inline SVGs.
 
 ## Overview
 
@@ -13,6 +13,7 @@ Built for the **FourzynBurn** league (12-team H2H Categories, snake draft, 23 ro
 - **Draft Recommendation Engine** — 25-feature 8-stage enhancement pipeline with 3 execution modes (Quick <1s, Standard 2-3s, Full 5-10s)
 - **Trade Analyzer Engine** — 6-phase pipeline: deterministic SGP, stochastic MC (10K sims), signal intelligence (Statcast/Kalman/BOCPD), contextual adjustments, game theory (opponent modeling/adverse selection/Bellman), production (convergence/caching)
 - **Enhanced Lineup Optimizer** — 11-module pipeline with 20 mathematical techniques
+- **In-Season Analytics** — 7 modules: trade value chart (0-100 G-Score adjusted), two-start pitcher planner, start/sit advisor, weekly matchup planner, waiver wire recommender, trade finder, post-draft grader
 - **Backtesting Harness** — Evaluate engine accuracy vs historical outcomes (RMSE, rank correlation, value capture rate)
 
 ## Quick Start
@@ -69,6 +70,22 @@ A 6-phase pipeline for rigorous trade evaluation:
 
 228 dedicated tests across 6 test files.
 
+## In-Season Analytics (`src/`)
+
+7 specialized modules for in-season roster management:
+
+| Module | What It Does |
+|--------|-------------|
+| **Trade Value Chart** | Universal 0-100 player values via SGP surplus + G-Score H2H variance adjustment, contextual overlay, 5 tiers |
+| **Two-Start Planner** | Identifies 2+ start pitchers, matchup scoring (K-BB%/xFIP/CSW%), rate damage analysis, streaming value |
+| **Start/Sit Advisor** | 3-layer model: H2H-weighted projections, risk-adjusted scoring by matchup state, per-category SGP impact |
+| **Matchup Planner** | Per-game ratings with percentile color tiers (smash/favorable/neutral/unfavorable/avoid), park adjustments |
+| **Waiver Wire** | LP-verified add/drop pairs via 7-stage pipeline with BABIP sustainability filter |
+| **Trade Finder** | Cosine dissimilarity team pairing, 1-for-1 scan, loss-aversion acceptance model |
+| **Draft Grader** | 3-component grading (value/efficiency/balance), steal/reach detection, category analysis |
+
+276 dedicated tests across 7 test files.
+
 ## Enhanced Lineup Optimizer (`src/optimizer/`)
 
 11-module pipeline with 20 mathematical techniques: enhanced projections (Bayesian/Kalman/regime/injury), weekly matchup adjustments (park/platoon/weather), H2H category weights, non-linear SGP, pitcher streaming, stochastic scenarios (copula/CVaR), multi-period planning, dual H2H/Roto objective, advanced LP (maximin/epsilon-constraint/stochastic MIP). 204 tests across 10 files.
@@ -95,7 +112,7 @@ A 6-phase pipeline for rigorous trade evaluation:
 ```bash
 ruff check .                          # Lint
 ruff format .                         # Format
-python -m pytest                      # 1,312 pass, 3 skipped, 2 pre-existing
+python -m pytest                      # 1,590 pass, 3 skipped
 python -m pytest -v                   # Verbose
 python -m pytest tests/test_xxx.py    # Single file
 ```
@@ -104,8 +121,8 @@ Python 3.11+ required. CI tests on 3.11, 3.12, 3.13. Local dev uses 3.14.
 
 ## Testing
 
-- **1,317 tests collected**, 1,312 passed, 3 skipped (PyMC/xgboost optional deps), 2 pre-existing failures
-- **53 test files** covering: draft engine (5), trade engine phases 1-6 (6), lineup optimizer (10), gap closure (14), backtesting, math verification (4), integration, data pipeline, bootstrap, Yahoo API
+- **1,593 tests collected**, 1,590 passed, 3 skipped (PyMC/xgboost optional deps)
+- **60 test files** covering: draft engine (5), trade engine phases 1-6 (6), lineup optimizer (10), gap closure (14), in-season analytics (7), backtesting, math verification (4), integration, data pipeline, bootstrap, Yahoo API
 - **Math verification suite** — 168 hand-calculated tests across 4 files
 - **CI** — GitHub Actions: ruff lint/format + pytest on Python 3.11-3.13 + daily data refresh cron
 
