@@ -8,6 +8,7 @@ A fantasy baseball draft assistant + in-season manager for a 12-team Yahoo Sport
 2. **In-Season Management** (`pages/`) — 6 Streamlit pages: team overview, draft simulator, trade analysis, player comparison, free agent rankings, lineup optimizer. Powered by MLB Stats API + pybaseball + optional Yahoo Fantasy API. All pages share centralized single-theme system (light mode only) with glassmorphic design, orange sidebar branding, and bold Heater identity.
 3. **Trade Analyzer Engine** (`src/engine/`) — 6-phase pipeline: Phase 1 deterministic SGP with LP-constrained lineup totals, Phase 2 stochastic MC (10K sims), Phase 3 signal intelligence (Statcast/Kalman/BOCPD), Phase 4 contextual adjustments (matchups/injuries/concentration), Phase 5 game theory (opponent modeling/adverse selection/Bellman), Phase 6 production (convergence/caching/adaptive scaling). 11 modules, 219 dedicated tests.
 4. **Enhanced Lineup Optimizer** (`src/optimizer/`) — 11-module pipeline with 20 mathematical techniques: enhanced projections (Bayesian/Kalman/regime/injury), weekly matchup adjustments (park/platoon/weather), H2H category weights (Normal PDF), non-linear SGP (bell-curve proximity), pitcher streaming, stochastic scenarios (copula/CVaR), multi-period planning, dual H2H/Roto objective, advanced LP (maximin/epsilon-constraint/stochastic MIP). Three modes: Quick (<1s), Standard (2-3s), Full (5-10s). 204 dedicated tests across 10 test files.
+5. **Draft Recommendation Engine** (`src/draft_engine.py` + 4 support modules) — 25-feature enhanced draft pipeline: 3 execution modes (Quick <1s, Standard 2-3s, Full 5-10s), 8-stage enhancement chain (park factors → Bayesian blend → injury probability → Statcast delta → FIP correction → contextual factors → category balance → ML ensemble). Multiplicative + additive scoring formula with clipping. Category-aware recommendations via Normal PDF weighting. Contextual factors: closer hierarchy, platoon risk, lineup protection, schedule strength, contract year boost. ML ensemble (XGBoost, optional) + news sentiment scoring. BUY/FAIR/AVOID classification. 270 dedicated tests across 5 test files.
 
 ## Commands
 
@@ -27,7 +28,7 @@ ruff check .
 # Format
 ruff format .
 
-# Run all tests (843 pass, 1 skipped for PyMC)
+# Run all tests (1108 pass, 3 skipped for PyMC/xgboost)
 python -m pytest
 
 # Run with verbose output
@@ -95,6 +96,11 @@ src/
   lineup_optimizer.py   — PuLP LP solver: lineup optimization, category targeting, two-start SP detection
   yahoo_api.py          — Yahoo Fantasy API: OAuth integration via yfpy, league sync, roster import
   data_pipeline.py      — FanGraphs auto-fetch: Steamer/ZiPS/Depth Charts JSON API, normalize, upsert, ADP extraction
+  draft_engine.py       — DraftRecommendationEngine: 3-mode orchestrator (Quick/Standard/Full), 8-stage enhancement pipeline, multiplicative+additive pick_score formula
+  draft_analytics.py    — Category balance (Normal PDF weighting), opportunity cost, streaming draft value, BUY/FAIR/AVOID classification
+  contextual_factors.py — Closer hierarchy detection, platoon risk (The Book), lineup protection (PA bonus), schedule strength, contract year boost
+  ml_ensemble.py        — XGBoost ensemble model for residual prediction (optional dep, graceful fallback to 0.0)
+  news_sentiment.py     — Keyword-based news sentiment scoring (-1.0 to +1.0), high-impact flags, batch processing
   optimizer/            — Enhanced Lineup Optimizer (11 modules, 20 mathematical techniques)
     __init__.py         — Package exports with lazy import documentation
     pipeline.py         — Master orchestrator: 9-stage chain, Quick/Standard/Full modes, LineupOptimizerPipeline class
@@ -175,6 +181,11 @@ tests/
   test_opponent_model.py    — Enhanced opponent modeling: preferences, needs, history (8 tests)
   test_percentile_sampling.py — Percentile sampling passthrough in evaluate_candidates (4 tests)
   test_data_pipeline.py     — FanGraphs auto-fetch: normalization, fetch, storage, ADP, orchestration (28 tests)
+  test_data_foundation.py   — Phase 2 data foundation: LeagueConfig updates, Yahoo ADP, draft_state enhancements, sample data (30 tests)
+  test_draft_engine.py      — DraftRecommendationEngine: all 8 stages, 3 modes, enhanced_pick_score formula, integration (50 tests)
+  test_draft_analytics.py   — Category balance, opportunity cost, streaming value, BUY/FAIR/AVOID (35 tests)
+  test_contextual_factors.py — Closer hierarchy, platoon risk, lineup protection, schedule strength, contract year (25 tests)
+  test_ml_ensemble.py       — ML ensemble + news sentiment: XGBoost fallback, feature prep, keyword scoring (40 tests)
   test_integration.py       — End-to-end pipeline: injury → Bayesian → percentiles → valuation (11 tests)
   test_valuation_math.py    — Math verification: SGP, VORP, replacement levels, percentiles, process risk (40 tests)
   test_simulation_math.py   — Math verification: survival probability, urgency, combined score, tiers, MC convergence (37 tests)
@@ -215,6 +226,19 @@ docs/plans/             — Implementation plan archives
 - Projection confidence discount (low PA/IP get up to 20% discount)
 - Bench slot optimization (late-draft bonus for multi-position flexibility)
 - **Percentile sampling** — MC sims sample from P10-P90 distributions when multiple projection systems available
+
+### Draft Recommendation Engine (`src/draft_engine.py`)
+- **DraftRecommendationEngine** orchestrator with 3 modes (Quick/Standard/Full)
+- **8-stage enhancement pipeline:** park factors → Bayesian blend → injury probability → Statcast delta → FIP correction → contextual factors → category balance → ML ensemble
+- **Enhanced pick_score** = base_sgp × multiplicative_factors + additive_bonuses
+  - Multiplicative (clamped [0.5, 1.5]): category_balance × park_factor × (1 - injury_prob × 0.3) × (1 + statcast_delta × 0.15) × platoon_factor × contract_year
+  - Additive: streaming_penalty + lineup_protection + closer_bonus + ml_correction × 0.1 + flex_bonus
+- **Category balance** — Normal PDF weighting per category; draft progress scales: early compresses toward 1.0 (BPA), late amplifies gaps (fill needs)
+- **Contextual factors** — Closer hierarchy (SV-based role + scarcity bonus), platoon risk (The Book: LHB 0.90), lineup protection (PA bonus by batting order), schedule strength (division park factors), contract year (+2% hitters)
+- **BUY/FAIR/AVOID** — Classification based on enhanced_rank vs ADP_rank gap, threshold scales by draft phase
+- **ML ensemble** — Optional XGBoost residual prediction (actual - projected), 10% weight, graceful fallback
+- **News sentiment** — Keyword-based scoring (-1.0 to +1.0), ready for news API integration
+- **Timing instrumentation** — Per-stage timing via `engine.timing` dict
 - **Injury badges** — Hero card shows CSS dot health indicators (green/yellow/red), age flags for aging curves, workload flags for IP spikes. No emoji — all icons are inline SVGs from `PAGE_ICONS` dict.
 - **P10/P90 range bars** — Floor/ceiling projections displayed on hero pick and alternatives
 - **Opponent intel tab** — Threat alerts when opponents need your target position, plus full opponent roster/needs breakdown
@@ -676,6 +700,42 @@ exchange_code_for_token(consumer_key, consumer_secret, code)  # returns token di
 refresh_if_stale(force=False)  # returns bool; uses check_staleness() with 168h threshold
 fetch_projections(system, stats)  # returns (DataFrame, raw_json_list)
 SYSTEM_MAP = {"steamer": "steamer", "zips": "zips", "fangraphsdc": "depthcharts"}
+
+# --- Draft Recommendation Engine APIs ---
+
+# DraftRecommendationEngine (src/draft_engine.py)
+DraftRecommendationEngine(config: LeagueConfig, mode: str = "standard")
+# .enhance_player_pool(player_pool, draft_state, park_factors=None) -> DataFrame  # adds 15 columns
+# .recommend(player_pool, draft_state, top_n=8, n_simulations=300, park_factors=None) -> DataFrame
+# .timing -> dict  # per-stage timing breakdown
+MODE_PRESETS: dict[str, dict]  # quick/standard/full with enable flags for all 8 stages
+
+# Draft analytics (src/draft_analytics.py)
+compute_category_balance(roster_totals, all_team_totals, draft_progress, config=None) -> dict[str, float]
+compute_opportunity_cost(candidate, available_pool, survival=0.5) -> float
+compute_streaming_draft_value(pitcher, config=None) -> float  # -0.5 to 0.0 penalty
+compute_buy_fair_avoid(enhanced_rank, adp_rank, current_pick, total_picks=276) -> str  # "BUY"|"FAIR"|"AVOID"
+DEFAULT_SIGMAS: dict[str, float]  # per-category standard deviations for Normal PDF weighting
+
+# Contextual factors (src/contextual_factors.py)
+detect_closer_role(player) -> dict  # {role, confidence, draft_bonus}
+compute_platoon_risk(player_bats: str) -> float  # 0.90-1.0
+compute_lineup_protection(player) -> float  # 0.0-0.3 SGP bonus
+compute_schedule_strength(player_team, park_factors) -> float  # ~0.95-1.05
+contract_year_boost(is_contract_year, is_hitter) -> float  # 1.0 or 1.02
+
+# ML ensemble (src/ml_ensemble.py)
+DraftMLEnsemble(model_path=None)
+# .predict_batch(player_pool) -> Series  # ml_correction column
+# .train(historical_data, target_col="residual") -> dict  # {status, metrics}
+# .is_ready -> bool
+get_ml_ensemble(model_path=None) -> DraftMLEnsemble  # factory
+
+# News sentiment (src/news_sentiment.py)
+compute_news_sentiment(news_items: list[str]) -> float  # -1.0 to 1.0
+analyze_news_sentiment(news_items) -> SentimentResult  # {score, positive_count, negative_count, confidence, high_impact_flags}
+sentiment_adjustment(score, weight=0.05) -> float  # multiplicative factor
+batch_sentiment(player_news: dict[int, list[str]]) -> dict[int, float]
 ```
 
 ## Gotchas
@@ -786,6 +846,15 @@ SYSTEM_MAP = {"steamer": "steamer", "zips": "zips", "fangraphsdc": "depthcharts"
 - **Cache TTL = 0 means immediately stale** — Setting `ttl=0` in `TradeEvalCache.set()` creates an entry that `is_stale` returns True for on the next `.get()`. Used in tests but should never be used in production.
 - **`get_trade_cache()` is a module-level singleton** — All trade evaluations within a Streamlit session share the same cache. Call `reset_trade_cache()` to force a full refresh (e.g., after standings update).
 - **Adaptive sim scaling caps at 100K** — `compute_adaptive_n_sims()` never returns more than 100K regardless of trade complexity. The minimum is 1K (quick mode). The `time_budget_s` parameter allows capping by estimated runtime.
+- **`DraftRecommendationEngine` swaps `pick_score`** — `recommend()` temporarily replaces `pick_score` with `enhanced_pick_score` before calling `DraftSimulator.evaluate_candidates()`. The original is saved to `_original_pick_score`. This ensures MC simulation uses the enhanced values without modifying the simulator.
+- **Enhanced pick_score multiplier clamped [0.5, 1.5]** — The multiplicative component (park × injury × Statcast × platoon × contract_year × category_balance) is clipped to prevent extreme values. Additive bonuses (streaming penalty, closer bonus, flex bonus) are unclamped.
+- **Category balance uses draft_progress scaling** — Early draft (rounds 1-8) compresses weights toward 1.0 (BPA dominates). Mid-draft full strength. Late draft (rounds 17+) amplifies gaps to 1.5x (gap-filling urgent). `draft_progress` = `current_round / num_rounds`.
+- **BUY/FAIR/AVOID threshold scales** — Early picks (1-100): gap >= 20 = BUY. Mid (100-200): gap >= 15. Late (200+): gap >= 10. Invalid ranks (0 or negative) return "FAIR".
+- **Streaming penalty only for non-elite non-closers** — Closers (SV > 10) and elite SP (ERA < 2.80) get zero penalty. Others penalized proportional to streaming-replaceable stat fraction (W, K).
+- **XGBoost is optional** — `XGBOOST_AVAILABLE` flag in `ml_ensemble.py`. When unavailable, `predict_batch()` returns Series of zeros. Training requires `MIN_TRAINING_SAMPLES = 50`.
+- **News sentiment not yet integrated** — Module is complete and tested but not wired into `DraftRecommendationEngine`. Ready for future news API integration.
+- **`compute_category_balance()` empty all_teams returns all 1.0** — Graceful degradation when no opponent data available (e.g., before draft starts).
+- **Platoon risk uses The Book research** — LHB vs LHP: 0.90 (10% discount). Based on Tom Tango's "The Book" (2007): ~40 fewer PA and ~15 wRC+ loss for LHB facing same-side pitching.
 
 ## GitHub
 
@@ -795,9 +864,10 @@ SYSTEM_MAP = {"steamer": "steamer", "zips": "zips", "fangraphsdc": "depthcharts"
 
 ## Testing Status
 
-- **Unit tests:** 843 collected, 843 passed, 1 skipped (PyMC optional dep)
-- **Test files:** 36 test files across draft engine, trade engine (Phase 1-6), lineup optimizer (10 files), in-season, analytics, data pipeline, bootstrap, integration, and math verification
+- **Unit tests:** 1113 collected, 1108 passed, 3 skipped (PyMC/xgboost optional deps), 2 pre-existing failures
+- **Test files:** 41 test files across draft engine, trade engine (Phase 1-6), lineup optimizer (10 files), draft recommendation engine (5 files), in-season, analytics, data pipeline, bootstrap, integration, and math verification
 - **Math verification suite:** 168 tests across 4 files (valuation, simulation, trade, trade engine math) — hand-calculated expected values verified against code formulas
+- **Draft recommendation engine tests:** 270 tests total — DraftRecommendationEngine (50): all 8 stages, 3 modes, enhanced_pick_score formula, timing, integration. Draft analytics (35): category balance, opportunity cost, streaming value, BUY/FAIR/AVOID. Contextual factors (25): closer hierarchy, platoon risk, lineup protection, schedule strength, contract year. ML ensemble + sentiment (40): XGBoost fallback, feature prep, keyword scoring. Data foundation (30): LeagueConfig, Yahoo ADP, draft_state enhancements.
 - **Trade engine tests:** 228 tests total — Phase 1 (47): marginal SGP, punt detection, z-scores, grading, fuzzy match, replacement cost penalty (6), lineup-constrained eval (9), integration. Phase 2 (33): BMA, KDE marginals, Gaussian copula, paired MC, correlated sampling, distributional metrics, integration. Phase 3 (32): Statcast aggregation, signal decay, Kalman filter, BOCPD changepoint detection, HMM regime classification, rolling features. Phase 4 (40): Log5 matchup math, Weibull injury duration, frailty, season availability, enhanced bench value, roster flexibility, HHI concentration, penalty thresholds, trade context integration. Phase 5 (38): opponent valuations, market clearing price, adverse selection Bayesian discount, Bellman rollout, roster balance, sensitivity ranking, counter-offers, game theory integration. Phase 6 (32): ESS convergence, split-R̂, running mean stability, cache TTL/invalidation/get_or_compute, adaptive sim scaling, time budget caps. Math (6): replacement cost formula hand-calcs (3) + lineup constraint math (3).
 - **Lineup optimizer tests:** 204 tests total across 10 files — projections (28), matchups (19), H2H engine (18), SGP theory (16), streaming (16), scenarios (19), multi-period (16), dual objective (21), advanced LP (25), pipeline orchestrator (26)
 - **CI:** GitHub Actions runs ruff lint/format + pytest on Python 3.11, 3.12, 3.13

@@ -2,7 +2,7 @@
 
 A fantasy baseball draft assistant + in-season manager for Yahoo Sports H2H Categories leagues. Features the **Heater** UI — a modern glassmorphic design system with vibrant thermal color palette, 3D inflatable buttons, kinetic gradient typography, and pill-based navigation. Monte Carlo draft recommendations, Bayesian projection updates, and full in-season roster management.
 
-Built for the **FourzynBurn** league (12-team H2H Categories, snake draft, 23 rounds, 12 scoring categories). ~25,000 lines of Python across 60+ source files with 843 tests (36 test files). Zero CSV uploads — all data auto-fetched from MLB Stats API + FanGraphs on every launch. Zero emoji — all icons are inline SVGs.
+Built for the **FourzynBurn** league (12-team H2H Categories, snake draft, 23 rounds, 12 scoring categories). ~30,000 lines of Python across 65+ source files with 1,113 tests (41 test files). Zero CSV uploads — all data auto-fetched from MLB Stats API + FanGraphs on every launch. Zero emoji — all icons are inline SVGs.
 
 ## Overview
 
@@ -119,6 +119,34 @@ An 11-module pipeline with 20 mathematical techniques for lineup optimization:
 
 204 dedicated tests across 10 test files. 5-tab Streamlit UI: Optimize, H2H Matchup, Streaming, Category Analysis, Roster.
 
+### Draft Recommendation Engine (`src/draft_engine.py`)
+
+A 25-feature enhanced draft pipeline with 3 execution modes:
+
+| Mode | Time | Features |
+|------|------|----------|
+| **Quick** | <1s | Park factors + category balance only |
+| **Standard** | 2-3s | + Bayesian blend, injury probability, Statcast delta, streaming penalty, contextual factors |
+| **Full** | 5-10s | + ML ensemble (XGBoost), schedule strength, contract year boost |
+
+**8-stage enhancement pipeline:** park factors → Bayesian blend → injury probability → Statcast delta → FIP correction → contextual factors → category balance → ML ensemble
+
+**Enhanced scoring formula:**
+```
+enhanced = base_sgp × mult + additive
+  mult = category_balance × park × (1 - injury×0.3) × (1 + statcast×0.15) × platoon × contract_year
+  additive = streaming_penalty + lineup_protection + closer_bonus + ml×0.1 + flex_bonus
+```
+
+**Key features:**
+- **Category balance** — Normal PDF weighting per category; early draft favors best-player-available, late draft amplifies gap-filling
+- **Contextual factors** — Closer hierarchy (SV-based scarcity premium), platoon risk (The Book: LHB -10%), lineup protection (PA bonus by batting order), schedule strength (division park factors), contract year (+2% hitters)
+- **BUY/FAIR/AVOID** — Classification based on model rank vs ADP gap, threshold scales by draft phase
+- **ML ensemble** — Optional XGBoost residual correction (graceful fallback when unavailable)
+- **News sentiment** — Keyword-based scoring ready for news API integration
+
+270 dedicated tests across 5 test files.
+
 ## Setup
 
 ### 1. Launch
@@ -206,6 +234,11 @@ src/
   lineup_optimizer.py   — PuLP LP solver, category targeting, two-start SP detection
   yahoo_api.py          — Yahoo Fantasy OAuth (oob flow) + auto-reconnect + multi-strategy game key resolution + league sync
   data_pipeline.py      — FanGraphs auto-fetch pipeline (Steamer/ZiPS/Depth Charts)
+  draft_engine.py       — DraftRecommendationEngine: 3-mode orchestrator, 8-stage enhancement pipeline
+  draft_analytics.py    — Category balance, opportunity cost, streaming value, BUY/FAIR/AVOID
+  contextual_factors.py — Closer hierarchy, platoon risk, lineup protection, schedule strength, contract year
+  ml_ensemble.py        — XGBoost ensemble for residual prediction (optional, graceful fallback)
+  news_sentiment.py     — Keyword-based news sentiment scoring (-1.0 to +1.0)
   ui_shared.py          — Heater design system: single THEME dict, PAGE_ICONS (inline SVGs), glassmorphic CSS injection, metric tooltips
   validation.py         — Validation utilities
   data_2026.py          — Hardcoded 2026 projections for sample data
@@ -229,7 +262,7 @@ src/
     context/            — Log5 matchups, Weibull injury process, bench value, concentration risk
     game_theory/        — Opponent valuation, adverse selection, Bellman DP rollout, sensitivity analysis
     production/         — Convergence diagnostics, adaptive sim scaling, precomputation cache
-tests/                  — 843 tests (36 test files), 843 pass, 1 skipped (PyMC)
+tests/                  — 1,113 tests (41 test files), 1,108 pass, 3 skipped, 2 pre-existing failures
 data/                   — SQLite DB + draft state backups (gitignored)
 .github/
   workflows/ci.yml      — CI pipeline (lint + test + build)
@@ -254,6 +287,19 @@ urgency = (1 - P_survive) * positional_dropoff
 ```
 
 Where survival probability uses Normal CDF with positional scarcity adjustment.
+
+### Enhanced Draft Engine (25-Feature Pipeline)
+
+The `DraftRecommendationEngine` wraps the base MC simulation with 8 enhancement stages:
+
+1. **Park factors** — Coors 1.38x hitter boost, Marlins 0.88x
+2. **Bayesian blend** — Marcel regression toward preseason projections
+3. **Injury probability** — Health score + age + workload → P(injury over season)
+4. **Statcast delta** — xwOBA vs projected wOBA (positive = undervalued skill)
+5. **FIP correction** — `0.6*FIP + 0.4*ERA` replaces raw ERA for pitchers
+6. **Contextual factors** — Closer role bonus, platoon discount, lineup protection, schedule strength, contract year
+7. **Category balance** — Normal PDF weights by roster gaps (early draft: BPA, late: fill needs)
+8. **ML ensemble** — Optional XGBoost residual correction (10% weight)
 
 ### Percentile Forecasts
 
