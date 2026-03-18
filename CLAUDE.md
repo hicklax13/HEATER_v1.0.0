@@ -9,6 +9,7 @@ A fantasy baseball draft assistant + in-season manager for a 12-team Yahoo Sport
 3. **Trade Analyzer Engine** (`src/engine/`) — 6-phase pipeline: Phase 1 deterministic SGP with LP-constrained lineup totals, Phase 2 stochastic MC (10K sims), Phase 3 signal intelligence (Statcast/Kalman/BOCPD), Phase 4 contextual adjustments (matchups/injuries/concentration), Phase 5 game theory (opponent modeling/adverse selection/Bellman), Phase 6 production (convergence/caching/adaptive scaling). 11 modules, 219 dedicated tests.
 4. **Enhanced Lineup Optimizer** (`src/optimizer/`) — 11-module pipeline with 20 mathematical techniques: enhanced projections (Bayesian/Kalman/regime/injury), weekly matchup adjustments (park/platoon/weather), H2H category weights (Normal PDF), non-linear SGP (bell-curve proximity), pitcher streaming, stochastic scenarios (copula/CVaR), multi-period planning, dual H2H/Roto objective, advanced LP (maximin/epsilon-constraint/stochastic MIP). Three modes: Quick (<1s), Standard (2-3s), Full (5-10s). 204 dedicated tests across 10 test files.
 5. **Draft Recommendation Engine** (`src/draft_engine.py` + 4 support modules) — 25-feature enhanced draft pipeline: 3 execution modes (Quick <1s, Standard 2-3s, Full 5-10s), 8-stage enhancement chain (park factors → Bayesian blend → injury probability → Statcast delta → FIP correction → contextual factors → category balance → ML ensemble). Multiplicative + additive scoring formula with clipping. Category-aware recommendations via Normal PDF weighting. Contextual factors: closer hierarchy, platoon risk, lineup protection, schedule strength, contract year boost. ML ensemble (XGBoost, optional) + news sentiment scoring. BUY/FAIR/AVOID classification. 270 dedicated tests across 5 test files.
+6. **Gap Closure Data Layer** (`src/` new modules) — 14 new modules closing spec gaps: extended roster (40-man + spring training via MLB Stats API), 7 projection systems (Steamer/ZiPS/Depth Charts/ATC/THE BAT/THE BAT X/Marcel), multi-source ADP (FanGraphs + FantasyPros ECR + NFBC), depth chart scraping with role classification, contract year data from BB-Ref, news fetcher from MLB transactions API, background refresh scheduler, GitHub Actions daily cron. Engine output enrichment adds composite value score, position/overall ranks, confidence level, LAST CHANCE badge. 153 dedicated tests across 14 test files.
 
 ## Commands
 
@@ -28,7 +29,7 @@ ruff check .
 # Format
 ruff format .
 
-# Run all tests (1108 pass, 3 skipped for PyMC/xgboost)
+# Run all tests (1261 pass, 3 skipped for PyMC/xgboost, 2 pre-existing failures)
 python -m pytest
 
 # Run with verbose output
@@ -101,6 +102,14 @@ src/
   contextual_factors.py — Closer hierarchy detection, platoon risk (The Book), lineup protection (PA bonus), schedule strength, contract year boost
   ml_ensemble.py        — XGBoost ensemble model for residual prediction (optional dep, graceful fallback to 0.0)
   news_sentiment.py     — Keyword-based news sentiment scoring (-1.0 to +1.0), high-impact flags, batch processing
+  news_fetcher.py       — MLB Stats API transaction fetcher, fuzzy name matching, player news aggregation
+  adp_sources.py        — Multi-source ADP: FantasyPros ECR scraper + NFBC ADP scraper, name→player_id resolution
+  contract_data.py      — Contract year detection from Baseball Reference free agent list scraper
+  depth_charts.py       — FanGraphs depth chart scraper, role classification (starter/platoon/closer/setup/committee)
+  extended_projections.py — ATC/THE BAT/THE BAT X fetcher (FanGraphs JSON API), 10 new schema columns
+  marcel.py             — Marcel projection system: 3yr weighted avg (5/4/3) with regression to mean + age adjustment
+  engine_output.py      — Draft board output enrichment: composite value (0-100), position/overall ranks, confidence level, LAST CHANCE badge
+  scheduler.py          — Background data refresh daemon thread (5-min interval, staleness-aware, idempotent start/stop)
   optimizer/            — Enhanced Lineup Optimizer (11 modules, 20 mathematical techniques)
     __init__.py         — Package exports with lazy import documentation
     pipeline.py         — Master orchestrator: 9-stage chain, Quick/Standard/Full modes, LineupOptimizerPipeline class
@@ -328,14 +337,17 @@ Phase 1 SGP-based evaluation pipeline (7 modules):
 
 ## Data Sources
 
-- **Players:** Auto-fetched from MLB Stats API on every launch (750+ active players); staleness: 7 days
-- **Draft projections:** Auto-fetched from FanGraphs JSON API (Steamer, ZiPS, Depth Charts) on startup; staleness: 7 days
-- **ADP:** Extracted from FanGraphs Steamer JSON (filters ADP ≥ 999 and nulls); FantasyPros consensus as fallback
+- **Players:** Auto-fetched from MLB Stats API on every launch (750+ active + extended 40-man/spring training); staleness: 7 days
+- **Draft projections:** 7 systems — Steamer, ZiPS, Depth Charts (FanGraphs JSON API) + ATC, THE BAT, THE BAT X (FanGraphs JSON API) + Marcel (local computation); staleness: 7 days
+- **ADP:** 3 sources — FanGraphs Steamer (primary), FantasyPros ECR (scraped), NFBC (scraped); staleness: 24 hours
 - **Current stats:** MLB Stats API (`MLB-StatsAPI` package, auto-refreshed on launch); staleness: 1 hour
 - **Historical stats:** 3 years (2023-2025) from MLB Stats API for injury modeling; staleness: 30 days
 - **Park factors:** Hardcoded FanGraphs 2024 values (30 teams) in `data_bootstrap.py`; staleness: 30 days
 - **Injury history:** Derived from historical stats (games played vs available); staleness: 30 days
 - **League rosters/standings:** Yahoo Fantasy API sync (optional, auto-syncs when connected); staleness: 6 hours
+- **Depth charts:** FanGraphs depth chart scraper with role classification (starter/platoon/closer/setup/committee); staleness: 7 days
+- **Contract data:** Baseball Reference free agent list scraper for contract year detection; staleness: 30 days
+- **News/transactions:** MLB Stats API transaction feed (7-day window), mapped to player_ids via fuzzy matching; staleness: 6 hours
 
 ## Key API Signatures
 
@@ -864,8 +876,9 @@ batch_sentiment(player_news: dict[int, list[str]]) -> dict[int, float]
 
 ## Testing Status
 
-- **Unit tests:** 1113 collected, 1108 passed, 3 skipped (PyMC/xgboost optional deps), 2 pre-existing failures
-- **Test files:** 41 test files across draft engine, trade engine (Phase 1-6), lineup optimizer (10 files), draft recommendation engine (5 files), in-season, analytics, data pipeline, bootstrap, integration, and math verification
+- **Unit tests:** 1266 collected, 1261 passed, 3 skipped (PyMC/xgboost optional deps), 2 pre-existing failures (FA pickup)
+- **Test files:** 55 test files across draft engine, trade engine (Phase 1-6), lineup optimizer (10 files), draft recommendation engine (5 files), gap closure (14 files), in-season, analytics, data pipeline, bootstrap, integration, and math verification
+- **Gap closure tests:** 153 tests total — extended roster (6), LAST CHANCE badge (8), Marcel projections (12), contract data (10), depth charts (12), news fetcher (18), ADP sources (15), extended projections (16), engine output (14), data pipeline schema (12), scheduler (5), bootstrap integration (25)
 - **Math verification suite:** 168 tests across 4 files (valuation, simulation, trade, trade engine math) — hand-calculated expected values verified against code formulas
 - **Draft recommendation engine tests:** 270 tests total — DraftRecommendationEngine (50): all 8 stages, 3 modes, enhanced_pick_score formula, timing, integration. Draft analytics (35): category balance, opportunity cost, streaming value, BUY/FAIR/AVOID. Contextual factors (25): closer hierarchy, platoon risk, lineup protection, schedule strength, contract year. ML ensemble + sentiment (40): XGBoost fallback, feature prep, keyword scoring. Data foundation (30): LeagueConfig, Yahoo ADP, draft_state enhancements.
 - **Trade engine tests:** 228 tests total — Phase 1 (47): marginal SGP, punt detection, z-scores, grading, fuzzy match, replacement cost penalty (6), lineup-constrained eval (9), integration. Phase 2 (33): BMA, KDE marginals, Gaussian copula, paired MC, correlated sampling, distributional metrics, integration. Phase 3 (32): Statcast aggregation, signal decay, Kalman filter, BOCPD changepoint detection, HMM regime classification, rolling features. Phase 4 (40): Log5 matchup math, Weibull injury duration, frailty, season availability, enhanced bench value, roster flexibility, HHI concentration, penalty thresholds, trade context integration. Phase 5 (38): opponent valuations, market clearing price, adverse selection Bayesian discount, Bellman rollout, roster balance, sensitivity ranking, counter-offers, game theory integration. Phase 6 (32): ESS convergence, split-R̂, running mean stability, cache TTL/invalidation/get_or_compute, adaptive sim scaling, time budget caps. Math (6): replacement cost formula hand-calcs (3) + lineup constraint math (3).
