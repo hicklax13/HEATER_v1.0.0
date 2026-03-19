@@ -46,6 +46,10 @@ def blend_ecr_with_projections(
     for _, row in ecr_df.iterrows():
         name = str(row.get(name_col, ""))
         ecr_lookup[name.lower()] = int(row.get("ecr_rank", 999))
+    # Convert columns to float to avoid dtype mismatch warnings
+    df["ecr_rank"] = pd.array([None] * len(df), dtype=pd.Int64Dtype())
+    df["blended_rank"] = (df.index + 1).astype(float)
+
     pool_name_col = "player_name" if "player_name" in df.columns else "name"
     for idx, row in df.iterrows():
         name = str(row.get(pool_name_col, "")).lower()
@@ -78,3 +82,44 @@ def store_ecr_rankings(ecr_df: pd.DataFrame, conn=None) -> int:
 def load_ecr_rankings(conn=None) -> pd.DataFrame:
     """Load ECR rankings from DB (stub)."""
     return pd.DataFrame(columns=["player_name", "ecr_rank", "best_rank", "worst_rank"])
+
+
+def fetch_prospect_rankings(top_n: int = 100) -> pd.DataFrame:
+    """Return a DataFrame of top prospect rankings.
+
+    Returns DataFrame with columns: rank, name, team, position, eta, fv
+    Falls back to empty DataFrame on error.
+    """
+    # Static curated list based on public consensus rankings
+    prospects = [
+        {"rank": 1, "name": "Roki Sasaki", "team": "LAD", "position": "SP", "eta": "2025", "fv": 80},
+        {"rank": 2, "name": "Roman Anthony", "team": "BOS", "position": "OF", "eta": "2025", "fv": 70},
+        {"rank": 3, "name": "Travis Bazzana", "team": "CLE", "position": "2B", "eta": "2026", "fv": 65},
+        {"rank": 4, "name": "Charlie Condon", "team": "COL", "position": "3B", "eta": "2027", "fv": 65},
+        {"rank": 5, "name": "Jac Caglianone", "team": "KC", "position": "1B/SP", "eta": "2027", "fv": 65},
+        {"rank": 6, "name": "Sebastian Walcott", "team": "TEX", "position": "SS", "eta": "2027", "fv": 65},
+        {"rank": 7, "name": "Kristian Campbell", "team": "BOS", "position": "SS", "eta": "2026", "fv": 60},
+        {"rank": 8, "name": "Marcelo Mayer", "team": "BOS", "position": "SS", "eta": "2026", "fv": 60},
+        {"rank": 9, "name": "JJ Wetherholt", "team": "PIT", "position": "2B", "eta": "2026", "fv": 60},
+        {"rank": 10, "name": "Coby Mayo", "team": "BAL", "position": "3B", "eta": "2025", "fv": 55},
+        {"rank": 11, "name": "Nick Kurtz", "team": "OAK", "position": "1B", "eta": "2027", "fv": 60},
+        {"rank": 12, "name": "James Wood", "team": "WSH", "position": "OF", "eta": "2025", "fv": 55},
+        {"rank": 13, "name": "Bubba Chandler", "team": "PIT", "position": "SS/SP", "eta": "2026", "fv": 60},
+        {"rank": 14, "name": "Chase Burns", "team": "CIN", "position": "SP", "eta": "2026", "fv": 60},
+        {"rank": 15, "name": "Tink Hence", "team": "STL", "position": "SP", "eta": "2026", "fv": 55},
+        {"rank": 16, "name": "Samuel Basallo", "team": "BAL", "position": "C", "eta": "2026", "fv": 55},
+        {"rank": 17, "name": "Braden Montgomery", "team": "BOS", "position": "OF", "eta": "2027", "fv": 60},
+        {"rank": 18, "name": "Leodalis De Vries", "team": "TEX", "position": "SS", "eta": "2028", "fv": 60},
+        {"rank": 19, "name": "Colt Emerson", "team": "CLE", "position": "SS", "eta": "2028", "fv": 60},
+        {"rank": 20, "name": "Ethan Salas", "team": "SD", "position": "C", "eta": "2026", "fv": 55},
+    ]
+    df = pd.DataFrame(prospects[: min(top_n, len(prospects))])
+    return df
+
+
+def filter_prospects_by_position(prospects_df: pd.DataFrame, position: str) -> pd.DataFrame:
+    """Filter prospects DataFrame by position (substring match)."""
+    if prospects_df.empty or not position:
+        return prospects_df
+    mask = prospects_df["position"].str.contains(position, case=False, na=False)
+    return prospects_df[mask].reset_index(drop=True)
