@@ -453,7 +453,7 @@ def _render_draft_report_card(pool: pd.DataFrame, ds: DraftState) -> None:
         for entry in ds.pick_log:
             if entry.get("team_index") == 0:  # user is always team 0
                 pick_num = entry.get("pick", 0)
-                round_num = (pick_num // num_teams) + 1
+                round_num = entry.get("round", (pick_num // num_teams) + 1)
                 user_picks.append(
                     {
                         "round": round_num,

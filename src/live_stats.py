@@ -5,6 +5,7 @@ from free public data sources. No Yahoo dependency.
 """
 
 import logging
+import threading
 from datetime import UTC, datetime
 
 import pandas as pd
@@ -439,9 +440,10 @@ def fetch_injury_data_bulk(
 
 # ── Team Batting Stats (shared by Features 2, 4, 6) ──────────────────
 
-# Module-level cache for team batting stats
+# Module-level cache for team batting stats (thread-safe)
 _team_batting_cache: dict | None = None
 _team_batting_cache_time: datetime | None = None
+_team_batting_lock = threading.Lock()
 _TEAM_BATTING_CACHE_HOURS = 24
 
 
@@ -456,17 +458,18 @@ def fetch_team_batting_stats(season: int = 2026) -> dict[str, dict[str, float]]:
     """
     global _team_batting_cache, _team_batting_cache_time
 
-    # Check cache
-    if _team_batting_cache is not None and _team_batting_cache_time is not None:
-        age = (datetime.now(UTC) - _team_batting_cache_time).total_seconds() / 3600
-        if age < _TEAM_BATTING_CACHE_HOURS:
-            return _team_batting_cache
+    # Check cache (thread-safe)
+    with _team_batting_lock:
+        if _team_batting_cache is not None and _team_batting_cache_time is not None:
+            age = (datetime.now(UTC) - _team_batting_cache_time).total_seconds() / 3600
+            if age < _TEAM_BATTING_CACHE_HOURS:
+                return _team_batting_cache
 
     # League-average defaults (used as fallback)
     league_defaults = {
         "wrc_plus": 100.0,
-        "k_pct": 22.3,
-        "bb_pct": 8.5,
+        "k_pct": 0.223,
+        "bb_pct": 0.085,
         "iso": 0.150,
         "woba": 0.315,
         "ops": 0.720,
@@ -515,8 +518,9 @@ def fetch_team_batting_stats(season: int = 2026) -> dict[str, dict[str, float]]:
                 result[abbr] = dict(league_defaults)
 
         if result:
-            _team_batting_cache = result
-            _team_batting_cache_time = datetime.now(UTC)
+            with _team_batting_lock:
+                _team_batting_cache = result
+                _team_batting_cache_time = datetime.now(UTC)
             return result
 
     except Exception:
@@ -526,10 +530,10 @@ def fetch_team_batting_stats(season: int = 2026) -> dict[str, dict[str, float]]:
 
 
 def _pct(numerator: float, denominator: float) -> float:
-    """Compute percentage, avoiding division by zero."""
+    """Compute proportion (0.0–1.0), avoiding division by zero."""
     if denominator == 0:
         return 0.0
-    return round(numerator / denominator * 100, 1)
+    return round(numerator / denominator, 4)
 
 
 def _fallback_team_stats(defaults: dict) -> dict[str, dict[str, float]]:

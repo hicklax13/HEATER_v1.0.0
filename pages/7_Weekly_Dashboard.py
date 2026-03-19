@@ -583,7 +583,7 @@ with tab_streaming:
             else:
                 from src.data_bootstrap import PARK_FACTORS
 
-                candidates = rank_streaming_candidates(fa_pitchers, park_factors=PARK_FACTORS)
+                candidates = rank_streaming_candidates(fa_pitchers.to_dict("records"), park_factors=PARK_FACTORS)
                 if candidates:
                     stream_rows = []
                     for c in candidates[:15]:

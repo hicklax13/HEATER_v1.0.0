@@ -235,7 +235,8 @@ def compute_player_trends(
 
     for _, proj_row in player_pool.iterrows():
         pid = int(proj_row.get("player_id", 0))
-        is_hitter = int(proj_row.get("is_hitter", 1) or 1)
+        is_hitter_raw = proj_row.get("is_hitter", 1)
+        is_hitter = int(is_hitter_raw) if pd.notna(is_hitter_raw) else 1
         actual_row = stats_by_id.get(pid)
 
         if actual_row is None:

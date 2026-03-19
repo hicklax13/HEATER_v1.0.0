@@ -162,8 +162,8 @@ else:
         # TAB 1: Build Trade
         # ════════════════════════════════════════════════════════════════
         with tab_build:
-            _prefill_give = st.session_state.pop("trade_finder_giving", [])
-            _prefill_recv = st.session_state.pop("trade_finder_receiving", [])
+            _prefill_give = st.session_state.pop("trade_finder_giving", None)
+            _prefill_recv = st.session_state.pop("trade_finder_receiving", None)
 
             col1, col2 = st.columns(2)
             with col1:
@@ -172,20 +172,24 @@ else:
                     give_options = sorted(user_roster["name"].dropna().unique().tolist())
                 else:
                     give_options = sorted(pool[pool["player_id"].isin(user_roster_ids)]["player_name"].tolist())
+                # Pre-fill from trade finder by setting session state key directly
+                if _prefill_give is not None:
+                    st.session_state["giving"] = [n for n in _prefill_give if n in give_options]
                 giving_names = st.multiselect(
                     "Select players to trade away",
                     options=give_options,
-                    default=[n for n in _prefill_give if n in give_options],
                     key="giving",
                 )
             with col2:
                 st.subheader("You Receive")
                 other_players = pool[~pool["player_id"].isin(user_roster_ids)]
                 recv_options = sorted(other_players["player_name"].tolist())
+                # Pre-fill from trade finder by setting session state key directly
+                if _prefill_recv is not None:
+                    st.session_state["receiving"] = [n for n in _prefill_recv if n in recv_options]
                 receiving_names = st.multiselect(
                     "Select players to receive",
                     options=recv_options,
-                    default=[n for n in _prefill_recv if n in recv_options],
                     key="receiving",
                 )
 
@@ -511,11 +515,23 @@ else:
                         # Market Intelligence (Phase 5)
                         market_vals = result.get("market_values")
                         if market_vals and isinstance(market_vals, dict):
+                            # market_values is {player_id_str: {market_price, demand, ...}}
+                            # Aggregate across all received players
+                            avg_price = 0.0
+                            total_demand = 0
+                            n_players = 0
+                            for _pid, pdata in market_vals.items():
+                                if isinstance(pdata, dict):
+                                    avg_price += pdata.get("market_price", 0)
+                                    total_demand += pdata.get("demand", 0)
+                                    n_players += 1
+                            if n_players > 0:
+                                avg_price /= n_players
                             st.subheader("Market Intelligence")
                             mkt_c1, mkt_c2 = st.columns(2)
                             mkt_c1.metric(
                                 "Market Clearing Price",
-                                f"{market_vals.get('market_price', 0):.2f} Standings Gained Points",
+                                f"{avg_price:.2f} Standings Gained Points",
                                 help=(
                                     "Nash equilibrium fair price based on the second-highest bidder "
                                     "(Vickrey auction). Paying more than this overpays."
@@ -523,7 +539,7 @@ else:
                             )
                             mkt_c2.metric(
                                 "Demand (Teams Interested)",
-                                str(market_vals.get("demand", 0)),
+                                str(total_demand),
                                 help=(
                                     "Number of league teams that value this player above "
                                     "0.5 Standings Gained Points. Higher demand means "
@@ -603,21 +619,6 @@ else:
                                 unsafe_allow_html=True,
                             )
 
-                            # Counter-offer suggestions
-                            counter_offers = sensitivity.get("counter_offers", [])
-                            if counter_offers:
-                                st.subheader("Counter-Offer Suggestions")
-                                counter_rows = []
-                                for co in counter_offers:
-                                    counter_rows.append(
-                                        {
-                                            "Swap Out": co.get("swap_out", "N/A"),
-                                            "Swap In": co.get("swap_in", "N/A"),
-                                            "Improvement": f"{co.get('improvement', 0):+.3f} Standings Gained Points",
-                                            "New Grade": co.get("new_grade", "N/A"),
-                                        }
-                                    )
-                                render_styled_table(pd.DataFrame(counter_rows))
 
                     # P10/P90 risk assessment for traded players
                     try:

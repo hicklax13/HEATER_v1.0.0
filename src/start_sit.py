@@ -206,8 +206,13 @@ def compute_weekly_projection(
         season_games = max(pa / 4.3, 1) if pa > 0 else 140
     else:
         ip = season_totals.get("ip", 0)
+        sv = season_totals.get("sv", 0)
         # SP: ~6 IP/start, ~32 starts; RP: ~1 IP/app, ~65 apps
-        season_games = max(ip / 5.5, 1) if ip > 0 else 30
+        if ip > 0:
+            ip_per_app = 1.0 if sv > 3 or ip < 80 else 5.5
+            season_games = max(ip / ip_per_app, 1)
+        else:
+            season_games = 30
 
     # Determine number of games this week
     team = str(player.get("team", "")).upper().strip()
@@ -229,9 +234,14 @@ def compute_weekly_projection(
     # Apply park factor adjustments if available
     if park_factors and weekly_schedule:
         pf_avg = _average_park_factor(team, weekly_schedule, park_factors, is_hitter)
-        for col in counting_cols:
-            if is_hitter:
+        if is_hitter:
+            for col in counting_cols:
                 weekly[col] *= pf_avg
+        else:
+            # Pitcher park factor is inverted (hitter-friendly parks hurt pitchers)
+            pitcher_pf = max(2.0 - pf_avg, 0.5)
+            for col in counting_cols:
+                weekly[col] *= pitcher_pf
 
     # Compute rate stats from components
     if is_hitter:
@@ -799,11 +809,11 @@ def _generate_reasoning(
     elif platoon < 0.98:
         reasons.append("Platoon disadvantage against probable pitchers")
 
-    # Home/away reasoning
+    # Home/away reasoning — threshold accounts for 50/50 split midpoint (~0.995)
     ha = matchup_factors.get("home_away", 1.0)
-    if ha > 0.99:
+    if ha > 1.005:
         reasons.append("Majority home games this week")
-    elif ha < 0.97:
+    elif ha < 0.98:
         reasons.append("Majority away games this week")
 
     # Top category impact

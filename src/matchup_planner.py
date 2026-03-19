@@ -348,7 +348,10 @@ def compute_weekly_matchup_ratings(
                 pf = park_factors.get(game.get("park_team", ""), 1.0)
                 is_home = bool(game.get("is_home", False))
                 batter_hand = str(row.get("bats", "")) or None
-                pitcher_hand = game.get("opposing_pitcher_hand") or None
+                # Schedule data has pitcher name but not handedness;
+                # platoon adjustment skipped (returns 1.0) until pitcher
+                # hand data is available from roster lookups.
+                pitcher_hand = None
 
                 result = compute_hitter_game_rating(
                     player_stats=player_stats,

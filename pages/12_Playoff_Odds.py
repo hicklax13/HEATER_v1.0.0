@@ -271,7 +271,7 @@ def _highlight_user(row: pd.Series) -> list[str]:
 styled = standings_df.style.apply(_highlight_user, axis=1).format(
     {"Playoff %": "{:.1f}%", "Avg Wins": "{:.1f}", "Avg Losses": "{:.1f}"}
 )
-st.dataframe(styled, use_container_width=True, height=min(460, 38 + 35 * len(standings_df)))
+st.dataframe(styled, width="stretch", height=min(460, 38 + 35 * len(standings_df)))
 
 # ── Rank Distribution for User Team ──────────────────────────────────
 

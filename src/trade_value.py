@@ -177,13 +177,14 @@ def compute_trade_values(
     elif "name" not in pool.columns:
         pool["name"] = "Unknown"
 
-    # Update SGP denominators from standings if available
+    # Update SGP denominators from standings if available (copy to avoid mutating shared config)
     if standings is not None and not standings.empty:
         try:
             from src.engine.portfolio.valuation import compute_sgp_from_standings
 
             live_denoms = compute_sgp_from_standings(standings, config)
-            config.sgp_denominators.update(live_denoms)
+            config = LeagueConfig()
+            config.sgp_denominators = {**LeagueConfig().sgp_denominators, **live_denoms}
         except ImportError:
             pass
 

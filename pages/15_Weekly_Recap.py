@@ -205,7 +205,6 @@ st.markdown("### Suggested Moves for Next Week")
 
 # Identify weak categories (losses)
 losses = [r["Category"] for r in cat_rows if r["Result"] == "LOSS"]
-close_losses = [r for r in cat_rows if r["Result"] == "LOSS"]
 
 if losses:
     st.markdown("**Categories to target:** " + ", ".join(losses))

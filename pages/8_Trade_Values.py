@@ -238,7 +238,8 @@ with st.expander("Positional Scarcity Chart", expanded=False):
             sgps_sorted = sorted(sgps, reverse=True)
             top_5_avg = sum(sgps_sorted[:5]) / min(5, len(sgps_sorted)) if sgps_sorted else 0
             top_10_avg = sum(sgps_sorted[:10]) / min(10, len(sgps_sorted)) if sgps_sorted else 0
-            rep_sgp = rep_levels.get(pos, {}).get("total", 0) if isinstance(rep_levels.get(pos), dict) else 0
+            rep_val = rep_levels.get(pos, 0)
+            rep_sgp = rep_val if isinstance(rep_val, (int, float)) else 0
 
             # Scarcity score = drop-off steepness
             if len(sgps_sorted) >= 3:
