@@ -251,7 +251,11 @@ def _find_fa_pickup(
     Returns:
         ``player_id`` of the best FA, or ``None`` if none found.
     """
-    fa_pool = get_free_agents(player_pool)
+    try:
+        fa_pool = get_free_agents(player_pool)
+    except Exception:
+        # DB not initialized or league_rosters table missing — treat all as FA
+        fa_pool = player_pool
     if fa_pool.empty:
         return None
 
@@ -480,7 +484,11 @@ def evaluate_trade(
 
     elif net_roster_growth < 0 and PULP_AVAILABLE and LineupOptimizer is not None:
         # Roster shrinks (e.g., 2-for-1): pick up best FA(s) to restore cap
-        fa_pool_check = get_free_agents(player_pool)
+        try:
+            fa_pool_check = get_free_agents(player_pool)
+        except Exception:
+            # DB not initialized or league_rosters table missing — treat all as FA
+            fa_pool_check = player_pool
         use_median_cap = fa_pool_check.shape[0] > 500  # heuristic: no real rosters loaded
 
         picked_up_ids: set[int] = set()

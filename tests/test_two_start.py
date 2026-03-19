@@ -577,14 +577,7 @@ class TestIdentifyTwoStartPitchers:
 
     def test_import_failure_returns_empty(self):
         """When required modules are missing, returns empty list."""
-        with patch.dict("sys.modules", {"src.data_bootstrap": None}):
-            # Force reimport
-            import importlib
-
-            import src.two_start
-
-            importlib.reload(src.two_start)
-            result = src.two_start.identify_two_start_pitchers()
+        # Patch the guard variables directly — more reliable than importlib.reload
+        with patch("src.two_start._MLB_TEAM_ABBREVS", {}):
+            result = identify_two_start_pitchers()
             assert result == []
-            # Reload back to normal
-            importlib.reload(src.two_start)
