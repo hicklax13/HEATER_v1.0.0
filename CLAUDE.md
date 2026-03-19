@@ -117,6 +117,7 @@ src/
   waiver_wire.py        — Waiver wire + drop suggestions: LP-verified add/drop pairs, 7-stage pipeline (category gap → FA pre-filter → drop cost → net swap → sustainability BABIP filter → greedy optimization → annotate)
   trade_finder.py       — Trade finder: cosine dissimilarity team pairing (arXiv:2111.02859), 1-for-1 scan with acceptance probability (loss aversion behavioral model), grade integration
   draft_grader.py       — Post-draft grader: 3-component grading (40% team value, 35% pick efficiency, 25% category balance), steal/reach detection (AND logic: SGP surplus + ADP gap), position-adjusted thresholds
+Research.md             — FantasyPros competitive gap analysis: 74 FP features vs 33 HEATER comparable features, 30 actionable gaps in 3 priority tiers, recommendations for next builds
   optimizer/            — Enhanced Lineup Optimizer (11 modules, 20 mathematical techniques)
     __init__.py         — Package exports with lazy import documentation
     pipeline.py         — Master orchestrator: 9-stage chain, Quick/Standard/Full modes, LineupOptimizerPipeline class
