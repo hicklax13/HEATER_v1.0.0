@@ -17,6 +17,8 @@ pybaseball>=2.2.7
 arviz>=0.15.0
 # Lineup optimization
 PuLP>=2.7
+# News intelligence: RSS feed parsing
+feedparser>=6.0
 # Gap closure: web scraping for ADP/depth charts/contracts
 beautifulsoup4>=4.12.0
 # Gap closure: background refresh scheduler

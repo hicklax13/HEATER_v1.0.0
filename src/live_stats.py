@@ -567,3 +567,22 @@ def _fallback_team_stats(defaults: dict) -> dict[str, dict[str, float]]:
         "WSH",
     ]
     return {t: dict(defaults) for t in teams}
+
+
+def fetch_player_enhanced_status(mlb_id: int) -> dict | None:
+    """Fetch enhanced player status with roster entries and transactions.
+
+    Uses MLB Stats API hydrate=rosterEntries,transactions.
+    """
+    if statsapi is None:
+        return None
+    try:
+        data = statsapi.get(
+            "person",
+            {"personIds": mlb_id, "hydrate": "rosterEntries,transactions"},
+        )
+        people = data.get("people", [])
+        return people[0] if people else None
+    except Exception:
+        logger.warning("Enhanced status fetch failed for mlb_id=%s", mlb_id, exc_info=True)
+        return None
