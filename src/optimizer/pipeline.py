@@ -536,15 +536,33 @@ class LineupOptimizerPipeline:
             }
 
         try:
-            # If risk adjustments exist, modify the weights to incorporate them
-            # The risk adjustment is added to the player's total value in the LP
             adjusted_roster = roster.copy()
             if risk_adjustments:
-                # Store risk adjustments as a column for potential UI display
+                # Store raw risk penalties for potential UI display
                 adjusted_roster["_risk_penalty"] = 0.0
                 for idx, penalty in risk_adjustments.items():
                     if idx < len(adjusted_roster):
                         adjusted_roster.iloc[idx, adjusted_roster.columns.get_loc("_risk_penalty")] = penalty
+
+                # Pre-adjust stat values so the LP solver accounts for risk.
+                # penalty is negative (from mean_variance_adjustments), so
+                # risk_fraction = -penalty / max_penalty gives [0, 1] range.
+                # We scale stats by (1 - risk_fraction * scale_factor).
+                penalties = [risk_adjustments.get(i, 0.0) for i in range(len(adjusted_roster))]
+                if penalties:
+                    min_penalty = min(penalties)  # most negative = highest risk
+                    if min_penalty < 0:
+                        counting_cats = ["r", "hr", "rbi", "sb", "w", "sv", "k"]
+                        for idx, penalty in risk_adjustments.items():
+                            if idx < len(adjusted_roster) and penalty < 0:
+                                # Convert negative penalty to a 0-1 risk fraction
+                                # Scale factor of 0.15 caps the maximum stat reduction
+                                risk_frac = min(abs(penalty / min_penalty), 1.0) * 0.15
+                                for cat in counting_cats:
+                                    if cat in adjusted_roster.columns:
+                                        col_loc = adjusted_roster.columns.get_loc(cat)
+                                        val = float(adjusted_roster.iloc[idx, col_loc])
+                                        adjusted_roster.iloc[idx, col_loc] = val * (1.0 - risk_frac)
 
             optimizer = LineupOptimizer(adjusted_roster, self.config)
             result = optimizer.optimize_lineup(category_weights=category_weights)

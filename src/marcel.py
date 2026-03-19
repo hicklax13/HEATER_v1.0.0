@@ -162,12 +162,21 @@ def _weighted_rate_projection(
     is_hitter: bool,
 ) -> float:
     """PA-weighted average for rate stats, regressed toward league mean."""
-    total_weighted_pa = 0.0
     total_weighted_stat = 0.0
+    total_weighted_pa = 0.0
+
+    # Check if any season has non-zero PA for PA-weighted averaging
+    has_pa = any(pa > 0 for _, _, pa in valid)
 
     for stat_val, year_weight, pa in valid:
-        total_weighted_pa += year_weight
-        total_weighted_stat += stat_val * year_weight
+        if has_pa:
+            # Weight by both PA and year weight
+            total_weighted_stat += stat_val * pa * year_weight
+            total_weighted_pa += pa * year_weight
+        else:
+            # Fall back to pure year-weight when all PA values are 0
+            total_weighted_stat += stat_val * year_weight
+            total_weighted_pa += year_weight
 
     if total_weighted_pa == 0:
         return league_avg

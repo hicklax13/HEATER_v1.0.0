@@ -53,10 +53,10 @@ class TeamRoster:
             if assigned:
                 break
 
-        # Try Util (for hitters) or P (for pitchers) — pitchers skip Util
+        # Try Util (for hitters) or P (for pitchers) — hitters skip P slots
         if not assigned:
             is_pitcher = any(p in ("P", "SP", "RP") for p in pos_list)
-            flex_positions = ["P", "BN"] if is_pitcher else ["Util", "P", "BN"]
+            flex_positions = ["P", "BN"] if is_pitcher else ["Util", "BN"]
             for flex in flex_positions:
                 for s in self.slots:
                     if s.position == flex and s.player_id is None:
@@ -231,10 +231,10 @@ class DraftState:
             "bb": 0,
             "hbp": 0,
             "sf": 0,
-            "ip": 0,
-            "er": 0,
-            "bb_allowed": 0,
-            "h_allowed": 0,
+            "ip": 0.0,
+            "er": 0.0,
+            "bb_allowed": 0.0,
+            "h_allowed": 0.0,
         }
 
         for _, pid, _ in self.user_team.picks:
@@ -257,9 +257,9 @@ class DraftState:
             totals["hbp"] += int(p.get("hbp", 0) or 0)
             totals["sf"] += int(p.get("sf", 0) or 0)
             totals["ip"] += float(p.get("ip", 0) or 0)
-            totals["er"] += int(p.get("er", 0) or 0)
-            totals["bb_allowed"] += int(p.get("bb_allowed", 0) or 0)
-            totals["h_allowed"] += int(p.get("h_allowed", 0) or 0)
+            totals["er"] += float(p.get("er", 0) or 0)
+            totals["bb_allowed"] += float(p.get("bb_allowed", 0) or 0)
+            totals["h_allowed"] += float(p.get("h_allowed", 0) or 0)
 
         # Compute rate stats
         if totals["ab"] > 0:
@@ -320,10 +320,10 @@ class DraftState:
                 "bb": 0,
                 "hbp": 0,
                 "sf": 0,
-                "ip": 0,
-                "er": 0,
-                "bb_allowed": 0,
-                "h_allowed": 0,
+                "ip": 0.0,
+                "er": 0.0,
+                "bb_allowed": 0.0,
+                "h_allowed": 0.0,
             }
             for _, pid, _ in team.picks:
                 player = player_pool[player_pool["player_id"] == pid]
@@ -344,9 +344,9 @@ class DraftState:
                 t["hbp"] += int(p.get("hbp", 0) or 0)
                 t["sf"] += int(p.get("sf", 0) or 0)
                 t["ip"] += float(p.get("ip", 0) or 0)
-                t["er"] += int(p.get("er", 0) or 0)
-                t["bb_allowed"] += int(p.get("bb_allowed", 0) or 0)
-                t["h_allowed"] += int(p.get("h_allowed", 0) or 0)
+                t["er"] += float(p.get("er", 0) or 0)
+                t["bb_allowed"] += float(p.get("bb_allowed", 0) or 0)
+                t["h_allowed"] += float(p.get("h_allowed", 0) or 0)
             if t["ab"] > 0:
                 t["AVG"] = t["h"] / t["ab"]
             else:
@@ -551,7 +551,7 @@ def get_positional_needs(
         # Try flex slots (Util for hitters, P for pitchers, then BN)
         if not assigned:
             is_pitcher = any(p in ("P", "SP", "RP") for p in pos_list)
-            flex_order = ["P", "BN"] if is_pitcher else ["Util", "P", "BN"]
+            flex_order = ["P", "BN"] if is_pitcher else ["Util", "BN"]
             for flex in flex_order:
                 if remaining_slots.get(flex, 0) > 0:
                     remaining_slots[flex] -= 1

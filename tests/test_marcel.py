@@ -151,7 +151,7 @@ class TestRateStatProjection:
     """Tests for rate stat projections (PA-weighted averaging)."""
 
     def test_avg_is_year_weighted(self):
-        """AVG projection should use year-weighted averaging with PA for regression."""
+        """AVG projection should use PA-weighted year-weighted averaging with regression."""
         # Season 1: .300 in 600 PA, Season 2: .250 in 200 PA
         proj = compute_marcel_projection(
             historical_stats=[0.300, 0.250],
@@ -160,9 +160,9 @@ class TestRateStatProjection:
             pa_values=[600.0, 200.0],
             is_hitter=True,
         )
-        # Year-weighted: (0.300*5 + 0.250*4) / (5 + 4)
-        # = (1.5 + 1.0) / 9 = 2.5 / 9 = 0.27778
-        weighted_avg = (0.300 * 5 + 0.250 * 4) / (5 + 4)
+        # PA-weighted year-weighted avg: (0.300*600*5 + 0.250*200*4) / (600*5 + 200*4)
+        # = (900 + 200) / (3000 + 800) = 1100 / 3800 = 0.28947
+        weighted_avg = (0.300 * 600 * 5 + 0.250 * 200 * 4) / (600 * 5 + 200 * 4)
         # Reliability uses raw PA: 600 + 200 = 800
         reliability = 800.0 / (800.0 + REGRESSION_PA)
         league_avg = LEAGUE_AVERAGES["avg"]

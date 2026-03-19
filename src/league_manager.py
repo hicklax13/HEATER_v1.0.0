@@ -96,7 +96,7 @@ def import_standings_csv(csv_path: str) -> int:
     """
     df = pd.read_csv(csv_path)
     df.columns = df.columns.str.strip()
-    categories = ["R", "HR", "RBI", "SB", "AVG", "W", "SV", "K", "ERA", "WHIP"]
+    categories = ["R", "HR", "RBI", "SB", "AVG", "OBP", "W", "L", "SV", "K", "ERA", "WHIP"]
     imported = 0
 
     for _, row in df.iterrows():
@@ -128,8 +128,10 @@ def get_team_roster(team_name: str) -> pd.DataFrame:
                   COALESCE(ss.rbi, pr.rbi, 0) AS rbi,
                   COALESCE(ss.sb, pr.sb, 0) AS sb,
                   COALESCE(ss.avg, pr.avg, 0) AS avg,
+                  COALESCE(ss.obp, pr.obp, 0) AS obp,
                   COALESCE(ss.ip, pr.ip, 0) AS ip,
                   COALESCE(ss.w, pr.w, 0) AS w,
+                  COALESCE(ss.l, pr.l, 0) AS l,
                   COALESCE(ss.sv, pr.sv, 0) AS sv,
                   COALESCE(ss.k, pr.k, 0) AS k,
                   COALESCE(ss.era, pr.era, 0) AS era,
@@ -140,10 +142,9 @@ def get_team_roster(team_name: str) -> pd.DataFrame:
                FROM league_rosters lr
                JOIN players p ON lr.player_id = p.player_id
                LEFT JOIN (
-                   SELECT player_id, pa, ab, h, r, hr, rbi, sb, avg, ip, w, sv, k, era, whip, er, bb_allowed, h_allowed
-                   FROM season_stats
-                   GROUP BY player_id
-                   HAVING season = MAX(season)
+                   SELECT player_id, pa, ab, h, r, hr, rbi, sb, avg, obp, ip, w, l, sv, k, era, whip, er, bb_allowed, h_allowed
+                   FROM season_stats ss_inner
+                   WHERE ss_inner.season = (SELECT MAX(s2.season) FROM season_stats s2 WHERE s2.player_id = ss_inner.player_id)
                ) ss ON lr.player_id = ss.player_id
                LEFT JOIN projections pr ON lr.player_id = pr.player_id
                    AND pr.system = 'blended'
@@ -156,8 +157,8 @@ def get_team_roster(team_name: str) -> pd.DataFrame:
         conn.close()
 
     # Coerce numeric columns (Python 3.13+ SQLite may return bytes)
-    int_cols = ["pa", "ab", "h", "r", "hr", "rbi", "sb", "w", "sv", "k", "er", "bb_allowed", "h_allowed"]
-    float_cols = ["avg", "ip", "era", "whip"]
+    int_cols = ["pa", "ab", "h", "r", "hr", "rbi", "sb", "w", "l", "sv", "k", "er", "bb_allowed", "h_allowed"]
+    float_cols = ["avg", "obp", "ip", "era", "whip"]
     for col in int_cols:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0).astype(int)

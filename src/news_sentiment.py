@@ -148,6 +148,16 @@ def analyze_news_sentiment(news_items: list[str]) -> SentimentResult:
             confidence=0.0,
         )
 
+    news_items = [item for item in news_items if isinstance(item, str)]
+    if not news_items:
+        return SentimentResult(
+            score=0.0,
+            positive_count=0,
+            negative_count=0,
+            high_impact_flags=[],
+            confidence=0.0,
+        )
+
     positive_count = 0
     negative_count = 0
     high_impact_flags: list[str] = []

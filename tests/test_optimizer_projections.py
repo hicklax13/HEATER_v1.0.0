@@ -280,22 +280,25 @@ class TestKalmanFilter:
 class TestRegimeDetection:
     """Tests for regime-based projection adjustment."""
 
-    def test_high_avg_gets_positive_label(self, sample_hitter_roster):
-        """A .314 AVG hitter should be classified favorably."""
-        result = _apply_regime_adjustment(sample_hitter_roster.copy())
-        # Ohtani (.314 AVG → approx .361 xwOBA) should be Elite or Above-avg
-        ohtani = result[result["player_name"] == "Shohei Ohtani"]
-        assert ohtani["regime_label"].values[0] in ["Elite", "Above-avg"]
+    def test_no_separate_recent_stats_skips_regime(self, sample_hitter_roster):
+        """Without separate recent-period stats, regime adjustment is skipped.
 
-    def test_regime_adjusts_counting_stats(self, sample_hitter_roster):
-        """Counting stats should be multiplied by regime factor."""
-        original_hr = sample_hitter_roster.copy()
+        When recent and season xwOBA are identical (derived from the same
+        source), classify_regime_simple always returns neutral. The fix
+        correctly skips the classification entirely, leaving regime_label
+        empty and counting stats unchanged.
+        """
         result = _apply_regime_adjustment(sample_hitter_roster.copy())
-        # Some players should have adjusted HR values
-        # High AVG players get a positive multiplier
-        for idx, row in result.iterrows():
-            if row["regime_label"] in ["Elite", "Above-avg"]:
-                assert row["hr"] >= original_hr.at[idx, "hr"]
+        # All regime labels should be empty (no classification without separate recent data)
+        assert (result["regime_label"] == "").all()
+
+    def test_regime_no_change_to_counting_stats(self, sample_hitter_roster):
+        """Counting stats should remain unchanged when regime is skipped."""
+        original = sample_hitter_roster.copy()
+        result = _apply_regime_adjustment(sample_hitter_roster.copy())
+        for cat in ["hr", "rbi", "r", "sb"]:
+            if cat in result.columns and cat in original.columns:
+                np.testing.assert_array_almost_equal(result[cat].values, original[cat].values)
 
     def test_regime_does_not_adjust_rate_stats(self, sample_hitter_roster):
         """AVG should not be modified by regime detection."""

@@ -544,9 +544,17 @@ def identify_two_start_pitchers(
         )
 
         # Cumulative weekly rate damage across all starts
+        # Compute directly using total IP to avoid linear approximation error
+        total_pitcher_ip = ip_per_start * num_starts
+        if team_ip + total_pitcher_ip > 0:
+            cumulative_era = (p_era - team_era) * total_pitcher_ip / (team_ip + total_pitcher_ip)
+            cumulative_whip = (p_whip - team_whip) * total_pitcher_ip / (team_ip + total_pitcher_ip)
+        else:
+            cumulative_era = 0.0
+            cumulative_whip = 0.0
         cumulative_damage = {
-            "era_change": round(damage_per_start["era_change"] * num_starts, 6),
-            "whip_change": round(damage_per_start["whip_change"] * num_starts, 6),
+            "era_change": round(cumulative_era, 6),
+            "whip_change": round(cumulative_whip, 6),
         }
 
         # Average park factor across starts for streaming value

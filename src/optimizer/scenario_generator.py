@@ -245,8 +245,8 @@ def generate_stat_scenarios(
                 n_players,
             )
             return scenarios
-        except Exception:
-            logger.warning("Copula sampling failed, falling back to Cholesky")
+        except Exception as exc:
+            logger.warning("Copula sampling failed: %s, falling back to Cholesky", exc, exc_info=True)
 
     # Fallback: Cholesky-based correlated Normal sampling
     corr = _build_correlation_matrix()

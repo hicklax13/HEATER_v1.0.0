@@ -392,14 +392,31 @@ def init_db():
     conn.close()
 
 
-_VALID_TABLE_NAMES = frozenset({
-    "players", "projections", "adp", "league_config", "draft_picks",
-    "blended_projections", "player_pool", "season_stats", "ros_projections",
-    "league_rosters", "league_standings", "park_factors", "refresh_log",
-    "injury_history", "transactions", "ecr_consensus", "prospect_rankings",
-    "player_news", "news_player_map",
-})
+_VALID_TABLE_NAMES = frozenset(
+    {
+        "players",
+        "projections",
+        "adp",
+        "league_config",
+        "draft_picks",
+        "blended_projections",
+        "player_pool",
+        "season_stats",
+        "ros_projections",
+        "league_rosters",
+        "league_standings",
+        "park_factors",
+        "refresh_log",
+        "injury_history",
+        "transactions",
+        "ecr_consensus",
+        "prospect_rankings",
+        "player_news",
+        "news_player_map",
+    }
+)
 _VALID_COL_RE = __import__("re").compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
+
 
 def _safe_add_column(conn: sqlite3.Connection, table: str, column: str, col_type: str):
     """Add a column to a table if it doesn't already exist.

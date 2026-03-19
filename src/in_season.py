@@ -58,19 +58,19 @@ def _roster_category_totals(roster_ids: list, player_pool: pd.DataFrame) -> dict
     if totals["ab"] > 0:
         totals["AVG"] = totals["h"] / totals["ab"]
     else:
-        totals["AVG"] = 0
+        totals["AVG"] = 0.250  # League-average neutral sentinel
     # OBP = (H + BB + HBP) / (AB + BB + HBP + SF)
     obp_denom = totals["ab"] + totals["bb"] + totals["hbp"] + totals["sf"]
     if obp_denom > 0:
         totals["OBP"] = (totals["h"] + totals["bb"] + totals["hbp"]) / obp_denom
     else:
-        totals["OBP"] = 0
+        totals["OBP"] = 0.320  # League-average neutral sentinel
     if totals["ip"] > 0:
         totals["ERA"] = totals["er"] * 9 / totals["ip"]
         totals["WHIP"] = (totals["bb_allowed"] + totals["h_allowed"]) / totals["ip"]
     else:
-        totals["ERA"] = 0
-        totals["WHIP"] = 0
+        totals["ERA"] = 4.50  # League-average neutral sentinel
+        totals["WHIP"] = 1.30  # League-average neutral sentinel
 
     return totals
 

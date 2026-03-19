@@ -29,13 +29,15 @@ CATEGORIES: list[str] = [
     "RBI",
     "SB",
     "AVG",
+    "OBP",
     "W",
+    "L",
     "K",
     "SV",
     "ERA",
     "WHIP",
 ]
-INVERSE_CATEGORIES: set[str] = {"ERA", "WHIP"}
+INVERSE_CATEGORIES: set[str] = {"L", "ERA", "WHIP"}
 
 # Default SGP denominators for when standings unavailable
 DEFAULT_SGP_DENOMS: dict[str, float] = {
@@ -44,7 +46,9 @@ DEFAULT_SGP_DENOMS: dict[str, float] = {
     "RBI": 30.0,
     "SB": 8.0,
     "AVG": 0.005,
+    "OBP": 0.005,
     "W": 3.0,
+    "L": 3.0,
     "K": 25.0,
     "SV": 5.0,
     "ERA": 0.20,
@@ -58,7 +62,9 @@ STAT_MAP: dict[str, str] = {
     "RBI": "rbi",
     "SB": "sb",
     "AVG": "avg",
+    "OBP": "obp",
     "W": "w",
+    "L": "l",
     "SV": "sv",
     "K": "k",
     "ERA": "era",
@@ -117,26 +123,49 @@ def estimate_opponent_valuations(
             gap_to_next = _gap_to_next_team(team_cat_total, cat, team_id, all_team_totals)
 
             if gap_to_next > 0:
-                if cat in INVERSE_CATEGORIES:
-                    # For ERA/WHIP, lower is better. A pitcher with low ERA
-                    # helps a team with high ERA. The "contribution" is how
-                    # much the pitcher's rate pulls the team closer to the
-                    # next team — approximated as: if the team's ERA is above
-                    # the next team's, a pitcher with ERA below the team avg
-                    # helps. Use (team_ERA - pitcher_ERA) as the benefit,
-                    # clamped to [0, gap].
+                if cat in INVERSE_CATEGORIES and cat in ("ERA", "WHIP"):
+                    # Rate stat: need IP-weighted blend to compute benefit
+                    player_ip = player_projections.get("ip", player_projections.get("IP", 0))
+                    team_ip = team_totals.get("ip", team_totals.get("IP", 0))
+                    # Default IP when not provided: 150 for player, 1200 for team
+                    if player_ip <= 0 and proj > 0:
+                        player_ip = 150.0
+                    if team_ip <= 0 and team_cat_total > 0:
+                        team_ip = 1200.0
+                    if player_ip > 0 and team_ip > 0:
+                        blended_rate = (team_cat_total * team_ip + proj * player_ip) / (team_ip + player_ip)
+                        benefit = max(0.0, team_cat_total - blended_rate)
+                    else:
+                        benefit = 0.0
+                    marginal = min(benefit / gap_to_next, 1.0) if gap_to_next > 0 else 0.0
+                    team_val += marginal * min(benefit, gap_to_next) / denom
+                elif cat in INVERSE_CATEGORIES:
+                    # L: inverse counting stat, lower is better
+                    # Adding losses hurts, so benefit is if proj < team total
                     benefit = max(0.0, team_cat_total - proj)
                     marginal = min(benefit / gap_to_next, 1.0)
-                    # SGP contribution: benefit relative to denominator
                     team_val += marginal * min(benefit, gap_to_next) / denom
                 else:
                     # Counting stats: projected contribution / gap
                     marginal = min(proj / gap_to_next, 1.0)
                     team_val += marginal * (proj / denom)
             else:
-                if cat in INVERSE_CATEGORIES:
-                    # Team is already best in inverse stat;
-                    # lower-is-better pitchers still have marginal value
+                if cat in INVERSE_CATEGORIES and cat in ("ERA", "WHIP"):
+                    # Rate stat: IP-weighted blend even when already best
+                    player_ip = player_projections.get("ip", player_projections.get("IP", 0))
+                    team_ip = team_totals.get("ip", team_totals.get("IP", 0))
+                    if player_ip <= 0 and proj > 0:
+                        player_ip = 150.0
+                    if team_ip <= 0 and team_cat_total > 0:
+                        team_ip = 1200.0
+                    if player_ip > 0 and team_ip > 0:
+                        blended_rate = (team_cat_total * team_ip + proj * player_ip) / (team_ip + player_ip)
+                        benefit = max(0.0, team_cat_total - blended_rate)
+                    else:
+                        benefit = 0.0
+                    team_val += benefit / denom * 0.5
+                elif cat in INVERSE_CATEGORIES:
+                    # L: inverse counting stat
                     benefit = max(0.0, team_cat_total - proj)
                     team_val += benefit / denom * 0.5
                 else:

@@ -726,11 +726,10 @@ def refresh_all_news(
     # 3. MLB Stats API enhanced status (requires player mlb_ids)
     try:
         from src.database import get_connection
+
         conn = get_connection()
         try:
-            rows = conn.execute(
-                "SELECT mlb_id FROM players WHERE mlb_id IS NOT NULL AND mlb_id > 0"
-            ).fetchall()
+            rows = conn.execute("SELECT mlb_id FROM players WHERE mlb_id IS NOT NULL AND mlb_id > 0").fetchall()
             mlb_ids = [r[0] for r in rows]
         finally:
             conn.close()

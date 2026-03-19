@@ -759,12 +759,14 @@ def refresh_ecr_consensus(force: bool = False) -> pd.DataFrame:
     # Add NFBC ADP source
     try:
         from src.adp_sources import fetch_nfbc_adp
+
         source_fetchers.append(("nfbc", fetch_nfbc_adp))
     except ImportError:
         logger.debug("NFBC ADP source unavailable")
     # Add FanGraphs ADP source
     try:
         from src.data_pipeline import fetch_projections
+
         def _fetch_fg_adp():
             df, _ = fetch_projections("steamer", "bat")
             if df is not None and not df.empty and "adp" in df.columns:
@@ -773,6 +775,7 @@ def refresh_ecr_consensus(force: bool = False) -> pd.DataFrame:
                 fg["rank"] = fg["fg_adp"]
                 return fg
             return pd.DataFrame()
+
         source_fetchers.append(("fangraphs", _fetch_fg_adp))
     except ImportError:
         logger.debug("FanGraphs ADP source unavailable")
@@ -780,6 +783,7 @@ def refresh_ecr_consensus(force: bool = False) -> pd.DataFrame:
     try:
         from src.database import load_player_pool
         from src.valuation import LeagueConfig, SGPCalculator
+
         def _fetch_heater_sgp():
             pp = load_player_pool()
             if pp.empty:
@@ -791,6 +795,7 @@ def refresh_ecr_consensus(force: bool = False) -> pd.DataFrame:
             ranked["rank"] = range(1, len(ranked) + 1)
             ranked["heater_sgp_rank"] = ranked["rank"]
             return ranked
+
         source_fetchers.append(("heater", _fetch_heater_sgp))
     except ImportError:
         logger.debug("HEATER SGP source unavailable")
@@ -857,6 +862,7 @@ def refresh_ecr_consensus(force: bool = False) -> pd.DataFrame:
     # Log refresh so check_staleness("ecr_consensus", 24) works correctly
     try:
         from src.database import log_refresh
+
         log_refresh("ecr_consensus", "success")
     except Exception:
         logger.debug("Failed to log ecr_consensus refresh", exc_info=True)

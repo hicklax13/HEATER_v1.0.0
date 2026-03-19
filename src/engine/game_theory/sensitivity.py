@@ -26,13 +26,15 @@ CATEGORIES: list[str] = [
     "RBI",
     "SB",
     "AVG",
+    "OBP",
     "W",
+    "L",
     "K",
     "SV",
     "ERA",
     "WHIP",
 ]
-INVERSE_CATEGORIES: set[str] = {"ERA", "WHIP"}
+INVERSE_CATEGORIES: set[str] = {"L", "ERA", "WHIP"}
 
 # Minimum improvement to suggest a swap (SGP)
 MIN_SWAP_IMPROVEMENT: float = 0.2
@@ -44,7 +46,9 @@ STAT_MAP: dict[str, str] = {
     "RBI": "rbi",
     "SB": "sb",
     "AVG": "avg",
+    "OBP": "obp",
     "W": "w",
+    "L": "l",
     "SV": "sv",
     "K": "k",
     "ERA": "era",

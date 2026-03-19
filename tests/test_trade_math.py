@@ -163,11 +163,13 @@ class TestRosterTotals:
         assert totals["AVG"] == pytest.approx(expected, rel=1e-6)
 
     def test_empty_roster_zeros(self, pool):
-        """Empty roster returns all zeros, with rate stats = 0."""
+        """Empty roster returns zero for counting stats, neutral sentinels for rate stats."""
         totals = _roster_category_totals([], pool)
         assert totals["R"] == 0
-        assert totals["AVG"] == 0
-        assert totals["ERA"] == 0
+        assert totals["AVG"] == 0.250  # League-average neutral sentinel
+        assert totals["OBP"] == 0.320  # League-average neutral sentinel
+        assert totals["ERA"] == 4.50  # League-average neutral sentinel
+        assert totals["WHIP"] == 1.30  # League-average neutral sentinel
 
     def test_nonexistent_ids_ignored(self, pool):
         """IDs not in pool are silently ignored (no crash)."""

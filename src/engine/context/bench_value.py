@@ -68,7 +68,7 @@ def enhanced_bench_option_value(
     streaming = streaming_sgp_per_week * weeks_remaining
 
     # 2. Hot FA option value: probability of breakout × expected value
-    hot_fa_prob = min(HOT_FA_WEEKLY_PROB * weeks_remaining, 1.0)
+    hot_fa_prob = 1.0 - (1.0 - HOT_FA_WEEKLY_PROB) ** weeks_remaining
     hot_fa = hot_fa_prob * HOT_FA_VALUE * 0.5  # Discount for uncertainty
 
     # 3. Roster flexibility premium

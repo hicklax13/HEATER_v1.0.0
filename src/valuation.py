@@ -453,7 +453,15 @@ def compute_category_weights(
             other_vals = [t.get(cat, 0) for t in league_totals]
             if cat in config.inverse_stats:
                 # Lower is better: count how many teams we beat
-                rank = sum(1 for v in other_vals if v > 0 and (current == 0 or v < current)) + 1
+                if current == 0:
+                    if cat in config.counting_stats:
+                        # L=0 is the best possible — rank 1
+                        rank = 1
+                    else:
+                        # ERA=0 / WHIP=0 with no IP means no pitching — worst rank
+                        rank = len(other_vals) + 1
+                else:
+                    rank = sum(1 for v in other_vals if v > 0 and v < current) + 1
             else:
                 rank = sum(1 for v in other_vals if v > current) + 1
             # rank 1 = best, num_teams = worst

@@ -236,13 +236,19 @@ def build_valuation_context(
 
     # Load standings and compute live SGP denominators
     standings = load_league_standings()
+    denoms = dict(config.sgp_denominators)
     if not standings.empty:
         live_denoms = compute_sgp_from_standings(standings, config)
-        # Update config with live denominators
-        config.sgp_denominators.update(live_denoms)
+        # Merge into local copy — do NOT mutate shared config
+        denoms = {**denoms, **live_denoms}
 
-    sgp_calc = SGPCalculator(config)
-    replacement_levels = compute_replacement_levels(pool, config, sgp_calc)
+    # Build a local config copy with the merged denominators for SGP calc
+    local_config = LeagueConfig()
+    local_config.__dict__.update(config.__dict__)
+    local_config.sgp_denominators = denoms
+
+    sgp_calc = SGPCalculator(local_config)
+    replacement_levels = compute_replacement_levels(pool, local_config, sgp_calc)
 
     # Add VORP
     pool["total_sgp"] = pool.apply(sgp_calc.total_sgp, axis=1)
@@ -251,7 +257,7 @@ def build_valuation_context(
     return {
         "player_pool": pool,
         "standings": standings,
-        "sgp_denominators": config.sgp_denominators,
+        "sgp_denominators": denoms,
         "sgp_calc": sgp_calc,
         "replacement_levels": replacement_levels,
     }

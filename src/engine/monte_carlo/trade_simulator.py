@@ -293,19 +293,25 @@ def _simulate_roster_sgp(
                 elif cat_lower in stats:
                     roster_totals[cat] += stats[cat_lower]
 
-            # Accumulate components (with noise applied via marginals if available)
-            # For rate stat components, apply proportional noise from the copula samples
-            # to maintain consistency
-            noise_factor = 1.0 + rng.normal(0, 0.05 * noise_scale)
-            total_h += p_h * max(noise_factor, 0.5)
-            total_ab += p_ab * max(noise_factor, 0.5)
-            total_pa += p_pa * max(noise_factor, 0.5)
-            total_bb += p_bb * max(noise_factor, 0.5)
-            total_hbp += p_hbp * max(noise_factor, 0.5)
-            total_sf += p_sf * max(noise_factor, 0.5)
-            total_ip += p_ip * max(noise_factor, 0.5)
-            total_er += p_er * max(noise_factor, 0.5)
-            total_bb_h_allowed += (p_bb_allowed + p_h_allowed) * max(noise_factor, 0.5)
+            # Accumulate components with separate noise for numerator and
+            # denominator so rate-stat uncertainty is not cancelled out.
+            # Hitting: H gets higher noise than AB (AVG = H/AB)
+            noise_h = 1.0 + rng.normal(0, 0.05 * noise_scale)
+            noise_ab = 1.0 + rng.normal(0, 0.02 * noise_scale)
+            noise_bb = 1.0 + rng.normal(0, 0.05 * noise_scale)
+            total_h += p_h * max(noise_h, 0.5)
+            total_ab += p_ab * max(noise_ab, 0.5)
+            total_pa += p_pa * max(noise_ab, 0.5)
+            total_bb += p_bb * max(noise_bb, 0.5)
+            total_hbp += p_hbp * max(noise_h, 0.5)
+            total_sf += p_sf * max(noise_ab, 0.5)
+            # Pitching: ER/BB/H_allowed get higher noise than IP
+            noise_er = 1.0 + rng.normal(0, 0.05 * noise_scale)
+            noise_ip = 1.0 + rng.normal(0, 0.02 * noise_scale)
+            noise_bb_h_allowed = 1.0 + rng.normal(0, 0.05 * noise_scale)
+            total_ip += p_ip * max(noise_ip, 0.5)
+            total_er += p_er * max(noise_er, 0.5)
+            total_bb_h_allowed += (p_bb_allowed + p_h_allowed) * max(noise_bb_h_allowed, 0.5)
         else:
             # Fallback: independent Gaussian noise
             for cat in CATEGORIES:
@@ -320,17 +326,23 @@ def _simulate_roster_sgp(
                     noisy_val = base_val + rng.normal(0, max(noise_sigma, 0.01))
                     roster_totals[cat] += noisy_val
 
-            # Accumulate components with noise for rate stats
-            noise_factor = 1.0 + rng.normal(0, 0.05 * noise_scale)
-            total_h += p_h * max(noise_factor, 0.5)
-            total_ab += p_ab * max(noise_factor, 0.5)
-            total_pa += p_pa * max(noise_factor, 0.5)
-            total_bb += p_bb * max(noise_factor, 0.5)
-            total_hbp += p_hbp * max(noise_factor, 0.5)
-            total_sf += p_sf * max(noise_factor, 0.5)
-            total_ip += p_ip * max(noise_factor, 0.5)
-            total_er += p_er * max(noise_factor, 0.5)
-            total_bb_h_allowed += (p_bb_allowed + p_h_allowed) * max(noise_factor, 0.5)
+            # Accumulate components with separate noise for numerator and
+            # denominator so rate-stat uncertainty is not cancelled out.
+            noise_h = 1.0 + rng.normal(0, 0.05 * noise_scale)
+            noise_ab = 1.0 + rng.normal(0, 0.02 * noise_scale)
+            noise_bb = 1.0 + rng.normal(0, 0.05 * noise_scale)
+            total_h += p_h * max(noise_h, 0.5)
+            total_ab += p_ab * max(noise_ab, 0.5)
+            total_pa += p_pa * max(noise_ab, 0.5)
+            total_bb += p_bb * max(noise_bb, 0.5)
+            total_hbp += p_hbp * max(noise_h, 0.5)
+            total_sf += p_sf * max(noise_ab, 0.5)
+            noise_er = 1.0 + rng.normal(0, 0.05 * noise_scale)
+            noise_ip = 1.0 + rng.normal(0, 0.02 * noise_scale)
+            noise_bb_h_allowed = 1.0 + rng.normal(0, 0.05 * noise_scale)
+            total_ip += p_ip * max(noise_ip, 0.5)
+            total_er += p_er * max(noise_er, 0.5)
+            total_bb_h_allowed += (p_bb_allowed + p_h_allowed) * max(noise_bb_h_allowed, 0.5)
 
     # Compute rate stats from accumulated components (not naive sums)
     # AVG = sum(H) / sum(AB)

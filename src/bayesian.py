@@ -372,6 +372,14 @@ class BayesianUpdater:
                     obs_avg, int(obs_pa), pre_avg, STABILIZATION_POINTS["avg"]
                 )
 
+                # OBP regression (scoring category)
+                obs_obp = _safe_val(row, "obp_obs")
+                pre_obp = _safe_val(row, "obp_pre")
+                if obs_obp > 0 or pre_obp > 0:
+                    updated["obp"] = self.regressed_rate_with_prior(
+                        obs_obp, int(obs_pa), pre_obp, STABILIZATION_POINTS["obp"]
+                    )
+
                 # Update counting stats: blend observed rate with preseason rate
                 for stat in ["r", "hr", "rbi", "sb"]:
                     obs_val = _safe_val(row, f"{stat}_obs")

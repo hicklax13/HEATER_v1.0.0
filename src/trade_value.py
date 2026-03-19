@@ -178,17 +178,24 @@ def compute_trade_values(
         pool["name"] = "Unknown"
 
     # Update SGP denominators from standings if available
+    # Use a local copy to avoid mutating the shared config object
+    denoms = dict(config.sgp_denominators)
     if standings is not None and not standings.empty:
         try:
             from src.engine.portfolio.valuation import compute_sgp_from_standings
 
             live_denoms = compute_sgp_from_standings(standings, config)
-            config.sgp_denominators.update(live_denoms)
+            denoms = {**denoms, **live_denoms}
         except ImportError:
             pass
 
-    sgp_calc = SGPCalculator(config)
-    replacement_levels = compute_replacement_levels(pool, config, sgp_calc)
+    # Build a local config copy with merged denominators
+    local_config = LeagueConfig()
+    local_config.__dict__.update(config.__dict__)
+    local_config.sgp_denominators = denoms
+
+    sgp_calc = SGPCalculator(local_config)
+    replacement_levels = compute_replacement_levels(pool, local_config, sgp_calc)
 
     # ── Step 1: Compute per-player SGP and VORP ───────────────────────
 
@@ -208,7 +215,7 @@ def compute_trade_values(
     # ── Step 2: Compute pool-level sigma per category ─────────────────
 
     pool_sigma: dict[str, float] = {}
-    for cat in config.all_categories:
+    for cat in local_config.all_categories:
         cat_sgp_vals = [d.get(cat, 0.0) for d in per_cat_sgp_list]
         std = np.std(cat_sgp_vals) if len(cat_sgp_vals) > 1 else 1.0
         pool_sigma[cat] = max(std, 1e-6)
@@ -217,7 +224,7 @@ def compute_trade_values(
 
     g_scores = []
     for cat_sgp in per_cat_sgp_list:
-        g = compute_g_score_adjustment(cat_sgp, pool_sigma, config)
+        g = compute_g_score_adjustment(cat_sgp, pool_sigma, local_config)
         g_scores.append(g)
 
     pool["g_score"] = g_scores

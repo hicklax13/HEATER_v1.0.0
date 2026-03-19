@@ -323,6 +323,70 @@ def _bootstrap_extended_roster(progress: BootstrapProgress) -> str:
         return f"Extended roster: error ({e})"
 
 
+def _store_external_adp(df, name_col: str, adp_col: str, source: str) -> int:
+    """Resolve player names and persist ADP values to the adp table.
+
+    Args:
+        df: DataFrame with at least *name_col* and *adp_col* columns.
+        name_col: Column containing player names.
+        adp_col: Column containing numeric ADP values.
+        source: Label used for the ``fantasypros_adp`` column
+            (``"fantasypros"`` or ``"nfbc"``).
+
+    Returns:
+        Number of rows upserted.
+    """
+    if df.empty:
+        return 0
+
+    from src.database import get_connection
+
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        count = 0
+        for _, row in df.iterrows():
+            name = str(row.get(name_col, "")).strip()
+            try:
+                adp_val = float(row.get(adp_col, 0))
+            except (ValueError, TypeError):
+                continue
+            if not name or adp_val <= 0:
+                continue
+
+            # Exact name match
+            cursor.execute("SELECT player_id FROM players WHERE name = ?", (name,))
+            result = cursor.fetchone()
+
+            # Fuzzy fallback: first + last name LIKE match
+            if result is None:
+                parts = name.split()
+                if len(parts) >= 2:
+                    cursor.execute(
+                        "SELECT player_id FROM players WHERE name LIKE ? AND name LIKE ?",
+                        (f"%{parts[0]}%", f"%{parts[-1]}%"),
+                    )
+                    matches = cursor.fetchall()
+                    if len(matches) == 1:
+                        result = matches[0]
+
+            if result is None:
+                continue
+
+            player_id = result[0]
+            cursor.execute(
+                """INSERT INTO adp (player_id, fantasypros_adp, adp) VALUES (?, ?, ?)
+                   ON CONFLICT(player_id) DO UPDATE SET fantasypros_adp = ?, adp = min(adp, ?)""",
+                (player_id, adp_val, adp_val, adp_val, adp_val),
+            )
+            count += 1
+
+        conn.commit()
+        return count
+    finally:
+        conn.close()
+
+
 def _bootstrap_adp_sources(progress: BootstrapProgress) -> str:
     """Phase 9: Multi-source ADP (FantasyPros ECR + NFBC)."""
     progress.phase = "ADP Sources"
@@ -334,10 +398,12 @@ def _bootstrap_adp_sources(progress: BootstrapProgress) -> str:
         results = []
         ecr = fetch_fantasypros_ecr()
         if not ecr.empty:
-            results.append(f"FantasyPros: {len(ecr)}")
+            stored = _store_external_adp(ecr, "player_name", "ecr_rank", "fantasypros")
+            results.append(f"FantasyPros: {len(ecr)} fetched, {stored} stored")
         nfbc = fetch_nfbc_adp()
         if not nfbc.empty:
-            results.append(f"NFBC: {len(nfbc)}")
+            stored = _store_external_adp(nfbc, "player_name", "nfbc_adp", "nfbc")
+            results.append(f"NFBC: {len(nfbc)} fetched, {stored} stored")
         update_refresh_log("adp_sources", "success")
         return f"ADP sources: {', '.join(results)}" if results else "ADP sources: no data"
     except Exception as e:
@@ -661,42 +727,42 @@ def bootstrap_all_data(
         results["yahoo"] = "Fresh"
 
     # Phase 8: Extended roster (40-man + spring training)
-    _notify(0.82)
+    _notify(0.91)
     if force or check_staleness("extended_roster", staleness.players_hours):
         results["extended_roster"] = _bootstrap_extended_roster(progress)
     else:
         results["extended_roster"] = "Fresh"
 
     # Phase 9: Multi-source ADP
-    _notify(0.85)
+    _notify(0.92)
     if force or check_staleness("adp_sources", 24):
         results["adp_sources"] = _bootstrap_adp_sources(progress)
     else:
         results["adp_sources"] = "Fresh"
 
     # Phase 9b: Depth charts (roles + lineup slots)
-    _notify(0.87)
+    _notify(0.93)
     if force or check_staleness("depth_charts", 168):
         results["depth_charts"] = _bootstrap_depth_charts(progress)
     else:
         results["depth_charts"] = "Fresh"
 
     # Phase 10: Contract year data
-    _notify(0.88)
+    _notify(0.94)
     if force or check_staleness("contracts", 720):
         results["contracts"] = _bootstrap_contracts(progress)
     else:
         results["contracts"] = "Fresh"
 
     # Phase 11: News/transactions
-    _notify(0.91)
+    _notify(0.95)
     if force or check_staleness("news", 6):
         results["news"] = _bootstrap_news(progress)
     else:
         results["news"] = "Fresh"
 
     # Phase 12: Deduplicate players (fix ID mismatches from different data sources)
-    _notify(0.95)
+    _notify(0.96)
     progress.phase = "Deduplication"
     progress.detail = "Merging duplicate player entries..."
     if on_progress:
@@ -713,14 +779,14 @@ def bootstrap_all_data(
         results["deduplication"] = f"Skipped: {exc}"
 
     # Phase 13: Prospect rankings
-    _notify(0.96)
+    _notify(0.97)
     if force or check_staleness("prospect_rankings", staleness.prospects_hours):
         results["prospects"] = _bootstrap_prospects(progress)
     else:
         results["prospects"] = "Fresh"
 
     # Phase 14: News intelligence (multi-source)
-    _notify(0.97)
+    _notify(0.98)
     if force or check_staleness("news_intelligence", staleness.news_hours):
         results["news_intelligence"] = _bootstrap_news_intel(progress, yahoo_client)
     else:

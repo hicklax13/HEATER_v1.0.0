@@ -296,15 +296,17 @@ class DraftRecommendationEngine:
         # Final: compute enhanced_pick_score
         pool["enhanced_pick_score"] = pool.apply(self._compute_enhanced_pick_score, axis=1)
 
-        # Buy/fair/avoid classification (rank-gap: enhanced_rank vs ADP)
+        # Buy/fair/avoid classification (rank-gap: enhanced_rank vs ADP rank)
         pool = pool.sort_values("enhanced_pick_score", ascending=False).reset_index(drop=True)
         pool["_enhanced_rank"] = pool.index + 1
-        current_pick = getattr(draft_state, "total_picks_made", 0) + 1
+        # Convert raw ADP to ordinal rank within the pool so both ranks are on the same scale
+        pool["_adp_rank"] = pool["adp"].rank(method="min", na_option="bottom").astype(int)
+        current_pick = draft_state.current_pick + 1
         total_picks = getattr(draft_state, "total_picks", 276)
         pool["buy_fair_avoid"] = pool.apply(
             lambda row: self._classify_buy_fair_avoid(row, current_pick, total_picks), axis=1
         )
-        pool = pool.drop(columns=["_enhanced_rank"], errors="ignore")
+        pool = pool.drop(columns=["_enhanced_rank", "_adp_rank"], errors="ignore")
 
         # Composite risk score (0-100)
         t0 = time.perf_counter()
@@ -1078,7 +1080,7 @@ class DraftRecommendationEngine:
 
     @staticmethod
     def _classify_buy_fair_avoid(row: pd.Series, current_pick: int = 1, total_picks: int = 276) -> str:
-        """Classify player as BUY/FAIR/AVOID based on enhanced rank vs ADP gap.
+        """Classify player as BUY/FAIR/AVOID based on enhanced rank vs ADP rank gap.
 
         Threshold scales by draft phase:
         - Early (picks 1-100): gap >= 20 = BUY
@@ -1088,7 +1090,7 @@ class DraftRecommendationEngine:
         AVOID when ADP rank is much higher than enhanced rank (player overvalued).
         """
         enhanced_rank = float(row.get("_enhanced_rank", 0) or 0)
-        adp_rank = float(row.get("adp", 0) or 0)
+        adp_rank = float(row.get("_adp_rank", 0) or 0)
 
         # Invalid ranks -> FAIR
         if enhanced_rank <= 0 or adp_rank <= 0:
@@ -1200,6 +1202,7 @@ class DraftRecommendationEngine:
         with draft progress.
         """
         stat_map = self.config.STAT_MAP
+        sgp_denoms = self.config.sgp_denominators
         is_hitter = bool(row.get("is_hitter", True))
         relevant_cats = self.config.hitting_categories if is_hitter else self.config.pitching_categories
 
@@ -1212,10 +1215,14 @@ class DraftRecommendationEngine:
             if player_stat == 0:
                 continue
 
+            # Normalize by SGP denominator so each category contributes equally
+            denom = sgp_denoms.get(cat, 1.0)
+            normalized_stat = abs(player_stat) / denom if denom > 0 else abs(player_stat)
+
             # Use lowercase key if cat_weights are lowercase, else uppercase
             w = cat_weights.get(cat.lower(), cat_weights.get(cat, 1.0))
-            weighted_sum += w * abs(player_stat)
-            weight_total += abs(player_stat)
+            weighted_sum += w * normalized_stat
+            weight_total += normalized_stat
 
         if weight_total == 0:
             raw_mult = 1.0

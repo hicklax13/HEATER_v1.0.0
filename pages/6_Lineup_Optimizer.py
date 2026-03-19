@@ -90,7 +90,9 @@ CAT_DISPLAY_NAMES: dict[str, str] = {
     "rbi": "Runs Batted In",
     "sb": "Stolen Bases",
     "avg": "Batting Average",
+    "obp": "On-Base Percentage",
     "w": "Wins",
+    "l": "Losses",
     "sv": "Saves",
     "k": "Strikeouts",
     "era": "Earned Run Average",
@@ -160,7 +162,7 @@ if "name" in roster.columns and "player_name" not in roster.columns:
     roster = roster.rename(columns={"name": "player_name"})
 
 required_cols = ["player_id", "player_name", "positions", "is_hitter"]
-stat_cols = ["r", "hr", "rbi", "sb", "avg", "w", "sv", "k", "era", "whip"]
+stat_cols = ["r", "hr", "rbi", "sb", "avg", "obp", "w", "l", "sv", "k", "era", "whip"]
 component_cols = ["ip", "h", "ab", "er", "bb_allowed", "h_allowed"]
 for col in required_cols + stat_cols + component_cols:
     if col not in roster.columns:
@@ -175,8 +177,8 @@ for col in stat_cols + component_cols:
 # ── League config for optimizer ───────────────────────────────────
 
 config = {
-    "hitting_categories": ["r", "hr", "rbi", "sb", "avg"],
-    "pitching_categories": ["w", "sv", "k", "era", "whip"],
+    "hitting_categories": ["r", "hr", "rbi", "sb", "avg", "obp"],
+    "pitching_categories": ["w", "l", "sv", "k", "era", "whip"],
     "roster_slots": {
         "C": 1,
         "1B": 1,
@@ -455,7 +457,7 @@ with tab_optimize:
                 for cat in ALL_CATS:
                     if cat in proj:
                         val = proj[cat]
-                        if cat in ("avg",):
+                        if cat in ("avg", "obp"):
                             display_proj[CAT_DISPLAY_NAMES[cat]] = f"{val:.3f}"
                         elif cat in ("era",):
                             display_proj[CAT_DISPLAY_NAMES[cat]] = f"{val:.2f}"
@@ -573,7 +575,7 @@ with tab_h2h:
             my_val = my_totals.get(cat, 0)
             opp_val = opp_totals.get(cat, 0)
 
-            if cat in ("avg",):
+            if cat in ("avg", "obp"):
                 my_fmt = f"{my_val:.3f}"
                 opp_fmt = f"{opp_val:.3f}"
             elif cat in ("era",):
@@ -830,7 +832,7 @@ with tab_analysis:
         for cat in ALL_CATS:
             my_val = my_totals.get(cat, 0)
             # Count how many teams are ahead
-            is_inverse = cat in ("era", "whip")
+            is_inverse = cat in ("l", "era", "whip")
             rank = 1
             for tname, ttotals in team_totals.items():
                 if tname == user_team_name:
@@ -843,7 +845,7 @@ with tab_analysis:
                     if opp_val > my_val:
                         rank += 1
 
-            if cat in ("avg",):
+            if cat in ("avg", "obp"):
                 val_fmt = f"{my_val:.3f}"
             elif cat in ("era",):
                 val_fmt = f"{my_val:.2f}"
@@ -895,11 +897,11 @@ with tab_roster:
     roster_show = roster_display[display_cols].copy()
 
     # Format numeric columns before renaming
-    counting = ["r", "hr", "rbi", "sb", "w", "sv", "k"]
+    counting = ["r", "hr", "rbi", "sb", "w", "l", "sv", "k"]
     for col in counting:
         if col in roster_show.columns:
             roster_show[col] = pd.to_numeric(roster_show[col], errors="coerce").round(0).astype("Int64")
-    for col in ["avg"]:
+    for col in ["avg", "obp"]:
         if col in roster_show.columns:
             roster_show[col] = roster_show[col].apply(lambda v: f"{float(v):.3f}" if pd.notna(v) and v != 0 else "")
     for col in ["era"]:

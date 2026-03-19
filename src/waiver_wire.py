@@ -114,6 +114,18 @@ def classify_category_priority(
                 priorities[cat] = "ATTACK"
             continue
 
+        # L (Losses) is an inverse counting stat — accumulating more losses
+        # makes the gap worse, not better. FA moves can't meaningfully reduce
+        # losses, so classify purely by rank: defend if low, ignore if high.
+        if cat == "L":
+            if rank <= 4:
+                priorities[cat] = "DEFEND"
+            elif rank >= 10:
+                priorities[cat] = "IGNORE"
+            else:
+                priorities[cat] = "ATTACK"
+            continue
+
         if rank <= 3:
             # Check if team behind is close (DEFEND)
             if is_inverse:
@@ -241,7 +253,8 @@ def compute_sustainability_score(player: pd.Series) -> float:
     hr = float(player.get("hr", 0) or 0)
     ab = float(player.get("ab", 0) or 0)
     sf = float(player.get("sf", 0) or 0)
-    is_hitter = int(player.get("is_hitter", 1) or 1)
+    val = player.get("is_hitter")
+    is_hitter = int(val) if val is not None else 1
     # For hitters, 'k' is strikeouts (used in BABIP denominator).
     # For pitchers, 'k' is strikeouts thrown (not relevant to BABIP).
     hitter_k = float(player.get("k", 0) or 0) if is_hitter else 0

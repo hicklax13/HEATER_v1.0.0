@@ -480,7 +480,7 @@ class DraftSimulator:
 
         # Prepare arrays for simulation
         available_ids = available["player_id"].values
-        adp_values = available["adp"].values.astype(float)
+        adp_values = available["adp"].fillna(999).values.astype(float)
         sgp_values = (
             available["total_sgp"].values.astype(float)
             if "total_sgp" in available.columns

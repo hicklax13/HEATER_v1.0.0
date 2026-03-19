@@ -1029,37 +1029,37 @@ class TestBuyFairAvoid:
 
     def test_buy_classification_early(self):
         """Early draft: ADP 50, enhanced rank 25 -> gap 25 >= 20 -> BUY."""
-        row = pd.Series({"_enhanced_rank": 25, "adp": 50})
+        row = pd.Series({"_enhanced_rank": 25, "_adp_rank": 50})
         assert DraftRecommendationEngine._classify_buy_fair_avoid(row, current_pick=10) == "BUY"
 
     def test_avoid_overvalued(self):
         """Enhanced rank 50, ADP 20 -> gap -30 <= -20 -> AVOID."""
-        row = pd.Series({"_enhanced_rank": 50, "adp": 20})
+        row = pd.Series({"_enhanced_rank": 50, "_adp_rank": 20})
         assert DraftRecommendationEngine._classify_buy_fair_avoid(row, current_pick=10) == "AVOID"
 
     def test_fair_small_gap(self):
         """ADP and enhanced rank close -> FAIR."""
-        row = pd.Series({"_enhanced_rank": 30, "adp": 35})
+        row = pd.Series({"_enhanced_rank": 30, "_adp_rank": 35})
         assert DraftRecommendationEngine._classify_buy_fair_avoid(row, current_pick=10) == "FAIR"
 
     def test_fair_zero_adp(self):
         """ADP of 0 (invalid) -> FAIR."""
-        row = pd.Series({"_enhanced_rank": 10, "adp": 0})
+        row = pd.Series({"_enhanced_rank": 10, "_adp_rank": 0})
         assert DraftRecommendationEngine._classify_buy_fair_avoid(row, current_pick=10) == "FAIR"
 
     def test_fair_zero_everything(self):
         """Both ranks 0 -> FAIR."""
-        row = pd.Series({"_enhanced_rank": 0, "adp": 0})
+        row = pd.Series({"_enhanced_rank": 0, "_adp_rank": 0})
         assert DraftRecommendationEngine._classify_buy_fair_avoid(row) == "FAIR"
 
     def test_mid_draft_lower_threshold(self):
         """Mid draft (pick 150): gap 15 >= 15 -> BUY."""
-        row = pd.Series({"_enhanced_rank": 135, "adp": 150})
+        row = pd.Series({"_enhanced_rank": 135, "_adp_rank": 150})
         assert DraftRecommendationEngine._classify_buy_fair_avoid(row, current_pick=150) == "BUY"
 
     def test_late_draft_lowest_threshold(self):
         """Late draft (pick 250): gap 10 >= 10 -> BUY."""
-        row = pd.Series({"_enhanced_rank": 240, "adp": 250})
+        row = pd.Series({"_enhanced_rank": 240, "_adp_rank": 250})
         assert DraftRecommendationEngine._classify_buy_fair_avoid(row, current_pick=250) == "BUY"
 
 

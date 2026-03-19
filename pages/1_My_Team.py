@@ -492,7 +492,25 @@ else:
                 pitchers = roster[roster["is_hitter"] == 0]
 
                 # Coerce numeric columns (Python 3.13+ SQLite may return bytes)
-                num_cols = ["r", "hr", "rbi", "sb", "ab", "h", "w", "sv", "k", "ip", "er", "bb_allowed", "h_allowed"]
+                num_cols = [
+                    "r",
+                    "hr",
+                    "rbi",
+                    "sb",
+                    "ab",
+                    "h",
+                    "bb",
+                    "hbp",
+                    "sf",
+                    "w",
+                    "l",
+                    "sv",
+                    "k",
+                    "ip",
+                    "er",
+                    "bb_allowed",
+                    "h_allowed",
+                ]
                 for c in num_cols:
                     if c in roster.columns:
                         roster[c] = pd.to_numeric(roster[c], errors="coerce").fillna(0)
@@ -511,10 +529,20 @@ else:
                     ab = hitters["ab"].sum() if "ab" in hitters.columns else 0
                     h = hitters["h"].sum() if "h" in hitters.columns else 0
                     hit_stats["Batting Average"] = f"{h / ab:.3f}" if ab > 0 else ".000"
+                    # OBP = (H + BB + HBP) / (AB + BB + HBP + SF)
+                    hit_h = hitters["h"].sum() if "h" in hitters.columns else 0
+                    hit_bb = hitters["bb"].sum() if "bb" in hitters.columns else 0
+                    hit_hbp = hitters["hbp"].sum() if "hbp" in hitters.columns else 0
+                    hit_sf = hitters["sf"].sum() if "sf" in hitters.columns else 0
+                    hit_ab = hitters["ab"].sum() if "ab" in hitters.columns else 0
+                    obp_denom = hit_ab + hit_bb + hit_hbp + hit_sf
+                    hit_stats["On-Base Percentage"] = (
+                        f"{(hit_h + hit_bb + hit_hbp) / obp_denom:.3f}" if obp_denom > 0 else ".000"
+                    )
 
                 pitch_stats = {}
                 if not pitchers.empty:
-                    for cat, col in [("Wins", "w"), ("Saves", "sv"), ("Strikeouts", "k")]:
+                    for cat, col in [("Wins", "w"), ("Losses", "l"), ("Saves", "sv"), ("Strikeouts", "k")]:
                         pitch_stats[cat] = int(pitchers[col].sum()) if col in pitchers.columns else 0
                     ip = pitchers["ip"].sum() if "ip" in pitchers.columns else 0
                     er = pitchers["er"].sum() if "er" in pitchers.columns else 0

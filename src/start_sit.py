@@ -702,7 +702,19 @@ def _compute_start_score(
 
         # Rate stats (AVG, OBP, ERA, WHIP) are not scaled by matchup volume factor;
         # only counting stats benefit from more/better games.
-        cat_factor = 1.0 if cat_lower in rate_stats else combined_factor
+        # Exception: pitcher ERA/WHIP are adjusted by park factor since
+        # hitter-friendly parks materially affect pitcher rate stats.
+        if cat_lower in rate_stats:
+            if not is_hitter and cat_lower in inverse:
+                # For pitcher inverse rate stats (ERA, WHIP), apply park factor.
+                # Park factor for pitchers is already inverted in
+                # _average_park_factor (2.0 - pf), so values > 1.0 mean
+                # pitcher-friendly park (good for ERA/WHIP).
+                cat_factor = matchup_factors.get("park", 1.0)
+            else:
+                cat_factor = 1.0
+        else:
+            cat_factor = combined_factor
 
         if cat_lower in inverse:
             # Lower is better: negative contribution

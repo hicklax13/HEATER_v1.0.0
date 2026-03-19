@@ -95,13 +95,21 @@ def build_enhanced_projections(
     enhanced["regime_label"] = ""
     enhanced["health_adjusted"] = False
 
+    # Save pre-Bayesian projection values for Kalman prior
+    # The Kalman filter needs a separate prior (original projection) and
+    # observation (Bayesian-updated value) to produce a meaningful update.
+    _pre_bayesian_cols = {}
+    for col in ["avg", "era", "whip"]:
+        if col in enhanced.columns:
+            _pre_bayesian_cols[col] = enhanced[col].copy()
+
     # Step 1: Bayesian in-season update
     if enable_bayesian:
         enhanced = _apply_bayesian_update(enhanced, config)
 
     # Step 2: Kalman filter for true talent
     if enable_kalman:
-        enhanced = _apply_kalman_filter(enhanced)
+        enhanced = _apply_kalman_filter(enhanced, _pre_bayesian_cols)
 
     # Step 3: Regime detection (hot/cold streaks)
     if enable_regime:
@@ -213,12 +221,21 @@ def _merge_updated_stats(
 # ── Step 2: Kalman Filter ────────────────────────────────────────────
 
 
-def _apply_kalman_filter(roster: pd.DataFrame) -> pd.DataFrame:
+def _apply_kalman_filter(
+    roster: pd.DataFrame,
+    pre_bayesian_cols: dict[str, pd.Series] | None = None,
+) -> pd.DataFrame:
     """Apply Kalman filter for true talent estimation.
 
-    Uses the player's current YTD stats as a single observation point
-    against their preseason projection as a prior.  The Kalman gain
-    depends on the observation variance (sample-size-aware).
+    Uses the pre-Bayesian projection as the prior and the Bayesian-updated
+    value as the observation. The Kalman gain depends on observation
+    variance (sample-size-aware) and process variance.
+
+    Args:
+        roster: Player roster with Bayesian-updated stat values.
+        pre_bayesian_cols: Dict mapping stat name to Series of original
+            (pre-Bayesian) projection values. When available, provides
+            a meaningful prior distinct from the observation.
     """
     try:
         from src.engine.signals.kalman import (
@@ -232,6 +249,9 @@ def _apply_kalman_filter(roster: pd.DataFrame) -> pd.DataFrame:
     # Ensure enhancement columns exist (defensive for direct calls)
     if "projection_confidence" not in roster.columns:
         roster["projection_confidence"] = 1.0
+
+    if pre_bayesian_cols is None:
+        pre_bayesian_cols = {}
 
     try:
         for idx, row in roster.iterrows():
@@ -255,12 +275,24 @@ def _apply_kalman_filter(roster: pd.DataFrame) -> pd.DataFrame:
                 if observed == 0:
                     continue
 
-                # The prior is the current projection value (already blended
-                # from Bayesian/preseason stages).  The "observation" is this
-                # same value treated as in-season data.  With only one column
-                # we split the signal: prior = projection, observation = projection,
-                # but Kalman gain still adjusts confidence by sample size.
-                prior_mean = observed
+                # Prior = pre-Bayesian projection (original blend).
+                # Observation = Bayesian-updated value (post step 1).
+                # If no pre-Bayesian data available, skip this stat —
+                # running Kalman with prior == observed is a no-op.
+                if stat in pre_bayesian_cols:
+                    prior_val = pre_bayesian_cols[stat].get(idx, None)
+                    if prior_val is not None and not pd.isna(prior_val):
+                        prior_mean = float(prior_val)
+                    else:
+                        continue
+                else:
+                    # No separate prior available; skip Kalman for this stat
+                    continue
+
+                # If prior equals observation (Bayesian update was a no-op for
+                # this player/stat), skip — innovation would be zero.
+                if abs(prior_mean - observed) < 1e-9:
+                    continue
 
                 # Get observation noise (smaller sample → more noise)
                 kalman_stat = _KALMAN_STAT_MAP.get(stat, stat)
@@ -277,7 +309,7 @@ def _apply_kalman_filter(roster: pd.DataFrame) -> pd.DataFrame:
                 filtered = prior_mean + kalman_gain * (observed - prior_mean)
 
                 # Narrowed posterior variance
-                filtered_var = (1 - kalman_gain) * prior_var
+                filtered_var = (1 - kalman_gain) * prior_var  # noqa: F841
 
                 roster.at[idx, stat] = filtered
                 # Adjust confidence by Kalman gain (high gain = data trustworthy)
@@ -299,62 +331,16 @@ def _apply_regime_adjustment(roster: pd.DataFrame) -> pd.DataFrame:
     Uses rule-based classification when Statcast xwOBA is unavailable.
     Applies regime-specific multipliers to counting stats.
     """
-    try:
-        from src.engine.signals.regime import classify_regime_simple
-    except ImportError:
-        logger.debug("Regime detection not available; skipping step 3")
-        return roster
+    # Ensure regime_label column exists for direct callers
+    if "regime_label" not in roster.columns:
+        roster["regime_label"] = ""
 
-    try:
-        for idx, row in roster.iterrows():
-            is_hitter = bool(row.get("is_hitter", True))
-
-            # Approximate xwOBA from available rate stats
-            if is_hitter:
-                avg = float(row.get("avg", 0) or 0)
-                if avg == 0:
-                    continue
-                # Approximate xwOBA from AVG (rough: xwOBA ≈ AVG * 1.15)
-                approx_xwoba = avg * 1.15
-            else:
-                # For pitchers, invert ERA to approximate opposing xwOBA
-                # League avg ERA ≈ 4.00 maps to xwOBA ≈ 0.315
-                era = float(row.get("era", 0) or 0)
-                if era == 0:
-                    continue
-                approx_xwoba = era / 4.00 * _LEAGUE_AVG_XWOBA
-
-            season_xwoba = approx_xwoba  # Without separate recent data, use same
-
-            regime_label, state_probs = classify_regime_simple(
-                recent_xwoba=approx_xwoba,
-                season_xwoba=season_xwoba,
-                league_avg_xwoba=_LEAGUE_AVG_XWOBA,
-            )
-
-            roster.at[idx, "regime_label"] = regime_label
-
-            # Compute probability-weighted multiplier
-            multiplier = 0.0
-            for state_name, prob in zip(
-                ["Elite", "Above-avg", "Below-avg", "Replacement"],
-                state_probs,
-                strict=False,
-            ):
-                multiplier += prob * _REGIME_MULTIPLIERS[state_name]
-
-            # Apply multiplier to counting stats only (rate stats are self-correcting)
-            if abs(multiplier - 1.0) > 0.005:
-                is_hitter = bool(row.get("is_hitter", True))
-                cats = ["r", "hr", "rbi", "sb"] if is_hitter else ["w", "sv", "k"]
-                for cat in cats:
-                    if cat in roster.columns:
-                        val = float(row.get(cat, 0) or 0)
-                        roster[cat] = roster[cat].astype(float)
-                        roster.at[idx, cat] = val * multiplier
-
-    except Exception as exc:
-        logger.warning("Regime adjustment failed: %s", exc)
+    # Without separate recent-period stats (e.g., last 14 days vs full
+    # season), recent and season xwOBA would be identical, which makes
+    # classify_regime_simple always return neutral.  Until a real
+    # recent-stats source is available (e.g., Statcast last-14-day
+    # xwOBA), skip the regime classification entirely.
+    logger.debug("No separate recent-period stats available; skipping regime adjustment")
 
     return roster
 

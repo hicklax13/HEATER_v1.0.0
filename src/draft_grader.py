@@ -140,28 +140,30 @@ def classify_pick(
     round_scale = POSITION_ROUND_SCALE.get(primary_position, 2.0) * num_teams
 
     # Use AND logic: both SGP surplus and ADP gap must agree for strong classifications
+    # adp_gap > 0 means picked AFTER ADP (good value / steal)
+    # adp_gap < 0 means picked BEFORE ADP (overpaid / reach)
     sgp_great_steal = sgp_surplus > SGP_GREAT_STEAL_THRESHOLD
-    adp_great_steal = adp_gap < -3 * num_teams
+    adp_great_steal = adp_gap > 3 * num_teams
     sgp_steal = sgp_surplus > SGP_STEAL_THRESHOLD
-    adp_steal = adp_gap < -round_scale
+    adp_steal = adp_gap > round_scale
     sgp_reach = sgp_surplus < SGP_REACH_THRESHOLD
-    adp_reach = adp_gap > round_scale
+    adp_reach = adp_gap < -round_scale
     sgp_slight_reach = sgp_surplus < SGP_SLIGHT_REACH_THRESHOLD
-    adp_slight_reach = adp_gap > round_scale * 0.75
+    adp_slight_reach = adp_gap < -round_scale * 0.75
 
     if sgp_great_steal and adp_great_steal:
         classification = "GREAT STEAL"
     elif sgp_steal and adp_steal:
         classification = "STEAL"
-    elif sgp_great_steal or (sgp_steal and player_adp > 0 and adp_gap < 0):
-        # Strong SGP signal with ADP supporting (picked before ADP = good)
+    elif sgp_great_steal or (sgp_steal and player_adp > 0 and adp_gap > 0):
+        # Strong SGP signal with ADP supporting (picked after ADP = good)
         classification = "STEAL"
     elif sgp_reach and adp_reach:
         classification = "REACH"
     elif sgp_slight_reach and adp_slight_reach:
         classification = "SLIGHT REACH"
-    elif sgp_reach or (sgp_slight_reach and player_adp > 0 and adp_gap > 0):
-        # Strong SGP signal with ADP supporting (picked after ADP = bad)
+    elif sgp_reach or (sgp_slight_reach and player_adp > 0 and adp_gap < 0):
+        # Strong SGP signal with ADP supporting (picked before ADP = bad)
         classification = "SLIGHT REACH"
     else:
         classification = "FAIR"

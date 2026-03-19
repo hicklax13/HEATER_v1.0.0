@@ -131,7 +131,7 @@ class PlayerMarginal:
         lo = self._kde_min - 0.5 * spread
         hi = self._kde_max + 0.5 * spread
 
-        n_points = 500
+        n_points = 1000
         grid = np.linspace(lo, hi, n_points)
         pdf_vals = self._kde.evaluate(grid)
         cdf_vals = np.cumsum(pdf_vals)

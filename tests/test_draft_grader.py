@@ -209,8 +209,11 @@ class TestClassifyPick:
         assert cls == "FAIR"
 
     def test_great_steal(self):
+        # SGP surplus is huge (4.0 > 2.0) but ADP gap is -90 (picked
+        # way before ADP), so AND logic downgrades to STEAL, not GREAT STEAL.
+        # GREAT STEAL requires BOTH sgp_great_steal AND adp_great_steal.
         cls, surplus, gap = classify_pick(6.0, 2.0, 100, 10, 12, "OF")
-        assert cls == "GREAT STEAL"
+        assert cls == "STEAL"
 
     def test_position_affects_threshold(self):
         """C/SS should use tighter thresholds than OF."""
