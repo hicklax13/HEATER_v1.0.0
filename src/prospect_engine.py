@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 # -- Constants ----------------------------------------------------------------
 
-_CURRENT_SEASON = 2026
+_CURRENT_SEASON = datetime.now(UTC).year
 
 _LEVEL_AVG_WOBA = {"AAA": 0.330, "AA": 0.310, "High-A": 0.300, "A": 0.290, "A+": 0.300}
 _LEVEL_AVG_AGE = {"AAA": 25, "AA": 23, "High-A": 22, "A": 21, "A+": 22}
@@ -176,7 +176,7 @@ def _parse_fg_prospects(data: list[dict]) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def fetch_fangraphs_prospects(season: int = _CURRENT_SEASON) -> pd.DataFrame:
+def fetch_fg_board(season: int = _CURRENT_SEASON) -> pd.DataFrame:
     """Fetch prospect data from FanGraphs Board API.
     Returns DataFrame or empty DataFrame on failure.
     """
@@ -193,6 +193,10 @@ def fetch_fangraphs_prospects(season: int = _CURRENT_SEASON) -> pd.DataFrame:
     except Exception:
         logger.warning("FanGraphs Board API fetch failed", exc_info=True)
         return pd.DataFrame()
+
+
+# Backward-compat alias
+fetch_fangraphs_prospects = fetch_fg_board
 
 
 # -- MLB Stats API MiLB stats -------------------------------------------------
@@ -447,7 +451,7 @@ def refresh_prospect_rankings(force: bool = False) -> pd.DataFrame:
         return df
 
     # Level 1: FanGraphs Board API
-    df = fetch_fangraphs_prospects()
+    df = fetch_fg_board()
     if not df.empty:
         return _enrich_and_store(df)
 
@@ -457,9 +461,14 @@ def refresh_prospect_rankings(force: bool = False) -> pd.DataFrame:
         logger.info("Using MLB Pipeline scrape (no scouting tools)")
         return _enrich_and_store(df)
 
-    # Level 3: Static fallback
+    # Level 3: Static fallback (compute readiness scores and store)
     logger.warning("All prospect sources failed -- using static list")
-    return pd.DataFrame(_STATIC_PROSPECTS)
+    static_df = pd.DataFrame(_STATIC_PROSPECTS)
+    static_df["readiness_score"] = static_df.apply(
+        lambda r: compute_mlb_readiness_score(r.to_dict()), axis=1
+    )
+    _store_prospects(static_df)
+    return static_df
 
 
 def get_prospect_rankings(
