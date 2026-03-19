@@ -5,12 +5,13 @@
 A fantasy baseball draft assistant + in-season manager for a 12-team Yahoo Sports H2H Categories snake draft league. Two pillars:
 
 1. **Draft Tool** (`app.py`, ~1800 lines) — "Heater" themed Streamlit app with light-mode-only glassmorphic design system: splash screen data bootstrap + 2-step setup wizard (Settings, Launch), 3-column draft page with SVG injury badges, percentile ranges, opponent intel tab, and practice mode. Monte Carlo recommendations with percentile sampling. Zero CSV uploads — all data auto-fetched from MLB Stats API + FanGraphs on every launch. Pill button navigation replaces dropdowns. Search + card grids for player selection.
-2. **In-Season Management** (`pages/`) — 6 Streamlit pages: team overview, draft simulator, trade analysis, player comparison, free agent rankings, lineup optimizer. Powered by MLB Stats API + pybaseball + optional Yahoo Fantasy API. All pages share centralized single-theme system (light mode only) with glassmorphic design, orange sidebar branding, and bold Heater identity.
+2. **In-Season Management** (`pages/`) — 9 Streamlit pages: team overview, draft simulator, trade analysis, player comparison, free agent rankings, lineup optimizer, closer monitor, standings/power rankings, leaders/prospects. Powered by MLB Stats API + pybaseball + optional Yahoo Fantasy API. All pages share centralized single-theme system (light mode only) with glassmorphic design, orange sidebar branding, and bold Heater identity.
 2b. **In-Season Analytics** (`src/` 7 new modules) — Trade value chart (0-100 universal values with G-Score H2H variance adjustment), two-start pitcher planner, start/sit 3-layer advisor, weekly matchup planner with percentile color tiers, waiver wire LP-verified add/drop recommender, cosine-dissimilarity trade finder, post-draft grader. 276 dedicated tests across 7 test files.
 3. **Trade Analyzer Engine** (`src/engine/`) — 6-phase pipeline: Phase 1 deterministic SGP with LP-constrained lineup totals, Phase 2 stochastic MC (10K sims), Phase 3 signal intelligence (Statcast/Kalman/BOCPD), Phase 4 contextual adjustments (matchups/injuries/concentration), Phase 5 game theory (opponent modeling/adverse selection/Bellman), Phase 6 production (convergence/caching/adaptive scaling). 11 modules, 219 dedicated tests.
 4. **Enhanced Lineup Optimizer** (`src/optimizer/`) — 11-module pipeline with 20 mathematical techniques: enhanced projections (Bayesian/Kalman/regime/injury), weekly matchup adjustments (park/platoon/weather), H2H category weights (Normal PDF), non-linear SGP (bell-curve proximity), pitcher streaming, stochastic scenarios (copula/CVaR), multi-period planning, dual H2H/Roto objective, advanced LP (maximin/epsilon-constraint/stochastic MIP). Three modes: Quick (<1s), Standard (2-3s), Full (5-10s). 204 dedicated tests across 10 test files.
 5. **Draft Recommendation Engine** (`src/draft_engine.py` + 4 support modules) — 25-feature enhanced draft pipeline: 3 execution modes (Quick <1s, Standard 2-3s, Full 5-10s), 8-stage enhancement chain (park factors → Bayesian blend → injury probability → Statcast delta → FIP correction → contextual factors → category balance → ML ensemble). Multiplicative + additive scoring formula with clipping. Category-aware recommendations via Normal PDF weighting. Contextual factors: closer hierarchy, platoon risk, lineup protection, schedule strength, contract year boost. ML ensemble (XGBoost, optional) + news sentiment scoring. BUY/FAIR/AVOID classification. 270 dedicated tests across 5 test files.
 6. **Gap Closure Data Layer** (`src/` new modules) — 14 new modules closing spec gaps: extended roster (40-man + spring training via MLB Stats API), 7 projection systems (Steamer/ZiPS/Depth Charts/ATC/THE BAT/THE BAT X/Marcel), multi-source ADP (FanGraphs + FantasyPros ECR + NFBC), depth chart scraping with role classification, contract year data from BB-Ref, news fetcher from MLB transactions API, background refresh scheduler, GitHub Actions daily cron. Engine output enrichment adds composite value score, position/overall ranks, confidence level, LAST CHANCE badge. 153 dedicated tests across 14 test files.
+7. **FantasyPros Parity** (`src/` 15 new modules + 3 new pages) — 17 features closing FantasyPros competitive gaps: draft order generator, player tags (Sleeper/Target/Avoid/Breakout/Bust) with DB persistence, pick predictor (Normal CDF + Weibull survival blend), closer depth chart monitor (30-team job security grid), points league projections (Yahoo/ESPN/CBS presets), Bayesian stream scoring with matchup grades, category/points leaders with breakout detection, ECR integration (15% blend + disagreement badges), cheat sheet export (HTML/PDF with HEATER theme), live draft assistant (Yahoo real-time sync), 7-day schedule grid with matchup color-coding, WSIS quick compare (density overlap), projected season standings (copula-based MC simulation), 5-factor league power rankings (bootstrap CI), auto-swap IL players, multiple league support, prospect rankings. 184 dedicated tests across 16 test files.
 
 ## Commands
 
@@ -30,7 +31,7 @@ ruff check .
 # Format
 ruff format .
 
-# Run all tests (1590 pass, 3 skipped for PyMC/xgboost)
+# Run all tests (1774 pass, 4 skipped for PyMC/xgboost)
 python -m pytest
 
 # Run with verbose output
@@ -57,7 +58,7 @@ python -m pytest tests/test_in_season.py::test_trade_analyzer -v
 ## Tech Stack
 
 - **Framework:** Streamlit (Python), multi-page app
-- **Database:** SQLite (`data/draft_tool.db`) — 14 tables total
+- **Database:** SQLite (`data/draft_tool.db`) — 16 tables total
 - **Core libs:** pandas, NumPy, SciPy, Plotly
 - **Analytics:** PyMC 5 (Bayesian), PuLP (LP optimizer), arviz (posterior analysis)
 - **Live data:** MLB-StatsAPI, pybaseball (FanGraphs Depth Charts + park factors)
@@ -81,8 +82,11 @@ pages/
   4_Player_Compare.py   — In-season: head-to-head player comparison with dual search + card pickers
   5_Free_Agents.py      — In-season: free agent rankings by marginal value, position pill filters
   6_Lineup_Optimizer.py — In-season: 5-tab lineup optimizer (Optimize, H2H Matchup, Streaming, Category Analysis, Roster) powered by LineupOptimizerPipeline
+  7_Closer_Monitor.py   — 30-team closer depth chart grid with job security meters
+  8_Standings.py        — Projected season standings (MC simulation) + 5-factor league power rankings (bootstrap CI)
+  9_Leaders.py          — Category leaders, points leaders, breakout detection, prospect rankings
 src/
-  database.py           — SQLite schema (14 tables), CSV import, projection blending, player pool + in-season queries
+  database.py           — SQLite schema (16 tables), CSV import, projection blending, player pool + in-season queries
   valuation.py          — SGP calculator, replacement levels, VORP, category weights, percentile forecasts
   draft_state.py        — Draft state management, roster tracking, snake pick order, opponent patterns
   simulation.py         — Monte Carlo draft simulation, opponent modeling (history-aware), survival probability
@@ -117,6 +121,21 @@ src/
   waiver_wire.py        — Waiver wire + drop suggestions: LP-verified add/drop pairs, 7-stage pipeline (category gap → FA pre-filter → drop cost → net swap → sustainability BABIP filter → greedy optimization → annotate)
   trade_finder.py       — Trade finder: cosine dissimilarity team pairing (arXiv:2111.02859), 1-for-1 scan with acceptance probability (loss aversion behavioral model), grade integration
   draft_grader.py       — Post-draft grader: 3-component grading (40% team value, 35% pick efficiency, 25% category balance), steal/reach detection (AND logic: SGP surplus + ADP gap), position-adjusted thresholds
+  draft_order.py        — Randomized draft order generator with seed-based reproducibility
+  player_tags.py        — Player tag CRUD (Sleeper/Target/Avoid/Breakout/Bust) with SQLite persistence and badge rendering
+  pick_predictor.py     — Pick predictor: Normal CDF + Weibull survival blend per position, future user pick computation
+  closer_monitor.py     — Closer depth chart monitor: 30-team job security scoring, color-coded grid builder
+  points_league.py      — Points league projections: Yahoo/ESPN/CBS scoring presets, missing stat estimation, points VORP
+  leaders.py            — Category/points leaders with min PA/IP thresholds, breakout detection (z > 1.5)
+  ecr.py                — ECR integration: FantasyPros fetch extension, 15% blend with SGP, disagreement badges, prospect rankings
+  cheat_sheet.py        — Cheat sheet HTML/PDF export with HEATER theme, positional tiers, health badges, print CSS
+  live_draft_sync.py    — Live draft assistant: Yahoo draft polling, diff detection, DraftState sync, YOUR TURN detection
+  schedule_grid.py      — 7-day schedule grid with matchup color-coding (smash/favorable/neutral/unfavorable/avoid)
+  start_sit_widget.py   — Quick WSIS compare (2-4 players): density overlap coefficient, Normal PDF visualization data
+  standings_projection.py — Projected season standings: round-robin schedule, Normal CDF category win probability, MC simulation
+  power_rankings.py     — 5-factor league power rankings: roster quality, category balance, SOS, injury exposure, momentum with bootstrap CI
+  il_manager.py         — IL detection: status classification, duration estimation, lost SGP computation, replacement selection
+  league_registry.py    — Multiple league support: register/get/list/set_active/delete with SQLite persistence
 Research.md             — FantasyPros competitive gap analysis: 74 FP features vs 33 HEATER comparable features, 30 actionable gaps in 3 priority tiers, recommendations for next builds
   optimizer/            — Enhanced Lineup Optimizer (11 modules, 20 mathematical techniques)
     __init__.py         — Package exports with lazy import documentation
@@ -125,7 +144,7 @@ Research.md             — FantasyPros competitive gap analysis: 74 FP features
     matchup_adjustments.py — Weekly matchup adjustments: park factors, platoon splits (The Book regression), weather HR model
     h2h_engine.py       — H2H category weights (Normal PDF peaks at tie) + per-category win probability (Normal CDF)
     sgp_theory.py       — Non-linear marginal SGP (bell-curve proximity), SLOPE regression SGP denominators
-    streaming.py        — Pitcher streaming value (counting SGP − rate damage), two-start quantification, optimal schedule
+    streaming.py        — Pitcher streaming value (counting SGP − rate damage), two-start quantification, optimal schedule, Bayesian stream scoring with matchup grades (A+ through C)
     scenario_generator.py — Gaussian copula correlated scenarios, mean-variance adjustments, CVaR linearization data
     multi_period.py     — Rolling horizon optimization with discount factor, season balance urgency weights
     dual_objective.py   — H2H/season-long weight blending (alpha parameter), auto-alpha recommendation
@@ -186,7 +205,7 @@ tests/
   test_optimizer_matchups.py — Matchup adjustments: platoon, park factors, weather, schedule pipeline (19 tests)
   test_optimizer_h2h.py    — H2H engine: category weights, win probability, inverse cats, edge cases (18 tests)
   test_optimizer_sgp.py    — Non-linear SGP: bell-curve proximity, SLOPE denominators, weight normalization (16 tests)
-  test_optimizer_streaming.py — Streaming: pitcher value, two-start, optimal schedule, rate damage (16 tests)
+  test_optimizer_streaming.py — Streaming: pitcher value, two-start, optimal schedule, rate damage, Bayesian stream scoring (22 tests)
   test_optimizer_scenarios.py — Scenarios: copula generation, mean-variance, CVaR constraints, risk metrics (19 tests)
   test_optimizer_multi_period.py — Multi-period: rolling horizon, season balance, urgency weights (16 tests)
   test_optimizer_dual_objective.py — Dual objective: alpha blending, auto-alpha, edge cases (21 tests)
@@ -216,6 +235,22 @@ tests/
   test_waiver_wire.py       — Waiver wire: BABIP, category priority, drop cost, net swap, sustainability, add/drop recommendations (32 tests)
   test_trade_finder.py      — Trade finder: cosine dissimilarity, team vectors, complementary teams, acceptance probability, 1-for-1 scan, trade opportunities (28 tests)
   test_draft_grader.py      — Draft grader: grade mapping, expected SGP curve, pick classification, category balance, category projections, full grading (45 tests)
+  test_draft_order.py       — Draft order generator: length, contents, seed reproducibility, formatting (8 tests)
+  test_player_tags.py       — Player tags: add/remove/get CRUD, duplicate handling, DB persistence, badge rendering (12 tests)
+  test_pick_predictor.py    — Pick predictor: Weibull survival, curve monotonicity, position shapes, past-ADP behavior (8 tests)
+  test_closer_monitor.py    — Closer monitor: job security bounds, color thresholds, grid building, committee handling (10 tests)
+  test_points_league.py     — Points league: missing stat estimation, Yahoo/ESPN/CBS scoring, hitter-only, points VORP (11 tests)
+  test_leaders.py           — Leaders: category leaders, ascending for ERA/WHIP, min thresholds, breakout detection (11 tests)
+  test_ecr.py               — ECR: fetch extension, blend computation, disagreement badges, round-trip storage (12 tests)
+  test_cheat_sheet.py       — Cheat sheet: HTML generation, positional sections, tiers, health badges, print CSS, PDF fallback (16 tests)
+  test_live_draft_sync.py   — Live draft sync: new pick detection, incremental sync, user turn detection, error handling (12 tests)
+  test_schedule_grid.py     — Schedule grid: 7-day structure, off days, empty roster, tier colors, HTML output (10 tests)
+  test_start_sit_widget.py  — WSIS widget: 2-4 player compare, overlap coefficient, identical/distant distributions (10 tests)
+  test_standings_projection.py — Standings projection: round-robin schedule, category win probability, MC simulation, CI ordering (9 tests)
+  test_power_rankings.py    — Power rankings: roster quality, category balance, weights sum, bootstrap CI, sorted descending (11 tests)
+  test_il_manager.py        — IL manager: classify types, duration estimates, lost SGP, eligible replacements, alert generation (17 tests)
+  test_league_registry.py   — League registry: register/get/list/set_active/delete, first-becomes-active, UUID generation (15 tests)
+  test_prospect_rankings.py — Prospect rankings: fetch returns DataFrame, top-N limit, position filter (6 tests)
   test_valuation_math.py    — Math verification: SGP, VORP, replacement levels, percentiles, process risk (40 tests)
   test_simulation_math.py   — Math verification: survival probability, urgency, combined score, tiers, MC convergence (37 tests)
   test_trade_math.py        — Math verification: trade SGP delta, MC noise, verdict, z-scores, rate stats (35 tests)
@@ -351,13 +386,14 @@ Phase 1 SGP-based evaluation pipeline (7 modules):
 - **Enhanced Opponent Model:** `P(pick) = 0.5*ADP + 0.3*team_need + 0.2*historical_preference`. Computes per-team positional bias from draft history. Falls back to ADP-only when no history available.
 - **Yahoo API:** OAuth 2.0 via yfpy v17+, out-of-band (oob) flow. User clicks link → authorizes on Yahoo → pastes verification code. League settings, rosters, standings, FA pool, draft results sync. Graceful degradation when not connected.
 
-### Database Tables (14)
+### Database Tables (16)
 
 | Group | Tables |
 |-------|--------|
 | Draft | `projections`, `adp`, `league_config`, `draft_picks`, `blended_projections`, `player_pool` |
 | In-Season | `season_stats`, `ros_projections`, `league_rosters`, `league_standings`, `park_factors`, `refresh_log` |
 | Plan 3 | `injury_history`, `transactions` |
+| FantasyPros Parity | `player_tags`, `leagues` |
 
 ## Data Sources
 
@@ -835,6 +871,106 @@ classify_pick(player_sgp, expected_sgp, player_adp, pick_number, num_teams=12, p
 build_expected_sgp_curve(player_pool, config=None) -> list[float]
 category_balance_score(category_projections) -> float  # [0, 1]
 compute_category_projections(roster_ids, player_pool, config=None) -> dict[str, dict]
+
+# --- FantasyPros Parity APIs ---
+
+# Draft order (src/draft_order.py)
+generate_draft_order(team_names: list[str], seed: int | None = None) -> list[str]
+format_draft_order(order: list[str]) -> str
+
+# Player tags (src/player_tags.py)
+VALID_TAGS: list[str]  # ["Sleeper", "Target", "Avoid", "Breakout", "Bust"]
+TAG_COLORS: dict[str, str]  # tag → hex color
+add_tag(player_id: int, tag: str, note: str = "") -> bool
+remove_tag(player_id: int, tag: str) -> bool
+get_tags(player_id: int) -> list[dict]
+get_all_tagged_players(tag_filter: str | None = None) -> pd.DataFrame
+render_tag_badges_html(tags: list[dict]) -> str
+
+# Pick predictor (src/pick_predictor.py)
+POSITION_SHAPE_PARAMS: dict[str, float]  # C=1.4, SS=1.3, ..., OF=0.8
+weibull_survival(picks_remaining, adp_distance, shape, scale) -> float
+compute_survival_curve(player_adp, player_positions, current_pick, user_team_index, num_teams=12, num_rounds=23) -> list[dict]
+# Returns: [{pick, round, p_available, p_normal, p_weibull}]
+
+# Closer monitor (src/closer_monitor.py)
+compute_job_security(hierarchy_confidence: float, projected_sv: float) -> float  # [0, 1]
+get_security_color(security: float) -> str  # green/yellow/red hex
+build_closer_grid(depth_data: dict, player_pool=None) -> list[dict]
+
+# Points league (src/points_league.py)
+SCORING_PRESETS: dict[str, dict]  # yahoo/espn/cbs with hitting + pitching weights
+estimate_missing_batting_stats(row: pd.Series) -> dict
+compute_fantasy_points(projections_df, hitting_weights, pitching_weights) -> pd.DataFrame
+get_scoring_preset(name: str) -> tuple[dict, dict]
+
+# Leaders (src/leaders.py)
+compute_category_leaders(stats_df, config, min_pa=50, min_ip=20.0, top_n=20) -> dict
+compute_points_leaders(stats_df, hitting_weights, pitching_weights, top_n=20) -> list
+detect_breakouts(season_stats_df, preseason_df, threshold=1.5) -> pd.DataFrame
+
+# ECR (src/ecr.py)
+fetch_ecr_extended(position="overall") -> pd.DataFrame
+blend_ecr_with_projections(valued_pool, ecr_df, ecr_weight=0.15) -> pd.DataFrame
+compute_ecr_disagreement(proj_rank, ecr_rank, threshold=20) -> str | None
+fetch_prospect_rankings(top_n=100) -> pd.DataFrame
+filter_prospects_by_position(prospects_df, position) -> pd.DataFrame
+
+# Cheat sheet (src/cheat_sheet.py)
+CheatSheetConfig(title, sort_by, positions, show_tiers, top_n)
+generate_cheat_sheet_html(player_pool, config=None) -> str
+generate_cheat_sheet_pdf(html_string) -> bytes | None
+
+# Live draft sync (src/live_draft_sync.py)
+LiveDraftSyncer(yahoo_client, draft_state, player_pool, user_team_key="")
+# .poll_and_sync() -> dict  # {new_picks, is_user_turn, error, draft_complete}
+
+# Schedule grid (src/schedule_grid.py)
+TIER_COLORS: dict[str, str]  # smash/favorable/neutral/unfavorable/avoid
+build_schedule_grid(roster, weekly_schedule=None, matchup_ratings=None) -> dict
+render_schedule_html(grid: dict) -> str
+
+# Start/sit widget (src/start_sit_widget.py)
+quick_start_sit(player_ids, player_pool, config=None) -> dict
+compute_overlap_probability(mu1, sigma1, mu2, sigma2) -> float  # OVL coefficient
+
+# Standings projection (src/standings_projection.py)
+INVERSE_CATS: set[str]  # {"ERA", "WHIP", "L"}
+generate_round_robin_schedule(team_names, n_weeks=22) -> list[list[tuple]]
+compute_category_win_probability(mu_a, mu_b, sigma_a, sigma_b, is_inverse=False) -> float
+simulate_season(team_totals, n_sims=1000, seed=42) -> pd.DataFrame
+# Returns: team_name, mean_wins, mean_losses, mean_ties, win_p5, win_p95, playoff_pct
+
+# Power rankings (src/power_rankings.py)
+WEIGHTS: dict[str, float]  # roster_quality=0.40, category_balance=0.25, schedule_strength=0.15, injury_exposure=0.10, momentum=0.10
+compute_roster_quality(team_trade_values, max_trade_values) -> float
+compute_category_balance_score(team_zscores) -> float
+compute_schedule_strength_index(team_name, roster_qualities, schedule=None) -> float
+compute_injury_exposure(roster_trade_values, roster_health_scores) -> float
+compute_momentum(recent_win_rate=None, season_win_rate=None) -> float
+compute_power_rating(roster_quality, category_balance, schedule_strength, injury_exposure, momentum) -> float
+compute_power_rankings(team_data) -> pd.DataFrame
+bootstrap_confidence_interval(team_rating, component_stds=None, n_bootstrap=1000) -> tuple[float, float]
+
+# IL manager (src/il_manager.py)
+IL_DURATION_ESTIMATES: dict[str, float]  # IL10=2.0, IL15=3.5, IL60=10.0, DTD=0.5
+classify_il_type(status_string) -> str
+estimate_il_duration(il_type, position="") -> float
+compute_lost_sgp(player_sgp, duration_weeks, weeks_remaining=22.0) -> float
+find_best_replacement(vacated_positions, bench_players) -> dict | None
+generate_il_alert(player, il_type, bench_players) -> dict
+
+# League registry (src/league_registry.py)
+register_league(platform, league_name, num_teams=12, scoring_format="h2h_categories", yahoo_league_id=None) -> str
+get_league(league_id) -> LeagueInfo | None
+list_leagues() -> list[LeagueInfo]
+set_active_league(league_id) -> bool
+get_active_league_id() -> str
+delete_league(league_id) -> bool
+
+# Bayesian streaming (src/optimizer/streaming.py — new functions)
+compute_bayesian_stream_score(pitcher_era, pitcher_k9, pitcher_fip, opp_k_pct, opp_woba, ...) -> dict
+# Returns: {stream_score, expected_k, expected_ip, expected_er, win_prob, risk_penalty, matchup_grade}
 ```
 
 ## Gotchas
@@ -971,6 +1107,19 @@ compute_category_projections(roster_ids, player_pool, config=None) -> dict[str, 
 - **Trade finder composite score** — `0.50 * user_delta + 0.25 * p_accept * 3.0 + 0.15 * max(opp_delta, 0) + 0.10 * need_match * 2.0`. Single-counted user_delta (not double-counted).
 - **Draft grader `classify_pick()` uses AND logic** — Both SGP surplus AND ADP gap must agree for STEAL/REACH classification. Prevents misclassifying a player as STEAL purely from ADP deviation when SGP says otherwise.
 - **Draft grader `category_balance_score()` uses std, not CV** — Standard deviation of z-scores mapped to [0, 1] via `1 - std/3.0`. CV (std/mean) is unstable when mean is near zero (common for balanced teams).
+- **Pick predictor Weibull scale** — `scale = adp_distance * 1.5`, so `weibull_survival(picks, adp_dist, shape, scale)` with `adp_dist = max(1.0, ADP - current_pick)`. If `scale <= 0` or `picks <= 0`, returns 1.0 (available).
+- **Pick predictor blended probability** — `P = 0.6 × P_normal + 0.4 × P_weibull`. Position shape params: C=1.4 (scarce, steep hazard), OF=0.8 (abundant, gentle hazard).
+- **ECR blend uses Int64Dtype for nullable ecr_rank** — `df["ecr_rank"] = pd.array([None] * len(df), dtype=pd.Int64Dtype())` prevents FutureWarning when assigning int values to a column initialized with None.
+- **ECR disagreement threshold is 20** — `|proj_rank - ecr_rank| > 20` triggers badge. Returns "ECR Higher" when projection undervalues (proj_rank > ecr_rank), "Proj Higher" when projection overvalues.
+- **Power rankings momentum normalization** — Momentum [0.5, 2.0] normalized to [0, 1] via `(momentum - 0.5) / 1.5` before applying 10% weight in composite.
+- **Standings projection INVERSE_CATS** — `{"ERA", "WHIP", "L"}` — lower-is-better categories. `compute_category_win_probability()` flips `mu_a`/`mu_b` for these.
+- **Player tags DB uses CHECK constraint** — `CHECK(tag IN ('Sleeper','Target','Avoid','Breakout','Bust'))`. Invalid tags return False from `add_tag()`, not raise.
+- **League registry uses UUID4** — `register_league()` generates `str(uuid.uuid4())` for league_id. First registered league auto-becomes active.
+- **IL duration estimates are rough heuristics** — IL10=2 weeks, IL15=3.5 weeks, IL60=10 weeks, DTD=0.5 weeks. Position-specific adjustments not yet implemented.
+- **Cheat sheet PDF requires weasyprint** — `generate_cheat_sheet_pdf()` returns None when weasyprint is not installed. HTML export always works.
+- **Live draft sync poll interval** — 8-second polling via `time.time() - last_poll_time >= 8.0`. After 3 consecutive API errors, disables auto-sync. `LiveDraftSyncer.poll_and_sync()` returns `{new_picks, is_user_turn, error, draft_complete}`.
+- **Bayesian stream score formula** — `stream_score = E[K]/sgp_K + W_prob×0.5/sgp_W - E[ER]×risk_penalty/sgp_ERA`. Matchup grade: top 10%→A+, 25%→A, 40%→B+, 60%→B, rest→C.
+- **Prospect rankings are static** — `fetch_prospect_rankings()` returns a hardcoded curated top-20 list. No external scraping — avoids anti-scraping issues with FanGraphs.
 
 ## GitHub
 
@@ -980,8 +1129,8 @@ compute_category_projections(roster_ids, player_pool, config=None) -> dict[str, 
 
 ## Testing Status
 
-- **Unit tests:** 1593 collected, 1590 passed, 3 skipped (PyMC/xgboost optional deps)
-- **Test files:** 60 test files across draft engine, trade engine (Phase 1-6), lineup optimizer (10 files), draft recommendation engine (5 files), gap closure (14 files), in-season analytics (7 files), in-season, analytics, data pipeline, bootstrap, integration, backtesting, and math verification
+- **Unit tests:** 1777 collected, 1774 passed, 3 skipped (PyMC/xgboost optional deps)
+- **Test files:** 76 test files across draft engine, trade engine (Phase 1-6), lineup optimizer (10 files), draft recommendation engine (5 files), gap closure (14 files), in-season analytics (7 files), FantasyPros parity (16 files), in-season, analytics, data pipeline, bootstrap, integration, backtesting, and math verification
 - **Gap closure tests:** 153 tests total — extended roster (6), LAST CHANCE badge (8), Marcel projections (12), contract data (10), depth charts (12), news fetcher (18), ADP sources (15), extended projections (16), engine output (14), data pipeline schema (12), scheduler (5), bootstrap integration (25)
 - **Spec completion tests:** 51 tests total — risk score + ST signal (16), schema persistence + Statcast archive + FG IDs (10), Yahoo ADP (5), category heatmap (5), backtesting harness (15)
 - **Math verification suite:** 168 tests across 4 files (valuation, simulation, trade, trade engine math) — hand-calculated expected values verified against code formulas
@@ -989,6 +1138,7 @@ compute_category_projections(roster_ids, player_pool, config=None) -> dict[str, 
 - **Trade engine tests:** 228 tests total — Phase 1 (47): marginal SGP, punt detection, z-scores, grading, fuzzy match, replacement cost penalty (6), lineup-constrained eval (9), integration. Phase 2 (33): BMA, KDE marginals, Gaussian copula, paired MC, correlated sampling, distributional metrics, integration. Phase 3 (32): Statcast aggregation, signal decay, Kalman filter, BOCPD changepoint detection, HMM regime classification, rolling features. Phase 4 (40): Log5 matchup math, Weibull injury duration, frailty, season availability, enhanced bench value, roster flexibility, HHI concentration, penalty thresholds, trade context integration. Phase 5 (38): opponent valuations, market clearing price, adverse selection Bayesian discount, Bellman rollout, roster balance, sensitivity ranking, counter-offers, game theory integration. Phase 6 (32): ESS convergence, split-R̂, running mean stability, cache TTL/invalidation/get_or_compute, adaptive sim scaling, time budget caps. Math (6): replacement cost formula hand-calcs (3) + lineup constraint math (3).
 - **Lineup optimizer tests:** 204 tests total across 10 files — projections (28), matchups (19), H2H engine (18), SGP theory (16), streaming (16), scenarios (19), multi-period (16), dual objective (21), advanced LP (25), pipeline orchestrator (26)
 - **In-season analytics tests:** 276 tests total across 7 files — trade value (40), two-start planner (43), start/sit advisor (50), matchup planner (38), waiver wire (32), trade finder (28), draft grader (45)
+- **FantasyPros parity tests:** 184 tests total across 16 files — draft order (8), player tags (12), pick predictor (8), closer monitor (10), points league (11), leaders (11), ECR (12), cheat sheet (16), live draft sync (12), schedule grid (10), WSIS widget (10), standings projection (9), power rankings (11), IL manager (17), league registry (15), prospect rankings (6), plus 6 new Bayesian streaming tests in existing optimizer streaming file
 - **CI:** GitHub Actions runs ruff lint/format + pytest on Python 3.11, 3.12, 3.13
 - **Coverage:** 64% (above 60% CI threshold; pre-existing, no regressions)
 - **Systematic code reviews:** Six rounds of full codebase debugging (149 bugs fixed): Round 1 (10 bugs — data pipeline, Yahoo API, lineup optimizer, CI), Round 2 (9 bugs — MC rate stats, regime detection, bellman DP, convergence, lineup optimizer UI, trade analyzer HTML), Round 3 (8 bugs — SGP denominators, survival gauge, injury persistence, percentile volatility, player pool duplicates), Round 4 (3 bugs — connection leak, player_name alias, export buttons), Round 5 (3 bugs — standings long-format parsing, maximin display format, emoji in H2H subheader), Round 6 (116 bugs — 7 new in-season modules: trade_value.py, two_start.py, start_sit.py, matchup_planner.py, waiver_wire.py, trade_finder.py, draft_grader.py — time-decay ordering, G-Score/replacement level mismatch, confidence tier logic, thread safety, loss aversion formula, STEAL/REACH AND-logic, category balance CV→std, park factor inversion for pitchers, rate stat scaling, sustainability interpolation slopes). All pushed to master, all CI green.
