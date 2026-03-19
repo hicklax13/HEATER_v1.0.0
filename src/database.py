@@ -236,6 +236,17 @@ def init_db():
             created_at TEXT DEFAULT (datetime('now')),
             PRIMARY KEY (player_id, tag)
         );
+
+        CREATE TABLE IF NOT EXISTS leagues (
+            league_id TEXT PRIMARY KEY,
+            platform TEXT DEFAULT 'manual',
+            league_name TEXT NOT NULL,
+            num_teams INTEGER DEFAULT 12,
+            scoring_format TEXT DEFAULT 'h2h_categories',
+            yahoo_league_id TEXT,
+            created_at TEXT NOT NULL,
+            is_active INTEGER DEFAULT 0
+        );
     """)
     conn.commit()
 
