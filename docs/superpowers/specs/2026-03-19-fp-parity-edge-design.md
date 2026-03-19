@@ -82,7 +82,7 @@ CREATE TABLE IF NOT EXISTS prospect_rankings (
 readiness = (
     0.40 * fv_normalized          # FV 80 -> 100, FV 20 -> 0
   + 0.25 * age_level_performance  # wOBA vs level avg, age-adjusted
-  + 0.20 * eta_proximity          # 2025->100, 2026->75, 2027->50, 2028->25
+  + 0.20 * eta_proximity          # 2026->100, 2027->75, 2028->50, 2029->25
   + 0.15 * risk_factor            # Low->1.0, Med->0.8, High->0.6
 )
 ```
@@ -91,7 +91,7 @@ readiness = (
 
 **`age_level_performance`:** Compute wOBA proxy from MiLB stats: `(obp * 1.2 + slg * 0.8) / 2`. Compare to level average (AAA: .330, AA: .310, High-A: .300, A: .290). Bonus/penalty for age relative to level average age (AAA avg ~25, AA ~23, High-A ~22, A ~21). Scale to 0-100.
 
-**`eta_proximity`:** Current year = 100, +1 = 75, +2 = 50, +3 = 25, +4 = 0.
+**`eta_proximity`:** Computed relative to current season (2026). ETA 2026 or earlier = 100, ETA 2027 = 75, ETA 2028 = 50, ETA 2029 = 25, ETA 2030+ = 0. Prospects with ETA in the past (already MLB-ready) get full score.
 
 **`risk_factor`:** Scales the raw score. Low risk = 1.0, Medium = 0.8, High = 0.6, Extreme = 0.4.
 
@@ -139,7 +139,7 @@ Build a genuine multi-platform consensus from 7 independent ranking sources usin
 | Source | Endpoint | Data | Auth | Staleness |
 |--------|----------|------|------|-----------|
 | ESPN Fantasy API | `lm-api-reads.fantasy.espn.com/apis/v3/games/flb/seasons/2026/players?view=kona_player_info` | Draft rank via `draftRanksByRankType.STANDARD.rank` (nested path). Paginated: use `offset` + `limit` query params (default limit=50, max=1000). | None | 24h |
-| Yahoo ADP | yfpy `/draft_analysis` sub-resource on player objects | Average pick, average round, percent drafted | OAuth (existing) | 24h |
+| Yahoo ADP | Existing `YahooFantasyClient.fetch_yahoo_adp()` method (uses `get_draft_results()` to compute average pick per player) | Average pick, average round, percent drafted | OAuth (existing) | 24h |
 | CBS Sports | `cbssports.com/fantasy/baseball/rankings/h2h/top300/` | H2H Top 300 ranked table. **Note:** Page is JS-rendered — use `requests` to try fetching HTML, but fallback gracefully if content is empty/JS-only. CBS may return partial data or require headless browser. Mark as "best-effort" source with 0-1 availability. | Scrape | 24h |
 | NFBC ADP | Already in `adp_sources.py` | High-stakes ADP | Scrape (existing) | 24h |
 | FanGraphs ADP | Already in `data_pipeline.py` | Steamer-based ADP | JSON API (existing) | 7d |
@@ -198,10 +198,10 @@ Cross-reference player IDs across platforms:
 ```sql
 CREATE TABLE IF NOT EXISTS player_id_map (
     player_id INTEGER PRIMARY KEY,  -- HEATER internal ID
-    espn_id INTEGER UNIQUE,
-    yahoo_key TEXT UNIQUE,
-    fg_id INTEGER UNIQUE,
-    mlb_id INTEGER UNIQUE,
+    espn_id INTEGER,
+    yahoo_key TEXT,
+    fg_id INTEGER,
+    mlb_id INTEGER,
     cbs_id INTEGER,
     nfbc_id INTEGER,
     name TEXT,
@@ -307,7 +307,7 @@ Full: 7 sources when all APIs respond.
 1. **`tests/test_ecr.py`** — Rewrite in place. The 12 existing tests tested the FantasyPros-only implementation. New tests replace them with consensus-based tests. Net test count increases from 12 to ~25.
 2. **`tests/test_prospect_rankings.py`** — Currently imports `fetch_prospect_rankings()` from `src/ecr.py`. Update imports to `from src.prospect_engine import get_prospect_rankings`. The 6 existing tests are rewritten to test the new engine.
 3. **`blend_ecr_with_projections()`** — Keep same function signature. Internally it now uses `consensus_rank` instead of `ecr_rank`, but the column it produces (`blended_rank`, `ecr_badge`) stays the same. Callers in `app.py` don't change.
-4. **`compute_ecr_disagreement()`** — Change signature from `(proj_rank, ecr_rank, threshold=20)` to `(consensus_row)` which reads `rank_stddev` and `n_sources`. Callers in `app.py` updated.
+4. **`compute_ecr_disagreement()`** — Change signature from `(proj_rank, ecr_rank, threshold=20)` to `(consensus_row)` which reads `rank_stddev` and `n_sources`. Internal call within `blend_ecr_with_projections()` updated: after merging `consensus_df` into `valued_pool` by player_id, each row now contains `rank_stddev`, `n_sources`, `rank_min`, `rank_max` columns. The function passes the merged row to `compute_ecr_disagreement()`. Callers in `app.py` also updated to pass the consensus row format.
 
 ---
 
@@ -426,7 +426,7 @@ Fields populated from:
 | `src/yahoo_api.py` | Extract `injury_note`, `status_full`, `percent_owned` fields from Player model during `sync_league_data()` |
 | `src/data_bootstrap.py` | Add Phase 14: `_refresh_news()` calling `refresh_all_news()` with 1h staleness |
 | `src/news_sentiment.py` | No changes needed — existing keyword scorer processes ESPN/RotoWire text |
-| `src/news_fetcher.py` | **Unchanged.** Keeps existing MLB transaction logic (`fetch_transactions()`, `fetch_player_news()`). `player_news.py` imports and delegates to it for MLB API data — no duplication. ESPN + RotoWire fetchers live exclusively in `player_news.py`. |
+| `src/news_fetcher.py` | **Unchanged.** Keeps existing MLB transaction logic (`fetch_recent_transactions()`, `fetch_player_news()`). `player_news.py` imports and delegates to it for MLB API data — no duplication. ESPN + RotoWire fetchers live exclusively in `player_news.py`. |
 
 ### Fallback Chain
 
@@ -481,6 +481,8 @@ New "News & Alerts" tab:
 
 **Important:** ECR consensus is its own phase (not embedded in Phase 3) because it depends on projection data being fully loaded AND ADP sources being refreshed first. It must run after both Phase 3 and Phase 9.
 
+**Relationship to existing Phase 11 (`_bootstrap_news`):** Phase 11 fetches raw MLB transactions via `news_fetcher.fetch_recent_transactions()` and stores them in the `transactions` table. Phase 14 builds on top: it calls `news_fetcher.fetch_recent_transactions()` for MLB data (via import, not duplication), then adds ESPN News API + RotoWire RSS + Yahoo injury fields, stores everything in the new `player_news` table, and runs the analytical layer (templates + SGP impact). Phase 11 is **retained** for backward compatibility — the `transactions` table is still populated for existing consumers. Phase 14 is additive.
+
 `StalenessConfig` dataclass updated with two new fields:
 ```python
 prospects_hours: float = 168  # 7 days
@@ -497,7 +499,7 @@ ecr_consensus_hours: float = 24  # 24 hours
 - `player_news`
 - `ownership_trends`
 
-Current count: 16 tables (14 original + 2 parity: player_tags, leagues). Adding 5 new = **21 tables total**.
+Current count: 14 tables in `init_db()` (12 original + statcast_archive + player_tags + leagues = 14, though `league_config`/`draft_picks`/`blended_projections`/`player_pool` exist in CLAUDE.md they are created elsewhere). Adding 5 new = **19 tables total** in `init_db()`.
 
 ### Rate Limiting
 
@@ -513,17 +515,17 @@ All new API calls follow existing `data_pipeline.py` pattern:
 |------|---------------|-------|
 | `src/prospect_engine.py` | FG + MLB API prospect data, readiness score | ~15 |
 | `src/player_news.py` | Multi-source news aggregation, analytical intel | ~20 |
-| `src/ecr.py` (rewrite) | Multi-platform consensus builder | ~18 |
+| `src/ecr.py` (rewrite) | Multi-platform consensus builder | ~25 |
 
 ### Modified Files Summary
 
 | File | Changes |
 |------|---------|
 | `src/database.py` | 5 new tables in `init_db()` |
-| `src/data_bootstrap.py` | Phase 8 (prospects) + Phase 9 (news) |
-| `src/live_stats.py` | `fetch_player_enhanced_status()` |
+| `src/data_bootstrap.py` | Phase 13 (prospects) + Phase 14 (news) + Phase 15 (ECR consensus). **Existing Phase 11 (`_bootstrap_news`) retained** for MLB transaction fetching; Phase 14 adds ESPN/RotoWire/Yahoo sources and analytical layer on top. |
+| `src/live_stats.py` | Add `fetch_player_enhanced_status()` |
 | `src/yahoo_api.py` | Extract injury_note, status_full, percent_owned |
-| `src/news_fetcher.py` | ESPN + RotoWire source integration |
+| `src/news_fetcher.py` | **Unchanged** — `player_news.py` imports from it |
 | `pages/9_Leaders.py` | Enhanced Prospects tab with radar charts |
 | `pages/1_My_Team.py` | News & Alerts tab |
 | `app.py` | Consensus Rank column + disagreement badges in draft board |
