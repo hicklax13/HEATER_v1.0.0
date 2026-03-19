@@ -1,5 +1,6 @@
 # tests/test_prospect_rankings.py
 """Tests for prospect rankings (updated for prospect_engine)."""
+
 from __future__ import annotations
 
 from unittest.mock import patch

@@ -8,11 +8,14 @@ min/max when >=4 sources) for outlier robustness.
 from __future__ import annotations
 
 import difflib
+import logging
 import statistics
 import unicodedata
 from datetime import UTC, datetime
 
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 try:
     import requests
@@ -788,11 +791,13 @@ def refresh_ecr_consensus(force: bool = False) -> pd.DataFrame:
                 player_sources = {}
                 rank = row.get("rank") or row.get("ecr_rank") or row.get("adp") or (idx + 1)
                 player_sources[source_name] = int(rank) if rank else None
-                all_players.append({
-                    "player_id": int(pid),
-                    "name": name,
-                    **{f"{source_name}_rank": int(rank) if rank else None},
-                })
+                all_players.append(
+                    {
+                        "player_id": int(pid),
+                        "name": name,
+                        **{f"{source_name}_rank": int(rank) if rank else None},
+                    }
+                )
 
     if not all_players:
         return load_ecr_consensus()

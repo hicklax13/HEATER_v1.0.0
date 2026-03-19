@@ -4,6 +4,7 @@
 Computes MLB Readiness Score (0-100) combining FV, age-level performance,
 ETA proximity, and risk factor.
 """
+
 from __future__ import annotations
 
 import logging
@@ -21,14 +22,8 @@ _CURRENT_SEASON = datetime.now(UTC).year
 _LEVEL_AVG_WOBA = {"AAA": 0.330, "AA": 0.310, "High-A": 0.300, "A": 0.290, "A+": 0.300}
 _LEVEL_AVG_AGE = {"AAA": 25, "AA": 23, "High-A": 22, "A": 21, "A+": 22}
 
-_FG_BOARD_URL = (
-    "https://www.fangraphs.com/api/prospects/board/data"
-    "?draft=false&season={season}"
-)
-_MLB_MILB_STATS_URL = (
-    "https://statsapi.mlb.com/api/v1/people/{mlb_id}"
-    "/stats?stats=yearByYear&leagueListId=milb_all"
-)
+_FG_BOARD_URL = "https://www.fangraphs.com/api/prospects/board/data?draft=false&season={season}"
+_MLB_MILB_STATS_URL = "https://statsapi.mlb.com/api/v1/people/{mlb_id}/stats?stats=yearByYear&leagueListId=milb_all"
 
 _RISK_MAP = {"Low": 1.0, "Medium": 0.8, "High": 0.6, "Extreme": 0.4}
 _HEADERS = {"User-Agent": "HEATER-Fantasy-Tool/1.0"}
@@ -60,6 +55,7 @@ _STATIC_PROSPECTS = [
 
 
 # -- Readiness score components -----------------------------------------------
+
 
 def _fv_normalized(fv: int | None) -> float:
     """Normalize FV (20-80 scale) to 0-100."""
@@ -139,6 +135,7 @@ def compute_mlb_readiness_score(row: dict) -> float:
 
 # -- FanGraphs Board API ------------------------------------------------------
 
+
 def _parse_fg_prospects(data: list[dict]) -> pd.DataFrame:
     """Parse FanGraphs Board API response into a DataFrame."""
     rows = []
@@ -182,6 +179,7 @@ def fetch_fg_board(season: int = _CURRENT_SEASON) -> pd.DataFrame:
     """
     try:
         import requests
+
         url = _FG_BOARD_URL.format(season=season)
         resp = requests.get(url, headers=_HEADERS, timeout=15)
         resp.raise_for_status()
@@ -201,6 +199,7 @@ fetch_fangraphs_prospects = fetch_fg_board
 
 # -- MLB Stats API MiLB stats -------------------------------------------------
 
+
 def fetch_milb_stats(mlb_ids: list[int]) -> pd.DataFrame:
     """Fetch MiLB stats for a list of MLB IDs.
     Returns DataFrame with one row per player (most recent MiLB season).
@@ -211,6 +210,7 @@ def fetch_milb_stats(mlb_ids: list[int]) -> pd.DataFrame:
             continue
         try:
             import requests
+
             url = _MLB_MILB_STATS_URL.format(mlb_id=mlb_id)
             resp = requests.get(url, headers=_HEADERS, timeout=10)
             resp.raise_for_status()
@@ -299,11 +299,13 @@ def _compute_bb_pct(stat: dict) -> float | None:
 
 # -- DB persistence -----------------------------------------------------------
 
+
 def _store_prospects(df: pd.DataFrame) -> int:
     """Store prospect rankings to DB. Returns count stored."""
     if df.empty:
         return 0
     from src.database import get_connection
+
     conn = get_connection()
     try:
         # Clear and re-insert
@@ -322,21 +324,42 @@ def _store_prospects(df: pd.DataFrame) -> int:
                     readiness_score, fetched_at)
                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
-                    row.get("mlb_id"), row.get("name"), row.get("team"),
-                    row.get("position"), row.get("fg_rank"), row.get("fg_fv"),
-                    row.get("fg_eta"), row.get("fg_risk"), row.get("age"),
-                    row.get("hit_present"), row.get("hit_future"),
-                    row.get("game_present"), row.get("game_future"),
-                    row.get("raw_present"), row.get("raw_future"),
-                    row.get("speed"), row.get("field"),
-                    row.get("ctrl_present"), row.get("ctrl_future"),
-                    row.get("scouting_report"), row.get("tldr"),
-                    row.get("milb_level"), row.get("milb_avg"), row.get("milb_obp"),
-                    row.get("milb_slg"), row.get("milb_k_pct"), row.get("milb_bb_pct"),
-                    row.get("milb_hr"), row.get("milb_sb"),
-                    row.get("milb_ip"), row.get("milb_era"), row.get("milb_whip"),
-                    row.get("milb_k9"), row.get("milb_bb9"),
-                    row.get("readiness_score"), now,
+                    row.get("mlb_id"),
+                    row.get("name"),
+                    row.get("team"),
+                    row.get("position"),
+                    row.get("fg_rank"),
+                    row.get("fg_fv"),
+                    row.get("fg_eta"),
+                    row.get("fg_risk"),
+                    row.get("age"),
+                    row.get("hit_present"),
+                    row.get("hit_future"),
+                    row.get("game_present"),
+                    row.get("game_future"),
+                    row.get("raw_present"),
+                    row.get("raw_future"),
+                    row.get("speed"),
+                    row.get("field"),
+                    row.get("ctrl_present"),
+                    row.get("ctrl_future"),
+                    row.get("scouting_report"),
+                    row.get("tldr"),
+                    row.get("milb_level"),
+                    row.get("milb_avg"),
+                    row.get("milb_obp"),
+                    row.get("milb_slg"),
+                    row.get("milb_k_pct"),
+                    row.get("milb_bb_pct"),
+                    row.get("milb_hr"),
+                    row.get("milb_sb"),
+                    row.get("milb_ip"),
+                    row.get("milb_era"),
+                    row.get("milb_whip"),
+                    row.get("milb_k9"),
+                    row.get("milb_bb9"),
+                    row.get("readiness_score"),
+                    now,
                 ),
             )
             count += 1
@@ -349,17 +372,20 @@ def _store_prospects(df: pd.DataFrame) -> int:
 def _fetch_from_db(top_n: int = 100) -> pd.DataFrame:
     """Load prospect rankings from DB."""
     from src.database import get_connection
+
     conn = get_connection()
     try:
         return pd.read_sql_query(
             "SELECT * FROM prospect_rankings ORDER BY fg_rank LIMIT ?",
-            conn, params=(top_n,),
+            conn,
+            params=(top_n,),
         )
     finally:
         conn.close()
 
 
 # -- Public API ---------------------------------------------------------------
+
 
 def _scrape_mlb_pipeline() -> pd.DataFrame:
     """Fallback Level 2: Scrape MLB Pipeline prospect list.
@@ -378,6 +404,7 @@ def _scrape_mlb_pipeline() -> pd.DataFrame:
         soup = BeautifulSoup(resp.text, "html.parser")
         # Look for prospect data in script tags
         import json as _json
+
         for script in soup.find_all("script"):
             text = script.string or ""
             if "prospects" in text.lower() and "rank" in text.lower():
@@ -391,14 +418,17 @@ def _scrape_mlb_pipeline() -> pd.DataFrame:
                                     if isinstance(data, list) and len(data) > 5:
                                         rows = []
                                         for i, item in enumerate(data[:100]):
-                                            rows.append({
-                                                "name": item.get("name", item.get("fullName", "")),
-                                                "team": item.get("team", {}).get("abbreviation", "")
-                                                    if isinstance(item.get("team"), dict) else str(item.get("team", "")),
-                                                "position": item.get("position", item.get("primaryPosition", "")),
-                                                "fg_rank": i + 1,
-                                                "mlb_id": item.get("playerId", item.get("id")),
-                                            })
+                                            rows.append(
+                                                {
+                                                    "name": item.get("name", item.get("fullName", "")),
+                                                    "team": item.get("team", {}).get("abbreviation", "")
+                                                    if isinstance(item.get("team"), dict)
+                                                    else str(item.get("team", "")),
+                                                    "position": item.get("position", item.get("primaryPosition", "")),
+                                                    "fg_rank": i + 1,
+                                                    "mlb_id": item.get("playerId", item.get("id")),
+                                                }
+                                            )
                                         if rows:
                                             logger.info("MLB Pipeline scrape: found %d prospects", len(rows))
                                             return pd.DataFrame(rows)
@@ -444,9 +474,7 @@ def refresh_prospect_rankings(force: bool = False) -> pd.DataFrame:
                     if col != "mlb_id" and col in df.columns and f"{col}_milb" in df.columns:
                         df[col] = df[col].fillna(df[f"{col}_milb"])
                         df.drop(columns=[f"{col}_milb"], inplace=True)
-        df["readiness_score"] = df.apply(
-            lambda r: compute_mlb_readiness_score(r.to_dict()), axis=1
-        )
+        df["readiness_score"] = df.apply(lambda r: compute_mlb_readiness_score(r.to_dict()), axis=1)
         _store_prospects(df)
         return df
 
@@ -464,9 +492,7 @@ def refresh_prospect_rankings(force: bool = False) -> pd.DataFrame:
     # Level 3: Static fallback (compute readiness scores and store)
     logger.warning("All prospect sources failed -- using static list")
     static_df = pd.DataFrame(_STATIC_PROSPECTS)
-    static_df["readiness_score"] = static_df.apply(
-        lambda r: compute_mlb_readiness_score(r.to_dict()), axis=1
-    )
+    static_df["readiness_score"] = static_df.apply(lambda r: compute_mlb_readiness_score(r.to_dict()), axis=1)
     _store_prospects(static_df)
     return static_df
 
@@ -498,6 +524,7 @@ def get_prospect_rankings(
 def get_prospect_detail(prospect_id: int) -> dict | None:
     """Get full detail for a single prospect by prospect_id."""
     from src.database import get_connection
+
     conn = get_connection()
     try:
         row = conn.execute(
