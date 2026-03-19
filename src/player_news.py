@@ -97,6 +97,12 @@ def _classify_il_status(text: str) -> str | None:
     """Extract IL type from description text. Returns IL10/IL15/IL60/DTD or None."""
     if not text:
         return None
+    # Only delegate to classify_il_type if text contains IL-related keywords;
+    # otherwise classify_il_type returns "DTD" for any text (e.g. trades, callups)
+    upper = text.upper()
+    il_indicators = ("IL", "DL", "INJURED", "DTD", "DAY-TO-DAY", "10-DAY", "15-DAY", "60-DAY")
+    if not any(kw in upper for kw in il_indicators):
+        return None
     return classify_il_type(text)
 
 
@@ -381,6 +387,10 @@ def _store_news_items(items: list[dict]) -> int:
         inserted = 0
         now = datetime.now(UTC).isoformat()
         for item in items:
+            pid = item.get("player_id")
+            if not pid or pid == 0:
+                logger.debug("Skipping news item without valid player_id: %s", item.get("headline", ""))
+                continue
             try:
                 cursor.execute(
                     """INSERT OR IGNORE INTO player_news
@@ -389,7 +399,7 @@ def _store_news_items(items: list[dict]) -> int:
                         published_at, fetched_at)
                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
-                        item.get("player_id", 0),
+                        int(pid),
                         item.get("source", ""),
                         item.get("headline", ""),
                         item.get("detail", ""),
@@ -713,11 +723,21 @@ def refresh_all_news(
     except Exception:
         logger.warning("RotoWire news refresh failed", exc_info=True)
 
-    # 3. MLB Stats API transactions (via existing news_fetcher)
+    # 3. MLB Stats API enhanced status (requires player mlb_ids)
     try:
-        mlb_items = fetch_mlb_enhanced_status()
-        if mlb_items:
-            total_stored += _store_news_items(mlb_items)
+        from src.database import get_connection
+        conn = get_connection()
+        try:
+            rows = conn.execute(
+                "SELECT mlb_id FROM players WHERE mlb_id IS NOT NULL AND mlb_id > 0"
+            ).fetchall()
+            mlb_ids = [r[0] for r in rows]
+        finally:
+            conn.close()
+        if mlb_ids:
+            mlb_items = fetch_mlb_enhanced_status(mlb_ids[:50])  # cap to avoid rate limits
+            if mlb_items:
+                total_stored += _store_news_items(mlb_items)
     except Exception:
         logger.warning("MLB enhanced status refresh failed", exc_info=True)
 
@@ -728,12 +748,15 @@ def refresh_all_news(
             from src.yahoo_api import YahooFantasyClient
 
             if isinstance(yahoo_client, YahooFantasyClient):
-                roster = yahoo_client.get_roster()
-                if roster:
-                    for player_data in roster:
-                        yahoo_items = _extract_yahoo_injury_news(player_data)
-                        if yahoo_items:
-                            total_stored += _store_news_items(yahoo_items)
+                all_rosters = yahoo_client.get_all_rosters()
+                if all_rosters and isinstance(all_rosters, dict):
+                    for _team_name, roster_list in all_rosters.items():
+                        if not isinstance(roster_list, list):
+                            continue
+                        for player_data in roster_list:
+                            yahoo_items = _extract_yahoo_injury_news(player_data)
+                            if yahoo_items:
+                                total_stored += _store_news_items(yahoo_items)
         except Exception:
             logger.warning("Yahoo news extraction failed", exc_info=True)
 

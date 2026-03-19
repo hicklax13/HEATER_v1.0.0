@@ -308,7 +308,7 @@ def test_fetch_yahoo_adp_from_client():
     from src.ecr import fetch_yahoo_adp
 
     mock_client = MagicMock()
-    mock_client.get_league_draft_results.return_value = pd.DataFrame(
+    mock_client.get_draft_results.return_value = pd.DataFrame(
         [
             {"player_name": "Player A", "pick": 5},
             {"player_name": "Player B", "pick": 12},

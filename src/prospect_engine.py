@@ -31,26 +31,26 @@ _HEADERS = {"User-Agent": "HEATER-Fantasy-Tool/1.0"}
 # -- Fallback static list (last resort) --------------------------------------
 
 _STATIC_PROSPECTS = [
-    {"rank": 1, "name": "Roki Sasaki", "team": "LAD", "position": "SP", "eta": "2025", "fv": 80},
-    {"rank": 2, "name": "Roman Anthony", "team": "BOS", "position": "OF", "eta": "2025", "fv": 70},
-    {"rank": 3, "name": "Travis Bazzana", "team": "CLE", "position": "2B", "eta": "2026", "fv": 65},
-    {"rank": 4, "name": "Charlie Condon", "team": "COL", "position": "3B", "eta": "2027", "fv": 65},
-    {"rank": 5, "name": "Jac Caglianone", "team": "KC", "position": "1B/SP", "eta": "2027", "fv": 65},
-    {"rank": 6, "name": "Sebastian Walcott", "team": "TEX", "position": "SS", "eta": "2027", "fv": 65},
-    {"rank": 7, "name": "Kristian Campbell", "team": "BOS", "position": "SS", "eta": "2026", "fv": 60},
-    {"rank": 8, "name": "Marcelo Mayer", "team": "BOS", "position": "SS", "eta": "2026", "fv": 60},
-    {"rank": 9, "name": "JJ Wetherholt", "team": "PIT", "position": "2B", "eta": "2026", "fv": 60},
-    {"rank": 10, "name": "Coby Mayo", "team": "BAL", "position": "3B", "eta": "2025", "fv": 55},
-    {"rank": 11, "name": "Nick Kurtz", "team": "OAK", "position": "1B", "eta": "2027", "fv": 60},
-    {"rank": 12, "name": "James Wood", "team": "WSH", "position": "OF", "eta": "2025", "fv": 55},
-    {"rank": 13, "name": "Bubba Chandler", "team": "PIT", "position": "SS/SP", "eta": "2026", "fv": 60},
-    {"rank": 14, "name": "Chase Burns", "team": "CIN", "position": "SP", "eta": "2026", "fv": 60},
-    {"rank": 15, "name": "Tink Hence", "team": "STL", "position": "SP", "eta": "2026", "fv": 55},
-    {"rank": 16, "name": "Samuel Basallo", "team": "BAL", "position": "C", "eta": "2026", "fv": 55},
-    {"rank": 17, "name": "Braden Montgomery", "team": "BOS", "position": "OF", "eta": "2027", "fv": 60},
-    {"rank": 18, "name": "Leodalis De Vries", "team": "TEX", "position": "SS", "eta": "2028", "fv": 60},
-    {"rank": 19, "name": "Colt Emerson", "team": "CLE", "position": "SS", "eta": "2028", "fv": 60},
-    {"rank": 20, "name": "Ethan Salas", "team": "SD", "position": "C", "eta": "2026", "fv": 55},
+    {"rank": 1, "name": "Roki Sasaki", "team": "LAD", "position": "SP", "fg_eta": "2025", "fg_fv": 80},
+    {"rank": 2, "name": "Roman Anthony", "team": "BOS", "position": "OF", "fg_eta": "2025", "fg_fv": 70},
+    {"rank": 3, "name": "Travis Bazzana", "team": "CLE", "position": "2B", "fg_eta": "2026", "fg_fv": 65},
+    {"rank": 4, "name": "Charlie Condon", "team": "COL", "position": "3B", "fg_eta": "2027", "fg_fv": 65},
+    {"rank": 5, "name": "Jac Caglianone", "team": "KC", "position": "1B/SP", "fg_eta": "2027", "fg_fv": 65},
+    {"rank": 6, "name": "Sebastian Walcott", "team": "TEX", "position": "SS", "fg_eta": "2027", "fg_fv": 65},
+    {"rank": 7, "name": "Kristian Campbell", "team": "BOS", "position": "SS", "fg_eta": "2026", "fg_fv": 60},
+    {"rank": 8, "name": "Marcelo Mayer", "team": "BOS", "position": "SS", "fg_eta": "2026", "fg_fv": 60},
+    {"rank": 9, "name": "JJ Wetherholt", "team": "PIT", "position": "2B", "fg_eta": "2026", "fg_fv": 60},
+    {"rank": 10, "name": "Coby Mayo", "team": "BAL", "position": "3B", "fg_eta": "2025", "fg_fv": 55},
+    {"rank": 11, "name": "Nick Kurtz", "team": "OAK", "position": "1B", "fg_eta": "2027", "fg_fv": 60},
+    {"rank": 12, "name": "James Wood", "team": "WSH", "position": "OF", "fg_eta": "2025", "fg_fv": 55},
+    {"rank": 13, "name": "Bubba Chandler", "team": "PIT", "position": "SS/SP", "fg_eta": "2026", "fg_fv": 60},
+    {"rank": 14, "name": "Chase Burns", "team": "CIN", "position": "SP", "fg_eta": "2026", "fg_fv": 60},
+    {"rank": 15, "name": "Tink Hence", "team": "STL", "position": "SP", "fg_eta": "2026", "fg_fv": 55},
+    {"rank": 16, "name": "Samuel Basallo", "team": "BAL", "position": "C", "fg_eta": "2026", "fg_fv": 55},
+    {"rank": 17, "name": "Braden Montgomery", "team": "BOS", "position": "OF", "fg_eta": "2027", "fg_fv": 60},
+    {"rank": 18, "name": "Leodalis De Vries", "team": "TEX", "position": "SS", "fg_eta": "2028", "fg_fv": 60},
+    {"rank": 19, "name": "Colt Emerson", "team": "CLE", "position": "SS", "fg_eta": "2028", "fg_fv": 60},
+    {"rank": 20, "name": "Ethan Salas", "team": "SD", "position": "C", "fg_eta": "2026", "fg_fv": 55},
 ]
 
 
@@ -408,33 +408,47 @@ def _scrape_mlb_pipeline() -> pd.DataFrame:
         for script in soup.find_all("script"):
             text = script.string or ""
             if "prospects" in text.lower() and "rank" in text.lower():
-                # Try to extract JSON array
-                for start in range(len(text)):
-                    if text[start] == "[":
-                        for end in range(len(text) - 1, start, -1):
-                            if text[end] == "]":
-                                try:
-                                    data = _json.loads(text[start : end + 1])
-                                    if isinstance(data, list) and len(data) > 5:
-                                        rows = []
-                                        for i, item in enumerate(data[:100]):
-                                            rows.append(
-                                                {
-                                                    "name": item.get("name", item.get("fullName", "")),
-                                                    "team": item.get("team", {}).get("abbreviation", "")
-                                                    if isinstance(item.get("team"), dict)
-                                                    else str(item.get("team", "")),
-                                                    "position": item.get("position", item.get("primaryPosition", "")),
-                                                    "fg_rank": i + 1,
-                                                    "mlb_id": item.get("playerId", item.get("id")),
-                                                }
-                                            )
-                                        if rows:
-                                            logger.info("MLB Pipeline scrape: found %d prospects", len(rows))
-                                            return pd.DataFrame(rows)
-                                except (ValueError, TypeError):
-                                    continue
+                # Extract JSON arrays by finding balanced bracket pairs (O(N))
+                idx = 0
+                while idx < len(text):
+                    start = text.find("[", idx)
+                    if start == -1:
+                        break
+                    # Find matching close bracket via depth counting
+                    depth = 0
+                    end = start
+                    for end in range(start, len(text)):
+                        if text[end] == "[":
+                            depth += 1
+                        elif text[end] == "]":
+                            depth -= 1
+                            if depth == 0:
                                 break
+                    if depth != 0:
+                        idx = start + 1
+                        continue
+                    try:
+                        data = _json.loads(text[start : end + 1])
+                        if isinstance(data, list) and len(data) > 5:
+                            rows = []
+                            for i, item in enumerate(data[:100]):
+                                rows.append(
+                                    {
+                                        "name": item.get("name", item.get("fullName", "")),
+                                        "team": item.get("team", {}).get("abbreviation", "")
+                                        if isinstance(item.get("team"), dict)
+                                        else str(item.get("team", "")),
+                                        "position": item.get("position", item.get("primaryPosition", "")),
+                                        "fg_rank": i + 1,
+                                        "mlb_id": item.get("playerId", item.get("id")),
+                                    }
+                                )
+                            if rows:
+                                logger.info("MLB Pipeline scrape: found %d prospects", len(rows))
+                                return pd.DataFrame(rows)
+                    except (ValueError, TypeError):
+                        pass
+                    idx = end + 1
         logger.warning("MLB Pipeline scrape: no parseable data found")
         return pd.DataFrame()
     except Exception:

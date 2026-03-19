@@ -392,8 +392,26 @@ def init_db():
     conn.close()
 
 
+_VALID_TABLE_NAMES = frozenset({
+    "players", "projections", "adp", "league_config", "draft_picks",
+    "blended_projections", "player_pool", "season_stats", "ros_projections",
+    "league_rosters", "league_standings", "park_factors", "refresh_log",
+    "injury_history", "transactions", "ecr_consensus", "prospect_rankings",
+    "player_news", "news_player_map",
+})
+_VALID_COL_RE = __import__("re").compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
+
 def _safe_add_column(conn: sqlite3.Connection, table: str, column: str, col_type: str):
-    """Add a column to a table if it doesn't already exist."""
+    """Add a column to a table if it doesn't already exist.
+
+    Validates table/column names against allowlists to prevent SQL injection.
+    """
+    if table not in _VALID_TABLE_NAMES:
+        raise ValueError(f"Invalid table name for ALTER TABLE: {table!r}")
+    if not _VALID_COL_RE.match(column):
+        raise ValueError(f"Invalid column name for ALTER TABLE: {column!r}")
+    if not _VALID_COL_RE.match(col_type.split()[0]):
+        raise ValueError(f"Invalid column type for ALTER TABLE: {col_type!r}")
     try:
         conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}")
         conn.commit()

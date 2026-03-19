@@ -343,7 +343,7 @@ def fetch_yahoo_adp() -> pd.DataFrame:
         return pd.DataFrame()
 
     try:
-        draft_results = client.get_league_draft_results()
+        draft_results = client.get_draft_results()
         if draft_results is None or (isinstance(draft_results, pd.DataFrame) and draft_results.empty):
             return pd.DataFrame()
 
@@ -749,13 +749,53 @@ def refresh_ecr_consensus(force: bool = False) -> pd.DataFrame:
 
     sources: dict[str, pd.DataFrame] = {}
 
-    # Fetch from each available source
-    for name, fetch_fn in [
+    # Fetch from each available source (all 7 ranking sources)
+    source_fetchers: list[tuple[str, callable]] = [
         ("espn", fetch_espn_rankings),
         ("cbs", fetch_cbs_rankings),
         ("yahoo", fetch_yahoo_adp),
         ("fantasypros", fetch_ecr_extended),
-    ]:
+    ]
+    # Add NFBC ADP source
+    try:
+        from src.adp_sources import fetch_nfbc_adp
+        source_fetchers.append(("nfbc", fetch_nfbc_adp))
+    except ImportError:
+        logger.debug("NFBC ADP source unavailable")
+    # Add FanGraphs ADP source
+    try:
+        from src.data_pipeline import fetch_projections
+        def _fetch_fg_adp():
+            df, _ = fetch_projections("steamer", "bat")
+            if df is not None and not df.empty and "adp" in df.columns:
+                fg = df[["name", "adp"]].dropna(subset=["adp"]).copy()
+                fg = fg.rename(columns={"adp": "fg_adp"})
+                fg["rank"] = fg["fg_adp"]
+                return fg
+            return pd.DataFrame()
+        source_fetchers.append(("fangraphs", _fetch_fg_adp))
+    except ImportError:
+        logger.debug("FanGraphs ADP source unavailable")
+    # Add HEATER SGP ranking source
+    try:
+        from src.database import load_player_pool
+        from src.valuation import LeagueConfig, SGPCalculator
+        def _fetch_heater_sgp():
+            pp = load_player_pool()
+            if pp.empty:
+                return pd.DataFrame()
+            lc = LeagueConfig()
+            sgp = SGPCalculator(lc)
+            pp["sgp"] = pp.apply(lambda r: sgp.total_sgp(r), axis=1)
+            ranked = pp.nlargest(300, "sgp")[["player_id", "name", "sgp"]].reset_index(drop=True)
+            ranked["rank"] = range(1, len(ranked) + 1)
+            ranked["heater_sgp_rank"] = ranked["rank"]
+            return ranked
+        source_fetchers.append(("heater", _fetch_heater_sgp))
+    except ImportError:
+        logger.debug("HEATER SGP source unavailable")
+
+    for name, fetch_fn in source_fetchers:
         try:
             df = fetch_fn()
             if df is not None and not df.empty:
@@ -768,9 +808,8 @@ def refresh_ecr_consensus(force: bool = False) -> pd.DataFrame:
         logger.warning("No ECR sources available, returning cached data")
         return load_ecr_consensus()
 
-    # Build per-player rank dict and compute consensus
-    all_players: list[dict] = []
-    seen_ids: set[int] = set()
+    # Build per-player rank dict accumulating ALL source ranks
+    player_data: dict[int, dict] = {}  # pid -> {player_id, name, espn_rank, ...}
 
     # Try to load player pool for ID resolution
     try:
@@ -786,18 +825,15 @@ def refresh_ecr_consensus(force: bool = False) -> pd.DataFrame:
             pid = row.get("player_id")
             if pid is None and not pool.empty and name:
                 pid = _resolve_name_to_player_id(name, pool)
-            if pid is not None and pid not in seen_ids:
-                seen_ids.add(int(pid))
-                player_sources = {}
+            if pid is not None:
+                pid = int(pid)
                 rank = row.get("rank") or row.get("ecr_rank") or row.get("adp") or (idx + 1)
-                player_sources[source_name] = int(rank) if rank else None
-                all_players.append(
-                    {
-                        "player_id": int(pid),
-                        "name": name,
-                        **{f"{source_name}_rank": int(rank) if rank else None},
-                    }
-                )
+                rank_val = int(rank) if rank else None
+                if pid not in player_data:
+                    player_data[pid] = {"player_id": pid, "name": name}
+                player_data[pid][f"{source_name}_rank"] = rank_val
+
+    all_players = list(player_data.values())
 
     if not all_players:
         return load_ecr_consensus()
@@ -818,5 +854,11 @@ def refresh_ecr_consensus(force: bool = False) -> pd.DataFrame:
         result_df["n_sources"] = result_df[rank_cols].notna().sum(axis=1)
 
     stored = _store_consensus(result_df)
+    # Log refresh so check_staleness("ecr_consensus", 24) works correctly
+    try:
+        from src.database import log_refresh
+        log_refresh("ecr_consensus", "success")
+    except Exception:
+        logger.debug("Failed to log ecr_consensus refresh", exc_info=True)
     logger.info("ECR consensus: %d players stored from %d sources", stored, len(sources))
     return result_df
