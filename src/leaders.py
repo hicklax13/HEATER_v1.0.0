@@ -60,7 +60,7 @@ def compute_points_leaders(
         from src.points_league import compute_fantasy_points
 
         result = compute_fantasy_points(season_stats_df, hitting_weights, pitching_weights)
-        return result.sort_values("fantasy_points", ascending=False).head(top_n)
+        return result.sort_values("fantasy_points", ascending=False).head(top_n).reset_index(drop=True)
     except ImportError:
         return pd.DataFrame()
 
@@ -98,8 +98,9 @@ def detect_breakouts(
         for stat in check_stats:
             obs = float(actual.get(stat, 0) or 0)
             proj = float(projected.get(stat, 0) or 0)
-            # Use 15% of projected as rough std
-            std = max(0.01, abs(proj) * 0.15)
+            # Use 15% of projected as rough std, with stat-aware minimum
+            min_std = 0.5 if stat in ("hr", "sb", "w", "sv") else 0.01 if stat in ("avg", "obp", "era", "whip") else 1.0
+            std = max(min_std, abs(proj) * 0.15)
             z = (obs - proj) / std
             if z > max_z:
                 max_z = z
@@ -113,7 +114,7 @@ def detect_breakouts(
                 }
             )
     return (
-        pd.DataFrame(results).sort_values("z_score", ascending=False)
+        pd.DataFrame(results).sort_values("z_score", ascending=False).reset_index(drop=True)
         if results
         else pd.DataFrame(columns=["name", "breakout_stat", "z_score"])
     )

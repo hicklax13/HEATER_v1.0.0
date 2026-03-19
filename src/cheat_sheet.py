@@ -104,7 +104,8 @@ def generate_cheat_sheet_html(
     if sort_col not in player_pool.columns:
         sort_col = player_pool.columns[0] if len(player_pool.columns) > 0 else None
     if sort_col is not None:
-        sorted_pool = player_pool.sort_values(sort_col, ascending=False).reset_index(drop=True)
+        ascending = sort_col in ("adp",)  # Lower ADP = better
+        sorted_pool = player_pool.sort_values(sort_col, ascending=ascending).reset_index(drop=True)
     else:
         sorted_pool = player_pool.reset_index(drop=True)
     sections_html = ""

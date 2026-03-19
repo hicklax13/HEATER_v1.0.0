@@ -60,6 +60,19 @@ def compute_fantasy_points_distribution(
                 mean_sgp += weekly / denom
                 vol = vol_fracs.get(col, 0.35) * weekly
                 var_sgp += (vol / denom) ** 2
+        # Rate stats: AVG and OBP contribute via deviation from league average
+        avg = float(player.get("avg", 0) or 0)
+        obp = float(player.get("obp", 0) or 0)
+        avg_denom = sgp.get("AVG", 0.004)
+        obp_denom = sgp.get("OBP", 0.005)
+        if avg_denom > 0 and avg > 0:
+            avg_delta = (avg - 0.260) / avg_denom  # Deviation from league avg
+            mean_sgp += avg_delta / 22.0
+            var_sgp += (0.015 / avg_denom) ** 2  # Weekly AVG volatility
+        if obp_denom > 0 and obp > 0:
+            obp_delta = (obp - 0.320) / obp_denom
+            mean_sgp += obp_delta / 22.0
+            var_sgp += (0.020 / obp_denom) ** 2
     else:
         stat_map = {"W": "w", "SV": "sv", "K": "k"}
         for cat, col in stat_map.items():
@@ -70,6 +83,19 @@ def compute_fantasy_points_distribution(
                 mean_sgp += weekly / denom
                 vol = vol_fracs.get(col, 0.40) * weekly
                 var_sgp += (vol / denom) ** 2
+        # Rate stats: ERA and WHIP (inverse — lower is better)
+        era = float(player.get("era", 0) or 0)
+        whip_val = float(player.get("whip", 0) or 0)
+        era_denom = sgp.get("ERA", 0.27)
+        whip_denom = sgp.get("WHIP", 0.02)
+        if era_denom > 0 and era > 0:
+            era_delta = (4.00 - era) / era_denom  # Inverse: lower ERA is better
+            mean_sgp += era_delta / 22.0
+            var_sgp += (0.80 / era_denom) ** 2  # Weekly ERA volatility
+        if whip_denom > 0 and whip_val > 0:
+            whip_delta = (1.25 - whip_val) / whip_denom  # Inverse: lower WHIP better
+            mean_sgp += whip_delta / 22.0
+            var_sgp += (0.10 / whip_denom) ** 2
 
     std_sgp = max(0.01, math.sqrt(var_sgp))
     return round(mean_sgp, 4), round(std_sgp, 4)

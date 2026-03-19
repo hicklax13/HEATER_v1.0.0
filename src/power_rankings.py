@@ -200,8 +200,33 @@ def bootstrap_confidence_interval(
     rng = np.random.default_rng(seed)
     ratings = []
 
+    # Derive approximate component means from overall rating
+    # Use default midpoints as baseline, perturb each component
+    base_components = {
+        "roster_quality": 0.5,
+        "category_balance": 0.5,
+        "schedule_strength": 0.5,
+        "injury_exposure": 0.0,
+        "momentum": 1.0,
+    }
+    # Scale components so they produce the given team_rating
+    base_rating = compute_power_rating(**base_components)
+    if base_rating > 0:
+        scale_factor = team_rating / base_rating
+    else:
+        scale_factor = 1.0
+
     for _ in range(n_bootstrap):
-        perturbed = team_rating + rng.normal(0, 3.0)  # Overall perturbation
+        rq = max(0, min(1, base_components["roster_quality"] * scale_factor + rng.normal(0, stds["roster_quality"])))
+        cb = max(
+            0, min(1, base_components["category_balance"] * scale_factor + rng.normal(0, stds["category_balance"]))
+        )
+        ss = max(
+            0, min(1, base_components["schedule_strength"] * scale_factor + rng.normal(0, stds["schedule_strength"]))
+        )
+        ie = max(0, min(1, base_components["injury_exposure"] + rng.normal(0, stds["injury_exposure"])))
+        mo = max(0.5, min(2.0, base_components["momentum"] + rng.normal(0, stds["momentum"])))
+        perturbed = compute_power_rating(rq, cb, ss, ie, mo)
         ratings.append(max(0, min(100, perturbed)))
 
     return round(float(np.percentile(ratings, 5)), 1), round(float(np.percentile(ratings, 95)), 1)

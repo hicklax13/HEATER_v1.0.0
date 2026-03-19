@@ -93,9 +93,10 @@ def estimate_missing_batting_stats(row: pd.Series) -> dict[str, float]:
     hr = float(row.get("hr", 0) or 0)
     pa = float(row.get("pa", 0) or 0)
     sb = float(row.get("sb", 0) or 0)
-    doubles = h * 0.22
-    triples = h * 0.025
-    singles = max(0.0, h - doubles - triples - hr)
+    non_hr_h = max(0.0, h - hr)
+    doubles = non_hr_h * 0.22
+    triples = non_hr_h * 0.025
+    singles = max(0.0, non_hr_h - doubles - triples)
     return {
         "1B": singles,
         "2B": doubles,

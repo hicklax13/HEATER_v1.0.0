@@ -65,14 +65,14 @@ def get_league(league_id: str) -> LeagueInfo | None:
         if not row:
             return None
         return LeagueInfo(
-            league_id=row[0],
-            platform=row[1],
-            league_name=row[2],
-            num_teams=row[3],
-            scoring_format=row[4],
-            yahoo_league_id=row[5],
-            created_at=row[6],
-            is_active=bool(row[7]),
+            league_id=row["league_id"],
+            platform=row["platform"],
+            league_name=row["league_name"],
+            num_teams=row["num_teams"],
+            scoring_format=row["scoring_format"],
+            yahoo_league_id=row["yahoo_league_id"],
+            created_at=row["created_at"],
+            is_active=bool(row["is_active"]),
         )
     finally:
         conn.close()
@@ -85,14 +85,14 @@ def list_leagues() -> list[LeagueInfo]:
         rows = conn.execute("SELECT * FROM leagues ORDER BY created_at").fetchall()
         return [
             LeagueInfo(
-                league_id=r[0],
-                platform=r[1],
-                league_name=r[2],
-                num_teams=r[3],
-                scoring_format=r[4],
-                yahoo_league_id=r[5],
-                created_at=r[6],
-                is_active=bool(r[7]),
+                league_id=r["league_id"],
+                platform=r["platform"],
+                league_name=r["league_name"],
+                num_teams=r["num_teams"],
+                scoring_format=r["scoring_format"],
+                yahoo_league_id=r["yahoo_league_id"],
+                created_at=r["created_at"],
+                is_active=bool(r["is_active"]),
             )
             for r in rows
         ]

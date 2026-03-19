@@ -51,12 +51,12 @@ def blend_ecr_with_projections(
     df["blended_rank"] = (df.index + 1).astype(float)
 
     pool_name_col = "player_name" if "player_name" in df.columns else "name"
-    for idx, row in df.iterrows():
+    for pos_rank, (idx, row) in enumerate(df.iterrows(), start=1):
         name = str(row.get(pool_name_col, "")).lower()
         if name in ecr_lookup:
             ecr_rank = ecr_lookup[name]
             df.at[idx, "ecr_rank"] = ecr_rank
-            proj_rank = idx + 1
+            proj_rank = pos_rank  # Use positional rank, not DataFrame index label
             blended = (1 - ecr_weight) * proj_rank + ecr_weight * ecr_rank
             df.at[idx, "blended_rank"] = round(blended, 1)
             badge = compute_ecr_disagreement(proj_rank, ecr_rank)

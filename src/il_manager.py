@@ -36,13 +36,13 @@ class ILAlert:
 def classify_il_type(status_string: str) -> str:
     """Classify IL status from raw status string."""
     s = status_string.upper().strip()
-    if "60" in s:
+    if "IL60" in s or "60-DAY" in s:
         return "IL60"
-    elif "15" in s:
+    elif "IL15" in s or "15-DAY" in s:
         return "IL15"
-    elif "10" in s:
+    elif "IL10" in s or "10-DAY" in s:
         return "IL10"
-    elif "DTD" in s or "DAY" in s:
+    elif "DTD" in s or "DAY-TO-DAY" in s:
         return "DTD"
     elif "IL" in s or "DL" in s or "INJURED" in s:
         return "IL15"  # default IL
@@ -74,6 +74,7 @@ def find_best_replacement(
     vacated_positions: list[str],
     bench_players: pd.DataFrame,
     il_duration_weeks: float = 2.0,
+    weeks_remaining: float = 22.0,
 ) -> dict | None:
     """Find best bench replacement eligible at vacated position.
 
@@ -99,7 +100,7 @@ def find_best_replacement(
     return {
         "player_id": int(row.get("player_id", 0)),
         "name": str(row.get("name", row.get("player_name", "Unknown"))),
-        "expected_sgp": float(row.get("pick_score", 0) or 0) * (il_duration_weeks / 22.0),
+        "expected_sgp": float(row.get("pick_score", 0) or 0) * (il_duration_weeks / max(1.0, weeks_remaining)),
     }
 
 
@@ -144,7 +145,7 @@ def generate_il_alert(
     duration = estimate_il_duration(il_type, il_player.get("positions", ""))
     lost = compute_lost_sgp(player_sgp, duration, weeks_remaining)
     positions = [p.strip() for p in il_player.get("positions", "Util").split(",")]
-    replacement = find_best_replacement(positions, bench_players, duration)
+    replacement = find_best_replacement(positions, bench_players, duration, weeks_remaining)
     alert = ILAlert(
         player_id=il_player.get("player_id", 0),
         player_name=il_player.get("player_name", ""),

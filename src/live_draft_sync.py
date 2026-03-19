@@ -62,11 +62,13 @@ class LiveDraftSyncer:
         name_col = "name" if "name" in self._pool.columns else "player_name"
         match = self._pool[self._pool[name_col].str.lower() == yahoo_name.lower()]
         if not match.empty:
-            return int(match.iloc[0].get("player_id", 0))
-        # Fuzzy fallback: check contains
-        match = self._pool[self._pool[name_col].str.lower().str.contains(yahoo_name.lower(), na=False)]
+            pid = match.iloc[0].get("player_id")
+            return int(pid) if pid is not None and pid != 0 else None
+        # Fuzzy fallback: check contains (regex=False for names like "J.D. Martinez")
+        match = self._pool[self._pool[name_col].str.lower().str.contains(yahoo_name.lower(), na=False, regex=False)]
         if not match.empty:
-            return int(match.iloc[0].get("player_id", 0))
+            pid = match.iloc[0].get("player_id")
+            return int(pid) if pid is not None and pid != 0 else None
         return None
 
     def add_known_pick(self, pick: DraftPick) -> None:

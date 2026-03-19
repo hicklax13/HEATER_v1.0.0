@@ -64,9 +64,12 @@ def build_closer_grid(
             match = player_pool[(player_pool["name"] == closer_name) & (player_pool["team"] == team)]
             if not match.empty:
                 row = match.iloc[0]
-                projected_sv = float(row.get("sv", 0) or 0)
-                era = float(row.get("era", 0) or 0)
-                whip = float(row.get("whip", 0) or 0)
+                _sv = row.get("sv", 0)
+                projected_sv = 0.0 if pd.isna(_sv) else float(_sv or 0)
+                _era = row.get("era", 0)
+                era = 0.0 if pd.isna(_era) else float(_era or 0)
+                _whip = row.get("whip", 0)
+                whip = 0.0 if pd.isna(_whip) else float(_whip or 0)
 
         security = compute_job_security(confidence, projected_sv)
         grid.append(

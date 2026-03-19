@@ -436,7 +436,7 @@ def compute_bayesian_stream_score(
 
     # Win probability
     home_adj = 1.04 if is_home else 1.0
-    era_factor = max(0.0, min(1.0, (4.50 - pitcher_era) / 4.50))
+    era_factor = min(1.0, (4.50 - pitcher_era) / 4.50)  # Allow negative for ERA > 4.50
     win_prob = min(0.95, max(0.05, 0.5 * (1.0 + era_factor) * home_adj))
 
     # Risk penalty
@@ -451,7 +451,14 @@ def compute_bayesian_stream_score(
     sgp_w = sgp.get("W", 2.5)
     sgp_era = sgp.get("ERA", 0.27)
 
-    score = expected_k / sgp_k + win_prob * 0.5 / sgp_w - expected_er * risk_penalty / (sgp_era * 30)
+    # ERA cost: diluted impact on team ERA (ER -> ERA -> SGP conversion)
+    baseline_era = 4.00
+    team_weekly_ip = 55.0
+    implied_era = expected_er * 9.0 / max(expected_ip, 1.0)
+    era_diluted = (implied_era - baseline_era) * expected_ip / (team_weekly_ip + expected_ip)
+    era_cost_sgp = era_diluted / sgp_era * risk_penalty
+
+    score = expected_k / sgp_k + win_prob * 0.5 / sgp_w - era_cost_sgp
 
     grade = _assign_matchup_grade(score)
 

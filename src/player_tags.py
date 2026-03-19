@@ -71,7 +71,7 @@ def get_all_tagged_players(tag_filter: str | None = None) -> pd.DataFrame:
     try:
         sql = "SELECT player_id, tag, note, created_at FROM player_tags"
         params: list = []
-        if tag_filter:
+        if tag_filter is not None:
             sql += " WHERE tag = ?"
             params.append(tag_filter)
         return pd.read_sql_query(sql, conn, params=params)

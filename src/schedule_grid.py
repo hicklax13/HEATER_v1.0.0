@@ -88,7 +88,8 @@ def build_schedule_grid(
             rating_lookup[pid] = tier
 
     players = []
-    games_per_day = [0] * 7
+    # Track distinct team games per day (not per-player)
+    teams_with_games_per_day: list[set] = [set() for _ in range(7)]
 
     if roster is not None and not roster.empty:
         for _, player in roster.iterrows():
@@ -100,7 +101,7 @@ def build_schedule_grid(
             for i, date in enumerate(dates):
                 game_info = game_lookup.get((team, date))
                 if game_info:
-                    games_per_day[i] += 1
+                    teams_with_games_per_day[i].add(team)
                     days.append(
                         {
                             "date": date,
@@ -138,7 +139,7 @@ def build_schedule_grid(
         "dates": dates,
         "day_labels": _DAY_LABELS,
         "players": players,
-        "games_per_day": games_per_day,
+        "games_per_day": [len(s) for s in teams_with_games_per_day],
     }
 
 

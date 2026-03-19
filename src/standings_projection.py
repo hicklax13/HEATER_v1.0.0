@@ -3,8 +3,6 @@
 
 from __future__ import annotations
 
-import itertools
-
 import numpy as np
 import pandas as pd
 from scipy.stats import norm
@@ -72,24 +70,31 @@ def generate_round_robin_schedule(team_names: list[str], n_weeks: int = 22) -> l
     if n < 2:
         return []
 
-    # Generate all pairings
-    all_pairs = list(itertools.combinations(team_names, 2))
+    # Circle method for guaranteed N/2 matchups per week
+    teams = list(team_names)
+    if n % 2 == 1:
+        teams.append(None)  # BYE team for odd count
+    n_circle = len(teams)
 
+    # Generate one full round-robin cycle
+    rounds = []
+    fixed = teams[0]
+    rotating = teams[1:]
+    for _ in range(n_circle - 1):
+        round_pairs = []
+        current = [fixed] + rotating
+        for j in range(n_circle // 2):
+            a = current[j]
+            b = current[n_circle - 1 - j]
+            if a is not None and b is not None:
+                round_pairs.append((a, b))
+        rounds.append(round_pairs)
+        rotating = [rotating[-1]] + rotating[:-1]
+
+    # Repeat cyclically for n_weeks
     schedule = []
-    pair_idx = 0
-    for _ in range(n_weeks):
-        week = []
-        used = set()
-        attempts = 0
-        while len(week) < n // 2 and attempts < len(all_pairs) * 2:
-            pair = all_pairs[pair_idx % len(all_pairs)]
-            pair_idx += 1
-            attempts += 1
-            if pair[0] not in used and pair[1] not in used:
-                week.append(pair)
-                used.add(pair[0])
-                used.add(pair[1])
-        schedule.append(week)
+    for week_idx in range(n_weeks):
+        schedule.append(rounds[week_idx % len(rounds)])
 
     return schedule
 
@@ -127,7 +132,6 @@ def simulate_season(
     if schedule is None:
         schedule = generate_round_robin_schedule(team_names)
 
-    n_weeks = len(schedule)
     rng = np.random.default_rng(seed)
 
     # Pre-compute: per-team, per-category win probabilities for each matchup

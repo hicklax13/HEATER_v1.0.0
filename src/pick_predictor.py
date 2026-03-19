@@ -26,7 +26,7 @@ _SIGMA = 12.0  # ADP standard deviation (matches simulation.py)
 
 def weibull_survival(
     picks_remaining: float,
-    adp_distance: float,
+    adp_distance: float,  # unused, kept for API compat
     shape: float,
     scale: float,
 ) -> float:
