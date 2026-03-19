@@ -165,3 +165,119 @@ def test_optimal_schedule_deduplicates():
     schedule = optimal_streaming_schedule(candidates, max_adds=5)
     names = [c["player_name"] for c in schedule]
     assert names.count("Ace") == 1
+
+
+# --- Bayesian Stream Score Tests ---
+
+
+def test_bayesian_stream_score_positive():
+    """Good pitcher against weak lineup should score positive."""
+    from src.optimizer.streaming import compute_bayesian_stream_score
+
+    result = compute_bayesian_stream_score(
+        pitcher_era=3.20,
+        pitcher_k9=9.5,
+        pitcher_fip=3.10,
+        opp_k_pct=0.250,
+        opp_woba=0.300,
+        is_home=True,
+    )
+    assert result["stream_score"] > 0
+    assert "matchup_grade" in result
+
+
+def test_bayesian_stream_score_components():
+    """Verify all expected components are in result."""
+    from src.optimizer.streaming import compute_bayesian_stream_score
+
+    result = compute_bayesian_stream_score(
+        pitcher_era=4.00,
+        pitcher_k9=8.0,
+        pitcher_fip=4.10,
+        opp_k_pct=0.225,
+        opp_woba=0.320,
+    )
+    expected_keys = {
+        "stream_score",
+        "expected_k",
+        "expected_ip",
+        "expected_er",
+        "win_probability",
+        "risk_penalty",
+        "matchup_grade",
+    }
+    assert expected_keys.issubset(set(result.keys()))
+
+
+def test_bayesian_expected_ip_bounds():
+    """Expected IP should be clamped to [4.0, 6.5]."""
+    from src.optimizer.streaming import compute_bayesian_stream_score
+
+    good = compute_bayesian_stream_score(
+        pitcher_era=2.50,
+        pitcher_k9=10.0,
+        pitcher_fip=2.80,
+        opp_k_pct=0.220,
+        opp_woba=0.310,
+    )
+    assert 4.0 <= good["expected_ip"] <= 6.5
+    bad = compute_bayesian_stream_score(
+        pitcher_era=6.00,
+        pitcher_k9=5.0,
+        pitcher_fip=5.50,
+        opp_k_pct=0.220,
+        opp_woba=0.310,
+    )
+    assert 4.0 <= bad["expected_ip"] <= 6.5
+
+
+def test_bayesian_home_advantage():
+    """Home pitchers should have higher win probability."""
+    from src.optimizer.streaming import compute_bayesian_stream_score
+
+    home = compute_bayesian_stream_score(
+        pitcher_era=3.80,
+        pitcher_k9=8.5,
+        pitcher_fip=3.70,
+        opp_k_pct=0.220,
+        opp_woba=0.315,
+        is_home=True,
+    )
+    away = compute_bayesian_stream_score(
+        pitcher_era=3.80,
+        pitcher_k9=8.5,
+        pitcher_fip=3.70,
+        opp_k_pct=0.220,
+        opp_woba=0.315,
+        is_home=False,
+    )
+    assert home["win_probability"] > away["win_probability"]
+
+
+def test_matchup_grade_valid():
+    """Verify matchup grade is a valid grade string."""
+    from src.optimizer.streaming import compute_bayesian_stream_score
+
+    result = compute_bayesian_stream_score(
+        pitcher_era=3.50,
+        pitcher_k9=9.0,
+        pitcher_fip=3.30,
+        opp_k_pct=0.230,
+        opp_woba=0.310,
+    )
+    assert result["matchup_grade"] in ("A+", "A", "B+", "B", "C")
+
+
+def test_bayesian_risk_penalty_floor():
+    """Risk penalty should be at least 1.0."""
+    from src.optimizer.streaming import compute_bayesian_stream_score
+
+    result = compute_bayesian_stream_score(
+        pitcher_era=2.00,
+        pitcher_k9=11.0,
+        pitcher_fip=2.20,
+        opp_k_pct=0.260,
+        opp_woba=0.280,
+        is_home=True,
+    )
+    assert result["risk_penalty"] >= 1.0

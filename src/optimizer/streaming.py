@@ -397,3 +397,84 @@ def optimal_streaming_schedule(
         schedule.append(dict(cand))
 
     return schedule
+
+
+# --- Bayesian Stream Scoring ---
+
+_STREAM_SGP_DEFAULTS: dict[str, float] = {
+    "K": 28.0,
+    "W": 2.5,
+    "ERA": 0.27,
+}
+
+
+def compute_bayesian_stream_score(
+    pitcher_era: float,
+    pitcher_k9: float,
+    pitcher_fip: float,
+    opp_k_pct: float = 0.225,
+    opp_woba: float = 0.320,
+    is_home: bool = False,
+    sgp_denominators: dict[str, float] | None = None,
+) -> dict:
+    """Compute Bayesian streaming score for a single pitcher start.
+
+    Returns dict with stream_score, expected_k, expected_ip, expected_er,
+    win_probability, risk_penalty, matchup_grade.
+    """
+    sgp = sgp_denominators or _STREAM_SGP_DEFAULTS
+
+    # Expected IP: clamped [4.0, 6.5]
+    ip_adj = 1.05 if pitcher_fip < 4.0 else 0.95
+    expected_ip = min(6.5, max(4.0, 5.5 * ip_adj))
+
+    # Expected K
+    expected_k = (pitcher_k9 / 9.0) * expected_ip * (opp_k_pct / 0.225)
+
+    # Expected ER
+    expected_er = (pitcher_era / 9.0) * expected_ip * (opp_woba / 0.320)
+
+    # Win probability
+    home_adj = 1.04 if is_home else 1.0
+    era_factor = max(0.0, min(1.0, (4.50 - pitcher_era) / 4.50))
+    win_prob = min(0.95, max(0.05, 0.5 * (1.0 + era_factor) * home_adj))
+
+    # Risk penalty
+    if expected_ip > 0:
+        era_implied = (expected_er / expected_ip) * 9.0
+        risk_penalty = max(1.0, era_implied / 4.50)
+    else:
+        risk_penalty = 2.0
+
+    # Stream score (SGP-based)
+    sgp_k = sgp.get("K", 28.0)
+    sgp_w = sgp.get("W", 2.5)
+    sgp_era = sgp.get("ERA", 0.27)
+
+    score = expected_k / sgp_k + win_prob * 0.5 / sgp_w - expected_er * risk_penalty / (sgp_era * 30)
+
+    grade = _assign_matchup_grade(score)
+
+    return {
+        "stream_score": round(score, 4),
+        "expected_k": round(expected_k, 2),
+        "expected_ip": round(expected_ip, 2),
+        "expected_er": round(expected_er, 2),
+        "win_probability": round(win_prob, 4),
+        "risk_penalty": round(risk_penalty, 3),
+        "matchup_grade": grade,
+    }
+
+
+def _assign_matchup_grade(score: float) -> str:
+    """Assign A+/A/B+/B/C grade based on stream score."""
+    if score >= 0.35:
+        return "A+"
+    elif score >= 0.25:
+        return "A"
+    elif score >= 0.15:
+        return "B+"
+    elif score >= 0.05:
+        return "B"
+    else:
+        return "C"
