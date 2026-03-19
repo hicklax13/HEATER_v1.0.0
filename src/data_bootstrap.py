@@ -22,6 +22,9 @@ class StalenessConfig:
     historical_hours: float = 720  # 30 days
     park_factors_hours: float = 720  # 30 days
     yahoo_hours: float = 6  # 6 hours
+    prospects_hours: float = 168  # 7 days
+    news_hours: float = 1  # 1 hour
+    ecr_consensus_hours: float = 24  # 24 hours
 
 
 @dataclass
@@ -523,6 +526,57 @@ def _bootstrap_depth_charts(progress: BootstrapProgress) -> str:
         return f"Depth charts: error ({e})"
 
 
+# ── FP Edge Feature Phases ────────────────────────────────────────────
+
+
+def _bootstrap_prospects(progress: BootstrapProgress) -> str:
+    """Phase 13: Prospect rankings from FanGraphs + MiLB stats."""
+    progress.phase = "Prospects"
+    progress.detail = "Refreshing prospect rankings..."
+    try:
+        from src.database import update_refresh_log
+        from src.prospect_engine import refresh_prospect_rankings
+
+        df = refresh_prospect_rankings(force=True)
+        update_refresh_log("prospect_rankings", "success")
+        return f"Prospects: {len(df)} ranked"
+    except Exception as e:
+        logger.warning("Prospect bootstrap failed: %s", e)
+        return f"Prospects: error ({e})"
+
+
+def _bootstrap_news_intel(progress: BootstrapProgress, yahoo_client=None) -> str:
+    """Phase 14: Multi-source news intelligence."""
+    progress.phase = "News Intelligence"
+    progress.detail = "Fetching news from ESPN, RotoWire, MLB API..."
+    try:
+        from src.database import update_refresh_log
+        from src.player_news import refresh_all_news
+
+        count = refresh_all_news(yahoo_client=yahoo_client, force=True)
+        update_refresh_log("news_intelligence", "success")
+        return f"News: {count} items from multi-source"
+    except Exception as e:
+        logger.warning("News intelligence bootstrap failed: %s", e)
+        return f"News intel: error ({e})"
+
+
+def _bootstrap_ecr_consensus(progress: BootstrapProgress) -> str:
+    """Phase 15: ECR consensus from multi-platform ranking sources."""
+    progress.phase = "ECR Consensus"
+    progress.detail = "Building multi-platform ranking consensus..."
+    try:
+        from src.database import update_refresh_log
+        from src.ecr import refresh_ecr_consensus
+
+        df = refresh_ecr_consensus(force=True)
+        update_refresh_log("ecr_consensus", "success")
+        return f"ECR Consensus: {len(df)} players ranked"
+    except Exception as e:
+        logger.warning("ECR consensus bootstrap failed: %s", e)
+        return f"ECR consensus: error ({e})"
+
+
 # ── Master Orchestrator ──────────────────────────────────────────────
 
 
@@ -657,6 +711,27 @@ def bootstrap_all_data(
     except Exception as exc:
         logger.warning("Deduplication failed (non-fatal): %s", exc)
         results["deduplication"] = f"Skipped: {exc}"
+
+    # Phase 13: Prospect rankings
+    _notify(0.96)
+    if force or check_staleness("prospect_rankings", staleness.prospects_hours):
+        results["prospects"] = _bootstrap_prospects(progress)
+    else:
+        results["prospects"] = "Fresh"
+
+    # Phase 14: News intelligence (multi-source)
+    _notify(0.97)
+    if force or check_staleness("news_intelligence", staleness.news_hours):
+        results["news_intelligence"] = _bootstrap_news_intel(progress, yahoo_client)
+    else:
+        results["news_intelligence"] = "Fresh"
+
+    # Phase 15: ECR consensus (depends on Phase 3 projections + Phase 9 ADP)
+    _notify(0.99)
+    if force or check_staleness("ecr_consensus", staleness.ecr_consensus_hours):
+        results["ecr_consensus"] = _bootstrap_ecr_consensus(progress)
+    else:
+        results["ecr_consensus"] = "Fresh"
 
     _notify(1.0)
     progress.phase = "Complete"

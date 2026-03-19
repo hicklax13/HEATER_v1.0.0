@@ -682,3 +682,60 @@ def generate_roster_intel(
         }
 
     return result
+
+
+# -- Top-level refresh orchestrator ----------------------------------------
+
+
+def refresh_all_news(
+    yahoo_client: object | None = None,
+    force: bool = False,
+) -> int:
+    """Batch refresh news from all sources and store to DB.
+
+    Returns total number of new items stored.
+    """
+    total_stored = 0
+
+    # 1. ESPN news
+    try:
+        espn_items = fetch_espn_news()
+        if espn_items:
+            total_stored += _store_news_items(espn_items)
+    except Exception:
+        logger.warning("ESPN news refresh failed", exc_info=True)
+
+    # 2. RotoWire RSS
+    try:
+        roto_items = fetch_rotowire_rss()
+        if roto_items:
+            total_stored += _store_news_items(roto_items)
+    except Exception:
+        logger.warning("RotoWire news refresh failed", exc_info=True)
+
+    # 3. MLB Stats API transactions (via existing news_fetcher)
+    try:
+        mlb_items = fetch_mlb_enhanced_status()
+        if mlb_items:
+            total_stored += _store_news_items(mlb_items)
+    except Exception:
+        logger.warning("MLB enhanced status refresh failed", exc_info=True)
+
+    # 4. Yahoo injury/ownership data (if client available)
+    if yahoo_client is not None:
+        try:
+            # Extract injury news from Yahoo roster data
+            from src.yahoo_api import YahooFantasyClient
+
+            if isinstance(yahoo_client, YahooFantasyClient):
+                roster = yahoo_client.get_roster()
+                if roster:
+                    for player_data in roster:
+                        yahoo_items = _extract_yahoo_injury_news(player_data)
+                        if yahoo_items:
+                            total_stored += _store_news_items(yahoo_items)
+        except Exception:
+            logger.warning("Yahoo news extraction failed", exc_info=True)
+
+    logger.info("News refresh complete: %d new items stored", total_stored)
+    return total_stored

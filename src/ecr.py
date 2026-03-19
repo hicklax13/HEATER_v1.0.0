@@ -727,3 +727,91 @@ def _safe_float(val) -> float | None:
         return float(val)
     except (ValueError, TypeError):
         return None
+
+
+# ══════════════════════════════════════════════════════════════════════
+#  Top-level refresh orchestrator
+# ══════════════════════════════════════════════════════════════════════
+
+
+def refresh_ecr_consensus(force: bool = False) -> pd.DataFrame:
+    """Fetch rankings from available sources, compute consensus, store to DB.
+
+    Returns DataFrame of consensus rankings. Gracefully handles partial failures.
+    """
+    from src.database import check_staleness
+
+    if not force and not check_staleness("ecr_consensus", 24):
+        return load_ecr_consensus()
+
+    sources: dict[str, pd.DataFrame] = {}
+
+    # Fetch from each available source
+    for name, fetch_fn in [
+        ("espn", fetch_espn_rankings),
+        ("cbs", fetch_cbs_rankings),
+        ("yahoo", fetch_yahoo_adp),
+        ("fantasypros", fetch_ecr_extended),
+    ]:
+        try:
+            df = fetch_fn()
+            if df is not None and not df.empty:
+                sources[name] = df
+                logger.info("ECR source %s: %d players", name, len(df))
+        except Exception:
+            logger.warning("ECR source %s failed", name, exc_info=True)
+
+    if not sources:
+        logger.warning("No ECR sources available, returning cached data")
+        return load_ecr_consensus()
+
+    # Build per-player rank dict and compute consensus
+    all_players: list[dict] = []
+    seen_ids: set[int] = set()
+
+    # Try to load player pool for ID resolution
+    try:
+        from src.database import load_player_pool
+
+        pool = load_player_pool()
+    except Exception:
+        pool = pd.DataFrame()
+
+    for source_name, source_df in sources.items():
+        for idx, row in source_df.iterrows():
+            name = row.get("name") or row.get("player_name") or ""
+            pid = row.get("player_id")
+            if pid is None and not pool.empty and name:
+                pid = _resolve_name_to_player_id(name, pool)
+            if pid is not None and pid not in seen_ids:
+                seen_ids.add(int(pid))
+                player_sources = {}
+                rank = row.get("rank") or row.get("ecr_rank") or row.get("adp") or (idx + 1)
+                player_sources[source_name] = int(rank) if rank else None
+                all_players.append({
+                    "player_id": int(pid),
+                    "name": name,
+                    **{f"{source_name}_rank": int(rank) if rank else None},
+                })
+
+    if not all_players:
+        return load_ecr_consensus()
+
+    # Assign consensus ranks using Trimmed Borda Count
+    result_df = pd.DataFrame(all_players)
+    if "player_id" in result_df.columns:
+        result_df = result_df.drop_duplicates(subset=["player_id"])
+
+    # Compute consensus rank from available source ranks
+    rank_cols = [c for c in result_df.columns if c.endswith("_rank")]
+    if rank_cols:
+        result_df["consensus_avg"] = result_df[rank_cols].mean(axis=1, skipna=True)
+        result_df["consensus_rank"] = result_df["consensus_avg"].rank(method="min").astype(int)
+        result_df["rank_min"] = result_df[rank_cols].min(axis=1, skipna=True)
+        result_df["rank_max"] = result_df[rank_cols].max(axis=1, skipna=True)
+        result_df["rank_stddev"] = result_df[rank_cols].std(axis=1, skipna=True).fillna(0)
+        result_df["n_sources"] = result_df[rank_cols].notna().sum(axis=1)
+
+    stored = _store_consensus(result_df)
+    logger.info("ECR consensus: %d players stored from %d sources", stored, len(sources))
+    return result_df

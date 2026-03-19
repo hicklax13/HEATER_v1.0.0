@@ -130,3 +130,15 @@ def test_player_news_indexes(_temp_db):
     conn.close()
     assert "idx_player_news_player" in indexes
     assert "idx_player_news_type" in indexes
+
+
+def test_staleness_config_has_new_fields():
+    from src.data_bootstrap import StalenessConfig
+
+    sc = StalenessConfig()
+    assert hasattr(sc, "prospects_hours")
+    assert hasattr(sc, "news_hours")
+    assert hasattr(sc, "ecr_consensus_hours")
+    assert sc.prospects_hours == 168
+    assert sc.news_hours == 1
+    assert sc.ecr_consensus_hours == 24
