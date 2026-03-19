@@ -1,5 +1,6 @@
 # src/start_sit_widget.py
 """Quick 2-4 player 'Who Should I Start?' compare with density overlap."""
+
 from __future__ import annotations
 
 import math
@@ -21,15 +22,28 @@ def compute_fantasy_points_distribution(
         (mean_sgp, std_sgp)
     """
     sgp = sgp_denominators or {
-        "R": 18.0, "HR": 8.0, "RBI": 22.0, "SB": 5.0,
-        "AVG": 0.004, "OBP": 0.005,
-        "W": 2.5, "SV": 6.0, "K": 28.0,
-        "ERA": 0.27, "WHIP": 0.02, "L": 2.0,
+        "R": 18.0,
+        "HR": 8.0,
+        "RBI": 22.0,
+        "SB": 5.0,
+        "AVG": 0.004,
+        "OBP": 0.005,
+        "W": 2.5,
+        "SV": 6.0,
+        "K": 28.0,
+        "ERA": 0.27,
+        "WHIP": 0.02,
+        "L": 2.0,
     }
     # Per-stat weekly volatility (fraction of season projection)
     vol_fracs = {
-        "r": 0.35, "hr": 0.45, "rbi": 0.35, "sb": 0.50,
-        "w": 0.50, "sv": 0.45, "k": 0.30,
+        "r": 0.35,
+        "hr": 0.45,
+        "rbi": 0.35,
+        "sb": 0.50,
+        "w": 0.50,
+        "sv": 0.45,
+        "k": 0.30,
     }
 
     is_hitter = bool(player.get("is_hitter", True))
@@ -61,9 +75,7 @@ def compute_fantasy_points_distribution(
     return round(mean_sgp, 4), round(std_sgp, 4)
 
 
-def compute_overlap_probability(
-    mu1: float, sigma1: float, mu2: float, sigma2: float
-) -> float:
+def compute_overlap_probability(mu1: float, sigma1: float, mu2: float, sigma2: float) -> float:
     """Compute overlap coefficient between two Normal distributions.
 
     OVL = 2 * Phi(-|mu1 - mu2| / sqrt(sigma1^2 + sigma2^2))
@@ -79,9 +91,7 @@ def compute_overlap_probability(
     return round(float(2.0 * norm.cdf(-diff / combined_sigma)), 4)
 
 
-def generate_density_data(
-    mu: float, sigma: float, n_points: int = 200
-) -> tuple[np.ndarray, np.ndarray]:
+def generate_density_data(mu: float, sigma: float, n_points: int = 200) -> tuple[np.ndarray, np.ndarray]:
     """Generate x, y arrays for plotting a Normal density curve.
 
     Returns:
@@ -139,9 +149,7 @@ def quick_start_sit(
         for j in range(i + 1, len(results)):
             a = results[i]
             b = results[j]
-            ovl = compute_overlap_probability(
-                a["mean_sgp"], a["std_sgp"], b["mean_sgp"], b["std_sgp"]
-            )
+            ovl = compute_overlap_probability(a["mean_sgp"], a["std_sgp"], b["mean_sgp"], b["std_sgp"])
             overlaps[(a["player_id"], b["player_id"])] = ovl
 
     # Recommendation: highest mean SGP

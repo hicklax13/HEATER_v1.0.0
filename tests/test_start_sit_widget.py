@@ -1,5 +1,6 @@
 # tests/test_start_sit_widget.py
 """Tests for WSIS quick compare widget."""
+
 from __future__ import annotations
 
 import pandas as pd
@@ -16,20 +17,44 @@ def _make_pool() -> pd.DataFrame:
     return pd.DataFrame(
         [
             {
-                "player_id": 1, "name": "Star Hitter", "is_hitter": True,
-                "r": 100, "hr": 35, "rbi": 110, "sb": 15, "pa": 600,
+                "player_id": 1,
+                "name": "Star Hitter",
+                "is_hitter": True,
+                "r": 100,
+                "hr": 35,
+                "rbi": 110,
+                "sb": 15,
+                "pa": 600,
             },
             {
-                "player_id": 2, "name": "OK Hitter", "is_hitter": True,
-                "r": 60, "hr": 15, "rbi": 60, "sb": 5, "pa": 500,
+                "player_id": 2,
+                "name": "OK Hitter",
+                "is_hitter": True,
+                "r": 60,
+                "hr": 15,
+                "rbi": 60,
+                "sb": 5,
+                "pa": 500,
             },
             {
-                "player_id": 3, "name": "Bad Hitter", "is_hitter": True,
-                "r": 40, "hr": 8, "rbi": 35, "sb": 2, "pa": 400,
+                "player_id": 3,
+                "name": "Bad Hitter",
+                "is_hitter": True,
+                "r": 40,
+                "hr": 8,
+                "rbi": 35,
+                "sb": 2,
+                "pa": 400,
             },
             {
-                "player_id": 4, "name": "Ace Pitcher", "is_hitter": False,
-                "w": 15, "sv": 0, "k": 220, "ip": 200, "era": 2.80,
+                "player_id": 4,
+                "name": "Ace Pitcher",
+                "is_hitter": False,
+                "w": 15,
+                "sv": 0,
+                "k": 220,
+                "ip": 200,
+                "era": 2.80,
             },
         ]
     )

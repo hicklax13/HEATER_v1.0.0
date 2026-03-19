@@ -1,17 +1,18 @@
 # tests/test_power_rankings.py
 """Tests for league power rankings."""
+
 from __future__ import annotations
 
 from src.power_rankings import (
-    compute_roster_quality,
+    WEIGHTS,
+    bootstrap_confidence_interval,
     compute_category_balance_score,
-    compute_schedule_strength_index,
     compute_injury_exposure,
     compute_momentum,
-    compute_power_rating,
     compute_power_rankings,
-    bootstrap_confidence_interval,
-    WEIGHTS,
+    compute_power_rating,
+    compute_roster_quality,
+    compute_schedule_strength_index,
 )
 
 
@@ -22,15 +23,26 @@ def test_roster_quality_bounds():
 
 
 def test_perfect_balance_near_one():
-    zscores = {cat: 1.0 for cat in ["R", "HR", "RBI", "SB", "AVG", "OBP",
-                                      "W", "SV", "K", "ERA", "WHIP", "L"]}
+    zscores = {cat: 1.0 for cat in ["R", "HR", "RBI", "SB", "AVG", "OBP", "W", "SV", "K", "ERA", "WHIP", "L"]}
     score = compute_category_balance_score(zscores)
     assert score > 0.9  # Perfect balance (all equal) → near 1.0
 
 
 def test_punt_balance_low():
-    zscores = {"R": 5.0, "HR": 5.0, "RBI": 5.0, "SB": 0.0, "AVG": 0.0, "OBP": 0.0,
-               "W": 0.0, "SV": 0.0, "K": 0.0, "ERA": 0.0, "WHIP": 0.0, "L": 0.0}
+    zscores = {
+        "R": 5.0,
+        "HR": 5.0,
+        "RBI": 5.0,
+        "SB": 0.0,
+        "AVG": 0.0,
+        "OBP": 0.0,
+        "W": 0.0,
+        "SV": 0.0,
+        "K": 0.0,
+        "ERA": 0.0,
+        "WHIP": 0.0,
+        "L": 0.0,
+    }
     score = compute_category_balance_score(zscores)
     assert score < 0.6
 
@@ -85,7 +97,10 @@ def test_bootstrap_p5_less_than_p95():
 
 def test_power_rating_range():
     rating = compute_power_rating(
-        roster_quality=0.5, category_balance=0.5,
-        schedule_strength=0.5, injury_exposure=0.0, momentum=1.0,
+        roster_quality=0.5,
+        category_balance=0.5,
+        schedule_strength=0.5,
+        injury_exposure=0.0,
+        momentum=1.0,
     )
     assert 0 <= rating <= 100

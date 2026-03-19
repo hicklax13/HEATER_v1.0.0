@@ -1,24 +1,45 @@
 # src/standings_projection.py
 """Projected season standings via copula-based H2H MC simulation."""
+
 from __future__ import annotations
 
 import itertools
+
 import numpy as np
 import pandas as pd
 from scipy.stats import norm
 
-
 # Weekly stat standard deviations (tau) per category
 WEEKLY_TAU: dict[str, float] = {
-    "R": 6.0, "HR": 2.5, "RBI": 6.5, "SB": 1.5, "AVG": 0.020, "OBP": 0.025,
-    "W": 1.0, "L": 1.0, "SV": 1.5, "K": 8.0, "ERA": 1.20, "WHIP": 0.15,
+    "R": 6.0,
+    "HR": 2.5,
+    "RBI": 6.5,
+    "SB": 1.5,
+    "AVG": 0.020,
+    "OBP": 0.025,
+    "W": 1.0,
+    "L": 1.0,
+    "SV": 1.5,
+    "K": 8.0,
+    "ERA": 1.20,
+    "WHIP": 0.15,
 }
 
 INVERSE_CATS: set[str] = {"L", "ERA", "WHIP"}
 
 ALL_CATEGORIES: list[str] = [
-    "R", "HR", "RBI", "SB", "AVG", "OBP",
-    "W", "L", "SV", "K", "ERA", "WHIP",
+    "R",
+    "HR",
+    "RBI",
+    "SB",
+    "AVG",
+    "OBP",
+    "W",
+    "L",
+    "SV",
+    "K",
+    "ERA",
+    "WHIP",
 ]
 
 
@@ -41,9 +62,7 @@ def compute_category_win_probability(
     return float(norm.cdf(z))
 
 
-def generate_round_robin_schedule(
-    team_names: list[str], n_weeks: int = 22
-) -> list[list[tuple[str, str]]]:
+def generate_round_robin_schedule(team_names: list[str], n_weeks: int = 22) -> list[list[tuple[str, str]]]:
     """Generate a round-robin schedule for N teams over n_weeks.
 
     Each week has N/2 matchups. Repeats pairings cyclically.
@@ -170,10 +189,7 @@ def simulate_season(
         playoff_count = 0
         for sim in range(n_sims):
             # Rank by wins (desc), then ties (desc)
-            sim_records = [
-                (all_wins[sim, j], all_ties[sim, j], j)
-                for j in range(n_teams)
-            ]
+            sim_records = [(all_wins[sim, j], all_ties[sim, j], j) for j in range(n_teams)]
             sim_records.sort(key=lambda x: (x[0], x[1]), reverse=True)
             ranks = {rec[2]: rank + 1 for rank, rec in enumerate(sim_records)}
             if ranks[i] <= min(4, n_teams):

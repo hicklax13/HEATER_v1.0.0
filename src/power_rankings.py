@@ -1,5 +1,6 @@
 # src/power_rankings.py
 """5-factor composite league power rankings with bootstrap CI."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -15,9 +16,7 @@ WEIGHTS: dict[str, float] = {
 }
 
 
-def compute_roster_quality(
-    team_trade_values: float, max_trade_values: float
-) -> float:
+def compute_roster_quality(team_trade_values: float, max_trade_values: float) -> float:
     """Roster quality as fraction of league-best total trade value [0, 1]."""
     if max_trade_values <= 0:
         return 0.0
@@ -205,6 +204,4 @@ def bootstrap_confidence_interval(
         perturbed = team_rating + rng.normal(0, 3.0)  # Overall perturbation
         ratings.append(max(0, min(100, perturbed)))
 
-    return round(float(np.percentile(ratings, 5)), 1), round(
-        float(np.percentile(ratings, 95)), 1
-    )
+    return round(float(np.percentile(ratings, 5)), 1), round(float(np.percentile(ratings, 95)), 1)

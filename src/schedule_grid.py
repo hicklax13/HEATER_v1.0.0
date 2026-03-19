@@ -1,8 +1,9 @@
 # src/schedule_grid.py
 """7-day schedule grid with matchup color-coding."""
+
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pandas as pd
 
@@ -20,7 +21,7 @@ _DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 def _get_week_dates(start_date: datetime | None = None) -> list[str]:
     """Return ISO date strings for the next 7 days starting from Monday."""
     if start_date is None:
-        start_date = datetime.now(timezone.utc)
+        start_date = datetime.now(UTC)
     # Find the Monday of this week
     monday = start_date - timedelta(days=start_date.weekday())
     return [(monday + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(7)]

@@ -1,12 +1,13 @@
 # tests/test_schedule_grid.py
 """Tests for 7-day schedule grid."""
+
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 
 import pandas as pd
 
-from src.schedule_grid import build_schedule_grid, render_schedule_html, TIER_COLORS
+from src.schedule_grid import TIER_COLORS, build_schedule_grid, render_schedule_html
 
 
 def _make_roster(n: int = 2) -> pd.DataFrame:
@@ -54,7 +55,7 @@ def test_grid_off_days_no_schedule():
 def test_grid_with_games():
     roster = _make_roster(1)
     # Monday game for NYY
-    start = datetime(2026, 3, 16, tzinfo=timezone.utc)  # a Monday
+    start = datetime(2026, 3, 16, tzinfo=UTC)  # a Monday
     schedule = [
         {"date": "2026-03-16", "home_team": "NYY", "away_team": "BOS"},
     ]
@@ -68,7 +69,7 @@ def test_grid_with_games():
 
 def test_games_per_day_count():
     roster = _make_roster(2)
-    start = datetime(2026, 3, 16, tzinfo=timezone.utc)
+    start = datetime(2026, 3, 16, tzinfo=UTC)
     schedule = [
         {"date": "2026-03-16", "home_team": "NYY", "away_team": "BOS"},
     ]
@@ -84,9 +85,7 @@ def test_tier_colors_complete():
 
 def test_grid_with_matchup_ratings():
     roster = _make_roster(1)
-    ratings = pd.DataFrame(
-        [{"player_id": 1, "matchup_tier": "smash"}]
-    )
+    ratings = pd.DataFrame([{"player_id": 1, "matchup_tier": "smash"}])
     grid = build_schedule_grid(roster, matchup_ratings=ratings)
     # Even without games, the tier should be stored
     assert grid["players"][0]["days"][0]["tier"] is None  # No game = no tier
@@ -99,7 +98,7 @@ def test_render_html_empty():
 
 def test_render_html_basic():
     roster = _make_roster(1)
-    start = datetime(2026, 3, 16, tzinfo=timezone.utc)
+    start = datetime(2026, 3, 16, tzinfo=UTC)
     schedule = [
         {"date": "2026-03-16", "home_team": "NYY", "away_team": "BOS"},
     ]
