@@ -117,7 +117,7 @@ Each level gracefully degrades: without FG data, no scouting tools or reports, b
 - MiLB stats aggregation
 - Readiness score computation (hand-calculated)
 - Score bounds [0, 100]
-- Fallback chain (FG fails -> pybaseball -> static)
+- Fallback chain (FG fails -> MLB Pipeline scrape -> static)
 - Position/org filtering
 - DB round-trip
 - Empty/malformed API responses
@@ -483,7 +483,7 @@ New "News & Alerts" tab:
 
 **Relationship to existing Phase 11 (`_bootstrap_news`):** Phase 11 fetches raw MLB transactions via `news_fetcher.fetch_recent_transactions()` and stores them in the `transactions` table. Phase 14 builds on top: it calls `news_fetcher.fetch_recent_transactions()` for MLB data (via import, not duplication), then adds ESPN News API + RotoWire RSS + Yahoo injury fields, stores everything in the new `player_news` table, and runs the analytical layer (templates + SGP impact). Phase 11 is **retained** for backward compatibility — the `transactions` table is still populated for existing consumers. Phase 14 is additive.
 
-`StalenessConfig` dataclass updated with two new fields:
+`StalenessConfig` dataclass updated with three new fields:
 ```python
 prospects_hours: float = 168  # 7 days
 news_hours: float = 1         # 1 hour
@@ -499,7 +499,7 @@ ecr_consensus_hours: float = 24  # 24 hours
 - `player_news`
 - `ownership_trends`
 
-Current count: 14 tables in `init_db()` (12 original + statcast_archive + player_tags + leagues = 14, though `league_config`/`draft_picks`/`blended_projections`/`player_pool` exist in CLAUDE.md they are created elsewhere). Adding 5 new = **19 tables total** in `init_db()`.
+Current count: 14 tables in `init_db()`. Adding 5 new = **19 tables total** in `init_db()`.
 
 ### Rate Limiting
 
