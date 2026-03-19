@@ -247,6 +247,92 @@ def init_db():
             created_at TEXT NOT NULL,
             is_active INTEGER DEFAULT 0
         );
+
+        CREATE TABLE IF NOT EXISTS prospect_rankings (
+            prospect_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            mlb_id INTEGER,
+            name TEXT NOT NULL,
+            team TEXT,
+            position TEXT,
+            fg_rank INTEGER,
+            fg_fv INTEGER,
+            fg_eta TEXT,
+            fg_risk TEXT,
+            age INTEGER,
+            hit_present INTEGER, hit_future INTEGER,
+            game_present INTEGER, game_future INTEGER,
+            raw_present INTEGER, raw_future INTEGER,
+            speed INTEGER, field INTEGER,
+            ctrl_present INTEGER, ctrl_future INTEGER,
+            scouting_report TEXT,
+            tldr TEXT,
+            milb_level TEXT,
+            milb_avg REAL, milb_obp REAL, milb_slg REAL,
+            milb_k_pct REAL, milb_bb_pct REAL, milb_hr INTEGER, milb_sb INTEGER,
+            milb_ip REAL, milb_era REAL, milb_whip REAL, milb_k9 REAL, milb_bb9 REAL,
+            readiness_score REAL,
+            fetched_at TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS ecr_consensus (
+            player_id INTEGER PRIMARY KEY,
+            espn_rank INTEGER,
+            yahoo_adp REAL,
+            cbs_rank INTEGER,
+            nfbc_adp REAL,
+            fg_adp REAL,
+            fp_ecr INTEGER,
+            heater_sgp_rank INTEGER,
+            consensus_rank INTEGER,
+            consensus_avg REAL,
+            rank_min INTEGER,
+            rank_max INTEGER,
+            rank_stddev REAL,
+            n_sources INTEGER,
+            fetched_at TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS player_id_map (
+            player_id INTEGER PRIMARY KEY,
+            espn_id INTEGER,
+            yahoo_key TEXT,
+            fg_id INTEGER,
+            mlb_id INTEGER,
+            cbs_id INTEGER,
+            nfbc_id INTEGER,
+            name TEXT,
+            team TEXT,
+            updated_at TEXT
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_id_map_espn ON player_id_map(espn_id) WHERE espn_id IS NOT NULL;
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_id_map_yahoo ON player_id_map(yahoo_key) WHERE yahoo_key IS NOT NULL;
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_id_map_fg ON player_id_map(fg_id) WHERE fg_id IS NOT NULL;
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_id_map_mlb ON player_id_map(mlb_id) WHERE mlb_id IS NOT NULL;
+
+        CREATE TABLE IF NOT EXISTS player_news (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            player_id INTEGER NOT NULL,
+            source TEXT NOT NULL,
+            headline TEXT NOT NULL,
+            detail TEXT,
+            news_type TEXT,
+            injury_body_part TEXT,
+            il_status TEXT,
+            sentiment_score REAL,
+            published_at TEXT,
+            fetched_at TEXT,
+            UNIQUE(player_id, source, headline, published_at)
+        );
+        CREATE INDEX IF NOT EXISTS idx_player_news_player ON player_news(player_id);
+        CREATE INDEX IF NOT EXISTS idx_player_news_type ON player_news(news_type);
+
+        CREATE TABLE IF NOT EXISTS ownership_trends (
+            player_id INTEGER NOT NULL,
+            date TEXT NOT NULL,
+            percent_owned REAL,
+            delta_7d REAL,
+            PRIMARY KEY (player_id, date)
+        );
     """)
     conn.commit()
 
