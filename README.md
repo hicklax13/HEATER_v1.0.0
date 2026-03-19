@@ -2,14 +2,14 @@
 
 A fantasy baseball draft assistant + in-season manager for Yahoo Sports H2H Categories leagues. Features the **Heater** UI — a modern glassmorphic design system with vibrant thermal color palette, 3D inflatable buttons, kinetic gradient typography, and pill-based navigation. Monte Carlo draft recommendations, Bayesian projection updates, and full in-season roster management.
 
-Built for the **FourzynBurn** league (12-team H2H Categories, snake draft, 23 rounds, 12 scoring categories). ~35,000 lines of Python across 80+ source files with 1,590 tests (60 test files). Zero CSV uploads — all data auto-fetched from MLB Stats API + FanGraphs on every launch. Zero emoji — all icons are inline SVGs.
+Built for the **FourzynBurn** league (12-team H2H Categories, snake draft, 23 rounds, 12 scoring categories). ~66,000 lines of Python across 160+ source files with 1,590 tests (61 test files). Zero CSV uploads — all data auto-fetched from MLB Stats API + FanGraphs on every launch. Zero emoji — all icons are inline SVGs.
 
 ## Overview
 
 - **Splash Screen** — Zero-interaction data bootstrap on every launch: 1,000+ MLB players (active + 40-man + spring training), 3 years of history, 7 projection systems, park factors, live stats — all auto-fetched with staleness-based refresh
 - **Setup Wizard** — 2-step guided setup (Settings > Launch). No CSV uploads needed
 - **Draft Page** — 3-column layout: MC recommendations with hero card (BUY/FAIR/AVOID badges, risk score 0-100, category balance meter, LAST CHANCE flag, P10/P90 ranges), draft board, player search + opponent intel
-- **In-Season Pages** — 6 Streamlit pages: team overview, draft simulator, trade analyzer, player compare, free agent rankings, lineup optimizer
+- **In-Season Pages** — 15 Streamlit pages: team overview, draft simulator, trade analyzer (with trade finder + deep analysis), player compare, free agent rankings, lineup optimizer, weekly dashboard, trade values, waiver wire, category tracker, trends, playoff odds, bullpen monitor, punt analyzer, weekly recap
 - **Draft Recommendation Engine** — 25-feature 8-stage enhancement pipeline with 3 execution modes (Quick <1s, Standard 2-3s, Full 5-10s)
 - **Trade Analyzer Engine** — 6-phase pipeline: deterministic SGP, stochastic MC (10K sims), signal intelligence (Statcast/Kalman/BOCPD), contextual adjustments, game theory (opponent modeling/adverse selection/Bellman), production (convergence/caching)
 - **Enhanced Lineup Optimizer** — 11-module pipeline with 20 mathematical techniques
@@ -122,7 +122,7 @@ Python 3.11+ required. CI tests on 3.11, 3.12, 3.13. Local dev uses 3.14.
 ## Testing
 
 - **1,593 tests collected**, 1,590 passed, 3 skipped (PyMC/xgboost optional deps)
-- **60 test files** covering: draft engine (5), trade engine phases 1-6 (6), lineup optimizer (10), gap closure (14), in-season analytics (7), backtesting, math verification (4), integration, data pipeline, bootstrap, Yahoo API
+- **61 test files** covering: draft engine (5), trade engine phases 1-6 (6), lineup optimizer (10), gap closure (14), in-season analytics (7), backtesting, math verification (4), integration, data pipeline, bootstrap, Yahoo API
 - **Math verification suite** — 168 hand-calculated tests across 4 files
 - **CI** — GitHub Actions: ruff lint/format + pytest on Python 3.11-3.13 + daily data refresh cron
 

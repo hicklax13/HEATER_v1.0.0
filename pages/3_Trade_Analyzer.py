@@ -619,7 +619,6 @@ else:
                                 unsafe_allow_html=True,
                             )
 
-
                     # P10/P90 risk assessment for traded players
                     try:
                         from src.database import get_connection

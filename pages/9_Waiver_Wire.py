@@ -216,7 +216,11 @@ ww_progress.empty()
 # ── Apply position filter ────────────────────────────────────────────
 
 if pos_filter != "All" and recommendations:
-    recommendations = [rec for rec in recommendations if pos_filter in [p.strip() for p in str(rec.get("add_positions", "")).split(",")]]
+    recommendations = [
+        rec
+        for rec in recommendations
+        if pos_filter in [p.strip() for p in str(rec.get("add_positions", "")).split(",")]
+    ]
 
 # ── Display Recommendations ──────────────────────────────────────────
 
