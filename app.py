@@ -721,6 +721,38 @@ def render_draft_page():
             st.session_state.percentile_data = {}
             st.session_state.has_percentiles = False
 
+    # ── Load consensus ranks ──────────────────────────────────
+    if "consensus_loaded" not in st.session_state:
+        try:
+            from src.ecr import load_ecr_consensus
+
+            consensus_df = load_ecr_consensus()
+            if (
+                consensus_df is not None
+                and not consensus_df.empty
+                and "consensus_rank" in consensus_df.columns
+                and "player_id" in consensus_df.columns
+            ):
+                merge_cols = ["player_id", "consensus_rank"]
+                if "consensus_avg" in consensus_df.columns:
+                    merge_cols.append("consensus_avg")
+                if "n_sources" in consensus_df.columns:
+                    merge_cols.append("n_sources")
+                if "rank_stddev" in consensus_df.columns:
+                    merge_cols.append("rank_stddev")
+                consensus_subset = consensus_df[merge_cols].drop_duplicates(subset=["player_id"])
+                pool = pool.merge(consensus_subset, on="player_id", how="left")
+                # Compute delta: positive = HEATER ranks player higher (lower number) than consensus
+                heater_rank = pool.get("enhanced_rank", pool.get("rank", pd.Series(dtype=float)))
+                if heater_rank is not None and len(heater_rank) > 0:
+                    pool["consensus_delta"] = pool["consensus_rank"] - heater_rank
+                else:
+                    pool["consensus_delta"] = pd.NA
+                st.session_state.player_pool = pool
+        except Exception:
+            pass  # Consensus data unavailable — proceed without it
+        st.session_state.consensus_loaded = True
+
     # ── Sidebar ──────────────────────────────────────────────────
     with st.sidebar:
         st.markdown(
@@ -1639,7 +1671,7 @@ def render_draft_tabs(ds, pool, lc, sgp):
         render_available_players(ds, pool)
 
     with tabs[2]:
-        render_draft_board(ds)
+        render_draft_board(ds, pool)
 
     with tabs[3]:
         render_draft_log(ds)
@@ -1877,6 +1909,7 @@ def _render_balance_bars(ds, pool):
 
 def render_available_players(ds, pool):
     available = ds.available_players(pool)
+    has_consensus = "consensus_rank" in available.columns
 
     # Position filter pills
     positions = ["All", "C", "1B", "2B", "3B", "SS", "OF", "SP", "RP"]
@@ -1890,6 +1923,34 @@ def render_available_players(ds, pool):
                 st.session_state.pos_filter = pos
                 st.rerun()
 
+    # Sort and disagreement filter controls
+    sort_options = ["HEATER Rank", "Consensus Rank", "Average Draft Position", "Name"]
+    if not has_consensus:
+        sort_options = ["HEATER Rank", "Average Draft Position", "Name"]
+
+    ctrl_cols = st.columns([2, 2, 4]) if has_consensus else st.columns([2, 6])
+    with ctrl_cols[0]:
+        sort_by = st.selectbox(
+            "Sort by",
+            sort_options,
+            index=0,
+            key="avail_sort_by",
+            label_visibility="collapsed",
+        )
+
+    if has_consensus:
+        with ctrl_cols[1]:
+            disagreement_filter = st.radio(
+                "Disagreement",
+                ["All", "High", "Medium", "Low"],
+                index=0,
+                key="avail_disagreement",
+                horizontal=True,
+                label_visibility="collapsed",
+            )
+    else:
+        disagreement_filter = "All"
+
     # Search
     search = st.text_input(
         "Search player...", key="player_search", label_visibility="collapsed", placeholder="Search player name..."
@@ -1901,18 +1962,54 @@ def render_available_players(ds, pool):
     if search:
         filtered = filtered[filtered["player_name"].str.contains(search, case=False, na=False)]
 
+    # Apply disagreement filter
+    if has_consensus and disagreement_filter != "All" and "consensus_delta" in filtered.columns:
+        abs_delta = filtered["consensus_delta"].abs()
+        if disagreement_filter == "High":
+            filtered = filtered[abs_delta > 30]
+        elif disagreement_filter == "Medium":
+            filtered = filtered[(abs_delta > 15) & (abs_delta <= 30)]
+        elif disagreement_filter == "Low":
+            filtered = filtered[abs_delta <= 15]
+
     # Sort
-    if "pick_score" in filtered.columns:
+    if sort_by == "Consensus Rank" and has_consensus:
+        filtered = filtered.sort_values("consensus_rank", ascending=True, na_position="last")
+    elif sort_by == "Average Draft Position" and "adp" in filtered.columns:
+        filtered = filtered.sort_values("adp", ascending=True, na_position="last")
+    elif sort_by == "Name" and "player_name" in filtered.columns:
+        filtered = filtered.sort_values("player_name", ascending=True)
+    elif "pick_score" in filtered.columns:
         filtered = filtered.sort_values("pick_score", ascending=False)
 
     # Display columns
     display_cols = ["player_name", "positions"]
-    optional = ["pick_score", "tier", "adp", "r", "hr", "rbi", "sb", "w", "sv", "k"]
+    optional = ["pick_score", "tier", "adp"]
+    if has_consensus:
+        optional.extend(["consensus_rank", "consensus_delta"])
+    optional.extend(["r", "hr", "rbi", "sb", "w", "sv", "k"])
     for c in optional:
         if c in filtered.columns:
             display_cols.append(c)
 
     display_df = filtered[display_cols].head(50).copy()
+
+    # Format consensus delta with color-coded HTML
+    if "consensus_delta" in display_df.columns:
+
+        def _format_delta(val):
+            if pd.isna(val):
+                return ""
+            v = int(val)
+            if v > 0:
+                # Positive delta = consensus ranks lower (HEATER sees more value)
+                return f'<span style="color:{T["ok"]};font-weight:600;">+{v}</span>'
+            elif v < 0:
+                # Negative delta = consensus ranks higher (HEATER sees less value)
+                return f'<span style="color:{T["amber"]};font-weight:600;">{v}</span>'
+            return f'<span style="color:{T["tx2"]};">0</span>'
+
+        display_df["consensus_delta"] = display_df["consensus_delta"].map(_format_delta)
 
     # Rename for display
     rename_map = {
@@ -1921,6 +2018,8 @@ def render_available_players(ds, pool):
         "pick_score": "Score",
         "tier": "Tier",
         "adp": "Average Draft Position",
+        "consensus_rank": "Consensus Rank",
+        "consensus_delta": "HEATER vs Consensus",
     }
     display_df = display_df.rename(columns={k: v for k, v in rename_map.items() if k in display_df.columns})
 
@@ -1932,6 +2031,8 @@ def render_available_players(ds, pool):
         display_df["Average Draft Position"] = display_df["Average Draft Position"].map(
             lambda x: f"{x:.0f}" if pd.notna(x) else ""
         )
+    if "Consensus Rank" in display_df.columns:
+        display_df["Consensus Rank"] = display_df["Consensus Rank"].map(lambda x: f"{x:.0f}" if pd.notna(x) else "")
 
     render_styled_table(display_df, max_height=400)
 
@@ -1939,7 +2040,20 @@ def render_available_players(ds, pool):
 # ── Draft Board ─────────────────────────────────────────────────────
 
 
-def render_draft_board(ds):
+def render_draft_board(ds, pool=None):
+    # Build consensus lookup from pool if available
+    consensus_lookup = {}
+    has_consensus = False
+    if pool is not None and "consensus_rank" in pool.columns and "consensus_delta" in pool.columns:
+        has_consensus = True
+        name_col = "player_name" if "player_name" in pool.columns else "name"
+        for _, row in pool.iterrows():
+            pname = str(row.get(name_col, ""))
+            c_rank = row.get("consensus_rank")
+            c_delta = row.get("consensus_delta")
+            if pname and pd.notna(c_rank):
+                consensus_lookup[pname] = {"rank": int(c_rank), "delta": c_delta}
+
     # Build HTML table
     headers = ""
     for i in range(ds.num_teams):
@@ -1983,7 +2097,28 @@ def render_draft_board(ds):
             if entry:
                 name = entry["player_name"]
                 short = name[:18] if len(name) > 18 else name
-                row_html += f"<td {cls}>{short}</td>"
+                # Append consensus rank badge if available
+                consensus_badge = ""
+                if has_consensus and name in consensus_lookup:
+                    c_info = consensus_lookup[name]
+                    c_rank = c_info["rank"]
+                    c_delta = c_info["delta"]
+                    if pd.notna(c_delta):
+                        delta_int = int(c_delta)
+                        if delta_int > 0:
+                            delta_color = T["ok"]
+                        elif delta_int < 0:
+                            delta_color = T["amber"]
+                        else:
+                            delta_color = T["tx2"]
+                        consensus_badge = (
+                            f'<br><span style="font-size:9px;color:{T["tx2"]};">'
+                            f"CR:{c_rank}"
+                            f'</span> <span style="font-size:9px;color:{delta_color};font-weight:600;">'
+                            f"{('+' if delta_int > 0 else '')}{delta_int}"
+                            f"</span>"
+                        )
+                row_html += f"<td {cls}>{short}{consensus_badge}</td>"
             else:
                 row_html += f'<td {cls} style="color:{T["tx2"]}44;">—</td>'
 
