@@ -7,7 +7,9 @@ import pandas as pd
 import streamlit as st
 
 from src.database import init_db
-from src.ui_shared import inject_custom_css
+from src.ui_shared import THEME, get_plotly_layout, get_plotly_polar, inject_custom_css
+
+T = THEME
 
 try:
     from src.leaders import compute_category_leaders, detect_breakouts  # noqa: F401
@@ -24,11 +26,18 @@ except ImportError:
     POINTS_AVAILABLE = False
 
 try:
-    from src.ecr import fetch_prospect_rankings, filter_prospects_by_position
+    from src.prospect_engine import get_prospect_rankings, refresh_prospect_rankings
 
     PROSPECTS_AVAILABLE = True
 except ImportError:
     PROSPECTS_AVAILABLE = False
+
+try:
+    import plotly.graph_objects as go
+
+    HAS_PLOTLY = True
+except ImportError:
+    HAS_PLOTLY = False
 
 st.set_page_config(page_title="Heater | Leaders", page_icon="", layout="wide")
 
@@ -67,6 +76,154 @@ demo_stats = pd.DataFrame(
         "l": [0 if i % 3 != 2 else int(rng.integers(2, 14)) for i in range(n_players)],
     }
 )
+
+# -- Prospect tab helper functions -----------------------------------------
+
+
+def _parse_eta_year(val) -> int | None:
+    """Parse ETA string to integer year, returning None on failure."""
+    if val is None:
+        return None
+    try:
+        return int(str(val).strip())
+    except (ValueError, TypeError):
+        return None
+
+
+def _prospect_is_pitcher(row) -> bool:
+    """Determine if prospect is a pitcher based on position."""
+    pos = str(row.get("position", "")).upper()
+    return "SP" in pos or "RP" in pos or "P" == pos
+
+
+def _build_scouting_grades(row, is_pitcher: bool) -> list[dict]:
+    """Build scouting grade rows from prospect data."""
+    grades = []
+    if is_pitcher:
+        # Pitcher tools: Control present/future
+        if row.get("ctrl_present") is not None or row.get("ctrl_future") is not None:
+            grades.append(
+                {
+                    "Tool": "Control",
+                    "Present": _grade_val(row.get("ctrl_present")),
+                    "Future": _grade_val(row.get("ctrl_future")),
+                }
+            )
+        # Also show hit/game/raw/speed/field if available (two-way players)
+        _add_hitter_tools(grades, row)
+    else:
+        # Hitter tools: Hit, Game Power, Raw Power, Speed, Field
+        _add_hitter_tools(grades, row)
+        # Also show control if available (two-way players)
+        if row.get("ctrl_present") is not None or row.get("ctrl_future") is not None:
+            grades.append(
+                {
+                    "Tool": "Control",
+                    "Present": _grade_val(row.get("ctrl_present")),
+                    "Future": _grade_val(row.get("ctrl_future")),
+                }
+            )
+    return grades
+
+
+def _add_hitter_tools(grades: list[dict], row) -> None:
+    """Add hitter scouting tools to grades list."""
+    tool_map = [
+        ("Hit", "hit_present", "hit_future"),
+        ("Game Power", "game_present", "game_future"),
+        ("Raw Power", "raw_present", "raw_future"),
+        ("Speed", "speed", None),
+        ("Fielding", "field", None),
+    ]
+    for label, present_key, future_key in tool_map:
+        present = row.get(present_key)
+        future = row.get(future_key) if future_key else None
+        if present is not None or future is not None:
+            entry = {"Tool": label, "Present": _grade_val(present)}
+            if future_key is not None:
+                entry["Future"] = _grade_val(future)
+            else:
+                entry["Future"] = "--"
+            grades.append(entry)
+
+
+def _grade_val(val) -> str:
+    """Format a scouting grade value for display."""
+    if val is None:
+        return "--"
+    try:
+        return str(int(val))
+    except (ValueError, TypeError):
+        return str(val)
+
+
+def _render_scouting_radar(name: str, grades: list[dict], is_pitcher: bool) -> None:
+    """Render a Plotly radar chart for scouting tool grades."""
+    if not HAS_PLOTLY:
+        return
+    # Build data for radar
+    labels = []
+    present_vals = []
+    future_vals = []
+    for g in grades:
+        labels.append(g["Tool"])
+        try:
+            present_vals.append(float(g["Present"]) if g["Present"] != "--" else 0)
+        except (ValueError, TypeError):
+            present_vals.append(0)
+        try:
+            future_vals.append(float(g["Future"]) if g["Future"] != "--" else 0)
+        except (ValueError, TypeError):
+            future_vals.append(0)
+
+    if not labels:
+        return
+
+    has_future = any(v > 0 for v in future_vals)
+
+    fig = go.Figure()
+
+    # Present grades trace
+    fig.add_trace(
+        go.Scatterpolar(
+            r=present_vals + [present_vals[0]],
+            theta=labels + [labels[0]],
+            name="Present",
+            line=dict(color=T["sky"]),
+            fill="toself",
+            fillcolor="rgba(69,123,157,0.15)",
+        )
+    )
+
+    # Future grades trace (if available)
+    if has_future:
+        fig.add_trace(
+            go.Scatterpolar(
+                r=future_vals + [future_vals[0]],
+                theta=labels + [labels[0]],
+                name="Future",
+                line=dict(color=T["hot"]),
+                fill="toself",
+                fillcolor="rgba(255,109,0,0.15)",
+            )
+        )
+
+    layout_kwargs = get_plotly_layout(T)
+    layout_kwargs["polar"] = get_plotly_polar(T)
+    # Set radial axis range for 20-80 scouting scale
+    layout_kwargs["polar"]["radialaxis"]["range"] = [20, 80]
+    layout_kwargs["polar"]["radialaxis"]["tickvals"] = [20, 30, 40, 50, 60, 70, 80]
+    layout_kwargs["legend"] = dict(font=dict(color=T["tx"]))
+    layout_kwargs["title"] = dict(
+        text=f"{name} Scouting Profile",
+        font=dict(size=14, color=T["tx"]),
+    )
+    layout_kwargs["height"] = 400
+    fig.update_layout(**layout_kwargs)
+    st.plotly_chart(fig, width="stretch")
+
+
+# -- Streamlit UI tabs -----------------------------------------------------
 
 tab1, tab2, tab3 = st.tabs(["Category Leaders", "Points Leaders", "Prospects"])
 
@@ -115,25 +272,194 @@ with tab2:
 
 with tab3:
     if not PROSPECTS_AVAILABLE:
-        st.info("Prospect rankings not available. Ensure src/ecr.py exists.")
+        st.info("Prospect rankings not available. Ensure src/prospect_engine.py exists.")
     else:
-        st.markdown("Top MLB prospects by consensus ranking.")
+        st.markdown("Top MLB prospects with readiness scores and scouting tool grades.")
 
-        position_filter = st.selectbox(
-            "Position Filter",
-            ["All", "SP", "OF", "SS", "2B", "3B", "1B", "C"],
-            key="prospect_pos",
-        )
+        # -- Filters row -------------------------------------------------------
+        filter_cols = st.columns([2, 2, 2, 1])
+
+        # Position filter pills
+        _POSITION_OPTIONS = ["All", "SS", "OF", "SP", "2B", "3B", "1B", "C", "RP"]
+        with filter_cols[0]:
+            position_filter = st.selectbox(
+                "Position",
+                _POSITION_OPTIONS,
+                key="prospect_pos",
+            )
+
+        # Organization filter dropdown
+        with filter_cols[1]:
+            org_filter = st.selectbox(
+                "Organization",
+                ["All"],  # populated dynamically below
+                key="prospect_org_placeholder",
+            )
+
+        # ETA year filter
+        with filter_cols[2]:
+            eta_filter = st.selectbox(
+                "Estimated Time of Arrival Year",
+                ["All", "2025", "2026", "2027", "2028", "2029+"],
+                key="prospect_eta",
+            )
+
+        # Refresh button
+        with filter_cols[3]:
+            st.markdown("<br>", unsafe_allow_html=True)
+            refresh_clicked = st.button("Refresh Data", key="prospect_refresh")
 
         try:
-            prospects_df = fetch_prospect_rankings()
-
-            if position_filter != "All":
-                prospects_df = filter_prospects_by_position(prospects_df, position_filter)
+            # Refresh if requested
+            if refresh_clicked:
+                with st.spinner("Refreshing prospect rankings..."):
+                    prospects_df = refresh_prospect_rankings(force=True)
+            else:
+                prospects_df = get_prospect_rankings(
+                    top_n=100,
+                    position=position_filter if position_filter != "All" else None,
+                    org=None,  # apply org filter after to populate dropdown
+                )
 
             if prospects_df.empty:
-                st.info("No prospects found for this position.")
+                st.info("No prospect data available. Click Refresh Data to fetch rankings.")
             else:
-                st.dataframe(prospects_df, width="stretch", hide_index=True)
+                # Populate org dropdown dynamically from data
+                if "team" in prospects_df.columns:
+                    all_orgs = sorted(prospects_df["team"].dropna().unique().tolist())
+                else:
+                    all_orgs = []
+
+                # Re-render org dropdown with actual options (use session state)
+                if all_orgs:
+                    org_options = ["All"] + all_orgs
+                    org_filter = st.selectbox(
+                        "Organization (select to filter)",
+                        org_options,
+                        key="prospect_org",
+                    )
+
+                # Reload with all filters applied
+                pos_arg = position_filter if position_filter != "All" else None
+                org_arg = org_filter if org_filter != "All" else None
+                prospects_df = get_prospect_rankings(top_n=100, position=pos_arg, org=org_arg)
+
+                # ETA filter
+                if eta_filter != "All" and "fg_eta" in prospects_df.columns:
+                    if eta_filter == "2029+":
+                        prospects_df = prospects_df[
+                            prospects_df["fg_eta"].apply(
+                                lambda x: _parse_eta_year(x) is not None and _parse_eta_year(x) >= 2029
+                            )
+                        ]
+                    else:
+                        target_year = int(eta_filter)
+                        prospects_df = prospects_df[
+                            prospects_df["fg_eta"].apply(lambda x: _parse_eta_year(x) == target_year)
+                        ]
+                elif eta_filter != "All" and "eta" in prospects_df.columns:
+                    if eta_filter == "2029+":
+                        prospects_df = prospects_df[
+                            prospects_df["eta"].apply(
+                                lambda x: _parse_eta_year(x) is not None and _parse_eta_year(x) >= 2029
+                            )
+                        ]
+                    else:
+                        target_year = int(eta_filter)
+                        prospects_df = prospects_df[
+                            prospects_df["eta"].apply(lambda x: _parse_eta_year(x) == target_year)
+                        ]
+
+                if prospects_df.empty:
+                    st.info("No prospects match the selected filters.")
+                else:
+                    # Build display table
+                    display_cols = []
+                    col_map = {}
+                    if "fg_rank" in prospects_df.columns:
+                        display_cols.append("fg_rank")
+                        col_map["fg_rank"] = "Rank"
+                    elif "rank" in prospects_df.columns:
+                        display_cols.append("rank")
+                        col_map["rank"] = "Rank"
+                    for c, label in [
+                        ("name", "Player"),
+                        ("team", "Organization"),
+                        ("position", "Position"),
+                        ("fg_fv", "Future Value"),
+                        ("fv", "Future Value"),
+                        ("fg_eta", "Estimated Time of Arrival"),
+                        ("eta", "Estimated Time of Arrival"),
+                        ("fg_risk", "Risk"),
+                        ("readiness_score", "Readiness Score"),
+                    ]:
+                        if c in prospects_df.columns and c not in display_cols:
+                            # Avoid duplicate ETA/FV columns
+                            if label in col_map.values():
+                                continue
+                            display_cols.append(c)
+                            col_map[c] = label
+
+                    display_df = prospects_df[display_cols].rename(columns=col_map)
+                    st.dataframe(display_df, width="stretch", hide_index=True)
+
+                    # -- Expandable scouting details per prospect -----------------
+                    st.markdown("---")
+                    st.subheader("Prospect Scouting Details")
+                    st.markdown("Select a prospect to view scouting tool grades and radar chart.")
+
+                    # Build name list for selection
+                    prospect_names = prospects_df["name"].tolist()
+                    selected_name = st.selectbox(
+                        "Select Prospect",
+                        prospect_names,
+                        key="prospect_detail_select",
+                    )
+
+                    if selected_name:
+                        row = prospects_df[prospects_df["name"] == selected_name].iloc[0]
+
+                        detail_cols = st.columns([1, 1])
+
+                        with detail_cols[0]:
+                            # Scouting tool grades table
+                            _is_pitcher = _prospect_is_pitcher(row)
+                            grades = _build_scouting_grades(row, _is_pitcher)
+
+                            if grades:
+                                st.markdown("**Scouting Tool Grades (20-80 Scale)**")
+                                grade_df = pd.DataFrame(grades)
+                                st.dataframe(grade_df, width="stretch", hide_index=True)
+                            else:
+                                st.info("No scouting tool grades available for this prospect.")
+
+                            # Additional info
+                            info_parts = []
+                            if row.get("fg_risk"):
+                                info_parts.append(f"**Risk Level:** {row['fg_risk']}")
+                            if row.get("readiness_score") is not None:
+                                score = row["readiness_score"]
+                                info_parts.append(f"**Readiness Score:** {score:.1f} / 100")
+                            if row.get("age") is not None:
+                                info_parts.append(f"**Age:** {row['age']}")
+                            if row.get("milb_level"):
+                                info_parts.append(f"**Current Level:** {row['milb_level']}")
+                            if info_parts:
+                                st.markdown(" | ".join(info_parts))
+
+                            # TL;DR / scouting report
+                            if row.get("tldr"):
+                                st.markdown(f"**Summary:** {row['tldr']}")
+                            if row.get("scouting_report"):
+                                with st.expander("Full Scouting Report"):
+                                    st.markdown(row["scouting_report"])
+
+                        with detail_cols[1]:
+                            # Radar chart for scouting tools
+                            if HAS_PLOTLY and grades:
+                                _render_scouting_radar(selected_name, grades, _is_pitcher)
+                            elif not HAS_PLOTLY:
+                                st.info("Install plotly to view scouting radar charts.")
+
         except Exception as e:
-            st.error(f"Failed to fetch prospect rankings: {e}")
+            st.error(f"Failed to load prospect rankings: {e}")
