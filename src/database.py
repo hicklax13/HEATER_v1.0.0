@@ -228,6 +228,14 @@ def init_db():
         CREATE UNIQUE INDEX IF NOT EXISTS idx_injury_history_player_season ON injury_history(player_id, season);
         CREATE INDEX IF NOT EXISTS idx_transactions_player ON transactions(player_id);
         CREATE INDEX IF NOT EXISTS idx_statcast_archive_player ON statcast_archive(player_id);
+
+        CREATE TABLE IF NOT EXISTS player_tags (
+            player_id INTEGER NOT NULL,
+            tag TEXT NOT NULL CHECK(tag IN ('Sleeper','Target','Avoid','Breakout','Bust')),
+            note TEXT DEFAULT '',
+            created_at TEXT DEFAULT (datetime('now')),
+            PRIMARY KEY (player_id, tag)
+        );
     """)
     conn.commit()
 
