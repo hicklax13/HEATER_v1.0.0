@@ -29,9 +29,9 @@ Replace with a live prospect engine combining FanGraphs scouting data + MLB Stat
 
 | Source | Endpoint | Data | Staleness |
 |--------|----------|------|-----------|
-| FanGraphs Board API | `fangraphs.com/api/prospects/board/data?draft=false&season=2026` | Rankings, FV (20-80), scouting tools (Hit/Power/Speed/Field/Arm present+future), ETA, risk level, scouting report narratives, TLDR, fantasy relevance flags | 7 days |
+| FanGraphs Board API | `fangraphs.com/api/prospects/board/data?draft=false&season=2026` | Rankings, FV (20-80), scouting tools (pHit/fHit, pGame/fGame, pRaw/fRaw, pSpd, Fld, pCtl/fCtl for pitchers), ETA, risk level, scouting report narratives, TLDR, fantasy relevance flags | 7 days |
 | MLB Stats API MiLB Stats | `statsapi.mlb.com/api/v1/people/{id}/stats?stats=yearByYear&leagueListId=milb_all` | Batting: AVG/OBP/SLG/HR/SB/K%/BB% by level. Pitching: ERA/WHIP/K9/BB9/IP by level. | 1 day |
-| pybaseball `top_prospects()` | Scrapes MLB Pipeline | Fallback ranking + basic stats | 7 days |
+| MLB Pipeline Scrape (custom) | Direct HTTP scrape of `mlb.com/prospects` with `requests` + BeautifulSoup/JSON parsing | Fallback ranking + basic stats. **Note:** pybaseball has no `top_prospects()` function; we scrape directly. | 7 days |
 
 ### New File: `src/prospect_engine.py`
 
@@ -59,15 +59,18 @@ CREATE TABLE IF NOT EXISTS prospect_rankings (
     fg_fv INTEGER,
     fg_eta TEXT,
     fg_risk TEXT,
-    hit_present INTEGER, hit_future INTEGER,
-    power_present INTEGER, power_future INTEGER,
-    speed INTEGER, field INTEGER, arm INTEGER,
+    age INTEGER,
+    hit_present INTEGER, hit_future INTEGER,   -- FG fields: pHit, fHit
+    game_present INTEGER, game_future INTEGER,  -- FG fields: pGame, fGame (power for hitters)
+    raw_present INTEGER, raw_future INTEGER,    -- FG fields: pRaw, fRaw
+    speed INTEGER, field INTEGER,               -- FG fields: pSpd, Fld
+    ctrl_present INTEGER, ctrl_future INTEGER,  -- FG fields: pCtl, fCtl (pitchers only)
     scouting_report TEXT,
     tldr TEXT,
     milb_level TEXT,
     milb_avg REAL, milb_obp REAL, milb_slg REAL,
-    milb_k_pct REAL, milb_bb_pct REAL, milb_hr INTEGER,
-    milb_ip REAL, milb_era REAL, milb_whip REAL, milb_k9 REAL,
+    milb_k_pct REAL, milb_bb_pct REAL, milb_hr INTEGER, milb_sb INTEGER,
+    milb_ip REAL, milb_era REAL, milb_whip REAL, milb_k9 REAL, milb_bb9 REAL,
     readiness_score REAL,
     fetched_at TEXT
 );
@@ -95,17 +98,17 @@ readiness = (
 ### Fallback Chain
 
 1. FanGraphs Board API (richest)
-2. pybaseball `top_prospects()` (MLB Pipeline scrape)
+2. Custom MLB Pipeline scrape (ranking + basic stats, no scouting tools)
 3. Existing hardcoded list (last resort)
 
-Each level gracefully degrades: without FG data, no scouting tools or reports, but still has rankings + stats. Without pybaseball, just the static list.
+Each level gracefully degrades: without FG data, no scouting tools or reports, but still has rankings + stats. Without MLB Pipeline, just the static list.
 
 ### UI: Enhanced `pages/9_Leaders.py` Prospects Tab
 
 - Sortable table: Rank, Name, Team, Pos, FV, ETA, Risk, Readiness Score, MiLB slash line
 - Filter pills: position, organization, ETA year
 - Expandable row: full scouting report, tool grades
-- Plotly radar chart for selected prospect (6 tools: Hit/Power/Speed/Field/Arm/Command)
+- Plotly radar chart for selected prospect (hitters: Hit/Game/Raw/Speed/Field; pitchers: Fastball/Offspeed/Control from FG tool grades)
 - "Fantasy Relevant" badge from FG's `Fantasy_Redraft` / `Fantasy_Dynasty` flags
 
 ### Test File: `tests/test_prospect_engine.py` (~15 tests)
@@ -135,9 +138,9 @@ Build a genuine multi-platform consensus from 7 independent ranking sources usin
 
 | Source | Endpoint | Data | Auth | Staleness |
 |--------|----------|------|------|-----------|
-| ESPN Fantasy API | `lm-api-reads.fantasy.espn.com/apis/v3/games/flb/seasons/2026/players?view=kona_player_info` | `defaultDraftRank` for all players | None | 24h |
+| ESPN Fantasy API | `lm-api-reads.fantasy.espn.com/apis/v3/games/flb/seasons/2026/players?view=kona_player_info` | Draft rank via `draftRanksByRankType.STANDARD.rank` (nested path). Paginated: use `offset` + `limit` query params (default limit=50, max=1000). | None | 24h |
 | Yahoo ADP | yfpy `/draft_analysis` sub-resource on player objects | Average pick, average round, percent drafted | OAuth (existing) | 24h |
-| CBS Sports | `cbssports.com/fantasy/baseball/rankings/h2h/top300/` | H2H Top 300 ranked table | Scrape | 24h |
+| CBS Sports | `cbssports.com/fantasy/baseball/rankings/h2h/top300/` | H2H Top 300 ranked table. **Note:** Page is JS-rendered — use `requests` to try fetching HTML, but fallback gracefully if content is empty/JS-only. CBS may return partial data or require headless browser. Mark as "best-effort" source with 0-1 availability. | Scrape | 24h |
 | NFBC ADP | Already in `adp_sources.py` | High-stakes ADP | Scrape (existing) | 24h |
 | FanGraphs ADP | Already in `data_pipeline.py` | Steamer-based ADP | JSON API (existing) | 7d |
 | FantasyPros ECR | Already in `adp_sources.py` | Aggregated ECR | Scrape (existing) | 24h |
@@ -195,17 +198,23 @@ Cross-reference player IDs across platforms:
 ```sql
 CREATE TABLE IF NOT EXISTS player_id_map (
     player_id INTEGER PRIMARY KEY,  -- HEATER internal ID
-    espn_id INTEGER,
-    yahoo_key TEXT,
-    fg_id INTEGER,
-    mlb_id INTEGER,
+    espn_id INTEGER UNIQUE,
+    yahoo_key TEXT UNIQUE,
+    fg_id INTEGER UNIQUE,
+    mlb_id INTEGER UNIQUE,
     cbs_id INTEGER,
     nfbc_id INTEGER,
     name TEXT,
     team TEXT,
     updated_at TEXT
 );
+CREATE UNIQUE INDEX IF NOT EXISTS idx_id_map_espn ON player_id_map(espn_id) WHERE espn_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_id_map_yahoo ON player_id_map(yahoo_key) WHERE yahoo_key IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_id_map_fg ON player_id_map(fg_id) WHERE fg_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_id_map_mlb ON player_id_map(mlb_id) WHERE mlb_id IS NOT NULL;
 ```
+
+**Dedup strategy:** When inserting a new mapping, first check if any external ID already maps to a different `player_id`. If conflict found, merge: keep the lower `player_id`, update all references, delete the duplicate row. This prevents the same real-world player from having two HEATER IDs.
 
 Populated via fuzzy name matching (existing `match_player_id()` from `live_stats.py:27`) with team + position as tiebreakers. Can be seeded from Smart Fantasy Baseball cross-reference sheet.
 
@@ -213,6 +222,9 @@ Populated via fuzzy name matching (existing `match_player_id()` from `live_stats
 
 ```python
 def compute_consensus(player_sources: dict[str, int | None]) -> dict:
+    """Compute per-player consensus from all sources. consensus_rank is NOT computed here —
+    it is assigned AFTER all players have consensus_avg, by sorting all players by consensus_avg
+    ascending and assigning sequential integer ranks (1-based, no gaps)."""
     ranks = [v for v in player_sources.values() if v is not None]
     n = len(ranks)
     if n == 0:
@@ -229,6 +241,15 @@ def compute_consensus(player_sources: dict[str, int | None]) -> dict:
         "rank_stddev": round(statistics.stdev(ranks), 1) if n >= 2 else 0.0,
         "n_sources": n,
     }
+
+def assign_consensus_ranks(all_player_consensus: list[dict]) -> list[dict]:
+    """Sort all players by consensus_avg ascending, assign consensus_rank 1..N.
+    Players with consensus_avg=None are unranked (consensus_rank=None)."""
+    ranked = sorted([p for p in all_player_consensus if p["consensus_avg"] is not None],
+                    key=lambda p: p["consensus_avg"])
+    for i, p in enumerate(ranked, 1):
+        p["consensus_rank"] = i
+    return all_player_consensus
 ```
 
 ### Disagreement Detection
@@ -257,21 +278,36 @@ Full: 7 sources when all APIs respond.
 - Sort by consensus rank option
 - Filter by disagreement level (show only high-disagreement players = potential value)
 
-### Test File: `tests/test_ecr_consensus.py` (~18 tests)
+### Test File: `tests/test_ecr_consensus.py` (~25 tests)
 
-- ESPN API response parsing (mock JSON)
+- ESPN API response parsing (mock JSON, nested `draftRanksByRankType.STANDARD.rank` path)
+- ESPN pagination handling (offset + limit)
 - Yahoo ADP extraction
-- CBS HTML parsing
+- CBS HTML parsing (success + JS-rendered fallback)
 - Trimmed Borda count (hand-calculated: 3, 4, 5, 6, 7 source cases)
 - Trim removes correct outliers
+- `assign_consensus_ranks()` produces sequential 1..N from consensus_avg
 - rank_min/rank_max from real data
 - rank_stddev computation
 - Disagreement badge thresholds
 - Player ID resolution across platforms
-- Fallback with missing sources
-- DB round-trip
+- Player ID dedup/merge on conflict
+- Fallback with missing sources (minimum 3 = FG + NFBC + SGP)
+- DB round-trip (ecr_consensus table)
+- DB round-trip (player_id_map table)
 - Consensus with single source = that source's rank
 - Empty source handling
+- Backward-compat: `blend_ecr_with_projections()` signature unchanged
+- Backward-compat: `compute_ecr_disagreement()` accepts new consensus row format
+
+### Backward Compatibility with Existing Tests
+
+**Critical:** Rewriting `src/ecr.py` will break 12 tests in `tests/test_ecr.py` and imports in `tests/test_prospect_rankings.py`. Migration strategy:
+
+1. **`tests/test_ecr.py`** — Rewrite in place. The 12 existing tests tested the FantasyPros-only implementation. New tests replace them with consensus-based tests. Net test count increases from 12 to ~25.
+2. **`tests/test_prospect_rankings.py`** — Currently imports `fetch_prospect_rankings()` from `src/ecr.py`. Update imports to `from src.prospect_engine import get_prospect_rankings`. The 6 existing tests are rewritten to test the new engine.
+3. **`blend_ecr_with_projections()`** — Keep same function signature. Internally it now uses `consensus_rank` instead of `ecr_rank`, but the column it produces (`blended_rank`, `ecr_badge`) stays the same. Callers in `app.py` don't change.
+4. **`compute_ecr_disagreement()`** — Change signature from `(proj_rank, ecr_rank, threshold=20)` to `(consensus_row)` which reads `rank_stddev` and `n_sources`. Callers in `app.py` updated.
 
 ---
 
@@ -292,7 +328,7 @@ Aggregate structured data from 4 free sources (MLB API enhanced + Yahoo + ESPN +
 | MLB Stats API (enhanced) | `/api/v1/people/{id}?hydrate=rosterEntries,transactions` | IL status codes, dates, status descriptions, transaction history | None | 1h |
 | Yahoo yfpy | Player model fields during roster sync | `injury_note` (body part), `status_full`, `has_player_notes`, `percent_owned` | OAuth (existing) | 6h |
 | ESPN News API | `site.api.espn.com/apis/site/v2/sports/baseball/mlb/news` | Headlines, descriptions, `categories[].athleteId` | None | 1h |
-| RotoWire RSS | `rotowire.com/rss/news.htm?sport=mlb` | Headline blurbs (top stories) | None (feedparser) | 1h |
+| RotoWire RSS | Multiple candidate URLs tried in sequence: `rotowire.com/feed/`, `rotowire.com/rss/news.htm?sport=mlb`, `rotowire.com/baseball/news.php` (RSS discovery). **Note:** RotoWire RSS URLs change periodically and may return empty XML. Implementation tries each candidate, uses first that returns valid entries. Marked as "best-effort" source (0-1 availability). | Headline blurbs (top stories) | None (feedparser) | 1h |
 
 ### New File: `src/player_news.py`
 
@@ -309,7 +345,7 @@ aggregate_news(player_id: int) -> list[dict]
 generate_player_intel(player_id, player_pool, config=None) -> dict
 generate_injury_context(player_id, il_status, body_part) -> dict
 find_replacement_options(player_id, player_pool, config=None, top_n=3) -> list[dict]
-compute_ownership_trend(player_id, lookback_days=7) -> dict
+compute_ownership_trend(player_id, lookback_days=7) -> dict  # Reads from ownership_trends table (populated by Yahoo sync). Returns empty dict when no Yahoo data available.
 generate_intel_summary(intel: dict) -> str  # template-based
 
 # Batch operations
@@ -331,7 +367,8 @@ CREATE TABLE IF NOT EXISTS player_news (
     il_status TEXT,  -- 'IL10', 'IL15', 'IL60', 'DTD', 'active', null
     sentiment_score REAL,
     published_at TEXT,
-    fetched_at TEXT
+    fetched_at TEXT,
+    UNIQUE(player_id, source, headline, published_at)  -- prevent duplicate inserts
 );
 CREATE INDEX IF NOT EXISTS idx_player_news_player ON player_news(player_id);
 CREATE INDEX IF NOT EXISTS idx_player_news_type ON player_news(news_type);
@@ -374,8 +411,8 @@ No LLM required. Pattern-matched templates by `news_type`:
 ```
 
 Fields populated from:
-- `il_manager.py` → duration estimates (Weibull), lost SGP
-- `injury_model.py` → health score, age risk
+- `src/il_manager.py` → IL duration estimates, lost SGP computation (already exists in this branch)
+- `src/injury_model.py` → health score, age risk
 - `waiver_wire.py` → FA replacement candidates
 - `data_bootstrap.py:PARK_FACTORS` → park context
 - `prospect_engine.py` → MiLB stats for call-ups
@@ -387,9 +424,9 @@ Fields populated from:
 |------|--------|
 | `src/live_stats.py` | Add `fetch_player_enhanced_status(mlb_id)` using `hydrate=rosterEntries,transactions` |
 | `src/yahoo_api.py` | Extract `injury_note`, `status_full`, `percent_owned` fields from Player model during `sync_league_data()` |
-| `src/data_bootstrap.py` | Add Phase 8: `_refresh_news()` calling `refresh_all_news()` with 1h staleness |
+| `src/data_bootstrap.py` | Add Phase 14: `_refresh_news()` calling `refresh_all_news()` with 1h staleness |
 | `src/news_sentiment.py` | No changes needed — existing keyword scorer processes ESPN/RotoWire text |
-| `src/news_fetcher.py` | Keep existing MLB transaction logic, add ESPN + RotoWire fetchers as supplementary sources |
+| `src/news_fetcher.py` | **Unchanged.** Keeps existing MLB transaction logic (`fetch_transactions()`, `fetch_player_news()`). `player_news.py` imports and delegates to it for MLB API data — no duplication. ESPN + RotoWire fetchers live exclusively in `player_news.py`. |
 
 ### Fallback Chain
 
@@ -434,14 +471,22 @@ New "News & Alerts" tab:
 
 ### Bootstrap Integration
 
-`src/data_bootstrap.py` adds two new phases:
+`src/data_bootstrap.py` adds three new phases after the existing Phase 12 (deduplication):
 
 | Phase | Function | Staleness | Dependencies |
 |-------|----------|-----------|-------------|
-| Phase 8: Prospects | `_refresh_prospects()` → `prospect_engine.refresh_prospect_rankings()` | 7d | Phase 1 (players) |
-| Phase 9: News | `_refresh_news()` → `player_news.refresh_all_news()` | 1h | Phase 1 (players), Phase 7 (Yahoo) |
+| Phase 13: Prospects | `_refresh_prospects()` → `prospect_engine.refresh_prospect_rankings()` | 7d | Phase 1 (players) for mlb_id cross-ref |
+| Phase 14: News Intelligence | `_refresh_news()` → `player_news.refresh_all_news()` | 1h | Phase 1 (players), Phase 7 (Yahoo, optional) |
+| Phase 15: ECR Consensus | `_refresh_ecr_consensus()` → `ecr.refresh_ecr_consensus()` | 24h | Phase 1 (players), Phase 3 (projections — needs SGP ranks), Phase 9 (ADP sources) |
 
-ECR consensus refresh runs inside Phase 3 (projections) since it depends on projection data for HEATER SGP rank.
+**Important:** ECR consensus is its own phase (not embedded in Phase 3) because it depends on projection data being fully loaded AND ADP sources being refreshed first. It must run after both Phase 3 and Phase 9.
+
+`StalenessConfig` dataclass updated with two new fields:
+```python
+prospects_hours: float = 168  # 7 days
+news_hours: float = 1         # 1 hour
+ecr_consensus_hours: float = 24  # 24 hours
+```
 
 ### Database Migration
 
@@ -452,7 +497,7 @@ ECR consensus refresh runs inside Phase 3 (projections) since it depends on proj
 - `player_news`
 - `ownership_trends`
 
-Total: 16 → 21 tables.
+Current count: 16 tables (14 original + 2 parity: player_tags, leagues). Adding 5 new = **21 tables total**.
 
 ### Rate Limiting
 
@@ -484,6 +529,6 @@ All new API calls follow existing `data_pipeline.py` pattern:
 | `app.py` | Consensus Rank column + disagreement badges in draft board |
 | `requirements.txt` | Add `feedparser` |
 
-### Total New Tests: ~53
+### Total New Tests: ~60
 
-Across 3 test files: `test_prospect_engine.py` (~15), `test_ecr_consensus.py` (~18), `test_player_news.py` (~20).
+Across 3 test files: `test_prospect_engine.py` (~15), `test_ecr_consensus.py` (~25), `test_player_news.py` (~20). Note: 12 existing tests in `test_ecr.py` and 6 in `test_prospect_rankings.py` are rewritten (not net-new but updated to test new implementations).
