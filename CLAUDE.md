@@ -12,6 +12,7 @@ A fantasy baseball draft assistant + in-season manager for a 12-team Yahoo Sport
 5. **Draft Recommendation Engine** (`src/draft_engine.py` + 4 support modules) — 25-feature enhanced draft pipeline: 3 execution modes (Quick <1s, Standard 2-3s, Full 5-10s), 8-stage enhancement chain (park factors → Bayesian blend → injury probability → Statcast delta → FIP correction → contextual factors → category balance → ML ensemble). Multiplicative + additive scoring formula with clipping. Category-aware recommendations via Normal PDF weighting. Contextual factors: closer hierarchy, platoon risk, lineup protection, schedule strength, contract year boost. ML ensemble (XGBoost, optional) + news sentiment scoring. BUY/FAIR/AVOID classification. 270 dedicated tests across 5 test files.
 6. **Gap Closure Data Layer** (`src/` new modules) — 14 new modules closing spec gaps: extended roster (40-man + spring training via MLB Stats API), 7 projection systems (Steamer/ZiPS/Depth Charts/ATC/THE BAT/THE BAT X/Marcel), multi-source ADP (FanGraphs + FantasyPros ECR + NFBC), depth chart scraping with role classification, contract year data from BB-Ref, news fetcher from MLB transactions API, background refresh scheduler, GitHub Actions daily cron. Engine output enrichment adds composite value score, position/overall ranks, confidence level, LAST CHANCE badge. 153 dedicated tests across 14 test files.
 7. **FantasyPros Parity** (`src/` 15 new modules + 3 new pages) — 17 features closing FantasyPros competitive gaps: draft order generator, player tags (Sleeper/Target/Avoid/Breakout/Bust) with DB persistence, pick predictor (Normal CDF + Weibull survival blend), closer depth chart monitor (30-team job security grid), points league projections (Yahoo/ESPN/CBS presets), Bayesian stream scoring with matchup grades, category/points leaders with breakout detection, ECR integration (15% blend + disagreement badges), cheat sheet export (HTML/PDF with HEATER theme), live draft assistant (Yahoo real-time sync), 7-day schedule grid with matchup color-coding, WSIS quick compare (density overlap), projected season standings (copula-based MC simulation), 5-factor league power rankings (bootstrap CI), auto-swap IL players, multiple league support, prospect rankings. 184 dedicated tests across 16 test files.
+8. **FP Edge Intelligence** (`src/` 3 new/rewritten modules) — 3 features surpassing FantasyPros: Prospect Rankings Engine (`src/prospect_engine.py`) with FanGraphs Board API + MLB Stats API MiLB stats + MLB Readiness Score (0-100), Multi-Platform ECR Consensus (`src/ecr.py` rewrite) with 7 ranking sources (ESPN/CBS/Yahoo/NFBC/FanGraphs/FantasyPros/HEATER SGP) + Trimmed Borda Count algorithm, News/Transaction Intelligence (`src/player_news.py`) with 4 news sources (ESPN/RotoWire RSS/MLB Stats API/Yahoo) + template-based analytical summaries. 5 new DB tables, 3 new bootstrap phases (13-15), ~69 new tests across 4 test files.
 
 ## Commands
 
@@ -31,7 +32,7 @@ ruff check .
 # Format
 ruff format .
 
-# Run all tests (1774 pass, 4 skipped for PyMC/xgboost)
+# Run all tests (1841 pass, 4 skipped for PyMC/xgboost)
 python -m pytest
 
 # Run with verbose output
@@ -86,7 +87,7 @@ pages/
   8_Standings.py        — Projected season standings (MC simulation) + 5-factor league power rankings (bootstrap CI)
   9_Leaders.py          — Category leaders, points leaders, breakout detection, prospect rankings
 src/
-  database.py           — SQLite schema (16 tables), CSV import, projection blending, player pool + in-season queries
+  database.py           — SQLite schema (21 tables), CSV import, projection blending, player pool + in-season queries
   valuation.py          — SGP calculator, replacement levels, VORP, category weights, percentile forecasts
   draft_state.py        — Draft state management, roster tracking, snake pick order, opponent patterns
   simulation.py         — Monte Carlo draft simulation, opponent modeling (history-aware), survival probability
@@ -127,7 +128,7 @@ src/
   closer_monitor.py     — Closer depth chart monitor: 30-team job security scoring, color-coded grid builder
   points_league.py      — Points league projections: Yahoo/ESPN/CBS scoring presets, missing stat estimation, points VORP
   leaders.py            — Category/points leaders with min PA/IP thresholds, breakout detection (z > 1.5)
-  ecr.py                — ECR integration: FantasyPros fetch extension, 15% blend with SGP, disagreement badges, prospect rankings
+  ecr.py                — Multi-platform ECR consensus: 7-source ranking aggregation (ESPN/CBS/Yahoo/NFBC/FG/FantasyPros/HEATER SGP), Trimmed Borda Count, consensus disagreement badges, player ID cross-reference map
   cheat_sheet.py        — Cheat sheet HTML/PDF export with HEATER theme, positional tiers, health badges, print CSS
   live_draft_sync.py    — Live draft assistant: Yahoo draft polling, diff detection, DraftState sync, YOUR TURN detection
   schedule_grid.py      — 7-day schedule grid with matchup color-coding (smash/favorable/neutral/unfavorable/avoid)
@@ -136,6 +137,8 @@ src/
   power_rankings.py     — 5-factor league power rankings: roster quality, category balance, SOS, injury exposure, momentum with bootstrap CI
   il_manager.py         — IL detection: status classification, duration estimation, lost SGP computation, replacement selection
   league_registry.py    — Multiple league support: register/get/list/set_active/delete with SQLite persistence
+  prospect_engine.py    — Prospect rankings engine: FanGraphs Board API + MLB Stats API MiLB stats, MLB Readiness Score (0-100), 3-level fallback (FG Board → MLB Pipeline → static)
+  player_news.py        — News/transaction intelligence: 4-source aggregation (ESPN/RotoWire RSS/MLB Stats API/Yahoo), template-based analytical summaries, sentiment scoring, IL status tracking
 Research.md             — FantasyPros competitive gap analysis: 74 FP features vs 33 HEATER comparable features, 30 actionable gaps in 3 priority tiers, recommendations for next builds
   optimizer/            — Enhanced Lineup Optimizer (11 modules, 20 mathematical techniques)
     __init__.py         — Package exports with lazy import documentation
@@ -241,7 +244,7 @@ tests/
   test_closer_monitor.py    — Closer monitor: job security bounds, color thresholds, grid building, committee handling (10 tests)
   test_points_league.py     — Points league: missing stat estimation, Yahoo/ESPN/CBS scoring, hitter-only, points VORP (11 tests)
   test_leaders.py           — Leaders: category leaders, ascending for ERA/WHIP, min thresholds, breakout detection (11 tests)
-  test_ecr.py               — ECR: fetch extension, blend computation, disagreement badges, round-trip storage (12 tests)
+  test_ecr_consensus.py     — ECR consensus: 7-source fetchers, Trimmed Borda Count, player ID map, ESPN/CBS scrapers, staleness, DB round-trip (27 tests)
   test_cheat_sheet.py       — Cheat sheet: HTML generation, positional sections, tiers, health badges, print CSS, PDF fallback (16 tests)
   test_live_draft_sync.py   — Live draft sync: new pick detection, incremental sync, user turn detection, error handling (12 tests)
   test_schedule_grid.py     — Schedule grid: 7-day structure, off days, empty roster, tier colors, HTML output (10 tests)
@@ -251,6 +254,9 @@ tests/
   test_il_manager.py        — IL manager: classify types, duration estimates, lost SGP, eligible replacements, alert generation (17 tests)
   test_league_registry.py   — League registry: register/get/list/set_active/delete, first-becomes-active, UUID generation (15 tests)
   test_prospect_rankings.py — Prospect rankings: fetch returns DataFrame, top-N limit, position filter (6 tests)
+  test_prospect_engine.py   — Prospect engine: FG Board API, MiLB stats, readiness score formula, 3-level fallback, DB persistence (20 tests)
+  test_player_news.py       — Player news: 4-source fetching, template summaries, sentiment scoring, DB storage, ESPN/RotoWire parsers (22 tests)
+  test_fp_edge_schema.py    — FP Edge DB schema: 5 new tables existence, column validation, indexes, staleness config fields (15 tests)
   test_valuation_math.py    — Math verification: SGP, VORP, replacement levels, percentiles, process risk (40 tests)
   test_simulation_math.py   — Math verification: survival probability, urgency, combined score, tiers, MC convergence (37 tests)
   test_trade_math.py        — Math verification: trade SGP delta, MC noise, verdict, z-scores, rate stats (35 tests)
@@ -386,7 +392,7 @@ Phase 1 SGP-based evaluation pipeline (7 modules):
 - **Enhanced Opponent Model:** `P(pick) = 0.5*ADP + 0.3*team_need + 0.2*historical_preference`. Computes per-team positional bias from draft history. Falls back to ADP-only when no history available.
 - **Yahoo API:** OAuth 2.0 via yfpy v17+, out-of-band (oob) flow. User clicks link → authorizes on Yahoo → pastes verification code. League settings, rosters, standings, FA pool, draft results sync. Graceful degradation when not connected.
 
-### Database Tables (16)
+### Database Tables (21)
 
 | Group | Tables |
 |-------|--------|
@@ -394,6 +400,7 @@ Phase 1 SGP-based evaluation pipeline (7 modules):
 | In-Season | `season_stats`, `ros_projections`, `league_rosters`, `league_standings`, `park_factors`, `refresh_log` |
 | Plan 3 | `injury_history`, `transactions` |
 | FantasyPros Parity | `player_tags`, `leagues` |
+| FP Edge Intelligence | `prospect_rankings`, `ecr_consensus`, `player_id_map`, `player_news`, `ownership_trends` |
 
 ## Data Sources
 
@@ -407,7 +414,10 @@ Phase 1 SGP-based evaluation pipeline (7 modules):
 - **League rosters/standings:** Yahoo Fantasy API sync (optional, auto-syncs when connected); staleness: 6 hours
 - **Depth charts:** FanGraphs depth chart scraper with role classification (starter/platoon/closer/setup/committee); staleness: 7 days
 - **Contract data:** Baseball Reference free agent list scraper for contract year detection; staleness: 30 days
-- **News/transactions:** MLB Stats API transaction feed (7-day window), mapped to player_ids via fuzzy matching; staleness: 6 hours
+- **News/transactions:** 4-source aggregation: ESPN player news, RotoWire RSS feed, MLB Stats API transactions (7-day window), Yahoo injury/ownership data; staleness: 1 hour
+- **Prospect rankings:** FanGraphs Board API (primary) + MLB Stats API MiLB stats + static curated fallback; staleness: 7 days
+- **ECR consensus:** 7-source ranking aggregation (ESPN/CBS/Yahoo/NFBC/FanGraphs/FantasyPros/HEATER SGP); staleness: 24 hours
+- **Ownership trends:** Yahoo Fantasy API percent_owned field extracted during roster sync; staleness: 6 hours
 
 ## Key API Signatures
 
@@ -1129,8 +1139,8 @@ compute_bayesian_stream_score(pitcher_era, pitcher_k9, pitcher_fip, opp_k_pct, o
 
 ## Testing Status
 
-- **Unit tests:** 1777 collected, 1774 passed, 3 skipped (PyMC/xgboost optional deps)
-- **Test files:** 76 test files across draft engine, trade engine (Phase 1-6), lineup optimizer (10 files), draft recommendation engine (5 files), gap closure (14 files), in-season analytics (7 files), FantasyPros parity (16 files), in-season, analytics, data pipeline, bootstrap, integration, backtesting, and math verification
+- **Unit tests:** 1846 collected, 1841 passed, 4 skipped (PyMC/xgboost optional deps), 1 pre-existing failure (test_two_start mock isolation)
+- **Test files:** 80 test files across draft engine, trade engine (Phase 1-6), lineup optimizer (10 files), draft recommendation engine (5 files), gap closure (14 files), in-season analytics (7 files), FantasyPros parity (16 files), FP Edge intelligence (4 files), in-season, analytics, data pipeline, bootstrap, integration, backtesting, and math verification
 - **Gap closure tests:** 153 tests total — extended roster (6), LAST CHANCE badge (8), Marcel projections (12), contract data (10), depth charts (12), news fetcher (18), ADP sources (15), extended projections (16), engine output (14), data pipeline schema (12), scheduler (5), bootstrap integration (25)
 - **Spec completion tests:** 51 tests total — risk score + ST signal (16), schema persistence + Statcast archive + FG IDs (10), Yahoo ADP (5), category heatmap (5), backtesting harness (15)
 - **Math verification suite:** 168 tests across 4 files (valuation, simulation, trade, trade engine math) — hand-calculated expected values verified against code formulas
@@ -1139,6 +1149,7 @@ compute_bayesian_stream_score(pitcher_era, pitcher_k9, pitcher_fip, opp_k_pct, o
 - **Lineup optimizer tests:** 204 tests total across 10 files — projections (28), matchups (19), H2H engine (18), SGP theory (16), streaming (16), scenarios (19), multi-period (16), dual objective (21), advanced LP (25), pipeline orchestrator (26)
 - **In-season analytics tests:** 276 tests total across 7 files — trade value (40), two-start planner (43), start/sit advisor (50), matchup planner (38), waiver wire (32), trade finder (28), draft grader (45)
 - **FantasyPros parity tests:** 184 tests total across 16 files — draft order (8), player tags (12), pick predictor (8), closer monitor (10), points league (11), leaders (11), ECR (12), cheat sheet (16), live draft sync (12), schedule grid (10), WSIS widget (10), standings projection (9), power rankings (11), IL manager (17), league registry (15), prospect rankings (6), plus 6 new Bayesian streaming tests in existing optimizer streaming file
+- **FP Edge intelligence tests:** ~69 tests total across 4 files — prospect engine (20): FG Board API, MiLB stats, readiness score formula, 3-level fallback, DB persistence. ECR consensus (27): 7-source fetchers, Trimmed Borda Count, player ID map, ESPN/CBS scrapers, staleness. Player news (22): 4-source fetching, template summaries, sentiment, DB storage. FP Edge schema (15): 5 new tables, columns, indexes, staleness config.
 - **CI:** GitHub Actions runs ruff lint/format + pytest on Python 3.11, 3.12, 3.13
 - **Coverage:** 64% (above 60% CI threshold; pre-existing, no regressions)
 - **Systematic code reviews:** Six rounds of full codebase debugging (149 bugs fixed): Round 1 (10 bugs — data pipeline, Yahoo API, lineup optimizer, CI), Round 2 (9 bugs — MC rate stats, regime detection, bellman DP, convergence, lineup optimizer UI, trade analyzer HTML), Round 3 (8 bugs — SGP denominators, survival gauge, injury persistence, percentile volatility, player pool duplicates), Round 4 (3 bugs — connection leak, player_name alias, export buttons), Round 5 (3 bugs — standings long-format parsing, maximin display format, emoji in H2H subheader), Round 6 (116 bugs — 7 new in-season modules: trade_value.py, two_start.py, start_sit.py, matchup_planner.py, waiver_wire.py, trade_finder.py, draft_grader.py — time-decay ordering, G-Score/replacement level mismatch, confidence tier logic, thread safety, loss aversion formula, STEAL/REACH AND-logic, category balance CV→std, park factor inversion for pitchers, rate stat scaling, sustainability interpolation slopes). All pushed to master, all CI green.
