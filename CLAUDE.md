@@ -233,6 +233,7 @@ data/
 docs/plans/             — Implementation plan archives
 docs/
   ROADMAP.md            — Phase history, acceptance criteria, infeasible items, future directions
+  Research.md           — FantasyPros vs. HEATER gap analysis: 20 missing features, prioritized implementation roadmap
 .github/
   workflows/ci.yml      — CI pipeline (lint + test + build)
   workflows/refresh.yml — Scheduled daily data refresh (9:17 UTC) + manual trigger
