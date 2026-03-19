@@ -728,6 +728,20 @@ class YahooFantasyClient:
                     positions = self._safe_attr(player, "eligible_positions", [])
                     pos_str = "/".join(self._extract_position(p) for p in positions) if positions else ""
 
+                    # Extract injury/ownership fields for news + ownership tables
+                    injury_note = self._safe_str(self._safe_attr(player, "injury_note", ""))
+                    status_full = self._safe_str(self._safe_attr(player, "status_full", ""))
+                    percent_owned_raw = self._safe_attr(player, "percent_owned", None)
+                    if hasattr(percent_owned_raw, "value"):
+                        percent_owned = float(percent_owned_raw.value)
+                    elif percent_owned_raw is not None:
+                        try:
+                            percent_owned = float(percent_owned_raw)
+                        except (TypeError, ValueError):
+                            percent_owned = None
+                    else:
+                        percent_owned = None
+
                     all_rows.append(
                         {
                             "team_name": team_name,
@@ -736,6 +750,9 @@ class YahooFantasyClient:
                             "player_id": str(self._safe_attr(player, "player_id", "")),
                             "position": pos_str,
                             "status": self._safe_str(self._safe_attr(player, "status", "active")),
+                            "injury_note": injury_note,
+                            "status_full": status_full,
+                            "percent_owned": percent_owned,
                         }
                     )
 
@@ -779,12 +796,29 @@ class YahooFantasyClient:
                 positions = self._safe_attr(player, "eligible_positions", [])
                 pos_str = "/".join(self._extract_position(p) for p in positions) if positions else ""
 
+                # Extract injury/ownership fields
+                injury_note = self._safe_str(self._safe_attr(player, "injury_note", ""))
+                status_full = self._safe_str(self._safe_attr(player, "status_full", ""))
+                percent_owned_raw = self._safe_attr(player, "percent_owned", None)
+                if hasattr(percent_owned_raw, "value"):
+                    percent_owned = float(percent_owned_raw.value)
+                elif percent_owned_raw is not None:
+                    try:
+                        percent_owned = float(percent_owned_raw)
+                    except (TypeError, ValueError):
+                        percent_owned = None
+                else:
+                    percent_owned = None
+
                 rows.append(
                     {
                         "player_name": full_name,
                         "player_id": str(self._safe_attr(player, "player_id", "")),
                         "position": pos_str,
                         "status": self._safe_str(self._safe_attr(player, "status", "active")),
+                        "injury_note": injury_note,
+                        "status_full": status_full,
+                        "percent_owned": percent_owned,
                     }
                 )
 
@@ -1121,6 +1155,46 @@ class YahooFantasyClient:
                         is_user_team=is_user,
                     )
                     counts["rosters"] += 1
+
+                    # --- Store ownership trends if percent_owned available ---
+                    pct_owned = row.get("percent_owned")
+                    if pct_owned is not None:
+                        try:
+                            from datetime import UTC, datetime
+
+                            today = datetime.now(UTC).strftime("%Y-%m-%d")
+                            conn_ot = get_connection()
+                            try:
+                                conn_ot.execute(
+                                    "INSERT OR REPLACE INTO ownership_trends "
+                                    "(player_id, date, percent_owned) VALUES (?, ?, ?)",
+                                    (player_id, today, float(pct_owned)),
+                                )
+                                conn_ot.commit()
+                            finally:
+                                conn_ot.close()
+                        except Exception:
+                            logger.debug("Failed to store ownership for player %s", player_id)
+
+                    # --- Store injury news if injury_note present ---
+                    inj_note = row.get("injury_note", "")
+                    status_full = row.get("status_full", "")
+                    if inj_note or (status_full and status_full.lower() not in ("", "active")):
+                        try:
+                            headline = inj_note or status_full
+                            conn_inj = get_connection()
+                            try:
+                                conn_inj.execute(
+                                    "INSERT OR IGNORE INTO player_news "
+                                    "(player_id, source, headline, news_type, il_status) "
+                                    "VALUES (?, 'yahoo', ?, 'injury', ?)",
+                                    (player_id, headline, status_full or "unknown"),
+                                )
+                                conn_inj.commit()
+                            finally:
+                                conn_inj.close()
+                        except Exception:
+                            logger.debug("Failed to store injury news for player %s", player_id)
 
                 if skipped:
                     logger.info(
