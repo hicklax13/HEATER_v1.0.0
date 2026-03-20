@@ -37,6 +37,18 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+# Fix button text overflow for player name pills
+st.markdown(
+    """<style>
+    [data-testid="stHorizontalBlock"] button[kind] p {
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+    }
+    </style>""",
+    unsafe_allow_html=True,
+)
+
 pool = load_player_pool()
 if pool.empty:
     st.warning("No player data loaded.")

@@ -93,35 +93,37 @@ else:
     border: 1px solid #e0e0e0;
     border-left: 4px solid {color};
     border-radius: 8px;
-    padding: 12px 14px;
+    padding: 10px 10px;
     margin-bottom: 8px;
     font-family: sans-serif;
+    min-height: 160px;
 ">
-    <div style="font-size:0.75rem; font-weight:700; color:#888; letter-spacing:0.08em;">
+    <div style="font-size:0.7rem; font-weight:700; color:#888; letter-spacing:0.08em; white-space:nowrap;">
         {item["team"]}
     </div>
-    <div style="font-size:1.0rem; font-weight:700; color:#1a1a2e; margin:4px 0 2px;">
+    <div style="font-size:0.88rem; font-weight:700; color:#1a1a2e; margin:3px 0 2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
         {item["closer_name"]}
     </div>
     <div style="
         display:inline-block;
         background:{color};
         color:#fff;
-        font-size:0.7rem;
+        font-size:0.65rem;
         font-weight:700;
         border-radius:4px;
-        padding:1px 7px;
-        margin-bottom:6px;
+        padding:1px 6px;
+        margin-bottom:4px;
+        white-space:nowrap;
     ">
-        {pct}% security
+        {pct}%
     </div>
-    <div style="font-size:0.72rem; color:#555; margin-top:4px;">
-        Projected saves: <b>{sv_str}</b>
+    <div style="font-size:0.68rem; color:#555; margin-top:3px; white-space:nowrap;">
+        SV: <b>{sv_str}</b>
     </div>
-    <div style="font-size:0.72rem; color:#555;">
+    <div style="font-size:0.68rem; color:#555; white-space:nowrap;">
         ERA: <b>{era_str}</b> &nbsp; WHIP: <b>{whip_str}</b>
     </div>
-    <div style="font-size:0.70rem; color:#888; margin-top:4px;">
+    <div style="font-size:0.65rem; color:#888; margin-top:3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
         Setup: {setup_str}
     </div>
 </div>
