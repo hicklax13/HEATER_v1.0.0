@@ -311,3 +311,31 @@ class TestDataIntegrity:
         result = build_compact_table_html(df)
         assert "A" in result
         # Should not crash
+
+    def test_nan_values_render_empty(self):
+        df = pd.DataFrame({"Name": ["A"], "HR": [float("nan")], "AVG": [float("nan")]})
+        result = build_compact_table_html(df)
+        assert "nan" not in result.lower()
+        assert "A" in result
+
+    def test_inf_values_render_empty(self):
+        df = pd.DataFrame({"Name": ["A"], "ERA": [float("inf")]})
+        result = build_compact_table_html(df)
+        assert "inf" not in result.lower()
+
+    def test_highlight_cols_as_list(self):
+        df = pd.DataFrame({"Name": ["A"], "Value": [10.5], "Impact": [3.2]})
+        result = build_compact_table_html(df, highlight_cols=["Value", "Impact"])
+        assert "th-hit" in result
+        # Should not crash (list is normalized to dict)
+
+    def test_highlight_cols_as_set(self):
+        df = pd.DataFrame({"Name": ["A"], "R": [10], "W": [5]})
+        result = build_compact_table_html(df, highlight_cols={"R", "W"})
+        assert "th-hit" in result
+
+    def test_health_col_substring_no_false_match(self):
+        """Column named 'H' should still be formatted numerically when health_col='Health'."""
+        df = pd.DataFrame({"Name": ["A"], "H": [150], "Health": ["Healthy"]})
+        result = build_compact_table_html(df, health_col="Health")
+        assert ">150<" in result

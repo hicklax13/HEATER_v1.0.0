@@ -1,5 +1,8 @@
 """Shared UI constants, theme system, CSS injection, and SVG icons — Heater Edition."""
 
+import html as _html
+import math as _math
+
 try:
     import streamlit as st
 except ImportError:
@@ -2152,6 +2155,8 @@ def build_compact_table_html(
                 highlight_cols[col] = "th-hit"
             elif col_upper in PITCHING_STAT_COLS:
                 highlight_cols[col] = "th-pit"
+    elif isinstance(highlight_cols, (list, set, tuple)):
+        highlight_cols = {col: "th-hit" for col in highlight_cols}
 
     if row_classes is None:
         row_classes = {}
@@ -2189,18 +2194,27 @@ def build_compact_table_html(
                 dot_color = _HEALTH_DOT_COLORS.get(str(val), THEME["tx2"])
                 cell_html = f'<span class="health-dot" style="background:{dot_color};"></span>'
 
-            # Format numeric values
-            if col != first_col and col not in (health_col or ""):
+            # Format numeric values — skip first col and health col
+            _skip_cols = {first_col}
+            if health_col:
+                _skip_cols.add(health_col)
+            if col not in _skip_cols:
                 col_upper = str(col).upper()
                 if col_upper in _RATE_STAT_COLS:
                     try:
-                        cell_html += f"{float(val):.3f}"
+                        fv = float(val)
+                        if _math.isnan(fv) or _math.isinf(fv):
+                            cell_html += ""
+                        else:
+                            cell_html += f"{fv:.3f}"
                     except (ValueError, TypeError):
                         cell_html += str(val) if val is not None else ""
                 else:
                     try:
                         float_val = float(val)
-                        if float_val == int(float_val) and col_upper in (HITTING_STAT_COLS | PITCHING_STAT_COLS):
+                        if _math.isnan(float_val) or _math.isinf(float_val):
+                            cell_html += ""
+                        elif float_val == int(float_val) and col_upper in (HITTING_STAT_COLS | PITCHING_STAT_COLS):
                             cell_html += str(int(float_val))
                         else:
                             cell_html += f"{float_val:.1f}" if float_val != int(float_val) else str(int(float_val))
@@ -2247,12 +2261,14 @@ def render_reco_banner(teaser_text, expanded_html="", icon_key="zap"):
     When provided, the banner uses ``st.expander`` styled via CSS.
     """
     icon_svg = PAGE_ICONS.get(icon_key, "")
-    teaser_html = f'<div class="reco-banner"><span class="reco-banner-teaser">{icon_svg} {teaser_text}</span></div>'
+    safe_teaser = _html.escape(teaser_text)
+    teaser_html = f'<div class="reco-banner"><span class="reco-banner-teaser">{icon_svg} {safe_teaser}</span></div>'
 
     if not expanded_html:
         st.markdown(teaser_html, unsafe_allow_html=True)
     else:
-        with st.expander(f"{teaser_text}", expanded=False):
+        st.markdown(teaser_html, unsafe_allow_html=True)
+        with st.expander("Details", expanded=False):
             st.markdown(
                 f'<div class="reco-banner-detail">{expanded_html}</div>',
                 unsafe_allow_html=True,
@@ -2261,8 +2277,9 @@ def render_reco_banner(teaser_text, expanded_html="", icon_key="zap"):
 
 def render_context_card(title, content_html):
     """Render a single glassmorphic context card for the sidebar panel."""
+    safe_title = _html.escape(title)
     st.markdown(
-        f'<div class="context-card"><div class="context-card-title">{title}</div>{content_html}</div>',
+        f'<div class="context-card"><div class="context-card-title">{safe_title}</div>{content_html}</div>',
         unsafe_allow_html=True,
     )
 
@@ -2276,8 +2293,9 @@ def render_page_layout(title, banner_teaser="", banner_detail="", banner_icon="z
         title.lower().replace(" ", "_"),
         PAGE_ICONS.get(title.lower(), ""),
     )
+    safe_title = _html.escape(title)
     st.markdown(
-        f'<div class="page-title">{icon_svg} {title}</div>',
+        f'<div class="page-title">{icon_svg} {safe_title}</div>',
         unsafe_allow_html=True,
     )
     if banner_teaser:

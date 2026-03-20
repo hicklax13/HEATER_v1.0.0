@@ -98,7 +98,7 @@ with main:
 
             if "standings_result" in st.session_state:
                 df = st.session_state["standings_result"]
-                st.dataframe(df, width="stretch", hide_index=True)
+                st.dataframe(df, use_container_width=True, hide_index=True)
             else:
                 st.info("Configure simulation settings in the panel on the left, then click Run Simulation.")
 
@@ -143,6 +143,6 @@ with main:
                 pr_df["ci_low"] = ci_df["p5"].values
                 pr_df["ci_high"] = ci_df["p95"].values
 
-                st.dataframe(pr_df, width="stretch", hide_index=True)
+                st.dataframe(pr_df, use_container_width=True, hide_index=True)
             except Exception as e:
                 st.error(f"Power rankings computation failed: {e}")

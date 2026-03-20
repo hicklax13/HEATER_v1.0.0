@@ -233,6 +233,9 @@ def _render_scouting_radar(name: str, grades: list[dict], is_pitcher: bool) -> N
 
 ctx, main = render_context_columns()
 
+# Defaults for variables defined conditionally inside ctx
+refresh_clicked = False
+
 # -- Context panel (left): tab-sensitive filter controls ------------------
 
 with ctx:
