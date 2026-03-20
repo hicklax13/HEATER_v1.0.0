@@ -27,8 +27,19 @@ import logging
 import time
 from typing import Any
 
-import requests
-from bs4 import BeautifulSoup
+try:
+    import requests
+
+    REQUESTS_AVAILABLE = True
+except ImportError:
+    REQUESTS_AVAILABLE = False
+
+try:
+    from bs4 import BeautifulSoup
+
+    BS4_AVAILABLE = True
+except ImportError:
+    BS4_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -106,15 +117,30 @@ def fetch_depth_charts() -> dict[str, dict[str, Any]]:
 
         Returns an empty ``dict`` on any failure.
     """
+    if not REQUESTS_AVAILABLE or not BS4_AVAILABLE:
+        logger.warning("requests or beautifulsoup4 not available; skipping depth chart fetch")
+        return {}
+
+    # Quick connection test before attempting 30 individual team pages.
+    # Roster Resource is sometimes unreachable; fail fast to avoid a
+    # long cascade of per-team timeouts.
     try:
         resp = requests.get(
             ROSTER_RESOURCE_URL,
             headers=_REQUEST_HEADERS,
-            timeout=_REQUEST_TIMEOUT,
+            timeout=5,
         )
-        resp.raise_for_status()
-    except Exception:
-        logger.warning("Failed to fetch Roster Resource depth charts index page")
+        if resp.status_code != 200:
+            logger.warning(
+                "Roster Resource unavailable (HTTP %s). Depth charts will not be populated.",
+                resp.status_code,
+            )
+            return {}
+    except Exception as exc:
+        logger.warning(
+            "Roster Resource unreachable: %s. Depth charts will not be populated.",
+            exc,
+        )
         return {}
 
     try:

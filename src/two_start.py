@@ -488,8 +488,15 @@ def identify_two_start_pitchers(
             # Season totals: estimate per-start IP from total IP
             est_starts = max(1, round(p_ip / _DEFAULT_IP_PER_START))
             ip_per_start = p_ip / est_starts
+            # Normalize K/W/L to per-start values (they are season totals too)
+            k_per_start = p_k / est_starts if est_starts > 0 else p_k
+            w_per_start = p_w / est_starts if est_starts > 0 else p_w
+            l_per_start = p_l / est_starts if est_starts > 0 else p_l
         else:
             ip_per_start = p_ip if p_ip > 0 else _DEFAULT_IP_PER_START
+            k_per_start = p_k
+            w_per_start = p_w
+            l_per_start = p_l
 
         # Build pitcher skill dict for matchup scoring
         pitcher_skill_stats = {
@@ -564,9 +571,9 @@ def identify_two_start_pitchers(
         # Two-start value from existing streaming module.
         two_start_val = quantify_two_start_value(
             pitcher_stats={
-                "k": p_k,
-                "w": p_w,
-                "l": p_l,
+                "k": k_per_start,
+                "w": w_per_start,
+                "l": l_per_start,
                 "era": p_era,
                 "whip": p_whip,
                 "ip": ip_per_start,
@@ -578,9 +585,9 @@ def identify_two_start_pitchers(
         # Streaming value for the full week, with park factor.
         streaming_val = compute_streaming_value(
             pitcher={
-                "k": p_k,
-                "w": p_w,
-                "l": p_l,
+                "k": k_per_start,
+                "w": w_per_start,
+                "l": l_per_start,
                 "era": p_era,
                 "whip": p_whip,
                 "ip": ip_per_start,

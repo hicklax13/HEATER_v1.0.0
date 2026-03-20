@@ -134,19 +134,18 @@ def estimate_opponent_valuations(
                         team_ip = 1200.0
                     if player_ip > 0 and team_ip > 0:
                         blended_rate = (team_cat_total * team_ip + proj * player_ip) / (team_ip + player_ip)
-                        benefit = max(0.0, team_cat_total - blended_rate)
+                        benefit = team_cat_total - blended_rate
                     else:
                         benefit = 0.0
-                    marginal = min(benefit / gap_to_next, 1.0) if gap_to_next > 0 else 0.0
-                    team_val += marginal * min(benefit, gap_to_next) / denom
-                elif cat in INVERSE_CATEGORIES:
-                    # L: inverse counting stat — more losses always hurts.
-                    # Acquiring a pitcher's projected losses provides no benefit.
-                    continue
+                    # Linear: cap benefit at gap, convert to SGP
+                    team_val += min(benefit, gap_to_next) / denom
+                elif cat == "L":
+                    # L: inverse counting stat — more losses hurts the team
+                    proj_l = player_projections.get("L", player_projections.get("l", 0.0))
+                    team_val -= proj_l / denom
                 else:
-                    # Counting stats: projected contribution / gap
-                    marginal = min(proj / gap_to_next, 1.0)
-                    team_val += marginal * (proj / denom)
+                    # Counting stats: cap projected contribution at gap
+                    team_val += min(proj, gap_to_next) / denom
             else:
                 if cat in INVERSE_CATEGORIES and cat in ("ERA", "WHIP"):
                     # Rate stat: IP-weighted blend even when already best
@@ -158,14 +157,14 @@ def estimate_opponent_valuations(
                         team_ip = 1200.0
                     if player_ip > 0 and team_ip > 0:
                         blended_rate = (team_cat_total * team_ip + proj * player_ip) / (team_ip + player_ip)
-                        benefit = max(0.0, team_cat_total - blended_rate)
+                        benefit = team_cat_total - blended_rate
                     else:
                         benefit = 0.0
                     team_val += benefit / denom * 0.5
-                elif cat in INVERSE_CATEGORIES:
-                    # L: inverse counting stat — more losses always hurts.
-                    # Acquiring a pitcher's projected losses provides no benefit.
-                    continue
+                elif cat == "L":
+                    # L: inverse counting stat — more losses hurts the team
+                    proj_l = player_projections.get("L", player_projections.get("l", 0.0))
+                    team_val -= proj_l / denom * 0.5
                 else:
                     # Team is already last; any help has marginal value
                     team_val += proj / denom * 0.5

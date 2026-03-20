@@ -13,7 +13,6 @@ from src.database import (
     get_connection,
     get_refresh_status,
     update_refresh_log,
-    upsert_season_stats,
 )
 
 logger = logging.getLogger(__name__)
@@ -249,14 +248,65 @@ def fetch_season_stats(season: int = 2026) -> pd.DataFrame:
 
 
 def save_season_stats_to_db(stats_df: pd.DataFrame, season: int = 2026) -> int:
-    """Match fetched stats to players table and save to season_stats."""
-    saved = 0
-    for _, row in stats_df.iterrows():
-        player_id = match_player_id(row["player_name"], row.get("team", ""))
-        if player_id is None:
-            continue
-        upsert_season_stats(player_id, row.to_dict(), season=season)
-        saved += 1
+    """Match fetched stats to players table and save to season_stats.
+
+    Uses a single DB connection for all rows to avoid per-row connection overhead.
+    """
+    cols = [
+        "pa",
+        "ab",
+        "h",
+        "r",
+        "hr",
+        "rbi",
+        "sb",
+        "avg",
+        "obp",
+        "bb",
+        "hbp",
+        "sf",
+        "ip",
+        "w",
+        "l",
+        "sv",
+        "k",
+        "era",
+        "whip",
+        "er",
+        "bb_allowed",
+        "h_allowed",
+        "fip",
+        "xfip",
+        "siera",
+        "games_played",
+    ]
+    sql = (
+        f"INSERT INTO season_stats (player_id, season, {', '.join(cols)}, last_updated) "
+        f"VALUES (?, ?, {', '.join('?' for _ in cols)}, ?) "
+        f"ON CONFLICT(player_id, season) DO UPDATE SET "
+        f"{', '.join(f'{c}=excluded.{c}' for c in cols)}, "
+        f"last_updated=excluded.last_updated"
+    )
+
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        saved = 0
+        now = datetime.now(UTC).isoformat()
+        for _, row in stats_df.iterrows():
+            player_id = match_player_id(row["player_name"], row.get("team", ""))
+            if player_id is None:
+                continue
+            row_dict = row.to_dict()
+            values = {c: row_dict.get(c, 0) for c in cols}
+            cursor.execute(
+                sql,
+                (player_id, season, *[values[c] for c in cols], now),
+            )
+            saved += 1
+        conn.commit()
+    finally:
+        conn.close()
     return saved
 
 
@@ -500,13 +550,20 @@ def fetch_team_batting_stats(season: int = 2026) -> dict[str, dict[str, float]]:
                 splits = stats_data.get("stats", [{}])[0].get("splits", [])
                 if splits:
                     stat = splits[0].get("stat", {})
+                    ops = float(stat.get("ops", "0.720") or 0.720)
+                    # Approximate wRC+ from OPS: league avg OPS ~0.720, wRC+ 100
+                    wrc_plus = (ops / 0.720) * 100.0
+                    # Approximate wOBA from OBP and SLG
+                    obp = float(stat.get("obp", "0.320") or 0.320)
+                    slg = float(stat.get("slg", "0.400") or 0.400)
+                    woba = obp * 0.69 + slg * 0.21 + 0.10  # simplified wOBA approximation
                     result[abbr] = {
-                        "wrc_plus": 100.0,  # Not directly in API, use 100 as proxy
+                        "wrc_plus": wrc_plus,
                         "k_pct": _pct(stat.get("strikeOuts", 0), stat.get("plateAppearances", 1)),
                         "bb_pct": _pct(stat.get("baseOnBalls", 0), stat.get("plateAppearances", 1)),
                         "iso": float(stat.get("slg", 0.400)) - float(stat.get("avg", 0.250)),
-                        "woba": 0.315,  # Approximate, not directly in API
-                        "ops": float(stat.get("ops", 0.720)),
+                        "woba": woba,
+                        "ops": ops,
                         "avg": float(stat.get("avg", 0.248)),
                     }
                 else:

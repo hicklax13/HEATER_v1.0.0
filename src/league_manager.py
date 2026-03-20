@@ -129,6 +129,9 @@ def get_team_roster(team_name: str) -> pd.DataFrame:
                   COALESCE(ss.sb, pr.sb, 0) AS sb,
                   COALESCE(ss.avg, pr.avg, 0) AS avg,
                   COALESCE(ss.obp, pr.obp, 0) AS obp,
+                  COALESCE(ss.bb, pr.bb, 0) AS bb,
+                  COALESCE(ss.hbp, pr.hbp, 0) AS hbp,
+                  COALESCE(ss.sf, pr.sf, 0) AS sf,
                   COALESCE(ss.ip, pr.ip, 0) AS ip,
                   COALESCE(ss.w, pr.w, 0) AS w,
                   COALESCE(ss.l, pr.l, 0) AS l,
@@ -142,7 +145,8 @@ def get_team_roster(team_name: str) -> pd.DataFrame:
                FROM league_rosters lr
                JOIN players p ON lr.player_id = p.player_id
                LEFT JOIN (
-                   SELECT player_id, pa, ab, h, r, hr, rbi, sb, avg, obp, ip, w, l, sv, k, era, whip, er, bb_allowed, h_allowed
+                   SELECT player_id, pa, ab, h, r, hr, rbi, sb, avg, obp, bb, hbp, sf,
+                          ip, w, l, sv, k, era, whip, er, bb_allowed, h_allowed
                    FROM season_stats ss_inner
                    WHERE ss_inner.season = (SELECT MAX(s2.season) FROM season_stats s2 WHERE s2.player_id = ss_inner.player_id)
                ) ss ON lr.player_id = ss.player_id
@@ -157,7 +161,25 @@ def get_team_roster(team_name: str) -> pd.DataFrame:
         conn.close()
 
     # Coerce numeric columns (Python 3.13+ SQLite may return bytes)
-    int_cols = ["pa", "ab", "h", "r", "hr", "rbi", "sb", "w", "l", "sv", "k", "er", "bb_allowed", "h_allowed"]
+    int_cols = [
+        "pa",
+        "ab",
+        "h",
+        "r",
+        "hr",
+        "rbi",
+        "sb",
+        "bb",
+        "hbp",
+        "sf",
+        "w",
+        "l",
+        "sv",
+        "k",
+        "er",
+        "bb_allowed",
+        "h_allowed",
+    ]
     float_cols = ["avg", "obp", "ip", "era", "whip"]
     for col in int_cols:
         if col in df.columns:

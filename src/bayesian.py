@@ -425,7 +425,7 @@ class BayesianUpdater:
                 )
 
                 # Counting stats
-                for stat in ["w", "sv", "k"]:
+                for stat in ["w", "l", "sv", "k"]:
                     obs_val = _safe_val(row, f"{stat}_obs")
                     pre_val = _safe_val(row, f"{stat}_pre")
                     if obs_ip > 0:

@@ -98,7 +98,7 @@ class TestFetchDepthCharts:
     def test_empty_on_http_error(self):
         """Returns empty dict on non-200 status code."""
         mock_resp = MagicMock()
-        mock_resp.raise_for_status.side_effect = Exception("404 Not Found")
+        mock_resp.status_code = 404
         with patch("src.depth_charts.requests.get", return_value=mock_resp):
             result = fetch_depth_charts()
             assert result == {}
@@ -106,6 +106,7 @@ class TestFetchDepthCharts:
     def test_empty_on_parse_error(self):
         """Returns empty dict when HTML parsing fails."""
         mock_resp = MagicMock()
+        mock_resp.status_code = 200
         mock_resp.raise_for_status.return_value = None
         mock_resp.text = "<html><body>not a depth chart</body></html>"
         with patch("src.depth_charts.requests.get", return_value=mock_resp):
@@ -127,7 +128,8 @@ class TestFetchDepthCharts:
             fetch_depth_charts()
             if mock_get.called:
                 call_kwargs = mock_get.call_args
-                assert call_kwargs.kwargs.get("timeout") == 15
+                # Connection test uses a short 5s timeout for fail-fast
+                assert call_kwargs.kwargs.get("timeout") == 5
 
 
 # ── TestClassifyRole ──────────────────────────────────────────────────

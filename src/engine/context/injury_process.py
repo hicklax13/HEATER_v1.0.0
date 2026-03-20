@@ -154,7 +154,7 @@ def estimate_injury_probability(
         age_mult = 1.0 / max(age_adj, 0.5)
 
     # Scale by time horizon (longer horizon = higher cumulative probability)
-    horizon_scale = min(horizon_days / 162.0, 1.0)
+    horizon_scale = min(horizon_days / SEASON_DAYS, 1.0)
 
     return np.clip(base_prob * age_mult * horizon_scale, 0.0, 0.95)
 

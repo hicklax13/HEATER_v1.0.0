@@ -370,16 +370,16 @@ def classify_regime_simple(
         label = "Replacement"
 
     # Shift probabilities based on trend (recent vs season)
-    # Non-circular shift to avoid wrapping mass to the wrong end
+    # Accumulate boundary mass to preserve total probability
     if delta > 0.030:  # Trending up
         shifted = np.zeros_like(probs)
         shifted[:-1] = probs[1:]  # shift mass toward better (lower) indices
-        shifted[-1] = 0.02  # small residual at worst state
+        shifted[0] += probs[0]  # accumulate boundary mass at best state
         probs = shifted / shifted.sum()
     elif delta < -0.030:  # Trending down
         shifted = np.zeros_like(probs)
         shifted[1:] = probs[:-1]  # shift mass toward worse (higher) indices
-        shifted[0] = 0.02  # small residual at best state
+        shifted[-1] += probs[-1]  # accumulate boundary mass at worst state
         probs = shifted / shifted.sum()
 
     return label, probs

@@ -325,6 +325,7 @@ def compute_contextual_values(
     all_team_totals: dict[str, dict[str, float]],
     user_team_name: str,
     config: LeagueConfig | None = None,
+    player_pool: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """Add contextual overlay: adjust trade values by YOUR team's category needs.
 
@@ -337,6 +338,10 @@ def compute_contextual_values(
         all_team_totals: All teams' totals (for marginal SGP computation).
         user_team_name: Your team's name/id.
         config: League configuration.
+        player_pool: Original player pool with stat columns (r, hr, rbi, etc.).
+            When provided, stat columns are merged onto trade_values so that
+            per-category SGP can be computed correctly.  Without this the
+            trade_values DataFrame lacks stat columns and every SGP is zero.
 
     Returns:
         DataFrame with added 'contextual_value' and 'contextual_tier' columns.
@@ -360,6 +365,21 @@ def compute_contextual_values(
         result["contextual_value"] = result["trade_value"]
         result["contextual_tier"] = result["tier"]
         return result
+
+    # Merge stat columns from player_pool so player_sgp() can read them
+    if player_pool is not None and "player_id" in result.columns:
+        stat_cols = list(config.STAT_MAP.values())
+        # Also include component columns needed for rate-stat SGP
+        extra_cols = ["ab", "h", "bb", "hbp", "sf", "ip", "er", "bb_allowed", "h_allowed", "pa"]
+        merge_cols = ["player_id"] + [
+            c for c in stat_cols + extra_cols if c in player_pool.columns and c not in result.columns
+        ]
+        if len(merge_cols) > 1:
+            result = result.merge(
+                player_pool[merge_cols].drop_duplicates(subset="player_id"),
+                on="player_id",
+                how="left",
+            )
 
     # Get category weights from gap analysis
     analysis = category_gap_analysis(user_totals, all_team_totals, user_team_name)

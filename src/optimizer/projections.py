@@ -487,7 +487,7 @@ def _apply_injury_availability(
             expected_availability = float(np.mean(availability_samples))
 
             # Scale counting stats by expected availability
-            cats = ["r", "hr", "rbi", "sb"] if not is_pitcher else ["w", "sv", "k"]
+            cats = ["r", "hr", "rbi", "sb"] if not is_pitcher else ["w", "l", "sv", "k"]
             for cat in cats:
                 if cat in roster.columns:
                     val = float(row.get(cat, 0) or 0)

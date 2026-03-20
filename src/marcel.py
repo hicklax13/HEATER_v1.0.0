@@ -197,24 +197,68 @@ def _weighted_counting_projection(
     league_avg: float,
     is_hitter: bool,
 ) -> float:
-    """Weighted average for counting stats, regressed toward league mean."""
-    total_weight = 0
-    weighted_sum = 0.0
+    """Weighted average for counting stats, regressed toward league mean.
 
-    for stat_val, year_weight, _ in valid:
-        total_weight += year_weight
-        weighted_sum += stat_val * year_weight
+    Normalizes counting stats to per-PA (hitters) or per-IP (pitchers) rates
+    before year-weighting, then scales back to projected PA/IP.  This prevents
+    a low-PA season from dragging down the projection purely because fewer
+    games were played (e.g., 20 HR in 300 PA should not be valued less than
+    40 HR in 650 PA on a rate basis).
+    """
+    full_season = FULL_SEASON_PA if is_hitter else FULL_SEASON_IP
 
-    if total_weight == 0:
-        return league_avg
+    # League average rate (per PA/IP)
+    league_avg_rate = league_avg / full_season if full_season > 0 else 0.0
 
-    weighted_avg = weighted_sum / total_weight
+    # Check if any season has PA/IP data for rate-based weighting
+    has_pa = any(pa > 0 for _, _, pa in valid)
 
-    # Regression: use total PA across valid seasons
-    raw_pa = sum(pa for _, _, pa in valid)
-    reliability = raw_pa / (raw_pa + REGRESSION_PA)
+    if has_pa:
+        # Convert to per-PA/IP rates, then year-weight the rates
+        total_weight = 0
+        weighted_rate_sum = 0.0
 
-    projected = reliability * weighted_avg + (1.0 - reliability) * league_avg
+        for stat_val, year_weight, pa in valid:
+            if pa > 0:
+                rate = stat_val / pa
+            else:
+                # No PA info for this season — use full-season denominator as fallback
+                rate = stat_val / full_season if full_season > 0 else 0.0
+            total_weight += year_weight
+            weighted_rate_sum += rate * year_weight
+
+        if total_weight == 0:
+            return league_avg
+
+        weighted_rate = weighted_rate_sum / total_weight
+
+        # Regression toward league average rate
+        raw_pa = sum(pa for _, _, pa in valid)
+        reliability = raw_pa / (raw_pa + REGRESSION_PA)
+
+        regressed_rate = reliability * weighted_rate + (1.0 - reliability) * league_avg_rate
+
+        # Scale back to projected full-season PA/IP
+        projected = regressed_rate * full_season
+    else:
+        # No PA/IP data — fall back to raw year-weighted average (original behavior)
+        total_weight = 0
+        weighted_sum = 0.0
+
+        for stat_val, year_weight, _ in valid:
+            total_weight += year_weight
+            weighted_sum += stat_val * year_weight
+
+        if total_weight == 0:
+            return league_avg
+
+        weighted_avg = weighted_sum / total_weight
+
+        raw_pa = sum(pa for _, _, pa in valid)
+        reliability = raw_pa / (raw_pa + REGRESSION_PA)
+
+        projected = reliability * weighted_avg + (1.0 - reliability) * league_avg
+
     return projected
 
 

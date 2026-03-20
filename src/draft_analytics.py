@@ -423,6 +423,10 @@ def compute_buy_fair_avoid(
     if enhanced_rank < 1 or adp_rank < 1:
         return "FAIR"
 
+    # No signal when ADP is missing (sentinel 999 or near it)
+    if adp_rank >= 900:
+        return "FAIR"
+
     # gap > 0 means ADP ranks the player later (lower) than our model
     # i.e. our model thinks the player is better -> BUY
     gap = adp_rank - enhanced_rank

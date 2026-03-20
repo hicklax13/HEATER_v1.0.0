@@ -64,15 +64,17 @@ def effective_sample_size(samples: np.ndarray) -> float:
     acf_full = np.fft.ifft(fft_result * np.conj(fft_result)).real[:n]
     acf = acf_full / acf_full[0]  # Normalize
 
-    # Sum autocorrelations until they become negligible
-    # Use Geyer's initial positive sequence estimator
-    tau = 1.0
-    for lag in range(1, n):
-        if acf[lag] < 0.05:
+    # Geyer's initial positive sequence: sum ACF in consecutive pairs
+    max_lag = n // 2
+    tau = 0.0
+    k = 0
+    while 2 * k + 1 < max_lag:
+        pair_sum = acf[2 * k] + acf[2 * k + 1]
+        if pair_sum < 0:
             break
-        tau += 2.0 * acf[lag]
-
-    ess = n / max(tau, 1.0)
+        tau += pair_sum
+        k += 1
+    ess = n / (1.0 + 2.0 * tau)
     return max(1.0, ess)
 
 

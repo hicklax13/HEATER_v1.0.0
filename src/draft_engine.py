@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import logging
 import time
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -548,6 +549,14 @@ class DraftRecommendationEngine:
             return norm_factors.get(team.strip().upper(), 1.0)
 
         pool["park_factor_adj"] = pool["team"].apply(_get_factor)
+
+        # Invert park factor for pitchers: a hitter-friendly park hurts pitchers
+        # Consistent with two_start.py and matchup_planner.py: pf_pitcher = 2.0 - pf
+        if "is_hitter" in pool.columns:
+            is_pitcher = pool["is_hitter"] == False  # noqa: E712
+            if is_pitcher.any():
+                pool.loc[is_pitcher, "park_factor_adj"] = 2.0 - pool.loc[is_pitcher, "park_factor_adj"]
+
         return pool
 
     def _apply_bayesian_blend(self, pool: pd.DataFrame) -> pd.DataFrame:
@@ -573,10 +582,27 @@ class DraftRecommendationEngine:
             return pool
 
         try:
+            # Load actual season stats from the database instead of using pool
+            # as both season stats and preseason (which would be a no-op blend)
+            from src.database import get_connection
+
+            conn = get_connection()
+            try:
+                season_stats = pd.read_sql(
+                    "SELECT * FROM season_stats WHERE season = ?",
+                    conn,
+                    params=(datetime.now(UTC).year,),
+                )
+            finally:
+                conn.close()
+
+            if season_stats.empty:
+                logger.debug("No season stats in DB — Bayesian blend skipped")
+                return pool
+
             updater = BayesianUpdater()
-            # Use pool as both season stats and preseason (self-blend with regression)
             updated = updater.batch_update_projections(
-                season_stats=pool,
+                season_stats=season_stats,
                 preseason=pool,
                 config=self.config,
             )
@@ -742,10 +768,20 @@ class DraftRecommendationEngine:
                 )
 
         # Lineup protection bonus: hitters in strong lineups
-        # Proxy: players on teams with multiple drafted hitters
+        # Proxy: players on teams with multiple drafted hitters on user's roster
         if "team" in pool.columns:
-            is_hitter = pool.get("is_hitter", True) == True  # noqa: E712
-            team_hitter_counts = pool[is_hitter].groupby("team").size().to_dict()
+            # Get user's drafted player IDs from draft_state.teams[user_team_index]
+            try:
+                user_roster = draft_state.teams[draft_state.user_team_index]
+                user_ids = {pid for _, pid, _ in user_roster.picks if pid is not None}
+                if user_ids:
+                    drafted_pool = pool[pool["player_id"].isin(list(user_ids))]
+                    is_hitter_drafted = drafted_pool.get("is_hitter", True) == True  # noqa: E712
+                    team_hitter_counts = drafted_pool.loc[is_hitter_drafted].groupby("team").size().to_dict()
+                else:
+                    team_hitter_counts = {}
+            except (AttributeError, TypeError, IndexError):
+                team_hitter_counts = {}
             pool["lineup_protection_bonus"] = pool.apply(
                 lambda row: (
                     min(0.3, team_hitter_counts.get(row.get("team", ""), 0) * 0.05)
@@ -755,32 +791,11 @@ class DraftRecommendationEngine:
                 axis=1,
             )
 
-        # Multi-position flexibility bonus
-        if "positions" in pool.columns:
-            pool["flex_bonus"] = pool["positions"].apply(self._compute_flex_bonus)
+        # Multi-position flexibility bonus: removed — VORP in valuation.py already
+        # includes +0.12/extra position and +0.08/scarce position. Adding flex_bonus
+        # here would double-count. flex_bonus column stays at 0.0.
 
         return pool
-
-    @staticmethod
-    def _compute_flex_bonus(positions_str: str) -> float:
-        """Compute flexibility bonus for multi-position eligibility.
-
-        Each extra position beyond the first adds +0.12 SGP (matching
-        the existing VORP multi-position premium from valuation.py).
-        Scarce positions (C, SS) add an extra +0.08.
-        """
-        if not positions_str or not isinstance(positions_str, str):
-            return 0.0
-        pos_list = [p.strip() for p in positions_str.split(",") if p.strip()]
-        if len(pos_list) <= 1:
-            return 0.0
-
-        bonus = (len(pos_list) - 1) * 0.12
-        scarce = {"C", "SS"}
-        for pos in pos_list:
-            if pos in scarce:
-                bonus += 0.08
-        return min(bonus, 0.5)  # cap at 0.5
 
     def _apply_category_balance(
         self,
@@ -1102,6 +1117,11 @@ class DraftRecommendationEngine:
 
         # Invalid ranks -> FAIR
         if enhanced_rank <= 0 or adp_rank <= 0:
+            return "FAIR"
+
+        # No signal when original ADP is missing (sentinel 999)
+        original_adp = float(row.get("adp", 0) or 0)
+        if original_adp >= 900:
             return "FAIR"
 
         # Gap = ADP_rank - enhanced_rank. Positive means undervalued (BUY).

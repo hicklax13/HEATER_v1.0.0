@@ -160,7 +160,8 @@ def init_db():
             player_id INTEGER NOT NULL,
             roster_slot TEXT,
             is_user_team INTEGER NOT NULL DEFAULT 0,
-            FOREIGN KEY (player_id) REFERENCES players(player_id)
+            FOREIGN KEY (player_id) REFERENCES players(player_id),
+            UNIQUE(team_name, player_id)
         );
 
         CREATE TABLE IF NOT EXISTS league_standings (
@@ -169,7 +170,8 @@ def init_db():
             category TEXT NOT NULL,
             total REAL DEFAULT 0,
             rank INTEGER,
-            points REAL
+            points REAL,
+            UNIQUE(team_name, category)
         );
 
         CREATE TABLE IF NOT EXISTS park_factors (
@@ -474,13 +476,18 @@ def import_hitter_csv(csv_path: str, system: str):
             rbi = int(_safe_num(row, col_map.get("rbi", "RBI")))
             sb = int(_safe_num(row, col_map.get("sb", "SB")))
             avg = float(_safe_num(row, col_map.get("avg", "AVG")))
+            obp = float(_safe_num(row, col_map.get("obp", "OBP")))
+            bb = int(_safe_num(row, col_map.get("bb", "BB")))
+            hbp = int(_safe_num(row, col_map.get("hbp", "HBP")))
+            sf = int(_safe_num(row, col_map.get("sf", "SF")))
 
             cursor.execute(
                 """
-                INSERT INTO projections (player_id, system, pa, ab, h, r, hr, rbi, sb, avg)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO projections (player_id, system, pa, ab, h, r, hr, rbi, sb, avg,
+                                         obp, bb, hbp, sf)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-                (player_id, system, pa, ab, h, r, hr, rbi, sb, avg),
+                (player_id, system, pa, ab, h, r, hr, rbi, sb, avg, obp, bb, hbp, sf),
             )
             imported += 1
 
@@ -521,6 +528,7 @@ def import_pitcher_csv(csv_path: str, system: str):
             player_id = _upsert_player(cursor, name, team, positions, is_hitter=False)
 
             w = int(_safe_num(row, col_map.get("w", "W")))
+            l = int(_safe_num(row, col_map.get("l", "L")))
             k = int(_safe_num(row, col_map.get("k", "K")))
             if not k and col_map.get("so"):
                 k = int(_safe_num(row, col_map["so"]))
@@ -541,10 +549,10 @@ def import_pitcher_csv(csv_path: str, system: str):
 
             cursor.execute(
                 """
-                INSERT INTO projections (player_id, system, ip, w, sv, k, era, whip, er, bb_allowed, h_allowed)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO projections (player_id, system, ip, w, l, sv, k, era, whip, er, bb_allowed, h_allowed)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-                (player_id, system, ip, w, sv, k, era, whip, er, bb_allowed, h_allowed),
+                (player_id, system, ip, w, l, sv, k, era, whip, er, bb_allowed, h_allowed),
             )
             imported += 1
 
@@ -571,7 +579,9 @@ def create_blended_projections():
             cursor.execute(
                 """
                 SELECT pa, ab, h, r, hr, rbi, sb, avg, obp, bb, hbp, sf,
-                       ip, w, l, sv, k, era, whip, er, bb_allowed, h_allowed
+                       ip, w, l, sv, k, era, whip, er, bb_allowed, h_allowed,
+                       COALESCE(fip, 0) as fip, COALESCE(xfip, 0) as xfip,
+                       COALESCE(siera, 0) as siera
                 FROM projections WHERE player_id = ? AND system != 'blended'
             """,
                 (pid,),
@@ -606,6 +616,9 @@ def create_blended_projections():
                 "er",
                 "bb_allowed",
                 "h_allowed",
+                "fip",
+                "xfip",
+                "siera",
             ]
             for i, name in enumerate(stat_names):
                 vals = [row[i] or 0 for row in rows]
@@ -626,8 +639,9 @@ def create_blended_projections():
                 """
                 INSERT INTO projections (player_id, system, pa, ab, h, r, hr, rbi, sb, avg,
                                          obp, bb, hbp, sf,
-                                         ip, w, l, sv, k, era, whip, er, bb_allowed, h_allowed)
-                VALUES (?, 'blended', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                         ip, w, l, sv, k, era, whip, er, bb_allowed, h_allowed,
+                                         fip, xfip, siera)
+                VALUES (?, 'blended', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     pid,
@@ -653,6 +667,9 @@ def create_blended_projections():
                     int(avg_stats["er"]),
                     int(avg_stats["bb_allowed"]),
                     int(avg_stats["h_allowed"]),
+                    round(avg_stats["fip"], 2),
+                    round(avg_stats["xfip"], 2),
+                    round(avg_stats["siera"], 2),
                 ),
             )
 
@@ -750,6 +767,9 @@ def load_player_pool() -> pd.DataFrame:
             """
             SELECT
                 p.player_id, p.name, p.team, p.positions, p.is_hitter, p.is_injured,
+                CASE WHEN p.birth_date IS NOT NULL AND p.birth_date != ''
+                     THEN CAST((julianday('now') - julianday(p.birth_date)) / 365.25 AS INTEGER)
+                     ELSE NULL END AS age,
                 proj.pa, proj.ab, proj.h, proj.r, proj.hr, proj.rbi, proj.sb, proj.avg,
                 proj.obp, proj.bb, proj.hbp, proj.sf,
                 proj.ip, proj.w, proj.l, proj.sv, proj.k, proj.era, proj.whip,
@@ -760,7 +780,6 @@ def load_player_pool() -> pd.DataFrame:
             JOIN projections proj ON p.player_id = proj.player_id
             LEFT JOIN adp a ON p.player_id = a.player_id
             WHERE proj.system = 'blended'
-              AND p.is_injured = 0
             ORDER BY COALESCE(a.adp, 999)
         """,
             conn,
@@ -772,16 +791,24 @@ def load_player_pool() -> pd.DataFrame:
                 """
                 SELECT
                     p.player_id, p.name, p.team, p.positions, p.is_hitter, p.is_injured,
-                    proj.pa, proj.ab, proj.h, proj.r, proj.hr, proj.rbi, proj.sb, proj.avg,
-                    proj.obp, proj.bb, proj.hbp, proj.sf,
-                    proj.ip, proj.w, proj.l, proj.sv, proj.k, proj.era, proj.whip,
-                    proj.er, proj.bb_allowed, proj.h_allowed,
-                    proj.fip, proj.xfip, proj.siera,
+                    CASE WHEN p.birth_date IS NOT NULL AND p.birth_date != ''
+                         THEN CAST((julianday('now') - julianday(p.birth_date)) / 365.25 AS INTEGER)
+                         ELSE NULL END AS age,
+                    AVG(proj.pa) as pa, AVG(proj.ab) as ab, AVG(proj.h) as h,
+                    AVG(proj.r) as r, AVG(proj.hr) as hr, AVG(proj.rbi) as rbi,
+                    AVG(proj.sb) as sb, AVG(proj.avg) as avg, AVG(proj.obp) as obp,
+                    AVG(proj.bb) as bb, AVG(proj.hbp) as hbp, AVG(proj.sf) as sf,
+                    AVG(proj.ip) as ip, AVG(proj.w) as w, AVG(proj.l) as l,
+                    AVG(proj.sv) as sv, AVG(proj.k) as k, AVG(proj.era) as era,
+                    AVG(proj.whip) as whip, AVG(proj.er) as er,
+                    AVG(proj.bb_allowed) as bb_allowed,
+                    AVG(proj.h_allowed) as h_allowed,
+                    AVG(proj.fip) as fip, AVG(proj.xfip) as xfip,
+                    AVG(proj.siera) as siera,
                     COALESCE(a.adp, 999) as adp
                 FROM players p
                 JOIN projections proj ON p.player_id = proj.player_id
                 LEFT JOIN adp a ON p.player_id = a.player_id
-                WHERE p.is_injured = 0
                 GROUP BY p.player_id
                 ORDER BY COALESCE(a.adp, 999)
             """,
@@ -958,7 +985,10 @@ def upsert_league_roster_entry(
     try:
         conn.execute(
             """INSERT INTO league_rosters (team_name, team_index, player_id, roster_slot, is_user_team)
-               VALUES (?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?)
+               ON CONFLICT(team_name, player_id) DO UPDATE SET
+               team_index=excluded.team_index, roster_slot=excluded.roster_slot,
+               is_user_team=excluded.is_user_team""",
             (team_name, team_index, player_id, roster_slot, 1 if is_user_team else 0),
         )
         conn.commit()
@@ -1001,11 +1031,10 @@ def upsert_league_standing(team_name: str, category: str, total: float, rank: in
     conn = get_connection()
     try:
         conn.execute(
-            "DELETE FROM league_standings WHERE team_name = ? AND category = ?",
-            (team_name, category),
-        )
-        conn.execute(
-            "INSERT INTO league_standings (team_name, category, total, rank, points) VALUES (?, ?, ?, ?, ?)",
+            """INSERT INTO league_standings (team_name, category, total, rank, points)
+               VALUES (?, ?, ?, ?, ?)
+               ON CONFLICT(team_name, category) DO UPDATE SET
+               total=excluded.total, rank=excluded.rank, points=excluded.points""",
             (team_name, category, total, rank, points),
         )
         conn.commit()
@@ -1206,7 +1235,11 @@ def deduplicate_players() -> dict[str, int]:
 
             # Step 3: Remap FK references in all dependent tables
             # Tables with simple player_id FK (safe UPDATE)
-            simple_fk_tables = ["league_rosters", "transactions", "adp"]
+            simple_fk_tables = [
+                "league_rosters",
+                "transactions",
+                "player_news",
+            ]
             for table in simple_fk_tables:
                 for dup_id in duplicate_ids:
                     cursor.execute(
@@ -1214,6 +1247,109 @@ def deduplicate_players() -> dict[str, int]:
                         (canonical_id, dup_id),
                     )
                     total_remapped += cursor.rowcount
+
+            # Handle adp table specially (has PRIMARY KEY on player_id)
+            for dup_id in duplicate_ids:
+                cursor.execute("SELECT 1 FROM adp WHERE player_id = ?", (canonical_id,))
+                if cursor.fetchone():
+                    cursor.execute("DELETE FROM adp WHERE player_id = ?", (dup_id,))
+                else:
+                    cursor.execute(
+                        "UPDATE adp SET player_id = ? WHERE player_id = ?",
+                        (canonical_id, dup_id),
+                    )
+                total_remapped += cursor.rowcount
+
+            # Handle ecr_consensus and player_id_map (PRIMARY KEY on player_id)
+            for pk_table in ["ecr_consensus", "player_id_map"]:
+                for dup_id in duplicate_ids:
+                    cursor.execute(
+                        f"SELECT 1 FROM {pk_table} WHERE player_id = ?",
+                        (canonical_id,),
+                    )
+                    if cursor.fetchone():
+                        cursor.execute(
+                            f"DELETE FROM {pk_table} WHERE player_id = ?",
+                            (dup_id,),
+                        )
+                    else:
+                        cursor.execute(
+                            f"UPDATE {pk_table} SET player_id = ? WHERE player_id = ?",
+                            (canonical_id, dup_id),
+                        )
+                    total_remapped += cursor.rowcount
+
+            # player_tags: PRIMARY KEY (player_id, tag) — may conflict
+            for dup_id in duplicate_ids:
+                cursor.execute(
+                    "SELECT player_id, tag FROM player_tags WHERE player_id = ?",
+                    (dup_id,),
+                )
+                dup_rows = cursor.fetchall()
+                for _, tag in dup_rows:
+                    cursor.execute(
+                        "SELECT 1 FROM player_tags WHERE player_id = ? AND tag = ?",
+                        (canonical_id, tag),
+                    )
+                    if cursor.fetchone() is None:
+                        cursor.execute(
+                            "UPDATE player_tags SET player_id = ? WHERE player_id = ? AND tag = ?",
+                            (canonical_id, dup_id, tag),
+                        )
+                        total_remapped += 1
+                    else:
+                        cursor.execute(
+                            "DELETE FROM player_tags WHERE player_id = ? AND tag = ?",
+                            (dup_id, tag),
+                        )
+
+            # ownership_trends: PRIMARY KEY (player_id, date) — may conflict
+            for dup_id in duplicate_ids:
+                cursor.execute(
+                    "SELECT player_id, date FROM ownership_trends WHERE player_id = ?",
+                    (dup_id,),
+                )
+                dup_rows = cursor.fetchall()
+                for _, date_val in dup_rows:
+                    cursor.execute(
+                        "SELECT 1 FROM ownership_trends WHERE player_id = ? AND date = ?",
+                        (canonical_id, date_val),
+                    )
+                    if cursor.fetchone() is None:
+                        cursor.execute(
+                            "UPDATE ownership_trends SET player_id = ? WHERE player_id = ? AND date = ?",
+                            (canonical_id, dup_id, date_val),
+                        )
+                        total_remapped += 1
+                    else:
+                        cursor.execute(
+                            "DELETE FROM ownership_trends WHERE player_id = ? AND date = ?",
+                            (dup_id, date_val),
+                        )
+
+            # statcast_archive: UNIQUE(player_id, season) — may conflict
+            for dup_id in duplicate_ids:
+                cursor.execute(
+                    "SELECT player_id, season FROM statcast_archive WHERE player_id = ?",
+                    (dup_id,),
+                )
+                dup_rows = cursor.fetchall()
+                for _, season in dup_rows:
+                    cursor.execute(
+                        "SELECT 1 FROM statcast_archive WHERE player_id = ? AND season = ?",
+                        (canonical_id, season),
+                    )
+                    if cursor.fetchone() is None:
+                        cursor.execute(
+                            "UPDATE statcast_archive SET player_id = ? WHERE player_id = ? AND season = ?",
+                            (canonical_id, dup_id, season),
+                        )
+                        total_remapped += 1
+                    else:
+                        cursor.execute(
+                            "DELETE FROM statcast_archive WHERE player_id = ? AND season = ?",
+                            (dup_id, season),
+                        )
 
             # Tables with composite PK including player_id — need conflict handling
             # projections: (id PK autoincrement, player_id FK) — safe UPDATE
@@ -1482,6 +1618,10 @@ def _build_column_map(df: pd.DataFrame, is_hitter: bool) -> dict:
             "rbi": ["rbi"],
             "sb": ["sb", "stolenbases"],
             "avg": ["avg", "ba", "battingaverage"],
+            "obp": ["obp", "on_base_pct"],
+            "bb": ["bb", "walks"],
+            "hbp": ["hbp", "hit_by_pitch"],
+            "sf": ["sf", "sac_flies"],
         }.items():
             for k in candidates:
                 if k in cols:
@@ -1491,6 +1631,7 @@ def _build_column_map(df: pd.DataFrame, is_hitter: bool) -> dict:
         for stat, candidates in {
             "ip": ["ip", "innings"],
             "w": ["w", "wins"],
+            "l": ["l", "losses"],
             "sv": ["sv", "saves"],
             "k": ["k", "so", "strikeouts"],
             "so": ["so"],

@@ -22,6 +22,21 @@ def generate_sample_data():
     conn = get_connection()
     cursor = conn.cursor()
 
+    # Safety check: warn if real (non-sample) data exists before deleting
+    try:
+        cursor.execute("SELECT COUNT(*) FROM projections WHERE system != 'blended'")
+        real_data_count = cursor.fetchone()[0]
+        if real_data_count > 0:
+            print(f"\nWARNING: Found {real_data_count} real projection rows from FanGraphs.")
+            print("Running this will DELETE all real data and replace with sample data.")
+            response = input("Continue? (yes/no): ").strip().lower()
+            if response != "yes":
+                print("Aborted.")
+                conn.close()
+                return
+    except Exception:
+        pass  # Table may not exist yet on first run
+
     # Clear existing data
     cursor.execute("DELETE FROM projections")
     cursor.execute("DELETE FROM adp")
@@ -33,6 +48,299 @@ def generate_sample_data():
         except Exception:
             pass
     conn.commit()
+
+    # ── Team mappings for realistic team assignments ────────────────
+    HITTER_TEAM_MAP = {
+        "Aaron Judge": "NYY",
+        "Shohei Ohtani": "LAD",
+        "Mookie Betts": "LAD",
+        "Freddie Freeman": "LAD",
+        "Trea Turner": "PHI",
+        "Bobby Witt Jr.": "KC",
+        "Elly De La Cruz": "CIN",
+        "Ronald Acuna Jr.": "ATL",
+        "Corey Seager": "TEX",
+        "Juan Soto": "NYM",
+        "Yordan Alvarez": "HOU",
+        "Marcus Semien": "TEX",
+        "Jose Ramirez": "CLE",
+        "Rafael Devers": "BOS",
+        "Kyle Tucker": "CHC",
+        "Julio Rodriguez": "SEA",
+        "Gunnar Henderson": "BAL",
+        "Matt Olson": "ATL",
+        "Pete Alonso": "NYM",
+        "Adolis Garcia": "TEX",
+        "William Contreras": "MIL",
+        "Adley Rutschman": "BAL",
+        "Salvador Perez": "KC",
+        "J.T. Realmuto": "PHI",
+        "Cal Raleigh": "SEA",
+        "Willy Adames": "SF",
+        "Bo Bichette": "TOR",
+        "Ozzie Albies": "ATL",
+        "Jazz Chisholm Jr.": "NYY",
+        "Christian Walker": "HOU",
+        "Anthony Santander": "TOR",
+        "Anthony Rizzo": "NYY",
+        "Tommy Edman": "LAD",
+        "Thairo Estrada": "SF",
+        "Byron Buxton": "MIN",
+        "Mike Trout": "LAA",
+        "Lars Nootbaar": "STL",
+        "Jarren Duran": "BOS",
+        "Jackson Chourio": "MIL",
+        "Jackson Merrill": "SD",
+    }
+
+    FILLER_HITTER_TEAM_MAP = {
+        "Alex Bregman": "BOS",
+        "Nolan Arenado": "HOU",
+        "Manny Machado": "SD",
+        "Xander Bogaerts": "SD",
+        "Carlos Correa": "MIN",
+        "Tim Anderson": "MIA",
+        "Dansby Swanson": "CHC",
+        "Ketel Marte": "ARI",
+        "Gleyber Torres": "DET",
+        "Jonathan India": "CIN",
+        "Andres Gimenez": "CLE",
+        "Ha-Seong Kim": "LAD",
+        "Yandy Diaz": "TB",
+        "Vladimir Guerrero Jr.": "TOR",
+        "Spencer Torkelson": "DET",
+        "Vinnie Pasquantino": "KC",
+        "Rhys Hoskins": "MIL",
+        "Cody Bellinger": "CHC",
+        "Bryce Harper": "PHI",
+        "Luis Robert Jr.": "CWS",
+        "Mike Yastrzemski": "SF",
+        "Lane Thomas": "CLE",
+        "Bryan Reynolds": "PIT",
+        "Starling Marte": "NYM",
+        "Randy Arozarena": "SEA",
+        "George Springer": "TOR",
+        "Teoscar Hernandez": "LAD",
+        "Giancarlo Stanton": "NYY",
+        "Marcell Ozuna": "ATL",
+        "Austin Riley": "ATL",
+        "Max Muncy": "LAD",
+        "Willson Contreras": "STL",
+        "Gabriel Moreno": "ARI",
+        "MJ Melendez": "KC",
+        "Logan O'Hoppe": "LAA",
+        "Patrick Bailey": "SF",
+        "Jonah Heim": "TEX",
+        "Alejandro Kirk": "TOR",
+        "Ryan McMahon": "COL",
+        "Brandon Lowe": "TB",
+        "Jeff McNeil": "NYM",
+        "Nico Hoerner": "CHC",
+        "CJ Abrams": "WSH",
+        "Masataka Yoshida": "BOS",
+        "Seiya Suzuki": "CHC",
+        "Fernando Tatis Jr.": "SD",
+        "Cedric Mullins": "BAL",
+        "Corbin Carroll": "ARI",
+        "Colton Cowser": "BAL",
+        "James Outman": "LAD",
+        "Michael Harris II": "ATL",
+        "Riley Greene": "DET",
+        "Evan Carter": "TEX",
+        "Wyatt Langford": "TEX",
+        "Jordan Walker": "STL",
+        "Spencer Steer": "CIN",
+        "Josh Lowe": "TB",
+        "Tyler O'Neill": "BOS",
+        "Brendan Donovan": "STL",
+        "Isaac Paredes": "CHC",
+        "Christopher Morel": "TB",
+        "Maikel Garcia": "KC",
+        "Ezequiel Tovar": "COL",
+        "Noelvi Marte": "CIN",
+        "Royce Lewis": "MIN",
+        "Jake Cronenworth": "SD",
+    }
+
+    PITCHER_TEAM_MAP = {
+        "Zack Wheeler": "PHI",
+        "Spencer Strider": "ATL",
+        "Gerrit Cole": "NYY",
+        "Corbin Burnes": "ARI",
+        "Dylan Cease": "SD",
+        "Logan Webb": "SF",
+        "Tarik Skubal": "DET",
+        "Zach Eflin": "TB",
+        "Framber Valdez": "HOU",
+        "Max Fried": "NYY",
+        "Tyler Glasnow": "LAD",
+        "Chris Sale": "ATL",
+        "Pablo Lopez": "MIN",
+        "Sonny Gray": "STL",
+        "Yoshinobu Yamamoto": "LAD",
+        "Kevin Gausman": "TOR",
+        "Luis Castillo": "SEA",
+        "Shota Imanaga": "CHC",
+        "Joe Ryan": "MIN",
+        "Tanner Houck": "BOS",
+        "MacKenzie Gore": "WSH",
+        "Ranger Suarez": "PHI",
+        "Michael King": "SD",
+        "Jared Jones": "PIT",
+        "Hunter Brown": "HOU",
+        "Garrett Crochet": "BOS",
+        "Paul Skenes": "PIT",
+        "Emmanuel Clase": "CLE",
+        "Josh Hader": "HOU",
+        "Devin Williams": "NYY",
+        "Ryan Helsley": "STL",
+        "Kenley Jansen": "CLE",
+        "Andres Munoz": "SEA",
+        "Robert Suarez": "SD",
+        "Pete Fairbanks": "TB",
+        "Tanner Scott": "LAD",
+        "Carlos Estevez": "PHI",
+        "Mason Miller": "OAK",
+        "Clay Holmes": "CLE",
+        "Raisel Iglesias": "ATL",
+    }
+
+    FILLER_SP_TEAM_MAP = {
+        "Logan Gilbert": "SEA",
+        "Aaron Nola": "PHI",
+        "Freddy Peralta": "MIL",
+        "Shane Bieber": "CLE",
+        "Nick Lodolo": "CIN",
+        "Mitch Keller": "PIT",
+        "Bailey Ober": "MIN",
+        "Jake Irvin": "WSH",
+        "Cristian Javier": "HOU",
+        "Nathan Eovaldi": "TEX",
+        "Tyler Anderson": "LAA",
+        "Jordan Montgomery": "ARI",
+        "Nestor Cortes": "NYY",
+        "Reid Detmers": "LAA",
+        "Brayan Bello": "BOS",
+        "Gavin Stone": "LAD",
+        "Clarke Schmidt": "NYY",
+        "Spencer Schwellenbach": "ATL",
+        "Reese Olson": "DET",
+        "Grayson Rodriguez": "BAL",
+        "Brady Singer": "KC",
+        "Drew Thorpe": "CWS",
+        "Jack Flaherty": "DET",
+        "Cole Ragans": "KC",
+        "Seth Lugo": "KC",
+        "George Kirby": "SEA",
+        "Tobias Myers": "MIL",
+        "JP Sears": "OAK",
+    }
+
+    FILLER_RP_TEAM_MAP = {
+        "Craig Kimbrel": "BAL",
+        "Jordan Romano": "TOR",
+        "David Bednar": "PIT",
+        "Felix Bautista": "BAL",
+        "Jhoan Duran": "MIN",
+        "Camilo Doval": "SF",
+        "Paul Sewald": "ARI",
+        "Alexis Diaz": "CIN",
+        "Jason Adam": "TB",
+        "Trevor Megill": "MIL",
+        "Yennier Cano": "BAL",
+        "Justin Martinez": "ARI",
+        "Ben Joyce": "LAA",
+        "Ryan Pressly": "HOU",
+        "Edwin Diaz": "NYM",
+        "A.J. Minter": "ATL",
+    }
+
+    # ── Handedness by archetype name (known players) ──────────────
+    HITTER_BATS_MAP = {
+        "Aaron Judge": "R",
+        "Shohei Ohtani": "L",
+        "Mookie Betts": "R",
+        "Freddie Freeman": "L",
+        "Trea Turner": "R",
+        "Bobby Witt Jr.": "R",
+        "Elly De La Cruz": "S",
+        "Ronald Acuna Jr.": "R",
+        "Corey Seager": "L",
+        "Juan Soto": "L",
+        "Yordan Alvarez": "L",
+        "Marcus Semien": "R",
+        "Jose Ramirez": "S",
+        "Rafael Devers": "L",
+        "Kyle Tucker": "L",
+        "Julio Rodriguez": "R",
+        "Gunnar Henderson": "L",
+        "Matt Olson": "L",
+        "Pete Alonso": "R",
+        "Adolis Garcia": "R",
+        "William Contreras": "R",
+        "Adley Rutschman": "S",
+        "Salvador Perez": "R",
+        "J.T. Realmuto": "R",
+        "Cal Raleigh": "S",
+        "Willy Adames": "R",
+        "Bo Bichette": "R",
+        "Ozzie Albies": "S",
+        "Jazz Chisholm Jr.": "L",
+        "Christian Walker": "R",
+        "Anthony Santander": "S",
+        "Anthony Rizzo": "L",
+        "Tommy Edman": "S",
+        "Thairo Estrada": "R",
+        "Byron Buxton": "R",
+        "Mike Trout": "R",
+        "Lars Nootbaar": "L",
+        "Jarren Duran": "L",
+        "Jackson Chourio": "R",
+        "Jackson Merrill": "L",
+    }
+
+    PITCHER_THROWS_MAP = {
+        "Zack Wheeler": "R",
+        "Spencer Strider": "R",
+        "Gerrit Cole": "R",
+        "Corbin Burnes": "R",
+        "Dylan Cease": "R",
+        "Logan Webb": "R",
+        "Tarik Skubal": "L",
+        "Zach Eflin": "R",
+        "Framber Valdez": "L",
+        "Max Fried": "L",
+        "Tyler Glasnow": "R",
+        "Chris Sale": "L",
+        "Pablo Lopez": "R",
+        "Sonny Gray": "R",
+        "Yoshinobu Yamamoto": "R",
+        "Kevin Gausman": "R",
+        "Luis Castillo": "R",
+        "Shota Imanaga": "L",
+        "Joe Ryan": "R",
+        "Tanner Houck": "R",
+        "MacKenzie Gore": "L",
+        "Ranger Suarez": "L",
+        "Michael King": "R",
+        "Jared Jones": "R",
+        "Hunter Brown": "R",
+        "Garrett Crochet": "L",
+        "Paul Skenes": "R",
+        "Emmanuel Clase": "R",
+        "Josh Hader": "L",
+        "Devin Williams": "R",
+        "Ryan Helsley": "R",
+        "Kenley Jansen": "R",
+        "Andres Munoz": "R",
+        "Robert Suarez": "R",
+        "Pete Fairbanks": "R",
+        "Tanner Scott": "L",
+        "Carlos Estevez": "R",
+        "Mason Miller": "R",
+        "Clay Holmes": "R",
+        "Raisel Iglesias": "R",
+    }
 
     # ── Hitters ──────────────────────────────────────────────────────
 
@@ -169,11 +477,12 @@ def generate_sample_data():
         hbp = int(pa * 0.01)
         sf = int(pa * 0.008)
 
-        bats = rng.choice(["R", "L", "S"], p=[0.55, 0.35, 0.10])
-        throws = rng.choice(["R", "L"], p=[0.70, 0.30])
+        bats = HITTER_BATS_MAP.get(name, "R")
+        throws = "R"  # Most position players throw right
+        team = HITTER_TEAM_MAP.get(name, "FA")
         cursor.execute(
             "INSERT INTO players (name, team, positions, is_hitter, bats, throws) VALUES (?, ?, ?, 1, ?, ?)",
-            (name, "MLB", pos, bats, throws),
+            (name, team, pos, bats, throws),
         )
         pid = cursor.lastrowid
         cursor.execute(
@@ -209,11 +518,14 @@ def generate_sample_data():
         hbp = int(pa * 0.01)
         sf = int(pa * 0.008)
 
-        bats = rng.choice(["R", "L", "S"], p=[0.55, 0.35, 0.10])
-        throws = rng.choice(["R", "L"], p=[0.70, 0.30])
+        # Deterministic handedness: 55% R, 35% L, 10% S based on index
+        filler_idx = filler_names.index(name)
+        bats = ["R", "R", "L", "R", "L", "R", "R", "S", "R", "L"][filler_idx % 10]
+        throws = "R"  # Most position players throw right
+        team = FILLER_HITTER_TEAM_MAP.get(name, "FA")
         cursor.execute(
             "INSERT INTO players (name, team, positions, is_hitter, bats, throws) VALUES (?, ?, ?, 1, ?, ?)",
-            (name, "MLB", pos, bats, throws),
+            (name, team, pos, bats, throws),
         )
         pid = cursor.lastrowid
         cursor.execute(
@@ -346,10 +658,11 @@ def generate_sample_data():
         xfip = round(era + rng.uniform(-0.15, 0.25), 2)
         siera = round(era + rng.uniform(-0.20, 0.20), 2)
 
-        throws = rng.choice(["R", "L"], p=[0.70, 0.30])
+        throws = PITCHER_THROWS_MAP.get(name, "R")
+        team = PITCHER_TEAM_MAP.get(name, "FA")
         cursor.execute(
             "INSERT INTO players (name, team, positions, is_hitter, throws) VALUES (?, ?, ?, 0, ?)",
-            (name, "MLB", pos, throws),
+            (name, team, pos, throws),
         )
         pid = cursor.lastrowid
         cursor.execute(
@@ -384,10 +697,13 @@ def generate_sample_data():
         xfip = round(era + rng.uniform(-0.15, 0.25), 2)
         siera = round(era + rng.uniform(-0.20, 0.20), 2)
 
-        throws = rng.choice(["R", "L"], p=[0.70, 0.30])
+        throws = FILLER_SP_TEAM_MAP.get(name, "R")  # Most SP throw right
+        # Correct: use a deterministic throws based on known pitcher handedness
+        throws = "L" if name in ("Nestor Cortes", "Reid Detmers", "Cole Ragans", "JP Sears") else "R"
+        team = FILLER_SP_TEAM_MAP.get(name, "FA")
         cursor.execute(
             "INSERT INTO players (name, team, positions, is_hitter, throws) VALUES (?, ?, 'SP', 0, ?)",
-            (name, "MLB", throws),
+            (name, team, throws),
         )
         pid = cursor.lastrowid
         cursor.execute(
@@ -420,10 +736,11 @@ def generate_sample_data():
         xfip = round(era + rng.uniform(-0.15, 0.25), 2)
         siera = round(era + rng.uniform(-0.20, 0.20), 2)
 
-        throws = rng.choice(["R", "L"], p=[0.70, 0.30])
+        throws = "L" if name in ("A.J. Minter", "Camilo Doval") else "R"
+        team = FILLER_RP_TEAM_MAP.get(name, "FA")
         cursor.execute(
             "INSERT INTO players (name, team, positions, is_hitter, throws) VALUES (?, ?, 'RP', 0, ?)",
-            (name, "MLB", throws),
+            (name, team, throws),
         )
         pid = cursor.lastrowid
         cursor.execute(

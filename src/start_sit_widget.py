@@ -74,13 +74,17 @@ def compute_fantasy_points_distribution(
             mean_sgp += obp_delta / 22.0
             var_sgp += (0.020 / obp_denom) ** 2
     else:
-        stat_map = {"W": "w", "SV": "sv", "K": "k"}
+        stat_map = {"W": "w", "SV": "sv", "K": "k", "L": "l"}
+        inverse_counting = {"L"}
         for cat, col in stat_map.items():
             val = float(player.get(col, 0) or 0)
             denom = sgp.get(cat, 1.0)
             if denom > 0:
                 weekly = val / 22.0
-                mean_sgp += weekly / denom
+                if cat in inverse_counting:
+                    mean_sgp -= weekly / denom  # L is inverse: fewer is better
+                else:
+                    mean_sgp += weekly / denom
                 vol = vol_fracs.get(col, 0.40) * weekly
                 var_sgp += (vol / denom) ** 2
         # Rate stats: ERA and WHIP (inverse — lower is better)

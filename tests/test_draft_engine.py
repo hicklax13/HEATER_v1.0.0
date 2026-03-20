@@ -570,34 +570,35 @@ class TestContextualFactors:
         # SV=0 — no bonus
         assert burnes["closer_hierarchy_bonus"] == pytest.approx(0.0)
 
-    def test_flex_bonus_single_pos(self):
-        assert DraftRecommendationEngine._compute_flex_bonus("OF") == pytest.approx(0.0)
+    def test_flex_bonus_always_zero(self, engine, sample_pool, draft_state):
+        """Flex bonus removed — VORP already includes multi-position premium."""
+        pool = sample_pool.copy()
+        pool["flex_bonus"] = 0.0  # initialized by enhance_player_pool
+        result = engine._apply_contextual_factors(pool, draft_state)
+        assert (result["flex_bonus"] == 0.0).all()
 
-    def test_flex_bonus_dual_pos(self):
-        bonus = DraftRecommendationEngine._compute_flex_bonus("2B,3B")
-        assert bonus == pytest.approx(0.12)
-
-    def test_flex_bonus_triple_pos(self):
-        bonus = DraftRecommendationEngine._compute_flex_bonus("2B,3B,OF")
-        assert bonus == pytest.approx(0.24)
-
-    def test_flex_bonus_scarce_pos(self):
-        bonus = DraftRecommendationEngine._compute_flex_bonus("SS,2B")
-        assert bonus == pytest.approx(0.12 + 0.08)  # 1 extra pos + SS scarce
-
-    def test_flex_bonus_catcher_scarce(self):
-        bonus = DraftRecommendationEngine._compute_flex_bonus("C,1B")
-        assert bonus == pytest.approx(0.12 + 0.08)  # 1 extra + C scarce
-
-    def test_flex_bonus_capped(self):
-        bonus = DraftRecommendationEngine._compute_flex_bonus("C,SS,1B,2B,3B,OF")
-        assert bonus <= 0.5
-
-    def test_flex_bonus_empty_string(self):
-        assert DraftRecommendationEngine._compute_flex_bonus("") == pytest.approx(0.0)
-
-    def test_flex_bonus_none(self):
-        assert DraftRecommendationEngine._compute_flex_bonus(None) == pytest.approx(0.0)
+    def test_flex_bonus_multi_pos_still_zero(self, engine, draft_state):
+        """Even multi-position players get flex_bonus=0.0 (VORP handles it)."""
+        pool = pd.DataFrame(
+            [
+                {
+                    "player_id": 99,
+                    "name": "MultiPos",
+                    "team": "LAA",
+                    "positions": "SS,2B,3B",
+                    "is_hitter": True,
+                    "pick_score": 5.0,
+                    "sv": 0,
+                    "ip": 0,
+                }
+            ]
+        )
+        pool["streaming_penalty"] = 0.0
+        pool["closer_hierarchy_bonus"] = 0.0
+        pool["lineup_protection_bonus"] = 0.0
+        pool["flex_bonus"] = 0.0
+        result = engine._apply_contextual_factors(pool, draft_state)
+        assert result.iloc[0]["flex_bonus"] == pytest.approx(0.0)
 
     def test_lineup_protection_bonus_hitter(self, engine, sample_pool, draft_state):
         result = engine._apply_contextual_factors(sample_pool.copy(), draft_state)

@@ -399,6 +399,7 @@ class DraftState:
             "current_pick": self.current_pick,
             "pick_log": self.pick_log,
             "drafted_player_ids": list(self.drafted_player_ids),
+            "roster_config": self.roster_config,
         }
         # Atomic write: write to temp file first, then rename to prevent corruption
         fd, tmp_path = tempfile.mkstemp(dir=str(BACKUP_DIR), suffix=".tmp")
@@ -424,7 +425,7 @@ class DraftState:
             num_teams=data["num_teams"],
             num_rounds=data["num_rounds"],
             user_team_index=data["user_team_index"],
-            roster_config=roster_config,
+            roster_config=data.get("roster_config") or roster_config,
         )
 
         # Replay all picks to rebuild state

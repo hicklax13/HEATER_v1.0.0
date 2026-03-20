@@ -43,7 +43,10 @@ def stop_background_refresh():
     with _scheduler_lock:
         _scheduler_running = False
         _stop_event.set()
+        thread = _scheduler_thread
         _scheduler_thread = None
+    if thread is not None:
+        thread.join(timeout=5)
     logger.info("Background refresh scheduler stopped")
 
 

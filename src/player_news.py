@@ -34,6 +34,7 @@ except ImportError:
 
 _RATE_LIMIT_SECONDS = 0.5
 _MAX_SOURCE_FAILURES = 3
+_STUB_SOURCES_WARNED = False
 
 
 # -- News type classification --------------------------------------------
@@ -98,7 +99,7 @@ def _classify_il_status(text: str) -> str | None:
     if not text:
         return None
     # Only delegate to classify_il_type if text contains IL-related keywords;
-    # otherwise classify_il_type returns "DTD" for any text (e.g. trades, callups)
+    # otherwise classify_il_type returns None for any text (e.g. trades, callups)
     upper = text.upper()
     il_indicators = ("IL", "DL", "INJURED", "DTD", "DAY-TO-DAY", "10-DAY", "15-DAY", "60-DAY")
     if not any(kw in upper for kw in il_indicators):
@@ -145,8 +146,12 @@ def _parse_espn_news(data: dict) -> list[dict]:
 
 
 def fetch_espn_news() -> list[dict]:
-    """Fetch news from ESPN API. Stubbed for now -- returns empty list."""
-    # Future: call ESPN API endpoint
+    """ESPN player news — not yet implemented (requires ESPN API key)."""
+    global _STUB_SOURCES_WARNED  # noqa: PLW0603
+    if not _STUB_SOURCES_WARNED:
+        logger.info("ESPN news and RotoWire RSS sources are not yet implemented. Using MLB Stats API and Yahoo only.")
+        _STUB_SOURCES_WARNED = True
+    logger.debug("ESPN news fetch not implemented")
     return []
 
 
@@ -179,11 +184,11 @@ def _parse_rotowire_entries(entries: list) -> list[dict]:
 
 
 def fetch_rotowire_rss() -> list[dict]:
-    """Fetch RotoWire RSS feed. Returns empty list if feedparser unavailable."""
+    """RotoWire RSS feed — not yet implemented (requires RotoWire subscription)."""
     if not FEEDPARSER_AVAILABLE:
         logger.debug("feedparser not installed, skipping RotoWire RSS")
         return []
-    # Future: parse actual RotoWire MLB RSS URL
+    logger.debug("RotoWire RSS fetch not implemented")
     return []
 
 
@@ -495,9 +500,10 @@ def compute_ownership_trend(
 
     result: dict = {"current": current}
 
-    # Find 7-day-ago value if available
+    # Find entry closest to 7 days ago (7th newest, or last available)
     if len(history) >= 2:
-        older = history[-1]["percent_owned"]
+        seven_day_idx = min(6, len(history) - 1)
+        older = history[seven_day_idx]["percent_owned"]
         if older is not None:
             delta = current - older
             result["delta_7d"] = delta
@@ -748,14 +754,17 @@ def refresh_all_news(
 
             if isinstance(yahoo_client, YahooFantasyClient):
                 all_rosters = yahoo_client.get_all_rosters()
-                if all_rosters and isinstance(all_rosters, dict):
-                    for _team_name, roster_list in all_rosters.items():
-                        if not isinstance(roster_list, list):
-                            continue
-                        for player_data in roster_list:
-                            yahoo_items = _extract_yahoo_injury_news(player_data)
-                            if yahoo_items:
-                                total_stored += _store_news_items(yahoo_items)
+                if isinstance(all_rosters, pd.DataFrame) and not all_rosters.empty:
+                    for _, roster_row in all_rosters.iterrows():
+                        player_data = {
+                            "player_id": roster_row.get("player_id", 0),
+                            "name": roster_row.get("player_name", "Unknown"),
+                            "injury_note": roster_row.get("injury_note", ""),
+                            "status_full": roster_row.get("status_full", ""),
+                        }
+                        yahoo_items = _extract_yahoo_injury_news(player_data)
+                        if yahoo_items:
+                            total_stored += _store_news_items(yahoo_items)
         except Exception:
             logger.warning("Yahoo news extraction failed", exc_info=True)
 

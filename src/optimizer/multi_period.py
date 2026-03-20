@@ -127,12 +127,20 @@ def rolling_horizon_optimization(
     for cat in all_cats:
         base_w = category_weights.get(cat, 1.0)
         discounted_total = 0.0
+        raw_total = 0.0
         for w_idx in range(n_weeks):
             val = weekly_projections[w_idx].get(cat, 0.0)
             discounted_total += week_weights[w_idx] * val
-        # The blended weight incorporates both the base weight and the
-        # discounted projection magnitude
-        blended[cat] = base_w * (discounted_total / total_discount)
+            raw_total += val
+        # Normalize away raw stat magnitude so counting stats (R~80, K~180)
+        # don't dominate rate stats (AVG~0.270).  The trend factor captures
+        # whether recent weeks are projected higher/lower than the simple mean.
+        mean_proj = raw_total / n_weeks if n_weeks > 0 else 0.0
+        if total_discount > 0 and mean_proj > 0:
+            trend = (discounted_total / total_discount) / mean_proj
+            blended[cat] = base_w * trend
+        else:
+            blended[cat] = base_w
         horizon_value += base_w * discounted_total
 
     # Normalize blended weights so mean = 1.0

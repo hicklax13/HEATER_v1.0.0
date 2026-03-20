@@ -11,6 +11,7 @@ mark_contract_years
 """
 
 import logging
+from datetime import UTC, datetime
 
 import pandas as pd
 import requests
@@ -23,24 +24,55 @@ _HEADERS = {"User-Agent": "Fantasy Baseball Draft Tool"}
 _TIMEOUT = 15
 
 
-def fetch_contract_year_players(fa_year: int = 2027) -> set[str]:
+def fetch_contract_year_players(fa_year: int | None = None) -> set[str]:
     """Scrape Baseball Reference free agent list for a given year.
 
     Players who become free agents after the *previous* season are in
     their contract year during that season.  For example, players on the
     2027 free-agent list are in their contract year in 2026.
 
+    When *fa_year* is ``None`` (default), the function tries three
+    candidate years in order — ``current_year + 1``, ``current_year``,
+    ``current_year - 1`` — and returns the first result that produces
+    at least one player name.  BB-Ref may return 404 for future years
+    that haven't been published yet, so this fallback avoids a hard
+    failure.
+
     Parameters
     ----------
-    fa_year : int
-        The free-agent class year (default ``2027``).  The URL pattern is
-        ``baseball-reference.com/leagues/majors/{fa_year}-free-agents.shtml``.
+    fa_year : int or None
+        The free-agent class year.  When ``None``, auto-detects via
+        year fallback (see above).
 
     Returns
     -------
     set[str]
         Lowercased player names.  Returns an empty set on any failure
         (network error, parse error, etc.).
+    """
+    if fa_year is not None:
+        return _fetch_for_year(fa_year)
+
+    current_year = datetime.now(UTC).year
+    for year in [current_year + 1, current_year, current_year - 1]:
+        result = _fetch_for_year(year)
+        if result:
+            return result
+    logger.warning(
+        "BB-Ref free agent fetch failed for all candidate years (%d-%d)",
+        current_year - 1,
+        current_year + 1,
+    )
+    return set()
+
+
+def _fetch_for_year(fa_year: int) -> set[str]:
+    """Fetch the BB-Ref free agent page for a single year.
+
+    Returns
+    -------
+    set[str]
+        Lowercased player names, or an empty set on any failure.
     """
     url = _BBREF_FA_URL.format(fa_year=fa_year)
     try:

@@ -36,8 +36,9 @@ class BootstrapProgress:
     pct: float = 0.0
 
 
-# FanGraphs 2024 park factors (publicly known, updated annually)
-# Values > 1.0 = hitter-friendly, < 1.0 = pitcher-friendly
+# FanGraphs 2024 park factors (hitting) — update annually with new FG data.
+# Values > 1.0 = hitter-friendly, < 1.0 = pitcher-friendly.
+# OAK updated for 2025+ Sacramento Sutter Health Park (hot/dry, MiLB data suggests slightly hitter-friendly).
 PARK_FACTORS: dict[str, float] = {
     "ARI": 1.06,
     "ATL": 1.01,
@@ -58,7 +59,7 @@ PARK_FACTORS: dict[str, float] = {
     "MIN": 1.03,
     "NYM": 0.95,
     "NYY": 1.05,
-    "OAK": 0.96,
+    "OAK": 1.02,
     "PHI": 1.03,
     "PIT": 0.94,
     "SD": 0.93,
@@ -144,10 +145,12 @@ def _bootstrap_historical(progress: BootstrapProgress) -> tuple[str, dict | None
     from src.database import update_refresh_log
     from src.live_stats import fetch_historical_stats, save_season_stats_to_db
 
+    current_year = datetime.now(UTC).year
+    seasons = [current_year - 3, current_year - 2, current_year - 1]
     progress.phase = "Historical"
-    progress.detail = "Fetching 2023-2025 stats..."
+    progress.detail = f"Fetching {seasons[0]}-{seasons[-1]} stats..."
     try:
-        historical = fetch_historical_stats(seasons=[2023, 2024, 2025])
+        historical = fetch_historical_stats(seasons=seasons)
         total = 0
         for year, df in historical.items():
             count = save_season_stats_to_db(df, season=year)
@@ -165,11 +168,13 @@ def _bootstrap_injury_data(progress: BootstrapProgress, historical: dict | None 
     from src.database import update_refresh_log, upsert_injury_history_bulk
     from src.live_stats import fetch_historical_stats, fetch_injury_data_bulk, match_player_id
 
+    current_year = datetime.now(UTC).year
+    seasons = [current_year - 3, current_year - 2, current_year - 1]
     progress.phase = "Injury Data"
     progress.detail = "Processing injury history..."
     try:
         if historical is None:
-            historical = fetch_historical_stats(seasons=[2023, 2024, 2025])
+            historical = fetch_historical_stats(seasons=seasons)
         raw_records = fetch_injury_data_bulk(historical)
 
         db_records = []
@@ -202,7 +207,15 @@ def _bootstrap_park_factors(progress: BootstrapProgress) -> str:
     progress.phase = "Park Factors"
     progress.detail = "Loading park factors..."
     try:
-        factors = [{"team_code": t, "factor_hitting": pf, "factor_pitching": pf} for t, pf in PARK_FACTORS.items()]
+        # Pitching PF is typically ~85% of the hitting PF deviation from 1.0
+        factors = [
+            {
+                "team_code": t,
+                "factor_hitting": pf,
+                "factor_pitching": 1.0 + (pf - 1.0) * 0.85,
+            }
+            for t, pf in PARK_FACTORS.items()
+        ]
         count = upsert_park_factors(factors)
         update_refresh_log("park_factors", "success")
         return f"Saved {count} park factors"
@@ -374,9 +387,10 @@ def _store_external_adp(df, name_col: str, adp_col: str, source: str) -> int:
                 continue
 
             player_id = result[0]
+            col_name = "nfbc_adp" if source == "nfbc" else "fantasypros_adp"
             cursor.execute(
-                """INSERT INTO adp (player_id, fantasypros_adp, adp) VALUES (?, ?, ?)
-                   ON CONFLICT(player_id) DO UPDATE SET fantasypros_adp = ?, adp = min(adp, ?)""",
+                f"""INSERT INTO adp (player_id, {col_name}, adp) VALUES (?, ?, ?)
+                   ON CONFLICT(player_id) DO UPDATE SET {col_name} = ?, adp = min(adp, ?)""",
                 (player_id, adp_val, adp_val, adp_val, adp_val),
             )
             count += 1
@@ -756,7 +770,7 @@ def bootstrap_all_data(
 
     # Phase 11: News/transactions
     _notify(0.95)
-    if force or check_staleness("news", 6):
+    if force or check_staleness("news", staleness.news_hours if staleness else 1):
         results["news"] = _bootstrap_news(progress)
     else:
         results["news"] = "Fresh"

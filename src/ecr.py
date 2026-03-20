@@ -381,7 +381,7 @@ def blend_ecr_with_projections(
     """
     df = valued_pool.copy()
     df["ecr_rank"] = None
-    df["blended_rank"] = df.index + 1  # Default to projection order
+    df["blended_rank"] = range(1, len(df) + 1)  # Default to projection order
     df["ecr_badge"] = None
 
     if consensus_df.empty:
@@ -401,7 +401,7 @@ def blend_ecr_with_projections(
 
     # Convert columns to proper types
     df["ecr_rank"] = pd.array([None] * len(df), dtype=pd.Int64Dtype())
-    df["blended_rank"] = (df.index + 1).astype(float)
+    df["blended_rank"] = [float(i) for i in range(1, len(df) + 1)]
 
     pool_name_col = "player_name" if "player_name" in df.columns else "name"
     for pos_rank, (idx, row) in enumerate(df.iterrows(), start=1):
@@ -670,26 +670,22 @@ def fetch_prospect_rankings(top_n: int = 100) -> pd.DataFrame:
     Falls back to empty DataFrame on error.
     """
     prospects = [
-        {"rank": 1, "name": "Roki Sasaki", "team": "LAD", "position": "SP", "eta": "2025", "fv": 80},
-        {"rank": 2, "name": "Roman Anthony", "team": "BOS", "position": "OF", "eta": "2025", "fv": 70},
-        {"rank": 3, "name": "Travis Bazzana", "team": "CLE", "position": "2B", "eta": "2026", "fv": 65},
-        {"rank": 4, "name": "Charlie Condon", "team": "COL", "position": "3B", "eta": "2027", "fv": 65},
-        {"rank": 5, "name": "Jac Caglianone", "team": "KC", "position": "1B/SP", "eta": "2027", "fv": 65},
-        {"rank": 6, "name": "Sebastian Walcott", "team": "TEX", "position": "SS", "eta": "2027", "fv": 65},
-        {"rank": 7, "name": "Kristian Campbell", "team": "BOS", "position": "SS", "eta": "2026", "fv": 60},
-        {"rank": 8, "name": "Marcelo Mayer", "team": "BOS", "position": "SS", "eta": "2026", "fv": 60},
-        {"rank": 9, "name": "JJ Wetherholt", "team": "PIT", "position": "2B", "eta": "2026", "fv": 60},
-        {"rank": 10, "name": "Coby Mayo", "team": "BAL", "position": "3B", "eta": "2025", "fv": 55},
-        {"rank": 11, "name": "Nick Kurtz", "team": "OAK", "position": "1B", "eta": "2027", "fv": 60},
-        {"rank": 12, "name": "James Wood", "team": "WSH", "position": "OF", "eta": "2025", "fv": 55},
-        {"rank": 13, "name": "Bubba Chandler", "team": "PIT", "position": "SS/SP", "eta": "2026", "fv": 60},
-        {"rank": 14, "name": "Chase Burns", "team": "CIN", "position": "SP", "eta": "2026", "fv": 60},
-        {"rank": 15, "name": "Tink Hence", "team": "STL", "position": "SP", "eta": "2026", "fv": 55},
-        {"rank": 16, "name": "Samuel Basallo", "team": "BAL", "position": "C", "eta": "2026", "fv": 55},
-        {"rank": 17, "name": "Braden Montgomery", "team": "BOS", "position": "OF", "eta": "2027", "fv": 60},
-        {"rank": 18, "name": "Leodalis De Vries", "team": "TEX", "position": "SS", "eta": "2028", "fv": 60},
-        {"rank": 19, "name": "Colt Emerson", "team": "CLE", "position": "SS", "eta": "2028", "fv": 60},
-        {"rank": 20, "name": "Ethan Salas", "team": "SD", "position": "C", "eta": "2026", "fv": 55},
+        {"rank": 1, "name": "Travis Bazzana", "team": "CLE", "position": "2B", "eta": "2026", "fv": 65},
+        {"rank": 2, "name": "Charlie Condon", "team": "COL", "position": "3B", "eta": "2027", "fv": 65},
+        {"rank": 3, "name": "Jac Caglianone", "team": "KC", "position": "1B/SP", "eta": "2027", "fv": 65},
+        {"rank": 4, "name": "Sebastian Walcott", "team": "TEX", "position": "SS", "eta": "2027", "fv": 65},
+        {"rank": 5, "name": "Kristian Campbell", "team": "BOS", "position": "SS", "eta": "2026", "fv": 60},
+        {"rank": 6, "name": "Marcelo Mayer", "team": "BOS", "position": "SS", "eta": "2026", "fv": 60},
+        {"rank": 7, "name": "JJ Wetherholt", "team": "PIT", "position": "2B", "eta": "2026", "fv": 60},
+        {"rank": 8, "name": "Nick Kurtz", "team": "OAK", "position": "1B", "eta": "2027", "fv": 60},
+        {"rank": 9, "name": "Bubba Chandler", "team": "PIT", "position": "SS/SP", "eta": "2026", "fv": 60},
+        {"rank": 10, "name": "Chase Burns", "team": "CIN", "position": "SP", "eta": "2026", "fv": 60},
+        {"rank": 11, "name": "Tink Hence", "team": "STL", "position": "SP", "eta": "2026", "fv": 55},
+        {"rank": 12, "name": "Samuel Basallo", "team": "BAL", "position": "C", "eta": "2026", "fv": 55},
+        {"rank": 13, "name": "Braden Montgomery", "team": "BOS", "position": "OF", "eta": "2027", "fv": 60},
+        {"rank": 14, "name": "Leodalis De Vries", "team": "TEX", "position": "SS", "eta": "2028", "fv": 60},
+        {"rank": 15, "name": "Colt Emerson", "team": "CLE", "position": "SS", "eta": "2028", "fv": 60},
+        {"rank": 16, "name": "Ethan Salas", "team": "SD", "position": "C", "eta": "2026", "fv": 55},
     ]
     df = pd.DataFrame(prospects[: min(top_n, len(prospects))])
     return df
@@ -878,9 +874,9 @@ def refresh_ecr_consensus(force: bool = False) -> pd.DataFrame:
     stored = _store_consensus(result_df)
     # Log refresh so check_staleness("ecr_consensus", 24) works correctly
     try:
-        from src.database import log_refresh
+        from src.database import update_refresh_log
 
-        log_refresh("ecr_consensus", "success")
+        update_refresh_log("ecr_consensus", "success")
     except Exception:
         logger.debug("Failed to log ecr_consensus refresh", exc_info=True)
     logger.info("ECR consensus: %d players stored from %d sources", stored, len(sources))

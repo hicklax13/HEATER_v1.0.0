@@ -51,7 +51,7 @@ def _roster_category_totals(roster_ids: list, player_pool: pd.DataFrame) -> dict
         totals["hbp"] += int(p.get("hbp", 0) or 0)
         totals["sf"] += int(p.get("sf", 0) or 0)
         totals["ip"] += float(p.get("ip", 0) or 0)
-        totals["er"] += int(p.get("er", 0) or 0)
+        totals["er"] += float(p.get("er", 0) or 0)
         totals["bb_allowed"] += int(p.get("bb_allowed", 0) or 0)
         totals["h_allowed"] += int(p.get("h_allowed", 0) or 0)
 

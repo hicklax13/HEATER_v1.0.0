@@ -299,53 +299,111 @@ def _store_projections(projections: dict[str, pd.DataFrame]) -> int:
                     is_hitter,
                 )
 
+                # Check if a row already exists for this (player_id, system)
+                # — handles two-way players (e.g. Ohtani) appearing in both bat and pit
+                cursor.execute(
+                    "SELECT id FROM projections WHERE player_id = ? AND system = ?",
+                    (player_id, db_system),
+                )
+                existing_row = cursor.fetchone()
+
                 if is_hitter:
-                    cursor.execute(
-                        """INSERT INTO projections
-                           (player_id, system, pa, ab, h, r, hr, rbi, sb, avg,
-                            obp, bb, hbp, sf)
-                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                        (
-                            player_id,
-                            db_system,
-                            int(row.get("pa", 0)),
-                            int(row.get("ab", 0)),
-                            int(row.get("h", 0)),
-                            int(row.get("r", 0)),
-                            int(row.get("hr", 0)),
-                            int(row.get("rbi", 0)),
-                            int(row.get("sb", 0)),
-                            float(row.get("avg", 0)),
-                            float(row.get("obp", 0)),
-                            int(row.get("bb", 0)),
-                            int(row.get("hbp", 0)),
-                            int(row.get("sf", 0)),
-                        ),
-                    )
+                    if existing_row:
+                        # Merge hitting stats into existing pitching row
+                        cursor.execute(
+                            """UPDATE projections
+                               SET pa = ?, ab = ?, h = ?, r = ?, hr = ?, rbi = ?,
+                                   sb = ?, avg = ?, obp = ?, bb = ?, hbp = ?, sf = ?
+                               WHERE id = ?""",
+                            (
+                                int(row.get("pa", 0)),
+                                int(row.get("ab", 0)),
+                                int(row.get("h", 0)),
+                                int(row.get("r", 0)),
+                                int(row.get("hr", 0)),
+                                int(row.get("rbi", 0)),
+                                int(row.get("sb", 0)),
+                                float(row.get("avg", 0)),
+                                float(row.get("obp", 0)),
+                                int(row.get("bb", 0)),
+                                int(row.get("hbp", 0)),
+                                int(row.get("sf", 0)),
+                                existing_row[0],
+                            ),
+                        )
+                    else:
+                        cursor.execute(
+                            """INSERT INTO projections
+                               (player_id, system, pa, ab, h, r, hr, rbi, sb, avg,
+                                obp, bb, hbp, sf)
+                               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                            (
+                                player_id,
+                                db_system,
+                                int(row.get("pa", 0)),
+                                int(row.get("ab", 0)),
+                                int(row.get("h", 0)),
+                                int(row.get("r", 0)),
+                                int(row.get("hr", 0)),
+                                int(row.get("rbi", 0)),
+                                int(row.get("sb", 0)),
+                                float(row.get("avg", 0)),
+                                float(row.get("obp", 0)),
+                                int(row.get("bb", 0)),
+                                int(row.get("hbp", 0)),
+                                int(row.get("sf", 0)),
+                            ),
+                        )
                 else:
-                    cursor.execute(
-                        """INSERT INTO projections
-                           (player_id, system, ip, w, l, sv, k, era, whip, er,
-                            bb_allowed, h_allowed, fip, xfip, siera)
-                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                        (
-                            player_id,
-                            db_system,
-                            float(row.get("ip", 0)),
-                            int(row.get("w", 0)),
-                            int(row.get("l", 0)),
-                            int(row.get("sv", 0)),
-                            int(row.get("k", 0)),
-                            float(row.get("era", 0)),
-                            float(row.get("whip", 0)),
-                            int(row.get("er", 0)),
-                            int(row.get("bb_allowed", 0)),
-                            int(row.get("h_allowed", 0)),
-                            float(row.get("fip", 0)),
-                            float(row.get("xfip", 0)),
-                            float(row.get("siera", 0)),
-                        ),
-                    )
+                    if existing_row:
+                        # Merge pitching stats into existing hitting row
+                        cursor.execute(
+                            """UPDATE projections
+                               SET ip = ?, w = ?, l = ?, sv = ?, k = ?, era = ?,
+                                   whip = ?, er = ?, bb_allowed = ?, h_allowed = ?,
+                                   fip = ?, xfip = ?, siera = ?
+                               WHERE id = ?""",
+                            (
+                                float(row.get("ip", 0)),
+                                int(row.get("w", 0)),
+                                int(row.get("l", 0)),
+                                int(row.get("sv", 0)),
+                                int(row.get("k", 0)),
+                                float(row.get("era", 0)),
+                                float(row.get("whip", 0)),
+                                int(row.get("er", 0)),
+                                int(row.get("bb_allowed", 0)),
+                                int(row.get("h_allowed", 0)),
+                                float(row.get("fip", 0)),
+                                float(row.get("xfip", 0)),
+                                float(row.get("siera", 0)),
+                                existing_row[0],
+                            ),
+                        )
+                    else:
+                        cursor.execute(
+                            """INSERT INTO projections
+                               (player_id, system, ip, w, l, sv, k, era, whip, er,
+                                bb_allowed, h_allowed, fip, xfip, siera)
+                               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                            (
+                                player_id,
+                                db_system,
+                                float(row.get("ip", 0)),
+                                int(row.get("w", 0)),
+                                int(row.get("l", 0)),
+                                int(row.get("sv", 0)),
+                                int(row.get("k", 0)),
+                                float(row.get("era", 0)),
+                                float(row.get("whip", 0)),
+                                int(row.get("er", 0)),
+                                int(row.get("bb_allowed", 0)),
+                                int(row.get("h_allowed", 0)),
+                                float(row.get("fip", 0)),
+                                float(row.get("xfip", 0)),
+                                float(row.get("siera", 0)),
+                            ),
+                        )
                 total += 1
 
         conn.commit()

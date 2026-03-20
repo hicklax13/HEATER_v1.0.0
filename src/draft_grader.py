@@ -92,7 +92,7 @@ def build_expected_sgp_curve(
         adp_numeric = pd.to_numeric(pool["adp"], errors="coerce")
         # Treat 0 and NaN as missing ADP
         pool["_sort"] = adp_numeric.where(adp_numeric > 0, 999)
-        pool = pool.sort_values("_sort")
+        pool = pool.sort_values(["_sort", "_sgp"], ascending=[True, False])
     else:
         pool = pool.sort_values("_sgp", ascending=False)
 

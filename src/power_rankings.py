@@ -189,44 +189,22 @@ def bootstrap_confidence_interval(
     Returns:
         (p5, p95) tuple
     """
-    stds = component_stds or {
-        "roster_quality": 0.05,
-        "category_balance": 0.08,
-        "schedule_strength": 0.06,
-        "injury_exposure": 0.04,
-        "momentum": 0.10,
-    }
-
     rng = np.random.default_rng(seed)
-    ratings = []
 
-    # Derive approximate component means from overall rating
-    # Use default midpoints as baseline, perturb each component
-    base_components = {
-        "roster_quality": 0.5,
-        "category_balance": 0.5,
-        "schedule_strength": 0.5,
-        "injury_exposure": 0.0,
-        "momentum": 1.0,
-    }
-    # Scale components so they produce the given team_rating
-    base_rating = compute_power_rating(**base_components)
-    if base_rating > 0:
-        scale_factor = team_rating / base_rating
+    # Compute combined uncertainty from component stds if provided,
+    # otherwise use a default proportional to the rating
+    if component_stds:
+        stds = component_stds
+        # Combine component uncertainties weighted by their WEIGHTS
+        combined_var = sum((WEIGHTS.get(k, 0.1) * stds.get(k, 0.05)) ** 2 for k in WEIGHTS)
+        rating_std = max(0.5, 100.0 * (combined_var**0.5))
     else:
-        scale_factor = 1.0
+        rating_std = max(1.0, team_rating * 0.1)
 
+    # Perturb the final rating directly
+    ratings = []
     for _ in range(n_bootstrap):
-        rq = max(0, min(1, base_components["roster_quality"] * scale_factor + rng.normal(0, stds["roster_quality"])))
-        cb = max(
-            0, min(1, base_components["category_balance"] * scale_factor + rng.normal(0, stds["category_balance"]))
-        )
-        ss = max(
-            0, min(1, base_components["schedule_strength"] * scale_factor + rng.normal(0, stds["schedule_strength"]))
-        )
-        ie = max(0, min(1, base_components["injury_exposure"] * scale_factor + rng.normal(0, stds["injury_exposure"])))
-        mo = max(0.5, min(2.0, base_components["momentum"] + rng.normal(0, stds["momentum"])))
-        perturbed = compute_power_rating(rq, cb, ss, ie, mo)
+        perturbed = rng.normal(team_rating, rating_std)
         ratings.append(max(0, min(100, perturbed)))
 
     return round(float(np.percentile(ratings, 5)), 1), round(float(np.percentile(ratings, 95)), 1)

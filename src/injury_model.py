@@ -231,7 +231,7 @@ def apply_injury_adjustment(
 
     # Drop helper columns.
     adj.drop(
-        columns=["health_score", "age_risk_mult", "_combined_factor"],
+        columns=["age_risk_mult", "_combined_factor"],
         inplace=True,
         errors="ignore",
     )

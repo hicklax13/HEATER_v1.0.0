@@ -641,6 +641,7 @@ def evaluate_trade(
         player_pool=player_pool,
         sgp_calc=sgp_calc,
         cat_analysis=cat_analysis,
+        category_impact=category_impact,
     )
 
     # Phase 4 risk flags: concentration risk
@@ -798,6 +799,7 @@ def _compute_risk_flags(
     player_pool: pd.DataFrame,
     sgp_calc: SGPCalculator,
     cat_analysis: dict[str, dict],
+    category_impact: dict[str, float] | None = None,
 ) -> list[str]:
     """Generate risk flag warnings for the trade.
 
@@ -813,6 +815,9 @@ def _compute_risk_flags(
         player_pool: Full player pool.
         sgp_calc: SGP calculator instance.
         cat_analysis: Category gap analysis results.
+        category_impact: Per-category SGP change from the trade.  When
+            provided, weak-category warnings are only emitted for categories
+            where the trade actually hurts (negative impact).
 
     Returns:
         List of risk flag warning strings.
@@ -839,10 +844,10 @@ def _compute_risk_flags(
     if cat_analysis:
         for cat, info in cat_analysis.items():
             if info["rank"] >= 8 and not info["is_punt"]:
-                # This is a weak but non-punt category — flag if trade makes it worse
-                flags.append(
-                    f"Caution: Ranked {info['rank']}th in {cat} — verify this trade doesn't hurt this category"
-                )
+                # Only flag if the trade actually hurts this category
+                if category_impact and category_impact.get(cat, 0) >= 0:
+                    continue  # trade doesn't hurt this category
+                flags.append(f"Caution: Ranked {info['rank']}th in {cat} — this trade hurts an already weak category")
 
     return flags
 
@@ -915,6 +920,12 @@ def _compute_replacement_penalty(
         # Skip rate stats — roster-aggregate, replacement concept doesn't apply
         if cat not in COUNTING_CATEGORIES:
             detail[cat] = {"skipped": "rate_stat"}
+            continue
+
+        # Skip L — it's an inverse counting stat.  Losing L production
+        # (fewer losses) is *good*, so penalizing the "loss" is wrong.
+        if cat == "L":
+            detail[cat] = {"skipped": "inverse_counting_stat"}
             continue
 
         # Skip punted categories — no penalty for strategic abandonment

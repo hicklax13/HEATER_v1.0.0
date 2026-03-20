@@ -239,6 +239,12 @@ def generate_stat_scenarios(
                     mu = stats[i, local_j]
                     sigma = std_matrix[i, local_j]
                     scenarios[:, i, local_j] = norm.ppf(u[:, copula_j], loc=mu, scale=sigma)
+            # Clip non-negative counting stats to >= 0 (same as Cholesky path)
+            _NON_NEG_COPULA: set[str] = {"r", "hr", "rbi", "sb", "w", "sv", "k"}
+            for j, cat in enumerate(ALL_CATS):
+                if cat in _NON_NEG_COPULA:
+                    scenarios[:, :, j] = np.maximum(0, scenarios[:, :, j])
+
             logger.debug(
                 "Generated %d scenarios with GaussianCopula for %d players",
                 n_scenarios,

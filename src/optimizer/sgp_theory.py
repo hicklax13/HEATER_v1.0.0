@@ -156,16 +156,45 @@ def compute_nonlinear_weights(
             is_inverse=(cat in INVERSE_CATS),
         )
 
-    # Normalise so mean weight = 1.0, cap at 3.0
+    # Normalise so mean weight = 1.0, cap at 3.0, then re-normalize
     vals = list(raw_weights.values())
     mean_w = np.mean(vals) if vals else 1.0
     if mean_w <= 0:
         return equal
 
-    weights = {}
-    for cat in ALL_CATS:
-        w = raw_weights.get(cat, 1.0) / mean_w
-        weights[cat] = min(w, 3.0)
+    weights = {cat: raw_weights.get(cat, 1.0) / mean_w for cat in ALL_CATS}
+
+    # Iteratively cap and re-normalize: capping pulls down the mean,
+    # so uncapped weights must be rescaled.  Repeat until stable.
+    cap = 3.0
+    for _ in range(10):
+        capped_cats = {c for c, v in weights.items() if v >= cap}
+        uncapped_cats = [c for c in weights if c not in capped_cats]
+        if not capped_cats or not uncapped_cats:
+            break
+        n = len(weights)
+        capped_total = cap * len(capped_cats)
+        target_uncapped = n - capped_total  # uncapped must sum to this for mean=1
+        uncapped_total = sum(weights[c] for c in uncapped_cats)
+        if uncapped_total <= 0:
+            break
+        scale = target_uncapped / uncapped_total
+        new_weights = {}
+        changed = False
+        for c in ALL_CATS:
+            if c in capped_cats:
+                new_weights[c] = cap
+            else:
+                new_weights[c] = weights[c] * scale
+                if new_weights[c] > cap:
+                    changed = True
+        weights = new_weights
+        if not changed:
+            break
+
+    # Final hard cap (safety) and clamp negatives
+    for cat in weights:
+        weights[cat] = min(max(weights[cat], 0.0), cap)
 
     return weights
 

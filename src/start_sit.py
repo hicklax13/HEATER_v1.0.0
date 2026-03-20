@@ -206,8 +206,14 @@ def compute_weekly_projection(
         season_games = max(pa / 4.3, 1) if pa > 0 else 140
     else:
         ip = season_totals.get("ip", 0)
-        # SP: ~6 IP/start, ~32 starts; RP: ~1 IP/app, ~65 apps
-        season_games = max(ip / 5.5, 1) if ip > 0 else 30
+        sv = season_totals.get("sv", 0) or 0
+        gs = season_totals.get("gs", 0) or 0
+        if sv > 3 or (gs == 0 and ip > 0):
+            # Reliever: ~1 IP per appearance
+            season_games = max(ip / 1.0, 1)
+        else:
+            # Starter: ~5.5 IP per start
+            season_games = max(ip / 5.5, 1) if ip > 0 else 30
 
     # Determine number of games this week
     team = str(player.get("team", "")).upper().strip()
@@ -706,11 +712,15 @@ def _compute_start_score(
         # hitter-friendly parks materially affect pitcher rate stats.
         if cat_lower in rate_stats:
             if not is_hitter and cat_lower in inverse:
-                # For pitcher inverse rate stats (ERA, WHIP), apply park factor.
-                # Park factor for pitchers is already inverted in
-                # _average_park_factor (2.0 - pf), so values > 1.0 mean
-                # pitcher-friendly park (good for ERA/WHIP).
-                cat_factor = matchup_factors.get("park", 1.0)
+                # For pitcher inverse rate stats (ERA, WHIP), use the
+                # non-inverted (hitter) park factor.  matchup_factors["park"]
+                # already contains the inverted value (2.0 - original_pf),
+                # so un-invert it to get the original hitter park factor.
+                # At Coors (hitter pf=1.38): inverted=0.62, un-inverted=1.38
+                # → higher ERA penalty (correct).
+                # At MIA  (hitter pf=0.88): inverted=1.12, un-inverted=0.88
+                # → lower ERA penalty (correct).
+                cat_factor = 2.0 - matchup_factors.get("park", 1.0)
             else:
                 cat_factor = 1.0
         else:
@@ -813,9 +823,9 @@ def _generate_reasoning(
 
     # Home/away reasoning
     ha = matchup_factors.get("home_away", 1.0)
-    if ha > 0.99:
+    if ha > 1.005:
         reasons.append("Majority home games this week")
-    elif ha < 0.97:
+    elif ha < 0.985:
         reasons.append("Majority away games this week")
 
     # Top category impact

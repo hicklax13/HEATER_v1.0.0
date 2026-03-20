@@ -45,6 +45,7 @@ def compute_marginal_sgp(
     your_totals: dict[str, float],
     all_team_totals: dict[str, dict[str, float]],
     categories: list[str] | None = None,
+    your_team_name: str | None = None,
 ) -> dict[str, float]:
     """Compute marginal SGP: dE[standings_points] / d(your_stat).
 
@@ -60,6 +61,7 @@ def compute_marginal_sgp(
         all_team_totals: Dict mapping team_id/name -> category totals.
             Must include your team.
         categories: Which categories to compute. Defaults to all 10.
+        your_team_name: If provided, exclude this team from the opponent list.
 
     Returns:
         Dict mapping category -> marginal SGP value (float).
@@ -67,11 +69,16 @@ def compute_marginal_sgp(
     if categories is None:
         categories = CATEGORIES
 
+    # Exclude user's own team from opponent totals to avoid comparing against self
+    opponent_totals = (
+        {k: v for k, v in all_team_totals.items() if k != your_team_name} if your_team_name else all_team_totals
+    )
+
     marginal: dict[str, float] = {}
 
     for cat in categories:
         # Use .get() to gracefully handle teams missing this category
-        totals_sorted = sorted([team_totals.get(cat, 0.0) for team_totals in all_team_totals.values()])
+        totals_sorted = sorted([team_totals.get(cat, 0.0) for team_totals in opponent_totals.values()])
         your_val = your_totals.get(cat, 0.0)
 
         if cat in INVERSE_CATEGORIES:
@@ -174,7 +181,9 @@ def category_gap_analysis(
         if is_punt:
             marginal_value = 0.0
         else:
-            marginal_value = compute_marginal_sgp(your_totals, all_team_totals, [cat]).get(cat, 0.0)
+            marginal_value = compute_marginal_sgp(your_totals, all_team_totals, [cat], your_team_name=your_team_id).get(
+                cat, 0.0
+            )
 
         # Gap to next rank above
         gap_to_next = 0.0

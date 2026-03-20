@@ -81,6 +81,7 @@ def detect_breakouts(
     """Detect players significantly outperforming projections.
     z = (observed - projected) / max(std, 0.01), breakout if z > threshold.
     """
+    inverse_stats = {"era", "whip"}
     check_stats = stats or ["hr", "rbi", "sb", "k", "avg"]
     results = []
     name_col = "name" if "name" in season_stats_df.columns else "player_name"
@@ -101,7 +102,11 @@ def detect_breakouts(
             # Use 15% of projected as rough std, with stat-aware minimum
             min_std = 0.5 if stat in ("hr", "sb", "w", "sv") else 0.01 if stat in ("avg", "obp", "era", "whip") else 1.0
             std = max(min_std, abs(proj) * 0.15)
-            z = (obs - proj) / std
+            # For inverse stats (ERA, WHIP), lower observed is better
+            if stat in inverse_stats:
+                z = (proj - obs) / std
+            else:
+                z = (obs - proj) / std
             if z > max_z:
                 max_z = z
                 best_stat = stat

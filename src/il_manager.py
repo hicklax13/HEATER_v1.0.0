@@ -33,7 +33,7 @@ class ILAlert:
             self.created_at = datetime.now(UTC).isoformat()
 
 
-def classify_il_type(status_string: str) -> str:
+def classify_il_type(status_string: str) -> str | None:
     """Classify IL status from raw status string."""
     s = status_string.upper().strip()
     if "IL60" in s or "60-DAY" in s:
@@ -46,7 +46,7 @@ def classify_il_type(status_string: str) -> str:
         return "DTD"
     elif "IL" in s or "DL" in s or "INJURED" in s:
         return "IL15"  # default IL
-    return "DTD"
+    return None
 
 
 def estimate_il_duration(il_type: str, position: str = "") -> float:

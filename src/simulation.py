@@ -373,7 +373,7 @@ class DraftSimulator:
                         avail_sgp = np.where(is_available, sim_sgp, -999)
                     best_idx = np.argmax(avail_sgp)
                     is_available[best_idx] = False
-                    user_sgp_total += avail_sgp[best_idx]
+                    user_sgp_total += sim_sgp[best_idx]
                 else:
                     avail_indices = np.where(is_available)[0]
                     if len(avail_indices) == 0:

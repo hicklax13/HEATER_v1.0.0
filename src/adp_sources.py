@@ -45,6 +45,16 @@ def fetch_fantasypros_ecr() -> pd.DataFrame:
     Scrapes the FantasyPros MLB overall rankings page and extracts
     player name, ECR rank, team, and position.
 
+    .. note::
+        As of 2025, FantasyPros renders its ranking tables via JavaScript
+        (React/Next.js).  A plain ``requests.get()`` receives an empty
+        shell page with no ``<table>`` elements.  To fix this properly
+        you would need either:
+        - Playwright / Selenium to render the JS first, or
+        - A FantasyPros API subscription (paid).
+        Until then this function will log a warning and return an empty
+        DataFrame, which the composite ADP logic handles gracefully.
+
     Returns:
         DataFrame with columns: player_name, ecr_rank, team, position.
         Empty DataFrame on any error.
@@ -63,7 +73,14 @@ def fetch_fantasypros_ecr() -> pd.DataFrame:
             # Fallback: try finding any table with player data
             table = soup.find("table")
         if table is None:
-            logger.warning("FantasyPros: no ranking table found in HTML")
+            # FantasyPros rankings table not found — site requires
+            # JavaScript rendering (React/Next.js).  A plain HTTP GET
+            # returns an empty shell.  Consider using Playwright or
+            # their paid API to obtain rankings.
+            logger.warning(
+                "FantasyPros rankings table not found — site requires "
+                "JavaScript rendering. Consider using Playwright or their API."
+            )
             return pd.DataFrame(columns=["player_name", "ecr_rank", "team", "position"])
 
         rows = table.find_all("tr")
@@ -138,6 +155,14 @@ def fetch_nfbc_adp() -> pd.DataFrame:
 
     Scrapes the NFBC ADP page and extracts player name and ADP value.
 
+    .. note::
+        As of 2025, the NFBC ADP page (nfc.shgn.com) renders its data
+        table via JavaScript.  A plain ``requests.get()`` receives a
+        page with no ``<table>`` elements.  To fix this properly you
+        would need Playwright / Selenium to render the JS first.
+        Until then this function will log a warning and return an empty
+        DataFrame, which the composite ADP logic handles gracefully.
+
     Returns:
         DataFrame with columns: player_name, nfbc_adp.
         Empty DataFrame on any error.
@@ -153,7 +178,13 @@ def fetch_nfbc_adp() -> pd.DataFrame:
         soup = BeautifulSoup(resp.text, "html.parser")
         table = soup.find("table")
         if table is None:
-            logger.warning("NFBC: no ADP table found in HTML")
+            # NFBC ADP table not found — nfc.shgn.com requires
+            # JavaScript rendering.  A plain HTTP GET returns a page
+            # with no data tables.  Consider using Playwright or
+            # Selenium to obtain ADP data.
+            logger.warning(
+                "NFBC ADP table not found — site requires JavaScript rendering. Consider using Playwright or Selenium."
+            )
             return pd.DataFrame(columns=["player_name", "nfbc_adp"])
 
         rows = table.find_all("tr")

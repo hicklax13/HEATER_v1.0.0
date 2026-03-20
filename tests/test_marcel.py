@@ -110,12 +110,17 @@ class TestCountingStatProjection:
             pa_values=[300.0],
             is_hitter=True,
         )
-        # Weighted avg with 1 season: 40.0 (only weight 5, but avg = 40/5 = 40? No)
-        # total_weight = 5, weighted_sum = 40*5 = 200, weighted_avg = 40
+        # Rate-normalized: rate = 40/300, weighted_rate = 40/300 (single season)
         # Reliability = 300 / (300 + 1200) = 0.2
+        # league_avg_rate = 18 / 600 = 0.03
+        # regressed_rate = 0.2 * (40/300) + 0.8 * 0.03
+        # projected = regressed_rate * 600
         reliability = 300.0 / (300.0 + REGRESSION_PA)
         league_avg = LEAGUE_AVERAGES["hr"]
-        expected = reliability * 40.0 + (1.0 - reliability) * league_avg
+        league_avg_rate = league_avg / 600.0
+        weighted_rate = 40.0 / 300.0
+        regressed_rate = reliability * weighted_rate + (1.0 - reliability) * league_avg_rate
+        expected = regressed_rate * 600.0
         assert proj == pytest.approx(expected, abs=0.01)
 
     def test_no_history_returns_league_avg(self):
@@ -137,10 +142,20 @@ class TestCountingStatProjection:
             is_hitter=True,
         )
         # Only seasons 0 and 2 are valid (weights 5 and 3)
-        weighted_avg = (25.0 * 5 + 20.0 * 3) / (5 + 3)
+        # Rate-normalized: rate0 = 25/500 = 0.05, rate2 = 20/400 = 0.05
+        # weighted_rate = (0.05*5 + 0.05*3) / 8 = 0.05
+        # Reliability = 900 / (900 + 1200) = 0.4286
+        # league_avg_rate = 18 / 600 = 0.03
+        # regressed_rate = 0.4286 * 0.05 + 0.5714 * 0.03
+        # projected = regressed_rate * 600
         reliability = 900.0 / (900.0 + REGRESSION_PA)
         league_avg = LEAGUE_AVERAGES["hr"]
-        expected = reliability * weighted_avg + (1.0 - reliability) * league_avg
+        league_avg_rate = league_avg / 600.0
+        rate0 = 25.0 / 500.0
+        rate2 = 20.0 / 400.0
+        weighted_rate = (rate0 * 5 + rate2 * 3) / (5 + 3)
+        regressed_rate = reliability * weighted_rate + (1.0 - reliability) * league_avg_rate
+        expected = regressed_rate * 600.0
         assert proj == pytest.approx(expected, abs=0.01)
 
 
