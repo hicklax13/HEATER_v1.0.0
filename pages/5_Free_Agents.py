@@ -9,21 +9,30 @@ import streamlit as st
 from src.database import init_db, load_league_rosters, load_player_pool
 from src.in_season import rank_free_agents
 from src.league_manager import get_free_agents, get_team_roster
-from src.ui_shared import METRIC_TOOLTIPS, inject_custom_css, render_styled_table
+from src.ui_shared import (
+    METRIC_TOOLTIPS,
+    inject_custom_css,
+    render_compact_table,
+    render_context_card,
+    render_context_columns,
+    render_page_layout,
+)
 from src.valuation import LeagueConfig
 
 logger = logging.getLogger(__name__)
 
-st.set_page_config(page_title="Heater | Free Agents", page_icon="", layout="wide")
+st.set_page_config(
+    page_title="Heater | Free Agents",
+    page_icon="",
+    layout="wide",
+    initial_sidebar_state="collapsed",
+)
 
 init_db()
 
 inject_custom_css()
 
-st.markdown(
-    '<div class="page-title-wrap"><div class="page-title"><span>FREE AGENT RANKINGS</span></div></div>',
-    unsafe_allow_html=True,
-)
+render_page_layout("FREE AGENTS", banner_teaser="Top free agent pickups by marginal value", banner_icon="free_agents")
 
 pool = load_player_pool()
 if pool.empty:
@@ -96,56 +105,63 @@ else:
         if fa_pool.empty:
             st.info("No free agents available (all players are rostered).")
         else:
-            # Position filter pills
-            positions = ["All", "C", "1B", "2B", "3B", "SS", "OF", "SP", "RP"]
-            pill_cols = st.columns(len(positions))
-            pos_filter = st.session_state.get("fa_pos_filter", "All")
+            ctx, main = render_context_columns()
 
-            for i, pos in enumerate(positions):
-                with pill_cols[i]:
+            # ── Context panel: position filter ───────────────────────────
+            with ctx:
+                pos_filter = st.session_state.get("fa_pos_filter", "All")
+                positions = ["All", "C", "1B", "2B", "3B", "SS", "OF", "SP", "RP"]
+                pills_html = "".join(
+                    f'<span class="ctx-pill{"--active" if pos == pos_filter else ""}">{pos}</span>' for pos in positions
+                )
+                render_context_card("Filter by Position", f'<div class="ctx-pills">{pills_html}</div>')
+
+                for pos in positions:
                     btn_type = "primary" if pos_filter == pos else "secondary"
-                    if st.button(pos, key=f"fa_pill_{pos}", type=btn_type, width="stretch"):
+                    if st.button(pos, key=f"fa_pill_{pos}", type=btn_type, use_container_width=True):
                         st.session_state.fa_pos_filter = pos
                         st.rerun()
 
-            if pos_filter != "All":
-                fa_pool = fa_pool[
-                    fa_pool["positions"].apply(lambda p: pos_filter in str(p).split(",") if pd.notna(p) else False)
-                ]
+            # ── Main content: rankings table ─────────────────────────────
+            with main:
+                if pos_filter != "All":
+                    fa_pool = fa_pool[
+                        fa_pool["positions"].apply(lambda p: pos_filter in str(p).split(",") if pd.notna(p) else False)
+                    ]
 
-            if fa_pool.empty:
-                st.info(f"No free agents at position: {pos_filter}")
-            else:
-                # Rank
-                fa_progress = st.progress(0, text="Computing marginal values for free agents...")
-                try:
-                    fa_progress.progress(20, text="Evaluating category-need weighting...")
-                    ranked = rank_free_agents(user_roster_ids, fa_pool, pool, config)
-                    fa_progress.progress(100, text="Free agent rankings complete!")
-                except Exception as e:
-                    logger.exception("Failed to rank free agents")
-                    st.error(f"Error computing free agent rankings: {e}")
-                    ranked = pd.DataFrame()
-                time.sleep(0.3)
-                fa_progress.empty()
-
-                if ranked.empty:
-                    st.info("No ranked free agents found.")
+                if fa_pool.empty:
+                    st.info(f"No free agents at position: {pos_filter}")
                 else:
-                    st.subheader(f"Top Free Agents ({len(ranked)} available)")
-                    display_df = ranked[
-                        ["player_name", "positions", "marginal_value", "best_category", "best_cat_impact"]
-                    ].copy()
-                    display_df["marginal_value"] = display_df["marginal_value"].map(lambda x: f"{x:.2f}")
-                    display_df["best_cat_impact"] = display_df["best_cat_impact"].map(lambda x: f"{x:.2f}")
-                    display_df = display_df.rename(
-                        columns={
-                            "player_name": "Player",
-                            "positions": "Position",
-                            "marginal_value": "Marginal Value",
-                            "best_category": "Best Category",
-                            "best_cat_impact": "Category Impact",
-                        }
-                    )
-                    render_styled_table(display_df)
-                    st.caption(METRIC_TOOLTIPS["marginal_value"])
+                    # Rank
+                    fa_progress = st.progress(0, text="Computing marginal values for free agents...")
+                    try:
+                        fa_progress.progress(20, text="Evaluating category-need weighting...")
+                        ranked = rank_free_agents(user_roster_ids, fa_pool, pool, config)
+                        fa_progress.progress(100, text="Free agent rankings complete!")
+                    except Exception as e:
+                        logger.exception("Failed to rank free agents")
+                        st.error(f"Error computing free agent rankings: {e}")
+                        ranked = pd.DataFrame()
+                    time.sleep(0.3)
+                    fa_progress.empty()
+
+                    if ranked.empty:
+                        st.info("No ranked free agents found.")
+                    else:
+                        st.subheader(f"Top Free Agents ({len(ranked)} available)")
+                        display_df = ranked[
+                            ["player_name", "positions", "marginal_value", "best_category", "best_cat_impact"]
+                        ].copy()
+                        display_df["marginal_value"] = display_df["marginal_value"].map(lambda x: f"{x:.2f}")
+                        display_df["best_cat_impact"] = display_df["best_cat_impact"].map(lambda x: f"{x:.2f}")
+                        display_df = display_df.rename(
+                            columns={
+                                "player_name": "Player",
+                                "positions": "Position",
+                                "marginal_value": "Marginal Value",
+                                "best_category": "Best Category",
+                                "best_cat_impact": "Category Impact",
+                            }
+                        )
+                        render_compact_table(display_df, highlight_cols=["Marginal Value", "Category Impact"])
+                        st.caption(METRIC_TOOLTIPS["marginal_value"])

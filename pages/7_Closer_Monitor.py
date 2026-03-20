@@ -8,20 +8,17 @@ import streamlit as st
 
 from src.closer_monitor import build_closer_grid
 from src.database import init_db, load_player_pool
-from src.ui_shared import inject_custom_css
+from src.ui_shared import inject_custom_css, render_page_layout
 
 logger = logging.getLogger(__name__)
 
-st.set_page_config(page_title="Heater | Closer Monitor", page_icon="", layout="wide")
+st.set_page_config(page_title="Heater | Closer Monitor", page_icon="", layout="wide", initial_sidebar_state="collapsed")
 
 init_db()
 
 inject_custom_css()
 
-st.markdown(
-    '<div class="page-title-wrap"><div class="page-title"><span>CLOSER MONITOR</span></div></div>',
-    unsafe_allow_html=True,
-)
+render_page_layout("CLOSER MONITOR", banner_teaser="30-team closer depth chart", banner_icon="closer")
 
 st.info(
     "Closer depth charts are populated from the FanGraphs depth chart data loaded at app launch. "

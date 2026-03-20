@@ -44,6 +44,8 @@ from src.ui_shared import (
     T,
     build_category_heatmap_html,
     inject_custom_css,
+    render_context_card,
+    render_page_layout,
     render_styled_table,
     sec,
 )
@@ -641,6 +643,53 @@ def _start_new_draft(pool, practice, resume):
 # ═══════════════════════════════════════════════════════════════════
 
 
+def _render_draft_controls(ds):
+    """Render draft action controls as a context card in the left column.
+
+    Replaces the st.sidebar controls block so all draft actions are visible
+    on-screen without requiring the user to open the sidebar.
+    """
+    mode_label = "Practice" if st.session_state.practice_mode else "Live"
+    mode_color = T["warn"] if st.session_state.practice_mode else T["ok"]
+    mode_html = (
+        f'<span style="display:inline-block;padding:2px 8px;border-radius:8px;'
+        f"background:{mode_color}22;color:{mode_color};font-size:11px;font-weight:700;"
+        f'letter-spacing:1px;text-transform:uppercase;">{mode_label}</span>'
+    )
+    render_context_card(
+        "Draft Controls",
+        f'<div style="margin-bottom:8px;">{mode_html}</div>',
+    )
+
+    st.session_state.practice_mode = st.toggle(
+        "Practice Mode",
+        value=st.session_state.practice_mode,
+        key="draft_practice",
+        help="Auto-picks for opponents so you can test strategies without saving",
+    )
+
+    if st.session_state.practice_mode:
+        if st.button("Reset Practice", width="stretch", key="ctrl_reset_practice"):
+            st.session_state.practice_draft_state = DraftState(
+                num_teams=ds.num_teams,
+                num_rounds=ds.num_rounds,
+                user_team_index=ds.user_team_index,
+                roster_config=ROSTER_CONFIG,
+            )
+            st.toast("Practice reset!")
+            st.rerun()
+
+    if st.button("Undo Last Pick", width="stretch", key="ctrl_undo"):
+        ds.undo_last_pick()
+        st.toast("Pick undone!")
+        st.rerun()
+
+    if not st.session_state.get("practice_mode"):
+        if st.button("Save Draft", width="stretch", key="ctrl_save"):
+            ds.save()
+            st.toast("Saved!")
+
+
 def render_draft_page():
     ds = st.session_state.draft_state
     pool = st.session_state.player_pool
@@ -753,41 +802,8 @@ def render_draft_page():
             pass  # Consensus data unavailable — proceed without it
         st.session_state.consensus_loaded = True
 
-    # ── Sidebar ──────────────────────────────────────────────────
+    # ── Sidebar (minimal — Back to Setup only) ───────────────────
     with st.sidebar:
-        st.markdown(
-            f'<div style="font-family:Bebas Neue,sans-serif;font-weight:700;font-size:18px;'
-            f'color:{T["amber"]};text-transform:uppercase;letter-spacing:2px;margin-bottom:12px;">'
-            f"Controls</div>",
-            unsafe_allow_html=True,
-        )
-
-        st.session_state.practice_mode = st.toggle(
-            "Practice Mode", value=st.session_state.practice_mode, key="draft_practice"
-        )
-
-        if st.session_state.practice_mode:
-            if st.button("Reset Practice", width="stretch"):
-                st.session_state.practice_draft_state = DraftState(
-                    num_teams=ds.num_teams,
-                    num_rounds=ds.num_rounds,
-                    user_team_index=ds.user_team_index,
-                    roster_config=ROSTER_CONFIG,
-                )
-                st.toast("Practice reset!")
-                st.rerun()
-
-        if st.button("Undo Last Pick", width="stretch"):
-            ds.undo_last_pick()
-            st.toast("Pick undone!")
-            st.rerun()
-
-        if not st.session_state.get("practice_mode"):
-            if st.button("Save Draft", width="stretch"):
-                path = ds.save()
-                st.toast("Saved!")
-
-        st.markdown("---")
         if st.button("← Back to Setup", width="stretch"):
             st.session_state.page = "setup"
             st.rerun()
@@ -818,6 +834,22 @@ def render_draft_page():
     if st.session_state.practice_mode and not ds.is_user_turn:
         _auto_pick_opponent(ds, pool, sgp, lc)
         st.rerun()
+
+    # ── Page title + pick-status banner ──────────────────────────
+    if ds.is_user_turn:
+        _banner_teaser = f"Round {ds.current_round}, Pick {ds.pick_in_round} — Your Turn"
+        _banner_icon = "zap"
+    else:
+        _team_idx = ds.picking_team_index()
+        _team_name = ds.teams[_team_idx].team_name
+        _picks_away = ds.picks_until_user_turn()
+        _banner_teaser = f"Round {ds.current_round}, Pick {ds.pick_in_round} — {_team_name} is on the clock ({_picks_away} picks until your turn)"
+        _banner_icon = "warning"
+    render_page_layout(
+        "Draft",
+        banner_teaser=_banner_teaser,
+        banner_icon=_banner_icon,
+    )
 
     # ── Command Bar ──────────────────────────────────────────────
     render_command_bar(ds)
@@ -969,6 +1001,9 @@ def render_draft_page():
     left, center, right = st.columns([1.2, 3, 1.3])
 
     with left:
+        # Draft controls context panel (replaces sidebar controls)
+        _render_draft_controls(ds)
+
         render_roster_panel(ds, pool)
         render_scarcity_rings(ds, pool)
 

@@ -9,7 +9,15 @@ from src.database import coerce_numeric_df, init_db, load_league_rosters, load_p
 from src.injury_model import compute_health_score, get_injury_badge
 from src.league_manager import get_team_roster
 from src.live_stats import refresh_all_stats
-from src.ui_shared import METRIC_TOOLTIPS, PAGE_ICONS, THEME, inject_custom_css, render_styled_table
+from src.ui_shared import (
+    PAGE_ICONS,
+    THEME,
+    inject_custom_css,
+    render_compact_table,
+    render_context_card,
+    render_context_columns,
+    render_page_layout,
+)
 
 try:
     from src.bayesian import BayesianUpdater
@@ -296,15 +304,11 @@ def _render_news_tab(roster: "pd.DataFrame") -> None:
         st.markdown(card_html, unsafe_allow_html=True)
 
 
-st.set_page_config(page_title="Heater | My Team", page_icon="", layout="wide")
+st.set_page_config(page_title="Heater | My Team", page_icon="", layout="wide", initial_sidebar_state="collapsed")
 
 init_db()
 
 inject_custom_css()
-
-st.markdown(
-    '<div class="page-title-wrap"><div class="page-title"><span>MY TEAM</span></div></div>', unsafe_allow_html=True
-)
 
 # Determine user team
 rosters = load_league_rosters()
@@ -461,107 +465,167 @@ else:
                         badges.append("Low Risk")
                 roster["Health"] = badges
 
-            # -- Tab layout: Roster Overview + News and Alerts --
-            tab_roster, tab_news = st.tabs(["Roster Overview", "News and Alerts"])
+            # -- Compute category totals for context panel --
+            # Coerce numeric columns (Python 3.13+ SQLite may return bytes)
+            num_cols = [
+                "r",
+                "hr",
+                "rbi",
+                "sb",
+                "ab",
+                "h",
+                "bb",
+                "hbp",
+                "sf",
+                "w",
+                "l",
+                "sv",
+                "k",
+                "ip",
+                "er",
+                "bb_allowed",
+                "h_allowed",
+            ]
+            for c in num_cols:
+                if c in roster.columns:
+                    roster[c] = pd.to_numeric(roster[c], errors="coerce").fillna(0)
+            hitters = roster[roster["is_hitter"] == 1]
+            pitchers = roster[roster["is_hitter"] == 0]
 
-            with tab_roster:
-                # Display roster
-                st.subheader("Roster (2026 Season)")
-                display_cols = ["name", "positions", "roster_slot", "Health"]
+            hit_stats = {}
+            if not hitters.empty:
+                for cat, col in [("R", "r"), ("HR", "hr"), ("RBI", "rbi"), ("SB", "sb")]:
+                    hit_stats[cat] = int(hitters[col].sum()) if col in hitters.columns else 0
+                ab = hitters["ab"].sum() if "ab" in hitters.columns else 0
+                h = hitters["h"].sum() if "h" in hitters.columns else 0
+                hit_stats["AVG"] = f"{h / ab:.3f}" if ab > 0 else ".000"
+                hit_h = hitters["h"].sum() if "h" in hitters.columns else 0
+                hit_bb = hitters["bb"].sum() if "bb" in hitters.columns else 0
+                hit_hbp = hitters["hbp"].sum() if "hbp" in hitters.columns else 0
+                hit_sf = hitters["sf"].sum() if "sf" in hitters.columns else 0
+                hit_ab = hitters["ab"].sum() if "ab" in hitters.columns else 0
+                obp_denom = hit_ab + hit_bb + hit_hbp + hit_sf
+                hit_stats["OBP"] = f"{(hit_h + hit_bb + hit_hbp) / obp_denom:.3f}" if obp_denom > 0 else ".000"
+
+            pitch_stats = {}
+            if not pitchers.empty:
+                for cat, col in [("W", "w"), ("L", "l"), ("SV", "sv"), ("K", "k")]:
+                    pitch_stats[cat] = int(pitchers[col].sum()) if col in pitchers.columns else 0
+                ip = pitchers["ip"].sum() if "ip" in pitchers.columns else 0
+                er = pitchers["er"].sum() if "er" in pitchers.columns else 0
+                bb = pitchers["bb_allowed"].sum() if "bb_allowed" in pitchers.columns else 0
+                ha = pitchers["h_allowed"].sum() if "h_allowed" in pitchers.columns else 0
+                pitch_stats["ERA"] = f"{er * 9 / ip:.2f}" if ip > 0 else "0.00"
+                pitch_stats["WHIP"] = f"{(bb + ha) / ip:.3f}" if ip > 0 else "0.000"
+
+            # -- IL alerts --
+            il_players = []
+            if "Health" in roster.columns:
+                for _, row in roster.iterrows():
+                    health = row.get("Health", "")
+                    if health in ("IL", "IL-60", "Out", "Day-to-Day"):
+                        il_players.append({"name": row.get("name", "Unknown"), "status": health})
+
+            # -- Banner teaser --
+            n_hitters = len(hitters)
+            n_pitchers = len(pitchers)
+            n_total = len(roster)
+            banner_teaser = f"Roster: {n_total} players | {n_hitters} hitters, {n_pitchers} pitchers"
+            if il_players:
+                banner_teaser += f" | {len(il_players)} on IL/DTD"
+
+            render_page_layout("MY TEAM", banner_teaser=banner_teaser, banner_icon="my_team")
+
+            # -- 3-Zone Layout --
+            ctx, main = render_context_columns()
+
+            # -- Context Panel (left) --
+            with ctx:
+                # Category totals card — Hitting
+                if hit_stats:
+                    hit_html = "".join(
+                        f'<div style="display:flex;justify-content:space-between;'
+                        f'padding:2px 0;font-size:12px;font-family:IBM Plex Mono,monospace;">'
+                        f'<span style="color:{T["tx2"]};">{k}</span>'
+                        f'<span style="font-weight:600;color:{T["tx"]};">{v}</span></div>'
+                        for k, v in hit_stats.items()
+                    )
+                    render_context_card("Hitting Totals", hit_html)
+
+                # Category totals card — Pitching
+                if pitch_stats:
+                    pitch_html = "".join(
+                        f'<div style="display:flex;justify-content:space-between;'
+                        f'padding:2px 0;font-size:12px;font-family:IBM Plex Mono,monospace;">'
+                        f'<span style="color:{T["tx2"]};">{k}</span>'
+                        f'<span style="font-weight:600;color:{T["tx"]};">{v}</span></div>'
+                        for k, v in pitch_stats.items()
+                    )
+                    render_context_card("Pitching Totals", pitch_html)
+
+                # IL alerts card
+                if il_players:
+                    il_html = "".join(
+                        f'<div style="padding:2px 0;font-size:12px;">'
+                        f'<span class="health-dot" style="background:{T["danger"]};"></span>'
+                        f'<span style="font-weight:600;">{p["name"]}</span> '
+                        f'<span style="color:{T["tx2"]};">({p["status"]})</span></div>'
+                        for p in il_players
+                    )
+                    render_context_card("Injured List Alerts", il_html)
+
+            # -- Main Content (right) --
+            with main:
+                # Full roster as compact table
+                display_cols = ["name", "positions", "roster_slot"]
+                # Add stat columns that exist
+                stat_cols_ordered = ["R", "HR", "RBI", "SB", "AVG", "OBP", "W", "L", "SV", "K", "ERA", "WHIP"]
+                for sc in stat_cols_ordered:
+                    lc = sc.lower()
+                    if lc in roster.columns:
+                        display_cols.append(lc)
+                if "Health" in roster.columns:
+                    display_cols.append("Health")
                 available_cols = [c for c in display_cols if c in roster.columns]
-                display_df = (roster[available_cols] if available_cols else roster).copy()
+                display_df = roster[available_cols].copy()
                 rename_map = {
                     "name": "Player",
-                    "positions": "Position(s)",
+                    "positions": "Pos",
                     "roster_slot": "Slot",
+                    "r": "R",
+                    "hr": "HR",
+                    "rbi": "RBI",
+                    "sb": "SB",
+                    "avg": "AVG",
+                    "obp": "OBP",
+                    "w": "W",
+                    "l": "L",
+                    "sv": "SV",
+                    "k": "K",
+                    "era": "ERA",
+                    "whip": "WHIP",
                 }
                 display_df.rename(
                     columns={k: v for k, v in rename_map.items() if k in display_df.columns},
                     inplace=True,
                 )
-                render_styled_table(display_df)
 
-                # Category totals
-                st.subheader("Category Totals (2026 Projected)")
-                st.caption(
-                    "Projected full-season totals based on preseason projections "
-                    "(Steamer/ZiPS/Depth Charts blend). Updates to actual stats "
-                    "once the 2026 MLB season begins."
+                # Assign row classes: starters vs bench
+                row_cls = {}
+                if "Slot" in display_df.columns:
+                    for i, slot in enumerate(display_df["Slot"]):
+                        if slot and str(slot).upper() in ("BN", "BENCH", "IL", "IL+", "NA"):
+                            row_cls[i] = "row-bench"
+                        else:
+                            row_cls[i] = "row-start"
+
+                health_col_name = "Health" if "Health" in display_df.columns else None
+                render_compact_table(
+                    display_df,
+                    row_classes=row_cls,
+                    health_col=health_col_name,
+                    max_height=600,
                 )
-                hitters = roster[roster["is_hitter"] == 1]
-                pitchers = roster[roster["is_hitter"] == 0]
-
-                # Coerce numeric columns (Python 3.13+ SQLite may return bytes)
-                num_cols = [
-                    "r",
-                    "hr",
-                    "rbi",
-                    "sb",
-                    "ab",
-                    "h",
-                    "bb",
-                    "hbp",
-                    "sf",
-                    "w",
-                    "l",
-                    "sv",
-                    "k",
-                    "ip",
-                    "er",
-                    "bb_allowed",
-                    "h_allowed",
-                ]
-                for c in num_cols:
-                    if c in roster.columns:
-                        roster[c] = pd.to_numeric(roster[c], errors="coerce").fillna(0)
-                hitters = roster[roster["is_hitter"] == 1]
-                pitchers = roster[roster["is_hitter"] == 0]
-
-                hit_stats = {}
-                if not hitters.empty:
-                    for cat, col in [
-                        ("Runs", "r"),
-                        ("Home Runs", "hr"),
-                        ("Runs Batted In", "rbi"),
-                        ("Stolen Bases", "sb"),
-                    ]:
-                        hit_stats[cat] = int(hitters[col].sum()) if col in hitters.columns else 0
-                    ab = hitters["ab"].sum() if "ab" in hitters.columns else 0
-                    h = hitters["h"].sum() if "h" in hitters.columns else 0
-                    hit_stats["Batting Average"] = f"{h / ab:.3f}" if ab > 0 else ".000"
-                    # OBP = (H + BB + HBP) / (AB + BB + HBP + SF)
-                    hit_h = hitters["h"].sum() if "h" in hitters.columns else 0
-                    hit_bb = hitters["bb"].sum() if "bb" in hitters.columns else 0
-                    hit_hbp = hitters["hbp"].sum() if "hbp" in hitters.columns else 0
-                    hit_sf = hitters["sf"].sum() if "sf" in hitters.columns else 0
-                    hit_ab = hitters["ab"].sum() if "ab" in hitters.columns else 0
-                    obp_denom = hit_ab + hit_bb + hit_hbp + hit_sf
-                    hit_stats["On-Base Percentage"] = (
-                        f"{(hit_h + hit_bb + hit_hbp) / obp_denom:.3f}" if obp_denom > 0 else ".000"
-                    )
-
-                pitch_stats = {}
-                if not pitchers.empty:
-                    for cat, col in [("Wins", "w"), ("Losses", "l"), ("Saves", "sv"), ("Strikeouts", "k")]:
-                        pitch_stats[cat] = int(pitchers[col].sum()) if col in pitchers.columns else 0
-                    ip = pitchers["ip"].sum() if "ip" in pitchers.columns else 0
-                    er = pitchers["er"].sum() if "er" in pitchers.columns else 0
-                    bb = pitchers["bb_allowed"].sum() if "bb_allowed" in pitchers.columns else 0
-                    ha = pitchers["h_allowed"].sum() if "h_allowed" in pitchers.columns else 0
-                    pitch_stats["Earned Run Average"] = f"{er * 9 / ip:.2f}" if ip > 0 else "0.00"
-                    pitch_stats["Walks + Hits per Inning Pitched"] = f"{(bb + ha) / ip:.3f}" if ip > 0 else "0.000"
-
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.markdown("**Hitting**")
-                    if hit_stats:
-                        render_styled_table(pd.DataFrame([hit_stats]))
-                        st.caption(METRIC_TOOLTIPS["avg"])
-                with col2:
-                    st.markdown("**Pitching**")
-                    if pitch_stats:
-                        render_styled_table(pd.DataFrame([pitch_stats]))
-                        st.caption(METRIC_TOOLTIPS["era"] + " | " + METRIC_TOOLTIPS["whip"])
 
                 # Bayesian-adjusted projections
                 if BAYESIAN_AVAILABLE:
@@ -590,9 +654,9 @@ else:
                                 bayes_progress.progress(100, text="Bayesian projections complete!")
                                 time.sleep(0.3)
                                 bayes_progress.empty()
-                                st.subheader("Bayesian-Adjusted Projections")
-                                st.caption(
-                                    "Stats regressed toward preseason priors using FanGraphs stabilization thresholds"
+                                st.markdown(
+                                    '<div class="sec-head">Bayesian-Adjusted Projections</div>',
+                                    unsafe_allow_html=True,
                                 )
                                 stat_display = ["player_id", "avg", "hr", "rbi", "sb", "era", "whip", "k"]
                                 show_cols = [c for c in stat_display if c in updated.columns]
@@ -611,7 +675,6 @@ else:
                                     columns={k: v for k, v in bayes_rename.items() if k in bayes_df.columns},
                                     inplace=True,
                                 )
-                                # Format numeric columns for display
                                 for c in ["AVG", "WHIP"]:
                                     if c in bayes_df.columns:
                                         bayes_df[c] = bayes_df[c].map(lambda x: f"{x:.3f}")
@@ -621,12 +684,15 @@ else:
                                 for c in ["HR", "RBI", "SB", "K", "ID"]:
                                     if c in bayes_df.columns:
                                         bayes_df[c] = bayes_df[c].map(lambda x: f"{x:.0f}")
-                                render_styled_table(bayes_df)
+                                render_compact_table(bayes_df, max_height=400)
                         finally:
                             conn.close()
                     except Exception:
                         pass  # Graceful degradation
 
-            # -- News and Alerts tab --
-            with tab_news:
+                # -- News section (below table, no tab) --
+                st.markdown(
+                    '<div class="sec-head" style="margin-top:20px;">News and Alerts</div>',
+                    unsafe_allow_html=True,
+                )
                 _render_news_tab(roster)

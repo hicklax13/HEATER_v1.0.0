@@ -19,7 +19,7 @@ python load_sample_data.py             # Load sample data (first time/testing)
 streamlit run app.py                   # Run the app
 ruff check .                           # Lint
 ruff format .                          # Format
-python -m pytest                       # Run all tests (1836 pass, 4 skipped)
+python -m pytest                       # Run all tests (1875 pass, 4 skipped)
 python -m pytest tests/test_foo.py -v  # Run single test file
 ```
 
@@ -72,7 +72,7 @@ src/
   live_stats.py         — MLB Stats API data fetcher
   data_bootstrap.py     — Zero-interaction bootstrap orchestrator (staleness-based refresh)
   league_manager.py     — League roster/standings management
-  ui_shared.py          — THEME dict, PAGE_ICONS (inline SVGs), glassmorphic CSS, sidebar branding
+  ui_shared.py          — THEME dict, PAGE_ICONS (inline SVGs), glassmorphic CSS, sidebar branding, 3-zone layout system
   data_2026.py          — Hardcoded 2026 projections for sample data
   bayesian.py           — PyMC hierarchical model + Marcel regression fallback
   injury_model.py       — Health scores, age-risk curves, injury-adjusted projections
@@ -126,7 +126,7 @@ src/
     game_theory/        — Opponent valuation, adverse selection, Bellman DP, sensitivity
     production/         — Convergence diagnostics, cache, adaptive sim scaling
     output/             — Master trade orchestrator (evaluate_trade)
-tests/                  — 80 test files, 1842 passing tests
+tests/                  — 81 test files, 1875 passing tests
 data/
   draft_tool.db         — SQLite database (created at runtime)
   backups/              — Draft state JSON backups
@@ -157,6 +157,24 @@ docs/
 - **Phase 4** (`enable_context=True`): Log5 matchup → injury process → concentration risk (HHI)
 - **Phase 5** (`enable_game_theory=True`): Opponent valuations → adverse selection → Bellman DP → sensitivity/counter-offers
 - **Phase 6**: Convergence diagnostics (ESS/R̂) → cache → adaptive sim scaling
+
+### UI Layer — Hybrid 3-Zone Layout
+All 10 pages use a consistent 3-zone layout pattern:
+1. **Recommendation banner** (top) — One-line teaser, expandable for detail. Uses `render_page_layout()` + `render_reco_banner()`.
+2. **Context panel** (left ~20%) — Compact glassmorphic cards with summary data (category totals, filters, settings). Uses `render_context_card()` inside `render_context_columns()`.
+3. **Main content** (right ~80%) — Full data tables, charts, interactive controls. Uses `render_compact_table()` for ESPN-style 11px monospace tables with sticky player names, hit/pitch header colors, health dots, and starter/bench row tinting.
+
+Key layout functions in `src/ui_shared.py`:
+- `build_compact_table_html(df, ...)` — Pure function, returns HTML string. Unit-testable (39 tests).
+- `render_compact_table(df, ...)` — Thin Streamlit wrapper around `build_compact_table_html()`.
+- `render_reco_banner(teaser, detail, icon)` — Collapsible banner with `st.expander`.
+- `render_context_card(title, content_html)` — Glassmorphic sidebar card.
+- `render_page_layout(title, banner_teaser, ...)` — Page title badge + optional banner.
+- `render_context_columns(context_width)` — Returns `(ctx, main)` column pair.
+
+CSS classes: `.reco-banner`, `.context-card`, `.compact-table`, `.th-hit`/`.th-pit`, `.col-name`, `.row-start`/`.row-bench`, `.health-dot`. Responsive at 768px/480px. Print-friendly.
+
+Sidebar is collapsed by default on all pages (hamburger menu for nav only).
 
 ### Bootstrap Pipeline
 - Every app launch: splash screen → `bootstrap_all_data()` with staleness-based refresh
@@ -309,7 +327,7 @@ get_injury_badge(health_score) -> tuple[str, str]  # returns <span> with CSS dot
 
 ## Testing
 
-- **1836 passing tests** across 80 test files, 4 skipped (PyMC/xgboost optional deps)
+- **1875 passing tests** across 81 test files, 4 skipped (PyMC/xgboost optional deps)
 - **CI:** GitHub Actions — ruff lint/format + pytest on Python 3.11, 3.12, 3.13
 - **Coverage:** 64% (above 60% CI threshold)
 - **8 rounds of systematic debugging** (207 bugs fixed) + **data pipeline audit** (32 issues fixed), all CI green

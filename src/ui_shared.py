@@ -1651,6 +1651,136 @@ def inject_custom_css():
         cursor: help;
     }}
 
+    /* ── RECOMMENDATION BANNER ────────────────── */
+    .reco-banner {{
+        background: rgba(255, 255, 255, 0.7) !important;
+        backdrop-filter: blur(16px) saturate(150%) !important;
+        -webkit-backdrop-filter: blur(16px) saturate(150%) !important;
+        border: 1px solid rgba(255, 255, 255, 0.4) !important;
+        border-left: 4px solid {t["hot"]} !important;
+        border-radius: 12px !important;
+        padding: 10px 16px !important;
+        margin-bottom: 12px !important;
+        box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06) !important;
+    }}
+    .reco-banner-teaser {{
+        font-family: 'Figtree', sans-serif !important;
+        font-size: 14px !important;
+        font-weight: 600 !important;
+        color: {t["tx"]} !important;
+        display: inline-flex !important;
+        align-items: center !important;
+        gap: 8px !important;
+        line-height: 1.4 !important;
+    }}
+    .reco-banner-detail {{
+        font-family: 'Figtree', sans-serif !important;
+        font-size: 13px !important;
+        color: {t["tx2"]} !important;
+        padding-top: 8px !important;
+        line-height: 1.5 !important;
+        animation: slideUp 0.3s ease-out !important;
+    }}
+
+    /* ── CONTEXT CARD (sidebar panels) ────────── */
+    .context-card {{
+        background: rgba(255, 255, 255, 0.6) !important;
+        backdrop-filter: blur(12px) saturate(140%) !important;
+        -webkit-backdrop-filter: blur(12px) saturate(140%) !important;
+        border: 1px solid rgba(255, 255, 255, 0.3) !important;
+        border-radius: 10px !important;
+        padding: 12px 14px !important;
+        margin-bottom: 8px !important;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05) !important;
+    }}
+    .context-card-title {{
+        font-family: 'Bebas Neue', sans-serif !important;
+        font-size: 10px !important;
+        text-transform: uppercase !important;
+        letter-spacing: 2px !important;
+        color: {t["tx2"]} !important;
+        margin-bottom: 6px !important;
+        padding-bottom: 4px !important;
+        border-bottom: 1px solid {t["border"]} !important;
+    }}
+
+    /* ── COMPACT TABLE (ESPN-style) ───────────── */
+    .compact-table-wrap {{
+        overflow-x: auto !important;
+        overflow-y: auto !important;
+        border-left: 3px solid {t["hot"]} !important;
+        border-radius: 8px !important;
+        background: {t["card"]} !important;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.06) !important;
+        margin-bottom: 12px !important;
+    }}
+    .compact-table {{
+        font-family: 'IBM Plex Mono', monospace !important;
+        font-size: 11px !important;
+        border-collapse: collapse !important;
+        white-space: nowrap !important;
+        width: 100% !important;
+        color: {t["tx"]} !important;
+    }}
+    .compact-table th {{
+        background: linear-gradient(135deg, #16213e, #1a1a2e) !important;
+        color: #ffffff !important;
+        font-weight: 600 !important;
+        font-size: 10px !important;
+        text-transform: uppercase !important;
+        letter-spacing: 0.5px !important;
+        padding: 6px 8px !important;
+        position: sticky !important;
+        top: 0 !important;
+        z-index: 2 !important;
+        border-bottom: 2px solid {t["hot"]} !important;
+    }}
+    .compact-table td {{
+        padding: 5px 8px !important;
+        border-bottom: 1px solid {t["border"]} !important;
+        font-size: 11px !important;
+    }}
+    .compact-table tr:hover td {{
+        background: rgba(255, 109, 0, 0.06) !important;
+    }}
+    .th-hit {{
+        border-bottom: 3px solid {t["hot"]} !important;
+    }}
+    .th-pit {{
+        border-bottom: 3px solid {t["sky"]} !important;
+    }}
+    .col-name {{
+        position: sticky !important;
+        left: 0 !important;
+        z-index: 1 !important;
+        background: {t["card"]} !important;
+        font-family: 'Figtree', sans-serif !important;
+        font-weight: 600 !important;
+        font-size: 12px !important;
+        min-width: 120px !important;
+        max-width: 160px !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        border-right: 1px solid {t["border"]} !important;
+    }}
+    .compact-table tr:hover .col-name {{
+        background: rgba(255, 255, 255, 0.95) !important;
+    }}
+    .row-start td {{
+        background: rgba(45, 106, 79, 0.04) !important;
+    }}
+    .row-bench td {{
+        background: rgba(230, 57, 70, 0.04) !important;
+    }}
+    .health-dot {{
+        display: inline-block !important;
+        width: 6px !important;
+        height: 6px !important;
+        border-radius: 50% !important;
+        margin-right: 4px !important;
+        vertical-align: middle !important;
+    }}
+
     /* ── RESPONSIVE ──────────────────────────── */
     @media (max-width: 768px) {{
         .page-title {{
@@ -1678,6 +1808,24 @@ def inject_custom_css():
             letter-spacing: 1px;
             padding: 8px 12px;
         }}
+        .compact-table {{
+            font-size: 10px !important;
+        }}
+        .compact-table th {{
+            font-size: 9px !important;
+            padding: 4px 6px !important;
+        }}
+        .compact-table td {{
+            padding: 4px 6px !important;
+            font-size: 10px !important;
+        }}
+        .col-name {{
+            min-width: 100px !important;
+            font-size: 11px !important;
+        }}
+        .reco-banner-teaser {{
+            font-size: 13px !important;
+        }}
     }}
     @media (max-width: 480px) {{
         .page-title {{
@@ -1695,6 +1843,31 @@ def inject_custom_css():
         .verdict-banner .verdict-text {{
             font-size: 18px;
             letter-spacing: 1px;
+        }}
+        .reco-banner-teaser svg {{
+            display: none !important;
+        }}
+        .reco-banner {{
+            padding: 8px 10px !important;
+        }}
+    }}
+
+    /* ── PRINT ────────────────────────────────── */
+    @media print {{
+        .context-card, [data-testid="stSidebar"] {{
+            display: none !important;
+        }}
+        .compact-table-wrap {{
+            border-left: none !important;
+            box-shadow: none !important;
+        }}
+        .compact-table {{
+            font-size: 9px !important;
+        }}
+        .reco-banner {{
+            border: 1px solid #ccc !important;
+            box-shadow: none !important;
+            backdrop-filter: none !important;
         }}
     }}
     </style>
@@ -1925,3 +2098,196 @@ def build_category_heatmap_html(user_totals: dict, all_totals: list[dict]) -> st
     )
 
     return html
+
+
+# ── 3-Zone Layout: Constants & Helpers ─────────────────────────────
+
+HITTING_STAT_COLS = {"R", "HR", "RBI", "SB", "AVG", "OBP"}
+PITCHING_STAT_COLS = {"W", "L", "SV", "K", "ERA", "WHIP"}
+_RATE_STAT_COLS = {"AVG", "OBP", "ERA", "WHIP"}
+
+_HEALTH_DOT_COLORS = {
+    "Healthy": THEME["green"],
+    "Day-to-Day": THEME["warn"],
+    "IL": THEME["danger"],
+    "IL-60": THEME["danger"],
+    "Out": THEME["danger"],
+}
+
+
+def build_compact_table_html(
+    df,
+    highlight_cols=None,
+    row_classes=None,
+    health_col=None,
+    max_height=500,
+):
+    """Build ESPN-style compact HTML table string from a DataFrame.
+
+    Pure function — no Streamlit dependency. Returns raw HTML string.
+
+    Args:
+        df: pandas DataFrame to render.
+        highlight_cols: Optional dict mapping column names to CSS class
+            (e.g. ``{"R": "th-hit", "ERA": "th-pit"}``).  When *None*,
+            hitting/pitching classes are auto-assigned from
+            ``HITTING_STAT_COLS`` / ``PITCHING_STAT_COLS``.
+        row_classes: Optional dict mapping row index → CSS class string
+            (e.g. ``{0: "row-start", 5: "row-bench"}``).
+        health_col: Optional column name containing health status strings.
+            When provided, a colored dot is prepended to the cell value.
+        max_height: Max container height in pixels (0 for unlimited).
+
+    Returns:
+        HTML string with ``compact-table-wrap`` / ``compact-table`` classes.
+    """
+    if df is None or df.empty:
+        return '<div class="compact-table-wrap"><p style="padding:16px;color:#6b7280;font-size:13px;">No data available.</p></div>'
+
+    if highlight_cols is None:
+        highlight_cols = {}
+        for col in df.columns:
+            col_upper = str(col).upper()
+            if col_upper in HITTING_STAT_COLS:
+                highlight_cols[col] = "th-hit"
+            elif col_upper in PITCHING_STAT_COLS:
+                highlight_cols[col] = "th-pit"
+
+    if row_classes is None:
+        row_classes = {}
+
+    # Determine the first column as the "name" column for sticky behavior
+    first_col = df.columns[0]
+
+    # Build header
+    header_cells = []
+    for col in df.columns:
+        cls_parts = []
+        if col == first_col:
+            cls_parts.append("col-name")
+        if col in highlight_cols:
+            cls_parts.append(highlight_cols[col])
+        cls_attr = f' class="{" ".join(cls_parts)}"' if cls_parts else ""
+        header_cells.append(f"<th{cls_attr}>{col}</th>")
+    header_html = "<tr>" + "".join(header_cells) + "</tr>"
+
+    # Build body rows
+    body_rows = []
+    for idx, (row_idx, row) in enumerate(df.iterrows()):
+        row_cls = row_classes.get(idx, row_classes.get(row_idx, ""))
+        tr_cls = f' class="{row_cls}"' if row_cls else ""
+        cells = []
+        for col in df.columns:
+            val = row[col]
+            cls_parts = []
+            if col == first_col:
+                cls_parts.append("col-name")
+
+            # Health dot injection
+            cell_html = ""
+            if health_col and col == health_col and val:
+                dot_color = _HEALTH_DOT_COLORS.get(str(val), THEME["tx2"])
+                cell_html = f'<span class="health-dot" style="background:{dot_color};"></span>'
+
+            # Format numeric values
+            if col != first_col and col not in (health_col or ""):
+                col_upper = str(col).upper()
+                if col_upper in _RATE_STAT_COLS:
+                    try:
+                        cell_html += f"{float(val):.3f}"
+                    except (ValueError, TypeError):
+                        cell_html += str(val) if val is not None else ""
+                else:
+                    try:
+                        float_val = float(val)
+                        if float_val == int(float_val) and col_upper in (HITTING_STAT_COLS | PITCHING_STAT_COLS):
+                            cell_html += str(int(float_val))
+                        else:
+                            cell_html += f"{float_val:.1f}" if float_val != int(float_val) else str(int(float_val))
+                    except (ValueError, TypeError):
+                        cell_html += str(val) if val is not None else ""
+            else:
+                cell_html += str(val) if val is not None else ""
+
+            cls_attr = f' class="{" ".join(cls_parts)}"' if cls_parts else ""
+            cells.append(f"<td{cls_attr}>{cell_html}</td>")
+        body_rows.append(f"<tr{tr_cls}>{''.join(cells)}</tr>")
+
+    body_html = "".join(body_rows)
+
+    height_style = f"max-height:{max_height}px;" if max_height else ""
+    return (
+        f'<div class="compact-table-wrap" style="{height_style}">'
+        f'<table class="compact-table">'
+        f"<thead>{header_html}</thead>"
+        f"<tbody>{body_html}</tbody>"
+        f"</table></div>"
+    )
+
+
+def render_compact_table(df, highlight_cols=None, row_classes=None, health_col=None, max_height=500):
+    """Render compact ESPN-style table via st.markdown().
+
+    Thin wrapper around :func:`build_compact_table_html`.
+    """
+    html = build_compact_table_html(
+        df,
+        highlight_cols=highlight_cols,
+        row_classes=row_classes,
+        health_col=health_col,
+        max_height=max_height,
+    )
+    st.markdown(html, unsafe_allow_html=True)
+
+
+def render_reco_banner(teaser_text, expanded_html="", icon_key="zap"):
+    """Render a collapsible recommendation banner at the top of a page.
+
+    When *expanded_html* is empty the banner is a simple static line.
+    When provided, the banner uses ``st.expander`` styled via CSS.
+    """
+    icon_svg = PAGE_ICONS.get(icon_key, "")
+    teaser_html = f'<div class="reco-banner"><span class="reco-banner-teaser">{icon_svg} {teaser_text}</span></div>'
+
+    if not expanded_html:
+        st.markdown(teaser_html, unsafe_allow_html=True)
+    else:
+        with st.expander(f"{teaser_text}", expanded=False):
+            st.markdown(
+                f'<div class="reco-banner-detail">{expanded_html}</div>',
+                unsafe_allow_html=True,
+            )
+
+
+def render_context_card(title, content_html):
+    """Render a single glassmorphic context card for the sidebar panel."""
+    st.markdown(
+        f'<div class="context-card"><div class="context-card-title">{title}</div>{content_html}</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def render_page_layout(title, banner_teaser="", banner_detail="", banner_icon="zap"):
+    """Render page title badge + recommendation banner.
+
+    Call at the top of every page, after ``inject_custom_css()``.
+    """
+    icon_svg = PAGE_ICONS.get(
+        title.lower().replace(" ", "_"),
+        PAGE_ICONS.get(title.lower(), ""),
+    )
+    st.markdown(
+        f'<div class="page-title">{icon_svg} {title}</div>',
+        unsafe_allow_html=True,
+    )
+    if banner_teaser:
+        render_reco_banner(banner_teaser, banner_detail, banner_icon)
+
+
+def render_context_columns(context_width=1):
+    """Create a 2-column layout: narrow context panel + wide main area.
+
+    Returns:
+        Tuple of (context_col, main_col) Streamlit column objects.
+    """
+    return st.columns([context_width, 4])

@@ -9,7 +9,14 @@ import streamlit as st
 from src.database import init_db, load_player_pool
 from src.draft_state import DraftState
 from src.simulation import DraftSimulator
-from src.ui_shared import T, inject_custom_css, render_styled_table
+from src.ui_shared import (
+    T,
+    inject_custom_css,
+    render_context_card,
+    render_context_columns,
+    render_page_layout,
+    render_styled_table,
+)
 from src.valuation import (
     LeagueConfig,
     SGPCalculator,
@@ -25,7 +32,9 @@ try:
 except ImportError:
     _HAS_DRAFT_ENGINE = False
 
-st.set_page_config(page_title="Heater | Draft Simulator", page_icon="", layout="wide")
+st.set_page_config(
+    page_title="Heater | Draft Simulator", page_icon="", layout="wide", initial_sidebar_state="collapsed"
+)
 
 init_db()
 inject_custom_css()
@@ -508,10 +517,7 @@ def render_tabs(pool: pd.DataFrame, ds: DraftState) -> None:
 
 # ── Main ────────────────────────────────────────────────────────────────────
 
-st.markdown(
-    '<div class="page-title-wrap"><div class="page-title"><span>DRAFT SIMULATOR</span></div></div>',
-    unsafe_allow_html=True,
-)
+render_page_layout("DRAFT SIMULATOR", banner_teaser="Simulate your draft with AI opponents", banner_icon="draft")
 
 pool = get_pool()
 
@@ -521,64 +527,81 @@ if pool.empty:
     )
     st.stop()
 
+ctx, main = render_context_columns()
+
 # ── Pre-Start Settings ──────────────────────────────────────────────────────
 
 if not st.session_state.get("mock_started", False):
-    st.markdown(
-        f'<div style="color:{T["tx"]};font-size:1rem;margin-bottom:16px;">'
-        "Configure your mock draft settings, then click Start.</div>",
-        unsafe_allow_html=True,
-    )
-
-    st.subheader("Draft Settings")
-    col_a, col_b, col_c = st.columns(3)
-    with col_a:
-        num_teams = st.number_input("Number of teams", value=12, min_value=6, max_value=20, key="mock_num_teams_input")
-    with col_b:
-        num_rounds = st.number_input("Rounds", value=23, min_value=10, max_value=30, key="mock_num_rounds_input")
-    with col_c:
-        draft_pos = st.number_input(
-            "Your draft position", value=1, min_value=1, max_value=num_teams, key="mock_draft_pos_input"
+    with ctx:
+        render_context_card(
+            "How It Works",
+            f'<div style="color:{T["tx2"]};font-size:0.85rem;line-height:1.6;">'
+            "Configure your league format, then click Start Mock Draft. AI opponents will fill the other teams using "
+            "Average Draft Position-weighted random selection. Heater uses Monte Carlo simulation to recommend "
+            "the best pick at each of your turns."
+            "</div>",
         )
 
-    # Store in mock-prefixed session state
-    st.session_state["mock_num_teams"] = num_teams
-    st.session_state["mock_num_rounds"] = num_rounds
-    st.session_state["mock_draft_pos"] = draft_pos
-
-    # Also write to shared session_state keys so the main draft can read them
-    st.session_state["num_teams"] = num_teams
-    st.session_state["num_rounds"] = num_rounds
-    st.session_state["draft_pos"] = draft_pos
-
-    cfg_col, cfg_col2 = st.columns([1, 1])
-    with cfg_col:
-        n_sims_choice = st.radio("Simulation Depth", [50, 100, 200], index=0, horizontal=True, key="mock_sims_radio")
-        st.session_state.mock_num_sims = n_sims_choice
-
-    with cfg_col2:
-        mock_engine_label = st.radio(
-            "Engine Mode",
-            ["Quick (< 1 second)", "Standard (2-3 seconds)", "Full (5-10 seconds)"],
-            index=1,
-            help="Quick: base analysis. Standard: Bayesian + injury + Statcast. Full: all contextual factors.",
-            key="mock_engine_mode_radio",
+    with main:
+        st.markdown(
+            f'<div style="color:{T["tx"]};font-size:1rem;margin-bottom:16px;">'
+            "Configure your mock draft settings, then click Start.</div>",
+            unsafe_allow_html=True,
         )
-        _mock_mode_map = {
-            "Quick (< 1 second)": "quick",
-            "Standard (2-3 seconds)": "standard",
-            "Full (5-10 seconds)": "full",
-        }
-        st.session_state.mock_engine_mode = _mock_mode_map.get(mock_engine_label, "standard")
 
-    cfg_col_btn, _ = st.columns([1, 2])
-    with cfg_col_btn:
-        if st.button("Start Mock Draft", type="primary"):
-            refresh_pool()
-            pool = get_pool()
-            init_mock_draft(pool, draft_pos)
-            auto_pick_opponents(pool)
-            st.rerun()
+        st.subheader("Draft Settings")
+        col_a, col_b, col_c = st.columns(3)
+        with col_a:
+            num_teams = st.number_input(
+                "Number of teams", value=12, min_value=6, max_value=20, key="mock_num_teams_input"
+            )
+        with col_b:
+            num_rounds = st.number_input("Rounds", value=23, min_value=10, max_value=30, key="mock_num_rounds_input")
+        with col_c:
+            draft_pos = st.number_input(
+                "Your draft position", value=1, min_value=1, max_value=num_teams, key="mock_draft_pos_input"
+            )
+
+        # Store in mock-prefixed session state
+        st.session_state["mock_num_teams"] = num_teams
+        st.session_state["mock_num_rounds"] = num_rounds
+        st.session_state["mock_draft_pos"] = draft_pos
+
+        # Also write to shared session_state keys so the main draft can read them
+        st.session_state["num_teams"] = num_teams
+        st.session_state["num_rounds"] = num_rounds
+        st.session_state["draft_pos"] = draft_pos
+
+        cfg_col, cfg_col2 = st.columns([1, 1])
+        with cfg_col:
+            n_sims_choice = st.radio(
+                "Simulation Depth", [50, 100, 200], index=0, horizontal=True, key="mock_sims_radio"
+            )
+            st.session_state.mock_num_sims = n_sims_choice
+
+        with cfg_col2:
+            mock_engine_label = st.radio(
+                "Engine Mode",
+                ["Quick (< 1 second)", "Standard (2-3 seconds)", "Full (5-10 seconds)"],
+                index=1,
+                help="Quick: base analysis. Standard: Bayesian + injury + Statcast. Full: all contextual factors.",
+                key="mock_engine_mode_radio",
+            )
+            _mock_mode_map = {
+                "Quick (< 1 second)": "quick",
+                "Standard (2-3 seconds)": "standard",
+                "Full (5-10 seconds)": "full",
+            }
+            st.session_state.mock_engine_mode = _mock_mode_map.get(mock_engine_label, "standard")
+
+        cfg_col_btn, _ = st.columns([1, 2])
+        with cfg_col_btn:
+            if st.button("Start Mock Draft", type="primary"):
+                refresh_pool()
+                pool = get_pool()
+                init_mock_draft(pool, draft_pos)
+                auto_pick_opponents(pool)
+                st.rerun()
     st.stop()
 
 # ── Active Draft ────────────────────────────────────────────────────────────
@@ -592,54 +615,87 @@ if ds.current_pick >= ds.total_picks:
     render_draft_summary(pool, ds)
     st.stop()
 
-# Header bar
+# Draft state variables
 round_num = ds.current_round
 pick_num = ds.pick_in_round
 picking_idx = ds.picking_team_index()
 picking_team = ds.teams[picking_idx].team_name
 is_user = ds.is_user_turn
 
-if is_user:
-    header_html = (
-        f'<div style="background:{T["amber"]};color:{T["ink"]};border-radius:10px;'
-        f'padding:12px 20px;font-size:1.1rem;font-weight:700;margin-bottom:12px;">'
-        f"Round {round_num} / Pick {pick_num} &nbsp;&mdash;&nbsp; YOUR PICK!</div>"
+# ── Context panel: settings summary + recent picks ───────────────────────────
+
+with ctx:
+    # Draft settings summary card
+    num_teams_disp = st.session_state.get("mock_num_teams", 12)
+    num_rounds_disp = st.session_state.get("mock_num_rounds", 23)
+    engine_mode_disp = st.session_state.get("mock_engine_mode", "standard").capitalize()
+    n_sims_disp = st.session_state.get("mock_num_sims", 50)
+    _tx = T["tx"]
+    _tx2 = T["tx2"]
+    render_context_card(
+        "Draft Settings",
+        f'<div style="color:{_tx2};font-size:0.82rem;line-height:1.8;">'
+        f"Teams: <b style='color:{_tx}'>{num_teams_disp}</b><br>"
+        f"Rounds: <b style='color:{_tx}'>{num_rounds_disp}</b><br>"
+        f"Your Position: <b style='color:{_tx}'>{draft_pos}</b><br>"
+        f"Engine: <b style='color:{_tx}'>{engine_mode_disp}</b><br>"
+        f"Simulations: <b style='color:{_tx}'>{n_sims_disp}</b>"
+        "</div>",
     )
-else:
-    header_html = (
-        f'<div style="background:{T["card"]};color:{T["tx"]};border:1px solid {T["border"]};'
-        f'border-radius:10px;padding:12px 20px;font-size:1.1rem;font-weight:600;margin-bottom:12px;">'
-        f"Round {round_num} / Pick {pick_num} &nbsp;&mdash;&nbsp; On the Clock: {picking_team}</div>"
+
+    # My roster card
+    slots = ds.user_team.slots
+    roster_rows = [{"Slot": s.position, "Player": s.player_name or "—"} for s in slots]
+    roster_df = pd.DataFrame(roster_rows)
+    render_context_card(
+        "My Roster",
+        f'<div style="color:{T["tx2"]};font-size:0.75rem;margin-bottom:4px;">'
+        f"{sum(1 for s in slots if s.player_name)} of {len(slots)} slots filled</div>",
     )
-st.markdown(header_html, unsafe_allow_html=True)
+    render_styled_table(roster_df, max_height=320)
 
-# Control buttons
-btn_col1, btn_col2, btn_col3 = st.columns([1, 1, 2])
-with btn_col1:
-    if st.button("Reset Draft"):
-        for key in list(st.session_state.keys()):
-            if key.startswith("mock_") and key not in (
-                "mock_draft_pos",
-                "mock_num_sims",
-                "mock_num_teams",
-                "mock_num_rounds",
-            ):
-                del st.session_state[key]
-        st.rerun()
-with btn_col2:
-    if st.button("Undo Last Pick") and ds.pick_log:
-        ds.undo_last_pick()
-        # If we undid back to opponent territory, let AI re-pick up to user turn
-        auto_pick_opponents(pool)
-        st.rerun()
+    # Recent picks card
+    render_recent_picks(ds)
 
-# Main 3-column layout
-left_col, center_col, right_col = st.columns([1, 2, 1])
+# ── Main content: header + controls + recommendations + tabs ─────────────────
 
-with left_col:
-    render_user_roster(ds)
+with main:
+    # Header bar
+    if is_user:
+        header_html = (
+            f'<div style="background:{T["amber"]};color:{T["ink"]};border-radius:10px;'
+            f'padding:12px 20px;font-size:1.1rem;font-weight:700;margin-bottom:12px;">'
+            f"Round {round_num} / Pick {pick_num} &nbsp;&mdash;&nbsp; YOUR PICK!</div>"
+        )
+    else:
+        header_html = (
+            f'<div style="background:{T["card"]};color:{T["tx"]};border:1px solid {T["border"]};'
+            f'border-radius:10px;padding:12px 20px;font-size:1.1rem;font-weight:600;margin-bottom:12px;">'
+            f"Round {round_num} / Pick {pick_num} &nbsp;&mdash;&nbsp; On the Clock: {picking_team}</div>"
+        )
+    st.markdown(header_html, unsafe_allow_html=True)
 
-with center_col:
+    # Control buttons
+    btn_col1, btn_col2, btn_col3 = st.columns([1, 1, 2])
+    with btn_col1:
+        if st.button("Reset Draft"):
+            for key in list(st.session_state.keys()):
+                if key.startswith("mock_") and key not in (
+                    "mock_draft_pos",
+                    "mock_num_sims",
+                    "mock_num_teams",
+                    "mock_num_rounds",
+                ):
+                    del st.session_state[key]
+            st.rerun()
+    with btn_col2:
+        if st.button("Undo Last Pick") and ds.pick_log:
+            ds.undo_last_pick()
+            # If we undid back to opponent territory, let AI re-pick up to user turn
+            auto_pick_opponents(pool)
+            st.rerun()
+
+    # Recommendations or waiting state
     if is_user:
         render_recommendations(pool, ds, n_sims)
     else:
@@ -652,9 +708,6 @@ with center_col:
             auto_pick_opponents(pool)
             st.rerun()
 
-with right_col:
-    render_recent_picks(ds)
-
-# Tabs below
-st.markdown("---")
-render_tabs(pool, ds)
+    # Tabs below
+    st.markdown("---")
+    render_tabs(pool, ds)
