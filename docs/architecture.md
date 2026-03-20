@@ -7,7 +7,7 @@
 
 ## System Overview
 
-HEATER is a Streamlit-based fantasy baseball application with two pillars: a draft assistant and an in-season manager. The codebase is organized into 9 architectural layers, 60+ source modules, 80 test files (1842+ tests), and integrates with 12 external APIs — all with graceful degradation.
+HEATER is a Streamlit-based fantasy baseball application with two pillars: a draft assistant and an in-season manager. The codebase is organized into 9 architectural layers, 60+ source modules, 81 test files (1875+ tests), and integrates with 12 external APIs — all with graceful degradation.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -55,25 +55,45 @@ The main draft tool. Three-phase UX flow:
 
 1. **Splash screen** — Calls `bootstrap_all_data()` with a progress bar. Reconnects Yahoo OAuth token automatically via `_try_reconnect_yahoo()`.
 2. **Setup wizard** — Two steps: Settings (league config, Yahoo connect) and Launch (confirmation).
-3. **Draft page** — Three-column layout: hero pick card (left), recommendation alternatives (center), category/opponent intel tabs (right). Six tabs: Category Balance, Available Players, Draft Board, Draft Log, Opponent Intel, Pick Predictor.
+3. **Draft page** — Three-column layout: hero pick card (left), recommendation alternatives (center), category/opponent intel tabs (right). Six tabs: Category Balance, Available Players, Draft Board, Draft Log, Opponent Intel, Pick Predictor. Draft controls (Practice Mode, Undo, Save, Reset) live in a context panel via `render_context_card()`.
 
 Key session state: `draft_state` (DraftState), `valued_pool` (DataFrame), `sgp_calc` (SGPCalculator), `yahoo_client` (optional), `bootstrap_complete` (bool).
 
 ### Pages (`pages/`)
 
-| Page | File | Purpose |
-|------|------|---------|
-| My Team | `1_My_Team.py` | Roster display, standings, Yahoo sync |
-| Draft Simulator | `2_Draft_Simulator.py` | Standalone mock draft with AI opponents |
-| Trade Analyzer | `3_Trade_Analyzer.py` | Trade evaluation (Phase 1 engine → legacy fallback) |
-| Player Compare | `4_Player_Compare.py` | Head-to-head z-score comparison |
-| Free Agents | `5_Free_Agents.py` | Marginal SGP FA rankings |
-| Lineup Optimizer | `6_Lineup_Optimizer.py` | 5-tab optimizer (Optimize, H2H, Streaming, Category, Roster) |
-| Closer Monitor | `7_Closer_Monitor.py` | 30-team closer depth chart grid |
-| Standings | `8_Standings.py` | Projected standings + power rankings |
-| Leaders | `9_Leaders.py` | Category/points leaders, breakouts, prospects |
+| Page | File | Purpose | Context Panel |
+|------|------|---------|---------------|
+| My Team | `1_My_Team.py` | Roster display, standings, Yahoo sync | Hitting/pitching totals, IL alerts |
+| Draft Simulator | `2_Draft_Simulator.py` | Standalone mock draft with AI opponents | Draft settings, roster, recent picks |
+| Trade Analyzer | `3_Trade_Analyzer.py` | Trade evaluation (Phase 1 engine → legacy fallback) | Trade verdict, punts, surplus SGP |
+| Player Compare | `4_Player_Compare.py` | Head-to-head z-score comparison | Composite scores, quick verdict |
+| Free Agents | `5_Free_Agents.py` | Marginal SGP FA rankings | Position filter pills |
+| Lineup Optimizer | `6_Lineup_Optimizer.py` | 5-tab optimizer (Optimize, H2H, Streaming, Category, Roster) | Mode/alpha settings, H2H win prob |
+| Closer Monitor | `7_Closer_Monitor.py` | 30-team closer depth chart grid | (uses existing card grid) |
+| Standings | `8_Standings.py` | Projected standings + power rankings | Simulation controls |
+| Leaders | `9_Leaders.py` | Category/points leaders, breakouts, prospects | Category/preset filters |
 
-All pages share the centralized design system from `src/ui_shared.py` — single light-mode glassmorphic theme with orange sidebar branding.
+### Hybrid 3-Zone Layout Pattern
+
+All pages share a consistent ESPN/Yahoo-style layout powered by `src/ui_shared.py`:
+
+```
+┌──────────────────────────────────────────────────┐
+│  Recommendation Banner (collapsible teaser)       │
+├────────────┬─────────────────────────────────────┤
+│  Context   │  Main Content                        │
+│  Panel     │  (compact tables, charts, controls)  │
+│  (~20%)    │  (~80%)                              │
+│  ─ cards   │                                      │
+│  ─ filters │                                      │
+│  ─ alerts  │                                      │
+└────────────┴─────────────────────────────────────┘
+```
+
+- **Banner**: `render_page_layout()` + `render_reco_banner()` — page title badge + one-line teaser, expandable for detail
+- **Context panel**: `render_context_columns()` returns `(ctx, main)` → `render_context_card()` for compact glassmorphic cards
+- **Main content**: Full data tables via `render_compact_table()` — ESPN-style 11px IBM Plex Mono, sticky player names, hit/pitch header colors, health dots, starter/bench row tinting
+- **Sidebar**: Collapsed by default on all pages (`initial_sidebar_state="collapsed"`) — hamburger menu for navigation only
 
 ---
 
@@ -130,8 +150,18 @@ Snake draft state management: roster tracking per team, pick order computation, 
 ### `src/bayesian.py` — Bayesian Projection Updates
 PyMC 5 hierarchical beta-binomial model for in-season stat updates. Marcel regression fallback when PyMC unavailable. FanGraphs stabilization thresholds (K=60 PA, AVG=910 AB, ERA=70 IP). Aging curves on logit scale. Stabilization points for rate stats: R=320 PA, RBI=300 PA, SB=100 PA.
 
-### `src/ui_shared.py` — Design System
-Single light-mode palette: `THEME` dict with bg=#f4f5f0, primary=#e63946, hot=#ff6d00, gold=#ffd60a, green=#2d6a4f, sky=#457b9d, purple=#6c63ff. `T = THEME` is a direct dict alias. `PAGE_ICONS` contains ~22 inline SVG icons. `inject_custom_css()` injects 1500+ lines of glassmorphism, 3D buttons, kinetic typography, 7 animations, orange sidebar, bold titles.
+### `src/ui_shared.py` — Design System & Layout Engine
+Single light-mode palette: `THEME` dict with bg=#f4f5f0, primary=#e63946, hot=#ff6d00, gold=#ffd60a, green=#2d6a4f, sky=#457b9d, purple=#6c63ff. `T = THEME` is a direct dict alias. `PAGE_ICONS` contains ~22 inline SVG icons. `inject_custom_css()` injects 1700+ lines of glassmorphism, 3D buttons, kinetic typography, 7 animations, orange sidebar, bold titles, plus the 3-zone layout classes.
+
+**3-Zone Layout Functions:**
+- `build_compact_table_html(df, highlight_cols, row_classes, health_col, max_height)` — Pure function returning ESPN-style HTML table string. Auto-detects hitting vs pitching columns for `.th-hit`/`.th-pit` header classes. First column gets `.col-name` (sticky on horizontal scroll). Unit-testable (39 tests in `test_compact_table.py`).
+- `render_compact_table()` — Thin Streamlit wrapper calling `build_compact_table_html()` → `st.markdown()`.
+- `render_reco_banner(teaser_text, expanded_html, icon_key)` — Collapsible recommendation banner. Static when no detail; uses `st.expander` when expandable.
+- `render_context_card(title, content_html)` — Glassmorphic card for the context panel. Bebas Neue 10px uppercase title.
+- `render_page_layout(title, banner_teaser, banner_detail, banner_icon)` — Page title badge + optional banner. Call at top of every page.
+- `render_context_columns(context_width=1)` — Returns `(ctx, main)` from `st.columns([1, 4])`.
+
+**CSS Classes:** `.reco-banner`, `.reco-banner-teaser`, `.reco-banner-detail`, `.context-card`, `.context-card-title`, `.compact-table-wrap`, `.compact-table`, `.th-hit` (orange border), `.th-pit` (blue border), `.col-name` (sticky left), `.row-start` (green tint), `.row-bench` (red tint), `.health-dot` (6px circle). Responsive at 768px (compact font) and 480px (icon-free banner). Print CSS hides context panel.
 
 ---
 
@@ -507,7 +537,7 @@ Daily cron at 9:17 UTC + manual trigger for data refresh.
 
 ## Test Architecture
 
-80 test files, 1842+ passing tests, 4 skipped (PyMC/XGBoost optional deps).
+81 test files, 1875+ passing tests, 4 skipped (PyMC/XGBoost optional deps).
 
 | Category | Files | Tests |
 |----------|-------|-------|
@@ -521,9 +551,10 @@ Daily cron at 9:17 UTC + manual trigger for data refresh.
 | FantasyPros parity | 16 | 184 |
 | FP Edge intelligence | 4 | ~69 |
 | Live stats/Yahoo/injury | 4 | ~130 |
+| UI layout (compact table) | 1 | 39 |
 | Integration/misc | ~17 | ~180 |
 
-Seven rounds of systematic code reviews have fixed 172 bugs total. Math verification tests validate hand-calculated expected values against code formulas.
+Eight rounds of systematic code reviews have fixed 207 bugs total, plus a data pipeline audit (32 issues fixed). Math verification tests validate hand-calculated expected values against code formulas. The compact table tests validate `build_compact_table_html()` output (pure function, no Streamlit runtime required).
 
 ---
 
