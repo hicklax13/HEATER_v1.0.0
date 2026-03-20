@@ -140,11 +140,9 @@ def estimate_opponent_valuations(
                     marginal = min(benefit / gap_to_next, 1.0) if gap_to_next > 0 else 0.0
                     team_val += marginal * min(benefit, gap_to_next) / denom
                 elif cat in INVERSE_CATEGORIES:
-                    # L: inverse counting stat, lower is better
-                    # Adding losses hurts, so benefit is if proj < team total
-                    benefit = max(0.0, team_cat_total - proj)
-                    marginal = min(benefit / gap_to_next, 1.0)
-                    team_val += marginal * min(benefit, gap_to_next) / denom
+                    # L: inverse counting stat — more losses always hurts.
+                    # Acquiring a pitcher's projected losses provides no benefit.
+                    continue
                 else:
                     # Counting stats: projected contribution / gap
                     marginal = min(proj / gap_to_next, 1.0)
@@ -165,9 +163,9 @@ def estimate_opponent_valuations(
                         benefit = 0.0
                     team_val += benefit / denom * 0.5
                 elif cat in INVERSE_CATEGORIES:
-                    # L: inverse counting stat
-                    benefit = max(0.0, team_cat_total - proj)
-                    team_val += benefit / denom * 0.5
+                    # L: inverse counting stat — more losses always hurts.
+                    # Acquiring a pitcher's projected losses provides no benefit.
+                    continue
                 else:
                     # Team is already last; any help has marginal value
                     team_val += proj / denom * 0.5

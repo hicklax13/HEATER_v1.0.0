@@ -110,23 +110,24 @@ class TestMaximinLineup:
         assert started_pitchers == 2  # min(2 pitchers, 10 slots)
 
     def test_worst_category_is_maximized(self, roster, scale_factors):
-        """The maximin objective targets the worst category, not the sum."""
+        """The maximin objective targets the worst non-inverse category, not the sum.
+
+        Inverse stats (ERA, WHIP, L) are excluded from maximin because their
+        scale factors are incompatible with counting stats.
+        """
         result = maximin_lineup(roster, scale_factors)
         assert result["status"] == "Optimal"
 
         started = [i for i, name in enumerate(roster["name"]) if result["assignments"].get(name, 0) == 1]
 
-        # Compute each category's scaled total
+        # Compute each non-inverse category's scaled total
         cat_totals = {}
-        cats = ["r", "hr", "rbi", "sb", "avg", "w", "sv", "k", "era", "whip"]
+        cats = ["r", "hr", "rbi", "sb", "avg", "w", "sv", "k"]
         for cat in cats:
             vals = pd.to_numeric(roster[cat], errors="coerce").fillna(0).values
             raw = sum(float(vals[i]) for i in started)
             sf = scale_factors[cat]
-            if cat in ("era", "whip"):
-                cat_totals[cat] = -raw / sf  # inverse
-            else:
-                cat_totals[cat] = raw / sf
+            cat_totals[cat] = raw / sf
 
         worst = min(cat_totals.values())
         # z_value should equal (approximately) the worst category

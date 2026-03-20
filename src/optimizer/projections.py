@@ -304,7 +304,7 @@ def _apply_kalman_filter(
                 proc_var = get_process_variance(kalman_stat)
 
                 # One-step Kalman: K = P_prior / (P_prior + R)
-                prior_var = proc_var + obs_var
+                prior_var = proc_var
                 kalman_gain = prior_var / (prior_var + obs_var)
                 filtered = prior_mean + kalman_gain * (observed - prior_mean)
 

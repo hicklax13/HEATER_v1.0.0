@@ -87,7 +87,7 @@ def estimate_playoff_probability(
         Estimated playoff probability in [0, 1].
     """
     playoff_spots = num_teams // 2  # Top half makes playoffs
-    base_prob = max(0.0, 1.0 - (standings_rank - 1) / max(playoff_spots, 1))
+    base_prob = max(0.0, 1.0 - (standings_rank - 1) / max(num_teams - 1, 1))
 
     # More weeks remaining = more uncertainty = regress toward 0.5
     certainty = 1.0 - (weeks_remaining / 26.0)  # 26-week season

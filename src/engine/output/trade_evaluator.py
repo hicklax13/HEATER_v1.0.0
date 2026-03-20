@@ -492,17 +492,19 @@ def evaluate_trade(
         use_median_cap = fa_pool_check.shape[0] > 500  # heuristic: no real rosters loaded
 
         picked_up_ids: set[int] = set()
+        # Determine type needed: check what type of player was lost
+        lost_players = player_pool[player_pool["player_id"].isin(giving_ids)]
+        if not lost_players.empty:
+            hitters_lost = int(lost_players["is_hitter"].sum()) if "is_hitter" in lost_players.columns else 0
+            pitchers_lost = len(lost_players) - hitters_lost
+        else:
+            hitters_lost = abs(net_roster_growth)
+            pitchers_lost = 0
+        hitters_needed = hitters_lost
+        pitchers_needed = pitchers_lost
         for i in range(abs(net_roster_growth)):
-            # Determine type needed: check what type of player was lost
-            lost_players = player_pool[player_pool["player_id"].isin(giving_ids)]
-            if not lost_players.empty:
-                # Try to replace with same type — count hitters vs pitchers lost
-                hitters_lost = int(lost_players["is_hitter"].sum()) if "is_hitter" in lost_players.columns else 0
-                pitchers_lost = len(lost_players) - hitters_lost
-                # For each open slot, alternate hitter/pitcher based on what was lost more
-                need_hitter = (hitters_lost - i) > (pitchers_lost - max(0, i - hitters_lost))
-            else:
-                need_hitter = True
+            # Track remaining hitters and pitchers needed separately
+            need_hitter = hitters_needed > 0 and (pitchers_needed <= 0 or hitters_needed >= pitchers_needed)
 
             cap = None
             if use_median_cap:
@@ -526,6 +528,12 @@ def evaluate_trade(
                     match = player_pool[player_pool["player_id"] == fa_id]
                     if not match.empty:
                         fa_pickup_name = str(match.iloc[0].get(name_col, "Unknown"))
+
+            # Decrement the appropriate counter
+            if need_hitter:
+                hitters_needed -= 1
+            else:
+                pitchers_needed -= 1
 
         # Now run LP on the restored roster
         after_totals, after_assignments = _lineup_constrained_totals(after_ids, player_pool, config)

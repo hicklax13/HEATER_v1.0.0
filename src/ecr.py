@@ -848,15 +848,32 @@ def refresh_ecr_consensus(force: bool = False) -> pd.DataFrame:
     if "player_id" in result_df.columns:
         result_df = result_df.drop_duplicates(subset=["player_id"])
 
-    # Compute consensus rank from available source ranks
+    # Compute consensus rank from available source ranks using trimmed Borda Count
     rank_cols = [c for c in result_df.columns if c.endswith("_rank")]
     if rank_cols:
-        result_df["consensus_avg"] = result_df[rank_cols].mean(axis=1, skipna=True)
-        result_df["consensus_rank"] = result_df["consensus_avg"].rank(method="min").astype(int)
-        result_df["rank_min"] = result_df[rank_cols].min(axis=1, skipna=True)
-        result_df["rank_max"] = result_df[rank_cols].max(axis=1, skipna=True)
-        result_df["rank_stddev"] = result_df[rank_cols].std(axis=1, skipna=True).fillna(0)
-        result_df["n_sources"] = result_df[rank_cols].notna().sum(axis=1)
+        consensus_avgs = []
+        consensus_stddevs = []
+        consensus_mins = []
+        consensus_maxs = []
+        consensus_n = []
+        for _, row in result_df.iterrows():
+            sources = {c: row[c] for c in rank_cols if pd.notna(row[c])}
+            result_dict = _compute_player_consensus(sources)
+            consensus_avgs.append(result_dict["consensus_avg"])
+            consensus_stddevs.append(result_dict["rank_stddev"])
+            consensus_mins.append(result_dict["rank_min"])
+            consensus_maxs.append(result_dict["rank_max"])
+            consensus_n.append(result_dict["n_sources"])
+        result_df["consensus_avg"] = consensus_avgs
+        result_df["rank_min"] = consensus_mins
+        result_df["rank_max"] = consensus_maxs
+        result_df["rank_stddev"] = consensus_stddevs
+        result_df["n_sources"] = consensus_n
+        # Rank only rows with a valid consensus_avg
+        valid_mask = result_df["consensus_avg"].notna()
+        result_df.loc[valid_mask, "consensus_rank"] = (
+            result_df.loc[valid_mask, "consensus_avg"].rank(method="min").astype(int)
+        )
 
     stored = _store_consensus(result_df)
     # Log refresh so check_staleness("ecr_consensus", 24) works correctly

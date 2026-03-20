@@ -99,7 +99,7 @@ def _age_level_performance(row: dict) -> float:
     if obp is None or slg is None:
         return 50.0  # neutral when no MiLB data
 
-    woba_proxy = (obp * 1.2 + slg * 0.8) / 2
+    woba_proxy = obp * 0.92 + slg * 0.47 - 0.08
     level_avg = _LEVEL_AVG_WOBA.get(level, 0.310)
 
     # Scale: each 0.020 above avg = +10 points from 50 baseline

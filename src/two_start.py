@@ -485,8 +485,9 @@ def identify_two_start_pitchers(
 
         # Compute per-start IP (if season totals provided, estimate per-start)
         if p_ip > 30:
-            # Season totals: estimate per-start IP (typical SP ~30 starts)
-            ip_per_start = p_ip / max(p_ip / _DEFAULT_IP_PER_START, 1)
+            # Season totals: estimate per-start IP from total IP
+            est_starts = max(1, round(p_ip / _DEFAULT_IP_PER_START))
+            ip_per_start = p_ip / est_starts
         else:
             ip_per_start = p_ip if p_ip > 0 else _DEFAULT_IP_PER_START
 

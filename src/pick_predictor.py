@@ -21,7 +21,7 @@ POSITION_SHAPE_PARAMS: dict[str, float] = {
     "DH": 0.9,
 }
 
-_SIGMA = 12.0  # ADP standard deviation (matches simulation.py)
+_SIGMA = 10.0  # ADP standard deviation (matches simulation.py default)
 
 
 def weibull_survival(

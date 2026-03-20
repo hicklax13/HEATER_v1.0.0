@@ -41,6 +41,9 @@ STABILIZATION_POINTS: dict[str, int] = {
     "k_rate": 60,  # K/PA stabilizes quickly
     "bb_rate": 120,  # BB/PA
     "hr_rate": 170,  # HR/PA (FB% driven)
+    "r_rate": 320,  # R/PA — runs stabilize slowly
+    "rbi_rate": 300,  # RBI/PA — similar to runs
+    "sb_rate": 100,  # SB/PA — binary event, stabilizes faster
     "avg": 910,  # BA — extremely noisy, needs large samples
     "babip": 820,  # BABIP — similarly noisy
     "iso": 160,  # Isolated power

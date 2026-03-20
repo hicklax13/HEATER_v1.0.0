@@ -155,15 +155,15 @@ def classify_pick(
         classification = "GREAT STEAL"
     elif sgp_steal and adp_steal:
         classification = "STEAL"
-    elif sgp_great_steal or (sgp_steal and player_adp > 0 and adp_gap > 0):
-        # Strong SGP signal with ADP supporting (picked after ADP = good)
+    elif sgp_great_steal and player_adp > 0:
+        # Very strong SGP signal with valid ADP — downgrade to STEAL (not GREAT STEAL)
         classification = "STEAL"
     elif sgp_reach and adp_reach:
         classification = "REACH"
     elif sgp_slight_reach and adp_slight_reach:
         classification = "SLIGHT REACH"
-    elif sgp_reach or (sgp_slight_reach and player_adp > 0 and adp_gap < 0):
-        # Strong SGP signal with ADP supporting (picked before ADP = bad)
+    elif sgp_reach and player_adp > 0:
+        # Very strong negative SGP signal with valid ADP — downgrade to SLIGHT REACH (not REACH)
         classification = "SLIGHT REACH"
     else:
         classification = "FAIR"

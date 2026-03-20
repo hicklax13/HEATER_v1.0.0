@@ -258,13 +258,23 @@ def generate_stat_scenarios(
     d = np.sqrt(np.diag(corr_pd))
     corr_pd = corr_pd / np.outer(d, d)
 
-    cholesky = np.linalg.cholesky(corr_pd)
+    try:
+        cholesky = np.linalg.cholesky(corr_pd)
+    except np.linalg.LinAlgError:
+        cholesky = np.eye(n_cats)
+
+    # Non-negative counting stats that must be clipped to >= 0
+    _NON_NEGATIVE_STATS: set[str] = {"r", "hr", "rbi", "sb", "w", "sv", "k"}
 
     for i in range(n_players):
         z = rng.standard_normal((n_scenarios, n_cats))
         correlated = z @ cholesky.T
         for j in range(n_cats):
             scenarios[:, i, j] = stats[i, j] + correlated[:, j] * std_matrix[i, j]
+        # Clip non-negative counting stats to >= 0
+        for j, cat in enumerate(ALL_CATS):
+            if cat in _NON_NEGATIVE_STATS:
+                scenarios[:, i, j] = np.maximum(0, scenarios[:, i, j])
 
     logger.debug(
         "Generated %d scenarios with Cholesky fallback for %d players",

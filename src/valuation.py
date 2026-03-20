@@ -461,7 +461,13 @@ def compute_category_weights(
                         # ERA=0 / WHIP=0 with no IP means no pitching — worst rank
                         rank = len(other_vals) + 1
                 else:
-                    rank = sum(1 for v in other_vals if v > 0 and v < current) + 1
+                    # For rate stats (ERA, WHIP), v=0 means no pitching data —
+                    # exclude those teams.  For counting stats like L, 0 is a
+                    # valid (excellent) value that should be counted.
+                    if cat in config.rate_stats:
+                        rank = sum(1 for v in other_vals if v > 0 and v < current) + 1
+                    else:
+                        rank = sum(1 for v in other_vals if v < current) + 1
             else:
                 rank = sum(1 for v in other_vals if v > current) + 1
             # rank 1 = best, num_teams = worst
@@ -891,6 +897,8 @@ def compute_percentile_projections(
         "whip",
     ]
 
+    inverse_rate_stats = {"era", "whip"}
+
     for pct in percentiles:
         z = z_map[pct]
         proj = base.copy()
@@ -898,7 +906,10 @@ def compute_percentile_projections(
             vol_col = f"{col}_vol"
             if col in proj.columns and vol_col in merged.columns:
                 vol = merged[vol_col].fillna(0.0)
-                proj[col] = proj[col] + z * vol
+                # For inverse rate stats (ERA, WHIP), higher percentile = best
+                # case = LOWEST value, so negate the z multiplier.
+                z_eff = -z if col in inverse_rate_stats else z
+                proj[col] = proj[col] + z_eff * vol
             # Enforce bounds
             if col in counting_stats and col in proj.columns:
                 proj[col] = proj[col].clip(lower=0.0)

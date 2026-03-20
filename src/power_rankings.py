@@ -224,7 +224,7 @@ def bootstrap_confidence_interval(
         ss = max(
             0, min(1, base_components["schedule_strength"] * scale_factor + rng.normal(0, stds["schedule_strength"]))
         )
-        ie = max(0, min(1, base_components["injury_exposure"] + rng.normal(0, stds["injury_exposure"])))
+        ie = max(0, min(1, base_components["injury_exposure"] * scale_factor + rng.normal(0, stds["injury_exposure"])))
         mo = max(0.5, min(2.0, base_components["momentum"] + rng.normal(0, stds["momentum"])))
         perturbed = compute_power_rating(rq, cb, ss, ie, mo)
         ratings.append(max(0, min(100, perturbed)))

@@ -163,6 +163,10 @@ def maximin_lineup(
         }
 
     cats = active_categories or list(ALL_CATEGORIES)
+    # Exclude inverse stats (ERA, WHIP, L) from maximin — their
+    # scale factors are incompatible with counting stats and dominate
+    # the LP floor, making the optimizer over-rotate on pitching rates.
+    cats = [c for c in cats if c not in INVERSE_CATS]
     weights = category_weights or {}
     max_hit, max_pit = _starter_limits(roster)
     n = len(roster)

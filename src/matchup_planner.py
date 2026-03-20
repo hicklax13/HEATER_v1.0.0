@@ -189,9 +189,8 @@ def compute_pitcher_game_rating(
     pf = float(park_factor) if park_factor else 1.0
     inverse_park = max(2.0 - pf, 0.5)  # floor to avoid negative/extreme values
 
-    starts = int(pitcher_stats.get("starts", 1) or 1)
-    if starts < 1:
-        starts = 1
+    # Per-game rating: always use starts=1 since this function rates a single game
+    starts = 1
 
     home_away = _PITCHER_HOME_ADVANTAGE if is_home else 1.0
 

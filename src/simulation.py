@@ -198,8 +198,14 @@ class DraftSimulator:
                 # Scale: a position with 30%+ historical bias gets up to 1.6x boost
                 history_weights[i] = 1.0 + max_pref * 2.0
 
-        # Blend all factors
-        combined = (w_adp * weights) + (w_need * weights * need_weights) + (w_hist * weights * history_weights)
+        # Blend all factors — additive blend of independently normalized distributions
+        need_sum = need_weights.sum()
+        need_dist = need_weights / need_sum if need_sum > 0 else np.ones(len(available)) / len(available)
+        hist_sum = history_weights.sum()
+        hist_dist = history_weights / hist_sum if hist_sum > 0 else np.ones(len(available)) / len(available)
+        adp_sum = weights.sum()
+        adp_dist = weights / adp_sum if adp_sum > 0 else np.ones(len(available)) / len(available)
+        combined = w_adp * adp_dist + w_need * need_dist + w_hist * hist_dist
 
         weight_sum = combined.sum()
         if weight_sum <= 0:
@@ -367,7 +373,7 @@ class DraftSimulator:
                         avail_sgp = np.where(is_available, sim_sgp, -999)
                     best_idx = np.argmax(avail_sgp)
                     is_available[best_idx] = False
-                    user_sgp_total += sim_sgp[best_idx]
+                    user_sgp_total += avail_sgp[best_idx]
                 else:
                     avail_indices = np.where(is_available)[0]
                     if len(avail_indices) == 0:

@@ -724,14 +724,22 @@ class DraftRecommendationEngine:
             pool.loc[is_pitcher & low_ip, "streaming_penalty"] = -0.3
 
         # Closer hierarchy bonus: SV scarcity in H2H
-        if "sv" in pool.columns:
-            sv_vals = pool["sv"].fillna(0)
-            # Elite closers (20+ saves): bonus scales with saves
-            pool["closer_hierarchy_bonus"] = np.where(
-                sv_vals >= 20,
-                np.clip((sv_vals - 15) * 0.1, 0.0, 2.0),
-                0.0,
+        # Uses detect_closer_role() from contextual_factors for consistent bonuses
+        try:
+            from src.contextual_factors import detect_closer_role
+
+            pool["closer_hierarchy_bonus"] = pool.apply(
+                lambda row: detect_closer_role(row).get("draft_bonus", 0.0), axis=1
             )
+        except ImportError:
+            # Fallback if contextual_factors unavailable
+            if "sv" in pool.columns:
+                sv_vals = pool["sv"].fillna(0)
+                pool["closer_hierarchy_bonus"] = np.where(
+                    sv_vals >= 20,
+                    np.clip(1.5 + (sv_vals - 20) * 0.05, 1.5, 2.0),
+                    0.0,
+                )
 
         # Lineup protection bonus: hitters in strong lineups
         # Proxy: players on teams with multiple drafted hitters
