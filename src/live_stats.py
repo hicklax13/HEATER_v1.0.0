@@ -579,7 +579,7 @@ def fetch_player_enhanced_status(mlb_id: int) -> dict | None:
     try:
         data = statsapi.get(
             "person",
-            {"personIds": mlb_id, "hydrate": "rosterEntries,transactions"},
+            {"personId": mlb_id, "hydrate": "rosterEntries,transactions"},
         )
         people = data.get("people", [])
         return people[0] if people else None

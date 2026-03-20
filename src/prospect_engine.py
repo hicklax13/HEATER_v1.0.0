@@ -139,34 +139,86 @@ def compute_mlb_readiness_score(row: dict) -> float:
 def _parse_fg_prospects(data: list[dict]) -> pd.DataFrame:
     """Parse FanGraphs Board API response into a DataFrame."""
     rows = []
-    for item in data:
+    for i, item in enumerate(data):
+        # Name: API returns FirstName + LastName separately
+        first = item.get("FirstName", item.get("PlayerName", ""))
+        last = item.get("LastName", "")
+        name = f"{first} {last}".strip() if last else first
+
+        # FV: API uses FV_Current
         try:
-            fv_raw = item.get("FV", "0")
+            fv_raw = item.get("FV_Current", item.get("FV", "0"))
             fv = int(fv_raw) if fv_raw else 0
         except (ValueError, TypeError):
             fv = 0
 
+        # ETA: API uses ETA_Current
+        eta_raw = item.get("ETA_Current", item.get("ETA", ""))
+        eta = str(int(eta_raw)) if eta_raw and eta_raw != "" else ""
+
+        # Risk: API uses Variance
+        risk = item.get("Variance", item.get("Risk", ""))
+
+        # Age: API returns as string like "22.0194444"
+        age_raw = item.get("Age")
+        age = None
+        if age_raw is not None:
+            try:
+                age = int(float(age_raw))
+            except (ValueError, TypeError):
+                pass
+
+        # Rank: API uses Ovr_Rank
+        rank = item.get("Ovr_Rank", i + 1)
+
+        # Scouting tools: format is "present / future" string
+        def _parse_grade(val):
+            """Parse '45 / 60' format, return int or None."""
+            if val is None or val == "":
+                return None
+            if isinstance(val, (int, float)):
+                return int(val)
+            parts = str(val).split("/")
+            try:
+                return int(parts[0].strip())
+            except (ValueError, IndexError):
+                return None
+
+        def _parse_future_grade(val):
+            """Parse '45 / 60' format, return future grade or None."""
+            if val is None or val == "":
+                return None
+            if isinstance(val, (int, float)):
+                return int(val)
+            parts = str(val).split("/")
+            try:
+                return int(parts[-1].strip())
+            except (ValueError, IndexError):
+                return None
+
         row = {
-            "name": item.get("PlayerName", ""),
+            "name": name,
             "team": item.get("Team", ""),
             "position": item.get("Position", ""),
-            "fg_rank": len(rows) + 1,
+            "fg_rank": rank,
             "fg_fv": fv,
-            "fg_eta": str(item.get("ETA", "")),
-            "fg_risk": item.get("Risk", ""),
-            "mlb_id": item.get("minorMasterId"),
-            "age": item.get("Age"),
-            "hit_present": item.get("pHit"),
-            "hit_future": item.get("fHit"),
-            "game_present": item.get("pGame"),
-            "game_future": item.get("fGame"),
-            "raw_present": item.get("pRaw"),
-            "raw_future": item.get("fRaw"),
-            "speed": item.get("pSpd"),
-            "field": item.get("Fld"),
-            "ctrl_present": item.get("pCtl"),
-            "ctrl_future": item.get("fCtl"),
-            "scouting_report": item.get("Report", ""),
+            "fg_eta": eta,
+            "fg_risk": risk,
+            "mlb_id": item.get("PlayerId", item.get("minorMasterId")),
+            "age": age,
+            "hit_present": _parse_grade(item.get("Hit")) if item.get("Hit") else _parse_grade(item.get("pHit")),
+            "hit_future": _parse_future_grade(item.get("Hit")) if item.get("Hit") else _parse_grade(item.get("fHit")),
+            "game_present": _parse_grade(item.get("Game")) if item.get("Game") else _parse_grade(item.get("pGame")),
+            "game_future": _parse_future_grade(item.get("Game"))
+            if item.get("Game")
+            else _parse_grade(item.get("fGame")),
+            "raw_present": _parse_grade(item.get("Raw")) if item.get("Raw") else _parse_grade(item.get("pRaw")),
+            "raw_future": _parse_future_grade(item.get("Raw")) if item.get("Raw") else _parse_grade(item.get("fRaw")),
+            "speed": _parse_grade(item.get("Spd")) if item.get("Spd") else _parse_grade(item.get("pSpd")),
+            "field": _parse_grade(item.get("Fld")),
+            "ctrl_present": _parse_grade(item.get("CMD")) if item.get("CMD") else _parse_grade(item.get("pCtl")),
+            "ctrl_future": _parse_future_grade(item.get("CMD")) if item.get("CMD") else _parse_grade(item.get("fCtl")),
+            "scouting_report": item.get("Summary", item.get("Report", "")),
             "tldr": item.get("TLDR", ""),
         }
         rows.append(row)
@@ -176,12 +228,18 @@ def _parse_fg_prospects(data: list[dict]) -> pd.DataFrame:
 def fetch_fg_board(season: int = _CURRENT_SEASON) -> pd.DataFrame:
     """Fetch prospect data from FanGraphs Board API.
     Returns DataFrame or empty DataFrame on failure.
+    Tries current season first, falls back to previous season.
     """
     try:
         import requests
 
         url = _FG_BOARD_URL.format(season=season)
         resp = requests.get(url, headers=_HEADERS, timeout=15)
+        # If current season returns error, try previous season
+        if resp.status_code == 404 and season == _CURRENT_SEASON:
+            logger.info("FG Board API: season %d not available, trying %d", season, season - 1)
+            url = _FG_BOARD_URL.format(season=season - 1)
+            resp = requests.get(url, headers=_HEADERS, timeout=15)
         resp.raise_for_status()
         data = resp.json()
         if not isinstance(data, list) or len(data) == 0:
@@ -304,6 +362,14 @@ def _store_prospects(df: pd.DataFrame) -> int:
     """Store prospect rankings to DB. Returns count stored."""
     if df.empty:
         return 0
+    # Validate data quality — don't store garbage
+    if "name" in df.columns:
+        non_empty = df["name"].astype(str).str.strip().ne("").sum()
+        if non_empty < len(df) * 0.5:
+            logger.warning(
+                "Prospect data quality check failed: %d/%d names empty, skipping store", len(df) - non_empty, len(df)
+            )
+            return 0
     from src.database import get_connection
 
     conn = get_connection()
@@ -521,6 +587,12 @@ def get_prospect_rankings(
     Tries DB first, refreshes if empty.
     """
     df = _fetch_from_db(top_n=500)  # fetch more than needed for filtering
+    # Validate DB data — if names are mostly empty, refresh
+    if not df.empty and "name" in df.columns:
+        non_empty = df["name"].astype(str).str.strip().ne("").sum()
+        if non_empty < len(df) * 0.5:
+            logger.warning("DB prospect data has empty names, refreshing")
+            df = pd.DataFrame()  # force refresh
     if df.empty:
         df = refresh_prospect_rankings()
     if df.empty:

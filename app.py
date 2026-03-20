@@ -1603,14 +1603,24 @@ def render_scarcity_rings(ds, pool):
     sec("Position Scarcity")
     available = ds.available_players(pool)
 
+    # Filter to draftable players only (those with projections or ADP)
+    # to avoid counting thousands of minor leaguers with no stats
+    draftable = available
+    if "pick_score" in available.columns:
+        draftable = available[available["pick_score"].fillna(0) > 0]
+    elif "adp" in available.columns:
+        draftable = available[available["adp"].fillna(0) > 0]
+    if draftable.empty:
+        draftable = available
+
     positions = ["C", "1B", "2B", "3B", "SS", "OF", "SP", "RP"]
     cols = st.columns(4)
 
     for i, pos in enumerate(positions):
         with cols[i % 4]:
             # Count available at position
-            if "positions" in available.columns:
-                avail_count = len(available[available["positions"].str.contains(pos, na=False)])
+            if "positions" in draftable.columns:
+                avail_count = len(draftable[draftable["positions"].str.contains(pos, na=False)])
             else:
                 avail_count = 0
 
@@ -1759,16 +1769,18 @@ def render_category_balance(ds, pool):
         ("Runs Batted In", totals.get("RBI", 0), ""),
         ("Stolen Bases", totals.get("SB", 0), ""),
         ("Batting Average", totals.get("AVG", 0), ".3f"),
+        ("On-Base Percentage", totals.get("OBP", 0), ".3f"),
         ("Wins", totals.get("W", 0), ""),
+        ("Losses", totals.get("L", 0), ""),
         ("Saves", totals.get("SV", 0), ""),
         ("Strikeouts", totals.get("K", 0), ""),
         ("Earned Run Average", totals.get("ERA", 0), ".2f"),
         ("Walks + Hits per Inning Pitched", totals.get("WHIP", 0), ".3f"),
     ]
 
-    cols = st.columns(5)
+    cols = st.columns(6)
     for i, (cat, val, fmt) in enumerate(cats):
-        with cols[i % 5]:
+        with cols[i % 6]:
             display = f"{val:{fmt}}" if fmt else str(int(val))
             st.markdown(
                 f'<div class="cat-card"><div class="cat-name">{cat}</div><div class="cat-val">{display}</div></div>',
@@ -1800,14 +1812,16 @@ def _render_radar_chart(ds, pool):
     user_totals = ds.get_user_roster_totals(pool)
     all_totals = ds.get_all_team_roster_totals(pool)
 
-    cat_keys = ["R", "HR", "RBI", "SB", "AVG", "W", "SV", "K", "ERA", "WHIP"]
+    cat_keys = ["R", "HR", "RBI", "SB", "AVG", "OBP", "W", "L", "SV", "K", "ERA", "WHIP"]
     cat_display = [
         "Runs",
         "Home Runs",
         "Runs Batted In",
         "Stolen Bases",
         "Batting Average",
+        "On-Base Percentage",
         "Wins",
+        "Losses",
         "Saves",
         "Strikeouts",
         "Earned Run Average",

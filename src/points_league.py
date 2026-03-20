@@ -150,3 +150,37 @@ def compute_fantasy_points(
                     pts += float(row.get(col, 0) or 0) * weight
         df.at[idx, "fantasy_points"] = round(pts, 1)
     return df
+
+
+def compute_points_leaders(
+    stats_df: pd.DataFrame,
+    hitting_weights: dict[str, float],
+    pitching_weights: dict[str, float],
+    top_n: int = 20,
+) -> list[dict]:
+    """Return the top-N fantasy points scorers.
+
+    Parameters
+    ----------
+    stats_df : pd.DataFrame
+        Player stats (must include columns used by compute_fantasy_points).
+    hitting_weights / pitching_weights : dict
+        Scoring weights from a preset.
+    top_n : int
+        Number of leaders to return.
+
+    Returns
+    -------
+    list[dict]
+        Sorted list of player dicts with fantasy_points column.
+    """
+    if stats_df.empty:
+        return []
+    scored = compute_fantasy_points(stats_df, hitting_weights, pitching_weights)
+    scored = scored.sort_values("fantasy_points", ascending=False).head(top_n)
+    # Pick display columns
+    display_cols = ["name", "team", "positions", "fantasy_points"]
+    available = [c for c in display_cols if c in scored.columns]
+    if not available:
+        available = scored.columns.tolist()
+    return scored[available].to_dict("records")
