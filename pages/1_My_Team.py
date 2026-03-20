@@ -17,6 +17,7 @@ from src.ui_shared import (
     render_context_card,
     render_context_columns,
     render_page_layout,
+    render_player_select,
 )
 
 try:
@@ -124,6 +125,7 @@ def _render_news_card(player_name: str, news_item: dict, ownership: dict) -> str
     if sentiment is None:
         sentiment = 0.0
     il_status = news_item.get("il_status", "")
+    published_at = news_item.get("published_at", "")
 
     # Generate analytical summary if the player_news module is available
     if PLAYER_NEWS_AVAILABLE:
@@ -134,8 +136,26 @@ def _render_news_card(player_name: str, news_item: dict, ownership: dict) -> str
         except Exception:
             pass  # Fall back to raw detail
 
+    # Format date for display
+    date_html = ""
+    if published_at:
+        try:
+            from datetime import datetime
+
+            if isinstance(published_at, str) and len(published_at) >= 10:
+                dt = datetime.fromisoformat(published_at.replace("Z", "+00:00"))
+                date_html = (
+                    f'<span style="font-size:11px;color:{T["tx2"]};'
+                    f'font-family:IBM Plex Mono,monospace;">'
+                    f"{dt.strftime('%b %d, %Y')}</span>"
+                )
+        except (ValueError, TypeError):
+            pass
+
     # Build header line: source badge + news type + sentiment
     header_parts = [_source_badge(source), _news_type_label(news_type)]
+    if date_html:
+        header_parts.append(date_html)
     if il_status:
         header_parts.append(
             f'<span style="font-size:11px;font-weight:700;color:{T["danger"]};'
@@ -263,7 +283,7 @@ def _render_news_tab(roster: "pd.DataFrame") -> None:
 
     # Apply sorting
     if sort_key == "recency":
-        all_news.sort(key=lambda x: x["published_at"], reverse=True)
+        all_news.sort(key=lambda x: x["published_at"] or "", reverse=True)
     elif sort_key == "severity":
         severity_order = {"injury": 0, "transaction": 1, "callup": 2, "lineup": 3, "general": 4}
         all_news.sort(key=lambda x: severity_order.get(x["news_type"], 5))
@@ -353,18 +373,80 @@ else:
         st.stop()
     else:
         user_team_name = user_teams.iloc[0]["team_name"]
-        # Team name with styled monogram avatar
-        initials = "".join(w[0].upper() for w in user_team_name.split()[:2]) if user_team_name else "T"
+        if isinstance(user_team_name, bytes):
+            user_team_name = user_team_name.decode("utf-8", errors="replace")
+
+        # Try to get Yahoo client — from session or reconnect from saved token
+        yahoo_client = st.session_state.get("yahoo_client")
+        if yahoo_client is None and YFPY_AVAILABLE:
+            import os
+
+            _ykey = os.environ.get("YAHOO_CLIENT_ID", "")
+            _ysecret = os.environ.get("YAHOO_CLIENT_SECRET", "")
+            _yleague = os.environ.get("YAHOO_LEAGUE_ID", "").strip()
+            if _ykey and _ysecret and _yleague:
+                try:
+                    import json
+
+                    with open("data/yahoo_token.json") as _tf:
+                        _tdata = json.load(_tf)
+                    _client = YahooFantasyClient(league_id=_yleague)
+                    if _client.authenticate(_ykey, _ysecret, token_data=_tdata):
+                        yahoo_client = _client
+                        st.session_state.yahoo_client = _client
+                except Exception:
+                    pass
+
+        # Try to fetch team logo from Yahoo
+        team_logo_url = ""
+        if yahoo_client:
+            try:
+                standings_data = yahoo_client._query.get_league_standings()
+                for t in standings_data.teams or []:
+                    t_name = t.name
+                    if isinstance(t_name, bytes):
+                        t_name = t_name.decode("utf-8", errors="replace")
+                    if t_name == user_team_name:
+                        logos = getattr(t, "team_logos", None) or []
+                        if logos:
+                            team_logo_url = getattr(logos[0], "url", "") or ""
+                        break
+            except Exception:
+                pass
+
+        # Team header with Yahoo logo or monogram fallback
+        import html as _html
+        import re as _re
+
+        if team_logo_url:
+            avatar_html = (
+                f'<img src="{team_logo_url}" '
+                f'style="width:40px;height:40px;min-width:40px;border-radius:50%;'
+                f'object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.15);" '
+                f'alt="Team logo"/>'
+            )
+        else:
+            # Strip emoji/symbols to get clean initials
+            clean_name = _re.sub(r"[^\w\s]", "", user_team_name, flags=_re.UNICODE).strip()
+            words = [w for w in clean_name.split() if w and w[0].isalpha()]
+            initials = "".join(w[0].upper() for w in words[:2]) if words else "T"
+            avatar_html = (
+                f'<div style="width:40px;height:40px;min-width:40px;border-radius:50%;'
+                f"background:linear-gradient(135deg,#e65c00,#cc5200);"
+                f"display:flex;align-items:center;justify-content:center;"
+                f"font-family:Bebas Neue,sans-serif;font-size:15px;letter-spacing:1px;"
+                f'color:#ffffff;font-weight:700;box-shadow:0 2px 8px rgba(230,92,0,0.25);">'
+                f"{initials}</div>"
+            )
+
+        safe_name = _html.escape(user_team_name)
+        st.markdown('<div style="margin-top:4px;"></div>', unsafe_allow_html=True)
         st.markdown(
-            f'<div style="display:flex;align-items:center;gap:10px;padding:4px 0 8px 2px;">'
-            f'<div style="width:36px;height:36px;min-width:36px;border-radius:50%;'
-            f"background:linear-gradient(135deg,#e65c00,#cc5200);"
-            f"display:flex;align-items:center;justify-content:center;"
-            f"font-family:Bebas Neue,sans-serif;font-size:15px;letter-spacing:1px;"
-            f'color:#ffffff;font-weight:700;box-shadow:0 2px 8px rgba(230,92,0,0.25);">'
-            f"{initials}</div>"
+            f'<div style="display:flex;align-items:center;gap:12px;'
+            f'padding:10px 4px;overflow:visible !important;min-height:52px;">'
+            f"{avatar_html}"
             f'<span style="font-family:Figtree,sans-serif;font-size:16px;font-weight:700;'
-            f'color:#1d1d1f;">Team: {user_team_name}</span></div>',
+            f'color:#1d1d1f;">{safe_name}</span></div>',
             unsafe_allow_html=True,
         )
 
@@ -627,6 +709,14 @@ else:
                     max_height=600,
                 )
 
+                # Player card selector
+                if "player_id" in roster.columns:
+                    render_player_select(
+                        display_df["Player"].tolist(),
+                        roster["player_id"].tolist(),
+                        key_suffix="myteam",
+                    )
+
                 # Bayesian-adjusted projections
                 if BAYESIAN_AVAILABLE:
                     try:
@@ -661,8 +751,15 @@ else:
                                 stat_display = ["player_id", "avg", "hr", "rbi", "sb", "era", "whip", "k"]
                                 show_cols = [c for c in stat_display if c in updated.columns]
                                 bayes_df = updated[show_cols].copy()
+                                # Replace player_id with player name from players table
+                                if "player_id" in bayes_df.columns:
+                                    players_lookup = pd.read_sql_query("SELECT player_id, name FROM players", conn)
+                                    pid_to_name = dict(zip(players_lookup["player_id"], players_lookup["name"]))
+                                    bayes_df["player_id"] = bayes_df["player_id"].map(
+                                        lambda x: pid_to_name.get(int(x), f"Player {int(x)}") if pd.notna(x) else ""
+                                    )
                                 bayes_rename = {
-                                    "player_id": "ID",
+                                    "player_id": "Player",
                                     "avg": "AVG",
                                     "hr": "HR",
                                     "rbi": "RBI",

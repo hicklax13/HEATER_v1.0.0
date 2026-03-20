@@ -24,6 +24,7 @@ from src.ui_shared import (
     render_context_card,
     render_context_columns,
     render_page_layout,
+    render_player_select,
     render_styled_table,
 )
 
@@ -949,3 +950,11 @@ with main:
         roster_show = roster_show.rename(columns=col_rename)
 
         render_compact_table(roster_show)
+
+        # Player card selector
+        if "player_id" in roster.columns:
+            render_player_select(
+                roster_show["Player"].tolist(),
+                roster["player_id"].tolist(),
+                key_suffix="optimizer",
+            )

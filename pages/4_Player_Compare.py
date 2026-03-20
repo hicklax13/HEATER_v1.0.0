@@ -19,6 +19,7 @@ from src.ui_shared import (
     render_context_card,
     render_context_columns,
     render_page_layout,
+    render_player_select,
     render_styled_table,
 )
 from src.valuation import LeagueConfig, add_process_risk, compute_percentile_projections, compute_projection_volatility
@@ -224,6 +225,13 @@ with main:
                 )
             render_compact_table(pd.DataFrame(rows))
             st.caption(METRIC_TOOLTIPS["z_score"])
+
+            # Player card selector for compared players
+            render_player_select(
+                [player_a_name, player_b_name],
+                [int(id_a), int(id_b)],
+                key_suffix="compare",
+            )
 
             # Health comparison
             st.subheader("Health & Confidence")

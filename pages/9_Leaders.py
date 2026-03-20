@@ -16,6 +16,7 @@ from src.ui_shared import (
     render_context_card,
     render_context_columns,
     render_page_layout,
+    render_player_select,
 )
 
 T = THEME
@@ -355,6 +356,14 @@ with main:
                     show_cols = [c for c in show_cols if c in ldf.columns]
                     ldf = ldf[show_cols].rename(columns=_CAT_DISPLAY)
                     render_compact_table(ldf)
+
+                    # Player card selector
+                    if "player_id" in leaders[category].columns and "Player" in ldf.columns:
+                        render_player_select(
+                            ldf["Player"].tolist(),
+                            leaders[category]["player_id"].tolist(),
+                            key_suffix="leaders",
+                        )
                 else:
                     st.info(f"No leaders found for {category}.")
             except Exception as e:
@@ -384,6 +393,14 @@ with main:
                     }
                     pts_df = pts_df[_pts_show].rename(columns=_PTS_DISPLAY)
                     render_compact_table(pts_df)
+
+                    # Player card selector
+                    if "player_id" in pd.DataFrame(pts_leaders).columns and "Player" in pts_df.columns:
+                        render_player_select(
+                            pts_df["Player"].tolist(),
+                            pd.DataFrame(pts_leaders)["player_id"].tolist(),
+                            key_suffix="leaders_pts",
+                        )
                 else:
                     st.info("No points leaders computed.")
             except Exception as e:

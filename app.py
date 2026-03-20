@@ -46,6 +46,7 @@ from src.ui_shared import (
     inject_custom_css,
     render_context_card,
     render_page_layout,
+    render_player_select,
     render_styled_table,
     sec,
 )
@@ -2084,6 +2085,14 @@ def render_available_players(ds, pool):
         display_df["Consensus Rank"] = display_df["Consensus Rank"].map(lambda x: f"{x:.0f}" if pd.notna(x) else "")
 
     render_styled_table(display_df, max_height=400)
+
+    # Player card selector
+    if "player_id" in filtered.columns:
+        render_player_select(
+            display_df["Player"].tolist(),
+            filtered.head(50)["player_id"].tolist(),
+            key_suffix="draft",
+        )
 
 
 # ── Draft Board ─────────────────────────────────────────────────────

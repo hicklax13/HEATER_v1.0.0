@@ -16,6 +16,7 @@ from src.ui_shared import (
     render_context_card,
     render_context_columns,
     render_page_layout,
+    render_player_select,
 )
 from src.valuation import LeagueConfig
 
@@ -165,3 +166,11 @@ else:
                         )
                         render_compact_table(display_df, highlight_cols=["Marginal Value", "Category Impact"])
                         st.caption(METRIC_TOOLTIPS["marginal_value"])
+
+                        # Player card selector
+                        if "player_id" in ranked.columns:
+                            render_player_select(
+                                display_df["Player"].tolist(),
+                                ranked["player_id"].tolist(),
+                                key_suffix="freeagents",
+                            )

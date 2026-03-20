@@ -15,6 +15,7 @@ from src.ui_shared import (
     render_context_card,
     render_context_columns,
     render_page_layout,
+    render_player_select,
     render_styled_table,
 )
 from src.valuation import (
@@ -481,6 +482,15 @@ def render_tabs(pool: pd.DataFrame, ds: DraftState) -> None:
                 }
             )
             render_styled_table(disp_sorted, max_height=400)
+
+            # Player card selector
+            if "player_id" in disp.columns:
+                _disp_ids = disp.sort_values("pick_score", ascending=False)["player_id"].tolist()
+                render_player_select(
+                    disp_sorted["Player"].tolist(),
+                    _disp_ids,
+                    key_suffix="draftsim",
+                )
 
     with tab_board:
         if not ds.pick_log:

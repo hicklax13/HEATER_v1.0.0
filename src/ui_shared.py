@@ -1224,6 +1224,9 @@ def inject_custom_css():
         background: linear-gradient(135deg, #1a1a2e, #16213e) !important;
         box-shadow: 0 3px 14px rgba(22,33,62,0.3), inset 0 1px 0 rgba(255,255,255,0.08) !important;
         position: relative !important;
+        color: #ffffff !important;
+        -webkit-text-fill-color: #ffffff !important;
+        text-shadow: 0 1px 4px rgba(0,0,0,0.25) !important;
     }}
     .page-title-wrap {{
         text-align: center !important;
@@ -1742,6 +1745,7 @@ def inject_custom_css():
         padding: 5px 8px !important;
         border-bottom: 1px solid {t["border"]} !important;
         font-size: 11px !important;
+        background: {t["card"]} !important;
     }}
     .compact-table tr:hover td {{
         background: rgba(255, 109, 0, 0.06) !important;
@@ -1755,7 +1759,7 @@ def inject_custom_css():
     .col-name {{
         position: sticky !important;
         left: 0 !important;
-        z-index: 1 !important;
+        z-index: 3 !important;
         background: {t["card"]} !important;
         font-family: 'Figtree', sans-serif !important;
         font-weight: 600 !important;
@@ -1765,15 +1769,28 @@ def inject_custom_css():
         overflow: hidden !important;
         text-overflow: ellipsis !important;
         border-right: 1px solid {t["border"]} !important;
+        box-shadow: 2px 0 4px rgba(0, 0, 0, 0.06) !important;
+    }}
+    /* Corner cell: sticky both top+left — needs highest z-index */
+    .compact-table thead th.col-name {{
+        z-index: 4 !important;
+        background: linear-gradient(135deg, #16213e, #1a1a2e) !important;
+        box-shadow: 2px 0 4px rgba(0, 0, 0, 0.12) !important;
     }}
     .compact-table tr:hover .col-name {{
-        background: rgba(255, 255, 255, 0.95) !important;
+        background: #ffffff !important;
     }}
     .row-start td {{
         background: rgba(45, 106, 79, 0.04) !important;
     }}
+    .row-start td.col-name {{
+        background: #f7fbf9 !important;
+    }}
     .row-bench td {{
         background: rgba(230, 57, 70, 0.04) !important;
+    }}
+    .row-bench td.col-name {{
+        background: #fdf7f7 !important;
     }}
     .health-dot {{
         display: inline-block !important;
@@ -2309,3 +2326,419 @@ def render_context_columns(context_width=1):
         Tuple of (context_col, main_col) Streamlit column objects.
     """
     return st.columns([context_width, 4])
+
+
+# ── Player Card Dialog ────────────────────────────────────────────
+
+
+def _render_player_card_header(profile: dict) -> None:
+    """Render the player card header band: headshot + bio + tags."""
+    t = THEME
+    name = _html.escape(profile.get("name", ""))
+    team = _html.escape(profile.get("team", ""))
+    positions = _html.escape(profile.get("positions", ""))
+    bats = profile.get("bats", "")
+    throws = profile.get("throws", "")
+    age = profile.get("age")
+    age_str = f"Age {age}" if age else ""
+    health_label = profile.get("health_label", "")
+    health_score = profile.get("health_score", 0)
+    headshot_url = profile.get("headshot_url", "")
+    tags = profile.get("tags", [])
+
+    # Health dot color
+    if health_score >= 0.9:
+        dot_color = t["green"]
+    elif health_score >= 0.75:
+        dot_color = t["warn"]
+    else:
+        dot_color = t["danger"]
+
+    # Headshot or placeholder
+    if headshot_url:
+        img_html = (
+            f'<img src="{headshot_url}" '
+            f'style="width:80px;height:80px;border-radius:50%;object-fit:cover;'
+            f'border:3px solid {t["hot"]};box-shadow:0 2px 8px rgba(0,0,0,0.15);" '
+            f"onerror=\"this.style.display='none'\" />"
+        )
+    else:
+        initials = "".join(w[0].upper() for w in name.split()[:2] if w) or "?"
+        img_html = (
+            f'<div style="width:80px;height:80px;border-radius:50%;'
+            f"background:linear-gradient(135deg,{t['hot']},{t['primary']});"
+            f"display:flex;align-items:center;justify-content:center;"
+            f"font-family:Bebas Neue,sans-serif;font-size:28px;color:#fff;"
+            f'font-weight:700;letter-spacing:2px;">{initials}</div>'
+        )
+
+    # Tag badges
+    tag_colors = {
+        "Sleeper": t["purple"],
+        "Breakout": t["green"],
+        "Target": t["sky"],
+        "Bust": t["danger"],
+        "Avoid": t["danger"],
+    }
+    tags_html = " ".join(
+        f'<span style="display:inline-block;padding:2px 8px;border-radius:10px;'
+        f"background:{tag_colors.get(tag, t['tx2'])};color:#fff;font-size:10px;"
+        f'font-weight:700;letter-spacing:0.5px;text-transform:uppercase;">'
+        f"{_html.escape(tag)}</span>"
+        for tag in tags
+    )
+
+    # Bio line
+    bio_parts = [p for p in [positions, team, age_str, f"B/T: {bats}/{throws}" if bats else ""] if p]
+    bio_line = " | ".join(bio_parts)
+
+    st.markdown(
+        f'<div style="display:flex;align-items:center;gap:16px;padding:12px 16px;'
+        f"background:rgba(255,255,255,0.6);backdrop-filter:blur(12px);"
+        f"border:1px solid rgba(255,255,255,0.3);border-left:4px solid {t['hot']};"
+        f'border-radius:12px;margin-bottom:12px;">'
+        f"{img_html}"
+        f'<div style="flex:1;">'
+        f'<div style="font-family:Bebas Neue,sans-serif;font-size:24px;letter-spacing:2px;'
+        f'color:{t["tx"]};line-height:1.2;">{name}</div>'
+        f'<div style="font-family:Figtree,sans-serif;font-size:13px;color:{t["tx2"]};'
+        f'margin-top:2px;">{bio_line}</div>'
+        f'<div style="display:flex;align-items:center;gap:8px;margin-top:6px;">'
+        f'<span class="health-dot" style="background:{dot_color};width:8px;height:8px;"></span>'
+        f'<span style="font-size:12px;color:{t["tx2"]};">{_html.escape(health_label)}</span>'
+        f"{tags_html}"
+        f"</div></div></div>",
+        unsafe_allow_html=True,
+    )
+
+
+def _render_radar_chart(radar: dict, is_hitter: bool) -> None:
+    """Render a Plotly radar chart comparing player vs league/MLB averages."""
+    try:
+        import plotly.graph_objects as go
+    except ImportError:
+        st.info("Plotly is required for radar charts.")
+        return
+
+    from src.valuation import LeagueConfig
+
+    lc = LeagueConfig()
+    cats = lc.hitting_categories if is_hitter else lc.pitching_categories
+
+    player_vals = [radar.get("player", {}).get(c, 50) for c in cats]
+    # Close the polygon
+    cats_closed = cats + [cats[0]]
+    player_closed = player_vals + [player_vals[0]]
+
+    t = THEME
+    fig = go.Figure()
+
+    # Player trace
+    fig.add_trace(
+        go.Scatterpolar(
+            r=player_closed,
+            theta=cats_closed,
+            name="Player",
+            fill="toself",
+            fillcolor="rgba(255,109,0,0.15)",
+            line=dict(color=t["hot"], width=2),
+        )
+    )
+
+    fig.update_layout(
+        polar=dict(
+            bgcolor="rgba(0,0,0,0)",
+            radialaxis=dict(visible=True, range=[0, 100], showticklabels=False, gridcolor="rgba(0,0,0,0.08)"),
+            angularaxis=dict(gridcolor="rgba(0,0,0,0.08)"),
+        ),
+        showlegend=True,
+        legend=dict(orientation="h", yanchor="bottom", y=-0.15, xanchor="center", x=0.5, font=dict(size=11)),
+        margin=dict(l=40, r=40, t=20, b=40),
+        height=320,
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(family="Figtree, sans-serif", size=12),
+    )
+
+    st.plotly_chart(fig, use_container_width=True)
+
+
+def _render_news_section(news: list[dict]) -> None:
+    """Render deduplicated news items with full datetime."""
+    t = THEME
+    if not news:
+        st.markdown(
+            f'<div style="font-size:13px;color:{t["tx2"]};padding:8px 0;">No recent news for this player.</div>',
+            unsafe_allow_html=True,
+        )
+        return
+
+    for item in news:
+        headline = _html.escape(item.get("headline", ""))
+        source = _html.escape(item.get("source", ""))
+        date_display = _html.escape(item.get("date_display", ""))
+        sentiment = item.get("sentiment", 0.0) or 0.0
+        news_type = item.get("news_type", "general")
+
+        # Source badge color
+        source_colors = {"espn": "#c41230", "rotowire": "#1a73e8", "mlb": "#002d72", "yahoo": "#6001d2"}
+        src_bg = source_colors.get(source.lower(), t["tx2"])
+
+        # Sentiment dot
+        if sentiment >= 0.2:
+            sent_color = t["green"]
+        elif sentiment >= -0.2:
+            sent_color = t["warn"]
+        else:
+            sent_color = t["danger"]
+
+        # Type label
+        type_colors = {"injury": t["danger"], "transaction": t["purple"], "callup": t["green"], "lineup": t["sky"]}
+        type_color = type_colors.get(news_type, t["tx2"])
+
+        st.markdown(
+            f'<div style="padding:8px 12px;border-bottom:1px solid {t["border"]};">'
+            f'<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">'
+            f'<span style="display:inline-block;padding:1px 6px;border-radius:8px;'
+            f'background:{src_bg};color:#fff;font-size:10px;font-weight:700;">{source}</span>'
+            f'<span style="font-size:10px;font-weight:600;color:{type_color};'
+            f'text-transform:uppercase;letter-spacing:0.5px;">{news_type}</span>'
+            f'<span style="font-size:10px;color:{t["tx2"]};font-family:IBM Plex Mono,monospace;">'
+            f"{date_display}</span>"
+            f'<span class="health-dot" style="background:{sent_color};width:6px;height:6px;"></span>'
+            f"</div>"
+            f'<div style="font-size:13px;font-weight:600;color:{t["tx"]};margin-top:4px;">'
+            f"{headline}</div></div>",
+            unsafe_allow_html=True,
+        )
+
+
+@st.dialog("Player Card", width="large")
+def show_player_card_dialog(player_id: int):
+    """Render the full player card as a modal dialog."""
+    from src.player_card import build_player_card_data
+
+    data = build_player_card_data(player_id)
+    profile = data["profile"]
+    is_hitter = bool(
+        profile.get("positions", "") and not all(p in ("SP", "RP", "P") for p in profile["positions"].split("/"))
+    )
+
+    # 1. Header
+    _render_player_card_header(profile)
+
+    # 2. Radar chart
+    radar = data.get("radar", {})
+    if radar.get("player"):
+        st.markdown('<div class="sec-head">Percentile Rankings</div>', unsafe_allow_html=True)
+        _render_radar_chart(radar, is_hitter)
+
+    # 3. Historical stats
+    historical = data.get("historical", [])
+    if historical:
+        st.markdown('<div class="sec-head">Historical Stats (3 Years)</div>', unsafe_allow_html=True)
+        cats = ["R", "HR", "RBI", "SB", "AVG", "OBP"] if is_hitter else ["W", "L", "SV", "K", "ERA", "WHIP"]
+        rows = []
+        for h in historical:
+            row = {"Season": h.get("season", "")}
+            row["GP"] = h.get("GAMES_PLAYED")
+            if is_hitter:
+                row["PA"] = h.get("PA")
+            else:
+                row["IP"] = h.get("IP")
+            for c in cats:
+                row[c] = h.get(c)
+            rows.append(row)
+        import pandas as pd
+
+        render_compact_table(pd.DataFrame(rows), max_height=200)
+
+    # 4. 2026 Projections
+    projections = data.get("projections", {})
+    blended = projections.get("blended", {})
+    systems = projections.get("systems", {})
+    if blended or systems:
+        st.markdown('<div class="sec-head">2026 Projections</div>', unsafe_allow_html=True)
+        cats = ["R", "HR", "RBI", "SB", "AVG", "OBP"] if is_hitter else ["W", "L", "SV", "K", "ERA", "WHIP"]
+        rows = []
+        if blended:
+            row = {"System": "Blended"}
+            for c in cats:
+                row[c] = blended.get(c)
+            rows.append(row)
+        for sys_name, sys_stats in sorted(systems.items()):
+            row = {"System": sys_name.title()}
+            for c in cats:
+                row[c] = sys_stats.get(c)
+            rows.append(row)
+        import pandas as pd
+
+        # Bold the blended row
+        row_cls = {0: "row-start"} if blended else {}
+        render_compact_table(pd.DataFrame(rows), row_classes=row_cls, max_height=250)
+
+    # 5. Advanced metrics (pitchers only)
+    advanced = data.get("advanced", {})
+    if advanced and any(v is not None for v in advanced.values()):
+        st.markdown('<div class="sec-head">Advanced Metrics</div>', unsafe_allow_html=True)
+        t = THEME
+        metrics_html = '<div style="display:flex;flex-wrap:wrap;gap:12px;">'
+        metric_labels = {
+            "FIP": "FIP",
+            "XFIP": "xFIP",
+            "SIERA": "SIERA",
+            "STUFF_PLUS": "Stuff+",
+            "LOCATION_PLUS": "Location+",
+            "PITCHING_PLUS": "Pitching+",
+        }
+        for key, label in metric_labels.items():
+            val = advanced.get(key)
+            if val is not None:
+                try:
+                    display = f"{float(val):.2f}" if "PLUS" not in key else f"{int(float(val))}"
+                except (ValueError, TypeError):
+                    display = str(val)
+                metrics_html += (
+                    f'<div style="background:{t["card"]};border:1px solid {t["border"]};'
+                    f'border-radius:8px;padding:8px 14px;text-align:center;">'
+                    f'<div style="font-size:10px;color:{t["tx2"]};text-transform:uppercase;'
+                    f'letter-spacing:0.5px;">{label}</div>'
+                    f'<div style="font-size:18px;font-weight:700;color:{t["tx"]};'
+                    f'font-family:IBM Plex Mono,monospace;">{display}</div></div>'
+                )
+        metrics_html += "</div>"
+        st.markdown(metrics_html, unsafe_allow_html=True)
+
+    # 6. Rankings & ADP
+    rankings = data.get("rankings", {})
+    if rankings:
+        st.markdown('<div class="sec-head">Rankings and Average Draft Position</div>', unsafe_allow_html=True)
+        t = THEME
+        rank_parts = []
+        if rankings.get("consensus_rank"):
+            rank_parts.append(f'<span style="font-weight:700;">Consensus:</span> #{rankings["consensus_rank"]}')
+        if rankings.get("composite_adp"):
+            try:
+                rank_parts.append(
+                    f'<span style="font-weight:700;">Composite ADP:</span> {float(rankings["composite_adp"]):.1f}'
+                )
+            except (ValueError, TypeError):
+                pass
+        if rankings.get("yahoo_adp"):
+            rank_parts.append(f'<span style="font-weight:700;">Yahoo ADP:</span> {rankings["yahoo_adp"]}')
+        if rankings.get("fantasypros_adp"):
+            rank_parts.append(f'<span style="font-weight:700;">FantasyPros ADP:</span> {rankings["fantasypros_adp"]}')
+        if rankings.get("nfbc_adp"):
+            rank_parts.append(f'<span style="font-weight:700;">NFBC ADP:</span> {rankings["nfbc_adp"]}')
+
+        if rank_parts:
+            st.markdown(
+                f'<div style="font-size:13px;color:{t["tx"]};line-height:1.8;'
+                f'font-family:Figtree,sans-serif;">' + "<br>".join(rank_parts) + "</div>",
+                unsafe_allow_html=True,
+            )
+
+    # 7. Injury history
+    injury = data.get("injury_history", [])
+    if injury:
+        st.markdown('<div class="sec-head">Injury History</div>', unsafe_allow_html=True)
+        import pandas as pd
+
+        inj_rows = []
+        inj_cls = {}
+        for i, ih in enumerate(injury):
+            inj_rows.append(
+                {
+                    "Season": ih["season"],
+                    "Games Played": ih["GP"],
+                    "Games Available": ih["GA"],
+                    "IL Stints": ih["IL_stints"],
+                    "IL Days": ih["IL_days"],
+                }
+            )
+            inj_cls[i] = "row-start" if ih["IL_stints"] == 0 else "row-bench"
+        render_compact_table(pd.DataFrame(inj_rows), row_classes=inj_cls, max_height=180)
+
+    # 8. News
+    news = data.get("news", [])
+    st.markdown('<div class="sec-head">Recent News</div>', unsafe_allow_html=True)
+    _render_news_section(news)
+
+    # 9. Prospect scouting (conditional)
+    prospect = data.get("prospect")
+    if prospect:
+        st.markdown('<div class="sec-head">Prospect Scouting Report</div>', unsafe_allow_html=True)
+        t = THEME
+
+        # Scouting grades
+        grade_pairs = [
+            ("Hit", prospect.get("hit", {})),
+            ("Game Power", prospect.get("game_power", {})),
+            ("Raw Power", prospect.get("raw_power", {})),
+            ("Speed", {"present": prospect.get("speed"), "future": prospect.get("speed")}),
+            ("Field", {"present": prospect.get("field"), "future": prospect.get("field")}),
+        ]
+        if prospect.get("control", {}).get("present"):
+            grade_pairs.append(("Control", prospect.get("control", {})))
+
+        grades_html = '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px;">'
+        for label, grades in grade_pairs:
+            present = grades.get("present", "")
+            future = grades.get("future", "")
+            if present or future:
+                grades_html += (
+                    f'<div style="background:{t["card"]};border:1px solid {t["border"]};'
+                    f'border-radius:8px;padding:6px 10px;text-align:center;min-width:70px;">'
+                    f'<div style="font-size:9px;color:{t["tx2"]};text-transform:uppercase;">{label}</div>'
+                    f'<div style="font-size:14px;font-weight:700;color:{t["tx"]};">'
+                    f"{present or '-'}/{future or '-'}</div></div>"
+                )
+        grades_html += "</div>"
+        st.markdown(grades_html, unsafe_allow_html=True)
+
+        # Meta info
+        meta_parts = []
+        if prospect.get("fg_rank"):
+            meta_parts.append(f"FanGraphs Rank: #{prospect['fg_rank']}")
+        if prospect.get("fg_fv"):
+            meta_parts.append(f"Future Value: {prospect['fg_fv']}")
+        if prospect.get("fg_eta"):
+            meta_parts.append(f"ETA: {prospect['fg_eta']}")
+        if prospect.get("fg_risk"):
+            meta_parts.append(f"Risk: {prospect['fg_risk']}")
+        if prospect.get("milb_level"):
+            meta_parts.append(f"Level: {prospect['milb_level']}")
+        if meta_parts:
+            st.markdown(
+                f'<div style="font-size:12px;color:{t["tx2"]};margin-bottom:6px;">' + " | ".join(meta_parts) + "</div>",
+                unsafe_allow_html=True,
+            )
+
+        # Scouting report
+        tldr = prospect.get("tldr", "")
+        if tldr:
+            st.markdown(
+                f'<div style="font-size:13px;color:{t["tx"]};font-style:italic;'
+                f'line-height:1.5;">{_html.escape(str(tldr))}</div>',
+                unsafe_allow_html=True,
+            )
+
+
+def render_player_select(player_names, player_ids, key_suffix="default"):
+    """Render a selectbox that opens a player card dialog when a player is chosen."""
+    if not player_ids:
+        return
+
+    selected = st.selectbox(
+        "View player card",
+        options=[""] + list(player_names),
+        key=f"player_card_select_{key_suffix}",
+        format_func=lambda x: "Select a player..." if x == "" else x,
+    )
+    if selected and selected != "":
+        try:
+            idx = list(player_names).index(selected)
+            pid = player_ids[idx]
+            show_player_card_dialog(int(pid))
+        except (ValueError, IndexError):
+            pass

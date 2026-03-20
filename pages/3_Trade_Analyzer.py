@@ -22,6 +22,7 @@ from src.ui_shared import (
     render_context_card,
     render_context_columns,
     render_page_layout,
+    render_player_select,
     render_styled_table,
 )
 from src.valuation import LeagueConfig, add_process_risk, compute_percentile_projections, compute_projection_volatility
@@ -441,6 +442,15 @@ else:
                                 hs = health_dict.get(pid, 0.85)
                                 badge_icon, label = get_injury_badge(hs)
                                 st.markdown(f"{badge_icon} {name} — {label}", unsafe_allow_html=True)
+
+                    # Player card selector for traded players
+                    _trade_all_names = list(giving_names) + list(receiving_names)
+                    _trade_all_ids = []
+                    for _tname in _trade_all_names:
+                        _tp = pool[pool["player_name"] == _tname]
+                        _trade_all_ids.append(int(_tp.iloc[0]["player_id"]) if not _tp.empty else 0)
+                    if any(pid != 0 for pid in _trade_all_ids):
+                        render_player_select(_trade_all_names, _trade_all_ids, key_suffix="trade")
 
                     # P10/P90 risk assessment for traded players
                     try:
