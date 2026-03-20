@@ -241,16 +241,38 @@ with tab1:
 
         # Column display mapping for category leaders
         _CAT_DISPLAY = {
-            "name": "Player", "team": "Team", "positions": "Position",
-            "r": "Runs", "hr": "Home Runs", "rbi": "Runs Batted In",
-            "sb": "Stolen Bases", "avg": "Batting Average", "obp": "On-Base Percentage",
-            "w": "Wins", "sv": "Saves", "k": "Strikeouts",
-            "era": "Earned Run Average", "whip": "Walks + Hits per Inning Pitched",
-            "l": "Losses", "pa": "Plate Appearances", "ip": "Innings Pitched",
+            "name": "Player",
+            "team": "Team",
+            "positions": "Position",
+            "r": "Runs",
+            "hr": "Home Runs",
+            "rbi": "Runs Batted In",
+            "sb": "Stolen Bases",
+            "avg": "Batting Average",
+            "obp": "On-Base Percentage",
+            "w": "Wins",
+            "sv": "Saves",
+            "k": "Strikeouts",
+            "era": "Earned Run Average",
+            "whip": "Walks + Hits per Inning Pitched",
+            "l": "Losses",
+            "pa": "Plate Appearances",
+            "ip": "Innings Pitched",
         }
-        _CAT_COL = {"HR": "hr", "R": "r", "RBI": "rbi", "SB": "sb", "AVG": "avg",
-                     "OBP": "obp", "W": "w", "SV": "sv", "K": "k", "ERA": "era",
-                     "WHIP": "whip", "L": "l"}
+        _CAT_COL = {
+            "HR": "hr",
+            "R": "r",
+            "RBI": "rbi",
+            "SB": "sb",
+            "AVG": "avg",
+            "OBP": "obp",
+            "W": "w",
+            "SV": "sv",
+            "K": "k",
+            "ERA": "era",
+            "WHIP": "whip",
+            "L": "l",
+        }
 
         try:
             leaders = compute_category_leaders(demo_stats, categories=[category], top_n=15)
@@ -285,8 +307,10 @@ with tab2:
                 _pts_show = ["name", "team", "positions", "fantasy_points"]
                 _pts_show = [c for c in _pts_show if c in pts_df.columns]
                 _PTS_DISPLAY = {
-                    "name": "Player", "team": "Team",
-                    "positions": "Position", "fantasy_points": "Fantasy Points",
+                    "name": "Player",
+                    "team": "Team",
+                    "positions": "Position",
+                    "fantasy_points": "Fantasy Points",
                 }
                 pts_df = pts_df[_pts_show].rename(columns=_PTS_DISPLAY)
                 st.dataframe(pts_df, width="stretch", hide_index=True)

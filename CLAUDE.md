@@ -32,7 +32,7 @@ ruff check .
 # Format
 ruff format .
 
-# Run all tests (1841 pass, 4 skipped for PyMC/xgboost)
+# Run all tests (1842 pass, 4 skipped for PyMC/xgboost)
 python -m pytest
 
 # Run with verbose output
@@ -1139,7 +1139,7 @@ compute_bayesian_stream_score(pitcher_era, pitcher_k9, pitcher_fip, opp_k_pct, o
 
 ## Testing Status
 
-- **Unit tests:** 1846 collected, 1841 passed, 4 skipped (PyMC/xgboost optional deps), 1 pre-existing failure (test_two_start mock isolation)
+- **Unit tests:** 1846 collected, 1842 passed, 4 skipped (PyMC/xgboost optional deps)
 - **Test files:** 80 test files across draft engine, trade engine (Phase 1-6), lineup optimizer (10 files), draft recommendation engine (5 files), gap closure (14 files), in-season analytics (7 files), FantasyPros parity (16 files), FP Edge intelligence (4 files), in-season, analytics, data pipeline, bootstrap, integration, backtesting, and math verification
 - **Gap closure tests:** 153 tests total — extended roster (6), LAST CHANCE badge (8), Marcel projections (12), contract data (10), depth charts (12), news fetcher (18), ADP sources (15), extended projections (16), engine output (14), data pipeline schema (12), scheduler (5), bootstrap integration (25)
 - **Spec completion tests:** 51 tests total — risk score + ST signal (16), schema persistence + Statcast archive + FG IDs (10), Yahoo ADP (5), category heatmap (5), backtesting harness (15)
