@@ -302,7 +302,7 @@ with tab3:
         st.markdown("Top MLB prospects with readiness scores and scouting tool grades.")
 
         # -- Filters row -------------------------------------------------------
-        filter_cols = st.columns([2, 2, 2, 1])
+        filter_cols = st.columns([2, 2, 1.5, 2])
 
         # Position filter pills
         _POSITION_OPTIONS = ["All", "SS", "OF", "SP", "2B", "3B", "1B", "C", "RP"]
@@ -313,18 +313,27 @@ with tab3:
                 key="prospect_pos",
             )
 
+        # Pre-load org options from cached data
+        _org_options = ["All"]
+        try:
+            _preload = get_prospect_rankings(top_n=200)
+            if not _preload.empty and "team" in _preload.columns:
+                _org_options += sorted(_preload["team"].dropna().unique().tolist())
+        except Exception:
+            pass
+
         # Organization filter dropdown
         with filter_cols[1]:
             org_filter = st.selectbox(
                 "Organization",
-                ["All"],  # populated dynamically below
-                key="prospect_org_placeholder",
+                _org_options,
+                key="prospect_org",
             )
 
         # ETA year filter
         with filter_cols[2]:
             eta_filter = st.selectbox(
-                "Estimated Time of Arrival Year",
+                "ETA Year",
                 ["All", "2025", "2026", "2027", "2028", "2029+"],
                 key="prospect_eta",
             )
@@ -349,21 +358,6 @@ with tab3:
             if prospects_df.empty:
                 st.info("No prospect data available. Click Refresh Data to fetch rankings.")
             else:
-                # Populate org dropdown dynamically from data
-                if "team" in prospects_df.columns:
-                    all_orgs = sorted(prospects_df["team"].dropna().unique().tolist())
-                else:
-                    all_orgs = []
-
-                # Re-render org dropdown with actual options (use session state)
-                if all_orgs:
-                    org_options = ["All"] + all_orgs
-                    org_filter = st.selectbox(
-                        "Organization (select to filter)",
-                        org_options,
-                        key="prospect_org",
-                    )
-
                 # Reload with all filters applied
                 pos_arg = position_filter if position_filter != "All" else None
                 org_arg = org_filter if org_filter != "All" else None
@@ -413,8 +407,8 @@ with tab3:
                         ("position", "Position"),
                         ("fg_fv", "Future Value"),
                         ("fv", "Future Value"),
-                        ("fg_eta", "Estimated Time of Arrival"),
-                        ("eta", "Estimated Time of Arrival"),
+                        ("fg_eta", "ETA"),
+                        ("eta", "ETA"),
                         ("fg_risk", "Risk"),
                         ("readiness_score", "Readiness Score"),
                     ]:
