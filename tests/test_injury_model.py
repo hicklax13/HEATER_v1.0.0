@@ -198,16 +198,21 @@ class TestApplyInjuryAdjustment:
 
 class TestInjuryBadge:
     def test_injury_badge_low(self):
-        icon, label = get_injury_badge(0.95)
+        icon, label = get_injury_badge(0.90)
         assert "#84cc16" in icon  # green dot
         assert label == "Low Risk"
 
     def test_injury_badge_moderate(self):
-        icon, label = get_injury_badge(0.80)
+        icon, label = get_injury_badge(0.70)
         assert "#fb923c" in icon  # amber dot
         assert label == "Moderate Risk"
 
+    def test_injury_badge_elevated(self):
+        icon, label = get_injury_badge(0.50)
+        assert "#ff9f1c" in icon  # orange dot
+        assert label == "Elevated Risk"
+
     def test_injury_badge_high(self):
-        icon, label = get_injury_badge(0.60)
+        icon, label = get_injury_badge(0.30)
         assert "#f43f5e" in icon  # red dot
         assert label == "High Risk"

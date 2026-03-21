@@ -182,7 +182,7 @@ class TestInjuryValuationPipeline:
         """End-to-end: compute health → get badge."""
         score = compute_health_score([150, 162, 130], [162, 162, 162])
         icon, label = get_injury_badge(score)
-        assert label in ("Low Risk", "Moderate Risk", "High Risk")
+        assert label in ("Low Risk", "Moderate Risk", "Elevated Risk", "High Risk")
         assert icon  # Non-empty string
 
 

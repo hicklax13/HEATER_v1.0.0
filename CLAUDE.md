@@ -248,6 +248,7 @@ get_team_draft_patterns(draft_state_dict, team_id: int)  # team_id is 0-based in
 
 # Injury model (src/injury_model.py)
 get_injury_badge(health_score) -> tuple[str, str]  # returns <span> with CSS dot, NOT emoji
+# 4-tier thresholds: >= 0.85 Low Risk, >= 0.65 Moderate Risk, >= 0.40 Elevated Risk, < 0.40 High Risk
 ```
 
 ## Gotchas

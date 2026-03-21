@@ -308,10 +308,11 @@ def get_injury_badge(health_score: float) -> tuple[str, str]:
     Returns a small inline CSS dot (colored circle) instead of emoji
     for consistent cross-platform rendering.
 
-    Thresholds:
-    * >= 0.90 : green / Low Risk
-    * >= 0.75 : amber / Moderate Risk
-    * <  0.75 : red / High Risk
+    Thresholds (calibrated for fantasy relevance):
+    * >= 0.85 : green / Low Risk (played 85%+ of games over 3 years)
+    * >= 0.65 : amber / Moderate Risk (missed some time but mostly available)
+    * >= 0.40 : orange / Elevated Risk (significant missed time)
+    * <  0.40 : red / High Risk (severe injury history or very limited track record)
     """
     _dot = (
         '<span style="display:inline-block;width:10px;height:10px;'
@@ -320,8 +321,10 @@ def get_injury_badge(health_score: float) -> tuple[str, str]:
     )
     if health_score is None:
         return (_dot.format(color="#fb923c"), "Unknown")
-    if health_score >= 0.9:
+    if health_score >= 0.85:
         return (_dot.format(color="#84cc16"), "Low Risk")
-    if health_score >= 0.75:
+    if health_score >= 0.65:
         return (_dot.format(color="#fb923c"), "Moderate Risk")
+    if health_score >= 0.40:
+        return (_dot.format(color="#ff9f1c"), "Elevated Risk")
     return (_dot.format(color="#f43f5e"), "High Risk")
