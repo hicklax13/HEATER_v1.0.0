@@ -280,6 +280,14 @@ get_injury_badge(health_score) -> tuple[str, str]  # returns <span> with CSS dot
 - **Connection leak pattern** — Always wrap `get_connection()` in `try/finally` with `conn.close()` in `finally`.
 - **Draft Settings live on Draft Simulator page** — Not on Connect League page. Stored in `mock_num_teams`, `mock_num_rounds`, `mock_draft_pos`.
 
+### Visual Audit Gotchas (discovered via Playwright)
+- **THEME keys** — Use `T["tx"]` not `T["tx1"]`. There is no `tx1` key. This crashed the Start/Sit page.
+- **Player Compare must not auto-select** — Default `compare_a`/`compare_b` to `None`, not `top_a[0]`. Otherwise the page loads with two random nobodies showing all-zero stats.
+- **Matchup Planner empty schedule** — When `games_count` is 0 for all players, show empty state instead of fake "Avoid" ratings. Check `ratings_df["games_count"].sum() == 0` before rendering.
+- **Sidebar icon map** — New pages need entries in the JS `icons` dict in `inject_custom_css()`. Keys must match the sidebar link text exactly (e.g., `'Waiver Wire'`, `'Start Sit'`, `'Matchup Planner'`).
+- **Leaders Team column empty** — Known data-quality issue: `players.team` is "MLB" or NULL for many players. Not a page bug — the MLB Stats API doesn't always return team abbreviations.
+- **Closer Monitor only 6 teams** — Known: FanGraphs depth chart data is incomplete in the bootstrap. Not a page bug.
+
 ### Player Card & News
 - **`player_news` table has no UNIQUE constraint** — Yahoo sync can insert duplicate rows. `_render_news_tab` deduplicates by `player_name + headline` (case-insensitive) before rendering.
 - **Bayesian table must filter to roster only** — `season_stats` has ALL players across ALL seasons. Query with `WHERE player_id IN (roster_pids)` and `drop_duplicates(subset=["player_id"], keep="first")` after sorting by season DESC.
