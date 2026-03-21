@@ -98,7 +98,7 @@ with ctx:
     if user_team_name:
         render_context_card(
             "Your Team",
-            f'<p style="margin:0;font-size:13px;color:{THEME["tx1"]};">'
+            f'<p style="margin:0;font-size:13px;color:{THEME["tx"]};">'
             f"{user_team_name}</p>"
             f'<p style="margin:4px 0 0;font-size:12px;color:{THEME["tx2"]};">'
             f"{len(user_player_ids)} rostered players loaded</p>",
@@ -113,7 +113,7 @@ with ctx:
 
     render_context_card(
         "Matchup State",
-        f'<p style="margin:0;font-size:13px;color:{THEME["tx1"]};">'
+        f'<p style="margin:0;font-size:13px;color:{THEME["tx"]};">'
         f"Strategy: <strong>{matchup_state_label.upper()}</strong></p>"
         f'<p style="margin:4px 0 0;font-size:12px;color:{THEME["tx2"]};">'
         f"{matchup_note}</p>",
@@ -237,7 +237,7 @@ with main:
                         f'<div style="font-size:11px;font-weight:700;letter-spacing:1px;'
                         f"color:{THEME['tx2']};text-transform:uppercase;margin-bottom:4px;"
                         f'">Recommendation</div>'
-                        f'<div style="font-size:20px;font-weight:700;color:{THEME["tx1"]};">'
+                        f'<div style="font-size:20px;font-weight:700;color:{THEME["tx"]};">'
                         f"Start {rec_name}"
                         f"</div>"
                         f'<div style="font-size:13px;color:{label_color};font-weight:600;margin-top:4px;">'
@@ -317,7 +317,7 @@ with main:
                     badge_label = "START" if is_rec else "SIT"
                     reasons = p.get("reasoning", [])
                     reasons_html = "".join(
-                        f'<li style="margin-bottom:4px;font-size:13px;color:{THEME["tx1"]};">{r}</li>' for r in reasons
+                        f'<li style="margin-bottom:4px;font-size:13px;color:{THEME["tx"]};">{r}</li>' for r in reasons
                     )
 
                     st.markdown(
@@ -329,7 +329,7 @@ with main:
                         f"margin-bottom:10px;"
                         f'">'
                         f'<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">'
-                        f'<span style="font-weight:700;font-size:14px;color:{THEME["tx1"]};">'
+                        f'<span style="font-weight:700;font-size:14px;color:{THEME["tx"]};">'
                         f"{p['name']}"
                         f"</span>"
                         f'<span style="'
@@ -371,7 +371,7 @@ with main:
             f"padding:12px 16px;"
             f"margin-top:16px;"
             f'">'
-            f'<p style="margin:0;font-size:13px;color:{THEME["tx1"]};">'
+            f'<p style="margin:0;font-size:13px;color:{THEME["tx"]};">'
             f"No league roster data found. Connect your Yahoo league for matchup-aware "
             f"recommendations. The advisor still works with any player from the pool.</p>"
             f"</div>",

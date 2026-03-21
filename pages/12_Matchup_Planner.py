@@ -273,6 +273,15 @@ with main:
         st.info("No matchup ratings could be computed. Check that the roster and schedule data are available.")
         st.stop()
 
+    # If no games scheduled (all games_count = 0), show empty state instead of fake ratings
+    if "games_count" in ratings_df.columns and ratings_df["games_count"].sum() == 0:
+        st.info(
+            "No games are currently scheduled for this period. "
+            "Matchup ratings will populate once the MLB schedule is loaded. "
+            "Try running the app bootstrap or syncing Yahoo data to refresh schedule information."
+        )
+        st.stop()
+
     # Sort by rating descending
     ratings_df = ratings_df.sort_values("weekly_matchup_rating", ascending=False).reset_index(drop=True)
 
