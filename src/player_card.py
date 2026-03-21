@@ -255,7 +255,9 @@ def build_player_card_data(player_id: int) -> dict:
         if not injury_df.empty:
             gp = injury_df["games_played"].tolist()
             ga = injury_df["games_available"].tolist()
-            health_score = compute_health_score(gp, ga)
+            il_stints = injury_df["il_stints"].tolist() if "il_stints" in injury_df.columns else None
+            il_days = injury_df["il_days"].tolist() if "il_days" in injury_df.columns else None
+            health_score = compute_health_score(gp, ga, il_stints, il_days)
             _badge_html, health_label = get_injury_badge(health_score)
         else:
             health_score = 0.85

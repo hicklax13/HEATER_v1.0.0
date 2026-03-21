@@ -68,6 +68,8 @@ PLAYING_TIME_COLS: list[str] = ["pa", "ab", "h", "ip"]
 def compute_health_score(
     games_played_3yr: list[int],
     games_available_3yr: list[int],
+    il_stints_3yr: list[int] | None = None,
+    il_days_3yr: list[int] | None = None,
 ) -> float:
     """Return a 0.0-1.0 health score averaged over up to 3 seasons.
 
@@ -77,6 +79,14 @@ def compute_health_score(
         Games played in each of the last 1-3 seasons.
     games_available_3yr:
         Games available (e.g. 162) in each corresponding season.
+    il_stints_3yr:
+        Number of IL stints per season (optional). When provided, the
+        score is based on IL time rather than raw GP/GA ratio — this
+        correctly handles pitchers (who appear in ~30-70 games normally)
+        and young players (who may have been in the minors).
+    il_days_3yr:
+        Total IL days per season (optional). Used with il_stints for a
+        more accurate health assessment.
 
     Missing seasons (fewer than 3 entries) are filled with the
     league-average health score.  Invalid entries (zero or negative
@@ -88,8 +98,27 @@ def compute_health_score(
     if games_available_3yr is None:
         games_available_3yr = []
 
-    ratios: list[float] = []
+    # If IL data is available, use it for a more accurate score.
+    # IL-based scoring: each season scores 1.0 (healthy) minus a penalty
+    # based on IL days. 60+ IL days in a season = 0.0 for that season.
+    if il_stints_3yr is not None and il_days_3yr is not None:
+        ratios: list[float] = []
+        for i in range(HISTORY_SEASONS):
+            if i < len(il_days_3yr) and i < len(il_stints_3yr):
+                days = il_days_3yr[i] if il_days_3yr[i] is not None else 0
+                stints = il_stints_3yr[i] if il_stints_3yr[i] is not None else 0
+                if stints == 0 and days == 0:
+                    ratios.append(1.0)  # Fully healthy season
+                else:
+                    # Penalty: IL days / 162 (full season), capped at 1.0
+                    penalty = min(days / 162.0, 1.0)
+                    ratios.append(max(1.0 - penalty, 0.0))
+            else:
+                ratios.append(LEAGUE_AVG_HEALTH)
+        return float(np.mean(ratios))
 
+    # Fallback: GP/GA ratio (less accurate for pitchers)
+    ratios = []
     for i in range(HISTORY_SEASONS):
         if i < len(games_played_3yr) and i < len(games_available_3yr):
             gp = games_played_3yr[i]

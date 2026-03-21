@@ -560,9 +560,18 @@ else:
                     if not player_injury.empty:
                         gp = player_injury["games_played"].tolist()
                         ga = player_injury["games_available"].tolist()
-                        hs = compute_health_score(gp, ga)
+                        il_stints = (
+                            player_injury["il_stints"].tolist()
+                            if "il_stints" in player_injury.columns
+                            else None
+                        )
+                        il_days = (
+                            player_injury["il_days"].tolist()
+                            if "il_days" in player_injury.columns
+                            else None
+                        )
+                        hs = compute_health_score(gp, ga, il_stints, il_days)
                         _icon, label = get_injury_badge(hs)
-                        # Use text label only — st.dataframe() cannot render HTML
                         badges.append(label)
                     else:
                         badges.append("Low Risk")
