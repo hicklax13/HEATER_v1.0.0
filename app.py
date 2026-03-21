@@ -710,19 +710,26 @@ def _render_draft_controls(ds):
                         user_team_index=ds.user_team_index,
                     )
                 syncer = st.session_state.live_draft_syncer
-                # Get draft results from Yahoo
-                draft_results = yahoo_client._query.get_league_draft_results()
+                # Get draft results via the YahooFantasyClient wrapper
+                # Returns a DataFrame with: pick_number, round, team_name,
+                # team_key, player_name, player_id
+                draft_df = yahoo_client.get_draft_results()
                 yahoo_picks = []
-                if draft_results:
-                    picks_list = getattr(draft_results, "draft_results", []) or []
-                    for dp in picks_list:
+                if not draft_df.empty:
+                    for _, dp in draft_df.iterrows():
+                        team_key = str(dp.get("team_key", ""))
+                        # Extract team index from team_key (e.g. "469.l.109662.t.3" -> 3)
+                        try:
+                            team_idx = int(team_key.split(".")[-1]) - 1  # 0-based
+                        except (ValueError, IndexError):
+                            team_idx = 0
+                        # Resolve player_id to local pool ID
+                        pid = syncer.resolve_player(str(dp.get("player_name", "")))
                         yahoo_picks.append(
                             {
-                                "team_index": getattr(dp, "team_key", "").split(".")[-1]
-                                if hasattr(dp, "team_key")
-                                else 0,
-                                "player_id": getattr(dp, "player_id", 0),
-                                "player_name": getattr(dp, "player_name", ""),
+                                "team_index": team_idx,
+                                "player_id": pid or 0,
+                                "player_name": str(dp.get("player_name", "")),
                                 "positions": "",
                             }
                         )
