@@ -130,14 +130,22 @@ def _render_news_card(player_name: str, news_item: dict, ownership: dict) -> str
     published_at = news_item.get("published_at", "")
     player_name = _ht.escape(player_name)
 
-    # Generate analytical summary if the player_news module is available
-    if PLAYER_NEWS_AVAILABLE:
+    # Generate analytical summary — but only if there's real detail content.
+    # Yahoo injury entries have only a body part as headline (e.g., "Hand")
+    # with no detail text. Skip the template generator for these to avoid
+    # fake-sounding summaries with placeholder zeros.
+    has_real_content = bool(detail and detail.strip())
+    if PLAYER_NEWS_AVAILABLE and has_real_content:
         try:
             summary = generate_intel_summary(news_item)
             if summary and summary != detail:
                 detail = summary
         except Exception:
-            pass  # Fall back to raw detail
+            pass
+
+    # For Yahoo injury-only entries, build a clean status line instead
+    if not has_real_content and il_status and headline:
+        detail = f"{player_name} is listed as {il_status} with a {headline.lower()} issue."
 
     # Format date for display
     date_html = ""
@@ -167,13 +175,13 @@ def _render_news_card(player_name: str, news_item: dict, ownership: dict) -> str
         )
     header_html = " ".join(header_parts)
 
-    # Ownership trend line
+    # Ownership trend line — only show if there's meaningful data
     ownership_html = ""
     if ownership:
         current = ownership.get("current")
         direction = ownership.get("direction", "flat")
         delta = ownership.get("delta_7d", 0.0)
-        if current is not None:
+        if current is not None and current > 0:
             ownership_html = (
                 f'<div style="margin-top:6px;font-size:12px;color:{T["tx2"]};">'
                 f"Ownership: {current:.1f}% {_ownership_arrow(direction, delta)}"
