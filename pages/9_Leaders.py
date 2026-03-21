@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-import numpy as np
 import pandas as pd
 import streamlit as st
 
-from src.database import init_db
+from src.database import coerce_numeric_df, get_connection, init_db, load_player_pool
 from src.ui_shared import (
     THEME,
     get_plotly_layout,
@@ -57,32 +56,76 @@ inject_custom_css()
 
 render_page_layout("LEADERS", banner_teaser="Category leaders and breakout detection", banner_icon="leaders")
 
-# Shared demo stat generation
-rng = np.random.default_rng(42)
-n_players = 50
-demo_stats = pd.DataFrame(
-    {
-        "player_id": range(1, n_players + 1),
-        "name": [f"Player {i}" for i in range(1, n_players + 1)],
-        "team": [f"TM{i % 12 + 1}" for i in range(n_players)],
-        "positions": ["OF" if i % 3 == 0 else "SS" if i % 3 == 1 else "SP" for i in range(n_players)],
-        "is_hitter": [i % 3 != 2 for i in range(n_players)],
-        "pa": [int(rng.integers(200, 600)) if i % 3 != 2 else 0 for i in range(n_players)],
-        "ip": [0.0 if i % 3 != 2 else float(rng.integers(50, 200)) for i in range(n_players)],
-        "r": [int(rng.integers(30, 100)) if i % 3 != 2 else 0 for i in range(n_players)],
-        "hr": [int(rng.integers(5, 40)) if i % 3 != 2 else 0 for i in range(n_players)],
-        "rbi": [int(rng.integers(30, 110)) if i % 3 != 2 else 0 for i in range(n_players)],
-        "sb": [int(rng.integers(0, 30)) if i % 3 != 2 else 0 for i in range(n_players)],
-        "avg": [round(0.220 + rng.random() * 0.080, 3) if i % 3 != 2 else 0.0 for i in range(n_players)],
-        "obp": [round(0.290 + rng.random() * 0.090, 3) if i % 3 != 2 else 0.0 for i in range(n_players)],
-        "w": [0 if i % 3 != 2 else int(rng.integers(3, 18)) for i in range(n_players)],
-        "sv": [0 if i % 3 != 2 else int(rng.integers(0, 35)) for i in range(n_players)],
-        "k": [0 if i % 3 != 2 else int(rng.integers(40, 250)) for i in range(n_players)],
-        "era": [0.0 if i % 3 != 2 else round(2.5 + rng.random() * 3.0, 2) for i in range(n_players)],
-        "whip": [0.0 if i % 3 != 2 else round(0.90 + rng.random() * 0.50, 2) for i in range(n_players)],
-        "l": [0 if i % 3 != 2 else int(rng.integers(2, 14)) for i in range(n_players)],
-    }
-)
+
+@st.cache_data(ttl=300)
+def _load_stats_df() -> tuple[pd.DataFrame, bool]:
+    """Load season stats joined with player metadata.
+
+    Returns (DataFrame, is_projection) where is_projection=True means the
+    data came from blended projections because season_stats was empty.
+    """
+    # Try season_stats for 2026 first
+    conn = get_connection()
+    try:
+        df = pd.read_sql_query(
+            """
+            SELECT
+                s.player_id,
+                p.name,
+                p.team,
+                p.positions,
+                p.is_hitter,
+                s.pa, s.ab, s.h,
+                s.r, s.hr, s.rbi, s.sb,
+                s.avg, s.obp,
+                s.ip, s.w, s.l, s.sv, s.k,
+                s.era, s.whip
+            FROM season_stats s
+            JOIN players p ON p.player_id = s.player_id
+            WHERE s.season = 2026
+            """,
+            conn,
+        )
+    finally:
+        conn.close()
+
+    df = coerce_numeric_df(df)
+
+    if not df.empty:
+        return df, False
+
+    # Pre-season fallback: use blended projections from player_pool
+    proj = load_player_pool()
+    if proj.empty:
+        return pd.DataFrame(), True
+
+    # player_pool returns 'name' column; alias to match leaders expectations
+    keep = [
+        "player_id",
+        "name",
+        "team",
+        "positions",
+        "is_hitter",
+        "pa",
+        "ab",
+        "h",
+        "r",
+        "hr",
+        "rbi",
+        "sb",
+        "avg",
+        "obp",
+        "ip",
+        "w",
+        "l",
+        "sv",
+        "k",
+        "era",
+        "whip",
+    ]
+    keep = [c for c in keep if c in proj.columns]
+    return proj[keep].copy(), True
+
 
 # -- Prospect tab helper functions -----------------------------------------
 
@@ -348,7 +391,13 @@ with main:
             }
 
             try:
-                leaders = compute_category_leaders(demo_stats, categories=[category], top_n=15)
+                stats_df, _is_proj = _load_stats_df()
+                if stats_df.empty:
+                    st.info("No player stats available. Run the data bootstrap to load projections.")
+                    st.stop()
+                if _is_proj:
+                    st.caption("Showing preseason projections — season stats not yet available.")
+                leaders = compute_category_leaders(stats_df, categories=[category], top_n=15)
                 if category in leaders:
                     ldf = leaders[category].copy()
                     stat_col = _CAT_COL.get(category, category.lower())
@@ -380,9 +429,15 @@ with main:
 
                 from src.points_league import compute_points_leaders
 
-                pts_leaders = compute_points_leaders(demo_stats, hitting_w, pitching_w, top_n=20)
-                if pts_leaders:
-                    pts_df = pd.DataFrame(pts_leaders)
+                stats_df_pts, _is_proj_pts = _load_stats_df()
+                if stats_df_pts.empty:
+                    st.info("No player stats available. Run the data bootstrap to load projections.")
+                    st.stop()
+                if _is_proj_pts:
+                    st.caption("Showing preseason projections — season stats not yet available.")
+                pts_leaders = compute_points_leaders(stats_df_pts, hitting_w, pitching_w, top_n=20)
+                if not pts_leaders.empty:
+                    pts_df = pts_leaders.copy()
                     _pts_show = ["name", "team", "positions", "fantasy_points"]
                     _pts_show = [c for c in _pts_show if c in pts_df.columns]
                     _PTS_DISPLAY = {
@@ -391,14 +446,14 @@ with main:
                         "positions": "Position",
                         "fantasy_points": "Fantasy Points",
                     }
-                    pts_df = pts_df[_pts_show].rename(columns=_PTS_DISPLAY)
-                    render_compact_table(pts_df)
+                    display_pts = pts_df[_pts_show].rename(columns=_PTS_DISPLAY)
+                    render_compact_table(display_pts)
 
                     # Player card selector
-                    if "player_id" in pd.DataFrame(pts_leaders).columns and "Player" in pts_df.columns:
+                    if "player_id" in pts_df.columns and "Player" in display_pts.columns:
                         render_player_select(
-                            pts_df["Player"].tolist(),
-                            pd.DataFrame(pts_leaders)["player_id"].tolist(),
+                            display_pts["Player"].tolist(),
+                            pts_df["player_id"].tolist(),
                             key_suffix="leaders_pts",
                         )
                 else:
