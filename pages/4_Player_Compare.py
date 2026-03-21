@@ -74,14 +74,14 @@ with main:
             # Show top matches as selectable cards
             top_a = filtered_a[:5]
             a_cols = st.columns(min(len(top_a), 5))
-            player_a_name = st.session_state.get("compare_a", top_a[0])
+            player_a_name = st.session_state.get("compare_a")
             for ai, aname in enumerate(top_a):
                 with a_cols[ai]:
                     a_type = "primary" if player_a_name == aname else "secondary"
                     if st.button(aname, key=f"comp_a_{ai}", type=a_type, width="stretch"):
                         st.session_state.compare_a = aname
                         st.rerun()
-            player_a_name = st.session_state.get("compare_a", top_a[0])
+            player_a_name = st.session_state.get("compare_a")
         else:
             st.info("No players match search.")
             player_a_name = None
@@ -92,18 +92,14 @@ with main:
         if filtered_b:
             top_b = filtered_b[:5]
             b_cols = st.columns(min(len(top_b), 5))
-            player_b_name = st.session_state.get(
-                "compare_b", top_b[0] if len(top_b) == 1 else top_b[1] if len(top_b) > 1 else top_b[0]
-            )
+            player_b_name = st.session_state.get("compare_b")
             for bi, bname in enumerate(top_b):
                 with b_cols[bi]:
                     b_type = "primary" if player_b_name == bname else "secondary"
                     if st.button(bname, key=f"comp_b_{bi}", type=b_type, width="stretch"):
                         st.session_state.compare_b = bname
                         st.rerun()
-            player_b_name = st.session_state.get(
-                "compare_b", top_b[0] if len(top_b) == 1 else top_b[1] if len(top_b) > 1 else top_b[0]
-            )
+            player_b_name = st.session_state.get("compare_b")
         else:
             st.info("No players match search.")
             player_b_name = None

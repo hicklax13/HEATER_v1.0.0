@@ -112,10 +112,14 @@ else:
             with ctx:
                 pos_filter = st.session_state.get("fa_pos_filter", "All")
                 positions = ["All", "C", "1B", "2B", "3B", "SS", "OF", "SP", "RP"]
-                pills_html = "".join(
-                    f'<span class="ctx-pill{"--active" if pos == pos_filter else ""}">{pos}</span>' for pos in positions
+                pills_html = " ".join(
+                    f'<span style="display:inline-block;padding:2px 6px;border-radius:6px;'
+                    f"font-size:11px;font-weight:600;margin:1px;"
+                    f"{'background:#e63946;color:#fff;' if pos == pos_filter else 'background:#e8e9e3;color:#1d1d1f;'}"
+                    f'">{pos}</span>'
+                    for pos in positions
                 )
-                render_context_card("Filter by Position", f'<div class="ctx-pills">{pills_html}</div>')
+                render_context_card("Filter by Position", pills_html)
 
                 for pos in positions:
                     btn_type = "primary" if pos_filter == pos else "secondary"
