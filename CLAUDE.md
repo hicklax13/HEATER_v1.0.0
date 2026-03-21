@@ -278,6 +278,13 @@ get_injury_badge(health_score) -> tuple[str, str]  # returns <span> with CSS dot
 - **Connection leak pattern** — Always wrap `get_connection()` in `try/finally` with `conn.close()` in `finally`.
 - **Draft Settings live on Draft Simulator page** — Not on Connect League page. Stored in `mock_num_teams`, `mock_num_rounds`, `mock_draft_pos`.
 
+### Player Card & News
+- **`player_news` table has no UNIQUE constraint** — Yahoo sync can insert duplicate rows. `_render_news_tab` deduplicates by `player_name + headline` (case-insensitive) before rendering.
+- **Bayesian table must filter to roster only** — `season_stats` has ALL players across ALL seasons. Query with `WHERE player_id IN (roster_pids)` and `drop_duplicates(subset=["player_id"], keep="first")` after sorting by season DESC.
+- **`mlb_id` can be `float('nan')` from SQLite NULL** — NaN is truthy in Python. Use `mlb_id is not None` + `try: int(mlb_id)` instead of `if mlb_id:`.
+- **Yahoo team names may contain emoji** — Strip non-alpha chars before extracting initials for monogram fallback.
+- **`league_rosters`/`league_standings` need UNIQUE constraints** — Schema in `database.py` has them but old DBs may not. Drop and recreate tables if `ON CONFLICT` fails.
+
 ### Algorithms & Math
 - **Rate-stat aggregation** — AVG=sum(h)/sum(ab), OBP=sum(h+bb+hbp)/sum(ab+bb+hbp+sf), ERA=sum(er)*9/sum(ip), WHIP=sum(bb+h)/sum(ip). Weighted averages, NOT simple averages.
 - **LP inverse stat weighting** — ERA/WHIP must be weighted by IP in LP objective. Without it, 1-IP relievers dominate 200-IP starters.

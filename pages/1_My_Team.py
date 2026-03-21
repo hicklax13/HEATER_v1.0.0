@@ -258,6 +258,16 @@ def _render_news_tab(roster: "pd.DataFrame") -> None:
                 }
             )
 
+    # Deduplicate news by headline + player (case-insensitive)
+    seen_keys: set[str] = set()
+    unique_news: list[dict] = []
+    for entry in all_news:
+        key = (entry.get("player_name", "") + "|" + (entry.get("item", {}).get("headline", ""))).strip().lower()
+        if key not in seen_keys:
+            seen_keys.add(key)
+            unique_news.append(entry)
+    all_news = unique_news
+
     if not all_news:
         st.markdown(
             f'<div style="text-align:center;padding:40px 20px;">'
@@ -807,8 +817,23 @@ else:
 
                         conn = get_connection()
                         try:
-                            season_stats = pd.read_sql_query("SELECT * FROM season_stats", conn)
+                            # Filter to roster players only, latest season
+                            roster_pids = roster["player_id"].tolist() if "player_id" in roster.columns else []
+                            if roster_pids:
+                                pids_str = ",".join(str(int(p)) for p in roster_pids)
+                                season_stats = pd.read_sql_query(
+                                    f"SELECT * FROM season_stats WHERE player_id IN ({pids_str}) ORDER BY season DESC",
+                                    conn,
+                                )
+                            else:
+                                season_stats = pd.DataFrame()
                             season_stats = coerce_numeric_df(season_stats)
+
+                            # Keep only the latest season per player
+                            if not season_stats.empty and "season" in season_stats.columns:
+                                season_stats = season_stats.sort_values("season", ascending=False).drop_duplicates(
+                                    subset=["player_id"], keep="first"
+                                )
 
                             if not season_stats.empty and season_stats.get("games_played", pd.Series([0])).sum() > 0:
                                 bayes_progress = st.progress(

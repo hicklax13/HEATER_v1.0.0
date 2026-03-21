@@ -63,7 +63,7 @@ Key session state: `draft_state` (DraftState), `valued_pool` (DataFrame), `sgp_c
 
 | Page | File | Purpose | Context Panel |
 |------|------|---------|---------------|
-| My Team | `1_My_Team.py` | Roster display, standings, Yahoo sync | Hitting/pitching totals, IL alerts |
+| My Team | `1_My_Team.py` | Roster with season toggle (2023-2026), Yahoo team logo, Bayesian projections, Excel export, deduplicated news | Hitting/pitching totals, IL alerts |
 | Draft Simulator | `2_Draft_Simulator.py` | Standalone mock draft with AI opponents | Draft settings, roster, recent picks |
 | Trade Analyzer | `3_Trade_Analyzer.py` | Trade evaluation (Phase 1 engine → legacy fallback) | Trade verdict, punts, surplus SGP |
 | Player Compare | `4_Player_Compare.py` | Head-to-head z-score comparison | Composite scores, quick verdict |
