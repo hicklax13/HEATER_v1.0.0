@@ -690,6 +690,59 @@ def _render_draft_controls(ds):
             ds.save()
             st.toast("Saved!")
 
+    # Live Yahoo Draft Sync
+    yahoo_client = st.session_state.get("yahoo_client")
+    if yahoo_client and not st.session_state.get("practice_mode"):
+        st.markdown(
+            f'<div style="margin-top:8px;padding-top:8px;border-top:1px solid {T["border"]};"></div>',
+            unsafe_allow_html=True,
+        )
+        if st.button("Sync Yahoo Draft", width="stretch", key="ctrl_sync_draft"):
+            try:
+                from src.live_draft_sync import LiveDraftSyncer
+
+                if "live_draft_syncer" not in st.session_state:
+                    st.session_state.live_draft_syncer = LiveDraftSyncer(
+                        yahoo_client=yahoo_client,
+                        player_pool=st.session_state.get("player_pool", pd.DataFrame()),
+                        num_teams=ds.num_teams,
+                        num_rounds=ds.num_rounds,
+                        user_team_index=ds.user_team_index,
+                    )
+                syncer = st.session_state.live_draft_syncer
+                # Get draft results from Yahoo
+                draft_results = yahoo_client._query.get_league_draft_results()
+                yahoo_picks = []
+                if draft_results:
+                    picks_list = getattr(draft_results, "draft_results", []) or []
+                    for dp in picks_list:
+                        yahoo_picks.append(
+                            {
+                                "team_index": getattr(dp, "team_key", "").split(".")[-1]
+                                if hasattr(dp, "team_key")
+                                else 0,
+                                "player_id": getattr(dp, "player_id", 0),
+                                "player_name": getattr(dp, "player_name", ""),
+                                "positions": "",
+                            }
+                        )
+                result = syncer.poll_and_sync(yahoo_picks)
+                if result.error:
+                    st.toast(f"Sync error: {result.error}")
+                elif result.new_picks:
+                    for pick in result.new_picks:
+                        # Apply pick to draft state
+                        try:
+                            ds.make_pick(pick.player_id, pick.team_index)
+                        except Exception:
+                            pass  # Player may not be in pool
+                    st.toast(f"Synced {len(result.new_picks)} new picks!")
+                    st.rerun()
+                else:
+                    st.toast("No new picks to sync.")
+            except Exception as e:
+                st.toast(f"Draft sync failed: {e}")
+
 
 def render_draft_page():
     ds = st.session_state.draft_state

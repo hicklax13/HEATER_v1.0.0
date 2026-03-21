@@ -10,7 +10,7 @@ import time
 import pandas as pd
 import streamlit as st
 
-from src.database import coerce_numeric_df, init_db, load_league_rosters, load_player_pool
+from src.database import coerce_numeric_df, init_db, load_league_rosters, load_league_standings, load_player_pool
 from src.injury_model import compute_health_score, get_injury_badge
 from src.league_manager import get_team_roster
 from src.ui_shared import (
@@ -28,6 +28,29 @@ from src.ui_shared import (
 from src.valuation import LeagueConfig, add_process_risk, compute_percentile_projections, compute_projection_volatility
 
 st.set_page_config(page_title="Heater | Trade Analyzer", page_icon="", layout="wide", initial_sidebar_state="collapsed")
+
+
+def _standings_data_state() -> str:
+    """Return the quality state of the league_standings table.
+
+    Returns:
+        "empty"    — table has no rows at all.
+        "all_zero" — table has rows but every 'total' value is zero or null
+                     (week 1 before any matchup has completed).
+        "ok"       — table has meaningful non-zero data.
+    """
+    try:
+        standings = load_league_standings()
+        if standings.empty:
+            return "empty"
+        totals = standings.get("total", pd.Series(dtype=float))
+        totals = pd.to_numeric(totals, errors="coerce").fillna(0)
+        if (totals == 0).all():
+            return "all_zero"
+        return "ok"
+    except Exception:
+        return "empty"
+
 
 init_db()
 
@@ -293,14 +316,22 @@ else:
                     verdict_key = "trade_verdict" if engine_used == "phase1" else "trade_verdict_legacy"
                     st.caption(METRIC_TOOLTIPS[verdict_key])
 
-                    # Warning when no standings data is loaded
-                    if engine_used == "phase1" and not result.get("category_analysis"):
-                        st.warning(
-                            "No league standings data available. All categories are weighted equally, "
-                            "so the analysis cannot account for your team's strategic position "
-                            "(punt detection, marginal elasticity). Sync your Yahoo league for "
-                            "a more accurate evaluation."
-                        )
+                    # Warn when standings data is absent or not yet meaningful
+                    _standings_state = _standings_data_state()
+                    if engine_used == "phase1":
+                        if _standings_state == "all_zero":
+                            st.caption(
+                                "League standings have not yet populated. Trade analysis is using "
+                                "league-average category weights instead of standings-based weights. "
+                                "Results will be more accurate after week 1."
+                            )
+                        elif _standings_state == "empty" or not result.get("category_analysis"):
+                            st.warning(
+                                "No league standings data available. All categories are weighted equally, "
+                                "so the analysis cannot account for your team's strategic position "
+                                "(punt detection, marginal elasticity). Sync your Yahoo league for "
+                                "a more accurate evaluation."
+                            )
 
                     # Metrics row — different layout for Phase 1 vs legacy
                     if engine_used == "phase1":

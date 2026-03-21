@@ -5,7 +5,7 @@ import time
 import pandas as pd
 import streamlit as st
 
-from src.database import coerce_numeric_df, init_db, load_league_rosters, load_player_pool
+from src.database import coerce_numeric_df, init_db, load_league_rosters, load_league_standings, load_player_pool
 from src.injury_model import compute_health_score, get_injury_badge
 from src.league_manager import get_team_roster
 from src.live_stats import refresh_all_stats
@@ -345,6 +345,21 @@ def _render_news_tab(roster: "pd.DataFrame") -> None:
         st.markdown(card_html, unsafe_allow_html=True)
 
 
+@st.cache_data(ttl=300)
+def _check_2026_live_stats() -> bool:
+    """Return True if the 2026 season has started (season_stats rows with games_played > 0)."""
+    from src.database import get_connection
+
+    conn = get_connection()
+    try:
+        result = conn.execute("SELECT COUNT(*) FROM season_stats WHERE season = 2026 AND games_played > 0").fetchone()
+        return bool(result and result[0] > 0)
+    except Exception:
+        return False
+    finally:
+        conn.close()
+
+
 st.set_page_config(page_title="Heater | My Team", page_icon="", layout="wide", initial_sidebar_state="collapsed")
 
 init_db()
@@ -561,15 +576,9 @@ else:
                         gp = player_injury["games_played"].tolist()
                         ga = player_injury["games_available"].tolist()
                         il_stints = (
-                            player_injury["il_stints"].tolist()
-                            if "il_stints" in player_injury.columns
-                            else None
+                            player_injury["il_stints"].tolist() if "il_stints" in player_injury.columns else None
                         )
-                        il_days = (
-                            player_injury["il_days"].tolist()
-                            if "il_days" in player_injury.columns
-                            else None
-                        )
+                        il_days = player_injury["il_days"].tolist() if "il_days" in player_injury.columns else None
                         hs = compute_health_score(gp, ga, il_stints, il_days)
                         _icon, label = get_injury_badge(hs)
                         badges.append(label)
@@ -675,6 +684,134 @@ else:
                     )
                     render_context_card("Pitching Totals", pitch_html)
 
+                # Category Gaps card — compare team totals to league or H2H benchmarks
+                if hit_stats or pitch_stats:
+                    # Default H2H benchmarks (12-team, full-season averages)
+                    _BENCHMARKS: dict[str, float] = {
+                        "R": 800.0,
+                        "HR": 250.0,
+                        "RBI": 800.0,
+                        "SB": 100.0,
+                        "AVG": 0.260,
+                        "OBP": 0.330,
+                        "W": 85.0,
+                        "SV": 80.0,
+                        "K": 1200.0,
+                        "ERA": 3.80,
+                        "WHIP": 1.22,
+                    }
+                    # Inverse categories: lower is better
+                    _INVERSE_CATS: set[str] = {"ERA", "WHIP"}
+
+                    # Attempt to derive per-team league averages from league_standings
+                    try:
+                        _ls = load_league_standings()
+                        if not _ls.empty and "category" in _ls.columns and "total" in _ls.columns:
+                            # Compute mean total per category across all teams
+                            _ls_avg = _ls.groupby("category")["total"].mean().to_dict()
+                            # Normalise category keys to uppercase
+                            _ls_avg = {str(k).upper(): v for k, v in _ls_avg.items()}
+                            # Override defaults only for categories present in standings
+                            for _cat, _val in _ls_avg.items():
+                                if _cat in _BENCHMARKS and _val and _val > 0:
+                                    _BENCHMARKS[_cat] = float(_val)
+                    except Exception:
+                        pass  # Fall back to hardcoded benchmarks silently
+
+                    # Merge hit_stats and pitch_stats into one lookup; cast rate stats to float
+                    _team_totals: dict[str, float] = {}
+                    for _cat, _val in {**hit_stats, **pitch_stats}.items():
+                        try:
+                            _team_totals[_cat] = float(str(_val))
+                        except (ValueError, TypeError):
+                            pass
+
+                    # Compute gap and direction for each benchmarked category
+                    _gap_rows: list[dict] = []
+                    for _cat, _bench in _BENCHMARKS.items():
+                        if _cat not in _team_totals:
+                            continue
+                        _team_val = _team_totals[_cat]
+                        _is_inverse = _cat in _INVERSE_CATS
+                        # "above" means better: for inverse cats, lower team value is better
+                        _above = (_team_val < _bench) if _is_inverse else (_team_val >= _bench)
+                        if _is_inverse and _bench != 0:
+                            # Percentage gap: negative means below (worse for inverse)
+                            _pct = (_bench - _team_val) / _bench * 100.0
+                        elif _bench != 0:
+                            _pct = (_team_val - _bench) / _bench * 100.0
+                        else:
+                            _pct = 0.0
+                        _gap_rows.append(
+                            {
+                                "cat": _cat,
+                                "team_val": _team_val,
+                                "bench": _bench,
+                                "above": _above,
+                                "pct": _pct,
+                            }
+                        )
+
+                    if _gap_rows:
+                        # Identify 2 weakest categories (lowest pct gap, i.e. most below bench)
+                        _sorted_by_gap = sorted(_gap_rows, key=lambda x: x["pct"])
+                        _priority_cats = {r["cat"] for r in _sorted_by_gap[:2]}
+
+                        # Build priority targets block
+                        _priority_names = [r["cat"] for r in _sorted_by_gap[:2]]
+                        _priority_html = (
+                            f'<div style="margin-bottom:8px;padding:6px 8px;'
+                            f"background:rgba(230,57,70,0.07);border-radius:6px;"
+                            f'border-left:3px solid {T["danger"]};">'
+                            f'<div style="font-size:10px;font-weight:700;letter-spacing:0.8px;'
+                            f'text-transform:uppercase;color:{T["danger"]};margin-bottom:3px;">'
+                            f"Priority Targets</div>"
+                            f'<div style="font-size:12px;font-weight:600;'
+                            f'font-family:IBM Plex Mono,monospace;color:{T["tx"]};">'
+                            f"{' · '.join(_priority_names)}</div>"
+                            f"</div>"
+                        )
+
+                        # Build per-category rows
+                        _rows_html = ""
+                        for _row in _gap_rows:
+                            _cat = _row["cat"]
+                            _above = _row["above"]
+                            _pct = _row["pct"]
+                            _team_val = _row["team_val"]
+                            _bench = _row["bench"]
+                            _is_priority = _cat in _priority_cats
+                            _color = T["green"] if _above else T["danger"]
+                            _direction = "+" if _pct >= 0 else ""
+                            # Format values sensibly
+                            _is_rate = _cat in ("AVG", "OBP", "ERA", "WHIP")
+                            if _is_rate:
+                                _tv_str = f"{_team_val:.3f}" if _cat in ("AVG", "OBP", "WHIP") else f"{_team_val:.2f}"
+                                _bv_str = f"{_bench:.3f}" if _cat in ("AVG", "OBP", "WHIP") else f"{_bench:.2f}"
+                            else:
+                                _tv_str = f"{int(_team_val)}"
+                                _bv_str = f"{int(_bench)}"
+
+                            _label_weight = "700" if _is_priority else "400"
+                            _rows_html += (
+                                f'<div style="display:flex;justify-content:space-between;'
+                                f"align-items:center;padding:3px 0;font-size:12px;"
+                                f"font-family:IBM Plex Mono,monospace;"
+                                f'border-bottom:1px solid {T["border"]};">'
+                                f'<span style="font-weight:{_label_weight};color:{T["tx2"]};">'
+                                f"{_cat}</span>"
+                                f'<span style="display:flex;gap:6px;align-items:center;">'
+                                f'<span style="color:{T["tx2"]};font-size:11px;">'
+                                f"{_tv_str} / {_bv_str}</span>"
+                                f'<span style="font-weight:700;color:{_color};min-width:40px;'
+                                f'text-align:right;">'
+                                f"{_direction}{_pct:.1f}%</span>"
+                                f"</span></div>"
+                            )
+
+                        _gaps_html = _priority_html + _rows_html
+                        render_context_card("Category Gaps", _gaps_html)
+
                 # IL alerts card
                 if il_players:
                     il_html = "".join(
@@ -688,11 +825,18 @@ else:
 
             # -- Main Content (right) --
             with main:
-                # Season/projection toggle
+                # Season/projection toggle — auto-switches to live stats when the 2026 season has started
+                _season_started = _check_2026_live_stats()
+                if _season_started:
+                    _stat_options = ["2026 Live", "2026 Projected", "2025", "2024", "2023"]
+                    _stat_default = "2026 Live"
+                else:
+                    _stat_options = ["2026 Projected", "2025", "2024", "2023"]
+                    _stat_default = "2026 Projected"
                 stat_view = st.segmented_control(
                     "View stats from",
-                    options=["2026 Projected", "2025", "2024", "2023"],
-                    default="2026 Projected",
+                    options=_stat_options,
+                    default=_stat_default,
                     key="roster_stat_view",
                 )
 
@@ -716,9 +860,9 @@ else:
                     "whip": "WHIP",
                 }
 
-                if stat_view in ("2025", "2024", "2023"):
-                    # Load historical stats for selected season
-                    season_year = int(stat_view)
+                if stat_view in ("2026 Live", "2025", "2024", "2023"):
+                    # Load actual stats for the selected season (including live 2026)
+                    season_year = 2026 if stat_view == "2026 Live" else int(stat_view)
                     from src.database import get_connection as _gc
 
                     _conn = _gc()
@@ -748,12 +892,19 @@ else:
                         inplace=True,
                     )
 
-                    caption = f"Actual stats from the {season_year} MLB season."
-                    if hist.empty:
-                        caption = f"No historical data available for {season_year}."
+                    if stat_view == "2026 Live":
+                        caption = "Live 2026 season stats. Updates hourly from MLB Stats API."
+                        if hist.empty:
+                            caption = "No 2026 season stats available yet."
+                        section_label = "Roster — 2026 Live Stats"
+                    else:
+                        caption = f"Actual stats from the {season_year} MLB season."
+                        if hist.empty:
+                            caption = f"No historical data available for {season_year}."
+                        section_label = f"Roster — {season_year} Season Stats"
 
                     st.markdown(
-                        f'<div class="sec-head">Roster — {season_year} Season Stats</div>'
+                        f'<div class="sec-head">{section_label}</div>'
                         f'<div style="font-size:12px;color:{T["tx2"]};margin-bottom:8px;'
                         f'font-family:Figtree,sans-serif;">{caption}</div>',
                         unsafe_allow_html=True,

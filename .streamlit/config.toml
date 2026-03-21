@@ -7,3 +7,9 @@ font = "sans serif"
 
 [server]
 headless = true
+enableXsrfProtection = true
+enableCORS = false
+
+[browser]
+# Silence the "running on localhost" banner on cloud deployments
+gatherUsageStats = false
