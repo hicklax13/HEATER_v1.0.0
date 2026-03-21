@@ -117,15 +117,18 @@ def _news_type_label(news_type: str) -> str:
 
 def _render_news_card(player_name: str, news_item: dict, ownership: dict) -> str:
     """Build a self-contained HTML card for one news item."""
-    headline = news_item.get("headline", "No headline")
+    import html as _ht
+
+    headline = _ht.escape(news_item.get("headline", "No headline"))
     detail = news_item.get("detail", "")
     source = news_item.get("source", "")
     news_type = news_item.get("news_type", "general")
     sentiment = news_item.get("sentiment_score", 0.0)
     if sentiment is None:
         sentiment = 0.0
-    il_status = news_item.get("il_status", "")
+    il_status = _ht.escape(news_item.get("il_status", ""))
     published_at = news_item.get("published_at", "")
+    player_name = _ht.escape(player_name)
 
     # Generate analytical summary if the player_news module is available
     if PLAYER_NEWS_AVAILABLE:
@@ -181,7 +184,7 @@ def _render_news_card(player_name: str, news_item: dict, ownership: dict) -> str
     sentiment_html = _sentiment_indicator(sentiment)
 
     # Truncate detail for display
-    display_detail = detail[:200] + "..." if len(detail) > 200 else detail
+    display_detail = _ht.escape(detail[:200] + "..." if len(detail) > 200 else detail)
 
     return (
         f'<div style="background:{T["card"]};border:1px solid {T["border"]};'
@@ -402,7 +405,7 @@ else:
         if yahoo_client:
             try:
                 standings_data = yahoo_client._query.get_league_standings()
-                for t in standings_data.teams or []:
+                for t in getattr(standings_data, "teams", None) or []:
                     t_name = t.name
                     if isinstance(t_name, bytes):
                         t_name = t_name.decode("utf-8", errors="replace")

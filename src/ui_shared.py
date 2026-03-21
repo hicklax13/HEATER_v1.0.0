@@ -2699,15 +2699,15 @@ def show_player_card_dialog(player_id: int):
         # Meta info
         meta_parts = []
         if prospect.get("fg_rank"):
-            meta_parts.append(f"FanGraphs Rank: #{prospect['fg_rank']}")
+            meta_parts.append(f"FanGraphs Rank: #{_html.escape(str(prospect['fg_rank']))}")
         if prospect.get("fg_fv"):
-            meta_parts.append(f"Future Value: {prospect['fg_fv']}")
+            meta_parts.append(f"Future Value: {_html.escape(str(prospect['fg_fv']))}")
         if prospect.get("fg_eta"):
-            meta_parts.append(f"ETA: {prospect['fg_eta']}")
+            meta_parts.append(f"ETA: {_html.escape(str(prospect['fg_eta']))}")
         if prospect.get("fg_risk"):
-            meta_parts.append(f"Risk: {prospect['fg_risk']}")
+            meta_parts.append(f"Risk: {_html.escape(str(prospect['fg_risk']))}")
         if prospect.get("milb_level"):
-            meta_parts.append(f"Level: {prospect['milb_level']}")
+            meta_parts.append(f"Level: {_html.escape(str(prospect['milb_level']))}")
         if meta_parts:
             st.markdown(
                 f'<div style="font-size:12px;color:{t["tx2"]};margin-bottom:6px;">' + " | ".join(meta_parts) + "</div>",
