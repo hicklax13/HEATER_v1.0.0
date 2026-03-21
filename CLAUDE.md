@@ -5,7 +5,7 @@
 A fantasy baseball draft assistant + in-season manager for a 12-team Yahoo Sports H2H Categories snake draft league.
 
 1. **Draft Tool** (`app.py`) — "Heater" themed Streamlit app with glassmorphic design, splash screen bootstrap, 2-step setup wizard, 3-column draft page, Monte Carlo recommendations with percentile sampling. Zero CSV uploads — all data auto-fetched.
-2. **In-Season Management** (`pages/`) — 11 pages: team overview, draft simulator, trade analysis, player comparison, free agents, lineup optimizer, closer monitor, standings/power rankings, leaders/prospects, waiver wire, start/sit advisor.
+2. **In-Season Management** (`pages/`) — 12 pages: team overview, draft simulator, trade analysis, player comparison, free agents, lineup optimizer, closer monitor, standings/power rankings, leaders/prospects, waiver wire, start/sit advisor, matchup planner.
 3. **Trade Analyzer Engine** (`src/engine/`) — 6-phase pipeline: deterministic SGP → stochastic MC → signal intelligence → contextual adjustments → game theory → production convergence/caching.
 4. **Enhanced Lineup Optimizer** (`src/optimizer/`) — 11-module pipeline: enhanced projections, matchup adjustments, H2H weights, non-linear SGP, streaming, scenarios, multi-period, dual objective, advanced LP.
 5. **Draft Recommendation Engine** (`src/draft_engine.py`) — 8-stage enhancement chain with 3 execution modes (Quick/Standard/Full).
@@ -65,6 +65,7 @@ pages/
   9_Leaders.py          — Category leaders, points leaders, breakout detection, prospects
   10_Waiver_Wire.py     — Add/drop recommendations based on roster gaps (powered by src/waiver_wire.py)
   11_Start_Sit.py       — Weekly start/sit advisor with matchup analysis (powered by src/start_sit.py)
+  12_Matchup_Planner.py — Per-game matchup ratings with color-coded quality tiers (powered by src/matchup_planner.py)
 src/
   database.py           — SQLite schema (21 tables), player pool + in-season queries
   valuation.py          — SGP calculator, replacement levels, VORP, category weights, percentiles

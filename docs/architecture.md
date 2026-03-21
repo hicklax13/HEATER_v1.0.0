@@ -12,7 +12,7 @@ HEATER is a Streamlit-based fantasy baseball application with two pillars: a dra
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                    Layer 1: Entry Points                        │
-│  app.py (draft tool) + 11 Streamlit pages                      │
+│  app.py (draft tool) + 12 Streamlit pages                      │
 ├─────────────────────────────────────────────────────────────────┤
 │                    Layer 2: Database                            │
 │  src/database.py — 21 SQLite tables, bulk upserts              │
@@ -74,6 +74,7 @@ Key session state: `draft_state` (DraftState), `valued_pool` (DataFrame), `sgp_c
 | Leaders | `9_Leaders.py` | Category/points leaders, breakouts, prospects | Category/preset filters |
 | Waiver Wire | `10_Waiver_Wire.py` | Add/drop recommendations via LP-verified SGP swaps | Roster summary, position filter |
 | Start/Sit Advisor | `11_Start_Sit.py` | Weekly lineup recommendations with matchup analysis | Team info, matchup state |
+| Matchup Planner | `12_Matchup_Planner.py` | Per-game matchup ratings with color-coded quality tiers | Week selector, schedule info |
 
 ### Hybrid 3-Zone Layout Pattern
 
