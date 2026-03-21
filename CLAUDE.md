@@ -19,7 +19,7 @@ python load_sample_data.py             # Load sample data (first time/testing)
 streamlit run app.py                   # Run the app
 ruff check .                           # Lint
 ruff format .                          # Format
-python -m pytest                       # Run all tests (1875 pass, 4 skipped)
+python -m pytest                       # Run all tests (1956 pass, 4 skipped)
 python -m pytest tests/test_foo.py -v  # Run single test file
 ```
 
@@ -72,7 +72,8 @@ src/
   live_stats.py         — MLB Stats API data fetcher
   data_bootstrap.py     — Zero-interaction bootstrap orchestrator (staleness-based refresh)
   league_manager.py     — League roster/standings management
-  ui_shared.py          — THEME dict, PAGE_ICONS (inline SVGs), glassmorphic CSS, sidebar branding, 3-zone layout system
+  ui_shared.py          — THEME dict, PAGE_ICONS (inline SVGs), glassmorphic CSS, sidebar branding, 3-zone layout system, player card dialog
+  player_card.py        — Player card data assembly (pure function, no Streamlit dependency)
   data_2026.py          — Hardcoded 2026 projections for sample data
   bayesian.py           — PyMC hierarchical model + Marcel regression fallback
   injury_model.py       — Health scores, age-risk curves, injury-adjusted projections
@@ -126,7 +127,7 @@ src/
     game_theory/        — Opponent valuation, adverse selection, Bellman DP, sensitivity
     production/         — Convergence diagnostics, cache, adaptive sim scaling
     output/             — Master trade orchestrator (evaluate_trade)
-tests/                  — 81 test files, 1875 passing tests
+tests/                  — 83 test files, 1956 passing tests
 data/
   draft_tool.db         — SQLite database (created at runtime)
   backups/              — Draft state JSON backups
@@ -327,7 +328,7 @@ get_injury_badge(health_score) -> tuple[str, str]  # returns <span> with CSS dot
 
 ## Testing
 
-- **1875 passing tests** across 81 test files, 4 skipped (PyMC/xgboost optional deps)
+- **1956 passing tests** across 83 test files, 4 skipped (PyMC/xgboost optional deps)
 - **CI:** GitHub Actions — ruff lint/format + pytest on Python 3.11, 3.12, 3.13
 - **Coverage:** 64% (above 60% CI threshold)
 - **8 rounds of systematic debugging** (207 bugs fixed) + **data pipeline audit** (32 issues fixed), all CI green

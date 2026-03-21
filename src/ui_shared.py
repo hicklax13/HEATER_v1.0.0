@@ -2540,7 +2540,7 @@ def show_player_card_dialog(player_id: int):
         cats = ["R", "HR", "RBI", "SB", "AVG", "OBP"] if is_hitter else ["W", "L", "SV", "K", "ERA", "WHIP"]
         rows = []
         for h in historical:
-            row = {"Season": h.get("season", "")}
+            row = {"Season": str(int(h["season"])) if h.get("season") else ""}
             row["GP"] = h.get("GAMES_PLAYED")
             if is_hitter:
                 row["PA"] = h.get("PA")
@@ -2562,12 +2562,12 @@ def show_player_card_dialog(player_id: int):
         cats = ["R", "HR", "RBI", "SB", "AVG", "OBP"] if is_hitter else ["W", "L", "SV", "K", "ERA", "WHIP"]
         rows = []
         if blended:
-            row = {"System": "Blended"}
+            row = {"Source": "Blended"}
             for c in cats:
                 row[c] = blended.get(c)
             rows.append(row)
         for sys_name, sys_stats in sorted(systems.items()):
-            row = {"System": sys_name.title()}
+            row = {"Source": sys_name.title()}
             for c in cats:
                 row[c] = sys_stats.get(c)
             rows.append(row)
@@ -2649,7 +2649,7 @@ def show_player_card_dialog(player_id: int):
         for i, ih in enumerate(injury):
             inj_rows.append(
                 {
-                    "Season": ih["season"],
+                    "Season": str(ih["season"]),
                     "Games Played": ih["GP"],
                     "Games Available": ih["GA"],
                     "IL Stints": ih["IL_stints"],

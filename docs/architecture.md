@@ -7,7 +7,7 @@
 
 ## System Overview
 
-HEATER is a Streamlit-based fantasy baseball application with two pillars: a draft assistant and an in-season manager. The codebase is organized into 9 architectural layers, 60+ source modules, 81 test files (1875+ tests), and integrates with 12 external APIs — all with graceful degradation.
+HEATER is a Streamlit-based fantasy baseball application with two pillars: a draft assistant and an in-season manager. The codebase is organized into 9 architectural layers, 60+ source modules, 83 test files (1956+ tests), and integrates with 12 external APIs — all with graceful degradation.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -166,6 +166,9 @@ Single light-mode palette: `THEME` dict with bg=#f4f5f0, primary=#e63946, hot=#f
 ---
 
 ## Layer 4: Data Ingestion Pipeline
+
+### `src/player_card.py` — Player Card Data Assembly
+Pure function `build_player_card_data(player_id)` assembles all data for the interactive player card dialog: profile (name, team, positions, age, headshot URL), 3-year historical stats, 6-system projections, radar percentiles (vs league and MLB averages), injury history, ADP/ECR rankings, deduplicated news with full datetime, and prospect scouting grades. No Streamlit dependency — fully unit-testable (76 tests). The rendering counterpart `show_player_card_dialog()` in `ui_shared.py` uses `@st.dialog` to display the card as a modal overlay. Accessible from all pages via `render_player_select()`.
 
 ### `src/data_bootstrap.py` — Bootstrap Orchestrator
 Zero-interaction bootstrap runs on every app launch. 9 phases with staleness-based refresh:
@@ -537,7 +540,7 @@ Daily cron at 9:17 UTC + manual trigger for data refresh.
 
 ## Test Architecture
 
-81 test files, 1875+ passing tests, 4 skipped (PyMC/XGBoost optional deps).
+83 test files, 1956+ passing tests, 4 skipped (PyMC/XGBoost optional deps).
 
 | Category | Files | Tests |
 |----------|-------|-------|
@@ -551,7 +554,8 @@ Daily cron at 9:17 UTC + manual trigger for data refresh.
 | FantasyPros parity | 16 | 184 |
 | FP Edge intelligence | 4 | ~69 |
 | Live stats/Yahoo/injury | 4 | ~130 |
-| UI layout (compact table) | 1 | 39 |
+| UI layout (compact table) | 1 | 44 |
+| Player card data assembly | 1 | 76 |
 | Integration/misc | ~17 | ~180 |
 
 Eight rounds of systematic code reviews have fixed 207 bugs total, plus a data pipeline audit (32 issues fixed). Math verification tests validate hand-calculated expected values against code formulas. The compact table tests validate `build_compact_table_html()` output (pure function, no Streamlit runtime required).

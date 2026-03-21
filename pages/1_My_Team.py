@@ -658,18 +658,16 @@ else:
 
             # -- Main Content (right) --
             with main:
-                # Full roster as compact table
-                display_cols = ["name", "positions", "roster_slot"]
-                # Add stat columns that exist
+                # Season/projection toggle
+                stat_view = st.segmented_control(
+                    "View stats from",
+                    options=["2026 Projected", "2025", "2024", "2023"],
+                    default="2026 Projected",
+                    key="roster_stat_view",
+                )
+
+                base_cols = ["name", "positions", "roster_slot"]
                 stat_cols_ordered = ["R", "HR", "RBI", "SB", "AVG", "OBP", "W", "L", "SV", "K", "ERA", "WHIP"]
-                for sc in stat_cols_ordered:
-                    lc = sc.lower()
-                    if lc in roster.columns:
-                        display_cols.append(lc)
-                if "Health" in roster.columns:
-                    display_cols.append("Health")
-                available_cols = [c for c in display_cols if c in roster.columns]
-                display_df = roster[available_cols].copy()
                 rename_map = {
                     "name": "Player",
                     "positions": "Pos",
@@ -687,10 +685,75 @@ else:
                     "era": "ERA",
                     "whip": "WHIP",
                 }
-                display_df.rename(
-                    columns={k: v for k, v in rename_map.items() if k in display_df.columns},
-                    inplace=True,
-                )
+
+                if stat_view in ("2025", "2024", "2023"):
+                    # Load historical stats for selected season
+                    season_year = int(stat_view)
+                    from src.database import get_connection as _gc
+
+                    _conn = _gc()
+                    try:
+                        hist = pd.read_sql_query(
+                            "SELECT * FROM season_stats WHERE season = ?",
+                            _conn,
+                            params=[season_year],
+                        )
+                        hist = coerce_numeric_df(hist)
+                    finally:
+                        _conn.close()
+
+                    display_df = roster[["name", "positions", "roster_slot", "player_id"]].copy()
+                    if not hist.empty and "player_id" in hist.columns:
+                        hist_stat_cols = [c.lower() for c in stat_cols_ordered if c.lower() in hist.columns]
+                        hist_slim = hist[["player_id"] + hist_stat_cols].copy()
+                        display_df = display_df.merge(hist_slim, on="player_id", how="left")
+
+                    if "Health" in roster.columns:
+                        display_df["Health"] = roster["Health"].values
+
+                    player_ids_list = display_df["player_id"].tolist()
+                    display_df = display_df.drop(columns=["player_id"])
+                    display_df.rename(
+                        columns={k: v for k, v in rename_map.items() if k in display_df.columns},
+                        inplace=True,
+                    )
+
+                    caption = f"Actual stats from the {season_year} MLB season."
+                    if hist.empty:
+                        caption = f"No historical data available for {season_year}."
+
+                    st.markdown(
+                        f'<div class="sec-head">Roster — {season_year} Season Stats</div>'
+                        f'<div style="font-size:12px;color:{T["tx2"]};margin-bottom:8px;'
+                        f'font-family:Figtree,sans-serif;">{caption}</div>',
+                        unsafe_allow_html=True,
+                    )
+                else:
+                    # 2026 projected stats from roster
+                    display_cols = list(base_cols)
+                    for sc in stat_cols_ordered:
+                        lc = sc.lower()
+                        if lc in roster.columns:
+                            display_cols.append(lc)
+                    if "Health" in roster.columns:
+                        display_cols.append("Health")
+                    available_cols = [c for c in display_cols if c in roster.columns]
+                    display_df = roster[available_cols].copy()
+                    player_ids_list = roster["player_id"].tolist() if "player_id" in roster.columns else []
+                    display_df.rename(
+                        columns={k: v for k, v in rename_map.items() if k in display_df.columns},
+                        inplace=True,
+                    )
+
+                    st.markdown(
+                        f'<div class="sec-head">Roster — 2026 Projected Stats</div>'
+                        f'<div style="font-size:12px;color:{T["tx2"]};margin-bottom:8px;'
+                        f'font-family:Figtree,sans-serif;">'
+                        f"Full-season projections from blended system "
+                        f"(Steamer, ZiPS, Depth Charts, ATC, THE BAT, THE BAT X). "
+                        f"Updates to actual stats once the season begins.</div>",
+                        unsafe_allow_html=True,
+                    )
 
                 # Assign row classes: starters vs bench
                 row_cls = {}
@@ -709,13 +772,30 @@ else:
                     max_height=600,
                 )
 
+                # Export to Excel
+                import io
+
+                excel_buf = io.BytesIO()
+                display_df.to_excel(excel_buf, index=False, sheet_name="Roster")
+                excel_buf.seek(0)
+                view_label = stat_view if stat_view else "2026_Projected"
+                st.download_button(
+                    "Export to Excel",
+                    data=excel_buf,
+                    file_name=f"heater_roster_{view_label.replace(' ', '_').lower()}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key="export_roster_excel",
+                )
+
                 # Player card selector
-                if "player_id" in roster.columns:
-                    render_player_select(
-                        display_df["Player"].tolist(),
-                        roster["player_id"].tolist(),
-                        key_suffix="myteam",
-                    )
+                if player_ids_list:
+                    player_names = display_df["Player"].tolist() if "Player" in display_df.columns else []
+                    if player_names:
+                        render_player_select(
+                            player_names,
+                            player_ids_list,
+                            key_suffix="myteam",
+                        )
 
                 # Bayesian-adjusted projections
                 if BAYESIAN_AVAILABLE:
