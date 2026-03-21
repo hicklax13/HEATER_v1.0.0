@@ -26,9 +26,15 @@ _MLB_HEADSHOT_TEMPLATE = (
 
 def _get_headshot_url(mlb_id) -> str:
     """Return MLB static headshot URL, or empty string if no mlb_id."""
-    if not mlb_id or mlb_id == 0:
+    if mlb_id is None or mlb_id == 0:
         return ""
-    return _MLB_HEADSHOT_TEMPLATE.format(mlb_id=int(mlb_id))
+    try:
+        mid = int(mlb_id)
+    except (ValueError, TypeError):
+        return ""
+    if mid == 0:
+        return ""
+    return _MLB_HEADSHOT_TEMPLATE.format(mlb_id=mid)
 
 
 def _compute_age(birth_date) -> int | None:
@@ -417,11 +423,15 @@ def build_player_card_data(player_id: int) -> dict:
 
         # ── Prospect Data ──────────────────────────────────
         prospect = None
-        if mlb_id:
+        if mlb_id is not None and mlb_id != 0:
+            try:
+                _mlb_int = int(mlb_id)
+            except (ValueError, TypeError):
+                _mlb_int = 0
             prospect_df = pd.read_sql_query(
                 "SELECT * FROM prospect_rankings WHERE mlb_id = ?",
                 conn,
-                params=[int(mlb_id)],
+                params=[_mlb_int],
             )
             if not prospect_df.empty:
                 pr = prospect_df.iloc[0]
