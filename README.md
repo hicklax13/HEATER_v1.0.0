@@ -2,19 +2,21 @@
 
 A fantasy baseball draft assistant + in-season manager for Yahoo Sports H2H Categories leagues. Features the **Heater** UI — a modern glassmorphic design system with vibrant thermal color palette, 3D inflatable buttons, kinetic gradient typography, and pill-based navigation. Monte Carlo draft recommendations, Bayesian projection updates, and full in-season roster management.
 
-Built for the **FourzynBurn** league (12-team H2H Categories, snake draft, 23 rounds, 12 scoring categories). ~47,000 lines of Python across 100+ source files with 1,841 tests (80 test files). Zero CSV uploads — all data auto-fetched from MLB Stats API + FanGraphs on every launch. Zero emoji — all icons are inline SVGs.
+Built for the **FourzynBurn** league (12-team H2H Categories, snake draft, 23 rounds, 12 scoring categories). ~50,000 lines of Python across 100+ source files with 1,956 tests (83 test files). Zero CSV uploads — all data auto-fetched from MLB Stats API + FanGraphs on every launch. Zero emoji — all icons are inline SVGs.
 
 ## Overview
 
 - **Splash Screen** — Zero-interaction data bootstrap on every launch: 1,000+ MLB players (active + 40-man + spring training), 3 years of history, 7 projection systems, park factors, live stats — all auto-fetched with staleness-based refresh
 - **Setup Wizard** — 2-step guided setup (Settings > Launch). No CSV uploads needed
 - **Draft Page** — 3-column layout: MC recommendations with hero card (BUY/FAIR/AVOID badges, risk score 0-100, category balance meter, LAST CHANCE flag, P10/P90 ranges), draft board, player search + opponent intel
-- **In-Season Pages** — 9 Streamlit pages: team overview, draft simulator, trade analyzer, player compare, free agent rankings, lineup optimizer, closer monitor, standings/power rankings, leaders/prospects
+- **In-Season Pages** — 11 Streamlit pages: team overview, draft simulator, trade analyzer, player compare, free agent rankings, lineup optimizer, closer monitor, standings/power rankings, leaders/prospects, waiver wire, start/sit advisor
 - **Draft Recommendation Engine** — 25-feature 8-stage enhancement pipeline with 3 execution modes (Quick <1s, Standard 2-3s, Full 5-10s)
 - **Trade Analyzer Engine** — 6-phase pipeline: deterministic SGP, stochastic MC (10K sims), signal intelligence (Statcast/Kalman/BOCPD), contextual adjustments, game theory (opponent modeling/adverse selection/Bellman), production (convergence/caching)
 - **Enhanced Lineup Optimizer** — 11-module pipeline with 20 mathematical techniques
 - **In-Season Analytics** — 7 modules: trade value chart (0-100 G-Score adjusted), two-start pitcher planner, start/sit advisor, weekly matchup planner, waiver wire recommender, trade finder, post-draft grader
 - **FantasyPros Parity** — 15 new modules closing competitive gaps: pick predictor (Normal CDF + Weibull survival), player tags, closer depth chart, points league projections (Yahoo/ESPN/CBS), ECR integration (15% blend), cheat sheet export, live draft sync, schedule grid, WSIS compare, season standings (MC simulation), power rankings (5-factor composite), IL auto-swap, multi-league support, prospect rankings
+- **Player Card Dialog** — Click any player name to open a full scouting card: MLB headshot, 3-year stats, 6-system projections, radar chart, injury timeline, ADP/ECR, prospect grades. Available on all pages
+- **Hybrid 3-Zone Layout** — ESPN/Yahoo-style layout: recommendation banner, context panel with filters/alerts, compact stats tables with sticky player names. Sidebar collapsed by default
 - **FP Edge Intelligence** — 3 modules surpassing FantasyPros: Prospect Rankings Engine (FanGraphs Board API + MiLB stats + MLB Readiness Score 0-100), Multi-Platform ECR Consensus (7 ranking sources + Trimmed Borda Count), News/Transaction Intelligence (4-source aggregation + template analytical summaries)
 - **Backtesting Harness** — Evaluate engine accuracy vs historical outcomes (RMSE, rank correlation, value capture rate)
 
@@ -115,7 +117,7 @@ A 6-phase pipeline for rigorous trade evaluation:
 | **Prospect Rankings** | `ecr.py` | Curated top-20 prospect list with position filtering |
 | **Bayesian Streaming** | `optimizer/streaming.py` | Expected K/IP/ER/Win% with SGP-based scoring and matchup grades (A+ through C) |
 
-3 new Streamlit pages: Closer Monitor, Standings/Power Rankings, Leaders/Prospects. 184 dedicated tests across 16 test files.
+5 new Streamlit pages: Closer Monitor, Standings/Power Rankings, Leaders/Prospects, Waiver Wire, Start/Sit Advisor. 184 dedicated tests across 16 test files.
 
 ## FP Edge Intelligence
 
@@ -162,7 +164,7 @@ A 6-phase pipeline for rigorous trade evaluation:
 ```bash
 ruff check .                          # Lint
 ruff format .                         # Format
-python -m pytest                      # 1,841 pass, 4 skipped
+python -m pytest                      # 1,956 pass, 4 skipped
 python -m pytest -v                   # Verbose
 python -m pytest tests/test_xxx.py    # Single file
 ```
@@ -171,8 +173,8 @@ Python 3.11+ required. CI tests on 3.11, 3.12, 3.13. Local dev uses 3.14.
 
 ## Testing
 
-- **1,846 tests collected**, 1,841 passed, 4 skipped (PyMC/xgboost optional deps)
-- **80 test files** covering: draft engine (5), trade engine phases 1-6 (6), lineup optimizer (10), gap closure (14), in-season analytics (7), FantasyPros parity (16), FP Edge intelligence (4), backtesting, math verification (4), integration, data pipeline, bootstrap, Yahoo API
+- **1,960 tests collected**, 1,956 passed, 4 skipped (PyMC/xgboost optional deps)
+- **83 test files** covering: draft engine (5), trade engine phases 1-6 (6), lineup optimizer (10), gap closure (14), in-season analytics (7), FantasyPros parity (16), FP Edge intelligence (4), UI layout (1), player card (1), backtesting, math verification (4), integration, data pipeline, bootstrap, Yahoo API
 - **Math verification suite** — 168 hand-calculated tests across 4 files
 - **CI** — GitHub Actions: ruff lint/format + pytest on Python 3.11-3.13 + daily data refresh cron
 
