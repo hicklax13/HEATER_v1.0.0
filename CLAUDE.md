@@ -7,7 +7,7 @@ A fantasy baseball draft assistant + in-season manager for a 12-team Yahoo Sport
 1. **Draft Tool** (`app.py`) — "Heater" themed Streamlit app with glassmorphic design, splash screen bootstrap, 2-step setup wizard, 3-column draft page, Monte Carlo recommendations with percentile sampling. Zero CSV uploads — all data auto-fetched.
 2. **In-Season Management** (`pages/`) — 12 pages: team overview, draft simulator, trade analysis, player comparison, free agents, lineup optimizer, closer monitor, standings/power rankings, leaders/prospects, waiver wire, start/sit advisor, matchup planner.
 3. **Trade Analyzer Engine** (`src/engine/`) — 6-phase pipeline: deterministic SGP → stochastic MC → signal intelligence → contextual adjustments → game theory → production convergence/caching.
-4. **Enhanced Lineup Optimizer** (`src/optimizer/`) — 11-module pipeline: enhanced projections, matchup adjustments, H2H weights, non-linear SGP, streaming, scenarios, multi-period, dual objective, advanced LP.
+4. **Enhanced Lineup Optimizer** (`src/optimizer/`) — 10-module pipeline: enhanced projections, matchup adjustments, H2H weights, non-linear SGP, streaming, scenarios, dual objective, advanced LP.
 5. **Draft Recommendation Engine** (`src/draft_engine.py`) — 8-stage enhancement chain with 3 execution modes (Quick/Standard/Full).
 6. **In-Season Analytics** (`src/`) — Trade value chart, two-start planner, start/sit advisor, matchup planner, waiver wire, trade finder, draft grader, prospect rankings, ECR consensus, player news.
 
@@ -118,7 +118,6 @@ src/
     sgp_theory.py       — Non-linear marginal SGP
     streaming.py        — Pitcher streaming + Bayesian stream scoring
     scenario_generator.py — Gaussian copula scenarios + CVaR
-    multi_period.py     — Rolling horizon optimization
     dual_objective.py   — H2H/Roto weight blending
     advanced_lp.py      — Maximin, epsilon-constraint, stochastic MIP
   engine/               — Trade Analyzer Engine (6 phases)
@@ -347,7 +346,25 @@ get_injury_badge(health_score) -> tuple[str, str]  # returns <span> with CSS dot
 
 ## Testing
 
-- **1956 passing tests** across 83 test files, 4 skipped (PyMC/xgboost optional deps)
+- **1991 passing tests** across 83 test files, 3 skipped (PyMC/xgboost optional deps)
 - **CI:** GitHub Actions — ruff lint/format + pytest on Python 3.11, 3.12, 3.13
 - **Coverage:** 64% (above 60% CI threshold)
 - **8 rounds of systematic debugging** (207 bugs fixed) + **data pipeline audit** (32 issues fixed), all CI green
+- **Manual UI testing** — All 13 pages tested via Playwright + Claude in Chrome (March 2026)
+
+## Current Implementation Plan
+
+**Read `plan_1.md` at the start of every session.** It is the active implementation plan.
+
+- **Plan 1:** Post-draft in-season polish — headshots, performance optimization, player availability audit
+- **Status:** Phase A (bug fixes) committed; Phases B-D pending
+- **Key benchmarks:** `load_player_pool()` = 6.5s, Draft Engine = 107-213s, Bootstrap = 14s
+- **Season context:** MLB 2026 season started March 25. Fantasy draft completed. App is now in-season mode.
+
+## Season State (2026)
+
+- **MLB game_key:** 469
+- **Draft:** Completed (snake, 23 rounds)
+- **Mode:** In-season management (rosters, trades, waivers, matchups)
+- **Yahoo token:** Auto-refreshes via `data/yahoo_token.json`
+- **Player pool:** 9,226 players loaded from MLB Stats API + FanGraphs

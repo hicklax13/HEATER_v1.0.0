@@ -1,12 +1,12 @@
 """Enhanced Lineup Optimizer package.
 
 Provides advanced lineup optimization with:
-- Enhanced projections (Bayesian, Kalman, regime detection, injury modeling)
+- Enhanced projections (Bayesian, Kalman, injury modeling)
 - Matchup adjustments (park factors, platoon splits, opposing pitcher quality)
 - H2H weekly opponent targeting + season-long optimization
 - Non-linear SGP category targeting + pitcher streaming
 - Stochastic optimization (mean-variance, CVaR tail-risk protection)
-- Multi-period planning + dual H2H/season-long objective
+- Dual H2H/season-long objective
 - Advanced LP formulations (maximin, epsilon-constraint, stochastic MIP)
 - Master pipeline orchestrator (quick/standard/full modes)
 """
@@ -25,7 +25,6 @@ __all__ = [
 # from src.optimizer.sgp_theory import compute_nonlinear_weights
 # from src.optimizer.streaming import rank_streaming_candidates
 # from src.optimizer.scenario_generator import generate_stat_scenarios
-# from src.optimizer.multi_period import rolling_horizon_optimization
 # from src.optimizer.dual_objective import blend_h2h_roto_weights
 # from src.optimizer.advanced_lp import maximin_lineup
 # from src.optimizer.pipeline import LineupOptimizerPipeline

@@ -108,8 +108,6 @@ jobs:
           python -c "from src.engine.context.concentration import *; print('✅ engine/context/concentration.py')"
           python -c "from src.engine.context.injury_process import *; print('✅ engine/context/injury_process.py')"
           python -c "from src.engine.context.matchup import *; print('✅ engine/context/matchup.py')"
-          python -c "from src.engine.game_theory.adverse_selection import *; print('✅ engine/game_theory/adverse_selection.py')"
-          python -c "from src.engine.game_theory.dynamic_programming import *; print('✅ engine/game_theory/dynamic_programming.py')"
           python -c "from src.engine.game_theory.opponent_valuation import *; print('✅ engine/game_theory/opponent_valuation.py')"
           python -c "from src.engine.game_theory.sensitivity import *; print('✅ engine/game_theory/sensitivity.py')"
           python -c "from src.engine.production.sim_config import *; print('✅ engine/production/sim_config.py')"

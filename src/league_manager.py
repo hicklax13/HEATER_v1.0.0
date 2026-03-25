@@ -119,7 +119,7 @@ def get_team_roster(team_name: str) -> pd.DataFrame:
     conn = get_connection()
     try:
         df = pd.read_sql_query(
-            """SELECT lr.*, p.name, p.team, p.positions, p.is_hitter,
+            """SELECT lr.*, p.name, p.team, p.positions, p.is_hitter, p.mlb_id,
                   COALESCE(ss.pa, pr.pa, 0) AS pa,
                   COALESCE(ss.ab, pr.ab, 0) AS ab,
                   COALESCE(ss.h, pr.h, 0) AS h,

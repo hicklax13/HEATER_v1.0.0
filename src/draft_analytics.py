@@ -19,8 +19,12 @@ import numpy as np
 import pandas as pd
 from scipy.stats import norm
 
+from src.validation.constant_optimizer import load_constants
+
 if TYPE_CHECKING:
     from src.valuation import LeagueConfig
+
+_CONSTANTS = load_constants()
 
 logger = logging.getLogger(__name__)
 
@@ -56,10 +60,10 @@ _SAVES_STREAMABLE_THRESHOLD: int = 10
 _STREAMING_PENALTY_MILD: float = -0.3
 _STREAMING_PENALTY_HARSH: float = -0.5
 
-# BUY/FAIR/AVOID thresholds by draft phase
-_BFA_EARLY_GAP: int = 20  # picks 1-100
-_BFA_MID_GAP: int = 15  # picks 100-200
-_BFA_LATE_GAP: int = 10  # picks 200+
+# BUY/FAIR/AVOID thresholds by draft phase (calibratable)
+_BFA_EARLY_GAP: float = _CONSTANTS.get("bfa_early_gap")  # picks 1-100
+_BFA_MID_GAP: float = _CONSTANTS.get("bfa_mid_gap")  # picks 100-200
+_BFA_LATE_GAP: float = _CONSTANTS.get("bfa_late_gap")  # picks 200+
 
 
 # ── Function 1: Category Balance ──────────────────────────────────────
@@ -149,8 +153,8 @@ def compute_category_balance(
         # Need-based with PDF closeness bonus:
         # - Need: below-median categories get higher base weight
         # - Closeness bonus: categories near tie get marginal-value bump
-        need_weight = 1.0 + 0.8 * (0.5 - cdf_val)  # below median -> > 1.0
-        closeness_bonus = 0.2 * (pdf_val / 0.3989)  # peak 0.2 at z=0
+        need_weight = 1.0 + _CONSTANTS.get("category_need_weight") * (0.5 - cdf_val)  # below median -> > 1.0
+        closeness_bonus = _CONSTANTS.get("closeness_bonus_weight") * (pdf_val / 0.3989)  # peak at z=0
 
         weight = need_weight + closeness_bonus
 

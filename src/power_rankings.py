@@ -112,28 +112,38 @@ def compute_momentum(
 def compute_power_rating(
     roster_quality: float,
     category_balance: float,
-    schedule_strength: float,
-    injury_exposure: float,
-    momentum: float,
+    schedule_strength: float | None = None,
+    injury_exposure: float | None = None,
+    momentum: float | None = None,
 ) -> float:
     """Composite power rating [0, 100].
 
-    100 * (0.40*roster + 0.25*balance + 0.15*sos + 0.10*(1-risk) + 0.10*momentum_norm)
-    """
-    # Normalize momentum from [0.5, 2.0] to [0, 1]
-    momentum_norm = (momentum - 0.5) / 1.5
+    When components are None (data unavailable), re-weights the remaining
+    components so the rating is based only on real data — not fabricated
+    defaults that silently make up 35% of the score.
 
-    return round(
-        100
-        * (
-            WEIGHTS["roster_quality"] * roster_quality
-            + WEIGHTS["category_balance"] * category_balance
-            + WEIGHTS["schedule_strength"] * schedule_strength
-            + WEIGHTS["injury_exposure"] * (1.0 - injury_exposure)
-            + WEIGHTS["momentum"] * momentum_norm
-        ),
-        1,
-    )
+    100 * (w_rq*roster + w_cb*balance + w_ss*sos + w_ie*(1-risk) + w_m*momentum_norm)
+    """
+    # Build dict of (weight_key -> normalized_value) for available components
+    components: dict[str, float] = {
+        "roster_quality": roster_quality,
+        "category_balance": category_balance,
+    }
+    if schedule_strength is not None:
+        components["schedule_strength"] = schedule_strength
+    if injury_exposure is not None:
+        components["injury_exposure"] = 1.0 - injury_exposure
+    if momentum is not None:
+        # Normalize momentum from [0.5, 2.0] to [0, 1]
+        components["momentum"] = (momentum - 0.5) / 1.5
+
+    # Re-normalize weights for available components
+    total_weight = sum(WEIGHTS[k] for k in components)
+    if total_weight <= 0:
+        return 0.0
+
+    rating = sum(components[k] * WEIGHTS[k] / total_weight for k in components)
+    return round(100 * rating, 1)
 
 
 def compute_power_rankings(
@@ -151,12 +161,15 @@ def compute_power_rankings(
     """
     results = []
     for td in team_data:
+        ss = td.get("schedule_strength")
+        ie = td.get("injury_exposure")
+        mom = td.get("momentum")
         rating = compute_power_rating(
             roster_quality=td.get("roster_quality", 0.5),
             category_balance=td.get("category_balance", 0.5),
-            schedule_strength=td.get("schedule_strength", 0.5),
-            injury_exposure=td.get("injury_exposure", 0.0),
-            momentum=td.get("momentum", 1.0),
+            schedule_strength=ss,
+            injury_exposure=ie,
+            momentum=mom,
         )
         results.append(
             {
@@ -164,9 +177,9 @@ def compute_power_rankings(
                 "power_rating": rating,
                 "roster_quality": td.get("roster_quality", 0.5),
                 "category_balance": td.get("category_balance", 0.5),
-                "schedule_strength": td.get("schedule_strength", 0.5),
-                "injury_exposure": td.get("injury_exposure", 0.0),
-                "momentum": td.get("momentum", 1.0),
+                "schedule_strength": ss,
+                "injury_exposure": ie,
+                "momentum": mom,
             }
         )
 

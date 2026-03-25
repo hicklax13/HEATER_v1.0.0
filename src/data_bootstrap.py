@@ -9,7 +9,35 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
+from src.analytics_context import AnalyticsContext, DataQuality
+
 logger = logging.getLogger(__name__)
+
+# Module-level context from the last bootstrap run.
+# Pages import this to show data freshness badges.
+_LAST_BOOTSTRAP_CTX: AnalyticsContext | None = None
+
+
+def get_bootstrap_context() -> AnalyticsContext | None:
+    """Return the AnalyticsContext from the most recent bootstrap run."""
+    return _LAST_BOOTSTRAP_CTX
+
+
+def _stamp_from_result(ctx: AnalyticsContext, source: str, result: str) -> None:
+    """Stamp data source quality from a bootstrap result string."""
+    r = result.lower()
+    if r == "fresh":
+        ctx.stamp_data(source, DataQuality.LIVE, notes="Within staleness threshold")
+    elif r.startswith("saved") or "refreshed" in r or r.startswith("merged"):
+        ctx.stamp_data(source, DataQuality.LIVE, notes=result)
+    elif r.startswith("error"):
+        ctx.stamp_data(source, DataQuality.MISSING, notes=result)
+    elif r.startswith("no "):
+        ctx.stamp_data(source, DataQuality.MISSING, notes=result)
+    elif r.startswith("skipped"):
+        ctx.stamp_data(source, DataQuality.STALE, notes=result)
+    else:
+        ctx.stamp_data(source, DataQuality.STALE, notes=result)
 
 
 @dataclass
@@ -817,4 +845,12 @@ def bootstrap_all_data(
     progress.phase = "Complete"
     progress.detail = "All data loaded!"
     logger.info("Bootstrap results: %s", results)
+
+    # Stamp all results into AnalyticsContext for data quality badges
+    global _LAST_BOOTSTRAP_CTX  # noqa: PLW0603
+    ctx = AnalyticsContext(pipeline="data_bootstrap")
+    for source, result_msg in results.items():
+        _stamp_from_result(ctx, source, result_msg)
+    _LAST_BOOTSTRAP_CTX = ctx
+
     return results

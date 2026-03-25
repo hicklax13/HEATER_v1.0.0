@@ -1764,12 +1764,17 @@ def inject_custom_css():
         font-family: 'Figtree', sans-serif !important;
         font-weight: 600 !important;
         font-size: 12px !important;
-        min-width: 120px !important;
-        max-width: 160px !important;
+        min-width: 140px !important;
+        max-width: 200px !important;
         overflow: hidden !important;
         text-overflow: ellipsis !important;
+        white-space: nowrap !important;
         border-right: 1px solid {t["border"]} !important;
         box-shadow: 2px 0 4px rgba(0, 0, 0, 0.06) !important;
+    }}
+    /* Headshot thumbnail in name column */
+    .col-name img {{
+        flex-shrink: 0 !important;
     }}
     /* Corner cell: sticky both top+left — needs highest z-index */
     .compact-table thead th.col-name {{
@@ -2138,6 +2143,35 @@ _HEALTH_DOT_COLORS = {
 }
 
 
+_MLB_HEADSHOT_URL = (
+    "https://img.mlbstatic.com/mlb-photos/image/upload/"
+    "d_people:generic:headshot:67:current.png/"
+    "w_213,q_auto:best/v1/people/{mlb_id}/headshot/67/current"
+)
+
+# Columns auto-hidden from table display (used for headshot rendering)
+_HIDDEN_META_COLS = {"mlb_id", "player_id"}
+
+
+def _headshot_img_html(mlb_id, size: int = 22) -> str:
+    """Return a tiny circular headshot <img> tag, or empty string if no mlb_id."""
+    if mlb_id is None:
+        return ""
+    try:
+        mid = int(mlb_id)
+    except (ValueError, TypeError):
+        return ""
+    if mid == 0 or _math.isnan(mid):
+        return ""
+    url = _MLB_HEADSHOT_URL.format(mlb_id=mid)
+    return (
+        f'<img src="{url}" width="{size}" height="{size}" '
+        f'style="border-radius:50%;object-fit:cover;vertical-align:middle;'
+        f'margin-right:5px;border:1px solid rgba(0,0,0,0.08);flex-shrink:0;" '
+        f'onerror="this.style.display=\'none\'" loading="lazy" />'
+    )
+
+
 def build_compact_table_html(
     df,
     highlight_cols=None,
@@ -2148,6 +2182,11 @@ def build_compact_table_html(
     """Build ESPN-style compact HTML table string from a DataFrame.
 
     Pure function — no Streamlit dependency. Returns raw HTML string.
+
+    If the DataFrame contains an ``mlb_id`` column, a circular headshot
+    thumbnail is rendered next to the player name in the first column.
+    The ``mlb_id`` and ``player_id`` columns are automatically hidden
+    from display.
 
     Args:
         df: pandas DataFrame to render.
@@ -2167,9 +2206,16 @@ def build_compact_table_html(
     if df is None or df.empty:
         return '<div class="compact-table-wrap"><p style="padding:16px;color:#6b7280;font-size:13px;">No data available.</p></div>'
 
+    # Detect headshot column — extract mlb_id values before hiding
+    has_headshots = "mlb_id" in df.columns
+    mlb_ids = df["mlb_id"].tolist() if has_headshots else []
+
+    # Determine visible columns (hide meta columns)
+    visible_cols = [c for c in df.columns if c not in _HIDDEN_META_COLS]
+
     if highlight_cols is None:
         highlight_cols = {}
-        for col in df.columns:
+        for col in visible_cols:
             col_upper = str(col).upper()
             if col_upper in HITTING_STAT_COLS:
                 highlight_cols[col] = "th-hit"
@@ -2181,12 +2227,12 @@ def build_compact_table_html(
     if row_classes is None:
         row_classes = {}
 
-    # Determine the first column as the "name" column for sticky behavior
-    first_col = df.columns[0]
+    # Determine the first visible column as the "name" column for sticky behavior
+    first_col = visible_cols[0] if visible_cols else ""
 
     # Build header
     header_cells = []
-    for col in df.columns:
+    for col in visible_cols:
         cls_parts = []
         if col == first_col:
             cls_parts.append("col-name")
@@ -2202,10 +2248,11 @@ def build_compact_table_html(
         row_cls = row_classes.get(idx, row_classes.get(row_idx, ""))
         tr_cls = f' class="{row_cls}"' if row_cls else ""
         cells = []
-        for col in df.columns:
+        for col in visible_cols:
             val = row[col]
             cls_parts = []
-            if col == first_col:
+            is_name_col = col == first_col
+            if is_name_col:
                 cls_parts.append("col-name")
 
             # Health dot injection
@@ -2213,6 +2260,12 @@ def build_compact_table_html(
             if health_col and col == health_col and val:
                 dot_color = _HEALTH_DOT_COLORS.get(str(val), THEME["tx2"])
                 cell_html = f'<span class="health-dot" style="background:{dot_color};"></span>'
+
+            # Headshot injection for name column
+            if is_name_col and has_headshots and idx < len(mlb_ids):
+                headshot = _headshot_img_html(mlb_ids[idx])
+                if headshot:
+                    cell_html += headshot
 
             # Format numeric values — skip first col and health col
             _skip_cols = {first_col}

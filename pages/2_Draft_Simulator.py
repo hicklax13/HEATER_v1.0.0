@@ -151,11 +151,22 @@ def render_recommendations(pool: pd.DataFrame, ds: DraftState, n_sims: int) -> N
     if not recs.empty and "name" in recs.columns and "player_name" not in recs.columns:
         recs["player_name"] = recs["name"]
 
+    # Merge mlb_id from pool for headshot rendering
+    if not recs.empty and "mlb_id" not in recs.columns and "player_id" in recs.columns and "mlb_id" in pool.columns:
+        _mlb_lookup = pool[["player_id", "mlb_id"]].drop_duplicates(subset=["player_id"])
+        recs = recs.merge(_mlb_lookup, on="player_id", how="left")
+
     available = ds.available_players(pool)
 
     if recs.empty or available.empty:
         st.info("No recommendations available.")
         return
+
+    # Analytics transparency badge for draft engine
+    if use_enhanced and hasattr(engine, "_ctx") and engine._ctx is not None:
+        from src.ui_analytics_badge import render_analytics_badge
+
+        render_analytics_badge(engine._ctx)
 
     top3 = recs.head(3)
     for rank, (_, row) in enumerate(top3.iterrows(), 1):
@@ -167,6 +178,24 @@ def render_recommendations(pool: pd.DataFrame, ds: DraftState, n_sims: int) -> N
         urg = float(row.get("urgency", 0))
         border_color = T["amber"] if rank == 1 else T["border"]
         label_color = T["amber"] if rank == 1 else T["tx"]
+
+        # Headshot thumbnail
+        _reco_mlb_id = row.get("mlb_id")
+        _reco_headshot = ""
+        if _reco_mlb_id is not None:
+            try:
+                _mid = int(_reco_mlb_id)
+                if _mid > 0:
+                    _reco_headshot = (
+                        f'<img src="https://img.mlbstatic.com/mlb-photos/image/upload/'
+                        f"d_people:generic:headshot:67:current.png/"
+                        f'w_213,q_auto:best/v1/people/{_mid}/headshot/67/current" '
+                        f'width="36" height="36" style="border-radius:50%;object-fit:cover;'
+                        f'vertical-align:middle;margin-right:8px;border:2px solid {border_color};" '
+                        f'onerror="this.style.display=\'none\'" loading="lazy" />'
+                    )
+            except (ValueError, TypeError):
+                pass
 
         # BUY/FAIR/AVOID badge
         bfa = str(row.get("buy_fair_avoid", "fair") or "fair").lower()
@@ -202,8 +231,8 @@ def render_recommendations(pool: pd.DataFrame, ds: DraftState, n_sims: int) -> N
             f"""
 <div style="background:{T["card"]};border:2px solid {border_color};border-radius:12px;
             padding:16px;margin-bottom:10px;">
-    <div style="color:{label_color};font-size:1.05rem;font-weight:700;">
-        #{rank} {name}{bfa_pill}
+    <div style="color:{label_color};font-size:1.05rem;font-weight:700;display:flex;align-items:center;">
+        {_reco_headshot}#{rank} {name}{bfa_pill}
     </div>
     <div style="color:{T["tx2"]};font-size:0.82rem;margin-top:2px;">
         {pos} &nbsp;|&nbsp; Average Draft Position: {adp:.0f}{inj_html}
@@ -280,8 +309,27 @@ def render_recommendations(pool: pd.DataFrame, ds: DraftState, n_sims: int) -> N
                 pname = prow.get("player_name", "?")
                 ppos = prow.get("positions", "?")
                 pscore = prow.get("pick_score", 0)
+                # Mini headshot for draft pick card
+                _card_mlb_id = prow.get("mlb_id")
+                _card_headshot = ""
+                if _card_mlb_id is not None:
+                    try:
+                        _cmid = int(_card_mlb_id)
+                        if _cmid > 0:
+                            _card_headshot = (
+                                f'<img src="https://img.mlbstatic.com/mlb-photos/image/upload/'
+                                f"d_people:generic:headshot:67:current.png/"
+                                f'w_213,q_auto:best/v1/people/{_cmid}/headshot/67/current" '
+                                f'width="40" height="40" style="border-radius:50%;object-fit:cover;'
+                                f"margin:0 auto 4px auto;display:block;"
+                                f'border:2px solid {T["hot"]};" '
+                                f'onerror="this.style.display=\'none\'" loading="lazy" />'
+                            )
+                    except (ValueError, TypeError):
+                        pass
                 st.markdown(
                     f'<div class="player-card">'
+                    f"{_card_headshot}"
                     f'<div class="pc-name">{pname}</div>'
                     f'<div class="pc-pos">{ppos}</div>'
                     f'<div class="pc-score">{pscore:.1f}</div>'
@@ -465,13 +513,40 @@ def render_tabs(pool: pd.DataFrame, ds: DraftState) -> None:
             disp = available.copy()
             if pos_filter != "All":
                 disp = disp[disp["positions"].str.contains(pos_filter, na=False)]
-            cols = ["player_name", "positions", "team", "adp", "pick_score"]
+            cols = ["player_name", "positions", "team", "adp", "pick_score", "mlb_id"]
             cols = [c for c in cols if c in disp.columns]
             disp_sorted = disp[cols].sort_values("pick_score", ascending=False).copy()
             if "adp" in disp_sorted.columns:
                 disp_sorted["adp"] = disp_sorted["adp"].apply(lambda x: f"{x:.0f}" if pd.notna(x) else "")
             if "pick_score" in disp_sorted.columns:
                 disp_sorted["pick_score"] = disp_sorted["pick_score"].apply(lambda x: f"{x:.1f}" if pd.notna(x) else "")
+
+            # Inject headshot thumbnails into player names
+            if "mlb_id" in disp_sorted.columns:
+
+                def _add_headshot(row):
+                    _name = row.get("player_name", "")
+                    _mid = row.get("mlb_id")
+                    if _mid is not None:
+                        try:
+                            _mid = int(_mid)
+                            if _mid > 0:
+                                _hs = (
+                                    f'<img src="https://img.mlbstatic.com/mlb-photos/image/upload/'
+                                    f"d_people:generic:headshot:67:current.png/"
+                                    f'w_213,q_auto:best/v1/people/{_mid}/headshot/67/current" '
+                                    f'width="22" height="22" style="border-radius:50%;object-fit:cover;'
+                                    f'vertical-align:middle;margin-right:5px;" '
+                                    f'onerror="this.style.display=\'none\'" loading="lazy" />'
+                                )
+                                return f"{_hs}{_name}"
+                        except (ValueError, TypeError):
+                            pass
+                    return _name
+
+                disp_sorted["player_name"] = disp_sorted.apply(_add_headshot, axis=1)
+                disp_sorted = disp_sorted.drop(columns=["mlb_id"], errors="ignore")
+
             disp_sorted = disp_sorted.rename(
                 columns={
                     "player_name": "Player",
@@ -594,7 +669,7 @@ if not st.session_state.get("mock_started", False):
                 "Engine Mode",
                 ["Quick (< 1 second)", "Standard (2-3 seconds)", "Full (5-10 seconds)"],
                 index=1,
-                help="Quick: base analysis. Standard: Bayesian + injury + Statcast. Full: all contextual factors.",
+                help="Quick: base analysis. Standard: Marcel regression + injury + Statcast. Full: all contextual factors.",
                 key="mock_engine_mode_radio",
             )
             _mock_mode_map = {

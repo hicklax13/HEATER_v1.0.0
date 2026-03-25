@@ -3,21 +3,26 @@
 import numpy as np
 import pandas as pd
 
+from src.validation.constant_optimizer import load_constants
 from src.valuation import LeagueConfig, SGPCalculator
+
+# Load calibrated constants (falls back to defaults if no calibration file)
+_CONSTANTS = load_constants()
 
 
 class DraftSimulator:
     """Monte Carlo draft simulation for evaluating pick candidates."""
 
-    def __init__(self, config: LeagueConfig, sigma: float = 10.0):
+    def __init__(self, config: LeagueConfig, sigma: float | None = None):
         """
         Args:
             config: League configuration.
             sigma: ADP noise parameter. Lower = opponents follow ADP more tightly.
                    For skilled leagues, use 8-12. For casual leagues, 15-25.
+                   If None, uses calibrated value from ConstantSet.
         """
         self.config = config
-        self.sigma = sigma
+        self.sigma = sigma if sigma is not None else _CONSTANTS.get("survival_sigma")
         self.sgp_calc = SGPCalculator(config)
 
     def survival_probability(
@@ -71,7 +76,7 @@ class DraftSimulator:
             if max_demand > 0:
                 # More teams needing this position = lower survival probability
                 # Scale: if 6+ teams need the position, reduce survival by up to 20%
-                scarcity_factor = min(0.2, max_demand / 50)
+                scarcity_factor = min(_CONSTANTS.get("scarcity_cap"), max_demand / 50)
                 base_prob *= 1.0 - scarcity_factor
 
         return float(np.clip(base_prob, 0.01, 0.99))
@@ -572,7 +577,7 @@ class DraftSimulator:
                     "mc_mean_sgp": sim_result["mean_sgp"],
                     "mc_std_sgp": sim_result["std_sgp"],
                     "mc_p25_sgp": sim_result["p25_sgp"],
-                    "combined_score": sim_result["mean_sgp"] + urgency * 0.4,
+                    "combined_score": sim_result["mean_sgp"] + urgency * _CONSTANTS.get("urgency_weight"),
                     "risk_adjusted_sgp": sim_result.get("risk_adjusted_sgp", sim_result["mean_sgp"]),
                 }
             )

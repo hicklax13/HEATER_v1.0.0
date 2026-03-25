@@ -7,7 +7,7 @@ import logging
 import pandas as pd
 import streamlit as st
 
-from src.database import init_db, load_league_rosters, load_player_pool
+from src.database import init_db, load_league_rosters, load_league_standings, load_player_pool
 from src.league_manager import get_team_roster
 from src.ui_shared import (
     THEME,
@@ -21,6 +21,16 @@ from src.ui_shared import (
 from src.valuation import LeagueConfig
 
 logger = logging.getLogger(__name__)
+
+# ── Park factors (hardcoded FanGraphs 2024) ───────────────────────────
+
+try:
+    from src.data_bootstrap import PARK_FACTORS
+
+    PARK_FACTORS_AVAILABLE = True
+except ImportError:
+    PARK_FACTORS: dict[str, float] = {}
+    PARK_FACTORS_AVAILABLE = False
 
 # ── Optional advisor import ───────────────────────────────────────────
 
@@ -84,6 +94,43 @@ if not rosters.empty:
         if not user_roster.empty:
             user_player_ids = user_roster["player_id"].tolist()
 
+# ── Load standings for matchup context ─────────────────────────────────
+
+standings_df = load_league_standings()
+my_weekly_totals: dict[str, float] | None = None
+opp_weekly_totals: dict[str, float] | None = None
+
+if not standings_df.empty and user_team_name:
+    # Build per-team category totals from standings
+    _team_totals: dict[str, dict[str, float]] = {}
+    if "team_name" in standings_df.columns and "category" in standings_df.columns:
+        for _, _row in standings_df.iterrows():
+            _t = str(_row["team_name"])
+            _c = str(_row["category"])
+            _v = float(_row.get("total", 0.0) or 0.0)
+            _team_totals.setdefault(_t, {})[_c] = _v
+
+    if user_team_name in _team_totals:
+        my_weekly_totals = _team_totals[user_team_name]
+
+    # TODO: Opponent detection requires Yahoo weekly matchup data.
+    # For now, use league median as a proxy opponent.
+    if _team_totals and not my_weekly_totals:
+        pass  # No user data available
+    elif _team_totals:
+        _all_cats: set[str] = set()
+        for _tt in _team_totals.values():
+            _all_cats.update(_tt.keys())
+        _median_totals: dict[str, float] = {}
+        for _cat in _all_cats:
+            _vals = [tt.get(_cat, 0.0) for tt in _team_totals.values() if _cat in tt]
+            if _vals:
+                _vals.sort()
+                _mid = len(_vals) // 2
+                _median_totals[_cat] = _vals[_mid]
+        if _median_totals:
+            opp_weekly_totals = _median_totals
+
 # ── Layout ────────────────────────────────────────────────────────────
 
 ctx, main = render_context_columns()
@@ -91,9 +138,15 @@ ctx, main = render_context_columns()
 # ── Context panel ─────────────────────────────────────────────────────
 
 with ctx:
-    # Matchup state info card
-    matchup_state_label = "close"
-    matchup_note = "No weekly totals provided. Using balanced (close) matchup strategy."
+    # Matchup state classification using real standings data
+    if my_weekly_totals and opp_weekly_totals:
+        from src.start_sit import classify_matchup_state
+
+        matchup_state_label = classify_matchup_state(my_weekly_totals, opp_weekly_totals, config)
+        matchup_note = "Matchup state derived from league standings. Opponent approximated by league median."
+    else:
+        matchup_state_label = "close"
+        matchup_note = "No weekly totals available. Using balanced (close) matchup strategy."
 
     if user_team_name:
         render_context_card(
@@ -192,17 +245,26 @@ with main:
                         player_ids=selected_ids,
                         player_pool=pool.rename(columns={"player_name": "name"}),
                         config=config,
-                        weekly_schedule=None,
-                        park_factors=None,
-                        my_weekly_totals=None,
-                        opp_weekly_totals=None,
-                        standings=None,
+                        weekly_schedule=None,  # Requires schedule_grid.py integration
+                        park_factors=PARK_FACTORS if PARK_FACTORS else None,
+                        my_weekly_totals=my_weekly_totals,
+                        opp_weekly_totals=opp_weekly_totals,
+                        standings=standings_df if not standings_df.empty else None,
                         team_name=user_team_name,
                     )
                 except Exception as exc:
                     logger.exception("start_sit_recommendation failed")
                     st.error(f"Recommendation engine error: {exc}")
                     result = None
+
+            # Analytics transparency badge (data quality from bootstrap)
+            from src.data_bootstrap import get_bootstrap_context
+
+            _boot_ctx = get_bootstrap_context()
+            if _boot_ctx:
+                from src.ui_analytics_badge import render_analytics_badge
+
+                render_analytics_badge(_boot_ctx)
 
             if result is None or not result.get("players"):
                 st.warning("No recommendation could be generated for the selected players.")
@@ -256,6 +318,11 @@ with main:
                 )
 
                 # Build display DataFrame with color-coded recommendation column
+                # Build mlb_id lookup from pool for headshot rendering
+                _pid_to_mlb = {}
+                if "mlb_id" in pool.columns and "player_id" in pool.columns:
+                    _pid_to_mlb = dict(zip(pool["player_id"], pool["mlb_id"]))
+
                 rows = []
                 row_classes: dict[int, str] = {}
                 for rank, p in enumerate(players_list):
@@ -271,16 +338,17 @@ with main:
                         if sorted_cats:
                             top_cat = sorted_cats[0][0]
 
-                    rows.append(
-                        {
-                            "Player": p["name"],
-                            "Decision": rec_label,
-                            "Score": f"{p['start_score']:.3f}",
-                            "Floor": f"{p['floor']:.3f}",
-                            "Ceiling": f"{p['ceiling']:.3f}",
-                            "Top Category": top_cat.upper() if top_cat else "",
-                        }
-                    )
+                    entry = {
+                        "Player": p["name"],
+                        "Decision": rec_label,
+                        "Score": f"{p['start_score']:.3f}",
+                        "Floor": f"{p['floor']:.3f}",
+                        "Ceiling": f"{p['ceiling']:.3f}",
+                        "Top Category": top_cat.upper() if top_cat else "",
+                    }
+                    if _pid_to_mlb:
+                        entry["mlb_id"] = _pid_to_mlb.get(p["player_id"])
+                    rows.append(entry)
                     # row_classes uses positional index
                     row_classes[rank] = "row-start" if is_rec else "row-sit"
 

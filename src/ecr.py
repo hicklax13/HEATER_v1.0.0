@@ -352,9 +352,12 @@ def fetch_yahoo_adp() -> pd.DataFrame:
         else:
             df = pd.DataFrame(draft_results)
 
-        # Normalize column name
-        if "pick" in df.columns and "yahoo_adp" not in df.columns:
-            df["yahoo_adp"] = df["pick"]
+        # Normalize column name — yahoo_api returns pick_number, not pick
+        if "yahoo_adp" not in df.columns:
+            if "pick" in df.columns:
+                df["yahoo_adp"] = df["pick"]
+            elif "pick_number" in df.columns:
+                df["yahoo_adp"] = df["pick_number"]
 
         return df
     except Exception:
@@ -443,6 +446,9 @@ def _store_consensus(df: pd.DataFrame) -> int:
         now = datetime.now(UTC).isoformat()
         count = 0
         for _, row in df.iterrows():
+            pid = _safe_int(row.get("player_id"))
+            if pid is None:
+                continue  # Skip rows with non-numeric player_id
             conn.execute(
                 """INSERT OR REPLACE INTO ecr_consensus
                    (player_id, espn_rank, yahoo_adp, cbs_rank, nfbc_adp,
@@ -451,7 +457,7 @@ def _store_consensus(df: pd.DataFrame) -> int:
                     rank_stddev, n_sources, fetched_at)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
-                    int(row["player_id"]),
+                    pid,
                     _safe_int(row.get("espn_rank")),
                     _safe_float(row.get("yahoo_adp")),
                     _safe_int(row.get("cbs_rank")),
@@ -827,9 +833,27 @@ def refresh_ecr_consensus(force: bool = False) -> pd.DataFrame:
             if pid is None and not pool.empty and name:
                 pid = _resolve_name_to_player_id(name, pool)
             if pid is not None:
-                pid = int(pid)
-                rank = row.get("rank") or row.get("ecr_rank") or row.get("adp") or (idx + 1)
-                rank_val = int(rank) if rank else None
+                try:
+                    pid = int(pid)
+                except (ValueError, TypeError):
+                    # Yahoo keys like '469.p.9877' — resolve by name instead
+                    if not pool.empty and name:
+                        resolved = _resolve_name_to_player_id(name, pool)
+                        if resolved is not None:
+                            pid = int(resolved)
+                        else:
+                            continue
+                    else:
+                        continue
+                rank = (
+                    row.get("rank")
+                    or row.get("ecr_rank")
+                    or row.get("adp")
+                    or row.get("yahoo_adp")
+                    or row.get("pick_number")
+                    or (idx + 1)
+                )
+                rank_val = _safe_int(rank)
                 if pid not in player_data:
                     player_data[pid] = {"player_id": pid, "name": name}
                 player_data[pid][f"{source_name}_rank"] = rank_val

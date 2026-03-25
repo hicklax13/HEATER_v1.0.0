@@ -18,8 +18,6 @@ Wires into:
   - src/engine/context/bench_value.py: enhanced bench option value
   - src/engine/context/injury_process.py: injury availability modeling
   - src/engine/game_theory/opponent_valuation.py: opponent market analysis
-  - src/engine/game_theory/adverse_selection.py: Bayesian flaw discount
-  - src/engine/game_theory/dynamic_programming.py: Bellman rollout
   - src/engine/game_theory/sensitivity.py: sensitivity + counter-offers
   - src/in_season.py: _roster_category_totals (aggregate roster stats)
   - src/valuation.py: LeagueConfig, SGPCalculator
@@ -45,10 +43,9 @@ The evaluation pipeline:
     13. Concentration risk flags
 
   Phase 5 (game theory, when enabled):
-    14. Adverse selection discount on received players
-    15. Opponent valuation + market clearing price
-    16. Sensitivity analysis (category + player-level)
-    17. Counter-offer suggestions for sub-optimal trades
+    14. Opponent valuation + market clearing price
+    15. Sensitivity analysis (category + player-level)
+    16. Counter-offer suggestions for sub-optimal trades
 """
 
 from __future__ import annotations
@@ -58,12 +55,12 @@ from typing import Any
 
 import pandas as pd
 
+from src.analytics_context import AnalyticsContext, DataQuality, ModuleStatus
 from src.database import load_league_standings
 from src.engine.context.concentration import (
     compute_concentration_delta,
     team_exposure_breakdown,
 )
-from src.engine.game_theory.adverse_selection import compute_discount_for_trade
 from src.engine.game_theory.opponent_valuation import (
     get_player_projections_from_pool,
     player_market_value,
@@ -92,13 +89,17 @@ except ImportError:
     ROSTER_SLOTS = {}
     LineupOptimizer = None  # type: ignore[assignment,misc]
 
+from src.validation.constant_optimizer import load_constants
+
 logger = logging.getLogger(__name__)
+
+_CONSTANTS = load_constants()
 
 # Grade thresholds: composite score -> letter grade
 # Spec ref: Section 14 L11, _grade() function
 GRADE_THRESHOLDS: list[tuple[float, str]] = [
-    (2.0, "A+"),
-    (1.5, "A"),
+    (_CONSTANTS.get("trade_grade_a_plus"), "A+"),
+    (_CONSTANTS.get("trade_grade_a"), "A"),
     (1.0, "A-"),
     (0.7, "B+"),
     (0.4, "B"),
@@ -124,7 +125,7 @@ COUNTING_CATEGORIES: set[str] = _LC.counting_stats
 # Discount factor for FA pool turnover (drops, injuries, call-ups, role changes).
 # 0.5 means we assume half the unrecoverable gap will eventually become
 # recoverable as the FA pool changes over the season.
-FA_TURNOVER_DISCOUNT: float = 0.5
+FA_TURNOVER_DISCOUNT: float = _CONSTANTS.get("fa_turnover_discount")
 
 # Roster cap — 23 slots (18 starting + 5 bench) for Yahoo H2H categories.
 ROSTER_CAP: int = 23
@@ -420,7 +421,6 @@ def evaluate_trade(
           - mc_mean, mc_std, mc_median, p5, p25, p75, p95
           - prob_positive, var5, cvar5, sharpe, confidence_interval
           When enable_game_theory=True, also includes:
-          - adverse_selection: discount analysis dict
           - market_values: per-player market analysis
           - sensitivity_report: category sensitivity + breakeven
     """
@@ -428,6 +428,14 @@ def evaluate_trade(
         config = LeagueConfig()
 
     sgp_calc = SGPCalculator(config)
+
+    # --- AnalyticsContext: transparency spine for this evaluation ---
+    ctx = AnalyticsContext(pipeline="trade_engine")
+    ctx.stamp_data(
+        "player_pool",
+        DataQuality.LIVE if len(player_pool) > 100 else DataQuality.SAMPLE,
+        record_count=len(player_pool),
+    )
 
     # Step 1: Build pre/post roster ID lists
     before_ids = list(user_roster_ids)
@@ -546,29 +554,51 @@ def evaluate_trade(
         if after_assignments:
             lineup_constrained = True
 
+    # Stamp LP module status
+    if lineup_constrained:
+        ctx.stamp_module("phase1_lineup_lp", ModuleStatus.EXECUTED, influence=0.9)
+    else:
+        ctx.stamp_module(
+            "phase1_lineup_lp",
+            ModuleStatus.FALLBACK,
+            reason="LP unavailable — using raw roster totals",
+            influence=0.3,
+        )
+
     # Step 3: Load standings and compute marginal elasticity
     standings = load_league_standings()
     all_team_totals = build_standings_totals(standings)
+
+    # Stamp standings data quality
+    if all_team_totals:
+        ctx.stamp_data("league_standings", DataQuality.LIVE, record_count=len(all_team_totals))
+    else:
+        ctx.stamp_data("league_standings", DataQuality.MISSING, notes="No standings loaded")
 
     # Determine category weights
     category_weights: dict[str, float] = {cat: 1.0 for cat in CATEGORIES}
     cat_analysis: dict[str, dict] = {}
     punt_categories: list[str] = []
 
-    if all_team_totals and user_team_name and user_team_name in all_team_totals:
-        your_totals = all_team_totals[user_team_name]
+    with ctx.track_module("phase1_category_analysis") as _mod_cat:
+        if all_team_totals and user_team_name and user_team_name in all_team_totals:
+            your_totals = all_team_totals[user_team_name]
 
-        # Step 4: Gap analysis with punt detection
-        cat_analysis = category_gap_analysis(
-            your_totals=your_totals,
-            all_team_totals=all_team_totals,
-            your_team_id=user_team_name,
-            weeks_remaining=weeks_remaining,
-        )
+            # Step 4: Gap analysis with punt detection
+            cat_analysis = category_gap_analysis(
+                your_totals=your_totals,
+                all_team_totals=all_team_totals,
+                your_team_id=user_team_name,
+                weeks_remaining=weeks_remaining,
+            )
 
-        # Extract punt categories and compute weights
-        punt_categories = [cat for cat, info in cat_analysis.items() if info["is_punt"]]
-        category_weights = compute_category_weights_from_analysis(cat_analysis)
+            # Extract punt categories and compute weights
+            punt_categories = [cat for cat, info in cat_analysis.items() if info["is_punt"]]
+            category_weights = compute_category_weights_from_analysis(cat_analysis)
+            _mod_cat.influence = 0.8
+        else:
+            _mod_cat.status = ModuleStatus.FALLBACK
+            _mod_cat.fallback_reason = "No standings or team name — using equal weights"
 
     # Step 5: Compute weighted SGP delta per category
     category_impact: dict[str, float] = {}
@@ -599,25 +629,28 @@ def evaluate_trade(
     # Step 6: Bench cost is zero — replaced by lineup-constrained LP
     # + roster cap enforcement (drop/pickup) in Step 2 above.
     bench_cost = 0.0
+    ctx.stamp_module("phase1_sgp_delta", ModuleStatus.EXECUTED, influence=1.0)
 
     # Step 6a: Concentration risk (Phase 4)
     concentration_data: dict[str, float] | None = None
-    if enable_context:
-        try:
+    with ctx.track_module("phase4_concentration") as _mod_conc:
+        if enable_context:
             concentration_data = compute_concentration_delta(before_ids, after_ids, player_pool)
             # Apply concentration penalty delta to surplus
             penalty_delta = concentration_data.get("penalty_delta", 0.0)
             if penalty_delta > 0:
                 total_surplus -= penalty_delta
-        except Exception as exc:
-            logger.warning("Concentration risk calculation failed: %s", exc)
+            _mod_conc.influence = 0.3
+        else:
+            _mod_conc.status = ModuleStatus.DISABLED
+            _mod_conc.fallback_reason = "enable_context=False"
 
     # Step 6b: Category replacement cost penalty
     # Scans the FA pool to penalize trades where lost production in counting
     # stats (especially scarce categories like SV) cannot be replaced.
     replacement_penalty = 0.0
     replacement_detail: dict[str, dict] = {}
-    try:
+    with ctx.track_module("phase1_replacement_penalty") as _mod_repl:
         replacement_penalty, replacement_detail = _compute_replacement_penalty(
             before_totals=before_totals,
             after_totals=after_totals,
@@ -628,8 +661,7 @@ def evaluate_trade(
         )
         if replacement_penalty > 0:
             total_surplus -= replacement_penalty
-    except Exception as exc:
-        logger.warning("Replacement cost penalty calculation failed: %s", exc)
+        _mod_repl.influence = 0.3
 
     # Step 7: Grade the trade
     trade_grade = grade_trade(total_surplus)
@@ -646,7 +678,7 @@ def evaluate_trade(
 
     # Phase 4 risk flags: concentration risk
     if enable_context and concentration_data:
-        if concentration_data.get("hhi_delta", 0) > 0.05:
+        if concentration_data.get("hhi_delta", 0) > _CONSTANTS.get("concentration_hhi_threshold"):
             # Significant increase in concentration
             after_exposure = team_exposure_breakdown(after_ids, player_pool)
             worst_team = max(after_exposure.items(), key=lambda x: x[1]["count"]) if after_exposure else None
@@ -656,7 +688,7 @@ def evaluate_trade(
     # Verdict
     verdict = "ACCEPT" if total_surplus > 0 else "DECLINE"
     # Confidence: how far above/below 0 the surplus is, scaled to percentage
-    confidence_pct = min(100.0, max(0.0, 50.0 + total_surplus * 25.0))
+    confidence_pct = min(100.0, max(0.0, 50.0 + total_surplus * _CONSTANTS.get("trade_confidence_scale")))
 
     # Get player names for display
     giving_players = _get_player_names(giving_ids, player_pool, name_col)
@@ -699,8 +731,8 @@ def evaluate_trade(
         result["bench_option_detail"] = None
 
     # Phase 5: Game theory analysis
-    if enable_game_theory:
-        try:
+    with ctx.track_module("phase5_game_theory") as _mod_gt:
+        if enable_game_theory:
             _apply_game_theory(
                 result=result,
                 giving_ids=giving_ids,
@@ -712,12 +744,14 @@ def evaluate_trade(
                 category_weights=category_weights,
                 config=config,
             )
-        except Exception as exc:
-            logger.warning("Game theory analysis failed: %s", exc)
+            _mod_gt.influence = 0.2
+        else:
+            _mod_gt.status = ModuleStatus.DISABLED
+            _mod_gt.fallback_reason = "enable_game_theory=False"
 
     # Phase 2: Monte Carlo simulation overlay
-    if enable_mc:
-        try:
+    with ctx.track_module("phase2_monte_carlo") as _mod_mc:
+        if enable_mc:
             mc_result = _run_mc_overlay(
                 before_ids=before_ids,
                 after_ids=after_ids,
@@ -736,10 +770,13 @@ def evaluate_trade(
                 result["verdict"] = mc_result["verdict"]
             if "confidence_pct" in mc_result:
                 result["confidence_pct"] = mc_result["confidence_pct"]
-        except Exception as exc:
-            logger.warning("MC simulation failed, using Phase 1 result: %s", exc)
-            result["mc_error"] = str(exc)
+            _mod_mc.influence = 0.7
+        else:
+            _mod_mc.status = ModuleStatus.DISABLED
+            _mod_mc.fallback_reason = "enable_mc=False (default)"
 
+    # Attach transparency context for UI badge rendering
+    result["analytics_context"] = ctx
     return result
 
 
@@ -991,10 +1028,9 @@ def _apply_game_theory(
 
     Spec ref: Section 17 Phase 5 — game theory + optimization.
 
-    Runs three sub-analyses:
-      1. Adverse selection discount (Bayesian flaw probability)
-      2. Opponent valuation + market clearing price (when standings available)
-      3. Sensitivity report (category ranking + breakeven analysis)
+    Runs two sub-analyses:
+      1. Opponent valuation + market clearing price (when standings available)
+      2. Sensitivity report (category ranking + breakeven analysis)
 
     Modifies result dict in-place by adding Phase 5 keys.
 
@@ -1009,19 +1045,7 @@ def _apply_game_theory(
         category_weights: Category weights.
         config: League configuration.
     """
-    # 1. Adverse selection discount
-    adverse_data = compute_discount_for_trade(
-        receiving_player_count=len(receiving_ids),
-    )
-    result["adverse_selection"] = adverse_data
-
-    # Add adverse selection risk flag if high risk
-    if adverse_data["risk_level"] == "high":
-        result["risk_flags"].append(
-            f"High adverse selection risk: {adverse_data['p_flaw_given_offered']:.0%} probability of hidden flaw"
-        )
-
-    # 2. Opponent valuation + market clearing price
+    # 1. Opponent valuation + market clearing price
     if all_team_totals and user_team_name:
         sgp_denoms = dict(config.sgp_denominators) if config else None
         market_values: dict[str, dict] = {}

@@ -1,16 +1,13 @@
 """Enhanced projection pipeline for the lineup optimizer.
 
 Chains existing analytics modules to produce Kalman-filtered,
-regime-adjusted, Bayesian-updated, recency-weighted projections
-before the LP solver runs.
+Marcel-stabilized, recency-weighted projections before the LP solver runs.
 
 Pipeline steps (each independently togglable):
-  1. Bayesian update — regress YTD stats toward preseason priors
+  1. Marcel stabilization — regress YTD stats toward preseason priors
   2. Kalman filter — separate true talent from observation noise
-  3. Regime detection — identify hot/cold streaks, adjust projections
-  4. Signal decay — weight recent observations more heavily
-  5. Statcast features — use barrel%, xwOBA as leading indicators
-  6. Injury availability — Weibull-distributed season availability scaling
+  3. Signal decay — weight recent observations more heavily
+  4. Statcast features — use barrel%, xwOBA as leading indicators
 
 All steps degrade gracefully when data is unavailable.
 """
@@ -35,18 +32,6 @@ COUNTING_CATS: list[str] = ["r", "hr", "rbi", "sb", "w", "l", "sv", "k"]
 RATE_CATS: list[str] = ["avg", "obp", "era", "whip"]
 ALL_CATS: list[str] = COUNTING_CATS + RATE_CATS
 
-# Regime multipliers: how much to adjust projections per regime state.
-# States: Elite, Above-avg, Below-avg, Replacement (from regime.py)
-_REGIME_MULTIPLIERS: dict[str, float] = {
-    "Elite": 1.10,
-    "Above-avg": 1.03,
-    "Below-avg": 0.97,
-    "Replacement": 0.88,
-}
-
-# Default league-average xwOBA for regime classification fallback
-_LEAGUE_AVG_XWOBA: float = 0.315
-
 # Minimum sample size (PA or IP) to trust in-season observed stats
 _MIN_SAMPLE_BAYESIAN: int = 30
 
@@ -56,7 +41,6 @@ def build_enhanced_projections(
     config: LeagueConfig | None = None,
     enable_bayesian: bool = True,
     enable_kalman: bool = True,
-    enable_regime: bool = True,
     enable_statcast: bool = True,
     enable_injury: bool = True,
     weeks_remaining: int = 16,
@@ -64,7 +48,7 @@ def build_enhanced_projections(
     """Build enhanced projections by chaining analytics modules.
 
     Takes a roster DataFrame (from ``get_team_roster()``) and runs it
-    through up to 6 enhancement stages.  Each stage degrades gracefully
+    through up to 4 enhancement stages.  Each stage degrades gracefully
     if its data source is unavailable.
 
     Args:
@@ -73,7 +57,6 @@ def build_enhanced_projections(
         config: Optional league configuration for Bayesian update.
         enable_bayesian: Run Marcel regression on YTD vs preseason.
         enable_kalman: Run Kalman filter for true talent estimation.
-        enable_regime: Detect hot/cold streaks via regime classification.
         enable_statcast: Use Statcast leading indicators (barrel%, xwOBA).
         enable_injury: Scale counting stats by expected availability.
         weeks_remaining: Weeks left in the fantasy season.
@@ -81,7 +64,6 @@ def build_enhanced_projections(
     Returns:
         DataFrame with same schema plus additional columns:
           - projection_confidence: float in [0, 1]
-          - regime_label: str or empty
           - health_adjusted: bool
     """
     enhanced = roster.copy()
@@ -111,11 +93,7 @@ def build_enhanced_projections(
     if enable_kalman:
         enhanced = _apply_kalman_filter(enhanced, _pre_bayesian_cols)
 
-    # Step 3: Regime detection (hot/cold streaks)
-    if enable_regime:
-        enhanced = _apply_regime_adjustment(enhanced)
-
-    # Step 4: Statcast leading indicators
+    # Step 3: Statcast leading indicators
     if enable_statcast:
         enhanced = _apply_statcast_adjustment(enhanced)
 
@@ -322,30 +300,7 @@ def _apply_kalman_filter(
     return roster
 
 
-# ── Step 3: Regime Detection ─────────────────────────────────────────
-
-
-def _apply_regime_adjustment(roster: pd.DataFrame) -> pd.DataFrame:
-    """Detect hot/cold streaks and adjust projections.
-
-    Uses rule-based classification when Statcast xwOBA is unavailable.
-    Applies regime-specific multipliers to counting stats.
-    """
-    # Ensure regime_label column exists for direct callers
-    if "regime_label" not in roster.columns:
-        roster["regime_label"] = ""
-
-    # Without separate recent-period stats (e.g., last 14 days vs full
-    # season), recent and season xwOBA would be identical, which makes
-    # classify_regime_simple always return neutral.  Until a real
-    # recent-stats source is available (e.g., Statcast last-14-day
-    # xwOBA), skip the regime classification entirely.
-    logger.debug("No separate recent-period stats available; skipping regime adjustment")
-
-    return roster
-
-
-# ── Step 4: Statcast Leading Indicators ──────────────────────────────
+# ── Step 3: Statcast Leading Indicators ──────────────────────────────
 
 
 def _apply_statcast_adjustment(roster: pd.DataFrame) -> pd.DataFrame:
@@ -400,7 +355,7 @@ def _apply_statcast_adjustment(roster: pd.DataFrame) -> pd.DataFrame:
                     # Barrel% > 10% suggests power upside
                     # xwOBA > .350 suggests above-average production
                     barrel_adj = 1.0 + max(0, (barrel_pct - 8.0)) * 0.01
-                    xwoba_adj = xwoba / max(_LEAGUE_AVG_XWOBA, 0.001)
+                    xwoba_adj = xwoba / max(0.320, 0.001)
 
                     # Blend: 30% Statcast signal, 70% existing projection
                     blend_weight = 0.3

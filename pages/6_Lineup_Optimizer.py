@@ -459,6 +459,12 @@ with main:
                 matchup_flag = " | Matchup-adjusted" if result.get("matchup_adjusted") else ""
                 st.success(f"Optimal lineup found ({mode_label} mode, {timing_total:.2f}s{matchup_flag})")
 
+                # Analytics transparency badge
+                if "analytics_context" in result:
+                    from src.ui_analytics_badge import render_analytics_badge
+
+                    render_analytics_badge(result["analytics_context"])
+
                 # Recommended lineup table
                 st.subheader("Recommended Lineup")
                 assignments = lineup["assignments"]

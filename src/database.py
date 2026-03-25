@@ -767,47 +767,60 @@ def load_player_pool() -> pd.DataFrame:
             """
             SELECT
                 p.player_id, p.name, p.team, p.positions, p.is_hitter, p.is_injured,
+                p.mlb_id,
                 CASE WHEN p.birth_date IS NOT NULL AND p.birth_date != ''
                      THEN CAST((julianday('now') - julianday(p.birth_date)) / 365.25 AS INTEGER)
                      ELSE NULL END AS age,
-                proj.pa, proj.ab, proj.h, proj.r, proj.hr, proj.rbi, proj.sb, proj.avg,
-                proj.obp, proj.bb, proj.hbp, proj.sf,
-                proj.ip, proj.w, proj.l, proj.sv, proj.k, proj.era, proj.whip,
-                proj.er, proj.bb_allowed, proj.h_allowed,
+                COALESCE(proj.pa, 0) as pa, COALESCE(proj.ab, 0) as ab,
+                COALESCE(proj.h, 0) as h, COALESCE(proj.r, 0) as r,
+                COALESCE(proj.hr, 0) as hr, COALESCE(proj.rbi, 0) as rbi,
+                COALESCE(proj.sb, 0) as sb, proj.avg, proj.obp,
+                COALESCE(proj.bb, 0) as bb, COALESCE(proj.hbp, 0) as hbp,
+                COALESCE(proj.sf, 0) as sf,
+                COALESCE(proj.ip, 0) as ip, COALESCE(proj.w, 0) as w,
+                COALESCE(proj.l, 0) as l, COALESCE(proj.sv, 0) as sv,
+                COALESCE(proj.k, 0) as k, proj.era, proj.whip,
+                COALESCE(proj.er, 0) as er, COALESCE(proj.bb_allowed, 0) as bb_allowed,
+                COALESCE(proj.h_allowed, 0) as h_allowed,
                 proj.fip, proj.xfip, proj.siera,
                 COALESCE(a.adp, 999) as adp
             FROM players p
-            JOIN projections proj ON p.player_id = proj.player_id
+            LEFT JOIN projections proj ON p.player_id = proj.player_id
+                AND proj.system = 'blended'
             LEFT JOIN adp a ON p.player_id = a.player_id
-            WHERE proj.system = 'blended'
             ORDER BY COALESCE(a.adp, 999)
         """,
             conn,
         )
 
-        # If no blended projections exist, try any system
+        # If no blended projections exist, try averaging any available system
         if df.empty:
             df = pd.read_sql_query(
                 """
                 SELECT
                     p.player_id, p.name, p.team, p.positions, p.is_hitter, p.is_injured,
+                    p.mlb_id,
                     CASE WHEN p.birth_date IS NOT NULL AND p.birth_date != ''
                          THEN CAST((julianday('now') - julianday(p.birth_date)) / 365.25 AS INTEGER)
                          ELSE NULL END AS age,
-                    AVG(proj.pa) as pa, AVG(proj.ab) as ab, AVG(proj.h) as h,
-                    AVG(proj.r) as r, AVG(proj.hr) as hr, AVG(proj.rbi) as rbi,
-                    AVG(proj.sb) as sb, AVG(proj.avg) as avg, AVG(proj.obp) as obp,
-                    AVG(proj.bb) as bb, AVG(proj.hbp) as hbp, AVG(proj.sf) as sf,
-                    AVG(proj.ip) as ip, AVG(proj.w) as w, AVG(proj.l) as l,
-                    AVG(proj.sv) as sv, AVG(proj.k) as k, AVG(proj.era) as era,
-                    AVG(proj.whip) as whip, AVG(proj.er) as er,
-                    AVG(proj.bb_allowed) as bb_allowed,
-                    AVG(proj.h_allowed) as h_allowed,
+                    COALESCE(AVG(proj.pa), 0) as pa, COALESCE(AVG(proj.ab), 0) as ab,
+                    COALESCE(AVG(proj.h), 0) as h, COALESCE(AVG(proj.r), 0) as r,
+                    COALESCE(AVG(proj.hr), 0) as hr, COALESCE(AVG(proj.rbi), 0) as rbi,
+                    COALESCE(AVG(proj.sb), 0) as sb, AVG(proj.avg) as avg,
+                    AVG(proj.obp) as obp,
+                    COALESCE(AVG(proj.bb), 0) as bb, COALESCE(AVG(proj.hbp), 0) as hbp,
+                    COALESCE(AVG(proj.sf), 0) as sf,
+                    COALESCE(AVG(proj.ip), 0) as ip, COALESCE(AVG(proj.w), 0) as w,
+                    COALESCE(AVG(proj.l), 0) as l, COALESCE(AVG(proj.sv), 0) as sv,
+                    COALESCE(AVG(proj.k), 0) as k, AVG(proj.era) as era,
+                    AVG(proj.whip) as whip, COALESCE(AVG(proj.er), 0) as er,
+                    COALESCE(AVG(proj.bb_allowed), 0) as bb_allowed,
+                    COALESCE(AVG(proj.h_allowed), 0) as h_allowed,
                     AVG(proj.fip) as fip, AVG(proj.xfip) as xfip,
                     AVG(proj.siera) as siera,
                     COALESCE(a.adp, 999) as adp
                 FROM players p
-                JOIN projections proj ON p.player_id = proj.player_id
+                LEFT JOIN projections proj ON p.player_id = proj.player_id
                 LEFT JOIN adp a ON p.player_id = a.player_id
                 GROUP BY p.player_id
                 ORDER BY COALESCE(a.adp, 999)

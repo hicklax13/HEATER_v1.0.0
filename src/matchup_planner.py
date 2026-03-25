@@ -25,7 +25,10 @@ from src.optimizer.matchup_adjustments import (
     get_weekly_schedule,
     platoon_adjustment,
 )
+from src.validation.constant_optimizer import load_constants
 from src.valuation import LeagueConfig
+
+_CONSTANTS = load_constants()
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +41,7 @@ _BASELINE_GAMES_PER_WEEK: float = 6.5
 _PITCHER_HOME_ADVANTAGE: float = 1.05
 
 # Home-field advantage multiplier for hitters (smaller effect)
-_HITTER_HOME_ADVANTAGE: float = 1.02
+_HITTER_HOME_ADVANTAGE: float = _CONSTANTS.get("hitter_home_advantage")
 
 # Default base wOBA when player stats are missing
 _DEFAULT_BASE_WOBA: float = 0.320

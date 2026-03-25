@@ -132,6 +132,7 @@ class TestOptimize:
             "timing",
             "mode",
             "matchup_adjusted",
+            "analytics_context",
         }
         assert expected_keys == set(result.keys())
 

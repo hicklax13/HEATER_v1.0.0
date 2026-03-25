@@ -23,8 +23,11 @@ from typing import Any
 
 import pandas as pd
 
+from src.validation.constant_optimizer import load_constants
+
 logger = logging.getLogger(__name__)
 
+_CONSTANTS = load_constants()
 
 # ── Constants ────────────────────────────────────────────────────────
 
@@ -83,8 +86,8 @@ _PITCHER_COUNTING_STATS: list[str] = ["w", "sv", "k"]
 # Reference temperature (Fahrenheit) for Nathan's HR physics model
 _REFERENCE_TEMP_F: float = 72.0
 
-# HR increase per degree F above reference (Nathan 2012)
-_HR_TEMP_COEFFICIENT: float = 0.009
+# HR increase per degree F above reference (Nathan 2012, calibratable)
+_HR_TEMP_COEFFICIENT: float = _CONSTANTS.get("hr_temp_coefficient")
 
 
 # ── Schedule Fetching ────────────────────────────────────────────────

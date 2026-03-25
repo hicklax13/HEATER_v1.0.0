@@ -154,9 +154,14 @@ else:
                         st.info("No ranked free agents found.")
                     else:
                         st.subheader(f"Top Free Agents ({len(ranked)} available)")
-                        display_df = ranked[
-                            ["player_name", "positions", "marginal_value", "best_category", "best_cat_impact"]
-                        ].copy()
+                        # Merge mlb_id from player pool for headshot rendering
+                        if "mlb_id" not in ranked.columns and "player_id" in ranked.columns:
+                            _id_to_mlb = pool[["player_id", "mlb_id"]].drop_duplicates(subset="player_id")
+                            ranked = ranked.merge(_id_to_mlb, on="player_id", how="left")
+                        show_cols = ["player_name", "positions", "marginal_value", "best_category", "best_cat_impact"]
+                        if "mlb_id" in ranked.columns:
+                            show_cols.append("mlb_id")
+                        display_df = ranked[show_cols].copy()
                         display_df["marginal_value"] = display_df["marginal_value"].map(lambda x: f"{x:.2f}")
                         display_df["best_cat_impact"] = display_df["best_cat_impact"].map(lambda x: f"{x:.2f}")
                         display_df = display_df.rename(

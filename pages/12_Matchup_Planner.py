@@ -282,6 +282,11 @@ with main:
         )
         st.stop()
 
+    # Merge mlb_id from pool for headshot rendering
+    if "mlb_id" not in ratings_df.columns and "player_id" in ratings_df.columns:
+        _id_to_mlb = pool[["player_id", "mlb_id"]].drop_duplicates(subset="player_id")
+        ratings_df = ratings_df.merge(_id_to_mlb, on="player_id", how="left")
+
     # Sort by rating descending
     ratings_df = ratings_df.sort_values("weekly_matchup_rating", ascending=False).reset_index(drop=True)
 
@@ -311,19 +316,21 @@ with main:
     # Build display DataFrame (shared across tabs)
     def _build_display_df(df: pd.DataFrame) -> pd.DataFrame:
         """Build a flat display DataFrame from ratings output."""
+        has_mlb_id = "mlb_id" in df.columns
         rows = []
         for _, row in df.iterrows():
             tier = str(row.get("matchup_tier", "neutral"))
-            rows.append(
-                {
-                    "Player": str(row.get("name", "")),
-                    "Position": str(row.get("positions", "")),
-                    "Type": "Hitter" if row.get("is_hitter", True) else "Pitcher",
-                    "Games": int(row.get("games_count", 0)),
-                    "Rating": f"{float(row.get('weekly_matchup_rating', 0.0)):.1f}",
-                    "Tier": _TIER_LABELS.get(tier, tier.capitalize()),
-                }
-            )
+            entry = {
+                "Player": str(row.get("name", "")),
+                "Position": str(row.get("positions", "")),
+                "Type": "Hitter" if row.get("is_hitter", True) else "Pitcher",
+                "Games": int(row.get("games_count", 0)),
+                "Rating": f"{float(row.get('weekly_matchup_rating', 0.0)):.1f}",
+                "Tier": _TIER_LABELS.get(tier, tier.capitalize()),
+            }
+            if has_mlb_id:
+                entry["mlb_id"] = row.get("mlb_id")
+            rows.append(entry)
         return pd.DataFrame(rows)
 
     def _tier_row_classes(df: pd.DataFrame) -> dict[int, str]:

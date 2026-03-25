@@ -89,6 +89,64 @@ def _ownership_arrow(direction: str, delta: float) -> str:
     )
 
 
+def _compute_category_totals(df: pd.DataFrame) -> tuple[dict, dict]:
+    """Compute hitting and pitching category totals from a DataFrame with is_hitter column.
+
+    Returns (hit_stats, pitch_stats) dicts with display-ready values.
+    """
+    num_cols = [
+        "r",
+        "hr",
+        "rbi",
+        "sb",
+        "ab",
+        "h",
+        "bb",
+        "hbp",
+        "sf",
+        "w",
+        "l",
+        "sv",
+        "k",
+        "ip",
+        "er",
+        "bb_allowed",
+        "h_allowed",
+    ]
+    for c in num_cols:
+        if c in df.columns:
+            df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
+
+    hitters = df[df["is_hitter"] == 1]
+    pitchers = df[df["is_hitter"] == 0]
+
+    hit_stats: dict = {}
+    if not hitters.empty:
+        for cat, col in [("R", "r"), ("HR", "hr"), ("RBI", "rbi"), ("SB", "sb")]:
+            hit_stats[cat] = int(hitters[col].sum()) if col in hitters.columns else 0
+        ab = hitters["ab"].sum() if "ab" in hitters.columns else 0
+        h = hitters["h"].sum() if "h" in hitters.columns else 0
+        hit_stats["AVG"] = f"{h / ab:.3f}" if ab > 0 else ".000"
+        hit_bb = hitters["bb"].sum() if "bb" in hitters.columns else 0
+        hit_hbp = hitters["hbp"].sum() if "hbp" in hitters.columns else 0
+        hit_sf = hitters["sf"].sum() if "sf" in hitters.columns else 0
+        obp_denom = ab + hit_bb + hit_hbp + hit_sf
+        hit_stats["OBP"] = f"{(h + hit_bb + hit_hbp) / obp_denom:.3f}" if obp_denom > 0 else ".000"
+
+    pitch_stats: dict = {}
+    if not pitchers.empty:
+        for cat, col in [("W", "w"), ("L", "l"), ("SV", "sv"), ("K", "k")]:
+            pitch_stats[cat] = int(pitchers[col].sum()) if col in pitchers.columns else 0
+        ip = pitchers["ip"].sum() if "ip" in pitchers.columns else 0
+        er = pitchers["er"].sum() if "er" in pitchers.columns else 0
+        bb = pitchers["bb_allowed"].sum() if "bb_allowed" in pitchers.columns else 0
+        ha = pitchers["h_allowed"].sum() if "h_allowed" in pitchers.columns else 0
+        pitch_stats["ERA"] = f"{er * 9 / ip:.2f}" if ip > 0 else "0.00"
+        pitch_stats["WHIP"] = f"{(bb + ha) / ip:.3f}" if ip > 0 else "0.000"
+
+    return hit_stats, pitch_stats
+
+
 def _source_badge(source: str) -> str:
     """Return an HTML badge for the news source."""
     info = _SOURCE_BADGE_COLORS.get(source, {"bg": T["tx2"], "label": source.upper()})
@@ -586,9 +644,23 @@ else:
                         badges.append("Low Risk")
                 roster["Health"] = badges
 
-            # -- Compute category totals for context panel --
-            # Coerce numeric columns (Python 3.13+ SQLite may return bytes)
-            num_cols = [
+            # -- Determine stat view for context panel totals --
+            # Read from session state so totals react to the segmented control
+            # (which renders later in the main column).
+            _season_started = _check_2026_live_stats()
+            if _season_started:
+                _stat_options = ["2026 Live", "2026 Projected", "2025", "2024", "2023"]
+                _stat_default = "2026 Live"
+            else:
+                _stat_options = ["2026 Projected", "2025", "2024", "2023"]
+                _stat_default = "2026 Projected"
+            stat_view = st.session_state.get("roster_stat_view", _stat_default)
+            if stat_view not in _stat_options:
+                stat_view = _stat_default
+
+            # -- Compute category totals based on selected stat view --
+            # Coerce roster numeric columns (always needed for the table)
+            _num_cols = [
                 "r",
                 "hr",
                 "rbi",
@@ -607,37 +679,40 @@ else:
                 "bb_allowed",
                 "h_allowed",
             ]
-            for c in num_cols:
+            for c in _num_cols:
                 if c in roster.columns:
                     roster[c] = pd.to_numeric(roster[c], errors="coerce").fillna(0)
+
+            if stat_view == "2026 Projected":
+                hit_stats, pitch_stats = _compute_category_totals(roster.copy())
+                _totals_label = "2026 Projected"
+            else:
+                # Load historical/live season stats for the selected year
+                _hist_year = 2026 if stat_view == "2026 Live" else int(stat_view)
+                _totals_label = "2026 Live" if stat_view == "2026 Live" else str(_hist_year)
+                from src.database import get_connection as _gc_totals
+
+                _conn_t = _gc_totals()
+                try:
+                    _hist_df = pd.read_sql_query(
+                        "SELECT * FROM season_stats WHERE season = ?",
+                        _conn_t,
+                        params=[_hist_year],
+                    )
+                    _hist_df = coerce_numeric_df(_hist_df)
+                finally:
+                    _conn_t.close()
+
+                if not _hist_df.empty and "player_id" in _hist_df.columns:
+                    # Merge with roster to get is_hitter and filter to roster players
+                    _roster_ids = roster[["player_id", "is_hitter"]].copy()
+                    _totals_df = _roster_ids.merge(_hist_df, on="player_id", how="left")
+                    hit_stats, pitch_stats = _compute_category_totals(_totals_df)
+                else:
+                    hit_stats, pitch_stats = {}, {}
+
             hitters = roster[roster["is_hitter"] == 1]
             pitchers = roster[roster["is_hitter"] == 0]
-
-            hit_stats = {}
-            if not hitters.empty:
-                for cat, col in [("R", "r"), ("HR", "hr"), ("RBI", "rbi"), ("SB", "sb")]:
-                    hit_stats[cat] = int(hitters[col].sum()) if col in hitters.columns else 0
-                ab = hitters["ab"].sum() if "ab" in hitters.columns else 0
-                h = hitters["h"].sum() if "h" in hitters.columns else 0
-                hit_stats["AVG"] = f"{h / ab:.3f}" if ab > 0 else ".000"
-                hit_h = hitters["h"].sum() if "h" in hitters.columns else 0
-                hit_bb = hitters["bb"].sum() if "bb" in hitters.columns else 0
-                hit_hbp = hitters["hbp"].sum() if "hbp" in hitters.columns else 0
-                hit_sf = hitters["sf"].sum() if "sf" in hitters.columns else 0
-                hit_ab = hitters["ab"].sum() if "ab" in hitters.columns else 0
-                obp_denom = hit_ab + hit_bb + hit_hbp + hit_sf
-                hit_stats["OBP"] = f"{(hit_h + hit_bb + hit_hbp) / obp_denom:.3f}" if obp_denom > 0 else ".000"
-
-            pitch_stats = {}
-            if not pitchers.empty:
-                for cat, col in [("W", "w"), ("L", "l"), ("SV", "sv"), ("K", "k")]:
-                    pitch_stats[cat] = int(pitchers[col].sum()) if col in pitchers.columns else 0
-                ip = pitchers["ip"].sum() if "ip" in pitchers.columns else 0
-                er = pitchers["er"].sum() if "er" in pitchers.columns else 0
-                bb = pitchers["bb_allowed"].sum() if "bb_allowed" in pitchers.columns else 0
-                ha = pitchers["h_allowed"].sum() if "h_allowed" in pitchers.columns else 0
-                pitch_stats["ERA"] = f"{er * 9 / ip:.2f}" if ip > 0 else "0.00"
-                pitch_stats["WHIP"] = f"{(bb + ha) / ip:.3f}" if ip > 0 else "0.000"
 
             # -- IL alerts --
             il_players = []
@@ -671,7 +746,7 @@ else:
                         f'<span style="font-weight:600;color:{T["tx"]};">{v}</span></div>'
                         for k, v in hit_stats.items()
                     )
-                    render_context_card("Hitting Totals", hit_html)
+                    render_context_card(f"Hitting Totals — {_totals_label}", hit_html)
 
                 # Category totals card — Pitching
                 if pitch_stats:
@@ -682,7 +757,7 @@ else:
                         f'<span style="font-weight:600;color:{T["tx"]};">{v}</span></div>'
                         for k, v in pitch_stats.items()
                     )
-                    render_context_card("Pitching Totals", pitch_html)
+                    render_context_card(f"Pitching Totals — {_totals_label}", pitch_html)
 
                 # Category Gaps card — compare team totals to league or H2H benchmarks
                 if hit_stats or pitch_stats:
@@ -825,14 +900,7 @@ else:
 
             # -- Main Content (right) --
             with main:
-                # Season/projection toggle — auto-switches to live stats when the 2026 season has started
-                _season_started = _check_2026_live_stats()
-                if _season_started:
-                    _stat_options = ["2026 Live", "2026 Projected", "2025", "2024", "2023"]
-                    _stat_default = "2026 Live"
-                else:
-                    _stat_options = ["2026 Projected", "2025", "2024", "2023"]
-                    _stat_default = "2026 Projected"
+                # Season/projection toggle (options computed earlier for context panel)
                 stat_view = st.segmented_control(
                     "View stats from",
                     options=_stat_options,
@@ -876,7 +944,10 @@ else:
                     finally:
                         _conn.close()
 
-                    display_df = roster[["name", "positions", "roster_slot", "player_id"]].copy()
+                    _roster_cols = ["name", "positions", "roster_slot", "player_id"]
+                    if "mlb_id" in roster.columns:
+                        _roster_cols.append("mlb_id")
+                    display_df = roster[_roster_cols].copy()
                     if not hist.empty and "player_id" in hist.columns:
                         hist_stat_cols = [c.lower() for c in stat_cols_ordered if c.lower() in hist.columns]
                         hist_slim = hist[["player_id"] + hist_stat_cols].copy()
@@ -918,6 +989,9 @@ else:
                             display_cols.append(lc)
                     if "Health" in roster.columns:
                         display_cols.append("Health")
+                    # Include mlb_id for headshot rendering (auto-hidden by table)
+                    if "mlb_id" in roster.columns:
+                        display_cols.append("mlb_id")
                     available_cols = [c for c in display_cols if c in roster.columns]
                     display_df = roster[available_cols].copy()
                     player_ids_list = roster["player_id"].tolist() if "player_id" in roster.columns else []
@@ -1005,7 +1079,7 @@ else:
 
                             if not season_stats.empty and season_stats.get("games_played", pd.Series([0])).sum() > 0:
                                 bayes_progress = st.progress(
-                                    0, text="Loading preseason projections for Bayesian update..."
+                                    0, text="Loading preseason projections for Marcel stabilization..."
                                 )
                                 preseason = pd.read_sql_query(
                                     "SELECT * FROM projections WHERE system = 'blended'", conn
@@ -1013,15 +1087,15 @@ else:
                                 preseason = coerce_numeric_df(preseason)
                                 bayes_progress.progress(
                                     30,
-                                    text="Applying Bayesian regression with stabilization thresholds...",
+                                    text="Applying Marcel regression with stabilization thresholds...",
                                 )
                                 updater = BayesianUpdater()
                                 updated = updater.batch_update_projections(season_stats, preseason)
-                                bayes_progress.progress(100, text="Bayesian projections complete!")
+                                bayes_progress.progress(100, text="Marcel-adjusted projections complete!")
                                 time.sleep(0.3)
                                 bayes_progress.empty()
                                 st.markdown(
-                                    '<div class="sec-head">Bayesian-Adjusted Projections</div>',
+                                    '<div class="sec-head">Marcel-Adjusted Projections</div>',
                                     unsafe_allow_html=True,
                                 )
                                 stat_display = ["player_id", "avg", "hr", "rbi", "sb", "era", "whip", "k"]

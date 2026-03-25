@@ -380,3 +380,104 @@ def test_resolve_player_ids_dedup():
     )
     assert _resolve_name_to_player_id("Ronald Acuna", pool) == 1
     assert _resolve_name_to_player_id("Ronald Acuña Jr", pool) == 1
+
+
+# ── Yahoo player key handling ──────────────────────────────────────
+
+
+def test_safe_int_handles_yahoo_player_key():
+    """_safe_int must return None for Yahoo keys like '469.p.9877'."""
+    from src.ecr import _safe_int
+
+    assert _safe_int("469.p.9877") is None
+    assert _safe_int("469.p.12345") is None
+    assert _safe_int(42) == 42
+    assert _safe_int("42") == 42
+    assert _safe_int(None) is None
+
+
+def test_store_consensus_skips_yahoo_keys(tmp_path):
+    """_store_consensus must skip rows where player_id is a Yahoo key string."""
+    from unittest.mock import patch
+
+    db_path = tmp_path / "test.db"
+    with patch("src.database.DB_PATH", db_path):
+        from src.database import init_db
+
+        init_db()
+        from src.ecr import _store_consensus
+
+        # Row with Yahoo key as player_id should be skipped, not crash
+        df = pd.DataFrame(
+            [
+                {
+                    "player_id": "469.p.9877",
+                    "espn_rank": 10,
+                    "yahoo_adp": 15.0,
+                    "cbs_rank": None,
+                    "nfbc_adp": None,
+                    "fg_adp": None,
+                    "fp_ecr": None,
+                    "heater_sgp_rank": None,
+                    "consensus_rank": 1,
+                    "consensus_avg": 10.0,
+                    "rank_min": 10,
+                    "rank_max": 15,
+                    "rank_stddev": 2.0,
+                    "n_sources": 2,
+                },
+                {
+                    "player_id": 42,
+                    "espn_rank": 5,
+                    "yahoo_adp": 8.0,
+                    "cbs_rank": None,
+                    "nfbc_adp": None,
+                    "fg_adp": None,
+                    "fp_ecr": None,
+                    "heater_sgp_rank": None,
+                    "consensus_rank": 2,
+                    "consensus_avg": 6.0,
+                    "rank_min": 5,
+                    "rank_max": 8,
+                    "rank_stddev": 1.5,
+                    "n_sources": 2,
+                },
+            ]
+        )
+        count = _store_consensus(df)
+        # Only the row with numeric player_id=42 should be stored
+        assert count == 1
+
+
+def test_refresh_ecr_handles_yahoo_keys():
+    """refresh_ecr_consensus must not crash on Yahoo-format player keys."""
+    from src.ecr import _safe_int
+
+    # Simulate what happens when a Yahoo key hits int()
+    yahoo_key = "469.p.9877"
+    try:
+        int(yahoo_key)
+        assert False, "Should have raised ValueError"
+    except ValueError:
+        pass
+
+    # _safe_int must handle it gracefully
+    assert _safe_int(yahoo_key) is None
+
+
+def test_fetch_yahoo_adp_normalizes_pick_number():
+    """fetch_yahoo_adp should recognize pick_number column from yahoo_api."""
+    from src.ecr import fetch_yahoo_adp
+
+    mock_client = MagicMock()
+    mock_client.get_draft_results.return_value = pd.DataFrame(
+        [
+            {"player_name": "Player A", "player_id": "469.p.9877", "pick_number": 5},
+            {"player_name": "Player B", "player_id": "469.p.9878", "pick_number": 12},
+        ]
+    )
+    with patch("src.ecr._get_yahoo_client", return_value=mock_client):
+        df = fetch_yahoo_adp()
+        assert "yahoo_adp" in df.columns
+        assert df.iloc[0]["yahoo_adp"] == 5
+        assert df.iloc[1]["yahoo_adp"] == 12

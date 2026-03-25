@@ -17,8 +17,10 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from src.validation.constant_optimizer import load_constants
 from src.valuation import LeagueConfig as _LC_Class
 
+_CONSTANTS = load_constants()
 _LC = _LC_Class()
 CATEGORIES: list[str] = _LC.all_categories
 INVERSE_CATEGORIES: set[str] = _LC.inverse_stats
@@ -171,11 +173,11 @@ def category_gap_analysis(
             elif weekly_rate > 0:
                 weeks_needed = gap / weekly_rate
                 # Allow 20% buffer: if you can close the gap in 1.2x remaining weeks
-                if weeks_needed <= weeks_remaining * 1.2:
+                if weeks_needed <= weeks_remaining * _CONSTANTS.get("punt_weeks_buffer"):
                     gainable += 1
 
         # Punt detection: cannot gain any position AND ranked 10th or worse
-        is_punt = gainable == 0 and your_rank >= 10
+        is_punt = gainable == 0 and your_rank >= _CONSTANTS.get("punt_rank_threshold")
 
         # Compute marginal value (0 if punt)
         if is_punt:

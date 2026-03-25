@@ -7,6 +7,10 @@ import numpy as np
 import pandas as pd
 from scipy.stats import norm
 
+from src.validation.constant_optimizer import load_constants
+
+_CONSTANTS = load_constants()
+
 # Weekly stat standard deviations (tau) per category
 WEEKLY_TAU: dict[str, float] = {
     "R": 6.0,
@@ -19,7 +23,7 @@ WEEKLY_TAU: dict[str, float] = {
     "L": 1.0,
     "SV": 1.5,
     "K": 8.0,
-    "ERA": 1.20,
+    "ERA": _CONSTANTS.get("standings_tau_era"),
     "WHIP": 0.15,
 }
 

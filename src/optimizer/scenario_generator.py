@@ -22,7 +22,11 @@ import logging
 import numpy as np
 from scipy.stats import norm
 
+from src.validation.constant_optimizer import load_constants
+
 logger = logging.getLogger(__name__)
+
+_CONSTANTS = load_constants()
 
 # ── Category definitions ─────────────────────────────────────────────
 
@@ -65,7 +69,7 @@ _RATE_STD: dict[str, float] = {
 # Symmetric: (a, b) and (b, a) map to the same value.
 
 DEFAULT_CORRELATIONS: dict[tuple[str, str], float] = {
-    ("hr", "rbi"): 0.85,
+    ("hr", "rbi"): _CONSTANTS.get("copula_hr_rbi_corr"),
     ("hr", "r"): 0.70,
     ("r", "rbi"): 0.75,
     ("sb", "hr"): -0.15,

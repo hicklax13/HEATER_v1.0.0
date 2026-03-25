@@ -19,13 +19,16 @@ from __future__ import annotations
 import pandas as pd
 
 from src.in_season import _roster_category_totals, rank_free_agents
+from src.validation.constant_optimizer import load_constants
 from src.valuation import LeagueConfig
+
+_CONSTANTS = load_constants()
 
 # ── Constants ─────────────────────────────────────────────────────────
 
-# Category priority tier thresholds
+# Category priority tier thresholds (R calibratable)
 WEEKLY_RATE_DEFAULTS: dict[str, float] = {
-    "R": 35.0,
+    "R": _CONSTANTS.get("weekly_rate_r"),
     "HR": 9.0,
     "RBI": 34.0,
     "SB": 5.0,

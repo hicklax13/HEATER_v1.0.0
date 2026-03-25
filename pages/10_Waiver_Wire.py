@@ -202,11 +202,13 @@ with main:
     try:
         waiver_progress.progress(20, text="Scoring drop candidates by roster impact...")
         waiver_progress.progress(50, text="Computing net swap values for top candidates...")
+        from src.validation.dynamic_context import compute_weeks_remaining
+
         recommendations = compute_add_drop_recommendations(
             user_roster_ids=user_roster_ids,
             player_pool=pool,
             config=config,
-            weeks_remaining=16,
+            weeks_remaining=compute_weeks_remaining(),
             max_moves=5,
             max_fa_candidates=30,
             max_drop_candidates=8,
@@ -219,6 +221,15 @@ with main:
         recommendations = []
     time.sleep(0.3)
     waiver_progress.empty()
+
+    # Analytics transparency badge (data quality from bootstrap)
+    from src.data_bootstrap import get_bootstrap_context
+
+    _boot_ctx = get_bootstrap_context()
+    if _boot_ctx:
+        from src.ui_analytics_badge import render_analytics_badge
+
+        render_analytics_badge(_boot_ctx)
 
     # Apply position filter
     pos_filter = st.session_state.get("waiver_pos_filter", "All")
@@ -238,6 +249,11 @@ with main:
         unsafe_allow_html=True,
     )
 
+    # Build mlb_id lookup from pool for headshot rendering
+    _pid_to_mlb = {}
+    if "mlb_id" in pool.columns and "player_id" in pool.columns:
+        _pid_to_mlb = dict(zip(pool["player_id"], pool["mlb_id"]))
+
     if not recommendations:
         st.info(
             "No waiver wire add recommendations found. "
@@ -248,15 +264,16 @@ with main:
         adds_rows = []
         for rec in recommendations:
             sustainability_pct = int(rec.get("sustainability_score", 0.5) * 100)
-            adds_rows.append(
-                {
-                    "Add": rec.get("add_name", ""),
-                    "Position": rec.get("add_positions", ""),
-                    "Net SGP Delta": f"{rec.get('net_sgp_delta', 0):.3f}",
-                    "Sustainability": f"{sustainability_pct}%",
-                    "Drop": rec.get("drop_name", ""),
-                }
-            )
+            entry = {
+                "Add": rec.get("add_name", ""),
+                "Position": rec.get("add_positions", ""),
+                "Net SGP Delta": f"{rec.get('net_sgp_delta', 0):.3f}",
+                "Sustainability": f"{sustainability_pct}%",
+                "Drop": rec.get("drop_name", ""),
+            }
+            if _pid_to_mlb:
+                entry["mlb_id"] = _pid_to_mlb.get(rec.get("add_player_id"))
+            adds_rows.append(entry)
         adds_df = pd.DataFrame(adds_rows)
         render_compact_table(adds_df, highlight_cols=["Net SGP Delta"])
 
@@ -310,14 +327,15 @@ with main:
             else:
                 impact_str = ""
 
-            drops_rows.append(
-                {
-                    "Drop": rec.get("drop_name", ""),
-                    "Position": rec.get("drop_positions", ""),
-                    "Replaced By": rec.get("add_name", ""),
-                    "Top Category Impact": impact_str,
-                }
-            )
+            entry = {
+                "Drop": rec.get("drop_name", ""),
+                "Position": rec.get("drop_positions", ""),
+                "Replaced By": rec.get("add_name", ""),
+                "Top Category Impact": impact_str,
+            }
+            if _pid_to_mlb:
+                entry["mlb_id"] = _pid_to_mlb.get(rec.get("drop_player_id"))
+            drops_rows.append(entry)
         drops_df = pd.DataFrame(drops_rows)
         render_compact_table(drops_df, highlight_cols=["Top Category Impact"])
 

@@ -29,12 +29,16 @@ import numpy as np
 if TYPE_CHECKING:
     import pandas as pd
 
+from src.validation.constant_optimizer import load_constants
+
 logger = logging.getLogger(__name__)
+
+_CONSTANTS = load_constants()
 
 # ── Constants ─────────────────────────────────────────────────────────
 
-# Closer-role SV thresholds and associated bonuses
-_CLOSER_SV_THRESHOLD: int = 20
+# Closer-role SV thresholds and associated bonuses (calibratable)
+_CLOSER_SV_THRESHOLD: float = _CONSTANTS.get("closer_sv_threshold")
 _SETUP_SV_THRESHOLD: int = 15
 _COMMITTEE_SV_THRESHOLD: int = 5
 
@@ -72,7 +76,7 @@ _GAMES_PER_SEASON: int = 162
 # SGP per extra PA (rough composite across R, HR, RBI, SB, AVG, OBP).
 # Derived empirically: each PA is worth ~0.0018 composite SGP for an
 # average hitter.  We use this to translate the PA delta into SGP bonus.
-_SGP_PER_EXTRA_PA: float = 0.0018
+_SGP_PER_EXTRA_PA: float = _CONSTANTS.get("sgp_per_extra_pa")
 
 # Leadoff archetype thresholds
 _LEADOFF_SB_MIN: int = 25

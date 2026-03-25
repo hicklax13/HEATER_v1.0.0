@@ -75,6 +75,7 @@ def _load_stats_df() -> tuple[pd.DataFrame, bool]:
                 p.team,
                 p.positions,
                 p.is_hitter,
+                p.mlb_id,
                 s.pa, s.ab, s.h,
                 s.r, s.hr, s.rbi, s.sb,
                 s.avg, s.obp,
@@ -106,6 +107,7 @@ def _load_stats_df() -> tuple[pd.DataFrame, bool]:
         "team",
         "positions",
         "is_hitter",
+        "mlb_id",
         "pa",
         "ab",
         "h",
@@ -402,6 +404,9 @@ with main:
                     ldf = leaders[category].copy()
                     stat_col = _CAT_COL.get(category, category.lower())
                     show_cols = ["name", "team", "positions", stat_col]
+                    # Include mlb_id for headshot rendering (auto-hidden by table)
+                    if "mlb_id" in ldf.columns:
+                        show_cols.append("mlb_id")
                     show_cols = [c for c in show_cols if c in ldf.columns]
                     ldf = ldf[show_cols].rename(columns=_CAT_DISPLAY)
                     render_compact_table(ldf)
@@ -439,6 +444,9 @@ with main:
                 if not pts_leaders.empty:
                     pts_df = pts_leaders.copy()
                     _pts_show = ["name", "team", "positions", "fantasy_points"]
+                    # Include mlb_id for headshot rendering (auto-hidden by table)
+                    if "mlb_id" in pts_df.columns:
+                        _pts_show.append("mlb_id")
                     _pts_show = [c for c in _pts_show if c in pts_df.columns]
                     _PTS_DISPLAY = {
                         "name": "Player",

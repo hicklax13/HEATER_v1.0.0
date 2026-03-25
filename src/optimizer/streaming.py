@@ -10,7 +10,11 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from src.validation.constant_optimizer import load_constants
+
 logger = logging.getLogger(__name__)
+
+_CONSTANTS = load_constants()
 
 # ── Default SGP Denominators ─────────────────────────────────────────
 
@@ -149,7 +153,7 @@ def compute_streaming_value(
 
     # ERA impact: negative ERA delta = good (lower team ERA)
     # A league-average ERA is ~4.00; improvement relative to that
-    baseline_era = 4.00
+    baseline_era = _CONSTANTS.get("streaming_baseline_era")
     era_delta = (baseline_era - era_adjusted) * ip_contribution / (team_ip + ip_contribution)
     era_sgp = (era_delta / sgp_era) * w_era
 
@@ -452,7 +456,7 @@ def compute_bayesian_stream_score(
     sgp_era = sgp.get("ERA", 0.27)
 
     # ERA cost: diluted impact on team ERA (ER -> ERA -> SGP conversion)
-    baseline_era = 4.00
+    baseline_era = _CONSTANTS.get("streaming_baseline_era")
     team_weekly_ip = 55.0
     implied_era = expected_er * 9.0 / max(expected_ip, 1.0)
     era_diluted = (implied_era - baseline_era) * expected_ip / (team_weekly_ip + expected_ip)

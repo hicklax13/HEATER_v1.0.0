@@ -17,6 +17,7 @@ import numpy as np
 import pandas as pd
 from scipy.stats import norm
 
+from src.validation.constant_optimizer import load_constants
 from src.valuation import LeagueConfig as _LC_Class
 
 logger = logging.getLogger(__name__)
@@ -29,6 +30,8 @@ INVERSE_CATS: set[str] = {c.lower() for c in _LC.inverse_stats}
 
 # Fallback SGP denominators when regression is infeasible.
 _DEFAULT_SGP_DENOMS: dict[str, float] = {c.lower(): v for c, v in _LC.sgp_denominators.items()}
+
+_CONSTANTS = load_constants()
 
 
 # ── Core Functions ───────────────────────────────────────────────────
@@ -44,7 +47,7 @@ def default_category_sigmas() -> dict[str, float]:
         dict mapping category name to sigma (positive float).
     """
     return {
-        "r": 25.0,
+        "r": _CONSTANTS.get("sgp_sigma_r"),
         "hr": 6.0,
         "rbi": 24.0,
         "sb": 5.0,

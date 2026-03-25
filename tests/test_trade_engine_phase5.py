@@ -2,8 +2,6 @@
 
 Tests cover:
   - Opponent valuation: willingness-to-pay, market clearing price (L8A)
-  - Adverse selection: Bayesian discount, manager history calibration (L8B)
-  - Dynamic programming: Bellman rollout, discount factors, option value (L9)
   - Sensitivity: category sensitivity, breakeven analysis, counter-offers (L11)
   - Integration: evaluate_trade with game theory keys
 """
@@ -187,221 +185,6 @@ class TestOpponentValuation(unittest.TestCase):
         assert mv["demand"] >= 1
 
 
-class TestAdverseSelection(unittest.TestCase):
-    """Test Bayesian adverse selection discount (L8B)."""
-
-    def test_default_discount_near_one(self):
-        """Default discount (no history) should be close to 1.0."""
-        from src.engine.game_theory.adverse_selection import adverse_selection_discount
-
-        discount = adverse_selection_discount()
-        assert 0.90 <= discount <= 1.00
-
-    def test_clean_history_low_discount(self):
-        """Manager with clean history should get minimal discount."""
-        from src.engine.game_theory.adverse_selection import adverse_selection_discount
-
-        history = [
-            {"actual": 100, "projected": 95},
-            {"actual": 80, "projected": 85},
-            {"actual": 90, "projected": 88},
-            {"actual": 70, "projected": 72},
-        ]
-        discount = adverse_selection_discount(history)
-        assert discount >= 0.95
-
-    def test_bad_history_bigger_discount(self):
-        """Manager who dumps underperformers should get bigger discount."""
-        from src.engine.game_theory.adverse_selection import adverse_selection_discount
-
-        history = [
-            {"actual": 40, "projected": 100},  # Underperformed
-            {"actual": 30, "projected": 90},  # Underperformed
-            {"actual": 50, "projected": 95},  # Underperformed
-            {"actual": 90, "projected": 85},  # OK
-        ]
-        discount = adverse_selection_discount(history)
-        assert discount < 0.95  # Should be discounted more
-
-    def test_discount_never_below_floor(self):
-        """Discount should never go below 0.75 (MAX_DISCOUNT=0.25)."""
-        from src.engine.game_theory.adverse_selection import adverse_selection_discount
-
-        # Worst possible history: every trade underperformed
-        history = [
-            {"actual": 10, "projected": 100},
-            {"actual": 5, "projected": 90},
-            {"actual": 15, "projected": 95},
-        ]
-        discount = adverse_selection_discount(history)
-        assert discount >= 0.75
-
-    def test_insufficient_history_uses_prior(self):
-        """With < 3 trades, should use default prior."""
-        from src.engine.game_theory.adverse_selection import adverse_selection_discount
-
-        default_disc = adverse_selection_discount()
-        short_hist = adverse_selection_discount([{"actual": 10, "projected": 100}])
-        assert default_disc == short_hist
-
-    def test_compute_discount_for_trade_has_all_keys(self):
-        """compute_discount_for_trade should return complete analysis."""
-        from src.engine.game_theory.adverse_selection import compute_discount_for_trade
-
-        result = compute_discount_for_trade(receiving_player_count=2)
-        assert "discount_factor" in result
-        assert "p_flaw" in result
-        assert "p_flaw_given_offered" in result
-        assert "sgp_adjustment" in result
-        assert "total_sgp_adjustment" in result
-        assert "risk_level" in result
-        assert result["risk_level"] in ("low", "medium", "high")
-
-    def test_more_received_players_more_adjustment(self):
-        """More received players should amplify the total adjustment."""
-        from src.engine.game_theory.adverse_selection import compute_discount_for_trade
-
-        one = compute_discount_for_trade(receiving_player_count=1)
-        three = compute_discount_for_trade(receiving_player_count=3)
-        assert abs(three["total_sgp_adjustment"]) > abs(one["total_sgp_adjustment"])
-
-    def test_spec_test_case_adverse_selection(self):
-        """Spec test 3: Manager X with 3/5 underperforming → discount < 0.90."""
-        from src.engine.game_theory.adverse_selection import adverse_selection_discount
-
-        history = [
-            {"actual": 70, "projected": 100},  # Under (70 < 80)
-            {"actual": 90, "projected": 95},  # OK
-            {"actual": 60, "projected": 100},  # Under
-            {"actual": 75, "projected": 100},  # Under (75 < 80)
-            {"actual": 85, "projected": 80},  # OK
-        ]
-        discount = adverse_selection_discount(history)
-        assert discount < 0.95  # Spec says < 0.90 but implementation uses 25% max
-
-
-class TestDynamicProgramming(unittest.TestCase):
-    """Test Bellman rollout and option value (L9)."""
-
-    def test_gamma_contending(self):
-        """Contending teams (>70%) should get high gamma."""
-        from src.engine.game_theory.dynamic_programming import get_gamma
-
-        assert get_gamma(0.80) == 0.98
-
-    def test_gamma_bubble(self):
-        """Bubble teams (30-70%) should get medium gamma."""
-        from src.engine.game_theory.dynamic_programming import get_gamma
-
-        assert get_gamma(0.50) == 0.95
-
-    def test_gamma_rebuilding(self):
-        """Rebuilding teams (<30%) should get low gamma."""
-        from src.engine.game_theory.dynamic_programming import get_gamma
-
-        assert get_gamma(0.20) == 0.85
-
-    def test_bellman_rollout_returns_all_keys(self):
-        """Bellman rollout should return complete analysis."""
-        from src.engine.game_theory.dynamic_programming import bellman_rollout
-
-        result = bellman_rollout(immediate_surplus=1.0)
-        assert "immediate" in result
-        assert "future_before" in result
-        assert "future_after" in result
-        assert "option_value" in result
-        assert "gamma" in result
-        assert "total_value" in result
-        assert result["immediate"] == 1.0
-
-    def test_bellman_total_includes_option_value(self):
-        """Total value should be immediate + discounted option value."""
-        from src.engine.game_theory.dynamic_programming import bellman_rollout
-
-        result = bellman_rollout(immediate_surplus=1.0, seed=42)
-        # total = immediate + gamma * option_value
-        expected = result["immediate"] + result["gamma"] * result["option_value"]
-        assert abs(result["total_value"] - expected) < 0.01
-
-    def test_positive_surplus_reflects_in_total(self):
-        """Positive immediate surplus should produce positive total."""
-        from src.engine.game_theory.dynamic_programming import bellman_rollout
-
-        result = bellman_rollout(immediate_surplus=3.0, seed=42)
-        assert result["total_value"] > 0
-
-    def test_balanced_roster_better_future(self):
-        """Better-balanced roster should have better future trade options."""
-        from src.engine.game_theory.dynamic_programming import bellman_rollout
-
-        # Balanced roster
-        balanced = bellman_rollout(
-            immediate_surplus=0.0,
-            roster_balance_after=0.8,
-            roster_balance_before=0.0,
-            n_sims=500,
-            seed=42,
-        )
-
-        # Lopsided roster
-        lopsided = bellman_rollout(
-            immediate_surplus=0.0,
-            roster_balance_after=-0.8,
-            roster_balance_before=0.0,
-            n_sims=500,
-            seed=42,
-        )
-
-        # Balanced should have better future value
-        assert balanced["future_after"] >= lopsided["future_after"]
-
-    def test_estimate_playoff_probability(self):
-        """Playoff probability estimates should be reasonable."""
-        from src.engine.game_theory.dynamic_programming import estimate_playoff_probability
-
-        # First place, late season
-        p1 = estimate_playoff_probability(1, 12, 4)
-        assert p1 > 0.7
-
-        # Last place, late season
-        p12 = estimate_playoff_probability(12, 12, 4)
-        assert p12 < 0.3
-
-        # Mid-season, any position: should be closer to 0.5
-        p_mid = estimate_playoff_probability(6, 12, 20)
-        assert 0.3 < p_mid < 0.7
-
-    def test_roster_balance_scoring(self):
-        """Balanced roster should score higher than lopsided."""
-        from src.engine.game_theory.dynamic_programming import compute_roster_balance
-
-        # Perfectly balanced (all rank 6-7 in 12-team)
-        balanced = compute_roster_balance(
-            {"R": 6, "HR": 7, "RBI": 6, "SB": 7, "AVG": 6, "W": 7, "K": 6, "SV": 7, "ERA": 6, "WHIP": 7}
-        )
-
-        # Extremely lopsided (1st or 12th in everything)
-        lopsided = compute_roster_balance(
-            {"R": 1, "HR": 1, "RBI": 1, "SB": 12, "AVG": 12, "W": 1, "K": 1, "SV": 12, "ERA": 12, "WHIP": 12}
-        )
-
-        assert balanced > lopsided
-
-    def test_roster_balance_empty(self):
-        """Empty ranks should return 0."""
-        from src.engine.game_theory.dynamic_programming import compute_roster_balance
-
-        assert compute_roster_balance({}) == 0.0
-
-    def test_seed_reproducibility(self):
-        """Same seed should produce same rollout."""
-        from src.engine.game_theory.dynamic_programming import bellman_rollout
-
-        r1 = bellman_rollout(immediate_surplus=1.0, seed=123)
-        r2 = bellman_rollout(immediate_surplus=1.0, seed=123)
-        assert r1["total_value"] == r2["total_value"]
-
-
 class TestSensitivity(unittest.TestCase):
     """Test sensitivity analysis and counter-offers (L11)."""
 
@@ -533,9 +316,7 @@ class TestPhase5Integration(unittest.TestCase):
             enable_game_theory=True,
         )
 
-        assert "adverse_selection" in result
         assert "sensitivity_report" in result
-        assert result["adverse_selection"]["risk_level"] in ("low", "medium", "high")
         assert "category_ranking" in result["sensitivity_report"]
 
     def test_evaluate_trade_game_theory_disabled_backward_compat(self):
@@ -551,7 +332,6 @@ class TestPhase5Integration(unittest.TestCase):
             enable_game_theory=False,
         )
 
-        assert "adverse_selection" not in result
         assert "sensitivity_report" not in result
         # Base keys should still exist
         assert "grade" in result

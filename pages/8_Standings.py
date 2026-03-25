@@ -214,9 +214,9 @@ with main:
                             "team_name": team,
                             "roster_quality": round(rq, 3),
                             "category_balance": round(max(0.1, min(1.0, cb)), 3),
-                            "schedule_strength": 0.5,
-                            "injury_exposure": 0.1,
-                            "momentum": 1.0,
+                            "schedule_strength": None,
+                            "injury_exposure": None,
+                            "momentum": None,
                         }
                     )
 
@@ -228,6 +228,7 @@ with main:
                     cb = max(0.1, min(1.0, 0.6 + rng_pr.normal(0, 0.12)))
                     ss = max(0.1, min(1.0, 0.5 + rng_pr.normal(0, 0.10)))
                     ie = max(0.0, min(0.5, 0.1 + rng_pr.normal(0, 0.08)))
+                    mom = max(0.5, min(2.0, 1.0 + rng_pr.normal(0, 0.2)))
                     power_data.append(
                         {
                             "team_name": name,
@@ -235,12 +236,21 @@ with main:
                             "category_balance": round(cb, 3),
                             "schedule_strength": round(ss, 3),
                             "injury_exposure": round(ie, 3),
-                            "momentum": 1.0,
+                            "momentum": round(mom, 3),
                         }
                     )
 
             if not using_real_data:
                 st.caption("Showing synthetic demo data — connect your Yahoo league for real power rankings.")
+
+            # Analytics transparency badge (data quality from bootstrap)
+            from src.data_bootstrap import get_bootstrap_context
+
+            _boot_ctx = get_bootstrap_context()
+            if _boot_ctx:
+                from src.ui_analytics_badge import render_analytics_badge
+
+                render_analytics_badge(_boot_ctx)
 
             try:
                 pr_df = compute_power_rankings(power_data)
@@ -257,6 +267,13 @@ with main:
                 ci_df = pd.DataFrame(cis)
                 pr_df["ci_low"] = ci_df["p5"].values
                 pr_df["ci_high"] = ci_df["p95"].values
+
+                # Show "N/A" for unavailable components instead of hiding them
+                for col in ["schedule_strength", "injury_exposure", "momentum"]:
+                    if col in pr_df.columns:
+                        pr_df[col] = pr_df[col].apply(
+                            lambda v: "N/A" if v is None or (isinstance(v, float) and np.isnan(v)) else v
+                        )
 
                 render_compact_table(pr_df)
             except Exception as e:

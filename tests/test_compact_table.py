@@ -339,3 +339,78 @@ class TestDataIntegrity:
         df = pd.DataFrame({"Name": ["A"], "H": [150], "Health": ["Healthy"]})
         result = build_compact_table_html(df, health_col="Health")
         assert ">150<" in result
+
+
+# ── Headshot Thumbnails ──────────────────────────────────────────
+
+
+class TestHeadshotThumbnails:
+    def test_mlb_id_column_renders_headshots(self):
+        """When mlb_id column exists, headshot images should appear."""
+        df = pd.DataFrame({"Name": ["Ohtani"], "HR": [40], "mlb_id": [660271]})
+        result = build_compact_table_html(df)
+        assert "img.mlbstatic.com" in result
+        assert "660271" in result
+
+    def test_mlb_id_column_hidden_from_display(self):
+        """mlb_id column should not appear as a visible header."""
+        df = pd.DataFrame({"Name": ["Ohtani"], "HR": [40], "mlb_id": [660271]})
+        result = build_compact_table_html(df)
+        assert ">mlb_id<" not in result
+
+    def test_player_id_column_hidden_from_display(self):
+        """player_id column should not appear as a visible header."""
+        df = pd.DataFrame({"Name": ["Ohtani"], "HR": [40], "player_id": [123]})
+        result = build_compact_table_html(df)
+        assert ">player_id<" not in result
+
+    def test_no_mlb_id_no_headshots(self):
+        """Without mlb_id column, no headshots should render."""
+        df = pd.DataFrame({"Name": ["Ohtani"], "HR": [40]})
+        result = build_compact_table_html(df)
+        assert "img.mlbstatic.com" not in result
+
+    def test_null_mlb_id_no_headshot(self):
+        """Null mlb_id values should not produce broken images."""
+        df = pd.DataFrame({"Name": ["Unknown"], "HR": [5], "mlb_id": [None]})
+        result = build_compact_table_html(df)
+        assert "img.mlbstatic.com" not in result
+
+    def test_zero_mlb_id_no_headshot(self):
+        """Zero mlb_id should not produce a headshot."""
+        df = pd.DataFrame({"Name": ["Unknown"], "HR": [5], "mlb_id": [0]})
+        result = build_compact_table_html(df)
+        assert "img.mlbstatic.com" not in result
+
+    def test_headshot_has_onerror_fallback(self):
+        """Headshot images should hide on load error."""
+        df = pd.DataFrame({"Name": ["Ohtani"], "HR": [40], "mlb_id": [660271]})
+        result = build_compact_table_html(df)
+        assert "onerror" in result
+
+    def test_headshot_with_multiple_players(self):
+        """Each player row should get its own headshot."""
+        df = pd.DataFrame(
+            {
+                "Name": ["Ohtani", "Judge", "Acuna"],
+                "HR": [40, 45, 35],
+                "mlb_id": [660271, 592450, 660670],
+            }
+        )
+        result = build_compact_table_html(df)
+        assert "660271" in result
+        assert "592450" in result
+        assert "660670" in result
+
+    def test_player_names_still_visible_with_headshots(self):
+        """Player names should still be in the output alongside headshots."""
+        df = pd.DataFrame({"Name": ["Ohtani", "Judge"], "HR": [40, 45], "mlb_id": [660271, 592450]})
+        result = build_compact_table_html(df)
+        assert "Ohtani" in result
+        assert "Judge" in result
+
+    def test_headshot_uses_lazy_loading(self):
+        """Headshot images should use lazy loading for performance."""
+        df = pd.DataFrame({"Name": ["Ohtani"], "HR": [40], "mlb_id": [660271]})
+        result = build_compact_table_html(df)
+        assert 'loading="lazy"' in result

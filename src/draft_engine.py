@@ -30,6 +30,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 import pandas as pd
 
+from src.analytics_context import AnalyticsContext, DataQuality, ModuleStatus
 from src.valuation import LeagueConfig, SGPCalculator
 
 if TYPE_CHECKING:
@@ -131,7 +132,7 @@ class DraftRecommendationEngine:
 
     Three modes (mirroring optimizer/pipeline.py MODE_PRESETS pattern):
       - Quick (<1s): Base SGP + category balance + park factors
-      - Standard (2-3s): + Bayesian blend + injury prob + Statcast delta
+      - Standard (2-3s): + Marcel regression + injury prob + Statcast delta
       - Full (5-10s): + ML ensemble + schedule strength + all contextual
     """
 
@@ -186,6 +187,7 @@ class DraftRecommendationEngine:
         self.settings = dict(self.MODE_PRESETS[mode])
         self.sgp_calc = SGPCalculator(config)
         self._timing: dict[str, float] = {}
+        self._ctx: AnalyticsContext | None = None
 
     @property
     def timing(self) -> dict[str, float]:
@@ -219,6 +221,15 @@ class DraftRecommendationEngine:
         """
         self._timing = {}
         t_start = time.perf_counter()
+
+        # --- AnalyticsContext: transparency spine for this enhancement ---
+        ctx = AnalyticsContext(pipeline="draft_engine")
+        ctx.stamp_data(
+            "player_pool",
+            DataQuality.LIVE if len(player_pool) > 100 else DataQuality.SAMPLE,
+            record_count=len(player_pool),
+        )
+        self._ctx = ctx
 
         pool = player_pool.copy()
 
@@ -313,6 +324,26 @@ class DraftRecommendationEngine:
         t0 = time.perf_counter()
         pool = self._compute_risk_score(pool)
         self._timing["risk_score"] = time.perf_counter() - t0
+
+        # Stamp AnalyticsContext modules from timing data
+        _stage_settings = {
+            "park_factors": "enable_park_factors",
+            "bayesian": "enable_bayesian",
+            "injury_prob": "enable_injury_prob",
+            "spring_training": "enable_spring_training",
+            "statcast": "enable_statcast",
+            "contextual": "enable_contextual",
+            "category_balance": "enable_category_balance",
+            "ml_correction": "enable_ml",
+        }
+        for stage, setting_key in _stage_settings.items():
+            if stage in self._timing:
+                ctx.stamp_module(stage, ModuleStatus.EXECUTED, influence=0.5)
+            elif self.settings.get(setting_key, False):
+                ctx.stamp_module(stage, ModuleStatus.FALLBACK, reason="Failed silently")
+            else:
+                ctx.stamp_module(stage, ModuleStatus.SKIPPED, reason=f"Disabled in '{self.mode}' mode")
+        ctx.stamp_module("fip_correction", ModuleStatus.EXECUTED, influence=0.2)
 
         self._timing["total"] = time.perf_counter() - t_start
         return pool

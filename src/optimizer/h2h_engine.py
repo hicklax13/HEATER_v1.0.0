@@ -4,6 +4,8 @@ Answers the question: "How should I weight categories to beat THIS
 WEEK's specific opponent?" by computing per-category win probabilities
 and marginal-value-based category weights.
 
+Variances can be calibrated via ConstantSet ("h2h_variance_r", "h2h_variance_hr").
+
 Core math:
   For each category c with gap = my_total - opp_total and
   sigma = sqrt(var_my + var_opp):
@@ -25,6 +27,7 @@ import math
 import numpy as np
 from scipy.stats import norm
 
+from src.validation.constant_optimizer import load_constants
 from src.valuation import LeagueConfig as _LC_Class
 
 logger = logging.getLogger(__name__)
@@ -42,6 +45,7 @@ ALL_CATEGORIES: list[str] = [c.lower() for c in _LC.all_categories]
 # Small epsilon to avoid division by zero
 _EPSILON: float = 1e-12
 
+_CONSTANTS = load_constants()
 
 # ── Default Variances ────────────────────────────────────────────────
 
@@ -58,8 +62,8 @@ def default_category_variances() -> dict[str, float]:
         All values are positive.
     """
     return {
-        "r": 15.0**2,  # ~225
-        "hr": 4.0**2,  # ~16
+        "r": _CONSTANTS.get("h2h_variance_r"),  # ~225 default
+        "hr": _CONSTANTS.get("h2h_variance_hr"),  # ~16 default
         "rbi": 14.0**2,  # ~196
         "sb": 3.0**2,  # ~9
         "avg": 0.015**2,  # ~0.000225

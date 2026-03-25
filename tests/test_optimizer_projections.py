@@ -18,12 +18,10 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.optimizer.projections import (
-    _REGIME_MULTIPLIERS,
     ALL_CATS,
     COUNTING_CATS,
     _apply_injury_availability,
     _apply_kalman_filter,
-    _apply_regime_adjustment,
     _apply_statcast_adjustment,
     _merge_updated_stats,
     build_enhanced_projections,
@@ -112,7 +110,6 @@ class TestBuildEnhancedProjections:
             mixed_roster,
             enable_bayesian=False,
             enable_kalman=False,
-            enable_regime=False,
             enable_statcast=False,
             enable_injury=False,
         )
@@ -131,7 +128,6 @@ class TestBuildEnhancedProjections:
             sample_hitter_roster,
             enable_bayesian=False,
             enable_kalman=False,
-            enable_regime=False,
             enable_statcast=False,
             enable_injury=False,
         )
@@ -146,7 +142,6 @@ class TestBuildEnhancedProjections:
             sample_hitter_roster,
             enable_bayesian=False,
             enable_kalman=False,
-            enable_regime=True,
             enable_statcast=False,
             enable_injury=False,
         )
@@ -158,7 +153,6 @@ class TestBuildEnhancedProjections:
             sample_hitter_roster,
             enable_bayesian=False,
             enable_kalman=False,
-            enable_regime=False,
             enable_statcast=False,
             enable_injury=False,
         )
@@ -190,7 +184,6 @@ class TestBuildEnhancedProjections:
             empty,
             enable_bayesian=False,
             enable_kalman=False,
-            enable_regime=False,
             enable_statcast=False,
             enable_injury=False,
         )
@@ -272,79 +265,6 @@ class TestKalmanFilter:
             # Re-importing with the module removed should degrade gracefully
             result = _apply_kalman_filter(sample_hitter_roster.copy())
             assert len(result) == len(sample_hitter_roster)
-
-
-# ── Test Regime Detection ────────────────────────────────────────────
-
-
-class TestRegimeDetection:
-    """Tests for regime-based projection adjustment."""
-
-    def test_no_separate_recent_stats_skips_regime(self, sample_hitter_roster):
-        """Without separate recent-period stats, regime adjustment is skipped.
-
-        When recent and season xwOBA are identical (derived from the same
-        source), classify_regime_simple always returns neutral. The fix
-        correctly skips the classification entirely, leaving regime_label
-        empty and counting stats unchanged.
-        """
-        result = _apply_regime_adjustment(sample_hitter_roster.copy())
-        # All regime labels should be empty (no classification without separate recent data)
-        assert (result["regime_label"] == "").all()
-
-    def test_regime_no_change_to_counting_stats(self, sample_hitter_roster):
-        """Counting stats should remain unchanged when regime is skipped."""
-        original = sample_hitter_roster.copy()
-        result = _apply_regime_adjustment(sample_hitter_roster.copy())
-        for cat in ["hr", "rbi", "r", "sb"]:
-            if cat in result.columns and cat in original.columns:
-                np.testing.assert_array_almost_equal(result[cat].values, original[cat].values)
-
-    def test_regime_does_not_adjust_rate_stats(self, sample_hitter_roster):
-        """AVG should not be modified by regime detection."""
-        original_avg = sample_hitter_roster["avg"].values.copy()
-        result = _apply_regime_adjustment(sample_hitter_roster.copy())
-        np.testing.assert_array_almost_equal(result["avg"].values, original_avg)
-
-    def test_zero_avg_skipped(self):
-        """Players with 0 AVG should be skipped."""
-        roster = pd.DataFrame(
-            {
-                "player_id": [1],
-                "player_name": ["Test"],
-                "positions": ["DH"],
-                "is_hitter": [True],
-                "avg": [0.0],
-                "hr": [0],
-                "rbi": [0],
-                "r": [0],
-                "sb": [0],
-                "projection_confidence": [1.0],
-                "regime_label": [""],
-                "health_adjusted": [False],
-            }
-        )
-        result = _apply_regime_adjustment(roster)
-        assert result.at[0, "regime_label"] == ""
-
-    def test_pitcher_regime_adjusts_pitching_cats(self, sample_pitcher_roster):
-        """Pitcher regime detection should adjust W, SV, K (not batting stats)."""
-        roster = sample_pitcher_roster.copy()
-        roster["projection_confidence"] = 1.0
-        roster["regime_label"] = ""
-        roster["health_adjusted"] = False
-        # Give pitchers a fake AVG so regime detection runs
-        roster["avg"] = 0.250  # Approximation for testing
-        result = _apply_regime_adjustment(roster)
-        # Pitching counting stats should be adjusted
-        # (The specific adjustment depends on regime classification)
-        assert len(result) == 3
-
-    def test_regime_multipliers_sum_close_to_one(self):
-        """The regime multipliers should have a reasonable weighted average."""
-        # With uniform state probabilities, the average multiplier should be ~1.0
-        avg_mult = sum(_REGIME_MULTIPLIERS.values()) / len(_REGIME_MULTIPLIERS)
-        assert 0.95 <= avg_mult <= 1.05
 
 
 # ── Test Injury Availability ─────────────────────────────────────────
@@ -526,7 +446,6 @@ class TestGracefulDegradation:
             sample_hitter_roster,
             enable_bayesian=True,  # Will try to import and likely hit DB issues
             enable_kalman=False,
-            enable_regime=False,
             enable_statcast=False,
             enable_injury=False,
         )
@@ -540,7 +459,6 @@ class TestGracefulDegradation:
             mixed_roster,
             enable_bayesian=True,
             enable_kalman=True,
-            enable_regime=True,
             enable_statcast=True,
             enable_injury=True,
         )
@@ -556,7 +474,6 @@ class TestGracefulDegradation:
                 sample_hitter_roster,
                 enable_bayesian=False,
                 enable_kalman=False,
-                enable_regime=False,
                 enable_statcast=True,
                 enable_injury=False,
             )
@@ -576,7 +493,6 @@ class TestPipelineIntegration:
             sample_hitter_roster,
             enable_bayesian=False,
             enable_kalman=False,
-            enable_regime=True,
             enable_statcast=False,
             enable_injury=False,
         )
@@ -594,7 +510,6 @@ class TestPipelineIntegration:
             mixed_roster,
             enable_bayesian=False,
             enable_kalman=True,
-            enable_regime=True,
             enable_statcast=False,
             enable_injury=False,
         )
@@ -606,7 +521,6 @@ class TestPipelineIntegration:
             mixed_roster,
             enable_bayesian=False,
             enable_kalman=False,
-            enable_regime=True,
             enable_statcast=False,
             enable_injury=False,
         )

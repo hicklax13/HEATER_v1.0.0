@@ -212,6 +212,8 @@ else:
                         trade_progress.progress(40, text="Computing category gaps and punt detection...")
                         trade_progress.progress(60, text="Optimizing lineup assignments...")
 
+                        from src.validation.dynamic_context import compute_weeks_remaining
+
                         result = evaluate_trade(
                             giving_ids=giving_ids,
                             receiving_ids=receiving_ids,
@@ -219,7 +221,7 @@ else:
                             player_pool=pool,
                             config=config,
                             user_team_name=user_team_name,
-                            weeks_remaining=16,
+                            weeks_remaining=compute_weeks_remaining(),
                         )
                         engine_used = "phase1"
                     except Exception:
@@ -332,6 +334,12 @@ else:
                                 "(punt detection, marginal elasticity). Sync your Yahoo league for "
                                 "a more accurate evaluation."
                             )
+
+                    # Analytics transparency badge (Phase 2 wiring)
+                    if engine_used == "phase1" and "analytics_context" in result:
+                        from src.ui_analytics_badge import render_analytics_badge
+
+                        render_analytics_badge(result["analytics_context"])
 
                     # Metrics row — different layout for Phase 1 vs legacy
                     if engine_used == "phase1":

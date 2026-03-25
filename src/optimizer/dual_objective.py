@@ -21,8 +21,11 @@ from __future__ import annotations
 
 import logging
 
+from src.validation.constant_optimizer import load_constants
+
 logger = logging.getLogger(__name__)
 
+_CONSTANTS = load_constants()
 
 # ── Constants ────────────────────────────────────────────────────────
 
@@ -153,7 +156,7 @@ def recommend_alpha(
     if weeks_remaining < 3:
         alpha = 0.85
     elif weeks_remaining < 6:
-        alpha = 0.7
+        alpha = _CONSTANTS.get("dual_alpha_week6")
     elif weeks_remaining <= 12:
         alpha = 0.5
     else:

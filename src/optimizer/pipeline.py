@@ -20,6 +20,11 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from src.analytics_context import AnalyticsContext, DataQuality, ModuleStatus
+from src.validation.constant_optimizer import load_constants
+
+_CONSTANTS = load_constants()
+
 logger = logging.getLogger(__name__)
 
 # ── Module imports (all optional) ─────────────────────────────────────
@@ -72,13 +77,6 @@ try:
     _SCENARIOS_AVAILABLE = True
 except ImportError:
     _SCENARIOS_AVAILABLE = False
-
-try:
-    from src.optimizer.multi_period import season_balance_weights
-
-    _MULTI_PERIOD_AVAILABLE = True
-except ImportError:
-    _MULTI_PERIOD_AVAILABLE = False
 
 try:
     from src.optimizer.dual_objective import blend_h2h_roto_weights, recommend_alpha
@@ -206,6 +204,7 @@ class LineupOptimizerPipeline:
         self.weeks_remaining = weeks_remaining
         self.config = config
         self._preset = MODE_PRESETS[self.mode]
+        self._ctx: AnalyticsContext | None = None
 
     def optimize(
         self,
@@ -245,6 +244,15 @@ class LineupOptimizerPipeline:
         recommendations: list[str] = []
         enhanced_roster = self.roster.copy()
 
+        # --- AnalyticsContext: transparency spine for this optimization ---
+        ctx = AnalyticsContext(pipeline="lineup_optimizer")
+        ctx.stamp_data(
+            "roster",
+            DataQuality.LIVE if len(self.roster) > 0 else DataQuality.MISSING,
+            record_count=len(self.roster),
+        )
+        self._ctx = ctx
+
         # ── Stage 1: Enhanced Projections ─────────────────────────
         if self._preset["enable_projections"] and _PROJECTIONS_AVAILABLE:
             t1 = time.perf_counter()
@@ -254,7 +262,6 @@ class LineupOptimizerPipeline:
                     config=self.config,
                     enable_bayesian=True,
                     enable_kalman=True,
-                    enable_regime=True,
                     enable_statcast=(self.mode == "full"),
                     enable_injury=True,
                     weeks_remaining=self.weeks_remaining,
@@ -420,6 +427,34 @@ class LineupOptimizerPipeline:
                 logger.warning("Stage 9: Maximin failed", exc_info=True)
             timing["maximin"] = time.perf_counter() - t9
 
+        # ── Stamp AnalyticsContext modules from timing data ─────────
+        _stage_map = {
+            "projections": ("enable_projections", _PROJECTIONS_AVAILABLE),
+            "matchups": ("enable_matchups", _MATCHUP_AVAILABLE),
+            "weights": (None, True),  # Always runs
+            "risk": (None, _SCENARIOS_AVAILABLE),
+            "solve": (None, _OPTIMIZER_AVAILABLE),  # Always runs
+            "streaming": ("enable_streaming", _STREAMING_AVAILABLE),
+            "scenarios": ("enable_scenarios", _SCENARIOS_AVAILABLE),
+            "maximin": ("enable_maximin", _ADVANCED_LP_AVAILABLE),
+        }
+        for stage, (setting_key, module_avail) in _stage_map.items():
+            if stage in timing:
+                ctx.stamp_module(stage, ModuleStatus.EXECUTED, influence=0.5)
+            elif setting_key and not self._preset.get(setting_key, False):
+                ctx.stamp_module(stage, ModuleStatus.SKIPPED, reason=f"Disabled in '{self.mode}' mode")
+            elif not module_avail:
+                ctx.stamp_module(stage, ModuleStatus.DISABLED, reason="Module unavailable (import failed)")
+            else:
+                ctx.stamp_module(stage, ModuleStatus.FALLBACK, reason="Failed silently")
+        # H2H analysis doesn't have a preset toggle — depends on data
+        if h2h_analysis is not None:
+            ctx.stamp_module("h2h_analysis", ModuleStatus.EXECUTED, influence=0.4)
+        elif not _H2H_AVAILABLE:
+            ctx.stamp_module("h2h_analysis", ModuleStatus.DISABLED, reason="H2H module unavailable")
+        else:
+            ctx.stamp_module("h2h_analysis", ModuleStatus.SKIPPED, reason="No opponent/team totals provided")
+
         # ── Compile Result ─────────────────────────────────────────
         timing["total"] = time.perf_counter() - t0
 
@@ -434,6 +469,7 @@ class LineupOptimizerPipeline:
             "timing": timing,
             "mode": self.mode,
             "matchup_adjusted": matchup_adjusted,
+            "analytics_context": ctx,
         }
 
     # ── Private Methods ────────────────────────────────────────────
@@ -469,21 +505,6 @@ class LineupOptimizerPipeline:
                 roto_weights = compute_nonlinear_weights(standings, team_name)
             except Exception:
                 logger.warning("Non-linear SGP weights failed", exc_info=True)
-
-        # Season balance urgency modifier
-        if _MULTI_PERIOD_AVAILABLE and ytd_totals and target_totals and weekly_rates:
-            try:
-                urgency = season_balance_weights(
-                    ytd_totals,
-                    target_totals,
-                    self.weeks_remaining,
-                    weekly_rates,
-                )
-                # Multiply urgency into roto weights
-                for cat in ALL_CATEGORIES:
-                    roto_weights[cat] = roto_weights.get(cat, 1.0) * urgency.get(cat, 1.0)
-            except Exception:
-                logger.warning("Season balance weights failed", exc_info=True)
 
         # H2H component: opponent-specific weights
         if _H2H_AVAILABLE and h2h_opponent_totals and my_totals:
@@ -557,7 +578,7 @@ class LineupOptimizerPipeline:
                             if idx < len(adjusted_roster) and penalty < 0:
                                 # Convert negative penalty to a 0-1 risk fraction
                                 # Scale factor of 0.15 caps the maximum stat reduction
-                                risk_frac = min(abs(penalty / min_penalty), 1.0) * 0.15
+                                risk_frac = min(abs(penalty / min_penalty), 1.0) * _CONSTANTS.get("risk_scale_cap")
                                 for cat in counting_cats:
                                     if cat in adjusted_roster.columns:
                                         col_loc = adjusted_roster.columns.get_loc(cat)
