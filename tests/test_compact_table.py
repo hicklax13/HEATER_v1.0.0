@@ -346,7 +346,7 @@ class TestDataIntegrity:
 
 class TestHeadshotThumbnails:
     def test_mlb_id_column_renders_headshots(self):
-        """When mlb_id column exists, headshot images should appear."""
+        """When mlb_id column exists with valid ID, MLB headshot URL should appear."""
         df = pd.DataFrame({"Name": ["Ohtani"], "HR": [40], "mlb_id": [660271]})
         result = build_compact_table_html(df)
         assert "img.mlbstatic.com" in result
@@ -365,25 +365,29 @@ class TestHeadshotThumbnails:
         assert ">player_id<" not in result
 
     def test_no_mlb_id_no_headshots(self):
-        """Without mlb_id column, no headshots should render."""
+        """Without mlb_id column and show_avatars=False, no avatars should render."""
         df = pd.DataFrame({"Name": ["Ohtani"], "HR": [40]})
         result = build_compact_table_html(df)
         assert "img.mlbstatic.com" not in result
+        assert "<img" not in result
 
-    def test_null_mlb_id_no_headshot(self):
-        """Null mlb_id values should not produce broken images."""
+    def test_null_mlb_id_shows_fallback_avatar(self):
+        """Null mlb_id values should show the fallback avatar SVG, not MLB headshot."""
         df = pd.DataFrame({"Name": ["Unknown"], "HR": [5], "mlb_id": [None]})
         result = build_compact_table_html(df)
         assert "img.mlbstatic.com" not in result
+        # Should still show an <img> with the fallback SVG
+        assert "<img" in result
 
-    def test_zero_mlb_id_no_headshot(self):
-        """Zero mlb_id should not produce a headshot."""
+    def test_zero_mlb_id_shows_fallback_avatar(self):
+        """Zero mlb_id should show fallback avatar, not MLB headshot."""
         df = pd.DataFrame({"Name": ["Unknown"], "HR": [5], "mlb_id": [0]})
         result = build_compact_table_html(df)
         assert "img.mlbstatic.com" not in result
+        assert "<img" in result
 
     def test_headshot_has_onerror_fallback(self):
-        """Headshot images should hide on load error."""
+        """Headshot images should swap to fallback SVG on load error."""
         df = pd.DataFrame({"Name": ["Ohtani"], "HR": [40], "mlb_id": [660271]})
         result = build_compact_table_html(df)
         assert "onerror" in result
@@ -414,3 +418,15 @@ class TestHeadshotThumbnails:
         df = pd.DataFrame({"Name": ["Ohtani"], "HR": [40], "mlb_id": [660271]})
         result = build_compact_table_html(df)
         assert 'loading="lazy"' in result
+
+    def test_show_avatars_explicit_true(self):
+        """show_avatars=True should render avatar circles even without mlb_id."""
+        df = pd.DataFrame({"Name": ["Ohtani"], "HR": [40]})
+        result = build_compact_table_html(df, show_avatars=True)
+        assert "<img" in result
+
+    def test_show_avatars_explicit_false(self):
+        """show_avatars=False should suppress avatars even with mlb_id."""
+        df = pd.DataFrame({"Name": ["Ohtani"], "HR": [40], "mlb_id": [660271]})
+        result = build_compact_table_html(df, show_avatars=False)
+        assert "<img" not in result

@@ -958,17 +958,20 @@ class TestCategoryImpact:
             assert cat in impact_cats
 
     def test_inverse_stat_impact_sign(self):
-        """ERA and WHIP impact should be negative (lower is better = negative contribution)."""
+        """ERA/WHIP use delta-from-baseline: better-than-avg = positive impact."""
         config = _make_config()
+        # 3.50 ERA < 4.00 baseline → positive (pitcher is helping)
+        # 1.15 WHIP < 1.25 baseline → positive (pitcher is helping)
         weekly_proj = {"w": 1.0, "l": 0.5, "sv": 0.0, "k": 8.0, "era": 3.50, "whip": 1.15}
         h2h_weights = {c.lower(): 1.0 for c in config.all_categories}
 
         impact = _compute_category_impact(weekly_proj, h2h_weights, config, is_hitter=False)
 
-        # ERA is inverse: a positive ERA (bad for pitcher) should give negative impact
-        assert impact["ERA"] < 0
-        assert impact["WHIP"] < 0
-        # L is also inverse
+        # ERA better than baseline (3.50 < 4.00) → positive SGP impact
+        assert impact["ERA"] > 0
+        # WHIP better than baseline (1.15 < 1.25) → positive SGP impact
+        assert impact["WHIP"] > 0
+        # L is counting stat (not rate), still negative via sign-flip
         assert impact["L"] < 0
 
     def test_category_impact_values_are_floats(self):

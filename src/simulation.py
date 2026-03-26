@@ -6,6 +6,11 @@ import pandas as pd
 from src.validation.constant_optimizer import load_constants
 from src.valuation import LeagueConfig, SGPCalculator
 
+try:
+    from scipy.stats import norm as _norm
+except ImportError:
+    _norm = None
+
 # Load calibrated constants (falls back to defaults if no calibration file)
 _CONSTANTS = load_constants()
 
@@ -60,10 +65,12 @@ class DraftSimulator:
         if picks_until_adp > picks_between * 3:
             return min(1.0, 0.95)
 
-        from scipy.stats import norm
-
         z = (player_adp - next_user_pick) / (self.sigma * max(1, picks_between**0.3))
-        base_prob = float(np.clip(norm.cdf(z), 0.01, 0.99))
+        if _norm is not None:
+            base_prob = float(np.clip(_norm.cdf(z), 0.01, 0.99))
+        else:
+            # Fallback approximation when scipy unavailable
+            base_prob = float(np.clip(0.5 * (1 + np.tanh(z * 0.7978846)), 0.01, 0.99))
 
         # Positional scarcity adjustment: if many teams need this position,
         # the player is more likely to be taken before our pick
@@ -325,6 +332,37 @@ class DraftSimulator:
         if use_percentile_sampling:
             vol = np.asarray(sgp_volatility, dtype=float) if sgp_volatility is not None else np.zeros(n_players)
 
+        # Pre-compute candidate index once (outside sim loop)
+        candidate_idx = np.where(available_ids == candidate_id)[0]
+        candidate_idx_val = candidate_idx[0] if len(candidate_idx) > 0 else -1
+
+        # Pre-compute weighted SGP array for category-aware user picks
+        pre_weighted_sgp = None
+        if category_weights is not None and per_category_sgp is not None:
+            pre_weighted_sgp = np.zeros(n_players)
+            for cat_idx, cat in enumerate(self.config.all_categories):
+                w = category_weights.get(cat.lower(), 1.0)
+                if cat_idx < per_category_sgp.shape[1]:
+                    pre_weighted_sgp += per_category_sgp[:, cat_idx] * w
+
+        # Default slot limits per position (hoisted outside loop)
+        _DEFAULT_ROSTER_SLOTS = {
+            "C": 1, "1B": 1, "2B": 1, "3B": 1, "SS": 1,
+            "OF": 3, "SP": 2, "RP": 2, "P": 4, "Util": 2,
+        }
+
+        # Pre-compute pick schedule for the horizon
+        sim_horizon = min(total_picks, current_pick + 1 + num_teams * 4)
+        pick_schedule = []
+        for pick in range(current_pick + 1, sim_horizon):
+            round_num = pick // num_teams
+            pos_in_round = pick % num_teams
+            if round_num % 2 == 0:
+                team_idx = pos_in_round
+            else:
+                team_idx = num_teams - 1 - pos_in_round
+            pick_schedule.append((pick, team_idx))
+
         for sim in range(n_simulations):
             is_available = np.ones(n_players, dtype=bool)
             # Track simulated opponent rosters (copy from actual state)
@@ -344,36 +382,20 @@ class DraftSimulator:
                 sim_sgp = sgp_values
 
             # Draft the candidate for the user
-            candidate_idx = np.where(available_ids == candidate_id)[0]
-            if len(candidate_idx) > 0:
-                is_available[candidate_idx[0]] = False
+            if candidate_idx_val >= 0:
+                is_available[candidate_idx_val] = False
+                user_sgp_total = sim_sgp[candidate_idx_val]
+            else:
+                user_sgp_total = 0.0
 
-            user_sgp_total = sim_sgp[candidate_idx[0]] if len(candidate_idx) > 0 else 0
-
-            # Limit simulation horizon to ~6 rounds ahead for performance
-            sim_horizon = min(total_picks, current_pick + 1 + num_teams * 6)
-            for pick in range(current_pick + 1, sim_horizon):
-                n_avail = np.sum(is_available)
-                if n_avail == 0:
+            for pick, team_idx in pick_schedule:
+                if not is_available.any():
                     break
 
-                round_num = pick // num_teams
-                pos_in_round = pick % num_teams
-                if round_num % 2 == 0:
-                    team_idx = pos_in_round
-                else:
-                    team_idx = num_teams - 1 - pos_in_round
-
                 if team_idx == user_team_index:
-                    # Category-aware pick selection: weight per-category SGP
-                    if category_weights is not None and per_category_sgp is not None:
-                        weighted = np.zeros(n_players)
-                        for cat_idx, cat in enumerate(self.config.all_categories):
-                            cat_lower = cat.lower()
-                            w = category_weights.get(cat_lower, 1.0)
-                            if cat_idx < per_category_sgp.shape[1]:
-                                weighted += per_category_sgp[:, cat_idx] * w
-                        avail_sgp = np.where(is_available, weighted, -999)
+                    # Category-aware pick selection
+                    if pre_weighted_sgp is not None:
+                        avail_sgp = np.where(is_available, pre_weighted_sgp, -999)
                     else:
                         avail_sgp = np.where(is_available, sim_sgp, -999)
                     best_idx = np.argmax(avail_sgp)
@@ -389,19 +411,6 @@ class DraftSimulator:
 
                     # Apply positional need boost for this opponent
                     opp_positions = sim_team_pos.get(team_idx, [])
-                    # Default slot limits per position
-                    default_roster_slots = {
-                        "C": 1,
-                        "1B": 1,
-                        "2B": 1,
-                        "3B": 1,
-                        "SS": 1,
-                        "OF": 3,
-                        "SP": 2,
-                        "RP": 2,
-                        "P": 4,
-                        "Util": 2,
-                    }
                     if opp_positions:
                         filled = {}
                         for p in opp_positions:
@@ -409,7 +418,7 @@ class DraftSimulator:
                         for j, ai in enumerate(avail_indices):
                             for pos in pos_lists[ai]:
                                 pos = pos.strip()
-                                if pos and filled.get(pos, 0) < max(1, default_roster_slots.get(pos, 1)):
+                                if pos and filled.get(pos, 0) < max(1, _DEFAULT_ROSTER_SLOTS.get(pos, 1)):
                                     weights[j] *= 1.4
                                     break
 
@@ -489,33 +498,46 @@ class DraftSimulator:
         # Get top candidates by greedy pick_score
         candidates = available.nlargest(top_n, "pick_score")
 
-        # Prepare arrays for simulation
-        available_ids = available["player_id"].values
-        adp_values = available["adp"].fillna(999).values.astype(float)
-        sgp_values = (
-            available["total_sgp"].values.astype(float)
-            if "total_sgp" in available.columns
-            else available["pick_score"].values.astype(float)
-        )
-        positions = available["positions"].tolist()
+        # ── Performance: pre-filter to simulation-relevant players ────
+        # The MC simulation only needs players plausibly draftable within
+        # the horizon (~4 rounds x 12 teams = 48 picks). Using the full
+        # 9,000+ pool wastes time on array ops for players nobody will pick.
+        # Keep top-300 by ADP plus all candidates (some may have high ADP
+        # but high pick_score, e.g. sleepers).
+        sim_pool_size = 300
+        top_adp = available.nsmallest(sim_pool_size, "adp")
+        candidate_ids_set = set(candidates["player_id"].values)
+        # Union: top-ADP pool + all candidates
+        sim_available = pd.concat(
+            [top_adp, available[available["player_id"].isin(candidate_ids_set)]]
+        ).drop_duplicates(subset=["player_id"])
 
-        # Re-align sgp_volatility to the filtered (available) pool so that the
-        # lengths match the arrays above.  The input array is aligned to the
-        # full player_pool; after players are drafted the sizes diverge.
+        # Prepare arrays for simulation (from filtered pool)
+        available_ids = sim_available["player_id"].values
+        adp_values = sim_available["adp"].fillna(999).values.astype(float)
+        sgp_values = (
+            sim_available["total_sgp"].values.astype(float)
+            if "total_sgp" in sim_available.columns
+            else sim_available["pick_score"].values.astype(float)
+        )
+        positions = sim_available["positions"].tolist()
+
+        # Re-align sgp_volatility to the filtered sim pool so that the
+        # lengths match the arrays above.
         if sgp_volatility is not None and use_percentile_sampling:
             vol_series = pd.Series(sgp_volatility, index=player_pool["player_id"].values)
-            aligned_vol = vol_series.reindex(available["player_id"].values).fillna(0.0).values
+            aligned_vol = vol_series.reindex(sim_available["player_id"].values).fillna(0.0).values
         else:
             aligned_vol = None
 
-        # Re-align per_category_sgp to the available subset
+        # Re-align per_category_sgp to the sim pool subset
         aligned_cat_sgp = None
         if category_weights is not None and per_category_sgp is not None:
             pool_ids = player_pool["player_id"].values
-            avail_ids_set = set(available["player_id"].values)
-            # Build index mapping: pool position -> available position
-            avail_indices = [i for i, pid in enumerate(pool_ids) if pid in avail_ids_set]
-            if len(avail_indices) == len(available):
+            sim_ids_set = set(sim_available["player_id"].values)
+            # Build index mapping: pool position -> sim_available position
+            avail_indices = [i for i, pid in enumerate(pool_ids) if pid in sim_ids_set]
+            if len(avail_indices) == len(sim_available):
                 aligned_cat_sgp = per_category_sgp[avail_indices]
             else:
                 # Fallback: disable category-aware selection

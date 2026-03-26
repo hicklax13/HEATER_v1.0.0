@@ -22,6 +22,42 @@ try:
 except ImportError:
     statsapi = None
 
+# ── Team ID → Abbreviation Cache ─────────────────────────────────
+# MLB Stats API sports_players endpoint returns currentTeam.id (integer)
+# but NOT currentTeam.abbreviation. We build a lookup map from the
+# teams endpoint and cache per-season to avoid repeat API calls.
+
+_team_id_cache: dict[int, dict[int, str]] = {}
+
+
+def _build_team_id_map(season: int = 2026) -> dict[int, str]:
+    """Build team_id → abbreviation mapping from MLB Stats API."""
+    if season in _team_id_cache:
+        return _team_id_cache[season]
+    if statsapi is None:
+        return {}
+    try:
+        data = statsapi.get("teams", {"sportId": 1, "season": season})
+        mapping = {t["id"]: t["abbreviation"] for t in data.get("teams", [])}
+        _team_id_cache[season] = mapping
+        logger.info("Built team ID map: %d teams for season %d", len(mapping), season)
+        return mapping
+    except Exception:
+        logger.warning("Failed to build team ID map", exc_info=True)
+        return {}
+
+
+def _normalize_name(name: str) -> str:
+    """Strip Unicode accents and parenthetical suffixes for fuzzy matching."""
+    import re
+    import unicodedata
+
+    # Strip (Pitcher), (Batter) suffixes from Yahoo
+    name = re.sub(r"\s*\((?:Pitcher|Batter|P|B)\)\s*$", "", name).strip()
+    # Normalize Unicode accents: Iván → Ivan, José → Jose
+    nfkd = unicodedata.normalize("NFKD", name)
+    return "".join(c for c in nfkd if not unicodedata.combining(c))
+
 
 def match_player_id(player_name: str, team_abbr: str) -> int | None:
     """Match an external player name to our players table.
@@ -29,14 +65,33 @@ def match_player_id(player_name: str, team_abbr: str) -> int | None:
     When multiple entries exist for the same name (duplicates from different
     data sources), prefers the entry that has projection data attached — this
     is the canonical ID used by load_player_pool() and the trade engine.
+
+    Handles Unicode accent differences (Iván/Ivan) and Yahoo parenthetical
+    suffixes like '(Pitcher)'.
     """
     conn = get_connection()
     try:
         cursor = conn.cursor()
 
+        # Clean the input name
+        clean_name = _normalize_name(player_name)
+
         # Primary: exact name match, prefer entry with projections
         cursor.execute("SELECT player_id FROM players WHERE name = ?", (player_name,))
         results = cursor.fetchall()
+        # If exact match fails, try accent-stripped name
+        if not results and clean_name != player_name:
+            cursor.execute("SELECT player_id FROM players WHERE name = ?", (clean_name,))
+            results = cursor.fetchall()
+        # If still no match, try LIKE with first/last name (handles Iván vs Ivan in DB)
+        if not results:
+            parts = clean_name.split()
+            if len(parts) >= 2:
+                cursor.execute(
+                    "SELECT player_id FROM players WHERE name LIKE ? AND name LIKE ?",
+                    (f"{parts[0]}%", f"%{parts[-1]}"),
+                )
+                results = cursor.fetchall()
         if results:
             if len(results) == 1:
                 return results[0][0]
@@ -362,6 +417,10 @@ def fetch_all_mlb_players(season: int = 2026) -> pd.DataFrame:
         logger.warning("Failed to fetch player roster: %s", e)
         return pd.DataFrame()
 
+    # Build team_id → abbreviation map (sports_players returns only
+    # currentTeam.id, not abbreviation — see BUG-003)
+    team_map = _build_team_id_map(season)
+
     rows = []
     for p in data.get("people", []):
         if not p.get("active", False):
@@ -370,11 +429,12 @@ def fetch_all_mlb_players(season: int = 2026) -> pd.DataFrame:
         pos_abbr = pos_info.get("abbreviation", "Util")
         pos_type = pos_info.get("type", "")
         is_hitter = pos_type != "Pitcher" and pos_abbr != "P"
+        team_id = p.get("currentTeam", {}).get("id")
         rows.append(
             {
                 "mlb_id": p.get("id"),
                 "name": p.get("fullName", ""),
-                "team": p.get("currentTeam", {}).get("abbreviation", ""),
+                "team": team_map.get(team_id, ""),
                 "positions": pos_abbr if pos_abbr not in ("0", "-", "") else "Util",
                 "is_hitter": is_hitter,
                 "bats": p.get("batSide", {}).get("code", ""),
@@ -397,6 +457,9 @@ def fetch_extended_roster(season: int = 2026) -> pd.DataFrame:
     if statsapi is None:
         return fetch_all_mlb_players(season)
 
+    # Build team lookup once for all roster configs
+    team_map = _build_team_id_map(season)
+
     all_players = []
     roster_configs = [
         ("R", "active"),
@@ -416,11 +479,12 @@ def fetch_extended_roster(season: int = 2026) -> pd.DataFrame:
                 pos_abbr = pos_info.get("abbreviation", "Util")
                 pos_type = pos_info.get("type", "")
                 is_hitter = pos_type != "Pitcher" and pos_abbr != "P"
+                team_id = p.get("currentTeam", {}).get("id")
                 all_players.append(
                     {
                         "mlb_id": p.get("id"),
                         "name": p.get("fullName", ""),
-                        "team": p.get("currentTeam", {}).get("abbreviation", ""),
+                        "team": team_map.get(team_id, ""),
                         "positions": pos_abbr if pos_abbr not in ("0", "-", "") else "Util",
                         "is_hitter": is_hitter,
                         "bats": p.get("batSide", {}).get("code", ""),

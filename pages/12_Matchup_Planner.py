@@ -12,6 +12,8 @@ from src.league_manager import get_team_roster
 from src.ui_shared import (
     THEME,
     inject_custom_css,
+    page_timer_footer,
+    page_timer_start,
     render_compact_table,
     render_context_card,
     render_context_columns,
@@ -73,6 +75,7 @@ st.set_page_config(
 
 init_db()
 inject_custom_css()
+page_timer_start()
 
 render_page_layout(
     "MATCHUP PLANNER",
@@ -237,15 +240,19 @@ with main:
         st.info(f"No {player_type.lower()} found on this roster.")
         st.stop()
 
-    # Fetch weekly schedule
+    # Fetch weekly schedule (cached for 1 hour — schedule doesn't change frequently)
+    @st.cache_data(ttl=3600, show_spinner=False)
+    def _cached_schedule(_days: int):
+        try:
+            return get_weekly_schedule(days_ahead=_days)
+        except Exception as exc:
+            logger.warning("Could not fetch schedule: %s", exc)
+            return None
+
     weekly_schedule = None
     if SCHEDULE_AVAILABLE:
         with st.spinner("Fetching MLB schedule..."):
-            try:
-                weekly_schedule = get_weekly_schedule(days_ahead=int(days_ahead))
-            except Exception as exc:
-                logger.warning("Could not fetch schedule: %s", exc)
-                weekly_schedule = None
+            weekly_schedule = _cached_schedule(int(days_ahead))
 
     if not weekly_schedule:
         st.info(
@@ -464,3 +471,5 @@ with main:
         "or expected fielding-independent pitching (xFIP), scaled by park factor, platoon adjustment, "
         "home/away advantage, and games count. Percentile ranks are computed within hitters and pitchers separately."
     )
+
+page_timer_footer("Matchup Planner")

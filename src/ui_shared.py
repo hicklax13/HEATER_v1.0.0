@@ -2,6 +2,7 @@
 
 import html as _html
 import math as _math
+import time as _time
 
 try:
     import streamlit as st
@@ -2153,22 +2154,46 @@ _MLB_HEADSHOT_URL = (
 _HIDDEN_META_COLS = {"mlb_id", "player_id"}
 
 
+# Generic person silhouette SVG as data URI (used when no MLB headshot available)
+_AVATAR_FALLBACK_SVG = (
+    "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' "
+    "fill='%23999'%3E%3Ccircle cx='12' cy='8' r='4' fill='%23bbb'/%3E"
+    "%3Cpath d='M12 14c-5 0-8 2.5-8 5v1h16v-1c0-2.5-3-5-8-5z' fill='%23bbb'/%3E%3C/svg%3E"
+)
+
+
 def _headshot_img_html(mlb_id, size: int = 22) -> str:
-    """Return a tiny circular headshot <img> tag, or empty string if no mlb_id."""
-    if mlb_id is None:
-        return ""
-    try:
-        mid = int(mlb_id)
-    except (ValueError, TypeError):
-        return ""
-    if mid == 0 or _math.isnan(mid):
-        return ""
-    url = _MLB_HEADSHOT_URL.format(mlb_id=mid)
+    """Return a tiny circular headshot <img> tag.
+
+    Always returns a visible circle:
+    - If mlb_id is valid, shows the MLB headshot with fallback to generic avatar on error.
+    - If mlb_id is missing/invalid, shows the generic avatar directly.
+    """
+    _style = (
+        f"border-radius:50%;object-fit:cover;vertical-align:middle;"
+        f"margin-right:5px;border:1px solid rgba(0,0,0,0.08);flex-shrink:0;"
+        f"background:{THEME['card_h']};"
+    )
+    _onerror = f"this.onerror=null;this.src='{_AVATAR_FALLBACK_SVG}'"
+
+    has_mlb_id = False
+    if mlb_id is not None:
+        try:
+            mid = int(mlb_id)
+            if mid != 0 and not _math.isnan(mid):
+                has_mlb_id = True
+        except (ValueError, TypeError):
+            pass
+
+    if has_mlb_id:
+        url = _MLB_HEADSHOT_URL.format(mlb_id=mid)
+    else:
+        url = _AVATAR_FALLBACK_SVG
+
     return (
         f'<img src="{url}" width="{size}" height="{size}" '
-        f'style="border-radius:50%;object-fit:cover;vertical-align:middle;'
-        f'margin-right:5px;border:1px solid rgba(0,0,0,0.08);flex-shrink:0;" '
-        f'onerror="this.style.display=\'none\'" loading="lazy" />'
+        f'style="{_style}" '
+        f'onerror="{_onerror}" loading="lazy" />'
     )
 
 
@@ -2178,6 +2203,7 @@ def build_compact_table_html(
     row_classes=None,
     health_col=None,
     max_height=500,
+    show_avatars=None,
 ):
     """Build ESPN-style compact HTML table string from a DataFrame.
 
@@ -2207,8 +2233,12 @@ def build_compact_table_html(
         return '<div class="compact-table-wrap"><p style="padding:16px;color:#6b7280;font-size:13px;">No data available.</p></div>'
 
     # Detect headshot column — extract mlb_id values before hiding
-    has_headshots = "mlb_id" in df.columns
-    mlb_ids = df["mlb_id"].tolist() if has_headshots else []
+    has_mlb_col = "mlb_id" in df.columns
+    mlb_ids = df["mlb_id"].tolist() if has_mlb_col else []
+    # show_avatars: True = always show avatar circle (fallback SVG for missing mlb_id)
+    # Default: auto-enable when mlb_id column is present
+    if show_avatars is None:
+        show_avatars = has_mlb_col
 
     # Determine visible columns (hide meta columns)
     visible_cols = [c for c in df.columns if c not in _HIDDEN_META_COLS]
@@ -2261,11 +2291,10 @@ def build_compact_table_html(
                 dot_color = _HEALTH_DOT_COLORS.get(str(val), THEME["tx2"])
                 cell_html = f'<span class="health-dot" style="background:{dot_color};"></span>'
 
-            # Headshot injection for name column
-            if is_name_col and has_headshots and idx < len(mlb_ids):
-                headshot = _headshot_img_html(mlb_ids[idx])
-                if headshot:
-                    cell_html += headshot
+            # Headshot / avatar injection for name column
+            if is_name_col and show_avatars:
+                mid = mlb_ids[idx] if idx < len(mlb_ids) else None
+                cell_html += _headshot_img_html(mid)
 
             # Format numeric values — skip first col and health col
             _skip_cols = {first_col}
@@ -2312,7 +2341,7 @@ def build_compact_table_html(
     )
 
 
-def render_compact_table(df, highlight_cols=None, row_classes=None, health_col=None, max_height=500):
+def render_compact_table(df, highlight_cols=None, row_classes=None, health_col=None, max_height=500, show_avatars=None):
     """Render compact ESPN-style table via st.markdown().
 
     Thin wrapper around :func:`build_compact_table_html`.
@@ -2323,6 +2352,7 @@ def render_compact_table(df, highlight_cols=None, row_classes=None, health_col=N
         row_classes=row_classes,
         health_col=health_col,
         max_height=max_height,
+        show_avatars=show_avatars,
     )
     st.markdown(html, unsafe_allow_html=True)
 
@@ -2410,23 +2440,16 @@ def _render_player_card_header(profile: dict) -> None:
     else:
         dot_color = t["danger"]
 
-    # Headshot or placeholder
-    if headshot_url:
-        img_html = (
-            f'<img src="{headshot_url}" '
-            f'style="width:80px;height:80px;border-radius:50%;object-fit:cover;'
-            f'border:3px solid {t["hot"]};box-shadow:0 2px 8px rgba(0,0,0,0.15);" '
-            f"onerror=\"this.style.display='none'\" />"
-        )
-    else:
-        initials = "".join(w[0].upper() for w in name.split()[:2] if w) or "?"
-        img_html = (
-            f'<div style="width:80px;height:80px;border-radius:50%;'
-            f"background:linear-gradient(135deg,{t['hot']},{t['primary']});"
-            f"display:flex;align-items:center;justify-content:center;"
-            f"font-family:Bebas Neue,sans-serif;font-size:28px;color:#fff;"
-            f'font-weight:700;letter-spacing:2px;">{initials}</div>'
-        )
+    # Headshot or generic avatar placeholder
+    _card_onerror = f"this.onerror=null;this.src='{_AVATAR_FALLBACK_SVG}'"
+    src = headshot_url if headshot_url else _AVATAR_FALLBACK_SVG
+    img_html = (
+        f'<img src="{src}" '
+        f'style="width:80px;height:80px;border-radius:50%;object-fit:cover;'
+        f'border:3px solid {t["hot"]};box-shadow:0 2px 8px rgba(0,0,0,0.15);'
+        f'background:{t["bg"]};" '
+        f'onerror="{_card_onerror}" />'
+    )
 
     # Tag badges
     tag_colors = {
@@ -2798,3 +2821,98 @@ def render_player_select(player_names, player_ids, key_suffix="default"):
             show_player_card_dialog(int(pid))
         except (ValueError, IndexError):
             pass
+
+
+# ── Page Load Timing ─────────────────────────────────────────────
+
+
+def page_timer_start() -> None:
+    """Record the page render start time in session state.
+
+    Call at the very top of every page, before any heavy computation.
+    """
+    if st is None:
+        return
+    st.session_state["_page_timer_start"] = _time.perf_counter()
+
+
+def page_timer_footer(page_name: str = "") -> None:
+    """Render a subtle footer showing how long the page took to render.
+
+    Call at the very bottom of every page. Stores the result in
+    ``st.session_state["_page_load_times"]`` for cross-page comparison.
+    """
+    if st is None:
+        return
+    start = st.session_state.get("_page_timer_start")
+    if start is None:
+        return
+    elapsed = _time.perf_counter() - start
+    if "_page_load_times" not in st.session_state:
+        st.session_state["_page_load_times"] = {}
+    if page_name:
+        st.session_state["_page_load_times"][page_name] = elapsed
+    label = f"{page_name} loaded" if page_name else "Page loaded"
+    st.markdown(
+        f'<div style="text-align:right;padding:8px 12px 4px;'
+        f'font-size:11px;color:{THEME["tx2"]};font-family:monospace;">'
+        f"{label} in {elapsed:.2f}s</div>",
+        unsafe_allow_html=True,
+    )
+
+
+# ── Session-Level Valuation Cache ────────────────────────────────
+
+
+def get_session_config():
+    """Return a cached LeagueConfig with computed SGP denominators.
+
+    Computes once per session, reuses across all pages.
+    """
+    if st is None:
+        from src.valuation import LeagueConfig
+        return LeagueConfig()
+
+    if "_session_config" not in st.session_state:
+        from src.database import load_player_pool
+        from src.valuation import LeagueConfig, SGPCalculator, compute_sgp_denominators
+
+        pool = load_player_pool()
+        lc = LeagueConfig()
+        if not pool.empty:
+            denoms = compute_sgp_denominators(pool, lc)
+            lc.sgp_denominators.update(denoms)
+        st.session_state["_session_config"] = lc
+
+    return st.session_state["_session_config"]
+
+
+def get_session_replacement_levels():
+    """Return cached replacement levels computed once per session."""
+    if st is None:
+        return {}
+
+    if "_session_replacement_levels" not in st.session_state:
+        from src.database import load_player_pool
+        from src.valuation import SGPCalculator, compute_replacement_levels
+
+        pool = load_player_pool()
+        lc = get_session_config()
+        sgp = SGPCalculator(lc)
+        if not pool.empty:
+            st.session_state["_session_replacement_levels"] = compute_replacement_levels(pool, lc, sgp)
+        else:
+            st.session_state["_session_replacement_levels"] = {}
+
+    return st.session_state["_session_replacement_levels"]
+
+
+def invalidate_session_caches():
+    """Clear all session-level valuation caches.
+
+    Call after roster changes, data refresh, or config updates.
+    """
+    if st is None:
+        return
+    for key in ["_session_config", "_session_replacement_levels"]:
+        st.session_state.pop(key, None)

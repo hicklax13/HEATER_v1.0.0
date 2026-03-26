@@ -26,7 +26,16 @@ _FG_BOARD_URL = "https://www.fangraphs.com/api/prospects/board/data?draft=false&
 _MLB_MILB_STATS_URL = "https://statsapi.mlb.com/api/v1/people/{mlb_id}/stats?stats=yearByYear&leagueListId=milb_all"
 
 _RISK_MAP = {"Low": 1.0, "Medium": 0.8, "High": 0.6, "Extreme": 0.4}
-_HEADERS = {"User-Agent": "HEATER-Fantasy-Tool/1.0"}
+_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/131.0.0.0 Safari/537.36"
+    ),
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Referer": "https://www.fangraphs.com/prospects",
+}
 
 # -- Fallback static list (last resort) --------------------------------------
 

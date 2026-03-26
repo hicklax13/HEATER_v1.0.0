@@ -26,8 +26,30 @@ logger = logging.getLogger(__name__)
 # ── Constants ──────────────────────────────────────────────────────
 
 _BASE_URL = "https://www.fangraphs.com/api/projections"
-_TIMEOUT = 10  # seconds per request
-_RATE_LIMIT = 0.5  # seconds between requests
+_TIMEOUT = 15  # seconds per request
+_RATE_LIMIT = 1.5  # seconds between requests (more conservative to avoid 403)
+
+# Persistent session with browser-like headers to avoid FanGraphs bot detection.
+# FanGraphs checks User-Agent, Referer, and Accept headers; missing any of
+# these triggers a 403 Forbidden.  A Session also persists cookies across
+# requests, which some CDN/WAF layers require.
+_SESSION = requests.Session()
+_SESSION.headers.update(
+    {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/131.0.0.0 Safari/537.36"
+        ),
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Referer": "https://www.fangraphs.com/projections",
+        "Origin": "https://www.fangraphs.com",
+        "Sec-Fetch-Dest": "empty",
+        "Sec-Fetch-Mode": "cors",
+        "Sec-Fetch-Site": "same-origin",
+    }
+)
 
 # FG API type parameter → DB system column value
 SYSTEM_MAP = {
@@ -170,22 +192,98 @@ def fetch_projections(system: str, stats: str) -> tuple[pd.DataFrame, list[dict]
         "lg": "all",
         "players": "0",
     }
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/120.0.0.0 Safari/537.36"
-        ),
-    }
+
+    # Warm the session with a page visit on first request (gets cookies)
+    if not getattr(_SESSION, "_fg_warmed", False):
+        try:
+            _SESSION.get(
+                "https://www.fangraphs.com/projections",
+                timeout=_TIMEOUT,
+                allow_redirects=True,
+            )
+        except requests.exceptions.RequestException:
+            pass  # Non-fatal — API call may still work
+        _SESSION._fg_warmed = True  # type: ignore[attr-defined]
+
+    # Retry up to 2 times with increasing delay
+    last_exc = None
+    for attempt in range(3):
+        try:
+            resp = _SESSION.get(_BASE_URL, params=params, timeout=_TIMEOUT)
+            resp.raise_for_status()
+            raw = resp.json()
+            break
+        except requests.exceptions.RequestException as exc:
+            last_exc = exc
+            if attempt < 2:
+                time.sleep(_RATE_LIMIT * (attempt + 1))
+        except ValueError as exc:
+            raise FetchError(f"Invalid JSON from {system}/{stats}: {exc}") from exc
+    else:
+        # JSON API failed (likely 403) — try HTML __NEXT_DATA__ extraction
+        try:
+            logger.info("JSON API failed for %s/%s, trying HTML extraction...", system, stats)
+            time.sleep(_RATE_LIMIT)
+            return _fetch_fg_html_projections(system, stats)
+        except FetchError:
+            pass
+        raise FetchError(f"Failed to fetch {system}/{stats}: {last_exc}") from last_exc
+
+    if stats == "bat":
+        return normalize_hitter_json(raw), raw
+    else:
+        return normalize_pitcher_json(raw), raw
+
+
+def _fetch_fg_html_projections(system: str, stats: str) -> tuple[pd.DataFrame, list[dict]]:
+    """Fallback: extract projections from FanGraphs HTML __NEXT_DATA__ tag.
+
+    The JSON API (/api/projections) returns 403 due to Cloudflare WAF,
+    but HTML pages return 200 with full projection data embedded in
+    Next.js server-side props as ``<script id="__NEXT_DATA__">``.
+
+    Returns same format as :func:`fetch_projections`.
+    """
+    import json as _json
+    import re as _re
+
+    url = (
+        f"https://www.fangraphs.com/projections"
+        f"?type={system}&stats={stats}&pos=all&team=0&lg=all&players=0"
+    )
+    try:
+        resp = _SESSION.get(url, timeout=20)
+        resp.raise_for_status()
+    except requests.exceptions.RequestException as exc:
+        raise FetchError(f"HTML fetch failed for {system}/{stats}: {exc}") from exc
+
+    match = _re.search(
+        r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', resp.text
+    )
+    if not match:
+        raise FetchError(f"No __NEXT_DATA__ found for {system}/{stats}")
 
     try:
-        resp = requests.get(_BASE_URL, params=params, headers=headers, timeout=_TIMEOUT)
-        resp.raise_for_status()
-        raw = resp.json()
-    except requests.exceptions.RequestException as exc:
-        raise FetchError(f"Failed to fetch {system}/{stats}: {exc}") from exc
-    except ValueError as exc:
-        raise FetchError(f"Invalid JSON from {system}/{stats}: {exc}") from exc
+        nd = _json.loads(match.group(1))
+        raw = nd["props"]["pageProps"]["dehydratedState"]["queries"][0]["state"]["data"]
+    except (KeyError, IndexError, _json.JSONDecodeError) as exc:
+        raise FetchError(f"Failed to parse __NEXT_DATA__ for {system}/{stats}: {exc}") from exc
+
+    if not raw:
+        raise FetchError(f"Empty data in __NEXT_DATA__ for {system}/{stats}")
+
+    # Normalize column names to match the JSON API format expected by
+    # normalize_hitter_json / normalize_pitcher_json
+    for player in raw:
+        if "ShortName" in player and "PlayerName" not in player:
+            player["PlayerName"] = player["ShortName"]
+        if "SO" in player and "K" not in player:
+            player["K"] = player["SO"]
+        # Ensure minpos exists for hitters (position detection)
+        if stats == "bat" and "minpos" not in player:
+            player["minpos"] = player.get("Pos", "Util")
+
+    logger.info("HTML extraction: %d %s from %s", len(raw), stats, system)
 
     if stats == "bat":
         return normalize_hitter_json(raw), raw

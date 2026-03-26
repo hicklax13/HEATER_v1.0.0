@@ -12,6 +12,8 @@ from src.league_manager import get_free_agents, get_team_roster
 from src.ui_shared import (
     METRIC_TOOLTIPS,
     inject_custom_css,
+    page_timer_footer,
+    page_timer_start,
     render_compact_table,
     render_context_card,
     render_context_columns,
@@ -32,6 +34,7 @@ st.set_page_config(
 init_db()
 
 inject_custom_css()
+page_timer_start()
 
 render_page_layout("FREE AGENTS", banner_teaser="Top free agent pickups by marginal value", banner_icon="free_agents")
 
@@ -101,8 +104,29 @@ else:
         else:
             user_roster_ids = user_roster["player_id"].tolist() if not user_roster.empty else []
 
-        # Get free agents
-        fa_pool = get_free_agents(pool)
+        # Get free agents — prefer Yahoo-confirmed FA list when available
+        yahoo_client = st.session_state.get("yahoo_client")
+        if yahoo_client is not None:
+            try:
+                yahoo_fas = yahoo_client.get_all_free_agents(max_players=500)
+                if not yahoo_fas.empty:
+                    # Match Yahoo FA names to our player pool
+                    from src.live_stats import match_player_id
+
+                    yahoo_pids = set()
+                    for _, row in yahoo_fas.iterrows():
+                        pid = match_player_id(row.get("player_name", ""), row.get("team", ""))
+                        if pid is not None:
+                            yahoo_pids.add(pid)
+                    fa_pool = pool[pool["player_id"].isin(yahoo_pids)].copy()
+                    st.caption(f"Showing {len(fa_pool)} Yahoo-confirmed free agents (synced from your league)")
+                else:
+                    fa_pool = get_free_agents(pool)
+            except Exception:
+                logger.debug("Yahoo FA fetch failed, falling back to DB", exc_info=True)
+                fa_pool = get_free_agents(pool)
+        else:
+            fa_pool = get_free_agents(pool)
         if fa_pool.empty:
             st.info("No free agents available (all players are rostered).")
         else:
@@ -183,3 +207,5 @@ else:
                                 ranked["player_id"].tolist(),
                                 key_suffix="freeagents",
                             )
+
+page_timer_footer("Free Agents")

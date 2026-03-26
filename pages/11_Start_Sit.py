@@ -12,6 +12,8 @@ from src.league_manager import get_team_roster
 from src.ui_shared import (
     THEME,
     inject_custom_css,
+    page_timer_footer,
+    page_timer_start,
     render_compact_table,
     render_context_card,
     render_context_columns,
@@ -53,6 +55,7 @@ st.set_page_config(
 
 init_db()
 inject_custom_css()
+page_timer_start()
 
 render_page_layout(
     "START/SIT ADVISOR",
@@ -445,3 +448,5 @@ with main:
             f"</div>",
             unsafe_allow_html=True,
         )
+
+page_timer_footer("Start Sit")

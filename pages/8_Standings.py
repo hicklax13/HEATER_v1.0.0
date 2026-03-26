@@ -6,9 +6,11 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-from src.database import init_db, load_league_rosters, load_league_standings
+from src.database import get_connection, init_db, load_league_rosters, load_league_standings
 from src.ui_shared import (
     inject_custom_css,
+    page_timer_footer,
+    page_timer_start,
     render_compact_table,
     render_context_card,
     render_context_columns,
@@ -32,11 +34,107 @@ try:
 except ImportError:
     POWER_RANKINGS_AVAILABLE = False
 
+def _compute_projected_team_totals() -> dict[str, dict[str, float]]:
+    """Compute projected season totals for each team from roster + projections.
+
+    Returns dict of {team_name: {category: projected_weekly_avg}}.
+    Uses blended projections, falls back to any available system.
+    """
+    conn = get_connection()
+    try:
+        df = pd.read_sql_query(
+            """
+            SELECT lr.team_name, p.is_hitter,
+                   COALESCE(proj.pa, 0) as pa, COALESCE(proj.ab, 0) as ab,
+                   COALESCE(proj.h, 0) as h, COALESCE(proj.r, 0) as r,
+                   COALESCE(proj.hr, 0) as hr, COALESCE(proj.rbi, 0) as rbi,
+                   COALESCE(proj.sb, 0) as sb,
+                   COALESCE(proj.bb, 0) as bb, COALESCE(proj.hbp, 0) as hbp,
+                   COALESCE(proj.sf, 0) as sf,
+                   COALESCE(proj.ip, 0) as ip, COALESCE(proj.w, 0) as w,
+                   COALESCE(proj.l, 0) as l, COALESCE(proj.sv, 0) as sv,
+                   COALESCE(proj.k, 0) as k,
+                   COALESCE(proj.er, 0) as er,
+                   COALESCE(proj.bb_allowed, 0) as bb_allowed,
+                   COALESCE(proj.h_allowed, 0) as h_allowed
+            FROM league_rosters lr
+            JOIN players p ON lr.player_id = p.player_id
+            LEFT JOIN projections proj ON p.player_id = proj.player_id
+                AND proj.system = 'blended'
+            """,
+            conn,
+        )
+    finally:
+        conn.close()
+
+    if df.empty:
+        return {}
+
+    # Convert season projections to weekly averages (26-week season)
+    weeks = 26.0
+    team_totals: dict[str, dict[str, float]] = {}
+
+    for team, group in df.groupby("team_name"):
+        hitters = group[group["is_hitter"] == 1]
+        pitchers = group[group["is_hitter"] == 0]
+
+        # Counting stats: season total / weeks
+        total_r = float(hitters["r"].sum()) / weeks
+        total_hr = float(hitters["hr"].sum()) / weeks
+        total_rbi = float(hitters["rbi"].sum()) / weeks
+        total_sb = float(hitters["sb"].sum()) / weeks
+
+        # Rate stats: weighted averages
+        total_ab = float(hitters["ab"].sum())
+        total_h = float(hitters["h"].sum())
+        total_pa = float(hitters["pa"].sum())
+        total_bb_h = float(hitters["bb"].sum())
+        total_hbp = float(hitters["hbp"].sum())
+        total_sf = float(hitters["sf"].sum())
+
+        avg = total_h / total_ab if total_ab > 0 else 0.250
+        obp_denom = total_ab + total_bb_h + total_hbp + total_sf
+        obp = (total_h + total_bb_h + total_hbp) / obp_denom if obp_denom > 0 else 0.330
+
+        # Pitching counting stats
+        total_w = float(pitchers["w"].sum()) / weeks
+        total_l = float(pitchers["l"].sum()) / weeks
+        total_sv = float(pitchers["sv"].sum()) / weeks
+        total_k = float(pitchers["k"].sum()) / weeks
+
+        # Pitching rate stats
+        total_ip = float(pitchers["ip"].sum())
+        total_er = float(pitchers["er"].sum())
+        total_bb_p = float(pitchers["bb_allowed"].sum())
+        total_h_p = float(pitchers["h_allowed"].sum())
+
+        era = (total_er * 9) / total_ip if total_ip > 0 else 4.00
+        whip = (total_bb_p + total_h_p) / total_ip if total_ip > 0 else 1.25
+
+        team_totals[str(team)] = {
+            "R": total_r,
+            "HR": total_hr,
+            "RBI": total_rbi,
+            "SB": total_sb,
+            "AVG": avg,
+            "OBP": obp,
+            "W": total_w,
+            "L": total_l,
+            "SV": total_sv,
+            "K": total_k,
+            "ERA": era,
+            "WHIP": whip,
+        }
+
+    return team_totals
+
+
 st.set_page_config(page_title="Heater | Standings", page_icon="", layout="wide", initial_sidebar_state="collapsed")
 
 init_db()
 
 inject_custom_css()
+page_timer_start()
 
 render_page_layout("STANDINGS", banner_teaser="Projected standings and power rankings", banner_icon="standings")
 
@@ -81,7 +179,11 @@ with ctx:
                     team_totals.setdefault(t, {})[c] = v
 
             if not team_totals:
-                # Fall back to synthetic demo data
+                # Compute from roster projections
+                team_totals = _compute_projected_team_totals()
+
+            if not team_totals:
+                # Last resort: synthetic demo data
                 rng = np.random.default_rng(42)
                 for name in team_names_list:
                     team_totals[name] = {
@@ -134,7 +236,28 @@ with main:
                 )
                 render_compact_table(pivot)
             else:
-                st.info("No live league standings data available. Connect your Yahoo league to populate real data.")
+                # Show projected totals from roster projections
+                proj_totals = _compute_projected_team_totals()
+                if proj_totals:
+                    st.markdown("**Projected Season Totals (from Roster Projections)**")
+                    st.caption("No live stats yet — showing projections based on each team's roster.")
+                    rows = []
+                    for team, cats in sorted(proj_totals.items()):
+                        row = {"Team": team}
+                        for cat in ["R", "HR", "RBI", "SB", "AVG", "OBP", "W", "L", "SV", "K", "ERA", "WHIP"]:
+                            val = cats.get(cat, 0)
+                            if cat in ("AVG", "OBP"):
+                                row[cat] = f"{val:.3f}"
+                            elif cat in ("ERA",):
+                                row[cat] = f"{val:.2f}"
+                            elif cat in ("WHIP",):
+                                row[cat] = f"{val:.3f}"
+                            else:
+                                row[cat] = f"{val:.1f}"
+                        rows.append(row)
+                    render_compact_table(pd.DataFrame(rows))
+                else:
+                    st.info("No live league standings data available. Connect your Yahoo league to populate real data.")
 
             if "standings_result" in st.session_state:
                 st.markdown("**Projected Season Results (Monte Carlo Simulation)**")
@@ -278,3 +401,5 @@ with main:
                 render_compact_table(pr_df)
             except Exception as e:
                 st.error(f"Power rankings computation failed: {e}")
+
+page_timer_footer("Standings")

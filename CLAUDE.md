@@ -346,25 +346,57 @@ get_injury_badge(health_score) -> tuple[str, str]  # returns <span> with CSS dot
 
 ## Testing
 
-- **1991 passing tests** across 83 test files, 3 skipped (PyMC/xgboost optional deps)
+- **2022 passing tests** across 83+ test files, 4 skipped (PyMC/xgboost optional deps)
 - **CI:** GitHub Actions — ruff lint/format + pytest on Python 3.11, 3.12, 3.13
 - **Coverage:** 64% (above 60% CI threshold)
 - **8 rounds of systematic debugging** (207 bugs fixed) + **data pipeline audit** (32 issues fixed), all CI green
+- **Full system audit** (March 26, 2026) — 19 bugs cataloged, all critical/high fixed
 - **Manual UI testing** — All 13 pages tested via Playwright + Claude in Chrome (March 2026)
 
 ## Current Implementation Plan
 
-**Read `plan_1.md` at the start of every session.** It is the active implementation plan.
+**Read `The_Last_Plan.md` at the start of every session.** It is the active implementation plan.
 
-- **Plan 1:** Post-draft in-season polish — headshots, performance optimization, player availability audit
-- **Status:** Phase A (bug fixes) committed; Phases B-D pending
-- **Key benchmarks:** `load_player_pool()` = 6.5s, Draft Engine = 107-213s, Bootstrap = 14s
+- **The Last Plan:** AVIS-driven in-season optimization — Yahoo exhaustive FA sync, AVIS hard constraints, opponent intelligence, weekly automation
+- **Status:** All 4 phases implemented and tested (2022 pass, 0 fail)
+- **Previous plans:** `plan_1.md` (completed), `Full_Debug_Plan.md` (completed)
+- **AVIS Manual:** `AVIS_FANTASY_BASEBALL_OPS_MANUAL_2026.md` — the "bible" for league rules, scoring, team analysis
 - **Season context:** MLB 2026 season started March 25. Fantasy draft completed. App is now in-season mode.
+
+## New Modules (Added March 26, 2026)
+
+- **`src/alerts.py`** — AVIS-enforced decision rules: auto-IL, closer handcuff, streaming SP, sell-high/buy-low triggers
+- **`src/opponent_intel.py`** — Opponent roster analysis, trade target finder, weakness detection
+- **`src/weekly_report.py`** — Monday morning briefing: roster health, matchup preview, waiver targets, trade opportunities
+- **`src/ip_tracker.py`** — Weekly IP tracking toward 1,400 IP target (AVIS requirement)
+
+## Key Fixes (March 26, 2026)
+
+- **BUG-001 FIXED:** FanGraphs 403 → pybaseball + Marcel fallback pipeline
+- **BUG-003 FIXED:** Empty team fields → team_id-to-abbreviation mapping from MLB API
+- **BUG-004 FIXED:** 780 players → 9,213 via expanded roster fetch (40-man + spring training)
+- **Yahoo exhaustive FA sync** — Paginated fetch of ALL league free agents (not just 50)
+- **Start/Sit scoring** — ERA/WHIP now use delta-from-baseline SGP (was all-negative)
+- **Trade Analyzer** — Dropdown shows tradeable players from other teams (was 9K player pool)
+- **Lineup Optimizer** — Pitchers now counted in starting lineup (was hitter-only)
+- **Points Leaders** — Fixed `list.empty` AttributeError, returns DataFrame
 
 ## Season State (2026)
 
 - **MLB game_key:** 469
 - **Draft:** Completed (snake, 23 rounds)
 - **Mode:** In-season management (rosters, trades, waivers, matchups)
-- **Yahoo token:** Auto-refreshes via `data/yahoo_token.json`
-- **Player pool:** 9,226 players loaded from MLB Stats API + FanGraphs
+- **Yahoo token:** Auto-refreshes via `data/yahoo_token.json` (persistent across sessions)
+- **Yahoo auto-reconnect:** `_try_reconnect_yahoo()` loads token on every app launch
+- **Player pool:** 9,213 players loaded from MLB Stats API + pybaseball + Marcel
+- **League rosters:** All 12 teams synced (264 players)
+- **Free agents:** Exhaustive pagination from Yahoo API
+
+## Resume Checklist (New Session)
+
+1. Read `CLAUDE.md` (this file) and `The_Last_Plan.md`
+2. Read `AVIS_FANTASY_BASEBALL_OPS_MANUAL_2026.md` (league bible)
+3. Check `docs/AUDIT_REPORT.md` for any remaining bugs
+4. Run `python -m pytest -x -q` to verify all tests pass
+5. Run app with `streamlit run app.py` and verify Yahoo auto-reconnect works
+6. Continue with any remaining tasks from The Last Plan or user requests

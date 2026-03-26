@@ -13,6 +13,8 @@ from src.ui_shared import (
     PAGE_ICONS,
     THEME,
     inject_custom_css,
+    page_timer_footer,
+    page_timer_start,
     render_compact_table,
     render_context_card,
     render_context_columns,
@@ -423,6 +425,7 @@ st.set_page_config(page_title="Heater | My Team", page_icon="", layout="wide", i
 init_db()
 
 inject_custom_css()
+page_timer_start()
 
 # Determine user team
 rosters = load_league_rosters()
@@ -731,6 +734,105 @@ else:
                 banner_teaser += f" | {len(il_players)} on IL/DTD"
 
             render_page_layout("MY TEAM", banner_teaser=banner_teaser, banner_icon="my_team")
+
+            # ── AVIS Alerts ──────────────────────────────────────────────
+            try:
+                from src.opponent_intel import get_current_opponent
+
+                opp = get_current_opponent()
+                if opp:
+                    tier_colors = {1: T["danger"], 2: T["warn"], 3: T["sky"], 4: T["green"]}
+                    tier_color = tier_colors.get(opp["tier"], T["tx2"])
+                    st.markdown(
+                        f'<div style="background:{T["card"]};border-left:4px solid {tier_color};'
+                        f'padding:8px 12px;border-radius:6px;margin-bottom:8px;font-size:13px;'
+                        f'font-family:IBM Plex Mono,monospace;">'
+                        f'<b>Week {opp["week"]}</b> vs <b>{opp["name"]}</b> '
+                        f'(Tier {opp["tier"]} — {opp["threat"]} threat) '
+                        f'| Strengths: {", ".join(opp.get("strengths", []))} '
+                        f'| Weaknesses: {", ".join(opp.get("weaknesses", []))}'
+                        f"</div>",
+                        unsafe_allow_html=True,
+                    )
+            except Exception:
+                pass  # Non-fatal
+
+            # AVIS Rule #1: IP Watch
+            try:
+                from src.ip_tracker import compute_weekly_ip_projection, get_days_remaining_in_week
+
+                pitcher_data = []
+                for _, p in roster.iterrows():
+                    if p.get("is_hitter") == 0 or str(p.get("positions", "")).upper() in ("P", "SP", "RP"):
+                        pitcher_data.append({"name": p.get("name", ""), "ip": p.get("ip", 0)})
+                if pitcher_data:
+                    ip_result = compute_weekly_ip_projection(pitcher_data, get_days_remaining_in_week())
+                    ip_color = {"safe": T["green"], "warning": T["warn"], "danger": T["danger"]}
+                    st.markdown(
+                        f'<div style="background:{T["card"]};border-left:4px solid '
+                        f'{ip_color.get(ip_result["status"], T["tx2"])};'
+                        f'padding:6px 12px;border-radius:6px;margin-bottom:8px;font-size:12px;'
+                        f'font-family:IBM Plex Mono,monospace;">'
+                        f'IP Watch: {ip_result["projected_ip"]} / {ip_result["ip_needed"]:.0f} '
+                        f'({ip_result["ip_pace"]:.0f}% pace) — {ip_result["message"]}'
+                        f"</div>",
+                        unsafe_allow_html=True,
+                    )
+            except Exception:
+                pass  # Non-fatal
+
+            # AVIS Rule #2: Closer count
+            try:
+                closer_count = 0
+                for _, p in roster.iterrows():
+                    sv = float(p.get("sv", 0) or 0)
+                    if sv >= 5:
+                        closer_count += 1
+                if closer_count < 2:
+                    st.warning(f"Closer Alert: Only {closer_count} closer(s) rostered. AVIS requires minimum 2.")
+            except Exception:
+                pass
+
+            # Proactive Alerts (AVIS Section 6)
+            try:
+                from src.alerts import generate_roster_alerts, render_alerts_html
+
+                news_df = pd.DataFrame()
+                try:
+                    _conn = get_connection()
+                    news_df = pd.read_sql_query(
+                        "SELECT * FROM player_news ORDER BY fetched_at DESC LIMIT 20", _conn
+                    )
+                    _conn.close()
+                except Exception:
+                    pass
+
+                alerts = generate_roster_alerts(
+                    roster=roster,
+                    player_news=news_df if not news_df.empty else None,
+                    max_roster_size=23,
+                )
+                if alerts:
+                    alerts_html = render_alerts_html(alerts, T)
+                    if alerts_html:
+                        st.markdown(alerts_html, unsafe_allow_html=True)
+            except Exception:
+                pass  # Non-fatal
+
+            # Daily Lineup Check (AVIS Section 5)
+            try:
+                from src.weekly_report import check_daily_lineup, get_todays_mlb_games
+
+                todays_teams = get_todays_mlb_games()
+                if todays_teams:
+                    lineup_alerts = check_daily_lineup(roster, todays_teams)
+                    for la in lineup_alerts:
+                        if la["severity"] == "warning":
+                            st.warning(f"{la['player']}: {la['issue']} — {la['recommendation']}")
+                        else:
+                            st.info(f"{la['player']}: {la['issue']}")
+            except Exception:
+                pass  # Non-fatal
 
             # -- 3-Zone Layout --
             ctx, main = render_context_columns()
@@ -1101,10 +1203,14 @@ else:
                                 stat_display = ["player_id", "avg", "hr", "rbi", "sb", "era", "whip", "k"]
                                 show_cols = [c for c in stat_display if c in updated.columns]
                                 bayes_df = updated[show_cols].copy()
-                                # Replace player_id with player name from players table
+                                # Replace player_id with player name + add mlb_id for headshots
                                 if "player_id" in bayes_df.columns:
-                                    players_lookup = pd.read_sql_query("SELECT player_id, name FROM players", conn)
+                                    players_lookup = pd.read_sql_query("SELECT player_id, name, mlb_id FROM players", conn)
                                     pid_to_name = dict(zip(players_lookup["player_id"], players_lookup["name"]))
+                                    pid_to_mlb = dict(zip(players_lookup["player_id"], players_lookup["mlb_id"]))
+                                    bayes_df["mlb_id"] = bayes_df["player_id"].map(
+                                        lambda x: pid_to_mlb.get(int(x)) if pd.notna(x) else None
+                                    )
                                     bayes_df["player_id"] = bayes_df["player_id"].map(
                                         lambda x: pid_to_name.get(int(x), f"Player {int(x)}") if pd.notna(x) else ""
                                     )
@@ -1143,3 +1249,5 @@ else:
                     unsafe_allow_html=True,
                 )
                 _render_news_tab(roster)
+
+page_timer_footer("My Team")

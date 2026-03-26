@@ -241,7 +241,7 @@ class TestSystemMapping:
 
 
 class TestFetchProjections:
-    @patch("src.data_pipeline.requests.get")
+    @patch("src.data_pipeline._SESSION.get")
     def test_success_hitters(self, mock_get):
         """Successful fetch returns normalized hitter DataFrame + raw JSON."""
         from src.data_pipeline import fetch_projections
@@ -257,7 +257,7 @@ class TestFetchProjections:
         assert df.iloc[0]["is_hitter"] is True or df.iloc[0]["is_hitter"] == 1
         assert raw == SAMPLE_HITTER_JSON
 
-    @patch("src.data_pipeline.requests.get")
+    @patch("src.data_pipeline._SESSION.get")
     def test_success_pitchers(self, mock_get):
         """Successful fetch returns normalized pitcher DataFrame + raw JSON."""
         from src.data_pipeline import fetch_projections
@@ -271,7 +271,7 @@ class TestFetchProjections:
         assert len(df) == 3
         assert "k" in df.columns
 
-    @patch("src.data_pipeline.requests.get")
+    @patch("src.data_pipeline._SESSION.get")
     def test_network_error_raises(self, mock_get):
         """Network error raises FetchError."""
         from src.data_pipeline import FetchError, fetch_projections
@@ -280,7 +280,7 @@ class TestFetchProjections:
         with pytest.raises(FetchError):
             fetch_projections("steamer", "bat")
 
-    @patch("src.data_pipeline.requests.get")
+    @patch("src.data_pipeline._SESSION.get")
     def test_correct_url_params(self, mock_get):
         """Verifies the correct URL and query params are sent."""
         from src.data_pipeline import fetch_projections

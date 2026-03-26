@@ -11,6 +11,8 @@ from src.ui_shared import (
     get_plotly_layout,
     get_plotly_polar,
     inject_custom_css,
+    page_timer_footer,
+    page_timer_start,
     render_compact_table,
     render_context_card,
     render_context_columns,
@@ -53,6 +55,7 @@ st.set_page_config(page_title="Heater | Leaders", page_icon="", layout="wide", i
 init_db()
 
 inject_custom_css()
+page_timer_start()
 
 render_page_layout("LEADERS", banner_teaser="Category leaders and breakout detection", banner_icon="leaders")
 
@@ -399,9 +402,11 @@ with main:
                     st.stop()
                 if _is_proj:
                     st.caption("Showing preseason projections — season stats not yet available.")
+                total_eligible = len(stats_df)
                 leaders = compute_category_leaders(stats_df, categories=[category], top_n=15)
                 if category in leaders:
                     ldf = leaders[category].copy()
+                    st.caption(f"Showing top {len(ldf)} of {total_eligible:,} eligible players")
                     stat_col = _CAT_COL.get(category, category.lower())
                     show_cols = ["name", "team", "positions", stat_col]
                     # Include mlb_id for headshot rendering (auto-hidden by table)
@@ -440,9 +445,11 @@ with main:
                     st.stop()
                 if _is_proj_pts:
                     st.caption("Showing preseason projections — season stats not yet available.")
+                total_pts_eligible = len(stats_df_pts)
                 pts_leaders = compute_points_leaders(stats_df_pts, hitting_w, pitching_w, top_n=20)
                 if not pts_leaders.empty:
                     pts_df = pts_leaders.copy()
+                    st.caption(f"Showing top {len(pts_df)} of {total_pts_eligible:,} eligible players")
                     _pts_show = ["name", "team", "positions", "fantasy_points"]
                     # Include mlb_id for headshot rendering (auto-hidden by table)
                     if "mlb_id" in pts_df.columns:
@@ -552,7 +559,7 @@ with main:
                                 col_map[c] = label
 
                         display_df = prospects_df[display_cols].rename(columns=col_map)
-                        render_compact_table(display_df)
+                        render_compact_table(display_df, show_avatars=True)
 
                         # -- Expandable scouting details per prospect -----------------
                         st.markdown("---")
@@ -614,3 +621,5 @@ with main:
 
             except Exception as e:
                 st.error(f"Failed to load prospect rankings: {e}")
+
+page_timer_footer("Leaders")

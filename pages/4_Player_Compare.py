@@ -15,6 +15,8 @@ from src.ui_shared import (
     get_plotly_polar,
     get_theme,
     inject_custom_css,
+    page_timer_footer,
+    page_timer_start,
     render_compact_table,
     render_context_card,
     render_context_columns,
@@ -36,6 +38,7 @@ st.set_page_config(page_title="Heater | Player Compare", page_icon="", layout="w
 init_db()
 
 inject_custom_css()
+page_timer_start()
 
 render_page_layout("PLAYER COMPARE", banner_teaser="Select two players to compare", banner_icon="player_compare")
 
@@ -346,3 +349,5 @@ with ctx:
             "Search and select two different players to see composite scores and category breakdown."
             "</p>",
         )
+
+page_timer_footer("Player Compare")

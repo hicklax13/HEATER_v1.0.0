@@ -60,6 +60,7 @@ def build_closer_grid(
         era = 0.0
         whip = 0.0
 
+        mlb_id = None
         if player_pool is not None and not player_pool.empty:
             match = player_pool[(player_pool["name"] == closer_name) & (player_pool["team"] == team)]
             if not match.empty:
@@ -70,6 +71,7 @@ def build_closer_grid(
                 era = 0.0 if pd.isna(_era) else float(_era or 0)
                 _whip = row.get("whip", 0)
                 whip = 0.0 if pd.isna(_whip) else float(_whip or 0)
+                mlb_id = row.get("mlb_id")
 
         security = compute_job_security(confidence, projected_sv)
         grid.append(
@@ -82,6 +84,7 @@ def build_closer_grid(
                 "projected_sv": projected_sv,
                 "era": era,
                 "whip": whip,
+                "mlb_id": mlb_id,
             }
         )
 

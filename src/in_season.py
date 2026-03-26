@@ -238,11 +238,20 @@ def rank_free_agents(
     fa_pool: pd.DataFrame,
     full_pool: pd.DataFrame,
     config: LeagueConfig,
+    max_candidates: int = 200,
 ) -> pd.DataFrame:
-    """Rank free agents by marginal value relative to user's roster."""
+    """Rank free agents by marginal value relative to user's roster.
+
+    Pre-filters to top ``max_candidates`` by ADP before computing marginal
+    SGP to avoid iterating over 9,000+ players row-by-row.
+    """
     sgp_calc = SGPCalculator(config)
     roster_totals = _roster_category_totals(user_roster_ids, full_pool)
     weights = compute_category_weights(roster_totals, config)
+
+    # Pre-filter: only rank FAs plausibly worth adding (top N by ADP)
+    if len(fa_pool) > max_candidates and "adp" in fa_pool.columns:
+        fa_pool = fa_pool.nsmallest(max_candidates, "adp")
 
     records = []
     for _, fa in fa_pool.iterrows():

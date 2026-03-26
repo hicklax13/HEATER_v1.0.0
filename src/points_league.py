@@ -157,7 +157,7 @@ def compute_points_leaders(
     hitting_weights: dict[str, float],
     pitching_weights: dict[str, float],
     top_n: int = 20,
-) -> list[dict]:
+) -> pd.DataFrame:
     """Return the top-N fantasy points scorers.
 
     Parameters
@@ -171,16 +171,16 @@ def compute_points_leaders(
 
     Returns
     -------
-    list[dict]
-        Sorted list of player dicts with fantasy_points column.
+    pd.DataFrame
+        Sorted DataFrame with fantasy_points column.
     """
     if stats_df.empty:
-        return []
+        return pd.DataFrame()
     scored = compute_fantasy_points(stats_df, hitting_weights, pitching_weights)
     scored = scored.sort_values("fantasy_points", ascending=False).head(top_n)
-    # Pick display columns
-    display_cols = ["name", "team", "positions", "fantasy_points"]
+    # Pick display columns (include mlb_id/player_id for headshots and player cards)
+    display_cols = ["player_id", "name", "team", "positions", "fantasy_points", "mlb_id"]
     available = [c for c in display_cols if c in scored.columns]
     if not available:
         available = scored.columns.tolist()
-    return scored[available].to_dict("records")
+    return scored[available].reset_index(drop=True)

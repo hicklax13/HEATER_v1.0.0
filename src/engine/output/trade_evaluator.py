@@ -666,6 +666,16 @@ def evaluate_trade(
     # Step 7: Grade the trade
     trade_grade = grade_trade(total_surplus)
 
+    # AVIS Rule #3: Never make a trade that worsens 3+ categories
+    worsened_cats = [
+        cat for cat, delta in category_impact.items()
+        if delta < -0.1  # meaningful worsening threshold
+    ]
+    avis_compliant = len(worsened_cats) < 3
+    if not avis_compliant:
+        trade_grade = "F"
+        total_surplus = min(total_surplus, -1.0)  # Force negative
+
     # Risk flags
     risk_flags: list[str] = _compute_risk_flags(
         giving_ids=giving_ids,
@@ -694,6 +704,15 @@ def evaluate_trade(
     giving_players = _get_player_names(giving_ids, player_pool, name_col)
     receiving_players = _get_player_names(receiving_ids, player_pool, name_col)
 
+    # Add AVIS violation to risk flags
+    if not avis_compliant:
+        risk_flags.insert(
+            0,
+            f"AVIS RULE VIOLATION: Trade worsens {len(worsened_cats)} categories "
+            f"({', '.join(worsened_cats)}). Auto-rejected per league strategy.",
+        )
+        verdict = "DECLINE"
+
     result = {
         "grade": trade_grade,
         "surplus_sgp": round(total_surplus, 3),
@@ -705,6 +724,7 @@ def evaluate_trade(
         "replacement_detail": replacement_detail,
         "risk_flags": risk_flags,
         "verdict": verdict,
+        "avis_compliant": avis_compliant,
         "confidence_pct": round(confidence_pct, 1),
         "before_totals": before_totals,
         "after_totals": after_totals,

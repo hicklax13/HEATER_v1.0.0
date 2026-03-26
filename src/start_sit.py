@@ -41,6 +41,17 @@ _ALPHA_MAP: dict[str, float] = {
 _HOME_ADVANTAGE: float = 1.02
 _AWAY_DISCOUNT: float = 0.97
 
+# Rate stat baselines (league averages) for delta-based SGP scoring.
+# Raw rate stats divided by SGP denominator produce nonsensical values;
+# instead we compute (player_rate - baseline) / denom for regular rate
+# stats and (baseline - player_rate) / denom for inverse rate stats.
+_RATE_BASELINES: dict[str, float] = {
+    "avg": 0.250,
+    "obp": 0.320,
+    "era": 4.00,
+    "whip": 1.25,
+}
+
 # Number of games in a typical MLB week
 _DEFAULT_GAMES_PER_WEEK: int = 6
 
@@ -381,8 +392,10 @@ def start_sit_recommendation(
         start_score = _compute_start_score(weekly_proj, h2h_weights, matchup_factors, config, is_hitter)
 
         # Floor/ceiling estimates (P10/P90 approximation)
-        floor_score = start_score * 0.75
-        ceiling_score = start_score * 1.30
+        # Use additive variance band — multiplicative fails when score is negative
+        variance = max(abs(start_score) * 0.25, 0.5)
+        floor_score = start_score - variance
+        ceiling_score = start_score + variance
 
         # Layer 2: Risk adjustment
         adjusted_score = risk_adjusted_score(start_score, floor_score, ceiling_score, matchup_state)
@@ -703,34 +716,38 @@ def _compute_start_score(
         if abs(denom) < 1e-9:
             denom = 1.0
 
-        # Normalize to SGP-scale so categories are comparable
-        sgp_contribution = proj_val / denom
-
-        # Rate stats (AVG, OBP, ERA, WHIP) are not scaled by matchup volume factor;
-        # only counting stats benefit from more/better games.
-        # Exception: pitcher ERA/WHIP are adjusted by park factor since
-        # hitter-friendly parks materially affect pitcher rate stats.
+        # Rate stats (AVG, OBP, ERA, WHIP) must be scored as DELTA from
+        # league-average baseline, not raw value / denom.  Raw ERA=3.50
+        # divided by denom=0.15 produces -23 SGP which is nonsensical.
+        # Instead: (baseline - ERA) / denom gives meaningful "how much
+        # better than average" in SGP units.
         if cat_lower in rate_stats:
+            baseline = _RATE_BASELINES.get(cat_lower, 0.0)
+            if cat_lower in inverse:
+                # Lower is better: positive SGP when below baseline
+                sgp_contribution = (baseline - proj_val) / abs(denom)
+            else:
+                # Higher is better: positive SGP when above baseline
+                sgp_contribution = (proj_val - baseline) / abs(denom)
+
+            # Park factor adjustment for pitcher rate stats
             if not is_hitter and cat_lower in inverse:
-                # For pitcher inverse rate stats (ERA, WHIP), use the
-                # non-inverted (hitter) park factor.  matchup_factors["park"]
-                # already contains the inverted value (2.0 - original_pf),
-                # so un-invert it to get the original hitter park factor.
-                # At Coors (hitter pf=1.38): inverted=0.62, un-inverted=1.38
-                # → higher ERA penalty (correct).
-                # At MIA  (hitter pf=0.88): inverted=1.12, un-inverted=0.88
-                # → lower ERA penalty (correct).
                 cat_factor = 2.0 - matchup_factors.get("park", 1.0)
             else:
                 cat_factor = 1.0
+
+            # Delta already encodes direction — always ADD
+            score += sgp_contribution * weight * cat_factor
         else:
+            # Counting stats: volume scales with matchup quality
+            sgp_contribution = proj_val / denom
             cat_factor = combined_factor
 
-        if cat_lower in inverse:
-            # Lower is better: negative contribution
-            score -= sgp_contribution * weight * cat_factor
-        else:
-            score += sgp_contribution * weight * cat_factor
+            if cat_lower in inverse:
+                # Lower is better: negative contribution
+                score -= sgp_contribution * weight * cat_factor
+            else:
+                score += sgp_contribution * weight * cat_factor
 
     return score
 
@@ -755,6 +772,7 @@ def _compute_category_impact(
         Dict mapping category name to SGP impact delta.
     """
     inverse = {c.lower() for c in config.inverse_stats}
+    rate_stats = {c.lower() for c in config.rate_stats}
     impact = {}
 
     cats = config.hitting_categories if is_hitter else config.pitching_categories
@@ -768,9 +786,17 @@ def _compute_category_impact(
         if abs(denom) < 1e-9:
             denom = 1.0
 
-        sgp_impact = proj_val / denom * weight
-        if cat_lower in inverse:
-            sgp_impact = -sgp_impact
+        # Rate stats use delta-from-baseline (same logic as _compute_start_score)
+        if cat_lower in rate_stats:
+            baseline = _RATE_BASELINES.get(cat_lower, 0.0)
+            if cat_lower in inverse:
+                sgp_impact = (baseline - proj_val) / abs(denom) * weight
+            else:
+                sgp_impact = (proj_val - baseline) / abs(denom) * weight
+        else:
+            sgp_impact = proj_val / denom * weight
+            if cat_lower in inverse:
+                sgp_impact = -sgp_impact
 
         impact[cat] = sgp_impact
 

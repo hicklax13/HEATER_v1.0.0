@@ -117,6 +117,7 @@ def init_db():
 
         CREATE INDEX IF NOT EXISTS idx_projections_player ON projections(player_id);
         CREATE INDEX IF NOT EXISTS idx_projections_system ON projections(system);
+        CREATE INDEX IF NOT EXISTS idx_projections_player_system ON projections(player_id, system);
         CREATE INDEX IF NOT EXISTS idx_players_name ON players(name);
     """)
     conn.commit()
@@ -162,6 +163,15 @@ def init_db():
             is_user_team INTEGER NOT NULL DEFAULT 0,
             FOREIGN KEY (player_id) REFERENCES players(player_id),
             UNIQUE(team_name, player_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS league_teams (
+            team_key TEXT PRIMARY KEY,
+            team_name TEXT NOT NULL,
+            team_index INTEGER,
+            logo_url TEXT,
+            manager_name TEXT,
+            is_user_team INTEGER DEFAULT 0
         );
 
         CREATE TABLE IF NOT EXISTS league_standings (
@@ -757,7 +767,31 @@ def import_adp_csv(csv_path: str, source: str = "fantasypros"):
 
 
 def load_player_pool() -> pd.DataFrame:
-    """Load the full player pool with blended projections and ADP for the valuation engine."""
+    """Load the full player pool with blended projections and ADP for the valuation engine.
+
+    Results are cached for 5 minutes when running inside Streamlit to avoid
+    re-executing the ~6s query on every page interaction.
+    """
+    try:
+        import streamlit as st
+        from streamlit.runtime.scriptrunner import get_script_run_ctx
+
+        # Only use caching when running inside a real Streamlit app,
+        # not in pytest or other non-Streamlit contexts.
+        if get_script_run_ctx() is not None:
+
+            @st.cache_data(ttl=300, show_spinner=False)
+            def _cached_load(_db_path: str):
+                return _load_player_pool_impl()
+
+            return _cached_load(str(DB_PATH))
+    except (ImportError, Exception):
+        pass
+    return _load_player_pool_impl()
+
+
+def _load_player_pool_impl() -> pd.DataFrame:
+    """Internal implementation — loads player pool from SQLite."""
     conn = get_connection()
     try:
         # Prefer blended, fall back to any available system

@@ -20,6 +20,8 @@ from src.ui_shared import (
     METRIC_TOOLTIPS,
     PAGE_ICONS,
     inject_custom_css,
+    page_timer_footer,
+    page_timer_start,
     render_compact_table,
     render_context_card,
     render_context_columns,
@@ -87,6 +89,7 @@ st.set_page_config(
 init_db()
 
 inject_custom_css()
+page_timer_start()
 
 render_page_layout("LINEUP OPTIMIZER", banner_teaser="Optimize your weekly lineup", banner_icon="lineup")
 
@@ -468,6 +471,10 @@ with main:
                 # Recommended lineup table
                 st.subheader("Recommended Lineup")
                 assignments = lineup["assignments"]
+                # Build mlb_id lookup for headshots
+                _pid_to_mlb_lineup = {}
+                if "mlb_id" in roster.columns and "player_id" in roster.columns:
+                    _pid_to_mlb_lineup = dict(zip(roster["player_id"], roster["mlb_id"]))
                 lineup_data = []
                 for entry in assignments:
                     slot = entry.get("slot", "")
@@ -480,9 +487,10 @@ with main:
                             "Slot": slot,
                             "Player": player,
                             "Health": f"{badge} {label}",
+                            "mlb_id": _pid_to_mlb_lineup.get(pid),
                         }
                     )
-                render_styled_table(pd.DataFrame(lineup_data))
+                render_compact_table(pd.DataFrame(lineup_data), show_avatars=True, health_col="Health")
 
                 # Projected stats
                 if lineup.get("projected_stats"):
@@ -928,6 +936,9 @@ with main:
 
         # Build display columns — exclude is_hitter (internal) and use display names
         display_cols = ["player_name", "positions", "Health"] + [c for c in stat_cols if c in roster_display.columns]
+        # Include mlb_id for headshot rendering (auto-hidden by compact table)
+        if "mlb_id" in roster_display.columns:
+            display_cols.append("mlb_id")
         display_cols = [c for c in display_cols if c in roster_display.columns]
 
         roster_show = roster_display[display_cols].copy()
@@ -964,3 +975,5 @@ with main:
                 roster["player_id"].tolist(),
                 key_suffix="optimizer",
             )
+
+page_timer_footer("Lineup Optimizer")

@@ -501,80 +501,105 @@ def test_extract_position_display_name_fallback():
 # ---------------------------------------------------------------------------
 
 
-def test_get_free_agents_bytes_player_name(client):
-    """Player names from yfpy may be bytes on Python 3.14."""
-    mock_player = MagicMock()
-    mock_name = MagicMock()
-    mock_name.full = b"Shohei Ohtani"  # bytes
-    mock_player.name = mock_name
-    mock_player.eligible_positions = ["DH", "SP"]
-    mock_player.percent_owned = 99.5
-    mock_player.player_id = "12345"
-    mock_entry = MagicMock()
-    mock_entry.player = mock_player
+def test_get_free_agents_direct_api(client):
+    """Direct Yahoo API call returns parsed free agent DataFrame."""
+    # Mock the direct requests.get call
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.raise_for_status.return_value = None
+    mock_response.json.return_value = {
+        "fantasy_content": {
+            "league": [
+                {"league_key": "469.l.12345"},
+                {
+                    "players": {
+                        "count": 2,
+                        "0": {
+                            "player": [
+                                [
+                                    {"player_key": "469.p.12345"},
+                                    {"name": {"full": "Shohei Ohtani"}},
+                                    {"editorial_team_abbr": "LAD"},
+                                    {"display_position": "SP,DH"},
+                                ]
+                            ]
+                        },
+                        "1": {
+                            "player": [
+                                [
+                                    {"player_key": "469.p.67890"},
+                                    {"name": {"full": "Mookie Betts"}},
+                                    {"editorial_team_abbr": "LAD"},
+                                    {"display_position": "SS,OF"},
+                                ]
+                            ]
+                        },
+                    }
+                },
+            ]
+        }
+    }
 
     client._query = MagicMock()
-    client._query.get_league_players.return_value = [mock_entry]
+    client._query.game_id = 469
+    client._query._yahoo_access_token_dict = {"access_token": "fake_token"}
 
-    result = client.get_free_agents()
-    assert len(result) == 1
+    with patch("src.yahoo_api._requests.get", return_value=mock_response):
+        result = client.get_free_agents()
+
+    assert len(result) == 2
     assert result.iloc[0]["player_name"] == "Shohei Ohtani"
-    assert "DH" in result.iloc[0]["positions"]
+    assert result.iloc[1]["player_name"] == "Mookie Betts"
+    assert result.iloc[1]["positions"] == "SS,OF"
 
 
-def test_get_free_agents_position_model_objects(client):
-    """eligible_positions may be yfpy model objects, not plain strings."""
-    mock_player = MagicMock()
-    mock_name = MagicMock()
-    mock_name.full = "Mookie Betts"
-    mock_player.name = mock_name
-    mock_player.player_id = "99"
-    mock_player.percent_owned = 85.0
-
-    # Simulate yfpy EligiblePosition model objects
-    mock_pos_ss = MagicMock(spec=[])
-    mock_pos_ss.position = "SS"
-    mock_pos_of = MagicMock(spec=[])
-    mock_pos_of.position = "OF"
-    mock_player.eligible_positions = [mock_pos_ss, mock_pos_of]
-
-    mock_entry = MagicMock()
-    mock_entry.player = mock_player
+def test_get_free_agents_position_filter(client):
+    """Position filter should exclude non-matching players."""
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.raise_for_status.return_value = None
+    mock_response.json.return_value = {
+        "fantasy_content": {
+            "league": [
+                {"league_key": "469.l.12345"},
+                {
+                    "players": {
+                        "count": 1,
+                        "0": {
+                            "player": [
+                                [
+                                    {"player_key": "469.p.111"},
+                                    {"name": {"full": "Player A"}},
+                                    {"editorial_team_abbr": "NYY"},
+                                    {"display_position": "C"},
+                                ]
+                            ]
+                        },
+                    }
+                },
+            ]
+        }
+    }
 
     client._query = MagicMock()
-    client._query.get_league_players.return_value = [mock_entry]
+    client._query.game_id = 469
+    client._query._yahoo_access_token_dict = {"access_token": "fake"}
 
+    with patch("src.yahoo_api._requests.get", return_value=mock_response):
+        # Filter for SS should exclude C player
+        result = client.get_free_agents(position="SS")
+        assert result.empty
+
+        # Filter for C should include
+        result = client.get_free_agents(position="C")
+        assert len(result) == 1
+
+
+def test_get_free_agents_unauthenticated_returns_empty(client):
+    """Unauthenticated client returns empty DataFrame."""
+    client._query = None
     result = client.get_free_agents()
-    assert len(result) == 1
-    assert result.iloc[0]["positions"] == "SS/OF"
-
-
-def test_get_free_agents_position_filter_with_model_objects(client):
-    """Position filter should work even when positions are model objects."""
-    mock_player = MagicMock()
-    mock_name = MagicMock()
-    mock_name.full = "Player A"
-    mock_player.name = mock_name
-    mock_player.player_id = "1"
-    mock_player.percent_owned = 10.0
-
-    mock_pos = MagicMock(spec=[])
-    mock_pos.position = "C"
-    mock_player.eligible_positions = [mock_pos]
-
-    mock_entry = MagicMock()
-    mock_entry.player = mock_player
-
-    client._query = MagicMock()
-    client._query.get_league_players.return_value = [mock_entry]
-
-    # Filter for SS should exclude this C-only player
-    result = client.get_free_agents(position="SS")
     assert result.empty
-
-    # Filter for C should include this player
-    result = client.get_free_agents(position="C")
-    assert len(result) == 1
 
 
 # ---------------------------------------------------------------------------

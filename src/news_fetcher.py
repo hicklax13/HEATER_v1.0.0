@@ -12,6 +12,7 @@ from datetime import UTC, datetime, timedelta
 from difflib import SequenceMatcher
 
 import pandas as pd
+import requests as _req
 
 logger = logging.getLogger(__name__)
 
@@ -85,10 +86,15 @@ def fetch_recent_transactions(days_back: int = 7) -> list[dict]:
     start_date = (datetime.now(UTC) - timedelta(days=days_back)).strftime("%m/%d/%Y")
 
     try:
-        data = statsapi.get(
-            "transactions",
-            {"startDate": start_date, "endDate": end_date},
+        # Use direct HTTP request — statsapi.get() has a validation bug
+        # that rejects startDate/endDate despite them being valid params
+        resp = _req.get(
+            "https://statsapi.mlb.com/api/v1/transactions",
+            params={"startDate": start_date, "endDate": end_date},
+            timeout=10,
         )
+        resp.raise_for_status()
+        data = resp.json()
     except Exception:
         logger.warning("Failed to fetch transactions from MLB Stats API", exc_info=True)
         return []

@@ -308,7 +308,7 @@ def compute_add_drop_recommendations(
     user_team_name: str | None = None,
     weeks_remaining: int = 16,
     max_moves: int = 3,
-    max_fa_candidates: int = 30,
+    max_fa_candidates: int = 100,
     max_drop_candidates: int = 5,
 ) -> list[dict]:
     """Compute recommended add/drop pairs sorted by net swap value.

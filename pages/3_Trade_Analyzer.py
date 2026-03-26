@@ -18,6 +18,8 @@ from src.ui_shared import (
     PAGE_ICONS,
     T,
     inject_custom_css,
+    page_timer_footer,
+    page_timer_start,
     render_compact_table,
     render_context_card,
     render_context_columns,
@@ -55,6 +57,7 @@ def _standings_data_state() -> str:
 init_db()
 
 inject_custom_css()
+page_timer_start()
 
 render_page_layout("TRADE ANALYZER", banner_teaser="Analyze a trade below", banner_icon="trade")
 
@@ -184,10 +187,40 @@ else:
                 )
             with col2:
                 st.subheader("You Receive")
-                other_players = pool[~pool["player_id"].isin(user_roster_ids)]
+                # Build tradeable universe: players rostered by OTHER teams
+                # (not FAs — you trade with opponents, not the waiver wire)
+                other_team_pids = set()
+                all_teams = rosters["team_name"].unique()
+                for tn in all_teams:
+                    if str(tn) == str(user_team_name):
+                        continue
+                    team_rows = rosters[rosters["team_name"] == tn]
+                    for _, tr in team_rows.iterrows():
+                        pname = tr.get("player_name") or tr.get("name", "")
+                        matched = name_to_id.get(pname)
+                        if matched is not None:
+                            other_team_pids.add(matched)
+                        else:
+                            other_team_pids.add(tr.get("player_id"))
+
+                if other_team_pids:
+                    other_players = pool[pool["player_id"].isin(other_team_pids)]
+                else:
+                    # Fallback: top 500 players by projected value (not all 9K)
+                    stat_cols = ["hr", "r", "rbi", "sb", "w", "sv", "k"]
+                    available_cols = [c for c in stat_cols if c in pool.columns]
+                    if available_cols:
+                        pool_sorted = pool.copy()
+                        pool_sorted["_sort_val"] = pool_sorted[available_cols].sum(axis=1)
+                        pool_sorted = pool_sorted.sort_values("_sort_val", ascending=False)
+                        other_players = pool_sorted[~pool_sorted["player_id"].isin(user_roster_ids)].head(500)
+                    else:
+                        other_players = pool[~pool["player_id"].isin(user_roster_ids)].head(500)
+
+                receive_options = sorted(other_players["player_name"].dropna().unique().tolist())
                 receiving_names = st.multiselect(
                     "Select players to receive",
-                    options=sorted(other_players["player_name"].tolist()),
+                    options=receive_options,
                     key="receiving",
                 )
 
@@ -461,7 +494,9 @@ else:
                         for flag in result["risk_flags"]:
                             st.warning(flag)
 
-                    # Show injury badges for traded players
+                    # Show headshots + injury badges for traded players
+                    from src.ui_shared import _headshot_img_html
+
                     trade_col1, trade_col2 = st.columns(2)
                     with trade_col1:
                         st.markdown("**Giving:**")
@@ -469,18 +504,22 @@ else:
                             p = pool[pool["player_name"] == name]
                             if not p.empty:
                                 pid = p.iloc[0]["player_id"]
+                                mid = p.iloc[0].get("mlb_id")
                                 hs = health_dict.get(pid, 0.85)
                                 badge_icon, label = get_injury_badge(hs)
-                                st.markdown(f"{badge_icon} {name} — {label}", unsafe_allow_html=True)
+                                shot = _headshot_img_html(mid, size=28)
+                                st.markdown(f"{shot}{badge_icon} {name} — {label}", unsafe_allow_html=True)
                     with trade_col2:
                         st.markdown("**Receiving:**")
                         for name in receiving_names:
                             p = pool[pool["player_name"] == name]
                             if not p.empty:
                                 pid = p.iloc[0]["player_id"]
+                                mid = p.iloc[0].get("mlb_id")
                                 hs = health_dict.get(pid, 0.85)
                                 badge_icon, label = get_injury_badge(hs)
-                                st.markdown(f"{badge_icon} {name} — {label}", unsafe_allow_html=True)
+                                shot = _headshot_img_html(mid, size=28)
+                                st.markdown(f"{shot}{badge_icon} {name} — {label}", unsafe_allow_html=True)
 
                     # Player card selector for traded players
                     _trade_all_names = list(giving_names) + list(receiving_names)
@@ -550,3 +589,5 @@ else:
                                     st.caption(METRIC_TOOLTIPS["p10_p90"])
                     except Exception:
                         pass  # Graceful degradation
+
+page_timer_footer("Trade Analyzer")

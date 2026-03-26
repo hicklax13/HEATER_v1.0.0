@@ -11,6 +11,8 @@ from src.league_manager import get_team_roster
 from src.ui_shared import (
     THEME,
     inject_custom_css,
+    page_timer_footer,
+    page_timer_start,
     render_compact_table,
     render_context_card,
     render_context_columns,
@@ -40,6 +42,7 @@ st.set_page_config(
 init_db()
 
 inject_custom_css()
+page_timer_start()
 
 render_page_layout(
     "WAIVER WIRE",
@@ -210,7 +213,7 @@ with main:
             config=config,
             weeks_remaining=compute_weeks_remaining(),
             max_moves=5,
-            max_fa_candidates=30,
+            max_fa_candidates=100,
             max_drop_candidates=8,
         )
         waiver_progress.progress(100, text="Waiver wire analysis complete!")
@@ -316,8 +319,15 @@ with main:
     if not recommendations:
         st.info("No drop recommendations available.")
     else:
+        # AVIS Rule #6: Protect IL stashes (Bieber, Strider, and players returning within 2 weeks)
+        protected_names = {"Shane Bieber", "Spencer Strider"}  # Per AVIS Section 7
         drops_rows = []
         for rec in recommendations:
+            drop_name = rec.get("drop_name", "")
+            if drop_name in protected_names:
+                st.info(f"IL STASH PROTECTED: {drop_name} — excluded from drop candidates per AVIS rules.")
+                continue
+
             category_impact = rec.get("category_impact", {})
             # Show the most-impacted category from this swap
             if category_impact:
@@ -345,3 +355,5 @@ with main:
         drop_ids = [int(pid) for pid in drop_ids_raw if pid is not None]
         if drop_names and drop_ids:
             render_player_select(drop_names, drop_ids, key_suffix="waiver_drops")
+
+page_timer_footer("Waiver Wire")

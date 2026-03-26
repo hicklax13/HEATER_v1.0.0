@@ -33,6 +33,7 @@ import time
 from pathlib import Path
 
 import pandas as pd
+import requests as _requests
 
 try:
     from yfpy.query import YahooFantasySportsQuery
@@ -328,6 +329,7 @@ class YahooFantasyClient:
             # edge cases where Yahoo hasn't registered the new game_key.
             game_key = self._resolve_game_key()
             if game_key:
+                self._validate_game_key(game_key)
                 self._query.game_id = int(game_key)
                 self._query.league_key = f"{game_key}.l.{self.league_id}"
                 logger.info(
@@ -397,7 +399,7 @@ class YahooFantasyClient:
         return self._query is not None
 
     def refresh_token(self) -> bool:
-        """Refresh an expired OAuth token.
+        """Refresh an expired OAuth token and persist to disk.
 
         Returns:
             True on success, False if refresh fails or client not authenticated.
@@ -418,6 +420,25 @@ class YahooFantasyClient:
                     break
             else:
                 logger.warning("No known yfpy metadata method found; skipping refresh call.")
+
+            # Persist refreshed token to disk so future restarts use it
+            try:
+                refreshed = getattr(self._query, "_yahoo_access_token_dict", None)
+                if refreshed and refreshed.get("access_token"):
+                    token_file = _AUTH_DIR / "yahoo_token.json"
+                    if token_file.exists():
+                        import json
+
+                        existing = json.loads(token_file.read_text(encoding="utf-8"))
+                        existing["access_token"] = refreshed["access_token"]
+                        existing["token_time"] = refreshed.get("token_time", time.time())
+                        if refreshed.get("refresh_token"):
+                            existing["refresh_token"] = refreshed["refresh_token"]
+                        token_file.write_text(json.dumps(existing, indent=2))
+                        logger.info("Persisted refreshed token to %s", token_file)
+            except Exception:
+                logger.debug("Could not persist refreshed token.", exc_info=True)
+
             logger.info("OAuth token refreshed successfully.")
             return True
         except Exception:
@@ -552,6 +573,15 @@ class YahooFantasyClient:
             logger.warning("Strategy 3 (get_current_game_metadata) failed: %s", exc)
 
         return None
+
+    def _validate_game_key(self, game_key: str) -> None:
+        """Log a warning if the resolved game_key doesn't match expected MLB 2026 key."""
+        if self.season == 2026 and str(game_key) != "469":
+            logger.warning(
+                "Resolved game_key=%s but expected 469 for MLB 2026. "
+                "Yahoo data may be from wrong season.",
+                game_key,
+            )
 
     def _get_user_team_key(self) -> str | None:
         """Discover the authenticated user's team key.
@@ -703,6 +733,22 @@ class YahooFantasyClient:
                 team_name = raw_name.decode("utf-8", errors="replace") if isinstance(raw_name, bytes) else str(raw_name)
                 team_key = str(self._safe_attr(team, "team_key", ""))
 
+                # Extract team logo URL (BUG-016 fix)
+                team_logos = self._safe_attr(team, "team_logos", [])
+                logo_url = ""
+                if team_logos:
+                    first_logo = team_logos[0] if isinstance(team_logos, list) else team_logos
+                    logo_obj = getattr(first_logo, "team_logo", first_logo)
+                    logo_url = self._safe_str(self._safe_attr(logo_obj, "url", ""))
+
+                # Extract manager name
+                managers = self._safe_attr(team, "managers", [])
+                manager_name = ""
+                if managers:
+                    first_mgr = managers[0] if isinstance(managers, list) else managers
+                    mgr_obj = getattr(first_mgr, "manager", first_mgr)
+                    manager_name = self._safe_str(self._safe_attr(mgr_obj, "nickname", ""))
+
                 # yfpy's get_team_roster_by_week() internally builds
                 # {league_key}.t.{team_id}, so we must pass only the
                 # numeric team ID (the part after the last ".t."), not
@@ -753,6 +799,8 @@ class YahooFantasyClient:
                             "injury_note": injury_note,
                             "status_full": status_full,
                             "percent_owned": percent_owned,
+                            "team_logo_url": logo_url,
+                            "manager_name": manager_name,
                         }
                     )
 
@@ -835,65 +883,128 @@ class YahooFantasyClient:
         self,
         position: str | None = None,
         count: int = 50,
+        start: int = 0,
     ) -> pd.DataFrame:
-        """Get available free agents.
+        """Get available free agents via direct Yahoo API call.
+
+        Bypasses yfpy's ``get_league_players()`` which doesn't support
+        ``status=FA`` server-side filtering. Calls the Yahoo Fantasy API
+        directly with OAuth Bearer token.
 
         Args:
             position: Filter by eligible position (e.g. ``"SS"``). ``None``
                 returns all positions.
-            count: Maximum number of players to return.
+            count: Maximum number of players to return per batch.
+            start: Pagination offset (0-based).
 
         Returns:
-            DataFrame with columns: ``player_name``, ``player_id``,
-            ``positions``, ``percent_owned``.
+            DataFrame with columns: ``player_name``, ``player_key``,
+            ``positions``, ``team``, ``percent_owned``.
         """
         if not self._ensure_auth():
             return pd.DataFrame()
+
+        # Get fresh access token from yfpy's internal state
+        token_dict = getattr(self._query, "_yahoo_access_token_dict", None)
+        if not token_dict:
+            # Fallback: read from token file
+            try:
+                import json as _json
+
+                token_dict = _json.loads((_AUTH_DIR / "yahoo_token.json").read_text())
+            except Exception:
+                logger.warning("Could not get access token for direct API call.")
+                return pd.DataFrame()
+
+        access_token = token_dict.get("access_token", "")
+        if not access_token:
+            logger.warning("No access token available for direct API call.")
+            return pd.DataFrame()
+
+        league_key = f"{self._query.game_id}.l.{self.league_id}"
+        headers = {"Authorization": f"Bearer {access_token}"}
+
         try:
-            _rate_limit()
-            # Note: yfpy's get_league_players() doesn't support server-side
-            # position filtering, so we filter client-side below.
-            fa_list = self._query.get_league_players(
-                player_count=count,
-                player_count_start=0,
-                status="FA",
+            url = (
+                f"https://fantasysports.yahooapis.com/fantasy/v2/league/"
+                f"{league_key}/players;status=FA;count={count};start={start}"
+                f";sort=OR?format=json"
             )
+            _rate_limit()
+            resp = _requests.get(url, headers=headers, timeout=15)
+            resp.raise_for_status()
+            data = resp.json()
+
+            league = data.get("fantasy_content", {}).get("league", [])
+            if not isinstance(league, list) or len(league) < 2:
+                return pd.DataFrame()
+
+            players_obj = league[1].get("players", {})
+            returned = players_obj.get("count", 0)
 
             rows: list[dict] = []
-            for entry in fa_list or []:
-                player = getattr(entry, "player", entry)
-                name_obj = self._safe_attr(player, "name")
-                full_name = ""
-                if name_obj:
-                    raw_full = self._safe_attr(name_obj, "full", name_obj)
-                    full_name = self._safe_str(raw_full)
+            for i in range(returned):
+                p = players_obj.get(str(i), {}).get("player", [])
+                if not p:
+                    continue
+                info = p[0]  # List of player info dicts
+                name = pos = team_abbr = player_key = ""
+                for item in info:
+                    if isinstance(item, dict):
+                        if "name" in item:
+                            name = item["name"].get("full", "")
+                        if "editorial_team_abbr" in item:
+                            team_abbr = item["editorial_team_abbr"]
+                        if "display_position" in item:
+                            pos = item["display_position"]
+                        if "player_key" in item:
+                            player_key = item["player_key"]
 
-                positions = self._safe_attr(player, "eligible_positions", [])
-                pos_list = [self._extract_position(p) for p in positions] if positions else []
-
-                # Apply position filter if requested
-                if position and position not in pos_list:
+                if not name:
                     continue
 
-                pct = self._safe_attr(player, "percent_owned", 0)
-                try:
-                    pct = float(pct)
-                except (ValueError, TypeError):
-                    pct = 0.0
+                # Position filter
+                if position and position not in pos.split(","):
+                    continue
 
                 rows.append(
                     {
-                        "player_name": full_name,
-                        "player_id": str(self._safe_attr(player, "player_id", "")),
-                        "positions": "/".join(pos_list),
-                        "percent_owned": pct,
+                        "player_name": name,
+                        "player_key": player_key,
+                        "positions": pos,
+                        "team": team_abbr,
+                        "percent_owned": 0.0,  # Yahoo FA default sort doesn't include pct
                     }
                 )
 
             return pd.DataFrame(rows) if rows else pd.DataFrame()
         except Exception:
-            logger.exception("Failed to fetch free agents.")
+            logger.exception("Failed to fetch free agents via direct API.")
             return pd.DataFrame()
+
+    def get_all_free_agents(self, max_players: int = 500) -> pd.DataFrame:
+        """Fetch all available free agents by paginating the Yahoo API.
+
+        Args:
+            max_players: Maximum total FAs to fetch.
+
+        Returns:
+            Concatenated DataFrame of all FA batches.
+        """
+        batch_size = 25
+        all_dfs: list[pd.DataFrame] = []
+        for start in range(0, max_players, batch_size):
+            df = self.get_free_agents(count=batch_size, start=start)
+            if df.empty:
+                break
+            all_dfs.append(df)
+            if len(df) < batch_size:
+                break
+        if not all_dfs:
+            return pd.DataFrame()
+        result = pd.concat(all_dfs, ignore_index=True)
+        logger.info("Fetched %d total free agents from Yahoo API.", len(result))
+        return result
 
     def get_league_transactions(self) -> pd.DataFrame:
         """Get recent adds/drops/trades.
@@ -1103,6 +1214,30 @@ class YahooFantasyClient:
                 user_team_key = self._get_user_team_key()
                 logger.debug("User team key: %s", user_team_key)
 
+                # Store team metadata (logos, manager names) — BUG-016 fix
+                if "team_logo_url" in rosters_df.columns:
+                    team_meta = rosters_df.drop_duplicates(subset=["team_key"])[
+                        ["team_key", "team_name", "team_logo_url", "manager_name"]
+                    ]
+                    conn_tm = get_connection()
+                    try:
+                        for _, tm_row in team_meta.iterrows():
+                            tk = tm_row.get("team_key", "")
+                            is_user = user_team_key is not None and tk == user_team_key
+                            conn_tm.execute(
+                                "INSERT OR REPLACE INTO league_teams "
+                                "(team_key, team_name, logo_url, manager_name, is_user_team) "
+                                "VALUES (?, ?, ?, ?, ?)",
+                                (tk, tm_row.get("team_name", ""),
+                                 tm_row.get("team_logo_url", ""),
+                                 tm_row.get("manager_name", ""),
+                                 int(is_user)),
+                            )
+                        conn_tm.commit()
+                        logger.info("Stored %d team metadata entries", len(team_meta))
+                    finally:
+                        conn_tm.close()
+
                 # Resolve Yahoo player names to local player_ids before storing
                 from src.live_stats import match_player_id
 
@@ -1116,14 +1251,21 @@ class YahooFantasyClient:
                         idx += 1
 
                     # Resolve player name → local player_id (not Yahoo's ID)
-                    player_name = row.get("player_name", "")
+                    # Yahoo appends "(Pitcher)"/"(Batter)" to dual-eligible players
+                    # like Ohtani — strip these suffixes before matching.
+                    import re as _re
+
+                    raw_player_name = row.get("player_name", "")
+                    player_name = _re.sub(r"\s*\((?:Pitcher|Batter|P|B)\)\s*$", "", raw_player_name).strip()
                     team_abbr = ""  # Yahoo roster doesn't have MLB team abbreviation
                     player_id = match_player_id(player_name, team_abbr)
                     if player_id is None:
                         # Fallback: try fuzzy match via DB query
                         conn = get_connection()
                         try:
-                            parts = player_name.split()
+                            # Use cleaned name (no parenthetical suffix)
+                            clean = _re.sub(r"\s*\([^)]*\)\s*$", "", player_name).strip()
+                            parts = clean.split()
                             if len(parts) >= 2:
                                 cursor = conn.cursor()
                                 cursor.execute(
@@ -1181,14 +1323,27 @@ class YahooFantasyClient:
                     status_full = row.get("status_full", "")
                     if inj_note or (status_full and status_full.lower() not in ("", "active")):
                         try:
-                            headline = inj_note or status_full
+                            from datetime import UTC, datetime
+
+                            body_part = inj_note or ""
+                            status_text = status_full or "unknown"
+                            # BUG-013 fix: create meaningful headline instead of just body part
+                            if body_part and body_part.lower() not in (
+                                "injured", "day-to-day", "10-day il", "15-day il", "60-day il",
+                            ):
+                                headline = f"Placed on IL — {body_part} issue"
+                            else:
+                                headline = status_text
+                            # BUG-007 fix: include published_at to satisfy UNIQUE constraint
+                            pub_at = datetime.now(UTC).isoformat()
                             conn_inj = get_connection()
                             try:
                                 conn_inj.execute(
                                     "INSERT OR IGNORE INTO player_news "
-                                    "(player_id, source, headline, news_type, il_status) "
-                                    "VALUES (?, 'yahoo', ?, 'injury', ?)",
-                                    (player_id, headline, status_full or "unknown"),
+                                    "(player_id, source, headline, news_type, il_status, "
+                                    "injury_body_part, published_at) "
+                                    "VALUES (?, 'yahoo', ?, 'injury', ?, ?, ?)",
+                                    (player_id, headline, status_text, body_part, pub_at),
                                 )
                                 conn_inj.commit()
                             finally:

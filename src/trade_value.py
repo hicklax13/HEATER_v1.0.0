@@ -199,18 +199,29 @@ def compute_trade_values(
 
     # ── Step 1: Compute per-player SGP and VORP ───────────────────────
 
+    # Vectorized total SGP (fast path)
+    pool["total_sgp"] = sgp_calc.total_sgp_batch(pool)
+
+    # Per-category SGP needed for G-Score (keep row-by-row for per-cat detail)
     per_cat_sgp_list = []
-    total_sgp_list = []
-    vorp_list = []
-
     for _, player in pool.iterrows():
-        cat_sgp = sgp_calc.player_sgp(player)
-        per_cat_sgp_list.append(cat_sgp)
-        total_sgp_list.append(sum(cat_sgp.values()))
-        vorp_list.append(compute_vorp(player, sgp_calc, replacement_levels))
+        per_cat_sgp_list.append(sgp_calc.player_sgp(player))
 
-    pool["total_sgp"] = total_sgp_list
-    pool["vorp"] = vorp_list
+    # Vectorized VORP using pre-computed total_sgp
+    scarce_positions = {"C", "SS", "2B"}
+
+    def _fast_vorp(row):
+        total = row["total_sgp"]
+        positions = [p.strip() for p in str(row.get("positions", "Util")).split(",")]
+        valid = [p for p in positions if p in replacement_levels]
+        best_repl = max((replacement_levels.get(p, 0) for p in valid), default=0)
+        vorp = total - best_repl
+        if len(valid) > 1:
+            scarce_count = sum(1 for p in valid if p in scarce_positions)
+            vorp += 0.12 * (len(valid) - 1) + 0.08 * scarce_count
+        return vorp
+
+    pool["vorp"] = pool.apply(_fast_vorp, axis=1)
 
     # ── Step 2: Compute pool-level sigma per category ─────────────────
 
@@ -232,7 +243,7 @@ def compute_trade_values(
     # ── Step 4: Compute SGP surplus (G-Score adjusted) ────────────────
     # Replacement levels are in raw SGP units; g_scores are variance-adjusted.
     # Compute the pool-wide ratio to convert replacement levels to G-Score scale.
-    raw_sum = sum(total_sgp_list)
+    raw_sum = pool["total_sgp"].sum()
     gscore_sum = sum(g_scores)
     if abs(raw_sum) > 1e-9:
         gscore_ratio = gscore_sum / raw_sum

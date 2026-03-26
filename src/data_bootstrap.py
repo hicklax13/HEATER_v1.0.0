@@ -446,7 +446,10 @@ def _bootstrap_adp_sources(progress: BootstrapProgress) -> str:
         if not nfbc.empty:
             stored = _store_external_adp(nfbc, "player_name", "nfbc_adp", "nfbc")
             results.append(f"NFBC: {len(nfbc)} fetched, {stored} stored")
-        update_refresh_log("adp_sources", "success")
+        if results:
+            update_refresh_log("adp_sources", "success")
+        else:
+            update_refresh_log("adp_sources", "no_data")
         return f"ADP sources: {', '.join(results)}" if results else "ADP sources: no data"
     except Exception as e:
         logger.warning("ADP sources bootstrap failed: %s", e)
@@ -705,7 +708,7 @@ def bootstrap_all_data(
     Returns:
         Dict of {source: result_message}
     """
-    from src.database import check_staleness
+    from src.database import check_staleness, get_connection
 
     if staleness is None:
         staleness = StalenessConfig()
@@ -724,35 +727,59 @@ def bootstrap_all_data(
     else:
         results["players"] = "Fresh"
 
-    # Phase 2: Park factors (independent, fast)
+    # Phases 2+3: Park factors + Projections (parallel — both independent after players)
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
     _notify(0.15)
-    if force or check_staleness("park_factors", staleness.park_factors_hours):
-        results["park_factors"] = _bootstrap_park_factors(progress)
-    else:
-        results["park_factors"] = "Fresh"
+    pf_stale = force or check_staleness("park_factors", staleness.park_factors_hours)
+    proj_stale = force or check_staleness("projections", staleness.projections_hours)
 
-    # Phase 3: Projections (FanGraphs)
-    _notify(0.30)
-    if force or check_staleness("projections", staleness.projections_hours):
-        results["projections"] = _bootstrap_projections(progress)
-    else:
-        results["projections"] = "Fresh"
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = {}
+        if pf_stale:
+            futures[executor.submit(_bootstrap_park_factors, progress)] = "park_factors"
+        else:
+            results["park_factors"] = "Fresh"
+        if proj_stale:
+            futures[executor.submit(_bootstrap_projections, progress)] = "projections"
+        else:
+            results["projections"] = "Fresh"
+        for future in as_completed(futures):
+            key = futures[future]
+            try:
+                results[key] = future.result()
+            except Exception as exc:
+                logger.exception("Bootstrap %s failed: %s", key, exc)
+                results[key] = f"Error: {exc}"
 
-    # Phase 4: Live stats (current season)
-    _notify(0.50)
-    if force or check_staleness("season_stats", staleness.live_stats_hours):
-        results["live_stats"] = _bootstrap_live_stats(progress)
-    else:
-        results["live_stats"] = "Fresh"
-
-    # Phase 5: Historical stats (3 years)
-    _notify(0.65)
+    # Phases 4+5: Live stats + Historical (parallel — both independent)
+    _notify(0.45)
+    live_stale = force or check_staleness("season_stats", staleness.live_stats_hours)
+    hist_stale = force or check_staleness("historical_stats", staleness.historical_hours)
     historical_data = None
-    if force or check_staleness("historical_stats", staleness.historical_hours):
-        hist_result, historical_data = _bootstrap_historical(progress)
-        results["historical"] = hist_result
-    else:
-        results["historical"] = "Fresh"
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = {}
+        if live_stale:
+            futures[executor.submit(_bootstrap_live_stats, progress)] = "live_stats"
+        else:
+            results["live_stats"] = "Fresh"
+        if hist_stale:
+            futures[executor.submit(_bootstrap_historical, progress)] = "historical"
+        else:
+            results["historical"] = "Fresh"
+        for future in as_completed(futures):
+            key = futures[future]
+            try:
+                result_val = future.result()
+                if key == "historical" and isinstance(result_val, tuple):
+                    results[key] = result_val[0]
+                    historical_data = result_val[1]
+                else:
+                    results[key] = result_val
+            except Exception as exc:
+                logger.exception("Bootstrap %s failed: %s", key, exc)
+                results[key] = f"Error: {exc}"
 
     # Phase 6: Injury data (derived from historical)
     _notify(0.80)
@@ -840,6 +867,120 @@ def bootstrap_all_data(
         results["ecr_consensus"] = _bootstrap_ecr_consensus(progress)
     else:
         results["ecr_consensus"] = "Fresh"
+
+    # Phase 16: Populate player_id_map from cross-references (BUG-005 fix)
+    _notify(0.995)
+    progress.phase = "Player ID Map"
+    progress.detail = "Building cross-platform ID mappings..."
+    if on_progress:
+        on_progress(progress)
+    try:
+        conn = get_connection()
+        try:
+            conn.execute("""
+                INSERT OR REPLACE INTO player_id_map (player_id, mlb_id, name)
+                SELECT player_id, mlb_id, name FROM players
+                WHERE mlb_id IS NOT NULL AND mlb_id != 0
+            """)
+            conn.execute("""
+                UPDATE player_id_map SET fg_id = (
+                    SELECT p.fangraphs_id FROM players p
+                    WHERE p.player_id = player_id_map.player_id
+                    AND p.fangraphs_id IS NOT NULL
+                )
+            """)
+            conn.commit()
+            id_count = conn.execute("SELECT COUNT(*) FROM player_id_map").fetchone()[0]
+            results["player_id_map"] = f"Populated {id_count} ID mappings"
+            logger.info("Player ID map: %d entries", id_count)
+        finally:
+            conn.close()
+    except Exception as exc:
+        logger.warning("Player ID map population failed: %s", exc)
+        results["player_id_map"] = f"Error: {exc}"
+
+    # Phase 17: Yahoo transactions sync (BUG-017 fix)
+    if yahoo_client is not None:
+        try:
+            txn_df = yahoo_client.get_league_transactions()
+            if not txn_df.empty:
+                from src.live_stats import match_player_id
+
+                txn_stored = 0
+                conn = get_connection()
+                try:
+                    for _, row in txn_df.iterrows():
+                        pid = match_player_id(row.get("player_name", ""), "")
+                        if pid is None:
+                            continue
+                        conn.execute(
+                            "INSERT OR IGNORE INTO transactions "
+                            "(player_id, type, team_from, team_to, timestamp) "
+                            "VALUES (?, ?, ?, ?, ?)",
+                            (pid, row.get("type", ""), row.get("team_from", ""),
+                             row.get("team_to", ""), row.get("timestamp", "")),
+                        )
+                        txn_stored += 1
+                    conn.commit()
+                finally:
+                    conn.close()
+                results["transactions"] = f"Stored {txn_stored} transactions"
+                update_refresh_log("yahoo_transactions", "success")
+            else:
+                results["transactions"] = "No transactions"
+        except Exception as exc:
+            logger.warning("Transaction sync failed: %s", exc)
+            results["transactions"] = f"Error: {exc}"
+
+    # Phase 18: Yahoo free agents (BUG-019 fix)
+    if yahoo_client is not None:
+        try:
+            progress.phase = "Yahoo Free Agents"
+            progress.detail = "Fetching league free agents..."
+            if on_progress:
+                on_progress(progress)
+            fa_df = yahoo_client.get_free_agents(count=200)
+            if not fa_df.empty:
+                from src.database import upsert_player_bulk
+                from src.live_stats import match_player_id
+
+                new_players = 0
+                for _, row in fa_df.iterrows():
+                    pname = row.get("player_name", "")
+                    if not pname:
+                        continue
+                    existing = match_player_id(pname, "")
+                    if existing is None:
+                        upsert_player_bulk([{
+                            "name": pname,
+                            "team": "",
+                            "positions": row.get("positions", "Util"),
+                            "is_hitter": 1 if row.get("positions", "") not in ("P", "SP", "RP") else 0,
+                        }])
+                        new_players += 1
+                results["yahoo_free_agents"] = f"Checked {len(fa_df)} FAs, added {new_players} new"
+            else:
+                results["yahoo_free_agents"] = "No FA data from Yahoo"
+        except Exception as exc:
+            logger.warning("Yahoo FA fetch failed: %s", exc)
+            results["yahoo_free_agents"] = f"Error: {exc}"
+
+    # Post-bootstrap validation (BUG-010 / data quality logging)
+    try:
+        conn = get_connection()
+        try:
+            proj_count = conn.execute("SELECT COUNT(*) FROM projections WHERE system='blended'").fetchone()[0]
+            adp_count = conn.execute("SELECT COUNT(*) FROM adp WHERE adp < 999").fetchone()[0]
+            team_count = conn.execute("SELECT COUNT(*) FROM players WHERE team != '' AND team IS NOT NULL").fetchone()[0]
+            player_count = conn.execute("SELECT COUNT(*) FROM players").fetchone()[0]
+            logger.info(
+                "Bootstrap validation: %d players, %d with teams, %d projections, %d ADP",
+                player_count, team_count, proj_count, adp_count,
+            )
+        finally:
+            conn.close()
+    except Exception:
+        pass
 
     _notify(1.0)
     progress.phase = "Complete"

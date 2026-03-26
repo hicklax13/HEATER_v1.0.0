@@ -20,11 +20,19 @@ from src.news_fetcher import (
 class TestFetchRecentTransactions:
     """Tests for the MLB Stats API transaction fetcher."""
 
-    @patch("src.news_fetcher.statsapi")
+    def _mock_response(self, json_data, status_code=200):
+        """Create a mock requests.Response."""
+        mock_resp = MagicMock()
+        mock_resp.status_code = status_code
+        mock_resp.json.return_value = json_data
+        mock_resp.raise_for_status.return_value = None
+        return mock_resp
+
+    @patch("src.news_fetcher._req.get")
     @patch("src.news_fetcher.STATSAPI_AVAILABLE", True)
-    def test_basic_fetch(self, mock_api):
+    def test_basic_fetch(self, mock_get):
         """Returns parsed transaction dicts from API response."""
-        mock_api.get.return_value = {
+        mock_get.return_value = self._mock_response({
             "transactions": [
                 {
                     "person": {"fullName": "Mike Trout"},
@@ -39,7 +47,7 @@ class TestFetchRecentTransactions:
                     "typeDesc": "Activation",
                 },
             ]
-        }
+        })
 
         result = fetch_recent_transactions(days_back=7)
 
@@ -49,11 +57,11 @@ class TestFetchRecentTransactions:
         assert result[0]["transaction_type"] == "Injured List"
         assert result[1]["player_name"] == "Shohei Ohtani"
 
-    @patch("src.news_fetcher.statsapi")
+    @patch("src.news_fetcher._req.get")
     @patch("src.news_fetcher.STATSAPI_AVAILABLE", True)
-    def test_skips_transactions_without_person(self, mock_api):
+    def test_skips_transactions_without_person(self, mock_get):
         """Transactions missing the 'person' key are skipped."""
-        mock_api.get.return_value = {
+        mock_get.return_value = self._mock_response({
             "transactions": [
                 {
                     "description": "Some team-level transaction",
@@ -66,18 +74,18 @@ class TestFetchRecentTransactions:
                     "typeDesc": "Signing",
                 },
             ]
-        }
+        })
 
         result = fetch_recent_transactions(days_back=3)
 
         assert len(result) == 1
         assert result[0]["player_name"] == "Aaron Judge"
 
-    @patch("src.news_fetcher.statsapi")
+    @patch("src.news_fetcher._req.get")
     @patch("src.news_fetcher.STATSAPI_AVAILABLE", True)
-    def test_api_failure_returns_empty(self, mock_api):
+    def test_api_failure_returns_empty(self, mock_get):
         """API exceptions return empty list gracefully."""
-        mock_api.get.side_effect = Exception("Connection timeout")
+        mock_get.side_effect = Exception("Connection timeout")
 
         result = fetch_recent_transactions(days_back=7)
 
@@ -89,21 +97,21 @@ class TestFetchRecentTransactions:
         result = fetch_recent_transactions(days_back=7)
         assert result == []
 
-    @patch("src.news_fetcher.statsapi")
+    @patch("src.news_fetcher._req.get")
     @patch("src.news_fetcher.STATSAPI_AVAILABLE", True)
-    def test_empty_transactions_key(self, mock_api):
+    def test_empty_transactions_key(self, mock_get):
         """Empty transactions array returns empty list."""
-        mock_api.get.return_value = {"transactions": []}
+        mock_get.return_value = self._mock_response({"transactions": []})
 
         result = fetch_recent_transactions(days_back=7)
 
         assert result == []
 
-    @patch("src.news_fetcher.statsapi")
+    @patch("src.news_fetcher._req.get")
     @patch("src.news_fetcher.STATSAPI_AVAILABLE", True)
-    def test_missing_transactions_key(self, mock_api):
+    def test_missing_transactions_key(self, mock_get):
         """Response without 'transactions' key returns empty list."""
-        mock_api.get.return_value = {}
+        mock_get.return_value = self._mock_response({})
 
         result = fetch_recent_transactions(days_back=7)
 

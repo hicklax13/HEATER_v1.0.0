@@ -47,9 +47,9 @@ ROSTER_SLOTS: dict[str, tuple[int, list[str]]] = {
     "SS": (1, ["SS"]),
     "OF": (3, ["OF", "LF", "CF", "RF"]),
     "Util": (2, ["C", "1B", "2B", "3B", "SS", "OF", "LF", "CF", "RF", "DH"]),
-    "SP": (2, ["SP"]),
-    "RP": (2, ["RP"]),
-    "P": (4, ["SP", "RP"]),
+    "SP": (2, ["SP", "P"]),
+    "RP": (2, ["RP", "P"]),
+    "P": (4, ["SP", "RP", "P"]),
 }
 
 # Hitting/pitching categories derived from LeagueConfig (lowercase for LP solver)

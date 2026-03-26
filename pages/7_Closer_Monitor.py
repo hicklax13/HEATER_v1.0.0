@@ -8,7 +8,7 @@ import streamlit as st
 
 from src.closer_monitor import build_closer_grid
 from src.database import init_db, load_player_pool
-from src.ui_shared import inject_custom_css, render_page_layout
+from src.ui_shared import _headshot_img_html, inject_custom_css, page_timer_footer, page_timer_start, render_page_layout
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +17,7 @@ st.set_page_config(page_title="Heater | Closer Monitor", page_icon="", layout="w
 init_db()
 
 inject_custom_css()
+page_timer_start()
 
 render_page_layout("CLOSER MONITOR", banner_teaser="30-team closer depth chart", banner_icon="closer")
 
@@ -82,6 +83,7 @@ else:
                     whip_str = f"{item['whip']:.2f}" if item["whip"] else "—"
                     sv_str = f"{int(item['projected_sv'])}" if item["projected_sv"] else "—"
                     setup_str = ", ".join(item["setup_names"]) if item["setup_names"] else "—"
+                    headshot = _headshot_img_html(item.get("mlb_id"), size=32)
 
                     st.markdown(
                         f"""
@@ -98,8 +100,8 @@ else:
     <div style="font-size:0.7rem; font-weight:700; color:#888; letter-spacing:0.08em; white-space:nowrap;">
         {item["team"]}
     </div>
-    <div style="font-size:0.88rem; font-weight:700; color:#1a1a2e; margin:3px 0 2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
-        {item["closer_name"]}
+    <div style="font-size:0.88rem; font-weight:700; color:#1a1a2e; margin:3px 0 2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; display:flex; align-items:center; gap:5px;">
+        {headshot}{item["closer_name"]}
     </div>
     <div style="
         display:inline-block;
@@ -127,3 +129,5 @@ else:
 """,
                         unsafe_allow_html=True,
                     )
+
+page_timer_footer("Closer Monitor")

@@ -11,7 +11,11 @@ from src.draft_state import DraftState
 from src.simulation import DraftSimulator
 from src.ui_shared import (
     T,
+    get_session_config,
+    get_session_replacement_levels,
     inject_custom_css,
+    page_timer_footer,
+    page_timer_start,
     render_context_card,
     render_context_columns,
     render_page_layout,
@@ -21,8 +25,6 @@ from src.ui_shared import (
 from src.valuation import (
     LeagueConfig,
     SGPCalculator,
-    compute_replacement_levels,
-    compute_sgp_denominators,
     value_all_players,
 )
 
@@ -39,13 +41,18 @@ st.set_page_config(
 
 init_db()
 inject_custom_css()
+page_timer_start()
 
 
 # ── Pool / Valuation ────────────────────────────────────────────────────────
 
 
 def build_mock_pool() -> pd.DataFrame:
-    """Load player pool and run full valuation pipeline."""
+    """Load player pool and run full valuation pipeline.
+
+    Uses session-level cached config and replacement levels to avoid
+    recomputing SGP denominators on every page load.
+    """
     progress = st.progress(0, text="Loading player data...")
     raw = load_player_pool()
     if raw is None or raw.empty:
@@ -53,14 +60,10 @@ def build_mock_pool() -> pd.DataFrame:
         return pd.DataFrame()
     raw["player_name"] = raw["name"]
 
-    progress.progress(20, text="Computing Standings Gained Points denominators...")
-    lc = LeagueConfig()
-    denoms = compute_sgp_denominators(raw, lc)
-    lc.sgp_denominators.update(denoms)
+    progress.progress(30, text="Loading cached valuations...")
+    lc = get_session_config()
     sgp = SGPCalculator(lc)
-
-    progress.progress(45, text="Computing replacement levels...")
-    repl = compute_replacement_levels(raw, lc, sgp)
+    repl = get_session_replacement_levels()
 
     progress.progress(70, text="Calculating player valuations...")
     num_rounds = st.session_state.get("mock_num_rounds", 23)
@@ -354,6 +357,10 @@ def render_user_roster(ds: DraftState) -> None:
         f'<div style="color:{T["amber"]};font-weight:700;font-size:1rem;margin-bottom:8px;">My Roster</div>',
         unsafe_allow_html=True,
     )
+    pool = get_pool()
+    pid_to_mlb = {}
+    if not pool.empty and "player_id" in pool.columns and "mlb_id" in pool.columns:
+        pid_to_mlb = dict(zip(pool["player_id"], pool["mlb_id"]))
     slots = ds.user_team.slots
     rows = []
     for s in slots:
@@ -361,10 +368,11 @@ def render_user_roster(ds: DraftState) -> None:
             {
                 "Slot": s.position,
                 "Player": s.player_name or "—",
+                "mlb_id": pid_to_mlb.get(s.player_id) if s.player_id else None,
             }
         )
     df = pd.DataFrame(rows)
-    render_styled_table(df, max_height=500)
+    render_compact_table(df, show_avatars=True, max_height=500)
 
 
 # ── Recent Picks Feed ───────────────────────────────────────────────────────
@@ -796,3 +804,5 @@ with main:
     # Tabs below
     st.markdown("---")
     render_tabs(pool, ds)
+
+page_timer_footer("Draft Simulator")
