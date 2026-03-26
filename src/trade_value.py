@@ -23,7 +23,6 @@ from src.valuation import (
     LeagueConfig,
     SGPCalculator,
     compute_replacement_levels,
-    compute_vorp,
 )
 
 # Minimum weeks_remaining to avoid degenerate scaling

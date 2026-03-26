@@ -247,19 +247,14 @@ def _fetch_fg_html_projections(system: str, stats: str) -> tuple[pd.DataFrame, l
     import json as _json
     import re as _re
 
-    url = (
-        f"https://www.fangraphs.com/projections"
-        f"?type={system}&stats={stats}&pos=all&team=0&lg=all&players=0"
-    )
+    url = f"https://www.fangraphs.com/projections?type={system}&stats={stats}&pos=all&team=0&lg=all&players=0"
     try:
         resp = _SESSION.get(url, timeout=20)
         resp.raise_for_status()
     except requests.exceptions.RequestException as exc:
         raise FetchError(f"HTML fetch failed for {system}/{stats}: {exc}") from exc
 
-    match = _re.search(
-        r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', resp.text
-    )
+    match = _re.search(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', resp.text)
     if not match:
         raise FetchError(f"No __NEXT_DATA__ found for {system}/{stats}")
 

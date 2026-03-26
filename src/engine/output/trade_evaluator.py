@@ -668,7 +668,8 @@ def evaluate_trade(
 
     # AVIS Rule #3: Never make a trade that worsens 3+ categories
     worsened_cats = [
-        cat for cat, delta in category_impact.items()
+        cat
+        for cat, delta in category_impact.items()
         if delta < -0.1  # meaningful worsening threshold
     ]
     avis_compliant = len(worsened_cats) < 3

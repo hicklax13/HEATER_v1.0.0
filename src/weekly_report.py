@@ -5,7 +5,7 @@ and daily lineup checks.
 """
 
 import logging
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 import pandas as pd
 
@@ -64,11 +64,13 @@ def generate_monday_report(
             else:
                 outlook = "TOSS-UP"
 
-            cat_projections.append({
-                "category": cat,
-                "team_hickey_total": round(float(user_val), 1),
-                "outlook": outlook,
-            })
+            cat_projections.append(
+                {
+                    "category": cat,
+                    "team_hickey_total": round(float(user_val), 1),
+                    "outlook": outlook,
+                }
+            )
 
     report["category_projections"] = cat_projections
 
@@ -159,9 +161,7 @@ def generate_thursday_checkpoint(
                 "Winning ERA + WHIP — consider benching risky SP starts to protect ratios."
             )
         if "K" in losing or "W" in losing:
-            checkpoint["recommendations"].append(
-                "Losing K or W — add streaming SP for counting stats."
-            )
+            checkpoint["recommendations"].append("Losing K or W — add streaming SP for counting stats.")
 
     return checkpoint
 
@@ -198,21 +198,25 @@ def check_daily_lineup(
 
         if team not in playing_teams and not is_bench:
             # Player is in a starting slot but their team isn't playing
-            alerts.append({
-                "player": name,
-                "issue": f"OFF-DAY — {team} not playing today but in starting lineup slot",
-                "recommendation": f"Move {name} to bench and start an active player.",
-                "severity": "warning",
-            })
+            alerts.append(
+                {
+                    "player": name,
+                    "issue": f"OFF-DAY — {team} not playing today but in starting lineup slot",
+                    "recommendation": f"Move {name} to bench and start an active player.",
+                    "severity": "warning",
+                }
+            )
 
         if team in playing_teams and is_bench and "IL" not in slot:
             # Player is on bench but their team IS playing
-            alerts.append({
-                "player": name,
-                "issue": f"BENCHED — {team} playing today but {name} is on the bench",
-                "recommendation": f"Consider starting {name} if a starter is on an off-day.",
-                "severity": "info",
-            })
+            alerts.append(
+                {
+                    "player": name,
+                    "issue": f"BENCHED — {team} playing today but {name} is on the bench",
+                    "recommendation": f"Consider starting {name} if a starter is on an off-day.",
+                    "severity": "info",
+                }
+            )
 
     return alerts
 

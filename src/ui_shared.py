@@ -2190,11 +2190,7 @@ def _headshot_img_html(mlb_id, size: int = 22) -> str:
     else:
         url = _AVATAR_FALLBACK_SVG
 
-    return (
-        f'<img src="{url}" width="{size}" height="{size}" '
-        f'style="{_style}" '
-        f'onerror="{_onerror}" loading="lazy" />'
-    )
+    return f'<img src="{url}" width="{size}" height="{size}" style="{_style}" onerror="{_onerror}" loading="lazy" />'
 
 
 def build_compact_table_html(
@@ -2446,7 +2442,7 @@ def _render_player_card_header(profile: dict) -> None:
     img_html = (
         f'<img src="{src}" '
         f'style="width:80px;height:80px;border-radius:50%;object-fit:cover;'
-        f'border:3px solid {t["hot"]};box-shadow:0 2px 8px rgba(0,0,0,0.15);'
+        f"border:3px solid {t['hot']};box-shadow:0 2px 8px rgba(0,0,0,0.15);"
         f'background:{t["bg"]};" '
         f'onerror="{_card_onerror}" />'
     )
@@ -2871,11 +2867,12 @@ def get_session_config():
     """
     if st is None:
         from src.valuation import LeagueConfig
+
         return LeagueConfig()
 
     if "_session_config" not in st.session_state:
         from src.database import load_player_pool
-        from src.valuation import LeagueConfig, SGPCalculator, compute_sgp_denominators
+        from src.valuation import LeagueConfig, compute_sgp_denominators
 
         pool = load_player_pool()
         lc = LeagueConfig()

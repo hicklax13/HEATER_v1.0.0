@@ -16,6 +16,7 @@ from src.ui_shared import (
     inject_custom_css,
     page_timer_footer,
     page_timer_start,
+    render_compact_table,
     render_context_card,
     render_context_columns,
     render_page_layout,

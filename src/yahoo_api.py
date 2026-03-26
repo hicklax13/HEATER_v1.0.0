@@ -578,8 +578,7 @@ class YahooFantasyClient:
         """Log a warning if the resolved game_key doesn't match expected MLB 2026 key."""
         if self.season == 2026 and str(game_key) != "469":
             logger.warning(
-                "Resolved game_key=%s but expected 469 for MLB 2026. "
-                "Yahoo data may be from wrong season.",
+                "Resolved game_key=%s but expected 469 for MLB 2026. Yahoo data may be from wrong season.",
                 game_key,
             )
 
@@ -1228,10 +1227,13 @@ class YahooFantasyClient:
                                 "INSERT OR REPLACE INTO league_teams "
                                 "(team_key, team_name, logo_url, manager_name, is_user_team) "
                                 "VALUES (?, ?, ?, ?, ?)",
-                                (tk, tm_row.get("team_name", ""),
-                                 tm_row.get("team_logo_url", ""),
-                                 tm_row.get("manager_name", ""),
-                                 int(is_user)),
+                                (
+                                    tk,
+                                    tm_row.get("team_name", ""),
+                                    tm_row.get("team_logo_url", ""),
+                                    tm_row.get("manager_name", ""),
+                                    int(is_user),
+                                ),
                             )
                         conn_tm.commit()
                         logger.info("Stored %d team metadata entries", len(team_meta))
@@ -1329,7 +1331,11 @@ class YahooFantasyClient:
                             status_text = status_full or "unknown"
                             # BUG-013 fix: create meaningful headline instead of just body part
                             if body_part and body_part.lower() not in (
-                                "injured", "day-to-day", "10-day il", "15-day il", "60-day il",
+                                "injured",
+                                "day-to-day",
+                                "10-day il",
+                                "15-day il",
+                                "60-day il",
                             ):
                                 headline = f"Placed on IL — {body_part} issue"
                             else:

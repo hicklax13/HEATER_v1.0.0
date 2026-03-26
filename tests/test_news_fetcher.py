@@ -32,22 +32,24 @@ class TestFetchRecentTransactions:
     @patch("src.news_fetcher.STATSAPI_AVAILABLE", True)
     def test_basic_fetch(self, mock_get):
         """Returns parsed transaction dicts from API response."""
-        mock_get.return_value = self._mock_response({
-            "transactions": [
-                {
-                    "person": {"fullName": "Mike Trout"},
-                    "description": "Mike Trout placed on 10-day IL with knee strain.",
-                    "date": "2026-03-15",
-                    "typeDesc": "Injured List",
-                },
-                {
-                    "person": {"fullName": "Shohei Ohtani"},
-                    "description": "Shohei Ohtani activated from IL.",
-                    "date": "2026-03-16",
-                    "typeDesc": "Activation",
-                },
-            ]
-        })
+        mock_get.return_value = self._mock_response(
+            {
+                "transactions": [
+                    {
+                        "person": {"fullName": "Mike Trout"},
+                        "description": "Mike Trout placed on 10-day IL with knee strain.",
+                        "date": "2026-03-15",
+                        "typeDesc": "Injured List",
+                    },
+                    {
+                        "person": {"fullName": "Shohei Ohtani"},
+                        "description": "Shohei Ohtani activated from IL.",
+                        "date": "2026-03-16",
+                        "typeDesc": "Activation",
+                    },
+                ]
+            }
+        )
 
         result = fetch_recent_transactions(days_back=7)
 
@@ -61,20 +63,22 @@ class TestFetchRecentTransactions:
     @patch("src.news_fetcher.STATSAPI_AVAILABLE", True)
     def test_skips_transactions_without_person(self, mock_get):
         """Transactions missing the 'person' key are skipped."""
-        mock_get.return_value = self._mock_response({
-            "transactions": [
-                {
-                    "description": "Some team-level transaction",
-                    "date": "2026-03-15",
-                },
-                {
-                    "person": {"fullName": "Aaron Judge"},
-                    "description": "Aaron Judge signed extension.",
-                    "date": "2026-03-15",
-                    "typeDesc": "Signing",
-                },
-            ]
-        })
+        mock_get.return_value = self._mock_response(
+            {
+                "transactions": [
+                    {
+                        "description": "Some team-level transaction",
+                        "date": "2026-03-15",
+                    },
+                    {
+                        "person": {"fullName": "Aaron Judge"},
+                        "description": "Aaron Judge signed extension.",
+                        "date": "2026-03-15",
+                        "typeDesc": "Signing",
+                    },
+                ]
+            }
+        )
 
         result = fetch_recent_transactions(days_back=3)
 

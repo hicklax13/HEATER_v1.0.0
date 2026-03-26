@@ -34,6 +34,7 @@ try:
 except ImportError:
     POWER_RANKINGS_AVAILABLE = False
 
+
 def _compute_projected_team_totals() -> dict[str, dict[str, float]]:
     """Compute projected season totals for each team from roster + projections.
 

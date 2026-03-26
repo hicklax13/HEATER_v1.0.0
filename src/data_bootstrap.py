@@ -904,6 +904,7 @@ def bootstrap_all_data(
         try:
             txn_df = yahoo_client.get_league_transactions()
             if not txn_df.empty:
+                from src.database import update_refresh_log
                 from src.live_stats import match_player_id
 
                 txn_stored = 0
@@ -917,8 +918,13 @@ def bootstrap_all_data(
                             "INSERT OR IGNORE INTO transactions "
                             "(player_id, type, team_from, team_to, timestamp) "
                             "VALUES (?, ?, ?, ?, ?)",
-                            (pid, row.get("type", ""), row.get("team_from", ""),
-                             row.get("team_to", ""), row.get("timestamp", "")),
+                            (
+                                pid,
+                                row.get("type", ""),
+                                row.get("team_from", ""),
+                                row.get("team_to", ""),
+                                row.get("timestamp", ""),
+                            ),
                         )
                         txn_stored += 1
                     conn.commit()
@@ -951,12 +957,16 @@ def bootstrap_all_data(
                         continue
                     existing = match_player_id(pname, "")
                     if existing is None:
-                        upsert_player_bulk([{
-                            "name": pname,
-                            "team": "",
-                            "positions": row.get("positions", "Util"),
-                            "is_hitter": 1 if row.get("positions", "") not in ("P", "SP", "RP") else 0,
-                        }])
+                        upsert_player_bulk(
+                            [
+                                {
+                                    "name": pname,
+                                    "team": "",
+                                    "positions": row.get("positions", "Util"),
+                                    "is_hitter": 1 if row.get("positions", "") not in ("P", "SP", "RP") else 0,
+                                }
+                            ]
+                        )
                         new_players += 1
                 results["yahoo_free_agents"] = f"Checked {len(fa_df)} FAs, added {new_players} new"
             else:
@@ -971,11 +981,16 @@ def bootstrap_all_data(
         try:
             proj_count = conn.execute("SELECT COUNT(*) FROM projections WHERE system='blended'").fetchone()[0]
             adp_count = conn.execute("SELECT COUNT(*) FROM adp WHERE adp < 999").fetchone()[0]
-            team_count = conn.execute("SELECT COUNT(*) FROM players WHERE team != '' AND team IS NOT NULL").fetchone()[0]
+            team_count = conn.execute("SELECT COUNT(*) FROM players WHERE team != '' AND team IS NOT NULL").fetchone()[
+                0
+            ]
             player_count = conn.execute("SELECT COUNT(*) FROM players").fetchone()[0]
             logger.info(
                 "Bootstrap validation: %d players, %d with teams, %d projections, %d ADP",
-                player_count, team_count, proj_count, adp_count,
+                player_count,
+                team_count,
+                proj_count,
+                adp_count,
             )
         finally:
             conn.close()

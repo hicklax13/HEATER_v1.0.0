@@ -347,8 +347,16 @@ class DraftSimulator:
 
         # Default slot limits per position (hoisted outside loop)
         _DEFAULT_ROSTER_SLOTS = {
-            "C": 1, "1B": 1, "2B": 1, "3B": 1, "SS": 1,
-            "OF": 3, "SP": 2, "RP": 2, "P": 4, "Util": 2,
+            "C": 1,
+            "1B": 1,
+            "2B": 1,
+            "3B": 1,
+            "SS": 1,
+            "OF": 3,
+            "SP": 2,
+            "RP": 2,
+            "P": 4,
+            "Util": 2,
         }
 
         # Pre-compute pick schedule for the horizon
@@ -508,9 +516,9 @@ class DraftSimulator:
         top_adp = available.nsmallest(sim_pool_size, "adp")
         candidate_ids_set = set(candidates["player_id"].values)
         # Union: top-ADP pool + all candidates
-        sim_available = pd.concat(
-            [top_adp, available[available["player_id"].isin(candidate_ids_set)]]
-        ).drop_duplicates(subset=["player_id"])
+        sim_available = pd.concat([top_adp, available[available["player_id"].isin(candidate_ids_set)]]).drop_duplicates(
+            subset=["player_id"]
+        )
 
         # Prepare arrays for simulation (from filtered pool)
         available_ids = sim_available["player_id"].values

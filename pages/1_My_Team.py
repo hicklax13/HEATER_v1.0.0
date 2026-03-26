@@ -745,12 +745,12 @@ else:
                     tier_color = tier_colors.get(opp["tier"], T["tx2"])
                     st.markdown(
                         f'<div style="background:{T["card"]};border-left:4px solid {tier_color};'
-                        f'padding:8px 12px;border-radius:6px;margin-bottom:8px;font-size:13px;'
+                        f"padding:8px 12px;border-radius:6px;margin-bottom:8px;font-size:13px;"
                         f'font-family:IBM Plex Mono,monospace;">'
-                        f'<b>Week {opp["week"]}</b> vs <b>{opp["name"]}</b> '
-                        f'(Tier {opp["tier"]} — {opp["threat"]} threat) '
-                        f'| Strengths: {", ".join(opp.get("strengths", []))} '
-                        f'| Weaknesses: {", ".join(opp.get("weaknesses", []))}'
+                        f"<b>Week {opp['week']}</b> vs <b>{opp['name']}</b> "
+                        f"(Tier {opp['tier']} — {opp['threat']} threat) "
+                        f"| Strengths: {', '.join(opp.get('strengths', []))} "
+                        f"| Weaknesses: {', '.join(opp.get('weaknesses', []))}"
                         f"</div>",
                         unsafe_allow_html=True,
                     )
@@ -770,11 +770,11 @@ else:
                     ip_color = {"safe": T["green"], "warning": T["warn"], "danger": T["danger"]}
                     st.markdown(
                         f'<div style="background:{T["card"]};border-left:4px solid '
-                        f'{ip_color.get(ip_result["status"], T["tx2"])};'
-                        f'padding:6px 12px;border-radius:6px;margin-bottom:8px;font-size:12px;'
+                        f"{ip_color.get(ip_result['status'], T['tx2'])};"
+                        f"padding:6px 12px;border-radius:6px;margin-bottom:8px;font-size:12px;"
                         f'font-family:IBM Plex Mono,monospace;">'
-                        f'IP Watch: {ip_result["projected_ip"]} / {ip_result["ip_needed"]:.0f} '
-                        f'({ip_result["ip_pace"]:.0f}% pace) — {ip_result["message"]}'
+                        f"IP Watch: {ip_result['projected_ip']} / {ip_result['ip_needed']:.0f} "
+                        f"({ip_result['ip_pace']:.0f}% pace) — {ip_result['message']}"
                         f"</div>",
                         unsafe_allow_html=True,
                     )
@@ -800,9 +800,7 @@ else:
                 news_df = pd.DataFrame()
                 try:
                     _conn = get_connection()
-                    news_df = pd.read_sql_query(
-                        "SELECT * FROM player_news ORDER BY fetched_at DESC LIMIT 20", _conn
-                    )
+                    news_df = pd.read_sql_query("SELECT * FROM player_news ORDER BY fetched_at DESC LIMIT 20", _conn)
                     _conn.close()
                 except Exception:
                     pass
@@ -1205,7 +1203,9 @@ else:
                                 bayes_df = updated[show_cols].copy()
                                 # Replace player_id with player name + add mlb_id for headshots
                                 if "player_id" in bayes_df.columns:
-                                    players_lookup = pd.read_sql_query("SELECT player_id, name, mlb_id FROM players", conn)
+                                    players_lookup = pd.read_sql_query(
+                                        "SELECT player_id, name, mlb_id FROM players", conn
+                                    )
                                     pid_to_name = dict(zip(players_lookup["player_id"], players_lookup["name"]))
                                     pid_to_mlb = dict(zip(players_lookup["player_id"], players_lookup["mlb_id"]))
                                     bayes_df["mlb_id"] = bayes_df["player_id"].map(

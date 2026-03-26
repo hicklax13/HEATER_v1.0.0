@@ -192,10 +192,12 @@ def get_schedule_difficulty(weeks: range | None = None) -> list[dict]:
     for w in weeks:
         opp = TEAM_HICKEY_SCHEDULE.get(w, "BYE")
         profile = OPPONENT_PROFILES.get(opp, {})
-        result.append({
-            "week": w,
-            "opponent": opp,
-            "tier": profile.get("tier", 0),
-            "threat": profile.get("threat", ""),
-        })
+        result.append(
+            {
+                "week": w,
+                "opponent": opp,
+                "tier": profile.get("tier", 0),
+                "threat": profile.get("threat", ""),
+            }
+        )
     return result

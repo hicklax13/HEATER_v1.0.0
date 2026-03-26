@@ -5,7 +5,6 @@ Analyst tone, not cheerleader. Data-driven recommendations.
 """
 
 import logging
-from datetime import UTC, datetime
 
 import pandas as pd
 
@@ -38,13 +37,15 @@ def generate_roster_alerts(
     # Alert 1: Empty roster spots
     if roster_size < max_roster_size:
         empty = max_roster_size - roster_size
-        alerts.append({
-            "type": "empty_roster",
-            "severity": "critical",
-            "title": f"EMPTY ROSTER SPOTS ({empty})",
-            "message": f"You have {empty} empty roster slot(s). An empty spot is a zero — any player is better than nothing.",
-            "action": "Go to Free Agents and add the top-ranked available player immediately.",
-        })
+        alerts.append(
+            {
+                "type": "empty_roster",
+                "severity": "critical",
+                "title": f"EMPTY ROSTER SPOTS ({empty})",
+                "message": f"You have {empty} empty roster slot(s). An empty spot is a zero — any player is better than nothing.",
+                "action": "Go to Free Agents and add the top-ranked available player immediately.",
+            }
+        )
 
     # Alert 2: Injured starters not on IL
     if player_news is not None and not player_news.empty:
@@ -54,13 +55,15 @@ def generate_roster_alerts(
             for _, news in recent.iterrows():
                 il_status = news.get("il_status", "")
                 if il_status and "IL" in str(il_status).upper():
-                    alerts.append({
-                        "type": "injury",
-                        "severity": "warning",
-                        "title": f"INJURY: {news.get('headline', 'Player injured')}",
-                        "message": f"Status: {il_status}. Check if IL slot is available.",
-                        "action": "Move to IL and pick up a replacement from free agents.",
-                    })
+                    alerts.append(
+                        {
+                            "type": "injury",
+                            "severity": "warning",
+                            "title": f"INJURY: {news.get('headline', 'Player injured')}",
+                            "message": f"Status: {il_status}. Check if IL slot is available.",
+                            "action": "Move to IL and pick up a replacement from free agents.",
+                        }
+                    )
 
     # Alert 3: Closer count
     closer_count = 0
@@ -72,26 +75,30 @@ def generate_roster_alerts(
             closer_names.append(p.get("name", "?"))
 
     if closer_count < 2:
-        alerts.append({
-            "type": "closer_shortage",
-            "severity": "warning",
-            "title": f"CLOSER ALERT: Only {closer_count} closer(s)",
-            "message": f"Current closers: {', '.join(closer_names) if closer_names else 'None'}. AVIS requires minimum 2 closers at all times.",
-            "action": "Check Waiver Wire for available closers (sorted by projected SV).",
-        })
+        alerts.append(
+            {
+                "type": "closer_shortage",
+                "severity": "warning",
+                "title": f"CLOSER ALERT: Only {closer_count} closer(s)",
+                "message": f"Current closers: {', '.join(closer_names) if closer_names else 'None'}. AVIS requires minimum 2 closers at all times.",
+                "action": "Check Waiver Wire for available closers (sorted by projected SV).",
+            }
+        )
 
     # Alert 4: IL stash return watch
     il_stash_names = {"Shane Bieber", "Spencer Strider"}  # Per AVIS Section 7
     for _, p in roster.iterrows():
         name = p.get("name", "")
         if name in il_stash_names:
-            alerts.append({
-                "type": "il_watch",
-                "severity": "info",
-                "title": f"IL STASH: {name}",
-                "message": f"{name} is on your IL. Monitor return timeline — playoff weapon if healthy by August.",
-                "action": "Do NOT drop within 2 weeks of expected return date.",
-            })
+            alerts.append(
+                {
+                    "type": "il_watch",
+                    "severity": "info",
+                    "title": f"IL STASH: {name}",
+                    "message": f"{name} is on your IL. Monitor return timeline — playoff weapon if healthy by August.",
+                    "action": "Do NOT drop within 2 weeks of expected return date.",
+                }
+            )
 
     return alerts
 
@@ -121,12 +128,12 @@ def render_alerts_html(alerts: list[dict], theme: dict) -> str:
         cards.append(
             f'<div style="background:{theme.get("card", "#fff")};'
             f"border-left:4px solid {color};"
-            f'padding:8px 12px;border-radius:6px;margin-bottom:6px;font-size:12px;'
+            f"padding:8px 12px;border-radius:6px;margin-bottom:6px;font-size:12px;"
             f'font-family:IBM Plex Mono,monospace;">'
             f'<b style="color:{color};">{alert["title"]}</b><br>'
             f'<span style="color:{theme.get("tx2", "#6b7280")};">{alert["message"]}</span><br>'
             f'<span style="color:{theme.get("tx", "#1d1d1f")};font-weight:600;">'
-            f'Action: {alert["action"]}</span>'
+            f"Action: {alert['action']}</span>"
             f"</div>"
         )
 

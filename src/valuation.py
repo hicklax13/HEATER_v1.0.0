@@ -176,9 +176,18 @@ class SGPCalculator:
         total = np.zeros(n)
 
         _STAT_COL = {
-            "R": "r", "HR": "hr", "RBI": "rbi", "SB": "sb",
-            "AVG": "avg", "OBP": "obp", "W": "w", "L": "l",
-            "SV": "sv", "K": "k", "ERA": "era", "WHIP": "whip",
+            "R": "r",
+            "HR": "hr",
+            "RBI": "rbi",
+            "SB": "sb",
+            "AVG": "avg",
+            "OBP": "obp",
+            "W": "w",
+            "L": "l",
+            "SV": "sv",
+            "K": "k",
+            "ERA": "era",
+            "WHIP": "whip",
         }
 
         for cat in self.config.all_categories:
@@ -205,7 +214,9 @@ class SGPCalculator:
                     roster_obp_num = roster_pa * 0.317
                     player_obp_num = h + bb + hbp
                     with np.errstate(divide="ignore", invalid="ignore"):
-                        new_obp = np.where(pa > 0, (roster_obp_num + player_obp_num) / (roster_pa + pa), roster_obp_num / roster_pa)
+                        new_obp = np.where(
+                            pa > 0, (roster_obp_num + player_obp_num) / (roster_pa + pa), roster_obp_num / roster_pa
+                        )
                     old_obp = roster_obp_num / roster_pa
                     total += np.where(pa > 0, (new_obp - old_obp) / denom, 0.0)
                 elif cat == "ERA":
@@ -223,7 +234,9 @@ class SGPCalculator:
                     roster_ip = 1300.0
                     roster_whip_total = 1300.0 * 1.25
                     with np.errstate(divide="ignore", invalid="ignore"):
-                        new_whip = np.where(ip > 0, (roster_whip_total + bb_a + h_a) / (roster_ip + ip), roster_whip_total / roster_ip)
+                        new_whip = np.where(
+                            ip > 0, (roster_whip_total + bb_a + h_a) / (roster_ip + ip), roster_whip_total / roster_ip
+                        )
                     old_whip = roster_whip_total / roster_ip
                     total += np.where(ip > 0, -(new_whip - old_whip) / denom, 0.0)
             elif cat in self.config.inverse_stats:
