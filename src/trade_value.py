@@ -277,7 +277,7 @@ def compute_trade_values(
     # Applied BEFORE tier assignment so tiers reflect actual trade value.
     total_weeks = 26.0
     time_factor = min(weeks_remaining / total_weeks, 1.0)
-    pool["trade_value"] = (pool["trade_value"] * time_factor).round(1)
+    pool["trade_value"] = (pool["trade_value"] * time_factor).round(2)
 
     # ── Step 7: Compute dollar values ─────────────────────────────────
 
@@ -285,11 +285,11 @@ def compute_trade_values(
     total_positive = positive_surplus.sum()
     if total_positive > 0:
         pool["dollar_value"] = pool["sgp_surplus"].apply(
-            lambda s: round(max(s, 0) / total_positive * LEAGUE_BUDGET + 1.0, 1) if s > 0 else 1.0
+            lambda s: round(max(s, 0) / total_positive * LEAGUE_BUDGET + 1.0, 2) if s > 0 else 1.0
         )
     else:
         pool["dollar_value"] = 1.0
-    pool["dollar_value"] = (pool["dollar_value"] * time_factor).round(1)
+    pool["dollar_value"] = (pool["dollar_value"] * time_factor).round(2)
 
     # ── Step 8: Assign tiers and ranks ────────────────────────────────
 

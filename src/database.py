@@ -345,6 +345,32 @@ def init_db():
             delta_7d REAL,
             PRIMARY KEY (player_id, date)
         );
+
+        CREATE TABLE IF NOT EXISTS opponent_profiles (
+            team_name TEXT PRIMARY KEY,
+            tier INTEGER NOT NULL DEFAULT 3,
+            threat_level TEXT,
+            strengths TEXT,
+            weaknesses TEXT,
+            manager TEXT,
+            notes TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS league_schedule (
+            week INTEGER NOT NULL,
+            team_a TEXT NOT NULL,
+            team_b TEXT NOT NULL,
+            PRIMARY KEY (week, team_a)
+        );
+
+        CREATE TABLE IF NOT EXISTS yahoo_free_agents (
+            player_key TEXT PRIMARY KEY,
+            player_name TEXT NOT NULL,
+            positions TEXT,
+            team TEXT,
+            percent_owned REAL,
+            fetched_at TEXT
+        );
     """)
     conn.commit()
 

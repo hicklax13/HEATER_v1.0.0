@@ -108,6 +108,8 @@ class DraftState:
                 "BN": 5,
             }
 
+        self.roster_config = roster_config  # persist for save/load round-trips
+
         # Initialize all team rosters
         self.teams = []
         for i in range(num_teams):
@@ -385,7 +387,8 @@ class DraftState:
 
     def available_players(self, player_pool: pd.DataFrame) -> pd.DataFrame:
         """Filter player pool to only available (undrafted) players."""
-        return player_pool[~player_pool["player_id"].isin(self.drafted_player_ids)].copy()
+        pool_ids = pd.to_numeric(player_pool["player_id"], errors="coerce").fillna(-1).astype(int)
+        return player_pool[~pool_ids.isin(self.drafted_player_ids)].copy()
 
     # ── Persistence ──────────────────────────────────────────────────
 

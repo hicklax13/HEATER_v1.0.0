@@ -82,7 +82,7 @@ def _player_row_html(player: dict, show_health: bool = True, show_percentiles: b
             pct_html = f'<small style="color:#6b7280;">{p10}-{p90}</small>'
     return (
         f"<td>{health_html}{name}{tags_html}</td><td>{team}</td><td>{pos}</td>"
-        f"<td>{score:.1f}</td><td>{adp}</td><td>{pct_html}</td>"
+        f"<td>{score:.2f}</td><td>{adp}</td><td>{pct_html}</td>"
     )
 
 

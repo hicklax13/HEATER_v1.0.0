@@ -201,3 +201,105 @@ def get_schedule_difficulty(weeks: range | None = None) -> list[dict]:
             }
         )
     return result
+
+
+def analyze_weekly_matchup(
+    user_roster,
+    opponent_profile: dict,
+    week: int,
+    config=None,
+) -> dict:
+    """Category-by-category matchup analysis with wins/losses/toss-ups.
+
+    Combines Team Hickey's roster projections with the opponent's known
+    strengths/weaknesses to project category-level outcomes.
+
+    Args:
+        user_roster: DataFrame with Team Hickey's projected stats.
+        opponent_profile: Dict from get_current_opponent().
+        week: Fantasy week number.
+        config: LeagueConfig (defaults to standard).
+
+    Returns:
+        Dict with: week, opponent, tier, category_results (list of per-cat dicts),
+        likely_wins, likely_losses, toss_ups, exploit_targets, vulnerabilities,
+        streaming_recommendations.
+    """
+    import pandas as pd
+
+    from src.valuation import LeagueConfig
+
+    if config is None:
+        config = LeagueConfig()
+
+    opp_strengths = set(opponent_profile.get("strengths", []))
+    opp_weaknesses = set(opponent_profile.get("weaknesses", []))
+
+    category_results = []
+    likely_wins = []
+    likely_losses = []
+    toss_ups = []
+
+    for cat in config.all_categories:
+        col = cat.lower()
+        team_total = 0.0
+        if not user_roster.empty and col in user_roster.columns:
+            team_total = float(pd.to_numeric(user_roster[col], errors="coerce").fillna(0).sum())
+
+        # Determine outlook based on opponent profile
+        if cat in opp_weaknesses:
+            outlook = "LIKELY WIN"
+            likely_wins.append(cat)
+        elif cat in opp_strengths:
+            outlook = "LIKELY LOSS"
+            likely_losses.append(cat)
+        else:
+            outlook = "TOSS-UP"
+            toss_ups.append(cat)
+
+        category_results.append(
+            {
+                "category": cat,
+                "team_total": round(team_total, 2),
+                "outlook": outlook,
+                "opp_strong": cat in opp_strengths,
+                "opp_weak": cat in opp_weaknesses,
+            }
+        )
+
+    # Exploitation targets: opponent weaknesses that align with our strengths
+    # Team Hickey structural strengths from AVIS: HR, RBI, K
+    hickey_strengths = {"HR", "RBI", "K"}
+    exploit_targets = [cat for cat in opp_weaknesses if cat in hickey_strengths or cat in toss_ups]
+
+    # Vulnerabilities: opponent strengths that overlap with our weaknesses
+    hickey_weaknesses = {"SB"}  # Per AVIS Section 2.2
+    vulnerabilities = [cat for cat in opp_strengths if cat in hickey_weaknesses or cat in toss_ups]
+
+    # Streaming recommendations based on matchup
+    streaming_recs = []
+    if opp_weaknesses & {"K", "W"}:
+        streaming_recs.append("Stream SP for K/W — opponent is weak in pitching counting stats.")
+    if "SV" in opp_weaknesses:
+        streaming_recs.append("Add RP closers — exploit opponent's saves weakness.")
+    if "SB" in toss_ups:
+        streaming_recs.append("Consider speed hitters — SB is a toss-up this week.")
+    if opp_strengths & {"ERA", "WHIP"} and {"K", "W"} & set(toss_ups):
+        streaming_recs.append("Stream volume SP (high K upside) — accept rate-stat risk for counting gains.")
+    if not streaming_recs:
+        streaming_recs.append("No clear streaming edge — play your best lineup.")
+
+    return {
+        "week": week,
+        "opponent": opponent_profile.get("name", "Unknown"),
+        "tier": opponent_profile.get("tier", 3),
+        "threat": opponent_profile.get("threat", "Unknown"),
+        "category_results": category_results,
+        "likely_wins": likely_wins,
+        "likely_losses": likely_losses,
+        "toss_ups": toss_ups,
+        "exploit_targets": exploit_targets,
+        "vulnerabilities": vulnerabilities,
+        "streaming_recommendations": streaming_recs,
+        "projected_record": f"{len(likely_wins)}-{len(likely_losses)}-{len(toss_ups)}",
+    }

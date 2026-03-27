@@ -130,10 +130,10 @@ def generate_thursday_checkpoint(
     # IP check
     MIN_IP = 20.0
     if ip_projected < MIN_IP:
-        checkpoint["ip_status"] = f"DANGER: {ip_projected:.1f} IP projected, need {MIN_IP:.0f}. Add streaming SP NOW."
+        checkpoint["ip_status"] = f"DANGER: {ip_projected:.2f} IP projected, need {MIN_IP:.0f}. Add streaming SP NOW."
         checkpoint["recommendations"].append("Stream a SP with a start this weekend to hit 20 IP minimum.")
     else:
-        checkpoint["ip_status"] = f"On pace: {ip_projected:.1f} IP projected (minimum {MIN_IP:.0f})."
+        checkpoint["ip_status"] = f"On pace: {ip_projected:.2f} IP projected (minimum {MIN_IP:.0f})."
 
     # Matchup score analysis (if available from Yahoo)
     if matchup_score:

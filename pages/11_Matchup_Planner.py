@@ -136,7 +136,7 @@ def _games_detail_html(games: list[dict]) -> str:
         pf = g.get("park_factor", 1.0)
         parts.append(
             f'<span style="font-size:11px;color:{T["tx2"]};">'
-            f"{date} vs {opp} ({loc}, Park Factor: {float(pf):.2f}, Score: {float(raw):.3f})"
+            f"{date} vs {opp} ({loc}, Park Factor: {float(pf):.2f}, Score: {float(raw):.2f})"
             f"</span>"
         )
     return "<br>".join(parts)
@@ -310,7 +310,7 @@ with main:
     m1.metric("Players Rated", len(ratings_df))
     m2.metric("Smash Matchups", n_smash)
     m3.metric("Avoid Matchups", n_avoid)
-    m4.metric("Average Games", f"{avg_games:.1f}")
+    m4.metric("Average Games", f"{avg_games:.2f}")
 
     st.markdown("---")
 
@@ -332,7 +332,7 @@ with main:
                 "Position": str(row.get("positions", "")),
                 "Type": "Hitter" if row.get("is_hitter", True) else "Pitcher",
                 "Games": int(row.get("games_count", 0)),
-                "Rating": f"{float(row.get('weekly_matchup_rating', 0.0)):.1f}",
+                "Rating": f"{float(row.get('weekly_matchup_rating', 0.0)):.2f}",
                 "Tier": _TIER_LABELS.get(tier, tier.capitalize()),
             }
             if has_mlb_id:
@@ -398,7 +398,7 @@ with main:
                 f'<span style="font-size:12px;color:{T["tx2"]};">{positions} &bull; {player_type_label}</span>'
                 f'<span style="font-size:12px;color:{T["tx2"]};">{games_count} game(s)</span>'
                 f'<span style="font-size:12px;font-weight:700;color:{tier_color};">'
-                f"Rating: {rating:.1f} &bull; {tier_label}"
+                f"Rating: {rating:.2f} &bull; {tier_label}"
                 f"</span>"
                 f"</div>"
             )

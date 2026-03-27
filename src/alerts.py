@@ -16,6 +16,9 @@ def generate_roster_alerts(
     player_news: pd.DataFrame | None = None,
     closer_data: dict | None = None,
     max_roster_size: int = 23,
+    fa_pool: pd.DataFrame | None = None,
+    user_roster_ids: list | None = None,
+    player_pool: pd.DataFrame | None = None,
 ) -> list[dict]:
     """Generate proactive alerts based on current roster state.
 
@@ -37,12 +40,25 @@ def generate_roster_alerts(
     # Alert 1: Empty roster spots
     if roster_size < max_roster_size:
         empty = max_roster_size - roster_size
+        # Auto-compute top 3 FA fill recommendations if data is available
+        top_fills_str = ""
+        if fa_pool is not None and not fa_pool.empty and user_roster_ids is not None and player_pool is not None:
+            try:
+                from src.in_season import rank_free_agents
+
+                ranked = rank_free_agents(user_roster_ids, fa_pool, player_pool)
+                if not ranked.empty:
+                    top3 = ranked.head(3)
+                    names = [str(r.get("player_name", r.get("name", "?"))) for _, r in top3.iterrows()]
+                    top_fills_str = f" Top fills: {', '.join(names)}."
+            except Exception:
+                pass
         alerts.append(
             {
                 "type": "empty_roster",
                 "severity": "critical",
                 "title": f"EMPTY ROSTER SPOTS ({empty})",
-                "message": f"You have {empty} empty roster slot(s). An empty spot is a zero — any player is better than nothing.",
+                "message": f"You have {empty} empty roster slot(s). An empty spot is a zero — any player is better than nothing.{top_fills_str}",
                 "action": "Go to Free Agents and add the top-ranked available player immediately.",
             }
         )

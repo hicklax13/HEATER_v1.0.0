@@ -1,0 +1,1819 @@
+"""Lineup — Merged optimizer + start/sit advisor with 6-tab interface.
+
+Combines the LP optimizer pipeline (11 modules) with the 3-layer start/sit
+decision model into a single unified lineup management page:
+
+  1. Optimize: mode selector, alpha slider, LP solve, starting lineup + bench
+  2. Start/Sit: per-slot comparison with bench alternatives and free agent upgrades
+  3. Category Analysis: non-linear SGP weights, maximin, standings position
+  4. Head-to-Head: per-category win probabilities against weekly opponent
+  5. Streaming: pitcher streaming candidates + two-start SP detection
+  6. Roster: full roster with health badges and player cards
+"""
+
+from __future__ import annotations
+
+import logging
+import time
+
+import pandas as pd
+import streamlit as st
+
+from src.database import (
+    coerce_numeric_df,
+    get_connection,
+    init_db,
+    load_league_rosters,
+    load_league_standings,
+    load_player_pool,
+)
+from src.injury_model import compute_health_score, get_injury_badge
+from src.league_manager import get_free_agents, get_team_roster
+from src.ui_shared import (
+    METRIC_TOOLTIPS,
+    PAGE_ICONS,
+    THEME,
+    inject_custom_css,
+    page_timer_footer,
+    page_timer_start,
+    render_compact_table,
+    render_context_card,
+    render_context_columns,
+    render_page_layout,
+    render_player_select,
+    render_styled_table,
+)
+from src.valuation import LeagueConfig
+
+logger = logging.getLogger(__name__)
+
+T = THEME
+
+# ── Optional module imports ──────────────────────────────────────────
+
+# Pipeline (primary optimizer)
+try:
+    from src.optimizer.pipeline import LineupOptimizerPipeline
+
+    PIPELINE_AVAILABLE = True
+except ImportError:
+    PIPELINE_AVAILABLE = False
+
+# Fallback: basic LP optimizer
+try:
+    from src.lineup_optimizer import LineupOptimizer
+
+    OPTIMIZER_AVAILABLE = True
+except ImportError:
+    OPTIMIZER_AVAILABLE = False
+
+# Head-to-Head engine
+try:
+    from src.optimizer.h2h_engine import (
+        compute_h2h_category_weights,
+        estimate_h2h_win_probability,
+    )
+
+    H2H_AVAILABLE = True
+except ImportError:
+    H2H_AVAILABLE = False
+
+# Non-linear SGP weights
+try:
+    from src.optimizer.sgp_theory import compute_nonlinear_weights
+
+    SGP_AVAILABLE = True
+except ImportError:
+    SGP_AVAILABLE = False
+
+# Matchup adjustments
+try:
+    from src.optimizer.matchup_adjustments import get_weekly_schedule
+
+    MATCHUP_AVAILABLE = True
+except ImportError:
+    MATCHUP_AVAILABLE = False
+
+# Park factors
+try:
+    from src.data_bootstrap import PARK_FACTORS
+
+    PARK_FACTORS_AVAILABLE = True
+except ImportError:
+    PARK_FACTORS: dict[str, float] = {}
+    PARK_FACTORS_AVAILABLE = False
+
+# Start/sit advisor
+START_SIT_AVAILABLE = False
+try:
+    from src.start_sit import classify_matchup_state, start_sit_recommendation
+
+    START_SIT_AVAILABLE = True
+except Exception:
+    logger.warning("start_sit module unavailable", exc_info=True)
+
+# IP tracker
+IP_TRACKER_AVAILABLE = False
+try:
+    from src.ip_tracker import compute_weekly_ip_projection, get_days_remaining_in_week
+
+    IP_TRACKER_AVAILABLE = True
+except Exception:
+    pass
+
+# ── Page Config ──────────────────────────────────────────────────────
+
+st.set_page_config(
+    page_title="Heater | Lineup",
+    page_icon="",
+    layout="wide",
+    initial_sidebar_state="collapsed",
+)
+
+init_db()
+inject_custom_css()
+page_timer_start()
+
+render_page_layout(
+    "LINEUP",
+    banner_teaser="Optimize your weekly lineup and make start/sit decisions",
+    banner_icon="lineup_optimizer",
+)
+
+# ── Category display names ───────────────────────────────────────────
+
+CAT_DISPLAY_NAMES: dict[str, str] = {
+    "r": "Runs",
+    "hr": "Home Runs",
+    "rbi": "Runs Batted In",
+    "sb": "Stolen Bases",
+    "avg": "Batting Average",
+    "obp": "On-Base Percentage",
+    "w": "Wins",
+    "l": "Losses",
+    "sv": "Saves",
+    "k": "Strikeouts",
+    "era": "Earned Run Average",
+    "whip": "Walks + Hits per Inning Pitched",
+}
+
+ALL_CATS = list(CAT_DISPLAY_NAMES.keys())
+
+
+# ── Load user team ───────────────────────────────────────────────────
+
+rosters = load_league_rosters()
+if rosters.empty:
+    if st.session_state.get("yahoo_connected"):
+        st.warning("Yahoo is connected but no roster data found in the database. Try syncing:")
+        if st.button("Sync League Data Now", key="sync_league_lineup_merged"):
+            client = st.session_state.get("yahoo_client")
+            if client:
+                progress = st.progress(0, text="Connecting to Yahoo Fantasy...")
+                try:
+                    progress.progress(30, text="Fetching league standings...")
+                    sync_result = client.sync_to_db()
+                    progress.progress(100, text="Sync complete!")
+                    standings_count = sync_result.get("standings", 0) if sync_result else 0
+                    rosters_count = sync_result.get("rosters", 0) if sync_result else 0
+                    if rosters_count > 0:
+                        st.success(f"Synced {rosters_count} roster entries and {standings_count} standing entries.")
+                        time.sleep(1)
+                        st.rerun()
+                    else:
+                        st.warning(
+                            f"Sync completed but Yahoo returned no roster data "
+                            f"(standings: {standings_count}). This may mean the league "
+                            f"season hasn't started yet on Yahoo, or rosters haven't been set."
+                        )
+                except Exception as e:
+                    progress.empty()
+                    st.error(f"Sync failed: {e}")
+            else:
+                st.error("Yahoo client not found in session. Return to Connect League and reconnect.")
+    else:
+        st.warning(
+            "No league data loaded. Connect your Yahoo league in Connect League, "
+            "or league data will load automatically on next app launch."
+        )
+    st.stop()
+
+user_teams = rosters[rosters["is_user_team"] == 1]
+if user_teams.empty:
+    st.warning("No user team identified in roster data.")
+    st.stop()
+
+user_team_name = str(user_teams.iloc[0]["team_name"])
+_display_team_name = "".join(c for c in user_team_name if ord(c) < 0x10000).strip()
+
+roster = get_team_roster(user_team_name)
+if roster is None or roster.empty:
+    st.info("Your roster is empty. Import roster data first.")
+    st.stop()
+
+# User player IDs for start/sit filtering
+user_player_ids: list[int] = roster["player_id"].tolist() if "player_id" in roster.columns else []
+
+# ── Normalize columns ────────────────────────────────────────────────
+
+if "name" in roster.columns and "player_name" not in roster.columns:
+    roster = roster.rename(columns={"name": "player_name"})
+
+required_cols = ["player_id", "player_name", "positions", "is_hitter"]
+stat_cols = ["r", "hr", "rbi", "sb", "avg", "obp", "w", "l", "sv", "k", "era", "whip"]
+component_cols = ["ip", "h", "ab", "er", "bb_allowed", "h_allowed"]
+for col in required_cols + stat_cols + component_cols:
+    if col not in roster.columns:
+        roster[col] = 0
+
+# Coerce numeric columns (Python 3.13+ SQLite may return bytes)
+for col in stat_cols + component_cols:
+    if col in roster.columns:
+        roster[col] = pd.to_numeric(roster[col], errors="coerce").fillna(0)
+
+
+# ── Projection fallback: load from player pool if stats are all zeros ──
+
+pool = load_player_pool()
+if not pool.empty:
+    pool = pool.rename(columns={"name": "player_name"})
+
+all_stat_cols = stat_cols + component_cols
+numeric_stats = roster[all_stat_cols].apply(pd.to_numeric, errors="coerce").fillna(0)
+if numeric_stats.sum().sum() == 0:
+    st.warning(
+        "Player projections are missing — the optimizer cannot differentiate starters from bench. "
+        "Loading projection data from the player pool as a fallback."
+    )
+    if not pool.empty:
+        available = [c for c in all_stat_cols if c in pool.columns]
+        fallback = pool[["player_id"] + available].copy()
+        roster = roster.drop(columns=[c for c in available if c in roster.columns], errors="ignore")
+        roster = roster.merge(fallback, on="player_id", how="left")
+        for c in all_stat_cols:
+            if c in roster.columns:
+                roster[c] = pd.to_numeric(roster[c], errors="coerce").fillna(0)
+
+
+# ── League config ────────────────────────────────────────────────────
+
+league_config = LeagueConfig()
+
+optimizer_config = {
+    "hitting_categories": ["r", "hr", "rbi", "sb", "avg", "obp"],
+    "pitching_categories": ["w", "l", "sv", "k", "era", "whip"],
+    "roster_slots": {
+        "C": 1,
+        "1B": 1,
+        "2B": 1,
+        "3B": 1,
+        "SS": 1,
+        "OF": 3,
+        "Util": 2,
+        "SP": 2,
+        "RP": 2,
+        "P": 4,
+    },
+}
+
+if not OPTIMIZER_AVAILABLE and not PIPELINE_AVAILABLE:
+    st.error("Lineup Optimizer requires PuLP. Install it with: `pip install pulp`")
+    st.stop()
+
+
+# ── Apply health-based stat discount BEFORE optimization ─────────────
+
+HEALTH_PENALTY_WEIGHT = 0.15
+health_dict: dict[int, float] = {}
+try:
+    conn = get_connection()
+    try:
+        injury_df = pd.read_sql_query("SELECT * FROM injury_history", conn)
+        injury_df = coerce_numeric_df(injury_df)
+    finally:
+        conn.close()
+
+    if not injury_df.empty:
+        counting_cols = ["r", "hr", "rbi", "sb", "w", "sv", "k"]
+        # Cast int64 columns to float64 before applying fractional penalties
+        for col in counting_cols:
+            if col in roster.columns:
+                roster[col] = pd.to_numeric(roster[col], errors="coerce").astype(float)
+        for idx, row in roster.iterrows():
+            pid = row.get("player_id")
+            pi = injury_df[injury_df["player_id"] == pid]
+            if not pi.empty:
+                hs = compute_health_score(pi["games_played"].tolist(), pi["games_available"].tolist())
+            else:
+                hs = 1.0
+            health_dict[pid] = hs
+            penalty = HEALTH_PENALTY_WEIGHT * (1.0 - hs)
+            if penalty > 0:
+                for col in counting_cols:
+                    if col in roster.columns:
+                        roster.at[idx, col] = float(roster.at[idx, col]) * (1.0 - penalty)
+except Exception:
+    pass  # Graceful degradation when injury data unavailable
+
+
+# ── Load standings and schedule ──────────────────────────────────────
+
+standings = load_league_standings()
+
+# Build team totals from standings for H2H and SGP.
+team_totals: dict[str, dict[str, float]] = {}
+my_totals: dict[str, float] = {}
+if not standings.empty and "category" in standings.columns:
+    for _, srow in standings.iterrows():
+        tname = srow.get("team_name", "")
+        cat = str(srow.get("category", "")).strip()
+        raw_total = srow.get("total", 0)
+        if not tname or not cat:
+            continue
+        try:
+            val = float(raw_total) if raw_total is not None else 0.0
+        except (ValueError, TypeError):
+            val = 0.0
+        team_totals.setdefault(tname, {})[cat] = val
+        if tname == user_team_name:
+            my_totals[cat] = val
+
+# Opponent weekly totals (league median proxy)
+opp_weekly_totals: dict[str, float] | None = None
+if team_totals and my_totals:
+    _all_cats: set[str] = set()
+    for _tt in team_totals.values():
+        _all_cats.update(_tt.keys())
+    _median_totals: dict[str, float] = {}
+    for _cat in _all_cats:
+        _vals = [tt.get(_cat, 0.0) for tt in team_totals.values() if _cat in tt]
+        if _vals:
+            _vals.sort()
+            _mid = len(_vals) // 2
+            _median_totals[_cat] = _vals[_mid]
+    if _median_totals:
+        opp_weekly_totals = _median_totals
+
+# Fetch weekly schedule (cached in session state)
+week_schedule: list = []
+if MATCHUP_AVAILABLE:
+    if "lineup_week_schedule" not in st.session_state:
+        try:
+            st.session_state["lineup_week_schedule"] = get_weekly_schedule(days_ahead=7)
+        except Exception:
+            st.session_state["lineup_week_schedule"] = []
+    week_schedule = st.session_state.get("lineup_week_schedule", [])
+
+
+# ── IP budget tracking ───────────────────────────────────────────────
+
+ip_budget_html = ""
+if IP_TRACKER_AVAILABLE and not roster.empty:
+    try:
+        _pitcher_data = []
+        for _, _p in roster.iterrows():
+            if _p.get("is_hitter") == 0 or str(_p.get("positions", "")).upper() in (
+                "P",
+                "SP",
+                "RP",
+            ):
+                _pitcher_data.append({"name": _p.get("player_name", ""), "ip": _p.get("ip", 0)})
+        if _pitcher_data:
+            _ip_result = compute_weekly_ip_projection(_pitcher_data, get_days_remaining_in_week())
+            _ip_color_map = {"safe": "#2d6a4f", "warning": "#ff9f1c", "danger": "#e63946"}
+            ip_budget_html = (
+                f'<div class="context-stat-row">'
+                f'<span class="context-stat-label">Innings Pitched Pace</span>'
+                f'<span class="context-stat-value" style="color:'
+                f'{_ip_color_map.get(_ip_result["status"], T["tx2"])}">'
+                f"{_ip_result['projected_ip']} / {_ip_result['ip_needed']:.0f} "
+                f"({_ip_result['ip_pace']:.0f}%)</span></div>"
+                f'<div class="context-stat-row">'
+                f'<span class="context-stat-label">Status</span>'
+                f'<span class="context-stat-value">{_ip_result["message"]}</span></div>'
+            )
+    except Exception:
+        pass  # Non-fatal
+
+
+# ── Matchup state classification ─────────────────────────────────────
+
+matchup_state_label = "close"
+matchup_note = "No weekly totals available. Using balanced (close) matchup strategy."
+if START_SIT_AVAILABLE and my_totals and opp_weekly_totals:
+    try:
+        matchup_state_label = classify_matchup_state(my_totals, opp_weekly_totals, league_config)
+        matchup_note = "Matchup state derived from league standings. Opponent approximated by league median."
+    except Exception:
+        pass
+
+
+# ── 3-zone hybrid layout ────────────────────────────────────────────
+
+ctx, main = render_context_columns()
+
+
+# ── Context panel ────────────────────────────────────────────────────
+
+with ctx:
+    # Team info
+    render_context_card(
+        "Team",
+        f'<div class="context-stat-row"><span class="context-stat-label">Active</span>'
+        f'<span class="context-stat-value">{_display_team_name}</span></div>'
+        f'<div class="context-stat-row"><span class="context-stat-label">Roster</span>'
+        f'<span class="context-stat-value">{len(user_player_ids)} players</span></div>',
+    )
+
+    # Optimizer settings
+    render_context_card("Optimization Settings", "")
+    mode = st.radio(
+        "Optimization Mode",
+        options=["quick", "standard", "full"],
+        index=1,
+        format_func=lambda m: {
+            "quick": "Quick (<1s)",
+            "standard": "Standard (2-3s)",
+            "full": "Full (5-10s)",
+        }[m],
+        help=(
+            "Quick: Enhanced projections + mean-variance only. "
+            "Standard: 200 scenarios + CVaR + matchup adjustments. "
+            "Full: Stochastic MIP + maximin + streaming + multi-period."
+        ),
+        key="lineup_mode",
+    )
+    alpha = st.slider(
+        "Head-to-Head vs Season-Long Balance",
+        min_value=0.0,
+        max_value=1.0,
+        value=0.5,
+        step=0.05,
+        help="0.0 = pure season-long, 1.0 = pure weekly Head-to-Head, 0.5 = balanced.",
+        key="lineup_alpha",
+    )
+    weeks_remaining = st.number_input(
+        "Weeks Remaining",
+        min_value=1,
+        max_value=26,
+        value=16,
+        help="Weeks left in the fantasy season. Affects urgency calculations.",
+        key="lineup_weeks",
+    )
+    risk_aversion = st.slider(
+        "Risk Aversion",
+        min_value=0.0,
+        max_value=0.50,
+        value=0.15,
+        step=0.05,
+        help="Higher = prefer consistent players over boom/bust. 0 = risk neutral.",
+        key="lineup_risk",
+    )
+
+    # Matchup state
+    render_context_card(
+        "Matchup State",
+        f'<div class="context-stat-row"><span class="context-stat-label">Strategy</span>'
+        f'<span class="context-stat-value">{matchup_state_label.upper()}</span></div>'
+        f'<p style="margin:4px 0 0;font-size:11px;color:{T["tx2"]};">'
+        f"{matchup_note}</p>",
+    )
+
+    # IP budget
+    if ip_budget_html:
+        render_context_card("Innings Pitched Budget", ip_budget_html)
+
+    # Opponent selector
+    opponent_names = [t for t in team_totals if t != user_team_name]
+    selected_opponent = None
+    opp_totals: dict[str, float] = {}
+
+    render_context_card("Head-to-Head Matchup", "")
+    if opponent_names:
+        selected_opponent = st.selectbox(
+            "This Week's Opponent",
+            options=["(None - Season-Long Only)"] + sorted(opponent_names),
+            index=0,
+            help="Select opponent to enable matchup-specific optimization.",
+            key="lineup_opponent",
+        )
+        if selected_opponent and selected_opponent != "(None - Season-Long Only)":
+            opp_totals = team_totals.get(selected_opponent, {})
+        else:
+            selected_opponent = None
+
+        if selected_opponent and opp_totals and my_totals and H2H_AVAILABLE:
+            try:
+                _h2h_quick = estimate_h2h_win_probability(my_totals, opp_totals)
+                _win_prob = _h2h_quick.get("overall_win_prob", 0.5)
+                _exp_wins = _h2h_quick.get("expected_wins", 5.0)
+                _status = "Favored" if _exp_wins > 5.5 else "Underdog" if _exp_wins < 4.5 else "Toss-up"
+                render_context_card(
+                    "Win Probability",
+                    f'<div class="context-stat-row">'
+                    f'<span class="context-stat-label">Probability</span>'
+                    f'<span class="context-stat-value">{_win_prob:.1%}</span></div>'
+                    f'<div class="context-stat-row">'
+                    f'<span class="context-stat-label">Expected Wins</span>'
+                    f'<span class="context-stat-value">{_exp_wins:.2f} / 10</span></div>'
+                    f'<div class="context-stat-row">'
+                    f'<span class="context-stat-label">Status</span>'
+                    f'<span class="context-stat-value">{_status}</span></div>',
+                )
+            except Exception:
+                pass
+    else:
+        st.caption("No standings data loaded. Connect your Yahoo league to see opponents.")
+
+
+# ── Main content panel ───────────────────────────────────────────────
+
+with main:
+    (
+        tab_optimize,
+        tab_startsit,
+        tab_analysis,
+        tab_h2h,
+        tab_streaming,
+        tab_roster,
+    ) = st.tabs(
+        [
+            "Optimize",
+            "Start/Sit",
+            "Category Analysis",
+            "Head-to-Head",
+            "Streaming",
+            "Roster",
+        ]
+    )
+
+    # ================================================================
+    # TAB 1: OPTIMIZE
+    # ================================================================
+
+    with tab_optimize:
+        optimize_clicked = st.button("Optimize Lineup", type="primary", key="lineup_run_opt")
+
+        if optimize_clicked:
+            progress_bar = st.progress(0, text="Initializing optimizer pipeline...")
+
+            if PIPELINE_AVAILABLE:
+                progress_bar.progress(10, text=f"Running {mode} optimization pipeline...")
+
+                pipeline = LineupOptimizerPipeline(
+                    roster,
+                    mode=mode,
+                    alpha=alpha,
+                    weeks_remaining=weeks_remaining,
+                    config=league_config,
+                )
+
+                # Override risk aversion from settings
+                pipeline._preset = dict(pipeline._preset)
+                pipeline._preset["risk_aversion"] = risk_aversion
+
+                progress_bar.progress(30, text="Computing category weights and projections...")
+
+                result = pipeline.optimize(
+                    standings=standings if not standings.empty else None,
+                    team_name=user_team_name,
+                    h2h_opponent_totals=opp_totals if opp_totals else None,
+                    my_totals=my_totals if my_totals else None,
+                    week_schedule=week_schedule if week_schedule else None,
+                    park_factors=PARK_FACTORS if PARK_FACTORS else None,
+                )
+
+                progress_bar.progress(100, text="Optimization complete!")
+                time.sleep(0.3)
+                progress_bar.empty()
+
+                st.session_state["lineup_optimizer_result"] = result
+
+            else:
+                # Fallback to basic optimizer
+                progress_bar.progress(20, text="Building constraint matrix...")
+                optimizer = LineupOptimizer(roster, league_config)
+                basic_result = optimizer.optimize_lineup()
+                progress_bar.progress(100, text="Optimization complete!")
+                time.sleep(0.3)
+                progress_bar.empty()
+
+                result = {
+                    "lineup": basic_result,
+                    "category_weights": {},
+                    "h2h_analysis": None,
+                    "streaming_suggestions": None,
+                    "risk_metrics": None,
+                    "maximin_comparison": None,
+                    "recommendations": [],
+                    "timing": {"total": 0},
+                    "mode": "basic",
+                    "matchup_adjusted": False,
+                }
+                st.session_state["lineup_optimizer_result"] = result
+
+        # Display results from session state
+        result = st.session_state.get("lineup_optimizer_result")
+
+        if result:
+            lineup = result.get("lineup", {})
+
+            if not lineup or not lineup.get("assignments"):
+                st.warning(
+                    "Could not produce a valid lineup. This usually means player projection "
+                    "data is missing or all zeros. Try syncing your Yahoo league data or "
+                    "running the data bootstrap to refresh projections."
+                )
+            else:
+                # Success banner
+                mode_label = result.get("mode", "standard").title()
+                timing_total = result.get("timing", {}).get("total", 0)
+                matchup_flag = " | Matchup-adjusted" if result.get("matchup_adjusted") else ""
+                st.success(f"Optimal lineup found ({mode_label} mode, {timing_total:.2f}s{matchup_flag})")
+
+                # Analytics transparency badge
+                if "analytics_context" in result:
+                    try:
+                        from src.ui_analytics_badge import render_analytics_badge
+
+                        render_analytics_badge(result["analytics_context"])
+                    except Exception:
+                        pass
+
+                # Recommended lineup table
+                st.markdown(
+                    f'<p style="font-size:12px;font-weight:700;letter-spacing:1px;'
+                    f"color:{T['tx2']};text-transform:uppercase;"
+                    f'margin:0 0 6px;">Starting Lineup</p>',
+                    unsafe_allow_html=True,
+                )
+                assignments = lineup["assignments"]
+                _pid_to_mlb_lineup = {}
+                if "mlb_id" in roster.columns and "player_id" in roster.columns:
+                    _pid_to_mlb_lineup = dict(zip(roster["player_id"], roster["mlb_id"]))
+                lineup_data = []
+                for entry in assignments:
+                    slot = entry.get("slot", "")
+                    player = entry.get("player_name", "")
+                    pid = entry.get("player_id")
+                    hs = health_dict.get(pid, 1.0) if pid else 1.0
+                    badge, label = get_injury_badge(hs)
+                    lineup_data.append(
+                        {
+                            "Slot": slot,
+                            "Player": player,
+                            "Health": f"{badge} {label}",
+                            "mlb_id": _pid_to_mlb_lineup.get(pid),
+                        }
+                    )
+                render_compact_table(pd.DataFrame(lineup_data), show_avatars=True, health_col="Health")
+
+                # Projected stats
+                if lineup.get("projected_stats"):
+                    st.markdown(
+                        f'<p style="font-size:12px;font-weight:700;letter-spacing:1px;'
+                        f"color:{T['tx2']};text-transform:uppercase;"
+                        f'margin:16px 0 6px;">Projected Category Totals</p>',
+                        unsafe_allow_html=True,
+                    )
+                    proj = lineup["projected_stats"]
+                    display_proj = {}
+                    for cat in ALL_CATS:
+                        if cat in proj:
+                            display_proj[CAT_DISPLAY_NAMES[cat]] = f"{proj[cat]:.2f}"
+                    render_styled_table(pd.DataFrame([display_proj]))
+
+                # Risk metrics
+                risk_metrics = result.get("risk_metrics")
+                if risk_metrics:
+                    st.markdown(
+                        f'<p style="font-size:12px;font-weight:700;letter-spacing:1px;'
+                        f"color:{T['tx2']};text-transform:uppercase;"
+                        f'margin:16px 0 6px;">Risk Analysis</p>',
+                        unsafe_allow_html=True,
+                    )
+                    rc1, rc2, rc3, rc4 = st.columns(4)
+                    with rc1:
+                        st.metric("Expected Value", f"{risk_metrics.get('mean', 0):.2f}")
+                    with rc2:
+                        st.metric("Standard Deviation", f"{risk_metrics.get('std', 0):.2f}")
+                    with rc3:
+                        st.metric("Value at Risk (5th)", f"{risk_metrics.get('var_5', 0):.2f}")
+                    with rc4:
+                        st.metric("CVaR (Tail Risk)", f"{risk_metrics.get('cvar_5', 0):.2f}")
+                    st.caption(
+                        "Value at Risk is the 5th percentile outcome. CVaR is the average of the worst 5% of scenarios."
+                    )
+
+                # Recommendations
+                recs = result.get("recommendations", [])
+                if recs:
+                    st.markdown(
+                        f'<p style="font-size:12px;font-weight:700;letter-spacing:1px;'
+                        f"color:{T['tx2']};text-transform:uppercase;"
+                        f'margin:16px 0 6px;">Recommendations</p>',
+                        unsafe_allow_html=True,
+                    )
+                    for rec in recs:
+                        st.markdown(
+                            f"{PAGE_ICONS['trending_up']} {rec}",
+                            unsafe_allow_html=True,
+                        )
+
+                # Bench players
+                bench = lineup.get("bench", [])
+                if bench:
+                    st.markdown(
+                        f'<p style="font-size:12px;font-weight:700;letter-spacing:1px;'
+                        f"color:{T['tx2']};text-transform:uppercase;"
+                        f'margin:16px 0 6px;">Bench</p>',
+                        unsafe_allow_html=True,
+                    )
+                    name_col = "player_name" if "player_name" in roster.columns else "name"
+                    _pos_lookup = dict(
+                        zip(
+                            roster[name_col].astype(str),
+                            roster["positions"].astype(str),
+                        )
+                    )
+                    bench_data = []
+                    for entry in bench:
+                        if isinstance(entry, dict):
+                            pname = entry.get("player_name", "")
+                            bench_data.append(
+                                {
+                                    "Player": pname,
+                                    "Position": entry.get("positions", _pos_lookup.get(pname, "")),
+                                }
+                            )
+                        else:
+                            pname = str(entry)
+                            bench_data.append({"Player": pname, "Position": _pos_lookup.get(pname, "")})
+                    if bench_data:
+                        render_styled_table(pd.DataFrame(bench_data))
+
+                # Timing breakdown
+                timing = result.get("timing", {})
+                if len(timing) > 1:
+                    with st.expander("Performance Breakdown"):
+                        timing_data = [
+                            {
+                                "Stage": k.replace("_", " ").title(),
+                                "Time (s)": f"{v:.2f}",
+                            }
+                            for k, v in timing.items()
+                        ]
+                        render_styled_table(pd.DataFrame(timing_data))
+        else:
+            st.info("Click **Optimize Lineup** to generate your optimal start/sit decisions.")
+
+    # ================================================================
+    # TAB 2: START/SIT
+    # ================================================================
+
+    with tab_startsit:
+        if not START_SIT_AVAILABLE:
+            st.error(
+                "The start/sit advisor module could not be loaded. "
+                "Check that src/start_sit.py and its dependencies are installed."
+            )
+        else:
+            # Auto-population from optimizer result
+            opt_result = st.session_state.get("lineup_optimizer_result")
+            opt_lineup = opt_result.get("lineup", {}) if opt_result else {}
+            opt_assignments = opt_lineup.get("assignments", [])
+            opt_bench = opt_lineup.get("bench", [])
+
+            # Build per-slot data from optimizer
+            _starter_ids: set[int] = set()
+            _bench_ids: set[int] = set()
+            _slot_map: dict[str, dict] = {}
+
+            if opt_assignments:
+                for entry in opt_assignments:
+                    pid = entry.get("player_id")
+                    slot = entry.get("slot", "")
+                    if pid:
+                        _starter_ids.add(pid)
+                        _slot_map[slot] = entry
+
+            if opt_bench:
+                for entry in opt_bench:
+                    if isinstance(entry, dict):
+                        pid = entry.get("player_id")
+                        if pid:
+                            _bench_ids.add(pid)
+                    else:
+                        # Bench entry is a name string — look up ID
+                        name_col = "player_name" if "player_name" in roster.columns else "name"
+                        match = roster[roster[name_col] == str(entry)]
+                        if not match.empty:
+                            _bench_ids.add(int(match.iloc[0]["player_id"]))
+
+            # Build bench player roster rows for position matching
+            bench_roster = roster[roster["player_id"].isin(_bench_ids)].copy()
+
+            # Load free agents for upgrade suggestions
+            fa_pool = pd.DataFrame()
+            if not pool.empty:
+                try:
+                    fa_pool = get_free_agents(pool.rename(columns={"player_name": "name"}))
+                    if not fa_pool.empty and "name" in fa_pool.columns:
+                        fa_pool = fa_pool.rename(columns={"name": "player_name"})
+                except Exception:
+                    fa_pool = pd.DataFrame()
+
+            if opt_assignments:
+                st.markdown(
+                    f'<p style="font-size:13px;color:{T["tx2"]};margin-bottom:8px;">'
+                    "The optimizer has assigned starters to each slot. For each slot below, "
+                    "compare the starter against bench alternatives and top free agents at "
+                    "that position. Select a slot to run the start/sit advisor.</p>",
+                    unsafe_allow_html=True,
+                )
+
+                # Build slot options for selection
+                slot_options = []
+                for entry in opt_assignments:
+                    slot = entry.get("slot", "")
+                    pname = entry.get("player_name", "")
+                    slot_options.append(f"{slot}: {pname}")
+
+                selected_slot_label = st.selectbox(
+                    "Select Roster Slot to Analyze",
+                    options=slot_options,
+                    index=0,
+                    key="lineup_startsit_slot",
+                )
+
+                if selected_slot_label:
+                    try:
+                        slot_idx = slot_options.index(selected_slot_label)
+                    except ValueError:
+                        slot_idx = 0
+                    starter_entry = opt_assignments[slot_idx]
+                    starter_pid = starter_entry.get("player_id")
+                    starter_name = starter_entry.get("player_name", "")
+                    slot_name = starter_entry.get("slot", "")
+
+                    # Determine the position(s) for this slot
+                    # Map slot names to position filters
+                    _slot_to_pos = {
+                        "C": "C",
+                        "1B": "1B",
+                        "2B": "2B",
+                        "3B": "3B",
+                        "SS": "SS",
+                        "OF": "OF",
+                        "LF": "OF",
+                        "CF": "OF",
+                        "RF": "OF",
+                        "Util": None,  # Any hitter
+                        "SP": "SP",
+                        "RP": "RP",
+                        "P": None,  # Any pitcher
+                    }
+                    slot_pos = _slot_to_pos.get(slot_name)
+
+                    # Find bench players eligible for this slot
+                    bench_at_pos = []
+                    if not bench_roster.empty:
+                        for _, bp in bench_roster.iterrows():
+                            bp_positions = str(bp.get("positions", ""))
+                            if slot_pos is None:
+                                # Util/P — any player of matching type
+                                if slot_name == "Util" and bp.get("is_hitter", 1):
+                                    bench_at_pos.append(int(bp["player_id"]))
+                                elif slot_name == "P" and not bp.get("is_hitter", 1):
+                                    bench_at_pos.append(int(bp["player_id"]))
+                            elif slot_pos in bp_positions:
+                                bench_at_pos.append(int(bp["player_id"]))
+
+                    # Find top free agents at this position
+                    fa_at_pos_ids: list[int] = []
+                    if not fa_pool.empty and slot_pos:
+                        fa_filtered = fa_pool[
+                            fa_pool["positions"].astype(str).str.contains(slot_pos, case=False, na=False)
+                        ].copy()
+                        # Sort by a proxy stat to get top candidates
+                        sort_col = "r" if slot_pos != "SP" and slot_pos != "RP" else "k"
+                        if sort_col in fa_filtered.columns:
+                            fa_filtered[sort_col] = pd.to_numeric(fa_filtered[sort_col], errors="coerce").fillna(0)
+                            fa_filtered = fa_filtered.nlargest(3, sort_col)
+                        else:
+                            fa_filtered = fa_filtered.head(3)
+                        fa_at_pos_ids = fa_filtered["player_id"].tolist()
+                    elif not fa_pool.empty and slot_name == "Util":
+                        # For Util, show top hitters
+                        if "is_hitter" in fa_pool.columns:
+                            fa_hitters = fa_pool[fa_pool["is_hitter"].fillna(0).astype(bool)].copy()
+                        else:
+                            fa_hitters = pd.DataFrame()
+                        if not fa_hitters.empty and "r" in fa_hitters.columns:
+                            fa_hitters["r"] = pd.to_numeric(fa_hitters["r"], errors="coerce").fillna(0)
+                            fa_hitters = fa_hitters.nlargest(3, "r")
+                            fa_at_pos_ids = fa_hitters["player_id"].tolist()
+
+                    # Combine player IDs for comparison
+                    compare_ids = [starter_pid] + bench_at_pos[:3] + fa_at_pos_ids[:3]
+                    compare_ids = [int(pid) for pid in compare_ids if pid is not None]
+                    # Deduplicate while preserving order
+                    seen: set[int] = set()
+                    unique_ids: list[int] = []
+                    for pid in compare_ids:
+                        if pid not in seen:
+                            seen.add(pid)
+                            unique_ids.append(pid)
+                    compare_ids = unique_ids
+
+                    if len(compare_ids) < 2:
+                        st.info(
+                            f"No bench or free agent alternatives found for the "
+                            f"{slot_name} slot. The current starter ({starter_name}) "
+                            f"is the only option."
+                        )
+                    else:
+                        # Label the candidates
+                        _pid_to_source: dict[int, str] = {}
+                        _pid_to_source[starter_pid] = "Starter"
+                        for pid in bench_at_pos:
+                            _pid_to_source[pid] = "Bench"
+                        for pid in fa_at_pos_ids:
+                            _pid_to_source[pid] = "Free Agent"
+
+                        st.markdown(
+                            f'<div style="background:{T["card"]};'
+                            f"border:1px solid {T['card_h']};"
+                            f'border-radius:6px;padding:10px 14px;margin-bottom:12px;">'
+                            f'<span style="font-size:11px;font-weight:700;'
+                            f"letter-spacing:1px;color:{T['tx2']};"
+                            f'text-transform:uppercase;">Slot: {slot_name}</span>'
+                            f'<span style="font-size:14px;font-weight:700;'
+                            f'color:{T["tx"]};margin-left:12px;">'
+                            f"{starter_name}</span>"
+                            f'<span style="font-size:12px;color:{T["tx2"]};">'
+                            f" vs {len(compare_ids) - 1} alternative(s)</span>"
+                            f"</div>",
+                            unsafe_allow_html=True,
+                        )
+
+                        # Build pool for start_sit (needs "name" column)
+                        _ss_pool = pool.rename(columns={"player_name": "name"})
+
+                        # Also merge FA data if FA IDs are in the comparison
+                        if fa_at_pos_ids and not fa_pool.empty:
+                            _fa_for_merge = fa_pool.rename(columns={"player_name": "name"})
+                            _existing_ids = set(_ss_pool["player_id"].values)
+                            _new_fa = _fa_for_merge[~_fa_for_merge["player_id"].isin(_existing_ids)]
+                            if not _new_fa.empty:
+                                _ss_pool = pd.concat([_ss_pool, _new_fa], ignore_index=True)
+
+                        with st.spinner("Computing start/sit recommendation..."):
+                            try:
+                                ss_result = start_sit_recommendation(
+                                    player_ids=compare_ids,
+                                    player_pool=_ss_pool,
+                                    config=league_config,
+                                    weekly_schedule=None,
+                                    park_factors=(PARK_FACTORS if PARK_FACTORS else None),
+                                    my_weekly_totals=my_totals if my_totals else None,
+                                    opp_weekly_totals=opp_weekly_totals,
+                                    standings=(standings if not standings.empty else None),
+                                    team_name=user_team_name,
+                                )
+                            except Exception as exc:
+                                logger.exception("start_sit_recommendation failed")
+                                st.error(f"Recommendation engine error: {exc}")
+                                ss_result = None
+
+                        if ss_result and ss_result.get("players"):
+                            players_list = ss_result["players"]
+                            rec_id = ss_result.get("recommendation")
+                            confidence = ss_result.get("confidence", 0.0)
+                            confidence_label = ss_result.get("confidence_label", "Toss-up")
+
+                            # Summary banner
+                            if rec_id is not None:
+                                rec_player = next(
+                                    (p for p in players_list if p["player_id"] == rec_id),
+                                    None,
+                                )
+                                rec_name = rec_player["name"] if rec_player else "Unknown"
+                                label_color = (
+                                    T["green"]
+                                    if confidence_label == "Clear Start"
+                                    else T["warn"]
+                                    if confidence_label == "Lean Start"
+                                    else T["tx2"]
+                                )
+                                st.markdown(
+                                    f'<div style="'
+                                    f"background:{T['card']};"
+                                    f"border:1px solid {T['card_h']};"
+                                    f"border-left:4px solid {label_color};"
+                                    f"border-radius:8px;padding:14px 18px;"
+                                    f'margin-bottom:16px;">'
+                                    f'<div style="font-size:11px;font-weight:700;'
+                                    f"letter-spacing:1px;color:{T['tx2']};"
+                                    f'text-transform:uppercase;margin-bottom:4px;">'
+                                    f"Recommendation</div>"
+                                    f'<div style="font-size:20px;font-weight:700;'
+                                    f'color:{T["tx"]};">'
+                                    f"Start {rec_name}</div>"
+                                    f'<div style="font-size:13px;color:{label_color};'
+                                    f'font-weight:600;margin-top:4px;">'
+                                    f"{confidence_label} &mdash; "
+                                    f"{confidence * 100:.0f}% confidence</div>"
+                                    f"</div>",
+                                    unsafe_allow_html=True,
+                                )
+
+                            # Rankings table
+                            st.markdown(
+                                f'<p style="font-size:12px;font-weight:700;'
+                                f"letter-spacing:1px;color:{T['tx2']};"
+                                f'text-transform:uppercase;margin:0 0 6px;">'
+                                f"Player Rankings</p>",
+                                unsafe_allow_html=True,
+                            )
+
+                            _pid_to_mlb_ss = {}
+                            if "mlb_id" in pool.columns and "player_id" in pool.columns:
+                                _pid_to_mlb_ss = dict(zip(pool["player_id"], pool["mlb_id"]))
+
+                            rows = []
+                            row_classes: dict[int, str] = {}
+                            for rank, p in enumerate(players_list):
+                                is_rec = p["player_id"] == rec_id
+                                rec_label = "START" if is_rec else "SIT"
+                                source = _pid_to_source.get(p["player_id"], "")
+                                top_cat = ""
+                                if p.get("category_impact"):
+                                    sorted_cats = sorted(
+                                        p["category_impact"].items(),
+                                        key=lambda x: abs(x[1]),
+                                        reverse=True,
+                                    )
+                                    if sorted_cats:
+                                        top_cat = sorted_cats[0][0]
+
+                                entry = {
+                                    "Player": p["name"],
+                                    "Source": source,
+                                    "Decision": rec_label,
+                                    "Score": f"{p['start_score']:.2f}",
+                                    "Floor": f"{p['floor']:.2f}",
+                                    "Ceiling": f"{p['ceiling']:.2f}",
+                                    "Top Category": (top_cat.upper() if top_cat else ""),
+                                }
+                                if _pid_to_mlb_ss:
+                                    entry["mlb_id"] = _pid_to_mlb_ss.get(p["player_id"])
+                                rows.append(entry)
+                                row_classes[rank] = "row-start" if is_rec else "row-sit"
+
+                            display_df = pd.DataFrame(rows)
+
+                            st.markdown(
+                                f"<style>"
+                                f"tr.row-start td {{ background-color:"
+                                f"{T['green']}22 !important; }}"
+                                f"tr.row-start .col-name {{ color:"
+                                f"{T['green']} !important; "
+                                f"font-weight:700 !important; }}"
+                                f"tr.row-sit td {{ background-color:"
+                                f"{T['danger']}18 !important; }}"
+                                f"tr.row-sit .col-name {{ color:"
+                                f"{T['danger']} !important; }}"
+                                f"</style>",
+                                unsafe_allow_html=True,
+                            )
+
+                            render_compact_table(
+                                display_df,
+                                highlight_cols=[
+                                    "Score",
+                                    "Floor",
+                                    "Ceiling",
+                                ],
+                                row_classes=row_classes,
+                            )
+
+                            # Per-player reasoning
+                            st.markdown(
+                                f'<p style="font-size:12px;font-weight:700;'
+                                f"letter-spacing:1px;color:{T['tx2']};"
+                                f'text-transform:uppercase;margin:16px 0 6px;">'
+                                f"Decision Reasoning</p>",
+                                unsafe_allow_html=True,
+                            )
+
+                            for p in players_list:
+                                is_rec = p["player_id"] == rec_id
+                                badge_color = T["green"] if is_rec else T["danger"]
+                                badge_label = "START" if is_rec else "SIT"
+                                reasons = p.get("reasoning", [])
+                                reasons_html = "".join(
+                                    f'<li style="margin-bottom:4px;font-size:13px;color:{T["tx"]};">{r}</li>'
+                                    for r in reasons
+                                )
+
+                                st.markdown(
+                                    f'<div style="'
+                                    f"background:{T['card']};"
+                                    f"border:1px solid {T['card_h']};"
+                                    f"border-radius:6px;"
+                                    f"padding:12px 16px;"
+                                    f'margin-bottom:10px;">'
+                                    f'<div style="display:flex;'
+                                    f"align-items:center;gap:10px;"
+                                    f'margin-bottom:8px;">'
+                                    f'<span style="font-weight:700;'
+                                    f"font-size:14px;"
+                                    f'color:{T["tx"]};">'
+                                    f"{p['name']}</span>"
+                                    f'<span style="'
+                                    f"background:{badge_color}22;"
+                                    f"color:{badge_color};"
+                                    f"font-size:10px;font-weight:700;"
+                                    f"letter-spacing:1px;"
+                                    f"padding:2px 8px;"
+                                    f'border-radius:4px;">'
+                                    f"{badge_label}</span>"
+                                    f"</div>"
+                                    f'<ul style="margin:0;padding-left:18px;">'
+                                    f"{reasons_html}</ul>"
+                                    f"</div>",
+                                    unsafe_allow_html=True,
+                                )
+
+                        else:
+                            st.warning("No recommendation could be generated for the selected players.")
+
+            else:
+                # Manual comparison mode (no optimizer result)
+                st.markdown(
+                    f'<p style="font-size:13px;color:{T["tx2"]};margin-bottom:4px;">'
+                    "Run the optimizer first to auto-populate slot comparisons, "
+                    "or select 2 to 4 players below to compare manually. "
+                    "The advisor ranks them using a 3-layer decision model.</p>",
+                    unsafe_allow_html=True,
+                )
+
+                # Build player name list (rostered first)
+                all_names: list[str] = []
+                all_ids: list[int] = []
+                if not pool.empty:
+                    if user_player_ids:
+                        rostered = pool[pool["player_id"].isin(user_player_ids)].copy()
+                        others = pool[~pool["player_id"].isin(user_player_ids)].copy()
+                        sorted_pool = pd.concat([rostered, others], ignore_index=True)
+                    else:
+                        sorted_pool = pool.copy()
+                    all_names = sorted_pool["player_name"].tolist()
+                    all_ids = sorted_pool["player_id"].tolist()
+
+                selected_names = st.multiselect(
+                    "Players to compare",
+                    options=all_names,
+                    default=[],
+                    max_selections=4,
+                    key="lineup_startsit_manual_select",
+                    help="Select 2 to 4 players competing for the same slot.",
+                    placeholder="Choose 2 to 4 players...",
+                )
+
+                if not selected_names:
+                    st.info(
+                        "Select at least 2 players above to receive a "
+                        "start/sit recommendation. Rostered players appear "
+                        "at the top of the list."
+                    )
+                elif len(selected_names) == 1:
+                    st.warning("Select at least 2 players to compare. Only 1 player chosen.")
+                else:
+                    name_to_id = dict(zip(all_names, all_ids))
+                    selected_ids = [int(name_to_id[n]) for n in selected_names if n in name_to_id]
+
+                    if len(selected_ids) < 2:
+                        st.warning("Could not resolve player IDs for the selected players.")
+                    else:
+                        with st.spinner("Computing start/sit recommendation..."):
+                            try:
+                                manual_result = start_sit_recommendation(
+                                    player_ids=selected_ids,
+                                    player_pool=pool.rename(columns={"player_name": "name"}),
+                                    config=league_config,
+                                    weekly_schedule=None,
+                                    park_factors=(PARK_FACTORS if PARK_FACTORS else None),
+                                    my_weekly_totals=(my_totals if my_totals else None),
+                                    opp_weekly_totals=opp_weekly_totals,
+                                    standings=(standings if not standings.empty else None),
+                                    team_name=user_team_name,
+                                )
+                            except Exception as exc:
+                                logger.exception("start_sit_recommendation failed")
+                                st.error(f"Recommendation engine error: {exc}")
+                                manual_result = None
+
+                        # Analytics badge
+                        try:
+                            from src.data_bootstrap import get_bootstrap_context
+
+                            _boot_ctx = get_bootstrap_context()
+                            if _boot_ctx:
+                                from src.ui_analytics_badge import (
+                                    render_analytics_badge,
+                                )
+
+                                render_analytics_badge(_boot_ctx)
+                        except Exception:
+                            pass
+
+                        if manual_result and manual_result.get("players"):
+                            players_list = manual_result["players"]
+                            rec_id = manual_result.get("recommendation")
+                            confidence = manual_result.get("confidence", 0.0)
+                            confidence_label = manual_result.get("confidence_label", "Toss-up")
+
+                            # Summary banner
+                            if rec_id is not None:
+                                rec_player = next(
+                                    (p for p in players_list if p["player_id"] == rec_id),
+                                    None,
+                                )
+                                rec_name = rec_player["name"] if rec_player else "Unknown"
+                                label_color = (
+                                    T["green"]
+                                    if confidence_label == "Clear Start"
+                                    else T["warn"]
+                                    if confidence_label == "Lean Start"
+                                    else T["tx2"]
+                                )
+                                st.markdown(
+                                    f'<div style="'
+                                    f"background:{T['card']};"
+                                    f"border:1px solid {T['card_h']};"
+                                    f"border-left:4px solid "
+                                    f"{label_color};"
+                                    f"border-radius:8px;"
+                                    f"padding:14px 18px;"
+                                    f'margin-bottom:16px;">'
+                                    f'<div style="font-size:11px;'
+                                    f"font-weight:700;"
+                                    f"letter-spacing:1px;"
+                                    f"color:{T['tx2']};"
+                                    f"text-transform:uppercase;"
+                                    f'margin-bottom:4px;">'
+                                    f"Recommendation</div>"
+                                    f'<div style="font-size:20px;'
+                                    f"font-weight:700;"
+                                    f'color:{T["tx"]};">'
+                                    f"Start {rec_name}</div>"
+                                    f'<div style="font-size:13px;'
+                                    f"color:{label_color};"
+                                    f"font-weight:600;"
+                                    f'margin-top:4px;">'
+                                    f"{confidence_label} &mdash; "
+                                    f"{confidence * 100:.0f}% "
+                                    f"confidence</div>"
+                                    f"</div>",
+                                    unsafe_allow_html=True,
+                                )
+
+                            # Rankings table
+                            _pid_to_mlb_m = {}
+                            if "mlb_id" in pool.columns and "player_id" in pool.columns:
+                                _pid_to_mlb_m = dict(zip(pool["player_id"], pool["mlb_id"]))
+
+                            m_rows = []
+                            m_row_classes: dict[int, str] = {}
+                            for rank, p in enumerate(players_list):
+                                is_rec = p["player_id"] == rec_id
+                                rec_label = "START" if is_rec else "SIT"
+                                top_cat = ""
+                                if p.get("category_impact"):
+                                    sorted_cats = sorted(
+                                        p["category_impact"].items(),
+                                        key=lambda x: abs(x[1]),
+                                        reverse=True,
+                                    )
+                                    if sorted_cats:
+                                        top_cat = sorted_cats[0][0]
+
+                                entry = {
+                                    "Player": p["name"],
+                                    "Decision": rec_label,
+                                    "Score": f"{p['start_score']:.2f}",
+                                    "Floor": f"{p['floor']:.2f}",
+                                    "Ceiling": f"{p['ceiling']:.2f}",
+                                    "Top Category": (top_cat.upper() if top_cat else ""),
+                                }
+                                if _pid_to_mlb_m:
+                                    entry["mlb_id"] = _pid_to_mlb_m.get(p["player_id"])
+                                m_rows.append(entry)
+                                m_row_classes[rank] = "row-start" if is_rec else "row-sit"
+
+                            m_display_df = pd.DataFrame(m_rows)
+
+                            st.markdown(
+                                f"<style>"
+                                f"tr.row-start td {{ "
+                                f"background-color:{T['green']}22 "
+                                f"!important; }}"
+                                f"tr.row-start .col-name {{ "
+                                f"color:{T['green']} !important; "
+                                f"font-weight:700 !important; }}"
+                                f"tr.row-sit td {{ "
+                                f"background-color:{T['danger']}18 "
+                                f"!important; }}"
+                                f"tr.row-sit .col-name {{ "
+                                f"color:{T['danger']} !important; }}"
+                                f"</style>",
+                                unsafe_allow_html=True,
+                            )
+
+                            render_compact_table(
+                                m_display_df,
+                                highlight_cols=[
+                                    "Score",
+                                    "Floor",
+                                    "Ceiling",
+                                ],
+                                row_classes=m_row_classes,
+                            )
+
+                            # Per-player reasoning
+                            for p in players_list:
+                                is_rec = p["player_id"] == rec_id
+                                badge_color = T["green"] if is_rec else T["danger"]
+                                badge_label = "START" if is_rec else "SIT"
+                                reasons = p.get("reasoning", [])
+                                reasons_html = "".join(
+                                    f'<li style="margin-bottom:4px;font-size:13px;color:{T["tx"]};">{r}</li>'
+                                    for r in reasons
+                                )
+                                st.markdown(
+                                    f'<div style="'
+                                    f"background:{T['card']};"
+                                    f"border:1px solid "
+                                    f"{T['card_h']};"
+                                    f"border-radius:6px;"
+                                    f"padding:12px 16px;"
+                                    f'margin-bottom:10px;">'
+                                    f'<div style="display:flex;'
+                                    f"align-items:center;"
+                                    f"gap:10px;"
+                                    f'margin-bottom:8px;">'
+                                    f'<span style="'
+                                    f"font-weight:700;"
+                                    f"font-size:14px;"
+                                    f'color:{T["tx"]};">'
+                                    f"{p['name']}</span>"
+                                    f'<span style="'
+                                    f"background:"
+                                    f"{badge_color}22;"
+                                    f"color:{badge_color};"
+                                    f"font-size:10px;"
+                                    f"font-weight:700;"
+                                    f"letter-spacing:1px;"
+                                    f"padding:2px 8px;"
+                                    f'border-radius:4px;">'
+                                    f"{badge_label}</span>"
+                                    f"</div>"
+                                    f'<ul style="margin:0;'
+                                    f'padding-left:18px;">'
+                                    f"{reasons_html}</ul>"
+                                    f"</div>",
+                                    unsafe_allow_html=True,
+                                )
+
+                            # Player card selector
+                            rec_names = [p["name"] for p in players_list]
+                            rec_ids = [p["player_id"] for p in players_list]
+                            if rec_ids:
+                                render_player_select(
+                                    rec_names,
+                                    rec_ids,
+                                    key_suffix="lineup_startsit",
+                                )
+
+                        else:
+                            st.warning("No recommendation could be generated.")
+
+    # ================================================================
+    # TAB 3: CATEGORY ANALYSIS
+    # ================================================================
+
+    with tab_analysis:
+        result = st.session_state.get("lineup_optimizer_result")
+        weights = result.get("category_weights", {}) if result else {}
+
+        if not weights and not standings.empty:
+            if SGP_AVAILABLE:
+                try:
+                    weights = compute_nonlinear_weights(standings, user_team_name)
+                except Exception:
+                    pass
+
+        if weights:
+            st.markdown(
+                f'<p style="font-size:12px;font-weight:700;letter-spacing:1px;'
+                f"color:{T['tx2']};text-transform:uppercase;"
+                f'margin:0 0 6px;">Category Weight Distribution</p>',
+                unsafe_allow_html=True,
+            )
+            st.markdown("**Priority categories** (higher weight = bigger marginal standings impact):")
+            weights_sorted = sorted(weights.items(), key=lambda x: x[1], reverse=True)
+            for cat, weight in weights_sorted:
+                bar_len = int(min(weight, 3.0) / 3.0 * 20)
+                icon = (
+                    PAGE_ICONS["fire"]
+                    if weight > 1.5
+                    else PAGE_ICONS["trending_up"]
+                    if weight > 1.0
+                    else PAGE_ICONS["minus"]
+                )
+                display_name = CAT_DISPLAY_NAMES.get(cat, cat.upper())
+                st.markdown(
+                    f"{icon} **{display_name}**: {'█' * bar_len}{'░' * (20 - bar_len)} ({weight:.2f}x)",
+                    unsafe_allow_html=True,
+                )
+            st.caption(METRIC_TOOLTIPS.get("cat_targeting", ""))
+        elif standings.empty:
+            st.info(
+                "Import league standings to see category targeting recommendations. "
+                "The optimizer will identify where small gains yield the biggest standings jumps."
+            )
+        else:
+            st.info("Category weights will appear after running the optimizer.")
+
+        # Maximin comparison
+        maximin = result.get("maximin_comparison") if result else None
+        if maximin:
+            st.divider()
+            st.markdown(
+                f'<p style="font-size:12px;font-weight:700;letter-spacing:1px;'
+                f"color:{T['tx2']};text-transform:uppercase;"
+                f'margin:0 0 6px;">Maximin (Balanced) Lineup Comparison</p>',
+                unsafe_allow_html=True,
+            )
+            z_val = maximin.get("z_value", 0)
+            st.metric("Worst-Category Floor (z-score)", f"{z_val:.2f}")
+
+            maximin_assignments = maximin.get("assignments", {})
+            if maximin_assignments:
+                maximin_data = [{"Player": name} for name, val in maximin_assignments.items() if val == 1]
+                if maximin_data:
+                    render_styled_table(pd.DataFrame(maximin_data))
+            st.caption(
+                "The maximin lineup maximizes the WORST category instead of the total. "
+                "Compare with your main lineup to see if you are sacrificing too much balance."
+            )
+
+        # Standings position for each category
+        if not standings.empty and my_totals:
+            st.divider()
+            st.markdown(
+                f'<p style="font-size:12px;font-weight:700;letter-spacing:1px;'
+                f"color:{T['tx2']};text-transform:uppercase;"
+                f'margin:0 0 6px;">Current Standings Position by Category</p>',
+                unsafe_allow_html=True,
+            )
+            position_rows = []
+            for cat in ALL_CATS:
+                my_val = my_totals.get(cat, 0)
+                is_inverse = cat in ("l", "era", "whip")
+                rank = 1
+                for tname, ttotals in team_totals.items():
+                    if tname == user_team_name:
+                        continue
+                    opp_val = ttotals.get(cat, 0)
+                    if is_inverse:
+                        if opp_val < my_val:
+                            rank += 1
+                    else:
+                        if opp_val > my_val:
+                            rank += 1
+
+                val_fmt = f"{my_val:.2f}"
+                rank_label = f"{rank}" + ("st" if rank == 1 else "nd" if rank == 2 else "rd" if rank == 3 else "th")
+
+                position_rows.append(
+                    {
+                        "Category": CAT_DISPLAY_NAMES.get(cat, cat.upper()),
+                        "Your Total": val_fmt,
+                        "Rank": rank_label,
+                        "Points": str(13 - rank),
+                    }
+                )
+            render_styled_table(pd.DataFrame(position_rows))
+
+    # ================================================================
+    # TAB 4: HEAD-TO-HEAD
+    # ================================================================
+
+    with tab_h2h:
+        if not H2H_AVAILABLE:
+            st.info("Head-to-Head analysis module not available. Ensure scipy is installed.")
+        elif not selected_opponent or not opp_totals:
+            if not opponent_names:
+                st.info(
+                    "League standings required for Head-to-Head analysis. "
+                    "Connect your Yahoo league to import standings data."
+                )
+            else:
+                st.info(
+                    "Select a Head-to-Head opponent in the settings panel to see "
+                    "per-category win probabilities and matchup-specific strategy."
+                )
+        elif not my_totals:
+            st.info(
+                "League standings data required for Head-to-Head analysis. Sync your Yahoo league to get standings."
+            )
+        else:
+            _opp_display = "".join(c for c in selected_opponent if ord(c) < 0x10000).strip()
+            st.markdown(
+                f'<p style="font-size:12px;font-weight:700;letter-spacing:1px;'
+                f"color:{T['tx2']};text-transform:uppercase;"
+                f'margin:0 0 6px;">Matchup: {_display_team_name} vs {_opp_display}</p>',
+                unsafe_allow_html=True,
+            )
+
+            h2h_result = estimate_h2h_win_probability(my_totals, opp_totals)
+            per_cat = h2h_result.get("per_category", {})
+            exp_wins = h2h_result.get("expected_wins", 5.0)
+            overall_prob = h2h_result.get("overall_win_prob", 0.5)
+
+            mc1, mc2, mc3 = st.columns(3)
+            with mc1:
+                st.metric("Win Probability", f"{overall_prob:.1%}")
+            with mc2:
+                st.metric("Expected Category Wins", f"{exp_wins:.2f} / 10")
+            with mc3:
+                status = "Favored" if exp_wins > 5.5 else "Underdog" if exp_wins < 4.5 else "Toss-up"
+                st.metric("Matchup Status", status)
+
+            # Per-category breakdown
+            st.markdown(
+                f'<p style="font-size:12px;font-weight:700;letter-spacing:1px;'
+                f"color:{T['tx2']};text-transform:uppercase;"
+                f'margin:16px 0 6px;">Category-by-Category Breakdown</p>',
+                unsafe_allow_html=True,
+            )
+            cat_rows = []
+            for cat in ALL_CATS:
+                p_win = per_cat.get(cat, 0.5)
+                my_val = my_totals.get(cat, 0)
+                opp_val = opp_totals.get(cat, 0)
+
+                if p_win >= 0.65:
+                    verdict = "Likely Win"
+                elif p_win >= 0.50:
+                    verdict = "Lean Win"
+                elif p_win >= 0.35:
+                    verdict = "Lean Loss"
+                else:
+                    verdict = "Likely Loss"
+
+                bar_len = int(p_win * 20)
+                bar = "\u2588" * bar_len + "\u2591" * (20 - bar_len)
+
+                cat_rows.append(
+                    {
+                        "Category": CAT_DISPLAY_NAMES.get(cat, cat.upper()),
+                        "You": f"{my_val:.2f}",
+                        "Opponent": f"{opp_val:.2f}",
+                        "Win %": f"{p_win:.1%}",
+                        "Confidence": bar,
+                        "Verdict": verdict,
+                    }
+                )
+
+            render_styled_table(pd.DataFrame(cat_rows))
+
+            # Focus areas
+            st.markdown(
+                f'<p style="font-size:12px;font-weight:700;letter-spacing:1px;'
+                f"color:{T['tx2']};text-transform:uppercase;"
+                f'margin:16px 0 6px;">Optimal Focus Areas</p>',
+                unsafe_allow_html=True,
+            )
+            h2h_weights = compute_h2h_category_weights(my_totals, opp_totals)
+            if h2h_weights:
+                focus_sorted = sorted(h2h_weights.items(), key=lambda x: x[1], reverse=True)
+                for cat, weight in focus_sorted[:5]:
+                    icon = (
+                        PAGE_ICONS["fire"]
+                        if weight > 1.5
+                        else PAGE_ICONS["trending_up"]
+                        if weight > 1.0
+                        else PAGE_ICONS["minus"]
+                    )
+                    display_name = CAT_DISPLAY_NAMES.get(cat, cat.upper())
+                    bar_len = int(min(weight, 3.0) / 3.0 * 20)
+                    st.markdown(
+                        f"{icon} **{display_name}**: {'█' * bar_len}{'░' * (20 - bar_len)} ({weight:.2f}x weight)",
+                        unsafe_allow_html=True,
+                    )
+                st.caption(
+                    "Categories near the toss-up point get higher weight. "
+                    "Small improvements there have the biggest impact on winning."
+                )
+
+    # ================================================================
+    # TAB 5: STREAMING
+    # ================================================================
+
+    with tab_streaming:
+        st.markdown(
+            f'<p style="font-size:12px;font-weight:700;letter-spacing:1px;'
+            f"color:{T['tx2']};text-transform:uppercase;"
+            f'margin:0 0 6px;">Pitcher Streaming Candidates</p>',
+            unsafe_allow_html=True,
+        )
+
+        result = st.session_state.get("lineup_optimizer_result")
+        streaming = result.get("streaming_suggestions") if result else None
+
+        if streaming:
+            stream_data = []
+            for s in streaming:
+                stream_data.append(
+                    {
+                        "Pitcher": s.get("player_name", "Unknown"),
+                        "Team": s.get("team", ""),
+                        "Net Value (Standings Gained Points)": f"{s.get('net_value', 0):.2f}",
+                        "Counting Standings Gained Points": f"{s.get('counting_sgp', 0):.2f}",
+                        "Rate Impact": f"{s.get('rate_damage', 0):.2f}",
+                        "Games": s.get("n_games", 0),
+                    }
+                )
+            render_styled_table(pd.DataFrame(stream_data))
+            st.caption(
+                "Net Value = Counting stat Standings Gained Points gains minus ERA/WHIP "
+                "rate damage. Pick up pitchers with positive net value for streaming starts."
+            )
+        else:
+            st.info(
+                "Run optimization in Full mode to see streaming recommendations. "
+                "Requires free agent data from Yahoo sync."
+            )
+
+        # Two-start SP detection
+        st.divider()
+        st.markdown(
+            f'<p style="font-size:12px;font-weight:700;letter-spacing:1px;'
+            f"color:{T['tx2']};text-transform:uppercase;"
+            f'margin:0 0 6px;">Two-Start Starting Pitchers</p>',
+            unsafe_allow_html=True,
+        )
+
+        two_start_sps = []
+        try:
+            from datetime import UTC, datetime, timedelta
+
+            import statsapi
+
+            _MLB_TEAM_ABBREVS: dict[str, str] = {
+                "Arizona Diamondbacks": "ARI",
+                "Atlanta Braves": "ATL",
+                "Baltimore Orioles": "BAL",
+                "Boston Red Sox": "BOS",
+                "Chicago Cubs": "CHC",
+                "Chicago White Sox": "CWS",
+                "Cincinnati Reds": "CIN",
+                "Cleveland Guardians": "CLE",
+                "Colorado Rockies": "COL",
+                "Detroit Tigers": "DET",
+                "Houston Astros": "HOU",
+                "Kansas City Royals": "KC",
+                "Los Angeles Angels": "LAA",
+                "Los Angeles Dodgers": "LAD",
+                "Miami Marlins": "MIA",
+                "Milwaukee Brewers": "MIL",
+                "Minnesota Twins": "MIN",
+                "New York Mets": "NYM",
+                "New York Yankees": "NYY",
+                "Oakland Athletics": "OAK",
+                "Philadelphia Phillies": "PHI",
+                "Pittsburgh Pirates": "PIT",
+                "San Diego Padres": "SD",
+                "San Francisco Giants": "SF",
+                "Seattle Mariners": "SEA",
+                "St. Louis Cardinals": "STL",
+                "Tampa Bay Rays": "TB",
+                "Texas Rangers": "TEX",
+                "Toronto Blue Jays": "TOR",
+                "Washington Nationals": "WSH",
+            }
+
+            today = datetime.now(UTC)
+            end = today + timedelta(days=7)
+            schedule = statsapi.schedule(
+                start_date=today.strftime("%Y-%m-%d"),
+                end_date=end.strftime("%Y-%m-%d"),
+            )
+
+            team_game_counts: dict[str, int] = {}
+            for game in schedule:
+                for team_key in ["home_name", "away_name"]:
+                    full_name = game.get(team_key, "")
+                    abbrev = _MLB_TEAM_ABBREVS.get(full_name, "")
+                    if abbrev:
+                        team_game_counts[abbrev] = team_game_counts.get(abbrev, 0) + 1
+
+            TWO_START_THRESHOLD = 7
+            for _, row in roster.iterrows():
+                if not row.get("is_hitter", True) and "SP" in str(row.get("positions", "")):
+                    team = str(row.get("team", "")).strip()
+                    games = team_game_counts.get(team, 0)
+                    if games >= TWO_START_THRESHOLD:
+                        two_start_sps.append(
+                            {
+                                "Pitcher": row.get("player_name", row.get("name", "")),
+                                "Team": team,
+                                "Team Games": games,
+                            }
+                        )
+
+            if two_start_sps:
+                st.markdown(
+                    f"{PAGE_ICONS['trending_up']} **{len(two_start_sps)} potential two-start pitcher(s) this week:**",
+                    unsafe_allow_html=True,
+                )
+                render_styled_table(pd.DataFrame(two_start_sps))
+                st.caption(
+                    "Starting pitchers on teams with 7+ games this week likely get two starts. "
+                    "Two starts double counting stat contributions (K, W) but also double "
+                    "rate-stat exposure (ERA, WHIP)."
+                )
+            else:
+                st.info("No two-start starting pitchers detected for your roster this week.")
+
+        except Exception:
+            st.info("MLB schedule data unavailable. Install statsapi for two-start detection.")
+
+    # ================================================================
+    # TAB 6: ROSTER
+    # ================================================================
+
+    with tab_roster:
+        st.markdown(
+            f'<p style="font-size:12px;font-weight:700;letter-spacing:1px;'
+            f"color:{T['tx2']};text-transform:uppercase;"
+            f'margin:0 0 6px;">Current Roster</p>',
+            unsafe_allow_html=True,
+        )
+
+        # Add health badges
+        try:
+            health_labels = []
+            for _, row in roster.iterrows():
+                pid = row.get("player_id")
+                hs = health_dict.get(pid, 1.0)
+                _, label = get_injury_badge(hs)
+                health_labels.append(label)
+            roster_display = roster.copy()
+            roster_display["Health"] = health_labels
+        except Exception:
+            roster_display = roster.copy()
+
+        if health_dict:
+            st.caption("Health-adjusted projections: counting stats reduced by up to 15% based on injury history risk.")
+
+        # Build display columns
+        display_cols = ["player_name", "positions", "Health"] + [c for c in stat_cols if c in roster_display.columns]
+        if "mlb_id" in roster_display.columns:
+            display_cols.append("mlb_id")
+        display_cols = [c for c in display_cols if c in roster_display.columns]
+
+        roster_show = roster_display[display_cols].copy()
+
+        # Format numeric columns
+        counting = ["r", "hr", "rbi", "sb", "w", "l", "sv", "k"]
+        for col in counting:
+            if col in roster_show.columns:
+                roster_show[col] = pd.to_numeric(roster_show[col], errors="coerce").round(0).astype("Int64")
+        for col in ["avg", "obp", "era", "whip"]:
+            if col in roster_show.columns:
+                roster_show[col] = roster_show[col].apply(lambda v: f"{float(v):.2f}" if pd.notna(v) and v != 0 else "")
+
+        # Rename columns to display names
+        col_rename = {
+            "player_name": "Player",
+            "positions": "Position",
+        }
+        col_rename.update({cat: CAT_DISPLAY_NAMES.get(cat, cat.upper()) for cat in stat_cols})
+        roster_show = roster_show.rename(columns=col_rename)
+
+        render_compact_table(roster_show)
+
+        # Player card selector
+        if "player_id" in roster.columns:
+            render_player_select(
+                roster_show["Player"].tolist(),
+                roster["player_id"].tolist(),
+                key_suffix="lineup_roster",
+            )
+
+page_timer_footer("Lineup")

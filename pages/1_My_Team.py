@@ -128,12 +128,12 @@ def _compute_category_totals(df: pd.DataFrame) -> tuple[dict, dict]:
             hit_stats[cat] = int(hitters[col].sum()) if col in hitters.columns else 0
         ab = hitters["ab"].sum() if "ab" in hitters.columns else 0
         h = hitters["h"].sum() if "h" in hitters.columns else 0
-        hit_stats["AVG"] = f"{h / ab:.3f}" if ab > 0 else ".000"
+        hit_stats["AVG"] = f"{h / ab:.2f}" if ab > 0 else ".00"
         hit_bb = hitters["bb"].sum() if "bb" in hitters.columns else 0
         hit_hbp = hitters["hbp"].sum() if "hbp" in hitters.columns else 0
         hit_sf = hitters["sf"].sum() if "sf" in hitters.columns else 0
         obp_denom = ab + hit_bb + hit_hbp + hit_sf
-        hit_stats["OBP"] = f"{(h + hit_bb + hit_hbp) / obp_denom:.3f}" if obp_denom > 0 else ".000"
+        hit_stats["OBP"] = f"{(h + hit_bb + hit_hbp) / obp_denom:.2f}" if obp_denom > 0 else ".00"
 
     pitch_stats: dict = {}
     if not pitchers.empty:
@@ -144,7 +144,7 @@ def _compute_category_totals(df: pd.DataFrame) -> tuple[dict, dict]:
         bb = pitchers["bb_allowed"].sum() if "bb_allowed" in pitchers.columns else 0
         ha = pitchers["h_allowed"].sum() if "h_allowed" in pitchers.columns else 0
         pitch_stats["ERA"] = f"{er * 9 / ip:.2f}" if ip > 0 else "0.00"
-        pitch_stats["WHIP"] = f"{(bb + ha) / ip:.3f}" if ip > 0 else "0.000"
+        pitch_stats["WHIP"] = f"{(bb + ha) / ip:.2f}" if ip > 0 else "0.00"
 
     return hit_stats, pitch_stats
 
@@ -817,6 +817,77 @@ else:
             except Exception:
                 pass  # Non-fatal
 
+            # AVIS Section 5: Monday Report + Thursday Checkpoint
+            try:
+                from datetime import UTC, datetime
+
+                from src.weekly_report import generate_monday_report, generate_thursday_checkpoint
+
+                today_dow = datetime.now(UTC).weekday()  # 0=Mon, 3=Thu
+
+                if today_dow == 0:  # Monday
+                    try:
+                        from src.opponent_intel import get_current_opponent, get_week_number
+
+                        opp = get_current_opponent()
+                        week = get_week_number()
+                        if opp:
+                            monday = generate_monday_report(roster, None, opp, week)
+                            with st.expander(
+                                f"Monday Matchup Report — Week {monday['week']} vs {monday['opponent']}",
+                                expanded=False,
+                            ):
+                                st.markdown(
+                                    f"**Tier {monday['tier']}** ({monday['threat']} threat) "
+                                    f"| Manager: {monday['manager']}",
+                                )
+                                if monday.get("category_projections"):
+                                    cats_md = " | ".join(
+                                        f"**{cp['category']}**: {cp['outlook']}"
+                                        for cp in monday["category_projections"]
+                                    )
+                                    st.markdown(cats_md)
+                                if monday.get("exploit_weaknesses"):
+                                    for tip in monday["exploit_weaknesses"]:
+                                        st.markdown(f"- {tip}")
+                                if monday.get("streaming_guidance"):
+                                    st.markdown("**Streaming:**")
+                                    for sg in monday["streaming_guidance"]:
+                                        st.markdown(f"- {sg}")
+                    except Exception:
+                        pass
+
+                elif today_dow == 3:  # Thursday
+                    try:
+                        ip_proj = 0.0
+                        try:
+                            from src.ip_tracker import compute_weekly_ip_projection, get_days_remaining_in_week
+
+                            pitcher_data_thu = []
+                            for _, p in roster.iterrows():
+                                if p.get("is_hitter") == 0 or str(p.get("positions", "")).upper() in ("P", "SP", "RP"):
+                                    pitcher_data_thu.append({"name": p.get("name", ""), "ip": p.get("ip", 0)})
+                            if pitcher_data_thu:
+                                ip_res = compute_weekly_ip_projection(pitcher_data_thu, get_days_remaining_in_week())
+                                ip_proj = ip_res.get("projected_ip", 0)
+                        except Exception:
+                            pass
+
+                        checkpoint = generate_thursday_checkpoint(roster, matchup_score=None, ip_projected=ip_proj)
+                        with st.expander("Thursday Mid-Week Checkpoint", expanded=False):
+                            st.markdown(f"**IP Status:** {checkpoint['ip_status']}")
+                            if checkpoint["categories_at_risk"]:
+                                st.markdown(f"**At-Risk Categories:** {', '.join(checkpoint['categories_at_risk'])}")
+                            for rec in checkpoint["recommendations"]:
+                                st.markdown(f"- {rec}")
+                            if not checkpoint["recommendations"]:
+                                st.markdown("No adjustments needed — stay the course.")
+                    except Exception:
+                        pass
+
+            except Exception:
+                pass  # Non-fatal
+
             # Daily Lineup Check (AVIS Section 5)
             try:
                 from src.weekly_report import check_daily_lineup, get_todays_mlb_games
@@ -961,8 +1032,8 @@ else:
                             # Format values sensibly
                             _is_rate = _cat in ("AVG", "OBP", "ERA", "WHIP")
                             if _is_rate:
-                                _tv_str = f"{_team_val:.3f}" if _cat in ("AVG", "OBP", "WHIP") else f"{_team_val:.2f}"
-                                _bv_str = f"{_bench:.3f}" if _cat in ("AVG", "OBP", "WHIP") else f"{_bench:.2f}"
+                                _tv_str = f"{_team_val:.2f}"
+                                _bv_str = f"{_bench:.2f}"
                             else:
                                 _tv_str = f"{int(_team_val)}"
                                 _bv_str = f"{int(_bench)}"
@@ -1230,13 +1301,13 @@ else:
                                 )
                                 for c in ["AVG", "WHIP"]:
                                     if c in bayes_df.columns:
-                                        bayes_df[c] = bayes_df[c].map(lambda x: f"{x:.3f}")
+                                        bayes_df[c] = bayes_df[c].map(lambda x: f"{x:.2f}")
                                 for c in ["ERA"]:
                                     if c in bayes_df.columns:
                                         bayes_df[c] = bayes_df[c].map(lambda x: f"{x:.2f}")
                                 for c in ["HR", "RBI", "SB", "K", "ID"]:
                                     if c in bayes_df.columns:
-                                        bayes_df[c] = bayes_df[c].map(lambda x: f"{x:.0f}")
+                                        bayes_df[c] = bayes_df[c].map(lambda x: f"{x:.2f}")
                                 render_compact_table(bayes_df, max_height=400)
                         finally:
                             conn.close()

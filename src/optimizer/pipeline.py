@@ -337,12 +337,12 @@ class LineupOptimizerPipeline:
                 exp_wins = h2h_analysis.get("expected_wins", n_cats / 2.0)
                 if exp_wins < n_cats * 0.4:
                     recommendations.append(
-                        f"Projected to win only {exp_wins:.1f}/{n_cats} categories — "
+                        f"Projected to win only {exp_wins:.2f}/{n_cats} categories — "
                         "consider streaming pitchers or targeting close categories."
                     )
                 elif exp_wins > n_cats * 0.7:
                     recommendations.append(
-                        f"Strong matchup ({exp_wins:.1f}/{n_cats} projected wins) — "
+                        f"Strong matchup ({exp_wins:.2f}/{n_cats} projected wins) — "
                         "consider resting borderline starters to preserve roster flexibility."
                     )
             except Exception:
@@ -376,7 +376,7 @@ class LineupOptimizerPipeline:
                     if streaming_suggestions:
                         top = streaming_suggestions[0]
                         recommendations.append(
-                            f"Top streaming pickup: {top.get('player_name', '?')} (+{top.get('net_value', 0):.3f} SGP)"
+                            f"Top streaming pickup: {top.get('player_name', '?')} (+{top.get('net_value', 0):.2f} SGP)"
                         )
             except Exception:
                 logger.warning("Stage 7: Streaming failed", exc_info=True)

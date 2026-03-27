@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import src.database as db_mod
 from src.database import init_db
 from src.league_manager import (
+    _normalize_name,
     add_player_to_roster,
     get_free_agents,
     get_team_roster,
@@ -162,3 +163,70 @@ def test_add_remove_player(temp_db):
     remove_player_from_roster("Team Hickey", 3)
     roster = get_team_roster("Team Hickey")
     assert len(roster) == 0
+
+
+# --- Name normalization tests ---
+
+
+class TestNormalizeName:
+    """Test _normalize_name helper for accent/suffix stripping."""
+
+    def test_accent_stripping(self):
+        assert _normalize_name("José Ramírez") == "jose ramirez"
+
+    def test_acuna_jr(self):
+        assert _normalize_name("Ronald Acuña Jr.") == "ronald acuna"
+
+    def test_no_change(self):
+        assert _normalize_name("Shohei Ohtani") == "shohei ohtani"
+
+    def test_guerrero_jr(self):
+        assert _normalize_name("Vladimir Guerrero Jr.") == "vladimir guerrero"
+
+    def test_sr_suffix(self):
+        assert _normalize_name("Ken Griffey Sr.") == "ken griffey"
+
+    def test_iii_suffix(self):
+        assert _normalize_name("Sandy Alcantara III") == "sandy alcantara"
+
+    def test_empty_and_none(self):
+        assert _normalize_name("") == ""
+        assert _normalize_name(None) == ""
+
+    def test_non_string(self):
+        assert _normalize_name(123) == ""
+
+    def test_accented_matches_plain(self):
+        """The core bug: accented DB name must match plain pool name."""
+        assert _normalize_name("José Ramírez") == _normalize_name("Jose Ramirez")
+        assert _normalize_name("Ronald Acuña Jr.") == _normalize_name("Ronald Acuna")
+
+
+def test_free_agents_normalized_names(roster_csv, temp_db):
+    """Verify get_free_agents excludes accented/suffixed rostered players."""
+    import_league_rosters_csv(roster_csv, user_team_name="Team Hickey")
+
+    # Add an accented player to the DB + roster
+    conn = sqlite3.connect(temp_db)
+    conn.execute(
+        "INSERT INTO players (player_id, name, team, positions, is_hitter) VALUES (10, 'José Ramírez', 'CLE', '3B', 1)"
+    )
+    conn.execute(
+        "INSERT INTO league_rosters (team_name, team_index, player_id, roster_slot, is_user_team) "
+        "VALUES ('Team 2', 1, 10, '3B', 0)"
+    )
+    conn.commit()
+    conn.close()
+
+    # Pool has the ASCII-only variant of the name (different player_id)
+    pool = pd.DataFrame(
+        {
+            "player_id": [99, 5],
+            "name": ["Jose Ramirez", "Free Agent Guy"],
+        }
+    )
+
+    fa = get_free_agents(pool)
+    # "Jose Ramirez" (id=99) should be excluded via normalized name match
+    assert len(fa) == 1
+    assert fa.iloc[0]["name"] == "Free Agent Guy"

@@ -45,6 +45,141 @@ WEEKLY_RATE_DEFAULTS: dict[str, float] = {
 
 RATE_STATS = {"AVG", "OBP", "ERA", "WHIP"}
 
+# Default weekly adds budget per AVIS: 5 streaming + 3 injury + 2 reserve = 10
+DEFAULT_WEEKLY_ADDS = 10
+STREAMING_ADDS_BUDGET = 5
+
+
+# ── Streaming Recommendations (AVIS Section 2.4) ────────────────────
+
+
+def recommend_streams(
+    fa_pool: pd.DataFrame,
+    player_pool: pd.DataFrame,
+    user_roster_ids: list[int],
+    opponent_profile: dict | None = None,
+    adds_remaining: int = STREAMING_ADDS_BUDGET,
+    config: LeagueConfig | None = None,
+) -> list[dict]:
+    """Recommend streaming pickups tailored to the weekly matchup.
+
+    Considers opponent weaknesses, two-start pitchers, closers with
+    save opportunities, and speed hitters for SB toss-ups.
+
+    Args:
+        fa_pool: Available free agents DataFrame.
+        player_pool: Full player pool for stat lookups.
+        user_roster_ids: Current roster player IDs.
+        opponent_profile: Dict from opponent_intel.get_current_opponent().
+        adds_remaining: Streaming budget remaining this week.
+        config: LeagueConfig instance.
+
+    Returns:
+        List of dicts: {player_name, positions, stream_type, reasoning, projected_sgp}.
+    """
+    if config is None:
+        config = LeagueConfig()
+
+    if fa_pool.empty:
+        return []
+
+    opp_weaknesses = set()
+    if opponent_profile:
+        opp_weaknesses = set(opponent_profile.get("weaknesses", []))
+
+    streams = []
+
+    # 1. Two-start SP (high K/W upside)
+    sp_candidates = (
+        fa_pool[fa_pool["positions"].str.contains("SP", case=False, na=False)].copy()
+        if "positions" in fa_pool.columns
+        else pd.DataFrame()
+    )
+
+    if not sp_candidates.empty:
+        for col in ("k", "w", "era", "whip", "ip"):
+            if col in sp_candidates.columns:
+                sp_candidates[col] = pd.to_numeric(sp_candidates[col], errors="coerce").fillna(0)
+
+        # Score SP by K + W potential, penalize bad ERA/WHIP
+        if "k" in sp_candidates.columns and "ip" in sp_candidates.columns:
+            sp_candidates["_stream_score"] = (
+                sp_candidates.get("k", 0) * 0.5
+                + sp_candidates.get("w", 0) * 2.0
+                - sp_candidates.get("era", 4.5).clip(lower=0) * 0.3
+            )
+            sp_candidates = sp_candidates.sort_values("_stream_score", ascending=False)
+
+        sp_reason = "SP stream for K/W upside"
+        if opp_weaknesses & {"K", "W"}:
+            sp_reason += " — exploits opponent weakness in pitching counting stats"
+
+        for _, sp in sp_candidates.head(min(3, adds_remaining)).iterrows():
+            name = sp.get("player_name", sp.get("name", "?"))
+            streams.append(
+                {
+                    "player_name": str(name),
+                    "positions": str(sp.get("positions", "SP")),
+                    "stream_type": "SP Stream",
+                    "reasoning": sp_reason,
+                    "projected_k": round(float(sp.get("k", 0)), 0),
+                }
+            )
+
+    # 2. RP closers with save opportunities
+    if "SV" in opp_weaknesses or len(streams) < adds_remaining:
+        rp_candidates = (
+            fa_pool[fa_pool["positions"].str.contains("RP", case=False, na=False)].copy()
+            if "positions" in fa_pool.columns
+            else pd.DataFrame()
+        )
+
+        if not rp_candidates.empty and "sv" in rp_candidates.columns:
+            rp_candidates["sv"] = pd.to_numeric(rp_candidates["sv"], errors="coerce").fillna(0)
+            rp_candidates = rp_candidates[rp_candidates["sv"] > 0]
+            rp_candidates = rp_candidates.sort_values("sv", ascending=False)
+
+            rp_reason = "RP stream for saves"
+            if "SV" in opp_weaknesses:
+                rp_reason += " — opponent is weak in SV"
+
+            remaining = adds_remaining - len(streams)
+            for _, rp in rp_candidates.head(min(2, max(1, remaining))).iterrows():
+                name = rp.get("player_name", rp.get("name", "?"))
+                streams.append(
+                    {
+                        "player_name": str(name),
+                        "positions": str(rp.get("positions", "RP")),
+                        "stream_type": "RP Closer",
+                        "reasoning": rp_reason,
+                        "projected_sv": round(float(rp.get("sv", 0)), 0),
+                    }
+                )
+
+    # 3. Speed hitters if SB is a toss-up
+    if "SB" in opp_weaknesses or (opponent_profile and "SB" not in set(opponent_profile.get("strengths", []))):
+        speed_candidates = fa_pool.copy()
+        if "sb" in speed_candidates.columns:
+            speed_candidates["sb"] = pd.to_numeric(speed_candidates["sb"], errors="coerce").fillna(0)
+            speed_candidates = speed_candidates[speed_candidates["sb"] >= 5]
+            speed_candidates = speed_candidates.sort_values("sb", ascending=False)
+
+            remaining = adds_remaining - len(streams)
+            if remaining > 0 and not speed_candidates.empty:
+                for _, sp_hit in speed_candidates.head(min(1, remaining)).iterrows():
+                    name = sp_hit.get("player_name", sp_hit.get("name", "?"))
+                    streams.append(
+                        {
+                            "player_name": str(name),
+                            "positions": str(sp_hit.get("positions", "OF")),
+                            "stream_type": "Speed Hitter",
+                            "reasoning": "SB stream — steal upside vs this matchup",
+                            "projected_sb": round(float(sp_hit.get("sb", 0)), 0),
+                        }
+                    )
+
+    return streams[:adds_remaining]
+
 
 # ── Helper Functions ──────────────────────────────────────────────────
 
@@ -347,6 +482,20 @@ def compute_add_drop_recommendations(
 
     # ── Stage 2: Rank and pre-filter FAs ──────────────────────────────
     fa_ranked = rank_free_agents(user_roster_ids, fa_pool, player_pool, config)
+
+    # AVIS Rule #2: Closer priority override — if user has < 2 closers,
+    # bump available closers to the top of the FA list.
+    roster_players_pre = player_pool[player_pool["player_id"].isin(user_roster_ids)]
+    closer_count = 0
+    for _, _rp in roster_players_pre.iterrows():
+        if float(_rp.get("sv", 0) or 0) >= 5:
+            closer_count += 1
+    if closer_count < 2 and not fa_ranked.empty:
+        fa_ranked = fa_ranked.copy()
+        fa_ranked["_is_closer"] = fa_ranked["sv"].fillna(0).astype(float) >= 5 if "sv" in fa_ranked.columns else False
+        fa_ranked = fa_ranked.sort_values(["_is_closer", "marginal_value"], ascending=[False, False])
+        fa_ranked = fa_ranked.drop(columns=["_is_closer"], errors="ignore")
+
     top_fas = fa_ranked.head(max_fa_candidates)
 
     if top_fas.empty:
@@ -470,6 +619,6 @@ def _generate_reasoning(
         reasons.append("Strong underlying metrics support continued production")
 
     # Net SGP
-    reasons.append(f"Net team improvement: +{swap['net_sgp']:.3f} SGP")
+    reasons.append(f"Net team improvement: +{swap['net_sgp']:.2f} SGP")
 
     return reasons

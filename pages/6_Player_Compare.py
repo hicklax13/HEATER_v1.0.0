@@ -279,7 +279,7 @@ with main:
                                     p10_sum = p10_row.iloc[0][present].sum()
                                     p90_sum = p90_row.iloc[0][present].sum()
                                     width = p90_sum - p10_sum
-                                    row["Confidence"] = f"±{width:.1f}" if width > 0 else "—"
+                                    row["Confidence"] = f"±{width:.2f}" if width > 0 else "—"
                                 else:
                                     row["Confidence"] = "—"
                             else:

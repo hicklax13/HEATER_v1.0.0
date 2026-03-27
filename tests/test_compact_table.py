@@ -250,26 +250,26 @@ class TestRowClasses:
 
 
 class TestNumericFormatting:
-    def test_rate_stat_three_decimals(self, hitter_df):
+    def test_rate_stat_two_decimals(self, hitter_df):
         result = build_compact_table_html(hitter_df)
-        assert "0.280" in result
-        assert "0.305" in result
+        assert "0.28" in result
+        assert "0.30" in result  # 0.305 → 0.30 with banker's rounding
 
-    def test_counting_stat_integers(self, hitter_df):
+    def test_counting_stat_two_decimals(self, hitter_df):
         result = build_compact_table_html(hitter_df)
-        # HR=30 should appear as "30", not "30.0"
-        assert ">30<" in result
-        assert ">45<" in result
+        # All numbers now show 2 decimal places
+        assert "30.00" in result
+        assert "45.00" in result
 
-    def test_era_three_decimals(self, pitcher_df):
+    def test_era_two_decimals(self, pitcher_df):
         result = build_compact_table_html(pitcher_df)
-        assert "2.950" in result
-        assert "3.100" in result
+        assert "2.95" in result
+        assert "3.10" in result
 
-    def test_whip_three_decimals(self, pitcher_df):
+    def test_whip_two_decimals(self, pitcher_df):
         result = build_compact_table_html(pitcher_df)
-        assert "1.050" in result
-        assert "0.980" in result
+        assert "1.05" in result  # 1.050 → 1.05
+        assert "0.98" in result
 
     def test_non_numeric_passthrough(self):
         df = pd.DataFrame({"Name": ["A"], "Notes": ["Some text"]})
@@ -338,7 +338,7 @@ class TestDataIntegrity:
         """Column named 'H' should still be formatted numerically when health_col='Health'."""
         df = pd.DataFrame({"Name": ["A"], "H": [150], "Health": ["Healthy"]})
         result = build_compact_table_html(df, health_col="Health")
-        assert ">150<" in result
+        assert "150.00" in result
 
 
 # ── Headshot Thumbnails ──────────────────────────────────────────

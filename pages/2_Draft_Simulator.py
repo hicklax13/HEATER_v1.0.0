@@ -69,6 +69,7 @@ def build_mock_pool() -> pd.DataFrame:
     progress.progress(70, text="Calculating player valuations...")
     num_rounds = st.session_state.get("mock_num_rounds", 23)
     valued = value_all_players(raw, lc, replacement_levels=repl, num_rounds=num_rounds)
+    valued["player_id"] = pd.to_numeric(valued["player_id"], errors="coerce").fillna(-1).astype(int)
     if "player_name" not in valued.columns:
         valued["player_name"] = valued["name"]
 
@@ -242,7 +243,7 @@ def render_recommendations(pool: pd.DataFrame, ds: DraftState, n_sims: int) -> N
         {pos} &nbsp;|&nbsp; Average Draft Position: {adp:.0f}{inj_html}
     </div>
     <div style="color:{T["tx"]};font-size:0.88rem;margin-top:8px;">
-        Score: {score:.1f} &nbsp;&nbsp; Survival: {surv:.0%} &nbsp;&nbsp; Urgency: {urg:.2f}
+        Score: {score:.2f} &nbsp;&nbsp; Survival: {surv:.0%} &nbsp;&nbsp; Urgency: {urg:.2f}
     </div>
 </div>
 """,
@@ -261,13 +262,13 @@ def render_recommendations(pool: pd.DataFrame, ds: DraftState, n_sims: int) -> N
         sd = float(top.get("statcast_delta", 0) or 0)
         if sd != 0:
             sd_c = T["green"] if sd > 0 else T["primary"]
-            _metrics.append(f'<span style="font-size:11px;color:{sd_c};">Skill: {sd:+.3f}</span>')
+            _metrics.append(f'<span style="font-size:11px;color:{sd_c};">Skill: {sd:+.2f}</span>')
         cb = float(top.get("closer_hierarchy_bonus", 0) or 0)
         if cb > 0:
-            _metrics.append(f'<span style="font-size:11px;color:{T["green"]};">Closer: +{cb:.1f}</span>')
+            _metrics.append(f'<span style="font-size:11px;color:{T["green"]};">Closer: +{cb:.2f}</span>')
         sp = float(top.get("streaming_penalty", 0) or 0)
         if sp < 0:
-            _metrics.append(f'<span style="font-size:11px;color:{T["primary"]};">Stream: {sp:.1f}</span>')
+            _metrics.append(f'<span style="font-size:11px;color:{T["primary"]};">Stream: {sp:.2f}</span>')
         if _metrics:
             st.markdown(
                 '<div style="display:flex;gap:12px;padding:4px 8px;margin-bottom:8px;">'
@@ -336,7 +337,7 @@ def render_recommendations(pool: pd.DataFrame, ds: DraftState, n_sims: int) -> N
                     f"{_card_headshot}"
                     f'<div class="pc-name">{pname}</div>'
                     f'<div class="pc-pos">{ppos}</div>'
-                    f'<div class="pc-score">{pscore:.1f}</div>'
+                    f'<div class="pc-score">{pscore:.2f}</div>'
                     f"</div>",
                     unsafe_allow_html=True,
                 )
@@ -420,8 +421,8 @@ def render_draft_summary(pool: pd.DataFrame, ds: DraftState) -> None:
     col_hr.metric("Home Runs", int(totals.get("HR", 0)))
     col_rbi.metric("Runs Batted In", int(totals.get("RBI", 0)))
     col_sb.metric("Stolen Bases", int(totals.get("SB", 0)))
-    col_avg.metric("Batting Average", f"{totals.get('AVG', 0):.3f}")
-    col_obp.metric("On-Base Percentage", f"{totals.get('OBP', 0):.3f}")
+    col_avg.metric("Batting Average", f"{totals.get('AVG', 0):.2f}")
+    col_obp.metric("On-Base Percentage", f"{totals.get('OBP', 0):.2f}")
 
     col_w, col_l, col_sv, col_k, col_era, col_whip = st.columns(6)
     col_w.metric("Wins", int(totals.get("W", 0)))
@@ -429,7 +430,7 @@ def render_draft_summary(pool: pd.DataFrame, ds: DraftState) -> None:
     col_sv.metric("Saves", int(totals.get("SV", 0)))
     col_k.metric("Strikeouts", int(totals.get("K", 0)))
     col_era.metric("Earned Run Average", f"{totals.get('ERA', 0):.2f}")
-    col_whip.metric("Walks + Hits per Inning Pitched", f"{totals.get('WHIP', 0):.3f}")
+    col_whip.metric("Walks + Hits per Inning Pitched", f"{totals.get('WHIP', 0):.2f}")
 
     # Estimate grade: sum SGP of user's picks vs other teams
     all_totals = ds.get_all_team_roster_totals(pool)
@@ -480,7 +481,7 @@ def render_draft_summary(pool: pd.DataFrame, ds: DraftState) -> None:
             padding:24px;text-align:center;margin-top:20px;">
     <div style="color:{grade_color};font-size:3rem;font-weight:900;">{grade}</div>
     <div style="color:{T["tx"]};font-size:1rem;margin-top:4px;">
-        Draft Grade &nbsp;|&nbsp; Standings Gained Points: {user_sgp:.1f} &nbsp; (Average: {avg_sgp:.1f})
+        Draft Grade &nbsp;|&nbsp; Standings Gained Points: {user_sgp:.2f} &nbsp; (Average: {avg_sgp:.2f})
     </div>
 </div>
 """,
@@ -522,13 +523,43 @@ def render_tabs(pool: pd.DataFrame, ds: DraftState) -> None:
             disp = available.copy()
             if pos_filter != "All":
                 disp = disp[disp["positions"].str.contains(pos_filter, na=False)]
+
+            # Sort options
+            sort_options = ["Pick Score", "Average Draft Position"]
+            has_ecr = "consensus_rank" in disp.columns
+            if has_ecr:
+                sort_options.append("Expert Consensus Ranking")
+            sort_choice = st.selectbox(
+                "Sort by",
+                sort_options,
+                index=0,
+                key="mock_avail_sort",
+            )
+
             cols = ["player_name", "positions", "team", "adp", "pick_score", "mlb_id"]
+            if has_ecr:
+                cols.insert(5, "consensus_rank")
             cols = [c for c in cols if c in disp.columns]
-            disp_sorted = disp[cols].sort_values("pick_score", ascending=False).copy()
+            disp_sorted = disp[cols].copy()
+
+            if sort_choice == "Pick Score" and "pick_score" in disp_sorted.columns:
+                disp_sorted = disp_sorted.sort_values("pick_score", ascending=False)
+            elif sort_choice == "Average Draft Position" and "adp" in disp_sorted.columns:
+                disp_sorted = disp_sorted.sort_values("adp", ascending=True, na_position="last")
+            elif sort_choice == "Expert Consensus Ranking" and has_ecr and "consensus_rank" in disp_sorted.columns:
+                disp_sorted = disp_sorted.sort_values("consensus_rank", ascending=True, na_position="last")
+
+            disp_sorted = disp_sorted.reset_index(drop=True)
+            disp_sorted.insert(0, "rank", range(1, len(disp_sorted) + 1))
+
             if "adp" in disp_sorted.columns:
                 disp_sorted["adp"] = disp_sorted["adp"].apply(lambda x: f"{x:.0f}" if pd.notna(x) else "")
             if "pick_score" in disp_sorted.columns:
-                disp_sorted["pick_score"] = disp_sorted["pick_score"].apply(lambda x: f"{x:.1f}" if pd.notna(x) else "")
+                disp_sorted["pick_score"] = disp_sorted["pick_score"].apply(lambda x: f"{x:.2f}" if pd.notna(x) else "")
+            if "consensus_rank" in disp_sorted.columns:
+                disp_sorted["consensus_rank"] = disp_sorted["consensus_rank"].apply(
+                    lambda x: f"{int(x)}" if pd.notna(x) else ""
+                )
 
             # Inject headshot thumbnails into player names
             if "mlb_id" in disp_sorted.columns:
@@ -558,11 +589,13 @@ def render_tabs(pool: pd.DataFrame, ds: DraftState) -> None:
 
             disp_sorted = disp_sorted.rename(
                 columns={
+                    "rank": "Rank",
                     "player_name": "Player",
                     "positions": "Position",
                     "team": "Team",
                     "adp": "ADP",
                     "pick_score": "Pick Score",
+                    "consensus_rank": "Expert Consensus Ranking",
                 }
             )
             render_styled_table(disp_sorted, max_height=400)

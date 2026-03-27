@@ -896,7 +896,7 @@ def _compute_risk_flags(
         sgp = sgp_calc.total_sgp(p)
         if sgp > 3.0:
             pname = p.get(name_col, "Unknown")
-            flags.append(f"Trading away elite player: {pname} (SGP: {sgp:.1f})")
+            flags.append(f"Trading away elite player: {pname} (SGP: {sgp:.2f})")
 
     # Check if trade worsens a category where you're already weak (rank >= 8)
     if cat_analysis:

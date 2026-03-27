@@ -282,7 +282,7 @@ else:
                         grade_display = f'<div style="font-size:28px;font-family:Bebas Neue,sans-serif;color:{verdict_color};letter-spacing:2px;">{result["verdict"]}</div>'
                         if grade_val:
                             grade_display += f'<div style="font-size:20px;font-family:Bebas Neue,sans-serif;color:{verdict_color};">{grade_val}</div>'
-                        grade_display += f'<div style="font-size:12px;color:#6b7280;margin-top:4px;">{result["confidence_pct"]:.1f}% confidence</div>'
+                        grade_display += f'<div style="font-size:12px;color:#6b7280;margin-top:4px;">{result["confidence_pct"]:.2f}% confidence</div>'
                         render_context_card("Trade Verdict", grade_display)
 
                         if engine_used == "phase1" and result.get("punt_categories"):
@@ -306,7 +306,7 @@ else:
                         surplus_color = T["ok"] if (surplus or 0) >= 0 else T["danger"]
                         render_context_card(
                             surplus_label,
-                            f'<div style="font-size:20px;font-family:Bebas Neue,sans-serif;color:{surplus_color};">{surplus:+.3f}</div>',
+                            f'<div style="font-size:20px;font-family:Bebas Neue,sans-serif;color:{surplus_color};">{surplus:+.2f}</div>',
                         )
 
                     # Verdict banner
@@ -345,7 +345,7 @@ else:
                         f'letter-spacing:2px;margin-left:12px;">{result["verdict"]}</span>'
                         f"{grade_html}"
                         f'<span style="color:{T["tx2"]};margin-left:12px;font-size:18px;">'
-                        f"{result['confidence_pct']:.1f}% confidence</span></div>",
+                        f"{result['confidence_pct']:.2f}% confidence</span></div>",
                         unsafe_allow_html=True,
                     )
                     verdict_key = "trade_verdict" if engine_used == "phase1" else "trade_verdict_legacy"
@@ -383,7 +383,7 @@ else:
                         )
                         col2.metric(
                             "Surplus Standings Gained Points",
-                            f"{result.get('surplus_sgp', 0):+.3f}",
+                            f"{result.get('surplus_sgp', 0):+.2f}",
                             help=METRIC_TOOLTIPS["sgp"],
                         )
                         # Roster move indicator (drop or pickup for uneven trades)
@@ -399,7 +399,7 @@ else:
                         )
                         col4.metric(
                             "Replacement Penalty",
-                            f"{result.get('replacement_penalty', 0):+.3f}",
+                            f"{result.get('replacement_penalty', 0):+.2f}",
                             help=METRIC_TOOLTIPS["replacement_penalty"],
                         )
                         col5.metric(
@@ -417,17 +417,17 @@ else:
                         col1, col2, col3 = st.columns(3)
                         col1.metric(
                             "Total Standings Gained Points Change",
-                            f"{result['total_sgp_change']:+.3f}",
+                            f"{result['total_sgp_change']:+.2f}",
                             help=METRIC_TOOLTIPS["sgp"],
                         )
                         col2.metric(
                             "Monte Carlo Mean",
-                            f"{result['mc_mean']:+.3f}",
+                            f"{result['mc_mean']:+.2f}",
                             help=METRIC_TOOLTIPS["mc_mean"],
                         )
                         col3.metric(
                             "Monte Carlo Standard Deviation",
-                            f"{result['mc_std']:.3f}",
+                            f"{result['mc_std']:.2f}",
                             help=METRIC_TOOLTIPS["mc_std"],
                         )
 
@@ -445,16 +445,16 @@ else:
                             impact_rows.append(
                                 {
                                     "Category": cat,
-                                    "Standings Gained Points Change": f"{sgp_val:+.3f}",
+                                    "Standings Gained Points Change": f"{sgp_val:+.2f}",
                                     "Your Rank": status,
-                                    "Gap to Next": f"{gap:.1f}" if not is_punt else "-",
+                                    "Gap to Next": f"{gap:.2f}" if not is_punt else "-",
                                 }
                             )
                         render_compact_table(pd.DataFrame(impact_rows))
                     else:
                         impact_df = pd.DataFrame(
                             [
-                                {"Category": cat, "Standings Gained Points Change": f"{val:+.3f}"}
+                                {"Category": cat, "Standings Gained Points Change": f"{val:+.2f}"}
                                 for cat, val in result["category_impact"].items()
                             ]
                         )
@@ -479,10 +479,10 @@ else:
                                 repl_rows.append(
                                     {
                                         "Category": cat,
-                                        "Raw Loss": f"{d['raw_loss']:.1f}",
-                                        "Best Free Agent": f"{d.get('best_fa_name', 'N/A')} ({d['best_fa']:.1f})",
-                                        "Unrecoverable Gap": f"{d['unrecoverable']:.1f}",
-                                        "Standings Gained Points Penalty": f"{d['sgp_penalty']:+.3f}",
+                                        "Raw Loss": f"{d['raw_loss']:.2f}",
+                                        "Best Free Agent": f"{d.get('best_fa_name', 'N/A')} ({d['best_fa']:.2f})",
+                                        "Unrecoverable Gap": f"{d['unrecoverable']:.2f}",
+                                        "Standings Gained Points Penalty": f"{d['sgp_penalty']:+.2f}",
                                     }
                                 )
                             if repl_rows:
@@ -578,10 +578,10 @@ else:
                                         risk_rows.append(
                                             {
                                                 "Player": name,
-                                                "10th Percentile Home Runs (Floor)": f"{p10_hr:.0f}",
-                                                "90th Percentile Home Runs (Ceiling)": f"{p90_hr:.0f}",
-                                                "10th Percentile Batting Average (Floor)": f"{p10_avg:.3f}",
-                                                "90th Percentile Batting Average (Ceiling)": f"{p90_avg:.3f}",
+                                                "10th Percentile Home Runs (Floor)": f"{p10_hr:.2f}",
+                                                "90th Percentile Home Runs (Ceiling)": f"{p90_hr:.2f}",
+                                                "10th Percentile Batting Average (Floor)": f"{p10_avg:.2f}",
+                                                "90th Percentile Batting Average (Ceiling)": f"{p90_avg:.2f}",
                                             }
                                         )
                                 if risk_rows:

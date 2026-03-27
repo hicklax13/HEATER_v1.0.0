@@ -1919,12 +1919,11 @@ def inject_custom_css():
                 'Trade Analyzer': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>',
                 'Player Compare': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/><line x1="3" y1="20" x2="21" y2="20"/></svg>',
                 'Free Agents': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="8" y1="11" x2="14" y2="11"/><line x1="11" y1="8" x2="11" y2="14"/></svg>',
-                'Lineup Optimizer': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>',
+                'Lineup': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>',
                 'Closer Monitor': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="7"/><polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"/></svg>',
                 'Standings': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>',
                 'Leaders': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>',
-                'Waiver Wire': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="8" y1="11" x2="14" y2="11"/><line x1="11" y1="8" x2="11" y2="14"/></svg>',
-                'Start Sit': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/></svg>',
+                'Trade Finder': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
                 'Matchup Planner': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>'
             };
 
@@ -2297,27 +2296,14 @@ def build_compact_table_html(
             if health_col:
                 _skip_cols.add(health_col)
             if col not in _skip_cols:
-                col_upper = str(col).upper()
-                if col_upper in _RATE_STAT_COLS:
-                    try:
-                        fv = float(val)
-                        if _math.isnan(fv) or _math.isinf(fv):
-                            cell_html += ""
-                        else:
-                            cell_html += f"{fv:.3f}"
-                    except (ValueError, TypeError):
-                        cell_html += str(val) if val is not None else ""
-                else:
-                    try:
-                        float_val = float(val)
-                        if _math.isnan(float_val) or _math.isinf(float_val):
-                            cell_html += ""
-                        elif float_val == int(float_val) and col_upper in (HITTING_STAT_COLS | PITCHING_STAT_COLS):
-                            cell_html += str(int(float_val))
-                        else:
-                            cell_html += f"{float_val:.1f}" if float_val != int(float_val) else str(int(float_val))
-                    except (ValueError, TypeError):
-                        cell_html += str(val) if val is not None else ""
+                try:
+                    fv = float(val)
+                    if _math.isnan(fv) or _math.isinf(fv):
+                        cell_html += ""
+                    else:
+                        cell_html += f"{fv:.2f}"
+                except (ValueError, TypeError):
+                    cell_html += str(val) if val is not None else ""
             else:
                 cell_html += str(val) if val is not None else ""
 
@@ -2351,6 +2337,90 @@ def render_compact_table(df, highlight_cols=None, row_classes=None, health_col=N
         show_avatars=show_avatars,
     )
     st.markdown(html, unsafe_allow_html=True)
+
+
+# ── Sortable Table (st.dataframe wrapper) ─────────────────────────
+
+# Stat columns that get auto-formatted as numbers
+_SORTABLE_STAT_COLS = (
+    HITTING_STAT_COLS | PITCHING_STAT_COLS
+    | {"PICK_SCORE", "SGP", "MARGINAL_VALUE", "COMPOSITE_SCORE", "TRADE_VALUE",
+       "DOLLAR_VALUE", "VORP", "SURPLUS", "NET_SGP", "IMPACT", "ACCEPTANCE",
+       "ADP", "ECR", "RANK", "IP", "PA", "AB", "H", "BB", "HBP", "SF",
+       "ER", "BB_ALLOWED", "H_ALLOWED", "HEALTH_SCORE", "SCORE"}
+)
+
+
+_HIDDEN_META_COLS_UPPER = {c.upper() for c in _HIDDEN_META_COLS}
+
+
+def _build_default_column_config(df):
+    """Auto-detect stat columns and apply consistent 2-decimal formatting."""
+    config = {}
+    for col in df.columns:
+        col_upper = str(col).upper().replace(" ", "_")
+        if col_upper in _HIDDEN_META_COLS_UPPER:
+            config[col] = st.column_config.NumberColumn(col, format="%d")
+        elif col_upper in _SORTABLE_STAT_COLS:
+            config[col] = st.column_config.NumberColumn(col, format="%.2f")
+    return config
+
+
+def render_sortable_table(
+    df,
+    column_config=None,
+    height=400,
+    hide_index=True,
+    key=None,
+    hide_columns=None,
+):
+    """Render a sortable/filterable table using st.dataframe().
+
+    Use for data-heavy tables (player pools, rankings, rosters).
+    Keep :func:`render_compact_table` for small display cards and banners.
+
+    Parameters
+    ----------
+    df : DataFrame
+        Data to display.
+    column_config : dict | None
+        Custom Streamlit column_config. Auto-generated if *None*.
+    height : int
+        Table height in pixels.
+    hide_index : bool
+        Whether to hide the DataFrame index.
+    key : str | None
+        Streamlit widget key for deduplication.
+    hide_columns : list[str] | None
+        Columns to exclude from display.
+    """
+    if df is None or df.empty:
+        st.info("No data to display.")
+        return
+
+    display = df.copy()
+
+    # Hide internal columns
+    drop_cols = []
+    for c in list(display.columns):
+        if str(c).upper() in _HIDDEN_META_COLS:
+            drop_cols.append(c)
+    if hide_columns:
+        drop_cols.extend([c for c in hide_columns if c in display.columns])
+    if drop_cols:
+        display = display.drop(columns=drop_cols, errors="ignore")
+
+    if column_config is None:
+        column_config = _build_default_column_config(display)
+
+    st.dataframe(
+        display,
+        column_config=column_config,
+        hide_index=hide_index,
+        height=height,
+        use_container_width=True,
+        key=key,
+    )
 
 
 def render_reco_banner(teaser_text, expanded_html="", icon_key="zap"):

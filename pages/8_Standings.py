@@ -248,13 +248,13 @@ with main:
                         for cat in ["R", "HR", "RBI", "SB", "AVG", "OBP", "W", "L", "SV", "K", "ERA", "WHIP"]:
                             val = cats.get(cat, 0)
                             if cat in ("AVG", "OBP"):
-                                row[cat] = f"{val:.3f}"
+                                row[cat] = f"{val:.2f}"
                             elif cat in ("ERA",):
                                 row[cat] = f"{val:.2f}"
                             elif cat in ("WHIP",):
-                                row[cat] = f"{val:.3f}"
+                                row[cat] = f"{val:.2f}"
                             else:
-                                row[cat] = f"{val:.1f}"
+                                row[cat] = f"{val:.2f}"
                         rows.append(row)
                     render_compact_table(pd.DataFrame(rows))
                 else:

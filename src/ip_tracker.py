@@ -39,23 +39,23 @@ def compute_weekly_ip_projection(roster_pitchers: list[dict], days_remaining: in
         total_projected += projected_contribution
 
     status = "safe"
-    message = f"On pace for {total_projected:.1f} IP this week."
+    message = f"On pace for {total_projected:.2f} IP this week."
     streaming_needed = False
 
     if total_projected < MIN_IP * 0.5:
         status = "danger"
-        message = f"DANGER: Only {total_projected:.1f} IP projected. Need {MIN_IP:.0f}. Stream SP immediately."
+        message = f"DANGER: Only {total_projected:.2f} IP projected. Need {MIN_IP:.0f}. Stream SP immediately."
         streaming_needed = True
     elif total_projected < MIN_IP:
         status = "warning"
-        message = f"WARNING: {total_projected:.1f} IP projected, need {MIN_IP:.0f}. Consider streaming a SP."
+        message = f"WARNING: {total_projected:.2f} IP projected, need {MIN_IP:.0f}. Consider streaming a SP."
         streaming_needed = True
     elif total_projected < MIN_IP * 1.2:
         status = "safe"
-        message = f"Projected {total_projected:.1f} IP (just above minimum). Monitor closely."
+        message = f"Projected {total_projected:.2f} IP (just above minimum). Monitor closely."
 
     return {
-        "projected_ip": round(total_projected, 1),
+        "projected_ip": round(total_projected, 2),
         "ip_needed": MIN_IP,
         "ip_pace": round(total_projected / MIN_IP * 100, 0) if MIN_IP > 0 else 100,
         "status": status,

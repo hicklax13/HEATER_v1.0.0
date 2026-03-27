@@ -1,0 +1,429 @@
+"""Trade Finder — Proactive trade recommendations based on team needs.
+
+Scans all 12 league rosters for mutually beneficial 1-for-1 trades using
+cosine dissimilarity team pairing and behavioral acceptance modeling.
+Three tab views: By Partner, By Need, By Value.
+"""
+
+import time
+
+import pandas as pd
+import streamlit as st
+
+from src.database import (
+    coerce_numeric_df,
+    init_db,
+    load_league_rosters,
+    load_league_standings,
+    load_player_pool,
+)
+from src.in_season import _roster_category_totals
+from src.trade_finder import (
+    find_complementary_teams,
+    find_trade_opportunities,
+)
+from src.ui_shared import (
+    T,
+    inject_custom_css,
+    page_timer_footer,
+    page_timer_start,
+    render_context_card,
+    render_context_columns,
+    render_page_layout,
+    render_sortable_table,
+)
+from src.valuation import LeagueConfig
+
+# Full display names for stat categories (no abbreviations per CLAUDE.md)
+_CAT_DISPLAY = {
+    "R": "Runs",
+    "HR": "Home Runs",
+    "RBI": "Runs Batted In",
+    "SB": "Stolen Bases",
+    "AVG": "Batting Average",
+    "OBP": "On-Base Percentage",
+    "W": "Wins",
+    "L": "Losses",
+    "SV": "Saves",
+    "K": "Strikeouts",
+    "ERA": "Earned Run Average",
+    "WHIP": "Walks + Hits per Inning Pitched",
+}
+
+st.set_page_config(
+    page_title="Heater | Trade Finder",
+    page_icon="",
+    layout="wide",
+    initial_sidebar_state="collapsed",
+)
+
+
+# ── Helpers ────────────────────────────────────────────────────────────
+
+
+def _build_trade_df(trades: list[dict]) -> pd.DataFrame:
+    """Convert trade dicts to a display DataFrame."""
+    rows = []
+    for trade in trades:
+        giving = ", ".join(trade.get("giving_names", []))
+        receiving = ", ".join(trade.get("receiving_names", []))
+        rows.append(
+            {
+                "You Give": giving,
+                "You Receive": receiving,
+                "Partner": trade.get("opponent_team", ""),
+                "Your Gain": round(trade.get("user_sgp_gain", 0), 2),
+                "Their Gain": round(trade.get("opponent_sgp_gain", 0), 2),
+                "Grade": trade.get("grade", ""),
+                "Acceptance": trade.get("acceptance_label", ""),
+                "Score": round(trade.get("composite_score", 0), 2),
+            }
+        )
+    return pd.DataFrame(rows) if rows else pd.DataFrame()
+
+
+def _get_user_weak_categories(
+    user_totals: dict[str, float],
+    all_team_totals: dict[str, dict[str, float]],
+    config: LeagueConfig,
+    bottom_n: int = 4,
+) -> list[str]:
+    """Identify the user's weakest categories (bottom N ranks)."""
+    cats = config.all_categories
+    rankings: dict[str, int] = {}
+
+    for cat in cats:
+        all_vals = sorted(
+            [t.get(cat, 0) for t in all_team_totals.values()],
+            reverse=(cat not in config.inverse_stats),
+        )
+        user_val = user_totals.get(cat, 0)
+        # Find rank (1 = best)
+        rank = 1
+        for val in all_vals:
+            if cat in config.inverse_stats:
+                if val < user_val:
+                    rank += 1
+            else:
+                if val > user_val:
+                    rank += 1
+        rankings[cat] = rank
+
+    # Sort by rank descending (worst categories first)
+    sorted_cats = sorted(rankings.items(), key=lambda x: x[1], reverse=True)
+    return [cat for cat, _rank in sorted_cats[:bottom_n]]
+
+
+def _categorize_trades_by_need(
+    trades: list[dict],
+    weak_categories: list[str],
+    user_roster_ids: list[int],
+    player_pool: pd.DataFrame,
+    config: LeagueConfig,
+) -> dict[str, list[dict]]:
+    """Group trades by which weak category they improve most."""
+    grouped: dict[str, list[dict]] = {cat: [] for cat in weak_categories}
+
+    user_totals = _roster_category_totals(user_roster_ids, player_pool)
+
+    for trade in trades:
+        # Compute post-trade totals
+        new_ids = [pid for pid in user_roster_ids if pid not in trade["giving_ids"]] + trade["receiving_ids"]
+        new_totals = _roster_category_totals(new_ids, player_pool)
+
+        # Find which weak category improves most
+        best_cat = None
+        best_improvement = -999
+
+        for cat in weak_categories:
+            old_val = user_totals.get(cat, 0)
+            new_val = new_totals.get(cat, 0)
+            if cat in config.inverse_stats:
+                improvement = old_val - new_val  # Lower is better
+            else:
+                improvement = new_val - old_val
+            if improvement > best_improvement:
+                best_improvement = improvement
+                best_cat = cat
+
+        if best_cat and best_improvement > 0:
+            trade_copy = dict(trade)
+            trade_copy["category_improvement"] = round(best_improvement, 2)
+            grouped[best_cat].append(trade_copy)
+
+    # Sort each group by improvement
+    for cat in grouped:
+        grouped[cat].sort(key=lambda x: x.get("category_improvement", 0), reverse=True)
+
+    return grouped
+
+
+# ── Main ──────────────────────────────────────────────────────────────
+
+
+def main():
+    page_timer_start()
+    inject_custom_css()
+    init_db()
+
+    config = LeagueConfig()
+
+    # ── Load data ─────────────────────────────────────────────────────
+    pool = load_player_pool()
+    if pool.empty:
+        st.error("Player pool is empty. Run the app bootstrap first.")
+        return
+
+    pool = coerce_numeric_df(pool)
+    rosters_df = load_league_rosters()
+
+    if rosters_df.empty:
+        st.warning("No league rosters loaded. Connect to Yahoo and sync rosters first.")
+        return
+
+    # Build {team_name: [player_ids]} dict
+    league_rosters: dict[str, list[int]] = {}
+    for _, row in rosters_df.iterrows():
+        team = row.get("team_name", "")
+        pid = row.get("player_id")
+        if team and pid is not None:
+            league_rosters.setdefault(team, []).append(int(pid))
+
+    if len(league_rosters) < 2:
+        st.warning("Need at least 2 teams loaded to find trades.")
+        return
+
+    # Identify user team — use is_user_team flag from league_rosters table
+    user_teams = rosters_df[rosters_df["is_user_team"] == 1]
+    if user_teams.empty:
+        # Fallback: try session state, then first team
+        user_team_name = st.session_state.get("user_team_name")
+        if not user_team_name or user_team_name not in league_rosters:
+            # Last resort: pick the first team
+            user_team_name = next(iter(league_rosters), None)
+    else:
+        user_team_name = user_teams.iloc[0]["team_name"]
+        if isinstance(user_team_name, bytes):
+            user_team_name = user_team_name.decode("utf-8", errors="replace")
+
+    if not user_team_name or user_team_name not in league_rosters:
+        st.warning("No user team identified. Connect to Yahoo and sync rosters first.")
+        return
+
+    user_roster_ids = league_rosters.get(user_team_name, [])
+    if not user_roster_ids:
+        st.warning(f"No roster found for '{user_team_name}'. Check Yahoo sync.")
+        return
+
+    # Compute team category totals from standings or roster stats
+    standings_df = load_league_standings()
+    all_team_totals: dict[str, dict[str, float]] = {}
+
+    if not standings_df.empty and "team_name" in standings_df.columns and "category" in standings_df.columns:
+        # Standings table is normalized (long format): one row per team-category pair.
+        # Pivot to wide format: one row per team, columns = categories.
+        standings_df["total"] = pd.to_numeric(standings_df["total"], errors="coerce").fillna(0)
+        wide = standings_df.pivot_table(
+            index="team_name", columns="category", values="total", aggfunc="first"
+        ).reset_index()
+        for _, row in wide.iterrows():
+            team = row.get("team_name", "")
+            if team:
+                totals = {}
+                for cat in config.all_categories:
+                    totals[cat] = float(pd.to_numeric(row.get(cat, 0), errors="coerce") or 0)
+                all_team_totals[team] = totals
+    elif not standings_df.empty and "team_name" in standings_df.columns:
+        # Wide format fallback (legacy schema)
+        for _, row in standings_df.iterrows():
+            team = row.get("team_name", "")
+            if team:
+                totals = {}
+                for cat in config.all_categories:
+                    totals[cat] = float(pd.to_numeric(row.get(cat, 0), errors="coerce") or 0)
+                all_team_totals[team] = totals
+    else:
+        # Fallback: compute from roster stats
+        for team_name, pids in league_rosters.items():
+            all_team_totals[team_name] = _roster_category_totals(pids, pool)
+
+    # ── Run trade finder engine ───────────────────────────────────────
+    with st.spinner("Scanning league for trade opportunities..."):
+        t0 = time.time()
+        opportunities = find_trade_opportunities(
+            user_roster_ids=user_roster_ids,
+            player_pool=pool,
+            config=config,
+            all_team_totals=all_team_totals,
+            user_team_name=user_team_name,
+            league_rosters=league_rosters,
+            max_results=50,
+            top_partners=5,
+        )
+        scan_time = time.time() - t0
+
+    # ── Banner ────────────────────────────────────────────────────────
+    if opportunities:
+        best = opportunities[0]
+        best_give = ", ".join(best.get("giving_names", []))
+        best_recv = ", ".join(best.get("receiving_names", []))
+        best_partner = best.get("opponent_team", "?")
+        best_gain = best.get("user_sgp_gain", 0)
+        banner_text = (
+            f"Top opportunity: Send {best_give} to {best_partner} for {best_recv} "
+            f"(+{best_gain:.2f} Standings Gained Points)"
+        )
+        render_page_layout(
+            "TRADE FINDER",
+            banner_teaser=banner_text,
+            banner_icon="trade_analyzer",
+        )
+    else:
+        render_page_layout("TRADE FINDER", banner_teaser="No profitable trades found at this time.")
+
+    # ── Context + Main columns ────────────────────────────────────────
+    ctx, main_col = render_context_columns(context_width=20)
+
+    with ctx:
+        # Team needs summary
+        user_totals = all_team_totals.get(user_team_name, {})
+        weak_cats = _get_user_weak_categories(user_totals, all_team_totals, config, bottom_n=4)
+
+        needs_html = "<ul style='margin:0;padding-left:16px;'>"
+        for cat in weak_cats:
+            display_name = _CAT_DISPLAY.get(cat, cat.upper())
+            tx_color = T["tx"]
+            needs_html += f"<li style='color:{tx_color};font-size:12px;'>{display_name}</li>"
+        needs_html += "</ul>"
+        render_context_card("Category Needs", needs_html)
+
+        # Complementary teams
+        if all_team_totals and user_team_name:
+            partners = find_complementary_teams(user_team_name, all_team_totals, config, top_n=5)
+            partners_html = ""
+            for i, (team, score) in enumerate(partners, 1):
+                partners_html += (
+                    f'<div style="font-size:12px;color:{T["tx"]};padding:2px 0;">'
+                    f'{i}. {team} <span style="color:{T["tx2"]};">({score:.2f})</span></div>'
+                )
+            render_context_card("Best Trade Partners", partners_html)
+
+        # Scan stats
+        stats_html = (
+            f'<div style="font-size:12px;color:{T["tx"]};">'
+            f"Trades found: {len(opportunities)}<br>"
+            f"Teams scanned: {len(league_rosters) - 1}<br>"
+            f"Scan time: {scan_time:.2f}s</div>"
+        )
+        render_context_card("Scan Summary", stats_html)
+
+    with main_col:
+        if not opportunities:
+            st.info(
+                "No profitable trade opportunities found. This can happen when:\n"
+                "- League standings data is missing (sync with Yahoo)\n"
+                "- Your roster is well-balanced (no clear upgrade paths)\n"
+                "- All opponents have weaker players at your need positions"
+            )
+            page_timer_footer("Trade Finder")
+            return
+
+        # ── 3 Tabs ───────────────────────────────────────────────────
+        tab_partner, tab_need, tab_value = st.tabs(["By Partner", "By Category Need", "By Value"])
+
+        # ── Tab 1: By Partner ─────────────────────────────────────────
+        with tab_partner:
+            st.markdown(
+                f'<p style="font-size:13px;color:{T["tx2"]};">'
+                "Trade opportunities grouped by opponent team, ranked by team complementarity.</p>",
+                unsafe_allow_html=True,
+            )
+
+            # Group trades by opponent
+            trades_by_partner: dict[str, list[dict]] = {}
+            for trade in opportunities:
+                partner = trade.get("opponent_team", "Unknown")
+                trades_by_partner.setdefault(partner, []).append(trade)
+
+            # Order partners by complementarity (best first)
+            if all_team_totals and user_team_name:
+                partner_order = [
+                    t for t, _ in find_complementary_teams(user_team_name, all_team_totals, config, top_n=11)
+                ]
+            else:
+                partner_order = list(trades_by_partner.keys())
+
+            for partner in partner_order:
+                partner_trades = trades_by_partner.get(partner, [])
+                if not partner_trades:
+                    continue
+
+                comp_score = partner_trades[0].get("complementarity", 0)
+                with st.expander(
+                    f"{partner} — {len(partner_trades)} trades (complementarity: {comp_score:.2f})",
+                    expanded=(partner == partner_order[0] if partner_order else False),
+                ):
+                    df = _build_trade_df(partner_trades[:10])
+                    if not df.empty:
+                        render_sortable_table(df, height=min(400, 50 + len(df) * 35))
+
+        # ── Tab 2: By Category Need ──────────────────────────────────
+        with tab_need:
+            st.markdown(
+                f'<p style="font-size:13px;color:{T["tx2"]};">'
+                "Trades grouped by which of your weak categories they improve most.</p>",
+                unsafe_allow_html=True,
+            )
+
+            grouped = _categorize_trades_by_need(opportunities, weak_cats, user_roster_ids, pool, config)
+
+            for cat in weak_cats:
+                cat_trades = grouped.get(cat, [])
+                display_name = _CAT_DISPLAY.get(cat, cat.upper())
+
+                with st.expander(
+                    f"{display_name} — {len(cat_trades)} trades",
+                    expanded=(cat == weak_cats[0] if weak_cats else False),
+                ):
+                    if not cat_trades:
+                        st.caption("No trades found that improve this category.")
+                        continue
+
+                    rows = []
+                    for trade in cat_trades[:10]:
+                        giving = ", ".join(trade.get("giving_names", []))
+                        receiving = ", ".join(trade.get("receiving_names", []))
+                        rows.append(
+                            {
+                                "You Give": giving,
+                                "You Receive": receiving,
+                                "Partner": trade.get("opponent_team", ""),
+                                f"{display_name} Improvement": trade.get("category_improvement", 0),
+                                "Total Gain": round(trade.get("user_sgp_gain", 0), 2),
+                                "Grade": trade.get("grade", ""),
+                                "Acceptance": trade.get("acceptance_label", ""),
+                            }
+                        )
+                    df = pd.DataFrame(rows)
+                    if not df.empty:
+                        render_sortable_table(df, height=min(400, 50 + len(df) * 35))
+
+        # ── Tab 3: By Value ───────────────────────────────────────────
+        with tab_value:
+            st.markdown(
+                f'<p style="font-size:13px;color:{T["tx2"]};">'
+                "All trade opportunities ranked by composite value score.</p>",
+                unsafe_allow_html=True,
+            )
+
+            df = _build_trade_df(opportunities)
+            if not df.empty:
+                render_sortable_table(df, height=600)
+
+    page_timer_footer("Trade Finder")
+
+
+if __name__ == "__main__":
+    main()
+else:
+    main()

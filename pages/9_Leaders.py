@@ -597,7 +597,7 @@ with main:
                                     info_parts.append(f"**Risk Level:** {row['fg_risk']}")
                                 if row.get("readiness_score") is not None:
                                     score = row["readiness_score"]
-                                    info_parts.append(f"**Readiness Score:** {score:.1f} / 100")
+                                    info_parts.append(f"**Readiness Score:** {score:.2f} / 100")
                                 if row.get("age") is not None:
                                     info_parts.append(f"**Age:** {row['age']}")
                                 if row.get("milb_level"):

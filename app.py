@@ -1245,13 +1245,13 @@ def render_hero_pick(rec, ds, pool, threat_alerts=None):
                 pct_html = (
                     f'<div title="{METRIC_TOOLTIPS["p10_p90"]}" style="margin-top:8px;font-family:IBM Plex Mono,monospace;'
                     f'font-size:12px;color:{T["tx2"]};">'
-                    f"10th Percentile: {p10_val:.1f} "
+                    f"10th Percentile: {p10_val:.2f} "
                     f'<span style="display:inline-block;width:120px;height:8px;'
                     f'background:{T["card_h"]};border-radius:4px;vertical-align:middle;">'
                     f'<span style="display:inline-block;width:{fill_pct}%;height:100%;'
                     f'background:{T["amber"]};border-radius:4px;"></span>'
                     f"</span>"
-                    f" 90th Percentile: {p90_val:.1f}</div>"
+                    f" 90th Percentile: {p90_val:.2f}</div>"
                 )
     else:
         pct_html = (
@@ -1324,7 +1324,7 @@ def render_hero_pick(rec, ds, pool, threat_alerts=None):
 
     st.markdown(
         f'<div class="hero">'
-        f'<div class="score-badge" title="{METRIC_TOOLTIPS["pick_score"]}">{score:.1f}</div>'
+        f'<div class="score-badge" title="{METRIC_TOOLTIPS["pick_score"]}">{score:.2f}</div>'
         f'<div style="display:flex;align-items:center;gap:16px;">'
         f'<div class="surv-gauge" title="{METRIC_TOOLTIPS["survival"]}" style="background:conic-gradient({surv_color} {surv_deg}deg, '
         f'{T["card_h"]} {surv_deg}deg);">'
@@ -1403,14 +1403,14 @@ def _render_enhanced_metrics(rec):
         chips.append(
             f'<div style="text-align:center;min-width:80px;">'
             f'<div style="font-size:10px;color:{T["tx2"]};">Closer Bonus</div>'
-            f'<div style="font-size:14px;font-weight:700;color:{T["green"]};">+{closer_bonus:.1f}</div>'
+            f'<div style="font-size:14px;font-weight:700;color:{T["green"]};">+{closer_bonus:.2f}</div>'
             f"</div>"
         )
     if stream_pen < 0:
         chips.append(
             f'<div style="text-align:center;min-width:80px;">'
             f'<div style="font-size:10px;color:{T["tx2"]};">Stream Penalty</div>'
-            f'<div style="font-size:14px;font-weight:700;color:{T["primary"]};">{stream_pen:.1f}</div>'
+            f'<div style="font-size:14px;font-weight:700;color:{T["primary"]};">{stream_pen:.2f}</div>'
             f"</div>"
         )
     if lineup_bonus > 0.01:
@@ -1487,7 +1487,7 @@ def render_alternatives(alts):
                     if not p10_r.empty and not p90_r.empty:
                         p10_s = p10_r.iloc[0].get("pick_score", score * 0.7)
                         p90_s = p90_r.iloc[0].get("pick_score", score * 1.3)
-                        range_text = f'<div title="{METRIC_TOOLTIPS["p10_p90"]}" style="font-size:10px;color:{T["tx2"]};">{p10_s:.1f} — {p90_s:.1f}</div>'
+                        range_text = f'<div title="{METRIC_TOOLTIPS["p10_p90"]}" style="font-size:10px;color:{T["tx2"]};">{p10_s:.2f} — {p90_s:.2f}</div>'
 
             # BUY/FAIR/AVOID mini-badge for alternatives
             alt_bfa = str(row.get("buy_fair_avoid", "fair") or "fair").lower()
@@ -1511,7 +1511,7 @@ def render_alternatives(alts):
                 f'<div class="a-rank">#{i + 2}</div>'
                 f'<div class="a-name">{name} {bfa_pill}</div>'
                 f'<div class="a-meta">{pos} {alt_icon} {risk_badge}</div>'
-                f'<div class="a-score">{score:.1f}</div>'
+                f'<div class="a-score">{score:.2f}</div>'
                 f"{range_text}"
                 f"</div>",
                 unsafe_allow_html=True,
@@ -2010,7 +2010,7 @@ def _render_balance_bars(ds, pool):
         pct = min(uv / max_val, 1.0) if cat not in {"ERA", "WHIP"} else min(1 - (uv / max(max_val, 0.01)), 1.0)
         pct = max(pct, 0)
         display = cat_names[cat]
-        st.markdown(f"**{display}**: {uv:.3f}" if cat in {"AVG", "ERA", "WHIP"} else f"**{display}**: {int(uv)}")
+        st.markdown(f"**{display}**: {uv:.2f}")
         st.progress(pct)
 
 
@@ -2134,7 +2134,7 @@ def render_available_players(ds, pool):
     display_df = display_df.rename(columns={k: v for k, v in rename_map.items() if k in display_df.columns})
 
     if "Score" in display_df.columns:
-        display_df["Score"] = display_df["Score"].map(lambda x: f"{x:.1f}" if pd.notna(x) else "")
+        display_df["Score"] = display_df["Score"].map(lambda x: f"{x:.2f}" if pd.notna(x) else "")
     if "Tier" in display_df.columns:
         display_df["Tier"] = display_df["Tier"].map(lambda x: f"{x:.0f}" if pd.notna(x) else "")
     if "Average Draft Position" in display_df.columns:

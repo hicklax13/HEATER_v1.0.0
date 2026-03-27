@@ -606,6 +606,7 @@ def value_all_players(
     replacement_levels: dict = None,
     current_round: int = None,
     num_rounds: int = 23,
+    season_phase: str = "regular",
 ) -> pd.DataFrame:
     """Compute full valuations for all players in the pool.
 
@@ -616,6 +617,8 @@ def value_all_players(
         current_round: Current draft round (1-indexed). Used for bench
             optimization and projection confidence weighting.
         num_rounds: Total rounds in the draft.
+        season_phase: "regular" (default) weights consistency/floor higher;
+            "playoff" weights upside/ceiling higher. Per AVIS Rule #5.
     """
     sgp_calc = SGPCalculator(config)
 
@@ -674,6 +677,26 @@ def value_all_players(
         volume = np.where(pool["is_hitter"] == 1, pa / 650.0, ip / 200.0)
         confidence = np.clip(0.8 + 0.2 * volume, 0.8, 1.0)
         pool["pick_score"] = pool["pick_score"] * confidence
+
+    # AVIS Rule #5: Floor over ceiling in regular season, ceiling in playoffs.
+    # Players with low projection volatility (consistent) are preferred during
+    # the regular season. High-volatility (upside) players preferred in playoffs.
+    if season_phase in ("regular", "playoff") and "projection_vol" in pool.columns:
+        vol = pool["projection_vol"].fillna(0).clip(lower=0)
+        # Normalize volatility to 0-1 range for weighting
+        vol_max = vol.max()
+        if vol_max > 0:
+            vol_norm = vol / vol_max
+        else:
+            vol_norm = vol
+        if season_phase == "regular":
+            # Reward low volatility (floor players): up to +5% for zero-vol, -3% for max-vol
+            consistency_bonus = 0.05 - 0.08 * vol_norm
+            pool["pick_score"] = pool["pick_score"] * (1.0 + consistency_bonus)
+        else:  # playoff
+            # Reward high volatility (ceiling players): up to +5% for max-vol
+            ceiling_bonus = 0.05 * vol_norm
+            pool["pick_score"] = pool["pick_score"] * (1.0 + ceiling_bonus)
 
     # Late-draft bench optimization: prioritize roster flexibility
     if current_round is not None:
