@@ -46,6 +46,25 @@ STATUS_MULTIPLIERS: dict[str, float] = {
 # FA gate: flag trade if FA value >= this fraction of trade target value
 FA_GATE_THRESHOLD = 0.70
 
+
+def compute_dynamic_fa_threshold(avg_pa: float) -> float:
+    """Compute FA gate threshold that adapts to season progress.
+
+    Early season (< 50 PA): threshold ~ 0.85 (less aggressive)
+    Mid season (200 PA): threshold ~ 0.70 (standard)
+    Late season (500+ PA): threshold ~ 0.60 (more aggressive)
+
+    At zero PA the threshold is 0.85 (maximum conservatism).
+    """
+    import math
+
+    if avg_pa <= 0:
+        return 0.85
+
+    decay = 0.25 / (1 + math.exp(-0.015 * (avg_pa - 200)))
+    return max(0.55, 0.85 - decay)
+
+
 # Average stabilization point for projection confidence
 _AVG_HITTER_STAB = 300  # PA — rough average across batting stats
 _AVG_PITCHER_STAB = 100  # IP — rough average across pitching stats
@@ -260,6 +279,10 @@ def compute_fa_comparisons(
     if fa_pool.empty or player_pool.empty:
         return results
 
+    # Dynamic threshold based on average PA in the pool
+    avg_pool_pa = float(player_pool["pa"].mean()) if "pa" in player_pool.columns else 0
+    dynamic_threshold = compute_dynamic_fa_threshold(avg_pool_pa)
+
     # Pre-compute FA marginal values by position
     fa_by_pos: dict[str, list[tuple[str, float]]] = {}
     for _, fa in fa_pool.iterrows():
@@ -297,7 +320,7 @@ def compute_fa_comparisons(
 
         fa_pct = best_fa_value / target_sgp if target_sgp > 0 else 0.0
         results[pid] = {
-            "has_alternative": fa_pct >= FA_GATE_THRESHOLD,
+            "has_alternative": fa_pct >= dynamic_threshold,
             "fa_name": best_fa_name,
             "fa_value": round(best_fa_value, 2),
             "target_value": round(target_sgp, 2),

@@ -371,6 +371,15 @@ def init_db():
             percent_owned REAL,
             fetched_at TEXT
         );
+
+        CREATE TABLE IF NOT EXISTS roster_snapshots (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            snapshot_date TEXT NOT NULL,
+            team_name TEXT NOT NULL,
+            player_id INTEGER NOT NULL,
+            roster_slot TEXT,
+            UNIQUE(snapshot_date, team_name, player_id)
+        );
     """)
     conn.commit()
 
@@ -454,6 +463,7 @@ _VALID_TABLE_NAMES = frozenset(
         "prospect_rankings",
         "player_news",
         "news_player_map",
+        "roster_snapshots",
     }
 )
 _VALID_COL_RE = __import__("re").compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
@@ -1281,6 +1291,94 @@ def load_league_schedule() -> dict[int, str]:
         )
         rows = cursor.fetchall()
         return {int(row[0]): row[1] for row in rows}
+    finally:
+        conn.close()
+
+
+def snapshot_league_rosters() -> int:
+    """Take a snapshot of current league_rosters for change tracking."""
+    from datetime import UTC, datetime
+
+    today = datetime.now(UTC).strftime("%Y-%m-%d")
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT team_name, player_id, roster_slot FROM league_rosters")
+        rows = cursor.fetchall()
+        count = 0
+        for team_name, player_id, slot in rows:
+            try:
+                conn.execute(
+                    "INSERT OR IGNORE INTO roster_snapshots "
+                    "(snapshot_date, team_name, player_id, roster_slot) "
+                    "VALUES (?, ?, ?, ?)",
+                    (today, team_name, int(player_id), slot),
+                )
+                count += 1
+            except Exception:
+                pass
+        conn.commit()
+        return count
+    finally:
+        conn.close()
+
+
+def get_roster_changes(team_name: str, days: int = 7) -> list[dict]:
+    """Detect roster adds/drops for a team over the last N days."""
+    from datetime import UTC, datetime, timedelta
+
+    cutoff = (datetime.now(UTC) - timedelta(days=days)).strftime("%Y-%m-%d")
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT MIN(snapshot_date), MAX(snapshot_date) FROM roster_snapshots "
+            "WHERE team_name = ? AND snapshot_date >= ?",
+            (team_name, cutoff),
+        )
+        row = cursor.fetchone()
+        if not row or row[0] is None or row[1] is None or row[0] == row[1]:
+            return []
+
+        earliest, latest = row
+
+        cursor.execute(
+            "SELECT player_id FROM roster_snapshots "
+            "WHERE team_name = ? AND snapshot_date = ? "
+            "EXCEPT "
+            "SELECT player_id FROM roster_snapshots "
+            "WHERE team_name = ? AND snapshot_date = ?",
+            (team_name, latest, team_name, earliest),
+        )
+        adds = [
+            {
+                "change_type": "add",
+                "player_id": int(r[0]),
+                "team_name": team_name,
+                "detected_date": latest,
+            }
+            for r in cursor.fetchall()
+        ]
+
+        cursor.execute(
+            "SELECT player_id FROM roster_snapshots "
+            "WHERE team_name = ? AND snapshot_date = ? "
+            "EXCEPT "
+            "SELECT player_id FROM roster_snapshots "
+            "WHERE team_name = ? AND snapshot_date = ?",
+            (team_name, earliest, team_name, latest),
+        )
+        drops = [
+            {
+                "change_type": "drop",
+                "player_id": int(r[0]),
+                "team_name": team_name,
+                "detected_date": latest,
+            }
+            for r in cursor.fetchall()
+        ]
+
+        return adds + drops
     finally:
         conn.close()
 

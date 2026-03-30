@@ -486,6 +486,15 @@ class YahooDataService:
         self._client.sync_to_db()
 
         update_refresh_log("yahoo_data", "success")
+
+        # Take a roster snapshot for change tracking
+        try:
+            from src.database import snapshot_league_rosters
+
+            snapshot_league_rosters()
+        except Exception:
+            pass  # Non-fatal
+
         return load_league_rosters()
 
     def _fetch_and_sync_standings(self) -> pd.DataFrame:
