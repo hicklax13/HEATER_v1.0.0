@@ -25,3 +25,15 @@ jobs:
           for k, v in results.items():
               print(f'  {k}: {v}')
           "
+      - name: Update Bayesian ROS projections
+        run: |
+          python -c "
+          from src.database import init_db
+          init_db()
+          try:
+              from src.bayesian import update_ros_projections
+              count = update_ros_projections()
+              print(f'Bayesian ROS: updated {count} projections')
+          except Exception as e:
+              print(f'Bayesian ROS update failed (non-fatal): {e}')
+          "

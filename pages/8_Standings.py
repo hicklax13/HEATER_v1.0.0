@@ -231,6 +231,12 @@ with main:
             yds = get_yahoo_data_service()
             standings_df = yds.get_standings()
             if not standings_df.empty and "team_name" in standings_df.columns and "category" in standings_df.columns:
+                # Filter to scoring categories only (exclude Yahoo W/L/T metadata)
+                from src.valuation import LeagueConfig
+
+                _valid_cats = set(c.upper() for c in LeagueConfig().all_categories)
+                standings_df = standings_df[standings_df["category"].str.upper().isin(_valid_cats)]
+            if not standings_df.empty and "team_name" in standings_df.columns and "category" in standings_df.columns:
                 st.markdown("**Current League Standings**")
                 pivot = (
                     standings_df.pivot_table(

@@ -182,7 +182,7 @@ def _render_news_card(player_name: str, news_item: dict, ownership: dict) -> str
     import html as _ht
 
     headline = _ht.escape(news_item.get("headline", "No headline"))
-    detail = news_item.get("detail", "")
+    detail = news_item.get("detail") or ""
     source = news_item.get("source", "")
     news_type = news_item.get("news_type", "general")
     sentiment = news_item.get("sentiment_score", 0.0)

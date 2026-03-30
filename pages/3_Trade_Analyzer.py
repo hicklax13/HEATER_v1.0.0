@@ -31,6 +31,13 @@ from src.ui_shared import (
 from src.valuation import LeagueConfig, add_process_risk, compute_percentile_projections, compute_projection_volatility
 from src.yahoo_data_service import get_yahoo_data_service
 
+try:
+    from src.trade_intelligence import apply_scarcity_flags, get_health_adjusted_pool
+
+    TRADE_INTEL_AVAILABLE = True
+except ImportError:
+    TRADE_INTEL_AVAILABLE = False
+
 st.set_page_config(page_title="Heater | Trade Analyzer", page_icon="", layout="wide", initial_sidebar_state="collapsed")
 
 
@@ -71,6 +78,15 @@ if pool.empty:
     st.stop()
 
 pool = pool.rename(columns={"name": "player_name"})
+
+# Apply trade intelligence: health-adjust projections and add scarcity flags
+if TRADE_INTEL_AVAILABLE:
+    try:
+        pool = get_health_adjusted_pool(pool)
+        pool = apply_scarcity_flags(pool)
+    except Exception:
+        pass  # Graceful degradation — use raw pool if intelligence fails
+
 config = LeagueConfig()
 
 # Load health scores from injury history

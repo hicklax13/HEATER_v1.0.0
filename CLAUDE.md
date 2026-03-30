@@ -83,6 +83,8 @@ src/
   lineup_optimizer.py   — PuLP LP solver for lineup optimization
   yahoo_api.py          — Yahoo Fantasy API OAuth integration via yfpy
   yahoo_data_service.py — Live-first data layer: 3-tier cache (session_state → Yahoo → SQLite)
+  trade_intelligence.py — Trade valuation layer: health, scarcity, FA gating, Trade Readiness
+  trade_signals.py      — Kalman + regime trend adjustment for trade valuations
   data_pipeline.py      — FanGraphs auto-fetch (Steamer/ZiPS/Depth Charts)
   draft_engine.py       — DraftRecommendationEngine (3-mode, 8-stage pipeline)
   draft_analytics.py    — Category balance, opportunity cost, BUY/FAIR/AVOID
@@ -196,6 +198,15 @@ Pages wired: My Team, Trade Analyzer, Free Agents, Lineup Optimizer, Standings, 
 
 New UI features: live matchup score card (My Team), recent transactions feed (Trade Analyzer), data freshness widget (My Team, Trade Analyzer, Standings).
 
+### Trade Intelligence Layer
+All trade valuations (Trade Finder + Trade Analyzer) flow through `src/trade_intelligence.py`:
+1. **Health adjustment** — IL15=0.84x, IL60=0.55x, DTD=0.95x, NA excluded. Uses `injury_model.compute_health_score()` with 3-year history + Yahoo IL/DTD status from `league_rosters.status` column.
+2. **Category-weighted SGP** — `category_gap_analysis()` computes marginal weights per category. Categories where you can gain standings positions weighted higher. Punted categories get zero weight. Max weight capped at 3x average to prevent single-category dominance.
+3. **FA gating** — Dynamic threshold (85% early season -> 60% late season) flags trades where a comparable FA exists. Prevents wasting trade capital.
+4. **Closer scarcity premium** — SV >= 5 players get 1.3x multiplier. C/SS/2B positions get 1.15x VORP premium.
+5. **Elite player protection** — Players in top 20% by raw SGP require return >= 50% as valuable.
+6. **Trade Readiness tab** — 0-100 composite: 40% category fit + 25% projection confidence + 15% health + 10% scarcity + 10% FA advantage.
+
 ### Bootstrap Pipeline
 - Every app launch: splash screen → `bootstrap_all_data()` with staleness-based refresh
 - Staleness thresholds: 1h live stats, 6h Yahoo, 7d players/projections, 30d historical/park factors
@@ -238,6 +249,14 @@ render_data_freshness_card()  # shows badges + "Refresh All" button
 # Opponent intel with live data (src/opponent_intel.py)
 get_current_opponent(yds=yds)       # live schedule + profile when yds provided
 get_opponent_for_week(week, yds=yds)  # same, for specific week
+
+# Trade Intelligence (src/trade_intelligence.py)
+get_health_adjusted_pool(player_pool, config) -> pd.DataFrame  # IL/DTD/NA adjusted
+get_category_weights(user_team_name, all_team_totals, config) -> dict[str, float]
+compute_fa_comparisons(opp_ids, user_ids, fa_pool, pool, config) -> dict[int, dict]
+apply_scarcity_flags(player_pool) -> pd.DataFrame  # adds is_closer, scarcity_mult
+compute_trade_readiness(player_id, ...) -> dict  # 0-100 composite score
+compute_trade_readiness_batch(player_ids, ...) -> pd.DataFrame  # batch scoring
 
 # STANDALONE functions in src/valuation.py — NOT methods on SGPCalculator
 compute_replacement_levels(pool, config, sgp_calc)   # valuation.py
@@ -386,7 +405,7 @@ get_injury_badge(health_score) -> tuple[str, str]  # returns <span> with CSS dot
 
 ## Testing
 
-- **2118 passing tests** across 84+ test files, 4 skipped (PyMC/xgboost optional deps)
+- **2139 passing tests** across 84+ test files, 4 skipped (PyMC/xgboost optional deps)
 - **CI:** GitHub Actions — ruff lint/format + pytest on Python 3.11, 3.12, 3.13
 - **Coverage:** 64% (above 60% CI threshold)
 - **8 rounds of systematic debugging** (207 bugs fixed) + **data pipeline audit** (32 issues fixed), all CI green
