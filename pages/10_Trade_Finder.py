@@ -74,14 +74,11 @@ def _build_trade_df(trades: list[dict]) -> pd.DataFrame:
             "Their Gain": round(trade.get("opponent_sgp_gain", 0), 2),
             "Grade": trade.get("grade", ""),
             "Acceptance": trade.get("acceptance_label", ""),
-            "Health": trade.get("health_risk", ""),
+            "Health": trade.get("health_risk", "") or "",
             "Score": round(trade.get("composite_score", 0), 2),
+            # Always include FA Alt column (empty string if no alternative)
+            "FA Alt": trade.get("fa_name", "") if trade.get("fa_alternative") else "",
         }
-        # FA alternative flag
-        if trade.get("fa_alternative"):
-            row["FA Alt"] = trade.get("fa_name", "")
-        else:
-            row["FA Alt"] = ""
         rows.append(row)
     return pd.DataFrame(rows) if rows else pd.DataFrame()
 

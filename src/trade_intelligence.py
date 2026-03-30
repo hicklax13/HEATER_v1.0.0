@@ -88,6 +88,17 @@ def get_health_adjusted_pool(
     pool["health_score"] = pool["player_id"].map(health_scores).fillna(0.85)
     pool["status"] = pool["player_id"].map(roster_statuses).fillna("active")
 
+    # --- Adjust health scores based on current IL/DTD status ---
+    # Players on IL with no injury history get a lower health score than the default
+    for idx, row in pool.iterrows():
+        status = str(row.get("status", "active")).lower().strip()
+        if status in ("il10", "il15", "dl") and row.get("health_score", 0.85) >= 0.80:
+            pool.at[idx, "health_score"] = 0.65  # Moderate risk — currently injured
+        elif status in ("il60", "out") and row.get("health_score", 0.85) >= 0.60:
+            pool.at[idx, "health_score"] = 0.40  # Elevated risk — long-term injury
+        elif status == "dtd" and row.get("health_score", 0.85) >= 0.80:
+            pool.at[idx, "health_score"] = 0.75  # Slightly elevated — day-to-day
+
     # --- Exclude NA/minors players ---
     na_mask = pool["status"].str.lower().isin(["na", "not active", "minors"])
     if na_mask.any():
@@ -460,6 +471,9 @@ def compute_trade_readiness_batch(
     candidates = player_pool[player_pool["player_id"].isin(player_ids)].copy()
     if candidates.empty:
         return pd.DataFrame()
+
+    # Deduplicate — keep first occurrence of each player_id
+    candidates = candidates.drop_duplicates(subset=["player_id"], keep="first")
 
     candidates["_raw_sgp"] = candidates.apply(lambda r: _quick_player_sgp(r, config), axis=1)
     candidates = candidates.nlargest(max_players, "_raw_sgp")

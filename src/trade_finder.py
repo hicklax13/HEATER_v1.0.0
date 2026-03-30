@@ -192,8 +192,38 @@ def scan_1_for_1(
     user_totals = _roster_category_totals(user_roster_ids, player_pool)
     opp_totals = _roster_category_totals(opponent_roster_ids, player_pool)
 
-    user_baseline = _weighted_totals_sgp(user_totals, config, category_weights)
     opp_baseline = _totals_sgp(opp_totals, config)
+
+    # --- Cap extreme category weights ---
+    # Prevent a single weak category from dominating all trade valuations.
+    # Without this, being 12th in SB makes speed guys "outvalue" elite power bats.
+    MAX_WEIGHT_RATIO = 3.0  # No category can be weighted more than 3x the average
+    capped_weights = category_weights
+    if category_weights:
+        non_zero = [v for v in category_weights.values() if v > 0]
+        if non_zero:
+            avg_w = sum(non_zero) / len(non_zero)
+            cap = avg_w * MAX_WEIGHT_RATIO
+            capped_weights = {k: min(v, cap) for k, v in category_weights.items()}
+
+    # --- Pre-compute raw SGP per user player for elite protection ---
+    # Players in the top 20% by raw SGP require the return player to have
+    # at least 50% of their raw SGP. Prevents trading away stars for role players.
+    ELITE_PERCENTILE = 80  # Top 20%
+    ELITE_RETURN_FLOOR = 0.50  # Return must be >= 50% of given player's raw SGP
+
+    user_raw_sgps: dict[int, float] = {}
+    for pid in user_roster_ids:
+        p = player_pool[player_pool["player_id"] == pid]
+        if not p.empty:
+            user_raw_sgps[pid] = _totals_sgp(_roster_category_totals([pid], player_pool), config)
+    if user_raw_sgps:
+        elite_threshold = float(np.percentile(list(user_raw_sgps.values()), ELITE_PERCENTILE))
+    else:
+        elite_threshold = 999.0
+
+    # Baseline must use the same capped weights as post-trade calculations
+    user_baseline = _weighted_totals_sgp(user_totals, config, capped_weights)
 
     results = []
 
@@ -202,6 +232,7 @@ def scan_1_for_1(
         if give_player.empty:
             continue
         give_name = give_player.iloc[0].get("name", give_player.iloc[0].get("player_name", "?"))
+        give_raw_sgp = user_raw_sgps.get(give_id, 0.0)
 
         for recv_id in opponent_roster_ids:
             # Filter NA/minors players
@@ -220,12 +251,19 @@ def scan_1_for_1(
             if give_is_hitter != recv_is_hitter:
                 continue  # Skip cross-type trades for simplicity
 
+            # --- Elite player protection ---
+            # If giving away a top-20% player, the return must be at least 50% as good
+            if give_raw_sgp >= elite_threshold:
+                recv_raw_sgp = _totals_sgp(_roster_category_totals([recv_id], player_pool), config)
+                if recv_raw_sgp < give_raw_sgp * ELITE_RETURN_FLOOR:
+                    continue  # Don't trade elite players for scrubs
+
             recv_name = recv_player.iloc[0].get("name", recv_player.iloc[0].get("player_name", "?"))
 
             # User: lose give_id, gain recv_id
             new_user_ids = [pid for pid in user_roster_ids if pid != give_id] + [recv_id]
             new_user_totals = _roster_category_totals(new_user_ids, player_pool)
-            user_new_sgp = _weighted_totals_sgp(new_user_totals, config, category_weights)
+            user_new_sgp = _weighted_totals_sgp(new_user_totals, config, capped_weights)
             user_delta = user_new_sgp - user_baseline
 
             # Apply closer scarcity premium if receiving a closer
