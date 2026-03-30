@@ -226,18 +226,42 @@ class TestGetCurrentMatchup:
 
     def test_computes_wins_losses_ties(self):
         """Correctly counts W/L/T across all 12 categories."""
-        user = {"R": "19", "HR": "6", "RBI": "14", "SB": "3", "AVG": ".243", "OBP": ".364",
-                "W": "2", "L": "0", "SV": "0", "K": "30", "ERA": "1.38", "WHIP": "1.15"}
-        opp = {"R": "21", "HR": "3", "RBI": "16", "SB": "3", "AVG": ".257", "OBP": ".383",
-               "W": "2", "L": "2", "SV": "0", "K": "37", "ERA": "3.30", "WHIP": "1.35"}
+        user = {
+            "R": "19",
+            "HR": "6",
+            "RBI": "14",
+            "SB": "3",
+            "AVG": ".243",
+            "OBP": ".364",
+            "W": "2",
+            "L": "0",
+            "SV": "0",
+            "K": "30",
+            "ERA": "1.38",
+            "WHIP": "1.15",
+        }
+        opp = {
+            "R": "21",
+            "HR": "3",
+            "RBI": "16",
+            "SB": "3",
+            "AVG": ".257",
+            "OBP": ".383",
+            "W": "2",
+            "L": "2",
+            "SV": "0",
+            "K": "37",
+            "ERA": "3.30",
+            "WHIP": "1.35",
+        }
 
         client = self._make_client_with_mocks(user, opp)
         result = client.get_current_matchup()
 
         assert result is not None
-        assert result["wins"] == 4   # HR, L(inv), ERA(inv), WHIP(inv)
+        assert result["wins"] == 4  # HR, L(inv), ERA(inv), WHIP(inv)
         assert result["losses"] == 5  # R, RBI, AVG, OBP, K
-        assert result["ties"] == 3    # SB, W, SV
+        assert result["ties"] == 3  # SB, W, SV
         assert result["user_name"] == "Team Hickey"
         assert result["opp_name"] == "Opponent"
         assert result["week"] == 1

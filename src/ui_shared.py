@@ -2412,11 +2412,36 @@ def render_compact_table(df, highlight_cols=None, row_classes=None, health_col=N
 
 # Stat columns that get auto-formatted as numbers
 _SORTABLE_STAT_COLS = (
-    HITTING_STAT_COLS | PITCHING_STAT_COLS
-    | {"PICK_SCORE", "SGP", "MARGINAL_VALUE", "COMPOSITE_SCORE", "TRADE_VALUE",
-       "DOLLAR_VALUE", "VORP", "SURPLUS", "NET_SGP", "IMPACT", "ACCEPTANCE",
-       "ADP", "ECR", "RANK", "IP", "PA", "AB", "H", "BB", "HBP", "SF",
-       "ER", "BB_ALLOWED", "H_ALLOWED", "HEALTH_SCORE", "SCORE"}
+    HITTING_STAT_COLS
+    | PITCHING_STAT_COLS
+    | {
+        "PICK_SCORE",
+        "SGP",
+        "MARGINAL_VALUE",
+        "COMPOSITE_SCORE",
+        "TRADE_VALUE",
+        "DOLLAR_VALUE",
+        "VORP",
+        "SURPLUS",
+        "NET_SGP",
+        "IMPACT",
+        "ACCEPTANCE",
+        "ADP",
+        "ECR",
+        "RANK",
+        "IP",
+        "PA",
+        "AB",
+        "H",
+        "BB",
+        "HBP",
+        "SF",
+        "ER",
+        "BB_ALLOWED",
+        "H_ALLOWED",
+        "HEALTH_SCORE",
+        "SCORE",
+    }
 )
 
 

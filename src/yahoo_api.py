@@ -1478,10 +1478,7 @@ class YahooFantasyClient:
             logger.warning("No bearer token available for raw API call.")
             return stats, points
 
-        url = (
-            f"https://fantasysports.yahooapis.com/fantasy/v2/team/"
-            f"{team_key}/stats;type=week;week={week}?format=json"
-        )
+        url = f"https://fantasysports.yahooapis.com/fantasy/v2/team/{team_key}/stats;type=week;week={week}?format=json"
         try:
             _rate_limit()
             resp = _requests.get(url, headers={"Authorization": f"Bearer {token}"}, timeout=15)

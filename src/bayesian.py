@@ -630,16 +630,12 @@ def update_ros_projections() -> int:
 
             # ── Layer 2: Blend historical with expert projections ────
             if not is_pitcher and proj_pa > 0:
-                blended = _blend_with_projection(
-                    marcel_hitting, proj_row, _HITTING_COUNTING, _HITTING_RATES, "pa"
-                )
+                blended = _blend_with_projection(marcel_hitting, proj_row, _HITTING_COUNTING, _HITTING_RATES, "pa")
             else:
                 blended = {}
             if is_pitcher or proj_ip > 0:
                 blended.update(
-                    _blend_with_projection(
-                        marcel_pitching, proj_row, _PITCHING_COUNTING, _PITCHING_RATES, "ip"
-                    )
+                    _blend_with_projection(marcel_pitching, proj_row, _PITCHING_COUNTING, _PITCHING_RATES, "ip")
                 )
 
             # ── Layer 3: Age adjustment ──────────────────────────────
@@ -677,9 +673,7 @@ def update_ros_projections() -> int:
                     prior = blended.get(stat, float(proj_row.get(stat, 0) or 0))
                     observed = float(obs.get(stat, 0) or 0) if obs is not None else 0
                     stab = STABILIZATION_POINTS.get(stat, 460)
-                    updated_rates[stat] = updater.regressed_rate_with_prior(
-                        observed, obs_pa, prior, stab
-                    )
+                    updated_rates[stat] = updater.regressed_rate_with_prior(observed, obs_pa, prior, stab)
 
                 for stat in _HITTING_COUNTING:
                     prior_rate = blended.get(f"{stat}_rate", 0)
@@ -698,9 +692,7 @@ def update_ros_projections() -> int:
                     prior = blended.get(stat, float(proj_row.get(stat, 0) or 0))
                     observed = float(obs.get(stat, 0) or 0) if obs is not None else 0
                     stab = STABILIZATION_POINTS.get(stat, 70)
-                    updated_rates[stat] = updater.regressed_rate_with_prior(
-                        observed, int(obs_ip), prior, stab
-                    )
+                    updated_rates[stat] = updater.regressed_rate_with_prior(observed, int(obs_ip), prior, stab)
 
                 for stat in _PITCHING_COUNTING:
                     prior_rate = blended.get(f"{stat}_rate", 0)
@@ -774,9 +766,30 @@ def update_ros_projections() -> int:
 
         # Build INSERT statement matching table columns
         insert_cols = [
-            "player_id", "system", "pa", "ab", "h", "r", "hr", "rbi", "sb",
-            "avg", "obp", "ip", "w", "l", "sv", "k", "era", "whip",
-            "er", "bb_allowed", "h_allowed", "fip", "xfip", "siera",
+            "player_id",
+            "system",
+            "pa",
+            "ab",
+            "h",
+            "r",
+            "hr",
+            "rbi",
+            "sb",
+            "avg",
+            "obp",
+            "ip",
+            "w",
+            "l",
+            "sv",
+            "k",
+            "era",
+            "whip",
+            "er",
+            "bb_allowed",
+            "h_allowed",
+            "fip",
+            "xfip",
+            "siera",
         ]
         for col in insert_cols:
             if col not in ros_df.columns:
