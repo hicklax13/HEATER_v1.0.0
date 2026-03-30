@@ -3186,3 +3186,82 @@ def invalidate_session_caches():
         return
     for key in ["_session_config", "_session_replacement_levels"]:
         st.session_state.pop(key, None)
+
+
+# ── Data Freshness Widget ────────────────────────────────────────
+
+
+def render_data_freshness_card():
+    """Render a context card showing Yahoo data freshness per data type.
+
+    Shows "Live", "Cached (Xm ago)", or "Offline" badges for each data type
+    and provides a "Refresh All" button. Uses the YahooDataService singleton.
+
+    Call inside a ``render_context_columns()`` context column.
+    """
+    if st is None:
+        return
+
+    try:
+        from src.yahoo_data_service import get_yahoo_data_service
+
+        yds = get_yahoo_data_service()
+    except Exception:
+        return
+
+    t = THEME
+    freshness = yds.get_data_freshness()
+    connected = yds.is_connected()
+
+    # Build status rows
+    rows_html = ""
+    status_icon = {
+        "Live": f'<span style="color:{t["green"]}!important">LIVE</span>',
+        "Cached": f'<span style="color:{t["amber"]}!important">CACHED</span>',
+        "Stale": f'<span style="color:{t["hot"]}!important">STALE</span>',
+        "Offline": f'<span style="color:{t["muted"]}!important">OFFLINE</span>',
+    }
+
+    label_map = {
+        "rosters": "Rosters",
+        "standings": "Standings",
+        "matchup": "Matchup",
+        "free_agents": "Free Agents",
+        "transactions": "Transactions",
+    }
+
+    for key, label in label_map.items():
+        status_text = freshness.get(key, "Offline (DB)")
+        # Determine badge type from status text
+        if "Live" in status_text or "just now" in status_text:
+            badge = status_icon["Live"]
+        elif "Cached" in status_text:
+            badge = status_icon["Cached"]
+        elif "Stale" in status_text:
+            badge = status_icon["Stale"]
+        else:
+            badge = status_icon["Offline"]
+
+        rows_html += (
+            f'<div style="display:flex;justify-content:space-between;'
+            f'padding:2px 0;font-size:11px!important">'
+            f"<span>{label}</span>{badge}</div>"
+        )
+
+    conn_status = (
+        f'<div style="font-size:10px!important;color:{t["green"]}!important;'
+        f'margin-bottom:4px!important">Yahoo Connected</div>'
+        if connected
+        else f'<div style="font-size:10px!important;color:{t["muted"]}!important;'
+        f'margin-bottom:4px!important">Yahoo Offline</div>'
+    )
+
+    render_context_card("Data Freshness", f"{conn_status}{rows_html}")
+
+    if connected:
+        if st.button("Refresh All Data", key="_yds_refresh_all", type="secondary"):
+            with st.spinner("Refreshing..."):
+                results = yds.force_refresh_all()
+                refreshed = sum(1 for v in results.values() if v == "Refreshed")
+                st.success(f"Refreshed {refreshed}/{len(results)} data sources")
+                st.rerun()

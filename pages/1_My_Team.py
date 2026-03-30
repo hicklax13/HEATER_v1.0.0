@@ -5,7 +5,7 @@ import time
 import pandas as pd
 import streamlit as st
 
-from src.database import coerce_numeric_df, init_db, load_league_rosters, load_league_standings, load_player_pool
+from src.database import coerce_numeric_df, init_db, load_player_pool
 from src.injury_model import compute_health_score, get_injury_badge
 from src.league_manager import get_team_roster
 from src.live_stats import refresh_all_stats
@@ -18,9 +18,11 @@ from src.ui_shared import (
     render_compact_table,
     render_context_card,
     render_context_columns,
+    render_data_freshness_card,
     render_page_layout,
     render_player_select,
 )
+from src.yahoo_data_service import get_yahoo_data_service
 
 try:
     from src.bayesian import BayesianUpdater
@@ -428,40 +430,13 @@ inject_custom_css()
 page_timer_start()
 
 # Determine user team
-rosters = load_league_rosters()
+yds = get_yahoo_data_service()
+rosters = yds.get_rosters()
 if rosters.empty:
-    # If Yahoo is connected, offer immediate sync instead of a dead-end message
-    if st.session_state.get("yahoo_connected"):
-        st.warning("Yahoo is connected but no roster data found in the database. Try syncing:")
-        if st.button("Sync League Data Now", key="sync_league_now"):
-            client = st.session_state.get("yahoo_client")
-            if client:
-                progress = st.progress(0, text="Connecting to Yahoo Fantasy...")
-                try:
-                    progress.progress(30, text="Fetching league standings...")
-                    sync_result = client.sync_to_db()
-                    progress.progress(100, text="Sync complete!")
-                    standings_count = sync_result.get("standings", 0) if sync_result else 0
-                    rosters_count = sync_result.get("rosters", 0) if sync_result else 0
-                    if rosters_count > 0:
-                        st.success(f"Synced {rosters_count} roster entries and {standings_count} standing entries.")
-                        time.sleep(1)
-                        st.rerun()
-                    else:
-                        st.warning(
-                            f"Sync completed but Yahoo returned no roster data "
-                            f"(standings: {standings_count}). This may mean the league "
-                            f"season hasn't started yet on Yahoo, or rosters haven't been set."
-                        )
-                except Exception as e:
-                    progress.empty()
-                    st.error(f"Sync failed: {e}")
-            else:
-                st.error("Yahoo client not found in session. Return to Connect League and reconnect.")
-    else:
-        st.warning(
-            "No league data loaded. Connect your Yahoo league in Connect League, or league data will load automatically on next app launch."
-        )
+    st.warning(
+        "No league data loaded. Connect your Yahoo league in Connect League, "
+        "or league data will load automatically on next app launch."
+    )
     st.stop()
 else:
     user_teams = rosters[rosters["is_user_team"] == 1]
@@ -562,53 +537,12 @@ else:
                 refresh_progress.empty()
                 st.rerun()
 
-        # Yahoo sync button — in btn2 column (same row as Refresh)
-        if YFPY_AVAILABLE:
-            import os
-
-            yahoo_key = os.environ.get("YAHOO_CLIENT_ID")
-            yahoo_secret = os.environ.get("YAHOO_CLIENT_SECRET")
-            yahoo_league_id = os.environ.get("YAHOO_LEAGUE_ID", "").strip()
-            if yahoo_key and yahoo_secret and yahoo_league_id:
-                with btn2:
-                    yahoo_clicked = st.button("Sync Yahoo", key="sync_yahoo_roster")
-                if yahoo_clicked:
-                    progress = st.progress(0, text="Connecting to Yahoo Fantasy...")
-                    try:
-                        # Reuse authenticated client from session if available
-                        client = st.session_state.get("yahoo_client")
-                        if client is None:
-                            # Fall back: try to authenticate with saved token data
-                            token_data = st.session_state.get("yahoo_token_data")
-                            client = YahooFantasyClient(league_id=yahoo_league_id)
-                            if not client.authenticate(yahoo_key, yahoo_secret, token_data=token_data):
-                                progress.empty()
-                                st.error("Yahoo authentication failed. Reconnect in Connect League.")
-                                client = None
-                            else:
-                                # Cache the successfully authenticated client
-                                st.session_state.yahoo_client = client
-                        if client is not None:
-                            progress.progress(30, text="Fetching league data...")
-                            sync_result = client.sync_to_db()
-                            progress.progress(100, text="Sync complete!")
-                            standings_count = sync_result.get("standings", 0) if sync_result else 0
-                            rosters_count = sync_result.get("rosters", 0) if sync_result else 0
-                            if rosters_count > 0:
-                                st.success(
-                                    f"Synced {rosters_count} roster entries and {standings_count} standing entries."
-                                )
-                                time.sleep(1)
-                                st.rerun()
-                            else:
-                                st.warning(
-                                    f"Sync completed but Yahoo returned no roster data "
-                                    f"(standings: {standings_count}). This may mean the league "
-                                    f"season hasn't started yet on Yahoo, or rosters haven't been set."
-                                )
-                    except Exception as e:
-                        progress.empty()
-                        st.error(f"Yahoo sync error: {e}")
+        # Yahoo sync button — uses YahooDataService (handles sync internally)
+        with btn2:
+            if st.button("Sync Yahoo", key="sync_yahoo_roster"):
+                with st.spinner("Syncing league data..."):
+                    yds.force_refresh_all()
+                st.rerun()
 
         # Load roster
         roster = get_team_roster(user_team_name)
@@ -951,7 +885,7 @@ else:
 
                     # Attempt to derive per-team league averages from league_standings
                     try:
-                        _ls = load_league_standings()
+                        _ls = yds.get_standings()
                         if not _ls.empty and "category" in _ls.columns and "total" in _ls.columns:
                             # Compute mean total per category across all teams
                             _ls_avg = _ls.groupby("category")["total"].mean().to_dict()
@@ -1068,6 +1002,65 @@ else:
                         for p in il_players
                     )
                     render_context_card("Injured List Alerts", il_html)
+
+                # Live matchup score card
+                matchup = yds.get_matchup()
+                if matchup and isinstance(matchup, dict):
+                    _mw = matchup.get("week", "?")
+                    _mopp = matchup.get("opponent", "Unknown")
+                    _mu = matchup.get("user_stats", {})
+                    _mo = matchup.get("opp_stats", {})
+
+                    _match_rows = ""
+                    _wins = 0
+                    _losses = 0
+                    for _cat in ["R", "HR", "RBI", "SB", "AVG", "OBP", "W", "L", "SV", "K", "ERA", "WHIP"]:
+                        _uv = _mu.get(_cat)
+                        _ov = _mo.get(_cat)
+                        if _uv is None and _ov is None:
+                            continue
+                        _uv = float(_uv or 0)
+                        _ov = float(_ov or 0)
+                        # Determine who is winning (inverse cats: lower is better)
+                        _inv = _cat in ("L", "ERA", "WHIP")
+                        if _inv:
+                            _winning = _uv < _ov
+                            _losing = _uv > _ov
+                        else:
+                            _winning = _uv > _ov
+                            _losing = _uv < _ov
+                        if _winning:
+                            _wins += 1
+                            _color = T["green"]
+                        elif _losing:
+                            _losses += 1
+                            _color = T["danger"]
+                        else:
+                            _color = T["tx2"]
+                        _fmt = ".3f" if _cat in ("AVG", "OBP", "ERA", "WHIP") else ".0f"
+                        _match_rows += (
+                            f'<div style="display:flex;justify-content:space-between;'
+                            f'padding:1px 0;font-size:11px!important;font-family:IBM Plex Mono,monospace!important">'
+                            f'<span style="color:{_color}!important;font-weight:600!important">'
+                            f"{_uv:{_fmt}}</span>"
+                            f'<span style="color:{T["tx2"]}!important">{_cat}</span>'
+                            f'<span style="color:{T["tx2"]}!important">{_ov:{_fmt}}</span></div>'
+                        )
+                    _ties = 12 - _wins - _losses
+                    _header = (
+                        f'<div style="text-align:center;font-size:10px!important;'
+                        f'color:{T["tx2"]}!important;margin-bottom:4px!important">'
+                        f"Week {_mw} vs {_mopp}</div>"
+                        f'<div style="text-align:center;font-size:16px!important;'
+                        f'font-weight:700!important;margin-bottom:6px!important">'
+                        f'<span style="color:{T["green"]}!important">{_wins}</span>'
+                        f' - <span style="color:{T["danger"]}!important">{_losses}</span>'
+                        f' - <span style="color:{T["tx2"]}!important">{_ties}</span></div>'
+                    )
+                    render_context_card("Live Matchup", _header + _match_rows)
+
+                # Data freshness card
+                render_data_freshness_card()
 
             # -- Main Content (right) --
             with main:

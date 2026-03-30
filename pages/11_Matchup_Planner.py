@@ -7,7 +7,7 @@ import logging
 import pandas as pd
 import streamlit as st
 
-from src.database import init_db, load_league_rosters, load_player_pool
+from src.database import init_db, load_player_pool
 from src.league_manager import get_team_roster
 from src.ui_shared import (
     THEME,
@@ -20,6 +20,7 @@ from src.ui_shared import (
     render_page_layout,
     render_player_select,
 )
+from src.yahoo_data_service import get_yahoo_data_service
 
 try:
     from src.matchup_planner import compute_weekly_matchup_ratings
@@ -103,7 +104,8 @@ pool = pool.rename(columns={"name": "player_name"})
 
 # ── Load league rosters ───────────────────────────────────────────────
 
-rosters = load_league_rosters()
+yds = get_yahoo_data_service()
+rosters = yds.get_rosters()
 
 # ── Helper: build tier badge HTML ─────────────────────────────────────
 

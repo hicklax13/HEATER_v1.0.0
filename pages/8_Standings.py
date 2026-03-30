@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-from src.database import get_connection, init_db, load_league_rosters, load_league_standings
+from src.database import get_connection, init_db
 from src.ui_shared import (
     inject_custom_css,
     page_timer_footer,
@@ -14,8 +14,10 @@ from src.ui_shared import (
     render_compact_table,
     render_context_card,
     render_context_columns,
+    render_data_freshness_card,
     render_page_layout,
 )
+from src.yahoo_data_service import get_yahoo_data_service
 
 try:
     from src.standings_projection import (
@@ -166,9 +168,13 @@ with ctx:
             key="standings_sims",
         )
 
+        # Data freshness card
+        render_data_freshness_card()
+
         if st.button("Run Simulation", type="primary", key="run_standings_sim"):
             # Try to build team_totals from real league standings data
-            standings_df = load_league_standings()
+            yds = get_yahoo_data_service()
+            standings_df = yds.get_standings()
             team_totals: dict[str, dict[str, float]] = {}
 
             if not standings_df.empty and "team_name" in standings_df.columns and "category" in standings_df.columns:
@@ -221,8 +227,9 @@ with main:
         else:
             st.markdown("Simulates head-to-head matchups across a full season using Monte Carlo methods.")
 
-            # Show current real standings if available
-            standings_df = load_league_standings()
+            # Show current real standings if available (live from Yahoo when connected)
+            yds = get_yahoo_data_service()
+            standings_df = yds.get_standings()
             if not standings_df.empty and "team_name" in standings_df.columns and "category" in standings_df.columns:
                 st.markdown("**Current League Standings**")
                 pivot = (
@@ -277,9 +284,10 @@ with main:
         else:
             st.markdown("Composite team rankings based on 5 weighted factors.")
 
-            # Build power data from real league data when available
-            rosters_df = load_league_rosters()
-            standings_df_pr = load_league_standings()
+            # Build power data from real league data when available (live from Yahoo)
+            yds = get_yahoo_data_service()
+            rosters_df = yds.get_rosters()
+            standings_df_pr = yds.get_standings()
             using_real_data = False
             power_data: list[dict] = []
 

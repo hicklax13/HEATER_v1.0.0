@@ -23,8 +23,6 @@ from src.database import (
     coerce_numeric_df,
     get_connection,
     init_db,
-    load_league_rosters,
-    load_league_standings,
     load_player_pool,
 )
 from src.injury_model import compute_health_score, get_injury_badge
@@ -44,6 +42,7 @@ from src.ui_shared import (
     render_styled_table,
 )
 from src.valuation import LeagueConfig
+from src.yahoo_data_service import get_yahoo_data_service
 
 logger = logging.getLogger(__name__)
 
@@ -162,40 +161,13 @@ ALL_CATS = list(CAT_DISPLAY_NAMES.keys())
 
 # ── Load user team ───────────────────────────────────────────────────
 
-rosters = load_league_rosters()
+yds = get_yahoo_data_service()
+rosters = yds.get_rosters()
 if rosters.empty:
-    if st.session_state.get("yahoo_connected"):
-        st.warning("Yahoo is connected but no roster data found in the database. Try syncing:")
-        if st.button("Sync League Data Now", key="sync_league_lineup_merged"):
-            client = st.session_state.get("yahoo_client")
-            if client:
-                progress = st.progress(0, text="Connecting to Yahoo Fantasy...")
-                try:
-                    progress.progress(30, text="Fetching league standings...")
-                    sync_result = client.sync_to_db()
-                    progress.progress(100, text="Sync complete!")
-                    standings_count = sync_result.get("standings", 0) if sync_result else 0
-                    rosters_count = sync_result.get("rosters", 0) if sync_result else 0
-                    if rosters_count > 0:
-                        st.success(f"Synced {rosters_count} roster entries and {standings_count} standing entries.")
-                        time.sleep(1)
-                        st.rerun()
-                    else:
-                        st.warning(
-                            f"Sync completed but Yahoo returned no roster data "
-                            f"(standings: {standings_count}). This may mean the league "
-                            f"season hasn't started yet on Yahoo, or rosters haven't been set."
-                        )
-                except Exception as e:
-                    progress.empty()
-                    st.error(f"Sync failed: {e}")
-            else:
-                st.error("Yahoo client not found in session. Return to Connect League and reconnect.")
-    else:
-        st.warning(
-            "No league data loaded. Connect your Yahoo league in Connect League, "
-            "or league data will load automatically on next app launch."
-        )
+    st.warning(
+        "No league data loaded. Connect your Yahoo league in Connect League, "
+        "or league data will load automatically on next app launch."
+    )
     st.stop()
 
 user_teams = rosters[rosters["is_user_team"] == 1]
@@ -318,7 +290,7 @@ except Exception:
 
 # ── Load standings and schedule ──────────────────────────────────────
 
-standings = load_league_standings()
+standings = yds.get_standings()
 
 # Build team totals from standings for H2H and SGP.
 team_totals: dict[str, dict[str, float]] = {}

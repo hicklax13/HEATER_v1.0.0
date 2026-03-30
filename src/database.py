@@ -1184,6 +1184,54 @@ def check_staleness(source: str, max_age_hours: float) -> bool:
         return True
 
 
+def upsert_league_schedule(week: int, team_name: str, opponent_name: str) -> None:
+    """Insert or update a single week's matchup in the league_schedule table.
+
+    Args:
+        week: Week number (1-24).
+        team_name: The team whose schedule entry this is.
+        opponent_name: The opponent for that week.
+    """
+    conn = get_connection()
+    try:
+        conn.execute(
+            "INSERT OR REPLACE INTO league_schedule (week, team_a, team_b) VALUES (?, ?, ?)",
+            (week, team_name, opponent_name),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def load_league_schedule() -> dict[int, str]:
+    """Load the league schedule from the DB.
+
+    Returns:
+        Dict mapping week number to opponent name, e.g. ``{1: "Team Foo", 2: "Team Bar"}``.
+        Returns from the user team's perspective (team_a = user team).
+    """
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        # Get the user team name to filter schedule
+        cursor.execute("SELECT team_name FROM league_teams WHERE is_user_team = 1")
+        user_row = cursor.fetchone()
+        if user_row:
+            user_team = user_row[0]
+            cursor.execute(
+                "SELECT week, team_b FROM league_schedule WHERE team_a = ? ORDER BY week",
+                (user_team,),
+            )
+        else:
+            # Fallback: return all rows (first team alphabetically as team_a)
+            cursor.execute("SELECT week, team_b FROM league_schedule ORDER BY week")
+
+        rows = cursor.fetchall()
+        return {int(row[0]): row[1] for row in rows}
+    finally:
+        conn.close()
+
+
 def upsert_player_bulk(players: list[dict]) -> int:
     """Bulk upsert players. Each dict needs: name, team, positions, is_hitter.
 

@@ -143,18 +143,52 @@ def get_week_number() -> int:
     return min(week, 26)  # Cap at playoff end
 
 
-def get_current_opponent() -> dict:
+def get_current_opponent(yds=None) -> dict:
     """Get this week's opponent profile.
+
+    When a YahooDataService is provided, uses live data (schedule from
+    Yahoo matchups, profile from live standings). Falls back to the
+    hardcoded AVIS data when live data is unavailable.
+
+    Args:
+        yds: Optional YahooDataService instance. If None, uses AVIS data only.
 
     Returns:
         Dict with: name, tier, threat, manager, strengths, weaknesses, notes, week.
         Returns empty dict if schedule data not available.
     """
     week = get_week_number()
-    opponent_name = TEAM_HICKEY_SCHEDULE.get(week)
+
+    # Try live schedule from Yahoo first
+    opponent_name = None
+    if yds is not None:
+        try:
+            schedule = yds.get_schedule()
+            if schedule:
+                opponent_name = schedule.get(week)
+        except Exception:
+            logger.debug("Live schedule unavailable, falling back to AVIS")
+
+    # Fall back to hardcoded AVIS schedule
+    if not opponent_name:
+        opponent_name = TEAM_HICKEY_SCHEDULE.get(week)
     if not opponent_name:
         return {}
 
+    # Try live profile from Yahoo standings
+    if yds is not None:
+        try:
+            live_profile = yds.get_opponent_profile(opponent_name)
+            if live_profile and live_profile.get("threat") != "Unknown":
+                return {
+                    "name": opponent_name,
+                    "week": week,
+                    **live_profile,
+                }
+        except Exception:
+            logger.debug("Live profile unavailable for %s, falling back to AVIS", opponent_name)
+
+    # Fall back to AVIS hardcoded profiles
     profile = OPPONENT_PROFILES.get(opponent_name, {})
     return {
         "name": opponent_name,
@@ -168,11 +202,37 @@ def get_current_opponent() -> dict:
     }
 
 
-def get_opponent_for_week(week: int) -> dict:
-    """Get opponent profile for a specific week."""
-    opponent_name = TEAM_HICKEY_SCHEDULE.get(week)
+def get_opponent_for_week(week: int, yds=None) -> dict:
+    """Get opponent profile for a specific week.
+
+    Args:
+        week: Fantasy week number (1-24).
+        yds: Optional YahooDataService instance for live data.
+    """
+    # Try live schedule first
+    opponent_name = None
+    if yds is not None:
+        try:
+            schedule = yds.get_schedule()
+            if schedule:
+                opponent_name = schedule.get(week)
+        except Exception:
+            pass
+
+    if not opponent_name:
+        opponent_name = TEAM_HICKEY_SCHEDULE.get(week)
     if not opponent_name:
         return {}
+
+    # Try live profile
+    if yds is not None:
+        try:
+            live_profile = yds.get_opponent_profile(opponent_name)
+            if live_profile and live_profile.get("threat") != "Unknown":
+                return {"name": opponent_name, "week": week, **live_profile}
+        except Exception:
+            pass
+
     profile = OPPONENT_PROFILES.get(opponent_name, {})
     return {
         "name": opponent_name,

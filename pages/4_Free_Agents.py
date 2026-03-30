@@ -1,12 +1,11 @@
 """Free Agents — Unified free agent browsing, add/drop recommendations, and streaming targets."""
 
 import logging
-import time
 
 import pandas as pd
 import streamlit as st
 
-from src.database import get_connection, init_db, load_league_rosters, load_player_pool
+from src.database import get_connection, init_db, load_player_pool
 from src.in_season import rank_free_agents
 from src.league_manager import get_free_agents, get_team_roster
 from src.ui_shared import (
@@ -23,6 +22,7 @@ from src.ui_shared import (
     render_sortable_table,
 )
 from src.valuation import LeagueConfig
+from src.yahoo_data_service import get_yahoo_data_service
 
 try:
     from src.waiver_wire import compute_add_drop_recommendations
@@ -62,40 +62,13 @@ config = LeagueConfig()
 
 # ── Roster check ──────────────────────────────────────────────────────────────
 
-rosters = load_league_rosters()
+yds = get_yahoo_data_service()
+rosters = yds.get_rosters()
 if rosters.empty:
-    if st.session_state.get("yahoo_connected"):
-        st.warning("Yahoo is connected but no roster data found in the database. Try syncing:")
-        if st.button("Sync League Data Now", key="sync_league_fa_merged"):
-            client = st.session_state.get("yahoo_client")
-            if client:
-                progress = st.progress(0, text="Connecting to Yahoo Fantasy...")
-                try:
-                    progress.progress(30, text="Fetching league standings...")
-                    sync_result = client.sync_to_db()
-                    progress.progress(100, text="Sync complete!")
-                    standings_count = sync_result.get("standings", 0) if sync_result else 0
-                    rosters_count = sync_result.get("rosters", 0) if sync_result else 0
-                    if rosters_count > 0:
-                        st.success(f"Synced {rosters_count} roster entries and {standings_count} standing entries.")
-                        time.sleep(1)
-                        st.rerun()
-                    else:
-                        st.warning(
-                            f"Sync completed but Yahoo returned no roster data "
-                            f"(standings: {standings_count}). This may mean the league "
-                            f"season hasn't started yet on Yahoo, or rosters haven't been set."
-                        )
-                except Exception as e:
-                    progress.empty()
-                    st.error(f"Sync failed: {e}")
-            else:
-                st.error("Yahoo client not found in session. Return to Connect League and reconnect.")
-    else:
-        st.warning(
-            "No league data loaded. Connect your Yahoo league in Connect League, "
-            "or league data will load automatically on next app launch."
-        )
+    st.warning(
+        "No league data loaded. Connect your Yahoo league in Connect League, "
+        "or league data will load automatically on next app launch."
+    )
     st.stop()
 
 user_teams = rosters[rosters["is_user_team"] == 1]
@@ -130,44 +103,22 @@ if not user_roster_ids:
     st.warning("Your roster appears to be empty. No free agent analysis can be generated.")
     st.stop()
 
-# ── Get free agents — prefer Yahoo-confirmed FA list when available ───────────
+# ── Get free agents — via YahooDataService (Yahoo-first with DB fallback) ─────
 
-yahoo_client = st.session_state.get("yahoo_client")
-_synced_label = ""
-if yahoo_client is not None:
-    try:
-        yahoo_fas = yahoo_client.get_all_free_agents(max_players=500)
-        if not yahoo_fas.empty:
-            from src.live_stats import match_player_id
+fa_pool = yds.get_free_agents()
+# Cross-reference with player pool to get projection data
+if not fa_pool.empty and not pool.empty:
+    from src.live_stats import match_player_id
 
-            yahoo_pids = set()
-            for _, row in yahoo_fas.iterrows():
-                pid = match_player_id(row.get("player_name", ""), row.get("team", ""))
-                if pid is not None:
-                    yahoo_pids.add(pid)
-            fa_pool = pool[pool["player_id"].isin(yahoo_pids)].copy()
-            # Fetch last synced timestamp from refresh_log
-            try:
-                _fa_conn = get_connection()
-                try:
-                    _last_refresh = pd.read_sql_query(
-                        "SELECT refreshed_at FROM refresh_log WHERE source = 'yahoo_free_agents' "
-                        "ORDER BY refreshed_at DESC LIMIT 1",
-                        _fa_conn,
-                    )
-                finally:
-                    _fa_conn.close()
-                if not _last_refresh.empty:
-                    _synced_label = str(_last_refresh.iloc[0]["refreshed_at"])
-            except Exception:
-                pass
-        else:
-            fa_pool = get_free_agents(pool)
-    except Exception:
-        logger.debug("Yahoo FA fetch failed, falling back to DB", exc_info=True)
+    yahoo_pids = set()
+    for _, row in fa_pool.iterrows():
+        pid = match_player_id(row.get("player_name", ""), row.get("team", ""))
+        if pid is not None:
+            yahoo_pids.add(pid)
+    if yahoo_pids:
+        fa_pool = pool[pool["player_id"].isin(yahoo_pids)].copy()
+    else:
         fa_pool = get_free_agents(pool)
-else:
-    fa_pool = get_free_agents(pool)
 
 if fa_pool.empty:
     st.info("No free agents available (all players are rostered).")
@@ -289,34 +240,28 @@ with ctx:
             st.session_state.fa_merged_pos_filter = pos
             st.rerun()
 
-    # Yahoo sync status
-    _sync_status = "Connected" if st.session_state.get("yahoo_connected") else "Not connected"
-    _sync_color = T["ok"] if st.session_state.get("yahoo_connected") else T["tx2"]
+    # Data freshness status
+    _freshness = yds.get_data_freshness()
+    _roster_fresh = _freshness.get("rosters", "Unknown")
+    _fa_fresh = _freshness.get("free_agents", "Unknown")
+    _connected = yds.is_connected()
+    _sync_status = "Connected" if _connected else "Not connected"
+    _sync_color = T["ok"] if _connected else T["tx2"]
     sync_html = (
         f'<div style="display:flex;justify-content:space-between;'
         f'padding:2px 0;font-size:12px;font-family:IBM Plex Mono,monospace;">'
         f'<span style="color:{T["tx2"]};">Yahoo Status</span>'
         f'<span style="font-weight:600;color:{_sync_color};">{_sync_status}</span></div>'
+        f'<div style="display:flex;justify-content:space-between;'
+        f'padding:2px 0;font-size:12px;font-family:IBM Plex Mono,monospace;">'
+        f'<span style="color:{T["tx2"]};">Rosters</span>'
+        f'<span style="font-weight:600;color:{T["tx"]};">{_roster_fresh}</span></div>'
+        f'<div style="display:flex;justify-content:space-between;'
+        f'padding:2px 0;font-size:12px;font-family:IBM Plex Mono,monospace;">'
+        f'<span style="color:{T["tx2"]};">Free Agents</span>'
+        f'<span style="font-weight:600;color:{T["tx"]};">{_fa_fresh}</span></div>'
     )
-    if _synced_label:
-        sync_html += (
-            f'<div style="font-size:11px;color:{T["tx2"]};margin-top:2px;'
-            f'font-family:IBM Plex Mono,monospace;">Last synced: {_synced_label}</div>'
-        )
-    render_context_card("Yahoo Sync", sync_html)
-
-    if st.button("Refresh Rosters", key="fa_merged_refresh", use_container_width=True):
-        client = st.session_state.get("yahoo_client")
-        if client:
-            try:
-                client.sync_to_db()
-                st.success("Rosters refreshed.")
-                time.sleep(1)
-                st.rerun()
-            except Exception as e:
-                st.error(f"Refresh failed: {e}")
-        else:
-            st.warning("No Yahoo client available. Connect your league first.")
+    render_context_card("Data Freshness", sync_html)
 
 # ── Helper: apply position filter to a DataFrame ─────────────────────────────
 

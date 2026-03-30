@@ -13,8 +13,6 @@ import streamlit as st
 from src.database import (
     coerce_numeric_df,
     init_db,
-    load_league_rosters,
-    load_league_standings,
     load_player_pool,
 )
 from src.in_season import _roster_category_totals
@@ -33,6 +31,7 @@ from src.ui_shared import (
     render_sortable_table,
 )
 from src.valuation import LeagueConfig
+from src.yahoo_data_service import get_yahoo_data_service
 
 # Full display names for stat categories (no abbreviations per CLAUDE.md)
 _CAT_DISPLAY = {
@@ -175,7 +174,8 @@ def main():
         return
 
     pool = coerce_numeric_df(pool)
-    rosters_df = load_league_rosters()
+    yds = get_yahoo_data_service()
+    rosters_df = yds.get_rosters()
 
     if rosters_df.empty:
         st.warning("No league rosters loaded. Connect to Yahoo and sync rosters first.")
@@ -216,7 +216,7 @@ def main():
         return
 
     # Compute team category totals from standings or roster stats
-    standings_df = load_league_standings()
+    standings_df = yds.get_standings()
     all_team_totals: dict[str, dict[str, float]] = {}
 
     if not standings_df.empty and "team_name" in standings_df.columns and "category" in standings_df.columns:

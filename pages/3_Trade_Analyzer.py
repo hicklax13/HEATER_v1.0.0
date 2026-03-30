@@ -10,7 +10,7 @@ import time
 import pandas as pd
 import streamlit as st
 
-from src.database import coerce_numeric_df, init_db, load_league_rosters, load_league_standings, load_player_pool
+from src.database import coerce_numeric_df, init_db, load_player_pool
 from src.injury_model import compute_health_score, get_injury_badge
 from src.league_manager import get_team_roster
 from src.ui_shared import (
@@ -23,11 +23,13 @@ from src.ui_shared import (
     render_compact_table,
     render_context_card,
     render_context_columns,
+    render_data_freshness_card,
     render_page_layout,
     render_player_select,
     render_styled_table,
 )
 from src.valuation import LeagueConfig, add_process_risk, compute_percentile_projections, compute_projection_volatility
+from src.yahoo_data_service import get_yahoo_data_service
 
 st.set_page_config(page_title="Heater | Trade Analyzer", page_icon="", layout="wide", initial_sidebar_state="collapsed")
 
@@ -42,7 +44,8 @@ def _standings_data_state() -> str:
         "ok"       — table has meaningful non-zero data.
     """
     try:
-        standings = load_league_standings()
+        yds = get_yahoo_data_service()
+        standings = yds.get_standings()
         if standings.empty:
             return "empty"
         totals = standings.get("total", pd.Series(dtype=float))
@@ -90,39 +93,13 @@ except Exception:
     pass
 
 # Get user team roster
-rosters = load_league_rosters()
+yds = get_yahoo_data_service()
+rosters = yds.get_rosters()
 if rosters.empty:
-    if st.session_state.get("yahoo_connected"):
-        st.warning("Yahoo is connected but no roster data found in the database. Try syncing:")
-        if st.button("Sync League Data Now", key="sync_league_trade"):
-            client = st.session_state.get("yahoo_client")
-            if client:
-                progress = st.progress(0, text="Connecting to Yahoo Fantasy...")
-                try:
-                    progress.progress(30, text="Fetching league standings...")
-                    sync_result = client.sync_to_db()
-                    progress.progress(100, text="Sync complete!")
-                    standings_count = sync_result.get("standings", 0) if sync_result else 0
-                    rosters_count = sync_result.get("rosters", 0) if sync_result else 0
-                    if rosters_count > 0:
-                        st.success(f"Synced {rosters_count} roster entries and {standings_count} standing entries.")
-                        time.sleep(1)
-                        st.rerun()
-                    else:
-                        st.warning(
-                            f"Sync completed but Yahoo returned no roster data "
-                            f"(standings: {standings_count}). This may mean the league "
-                            f"season hasn't started yet on Yahoo, or rosters haven't been set."
-                        )
-                except Exception as e:
-                    progress.empty()
-                    st.error(f"Sync failed: {e}")
-            else:
-                st.error("Yahoo client not found in session. Return to Connect League and reconnect.")
-    else:
-        st.warning(
-            "No league data loaded. Connect your Yahoo league in Connect League, or league data will load automatically on next app launch."
-        )
+    st.warning(
+        "No league data loaded. Connect your Yahoo league in Connect League, "
+        "or league data will load automatically on next app launch."
+    )
     st.stop()
 else:
     user_teams = rosters[rosters["is_user_team"] == 1]
@@ -169,6 +146,31 @@ else:
                 "Trade Status",
                 '<div style="font-size:12px;color:#6b7280;">Select players to analyze a trade</div>',
             )
+
+            # Recent transactions card
+            try:
+                _txns = yds.get_transactions()
+                if not _txns.empty:
+                    _txn_rows = ""
+                    _txn_limit = min(8, len(_txns))
+                    for _ti in range(_txn_limit):
+                        _txr = _txns.iloc[_ti]
+                        _txtype = str(_txr.get("type", "")).replace("_", " ").title()
+                        _txplayer = str(_txr.get("player_name", ""))[:20]
+                        _txteam = str(_txr.get("team", ""))[:15]
+                        _txn_rows += (
+                            f'<div style="padding:2px 0;font-size:11px!important;'
+                            f'font-family:IBM Plex Mono,monospace!important">'
+                            f'<span style="color:{T["tx"]}!important;font-weight:600!important">'
+                            f"{_txplayer}</span> "
+                            f'<span style="color:{T["tx2"]}!important">{_txtype}</span></div>'
+                        )
+                    render_context_card("Recent Transactions", _txn_rows)
+            except Exception:
+                pass  # Transactions are optional — don't break the page
+
+            # Data freshness card
+            render_data_freshness_card()
 
         with main:
             col1, col2 = st.columns(2)
