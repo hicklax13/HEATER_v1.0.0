@@ -817,10 +817,54 @@ def load_player_pool() -> pd.DataFrame:
 
 
 def _load_player_pool_impl() -> pd.DataFrame:
-    """Internal implementation — loads player pool from SQLite."""
+    """Internal implementation — loads player pool from SQLite.
+
+    Projection priority: ros_projections (Bayesian ROS, updated with live
+    2026 stats) > projections.blended > any projection system average.
+    This ensures all consumers (Trade Finder, Trade Analyzer, Lineup
+    Optimizer, Free Agents) use the most current player-level projections.
+    """
     conn = get_connection()
     try:
-        # Prefer blended, fall back to any available system
+        # Check if ros_projections has data (Bayesian ROS with live stats)
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM ros_projections")
+        ros_count = cursor.fetchone()[0]
+
+        if ros_count > 0:
+            # Prefer Bayesian ROS projections — blended with actual 2026 performance
+            df = pd.read_sql_query(
+                """
+                SELECT
+                    p.player_id, p.name, p.team, p.positions, p.is_hitter, p.is_injured,
+                    p.mlb_id,
+                    CASE WHEN p.birth_date IS NOT NULL AND p.birth_date != ''
+                         THEN CAST((julianday('now') - julianday(p.birth_date)) / 365.25 AS INTEGER)
+                         ELSE NULL END AS age,
+                    COALESCE(ros.pa, 0) as pa, COALESCE(ros.ab, 0) as ab,
+                    COALESCE(ros.h, 0) as h, COALESCE(ros.r, 0) as r,
+                    COALESCE(ros.hr, 0) as hr, COALESCE(ros.rbi, 0) as rbi,
+                    COALESCE(ros.sb, 0) as sb, ros.avg, ros.obp,
+                    COALESCE(ros.bb, 0) as bb, COALESCE(ros.hbp, 0) as hbp,
+                    COALESCE(ros.sf, 0) as sf,
+                    COALESCE(ros.ip, 0) as ip, COALESCE(ros.w, 0) as w,
+                    COALESCE(ros.l, 0) as l, COALESCE(ros.sv, 0) as sv,
+                    COALESCE(ros.k, 0) as k, ros.era, ros.whip,
+                    COALESCE(ros.er, 0) as er, COALESCE(ros.bb_allowed, 0) as bb_allowed,
+                    COALESCE(ros.h_allowed, 0) as h_allowed,
+                    ros.fip, ros.xfip, ros.siera,
+                    COALESCE(a.adp, 999) as adp
+                FROM players p
+                LEFT JOIN ros_projections ros ON p.player_id = ros.player_id
+                LEFT JOIN adp a ON p.player_id = a.player_id
+                ORDER BY COALESCE(a.adp, 999)
+            """,
+                conn,
+            )
+            if not df.empty:
+                return coerce_numeric_df(df)
+
+        # Fallback: static blended projections (pre-season Steamer/ZiPS/DepthCharts)
         # Note: Do NOT use CAST on numeric columns — Python 3.14 SQLite returns raw bytes
         # for NumPy integers, and CAST corrupts them. Fix bytes in Python after loading.
         df = pd.read_sql_query(
