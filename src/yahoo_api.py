@@ -1344,6 +1344,7 @@ class YahooFantasyClient:
                         player_id=player_id,
                         roster_slot=row.get("position", ""),
                         is_user_team=is_user,
+                        status=row.get("status", "active"),
                     )
                     counts["rosters"] += 1
 

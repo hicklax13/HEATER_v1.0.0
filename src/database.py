@@ -427,6 +427,9 @@ def init_db():
     _safe_add_column(conn, "players", "lineup_slot", "INTEGER")
     _safe_add_column(conn, "players", "spring_training_era", "REAL")
 
+    # Gap 7: Persist Yahoo IL/DTD/NA player status on league_rosters
+    _safe_add_column(conn, "league_rosters", "status", "TEXT DEFAULT 'active'")
+
     conn.close()
 
 
@@ -1096,17 +1099,24 @@ def upsert_league_roster_entry(
     player_id: int,
     roster_slot: str = None,
     is_user_team: bool = False,
+    status: str = "active",
 ):
-    """Add a player to a league roster."""
+    """Add a player to a league roster.
+
+    Args:
+        status: Yahoo roster status — ``active``, ``IL10``, ``IL15``,
+            ``IL60``, ``DTD``, ``NA``, or other Yahoo status strings.
+    """
     conn = get_connection()
     try:
         conn.execute(
-            """INSERT INTO league_rosters (team_name, team_index, player_id, roster_slot, is_user_team)
-               VALUES (?, ?, ?, ?, ?)
+            """INSERT INTO league_rosters
+               (team_name, team_index, player_id, roster_slot, is_user_team, status)
+               VALUES (?, ?, ?, ?, ?, ?)
                ON CONFLICT(team_name, player_id) DO UPDATE SET
                team_index=excluded.team_index, roster_slot=excluded.roster_slot,
-               is_user_team=excluded.is_user_team""",
-            (team_name, team_index, player_id, roster_slot, 1 if is_user_team else 0),
+               is_user_team=excluded.is_user_team, status=excluded.status""",
+            (team_name, team_index, player_id, roster_slot, 1 if is_user_team else 0, status or "active"),
         )
         conn.commit()
     finally:

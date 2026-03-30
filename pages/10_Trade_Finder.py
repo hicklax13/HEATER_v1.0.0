@@ -66,18 +66,23 @@ def _build_trade_df(trades: list[dict]) -> pd.DataFrame:
     for trade in trades:
         giving = ", ".join(trade.get("giving_names", []))
         receiving = ", ".join(trade.get("receiving_names", []))
-        rows.append(
-            {
-                "You Give": giving,
-                "You Receive": receiving,
-                "Partner": trade.get("opponent_team", ""),
-                "Your Gain": round(trade.get("user_sgp_gain", 0), 2),
-                "Their Gain": round(trade.get("opponent_sgp_gain", 0), 2),
-                "Grade": trade.get("grade", ""),
-                "Acceptance": trade.get("acceptance_label", ""),
-                "Score": round(trade.get("composite_score", 0), 2),
-            }
-        )
+        row = {
+            "You Give": giving,
+            "You Receive": receiving,
+            "Partner": trade.get("opponent_team", ""),
+            "Your Gain": round(trade.get("user_sgp_gain", 0), 2),
+            "Their Gain": round(trade.get("opponent_sgp_gain", 0), 2),
+            "Grade": trade.get("grade", ""),
+            "Acceptance": trade.get("acceptance_label", ""),
+            "Health": trade.get("health_risk", ""),
+            "Score": round(trade.get("composite_score", 0), 2),
+        }
+        # FA alternative flag
+        if trade.get("fa_alternative"):
+            row["FA Alt"] = trade.get("fa_name", "")
+        else:
+            row["FA Alt"] = ""
+        rows.append(row)
     return pd.DataFrame(rows) if rows else pd.DataFrame()
 
 
@@ -328,8 +333,10 @@ def main():
             page_timer_footer("Trade Finder")
             return
 
-        # ── 3 Tabs ───────────────────────────────────────────────────
-        tab_partner, tab_need, tab_value = st.tabs(["By Partner", "By Category Need", "By Value"])
+        # ── 4 Tabs ───────────────────────────────────────────────────
+        tab_partner, tab_need, tab_value, tab_readiness = st.tabs(
+            ["By Partner", "By Category Need", "By Value", "Trade Readiness"]
+        )
 
         # ── Tab 1: By Partner ─────────────────────────────────────────
         with tab_partner:
@@ -419,6 +426,105 @@ def main():
             df = _build_trade_df(opportunities)
             if not df.empty:
                 render_sortable_table(df, height=600)
+
+        # ── Tab 4: Trade Readiness ───────────────────────────────────
+        with tab_readiness:
+            st.markdown(
+                f'<p style="font-size:13px;color:{T["tx2"]};">'
+                "Composite player scores (0-100) blending category fit, projection confidence, "
+                "injury risk, positional scarcity, and free agent alternatives.</p>",
+                unsafe_allow_html=True,
+            )
+
+            try:
+                from src.trade_intelligence import compute_trade_readiness_batch
+
+                # Collect all opponent player IDs
+                opp_ids = []
+                for tn, pids in league_rosters.items():
+                    if tn != user_team_name:
+                        opp_ids.extend(pids)
+
+                if not opp_ids:
+                    st.info("No opponent players found. Sync your Yahoo league data.")
+                else:
+                    # Get FA pool for comparison
+                    try:
+                        from src.league_manager import get_free_agents as _get_fa_pool
+
+                        _fa_pool = _get_fa_pool(pool)
+                    except Exception:
+                        _fa_pool = pd.DataFrame()
+
+                    user_totals = all_team_totals.get(user_team_name, {})
+
+                    with st.spinner("Computing Trade Readiness scores..."):
+                        readiness_df = compute_trade_readiness_batch(
+                            player_ids=opp_ids,
+                            user_roster_ids=user_roster_ids,
+                            user_totals=user_totals,
+                            all_team_totals=all_team_totals,
+                            user_team_name=user_team_name,
+                            fa_pool=_fa_pool,
+                            player_pool=pool,
+                            config=config,
+                            max_players=100,
+                        )
+
+                    if readiness_df.empty:
+                        st.info("Could not compute Trade Readiness scores.")
+                    else:
+                        # Position filter
+                        all_positions = set()
+                        for pos_str in readiness_df["positions"].dropna():
+                            for p in str(pos_str).split(","):
+                                p = p.strip()
+                                if p:
+                                    all_positions.add(p)
+                        pos_filter = st.selectbox(
+                            "Filter by position",
+                            ["All"] + sorted(all_positions),
+                            key="readiness_pos_filter",
+                        )
+                        if pos_filter != "All":
+                            readiness_df = readiness_df[readiness_df["positions"].str.contains(pos_filter, na=False)]
+
+                        # Display columns
+                        display_cols = [
+                            "name",
+                            "positions",
+                            "score",
+                            "category_fit",
+                            "projection_quality",
+                            "health",
+                            "scarcity",
+                            "fa_advantage",
+                            "fa_best",
+                        ]
+                        display_df = readiness_df[[c for c in display_cols if c in readiness_df.columns]].rename(
+                            columns={
+                                "name": "Player",
+                                "positions": "Pos",
+                                "score": "Readiness",
+                                "category_fit": "Cat Fit",
+                                "projection_quality": "Proj Conf",
+                                "health": "Health",
+                                "scarcity": "Scarcity",
+                                "fa_advantage": "FA Edge",
+                                "fa_best": "Best FA",
+                            }
+                        )
+                        render_sortable_table(display_df, height=600)
+
+                        # Scoring explanation
+                        st.caption(
+                            "Readiness = 40% Category Fit + 25% Projection Confidence "
+                            "+ 15% Health + 10% Scarcity + 10% FA Edge. "
+                            "Higher = better trade target for your team."
+                        )
+
+            except ImportError:
+                st.info("Trade intelligence module not available.")
 
     page_timer_footer("Trade Finder")
 

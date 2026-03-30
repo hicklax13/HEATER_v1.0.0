@@ -169,11 +169,19 @@ def scan_1_for_1(
     opponent_roster_ids: list[int],
     player_pool: pd.DataFrame,
     config: LeagueConfig | None = None,
+    category_weights: dict[str, float] | None = None,
+    fa_comparisons: dict[int, dict] | None = None,
+    roster_statuses: dict[int, str] | None = None,
 ) -> list[dict]:
     """Fast deterministic scan of all 1-for-1 trades between user and opponent.
 
     Computes SGP delta for both sides using roster category totals.
+    When ``category_weights`` are provided, uses marginal-weighted SGP
+    instead of raw SGP (categories where you can gain standings positions
+    are weighted higher, punted categories get zero weight).
+
     Filters to trades where user gains and opponent doesn't lose too much.
+    Excludes NA/minors players and annotates trades with health and FA info.
 
     Returns list of dicts sorted by user_sgp_gain descending.
     """
@@ -184,7 +192,7 @@ def scan_1_for_1(
     user_totals = _roster_category_totals(user_roster_ids, player_pool)
     opp_totals = _roster_category_totals(opponent_roster_ids, player_pool)
 
-    user_baseline = _totals_sgp(user_totals, config)
+    user_baseline = _weighted_totals_sgp(user_totals, config, category_weights)
     opp_baseline = _totals_sgp(opp_totals, config)
 
     results = []
@@ -196,6 +204,12 @@ def scan_1_for_1(
         give_name = give_player.iloc[0].get("name", give_player.iloc[0].get("player_name", "?"))
 
         for recv_id in opponent_roster_ids:
+            # Filter NA/minors players
+            if roster_statuses:
+                recv_status = str(roster_statuses.get(recv_id, "active")).lower()
+                if recv_status in ("na", "not active", "minors"):
+                    continue
+
             recv_player = player_pool[player_pool["player_id"] == recv_id]
             if recv_player.empty:
                 continue
@@ -211,8 +225,15 @@ def scan_1_for_1(
             # User: lose give_id, gain recv_id
             new_user_ids = [pid for pid in user_roster_ids if pid != give_id] + [recv_id]
             new_user_totals = _roster_category_totals(new_user_ids, player_pool)
-            user_new_sgp = _totals_sgp(new_user_totals, config)
+            user_new_sgp = _weighted_totals_sgp(new_user_totals, config, category_weights)
             user_delta = user_new_sgp - user_baseline
+
+            # Apply closer scarcity premium if receiving a closer
+            recv_sv = float(recv_player.iloc[0].get("sv", 0) or 0)
+            if recv_sv >= 5:
+                from src.trade_intelligence import SV_SCARCITY_MULT
+
+                user_delta *= SV_SCARCITY_MULT
 
             if user_delta < MIN_SGP_GAIN:
                 continue
@@ -239,23 +260,74 @@ def scan_1_for_1(
                 + 0.10 * need_match * 2.0  # bonus for need-matching trades
             )
 
-            results.append(
-                {
-                    "giving_ids": [give_id],
-                    "receiving_ids": [recv_id],
-                    "giving_names": [give_name],
-                    "receiving_names": [recv_name],
-                    "user_sgp_gain": round(user_delta, 3),
-                    "opponent_sgp_gain": round(opp_delta, 3),
-                    "acceptance_probability": round(p_accept, 3),
-                    "acceptance_label": acceptance_label(p_accept),
-                    "composite_score": round(composite, 3),
-                    "trade_type": "1-for-1",
-                }
-            )
+            trade_result: dict = {
+                "giving_ids": [give_id],
+                "receiving_ids": [recv_id],
+                "giving_names": [give_name],
+                "receiving_names": [recv_name],
+                "user_sgp_gain": round(user_delta, 3),
+                "opponent_sgp_gain": round(opp_delta, 3),
+                "acceptance_probability": round(p_accept, 3),
+                "acceptance_label": acceptance_label(p_accept),
+                "composite_score": round(composite, 3),
+                "trade_type": "1-for-1",
+                "is_closer_trade": recv_sv >= 5,
+            }
+
+            # Annotate health risk
+            health = float(recv_player.iloc[0].get("health_score", 0.85))
+            if health >= 0.85:
+                trade_result["health_risk"] = "Low"
+            elif health >= 0.65:
+                trade_result["health_risk"] = "Moderate"
+            elif health >= 0.40:
+                trade_result["health_risk"] = "Elevated"
+            else:
+                trade_result["health_risk"] = "High"
+
+            # Annotate FA alternative
+            if fa_comparisons and recv_id in fa_comparisons:
+                fa_info = fa_comparisons[recv_id]
+                trade_result["fa_alternative"] = fa_info.get("has_alternative", False)
+                trade_result["fa_name"] = fa_info.get("fa_name", "")
+                trade_result["fa_pct"] = fa_info.get("fa_pct", 0.0)
+
+            # Annotate IL status
+            if roster_statuses and recv_id in roster_statuses:
+                trade_result["recv_status"] = roster_statuses[recv_id]
+
+            results.append(trade_result)
 
     results.sort(key=lambda x: x["composite_score"], reverse=True)
     return results
+
+
+def _weighted_totals_sgp(
+    totals: dict,
+    config: LeagueConfig,
+    weights: dict[str, float] | None = None,
+) -> float:
+    """Convert roster category totals to weighted SGP.
+
+    When weights are provided, each category's SGP is multiplied by its
+    marginal weight from the category gap analysis. This prioritizes
+    categories where the user can gain standings positions.
+    """
+    if weights is None:
+        return _totals_sgp(totals, config)
+
+    total = 0.0
+    for cat in config.all_categories:
+        denom = config.sgp_denominators.get(cat, 1.0)
+        if abs(denom) < 1e-9:
+            denom = 1.0
+        val = totals.get(cat, 0)
+        w = weights.get(cat, 1.0)
+        if cat in config.inverse_stats:
+            total -= (val / denom) * w
+        else:
+            total += (val / denom) * w
+    return total
 
 
 def _totals_sgp(totals: dict, config: LeagueConfig) -> float:
@@ -315,6 +387,53 @@ def find_trade_opportunities(
     if not league_rosters or not all_team_totals:
         return []
 
+    # ── Compute trade intelligence context ──────────────────────────────
+    category_weights: dict[str, float] | None = None
+    fa_comparisons: dict[int, dict] = {}
+    roster_statuses: dict[int, str] = {}
+
+    if user_team_name and all_team_totals:
+        try:
+            from src.trade_intelligence import (
+                apply_scarcity_flags,
+                compute_fa_comparisons,
+                get_category_weights,
+                get_health_adjusted_pool,
+            )
+
+            # Health-adjust the pool
+            player_pool = get_health_adjusted_pool(player_pool, config)
+
+            # Add scarcity flags
+            player_pool = apply_scarcity_flags(player_pool)
+
+            # Category weights from gap analysis
+            category_weights = get_category_weights(user_team_name, all_team_totals, config, weeks_remaining)
+
+            # Load roster statuses
+            try:
+                from src.trade_intelligence import _load_roster_statuses
+
+                roster_statuses = _load_roster_statuses()
+            except Exception:
+                pass
+
+            # Compute FA comparisons for all opponent players
+            try:
+                from src.league_manager import get_free_agents as _get_fa
+
+                fa_pool = _get_fa(player_pool)
+                all_opp_ids = []
+                for tn, pids in league_rosters.items():
+                    if tn != user_team_name:
+                        all_opp_ids.extend(pids)
+                fa_comparisons = compute_fa_comparisons(all_opp_ids, user_roster_ids, fa_pool, player_pool, config)
+            except Exception:
+                pass
+
+        except ImportError:
+            pass  # trade_intelligence not available — run without enhancements
+
     # ── Tier 1: Find complementary teams ──────────────────────────────
     if user_team_name and all_team_totals:
         partners = find_complementary_teams(user_team_name, all_team_totals, config, top_n=top_partners)
@@ -330,7 +449,15 @@ def find_trade_opportunities(
         if not opp_roster:
             continue
 
-        trades = scan_1_for_1(user_roster_ids, opp_roster, player_pool, config)
+        trades = scan_1_for_1(
+            user_roster_ids,
+            opp_roster,
+            player_pool,
+            config,
+            category_weights=category_weights,
+            fa_comparisons=fa_comparisons,
+            roster_statuses=roster_statuses,
+        )
 
         for trade in trades:
             trade["opponent_team"] = opp_team
