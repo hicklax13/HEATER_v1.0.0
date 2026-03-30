@@ -1216,16 +1216,15 @@ def load_league_schedule() -> dict[int, str]:
         # Get the user team name to filter schedule
         cursor.execute("SELECT team_name FROM league_teams WHERE is_user_team = 1")
         user_row = cursor.fetchone()
-        if user_row:
-            user_team = user_row[0]
-            cursor.execute(
-                "SELECT week, team_b FROM league_schedule WHERE team_a = ? ORDER BY week",
-                (user_team,),
-            )
-        else:
-            # Fallback: return all rows (first team alphabetically as team_a)
-            cursor.execute("SELECT week, team_b FROM league_schedule ORDER BY week")
+        if not user_row:
+            # No user team identified — return empty to let callers use fallback
+            return {}
 
+        user_team = user_row[0]
+        cursor.execute(
+            "SELECT week, team_b FROM league_schedule WHERE team_a = ? ORDER BY week",
+            (user_team,),
+        )
         rows = cursor.fetchall()
         return {int(row[0]): row[1] for row in rows}
     finally:

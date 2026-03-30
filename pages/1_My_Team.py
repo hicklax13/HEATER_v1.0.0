@@ -1007,46 +1007,52 @@ else:
                 matchup = yds.get_matchup()
                 if matchup and isinstance(matchup, dict):
                     _mw = matchup.get("week", "?")
-                    _mopp = matchup.get("opponent", "Unknown")
-                    _mu = matchup.get("user_stats", {})
-                    _mo = matchup.get("opp_stats", {})
+                    _mopp = matchup.get("opp_name", "Unknown")
+                    # Yahoo returns pre-computed wins/losses/ties + per-category list
+                    _wins = int(matchup.get("wins", 0))
+                    _losses = int(matchup.get("losses", 0))
+                    _ties = int(matchup.get("ties", 0))
+                    _cats = matchup.get("categories", [])
 
                     _match_rows = ""
-                    _wins = 0
-                    _losses = 0
-                    for _cat in ["R", "HR", "RBI", "SB", "AVG", "OBP", "W", "L", "SV", "K", "ERA", "WHIP"]:
-                        _uv = _mu.get(_cat)
-                        _ov = _mo.get(_cat)
-                        if _uv is None and _ov is None:
-                            continue
-                        _uv = float(_uv or 0)
-                        _ov = float(_ov or 0)
-                        # Determine who is winning (inverse cats: lower is better)
-                        _inv = _cat in ("L", "ERA", "WHIP")
-                        if _inv:
-                            _winning = _uv < _ov
-                            _losing = _uv > _ov
-                        else:
-                            _winning = _uv > _ov
-                            _losing = _uv < _ov
-                        if _winning:
-                            _wins += 1
+                    for _cdict in _cats:
+                        _cat = _cdict.get("cat", "")
+                        _yv_str = str(_cdict.get("you", "-"))
+                        _ov_str = str(_cdict.get("opp", "-"))
+                        _result = _cdict.get("result", "-")
+
+                        # Color based on result
+                        if _result == "WIN":
                             _color = T["green"]
-                        elif _losing:
-                            _losses += 1
+                        elif _result == "LOSS":
                             _color = T["danger"]
                         else:
                             _color = T["tx2"]
-                        _fmt = ".3f" if _cat in ("AVG", "OBP", "ERA", "WHIP") else ".0f"
+
+                        # Format numbers
+                        try:
+                            _yv = float(_yv_str) if _yv_str not in ("-", "") else None
+                            _ov = float(_ov_str) if _ov_str not in ("-", "") else None
+                        except (ValueError, TypeError):
+                            _yv = _ov = None
+
+                        if _yv is not None and _ov is not None:
+                            _fmt = ".3f" if _cat in ("AVG", "OBP", "ERA", "WHIP") else ".0f"
+                            _yv_display = f"{_yv:{_fmt}}"
+                            _ov_display = f"{_ov:{_fmt}}"
+                        else:
+                            _yv_display = _yv_str
+                            _ov_display = _ov_str
+
                         _match_rows += (
                             f'<div style="display:flex;justify-content:space-between;'
                             f'padding:1px 0;font-size:11px!important;font-family:IBM Plex Mono,monospace!important">'
                             f'<span style="color:{_color}!important;font-weight:600!important">'
-                            f"{_uv:{_fmt}}</span>"
+                            f"{_yv_display}</span>"
                             f'<span style="color:{T["tx2"]}!important">{_cat}</span>'
-                            f'<span style="color:{T["tx2"]}!important">{_ov:{_fmt}}</span></div>'
+                            f'<span style="color:{T["tx2"]}!important">{_ov_display}</span></div>'
                         )
-                    _ties = 12 - _wins - _losses
+
                     _header = (
                         f'<div style="text-align:center;font-size:10px!important;'
                         f'color:{T["tx2"]}!important;margin-bottom:4px!important">'

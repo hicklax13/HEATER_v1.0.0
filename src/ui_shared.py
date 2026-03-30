@@ -3228,6 +3228,8 @@ def render_data_freshness_card():
         "matchup": "Matchup",
         "free_agents": "Free Agents",
         "transactions": "Transactions",
+        "settings": "Settings",
+        "schedule": "Schedule",
     }
 
     for key, label in label_map.items():
@@ -3263,5 +3265,5 @@ def render_data_freshness_card():
             with st.spinner("Refreshing..."):
                 results = yds.force_refresh_all()
                 refreshed = sum(1 for v in results.values() if v == "Refreshed")
-                st.success(f"Refreshed {refreshed}/{len(results)} data sources")
+                st.toast(f"Refreshed {refreshed}/{len(results)} data sources")
                 st.rerun()

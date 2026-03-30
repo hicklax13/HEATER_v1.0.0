@@ -157,13 +157,14 @@ else:
                         _txr = _txns.iloc[_ti]
                         _txtype = str(_txr.get("type", "")).replace("_", " ").title()
                         _txplayer = str(_txr.get("player_name", ""))[:20]
-                        _txteam = str(_txr.get("team", ""))[:15]
+                        _txdest = str(_txr.get("team_to", ""))[:15]
+                        _txlabel = f"{_txtype} → {_txdest}" if _txdest else _txtype
                         _txn_rows += (
                             f'<div style="padding:2px 0;font-size:11px!important;'
                             f'font-family:IBM Plex Mono,monospace!important">'
                             f'<span style="color:{T["tx"]}!important;font-weight:600!important">'
                             f"{_txplayer}</span> "
-                            f'<span style="color:{T["tx2"]}!important">{_txtype}</span></div>'
+                            f'<span style="color:{T["tx2"]}!important">{_txlabel}</span></div>'
                         )
                     render_context_card("Recent Transactions", _txn_rows)
             except Exception:

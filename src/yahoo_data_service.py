@@ -408,6 +408,8 @@ class YahooDataService:
                 data = method(force_refresh=True)
                 if self._is_valid_data(data):
                     results[key] = "Refreshed"
+                elif key == "matchup" and data is None:
+                    results[key] = "No active matchup"
                 else:
                     results[key] = "Empty (no data available)"
             except Exception as exc:
@@ -468,27 +470,40 @@ class YahooDataService:
     # ------------------------------------------------------------------
 
     def _fetch_and_sync_rosters(self) -> pd.DataFrame:
-        """Fetch rosters from Yahoo and write-through to SQLite."""
-        # Use the client's existing sync_to_db() which handles the
-        # complex player ID resolution, team metadata, and ownership
-        # trends. This is the most reliable path.
-        self._client.sync_to_db()
+        """Fetch rosters from Yahoo and write-through to SQLite.
 
-        # After sync, load from DB to get the enriched/resolved data
-        from src.database import load_league_rosters, update_refresh_log
+        Uses ``sync_to_db()`` which does ``clear_league_rosters()`` + re-insert.
+        Checks ``refresh_log`` to avoid racing with the bootstrap pipeline —
+        if data was synced within the last 5 minutes, skip the expensive sync
+        and just return the DB data.
+        """
+        from src.database import check_staleness, load_league_rosters, update_refresh_log
+
+        # Guard: skip sync if bootstrap or another YDS call just ran
+        if not check_staleness("yahoo_data", max_age_hours=5 / 60):
+            return load_league_rosters()
+
+        self._client.sync_to_db()
 
         update_refresh_log("yahoo_data", "success")
         return load_league_rosters()
 
     def _fetch_and_sync_standings(self) -> pd.DataFrame:
-        """Fetch standings from Yahoo and write-through to SQLite."""
-        from src.database import update_refresh_log, upsert_league_standing
+        """Fetch standings from Yahoo, write-through to SQLite, return long-format.
+
+        Yahoo returns wide-format (columns: team_name, rank, r, hr, ...).
+        Pages expect long-format (columns: team_name, category, total, rank).
+        We write-through to SQLite then re-read in long-format — same pattern
+        as ``_fetch_and_sync_rosters``. This ensures all code paths get the
+        same schema regardless of whether data came from cache or DB.
+        """
+        from src.database import load_league_standings, update_refresh_log, upsert_league_standing
 
         standings_df = self._client.get_league_standings()
         if standings_df.empty:
             return standings_df
 
-        # Write-through to SQLite (same logic as sync_to_db)
+        # Write-through to SQLite (wide -> long conversion)
         meta_cols = {"team_name", "team_key", "rank"}
         cat_cols = [c for c in standings_df.columns if c not in meta_cols]
         for _, row in standings_df.iterrows():
@@ -503,7 +518,8 @@ class YahooDataService:
                 )
 
         update_refresh_log("yahoo_standings", "success")
-        return standings_df
+        # Return long-format from DB so all consumers get consistent schema
+        return load_league_standings()
 
     def _fetch_matchup(self) -> dict | None:
         """Fetch current matchup from Yahoo."""

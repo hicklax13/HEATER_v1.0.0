@@ -82,6 +82,7 @@ src/
   injury_model.py       — Health scores, age-risk curves, injury-adjusted projections
   lineup_optimizer.py   — PuLP LP solver for lineup optimization
   yahoo_api.py          — Yahoo Fantasy API OAuth integration via yfpy
+  yahoo_data_service.py — Live-first data layer: 3-tier cache (session_state → Yahoo → SQLite)
   data_pipeline.py      — FanGraphs auto-fetch (Steamer/ZiPS/Depth Charts)
   draft_engine.py       — DraftRecommendationEngine (3-mode, 8-stage pipeline)
   draft_analytics.py    — Category balance, opportunity cost, BUY/FAIR/AVOID
@@ -179,10 +180,27 @@ CSS classes: `.reco-banner`, `.context-card`, `.compact-table`, `.th-hit`/`.th-p
 
 Sidebar is collapsed by default on all pages (hamburger menu for nav only).
 
+### Yahoo Data Service (Live-First Architecture)
+All league data flows through `src/yahoo_data_service.py`, a three-tier cache:
+1. **Tier 1: `st.session_state`** — survives Streamlit reruns, ~0ms latency
+2. **Tier 2: Yahoo Fantasy API** — live source of truth, 0.5s per call
+3. **Tier 3: SQLite fallback** — used when Yahoo is offline
+
+TTLs: Rosters 30m, Standings 30m, Matchup 5m, Free Agents 1h, Transactions 15m, Settings/Schedule 24h.
+
+Write-through: every Yahoo fetch writes to SQLite so un-migrated code (trade engine, league_manager) automatically gets fresher data.
+
+Singleton accessor: `get_yahoo_data_service()` stored in `st.session_state["_yahoo_data_service"]`.
+
+Pages wired: My Team, Trade Analyzer, Free Agents, Lineup Optimizer, Standings, Trade Finder, Matchup Planner.
+
+New UI features: live matchup score card (My Team), recent transactions feed (Trade Analyzer), data freshness widget (My Team, Trade Analyzer, Standings).
+
 ### Bootstrap Pipeline
 - Every app launch: splash screen → `bootstrap_all_data()` with staleness-based refresh
 - Staleness thresholds: 1h live stats, 6h Yahoo, 7d players/projections, 30d historical/park factors
 - Phase order: players → park factors → projections → live stats → historical → injury → Yahoo
+- Bootstrap primes the SQLite cache; the YahooDataService handles ongoing freshness per-page
 
 ### Database Tables (21)
 
@@ -199,6 +217,28 @@ Sidebar is collapsed by default on all pages (hamburger menu for nav only).
 Only the commonly-misused ones. For others, read the source files.
 
 ```python
+# YahooDataService (src/yahoo_data_service.py) — singleton accessor
+from src.yahoo_data_service import get_yahoo_data_service
+yds = get_yahoo_data_service()  # creates or retrieves from session_state
+yds.get_rosters(force_refresh=False) -> pd.DataFrame     # 30min TTL
+yds.get_standings(force_refresh=False) -> pd.DataFrame    # 30min TTL
+yds.get_matchup(force_refresh=False) -> dict | None       # 5min TTL
+yds.get_free_agents(max_players=500) -> pd.DataFrame      # 1hr TTL
+yds.get_transactions(force_refresh=False) -> pd.DataFrame # 15min TTL
+yds.get_schedule(force_refresh=False) -> dict             # 24hr TTL
+yds.get_opponent_profile(team_name) -> dict               # from live standings
+yds.force_refresh_all() -> dict[str, str]                 # invalidate + refetch
+yds.get_data_freshness() -> dict[str, str]                # "Live (2m ago)" per key
+yds.is_connected() -> bool                                # Yahoo auth status
+
+# Freshness widget (src/ui_shared.py) — call inside context column
+from src.ui_shared import render_data_freshness_card
+render_data_freshness_card()  # shows badges + "Refresh All" button
+
+# Opponent intel with live data (src/opponent_intel.py)
+get_current_opponent(yds=yds)       # live schedule + profile when yds provided
+get_opponent_for_week(week, yds=yds)  # same, for specific week
+
 # STANDALONE functions in src/valuation.py — NOT methods on SGPCalculator
 compute_replacement_levels(pool, config, sgp_calc)   # valuation.py
 compute_sgp_denominators(pool, config)                # valuation.py
@@ -346,7 +386,7 @@ get_injury_badge(health_score) -> tuple[str, str]  # returns <span> with CSS dot
 
 ## Testing
 
-- **2022 passing tests** across 83+ test files, 4 skipped (PyMC/xgboost optional deps)
+- **2118 passing tests** across 84+ test files, 4 skipped (PyMC/xgboost optional deps)
 - **CI:** GitHub Actions — ruff lint/format + pytest on Python 3.11, 3.12, 3.13
 - **Coverage:** 64% (above 60% CI threshold)
 - **8 rounds of systematic debugging** (207 bugs fixed) + **data pipeline audit** (32 issues fixed), all CI green
