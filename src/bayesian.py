@@ -495,3 +495,408 @@ def _safe_val(row: pd.Series, col: str, default: float = 0.0) -> float:
         return float(val)
     except (ValueError, TypeError):
         return default
+
+
+# ── Integrated ROS Projection Updater ────────────────────────────────
+
+# Marcel season weights: most recent = highest
+_MARCEL_WEIGHTS: dict[int, int] = {2026: 5, 2025: 4, 2024: 3}
+
+# Hitting counting stats (per-PA rates)
+_HITTING_COUNTING = ["r", "hr", "rbi", "sb"]
+# Hitting rate stats (direct regression)
+_HITTING_RATES = ["avg", "obp"]
+# Pitching counting stats (per-IP rates)
+_PITCHING_COUNTING = ["w", "l", "sv", "k"]
+# Pitching rate stats (direct regression)
+_PITCHING_RATES = ["era", "whip"]
+
+# Stabilization keys for counting-stat rates
+_COUNT_STAB_KEYS: dict[str, str] = {
+    "r": "r_rate",
+    "hr": "hr_rate",
+    "rbi": "rbi_rate",
+    "sb": "sb_rate",
+    "w": "k_rate_pitch",  # ~70 IP for pitcher counting
+    "l": "k_rate_pitch",
+    "sv": "k_rate_pitch",
+    "k": "k_rate_pitch",
+}
+
+
+def _compute_age(birth_date_str: str | None, reference_year: int = 2026) -> int | None:
+    """Compute age from birth_date string (YYYY-MM-DD)."""
+    if not birth_date_str or not isinstance(birth_date_str, str):
+        return None
+    try:
+        parts = birth_date_str.split("-")
+        birth_year = int(parts[0])
+        if birth_year < 1970 or birth_year > 2010:
+            return None
+        return reference_year - birth_year
+    except (ValueError, IndexError):
+        return None
+
+
+def update_ros_projections() -> int:
+    """Integrated Bayesian ROS projection updater.
+
+    Orchestrates a 3-layer pipeline to produce rest-of-season projections
+    for every player in the database:
+
+    Layer 1 — Marcel-weighted historical prior (2024/2025/2026 at 3/4/5)
+    Layer 2 — Blend with expert projections (reliability-weighted)
+    Layer 3 — Regress 2026 observed stats toward blended prior (stabilization)
+    Output  — ROS = updated full-season projection minus 2026 YTD
+
+    Returns:
+        Number of ROS projections written to the database.
+    """
+    from src.database import get_connection, update_refresh_log
+
+    conn = get_connection()
+    try:
+        # ── Step 1: Load all data ────────────────────────────────────
+        season_stats = pd.read_sql_query(
+            "SELECT * FROM season_stats WHERE season IN (2024, 2025, 2026)",
+            conn,
+        )
+        projections = pd.read_sql_query(
+            "SELECT * FROM projections WHERE system = 'blended'",
+            conn,
+        )
+        players = pd.read_sql_query(
+            "SELECT player_id, birth_date, positions FROM players",
+            conn,
+        )
+
+        if projections.empty:
+            logger.warning("No blended projections found — cannot update ROS.")
+            return 0
+
+        # Coerce numeric columns
+        for df in (season_stats, projections):
+            for col in df.columns:
+                if col not in ("system", "last_updated", "updated_at", "birth_date", "positions"):
+                    df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+
+        updater = BayesianUpdater()
+
+        # Index projections by player_id for fast lookup
+        proj_by_pid = projections.set_index("player_id")
+
+        # Split season stats by year
+        stats_by_year: dict[int, pd.DataFrame] = {}
+        for year in (2024, 2025, 2026):
+            yr_df = season_stats[season_stats["season"] == year].copy()
+            if not yr_df.empty:
+                yr_df = yr_df.drop_duplicates(subset=["player_id"], keep="first")
+                stats_by_year[year] = yr_df.set_index("player_id")
+
+        # Build age lookup
+        age_lookup: dict[int, int | None] = {}
+        for _, p in players.iterrows():
+            age_lookup[int(p["player_id"])] = _compute_age(
+                p.get("birth_date") if not pd.isna(p.get("birth_date")) else None
+            )
+
+        # Determine if a player is a pitcher from the players table
+        pitcher_pids: set[int] = set()
+        for _, p in players.iterrows():
+            pos = str(p.get("positions", ""))
+            if pos and any(pp in pos for pp in ("SP", "RP")):
+                pitcher_pids.add(int(p["player_id"]))
+
+        # ── Step 2-7: Process each player ────────────────────────────
+        ros_rows: list[dict] = []
+        all_pids = set(proj_by_pid.index)
+
+        for pid in all_pids:
+            proj_row = proj_by_pid.loc[pid]
+            is_pitcher = pid in pitcher_pids
+
+            # Determine volume basis (PA for hitters, IP for pitchers)
+            proj_pa = float(proj_row.get("pa", 0) or 0)
+            proj_ip = float(proj_row.get("ip", 0) or 0)
+
+            # ── Layer 1: Marcel-weighted historical prior ────────────
+            # Accumulate weighted stats across 2024/2025/2026
+            marcel_hitting = _build_marcel_prior(
+                pid, stats_by_year, _HITTING_COUNTING, _HITTING_RATES, "pa", is_rate_ip=False
+            )
+            marcel_pitching = _build_marcel_prior(
+                pid, stats_by_year, _PITCHING_COUNTING, _PITCHING_RATES, "ip", is_rate_ip=True
+            )
+
+            # ── Layer 2: Blend historical with expert projections ────
+            if not is_pitcher and proj_pa > 0:
+                blended = _blend_with_projection(
+                    marcel_hitting, proj_row, _HITTING_COUNTING, _HITTING_RATES, "pa"
+                )
+            else:
+                blended = {}
+            if is_pitcher or proj_ip > 0:
+                blended.update(
+                    _blend_with_projection(
+                        marcel_pitching, proj_row, _PITCHING_COUNTING, _PITCHING_RATES, "ip"
+                    )
+                )
+
+            # ── Layer 3: Age adjustment ──────────────────────────────
+            age = age_lookup.get(pid)
+            if age is not None:
+                for stat in _HITTING_COUNTING + _PITCHING_COUNTING:
+                    rate_key = f"{stat}_rate"
+                    if rate_key in blended:
+                        blended[rate_key] *= updater.age_adjustment(age, stat)
+                for stat in _HITTING_RATES + _PITCHING_RATES:
+                    if stat in blended:
+                        mult = updater.age_adjustment(age, stat)
+                        if stat in ("era", "whip"):
+                            # Inverse: aging makes ERA/WHIP worse (higher)
+                            blended[stat] = blended[stat] / mult if mult > 0 else blended[stat]
+                        else:
+                            blended[stat] *= mult
+
+            # ── Layer 4: Regress 2026 observed toward blended prior ──
+            stats_2026 = stats_by_year.get(2026)
+            obs_pa = 0
+            obs_ip = 0.0
+            if stats_2026 is not None and pid in stats_2026.index:
+                obs = stats_2026.loc[pid]
+                obs_pa = int(float(obs.get("pa", 0) or 0))
+                obs_ip = float(obs.get("ip", 0) or 0)
+            else:
+                obs = None
+
+            # Rate stats: regress observed toward blended prior
+            updated_rates: dict[str, float] = {}
+
+            if not is_pitcher and proj_pa > 0:
+                for stat in _HITTING_RATES:
+                    prior = blended.get(stat, float(proj_row.get(stat, 0) or 0))
+                    observed = float(obs.get(stat, 0) or 0) if obs is not None else 0
+                    stab = STABILIZATION_POINTS.get(stat, 460)
+                    updated_rates[stat] = updater.regressed_rate_with_prior(
+                        observed, obs_pa, prior, stab
+                    )
+
+                for stat in _HITTING_COUNTING:
+                    prior_rate = blended.get(f"{stat}_rate", 0)
+                    if obs is not None and obs_pa > 0:
+                        obs_rate = float(obs.get(stat, 0) or 0) / obs_pa
+                    else:
+                        obs_rate = 0
+                    stab_key = _COUNT_STAB_KEYS.get(stat, "r_rate")
+                    stab = STABILIZATION_POINTS.get(stab_key, 200)
+                    updated_rates[f"{stat}_rate"] = updater.regressed_rate_with_prior(
+                        obs_rate, obs_pa, prior_rate, stab
+                    )
+
+            if is_pitcher or proj_ip > 0:
+                for stat in _PITCHING_RATES:
+                    prior = blended.get(stat, float(proj_row.get(stat, 0) or 0))
+                    observed = float(obs.get(stat, 0) or 0) if obs is not None else 0
+                    stab = STABILIZATION_POINTS.get(stat, 70)
+                    updated_rates[stat] = updater.regressed_rate_with_prior(
+                        observed, int(obs_ip), prior, stab
+                    )
+
+                for stat in _PITCHING_COUNTING:
+                    prior_rate = blended.get(f"{stat}_rate", 0)
+                    if obs is not None and obs_ip > 0:
+                        obs_rate = float(obs.get(stat, 0) or 0) / obs_ip
+                    else:
+                        obs_rate = 0
+                    stab_key = _COUNT_STAB_KEYS.get(stat, "k_rate_pitch")
+                    stab = STABILIZATION_POINTS.get(stab_key, 70)
+                    updated_rates[f"{stat}_rate"] = updater.regressed_rate_with_prior(
+                        obs_rate, int(obs_ip), prior_rate, stab
+                    )
+
+            # ── Layer 5: Project full-season then compute ROS ────────
+            row_out: dict = {"player_id": pid, "system": "ros_bayesian"}
+
+            if not is_pitcher and proj_pa > 0:
+                remaining_pa = max(0, proj_pa - obs_pa)
+                obs_ab = int(float(obs.get("ab", 0) or 0)) if obs is not None else 0
+                proj_ab = int(float(proj_row.get("ab", 0) or 0))
+                remaining_ab = max(0, proj_ab - obs_ab)
+
+                row_out["avg"] = round(updated_rates.get("avg", float(proj_row.get("avg", 0) or 0)), 3)
+                row_out["obp"] = round(updated_rates.get("obp", float(proj_row.get("obp", 0) or 0)), 3)
+                row_out["pa"] = int(remaining_pa)
+                row_out["ab"] = int(remaining_ab)
+                row_out["h"] = int(row_out["avg"] * remaining_ab) if remaining_ab > 0 else 0
+
+                for stat in _HITTING_COUNTING:
+                    rate = updated_rates.get(f"{stat}_rate", 0)
+                    obs_val = int(float(obs.get(stat, 0) or 0)) if obs is not None else 0
+                    full_season = obs_val + int(rate * remaining_pa)
+                    ros_val = max(0, full_season - obs_val)
+                    row_out[stat] = ros_val
+
+            if is_pitcher or proj_ip > 0:
+                remaining_ip = max(0.0, proj_ip - obs_ip)
+                row_out["ip"] = round(remaining_ip, 1)
+                row_out["era"] = round(updated_rates.get("era", float(proj_row.get("era", 0) or 0)), 2)
+                row_out["whip"] = round(updated_rates.get("whip", float(proj_row.get("whip", 0) or 0)), 2)
+
+                for stat in _PITCHING_COUNTING:
+                    rate = updated_rates.get(f"{stat}_rate", 0)
+                    ros_val = max(0, int(rate * remaining_ip))
+                    row_out[stat] = ros_val
+
+                if remaining_ip > 0:
+                    row_out["er"] = int(row_out.get("era", 0) * remaining_ip / 9)
+                    total_br = row_out.get("whip", 0) * remaining_ip
+                    row_out["bb_allowed"] = int(total_br * 0.35)
+                    row_out["h_allowed"] = int(total_br * 0.65)
+                else:
+                    row_out["er"] = 0
+                    row_out["bb_allowed"] = 0
+                    row_out["h_allowed"] = 0
+
+            # Copy advanced metrics from projections unchanged
+            for col in ("fip", "xfip", "siera"):
+                row_out.setdefault(col, float(proj_row.get(col, 0) or 0))
+
+            ros_rows.append(row_out)
+
+        # ── Step 8: Write to database ────────────────────────────────
+        if not ros_rows:
+            logger.warning("No ROS projections computed.")
+            return 0
+
+        ros_df = pd.DataFrame(ros_rows)
+
+        conn.execute("DELETE FROM ros_projections WHERE system = 'ros_bayesian'")
+
+        # Build INSERT statement matching table columns
+        insert_cols = [
+            "player_id", "system", "pa", "ab", "h", "r", "hr", "rbi", "sb",
+            "avg", "obp", "ip", "w", "l", "sv", "k", "era", "whip",
+            "er", "bb_allowed", "h_allowed", "fip", "xfip", "siera",
+        ]
+        for col in insert_cols:
+            if col not in ros_df.columns:
+                ros_df[col] = 0
+
+        placeholders = ", ".join(["?"] * len(insert_cols))
+        col_str = ", ".join(insert_cols)
+        for _, row in ros_df.iterrows():
+            values = [row.get(c, 0) for c in insert_cols]
+            conn.execute(f"INSERT INTO ros_projections ({col_str}) VALUES ({placeholders})", values)
+
+        conn.commit()
+        update_refresh_log("ros_projections", "success")
+        logger.info("Updated %d ROS Bayesian projections.", len(ros_rows))
+        return len(ros_rows)
+
+    except Exception:
+        logger.exception("Failed to update ROS projections.")
+        try:
+            update_refresh_log("ros_projections", "error")
+        except Exception:
+            pass
+        return 0
+    finally:
+        conn.close()
+
+
+def _build_marcel_prior(
+    pid: int,
+    stats_by_year: dict[int, pd.DataFrame],
+    counting_stats: list[str],
+    rate_stats: list[str],
+    volume_col: str,
+    is_rate_ip: bool = False,
+) -> dict[str, float]:
+    """Build a Marcel-weighted prior from 2024/2025/2026 historical stats.
+
+    Returns dict with rate stat values and counting stat per-PA/IP rates.
+    """
+    result: dict[str, float] = {}
+    total_weighted_vol = 0.0
+
+    # Accumulate weighted volumes for counting rate computation
+    weighted_counting: dict[str, float] = {s: 0.0 for s in counting_stats}
+    weighted_rate_num: dict[str, float] = {s: 0.0 for s in rate_stats}
+    weighted_rate_den: dict[str, float] = {s: 0.0 for s in rate_stats}
+
+    for year, weight in _MARCEL_WEIGHTS.items():
+        yr_stats = stats_by_year.get(year)
+        if yr_stats is None or pid not in yr_stats.index:
+            continue
+
+        row = yr_stats.loc[pid]
+        vol = float(row.get(volume_col, 0) or 0)
+        if vol <= 0:
+            continue
+
+        weighted_vol = vol * weight
+        total_weighted_vol += weighted_vol
+
+        # Counting stats: accumulate weighted raw values
+        for stat in counting_stats:
+            val = float(row.get(stat, 0) or 0)
+            weighted_counting[stat] += val * weight
+
+        # Rate stats: accumulate for weighted average
+        # For AVG: weighted by AB; for ERA: weighted by IP
+        for stat in rate_stats:
+            val = float(row.get(stat, 0) or 0)
+            if val > 0:
+                weighted_rate_num[stat] += val * weighted_vol
+                weighted_rate_den[stat] += weighted_vol
+
+    if total_weighted_vol > 0:
+        result["total_weighted_vol"] = total_weighted_vol
+        for stat in counting_stats:
+            result[f"{stat}_rate"] = weighted_counting[stat] / total_weighted_vol
+        for stat in rate_stats:
+            if weighted_rate_den[stat] > 0:
+                result[stat] = weighted_rate_num[stat] / weighted_rate_den[stat]
+
+    return result
+
+
+def _blend_with_projection(
+    marcel: dict[str, float],
+    proj_row: pd.Series,
+    counting_stats: list[str],
+    rate_stats: list[str],
+    volume_col: str,
+) -> dict[str, float]:
+    """Blend Marcel historical prior with expert projection.
+
+    Uses reliability weighting: trust historical data proportional to
+    total weighted PA/IP (caps at ~2 full seasons = 1200 PA or 400 IP).
+    """
+    result: dict[str, float] = {}
+    total_vol = marcel.get("total_weighted_vol", 0)
+
+    # Reliability threshold: 1200 PA for hitters, 400 IP for pitchers
+    threshold = 400.0 if volume_col == "ip" else 1200.0
+    reliability = min(1.0, total_vol / threshold) if total_vol > 0 else 0.0
+
+    proj_vol = float(proj_row.get(volume_col, 0) or 0)
+
+    for stat in rate_stats:
+        marcel_val = marcel.get(stat)
+        proj_val = float(proj_row.get(stat, 0) or 0)
+        if marcel_val is not None and reliability > 0:
+            result[stat] = reliability * marcel_val + (1 - reliability) * proj_val
+        else:
+            result[stat] = proj_val
+
+    for stat in counting_stats:
+        marcel_rate = marcel.get(f"{stat}_rate")
+        proj_val = float(proj_row.get(stat, 0) or 0)
+        proj_rate = proj_val / proj_vol if proj_vol > 0 else 0
+        if marcel_rate is not None and reliability > 0:
+            result[f"{stat}_rate"] = reliability * marcel_rate + (1 - reliability) * proj_rate
+        else:
+            result[f"{stat}_rate"] = proj_rate
+
+    return result

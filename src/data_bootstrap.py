@@ -975,6 +975,25 @@ def bootstrap_all_data(
             logger.warning("Yahoo FA fetch failed: %s", exc)
             results["yahoo_free_agents"] = f"Error: {exc}"
 
+    # Phase 19: ROS Bayesian projections (depends on live stats + projections)
+    _notify(0.965)
+    if force or check_staleness("ros_projections", staleness.live_stats_hours):
+        progress.phase = "ROS Projections"
+        progress.detail = "Updating Bayesian rest-of-season projections..."
+        if on_progress:
+            on_progress(progress)
+        try:
+            from src.bayesian import update_ros_projections
+
+            ros_count = update_ros_projections()
+            results["ros_projections"] = f"Updated {ros_count} ROS projections"
+            logger.info("ROS Bayesian projections: %d updated", ros_count)
+        except Exception as exc:
+            logger.warning("ROS projection update failed: %s", exc)
+            results["ros_projections"] = f"Error: {exc}"
+    else:
+        results["ros_projections"] = "Fresh"
+
     # Post-bootstrap validation (BUG-010 / data quality logging)
     try:
         conn = get_connection()
