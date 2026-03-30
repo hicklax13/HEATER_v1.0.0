@@ -282,7 +282,7 @@ def main():
         render_page_layout("TRADE FINDER", banner_teaser="No profitable trades found at this time.")
 
     # ── Context + Main columns ────────────────────────────────────────
-    ctx, main_col = render_context_columns(context_width=20)
+    ctx, main_col = render_context_columns()
 
     with ctx:
         # Team needs summary
