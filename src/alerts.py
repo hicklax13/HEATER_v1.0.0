@@ -44,8 +44,13 @@ def generate_roster_alerts(
         top_fills_str = ""
         if fa_pool is not None and not fa_pool.empty and user_roster_ids is not None and player_pool is not None:
             try:
+                from src.database import get_all_rostered_player_ids
                 from src.in_season import rank_free_agents
 
+                # Ensure fa_pool only contains true free agents (not opponents' players)
+                _all_rostered = get_all_rostered_player_ids()
+                if _all_rostered:
+                    fa_pool = fa_pool[~fa_pool["player_id"].isin(_all_rostered)]
                 ranked = rank_free_agents(user_roster_ids, fa_pool, player_pool)
                 if not ranked.empty:
                     top3 = ranked.head(3)

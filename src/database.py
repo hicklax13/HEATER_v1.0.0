@@ -1079,6 +1079,26 @@ def load_league_rosters() -> pd.DataFrame:
     return coerce_numeric_df(df)
 
 
+def get_all_rostered_player_ids(league_rosters_df: pd.DataFrame | None = None) -> set:
+    """Return set of all player IDs rostered by any team in the league.
+
+    Use this to filter player pools down to true free agents. Covers all
+    12 teams, not just the user's team.
+
+    Args:
+        league_rosters_df: Optional pre-loaded league_rosters DataFrame.
+            If None, loads from database via ``load_league_rosters()``.
+
+    Returns:
+        Set of player_id values on any team roster.
+    """
+    if league_rosters_df is None:
+        league_rosters_df = load_league_rosters()
+    if league_rosters_df.empty:
+        return set()
+    return set(league_rosters_df["player_id"].dropna().values)
+
+
 def load_league_standings() -> pd.DataFrame:
     """Load all league standings as a DataFrame."""
     conn = get_connection()

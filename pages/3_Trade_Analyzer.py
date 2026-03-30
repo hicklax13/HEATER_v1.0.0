@@ -206,15 +206,16 @@ else:
                 if other_team_pids:
                     other_players = pool[pool["player_id"].isin(other_team_pids)]
                 else:
-                    # Fallback: top 500 players by projected value (not all 9K)
-                    stat_cols = ["hr", "r", "rbi", "sb", "w", "sv", "k"]
-                    available_cols = [c for c in stat_cols if c in pool.columns]
-                    if available_cols:
-                        pool_sorted = pool.copy()
-                        pool_sorted["_sort_val"] = pool_sorted[available_cols].sum(axis=1)
-                        pool_sorted = pool_sorted.sort_values("_sort_val", ascending=False)
-                        other_players = pool_sorted[~pool_sorted["player_id"].isin(user_roster_ids)].head(500)
+                    # Fallback: show only players on OTHER teams' rosters
+                    # (you can only trade for players someone owns)
+                    from src.database import get_all_rostered_player_ids
+
+                    _all_rostered = get_all_rostered_player_ids(rosters)
+                    _other_team_ids = _all_rostered - set(user_roster_ids)
+                    if _other_team_ids:
+                        other_players = pool[pool["player_id"].isin(_other_team_ids)]
                     else:
+                        # No rosters loaded at all — show top players as last resort
                         other_players = pool[~pool["player_id"].isin(user_roster_ids)].head(500)
 
                 receive_options = sorted(other_players["player_name"].dropna().unique().tolist())

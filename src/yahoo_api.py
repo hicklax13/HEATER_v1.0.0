@@ -686,8 +686,27 @@ class YahooFantasyClient:
                     "team_key": str(self._safe_attr(team, "team_key", "")),
                     "rank": rank_val,
                 }
+
+                # Extract H2H record from team_standings.outcome_totals
+                team_standings = self._safe_attr(team, "team_standings")
+                if team_standings:
+                    outcome = self._safe_attr(team_standings, "outcome_totals")
+                    if outcome:
+                        row["wins"] = float(self._safe_attr(outcome, "wins", 0) or 0)
+                        row["losses"] = float(self._safe_attr(outcome, "losses", 0) or 0)
+                        row["ties"] = float(self._safe_attr(outcome, "ties", 0) or 0)
+                        row["percentage"] = float(self._safe_attr(outcome, "percentage", 0) or 0)
+                    row["points_for"] = float(self._safe_attr(team_standings, "points_for", 0) or 0)
+                    row["points_against"] = float(self._safe_attr(team_standings, "points_against", 0) or 0)
+
+                    streak = self._safe_attr(team_standings, "streak")
+                    if streak:
+                        s_type = self._safe_str(self._safe_attr(streak, "type", ""))
+                        s_val = self._safe_attr(streak, "value", 0)
+                        row["streak"] = f"{s_type}{s_val}" if s_type else ""
+
                 # Extract per-category stat values from team_stats
-                # (may be None pre-season when no games have been played)
+                # (may be None early in the season when no games have been played)
                 team_stats = self._safe_attr(team, "team_stats")
                 if team_stats:
                     for s in getattr(team_stats, "stats", []):
@@ -923,11 +942,15 @@ class YahooFantasyClient:
         league_key = f"{self._query.game_id}.l.{self.league_id}"
         headers = {"Authorization": f"Bearer {access_token}"}
 
+        # Aggregate position sets for "B" (batter) / "P" (pitcher) filters
+        _BATTER_POSITIONS = {"C", "1B", "2B", "3B", "SS", "LF", "CF", "RF", "OF", "DH", "Util"}
+        _PITCHER_POSITIONS = {"SP", "RP", "P"}
+
         try:
             url = (
                 f"https://fantasysports.yahooapis.com/fantasy/v2/league/"
                 f"{league_key}/players;status=FA;count={count};start={start}"
-                f";sort=OR?format=json"
+                f";sort=OR;out=percent_owned?format=json"
             )
             _rate_limit()
             resp = _requests.get(url, headers=headers, timeout=15)
@@ -946,7 +969,9 @@ class YahooFantasyClient:
                 p = players_obj.get(str(i), {}).get("player", [])
                 if not p:
                     continue
-                info = p[0]  # List of player info dicts
+                # p[0] = list of player info dicts
+                # p[1..N] = subresources (starting_status, percent_owned)
+                info = p[0] if isinstance(p[0], list) else []
                 name = pos = team_abbr = player_key = ""
                 for item in info:
                     if isinstance(item, dict):
@@ -962,9 +987,31 @@ class YahooFantasyClient:
                 if not name:
                     continue
 
-                # Position filter
-                if position and position not in pos.split(","):
-                    continue
+                # Parse percent_owned from subresources (p[1], p[2], ...)
+                pct_owned = 0.0
+                for sub in p[1:]:
+                    if isinstance(sub, dict) and "percent_owned" in sub:
+                        po_data = sub["percent_owned"]
+                        if isinstance(po_data, list):
+                            for po_item in po_data:
+                                if isinstance(po_item, dict) and "value" in po_item:
+                                    pct_owned = float(po_item["value"])
+                        elif isinstance(po_data, dict):
+                            pct_owned = float(po_data.get("value", 0))
+
+                # Position filter — supports exact codes ("SS") and
+                # aggregate filters ("B" for all batters, "P" for all pitchers)
+                if position:
+                    pos_set = {p.strip() for p in pos.split(",")}
+                    pos_upper = position.upper()
+                    if pos_upper == "B":
+                        if not pos_set & _BATTER_POSITIONS:
+                            continue
+                    elif pos_upper == "P":
+                        if not pos_set & _PITCHER_POSITIONS:
+                            continue
+                    elif position not in pos_set:
+                        continue
 
                 rows.append(
                     {
@@ -972,7 +1019,7 @@ class YahooFantasyClient:
                         "player_key": player_key,
                         "positions": pos,
                         "team": team_abbr,
-                        "percent_owned": 0.0,  # Yahoo FA default sort doesn't include pct
+                        "percent_owned": pct_owned,
                     }
                 )
 
@@ -1371,3 +1418,221 @@ class YahooFantasyClient:
             update_refresh_log("yahoo_rosters", "error")
 
         return counts
+
+    # ------------------------------------------------------------------
+    # Matchup scoreboard
+    # ------------------------------------------------------------------
+
+    # Yahoo stat_id → category abbreviation (from league settings)
+    _STAT_ID_MAP: dict[str, str] = {
+        "7": "R",
+        "12": "HR",
+        "13": "RBI",
+        "16": "SB",
+        "3": "AVG",
+        "4": "OBP",
+        "28": "W",
+        "29": "L",
+        "32": "SV",
+        "42": "K",
+        "26": "ERA",
+        "27": "WHIP",
+    }
+    _INVERSE_CATS: set[str] = {"L", "ERA", "WHIP"}
+    _ALL_CATS: list[str] = ["R", "HR", "RBI", "SB", "AVG", "OBP", "W", "L", "SV", "K", "ERA", "WHIP"]
+
+    def _get_team_week_stats_raw(self, team_key: str, week: int) -> tuple[dict[str, str], float]:
+        """Fetch per-category stats for a team/week via Yahoo REST API.
+
+        yfpy's ``get_team_stats_by_week()`` crashes on completed weeks because
+        the response lacks ``team_projected_points``.  This method calls the
+        Yahoo REST API directly with the OAuth bearer token to bypass the
+        yfpy parsing bug.
+
+        Args:
+            team_key: Full Yahoo team key (e.g. ``"469.l.109662.t.9"``).
+            week: Scoring week number.
+
+        Returns:
+            Tuple of (stats_dict, category_points) where stats_dict maps
+            category abbreviations like ``"R"`` to string values, and
+            category_points is the total H2H category wins for the week.
+        """
+        stats: dict[str, str] = {}
+        points: float = 0.0
+
+        # Extract bearer token from yfpy's internal state
+        token = ""
+        refreshed = getattr(self._query, "_yahoo_access_token_dict", None)
+        if refreshed and refreshed.get("access_token"):
+            token = refreshed["access_token"]
+        if not token:
+            # Fallback: read from disk
+            token_file = _AUTH_DIR / "yahoo_token.json"
+            if token_file.exists():
+                import json
+
+                saved = json.loads(token_file.read_text(encoding="utf-8"))
+                token = saved.get("access_token", "")
+        if not token:
+            logger.warning("No bearer token available for raw API call.")
+            return stats, points
+
+        url = (
+            f"https://fantasysports.yahooapis.com/fantasy/v2/team/"
+            f"{team_key}/stats;type=week;week={week}?format=json"
+        )
+        try:
+            _rate_limit()
+            resp = _requests.get(url, headers={"Authorization": f"Bearer {token}"}, timeout=15)
+            if resp.status_code != 200:
+                logger.warning("Yahoo raw API returned %d for %s week %d", resp.status_code, team_key, week)
+                return stats, points
+
+            team_data = resp.json().get("fantasy_content", {}).get("team", [])
+            if isinstance(team_data, list):
+                for item in team_data:
+                    if not isinstance(item, dict):
+                        continue
+                    if "team_stats" in item:
+                        for entry in item["team_stats"].get("stats", []):
+                            stat = entry.get("stat", {})
+                            sid = str(stat.get("stat_id", ""))
+                            val = str(stat.get("value", ""))
+                            if sid in self._STAT_ID_MAP:
+                                stats[self._STAT_ID_MAP[sid]] = val
+                    if "team_points" in item:
+                        points = float(item["team_points"].get("total", 0))
+        except Exception:
+            logger.exception("Raw Yahoo API call failed for %s week %d", team_key, week)
+
+        return stats, points
+
+    def get_current_matchup(self) -> dict | None:
+        """Fetch the user's current (or most recent) weekly matchup with scores.
+
+        Returns a dict with keys:
+            week, status, user_name, opp_name, wins, losses, ties,
+            categories (list of dicts), user_points, opp_points.
+        Returns None on error or if not authenticated.
+        """
+        if not self._ensure_auth():
+            return None
+
+        try:
+            # Determine current week
+            from datetime import UTC, datetime
+
+            today = datetime.now(UTC).strftime("%Y-%m-%d")
+            current_week = 1
+            try:
+                _rate_limit()
+                weeks = self._query.get_game_weeks_by_game_id(game_id=int(self._query.game_id))
+                for w in weeks or []:
+                    start = str(getattr(w, "start", ""))
+                    end = str(getattr(w, "end", ""))
+                    wk = getattr(w, "week", None)
+                    if start and end and start <= today <= end:
+                        current_week = int(wk) if wk else current_week
+                        break
+            except Exception:
+                logger.debug("Could not determine current week, defaulting to 1.", exc_info=True)
+
+            # Get scoreboard for the current week
+            _rate_limit()
+            scoreboard = self._query.get_league_scoreboard_by_week(chosen_week=current_week)
+            matchups = getattr(scoreboard, "matchups", [])
+
+            user_team_key = self._get_user_team_key()
+            if not user_team_key:
+                logger.warning("Could not determine user team key for matchup.")
+                return None
+
+            # Find user's matchup
+            for m in matchups:
+                teams = getattr(m, "teams", None)
+                if not teams:
+                    continue
+
+                team_info = []
+                for t in teams:
+                    team_obj = getattr(t, "team", t)
+                    tk = self._safe_str(getattr(team_obj, "team_key", ""))
+                    tn = self._safe_str(getattr(team_obj, "name", ""))
+                    team_info.append((tk, tn))
+
+                user_keys = [ti[0] for ti in team_info]
+                if str(user_team_key) not in user_keys:
+                    continue
+
+                # Found user's matchup
+                user_name = ""
+                opp_key = ""
+                opp_name = ""
+                for tk, tn in team_info:
+                    if tk == str(user_team_key):
+                        user_name = tn
+                    else:
+                        opp_key = tk
+                        opp_name = tn
+
+                status = self._safe_str(getattr(m, "status", ""))
+
+                # Fetch per-category stats for both teams
+                user_stats, user_points = self._get_team_week_stats_raw(str(user_team_key), current_week)
+                opp_stats, opp_points = self._get_team_week_stats_raw(opp_key, current_week)
+
+                # Compute category wins/losses/ties
+                wins = losses = ties = 0
+                categories = []
+                for cat in self._ALL_CATS:
+                    yv_str = user_stats.get(cat, "-")
+                    ov_str = opp_stats.get(cat, "-")
+                    result = "-"
+                    try:
+                        yv = float(yv_str) if yv_str not in ("-", "") else None
+                        ov = float(ov_str) if ov_str not in ("-", "") else None
+                        if yv is not None and ov is not None:
+                            if cat in self._INVERSE_CATS:
+                                if yv < ov:
+                                    result = "WIN"
+                                    wins += 1
+                                elif yv > ov:
+                                    result = "LOSS"
+                                    losses += 1
+                                else:
+                                    result = "TIE"
+                                    ties += 1
+                            else:
+                                if yv > ov:
+                                    result = "WIN"
+                                    wins += 1
+                                elif yv < ov:
+                                    result = "LOSS"
+                                    losses += 1
+                                else:
+                                    result = "TIE"
+                                    ties += 1
+                    except (ValueError, TypeError):
+                        pass
+                    categories.append({"cat": cat, "you": yv_str, "opp": ov_str, "result": result})
+
+                return {
+                    "week": current_week,
+                    "status": status,
+                    "user_name": user_name,
+                    "opp_name": opp_name,
+                    "wins": wins,
+                    "losses": losses,
+                    "ties": ties,
+                    "categories": categories,
+                    "user_points": user_points,
+                    "opp_points": opp_points,
+                }
+
+            logger.warning("User matchup not found in week %d scoreboard.", current_week)
+            return None
+
+        except Exception:
+            logger.exception("Failed to get current matchup.")
+            return None

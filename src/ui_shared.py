@@ -1689,6 +1689,75 @@ def inject_custom_css():
         animation: slideUp 0.3s ease-out !important;
     }}
 
+    /* ── MATCHUP TICKER ──────────────────────── */
+    .matchup-ticker {{
+        background: linear-gradient(135deg, rgba(255,255,255,0.75), rgba(255,255,255,0.55)) !important;
+        backdrop-filter: blur(16px) saturate(160%) !important;
+        -webkit-backdrop-filter: blur(16px) saturate(160%) !important;
+        border: 1px solid rgba(255,255,255,0.4) !important;
+        border-left: 3px solid {t["hot"]} !important;
+        border-radius: 10px !important;
+        padding: 8px 14px !important;
+        margin: 4px 0 12px !important;
+        display: flex !important;
+        align-items: center !important;
+        gap: 12px !important;
+        font-family: 'Figtree', sans-serif !important;
+        font-size: 13px !important;
+        color: {t["tx"]} !important;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.05) !important;
+        flex-wrap: wrap !important;
+    }}
+    .matchup-ticker-week {{
+        font-family: 'Bebas Neue', sans-serif !important;
+        font-size: 11px !important;
+        text-transform: uppercase !important;
+        letter-spacing: 1.5px !important;
+        color: {t["tx2"]} !important;
+        white-space: nowrap !important;
+    }}
+    .matchup-ticker-score {{
+        font-family: 'IBM Plex Mono', monospace !important;
+        font-size: 16px !important;
+        font-weight: 700 !important;
+        white-space: nowrap !important;
+    }}
+    .matchup-ticker-vs {{
+        font-size: 12px !important;
+        color: {t["tx2"]} !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+    }}
+    .matchup-ticker-status {{
+        font-size: 11px !important;
+        font-weight: 600 !important;
+        padding: 2px 8px !important;
+        border-radius: 6px !important;
+        white-space: nowrap !important;
+    }}
+    .matchup-ticker .cat-row {{
+        display: flex !important;
+        justify-content: space-between !important;
+        padding: 2px 0 !important;
+        font-size: 12px !important;
+        font-family: 'IBM Plex Mono', monospace !important;
+        border-bottom: 1px solid {t["border"]}33 !important;
+    }}
+    .matchup-ticker .cat-row:last-child {{
+        border-bottom: none !important;
+    }}
+    .matchup-ticker .cat-win {{ color: {t["green"]} !important; font-weight: 600 !important; }}
+    .matchup-ticker .cat-loss {{ color: {t["primary"]} !important; font-weight: 600 !important; }}
+    .matchup-ticker .cat-tie {{ color: {t["tx2"]} !important; }}
+    @media (max-width: 768px) {{
+        .matchup-ticker {{
+            flex-direction: column !important;
+            align-items: flex-start !important;
+            gap: 4px !important;
+        }}
+    }}
+
     /* ── CONTEXT CARD (sidebar panels) ────────── */
     .context-card {{
         background: rgba(255, 255, 255, 0.6) !important;
@@ -2453,8 +2522,116 @@ def render_context_card(title, content_html):
     )
 
 
+_MATCHUP_TICKER_TTL_SECONDS = 300  # 5-minute cache
+
+
+def _fetch_matchup_data() -> dict | None:
+    """Fetch matchup data with session-state caching (5-min TTL)."""
+    import time as _time
+
+    cached = st.session_state.get("_matchup_ticker_data")
+    cached_at = st.session_state.get("_matchup_ticker_ts", 0)
+    if cached is not None and (_time.monotonic() - cached_at) < _MATCHUP_TICKER_TTL_SECONDS:
+        return cached
+
+    yahoo_client = st.session_state.get("yahoo_client")
+    if yahoo_client is None:
+        return None
+
+    try:
+        data = yahoo_client.get_current_matchup()
+        st.session_state["_matchup_ticker_data"] = data
+        st.session_state["_matchup_ticker_ts"] = _time.monotonic()
+        return data
+    except Exception:
+        return cached  # return stale data on error
+
+
+def render_matchup_ticker():
+    """Render a compact matchup scoreboard bar.
+
+    Only renders when Yahoo is connected and matchup data is available.
+    Caches data in session_state for 5 minutes to avoid API spam.
+    """
+    if not st.session_state.get("yahoo_connected"):
+        return
+
+    data = _fetch_matchup_data()
+    if data is None:
+        return
+
+    t = THEME
+    week = data["week"]
+    status = data["status"]
+    opp_name = _html.escape(data["opp_name"])
+    w, lo, ti = data["wins"], data["losses"], data["ties"]
+
+    # Score color
+    if w > lo:
+        score_color = t["green"]
+        status_label = "Winning"
+        status_bg = f"{t['green']}18"
+    elif lo > w:
+        score_color = t["primary"]
+        status_label = "Losing"
+        status_bg = f"{t['primary']}18"
+    else:
+        score_color = t["hot"]
+        status_label = "Tied"
+        status_bg = f"{t['hot']}18"
+
+    if status == "postevent":
+        status_label = "Won" if w > lo else ("Lost" if lo > w else "Tied")
+    elif status == "preevent":
+        status_label = "Pre-game"
+        score_color = t["tx2"]
+        status_bg = f"{t['tx2']}18"
+
+    score_str = f"{w}-{lo}-{ti}"
+
+    # Build category detail rows for the expander
+    cat_rows = ""
+    for c in data.get("categories", []):
+        cat = c["cat"]
+        you_val = c["you"]
+        opp_val = c["opp"]
+        res = c["result"]
+        css_cls = {"WIN": "cat-win", "LOSS": "cat-loss", "TIE": "cat-tie"}.get(res, "")
+        marker = {"WIN": "+", "LOSS": "-", "TIE": "="}.get(res, "")
+        cat_rows += (
+            f'<div class="cat-row {css_cls}">'
+            f'<span style="width:50px;display:inline-block;">{cat}</span>'
+            f'<span style="width:60px;text-align:right;display:inline-block;">{you_val}</span>'
+            f'<span style="width:20px;text-align:center;display:inline-block;opacity:0.4;">v</span>'
+            f'<span style="width:60px;display:inline-block;">{opp_val}</span>'
+            f'<span style="width:20px;text-align:right;display:inline-block;">{marker}</span>'
+            f"</div>"
+        )
+
+    # Render the ticker bar
+    st.markdown(
+        f'<div class="matchup-ticker">'
+        f'<span class="matchup-ticker-week">Week {week}</span>'
+        f'<span class="matchup-ticker-score" style="color:{score_color};">{score_str}</span>'
+        f'<span class="matchup-ticker-vs">vs {opp_name}</span>'
+        f'<span class="matchup-ticker-status" style="background:{status_bg};color:{score_color};">'
+        f"{status_label}</span>"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+
+    # Expandable category breakdown
+    if any(c["result"] != "-" for c in data.get("categories", [])):
+        with st.expander("Category Breakdown", expanded=False):
+            st.markdown(
+                f'<div class="matchup-ticker" style="flex-direction:column;align-items:stretch;gap:0;">'
+                f"{cat_rows}</div>",
+                unsafe_allow_html=True,
+            )
+
+
 def render_page_layout(title, banner_teaser="", banner_detail="", banner_icon="zap"):
-    """Render page title badge + recommendation banner.
+    """Render page title badge + recommendation banner + matchup ticker.
 
     Call at the top of every page, after ``inject_custom_css()``.
     """
@@ -2469,6 +2646,7 @@ def render_page_layout(title, banner_teaser="", banner_detail="", banner_icon="z
     )
     if banner_teaser:
         render_reco_banner(banner_teaser, banner_detail, banner_icon)
+    render_matchup_ticker()
 
 
 def render_context_columns(context_width=1):

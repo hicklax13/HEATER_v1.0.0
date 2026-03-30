@@ -433,7 +433,11 @@ with main:
         except Exception:
             pass
 
-        _fa_for_streams = pool[~pool["player_id"].isin(user_roster_ids)]
+        # Exclude ALL rostered players (all 12 teams), not just user's team
+        from src.database import get_all_rostered_player_ids
+
+        _all_rostered = get_all_rostered_player_ids(rosters)
+        _fa_for_streams = pool[~pool["player_id"].isin(_all_rostered)]
         if pos_filter != "All":
             _fa_for_streams = _apply_pos_filter(_fa_for_streams, pos_filter)
 

@@ -468,14 +468,20 @@ def compute_add_drop_recommendations(
     if player_pool.empty or not user_roster_ids:
         return []
 
-    # ── Stage 1: Get FA pool ──────────────────────────────────────────
+    # ── Stage 1: Get FA pool (must exclude ALL rostered players) ─────
     try:
         from src.league_manager import get_free_agents
 
         fa_pool = get_free_agents(player_pool)
     except Exception:
-        # Fallback: FAs are players not in user roster
-        fa_pool = player_pool[~player_pool["player_id"].isin(user_roster_ids)]
+        # Fallback: exclude ALL rostered players, not just user's team
+        from src.database import get_all_rostered_player_ids
+
+        _all_rostered = get_all_rostered_player_ids()
+        if _all_rostered:
+            fa_pool = player_pool[~player_pool["player_id"].isin(_all_rostered)]
+        else:
+            fa_pool = player_pool[~player_pool["player_id"].isin(user_roster_ids)]
 
     if fa_pool.empty:
         return []
