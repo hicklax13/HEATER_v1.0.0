@@ -767,6 +767,12 @@ class YahooFantasyClient:
                     mgr_obj = getattr(first_mgr, "manager", first_mgr)
                     manager_name = self._safe_str(self._safe_attr(mgr_obj, "nickname", ""))
 
+                # Extract team details: FAAB, waiver priority, activity counts
+                faab_balance = self._safe_attr(team, "faab_balance", None)
+                waiver_priority = self._safe_attr(team, "waiver_priority", None)
+                number_of_moves = self._safe_attr(team, "number_of_moves", None)
+                number_of_trades = self._safe_attr(team, "number_of_trades", None)
+
                 # yfpy's get_team_roster_by_week() internally builds
                 # {league_key}.t.{team_id}, so we must pass only the
                 # numeric team ID (the part after the last ".t."), not
@@ -806,6 +812,15 @@ class YahooFantasyClient:
                     else:
                         percent_owned = None
 
+                    # Extract additional player context fields
+                    editorial_team_abbr = self._safe_str(self._safe_attr(player, "editorial_team_abbr", ""))
+                    selected_pos_obj = self._safe_attr(player, "selected_position", None)
+                    selected_position = ""
+                    if selected_pos_obj:
+                        selected_position = self._safe_str(self._safe_attr(selected_pos_obj, "position", ""))
+                    has_player_notes = bool(self._safe_attr(player, "has_player_notes", False))
+                    has_recent_player_notes = bool(self._safe_attr(player, "has_recent_player_notes", False))
+
                     all_rows.append(
                         {
                             "team_name": team_name,
@@ -817,8 +832,16 @@ class YahooFantasyClient:
                             "injury_note": injury_note,
                             "status_full": status_full,
                             "percent_owned": percent_owned,
+                            "editorial_team_abbr": editorial_team_abbr,
+                            "selected_position": selected_position,
+                            "has_player_notes": has_player_notes,
+                            "has_recent_player_notes": has_recent_player_notes,
                             "team_logo_url": logo_url,
                             "manager_name": manager_name,
+                            "faab_balance": faab_balance,
+                            "waiver_priority": waiver_priority,
+                            "number_of_moves": number_of_moves,
+                            "number_of_trades": number_of_trades,
                         }
                     )
 
@@ -1284,6 +1307,48 @@ class YahooFantasyClient:
                             )
                         conn_tm.commit()
                         logger.info("Stored %d team metadata entries", len(team_meta))
+
+                        # Persist team details (FAAB, waiver priority, activity counts)
+                        detail_cols = ["faab_balance", "waiver_priority", "number_of_moves", "number_of_trades"]
+                        if any(c in rosters_df.columns for c in detail_cols):
+                            team_details = rosters_df.drop_duplicates(subset=["team_key"])
+                            for _, td_row in team_details.iterrows():
+                                try:
+                                    tk = td_row.get("team_key", "")
+                                    faab = td_row.get("faab_balance")
+                                    wpri = td_row.get("waiver_priority")
+                                    nmov = td_row.get("number_of_moves")
+                                    ntrd = td_row.get("number_of_trades")
+                                    if any(
+                                        v is not None and not (isinstance(v, float) and v != v)
+                                        for v in [faab, wpri, nmov, ntrd]
+                                    ):
+                                        conn_tm.execute(
+                                            """UPDATE league_teams SET
+                                               faab_balance = COALESCE(?, faab_balance),
+                                               waiver_priority = COALESCE(?, waiver_priority),
+                                               number_of_moves = COALESCE(?, number_of_moves),
+                                               number_of_trades = COALESCE(?, number_of_trades)
+                                               WHERE team_key = ?""",
+                                            (
+                                                float(faab)
+                                                if faab is not None and not (isinstance(faab, float) and faab != faab)
+                                                else None,
+                                                int(wpri)
+                                                if wpri is not None and not (isinstance(wpri, float) and wpri != wpri)
+                                                else None,
+                                                int(nmov)
+                                                if nmov is not None and not (isinstance(nmov, float) and nmov != nmov)
+                                                else None,
+                                                int(ntrd)
+                                                if ntrd is not None and not (isinstance(ntrd, float) and ntrd != ntrd)
+                                                else None,
+                                                tk,
+                                            ),
+                                        )
+                                except Exception:
+                                    logger.debug("Could not extract team details for %s", tk)
+                            conn_tm.commit()
                     finally:
                         conn_tm.close()
 
@@ -1306,7 +1371,7 @@ class YahooFantasyClient:
 
                     raw_player_name = row.get("player_name", "")
                     player_name = _re.sub(r"\s*\((?:Pitcher|Batter|P|B)\)\s*$", "", raw_player_name).strip()
-                    team_abbr = ""  # Yahoo roster doesn't have MLB team abbreviation
+                    team_abbr = row.get("editorial_team_abbr", "")
                     player_id = match_player_id(player_name, team_abbr)
                     if player_id is None:
                         # Fallback: try fuzzy match via DB query
@@ -1345,6 +1410,8 @@ class YahooFantasyClient:
                         roster_slot=row.get("position", ""),
                         is_user_team=is_user,
                         status=row.get("status", "active"),
+                        selected_position=row.get("selected_position", ""),
+                        editorial_team_abbr=row.get("editorial_team_abbr", ""),
                     )
                     counts["rosters"] += 1
 
@@ -1414,6 +1481,14 @@ class YahooFantasyClient:
 
                 update_refresh_log("yahoo_rosters", "success")
                 logger.info("Synced %d roster entries to DB.", counts["rosters"])
+
+                # Compute ownership deltas after storing ownership trends
+                try:
+                    from src.database import compute_ownership_deltas
+
+                    compute_ownership_deltas()
+                except Exception:
+                    logger.debug("Ownership delta computation failed")
         except Exception:
             logger.exception("Failed to sync rosters to DB.")
             update_refresh_log("yahoo_rosters", "error")

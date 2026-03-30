@@ -438,6 +438,14 @@ def init_db():
 
     # Gap 7: Persist Yahoo IL/DTD/NA player status on league_rosters
     _safe_add_column(conn, "league_rosters", "status", "TEXT DEFAULT 'active'")
+    _safe_add_column(conn, "league_rosters", "selected_position", "TEXT DEFAULT ''")
+    _safe_add_column(conn, "league_rosters", "editorial_team_abbr", "TEXT DEFAULT ''")
+
+    # Gap 8: Team details (FAAB, waiver priority, activity counts)
+    _safe_add_column(conn, "league_teams", "faab_balance", "REAL")
+    _safe_add_column(conn, "league_teams", "waiver_priority", "INTEGER")
+    _safe_add_column(conn, "league_teams", "number_of_moves", "INTEGER")
+    _safe_add_column(conn, "league_teams", "number_of_trades", "INTEGER")
 
     conn.close()
 
@@ -455,6 +463,7 @@ _VALID_TABLE_NAMES = frozenset(
         "ros_projections",
         "league_rosters",
         "league_standings",
+        "league_teams",
         "park_factors",
         "refresh_log",
         "injury_history",
@@ -1110,23 +1119,40 @@ def upsert_league_roster_entry(
     roster_slot: str = None,
     is_user_team: bool = False,
     status: str = "active",
+    selected_position: str = "",
+    editorial_team_abbr: str = "",
 ):
     """Add a player to a league roster.
 
     Args:
         status: Yahoo roster status — ``active``, ``IL10``, ``IL15``,
             ``IL60``, ``DTD``, ``NA``, or other Yahoo status strings.
+        selected_position: The lineup slot the manager assigned (e.g. ``C``,
+            ``1B``, ``BN``, ``IL``).
+        editorial_team_abbr: MLB team abbreviation from Yahoo (e.g. ``NYY``).
     """
     conn = get_connection()
     try:
         conn.execute(
             """INSERT INTO league_rosters
-               (team_name, team_index, player_id, roster_slot, is_user_team, status)
-               VALUES (?, ?, ?, ?, ?, ?)
+               (team_name, team_index, player_id, roster_slot, is_user_team, status,
+                selected_position, editorial_team_abbr)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(team_name, player_id) DO UPDATE SET
                team_index=excluded.team_index, roster_slot=excluded.roster_slot,
-               is_user_team=excluded.is_user_team, status=excluded.status""",
-            (team_name, team_index, player_id, roster_slot, 1 if is_user_team else 0, status or "active"),
+               is_user_team=excluded.is_user_team, status=excluded.status,
+               selected_position=excluded.selected_position,
+               editorial_team_abbr=excluded.editorial_team_abbr""",
+            (
+                team_name,
+                team_index,
+                player_id,
+                roster_slot,
+                1 if is_user_team else 0,
+                status or "active",
+                selected_position or "",
+                editorial_team_abbr or "",
+            ),
         )
         conn.commit()
     finally:
@@ -1291,6 +1317,44 @@ def load_league_schedule() -> dict[int, str]:
         )
         rows = cursor.fetchall()
         return {int(row[0]): row[1] for row in rows}
+    finally:
+        conn.close()
+
+
+def compute_ownership_deltas(lookback_days: int = 7) -> int:
+    """Compute ownership % change over the last N days.
+
+    Updates the delta_7d column in ownership_trends for the most recent date.
+
+    Args:
+        lookback_days: Number of days to look back for delta calculation.
+
+    Returns:
+        Number of rows updated.
+    """
+    from datetime import UTC, datetime, timedelta
+
+    today = datetime.now(UTC).strftime("%Y-%m-%d")
+    past = (datetime.now(UTC) - timedelta(days=lookback_days)).strftime("%Y-%m-%d")
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            """UPDATE ownership_trends SET delta_7d = (
+                SELECT ot.percent_owned - COALESCE(
+                    (SELECT o2.percent_owned FROM ownership_trends o2
+                     WHERE o2.player_id = ot.player_id AND o2.date <= ?
+                     ORDER BY o2.date DESC LIMIT 1), ot.percent_owned
+                )
+                FROM ownership_trends ot
+                WHERE ot.player_id = ownership_trends.player_id
+                  AND ot.date = ownership_trends.date
+            ) WHERE date = ?""",
+            (past, today),
+        )
+        count = cursor.rowcount
+        conn.commit()
+        return count
     finally:
         conn.close()
 
