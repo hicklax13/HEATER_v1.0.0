@@ -3219,7 +3219,7 @@ def render_data_freshness_card():
         "Live": f'<span style="color:{t["green"]}!important">LIVE</span>',
         "Cached": f'<span style="color:{t["amber"]}!important">CACHED</span>',
         "Stale": f'<span style="color:{t["hot"]}!important">STALE</span>',
-        "Offline": f'<span style="color:{t["muted"]}!important">OFFLINE</span>',
+        "Offline": f'<span style="color:{t["tx2"]}!important">OFFLINE</span>',
     }
 
     label_map = {
@@ -3254,7 +3254,7 @@ def render_data_freshness_card():
         f'<div style="font-size:10px!important;color:{t["green"]}!important;'
         f'margin-bottom:4px!important">Yahoo Connected</div>'
         if connected
-        else f'<div style="font-size:10px!important;color:{t["muted"]}!important;'
+        else f'<div style="font-size:10px!important;color:{t["tx2"]}!important;'
         f'margin-bottom:4px!important">Yahoo Offline</div>'
     )
 
