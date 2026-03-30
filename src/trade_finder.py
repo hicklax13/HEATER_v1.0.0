@@ -210,7 +210,7 @@ def scan_1_for_1(
     # Players in the top 20% by raw SGP require the return player to have
     # at least 50% of their raw SGP. Prevents trading away stars for role players.
     ELITE_PERCENTILE = 80  # Top 20%
-    ELITE_RETURN_FLOOR = 0.50  # Return must be >= 50% of given player's raw SGP
+    ELITE_RETURN_FLOOR = 0.75  # Return must be >= 75% of given player's raw SGP
 
     user_raw_sgps: dict[int, float] = {}
     for pid in user_roster_ids:
