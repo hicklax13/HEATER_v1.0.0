@@ -75,7 +75,7 @@ def _load_stats_df() -> tuple[pd.DataFrame, bool]:
             SELECT
                 s.player_id,
                 p.name,
-                p.team,
+                COALESCE(NULLIF(lr.editorial_team_abbr, ''), p.team, '') as team,
                 p.positions,
                 p.is_hitter,
                 p.mlb_id,
@@ -83,10 +83,14 @@ def _load_stats_df() -> tuple[pd.DataFrame, bool]:
                 s.r, s.hr, s.rbi, s.sb,
                 s.avg, s.obp,
                 s.ip, s.w, s.l, s.sv, s.k,
-                s.era, s.whip
+                s.era, s.whip,
+                CASE WHEN lr.player_id IS NOT NULL
+                     THEN lr.team_name ELSE 'Free Agent' END as rostered_by
             FROM season_stats s
             JOIN players p ON p.player_id = s.player_id
+            LEFT JOIN league_rosters lr ON s.player_id = lr.player_id
             WHERE s.season = 2026
+            GROUP BY s.player_id
             """,
             conn,
         )
@@ -96,6 +100,23 @@ def _load_stats_df() -> tuple[pd.DataFrame, bool]:
     df = coerce_numeric_df(df)
 
     if not df.empty:
+        # Add ownership context
+        try:
+            conn2 = get_connection()
+            try:
+                ownership = pd.read_sql_query(
+                    "SELECT player_id, percent_owned FROM ownership_trends "
+                    "WHERE date = (SELECT MAX(date) FROM ownership_trends) "
+                    "ORDER BY player_id",
+                    conn2,
+                )
+            finally:
+                conn2.close()
+            if not ownership.empty:
+                ownership = coerce_numeric_df(ownership)
+                df = df.merge(ownership, on="player_id", how="left")
+        except Exception:
+            pass
         return df, False
 
     # Pre-season fallback: use blended projections from player_pool
@@ -365,6 +386,7 @@ with main:
                 "name": "Player",
                 "team": "Team",
                 "positions": "Position",
+                "rostered_by": "Rostered By",
                 "r": "Runs",
                 "hr": "Home Runs",
                 "rbi": "Runs Batted In",
@@ -408,7 +430,7 @@ with main:
                     ldf = leaders[category].copy()
                     st.caption(f"Showing top {len(ldf)} of {total_eligible:,} eligible players")
                     stat_col = _CAT_COL.get(category, category.lower())
-                    show_cols = ["name", "team", "positions", stat_col]
+                    show_cols = ["name", "team", "positions", "rostered_by", stat_col]
                     # Include mlb_id for headshot rendering (auto-hidden by table)
                     if "mlb_id" in ldf.columns:
                         show_cols.append("mlb_id")

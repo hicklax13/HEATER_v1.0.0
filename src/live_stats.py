@@ -380,11 +380,11 @@ def _get_refresh_age_hours(source: str) -> float:
 
 
 def refresh_all_stats(force: bool = False) -> dict:
-    """Orchestrator: refresh season stats if stale (>24h)."""
+    """Orchestrator: refresh season stats if stale (>4h)."""
     results = {}
 
     age = _get_refresh_age_hours("season_stats")
-    if force or age > 24:
+    if force or age > 4:
         try:
             df = fetch_season_stats()
             if not df.empty:
@@ -401,6 +401,117 @@ def refresh_all_stats(force: bool = False) -> dict:
         results["season_stats"] = f"Fresh (updated {age:.1f}h ago)"
 
     return results
+
+
+def fetch_probable_pitchers(date_str: str | None = None) -> pd.DataFrame:
+    """Fetch today's probable starting pitchers from MLB Stats API.
+
+    Args:
+        date_str: Date in YYYY-MM-DD format. Defaults to today (UTC).
+
+    Returns:
+        DataFrame with columns: game_pk, date, away_team, home_team,
+        away_pitcher_name, away_pitcher_id, home_pitcher_name, home_pitcher_id.
+    """
+    if statsapi is None:
+        logger.warning("MLB-StatsAPI not available for probable pitchers")
+        return pd.DataFrame()
+
+    if date_str is None:
+        date_str = datetime.now(UTC).strftime("%Y-%m-%d")
+
+    try:
+        schedule = statsapi.get(
+            "schedule",
+            {"date": date_str, "sportId": 1, "hydrate": "probablePitcher"},
+        )
+    except Exception:
+        logger.warning("Failed to fetch probable pitchers for %s", date_str)
+        return pd.DataFrame()
+
+    rows = []
+    for date_entry in schedule.get("dates", []):
+        for game in date_entry.get("games", []):
+            game_pk = game.get("gamePk")
+            away = game.get("teams", {}).get("away", {})
+            home = game.get("teams", {}).get("home", {})
+
+            away_pitcher = away.get("probablePitcher", {})
+            home_pitcher = home.get("probablePitcher", {})
+
+            rows.append(
+                {
+                    "game_pk": game_pk,
+                    "date": date_str,
+                    "away_team": away.get("team", {}).get("abbreviation", ""),
+                    "home_team": home.get("team", {}).get("abbreviation", ""),
+                    "away_pitcher_name": away_pitcher.get("fullName", ""),
+                    "away_pitcher_id": away_pitcher.get("id"),
+                    "home_pitcher_name": home_pitcher.get("fullName", ""),
+                    "home_pitcher_id": home_pitcher.get("id"),
+                }
+            )
+
+    return pd.DataFrame(rows) if rows else pd.DataFrame()
+
+
+def fetch_mlb_transactions(
+    start_date: str | None = None,
+    end_date: str | None = None,
+    days_back: int = 7,
+) -> pd.DataFrame:
+    """Fetch recent MLB transactions (call-ups, IL moves, trades).
+
+    Args:
+        start_date: Start date (YYYY-MM-DD). Defaults to days_back ago.
+        end_date: End date (YYYY-MM-DD). Defaults to today.
+        days_back: Number of days to look back if start_date not provided.
+
+    Returns:
+        DataFrame with columns: transaction_id, date, type_desc,
+        player_name, player_id, from_team, to_team, description.
+    """
+    if statsapi is None:
+        logger.warning("MLB-StatsAPI not available for transactions")
+        return pd.DataFrame()
+
+    from datetime import timedelta
+
+    if end_date is None:
+        end_date = datetime.now(UTC).strftime("%Y-%m-%d")
+    if start_date is None:
+        start_date = (datetime.now(UTC) - timedelta(days=days_back)).strftime("%Y-%m-%d")
+
+    try:
+        data = statsapi.get(
+            "transactions",
+            {"startDate": start_date, "endDate": end_date},
+        )
+    except Exception:
+        logger.warning("Failed to fetch MLB transactions %s to %s", start_date, end_date)
+        return pd.DataFrame()
+
+    rows = []
+    for txn in data.get("transactions", []):
+        player = txn.get("person", {})
+        from_team = txn.get("fromTeam", {})
+        to_team = txn.get("toTeam", {})
+
+        rows.append(
+            {
+                "transaction_id": txn.get("id"),
+                "date": txn.get("date", ""),
+                "type_desc": txn.get("typeDesc", ""),
+                "player_name": player.get("fullName", ""),
+                "player_id": player.get("id"),
+                "from_team": from_team.get("abbreviation", ""),
+                "to_team": to_team.get("abbreviation", ""),
+                "description": txn.get("description", ""),
+            }
+        )
+
+    logger.info("Fetched %d MLB transactions from %s to %s", len(rows), start_date, end_date)
+    return pd.DataFrame(rows) if rows else pd.DataFrame()
 
 
 def fetch_all_mlb_players(season: int = 2026) -> pd.DataFrame:
@@ -688,6 +799,148 @@ def _fallback_team_stats(defaults: dict) -> dict[str, dict[str, float]]:
         "WSH",
     ]
     return {t: dict(defaults) for t in teams}
+
+
+def fetch_statcast_leaderboards(season: int = 2026, min_pa: int = 25) -> pd.DataFrame:
+    """Fetch Statcast expected stats leaderboards from Baseball Savant via pybaseball.
+
+    Returns combined batter + pitcher expected stats (xwOBA, xBA, barrel rate, etc.).
+    Gracefully returns empty DataFrame if pybaseball fails or data not available.
+
+    Args:
+        season: MLB season year.
+        min_pa: Minimum plate appearances (batters) or batters faced (pitchers).
+
+    Returns:
+        DataFrame with columns: mlb_id, player_name, is_hitter, xba, xslg, xwoba,
+        barrel_pct, exit_velocity_avg, hard_hit_pct.
+    """
+    try:
+        from pybaseball import (
+            statcast_batter_expected_stats,
+            statcast_pitcher_expected_stats,
+        )
+    except ImportError:
+        logger.warning("pybaseball not available for Statcast leaderboards")
+        return pd.DataFrame()
+
+    rows: list[dict] = []
+
+    # Batter expected stats
+    try:
+        batters = statcast_batter_expected_stats(season, minPA=min_pa)
+        if batters is not None and not batters.empty:
+            for _, row in batters.iterrows():
+                rows.append(
+                    {
+                        "mlb_id": int(row.get("player_id", 0)),
+                        "player_name": str(row.get("player_name", row.get("last_name", ""))),
+                        "is_hitter": True,
+                        "xba": float(row.get("est_ba", 0) or 0),
+                        "xslg": float(row.get("est_slg", 0) or 0),
+                        "xwoba": float(row.get("est_woba", 0) or 0),
+                        "barrel_pct": float(row.get("brl_percent", 0) or 0),
+                        "exit_velocity_avg": float(row.get("avg_hit_speed", 0) or 0),
+                        "hard_hit_pct": float(row.get("hard_hit_percent", 0) or 0),
+                    }
+                )
+            logger.info("Fetched %d batter Statcast leaderboard entries", len(batters))
+    except Exception:
+        logger.warning("Batter Statcast leaderboard fetch failed", exc_info=True)
+
+    # Pitcher expected stats
+    try:
+        pitchers = statcast_pitcher_expected_stats(season, minPA=min_pa)
+        if pitchers is not None and not pitchers.empty:
+            for _, row in pitchers.iterrows():
+                rows.append(
+                    {
+                        "mlb_id": int(row.get("player_id", 0)),
+                        "player_name": str(row.get("player_name", row.get("last_name", ""))),
+                        "is_hitter": False,
+                        "xba": float(row.get("est_ba", 0) or 0),
+                        "xslg": float(row.get("est_slg", 0) or 0),
+                        "xwoba": float(row.get("est_woba", 0) or 0),
+                        "barrel_pct": float(row.get("brl_percent", 0) or 0),
+                        "exit_velocity_avg": float(row.get("avg_hit_speed", 0) or 0),
+                        "hard_hit_pct": float(row.get("hard_hit_percent", 0) or 0),
+                    }
+                )
+            logger.info(
+                "Fetched %d pitcher Statcast leaderboard entries",
+                len(pitchers),
+            )
+    except Exception:
+        logger.warning("Pitcher Statcast leaderboard fetch failed", exc_info=True)
+
+    return pd.DataFrame(rows) if rows else pd.DataFrame()
+
+
+def save_statcast_leaderboards_to_db(df: pd.DataFrame, season: int = 2026) -> int:
+    """Store Statcast leaderboard data in the statcast_archive table.
+
+    Args:
+        df: DataFrame from fetch_statcast_leaderboards().
+        season: Season year for the data.
+
+    Returns:
+        Number of rows stored.
+    """
+    if df is None or df.empty:
+        return 0
+
+    conn = get_connection()
+    count = 0
+    try:
+        for _, row in df.iterrows():
+            mlb_id = row.get("mlb_id")
+            if not mlb_id:
+                continue
+
+            # Try to resolve to local player_id
+            player_id = None
+            try:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT player_id FROM players WHERE mlb_id = ?",
+                    (int(mlb_id),),
+                )
+                result = cursor.fetchone()
+                if result:
+                    player_id = result[0]
+            except Exception:
+                pass
+
+            if player_id is None:
+                continue
+
+            try:
+                conn.execute(
+                    """INSERT OR REPLACE INTO statcast_archive
+                       (player_id, season, xba, xslg, xwoba, barrel_pct,
+                        ev_mean, hard_hit_pct)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        player_id,
+                        season,
+                        float(row.get("xba", 0)),
+                        float(row.get("xslg", 0)),
+                        float(row.get("xwoba", 0)),
+                        float(row.get("barrel_pct", 0)),
+                        float(row.get("exit_velocity_avg", 0)),
+                        float(row.get("hard_hit_pct", 0)),
+                    ),
+                )
+                count += 1
+            except Exception:
+                pass
+
+        conn.commit()
+    finally:
+        conn.close()
+
+    logger.info("Stored %d Statcast leaderboard entries for %d", count, season)
+    return count
 
 
 def fetch_player_enhanced_status(mlb_id: int) -> dict | None:

@@ -1359,6 +1359,61 @@ def compute_ownership_deltas(lookback_days: int = 7) -> int:
         conn.close()
 
 
+def save_mlb_transactions(df: pd.DataFrame) -> int:
+    """Store MLB transactions in the transactions table.
+
+    Args:
+        df: DataFrame from fetch_mlb_transactions().
+
+    Returns:
+        Number of rows inserted.
+    """
+    if df is None or df.empty:
+        return 0
+
+    conn = get_connection()
+    count = 0
+    try:
+        from datetime import UTC, datetime
+
+        now = datetime.now(UTC).isoformat()
+        for _, row in df.iterrows():
+            player_name = row.get("player_name", "")
+            if not player_name:
+                continue
+
+            # Try to resolve player_id
+            from src.live_stats import match_player_id
+
+            pid = match_player_id(player_name, row.get("to_team", ""))
+            if pid is None:
+                pid = match_player_id(player_name, row.get("from_team", ""))
+            if pid is None:
+                continue
+
+            try:
+                conn.execute(
+                    """INSERT OR IGNORE INTO transactions
+                       (player_id, type, team_from, team_to, timestamp, created_at)
+                       VALUES (?, ?, ?, ?, ?, ?)""",
+                    (
+                        pid,
+                        row.get("type_desc", ""),
+                        row.get("from_team", ""),
+                        row.get("to_team", ""),
+                        row.get("date", ""),
+                        now,
+                    ),
+                )
+                count += 1
+            except Exception:
+                pass
+        conn.commit()
+    finally:
+        conn.close()
+    return count
+
+
 def snapshot_league_rosters() -> int:
     """Take a snapshot of current league_rosters for change tracking."""
     from datetime import UTC, datetime

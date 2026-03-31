@@ -5,7 +5,7 @@ import time
 import pandas as pd
 import streamlit as st
 
-from src.database import coerce_numeric_df, init_db, load_player_pool
+from src.database import coerce_numeric_df, get_connection, init_db, load_league_rosters, load_player_pool
 from src.in_season import compare_players
 from src.injury_model import compute_health_score, get_injury_badge
 from src.ui_shared import (
@@ -48,7 +48,23 @@ if pool.empty:
     st.stop()
 
 pool = pool.rename(columns={"name": "player_name"})
+rosters_df = load_league_rosters()
 config = LeagueConfig()
+
+
+def _get_roster_badge(player_id, rosters_df):
+    """Return HTML badge showing roster status."""
+    if rosters_df.empty:
+        return ""
+    match = rosters_df[rosters_df["player_id"] == player_id]
+    if not match.empty:
+        team = match.iloc[0].get("team_name", "Unknown")
+        return (
+            f'<span style="font-size:11px;padding:2px 6px;'
+            f'background:#e8f5e9;border-radius:4px;">Rostered: {team}</span>'
+        )
+    return '<span style="font-size:11px;padding:2px 6px;background:#f5f5f5;border-radius:4px;">Free Agent</span>'
+
 
 player_names = sorted(pool["player_name"].tolist())
 
@@ -116,6 +132,13 @@ with main:
         id_a = match_a.iloc[0]["player_id"]
         id_b = match_b.iloc[0]["player_id"]
 
+        # Roster status badges
+        badge_col1, badge_col2 = st.columns(2)
+        with badge_col1:
+            st.markdown(_get_roster_badge(id_a, rosters_df), unsafe_allow_html=True)
+        with badge_col2:
+            st.markdown(_get_roster_badge(id_b, rosters_df), unsafe_allow_html=True)
+
         compare_progress = st.progress(0, text="Comparing players across 12 categories...")
         result = compare_players(int(id_a), int(id_b), pool, config)
         compare_progress.progress(100, text="Comparison complete!")
@@ -125,8 +148,6 @@ with main:
         # Load health scores from injury_history table
         health_dict = {}
         try:
-            from src.database import get_connection
-
             conn = get_connection()
             try:
                 injury_df = pd.read_sql_query("SELECT * FROM injury_history", conn)
@@ -242,8 +263,6 @@ with main:
 
             # Projection confidence: P10-P90 range width per player using key stat cols
             try:
-                from src.database import get_connection
-
                 conn = get_connection()
                 try:
                     systems = {}
