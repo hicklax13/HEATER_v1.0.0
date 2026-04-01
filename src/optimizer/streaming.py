@@ -33,6 +33,9 @@ DEFAULT_SGP_DENOMS: dict[str, float] = {
     "whip": 0.03,
 }
 
+# Weekly transaction budget for streaming adds.
+WEEKLY_ADDS_BUDGET: int = 7
+
 # Default IP per start for a typical starting pitcher.
 _DEFAULT_IP_PER_START = 5.5
 
@@ -184,6 +187,7 @@ def rank_streaming_candidates(
     category_weights: dict[str, float] | None = None,
     sgp_denominators: dict[str, float] | None = None,
     max_results: int = 10,
+    adds_used_this_week: int = 0,
 ) -> list[dict]:
     """Rank free-agent pitchers by streaming value for the upcoming week.
 
@@ -197,6 +201,10 @@ def rank_streaming_candidates(
         category_weights: Optional per-category weight multipliers.
         sgp_denominators: Optional per-category SGP denominators.
         max_results: Maximum number of candidates to return.
+        adds_used_this_week: Number of add/drop transactions already
+            used this week.  When only 1 add remains, candidate values
+            are halved to discourage using the last add on a streamer.
+            When the budget is exhausted, returns an empty list.
 
     Returns:
         List of dicts sorted by ``net_value`` descending, each with:
@@ -204,6 +212,10 @@ def rank_streaming_candidates(
         ``counting_sgp``, ``rate_impact``.
     """
     if not free_agent_pitchers:
+        return []
+
+    # Budget exhausted — no streaming adds available
+    if adds_used_this_week >= WEEKLY_ADDS_BUDGET:
         return []
 
     pf = park_factors or {}
@@ -226,12 +238,18 @@ def rank_streaming_candidates(
             sgp_denominators=sgp_denominators,
         )
 
+        net_value = sv["net_value"]
+
+        # Penalize when only 1 add remains to discourage using it on a streamer
+        if adds_used_this_week >= WEEKLY_ADDS_BUDGET - 1:
+            net_value *= 0.5
+
         results.append(
             {
                 "player_name": name,
                 "team": team,
                 "opponent": opponent,
-                "net_value": sv["net_value"],
+                "net_value": round(net_value, 4),
                 "counting_sgp": sv["counting_sgp"],
                 "rate_impact": sv["rate_impact"],
             }

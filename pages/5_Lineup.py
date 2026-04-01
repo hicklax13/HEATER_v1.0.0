@@ -508,6 +508,7 @@ with main:
         tab_h2h,
         tab_streaming,
         tab_roster,
+        tab_daily,
     ) = st.tabs(
         [
             "Optimize",
@@ -516,6 +517,7 @@ with main:
             "Head-to-Head",
             "Streaming",
             "Roster",
+            "Daily Optimize",
         ]
     )
 
@@ -1786,6 +1788,146 @@ with main:
                 roster_show["Player"].tolist(),
                 roster["player_id"].tolist(),
                 key_suffix="lineup_roster",
+            )
+
+    # ================================================================
+    # TAB 7: DAILY OPTIMIZE
+    # ================================================================
+
+    with tab_daily:
+        st.markdown("Optimize your starting lineup for today using the Daily Category Value system.")
+
+        # Get live matchup data
+        matchup = yds.get_matchup()
+
+        if matchup:
+            opp_name = matchup.get("opp_name", "Unknown")
+            wins = matchup.get("wins", 0)
+            losses = matchup.get("losses", 0)
+            ties = matchup.get("ties", 0)
+            st.markdown(f"**Week {matchup.get('week', '?')} vs {opp_name}: {wins}-{losses}-{ties}**")
+
+        if st.button("Optimize for Today", type="primary", key="daily_optimize_btn"):
+            with st.spinner("Computing Daily Category Values..."):
+                try:
+                    from src.optimizer.category_urgency import compute_urgency_weights
+                    from src.optimizer.daily_optimizer import build_daily_dcv_table
+
+                    # Get today's schedule
+                    try:
+                        from datetime import UTC, datetime
+
+                        import statsapi
+
+                        today = datetime.now(UTC).strftime("%Y-%m-%d")
+                        sched = statsapi.schedule(date=today)
+                    except Exception:
+                        sched = []
+
+                    # Build DCV table
+                    user_roster = roster
+                    dcv = build_daily_dcv_table(
+                        roster=user_roster if not user_roster.empty else pool,
+                        matchup=matchup,
+                        schedule_today=sched if sched else None,
+                        park_factors=st.session_state.get("park_factors", {}),
+                    )
+
+                    if not dcv.empty:
+                        # Show urgency indicators
+                        if matchup:
+                            urgency_result = compute_urgency_weights(matchup)
+                            urgency = urgency_result.get("urgency", {})
+                            rate_modes = urgency_result.get("rate_modes", {})
+                            summary = urgency_result.get("summary", {})
+
+                            # Category status
+                            col1, col2, col3 = st.columns(3)
+                            with col1:
+                                winning = summary.get("winning", [])
+                                st.metric("Winning", len(winning))
+                                if winning:
+                                    st.caption(", ".join(winning))
+                            with col2:
+                                losing = summary.get("losing", [])
+                                st.metric("Losing", len(losing))
+                                if losing:
+                                    st.caption(", ".join(losing))
+                            with col3:
+                                tied = summary.get("tied", [])
+                                st.metric("Tied", len(tied))
+                                if tied:
+                                    st.caption(", ".join(tied))
+
+                            # Rate stat modes
+                            if rate_modes:
+                                mode_text = " | ".join(f"{cat}: {_mode.upper()}" for cat, _mode in rate_modes.items())
+                                st.caption(f"Rate stat strategy: {mode_text}")
+
+                        # Recommended starters (top by DCV, volume > 0)
+                        starters_dcv = dcv[(dcv["volume_factor"] > 0) & (dcv["health_factor"] > 0)].head(18)
+                        bench_dcv = dcv[~dcv.index.isin(starters_dcv.index)]
+
+                        st.markdown("**Recommended Starting Lineup**")
+                        display_cols = [
+                            "name",
+                            "positions",
+                            "team",
+                            "total_dcv",
+                            "volume_factor",
+                            "matchup_mult",
+                        ]
+                        if "stud_floor_applied" in starters_dcv.columns:
+                            display_cols.append("stud_floor_applied")
+
+                        starter_display = starters_dcv[[c for c in display_cols if c in starters_dcv.columns]].rename(
+                            columns={
+                                "name": "Player",
+                                "positions": "Position",
+                                "team": "Team",
+                                "total_dcv": "DCV Score",
+                                "volume_factor": "Volume",
+                                "matchup_mult": "Matchup",
+                                "stud_floor_applied": "Stud Floor",
+                            }
+                        )
+                        render_styled_table(starter_display)
+
+                        if not bench_dcv.empty:
+                            st.markdown("**Bench**")
+                            bench_cols_show = [
+                                "name",
+                                "positions",
+                                "team",
+                                "total_dcv",
+                                "status",
+                                "volume_factor",
+                            ]
+                            bench_display = bench_dcv[[c for c in bench_cols_show if c in bench_dcv.columns]].rename(
+                                columns={
+                                    "name": "Player",
+                                    "positions": "Position",
+                                    "team": "Team",
+                                    "total_dcv": "DCV Score",
+                                    "status": "Status",
+                                    "volume_factor": "Volume",
+                                }
+                            )
+                            render_styled_table(bench_display)
+
+                        st.caption(
+                            "DCV = Daily Category Value. Computed from Bayesian-blended "
+                            "projections * matchup factors * H2H category urgency. "
+                            "Higher = more valuable today."
+                        )
+                    else:
+                        st.info("Could not compute Daily Category Values. Check that roster data is loaded.")
+                except Exception as e:
+                    st.error(f"Daily optimization failed: {e}")
+        else:
+            st.info(
+                "Click Optimize for Today to compute your optimal starting lineup "
+                "using the V2 Daily Category Value system."
             )
 
 page_timer_footer("Lineup")

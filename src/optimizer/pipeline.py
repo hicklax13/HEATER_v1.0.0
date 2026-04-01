@@ -2,10 +2,11 @@
 
 Chains: projections → matchup adjustments → category weights → LP solve.
 
-Three modes:
+Four modes:
   - Quick (<1s): Enhanced projections + mean-variance only. No scenarios.
   - Standard (2-3s): 200 scenarios + CVaR + matchup adjustments.
   - Full (5-10s): Stochastic MIP + maximin comparison + streaming + multi-period.
+  - Daily (<2s): Enhanced projections + matchup + H2H + Daily Category Value.
 
 Each module is optional and degrades gracefully when unavailable or when
 the data it needs is missing.
@@ -166,6 +167,21 @@ MODE_PRESETS: dict[str, dict[str, Any]] = {
         "n_scenarios": 500,
         "risk_aversion": 0.15,
     },
+    "daily": {
+        "enable_projections": True,
+        "enable_matchups": True,
+        "enable_h2h": True,
+        "enable_sgp": False,
+        "enable_streaming": False,
+        "enable_scenarios": False,
+        "enable_dual_objective": False,
+        "enable_advanced_lp": False,
+        "enable_daily_dcv": True,
+        "enable_multi_period": False,
+        "enable_maximin": False,
+        "n_scenarios": 0,
+        "risk_aversion": 0.10,
+    },
 }
 
 
@@ -193,7 +209,7 @@ class LineupOptimizerPipeline:
 
         Args:
             roster: Player DataFrame with stat projections and positions.
-            mode: Optimization mode — "quick", "standard", or "full".
+            mode: Optimization mode — "quick", "standard", "full", or "daily".
             alpha: H2H vs season-long blend (0=pure season-long, 1=pure H2H).
             weeks_remaining: Weeks left in the season.
             config: Optional LeagueConfig for SGP denominators.
@@ -221,11 +237,17 @@ class LineupOptimizerPipeline:
         roto_rank: int | None = None,
         h2h_wins: int | None = None,
         h2h_losses: int | None = None,
+        **kwargs: Any,
     ) -> dict[str, Any]:
         """Run the full optimization pipeline.
 
         All parameters are optional — the pipeline degrades gracefully
         when data is missing, skipping modules that require it.
+
+        Keyword Args (via **kwargs, used by "daily" mode):
+            matchup: dict or None — live matchup data from Yahoo API.
+            schedule_today: list or None — today's MLB schedule.
+            weekly_ip_projected: float — projected weekly IP (default 20.0).
 
         Returns:
             Dict with keys:
@@ -238,6 +260,11 @@ class LineupOptimizerPipeline:
               - recommendations: list[str] — human-readable tips
               - timing: dict[str, float] — per-stage timing
               - mode: str — optimization mode used
+              - urgency_weights: dict (daily mode only)
+              - rate_stat_modes: dict (daily mode only)
+              - matchup_summary: dict (daily mode only)
+              - daily_dcv: DataFrame (daily mode only)
+              - daily_lineup: dict (daily mode only)
         """
         t0 = time.perf_counter()
         timing: dict[str, float] = {}
@@ -427,6 +454,95 @@ class LineupOptimizerPipeline:
                 logger.warning("Stage 9: Maximin failed", exc_info=True)
             timing["maximin"] = time.perf_counter() - t9
 
+        # ── V2 Daily Optimizer Stages (10-12) ─────────────────────
+        # Mutable dict to collect V2 stage outputs; merged into final result.
+        daily_extras: dict[str, Any] = {}
+
+        # ── Stage 10: Category Urgency (V2) ────────────────────────
+        if self._preset.get("enable_daily_dcv", False):
+            t10 = time.perf_counter()
+            try:
+                from src.optimizer.category_urgency import compute_urgency_weights
+
+                matchup_data = kwargs.get("matchup")
+                urgency_result = compute_urgency_weights(matchup_data, self.config)
+                daily_extras["urgency_weights"] = urgency_result.get("urgency", {})
+                daily_extras["rate_stat_modes"] = urgency_result.get("rate_modes", {})
+                daily_extras["matchup_summary"] = urgency_result.get("summary", {})
+                logger.info(
+                    "Stage 10 (Category Urgency): %d categories weighted",
+                    len(daily_extras["urgency_weights"]),
+                )
+            except Exception:
+                logger.warning("Stage 10 (Category Urgency) failed", exc_info=True)
+            timing["category_urgency"] = time.perf_counter() - t10
+
+        # ── Stage 11: Daily Category Value (V2) ────────────────────
+        if self._preset.get("enable_daily_dcv", False):
+            t11 = time.perf_counter()
+            try:
+                from src.optimizer.daily_optimizer import (
+                    build_daily_dcv_table,
+                    check_ip_override,
+                )
+
+                schedule_today = kwargs.get("schedule_today")
+                dcv_table = build_daily_dcv_table(
+                    roster=self.roster,
+                    matchup=kwargs.get("matchup"),
+                    schedule_today=schedule_today,
+                    park_factors=park_factors,
+                    config=self.config,
+                )
+
+                # Check IP minimum override
+                weekly_ip = kwargs.get("weekly_ip_projected", 20.0)
+                dcv_table = check_ip_override(dcv_table, weekly_ip)
+
+                daily_extras["daily_dcv"] = dcv_table
+                if not dcv_table.empty:
+                    logger.info(
+                        "Stage 11 (Daily DCV): %d players scored",
+                        len(dcv_table),
+                    )
+            except Exception:
+                logger.warning("Stage 11 (Daily DCV) failed", exc_info=True)
+            timing["daily_dcv"] = time.perf_counter() - t11
+
+        # ── Stage 12: Daily Lineup (V2) ──────────────────────────
+        if self._preset.get("enable_daily_dcv", False) and "daily_dcv" in daily_extras:
+            t12 = time.perf_counter()
+            try:
+                dcv = daily_extras["daily_dcv"]
+                if not dcv.empty:
+                    # Build daily recommended lineup from DCV table
+                    # Top players by total_dcv, respecting position slots
+                    starters = dcv[dcv["volume_factor"] > 0].head(18)  # Max 18 starters
+                    name_col = "name" if "name" in dcv.columns else "player_name"
+                    pos_col = "positions" if "positions" in dcv.columns else "pos"
+                    starter_cols = [name_col, pos_col, "total_dcv"]
+                    if "stud_floor_applied" in dcv.columns:
+                        starter_cols.append("stud_floor_applied")
+                    bench_cols = [name_col, pos_col, "total_dcv"]
+
+                    daily_extras["daily_lineup"] = {
+                        "starters": starters[[c for c in starter_cols if c in starters.columns]].to_dict("records")
+                        if not starters.empty
+                        else [],
+                        "bench": dcv[~dcv.index.isin(starters.index)][
+                            [c for c in bench_cols if c in dcv.columns]
+                        ].to_dict("records")
+                        if not dcv.empty
+                        else [],
+                    }
+                    logger.info(
+                        "Stage 12 (Daily Lineup): %d starters recommended",
+                        len(starters),
+                    )
+            except Exception:
+                logger.warning("Stage 12 (Daily Lineup) failed", exc_info=True)
+            timing["daily_lineup"] = time.perf_counter() - t12
+
         # ── Stamp AnalyticsContext modules from timing data ─────────
         _stage_map = {
             "projections": ("enable_projections", _PROJECTIONS_AVAILABLE),
@@ -437,6 +553,9 @@ class LineupOptimizerPipeline:
             "streaming": ("enable_streaming", _STREAMING_AVAILABLE),
             "scenarios": ("enable_scenarios", _SCENARIOS_AVAILABLE),
             "maximin": ("enable_maximin", _ADVANCED_LP_AVAILABLE),
+            "category_urgency": ("enable_daily_dcv", True),
+            "daily_dcv": ("enable_daily_dcv", True),
+            "daily_lineup": ("enable_daily_dcv", True),
         }
         for stage, (setting_key, module_avail) in _stage_map.items():
             if stage in timing:
@@ -458,7 +577,7 @@ class LineupOptimizerPipeline:
         # ── Compile Result ─────────────────────────────────────────
         timing["total"] = time.perf_counter() - t0
 
-        return {
+        final_result: dict[str, Any] = {
             "lineup": lineup_result,
             "category_weights": category_weights,
             "h2h_analysis": h2h_analysis,
@@ -471,6 +590,10 @@ class LineupOptimizerPipeline:
             "matchup_adjusted": matchup_adjusted,
             "analytics_context": ctx,
         }
+        # Merge V2 daily optimizer outputs (if any)
+        final_result.update(daily_extras)
+
+        return final_result
 
     # ── Private Methods ────────────────────────────────────────────
 

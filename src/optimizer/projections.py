@@ -459,3 +459,53 @@ def _apply_injury_availability(
         logger.warning("Injury availability scaling failed: %s", exc)
 
     return roster
+
+
+# ── V2 Bayesian Blend ──────────────────────────────────────────────────
+
+# V2 stat-specific stabilization points (from FanGraphs/Russell Carleton research)
+V2_STABILIZATION_POINTS: dict[str, float] = {
+    "k_rate": 60,
+    "bb_rate": 120,
+    "hr_rate": 170,
+    "sb_rate": 200,
+    "avg": 910,
+    "obp": 460,
+    "era": 630,  # BF, not IP
+    "whip": 540,
+    "k_rate_pitch": 70,
+}
+
+
+def v2_bayesian_blend(
+    preseason_rate: float,
+    observed_numerator: float,
+    observed_denominator: float,
+    stabilization_pa: float,
+) -> float:
+    """Bayesian blend of preseason projection with observed in-season data.
+
+    Uses the stabilization point as the prior strength. At PA=0, returns
+    the preseason projection. At PA=stabilization_pa, returns the average
+    of preseason and observed. As PA increases beyond stabilization, the
+    observed rate dominates.
+
+    Args:
+        preseason_rate: Pre-season projected rate (e.g., 0.280 AVG).
+        observed_numerator: Observed counting stat (e.g., hits).
+        observed_denominator: Observed sample size (e.g., at-bats).
+        stabilization_pa: Stabilization point for this stat type.
+
+    Returns:
+        Blended rate estimate.
+    """
+    if stabilization_pa <= 0:
+        stabilization_pa = 200  # Safe default
+
+    prior_numerator = preseason_rate * stabilization_pa
+    total_denom = stabilization_pa + observed_denominator
+
+    if total_denom <= 0:
+        return preseason_rate
+
+    return (prior_numerator + observed_numerator) / total_denom
