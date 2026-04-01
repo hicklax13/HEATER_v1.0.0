@@ -441,6 +441,22 @@ def init_db():
     _safe_add_column(conn, "league_rosters", "selected_position", "TEXT DEFAULT ''")
     _safe_add_column(conn, "league_rosters", "editorial_team_abbr", "TEXT DEFAULT ''")
 
+    # Gap 8a: League draft picks table (stores your league's actual draft, not generic ADP)
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS league_draft_picks (
+                pick_number INTEGER NOT NULL,
+                round INTEGER NOT NULL,
+                team_name TEXT NOT NULL,
+                player_id INTEGER,
+                player_name TEXT NOT NULL,
+                PRIMARY KEY (pick_number)
+            )
+        """)
+        conn.commit()
+    except Exception:
+        pass
+
     # Gap 8: Team details (FAAB, waiver priority, activity counts)
     _safe_add_column(conn, "league_teams", "faab_balance", "REAL")
     _safe_add_column(conn, "league_teams", "waiver_priority", "INTEGER")
@@ -457,6 +473,7 @@ _VALID_TABLE_NAMES = frozenset(
         "adp",
         "league_config",
         "draft_picks",
+        "league_draft_picks",
         "blended_projections",
         "player_pool",
         "season_stats",
@@ -1317,6 +1334,73 @@ def load_league_schedule() -> dict[int, str]:
         )
         rows = cursor.fetchall()
         return {int(row[0]): row[1] for row in rows}
+    finally:
+        conn.close()
+
+
+def save_league_draft_picks(draft_df: "pd.DataFrame") -> int:
+    """Store league-specific draft results.
+
+    Args:
+        draft_df: DataFrame from yahoo_api.get_draft_results() with columns
+            pick_number, round, team_name, player_name, player_id.
+
+    Returns:
+        Number of picks stored.
+    """
+    if draft_df is None or draft_df.empty:
+        return 0
+    conn = get_connection()
+    count = 0
+    try:
+        for _, row in draft_df.iterrows():
+            pick = int(row.get("pick_number", 0))
+            rd = int(row.get("round", 0))
+            team = str(row.get("team_name", ""))
+            name = str(row.get("player_name", ""))
+            if not pick or not name:
+                continue
+
+            # Resolve to local player_id
+            pid = None
+            try:
+                from src.live_stats import match_player_id
+
+                pid = match_player_id(name, "")
+            except Exception:
+                pass
+
+            try:
+                conn.execute(
+                    "INSERT OR REPLACE INTO league_draft_picks "
+                    "(pick_number, round, team_name, player_id, player_name) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    (pick, rd, team, pid, name),
+                )
+                count += 1
+            except Exception:
+                pass
+        conn.commit()
+    finally:
+        conn.close()
+    return count
+
+
+def get_player_draft_round(player_id: int) -> int | None:
+    """Get the round a player was drafted in your league.
+
+    Returns:
+        Round number (1-23), or None if undrafted/not found.
+    """
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT round FROM league_draft_picks WHERE player_id = ?",
+            (player_id,),
+        )
+        row = cursor.fetchone()
+        return int(row[0]) if row else None
     finally:
         conn.close()
 

@@ -547,8 +547,17 @@ class YahooDataService:
         return self._client.get_league_settings()
 
     def _fetch_draft_results(self) -> pd.DataFrame:
-        """Fetch draft results from Yahoo."""
-        return self._client.get_draft_results()
+        """Fetch draft results from Yahoo and write-through to SQLite."""
+        df = self._client.get_draft_results()
+        if not df.empty:
+            try:
+                from src.database import save_league_draft_picks
+
+                save_league_draft_picks(df)
+                logger.info("Stored %d league draft picks", len(df))
+            except Exception:
+                logger.debug("Draft picks write-through failed", exc_info=True)
+        return df
 
     def _fetch_and_sync_schedule(self) -> dict:
         """Fetch schedule from Yahoo matchup data and sync to SQLite.

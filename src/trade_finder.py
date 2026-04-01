@@ -258,12 +258,28 @@ def scan_1_for_1(
                 if recv_raw_sgp < give_raw_sgp * ELITE_RETURN_FLOOR:
                     continue  # Don't trade elite players for scrubs
 
-            # --- ADP value floor ---
-            # Never trade a player for someone whose ADP is more than 2.5x worse.
-            # ADP represents consensus market value — a Rd 2 pick (ADP ~18) should
-            # not be traded for a Rd 16 pick (ADP ~182). The 2.5x ratio allows
-            # reasonable flexibility (Rd 5 for Rd 12) while blocking absurd swaps.
-            ADP_RATIO_MAX = 2.5
+            # --- Draft capital / ADP value floor ---
+            # Two-tier check: (1) league-specific draft round, (2) generic ADP.
+            # Never trade a player drafted significantly higher than the return.
+            # League draft round is the strongest signal — if you drafted Raleigh
+            # in Rd 2, you should not trade him for a Rd 16 pick.
+            ADP_RATIO_MAX = 2.5  # Generic ADP: max 2.5x ratio
+            DRAFT_ROUND_MAX_GAP = 8  # League draft: max 8 rounds apart
+
+            # Try league-specific draft rounds first (strongest signal)
+            try:
+                from src.database import get_player_draft_round
+
+                give_round = get_player_draft_round(give_id)
+                recv_round = get_player_draft_round(recv_id)
+                if give_round and recv_round:
+                    # A Rd 2 pick should not be traded for a Rd 15 pick (gap > 8)
+                    if recv_round - give_round > DRAFT_ROUND_MAX_GAP:
+                        continue
+            except Exception:
+                pass
+
+            # Fallback: generic ADP check
             give_adp = float(give_player.iloc[0].get("adp", 999) or 999)
             recv_adp = float(recv_player.iloc[0].get("adp", 999) or 999)
             if give_adp < 500 and recv_adp < 500:  # Both have real ADP data
