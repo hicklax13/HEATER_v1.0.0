@@ -335,11 +335,52 @@ def build_daily_dcv_table(
         statuses = {}
 
     # Determine which teams play today
+    # Schedule may use full names ("CHICAGO CUBS") or abbreviations ("CHC")
+    # Normalize both to abbreviations for matching against roster team column
+    _FULL_TO_ABBR: dict[str, str] = {
+        "ATHLETICS": "ATH",
+        "ATLANTA BRAVES": "ATL",
+        "BALTIMORE ORIOLES": "BAL",
+        "BOSTON RED SOX": "BOS",
+        "CHICAGO CUBS": "CHC",
+        "CHICAGO WHITE SOX": "CWS",
+        "CINCINNATI REDS": "CIN",
+        "CLEVELAND GUARDIANS": "CLE",
+        "COLORADO ROCKIES": "COL",
+        "DETROIT TIGERS": "DET",
+        "HOUSTON ASTROS": "HOU",
+        "KANSAS CITY ROYALS": "KC",
+        "LOS ANGELES ANGELS": "LAA",
+        "LOS ANGELES DODGERS": "LAD",
+        "MIAMI MARLINS": "MIA",
+        "MILWAUKEE BREWERS": "MIL",
+        "MINNESOTA TWINS": "MIN",
+        "NEW YORK METS": "NYM",
+        "NEW YORK YANKEES": "NYY",
+        "OAKLAND ATHLETICS": "ATH",
+        "PHILADELPHIA PHILLIES": "PHI",
+        "PITTSBURGH PIRATES": "PIT",
+        "SAN DIEGO PADRES": "SD",
+        "SAN FRANCISCO GIANTS": "SF",
+        "SEATTLE MARINERS": "SEA",
+        "ST. LOUIS CARDINALS": "STL",
+        "TAMPA BAY RAYS": "TB",
+        "TEXAS RANGERS": "TEX",
+        "TORONTO BLUE JAYS": "TOR",
+        "WASHINGTON NATIONALS": "WSH",
+        "ARIZONA DIAMONDBACKS": "AZ",
+    }
     teams_playing: set[str] = set()
     if schedule_today:
         for game in schedule_today:
-            teams_playing.add(str(game.get("away_name", game.get("away_team", ""))).upper())
-            teams_playing.add(str(game.get("home_name", game.get("home_team", ""))).upper())
+            for key in ("away_name", "away_team", "home_name", "home_team"):
+                raw = str(game.get(key, "")).upper().strip()
+                if raw:
+                    # Try mapping full name to abbreviation
+                    abbr = _FULL_TO_ABBR.get(raw, raw)
+                    teams_playing.add(abbr)
+                    # Also add the raw value in case it's already an abbreviation
+                    teams_playing.add(raw)
 
     # Get urgency weights from matchup
     try:
