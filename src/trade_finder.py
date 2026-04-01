@@ -197,7 +197,7 @@ def scan_1_for_1(
     # --- Cap extreme category weights ---
     # Prevent a single weak category from dominating all trade valuations.
     # Without this, being 12th in SB makes speed guys "outvalue" elite power bats.
-    MAX_WEIGHT_RATIO = 3.0  # No category can be weighted more than 3x the average
+    MAX_WEIGHT_RATIO = 2.0  # No category can be weighted more than 2x the average
     capped_weights = category_weights
     if category_weights:
         non_zero = [v for v in category_weights.values() if v > 0]
@@ -252,11 +252,23 @@ def scan_1_for_1(
                 continue  # Skip cross-type trades for simplicity
 
             # --- Elite player protection ---
-            # If giving away a top-20% player, the return must be at least 50% as good
+            # If giving away a top-20% player, the return must be at least 75% as good
             if give_raw_sgp >= elite_threshold:
                 recv_raw_sgp = _totals_sgp(_roster_category_totals([recv_id], player_pool), config)
                 if recv_raw_sgp < give_raw_sgp * ELITE_RETURN_FLOOR:
                     continue  # Don't trade elite players for scrubs
+
+            # --- ADP value floor ---
+            # Never trade a player for someone whose ADP is more than 2.5x worse.
+            # ADP represents consensus market value — a Rd 2 pick (ADP ~18) should
+            # not be traded for a Rd 16 pick (ADP ~182). The 2.5x ratio allows
+            # reasonable flexibility (Rd 5 for Rd 12) while blocking absurd swaps.
+            ADP_RATIO_MAX = 2.5
+            give_adp = float(give_player.iloc[0].get("adp", 999) or 999)
+            recv_adp = float(recv_player.iloc[0].get("adp", 999) or 999)
+            if give_adp < 500 and recv_adp < 500:  # Both have real ADP data
+                if recv_adp > give_adp * ADP_RATIO_MAX:
+                    continue  # Return player drafted way too late vs given player
 
             recv_name = recv_player.iloc[0].get("name", recv_player.iloc[0].get("player_name", "?"))
 
