@@ -199,6 +199,7 @@ def get_health_adjusted_pool(
 
     # --- Apply health scores ---
     pool["health_score"] = pool["player_id"].map(health_scores).fillna(0.85)
+    pool["_orig_health"] = pool["health_score"].copy()
     pool["status"] = pool["player_id"].map(roster_statuses).fillna("active")
 
     # --- Adjust health scores based on current IL/DTD status ---
@@ -219,7 +220,26 @@ def get_health_adjusted_pool(
         pool = pool[~na_mask].copy()
 
     # --- Apply IL/DTD multipliers to counting stats ---
-    counting_cols = ["r", "hr", "rbi", "sb", "w", "l", "sv", "k", "pa", "ab", "h", "ip"]
+    counting_cols = [
+        "r",
+        "hr",
+        "rbi",
+        "sb",
+        "w",
+        "l",
+        "sv",
+        "k",
+        "pa",
+        "ab",
+        "h",
+        "ip",
+        "er",
+        "bb_allowed",
+        "h_allowed",
+        "bb",
+        "hbp",
+        "sf",
+    ]
     # Cast counting columns to float to avoid FutureWarning from pandas
     for col in counting_cols:
         if col in pool.columns:
@@ -230,7 +250,7 @@ def get_health_adjusted_pool(
         mult = STATUS_MULTIPLIERS.get(status, 1.0)
         if mult < 1.0:
             idx = row.name
-            health = row.get("health_score", 0.85)
+            health = row.get("_orig_health", 0.85)
             # Combined multiplier: IL status * historical health
             combined = mult * min(health / 0.85, 1.0)
             for col in counting_cols:
@@ -248,6 +268,22 @@ def get_health_adjusted_pool(
     pool["avg"] = np.where(ab > 0, h / ab, 0.0)
     pool["era"] = np.where(ip > 0, er * 9 / ip, 0.0)
     pool["whip"] = np.where(ip > 0, (bb_allowed + h_allowed) / ip, 0.0)
+
+    bb_col = (
+        pd.to_numeric(pool["bb"], errors="coerce").fillna(0) if "bb" in pool.columns else pd.Series(0, index=pool.index)
+    )
+    hbp_col = (
+        pd.to_numeric(pool["hbp"], errors="coerce").fillna(0)
+        if "hbp" in pool.columns
+        else pd.Series(0, index=pool.index)
+    )
+    sf_col = (
+        pd.to_numeric(pool["sf"], errors="coerce").fillna(0) if "sf" in pool.columns else pd.Series(0, index=pool.index)
+    )
+    obp_denom = ab + bb_col + hbp_col + sf_col
+    pool["obp"] = np.where(obp_denom > 0, (h + bb_col + hbp_col) / obp_denom, 0.0)
+
+    pool.drop(columns=["_orig_health"], inplace=True, errors="ignore")
 
     return pool
 
@@ -412,7 +448,14 @@ def compute_fa_comparisons(
                     best_fa_name = name
                     best_fa_value = val
 
-        fa_pct = best_fa_value / target_sgp if target_sgp > 0 else 0.0
+        if target_sgp > 0.01:
+            fa_pct = best_fa_value / target_sgp
+        elif target_sgp < -0.01:
+            # Pitcher: both negative. More negative = better.
+            # ratio of absolute values gives correct comparison.
+            fa_pct = best_fa_value / target_sgp  # neg/neg = positive
+        else:
+            fa_pct = 0.0
         results[pid] = {
             "has_alternative": fa_pct >= dynamic_threshold,
             "fa_name": best_fa_name,
@@ -460,10 +503,9 @@ def apply_scarcity_flags(player_pool: pd.DataFrame) -> pd.DataFrame:
     def _scarcity_mult(row):
         if row.get("is_closer", False):
             return SV_SCARCITY_MULT
-        positions = str(row.get("positions", ""))
-        for pos in SCARCE_POSITIONS:
-            if pos in positions:
-                return SCARCE_POS_MULT
+        positions = set(p.strip() for p in str(row.get("positions", "")).split(","))
+        if positions & SCARCE_POSITIONS:
+            return SCARCE_POS_MULT
         return 1.0
 
     pool["scarcity_mult"] = pool.apply(_scarcity_mult, axis=1)
@@ -593,7 +635,15 @@ def compute_trade_readiness_batch(
     candidates = candidates.drop_duplicates(subset=["player_id"], keep="first")
 
     candidates["_raw_sgp"] = candidates.apply(lambda r: _quick_player_sgp(r, config), axis=1)
-    candidates = candidates.nlargest(max_players, "_raw_sgp")
+    hitter_mask = (
+        candidates["is_hitter"].astype(bool)
+        if "is_hitter" in candidates.columns
+        else pd.Series(True, index=candidates.index)
+    )
+    n_half = max(max_players // 2, 1)
+    top_hitters = candidates[hitter_mask].nlargest(n_half, "_raw_sgp")
+    top_pitchers = candidates[~hitter_mask].nlargest(n_half, "_raw_sgp")
+    candidates = pd.concat([top_hitters, top_pitchers])
 
     # Pre-compute shared context
     cat_weights = get_category_weights(user_team_name, all_team_totals, config)

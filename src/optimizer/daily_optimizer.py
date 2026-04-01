@@ -32,7 +32,7 @@ STABILIZATION_POINTS: dict[str, float] = {
 }
 
 # Top N players by ROS projection that get stud floor protection
-STUD_FLOOR_TOP_N = 30
+STUD_FLOOR_TOP_N = 8
 
 
 # ---------------------------------------------------------------------------
@@ -142,7 +142,7 @@ def compute_volume_factor(
         return 0.0
     if in_confirmed_lineup is None:
         # Lineup not posted yet
-        return 0.9
+        return 1.8 if is_doubleheader else 0.9
     if not in_confirmed_lineup:
         return 0.3  # Bench/pinch-hit only
     if is_doubleheader:
@@ -208,7 +208,7 @@ def compute_matchup_multiplier(
     # Opposing pitcher quality (xFIP-based)
     if pitcher_xfip is not None and is_hitter:
         # League avg xFIP ~4.20. Better pitcher = lower multiplier for hitter
-        quality = max(0.5, min(2.5, (2.0 - pitcher_xfip / 4.20) ** 2))
+        quality = max(0.5, min(2.0, 2.0 - pitcher_xfip / 4.20))
         # Invert for hitters: good pitcher hurts hitter value
         mult *= 1.0 / max(0.5, quality)
 
@@ -260,17 +260,22 @@ def apply_stud_floor(
                     sgp += val / denom
         total_sgp[pid] = sgp
 
-    # Find the threshold for top N
+    # Find the threshold for top N (use fraction of roster when roster is small)
     sorted_sgps = sorted(total_sgp.values(), reverse=True)
-    if len(sorted_sgps) >= STUD_FLOOR_TOP_N:
-        threshold = sorted_sgps[STUD_FLOOR_TOP_N - 1]
+    stud_count = min(STUD_FLOOR_TOP_N, max(1, len(sorted_sgps) // 3))
+    if len(sorted_sgps) >= stud_count:
+        threshold = sorted_sgps[stud_count - 1]
     else:
         threshold = sorted_sgps[-1] if sorted_sgps else 0
 
     # Apply floor: stud players get minimum DCV that keeps them starting
     # Only applies when volume_factor > 0 (playing today)
     if "total_dcv" in dcv_table.columns and "player_id" in dcv_table.columns:
-        median_dcv = dcv_table["total_dcv"].median()
+        if "volume_factor" in dcv_table.columns:
+            active_dcv = dcv_table.loc[dcv_table["volume_factor"] > 0, "total_dcv"]
+        else:
+            active_dcv = dcv_table.loc[dcv_table["total_dcv"] > 0, "total_dcv"]
+        median_dcv = active_dcv.median() if not active_dcv.empty else 1.0
         if median_dcv <= 0:
             median_dcv = 1.0
         for idx, row in dcv_table.iterrows():
@@ -338,7 +343,7 @@ def build_daily_dcv_table(
     # Schedule may use full names ("CHICAGO CUBS") or abbreviations ("CHC")
     # Normalize both to abbreviations for matching against roster team column
     _FULL_TO_ABBR: dict[str, str] = {
-        "ATHLETICS": "ATH",
+        "ATHLETICS": "OAK",
         "ATLANTA BRAVES": "ATL",
         "BALTIMORE ORIOLES": "BAL",
         "BOSTON RED SOX": "BOS",
@@ -357,7 +362,7 @@ def build_daily_dcv_table(
         "MINNESOTA TWINS": "MIN",
         "NEW YORK METS": "NYM",
         "NEW YORK YANKEES": "NYY",
-        "OAKLAND ATHLETICS": "ATH",
+        "OAKLAND ATHLETICS": "OAK",
         "PHILADELPHIA PHILLIES": "PHI",
         "PITTSBURGH PIRATES": "PIT",
         "SAN DIEGO PADRES": "SD",
@@ -368,7 +373,7 @@ def build_daily_dcv_table(
         "TEXAS RANGERS": "TEX",
         "TORONTO BLUE JAYS": "TOR",
         "WASHINGTON NATIONALS": "WSH",
-        "ARIZONA DIAMONDBACKS": "AZ",
+        "ARIZONA DIAMONDBACKS": "ARI",
     }
     teams_playing: set[str] = set()
     if schedule_today:

@@ -111,7 +111,7 @@ def compute_streaming_value(
     whip = _get(pitcher, "whip", 1.30)
 
     # Normalise to per-start if season totals are large
-    if ip > 30:
+    if ip > 15:
         # Looks like season totals -- compute per-start rates
         games_started = max(ip / _DEFAULT_IP_PER_START, 1.0)
         k_per_start = total_k / games_started
@@ -135,7 +135,7 @@ def compute_streaming_value(
 
     # L (losses) is inverse: adding losses hurts, so subtract L contribution
     total_l = _get(pitcher, "l", 0.0)
-    if ip > 30:
+    if ip > 15:
         l_per_start = total_l / max(ip / _DEFAULT_IP_PER_START, 1.0)
     else:
         l_per_start = total_l
@@ -161,7 +161,8 @@ def compute_streaming_value(
     era_sgp = (era_delta / sgp_era) * w_era
 
     baseline_whip = 1.25
-    whip_delta = (baseline_whip - whip) * ip_contribution / (team_ip + ip_contribution)
+    whip_adjusted = whip * team_park_factor
+    whip_delta = (baseline_whip - whip_adjusted) * ip_contribution / (team_ip + ip_contribution)
     whip_sgp = (whip_delta / sgp_whip) * w_whip
 
     rate_impact = era_sgp + whip_sgp
@@ -226,6 +227,8 @@ def rank_streaming_candidates(
         team = pitcher.get("team", "")
         opponent = pitcher.get("opponent", "")
         weekly_games = int(pitcher.get("weekly_games", 1))
+        if weekly_games <= 0:
+            continue
 
         # Look up park factor for the opponent's park (if available)
         park = pf.get(opponent, pf.get(team, 1.0))
@@ -424,9 +427,9 @@ def optimal_streaming_schedule(
 # --- Bayesian Stream Scoring ---
 
 _STREAM_SGP_DEFAULTS: dict[str, float] = {
-    "K": 28.0,
-    "W": 2.5,
-    "ERA": 0.27,
+    "k": 28.0,
+    "w": 2.5,
+    "era": 0.27,
 }
 
 
@@ -469,9 +472,9 @@ def compute_bayesian_stream_score(
         risk_penalty = 2.0
 
     # Stream score (SGP-based)
-    sgp_k = sgp.get("K", 28.0)
-    sgp_w = sgp.get("W", 2.5)
-    sgp_era = sgp.get("ERA", 0.27)
+    sgp_k = sgp.get("k", 28.0)
+    sgp_w = sgp.get("w", 2.5)
+    sgp_era = sgp.get("era", 0.27)
 
     # ERA cost: diluted impact on team ERA (ER -> ERA -> SGP conversion)
     baseline_era = _CONSTANTS.get("streaming_baseline_era")

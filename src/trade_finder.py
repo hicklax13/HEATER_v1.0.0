@@ -368,11 +368,9 @@ def _compute_drop_cost(
     worst_pid = min(sgps, key=sgps.get)
     worst_sgp = sgps[worst_pid]
 
-    # Replacement level = median of bottom quartile (rough proxy for FA value)
-    sorted_sgps = sorted(sgps.values())
-    replacement_sgp = sorted_sgps[len(sorted_sgps) // 4] if len(sorted_sgps) >= 4 else 0.0
-
-    return max(0.0, worst_sgp - replacement_sgp), worst_pid
+    # Drop cost = positive value lost by dropping worst player.
+    # If worst player has negative SGP, dropping them is beneficial (cost = 0).
+    return max(0.0, worst_sgp), worst_pid
 
 
 # ── 2-for-1 Trade Scanner ───────────────────────────────────────────
@@ -444,7 +442,9 @@ def scan_2_for_1(
             opp_delta = _totals_sgp(new_opp_totals, config) - _totals_sgp(opp_baseline, config)
 
             # Opponent must drop someone (receives 2, gives 1 = +1 roster)
-            drop_cost, _drop_pid = _compute_drop_cost(new_opp_ids, [], player_pool, config)
+            # Only existing opponent players are drop candidates (not players just received in trade)
+            existing_opp = [pid for pid in new_opp_ids if pid not in new_give]
+            drop_cost, _drop_pid = _compute_drop_cost(existing_opp, list(new_give), player_pool, config)
             opp_delta -= drop_cost
 
             if opp_delta < MAX_OPP_LOSS:
@@ -607,9 +607,11 @@ def scan_1_for_1(
     # --- Load YTD 2026 stats for recent performance modifier ---
     ytd_stats: dict[int, dict] = {}
     try:
-        _conn2 = get_connection()
+        from src.database import get_connection as _gc2
+
+        _conn2 = _gc2()
         try:
-            _ytd = _pd.read_sql_query(
+            _ytd = pd.read_sql_query(
                 "SELECT player_id, pa, avg, hr, rbi, sb, era, whip FROM season_stats WHERE season = 2026 AND pa > 0",
                 _conn2,
             )
@@ -710,7 +712,11 @@ def scan_1_for_1(
             if recv_sv >= 5:
                 from src.trade_intelligence import SV_SCARCITY_MULT
 
-                user_delta *= SV_SCARCITY_MULT
+                # Add saves-specific scarcity bonus instead of multiplying entire delta
+                sv_denom = config.sgp_denominators.get("SV", 1.0)
+                if abs(sv_denom) > 1e-9:
+                    sv_bonus = (recv_sv / sv_denom) * (SV_SCARCITY_MULT - 1.0)
+                    user_delta += sv_bonus
 
             if user_delta < MIN_SGP_GAIN:
                 continue
@@ -806,7 +812,8 @@ def scan_1_for_1(
             }
 
             # Annotate health risk
-            health = float(recv_player.iloc[0].get("health_score", 0.85))
+            _hs = recv_player.iloc[0].get("health_score", None)
+            health = float(_hs) if _hs is not None and not (isinstance(_hs, float) and _hs != _hs) else 0.85
             if health >= 0.85:
                 trade_result["health_risk"] = "Low"
             elif health >= 0.65:
@@ -1006,7 +1013,7 @@ def find_trade_opportunities(
             reverse=True,
         )[:15]
 
-        for opp_team, _ in partners:
+        for opp_team, dissim_score in partners:
             opp_roster = league_rosters.get(opp_team, [])
             if not opp_roster:
                 continue
@@ -1027,6 +1034,7 @@ def find_trade_opportunities(
                 )
                 for trade in multi:
                     trade["opponent_team"] = opp_team
+                    trade["complementarity"] = round(dissim_score, 3)
                 all_trades.extend(multi)
             except Exception:
                 logger.debug(

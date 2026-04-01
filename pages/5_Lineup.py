@@ -1830,7 +1830,7 @@ with main:
                         roster=user_roster if not user_roster.empty else pool,
                         matchup=matchup,
                         schedule_today=sched if sched else None,
-                        park_factors=st.session_state.get("park_factors", {}),
+                        park_factors=PARK_FACTORS if PARK_FACTORS else {},
                     )
 
                     if not dcv.empty:
@@ -1865,7 +1865,8 @@ with main:
                                 st.caption(f"Rate stat strategy: {mode_text}")
 
                         # Recommended starters (top by DCV, volume > 0)
-                        starters_dcv = dcv[(dcv["volume_factor"] > 0) & (dcv["health_factor"] > 0)].head(18)
+                        eligible = dcv[(dcv["volume_factor"] > 0) & (dcv["health_factor"] > 0)].copy()
+                        starters_dcv = eligible.nlargest(18, "total_dcv")
                         bench_dcv = dcv[~dcv.index.isin(starters_dcv.index)]
 
                         st.markdown("**Recommended Starting Lineup**")

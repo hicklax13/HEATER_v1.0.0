@@ -210,8 +210,8 @@ class TestVolumeFactor:
         assert compute_volume_factor(True, False, is_doubleheader=True) == 0.3
 
     def test_doubleheader_lineup_unknown(self):
-        # Lineup not posted during doubleheader = 0.9 (not doubled)
-        assert compute_volume_factor(True, None, is_doubleheader=True) == 0.9
+        # Lineup not posted during doubleheader = 1.8 (doubled even pre-lineup)
+        assert compute_volume_factor(True, None, is_doubleheader=True) == 1.8
 
 
 # -----------------------------------------------------------------------
@@ -560,4 +560,4 @@ class TestConstants:
             assert cat.lower() in STABILIZATION_POINTS, f"Missing stabilization point for {cat}"
 
     def test_stud_floor_top_n_reasonable(self):
-        assert 10 <= STUD_FLOOR_TOP_N <= 100
+        assert 3 <= STUD_FLOOR_TOP_N <= 100

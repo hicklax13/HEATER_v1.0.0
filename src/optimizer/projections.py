@@ -15,7 +15,7 @@ All steps degrade gracefully when data is unavailable.
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -69,9 +69,14 @@ def build_enhanced_projections(
     enhanced = roster.copy()
 
     # Cast counting stat columns to float to avoid dtype warnings
-    for col in COUNTING_CATS + RATE_CATS:
+    RATE_DEFAULTS = {"avg": 0.250, "obp": 0.320, "era": 4.50, "whip": 1.30}
+    for col in ALL_CATS:
         if col in enhanced.columns:
-            enhanced[col] = pd.to_numeric(enhanced[col], errors="coerce").fillna(0).astype(float)
+            enhanced[col] = pd.to_numeric(enhanced[col], errors="coerce")
+            if col in RATE_DEFAULTS:
+                enhanced[col] = enhanced[col].fillna(RATE_DEFAULTS[col]).astype(float)
+            else:
+                enhanced[col] = enhanced[col].fillna(0).astype(float)
 
     enhanced["projection_confidence"] = 1.0
     enhanced["regime_label"] = ""
@@ -326,20 +331,24 @@ def _apply_statcast_adjustment(roster: pd.DataFrame) -> pd.DataFrame:
             fetch_batter_statcast,
         )
 
-        today = datetime.now(UTC)
-        start_date = (today - pd.Timedelta(days=30)).strftime("%Y-%m-%d")
-        end_date = today.strftime("%Y-%m-%d")
+        today = datetime.now(UTC).date()
+        start_date = today - timedelta(days=30)
+        end_date = today
 
         for idx, row in roster.iterrows():
             if not row.get("is_hitter", True):
                 continue  # Pitcher Statcast handled separately if needed
 
-            name = row.get("player_name", row.get("name", ""))
-            if not name:
+            mlb_id = row.get("mlb_id", None)
+            if mlb_id is None or (isinstance(mlb_id, float) and mlb_id != mlb_id):
+                continue  # Skip players without MLB ID
+            try:
+                mlb_id = int(mlb_id)
+            except (ValueError, TypeError):
                 continue
 
             try:
-                pitch_data = fetch_batter_statcast(name, start_date, end_date)
+                pitch_data = fetch_batter_statcast(mlb_id, start_date, end_date)
                 if pitch_data is None or pitch_data.empty:
                     continue
 
@@ -355,7 +364,7 @@ def _apply_statcast_adjustment(roster: pd.DataFrame) -> pd.DataFrame:
                     # Barrel% > 10% suggests power upside
                     # xwOBA > .350 suggests above-average production
                     barrel_adj = 1.0 + max(0, (barrel_pct - 8.0)) * 0.01
-                    xwoba_adj = xwoba / max(0.320, 0.001)
+                    xwoba_adj = xwoba / 0.320
 
                     # Blend: 30% Statcast signal, 70% existing projection
                     blend_weight = 0.3
@@ -416,7 +425,7 @@ def _apply_injury_availability(
 
         for idx, row in roster.iterrows():
             pid = row.get("player_id")
-            pi = injury_df[injury_df["player_id"] == pid]
+            pi = injury_df[injury_df["player_id"] == pid].sort_values("season", ascending=False)
 
             if pi.empty:
                 health_score = 0.85  # League average
@@ -446,7 +455,6 @@ def _apply_injury_availability(
             for cat in cats:
                 if cat in roster.columns:
                     val = float(row.get(cat, 0) or 0)
-                    roster[cat] = roster[cat].astype(float)
                     roster.at[idx, cat] = val * expected_availability
 
             roster.at[idx, "health_adjusted"] = True

@@ -165,7 +165,7 @@ def compute_nonlinear_weights(
     if mean_w <= 0:
         return equal
 
-    weights = {cat: raw_weights.get(cat, 1.0) / mean_w for cat in ALL_CATS}
+    weights = {cat: raw_weights.get(cat, mean_w) / mean_w for cat in ALL_CATS}
 
     # Iteratively cap and re-normalize: capping pulls down the mean,
     # so uncapped weights must be rescaled.  Repeat until stable.

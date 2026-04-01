@@ -261,7 +261,7 @@ def park_factor_adjustment(
     # Try home team's park factor, then opponent's, then neutral
     # The caller typically passes the home team as opponent_team
     # when the player is visiting.
-    pf = park_factors.get(pt, park_factors.get(ot, 1.0))
+    pf = park_factors.get(ot, park_factors.get(pt, 1.0))
 
     if not is_hitter:
         # Pitcher park factors are the inverse effect:

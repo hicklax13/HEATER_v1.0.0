@@ -42,6 +42,8 @@ def compute_category_urgency(
     inverse_stats = config.inverse_stats  # L, ERA, WHIP — lower is better
     sgp_denoms = config.sgp_denominators
 
+    rate_stats = getattr(config, "rate_stats", {"AVG", "OBP", "ERA", "WHIP"})
+
     for cat in config.all_categories:
         my_val = float(my_totals.get(cat, my_totals.get(cat.lower(), 0)) or 0)
         opp_val = float(opp_totals.get(cat, opp_totals.get(cat.lower(), 0)) or 0)
@@ -58,10 +60,11 @@ def compute_category_urgency(
 
         # Sigmoid: approaches 1.0 when losing (gap > 0), 0.0 when winning (gap < 0)
         # k controls steepness: 2.0 for counting stats, 3.0 for rate stats
-        rate_stats = getattr(config, "rate_stats", {"AVG", "OBP", "ERA", "WHIP"})
         k = 3.0 if cat in rate_stats else 2.0
 
-        urgency[cat] = 1.0 / (1.0 + math.exp(-k * gap))
+        exponent = -k * gap
+        exponent = max(-500, min(500, exponent))
+        urgency[cat] = 1.0 / (1.0 + math.exp(exponent))
 
     return urgency
 

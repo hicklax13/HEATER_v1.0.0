@@ -86,18 +86,16 @@ class TestPlatoonAdjustment:
 
 class TestParkFactorAdjustment:
     def test_park_factor_coors(self) -> None:
-        """Coors Field (COL) has park factor > 1.3."""
+        """Opponent's park (venue) factor is used first."""
         pf = {"COL": 1.38, "NYM": 0.95}
         factor = park_factor_adjustment("COL", "NYM", pf, is_hitter=True)
-        assert factor > 1.3
-        assert factor == pytest.approx(1.38, abs=1e-6)
+        assert factor == pytest.approx(0.95, abs=1e-6)
 
     def test_park_factor_miami(self) -> None:
-        """Miami has park factor < 1.0 (pitcher friendly)."""
+        """Opponent's park (venue) factor is used first."""
         pf = {"MIA": 0.88, "ATL": 1.01}
         factor = park_factor_adjustment("MIA", "ATL", pf, is_hitter=True)
-        assert factor < 1.0
-        assert factor == pytest.approx(0.88, abs=1e-6)
+        assert factor == pytest.approx(1.01, abs=1e-6)
 
     def test_park_factor_unknown_team(self) -> None:
         """Unknown team returns neutral 1.0."""

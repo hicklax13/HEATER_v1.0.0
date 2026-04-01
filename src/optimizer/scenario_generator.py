@@ -244,7 +244,7 @@ def generate_stat_scenarios(
                     sigma = std_matrix[i, local_j]
                     scenarios[:, i, local_j] = norm.ppf(u[:, copula_j], loc=mu, scale=sigma)
             # Clip non-negative counting stats to >= 0 (same as Cholesky path)
-            _NON_NEG_COPULA: set[str] = {"r", "hr", "rbi", "sb", "w", "sv", "k"}
+            _NON_NEG_COPULA: set[str] = {"r", "hr", "rbi", "sb", "w", "l", "sv", "k"}
             for j, cat in enumerate(ALL_CATS):
                 if cat in _NON_NEG_COPULA:
                     scenarios[:, :, j] = np.maximum(0, scenarios[:, :, j])
@@ -274,7 +274,7 @@ def generate_stat_scenarios(
         cholesky = np.eye(n_cats)
 
     # Non-negative counting stats that must be clipped to >= 0
-    _NON_NEGATIVE_STATS: set[str] = {"r", "hr", "rbi", "sb", "w", "sv", "k"}
+    _NON_NEGATIVE_STATS: set[str] = {"r", "hr", "rbi", "sb", "w", "l", "sv", "k"}
 
     for i in range(n_players):
         z = rng.standard_normal((n_scenarios, n_cats))

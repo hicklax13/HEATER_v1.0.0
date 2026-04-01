@@ -326,7 +326,7 @@ def main():
         try:
             from src.trade_intelligence import compute_schedule_urgency
 
-            urgency_mult = compute_schedule_urgency(weeks_ahead=3)
+            urgency_mult = compute_schedule_urgency(weeks_ahead=3, yds=yds)
             if urgency_mult > 1.05:
                 urgency_label = "HIGH -- tough opponents ahead"
                 urgency_color = T["danger"]

@@ -94,10 +94,10 @@ def blend_h2h_roto_weights(
             blended[cat] = alpha * h2h_val + (1.0 - alpha) * roto_val
         elif h2h_val is not None:
             # Only H2H available for this category
-            blended[cat] = h2h_val
+            blended[cat] = alpha * h2h_val
         elif roto_val is not None:
             # Only roto available for this category
-            blended[cat] = roto_val
+            blended[cat] = (1.0 - alpha) * roto_val
 
     # Normalize so mean = 1.0
     if blended:
