@@ -7,7 +7,7 @@ import streamlit as st
 
 from src.database import coerce_numeric_df, get_connection, init_db, load_league_rosters, load_player_pool
 from src.in_season import compare_players
-from src.injury_model import compute_health_score, get_injury_badge
+from src.injury_model import get_injury_badge
 from src.ui_shared import (
     ALL_CATEGORIES,
     METRIC_TOOLTIPS,
@@ -48,6 +48,15 @@ if pool.empty:
     st.stop()
 
 pool = pool.rename(columns={"name": "player_name"})
+
+# Apply health adjustments (IL/DTD status + injury history) so health_score is accurate
+try:
+    from src.trade_intelligence import get_health_adjusted_pool
+
+    pool = get_health_adjusted_pool(pool)
+except ImportError:
+    pass
+
 rosters_df = load_league_rosters()
 config = LeagueConfig()
 
@@ -145,22 +154,8 @@ with main:
         time.sleep(0.3)
         compare_progress.empty()
 
-        # Load health scores from injury_history table
-        health_dict = {}
-        try:
-            conn = get_connection()
-            try:
-                injury_df = pd.read_sql_query("SELECT * FROM injury_history", conn)
-                injury_df = coerce_numeric_df(injury_df)
-            finally:
-                conn.close()
-            if not injury_df.empty and "player_id" in injury_df.columns:
-                for pid, group in injury_df.groupby("player_id"):
-                    gp = group["games_played"].tolist()
-                    ga = group["games_available"].tolist()
-                    health_dict[pid] = compute_health_score(gp, ga)
-        except Exception:
-            pass
+        # Health scores are already in the pool from get_health_adjusted_pool()
+        # which accounts for both injury history AND current IL/DTD status.
 
         if "error" in result:
             st.error(result["error"])
@@ -257,7 +252,8 @@ with main:
             st.subheader("Health & Confidence")
             health_rows = []
             for name_col, pid_col in [(player_a_name, id_a), (player_b_name, id_b)]:
-                hs = health_dict.get(pid_col, 0.85)
+                p_match = pool[pool["player_id"] == pid_col]
+                hs = float(p_match.iloc[0].get("health_score", 0.85) or 0.85) if not p_match.empty else 0.85
                 icon, label = get_injury_badge(hs)
                 health_rows.append({"Player": name_col, "Health": f"{icon} {label}", "Score": f"{hs:.2f}"})
 

@@ -254,38 +254,52 @@ if not OPTIMIZER_AVAILABLE and not PIPELINE_AVAILABLE:
 
 
 # ── Apply health-based stat discount BEFORE optimization ─────────────
+# Uses get_health_adjusted_pool() which accounts for both injury history
+# AND current IL/DTD status (IL15=0.84x, IL60=0.55x, DTD=0.95x, NA excluded).
 
 HEALTH_PENALTY_WEIGHT = 0.15
 health_dict: dict[int, float] = {}
 try:
-    conn = get_connection()
-    try:
-        injury_df = pd.read_sql_query("SELECT * FROM injury_history", conn)
-        injury_df = coerce_numeric_df(injury_df)
-    finally:
-        conn.close()
+    from src.trade_intelligence import get_health_adjusted_pool as _get_hap
 
-    if not injury_df.empty:
-        counting_cols = ["r", "hr", "rbi", "sb", "w", "sv", "k"]
-        # Cast int64 columns to float64 before applying fractional penalties
-        for col in counting_cols:
-            if col in roster.columns:
-                roster[col] = pd.to_numeric(roster[col], errors="coerce").astype(float)
-        for idx, row in roster.iterrows():
-            pid = row.get("player_id")
-            pi = injury_df[injury_df["player_id"] == pid]
-            if not pi.empty:
-                hs = compute_health_score(pi["games_played"].tolist(), pi["games_available"].tolist())
-            else:
-                hs = 1.0
-            health_dict[pid] = hs
-            penalty = HEALTH_PENALTY_WEIGHT * (1.0 - hs)
-            if penalty > 0:
-                for col in counting_cols:
-                    if col in roster.columns:
-                        roster.at[idx, col] = float(roster.at[idx, col]) * (1.0 - penalty)
+    roster = _get_hap(roster)
+    # Populate health_dict from the adjusted pool for display use
+    for _, _row in roster.iterrows():
+        _pid = _row.get("player_id")
+        if _pid is not None:
+            health_dict[_pid] = float(_row.get("health_score", 1.0) or 1.0)
+except ImportError:
+    # Fallback: raw injury history when trade_intelligence unavailable
+    try:
+        conn = get_connection()
+        try:
+            injury_df = pd.read_sql_query("SELECT * FROM injury_history", conn)
+            injury_df = coerce_numeric_df(injury_df)
+        finally:
+            conn.close()
+
+        if not injury_df.empty:
+            counting_cols = ["r", "hr", "rbi", "sb", "w", "l", "sv", "k"]
+            for col in counting_cols:
+                if col in roster.columns:
+                    roster[col] = pd.to_numeric(roster[col], errors="coerce").astype(float)
+            for idx, row in roster.iterrows():
+                pid = row.get("player_id")
+                pi = injury_df[injury_df["player_id"] == pid]
+                if not pi.empty:
+                    hs = compute_health_score(pi["games_played"].tolist(), pi["games_available"].tolist())
+                else:
+                    hs = 1.0
+                health_dict[pid] = hs
+                penalty = HEALTH_PENALTY_WEIGHT * (1.0 - hs)
+                if penalty > 0:
+                    for col in counting_cols:
+                        if col in roster.columns:
+                            roster.at[idx, col] = float(roster.at[idx, col]) * (1.0 - penalty)
+    except Exception:
+        pass  # Graceful degradation when injury data unavailable
 except Exception:
-    pass  # Graceful degradation when injury data unavailable
+    pass  # Graceful degradation
 
 
 # ── Load standings and schedule ──────────────────────────────────────

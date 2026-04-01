@@ -145,8 +145,8 @@ def _compute_category_totals(df: pd.DataFrame) -> tuple[dict, dict]:
         er = pitchers["er"].sum() if "er" in pitchers.columns else 0
         bb = pitchers["bb_allowed"].sum() if "bb_allowed" in pitchers.columns else 0
         ha = pitchers["h_allowed"].sum() if "h_allowed" in pitchers.columns else 0
-        pitch_stats["ERA"] = f"{er * 9 / ip:.2f}" if ip > 0 else "0.00"
-        pitch_stats["WHIP"] = f"{(bb + ha) / ip:.2f}" if ip > 0 else "0.00"
+        pitch_stats["ERA"] = f"{er * 9 / ip:.3f}" if ip > 0 else "0.000"
+        pitch_stats["WHIP"] = f"{(bb + ha) / ip:.3f}" if ip > 0 else "0.000"
 
     return hit_stats, pitch_stats
 
