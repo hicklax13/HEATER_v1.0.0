@@ -103,11 +103,19 @@ class TestParkFactorAdjustment:
         factor = park_factor_adjustment("XYZ", "ABC", pf, is_hitter=True)
         assert factor == 1.0
 
-    def test_park_factor_pitcher_neutral(self) -> None:
-        """Pitcher park factor is neutral (1.0) for counting stats."""
+    def test_park_factor_pitcher_dampened(self) -> None:
+        """Pitcher park factor is dampened to 30% of hitter effect."""
         pf = {"COL": 1.38}
-        factor = park_factor_adjustment("COL", "NYM", pf, is_hitter=False)
-        assert factor == 1.0
+        factor = park_factor_adjustment("COL", "COL", pf, is_hitter=False)
+        # 1.0 + (1.38 - 1.0) * 0.3 = 1.114
+        assert factor == pytest.approx(1.114, abs=1e-6)
+
+    def test_park_factor_pitcher_unknown_neutral(self) -> None:
+        """Pitcher in unknown park gets neutral 1.0 (pf defaults to 1.0)."""
+        pf = {"COL": 1.38}
+        factor = park_factor_adjustment("XYZ", "ABC", pf, is_hitter=False)
+        # pf = 1.0, so 1.0 + (1.0 - 1.0) * 0.3 = 1.0
+        assert factor == pytest.approx(1.0, abs=1e-6)
 
 
 # ── Weather Tests ────────────────────────────────────────────────────

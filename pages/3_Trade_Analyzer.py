@@ -516,7 +516,7 @@ else:
                                             totals[cat] = float(row.get(cat.lower(), row.get(cat, 0)) or 0)
                                         all_team_totals[tn] = totals
 
-                                    opp_needs = compute_opponent_needs(opp_team, all_team_totals, config)
+                                    opp_needs = compute_opponent_needs(opp_team, all_team_totals)
                                     arch = get_opponent_archetype(opp_team)
                                     opp_willingness = arch.get("trade_willingness", 0.5)
 

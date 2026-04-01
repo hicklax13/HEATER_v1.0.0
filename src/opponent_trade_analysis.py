@@ -19,18 +19,16 @@ logger = logging.getLogger(__name__)
 def compute_opponent_needs(
     opponent_team_name: str,
     all_team_totals: dict[str, dict[str, float]],
-    config=None,
     weeks_remaining: int = 16,
 ) -> dict[str, dict]:
     """Run category_gap_analysis from the opponent's perspective.
 
     Returns same structure as category_gap_analysis(): per-category
     rank, is_punt, marginal_value, gap_to_next, gainable_positions.
-    """
-    if config is None:
-        from src.valuation import LeagueConfig
 
-        config = LeagueConfig()
+    Note: config is not accepted here because category_gap_analysis()
+    uses its own module-level LeagueConfig internally.
+    """
 
     opp_totals = all_team_totals.get(opponent_team_name, {})
     if not opp_totals:
@@ -78,7 +76,7 @@ def analyze_from_opponent_view(
     from src.in_season import _roster_category_totals
 
     # Get opponent's current needs
-    opp_needs = compute_opponent_needs(opponent_team_name, all_team_totals, config)
+    opp_needs = compute_opponent_needs(opponent_team_name, all_team_totals)
     if not opp_needs:
         return {
             "opp_category_deltas": {},
@@ -103,17 +101,16 @@ def analyze_from_opponent_view(
     for cat in config.all_categories:
         before_val = opp_before.get(cat, 0)
         after_val = opp_after.get(cat, 0)
-        delta = after_val - before_val
-        if cat in config.inverse_stats:
-            delta = -delta  # Lower is better for ERA/WHIP/L
-        deltas[cat] = round(delta, 3)
+        raw_delta = after_val - before_val
+        improvement = -raw_delta if cat in config.inverse_stats else raw_delta
+        deltas[cat] = round(raw_delta, 3)  # raw stat change
 
         # Check if this helps a weak category
         cat_info = opp_needs.get(cat, {})
         rank = cat_info.get("rank", 6)
-        if rank >= 8 and delta > 0:
+        if rank >= 8 and improvement > 0:
             weak_helped.append(cat)
-        elif rank <= 4 and delta < 0:
+        elif rank <= 4 and improvement < 0:
             strong_hurt.append(cat)
 
     # Need match: fraction of opponent's weak categories that improve

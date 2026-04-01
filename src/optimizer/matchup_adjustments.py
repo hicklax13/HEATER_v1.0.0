@@ -264,15 +264,8 @@ def park_factor_adjustment(
     pf = park_factors.get(ot, park_factors.get(pt, 1.0))
 
     if not is_hitter:
-        # Pitcher park factors are the inverse effect:
-        # hitter-friendly park hurts pitchers
-        # We invert around 1.0: factor = 2.0 - pf
-        # e.g., Coors (1.38) -> pitcher factor 0.62
-        # But this is too aggressive. Industry standard is to use
-        # the same factor but inverted for rate stats.
-        # For counting stats (K, W, SV), park factor is approximately
-        # neutral, so just return 1.0 for pitchers.
-        return 1.0
+        # Dampen park factor effect for pitchers (rate stats partially captured)
+        return 1.0 + (pf - 1.0) * 0.3  # 30% of hitter park effect
 
     return float(pf)
 

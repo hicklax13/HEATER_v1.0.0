@@ -14,7 +14,6 @@ from src.valuation import LeagueConfig
 
 
 def test_compute_opponent_needs_returns_dict():
-    config = LeagueConfig()
     totals = {
         "Team A": {
             "R": 100,
@@ -45,15 +44,14 @@ def test_compute_opponent_needs_returns_dict():
             "WHIP": 1.18,
         },
     }
-    needs = compute_opponent_needs("Team B", totals, config)
+    needs = compute_opponent_needs("Team B", totals)
     assert isinstance(needs, dict)
     if needs:
         assert "R" in needs or "HR" in needs
 
 
 def test_compute_opponent_needs_empty_team():
-    config = LeagueConfig()
-    needs = compute_opponent_needs("Nobody", {}, config)
+    needs = compute_opponent_needs("Nobody", {})
     assert needs == {}
 
 

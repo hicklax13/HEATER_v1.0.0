@@ -286,7 +286,10 @@ def _count_contributing_categories(
         if cat in config.rate_stats:
             # Rate stats: must be within reasonable range of average
             if cat in config.inverse_stats:
-                if val > 0 and val < benchmark * 1.5:  # ERA below 6.30 = contributing
+                ip = float(player_row.get("ip", 0) or 0)
+                if cat in ("ERA", "WHIP") and ip <= 0:
+                    continue  # No IP = doesn't contribute to pitching rates
+                if val < benchmark * 1.5:  # ERA below 6.30 = contributing
                     count += 1
             else:
                 if val > benchmark * min_pct_of_avg:  # AVG above .066 = contributing
@@ -472,13 +475,16 @@ def scan_2_for_1(
             need_match = min(1.0, max(0.0, (opp_delta + 1.0) / 2.0))
             p_accept = estimate_acceptance_probability(user_delta, opp_delta, need_match, adp_fairness=adp_fairness)
 
+            # Remove roster spot bonus from composite to match 1-for-1 scale
+            user_delta_for_score = user_delta - ROSTER_SPOT_SGP
             composite = (
-                0.40 * user_delta
-                + 0.20 * adp_fairness * 2.0
+                0.30 * user_delta_for_score
+                + 0.15 * adp_fairness * 2.0
+                + 0.15 * 0.5 * 2.0  # ECR neutral (not computed for multi-player)
                 + 0.20 * p_accept * 3.0
                 + 0.10 * max(opp_delta, 0)
                 + 0.10 * need_match * 2.0
-            )
+            ) + 0.1  # Small fixed bonus for roster flexibility
 
             give_names = seed.get("giving_names", []) + [
                 str(add_player.iloc[0].get("name", add_player.iloc[0].get("player_name", "?")))
@@ -582,7 +588,7 @@ def scan_1_for_1(
         try:
             from src.opponent_trade_analysis import compute_opponent_needs, get_opponent_archetype
 
-            opp_needs_analysis = compute_opponent_needs(opponent_team_name, all_team_totals, config)
+            opp_needs_analysis = compute_opponent_needs(opponent_team_name, all_team_totals)
             arch = get_opponent_archetype(opponent_team_name)
             opp_archetype_willingness = arch.get("trade_willingness", 0.5)
         except Exception:

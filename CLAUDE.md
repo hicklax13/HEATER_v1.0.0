@@ -482,6 +482,7 @@ get_injury_badge(health_score) -> tuple[str, str]  # returns <span> with CSS dot
 - **Previous plans:** `plan_1.md` (completed), `Full_Debug_Plan.md` (completed)
 - **AVIS Manual:** `AVIS_FANTASY_BASEBALL_OPS_MANUAL_2026.md` — the "bible" for league rules, scoring, team analysis
 - **Season context:** MLB 2026 season started March 25. Fantasy draft completed. App is now in-season mode.
+- **Systematic Debug (April 1, 2026):** 49 bugs fixed across 21 files, acceptance panel added to Trade Analyzer, all pages audited for upstream consistency
 - **Design docs:** `docs/superpowers/specs/2026-03-31-trade-engine-v3-research.md` (deep research), `docs/superpowers/specs/2026-03-29-lineup-optimizer-v2-research.md` (optimizer research)
 
 ## New Modules (Added March 26, 2026)
@@ -508,6 +509,28 @@ get_injury_badge(health_score) -> tuple[str, str]  # returns <span> with CSS dot
 - **Trade Analyzer** — Dropdown shows tradeable players from other teams (was 9K player pool)
 - **Lineup Optimizer** — Pitchers now counted in starting lineup (was hitter-only)
 - **Points Leaders** — Fixed `list.empty` AttributeError, returns DataFrame
+
+## Key Fixes (April 1, 2026)
+
+- **Systematic Debug** — 9 parallel agents audited 16 files, found 49 bugs (1 critical, 16 high, 24 medium, 8 low), all fixed
+- **TI-001 CRITICAL:** ERA/WHIP recalculated with unreduced er/bb_allowed/h_allowed — injured pitchers got worse rate stats
+- **TI-002 HIGH:** Health score double-dip: IL15 players lost 36% instead of 16%
+- **TI-003 HIGH:** "C" in "CF" substring match gave center fielders catcher scarcity premium
+- **TI-004 HIGH:** OBP never recalculated after IL counting stat adjustment
+- **TF-001/TF-002 HIGH:** 2-for-1 drop cost always zero — opponent roster squeeze never penalized
+- **TF-004 HIGH:** Closer scarcity 1.3x multiplied entire SGP delta instead of saves only
+- **OP-001 HIGH:** Statcast step called with player name instead of mlb_id — entire step was dead code
+- **OP-002 HIGH:** Injury history query had no ORDER BY — health scores used arbitrary season order
+- **OP-003 HIGH:** Rate stats filled with 0 for NaN — ERA=0.00 made pitchers look perfect
+- **CU-001 HIGH:** math.exp() overflow on extreme WHIP gaps crashed optimizer
+- **DO-001 HIGH:** Arizona="AZ"/Oakland="ATH" abbreviations broke park factor lookups
+- **DO-002 HIGH:** STUD_FLOOR_TOP_N=30 > 23-player roster — all players became studs
+- **DO-001/LP HIGH:** Single-source categories bypassed alpha blending in dual objective
+- **LP-001 HIGH:** Daily Optimize tab read park_factors from empty session_state
+- **LP-003 HIGH:** park_factor_adjustment() returned player's own team PF instead of venue
+- **OPT-005/006 HIGH:** Streaming relievers with 15-30 IP had inflated values; 0-game pitchers not excluded
+- **Acceptance Analysis Panel** — Trade Analyzer now shows ADP Fairness, ECR Fairness, Acceptance Probability, Acceptance Tier
+- **Page Audit** — 9 page bugs fixed across Trade Analyzer, Lineup Optimizer, My Team, Player Compare, Start/Sit
 
 ## Season State (2026)
 

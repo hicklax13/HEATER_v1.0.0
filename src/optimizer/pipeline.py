@@ -300,7 +300,7 @@ class LineupOptimizerPipeline:
 
         # ── Stage 2: Matchup Adjustments ─────────────────────────
         matchup_adjusted = False
-        if self._preset["enable_matchups"] and _MATCHUP_AVAILABLE and week_schedule and park_factors:
+        if self._preset["enable_matchups"] and _MATCHUP_AVAILABLE and week_schedule and park_factors is not None:
             t2 = time.perf_counter()
             try:
                 enhanced_roster = compute_weekly_matchup_adjustments(
@@ -681,6 +681,7 @@ class LineupOptimizerPipeline:
 
         try:
             adjusted_roster = roster.copy()
+            adjusted_roster = adjusted_roster.reset_index(drop=True)
             if risk_adjustments:
                 # Store raw risk penalties for potential UI display
                 adjusted_roster["_risk_penalty"] = 0.0

@@ -198,20 +198,12 @@ def maximin_lineup(
 
         vals = stat_vals[cat]
 
-        if cat in INVERSE_CATS:
-            # Lower is better.  We want the "contribution" to also be
-            # in a "higher is better" frame so z captures the true worst.
-            # Contribution = -sum(x_i * val_ic) / scale_c
-            # Constraint:  -sum(x_i * val_ic) / scale_c  >=  z
-            prob += (
-                lpSum(-x[i] * float(vals[i]) * w / sf for i in range(n)) >= z,
-                f"maximin_{cat}",
-            )
-        else:
-            prob += (
-                lpSum(x[i] * float(vals[i]) * w / sf for i in range(n)) >= z,
-                f"maximin_{cat}",
-            )
+        # Note: inverse cats (L, ERA, WHIP) excluded at line 169.
+        # Their SGP scale factors are incompatible with counting stats in maximin.
+        prob += (
+            lpSum(x[i] * float(vals[i]) * w / sf for i in range(n)) >= z,
+            f"maximin_{cat}",
+        )
 
     # Roster type constraints
     prob += (
@@ -379,7 +371,7 @@ def epsilon_constraint_lineup(
 
         # Primary
         raw_primary = sum(float(primary_vals[i]) for i in started)
-        primary_value = raw_primary / sf_primary
+        primary_value = raw_primary * w_primary / sf_primary
         if primary_category in INVERSE_CATS:
             primary_value = -primary_value  # present in "higher is better" frame
 
