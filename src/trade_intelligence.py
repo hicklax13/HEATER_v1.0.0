@@ -46,6 +46,100 @@ STATUS_MULTIPLIERS: dict[str, float] = {
 # FA gate: flag trade if FA value >= this fraction of trade target value
 FA_GATE_THRESHOLD = 0.70
 
+# Category correlation clusters (from deep research -- FanGraphs data)
+# HR-RBI correlation r=0.86, HR-R r=0.74, R-RBI r=0.70 -- triple-counting the same skill
+# SB is nearly independent of all other hitting categories (mean r=0.12)
+# AVG-OBP correlation r=0.70 -- overlapping plate discipline
+# ERA-WHIP correlation r=0.84 -- same underlying pitch quality
+
+POWER_CLUSTER = {"HR", "R", "RBI"}
+CONTACT_CLUSTER = {"AVG", "OBP"}
+PITCHING_RATE_CLUSTER = {"ERA", "WHIP"}
+
+# Discount = reduce SGP credit because the categories move together
+# Premium = increase SGP credit because the category is independent
+POWER_CLUSTER_DISCOUNT = 0.83  # 17% discount
+SB_INDEPENDENCE_PREMIUM = 1.08  # 8% premium
+CONTACT_CLUSTER_DISCOUNT = 0.90  # 10% discount
+PITCHING_RATE_DISCOUNT = 0.88  # 12% discount
+
+
+def apply_correlation_adjustments(
+    sgp_dict: dict[str, float],
+    config: Any = None,
+) -> dict[str, float]:
+    """Apply correlation discount/premium to per-category SGP values.
+
+    Categories in correlated clusters get discounted because gaining
+    one category in the cluster tends to gain the others too (double-counting).
+    Independent categories (SB) get a premium because their value is additive.
+
+    Args:
+        sgp_dict: Per-category SGP values {cat: sgp_value}.
+        config: League configuration (unused currently, reserved for future).
+
+    Returns:
+        Adjusted SGP dict with correlation modifiers applied.
+    """
+    adjusted = dict(sgp_dict)
+
+    for cat in POWER_CLUSTER:
+        if cat in adjusted:
+            adjusted[cat] *= POWER_CLUSTER_DISCOUNT
+
+    if "SB" in adjusted:
+        adjusted["SB"] *= SB_INDEPENDENCE_PREMIUM
+
+    for cat in CONTACT_CLUSTER:
+        if cat in adjusted:
+            adjusted[cat] *= CONTACT_CLUSTER_DISCOUNT
+
+    for cat in PITCHING_RATE_CLUSTER:
+        if cat in adjusted:
+            adjusted[cat] *= PITCHING_RATE_DISCOUNT
+
+    return adjusted
+
+
+def compute_schedule_urgency(
+    weeks_ahead: int = 3,
+    yds=None,
+) -> float:
+    """Compute urgency multiplier based on upcoming schedule difficulty.
+
+    Facing Tier 1 opponents increases urgency; Tier 3-4 decreases it.
+
+    Args:
+        weeks_ahead: Number of weeks to look ahead (default 3).
+        yds: Optional YahooDataService for live schedule data.
+
+    Returns:
+        float multiplier in [0.85, 1.25].
+    """
+    from src.opponent_intel import get_opponent_for_week, get_week_number
+
+    current_week = get_week_number()
+    tier_scores = {1: 2.0, 2: 1.0, 3: 0.0, 4: -0.5}
+    total_difficulty = 0.0
+    count = 0
+
+    for w in range(current_week + 1, current_week + 1 + weeks_ahead):
+        if w > 24:
+            break
+        opp = get_opponent_for_week(w, yds=yds)
+        if opp:
+            tier = opp.get("tier", 3)
+            total_difficulty += tier_scores.get(tier, 0.0)
+            count += 1
+
+    if count == 0:
+        return 1.0  # No schedule data -- neutral
+
+    avg_difficulty = total_difficulty / count
+    # Map [-0.5, 2.0] range to [0.85, 1.25] multiplier
+    urgency = 0.85 + (avg_difficulty + 0.5) * (0.40 / 2.5)
+    return max(0.85, min(1.25, urgency))
+
 
 def compute_dynamic_fa_threshold(avg_pa: float) -> float:
     """Compute FA gate threshold that adapts to season progress.

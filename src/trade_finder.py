@@ -23,7 +23,7 @@ from src.valuation import LeagueConfig
 
 MIN_SGP_GAIN = 0.3  # Minimum user SGP gain to surface a trade
 MAX_OPP_LOSS = -0.5  # Reject trades where opponent loses more than this (e.g., opp_delta < -0.5)
-LOSS_AVERSION = 1.5  # Opponent values outgoing players 1.5x (Kahneman)
+LOSS_AVERSION = 1.8  # was 1.5 -- meta-analysis consensus (Brown 2024, Walasek 2024)
 
 
 # ── Team Vector & Cosine Similarity ───────────────────────────────────
@@ -122,29 +122,56 @@ def estimate_acceptance_probability(
     user_gain_sgp: float,
     opponent_gain_sgp: float,
     need_match_score: float = 0.5,
+    adp_fairness: float = 0.5,
+    opponent_need_match: float = 0.5,
+    opponent_standings_rank: int | None = None,
+    opponent_trade_willingness: float = 0.5,
 ) -> float:
     """Estimate probability that opponent accepts the trade.
 
-    Uses behavioral model: loss aversion, fairness gap, and need matching.
+    Uses behavioral model: loss aversion, fairness gap, need matching,
+    ADP fairness, opponent need alignment, standings position, and
+    trade willingness archetype.
 
     Args:
         user_gain_sgp: How much YOU gain (SGP).
         opponent_gain_sgp: How much opponent gains (SGP, negative = they lose).
         need_match_score: How well the trade fills opponent needs (0-1).
+        adp_fairness: ADP match between traded players (0-1, 1 = perfect).
+        opponent_need_match: How well trade fills opponent category gaps (0-1).
+        opponent_standings_rank: Opponent rank in standings (1-12, None if unknown).
+        opponent_trade_willingness: Archetype willingness to trade (0-1).
 
     Returns:
-        float in [0, 1] — estimated acceptance probability.
+        float in [0, 1] -- estimated acceptance probability.
     """
     # Fairness gap (adjusted for loss aversion per Kahneman & Tversky):
-    # Losses feel LOSS_AVERSION× worse. If opponent loses, multiply loss magnitude.
+    # Losses feel LOSS_AVERSION x worse. If opponent loses, multiply loss magnitude.
     if opponent_gain_sgp < 0:
         perceived_opp_gain = opponent_gain_sgp * LOSS_AVERSION  # Losses feel worse
     else:
         perceived_opp_gain = opponent_gain_sgp
 
-    # Sigmoid: P(accept) = 1 / (1 + exp(k * fairness - m * need))
+    # Sigmoid: P(accept) = 1 / (1 + exp(exponent))
     fairness_gap = abs(user_gain_sgp - perceived_opp_gain)
-    exponent = 2.0 * fairness_gap - 1.5 * need_match_score - 0.5 * max(opponent_gain_sgp, 0)
+
+    # ADP penalty: strong penalty when opponent gives up a higher-drafted player
+    adp_penalty = max(0, (0.5 - adp_fairness) * 3.0)
+
+    # Bubble team bonus: teams ranked 4-8 are fighting and more willing to trade
+    bubble_bonus = 0.0
+    if opponent_standings_rank and 4 <= opponent_standings_rank <= 8:
+        bubble_bonus = 0.4
+
+    exponent = (
+        2.0 * fairness_gap
+        - 1.5 * need_match_score
+        - 0.5 * max(opponent_gain_sgp, 0)
+        - 1.0 * opponent_need_match
+        + adp_penalty
+        - bubble_bonus
+        - 0.5 * opponent_trade_willingness
+    )
     # Clamp exponent to avoid overflow
     exponent = max(-20.0, min(20.0, exponent))
     prob = 1.0 / (1.0 + math.exp(exponent))
@@ -159,6 +186,51 @@ def acceptance_label(prob: float) -> str:
     elif prob >= 0.3:
         return "Medium"
     return "Low"
+
+
+# ── ADP Fairness ─────────────────────────────────────────────────────
+
+
+def compute_adp_fairness(
+    give_id: int,
+    recv_id: int,
+    player_pool: pd.DataFrame,
+) -> float:
+    """Compute ADP fairness score between two players.
+
+    Uses league draft round (strongest signal) with generic ADP fallback.
+    ADP fairness is critical because league mates won't accept trades
+    where they give up a higher-drafted player, even if stats favor them.
+
+    Returns:
+        float in [0.0, 1.0] where 1.0 = perfect ADP match,
+        0.0 = extreme ADP mismatch.
+    """
+    # Try league-specific draft rounds first
+    try:
+        from src.database import get_player_draft_round
+
+        give_round = get_player_draft_round(give_id)
+        recv_round = get_player_draft_round(recv_id)
+        if give_round and recv_round:
+            round_gap = abs(give_round - recv_round)
+            max_gap = 23  # max rounds in league draft
+            return max(0.0, 1.0 - (round_gap / max_gap))
+    except Exception:
+        pass
+
+    # Fallback to generic ADP
+    give_p = player_pool[player_pool["player_id"] == give_id]
+    recv_p = player_pool[player_pool["player_id"] == recv_id]
+    give_adp = float(give_p.iloc[0].get("adp", 999) or 999) if not give_p.empty else 999
+    recv_adp = float(recv_p.iloc[0].get("adp", 999) or 999) if not recv_p.empty else 999
+
+    if give_adp >= 500 or recv_adp >= 500:
+        return 0.5  # Unknown ADP = neutral
+
+    # ADP ratio: closer to 1.0 = fairer trade
+    ratio = min(give_adp, recv_adp) / max(give_adp, recv_adp, 0.01)
+    return ratio**0.5  # sqrt softens extreme gaps
 
 
 # ── 1-for-1 Trade Scanner ────────────────────────────────────────────
@@ -266,6 +338,10 @@ def scan_1_for_1(
             ADP_RATIO_MAX = 2.5  # Generic ADP: max 2.5x ratio
             DRAFT_ROUND_MAX_GAP = 8  # League draft: max 8 rounds apart
 
+            # Initialize draft round vars (used later for ADP fairness + result)
+            give_round: int | None = None
+            recv_round: int | None = None
+
             # Try league-specific draft rounds first (strongest signal)
             try:
                 from src.database import get_player_draft_round
@@ -279,7 +355,7 @@ def scan_1_for_1(
             except Exception:
                 pass
 
-            # Fallback: generic ADP check
+            # Generic ADP (used for filter + ADP fairness + result)
             give_adp = float(give_player.iloc[0].get("adp", 999) or 999)
             recv_adp = float(recv_player.iloc[0].get("adp", 999) or 999)
             if give_adp < 500 and recv_adp < 500:  # Both have real ADP data
@@ -316,13 +392,23 @@ def scan_1_for_1(
             # Need match: how much does trade fill opponent's weak categories
             need_match = min(1.0, max(0.0, (opp_delta + 1.0) / 2.0))
 
-            p_accept = estimate_acceptance_probability(user_delta, opp_delta, need_match)
+            # Compute ADP fairness
+            adp_fairness = compute_adp_fairness(give_id, recv_id, player_pool)
 
-            # Composite score: SGP gain weighted by acceptance likelihood
+            p_accept = estimate_acceptance_probability(
+                user_delta,
+                opp_delta,
+                need_match,
+                adp_fairness=adp_fairness,
+            )
+
+            # Composite score: SGP gain weighted by acceptance, ADP fairness,
+            # opponent benefit, and need matching
             composite = (
-                0.50 * user_delta
-                + 0.25 * p_accept * 3.0  # scale probability to SGP-like range
-                + 0.15 * max(opp_delta, 0)  # bonus if opponent also benefits
+                0.40 * user_delta
+                + 0.20 * adp_fairness * 2.0  # ADP fairness scaled to SGP-like range
+                + 0.20 * p_accept * 3.0  # scale probability to SGP-like range
+                + 0.10 * max(opp_delta, 0)  # bonus if opponent also benefits
                 + 0.10 * need_match * 2.0  # bonus for need-matching trades
             )
 
@@ -338,6 +424,9 @@ def scan_1_for_1(
                 "composite_score": round(composite, 3),
                 "trade_type": "1-for-1",
                 "is_closer_trade": recv_sv >= 5,
+                "give_adp_round": give_round if give_round else int(give_adp) if give_adp < 500 else "Undrafted",
+                "recv_adp_round": recv_round if recv_round else int(recv_adp) if recv_adp < 500 else "Undrafted",
+                "adp_fairness": round(adp_fairness, 3),
             }
 
             # Annotate health risk
