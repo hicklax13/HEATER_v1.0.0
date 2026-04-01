@@ -518,6 +518,8 @@ def scan_1_for_1(
     category_weights: dict[str, float] | None = None,
     fa_comparisons: dict[int, dict] | None = None,
     roster_statuses: dict[int, str] | None = None,
+    opponent_team_name: str | None = None,
+    all_team_totals: dict[str, dict[str, float]] | None = None,
 ) -> list[dict]:
     """Fast deterministic scan of all 1-for-1 trades between user and opponent.
 
@@ -572,6 +574,55 @@ def scan_1_for_1(
 
     # Baseline must use the same capped weights as post-trade calculations
     user_baseline = _weighted_totals_sgp(user_totals, config, capped_weights)
+
+    # --- Load opponent needs (from opponent_trade_analysis) ---
+    opp_needs_analysis: dict = {}
+    opp_archetype_willingness: float = 0.5
+    if opponent_team_name and all_team_totals:
+        try:
+            from src.opponent_trade_analysis import compute_opponent_needs, get_opponent_archetype
+
+            opp_needs_analysis = compute_opponent_needs(opponent_team_name, all_team_totals, config)
+            arch = get_opponent_archetype(opponent_team_name)
+            opp_archetype_willingness = arch.get("trade_willingness", 0.5)
+        except Exception:
+            pass
+
+    # --- Load ECR consensus rankings for ranking fairness ---
+    ecr_ranks: dict[int, int] = {}
+    try:
+        from src.database import get_connection
+
+        _conn = get_connection()
+        try:
+            import pandas as _pd
+
+            _ecr = _pd.read_sql_query("SELECT player_id, consensus_rank FROM ecr_consensus", _conn)
+            ecr_ranks = dict(zip(_ecr["player_id"].astype(int), _ecr["consensus_rank"].astype(int)))
+        finally:
+            _conn.close()
+    except Exception:
+        pass
+
+    # --- Load YTD 2026 stats for recent performance modifier ---
+    ytd_stats: dict[int, dict] = {}
+    try:
+        _conn2 = get_connection()
+        try:
+            _ytd = _pd.read_sql_query(
+                "SELECT player_id, pa, avg, hr, rbi, sb, era, whip FROM season_stats WHERE season = 2026 AND pa > 0",
+                _conn2,
+            )
+            for _, _row in _ytd.iterrows():
+                ytd_stats[int(_row["player_id"])] = {
+                    "pa": int(_row.get("pa", 0) or 0),
+                    "avg": float(_row.get("avg", 0) or 0),
+                    "hr": int(_row.get("hr", 0) or 0),
+                }
+        finally:
+            _conn2.close()
+    except Exception:
+        pass
 
     results = []
 
@@ -674,26 +725,62 @@ def scan_1_for_1(
                 continue  # Opponent loses too much
 
             # Need match: how much does trade fill opponent's weak categories
+            # Use REAL opponent needs analysis when available
+            opp_need_match = 0.5
+            if opp_needs_analysis:
+                opp_weak_cats = [c for c, info in opp_needs_analysis.items() if info.get("rank", 6) >= 8]
+                if opp_weak_cats:
+                    # Check if the given player helps opponent's weak categories
+                    give_helps = sum(1 for c in opp_weak_cats if float(give_player.iloc[0].get(c.lower(), 0) or 0) > 0)
+                    opp_need_match = give_helps / max(len(opp_weak_cats), 1)
+
             need_match = min(1.0, max(0.0, (opp_delta + 1.0) / 2.0))
 
             # Compute ADP fairness
             adp_fairness = compute_adp_fairness(give_id, recv_id, player_pool)
+
+            # ECR ranking fairness: penalize trades where you receive a much
+            # lower-ranked player than you give. ECR rank captures market
+            # consensus that raw SGP misses (e.g., Raleigh #25 vs Arraez #124).
+            ecr_fairness = 0.5  # default neutral
+            give_ecr = ecr_ranks.get(give_id)
+            recv_ecr = ecr_ranks.get(recv_id)
+            if give_ecr and recv_ecr:
+                # Ratio: closer to 1.0 = fairer. Lower rank = better.
+                ecr_ratio = min(give_ecr, recv_ecr) / max(give_ecr, recv_ecr, 1)
+                ecr_fairness = ecr_ratio**0.5  # sqrt softens extreme gaps
+
+            # YTD performance modifier: slight bonus for hot players, slight
+            # penalty for cold players. Capped at +/- 10% to avoid chasing streaks.
+            ytd_modifier = 1.0
+            recv_ytd = ytd_stats.get(recv_id, {})
+            if recv_ytd.get("pa", 0) >= 10:
+                # Compare YTD AVG to projected AVG
+                proj_avg = float(recv_player.iloc[0].get("avg", 0.260) or 0.260)
+                ytd_avg = recv_ytd.get("avg", proj_avg)
+                if proj_avg > 0:
+                    perf_ratio = ytd_avg / proj_avg
+                    # Clamp to [0.90, 1.10] — max 10% adjustment
+                    ytd_modifier = max(0.90, min(1.10, perf_ratio))
 
             p_accept = estimate_acceptance_probability(
                 user_delta,
                 opp_delta,
                 need_match,
                 adp_fairness=adp_fairness,
+                opponent_need_match=opp_need_match,
+                opponent_trade_willingness=opp_archetype_willingness,
             )
 
-            # Composite score: SGP gain weighted by acceptance, ADP fairness,
-            # opponent benefit, and need matching
+            # Composite score: SGP gain * YTD modifier, weighted by acceptance,
+            # ADP fairness, ECR fairness, opponent benefit, and need matching
             composite = (
-                0.40 * user_delta
-                + 0.20 * adp_fairness * 2.0  # ADP fairness scaled to SGP-like range
-                + 0.20 * p_accept * 3.0  # scale probability to SGP-like range
-                + 0.10 * max(opp_delta, 0)  # bonus if opponent also benefits
-                + 0.10 * need_match * 2.0  # bonus for need-matching trades
+                0.30 * user_delta * ytd_modifier
+                + 0.15 * adp_fairness * 2.0
+                + 0.15 * ecr_fairness * 2.0  # ECR ranking fairness
+                + 0.20 * p_accept * 3.0
+                + 0.10 * max(opp_delta, 0)
+                + 0.10 * need_match * 2.0
             )
 
             trade_result: dict = {
@@ -711,6 +798,11 @@ def scan_1_for_1(
                 "give_adp_round": give_round if give_round else int(give_adp) if give_adp < 500 else "Undrafted",
                 "recv_adp_round": recv_round if recv_round else int(recv_adp) if recv_adp < 500 else "Undrafted",
                 "adp_fairness": round(adp_fairness, 3),
+                "ecr_fairness": round(ecr_fairness, 3),
+                "give_ecr_rank": give_ecr or "N/A",
+                "recv_ecr_rank": recv_ecr or "N/A",
+                "ytd_modifier": round(ytd_modifier, 3),
+                "opp_need_match": round(opp_need_match, 3),
             }
 
             # Annotate health risk
@@ -896,6 +988,8 @@ def find_trade_opportunities(
             category_weights=category_weights,
             fa_comparisons=fa_comparisons,
             roster_statuses=roster_statuses,
+            opponent_team_name=opp_team,
+            all_team_totals=all_team_totals,
         )
 
         for trade in trades:
