@@ -11,6 +11,7 @@ Tier 3 — Deep Analysis (on-demand): full Phase 1-5 evaluate_trade() per trade
 
 from __future__ import annotations
 
+import logging
 import math
 
 import numpy as np
@@ -18,6 +19,8 @@ import pandas as pd
 
 from src.in_season import _roster_category_totals
 from src.valuation import LeagueConfig
+
+logger = logging.getLogger(__name__)
 
 # ── Constants ─────────────────────────────────────────────────────────
 
@@ -231,6 +234,169 @@ def compute_adp_fairness(
     # ADP ratio: closer to 1.0 = fairer trade
     ratio = min(give_adp, recv_adp) / max(give_adp, recv_adp, 0.01)
     return ratio**0.5  # sqrt softens extreme gaps
+
+
+# ── Multi-Player Helpers ─────────────────────────────────────────────
+
+# Roster spot value: SGP bonus for gaining an open slot (2-for-1) or
+# penalty for losing one (1-for-2). Decays over the season.
+ROSTER_SPOT_SGP = 0.8
+
+
+def _compute_drop_cost(
+    roster_ids: list[int],
+    incoming_ids: list[int],
+    player_pool: pd.DataFrame,
+    config: LeagueConfig,
+) -> tuple[float, int | None]:
+    """Find worst bench player and compute SGP cost of dropping them.
+
+    Returns (drop_cost_sgp, drop_player_id) or (0.0, None).
+    """
+    # Combine current roster + incoming to find the full post-trade roster
+    all_ids = set(roster_ids) | set(incoming_ids)
+
+    # Quick SGP per player
+    sgps: dict[int, float] = {}
+    for pid in all_ids:
+        p = player_pool[player_pool["player_id"] == pid]
+        if not p.empty:
+            total = 0.0
+            for cat in config.all_categories:
+                val = float(p.iloc[0].get(cat.lower(), 0) or 0)
+                denom = config.sgp_denominators.get(cat, 1.0)
+                if abs(denom) > 1e-9:
+                    total += val / denom if cat not in config.inverse_stats else -val / denom
+            sgps[pid] = total
+
+    if not sgps:
+        return 0.0, None
+
+    # Worst player = lowest SGP
+    worst_pid = min(sgps, key=sgps.get)
+    worst_sgp = sgps[worst_pid]
+
+    # Replacement level = median of bottom quartile (rough proxy for FA value)
+    sorted_sgps = sorted(sgps.values())
+    replacement_sgp = sorted_sgps[len(sorted_sgps) // 4] if len(sorted_sgps) >= 4 else 0.0
+
+    return max(0.0, worst_sgp - replacement_sgp), worst_pid
+
+
+# ── 2-for-1 Trade Scanner ───────────────────────────────────────────
+
+
+def scan_2_for_1(
+    seeds: list[dict],
+    user_roster_ids: list[int],
+    opponent_roster_ids: list[int],
+    player_pool: pd.DataFrame,
+    config: LeagueConfig | None = None,
+    category_weights: dict[str, float] | None = None,
+    max_expansions: int = 50,
+) -> list[dict]:
+    """Expand top 1-for-1 seeds by adding a second give player.
+
+    User gives 2 players, receives 1. User gains a roster spot.
+    Opponent receives 2, must drop their worst bench player.
+    """
+    if config is None:
+        config = LeagueConfig()
+
+    results: list[dict] = []
+    evaluated = 0
+
+    for seed in seeds:
+        if evaluated >= max_expansions:
+            break
+
+        orig_give = seed.get("giving_ids", [])
+        orig_recv = seed.get("receiving_ids", [])
+        if not orig_give or not orig_recv:
+            continue
+
+        # Try adding each user player as a second give
+        for add_id in user_roster_ids:
+            if add_id in orig_give or add_id in orig_recv:
+                continue
+            if evaluated >= max_expansions:
+                break
+
+            add_player = player_pool[player_pool["player_id"] == add_id]
+            if add_player.empty:
+                continue
+
+            new_give = orig_give + [add_id]
+            new_recv = list(orig_recv)
+
+            # Compute new SGP delta for user
+            new_user_ids = [pid for pid in user_roster_ids if pid not in new_give] + new_recv
+            new_user_totals = _roster_category_totals(new_user_ids, player_pool)
+            user_baseline = _roster_category_totals(user_roster_ids, player_pool)
+
+            user_new_sgp = _weighted_totals_sgp(new_user_totals, config, category_weights)
+            user_base_sgp = _weighted_totals_sgp(user_baseline, config, category_weights)
+            user_delta = user_new_sgp - user_base_sgp
+
+            # Add roster spot bonus (user gains a slot)
+            user_delta += ROSTER_SPOT_SGP
+
+            if user_delta < MIN_SGP_GAIN:
+                evaluated += 1
+                continue
+
+            # Opponent delta
+            new_opp_ids = [pid for pid in opponent_roster_ids if pid not in new_recv] + list(new_give)
+            opp_baseline = _roster_category_totals(opponent_roster_ids, player_pool)
+            new_opp_totals = _roster_category_totals(new_opp_ids, player_pool)
+            opp_delta = _totals_sgp(new_opp_totals, config) - _totals_sgp(opp_baseline, config)
+
+            # Opponent must drop someone (receives 2, gives 1 = +1 roster)
+            drop_cost, _drop_pid = _compute_drop_cost(new_opp_ids, [], player_pool, config)
+            opp_delta -= drop_cost
+
+            if opp_delta < MAX_OPP_LOSS:
+                evaluated += 1
+                continue
+
+            # Score
+            need_match = min(1.0, max(0.0, (opp_delta + 1.0) / 2.0))
+            adp_fairness = compute_adp_fairness(orig_give[0], orig_recv[0], player_pool)
+            p_accept = estimate_acceptance_probability(user_delta, opp_delta, need_match, adp_fairness=adp_fairness)
+
+            composite = (
+                0.40 * user_delta
+                + 0.20 * adp_fairness * 2.0
+                + 0.20 * p_accept * 3.0
+                + 0.10 * max(opp_delta, 0)
+                + 0.10 * need_match * 2.0
+            )
+
+            give_names = seed.get("giving_names", []) + [
+                str(add_player.iloc[0].get("name", add_player.iloc[0].get("player_name", "?")))
+            ]
+            recv_names = seed.get("receiving_names", [])
+
+            results.append(
+                {
+                    "giving_ids": new_give,
+                    "receiving_ids": new_recv,
+                    "giving_names": give_names,
+                    "receiving_names": recv_names,
+                    "user_sgp_gain": round(user_delta, 3),
+                    "opponent_sgp_gain": round(opp_delta, 3),
+                    "acceptance_probability": round(p_accept, 3),
+                    "acceptance_label": acceptance_label(p_accept),
+                    "composite_score": round(composite, 3),
+                    "trade_type": "2-for-1",
+                    "is_closer_trade": False,
+                    "adp_fairness": round(adp_fairness, 3),
+                }
+            )
+            evaluated += 1
+
+    results.sort(key=lambda x: x["composite_score"], reverse=True)
+    return results[:20]
 
 
 # ── 1-for-1 Trade Scanner ────────────────────────────────────────────
@@ -619,6 +785,43 @@ def find_trade_opportunities(
             trade["complementarity"] = round(dissim_score, 3)
 
         all_trades.extend(trades)
+
+    # ── Tier 2: Multi-player expansion from top seeds ────────────────
+    if len(all_trades) >= 5:
+        top_seeds = sorted(
+            all_trades,
+            key=lambda t: t.get("composite_score", 0),
+            reverse=True,
+        )[:15]
+
+        for opp_team, _ in partners:
+            opp_roster = league_rosters.get(opp_team, [])
+            if not opp_roster:
+                continue
+
+            opp_seeds = [t for t in top_seeds if t.get("opponent_team") == opp_team]
+            if not opp_seeds:
+                continue
+
+            try:
+                multi = scan_2_for_1(
+                    opp_seeds[:5],
+                    user_roster_ids,
+                    opp_roster,
+                    player_pool,
+                    config,
+                    category_weights=category_weights,
+                    max_expansions=30,
+                )
+                for trade in multi:
+                    trade["opponent_team"] = opp_team
+                all_trades.extend(multi)
+            except Exception:
+                logger.debug(
+                    "Multi-player expansion failed for %s",
+                    opp_team,
+                    exc_info=True,
+                )
 
     # ── Grade trades ──────────────────────────────────────────────────
     try:

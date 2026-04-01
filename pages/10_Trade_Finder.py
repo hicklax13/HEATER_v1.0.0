@@ -69,14 +69,17 @@ def _build_trade_df(trades: list[dict]) -> pd.DataFrame:
         row = {
             "You Give": giving,
             "You Receive": receiving,
+            "Type": trade.get("trade_type", "1-for-1"),
             "Partner": trade.get("opponent_team", ""),
             "Your Gain": round(trade.get("user_sgp_gain", 0), 2),
             "Their Gain": round(trade.get("opponent_sgp_gain", 0), 2),
+            "Give ADP": trade.get("give_adp_round", ""),
+            "Recv ADP": trade.get("recv_adp_round", ""),
+            "ADP Fair": trade.get("adp_fairness", ""),
             "Grade": trade.get("grade", ""),
             "Acceptance": trade.get("acceptance_label", ""),
             "Health": trade.get("health_risk", "") or "",
             "Score": round(trade.get("composite_score", 0), 2),
-            # Always include FA Alt column (empty string if no alternative)
             "FA Alt": trade.get("fa_name", "") if trade.get("fa_alternative") else "",
         }
         rows.append(row)
@@ -319,6 +322,29 @@ def main():
         )
         render_context_card("Scan Summary", stats_html)
 
+        # Schedule urgency card
+        try:
+            from src.trade_intelligence import compute_schedule_urgency
+
+            urgency_mult = compute_schedule_urgency(weeks_ahead=3)
+            if urgency_mult > 1.05:
+                urgency_label = "HIGH -- tough opponents ahead"
+                urgency_color = T["danger"]
+            elif urgency_mult < 0.95:
+                urgency_label = "LOW -- easy schedule ahead"
+                urgency_color = T["green"]
+            else:
+                urgency_label = "NORMAL"
+                urgency_color = T["tx2"]
+            urgency_html = (
+                f'<div style="font-size:12px;color:{urgency_color};font-weight:700;">'
+                f"{urgency_label}</div>"
+                f'<div style="font-size:11px;color:{T["tx2"]};">Urgency multiplier: {urgency_mult:.2f}x</div>'
+            )
+            render_context_card("Trade Urgency", urgency_html)
+        except Exception:
+            pass
+
     with main_col:
         if not opportunities:
             st.info(
@@ -471,6 +497,25 @@ def main():
                     if readiness_df.empty:
                         st.info("Could not compute Trade Readiness scores.")
                     else:
+                        # Add ADP tier classification
+                        def _adp_tier(row):
+                            adp = 999.0
+                            pid = row.get("player_id")
+                            if pid is not None:
+                                p_match = pool[pool["player_id"] == pid]
+                                if not p_match.empty:
+                                    adp = float(p_match.iloc[0].get("adp", 999) or 999)
+                            if adp <= 36:
+                                return "Elite"
+                            elif adp <= 96:
+                                return "Core"
+                            elif adp <= 180:
+                                return "Depth"
+                            else:
+                                return "Filler"
+
+                        readiness_df["adp_tier"] = readiness_df.apply(_adp_tier, axis=1)
+
                         # Position filter
                         all_positions = set()
                         for pos_str in readiness_df["positions"].dropna():
@@ -490,6 +535,7 @@ def main():
                         display_cols = [
                             "name",
                             "positions",
+                            "adp_tier",
                             "score",
                             "category_fit",
                             "projection_quality",
@@ -502,6 +548,7 @@ def main():
                             columns={
                                 "name": "Player",
                                 "positions": "Pos",
+                                "adp_tier": "ADP Tier",
                                 "score": "Readiness",
                                 "category_fit": "Cat Fit",
                                 "projection_quality": "Proj Conf",
