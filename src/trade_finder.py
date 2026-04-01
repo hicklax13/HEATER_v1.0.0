@@ -243,6 +243,98 @@ def compute_adp_fairness(
 ROSTER_SPOT_SGP = 0.8
 
 
+def _count_contributing_categories(
+    player_row,
+    config: LeagueConfig,
+    min_pct_of_avg: float = 0.25,
+) -> int:
+    """Count how many categories a player contributes meaningfully to.
+
+    A player 'contributes' to a category if their per-game production
+    is at least min_pct_of_avg of the league average per-game rate.
+    This prevents single-category specialists from dominating trade
+    recommendations.
+
+    Returns:
+        Number of categories with meaningful contribution (0-12).
+    """
+    # Approximate league-average per-game production benchmarks
+    # (full-season averages divided by 162 games)
+    avg_per_game = {
+        "R": 0.50,
+        "HR": 0.15,
+        "RBI": 0.50,
+        "SB": 0.08,
+        "AVG": 0.265,
+        "OBP": 0.330,
+        "W": 0.06,
+        "L": 0.06,
+        "SV": 0.03,
+        "K": 0.55,
+        "ERA": 4.20,
+        "WHIP": 1.25,
+    }
+    count = 0
+    for cat in config.all_categories:
+        col = cat.lower()
+        val = float(player_row.get(col, 0) or 0)
+        # Per-game rate (divide season total by 162)
+        per_game = val / 162.0 if cat not in config.rate_stats else val
+        benchmark = avg_per_game.get(cat, 0)
+        if benchmark <= 0:
+            continue
+        if cat in config.rate_stats:
+            # Rate stats: must be within reasonable range of average
+            if cat in config.inverse_stats:
+                if val > 0 and val < benchmark * 1.5:  # ERA below 6.30 = contributing
+                    count += 1
+            else:
+                if val > benchmark * min_pct_of_avg:  # AVG above .066 = contributing
+                    count += 1
+        else:
+            if per_game >= benchmark * min_pct_of_avg:
+                count += 1
+    return count
+
+
+MIN_CONTRIBUTING_CATEGORIES = 2  # Received player must contribute to at least 2 categories
+
+# Maximum fraction of total weighted SGP from any single category.
+# Prevents AVG-only specialists from dominating when AVG is weighted 2x.
+MAX_SINGLE_CAT_SGP_FRACTION = 0.40
+
+
+def _check_category_dominance(
+    player_row,
+    config: LeagueConfig,
+    weights: dict[str, float] | None = None,
+) -> bool:
+    """Check if a player's value is too concentrated in one category.
+
+    Returns True if the player passes (balanced enough), False if
+    any single category contributes > MAX_SINGLE_CAT_SGP_FRACTION
+    of their total weighted SGP.
+    """
+    per_cat = {}
+    for cat in config.all_categories:
+        col = cat.lower()
+        val = float(player_row.get(col, 0) or 0)
+        denom = config.sgp_denominators.get(cat, 1.0)
+        w = weights.get(cat, 1.0) if weights else 1.0
+        if abs(denom) > 1e-9:
+            sgp = val / denom * w
+            if cat in config.inverse_stats:
+                sgp = -sgp
+            per_cat[cat] = abs(sgp)
+
+    total = sum(per_cat.values())
+    if total <= 0:
+        return True  # No production = pass (will be filtered elsewhere)
+
+    max_frac = max(per_cat.values()) / total
+    return max_frac <= MAX_SINGLE_CAT_SGP_FRACTION
+
+
 def _compute_drop_cost(
     roster_ids: list[int],
     incoming_ids: list[int],
@@ -451,7 +543,9 @@ def scan_1_for_1(
     # --- Cap extreme category weights ---
     # Prevent a single weak category from dominating all trade valuations.
     # Without this, being 12th in SB makes speed guys "outvalue" elite power bats.
-    MAX_WEIGHT_RATIO = 2.0  # No category can be weighted more than 2x the average
+    MAX_WEIGHT_RATIO = (
+        1.5  # No category can be weighted more than 1.5x average (trade decisions are season-long, not weekly)
+    )
     capped_weights = category_weights
     if category_weights:
         non_zero = [v for v in category_weights.values() if v > 0]
@@ -545,6 +639,14 @@ def scan_1_for_1(
                     continue  # Return player drafted way too late vs given player
 
             recv_name = recv_player.iloc[0].get("name", recv_player.iloc[0].get("player_name", "?"))
+
+            # --- Category breadth check ---
+            # Reject single-category specialists. The received player must
+            # contribute meaningfully in at least 2 categories to prevent
+            # trades like "give 40 HR hitter, get .303 AVG-only hitter."
+            recv_breadth = _count_contributing_categories(recv_player.iloc[0], config)
+            if recv_breadth < MIN_CONTRIBUTING_CATEGORIES:
+                continue
 
             # User: lose give_id, gain recv_id
             new_user_ids = [pid for pid in user_roster_ids if pid != give_id] + [recv_id]
