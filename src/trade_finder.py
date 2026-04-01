@@ -359,9 +359,25 @@ def scan_2_for_1(
                 evaluated += 1
                 continue
 
-            # Score
+            # ADP check: the ADDED player must also pass the ADP filter.
+            # Trading Raleigh (Rd 2) as a "throw-in" to sweeten a deal is absurd.
+            add_adp = float(add_player.iloc[0].get("adp", 999) or 999)
+            recv_adp_val = (
+                float(player_pool[player_pool["player_id"] == orig_recv[0]].iloc[0].get("adp", 999) or 999)
+                if not player_pool[player_pool["player_id"] == orig_recv[0]].empty
+                else 999
+            )
+            if add_adp < 500 and recv_adp_val < 500:
+                if add_adp < recv_adp_val * 0.5:
+                    # Added player is drafted WAY higher than the return — block
+                    evaluated += 1
+                    continue
+
+            # Score — use WORST ADP fairness across all give players
+            fairness_scores = [compute_adp_fairness(gid, orig_recv[0], player_pool) for gid in new_give]
+            adp_fairness = min(fairness_scores) if fairness_scores else 0.5
+
             need_match = min(1.0, max(0.0, (opp_delta + 1.0) / 2.0))
-            adp_fairness = compute_adp_fairness(orig_give[0], orig_recv[0], player_pool)
             p_accept = estimate_acceptance_probability(user_delta, opp_delta, need_match, adp_fairness=adp_fairness)
 
             composite = (
@@ -859,4 +875,17 @@ def find_trade_opportunities(
         seen.add(key)
         unique_trades.append(trade)
 
-    return unique_trades[:max_results]
+    # Ensure both 1-for-1 and multi-player trades are represented in results.
+    # Reserve at least half the slots for 1-for-1 trades so they don't get
+    # crowded out by 2-for-1 trades with inflated composite scores.
+    one_for_one = [t for t in unique_trades if t.get("trade_type") == "1-for-1"]
+    multi_player = [t for t in unique_trades if t.get("trade_type") != "1-for-1"]
+
+    half = max_results // 2
+    selected_1v1 = one_for_one[:half]
+    remaining_slots = max_results - len(selected_1v1)
+    selected_multi = multi_player[:remaining_slots]
+
+    combined = selected_1v1 + selected_multi
+    combined.sort(key=lambda x: x.get("composite_score", 0), reverse=True)
+    return combined[:max_results]
