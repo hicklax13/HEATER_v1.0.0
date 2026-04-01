@@ -348,9 +348,7 @@ class TestBuildDCVTable:
         # Any player with health_factor == 0 must have total_dcv == 0
         excluded = dcv[dcv["health_factor"] == 0.0]
         for _, row in excluded.iterrows():
-            assert row["total_dcv"] == 0.0, (
-                f"Player {row.get('name')} has health=0 but DCV={row['total_dcv']}"
-            )
+            assert row["total_dcv"] == 0.0, f"Player {row.get('name')} has health=0 but DCV={row['total_dcv']}"
 
     def test_has_dcv_columns(self, sample_roster):
         dcv = build_daily_dcv_table(sample_roster, None, None, {})
