@@ -11,7 +11,7 @@ import pandas as pd
 import streamlit as st
 
 from src.database import coerce_numeric_df, init_db, load_player_pool
-from src.injury_model import compute_health_score, get_injury_badge
+from src.injury_model import get_injury_badge
 from src.league_manager import get_team_roster
 from src.ui_shared import (
     METRIC_TOOLTIPS,
@@ -89,24 +89,6 @@ if TRADE_INTEL_AVAILABLE:
 
 config = LeagueConfig()
 
-# Load health scores from injury history
-health_dict = {}
-try:
-    from src.database import get_connection
-
-    conn = get_connection()
-    try:
-        injury_df = pd.read_sql_query("SELECT * FROM injury_history", conn)
-        injury_df = coerce_numeric_df(injury_df)
-    finally:
-        conn.close()
-    if not injury_df.empty and "player_id" in injury_df.columns:
-        for pid, group in injury_df.groupby("player_id"):
-            gp = group["games_played"].tolist()
-            ga = group["games_available"].tolist()
-            health_dict[pid] = compute_health_score(gp, ga)
-except Exception:
-    pass
 
 # Get user team roster
 yds = get_yahoo_data_service()
@@ -277,7 +259,10 @@ else:
                             weeks_remaining=compute_weeks_remaining(),
                         )
                         engine_used = "phase1"
-                    except Exception:
+                    except Exception as e:
+                        import logging
+
+                        logging.getLogger(__name__).warning("Phase 1 engine failed, falling back to legacy: %s", e)
                         # Fall back to legacy analyzer
                         from src.in_season import analyze_trade
 
@@ -451,6 +436,181 @@ else:
                             help=METRIC_TOOLTIPS["mc_std"],
                         )
 
+                    # ── Acceptance Analysis Panel ───────────────────────────
+                    # Shows behavioral intelligence: will the opponent accept?
+                    try:
+                        from src.trade_finder import (
+                            acceptance_label,
+                            compute_adp_fairness,
+                            estimate_acceptance_probability,
+                        )
+
+                        st.subheader("Acceptance Analysis")
+                        st.caption(
+                            "Behavioral model: estimates whether the opponent would accept this trade "
+                            "based on draft capital, expert rankings, loss aversion, and opponent needs."
+                        )
+
+                        # Compute ADP fairness for each pair (average across all give/recv pairs)
+                        adp_scores = []
+                        for gid in giving_ids:
+                            for rid in receiving_ids:
+                                adp_scores.append(compute_adp_fairness(gid, rid, pool))
+                        avg_adp_fairness = sum(adp_scores) / len(adp_scores) if adp_scores else 0.5
+
+                        # ECR fairness
+                        ecr_ranks_local = {}
+                        try:
+                            from src.database import get_connection as _gc_ecr
+
+                            _ecr_conn = _gc_ecr()
+                            try:
+                                _ecr_df = pd.read_sql_query(
+                                    "SELECT player_id, consensus_rank FROM ecr_consensus", _ecr_conn
+                                )
+                                ecr_ranks_local = dict(
+                                    zip(_ecr_df["player_id"].astype(int), _ecr_df["consensus_rank"].astype(int))
+                                )
+                            finally:
+                                _ecr_conn.close()
+                        except Exception:
+                            pass
+
+                        ecr_scores = []
+                        for gid in giving_ids:
+                            for rid in receiving_ids:
+                                g_ecr = ecr_ranks_local.get(gid)
+                                r_ecr = ecr_ranks_local.get(rid)
+                                if g_ecr and r_ecr:
+                                    ecr_scores.append((min(g_ecr, r_ecr) / max(g_ecr, r_ecr, 1)) ** 0.5)
+                        avg_ecr_fairness = sum(ecr_scores) / len(ecr_scores) if ecr_scores else 0.5
+
+                        # Opponent needs (if we can identify the opponent)
+                        opp_need_match = 0.5
+                        opp_willingness = 0.5
+                        opp_rank = None
+                        try:
+                            from src.opponent_trade_analysis import (
+                                compute_opponent_needs,
+                                get_opponent_archetype,
+                            )
+
+                            # Try to identify opponent from receiving players' team
+                            _recv_teams = set()
+                            for rid in receiving_ids:
+                                _rp = pool[pool["player_id"] == rid]
+                                if not _rp.empty:
+                                    _rt = rosters[rosters["player_id"] == rid]
+                                    if not _rt.empty:
+                                        _recv_teams.add(_rt.iloc[0].get("team_name", ""))
+
+                            if _recv_teams:
+                                opp_team = list(_recv_teams)[0]
+                                standings = yds.get_standings()
+                                if not standings.empty:
+                                    all_team_totals = {}
+                                    for _, row in standings.iterrows():
+                                        tn = row.get("team_name", "")
+                                        totals = {}
+                                        for cat in config.all_categories:
+                                            totals[cat] = float(row.get(cat.lower(), row.get(cat, 0)) or 0)
+                                        all_team_totals[tn] = totals
+
+                                    opp_needs = compute_opponent_needs(opp_team, all_team_totals, config)
+                                    arch = get_opponent_archetype(opp_team)
+                                    opp_willingness = arch.get("trade_willingness", 0.5)
+
+                                    # Compute opponent rank
+                                    opp_standings = standings[standings["team_name"] == opp_team]
+                                    if not opp_standings.empty:
+                                        opp_rank = int(opp_standings.iloc[0].get("rank", 6))
+
+                                    # Compute need match
+                                    opp_weak = [c for c, info in opp_needs.items() if info.get("rank", 6) >= 8]
+                                    if opp_weak:
+                                        helps = 0
+                                        for gid in giving_ids:
+                                            gp = pool[pool["player_id"] == gid]
+                                            if not gp.empty:
+                                                for c in opp_weak:
+                                                    if float(gp.iloc[0].get(c.lower(), 0) or 0) > 0:
+                                                        helps += 1
+                                        opp_need_match = helps / (len(opp_weak) * len(giving_ids)) if opp_weak else 0.5
+                        except Exception:
+                            pass
+
+                        # Compute acceptance probability
+                        user_sgp = result.get("surplus_sgp", result.get("total_sgp_change", 0))
+                        opp_sgp = -user_sgp * 0.5  # Rough estimate: opponent loses ~half what user gains
+                        need_match = min(1.0, max(0.0, (opp_sgp + 1.0) / 2.0))
+
+                        p_accept = estimate_acceptance_probability(
+                            user_gain_sgp=user_sgp,
+                            opponent_gain_sgp=opp_sgp,
+                            need_match_score=need_match,
+                            adp_fairness=avg_adp_fairness,
+                            opponent_need_match=opp_need_match,
+                            opponent_standings_rank=opp_rank,
+                            opponent_trade_willingness=opp_willingness,
+                        )
+
+                        # Display metrics
+                        ac1, ac2, ac3, ac4 = st.columns(4)
+
+                        ac1.metric(
+                            "Acceptance Probability",
+                            f"{p_accept:.0%}",
+                            help="Estimated probability the opponent accepts. Uses loss aversion (1.8x), "
+                            "ADP fairness, ECR rankings, opponent needs, and archetype willingness.",
+                        )
+                        ac2.metric(
+                            "ADP Fairness",
+                            f"{avg_adp_fairness:.0%}",
+                            help="How well draft positions match. 100% = same draft round. "
+                            "Uses league draft data with generic ADP fallback.",
+                        )
+                        ac3.metric(
+                            "ECR Fairness",
+                            f"{avg_ecr_fairness:.0%}",
+                            help="Expert Consensus Ranking alignment. 100% = same rank. "
+                            "Based on 7-source Trimmed Borda Count consensus.",
+                        )
+                        ac4.metric(
+                            "Acceptance Tier",
+                            acceptance_label(p_accept),
+                            help="High (60%+), Medium (30-60%), Low (<30%)",
+                        )
+
+                        # Show ADP detail per player pair
+                        if len(giving_ids) <= 3 and len(receiving_ids) <= 3:
+                            adp_detail = []
+                            for gid in giving_ids:
+                                gp = pool[pool["player_id"] == gid]
+                                gname = gp.iloc[0].get("player_name", "?") if not gp.empty else "?"
+                                g_ecr = ecr_ranks_local.get(gid, "N/A")
+                                for rid in receiving_ids:
+                                    rp = pool[pool["player_id"] == rid]
+                                    rname = rp.iloc[0].get("player_name", "?") if not rp.empty else "?"
+                                    r_ecr = ecr_ranks_local.get(rid, "N/A")
+                                    af = compute_adp_fairness(gid, rid, pool)
+                                    adp_detail.append(
+                                        {
+                                            "Give": gname,
+                                            "Give ECR": f"#{g_ecr}" if isinstance(g_ecr, int) else g_ecr,
+                                            "Receive": rname,
+                                            "Recv ECR": f"#{r_ecr}" if isinstance(r_ecr, int) else r_ecr,
+                                            "ADP Fair": f"{af:.0%}",
+                                        }
+                                    )
+                            if adp_detail:
+                                with st.expander("ADP and ECR Detail", expanded=False):
+                                    st.dataframe(pd.DataFrame(adp_detail), hide_index=True, use_container_width=True)
+
+                    except ImportError:
+                        pass  # trade_finder not available — skip acceptance panel
+                    except Exception:
+                        pass  # Non-fatal — acceptance panel is supplementary
+
                     # Category impact table — enhanced for Phase 1
                     st.subheader("Category Impact")
                     if engine_used == "phase1" and result.get("category_analysis"):
@@ -525,7 +685,7 @@ else:
                             if not p.empty:
                                 pid = p.iloc[0]["player_id"]
                                 mid = p.iloc[0].get("mlb_id")
-                                hs = health_dict.get(pid, 0.85)
+                                hs = float(p.iloc[0].get("health_score", 0.85) or 0.85)
                                 badge_icon, label = get_injury_badge(hs)
                                 shot = _headshot_img_html(mid, size=28)
                                 st.markdown(f"{shot}{badge_icon} {name} — {label}", unsafe_allow_html=True)
@@ -536,7 +696,7 @@ else:
                             if not p.empty:
                                 pid = p.iloc[0]["player_id"]
                                 mid = p.iloc[0].get("mlb_id")
-                                hs = health_dict.get(pid, 0.85)
+                                hs = float(p.iloc[0].get("health_score", 0.85) or 0.85)
                                 badge_icon, label = get_injury_badge(hs)
                                 shot = _headshot_img_html(mid, size=28)
                                 st.markdown(f"{shot}{badge_icon} {name} — {label}", unsafe_allow_html=True)

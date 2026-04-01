@@ -130,12 +130,12 @@ def _compute_category_totals(df: pd.DataFrame) -> tuple[dict, dict]:
             hit_stats[cat] = int(hitters[col].sum()) if col in hitters.columns else 0
         ab = hitters["ab"].sum() if "ab" in hitters.columns else 0
         h = hitters["h"].sum() if "h" in hitters.columns else 0
-        hit_stats["AVG"] = f"{h / ab:.2f}" if ab > 0 else ".00"
+        hit_stats["AVG"] = f"{h / ab:.3f}" if ab > 0 else ".000"
         hit_bb = hitters["bb"].sum() if "bb" in hitters.columns else 0
         hit_hbp = hitters["hbp"].sum() if "hbp" in hitters.columns else 0
         hit_sf = hitters["sf"].sum() if "sf" in hitters.columns else 0
         obp_denom = ab + hit_bb + hit_hbp + hit_sf
-        hit_stats["OBP"] = f"{(h + hit_bb + hit_hbp) / obp_denom:.2f}" if obp_denom > 0 else ".00"
+        hit_stats["OBP"] = f"{(h + hit_bb + hit_hbp) / obp_denom:.3f}" if obp_denom > 0 else ".000"
 
     pitch_stats: dict = {}
     if not pitchers.empty:
@@ -697,7 +697,9 @@ else:
 
                 pitcher_data = []
                 for _, p in roster.iterrows():
-                    if p.get("is_hitter") == 0 or str(p.get("positions", "")).upper() in ("P", "SP", "RP"):
+                    if p.get("is_hitter") == 0 or any(
+                        pos.strip() in ("P", "SP", "RP") for pos in str(p.get("positions", "")).upper().split(",")
+                    ):
                         pitcher_data.append({"name": p.get("name", ""), "ip": p.get("ip", 0)})
                 if pitcher_data:
                     ip_result = compute_weekly_ip_projection(pitcher_data, get_days_remaining_in_week())
@@ -734,8 +736,12 @@ else:
                 news_df = pd.DataFrame()
                 try:
                     _conn = get_connection()
-                    news_df = pd.read_sql_query("SELECT * FROM player_news ORDER BY fetched_at DESC LIMIT 20", _conn)
-                    _conn.close()
+                    try:
+                        news_df = pd.read_sql_query(
+                            "SELECT * FROM player_news ORDER BY fetched_at DESC LIMIT 20", _conn
+                        )
+                    finally:
+                        _conn.close()
                 except Exception:
                     pass
 
@@ -799,7 +805,10 @@ else:
 
                             pitcher_data_thu = []
                             for _, p in roster.iterrows():
-                                if p.get("is_hitter") == 0 or str(p.get("positions", "")).upper() in ("P", "SP", "RP"):
+                                if p.get("is_hitter") == 0 or any(
+                                    pos.strip() in ("P", "SP", "RP")
+                                    for pos in str(p.get("positions", "")).upper().split(",")
+                                ):
                                     pitcher_data_thu.append({"name": p.get("name", ""), "ip": p.get("ip", 0)})
                             if pitcher_data_thu:
                                 ip_res = compute_weekly_ip_projection(pitcher_data_thu, get_days_remaining_in_week())
