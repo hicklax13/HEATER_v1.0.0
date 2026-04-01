@@ -73,9 +73,14 @@ def _build_trade_df(trades: list[dict]) -> pd.DataFrame:
             "Partner": trade.get("opponent_team", ""),
             "Your Gain": round(trade.get("user_sgp_gain", 0), 2),
             "Their Gain": round(trade.get("opponent_sgp_gain", 0), 2),
-            "Give ADP": trade.get("give_adp_round", ""),
-            "Recv ADP": trade.get("recv_adp_round", ""),
-            "ADP Fair": trade.get("adp_fairness", ""),
+            "Give ADP": trade.get("give_adp_round", "N/A") if trade.get("give_adp_round") else "N/A",
+            "Recv ADP": trade.get("recv_adp_round", "N/A") if trade.get("recv_adp_round") else "N/A",
+            "ADP Fair": f"{trade.get('adp_fairness', 0):.0%}"
+            if isinstance(trade.get("adp_fairness"), (int, float))
+            else "N/A",
+            "ECR Fair": f"{trade.get('ecr_fairness', 0):.0%}"
+            if isinstance(trade.get("ecr_fairness"), (int, float))
+            else "",
             "Grade": trade.get("grade", ""),
             "Acceptance": trade.get("acceptance_label", ""),
             "Health": trade.get("health_risk", "") or "",

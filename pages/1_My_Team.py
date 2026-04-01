@@ -181,14 +181,14 @@ def _render_news_card(player_name: str, news_item: dict, ownership: dict) -> str
     """Build a self-contained HTML card for one news item."""
     import html as _ht
 
-    headline = _ht.escape(news_item.get("headline", "No headline"))
+    headline = _ht.escape(news_item.get("headline") or "No headline")
     detail = news_item.get("detail") or ""
-    source = news_item.get("source", "")
-    news_type = news_item.get("news_type", "general")
+    source = news_item.get("source") or ""
+    news_type = news_item.get("news_type") or "general"
     sentiment = news_item.get("sentiment_score", 0.0)
     if sentiment is None:
         sentiment = 0.0
-    il_status = _ht.escape(news_item.get("il_status", ""))
+    il_status = _ht.escape(news_item.get("il_status") or "")
     published_at = news_item.get("published_at", "")
     player_name = _ht.escape(player_name)
 
@@ -975,8 +975,8 @@ else:
                             # Format values sensibly
                             _is_rate = _cat in ("AVG", "OBP", "ERA", "WHIP")
                             if _is_rate:
-                                _tv_str = f"{_team_val:.2f}"
-                                _bv_str = f"{_bench:.2f}"
+                                _tv_str = f"{_team_val:.3f}"
+                                _bv_str = f"{_bench:.3f}"
                             else:
                                 _tv_str = f"{int(_team_val)}"
                                 _bv_str = f"{int(_bench)}"

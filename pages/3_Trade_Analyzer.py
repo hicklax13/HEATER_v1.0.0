@@ -5,6 +5,7 @@ LP lineup optimization, and deterministic grading (A+ to F).
 Falls back to the legacy analyzer if the engine is unavailable.
 """
 
+import logging
 import time
 
 import pandas as pd
@@ -501,6 +502,16 @@ else:
                                 _rp = pool[pool["player_id"] == rid]
                                 if not _rp.empty:
                                     _rt = rosters[rosters["player_id"] == rid]
+                                    if _rt.empty:
+                                        # Try name matching (Yahoo IDs vs MLB Stats API IDs)
+                                        _pname = _rp.iloc[0].get("player_name", _rp.iloc[0].get("name", ""))
+                                        if _pname:
+                                            _name_col = (
+                                                rosters["name"]
+                                                if "name" in rosters.columns
+                                                else rosters.get("player_name", pd.Series(dtype=str))
+                                            )
+                                            _rt = rosters[_name_col.str.strip() == str(_pname).strip()]
                                     if not _rt.empty:
                                         _recv_teams.add(_rt.iloc[0].get("team_name", ""))
 
@@ -608,8 +619,8 @@ else:
 
                     except ImportError:
                         pass  # trade_finder not available — skip acceptance panel
-                    except Exception:
-                        pass  # Non-fatal — acceptance panel is supplementary
+                    except Exception as _acc_err:
+                        logging.getLogger(__name__).warning("Acceptance analysis failed: %s", _acc_err)
 
                     # Category impact table — enhanced for Phase 1
                     st.subheader("Category Impact")

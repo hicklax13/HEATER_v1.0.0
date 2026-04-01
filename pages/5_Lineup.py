@@ -1147,16 +1147,17 @@ with main:
                     unsafe_allow_html=True,
                 )
 
-                # Build player name list (rostered first)
+                # Build player name list (rostered first, deduplicated)
                 all_names: list[str] = []
                 all_ids: list[int] = []
                 if not pool.empty:
+                    _deduped_pool = pool.drop_duplicates(subset=["player_id"], keep="first")
                     if user_player_ids:
-                        rostered = pool[pool["player_id"].isin(user_player_ids)].copy()
-                        others = pool[~pool["player_id"].isin(user_player_ids)].copy()
+                        rostered = _deduped_pool[_deduped_pool["player_id"].isin(user_player_ids)].copy()
+                        others = _deduped_pool[~_deduped_pool["player_id"].isin(user_player_ids)].copy()
                         sorted_pool = pd.concat([rostered, others], ignore_index=True)
                     else:
-                        sorted_pool = pool.copy()
+                        sorted_pool = _deduped_pool.copy()
                     all_names = sorted_pool["player_name"].tolist()
                     all_ids = sorted_pool["player_id"].tolist()
 

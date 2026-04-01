@@ -2209,6 +2209,10 @@ _HEALTH_DOT_COLORS = {
     "IL": THEME["danger"],
     "IL-60": THEME["danger"],
     "Out": THEME["danger"],
+    "Low Risk": THEME["green"],
+    "Moderate Risk": THEME["warn"],
+    "Elevated Risk": THEME["hot"],
+    "High Risk": THEME["danger"],
 }
 
 
@@ -2369,6 +2373,8 @@ def build_compact_table_html(
                     fv = float(val)
                     if _math.isnan(fv) or _math.isinf(fv):
                         cell_html += ""
+                    elif str(col).upper() in _RATE_STAT_COLS:
+                        cell_html += f"{fv:.3f}"
                     else:
                         cell_html += f"{fv:.2f}"
                 except (ValueError, TypeError):

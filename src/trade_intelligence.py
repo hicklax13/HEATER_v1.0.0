@@ -635,11 +635,13 @@ def compute_trade_readiness_batch(
     candidates = candidates.drop_duplicates(subset=["player_id"], keep="first")
 
     candidates["_raw_sgp"] = candidates.apply(lambda r: _quick_player_sgp(r, config), axis=1)
-    hitter_mask = (
-        candidates["is_hitter"].astype(bool)
-        if "is_hitter" in candidates.columns
-        else pd.Series(True, index=candidates.index)
-    )
+    if "is_hitter" in candidates.columns:
+        hitter_mask = candidates["is_hitter"].astype(bool)
+    else:
+        # Fallback: classify by position string
+        hitter_mask = ~candidates.get("positions", pd.Series("", index=candidates.index)).str.contains(
+            "SP|RP|P$", na=False, regex=True
+        )
     n_half = max(max_players // 2, 1)
     top_hitters = candidates[hitter_mask].nlargest(n_half, "_raw_sgp")
     top_pitchers = candidates[~hitter_mask].nlargest(n_half, "_raw_sgp")
