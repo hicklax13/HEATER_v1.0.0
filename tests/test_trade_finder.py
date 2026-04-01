@@ -274,7 +274,7 @@ class TestAcceptanceProbability:
         assert 0.01 <= prob <= 0.99
 
     def test_loss_aversion_constant(self):
-        assert LOSS_AVERSION == 1.5
+        assert LOSS_AVERSION == 1.8
 
     def test_labels(self):
         assert acceptance_label(0.7) == "High"

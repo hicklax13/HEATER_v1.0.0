@@ -5,9 +5,9 @@
 A fantasy baseball draft assistant + in-season manager for a 12-team Yahoo Sports H2H Categories snake draft league.
 
 1. **Draft Tool** (`app.py`) — "Heater" themed Streamlit app with glassmorphic design, splash screen bootstrap, 2-step setup wizard, 3-column draft page, Monte Carlo recommendations with percentile sampling. Zero CSV uploads — all data auto-fetched.
-2. **In-Season Management** (`pages/`) — 12 pages: team overview, draft simulator, trade analysis, player comparison, free agents, lineup optimizer, closer monitor, standings/power rankings, leaders/prospects, waiver wire, start/sit advisor, matchup planner.
+2. **In-Season Management** (`pages/`) — 13 pages: team overview, draft simulator, trade analysis, player comparison, free agents, lineup optimizer, closer monitor, standings/power rankings, leaders/prospects, waiver wire, start/sit advisor, matchup planner, trade finder.
 3. **Trade Analyzer Engine** (`src/engine/`) — 6-phase pipeline: deterministic SGP → stochastic MC → signal intelligence → contextual adjustments → game theory → production convergence/caching.
-4. **Enhanced Lineup Optimizer** (`src/optimizer/`) — 10-module pipeline: enhanced projections, matchup adjustments, H2H weights, non-linear SGP, streaming, scenarios, dual objective, advanced LP.
+4. **Enhanced Lineup Optimizer** (`src/optimizer/`) — 11-module pipeline: enhanced projections, matchup adjustments, H2H weights, non-linear SGP, streaming, scenarios, dual objective, advanced LP, category urgency, daily optimizer (DCV).
 5. **Draft Recommendation Engine** (`src/draft_engine.py`) — 8-stage enhancement chain with 3 execution modes (Quick/Standard/Full).
 6. **In-Season Analytics** (`src/`) — Trade value chart, two-start planner, start/sit advisor, matchup planner, waiver wire, trade finder, draft grader, prospect rankings, ECR consensus, player news.
 
@@ -19,7 +19,7 @@ python load_sample_data.py             # Load sample data (first time/testing)
 streamlit run app.py                   # Run the app
 ruff check .                           # Lint
 ruff format .                          # Format
-python -m pytest                       # Run all tests (1956 pass, 4 skipped)
+python -m pytest                       # Run all tests (2261 pass, 4 skipped)
 python -m pytest tests/test_foo.py -v  # Run single test file
 ```
 
@@ -66,6 +66,7 @@ pages/
   10_Waiver_Wire.py     — Add/drop recommendations based on roster gaps (powered by src/waiver_wire.py)
   11_Start_Sit.py       — Weekly start/sit advisor with matchup analysis (powered by src/start_sit.py)
   12_Matchup_Planner.py — Per-game matchup ratings with color-coded quality tiers (powered by src/matchup_planner.py)
+  10_Trade_Finder.py    — 4-tab trade finder: By Partner, By Category Need, By Value, Trade Readiness (powered by src/trade_finder.py)
 src/
   database.py           — SQLite schema (21 tables), player pool + in-season queries
   valuation.py          — SGP calculator, replacement levels, VORP, category weights, percentiles
@@ -83,7 +84,7 @@ src/
   lineup_optimizer.py   — PuLP LP solver for lineup optimization
   yahoo_api.py          — Yahoo Fantasy API OAuth integration via yfpy
   yahoo_data_service.py — Live-first data layer: 3-tier cache (session_state → Yahoo → SQLite)
-  trade_intelligence.py — Trade valuation layer: health, scarcity, FA gating, Trade Readiness
+  trade_intelligence.py — Trade valuation layer: health, scarcity, FA gating, Trade Readiness, correlation adjustments, schedule urgency
   trade_signals.py      — Kalman + regime trend adjustment for trade valuations
   data_pipeline.py      — FanGraphs auto-fetch (Steamer/ZiPS/Depth Charts)
   draft_engine.py       — DraftRecommendationEngine (3-mode, 8-stage pipeline)
@@ -96,7 +97,9 @@ src/
   start_sit.py          — Start/sit advisor (3-layer decision model)
   matchup_planner.py    — Weekly matchup planner with percentile color tiers
   waiver_wire.py        — Waiver wire LP-verified add/drop recommendations
-  trade_finder.py       — Cosine dissimilarity trade finder
+  trade_finder.py       — V3 trade finder: 3-tier scan (cosine→1v1→2v1), ADP/ECR/YTD/opponent needs, 52 variables
+  opponent_trade_analysis.py — Opponent perspective: needs analysis, archetype detection, acceptance modeling
+  espn_injuries.py      — Real-time ESPN injury feed for IL/DTD status
   draft_grader.py       — Post-draft grader (3-component)
   ecr.py                — Multi-platform ECR consensus (7 sources, Trimmed Borda Count)
   prospect_engine.py    — FanGraphs Board API + MLB Stats API MiLB stats
@@ -123,6 +126,8 @@ src/
     scenario_generator.py — Gaussian copula scenarios + CVaR
     dual_objective.py   — H2H/Roto weight blending
     advanced_lp.py      — Maximin, epsilon-constraint, stochastic MIP
+    category_urgency.py — Sigmoid urgency for H2H matchup gaps
+    daily_optimizer.py  — Daily Category Value (DCV) per-player per-day scoring
   engine/               — Trade Analyzer Engine (6 phases)
     portfolio/          — Z-scores, SGP, category analysis, lineup optimizer, copula
     projections/        — ROS projections, BMA, KDE marginals
@@ -132,7 +137,7 @@ src/
     game_theory/        — Opponent valuation, adverse selection, Bellman DP, sensitivity
     production/         — Convergence diagnostics, cache, adaptive sim scaling
     output/             — Master trade orchestrator (evaluate_trade)
-tests/                  — 83 test files, 1956 passing tests
+tests/                  — 98 test files, 2261 passing tests
 data/
   draft_tool.db         — SQLite database (created at runtime)
   backups/              — Draft state JSON backups
@@ -201,11 +206,33 @@ New UI features: live matchup score card (My Team), recent transactions feed (Tr
 ### Trade Intelligence Layer
 All trade valuations (Trade Finder + Trade Analyzer) flow through `src/trade_intelligence.py`:
 1. **Health adjustment** — IL15=0.84x, IL60=0.55x, DTD=0.95x, NA excluded. Uses `injury_model.compute_health_score()` with 3-year history + Yahoo IL/DTD status from `league_rosters.status` column.
-2. **Category-weighted SGP** — `category_gap_analysis()` computes marginal weights per category. Categories where you can gain standings positions weighted higher. Punted categories get zero weight. Max weight capped at 3x average to prevent single-category dominance.
+2. **Category-weighted SGP** — `category_gap_analysis()` computes marginal weights per category. Categories where you can gain standings positions weighted higher. Punted categories get zero weight. Max weight capped at **1.5x** average (reduced from 3x to prevent single-category dominance in season-long trade decisions).
 3. **FA gating** — Dynamic threshold (85% early season -> 60% late season) flags trades where a comparable FA exists. Prevents wasting trade capital.
 4. **Closer scarcity premium** — SV >= 5 players get 1.3x multiplier. C/SS/2B positions get 1.15x VORP premium.
-5. **Elite player protection** — Players in top 20% by raw SGP require return >= 50% as valuable.
+5. **Elite player protection** — Players in top 20% by raw SGP require return >= **75%** as valuable (raised from 50%).
 6. **Trade Readiness tab** — 0-100 composite: 40% category fit + 25% projection confidence + 15% health + 10% scarcity + 10% FA advantage.
+7. **Correlation adjustments** — Power cluster (HR/R/RBI) 0.83x, SB 1.08x premium, Contact (AVG/OBP) 0.90x, Pitching rate (ERA/WHIP) 0.88x.
+8. **Schedule urgency** — 3-week lookahead multiplier [0.85, 1.25] based on opponent difficulty tiers.
+
+### Trade Finder V3 Architecture
+`src/trade_finder.py` — 3-tier scanning pipeline with 52 variables:
+1. **Tier 1: Cosine dissimilarity** → finds top 5 complementary trade partners (opposite category strengths).
+2. **Tier 2: 1-for-1 scan** → every user-opponent player pair through 8 hard filters + 6-component composite scoring.
+3. **Tier 3: 2-for-1 greedy expansion** → top 15 seeds expanded by adding a second give player.
+
+**Composite score (1-for-1):** `30% SGP*YTD + 15% ADP fair + 15% ECR fair + 20% acceptance + 10% opp benefit + 10% need match`
+
+**Hard filters:** NA/minors exclusion, same-type (H↔H, P↔P), elite protection (P80 @ 75% floor), league draft gap ≤ 8 rounds, generic ADP ratio ≤ 2.5x, category breadth ≥ 2, min user gain ≥ 0.3 SGP, max opponent loss ≥ -0.5 SGP.
+
+**Acceptance model (behavioral):** Sigmoid with loss aversion λ=1.8 (Brown 2024 meta-analysis), ADP penalty, bubble team bonus (rank 4-8), opponent need match, archetype willingness (0.3-0.7).
+
+**Data sources:** Yahoo live rosters + standings, ECR consensus (551 players, 7-source Trimmed Borda Count), YTD 2026 stats, league draft picks, generic ADP (558 entries), opponent profiles + archetypes, free agent pool.
+
+### Opponent Trade Analysis
+`src/opponent_trade_analysis.py` — models the other side of the trade:
+1. **compute_opponent_needs()** — Runs `category_gap_analysis()` from opponent's perspective to find their weak categories (rank ≥ 8th).
+2. **get_opponent_archetype()** — Maps `OPPONENT_PROFILES` tier to trade willingness (0.3 passive → 0.7 active).
+3. **analyze_from_opponent_view()** — Per-category impact assessment for opponent.
 
 ### Bootstrap Pipeline
 - Every app launch: splash screen → `bootstrap_all_data()` with staleness-based refresh
@@ -269,6 +296,25 @@ value_all_players(pool, config, roster_totals=None, category_weights=None,
 # load_player_pool() columns:
 # player_id, name, team, positions, is_hitter, is_injured,
 # pa, ab, h, r, hr, rbi, sb, avg, obp, bb, hbp, sf, ip, w, l, sv, k, era, whip, er, bb_allowed, h_allowed, adp
+
+# Trade Finder V3 (src/trade_finder.py)
+find_trade_opportunities(user_roster_ids, player_pool, config=None,
+    all_team_totals=None, user_team_name=None, league_rosters=None,
+    weeks_remaining=16, max_results=20, top_partners=5) -> list[dict]
+# Returns: [{giving_ids, receiving_ids, giving_names, receiving_names,
+#   user_sgp_gain, opponent_sgp_gain, acceptance_probability, acceptance_label,
+#   composite_score, trade_type, is_closer_trade, give_adp_round, recv_adp_round,
+#   adp_fairness, ecr_fairness, give_ecr_rank, recv_ecr_rank, ytd_modifier,
+#   opp_need_match, opponent_team, complementarity, grade, health_risk, ...}]
+
+compute_adp_fairness(give_id, recv_id, player_pool) -> float  # 0-1, uses league draft round (primary) + ADP (fallback)
+estimate_acceptance_probability(user_gain, opp_gain, need_match,
+    adp_fairness=0.5, opponent_need_match=0.5, opponent_standings_rank=None,
+    opponent_trade_willingness=0.5) -> float  # 0-1 sigmoid with loss aversion 1.8
+
+# Opponent Trade Analysis (src/opponent_trade_analysis.py)
+compute_opponent_needs(opp_team, all_team_totals, config) -> dict  # per-cat rank + gap
+get_opponent_archetype(team_name) -> dict  # trade_willingness 0.3-0.7
 
 # Trade evaluator (src/engine/output/trade_evaluator.py)
 evaluate_trade(giving_ids, receiving_ids, user_roster_ids, player_pool,
@@ -385,6 +431,18 @@ get_injury_badge(health_score) -> tuple[str, str]  # returns <span> with CSS dot
 - **FA pickup median SGP cap** — Prevents unrealistic elite "FA" acquisitions when no rosters loaded.
 - **Replacement penalty skips rate stats** — AVG, ERA, WHIP excluded (roster-aggregate, not simple counting gaps).
 
+### Trade Finder V3 Specifics
+- **LOSS_AVERSION = 1.8** — Up from 1.5 per Brown 2024 meta-analysis. Must match in tests.
+- **MAX_WEIGHT_RATIO = 1.5** — Category weight cap in `scan_1_for_1()`. Was 3.0 then 2.0. Prevents AVG-only specialists dominating when AVG is weighted.
+- **ELITE_RETURN_FLOOR = 0.75** — P80 players require return >= 75% SGP. Was 50% (let Story trade for Alvarez).
+- **ADP fairness uses league draft round first** — `get_player_draft_round()` from `league_draft_picks` table. Falls back to generic ADP (`adp` table, 558 entries). Unknown ADP returns 0.5 (neutral).
+- **ECR fairness sqrt-softened** — `(min_rank / max_rank) ^ 0.5`. Without sqrt, small rank gaps would be over-penalized.
+- **YTD modifier clamped ±10%** — `max(0.90, min(1.10, ytd_avg / proj_avg))`. Requires >= 10 PA. Prevents chasing 3-game streaks.
+- **Multi-player ADP guard** — Added player in 2-for-1 must have `add_adp >= recv_adp * 0.5`. Prevents bundling elite players as "throw-ins".
+- **Slot reservation** — 50% of `max_results` reserved for 1-for-1, 50% for multi-player. Without this, 2-for-1 trades (with ROSTER_SPOT_SGP bonus) crowd out 1-for-1.
+- **Category dominance check (40%) exists but NOT active** — `_check_category_dominance()` was written but rejected: when AVG weighted 2x, every hitter exceeds 40% threshold. Kept as utility function.
+- **Opponent needs default to 0.5** — When `opponent_trade_analysis` fails to load, all opponent scores are neutral. Never crashes the scanner.
+
 ## Data Sources
 
 - **Players:** MLB Stats API (750+ active + 40-man); staleness: 7 days
@@ -405,12 +463,13 @@ get_injury_badge(health_score) -> tuple[str, str]  # returns <span> with CSS dot
 
 ## Testing
 
-- **2139 passing tests** across 84+ test files, 4 skipped (PyMC/xgboost optional deps)
+- **2261 passing tests** across 98 test files, 4 skipped (PyMC/xgboost optional deps)
 - **CI:** GitHub Actions — ruff lint/format + pytest on Python 3.11, 3.12, 3.13
 - **Coverage:** 64% (above 60% CI threshold)
 - **8 rounds of systematic debugging** (207 bugs fixed) + **data pipeline audit** (32 issues fixed), all CI green
 - **Full system audit** (March 26, 2026) — 19 bugs cataloged, all critical/high fixed
 - **Manual UI testing** — All 13 pages tested via Playwright + Claude in Chrome (March 2026)
+- **Trade Engine V3** (March 31, 2026) — 5-agent deep research, 52-variable algorithm, 5+ rounds of iterative testing
 
 ## Current Implementation Plan
 
@@ -418,9 +477,12 @@ get_injury_badge(health_score) -> tuple[str, str]  # returns <span> with CSS dot
 
 - **The Last Plan:** AVIS-driven in-season optimization — Yahoo exhaustive FA sync, AVIS hard constraints, opponent intelligence, weekly automation
 - **Status:** All 4 phases implemented and tested (2022 pass, 0 fail)
+- **Trade Engine V3:** Completed — ADP-weighted scoring, multi-player trades, opponent modeling, schedule urgency, category correlations, ECR/YTD integration
+- **Lineup Optimizer V2:** Completed — DCV daily optimizer, category urgency, enhanced projections
 - **Previous plans:** `plan_1.md` (completed), `Full_Debug_Plan.md` (completed)
 - **AVIS Manual:** `AVIS_FANTASY_BASEBALL_OPS_MANUAL_2026.md` — the "bible" for league rules, scoring, team analysis
 - **Season context:** MLB 2026 season started March 25. Fantasy draft completed. App is now in-season mode.
+- **Design docs:** `docs/superpowers/specs/2026-03-31-trade-engine-v3-research.md` (deep research), `docs/superpowers/specs/2026-03-29-lineup-optimizer-v2-research.md` (optimizer research)
 
 ## New Modules (Added March 26, 2026)
 
@@ -428,6 +490,13 @@ get_injury_badge(health_score) -> tuple[str, str]  # returns <span> with CSS dot
 - **`src/opponent_intel.py`** — Opponent roster analysis, trade target finder, weakness detection
 - **`src/weekly_report.py`** — Monday morning briefing: roster health, matchup preview, waiver targets, trade opportunities
 - **`src/ip_tracker.py`** — Weekly IP tracking toward 1,400 IP target (AVIS requirement)
+
+## New Modules (Added March 31, 2026)
+
+- **`src/opponent_trade_analysis.py`** — Opponent perspective modeling: needs analysis, archetype detection, acceptance scoring
+- **`src/espn_injuries.py`** — Real-time ESPN injury feed for IL/DTD/NA status
+- **`src/optimizer/category_urgency.py`** — Sigmoid urgency for H2H matchup gaps (k=2.0 counting, k=3.0 rate)
+- **`src/optimizer/daily_optimizer.py`** — Daily Category Value (DCV) per-player per-day scoring with team name mapping
 
 ## Key Fixes (March 26, 2026)
 
