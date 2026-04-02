@@ -198,13 +198,23 @@ def _find_drop_candidate(
     bench_ids: list[int],
     player_pool: pd.DataFrame,
     sgp_calc: SGPCalculator,
+    receiving_hitters: bool | None = None,
 ) -> int | None:
-    """Find the worst bench player to drop (lowest total SGP).
+    """Find the best player to drop from the bench.
+
+    Uses a multi-factor scoring system instead of pure SGP:
+    1. Roster balance: when receiving hitters, prefer dropping a hitter
+    2. Positional value: DH/Util-only players are more droppable
+    3. Category dead weight: 0 in a counting category = penalty
+    4. Rate stat drag: below-average AVG/OBP = penalty
+    5. Base SGP: lower SGP = more droppable
 
     Args:
         bench_ids: Player IDs of bench players.
         player_pool: Full player pool DataFrame.
         sgp_calc: SGP calculator for ranking.
+        receiving_hitters: True if the trade receives hitters, False for pitchers,
+            None if unknown. Used for roster balance preference.
 
     Returns:
         ``player_id`` of the drop candidate, or ``None`` if bench is empty.
@@ -212,20 +222,74 @@ def _find_drop_candidate(
     if not bench_ids:
         return None
 
-    worst_id: int | None = None
-    worst_sgp = float("inf")
+    # Score each bench player — LOWER score = more droppable
+    scores: list[tuple[int, float]] = []
 
     for pid in bench_ids:
         match = player_pool[player_pool["player_id"] == pid]
         if match.empty:
+            scores.append((int(pid), -999.0))
             continue
         row = match.iloc[0]
-        sgp = sgp_calc.total_sgp(row)
-        if sgp < worst_sgp:
-            worst_sgp = sgp
-            worst_id = int(pid)
 
-    return worst_id
+        # Base SGP
+        sgp = sgp_calc.total_sgp(row)
+
+        # Factor 1: Roster balance penalty
+        # When receiving hitters, hitters on the bench get a drop bonus (lower score)
+        is_hitter = int(row.get("is_hitter", 0)) == 1
+        balance_adj = 0.0
+        if receiving_hitters is True and is_hitter:
+            balance_adj = -2.0  # Prefer dropping hitters when receiving hitters
+        elif receiving_hitters is False and not is_hitter:
+            balance_adj = -2.0  # Prefer dropping pitchers when receiving pitchers
+
+        # Factor 2: Positional flexibility penalty
+        # DH-only or single-position players are more droppable
+        positions = str(row.get("positions", "")).upper()
+        pos_list = [p.strip() for p in positions.split(",") if p.strip()]
+        pos_adj = 0.0
+        if is_hitter:
+            if positions in ("DH", "UTIL", "") or (len(pos_list) == 1 and pos_list[0] == "DH"):
+                pos_adj = -3.0  # DH-only = very droppable
+            elif len(pos_list) == 1:
+                pos_adj = -0.5  # Single position = slightly more droppable
+            elif len(pos_list) >= 3:
+                pos_adj = 1.0  # Multi-position = keep (flexibility)
+
+        # Factor 3: Category dead weight
+        # 0 in a counting category = dead weight in that entire category
+        dead_cat_adj = 0.0
+        if is_hitter:
+            sb = float(row.get("sb", 0) or 0)
+            if sb < 1:
+                dead_cat_adj -= 1.5  # 0 SB = dead in stolen bases
+            hr = float(row.get("hr", 0) or 0)
+            if hr < 5:
+                dead_cat_adj -= 0.5  # Very low HR
+
+        # Factor 4: Rate stat drag
+        # Below-average AVG/OBP hurts team totals — dropping improves the team
+        rate_adj = 0.0
+        if is_hitter:
+            avg = float(row.get("avg", 0) or 0)
+            obp = float(row.get("obp", 0) or 0)
+            if 0 < avg < 0.245:
+                rate_adj -= 1.0  # Below average AVG = drag
+            if 0 < obp < 0.310:
+                rate_adj -= 0.5  # Below average OBP = drag
+
+        # Combined droppability score
+        # Higher = keep, Lower = drop
+        total_score = sgp + balance_adj + pos_adj + dead_cat_adj + rate_adj
+        scores.append((int(pid), total_score))
+
+    if not scores:
+        return None
+
+    # Drop the player with the LOWEST score
+    scores.sort(key=lambda x: x[1])
+    return scores[0][0]
 
 
 def _find_fa_pickup(
@@ -468,10 +532,18 @@ def evaluate_trade(
             bench_ids = [pid for pid in after_ids if pid not in starter_ids]
 
             # Drop the worst bench player(s) to return to roster cap
+            # Determine if we're receiving hitters or pitchers
+            _recv_hitters = None
+            for _rid in receiving_ids:
+                _rmatch = player_pool[player_pool["player_id"] == _rid]
+                if not _rmatch.empty:
+                    _recv_hitters = int(_rmatch.iloc[0].get("is_hitter", 0)) == 1
+                    break  # Use first received player's type
+
             dropped_ids: list[int] = []
             for _ in range(net_roster_growth):
                 remaining_bench = [b for b in bench_ids if b not in dropped_ids]
-                drop_id = _find_drop_candidate(remaining_bench, player_pool, sgp_calc)
+                drop_id = _find_drop_candidate(remaining_bench, player_pool, sgp_calc, receiving_hitters=_recv_hitters)
                 if drop_id is not None:
                     dropped_ids.append(drop_id)
 

@@ -302,10 +302,19 @@ def compute_drop_cost(
     player_pool: pd.DataFrame,
     config: LeagueConfig | None = None,
 ) -> float:
-    """Compute the SGP cost of dropping a player from the roster.
+    """Compute the adjusted cost of dropping a player from the roster.
 
-    Uses roster category totals comparison: how much does removing this
-    player reduce total team SGP? Lower cost = better drop candidate.
+    Uses roster category totals comparison as a base, then applies
+    multi-factor adjustments so that DH-only, category dead weight,
+    and rate stat drag players appear cheaper to drop:
+
+    1. Base SGP cost: how much team SGP drops when player is removed
+    2. DH/Util-only penalty: -3.0 (no positional value)
+    3. Category dead weight: -1.5 if 0 SB, -0.5 if very low HR
+    4. Rate stat drag: -1.0 if AVG < .245, -0.5 if OBP < .310
+    5. Multi-position bonus: +1.0 if 3+ positions (flexibility)
+
+    Lower cost = better drop candidate.
 
     Returns float (positive = cost of dropping).
     """
@@ -321,7 +330,43 @@ def compute_drop_cost(
     reduced_totals = _roster_category_totals(reduced_ids, player_pool)
     reduced_sgp = _totals_to_sgp(reduced_totals, config)
 
-    return current_sgp - reduced_sgp
+    base_cost = current_sgp - reduced_sgp
+
+    # Multi-factor adjustments — reduce cost for players with structural flaws
+    match = player_pool[player_pool["player_id"] == player_id]
+    if match.empty:
+        return base_cost
+
+    row = match.iloc[0]
+    is_hitter = int(row.get("is_hitter", 0)) == 1
+    adjustment = 0.0
+
+    if is_hitter:
+        # DH/Util-only penalty — no positional value
+        positions = str(row.get("positions", "")).upper()
+        pos_list = [p.strip() for p in positions.split(",") if p.strip()]
+        if positions in ("DH", "UTIL", "") or (len(pos_list) == 1 and pos_list[0] == "DH"):
+            adjustment -= 3.0
+        elif len(pos_list) >= 3:
+            adjustment += 1.0  # Multi-position flexibility bonus
+
+        # Category dead weight — 0 SB = dead in stolen bases
+        sb = float(row.get("sb", 0) or 0)
+        if sb < 1:
+            adjustment -= 1.5
+        hr = float(row.get("hr", 0) or 0)
+        if hr < 5:
+            adjustment -= 0.5
+
+        # Rate stat drag — below-average AVG/OBP hurts team totals
+        avg = float(row.get("avg", 0) or 0)
+        obp = float(row.get("obp", 0) or 0)
+        if 0 < avg < 0.245:
+            adjustment -= 1.0
+        if 0 < obp < 0.310:
+            adjustment -= 0.5
+
+    return base_cost + adjustment
 
 
 def _totals_to_sgp(totals: dict, config: LeagueConfig) -> float:

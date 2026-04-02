@@ -367,8 +367,35 @@ def _compute_drop_cost(
     if not sgps:
         return 0.0, None
 
-    # Worst player = lowest SGP
-    worst_pid = min(sgps, key=sgps.get)
+    # Multi-factor droppability scoring (lower = more droppable)
+    drop_scores: dict[int, float] = {}
+    for pid, raw_sgp in sgps.items():
+        p = player_pool[player_pool["player_id"] == pid]
+        if p.empty:
+            drop_scores[pid] = raw_sgp
+            continue
+        row = p.iloc[0]
+        score = raw_sgp
+        is_hitter = int(row.get("is_hitter", 0)) == 1
+
+        # DH-only penalty
+        positions = str(row.get("positions", "")).upper()
+        if is_hitter and positions in ("DH", "UTIL", ""):
+            score -= 3.0
+
+        # 0 SB penalty for hitters
+        sb = float(row.get("sb", 0) or 0)
+        if is_hitter and sb < 1:
+            score -= 1.5
+
+        # Below-average AVG drag
+        avg = float(row.get("avg", 0) or 0)
+        if is_hitter and 0 < avg < 0.245:
+            score -= 1.0
+
+        drop_scores[pid] = score
+
+    worst_pid = min(drop_scores, key=drop_scores.get)
     worst_sgp = sgps[worst_pid]
 
     # Drop cost = positive value lost by dropping worst player.
