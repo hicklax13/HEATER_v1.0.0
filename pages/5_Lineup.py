@@ -358,25 +358,24 @@ if IP_TRACKER_AVAILABLE and not roster.empty:
     try:
         _pitcher_data = []
         for _, _p in roster.iterrows():
-            if _p.get("is_hitter") == 0 or str(_p.get("positions", "")).upper() in (
-                "P",
-                "SP",
-                "RP",
+            if _p.get("is_hitter") == 0 or any(
+                pos.strip() in ("P", "SP", "RP") for pos in str(_p.get("positions", "")).upper().split(",")
             ):
                 _pitcher_data.append({"name": _p.get("player_name", ""), "ip": _p.get("ip", 0)})
         if _pitcher_data:
             _ip_result = compute_weekly_ip_projection(_pitcher_data, get_days_remaining_in_week())
             _ip_color_map = {"safe": "#2d6a4f", "warning": "#ff9f1c", "danger": "#e63946"}
             ip_budget_html = (
-                f'<div class="context-stat-row">'
-                f'<span class="context-stat-label">Innings Pitched Pace</span>'
-                f'<span class="context-stat-value" style="color:'
+                f'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">'
+                f'<span style="font-size:11px;color:{T["tx2"]};">Pace</span>'
+                f'<span style="font-size:13px;font-weight:bold;font-family:IBM Plex Mono,monospace;color:'
                 f'{_ip_color_map.get(_ip_result["status"], T["tx2"])}">'
                 f"{_ip_result['projected_ip']} / {_ip_result['ip_needed']:.0f} "
                 f"({_ip_result['ip_pace']:.0f}%)</span></div>"
-                f'<div class="context-stat-row">'
-                f'<span class="context-stat-label">Status</span>'
-                f'<span class="context-stat-value">{_ip_result["message"]}</span></div>'
+                f'<div style="display:flex;justify-content:space-between;align-items:center;">'
+                f'<span style="font-size:11px;color:{T["tx2"]};">Status</span>'
+                f'<span style="font-size:13px;font-weight:bold;font-family:IBM Plex Mono,monospace;">'
+                f"{_ip_result['message']}</span></div>"
             )
     except Exception:
         pass  # Non-fatal
@@ -459,8 +458,9 @@ with ctx:
     # Matchup state
     render_context_card(
         "Matchup State",
-        f'<div class="context-stat-row"><span class="context-stat-label">Strategy</span>'
-        f'<span class="context-stat-value">{matchup_state_label.upper()}</span></div>'
+        f'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">'
+        f'<span style="font-size:11px;color:{T["tx2"]};">Strategy</span>'
+        f'<span style="font-size:13px;font-weight:bold;font-family:IBM Plex Mono,monospace;">{matchup_state_label.upper()}</span></div>'
         f'<p style="margin:4px 0 0;font-size:11px;color:{T["tx2"]};">'
         f"{matchup_note}</p>",
     )

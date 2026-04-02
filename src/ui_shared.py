@@ -1497,6 +1497,10 @@ def inject_custom_css():
         font-family: 'Figtree', sans-serif;
         color: {t["tx"]};
     }}
+    .heater-table tbody td:first-child {{
+        white-space: nowrap !important;
+        font-weight: 600 !important;
+    }}
     .heater-table tbody tr:hover td {{
         background: #f0ece4 !important;
     }}
