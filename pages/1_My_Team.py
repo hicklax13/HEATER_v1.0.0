@@ -145,8 +145,8 @@ def _compute_category_totals(df: pd.DataFrame) -> tuple[dict, dict]:
         er = pitchers["er"].sum() if "er" in pitchers.columns else 0
         bb = pitchers["bb_allowed"].sum() if "bb_allowed" in pitchers.columns else 0
         ha = pitchers["h_allowed"].sum() if "h_allowed" in pitchers.columns else 0
-        pitch_stats["ERA"] = f"{er * 9 / ip:.3f}" if ip > 0 else "0.000"
-        pitch_stats["WHIP"] = f"{(bb + ha) / ip:.3f}" if ip > 0 else "0.000"
+        pitch_stats["ERA"] = f"{er * 9 / ip:.2f}" if ip > 0 else "0.00"
+        pitch_stats["WHIP"] = f"{(bb + ha) / ip:.2f}" if ip > 0 else "0.00"
 
     return hit_stats, pitch_stats
 
@@ -973,10 +973,12 @@ else:
                             _color = T["green"] if _above else T["danger"]
                             _direction = "+" if _pct >= 0 else ""
                             # Format values sensibly
-                            _is_rate = _cat in ("AVG", "OBP", "ERA", "WHIP")
-                            if _is_rate:
+                            if _cat in ("AVG", "OBP"):
                                 _tv_str = f"{_team_val:.3f}"
                                 _bv_str = f"{_bench:.3f}"
+                            elif _cat in ("ERA", "WHIP"):
+                                _tv_str = f"{_team_val:.2f}"
+                                _bv_str = f"{_bench:.2f}"
                             else:
                                 _tv_str = f"{int(_team_val)}"
                                 _bv_str = f"{int(_bench)}"
@@ -1046,7 +1048,12 @@ else:
                             _yv = _ov = None
 
                         if _yv is not None and _ov is not None:
-                            _fmt = ".3f" if _cat in ("AVG", "OBP", "ERA", "WHIP") else ".0f"
+                            if _cat in ("AVG", "OBP"):
+                                _fmt = ".3f"
+                            elif _cat in ("ERA", "WHIP"):
+                                _fmt = ".2f"
+                            else:
+                                _fmt = ".0f"
                             _yv_display = f"{_yv:{_fmt}}"
                             _ov_display = f"{_ov:{_fmt}}"
                         else:
@@ -1307,10 +1314,10 @@ else:
                                     columns={k: v for k, v in bayes_rename.items() if k in bayes_df.columns},
                                     inplace=True,
                                 )
-                                for c in ["AVG", "WHIP"]:
+                                for c in ["AVG"]:
                                     if c in bayes_df.columns:
-                                        bayes_df[c] = bayes_df[c].map(lambda x: f"{x:.2f}")
-                                for c in ["ERA"]:
+                                        bayes_df[c] = bayes_df[c].map(lambda x: f"{x:.3f}")
+                                for c in ["ERA", "WHIP"]:
                                     if c in bayes_df.columns:
                                         bayes_df[c] = bayes_df[c].map(lambda x: f"{x:.2f}")
                                 for c in ["HR", "RBI", "SB", "K", "ID"]:

@@ -668,7 +668,12 @@ with main:
                     display_proj = {}
                     for cat in ALL_CATS:
                         if cat in proj:
-                            display_proj[CAT_DISPLAY_NAMES[cat]] = f"{proj[cat]:.2f}"
+                            if cat in ("avg", "obp"):
+                                display_proj[CAT_DISPLAY_NAMES[cat]] = f"{proj[cat]:.3f}"
+                            elif cat in ("era", "whip"):
+                                display_proj[CAT_DISPLAY_NAMES[cat]] = f"{proj[cat]:.2f}"
+                            else:
+                                display_proj[CAT_DISPLAY_NAMES[cat]] = f"{proj[cat]:.2f}"
                     render_styled_table(pd.DataFrame([display_proj]))
 
                 # Risk metrics
@@ -1484,7 +1489,12 @@ with main:
                         if opp_val > my_val:
                             rank += 1
 
-                val_fmt = f"{my_val:.2f}"
+                if cat in ("avg", "obp"):
+                    val_fmt = f"{my_val:.3f}"
+                elif cat in ("era", "whip"):
+                    val_fmt = f"{my_val:.2f}"
+                else:
+                    val_fmt = f"{my_val:.0f}"
                 rank_label = f"{rank}" + ("st" if rank == 1 else "nd" if rank == 2 else "rd" if rank == 3 else "th")
 
                 position_rows.append(
@@ -1567,11 +1577,21 @@ with main:
                 bar_len = int(p_win * 20)
                 bar = "\u2588" * bar_len + "\u2591" * (20 - bar_len)
 
+                if cat in ("avg", "obp"):
+                    you_fmt = f"{my_val:.3f}"
+                    opp_fmt = f"{opp_val:.3f}"
+                elif cat in ("era", "whip"):
+                    you_fmt = f"{my_val:.2f}"
+                    opp_fmt = f"{opp_val:.2f}"
+                else:
+                    you_fmt = f"{my_val:.0f}"
+                    opp_fmt = f"{opp_val:.0f}"
+
                 cat_rows.append(
                     {
                         "Category": CAT_DISPLAY_NAMES.get(cat, cat.upper()),
-                        "You": f"{my_val:.2f}",
-                        "Opponent": f"{opp_val:.2f}",
+                        "You": you_fmt,
+                        "Opponent": opp_fmt,
                         "Win %": f"{p_win:.1%}",
                         "Confidence": bar,
                         "Verdict": verdict,

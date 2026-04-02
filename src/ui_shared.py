@@ -533,13 +533,6 @@ def inject_custom_css():
         overflow-wrap: anywhere;
         word-break: break-word;
     }}
-    h1, h2, h3 {{
-        color: {t["tx"]};
-        font-family: 'Bebas Neue', sans-serif;
-        text-transform: uppercase;
-        letter-spacing: 2px;
-    }}
-
     /* ── SECTION HEADER ───────────────────────── */
     .sec-head {{
         font-family: 'Bebas Neue', sans-serif;
@@ -552,6 +545,14 @@ def inject_custom_css():
         padding-bottom: 6px;
         border-bottom: 2px solid {t["border"]};
     }}
+    .sec-label {{
+        font-size: 12px !important;
+        font-weight: 700 !important;
+        letter-spacing: 1px !important;
+        text-transform: uppercase !important;
+        color: {t["tx2"]} !important;
+        margin-bottom: 4px !important;
+    }}
 
     /* ── GLASS CARD (Glassmorphism) ───────────── */
     .glass {{
@@ -559,7 +560,7 @@ def inject_custom_css():
         backdrop-filter: blur(20px) saturate(180%);
         -webkit-backdrop-filter: blur(20px) saturate(180%);
         border: 1px solid rgba(255, 255, 255, 0.3);
-        border-radius: 16px;
+        border-radius: 12px;
         padding: 20px;
         margin-bottom: 12px;
         box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08), 0 2px 8px rgba(0, 0, 0, 0.04);
@@ -576,7 +577,7 @@ def inject_custom_css():
         backdrop-filter: blur(16px) saturate(150%);
         -webkit-backdrop-filter: blur(16px) saturate(150%);
         border: 1px solid rgba(255, 255, 255, 0.4);
-        border-radius: 16px;
+        border-radius: 12px;
         padding: 14px 24px;
         display: flex;
         align-items: center;
@@ -1075,7 +1076,7 @@ def inject_custom_css():
 
     /* ── VERDICT BANNER (Trade Analyzer) ────── */
     .verdict-banner {{
-        border-radius: 16px;
+        border-radius: 12px;
         padding: 24px;
         margin: 16px 0;
         text-align: center;
@@ -1100,7 +1101,7 @@ def inject_custom_css():
         backdrop-filter: blur(16px);
         -webkit-backdrop-filter: blur(16px);
         border: 1px solid rgba(255, 255, 255, 0.4);
-        border-radius: 16px;
+        border-radius: 12px;
         padding: 16px 18px;
         text-align: center;
         box-shadow: 0 4px 24px rgba(0, 0, 0, 0.06);
@@ -1462,7 +1463,7 @@ def inject_custom_css():
         width: 100%;
         border-collapse: collapse;
         font-family: 'Figtree', sans-serif;
-        font-size: 14px;
+        font-size: 13px;
         color: {t["tx"]};
     }}
     .heater-table thead th {{
@@ -1470,10 +1471,10 @@ def inject_custom_css():
         color: #ffffff !important;
         font-weight: 700 !important;
         font-family: 'Figtree', sans-serif !important;
-        font-size: 13px !important;
+        font-size: 12px !important;
         letter-spacing: 0.5px;
         text-transform: uppercase;
-        padding: 12px 14px !important;
+        padding: 10px 12px !important;
         border: none !important;
         text-align: left;
         white-space: nowrap;
@@ -1488,13 +1489,14 @@ def inject_custom_css():
         border-radius: 0;
     }}
     .heater-table tbody td {{
-        padding: 10px 14px !important;
+        padding: 8px 12px !important;
         border-bottom: 1px solid #e8e0d4 !important;
         border-top: none !important;
         border-left: none !important;
         border-right: none !important;
         background: #faf8f5 !important;
         font-family: 'Figtree', sans-serif;
+        font-size: 13px !important;
         color: {t["tx"]};
     }}
     .heater-table tbody td:first-child {{
@@ -1796,7 +1798,7 @@ def inject_custom_css():
     }}
     .compact-table {{
         font-family: 'IBM Plex Mono', monospace !important;
-        font-size: 11px !important;
+        font-size: 13px !important;
         border-collapse: collapse !important;
         white-space: nowrap !important;
         width: 100% !important;
@@ -1806,19 +1808,20 @@ def inject_custom_css():
         background: linear-gradient(135deg, #16213e, #1a1a2e) !important;
         color: #ffffff !important;
         font-weight: 600 !important;
-        font-size: 10px !important;
+        font-size: 11px !important;
         text-transform: uppercase !important;
         letter-spacing: 0.5px !important;
-        padding: 6px 8px !important;
+        padding: 6px 10px !important;
         position: sticky !important;
         top: 0 !important;
         z-index: 2 !important;
         border-bottom: 2px solid {t["hot"]} !important;
     }}
     .compact-table td {{
-        padding: 5px 8px !important;
+        padding: 5px 10px !important;
         border-bottom: 1px solid {t["border"]} !important;
-        font-size: 11px !important;
+        font-size: 13px !important;
+        font-variant-numeric: tabular-nums !important;
         background: {t["card"]} !important;
     }}
     .compact-table tr:hover td {{
@@ -1873,8 +1876,8 @@ def inject_custom_css():
     }}
     .health-dot {{
         display: inline-block !important;
-        width: 6px !important;
-        height: 6px !important;
+        width: 8px !important;
+        height: 8px !important;
         border-radius: 50% !important;
         margin-right: 4px !important;
         vertical-align: middle !important;
@@ -1908,15 +1911,15 @@ def inject_custom_css():
             padding: 8px 12px;
         }}
         .compact-table {{
-            font-size: 10px !important;
+            font-size: 11px !important;
         }}
         .compact-table th {{
-            font-size: 9px !important;
-            padding: 4px 6px !important;
+            font-size: 10px !important;
+            padding: 4px 8px !important;
         }}
         .compact-table td {{
-            padding: 4px 6px !important;
-            font-size: 10px !important;
+            padding: 4px 8px !important;
+            font-size: 11px !important;
         }}
         .col-name {{
             min-width: 100px !important;
@@ -1924,6 +1927,19 @@ def inject_custom_css():
         }}
         .reco-banner-teaser {{
             font-size: 13px !important;
+        }}
+    }}
+    @media (max-width: 1024px) {{
+        .col-name {{
+            min-width: 120px !important;
+            font-size: 11px !important;
+        }}
+        .compact-table tbody td {{
+            font-size: 12px !important;
+            padding: 4px 8px !important;
+        }}
+        .compact-table thead th {{
+            font-size: 10px !important;
         }}
     }}
     @media (max-width: 480px) {{
@@ -1961,7 +1977,7 @@ def inject_custom_css():
             box-shadow: none !important;
         }}
         .compact-table {{
-            font-size: 9px !important;
+            font-size: 10px !important;
         }}
         .reco-banner {{
             border: 1px solid #ccc !important;
@@ -2206,6 +2222,8 @@ def build_category_heatmap_html(user_totals: dict, all_totals: list[dict]) -> st
 HITTING_STAT_COLS = {"R", "HR", "RBI", "SB", "AVG", "OBP"}
 PITCHING_STAT_COLS = {"W", "L", "SV", "K", "ERA", "WHIP"}
 _RATE_STAT_COLS = {"AVG", "OBP", "ERA", "WHIP"}
+_RATE_3DP = {"AVG", "OBP", "avg", "obp"}  # 3 decimal places
+_RATE_2DP = {"ERA", "WHIP", "era", "whip"}  # 2 decimal places
 
 _HEALTH_DOT_COLORS = {
     "Healthy": THEME["green"],
@@ -2377,8 +2395,10 @@ def build_compact_table_html(
                     fv = float(val)
                     if _math.isnan(fv) or _math.isinf(fv):
                         cell_html += ""
-                    elif str(col).upper() in _RATE_STAT_COLS:
+                    elif str(col) in _RATE_3DP or str(col).upper() in {"AVG", "OBP"}:
                         cell_html += f"{fv:.3f}"
+                    elif str(col) in _RATE_2DP or str(col).upper() in {"ERA", "WHIP"}:
+                        cell_html += f"{fv:.2f}"
                     else:
                         cell_html += f"{fv:.2f}"
                 except (ValueError, TypeError):
