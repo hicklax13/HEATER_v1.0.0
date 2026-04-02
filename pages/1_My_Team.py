@@ -757,94 +757,269 @@ else:
             except Exception:
                 pass  # Non-fatal
 
-            # AVIS Section 5: Monday Report + Thursday Checkpoint
+            # AVIS Section 5: Weekly Report (always visible, auto-expanded on Mondays)
             try:
                 from datetime import UTC, datetime
 
                 from src.weekly_report import generate_monday_report, generate_thursday_checkpoint
 
-                today_dow = datetime.now(UTC).weekday()  # 0=Mon, 3=Thu
+                today_dow = datetime.now(UTC).weekday()  # 0=Mon
+                is_monday = today_dow == 0
 
-                if today_dow == 0:  # Monday
-                    try:
-                        from src.opponent_intel import get_current_opponent, get_week_number
+                # Determine current week and opponent
+                _report_opp = None
+                _report_week = 1
+                try:
+                    from src.opponent_intel import get_current_opponent, get_week_number
 
-                        opp = get_current_opponent()
-                        week = get_week_number()
-                        if opp:
-                            monday = generate_monday_report(roster, None, opp, week)
-                            with st.expander(
-                                f"Monday Matchup Report — Week {monday['week']} vs {monday['opponent']}",
-                                expanded=False,
-                            ):
-                                st.markdown(
-                                    f"**Tier {monday['tier']}** ({monday['threat']} threat) "
-                                    f"| Manager: {monday['manager']}",
-                                )
-                                if monday.get("category_projections"):
-                                    cats_md = " | ".join(
-                                        f"**{cp['category']}**: {cp['outlook']}"
-                                        for cp in monday["category_projections"]
-                                    )
-                                    st.markdown(cats_md)
-                                if monday.get("exploit_weaknesses"):
-                                    for tip in monday["exploit_weaknesses"]:
-                                        st.markdown(f"- {tip}")
-                                if monday.get("streaming_guidance"):
-                                    st.markdown("**Streaming:**")
-                                    for sg in monday["streaming_guidance"]:
-                                        st.markdown(f"- {sg}")
-                    except Exception:
-                        pass
+                    _report_opp = get_current_opponent(yds=yds)
+                    _report_week = get_week_number()
+                except Exception:
+                    pass
 
-                elif today_dow == 3:  # Thursday
-                    try:
-                        ip_proj = 0.0
+                _expander_label = f"Weekly Report — Week {_report_week}"
+                if _report_opp:
+                    _expander_label += f" vs {_report_opp.get('name', 'Unknown')}"
+
+                # Force-regeneration button state
+                _force_report = st.session_state.get("_force_weekly_report", False)
+                if _force_report:
+                    st.session_state["_force_weekly_report"] = False
+
+                with st.expander(_expander_label, expanded=is_monday or _force_report):
+                    # "Generate Report" button for on-demand regeneration
+                    if st.button("Generate Report", key="gen_weekly_report"):
+                        st.session_state["_force_weekly_report"] = True
+                        st.rerun()
+
+                    _report_rendered = False
+
+                    # --- Monday Matchup Report ---
+                    if _report_opp:
                         try:
-                            from src.ip_tracker import compute_weekly_ip_projection, get_days_remaining_in_week
+                            monday = generate_monday_report(roster, None, _report_opp, _report_week)
+                            _report_rendered = True
 
-                            pitcher_data_thu = []
-                            for _, p in roster.iterrows():
-                                if p.get("is_hitter") == 0 or any(
-                                    pos.strip() in ("P", "SP", "RP")
-                                    for pos in str(p.get("positions", "")).upper().split(",")
-                                ):
-                                    pitcher_data_thu.append({"name": p.get("name", ""), "ip": p.get("ip", 0)})
-                            if pitcher_data_thu:
-                                ip_res = compute_weekly_ip_projection(pitcher_data_thu, get_days_remaining_in_week())
-                                ip_proj = ip_res.get("projected_ip", 0)
+                            # Opponent summary card
+                            _opp_tier = monday.get("tier", 3)
+                            _tier_colors = {
+                                1: T["danger"],
+                                2: T["warn"],
+                                3: T["sky"],
+                                4: T["green"],
+                            }
+                            _opp_color = _tier_colors.get(_opp_tier, T["tx2"])
+                            _opp_html = (
+                                f'<div style="display:flex;justify-content:space-between;'
+                                f'padding:2px 0;font-size:12px;font-family:IBM Plex Mono,monospace;">'
+                                f'<span style="color:{T["tx2"]};">Opponent</span>'
+                                f'<span style="font-weight:600;color:{T["tx"]};">'
+                                f"{monday.get('opponent', 'Unknown')}</span></div>"
+                                f'<div style="display:flex;justify-content:space-between;'
+                                f'padding:2px 0;font-size:12px;font-family:IBM Plex Mono,monospace;">'
+                                f'<span style="color:{T["tx2"]};">Tier</span>'
+                                f'<span style="font-weight:600;color:{_opp_color};">'
+                                f"{_opp_tier}</span></div>"
+                                f'<div style="display:flex;justify-content:space-between;'
+                                f'padding:2px 0;font-size:12px;font-family:IBM Plex Mono,monospace;">'
+                                f'<span style="color:{T["tx2"]};">Threat</span>'
+                                f'<span style="font-weight:600;color:{T["tx"]};">'
+                                f"{monday.get('threat', 'Unknown')}</span></div>"
+                                f'<div style="display:flex;justify-content:space-between;'
+                                f'padding:2px 0;font-size:12px;font-family:IBM Plex Mono,monospace;">'
+                                f'<span style="color:{T["tx2"]};">Manager</span>'
+                                f'<span style="font-weight:600;color:{T["tx"]};">'
+                                f"{monday.get('manager', 'Unknown')}</span></div>"
+                            )
+                            _opp_strengths = monday.get("opponent_strengths", [])
+                            _opp_weaknesses = monday.get("opponent_weaknesses", [])
+                            if _opp_strengths:
+                                _opp_html += (
+                                    f'<div style="display:flex;justify-content:space-between;'
+                                    f'padding:2px 0;font-size:12px;font-family:IBM Plex Mono,monospace;">'
+                                    f'<span style="color:{T["tx2"]};">Strengths</span>'
+                                    f'<span style="font-weight:600;color:{T["danger"]};">'
+                                    f"{', '.join(_opp_strengths)}</span></div>"
+                                )
+                            if _opp_weaknesses:
+                                _opp_html += (
+                                    f'<div style="display:flex;justify-content:space-between;'
+                                    f'padding:2px 0;font-size:12px;font-family:IBM Plex Mono,monospace;">'
+                                    f'<span style="color:{T["tx2"]};">Weaknesses</span>'
+                                    f'<span style="font-weight:600;color:{T["green"]};">'
+                                    f"{', '.join(_opp_weaknesses)}</span></div>"
+                                )
+                            render_context_card("This Week Opponent", _opp_html)
+
+                            # Category projections card
+                            cat_projs = monday.get("category_projections", [])
+                            if cat_projs:
+                                _cat_html = ""
+                                for cp in cat_projs:
+                                    _outlook = cp.get("outlook", "TOSS-UP")
+                                    if _outlook == "LIKELY WIN":
+                                        _out_color = T["green"]
+                                    elif _outlook == "LIKELY LOSS":
+                                        _out_color = T["danger"]
+                                    else:
+                                        _out_color = T["warn"]
+                                    _cat_html += (
+                                        f'<div style="display:flex;justify-content:space-between;'
+                                        f'padding:2px 0;font-size:12px;font-family:IBM Plex Mono,monospace;">'
+                                        f'<span style="color:{T["tx2"]};">{cp["category"]}</span>'
+                                        f'<span style="font-weight:600;color:{_out_color};">'
+                                        f"{_outlook}</span></div>"
+                                    )
+                                render_context_card("Category Projections", _cat_html)
+
+                            # Action items card
+                            _actions = []
+                            for tip in monday.get("exploit_weaknesses", []):
+                                _actions.append(tip)
+                            for tip in monday.get("protect_floor", []):
+                                _actions.append(tip)
+                            if _actions:
+                                _action_html = ""
+                                for i, action in enumerate(_actions, 1):
+                                    _action_html += (
+                                        f'<div style="padding:3px 0;font-size:12px;'
+                                        f'font-family:Figtree,sans-serif;color:{T["tx"]};">'
+                                        f'<span style="font-weight:700;color:{T["primary"]};">'
+                                        f"{i}.</span> {action}</div>"
+                                    )
+                                render_context_card("Action Items", _action_html)
+
+                            # Streaming targets card
+                            streaming = monday.get("streaming_guidance", [])
+                            if streaming:
+                                _stream_html = ""
+                                for sg in streaming:
+                                    _stream_html += (
+                                        f'<div style="padding:3px 0;font-size:12px;'
+                                        f'font-family:Figtree,sans-serif;color:{T["tx"]};">'
+                                        f"{sg}</div>"
+                                    )
+                                render_context_card("Streaming Targets", _stream_html)
+
+                        except Exception:
+                            pass  # Fall through to fallback
+
+                    # --- Thursday Checkpoint (inline if Thursday) ---
+                    if today_dow == 3:
+                        try:
+                            ip_proj = 0.0
+                            try:
+                                from src.ip_tracker import (
+                                    compute_weekly_ip_projection,
+                                    get_days_remaining_in_week,
+                                )
+
+                                pitcher_data_thu = []
+                                for _, p in roster.iterrows():
+                                    if p.get("is_hitter") == 0 or any(
+                                        pos.strip() in ("P", "SP", "RP")
+                                        for pos in str(p.get("positions", "")).upper().split(",")
+                                    ):
+                                        pitcher_data_thu.append({"name": p.get("name", ""), "ip": p.get("ip", 0)})
+                                if pitcher_data_thu:
+                                    ip_res = compute_weekly_ip_projection(
+                                        pitcher_data_thu, get_days_remaining_in_week()
+                                    )
+                                    ip_proj = ip_res.get("projected_ip", 0)
+                            except Exception:
+                                pass
+
+                            checkpoint = generate_thursday_checkpoint(roster, matchup_score=None, ip_projected=ip_proj)
+                            _chk_html = (
+                                f'<div style="padding:3px 0;font-size:12px;'
+                                f'font-family:IBM Plex Mono,monospace;color:{T["tx"]};">'
+                                f"{checkpoint['ip_status']}</div>"
+                            )
+                            if checkpoint["categories_at_risk"]:
+                                _chk_html += (
+                                    f'<div style="padding:3px 0;font-size:12px;'
+                                    f'font-family:Figtree,sans-serif;color:{T["warn"]};">'
+                                    f"At-Risk: {', '.join(checkpoint['categories_at_risk'])}</div>"
+                                )
+                            for rec in checkpoint["recommendations"]:
+                                _chk_html += (
+                                    f'<div style="padding:3px 0;font-size:12px;'
+                                    f'font-family:Figtree,sans-serif;color:{T["tx"]};">'
+                                    f"{rec}</div>"
+                                )
+                            if not checkpoint["recommendations"]:
+                                _chk_html += (
+                                    f'<div style="padding:3px 0;font-size:12px;'
+                                    f'font-family:Figtree,sans-serif;color:{T["green"]};">'
+                                    f"No adjustments needed — stay the course.</div>"
+                                )
+                            render_context_card("Thursday Mid-Week Checkpoint", _chk_html)
+                            _report_rendered = True
                         except Exception:
                             pass
 
-                        checkpoint = generate_thursday_checkpoint(roster, matchup_score=None, ip_projected=ip_proj)
-                        with st.expander("Thursday Mid-Week Checkpoint", expanded=False):
-                            st.markdown(f"**IP Status:** {checkpoint['ip_status']}")
-                            if checkpoint["categories_at_risk"]:
-                                st.markdown(f"**At-Risk Categories:** {', '.join(checkpoint['categories_at_risk'])}")
-                            for rec in checkpoint["recommendations"]:
-                                st.markdown(f"- {rec}")
-                            if not checkpoint["recommendations"]:
-                                st.markdown("No adjustments needed — stay the course.")
-                    except Exception:
-                        pass
+                    # --- Fallback report when full generator fails or no opponent data ---
+                    if not _report_rendered:
+                        _fb_parts = []
+                        _fb_parts.append(
+                            f'<div style="padding:3px 0;font-size:12px;'
+                            f'font-family:IBM Plex Mono,monospace;color:{T["tx"]};">'
+                            f'<span style="font-weight:700;">Week {_report_week} Report</span></div>'
+                        )
+                        # Opponent line
+                        _fb_opp_name = _report_opp.get("name", "Unknown") if _report_opp else "Unknown"
+                        _fb_parts.append(
+                            f'<div style="padding:2px 0;font-size:12px;'
+                            f'font-family:IBM Plex Mono,monospace;color:{T["tx2"]};">'
+                            f"Opponent: {_fb_opp_name}</div>"
+                        )
+                        # Roster summary
+                        n_il = sum(
+                            1
+                            for _, r in roster.iterrows()
+                            if str(r.get("roster_slot", "")).upper() in ("IL", "IL+", "NA")
+                        )
+                        _fb_parts.append(
+                            f'<div style="padding:2px 0;font-size:12px;'
+                            f'font-family:IBM Plex Mono,monospace;color:{T["tx2"]};">'
+                            f"Roster: {len(roster)} players, {n_il} on IL</div>"
+                        )
+                        # Category totals summary
+                        if hit_stats:
+                            _fb_hit = ", ".join(f"{k}: {v}" for k, v in hit_stats.items())
+                            _fb_parts.append(
+                                f'<div style="padding:2px 0;font-size:12px;'
+                                f'font-family:IBM Plex Mono,monospace;color:{T["tx2"]};">'
+                                f"Hitting: {_fb_hit}</div>"
+                            )
+                        if pitch_stats:
+                            _fb_pit = ", ".join(f"{k}: {v}" for k, v in pitch_stats.items())
+                            _fb_parts.append(
+                                f'<div style="padding:2px 0;font-size:12px;'
+                                f'font-family:IBM Plex Mono,monospace;color:{T["tx2"]};">'
+                                f"Pitching: {_fb_pit}</div>"
+                            )
+                        render_context_card("Weekly Summary", "".join(_fb_parts))
 
             except Exception:
                 pass  # Non-fatal
 
-            # Daily Lineup Check (AVIS Section 5)
+            # Daily Lineup Validation (AVIS Section 5)
             try:
-                from src.weekly_report import check_daily_lineup, get_todays_mlb_games
+                from src.weekly_report import get_todays_mlb_games, validate_daily_lineup
 
                 todays_teams = get_todays_mlb_games()
                 if todays_teams:
-                    lineup_alerts = check_daily_lineup(roster, todays_teams)
-                    for la in lineup_alerts:
-                        if la["severity"] == "warning":
-                            st.warning(f"{la['player']}: {la['issue']} — {la['recommendation']}")
-                        else:
-                            st.info(f"{la['player']}: {la['issue']}")
+                    lineup_issues = validate_daily_lineup(roster, todays_teams)
+                    # Store for context panel card (rendered later)
+                    st.session_state["_lineup_issues"] = lineup_issues
+                    st.session_state["_lineup_teams_playing"] = len(todays_teams)
+                else:
+                    st.session_state["_lineup_issues"] = []
+                    st.session_state["_lineup_teams_playing"] = 0
             except Exception:
-                pass  # Non-fatal
+                st.session_state["_lineup_issues"] = []
+                st.session_state["_lineup_teams_playing"] = 0
 
             # -- 3-Zone Layout --
             ctx, main = render_context_columns()
@@ -1013,6 +1188,69 @@ else:
                         for p in il_players
                     )
                     render_context_card("Injured List Alerts", il_html)
+
+                # Lineup Validation card
+                _lineup_issues = st.session_state.get("_lineup_issues", [])
+                _teams_playing = st.session_state.get("_lineup_teams_playing", 0)
+                _warnings = [li for li in _lineup_issues if li["severity"] == "warning"]
+                _benched = [li for li in _lineup_issues if li["severity"] == "info"]
+                _issue_count = len(_warnings)
+
+                if _teams_playing > 0:
+                    # Count badge
+                    if _issue_count == 0:
+                        _badge_color = T["green"]
+                        _badge_text = "Lineup clean — no issues"
+                    else:
+                        _badge_color = T["danger"]
+                        _badge_text = f"{_issue_count} lineup issue{'s' if _issue_count != 1 else ''} found"
+                    _lv_html = (
+                        f'<div style="display:inline-block;padding:2px 10px;border-radius:10px;'
+                        f"background:{_badge_color};color:#ffffff;font-size:11px;font-weight:700;"
+                        f'letter-spacing:0.5px;margin-bottom:8px;">{_badge_text}</div>'
+                    )
+
+                    # Off-day starter warnings
+                    for _w in _warnings:
+                        _repl_html = ""
+                        if _w.get("replacements"):
+                            _repl_names = ", ".join(_w["replacements"])
+                            _repl_html = (
+                                f'<div style="margin-top:2px;font-size:11px;color:{T["green"]};">'
+                                f"Swap in: {_repl_names}</div>"
+                            )
+                        elif _w["severity"] == "warning":
+                            _repl_html = (
+                                f'<div style="margin-top:2px;font-size:11px;color:{T["tx2"]};">'
+                                f"No eligible bench replacement playing today</div>"
+                            )
+                        _lv_html += (
+                            f'<div style="padding:4px 0;border-bottom:1px solid {T["border"]};">'
+                            f'<div style="font-size:12px;">'
+                            f'<span class="health-dot" style="background:{T["warn"]};"></span>'
+                            f'<span style="font-weight:600;">{_w["player"]}</span></div>'
+                            f'<div style="font-size:11px;color:{T["tx2"]};">'
+                            f"{_w['issue']}</div>"
+                            f"{_repl_html}</div>"
+                        )
+
+                    # Benched players with games (info-level)
+                    if _benched:
+                        _lv_html += (
+                            f'<div style="margin-top:6px;font-size:10px;font-weight:700;'
+                            f"letter-spacing:0.8px;text-transform:uppercase;"
+                            f'color:{T["sky"]};margin-bottom:3px;">Bench — Playing Today</div>'
+                        )
+                        for _b in _benched:
+                            _lv_html += (
+                                f'<div style="padding:2px 0;font-size:12px;">'
+                                f'<span class="health-dot" style="background:{T["sky"]};"></span>'
+                                f'<span style="font-weight:600;">{_b["player"]}</span> '
+                                f'<span style="color:{T["tx2"]};font-size:11px;">'
+                                f"available to start</span></div>"
+                            )
+
+                    render_context_card(f"Lineup Validation ({_teams_playing} teams playing)", _lv_html)
 
                 # Live matchup score card
                 matchup = yds.get_matchup()

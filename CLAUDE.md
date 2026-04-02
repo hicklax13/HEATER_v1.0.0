@@ -531,6 +531,12 @@ get_injury_badge(health_score) -> tuple[str, str]  # returns <span> with CSS dot
 - **OPT-005/006 HIGH:** Streaming relievers with 15-30 IP had inflated values; 0-game pitchers not excluded
 - **Acceptance Analysis Panel** — Trade Analyzer now shows ADP Fairness, ECR Fairness, Acceptance Probability, Acceptance Tier
 - **Page Audit** — 9 page bugs fixed across Trade Analyzer, Lineup Optimizer, My Team, Player Compare, Start/Sit
+- **Smart Drop Candidate** — 5-factor scoring replaces pure SGP: roster balance, DH-only penalty, 0-SB dead weight, AVG drag, base SGP
+- **UI Sizing Overhaul** — Tables 11→13px, tabular-nums, unified 12px border-radius, 1024px breakpoint, rate stat formatting (AVG 3dp, ERA 2dp)
+- **Browser Testing** — 4 parallel agents tested all pages with real clicks; found and fixed 9 additional UI bugs
+- **Daily Lineup Validation** — My Team page now shows lineup issues (off-day starters) with position-eligible bench replacement suggestions
+- **Ownership Heat Index** — Free Agents page shows Heat Score (1-10) per player based on ownership trends and recent adds; breakout candidate filter
+- **Monday Morning Report** — Weekly report auto-expands on Mondays with opponent analysis, category projections, action items, streaming targets
 
 ## Season State (2026)
 

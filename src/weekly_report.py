@@ -221,6 +221,116 @@ def check_daily_lineup(
     return alerts
 
 
+def _position_eligible(player_positions: str, slot: str) -> bool:
+    """Check if a player is eligible for a given roster slot.
+
+    Args:
+        player_positions: Comma-separated position string (e.g. "1B,OF,DH").
+        slot: Roster slot to check eligibility for (e.g. "1B", "OF", "Util").
+    """
+    slot_upper = slot.strip().upper()
+    positions = {p.strip().upper() for p in str(player_positions).split(",") if p.strip()}
+
+    # Util slots accept any player
+    if slot_upper in ("UTIL", "UT"):
+        return True
+
+    # P slots accept SP and RP
+    if slot_upper == "P":
+        return bool(positions & {"SP", "RP", "P"})
+
+    # OF slots accept LF, CF, RF, OF
+    if slot_upper == "OF":
+        return bool(positions & {"LF", "CF", "RF", "OF"})
+
+    # Direct position match
+    return slot_upper in positions
+
+
+def _find_replacements(
+    roster: pd.DataFrame,
+    off_day_player: pd.Series,
+    playing_teams: set[str],
+    max_suggestions: int = 2,
+) -> list[str]:
+    """Find bench players who can replace a starting player on an off-day.
+
+    Returns a list of player names (up to max_suggestions) who are:
+    - On the bench (BN slot)
+    - Playing today (team is in playing_teams)
+    - Position-eligible for the starter's slot
+    """
+    starter_slot = str(off_day_player.get("roster_slot", "")).strip()
+    starter_is_hitter = off_day_player.get("is_hitter", 1)
+    replacements = []
+
+    for _, bench_player in roster.iterrows():
+        bench_slot = str(bench_player.get("roster_slot", "")).upper()
+        if "BN" not in bench_slot:
+            continue
+        bench_team = str(bench_player.get("team", "")).upper()
+        if bench_team not in playing_teams:
+            continue
+        # Check type match (hitter for hitter, pitcher for pitcher)
+        bench_is_hitter = bench_player.get("is_hitter", 1)
+        if bench_is_hitter != starter_is_hitter:
+            continue
+        # Check position eligibility
+        bench_positions = str(bench_player.get("positions", ""))
+        if _position_eligible(bench_positions, starter_slot):
+            replacements.append(str(bench_player.get("name", "?")))
+            if len(replacements) >= max_suggestions:
+                break
+
+    return replacements
+
+
+def validate_daily_lineup(
+    roster: pd.DataFrame,
+    todays_games: list[str] | None = None,
+) -> list[dict]:
+    """Enhanced daily lineup validation with replacement suggestions.
+
+    Wraps check_daily_lineup() and enriches each alert with position-eligible
+    bench replacements who are playing today.
+
+    Args:
+        roster: Roster DataFrame with columns: name, positions, team,
+            roster_slot, is_hitter.
+        todays_games: List of team abbreviations playing today.
+
+    Returns:
+        List of dicts: {player, issue, severity, replacements: [name, ...]}.
+    """
+    base_alerts = check_daily_lineup(roster, todays_games)
+    if not base_alerts or todays_games is None:
+        return base_alerts
+
+    playing_teams = {t.upper() for t in todays_games}
+    enriched = []
+
+    for alert in base_alerts:
+        player_name = alert["player"]
+        # Find the matching roster row for this player
+        match = roster[roster["name"] == player_name]
+        replacements = []
+        if not match.empty and alert["severity"] == "warning":
+            player_row = match.iloc[0]
+            replacements = _find_replacements(roster, player_row, playing_teams)
+
+        enriched.append(
+            {
+                "player": alert["player"],
+                "issue": alert["issue"],
+                "severity": alert["severity"],
+                "recommendation": alert.get("recommendation", ""),
+                "replacements": replacements,
+            }
+        )
+
+    return enriched
+
+
 def get_todays_mlb_games() -> list[str]:
     """Fetch today's MLB schedule and return list of team abbreviations playing."""
     try:

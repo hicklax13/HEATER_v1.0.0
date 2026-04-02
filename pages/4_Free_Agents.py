@@ -24,6 +24,86 @@ from src.ui_shared import (
 from src.valuation import LeagueConfig
 from src.yahoo_data_service import get_yahoo_data_service
 
+# ── Ownership Heat Index helpers ─────────────────────────────────────────────
+
+
+def _load_ownership_heat(fa_player_ids: list[int]) -> pd.DataFrame:
+    """Load ownership trends and compute a Heat Score (1-10) for free agents.
+
+    Heat Score formula:
+        heat = min(10, int(ownership_pct_change * 20 + recent_adds * 2))
+
+    Returns a DataFrame with columns: player_id, percent_owned, delta_7d, heat.
+    If ownership_trends is empty, returns an empty DataFrame.
+    """
+    conn = get_connection()
+    try:
+        ownership = pd.read_sql_query(
+            "SELECT player_id, percent_owned, delta_7d FROM ownership_trends "
+            "WHERE date = (SELECT MAX(date) FROM ownership_trends)",
+            conn,
+        )
+        if ownership.empty:
+            return pd.DataFrame(columns=["player_id", "percent_owned", "delta_7d", "recent_adds", "heat"])
+
+        # Count recent adds (last 14 days) from the transactions table
+        recent_adds_df = pd.read_sql_query(
+            "SELECT player_id, COUNT(*) AS recent_adds FROM transactions "
+            "WHERE type = 'add' AND timestamp >= date('now', '-14 days') "
+            "GROUP BY player_id",
+            conn,
+        )
+    finally:
+        conn.close()
+
+    # Coerce numeric columns
+    for col in ["player_id"]:
+        if col in ownership.columns:
+            ownership[col] = pd.to_numeric(ownership[col], errors="coerce").fillna(0).astype(int)
+    for col in ["percent_owned", "delta_7d"]:
+        if col in ownership.columns:
+            ownership[col] = pd.to_numeric(ownership[col], errors="coerce").fillna(0.0)
+
+    if not recent_adds_df.empty:
+        recent_adds_df["player_id"] = pd.to_numeric(recent_adds_df["player_id"], errors="coerce").fillna(0).astype(int)
+        recent_adds_df["recent_adds"] = (
+            pd.to_numeric(recent_adds_df["recent_adds"], errors="coerce").fillna(0).astype(int)
+        )
+        ownership = ownership.merge(recent_adds_df, on="player_id", how="left")
+    else:
+        ownership["recent_adds"] = 0
+
+    ownership["recent_adds"] = ownership["recent_adds"].fillna(0).astype(int)
+
+    # Deduplicate by player_id (keep latest if somehow duplicated)
+    ownership = ownership.drop_duplicates(subset=["player_id"], keep="first")
+
+    # Filter to only free agents
+    if fa_player_ids:
+        ownership = ownership[ownership["player_id"].isin(fa_player_ids)]
+
+    # Compute heat score: ownership_pct_change (delta_7d) scaled + recent_adds
+    # Vectorized computation avoids apply() issues
+    _raw_heat = (ownership["delta_7d"].abs() * 20 + ownership["recent_adds"] * 2).astype(int)
+    ownership["heat"] = _raw_heat.clip(lower=0, upper=10)
+
+    return ownership[["player_id", "percent_owned", "delta_7d", "recent_adds", "heat"]]
+
+
+def _heat_label(heat: int) -> str:
+    """Return a colored heat score string for display in compact tables.
+
+    1-3 = green (cold), 4-6 = amber (warm), 7-10 = red (hot), 0 = gray (unknown).
+    """
+    if heat <= 0:
+        return f'<span style="color:{T["tx2"]};font-weight:600;">--</span>'
+    if heat <= 3:
+        return f'<span style="color:{T["green"]};font-weight:600;">{heat}</span>'
+    if heat <= 6:
+        return f'<span style="color:{T["warn"]};font-weight:600;">{heat}</span>'
+    return f'<span style="color:{T["danger"]};font-weight:600;">{heat}</span>'
+
+
 try:
     from src.waiver_wire import compute_add_drop_recommendations
 
@@ -153,6 +233,12 @@ try:
 except Exception as e:
     logger.exception("Failed to rank free agents")
 
+# ── Ownership Heat Index ────────────────────────────────────────────────────
+
+fa_player_ids = fa_pool["player_id"].astype(int).tolist() if "player_id" in fa_pool.columns else []
+ownership_heat = _load_ownership_heat(fa_player_ids)
+_ownership_available = not ownership_heat.empty
+
 # ── Roster summary stats for context panel ────────────────────────────────────
 
 num_cols_coerce = [
@@ -262,6 +348,39 @@ with ctx:
         f'<span style="font-weight:600;color:{T["tx"]};">{_fa_fresh}</span></div>'
     )
     render_context_card("Data Freshness", sync_html)
+
+    # Ownership Heat Index summary + Breakout Candidates toggle
+    if _ownership_available:
+        _hot_count = int((ownership_heat["heat"] >= 7).sum())
+        _warm_count = int(((ownership_heat["heat"] >= 4) & (ownership_heat["heat"] < 7)).sum())
+        _breakout_count = int(((ownership_heat["heat"] >= 5) & (ownership_heat["percent_owned"] < 30)).sum())
+        heat_html = (
+            f'<div style="display:flex;justify-content:space-between;'
+            f'padding:2px 0;font-size:12px;font-family:IBM Plex Mono,monospace;">'
+            f'<span style="color:{T["tx2"]};">Hot (7-10)</span>'
+            f'<span style="font-weight:600;color:{T["danger"]};">{_hot_count}</span></div>'
+            f'<div style="display:flex;justify-content:space-between;'
+            f'padding:2px 0;font-size:12px;font-family:IBM Plex Mono,monospace;">'
+            f'<span style="color:{T["tx2"]};">Warm (4-6)</span>'
+            f'<span style="font-weight:600;color:{T["warn"]};">{_warm_count}</span></div>'
+            f'<div style="display:flex;justify-content:space-between;'
+            f'padding:2px 0;font-size:12px;font-family:IBM Plex Mono,monospace;">'
+            f'<span style="color:{T["tx2"]};">Breakout Candidates</span>'
+            f'<span style="font-weight:600;color:{T["hot"]};">{_breakout_count}</span></div>'
+        )
+        render_context_card("Ownership Heat Index", heat_html)
+        if "fa_breakout_filter" not in st.session_state:
+            st.session_state.fa_breakout_filter = False
+        st.toggle(
+            "Show breakout candidates only (Heat >= 5, Owned < 30%)",
+            key="fa_breakout_filter",
+        )
+    else:
+        render_context_card(
+            "Ownership Heat Index",
+            f'<div style="font-size:12px;color:{T["tx2"]};font-family:Figtree,sans-serif;">'
+            f"Ownership data not available — sync with Yahoo to enable heat tracking.</div>",
+        )
 
 # ── Helper: apply position filter to a DataFrame ─────────────────────────────
 
@@ -494,45 +613,89 @@ with main:
             _id_to_mlb = pool[["player_id", "mlb_id"]].drop_duplicates(subset="player_id")
             _display_fas = _display_fas.merge(_id_to_mlb, on="player_id", how="left")
 
-        show_cols = ["player_name", "positions", "marginal_value", "impact", "best_category", "best_cat_impact"]
-        if "mlb_id" in _display_fas.columns:
-            show_cols.append("mlb_id")
-        # Only include columns that exist
-        show_cols = [c for c in show_cols if c in _display_fas.columns]
-        display_fa_df = _display_fas[show_cols].copy()
-
-        # Format numeric columns
-        for col in ["marginal_value", "impact", "best_cat_impact"]:
-            if col in display_fa_df.columns:
-                display_fa_df[col] = display_fa_df[col].apply(lambda x: f"{x:.2f}" if pd.notna(x) else "0.00")
-
-        display_fa_df = display_fa_df.rename(
-            columns={
-                "player_name": "Player",
-                "positions": "Position",
-                "marginal_value": "Marginal Value",
-                "impact": "Impact",
-                "best_category": "Best Category",
-                "best_cat_impact": "Category Impact",
-            }
-        )
-
-        st.markdown(
-            f'<div style="font-size:11px;color:{T["tx2"]};margin-bottom:4px;'
-            f'font-family:Figtree,sans-serif;">'
-            f"Showing {len(display_fa_df)} free agents. Click column headers to sort.</div>",
-            unsafe_allow_html=True,
-        )
-        render_sortable_table(display_fa_df, height=450, key="fa_merged_all_fas")
-        st.caption(METRIC_TOOLTIPS["marginal_value"])
-
-        # Player card selector
-        if "player_id" in _display_fas.columns:
-            render_player_select(
-                display_fa_df["Player"].tolist(),
-                _display_fas["player_id"].tolist(),
-                key_suffix="fa_merged_browse",
+        # Merge ownership heat data
+        if _ownership_available and "player_id" in _display_fas.columns:
+            _display_fas = _display_fas.merge(
+                ownership_heat[["player_id", "percent_owned", "heat"]],
+                on="player_id",
+                how="left",
             )
+            _display_fas["heat"] = _display_fas["heat"].fillna(0).astype(int)
+            _display_fas["percent_owned"] = _display_fas["percent_owned"].fillna(0.0)
+
+        # Apply Breakout Candidates filter (Heat >= 5, Ownership < 30%)
+        _breakout_active = st.session_state.get("fa_breakout_filter", False)
+        if _breakout_active and "heat" in _display_fas.columns:
+            _pre_filter_count = len(_display_fas)
+            _display_fas = _display_fas[(_display_fas["heat"] >= 5) & (_display_fas["percent_owned"] < 30)]
+            if _display_fas.empty:
+                st.info(
+                    f"No breakout candidates found (0 of {_pre_filter_count} free agents "
+                    f"have Heat >= 5 and Ownership < 30%). Disable the filter to see all free agents."
+                )
+
+        if not _display_fas.empty:
+            show_cols = [
+                "player_name",
+                "positions",
+                "marginal_value",
+                "impact",
+                "best_category",
+                "best_cat_impact",
+            ]
+            if "heat" in _display_fas.columns:
+                show_cols.insert(2, "heat")
+            if "mlb_id" in _display_fas.columns:
+                show_cols.append("mlb_id")
+            # Only include columns that exist
+            show_cols = [c for c in show_cols if c in _display_fas.columns]
+            display_fa_df = _display_fas[show_cols].copy()
+
+            # Format numeric columns
+            for col in ["marginal_value", "impact", "best_cat_impact"]:
+                if col in display_fa_df.columns:
+                    display_fa_df[col] = display_fa_df[col].apply(lambda x: f"{x:.2f}" if pd.notna(x) else "0.00")
+
+            # Format Heat column with color coding for compact table
+            if "heat" in display_fa_df.columns:
+                display_fa_df["heat"] = display_fa_df["heat"].apply(_heat_label)
+
+            display_fa_df = display_fa_df.rename(
+                columns={
+                    "player_name": "Player",
+                    "positions": "Position",
+                    "heat": "Heat",
+                    "marginal_value": "Marginal Value",
+                    "impact": "Impact",
+                    "best_category": "Best Category",
+                    "best_cat_impact": "Category Impact",
+                }
+            )
+
+            _filter_label = (
+                " (breakout candidates only)" if _breakout_active and "Heat" in display_fa_df.columns else ""
+            )
+            st.markdown(
+                f'<div style="font-size:11px;color:{T["tx2"]};margin-bottom:4px;'
+                f'font-family:Figtree,sans-serif;">'
+                f"Showing {len(display_fa_df)} free agents{_filter_label}."
+                f" Click column headers to sort.</div>",
+                unsafe_allow_html=True,
+            )
+            if "Heat" in display_fa_df.columns:
+                # Use compact table for HTML heat labels
+                render_compact_table(display_fa_df, highlight_cols=["Impact"], max_height=450)
+            else:
+                render_sortable_table(display_fa_df, height=450, key="fa_merged_all_fas")
+            st.caption(METRIC_TOOLTIPS["marginal_value"])
+
+            # Player card selector
+            if "player_id" in _display_fas.columns:
+                render_player_select(
+                    display_fa_df["Player"].tolist(),
+                    _display_fas["player_id"].tolist(),
+                    key_suffix="fa_merged_browse",
+                )
 
     # ── Section 4: Recommended Drops ──────────────────────────────────────────
 
