@@ -104,6 +104,37 @@ FG_TEAM_TO_ABBR: dict[str, str] = {
     "Twins": "MIN",
     "White Sox": "CWS",
     "Yankees": "NYY",
+    # FanGraphs abbreviation form (used by pybaseball team_batting/team_pitching)
+    "ARI": "ARI",
+    "ATH": "ATH",
+    "ATL": "ATL",
+    "BAL": "BAL",
+    "BOS": "BOS",
+    "CHC": "CHC",
+    "CHW": "CWS",
+    "CIN": "CIN",
+    "CLE": "CLE",
+    "COL": "COL",
+    "DET": "DET",
+    "HOU": "HOU",
+    "KCR": "KC",
+    "LAA": "LAA",
+    "LAD": "LAD",
+    "MIA": "MIA",
+    "MIL": "MIL",
+    "MIN": "MIN",
+    "NYM": "NYM",
+    "NYY": "NYY",
+    "PHI": "PHI",
+    "PIT": "PIT",
+    "SDP": "SD",
+    "SEA": "SEA",
+    "SFG": "SF",
+    "STL": "STL",
+    "TBR": "TB",
+    "TEX": "TEX",
+    "TOR": "TOR",
+    "WSN": "WSH",
 }
 
 # Neutral defaults when team data is unavailable
@@ -261,7 +292,7 @@ def fetch_game_day_weather(schedule: list[dict]) -> list[dict]:
     today_str = datetime.now(UTC).strftime("%Y-%m-%d")
 
     for game in schedule:
-        game_pk = game.get("game_pk") or game.get("gamePk", 0)
+        game_pk = game.get("game_id") or game.get("game_pk") or game.get("gamePk", 0)
         home_name = game.get("home_name", "")
         venue_abbr = _NAME_TO_ABBR.get(home_name, "")
 
@@ -1104,7 +1135,7 @@ def get_todays_lineups(schedule: list[dict]) -> dict:
     result: dict[str, list[str]] = {}
 
     for game in schedule:
-        game_pk = game.get("game_pk") or game.get("gamePk", 0)
+        game_pk = game.get("game_id") or game.get("game_pk") or game.get("gamePk", 0)
         if not game_pk:
             continue
 
