@@ -480,13 +480,17 @@ class TestFetchAllProjections:
 
         mock_fetch.side_effect = side_effect
         projections, raw_data = fetch_all_projections()
-        # 5 working systems × 2 (bat+pit) = 10 entries (zips failed)
-        assert len(projections) == 10
+        # 5 working base systems × 2 + 3 ROS systems × 2 = 16 entries (zips failed)
+        assert len(projections) == 16
         assert "steamer_bat" in projections
         assert "depthcharts_pit" in projections
         assert "atc_bat" in projections
         assert "thebat_pit" in projections
         assert "zips_bat" not in projections
+        # ROS systems should be present
+        assert "steamer_ros_bat" in projections
+        assert "zips_ros_bat" in projections
+        assert "depthcharts_ros_pit" in projections
 
     @patch("src.data_pipeline.fetch_projections")
     def test_total_failure(self, mock_fetch):

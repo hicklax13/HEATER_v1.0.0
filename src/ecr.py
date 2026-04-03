@@ -32,6 +32,14 @@ except ImportError:
     BS4_AVAILABLE = False
 
 
+# ── Season detection ─────────────────────────────────────────────────
+
+
+def _is_in_season() -> bool:
+    """Return True if MLB regular season is active (April-October)."""
+    return 4 <= datetime.now(UTC).month <= 10
+
+
 # ── ESPN position ID map ─────────────────────────────────────────────
 ESPN_POSITION_MAP = {
     1: "SP",
@@ -362,6 +370,97 @@ def fetch_yahoo_adp() -> pd.DataFrame:
         return df
     except Exception:
         return pd.DataFrame()
+
+
+# ══════════════════════════════════════════════════════════════════════
+#  FantasyPros ROS rankings (in-season source)
+# ══════════════════════════════════════════════════════════════════════
+
+
+def fetch_fantasypros_ros() -> pd.DataFrame:
+    """Fetch FantasyPros Rest-of-Season overall rankings (in-season source).
+
+    Scrapes the ROS rankings page for player name and rank.
+    Returns DataFrame with columns: player_name, rank.
+    Returns empty DataFrame on any failure.
+    """
+    if not REQUESTS_AVAILABLE or not BS4_AVAILABLE:
+        return pd.DataFrame(columns=["player_name", "rank"])
+
+    url = "https://www.fantasypros.com/mlb/rankings/ros-overall.php"
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/131.0.0.0 Safari/537.36"
+        ),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Referer": "https://www.fantasypros.com/mlb/rankings/",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "same-origin",
+    }
+
+    try:
+        resp = requests.get(url, headers=headers, timeout=15)
+        resp.raise_for_status()
+    except Exception:
+        logger.warning("FantasyPros ROS fetch failed", exc_info=True)
+        return pd.DataFrame(columns=["player_name", "rank"])
+
+    try:
+        soup = BeautifulSoup(resp.text, "html.parser")
+        # FantasyPros uses a table with id="ranking-table" or class="player-table"
+        table = soup.select_one("table#ranking-table") or soup.select_one("table.player-table")
+        if table is None:
+            # Fallback: try any table with ranking data
+            tables = soup.select("table")
+            table = tables[0] if tables else None
+
+        if table is None:
+            logger.warning("FantasyPros ROS: no ranking table found in HTML")
+            return pd.DataFrame(columns=["player_name", "rank"])
+
+        rows = table.select("tbody tr")
+        players = []
+        for row in rows:
+            cells = row.find_all("td")
+            if len(cells) < 2:
+                continue
+
+            # Try to extract player name from the name cell (usually 2nd column)
+            # FantasyPros typically has rank in first column, player in second
+            name_cell = cells[1] if len(cells) > 1 else cells[0]
+            # Look for an anchor tag with player name
+            name_link = name_cell.find("a")
+            if name_link:
+                name = name_link.get_text(strip=True)
+            else:
+                name = name_cell.get_text(strip=True)
+
+            if not name:
+                continue
+
+            # Rank from first column or sequential
+            rank_text = cells[0].get_text(strip=True)
+            try:
+                rank = int(rank_text)
+            except (ValueError, TypeError):
+                rank = len(players) + 1
+
+            players.append({"player_name": name, "name": name, "rank": rank})
+
+        if not players:
+            logger.info("FantasyPros ROS: parsed 0 players from table")
+            return pd.DataFrame(columns=["player_name", "rank"])
+
+        logger.info("FantasyPros ROS: parsed %d players", len(players))
+        return pd.DataFrame(players)
+
+    except Exception:
+        logger.warning("FantasyPros ROS parse failed", exc_info=True)
+        return pd.DataFrame(columns=["player_name", "rank"])
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -750,22 +849,38 @@ def refresh_ecr_consensus(force: bool = False) -> pd.DataFrame:
         return load_ecr_consensus()
 
     sources: dict[str, pd.DataFrame] = {}
+    in_season = _is_in_season()
 
-    # Fetch from each available source (all 7 ranking sources)
+    # ── Build source list based on season phase ──────────────────────
+    # Year-round sources: ESPN, CBS, FanGraphs ADP, HEATER SGP
+    # Preseason only: Yahoo ADP, NFBC ADP (stale after draft)
+    # In-season only: FantasyPros ROS (replaces dead preseason sources)
+    # FantasyPros ECR stub (fetch_ecr_extended) is replaced in-season
+    # by the real fetch_fantasypros_ros() scraper.
+
     source_fetchers: list[tuple[str, callable]] = [
         ("espn", fetch_espn_rankings),
         ("cbs", fetch_cbs_rankings),
-        ("yahoo", fetch_yahoo_adp),
-        ("fantasypros", fetch_ecr_extended),
     ]
-    # Add NFBC ADP source
-    try:
-        from src.adp_sources import fetch_nfbc_adp
 
-        source_fetchers.append(("nfbc", fetch_nfbc_adp))
-    except ImportError:
-        logger.debug("NFBC ADP source unavailable")
-    # Add FanGraphs ADP source
+    if in_season:
+        # In-season: skip Yahoo ADP and NFBC ADP (stale preseason data)
+        # Add FantasyPros ROS rankings instead of the stub
+        source_fetchers.append(("fantasypros", fetch_fantasypros_ros))
+        logger.info("ECR in-season mode: skipping Yahoo ADP + NFBC ADP, using FantasyPros ROS rankings")
+    else:
+        # Preseason: use all original sources
+        source_fetchers.append(("yahoo", fetch_yahoo_adp))
+        source_fetchers.append(("fantasypros", fetch_ecr_extended))
+        # Add NFBC ADP source (preseason only)
+        try:
+            from src.adp_sources import fetch_nfbc_adp
+
+            source_fetchers.append(("nfbc", fetch_nfbc_adp))
+        except ImportError:
+            logger.debug("NFBC ADP source unavailable")
+
+    # Add FanGraphs ADP source (year-round)
     try:
         from src.data_pipeline import fetch_projections
 

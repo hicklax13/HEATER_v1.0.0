@@ -2315,6 +2315,16 @@ def main():
     init_db()
     render_splash_screen()
 
+    # Force Refresh button in sidebar (only after bootstrap is done)
+    if st.session_state.get("bootstrap_complete"):
+        with st.sidebar:
+            if st.button("Force Refresh Data", key="force_refresh_btn", use_container_width=True):
+                with st.spinner("Refreshing all data sources..."):
+                    yahoo_client = st.session_state.get("yahoo_client")
+                    bootstrap_all_data(yahoo_client=yahoo_client, force=True)
+                    st.session_state["bootstrap_results"] = None
+                st.rerun()
+
     if st.session_state.page == "setup":
         render_setup_page()
     elif st.session_state.page == "draft":

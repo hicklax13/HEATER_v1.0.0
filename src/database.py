@@ -380,6 +380,52 @@ def init_db():
             roster_slot TEXT,
             UNIQUE(snapshot_date, team_name, player_id)
         );
+
+        CREATE TABLE IF NOT EXISTS game_day_weather (
+            game_pk INTEGER NOT NULL,
+            game_date TEXT NOT NULL,
+            venue_team TEXT NOT NULL,
+            temp_f REAL,
+            wind_mph REAL,
+            wind_dir TEXT,
+            precip_pct REAL,
+            humidity_pct REAL,
+            fetched_at TEXT NOT NULL,
+            PRIMARY KEY (game_pk)
+        );
+
+        CREATE TABLE IF NOT EXISTS team_strength (
+            team_abbr TEXT NOT NULL,
+            season INTEGER NOT NULL,
+            wrc_plus REAL,
+            fip REAL,
+            team_ops REAL,
+            team_era REAL,
+            team_whip REAL,
+            k_pct REAL,
+            bb_pct REAL,
+            fetched_at TEXT NOT NULL,
+            PRIMARY KEY (team_abbr, season)
+        );
+
+        CREATE TABLE IF NOT EXISTS opp_pitcher_stats (
+            pitcher_id INTEGER NOT NULL,
+            season INTEGER NOT NULL,
+            name TEXT,
+            team TEXT,
+            era REAL,
+            fip REAL,
+            xfip REAL,
+            whip REAL,
+            k_per_9 REAL,
+            bb_per_9 REAL,
+            vs_lhb_avg REAL,
+            vs_rhb_avg REAL,
+            ip REAL,
+            hand TEXT,
+            fetched_at TEXT NOT NULL,
+            PRIMARY KEY (pitcher_id, season)
+        );
     """)
     conn.commit()
 
@@ -490,6 +536,9 @@ _VALID_TABLE_NAMES = frozenset(
         "player_news",
         "news_player_map",
         "roster_snapshots",
+        "game_day_weather",
+        "team_strength",
+        "opp_pitcher_stats",
     }
 )
 _VALID_COL_RE = __import__("re").compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
@@ -2079,6 +2128,170 @@ def upsert_statcast_bulk(records: list[dict]) -> int:
         return saved
     finally:
         conn.close()
+
+
+# ── Game-Day Intelligence DB Helpers ─────────────────────────────────
+
+
+def upsert_game_day_weather(
+    game_pk: int,
+    game_date: str,
+    venue_team: str,
+    temp_f: float | None,
+    wind_mph: float | None,
+    wind_dir: str | None,
+    precip_pct: float | None,
+    humidity_pct: float | None,
+) -> None:
+    """Insert or update weather data for a specific game."""
+    conn = get_connection()
+    try:
+        conn.execute(
+            """INSERT OR REPLACE INTO game_day_weather
+               (game_pk, game_date, venue_team, temp_f, wind_mph,
+                wind_dir, precip_pct, humidity_pct, fetched_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                game_pk,
+                game_date,
+                venue_team,
+                temp_f,
+                wind_mph,
+                wind_dir,
+                precip_pct,
+                humidity_pct,
+                datetime.now(UTC).isoformat(),
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def load_game_day_weather(game_date: str) -> pd.DataFrame:
+    """Load all weather records for a given game date."""
+    conn = get_connection()
+    try:
+        df = pd.read_sql_query(
+            "SELECT * FROM game_day_weather WHERE game_date = ?",
+            conn,
+            params=(game_date,),
+        )
+    finally:
+        conn.close()
+    return coerce_numeric_df(df) if not df.empty else df
+
+
+def upsert_team_strength(
+    team_abbr: str,
+    season: int,
+    wrc_plus: float | None,
+    fip: float | None,
+    team_ops: float | None,
+    team_era: float | None,
+    team_whip: float | None,
+    k_pct: float | None,
+    bb_pct: float | None,
+) -> None:
+    """Insert or update team-level strength metrics for a season."""
+    conn = get_connection()
+    try:
+        conn.execute(
+            """INSERT OR REPLACE INTO team_strength
+               (team_abbr, season, wrc_plus, fip, team_ops, team_era,
+                team_whip, k_pct, bb_pct, fetched_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                team_abbr,
+                season,
+                wrc_plus,
+                fip,
+                team_ops,
+                team_era,
+                team_whip,
+                k_pct,
+                bb_pct,
+                datetime.now(UTC).isoformat(),
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def load_team_strength(season: int) -> pd.DataFrame:
+    """Load all team strength records for a given season."""
+    conn = get_connection()
+    try:
+        df = pd.read_sql_query(
+            "SELECT * FROM team_strength WHERE season = ?",
+            conn,
+            params=(season,),
+        )
+    finally:
+        conn.close()
+    return coerce_numeric_df(df) if not df.empty else df
+
+
+def upsert_opp_pitcher(
+    pitcher_id: int,
+    season: int,
+    name: str | None,
+    team: str | None,
+    era: float | None,
+    fip: float | None,
+    xfip: float | None,
+    whip: float | None,
+    k_per_9: float | None,
+    bb_per_9: float | None,
+    vs_lhb_avg: float | None,
+    vs_rhb_avg: float | None,
+    ip: float | None,
+    hand: str | None,
+) -> None:
+    """Insert or update opposing pitcher stats for a season."""
+    conn = get_connection()
+    try:
+        conn.execute(
+            """INSERT OR REPLACE INTO opp_pitcher_stats
+               (pitcher_id, season, name, team, era, fip, xfip, whip,
+                k_per_9, bb_per_9, vs_lhb_avg, vs_rhb_avg, ip, hand, fetched_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                pitcher_id,
+                season,
+                name,
+                team,
+                era,
+                fip,
+                xfip,
+                whip,
+                k_per_9,
+                bb_per_9,
+                vs_lhb_avg,
+                vs_rhb_avg,
+                ip,
+                hand,
+                datetime.now(UTC).isoformat(),
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def load_opp_pitchers(season: int) -> pd.DataFrame:
+    """Load all opposing pitcher stats for a given season."""
+    conn = get_connection()
+    try:
+        df = pd.read_sql_query(
+            "SELECT * FROM opp_pitcher_stats WHERE season = ?",
+            conn,
+            params=(season,),
+        )
+    finally:
+        conn.close()
+    return coerce_numeric_df(df) if not df.empty else df
 
 
 # ── Helpers ──────────────────────────────────────────────────────────

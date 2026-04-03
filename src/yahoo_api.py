@@ -787,6 +787,18 @@ class YahooFantasyClient:
                 player_list = getattr(roster, "players", None) or []
                 for player_entry in player_list:
                     player = getattr(player_entry, "player", player_entry)
+
+                    # Filter out traded-away players: get_team_roster_by_week
+                    # returns ALL players who appeared on the roster at any
+                    # point during the week, including those traded away.
+                    # Traded players have selected_position.position = None.
+                    selected_pos_obj = self._safe_attr(player, "selected_position", None)
+                    selected_position = ""
+                    if selected_pos_obj:
+                        selected_position = self._safe_str(self._safe_attr(selected_pos_obj, "position", ""))
+                    if not selected_position or selected_position in ("None", "null"):
+                        continue  # Skip traded-away player ghost
+
                     name_obj = self._safe_attr(player, "name")
                     full_name = ""
                     if name_obj:
@@ -814,10 +826,6 @@ class YahooFantasyClient:
 
                     # Extract additional player context fields
                     editorial_team_abbr = self._safe_str(self._safe_attr(player, "editorial_team_abbr", ""))
-                    selected_pos_obj = self._safe_attr(player, "selected_position", None)
-                    selected_position = ""
-                    if selected_pos_obj:
-                        selected_position = self._safe_str(self._safe_attr(selected_pos_obj, "position", ""))
                     has_player_notes = bool(self._safe_attr(player, "has_player_notes", False))
                     has_recent_player_notes = bool(self._safe_attr(player, "has_recent_player_notes", False))
 
@@ -874,6 +882,17 @@ class YahooFantasyClient:
             rows: list[dict] = []
             for player_entry in player_list:
                 player = getattr(player_entry, "player", player_entry)
+
+                # Filter out traded-away players: get_team_roster_by_week
+                # returns ALL players who appeared on the roster at any
+                # point during the week. Traded players have position = None.
+                selected_pos_obj = self._safe_attr(player, "selected_position", None)
+                sel_pos_str = ""
+                if selected_pos_obj:
+                    sel_pos_str = self._safe_str(self._safe_attr(selected_pos_obj, "position", ""))
+                if not sel_pos_str or sel_pos_str in ("None", "null"):
+                    continue  # Skip traded-away player ghost
+
                 name_obj = self._safe_attr(player, "name")
                 full_name = ""
                 if name_obj:

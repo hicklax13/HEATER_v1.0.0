@@ -46,13 +46,15 @@ class StalenessConfig:
 
     players_hours: float = 168  # 7 days
     live_stats_hours: float = 1  # 1 hour
-    projections_hours: float = 168  # 7 days
+    projections_hours: float = 24  # 24 hours
     historical_hours: float = 720  # 30 days
     park_factors_hours: float = 720  # 30 days
-    yahoo_hours: float = 6  # 6 hours
+    yahoo_hours: float = 0.5  # 30 minutes
     prospects_hours: float = 168  # 7 days
     news_hours: float = 1  # 1 hour
     ecr_consensus_hours: float = 24  # 24 hours
+    game_day_hours: float = 2  # 2 hours
+    team_strength_hours: float = 24  # 24 hours
 
 
 @dataclass
@@ -688,6 +690,48 @@ def _bootstrap_ecr_consensus(progress: BootstrapProgress) -> str:
         return f"ECR consensus: error ({e})"
 
 
+def _bootstrap_game_day(progress: BootstrapProgress) -> str:
+    """Phase 20: Fetch game-day intelligence (weather, lineups, opposing pitchers)."""
+    progress.phase = "Game Day Intel"
+    progress.detail = "Fetching today's weather, lineups, opposing pitchers..."
+    try:
+        from src.game_day import fetch_game_day_intelligence
+
+        result = fetch_game_day_intelligence()
+        from src.database import update_refresh_log
+
+        update_refresh_log("game_day", "success")
+        games = result.get("games_count", 0)
+        pitchers = result.get("pitcher_count", 0)
+        return f"Saved game-day intel for {games} games, {pitchers} pitchers"
+    except Exception as exc:
+        logger.exception("Game-day bootstrap failed: %s", exc)
+        from src.database import update_refresh_log
+
+        update_refresh_log("game_day", "error")
+        return f"Error: {exc}"
+
+
+def _bootstrap_team_strength(progress: BootstrapProgress) -> str:
+    """Phase 21: Fetch team-level batting and pitching strength metrics."""
+    progress.phase = "Team Strength"
+    progress.detail = "Fetching team batting/pitching metrics from FanGraphs..."
+    try:
+        from src.game_day import fetch_team_strength
+
+        df = fetch_team_strength(datetime.now(UTC).year)
+        from src.database import update_refresh_log
+
+        update_refresh_log("team_strength", "success")
+        return f"Saved team strength for {len(df)} teams"
+    except Exception as exc:
+        logger.exception("Team strength bootstrap failed: %s", exc)
+        from src.database import update_refresh_log
+
+        update_refresh_log("team_strength", "error")
+        return f"Error: {exc}"
+
+
 # ── Master Orchestrator ──────────────────────────────────────────────
 
 
@@ -993,6 +1037,29 @@ def bootstrap_all_data(
             results["ros_projections"] = f"Error: {exc}"
     else:
         results["ros_projections"] = "Fresh"
+
+    # Phase 20+21: Game-day intelligence + Team strength (parallel)
+    _notify(0.97)
+    gd_stale = force or check_staleness("game_day", staleness.game_day_hours)
+    ts_stale = force or check_staleness("team_strength", staleness.team_strength_hours)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = {}
+        if gd_stale:
+            futures[executor.submit(_bootstrap_game_day, progress)] = "game_day"
+        else:
+            results["game_day"] = "Fresh"
+        if ts_stale:
+            futures[executor.submit(_bootstrap_team_strength, progress)] = "team_strength"
+        else:
+            results["team_strength"] = "Fresh"
+        for future in as_completed(futures):
+            key = futures[future]
+            try:
+                results[key] = future.result()
+            except Exception as exc:
+                logger.exception("Bootstrap %s failed: %s", key, exc)
+                results[key] = f"Error: {exc}"
 
     # Post-bootstrap validation (BUG-010 / data quality logging)
     try:

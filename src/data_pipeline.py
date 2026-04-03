@@ -63,6 +63,15 @@ SYSTEM_MAP = {
 
 SYSTEMS = list(SYSTEM_MAP.keys())
 
+# Rest-of-season variants — updated daily by FanGraphs during the season.
+# These provide ROS projections that account for current-season performance.
+ROS_SYSTEM_MAP = {
+    "steamerr": "steamer_ros",
+    "rzips": "zips_ros",
+    "rfangraphsdc": "depthcharts_ros",
+}
+ROS_SYSTEMS = list(ROS_SYSTEM_MAP.keys())
+
 
 class FetchError(Exception):
     """Raised when an API fetch fails."""
@@ -655,6 +664,26 @@ def fetch_all_projections() -> tuple[dict[str, pd.DataFrame], dict[str, list[dic
                 logger.info("Fetched %s/%s: %d players", fg_system, stats, len(df))
             except FetchError as exc:
                 logger.warning("Failed to fetch %s/%s: %s", fg_system, stats, exc)
+
+    # Fetch ROS projection variants (in-season, updated daily by FanGraphs)
+    for fg_system in ROS_SYSTEMS:
+        db_system = ROS_SYSTEM_MAP[fg_system]
+        for stats in ("bat", "pit"):
+            time.sleep(_RATE_LIMIT)
+            try:
+                df, raw = fetch_projections(fg_system, stats)
+                key = f"{db_system}_{stats}"
+                projections[key] = df
+                raw_data[key] = raw
+                logger.info("Fetched ROS %s/%s: %d rows", fg_system, stats, len(df))
+            except FetchError:
+                logger.warning(
+                    "ROS fetch failed for %s/%s (may not be available yet)",
+                    fg_system,
+                    stats,
+                )
+            except Exception:
+                logger.exception("Unexpected error fetching ROS %s/%s", fg_system, stats)
 
     return projections, raw_data
 

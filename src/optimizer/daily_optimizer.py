@@ -163,12 +163,14 @@ def compute_matchup_multiplier(
     opponent_team: str,
     park_factors: dict,
     pitcher_xfip: float | None = None,
+    temp_f: float | None = None,
 ) -> float:
     """Compute combined matchup multiplier for counting stat adjustment.
 
-    Combines platoon advantage, park factor, and opposing pitcher quality
-    into a single multiplicative factor. For rate stats, this multiplier
-    should be applied to COMPONENTS (H, AB, ER, IP), not to the rate itself.
+    Combines platoon advantage, park factor, opposing pitcher quality, and
+    game-time weather into a single multiplicative factor.  For rate stats,
+    this multiplier should be applied to COMPONENTS (H, AB, ER, IP), not to
+    the rate itself.
 
     Args:
         is_hitter: True for position players, False for pitchers.
@@ -178,6 +180,7 @@ def compute_matchup_multiplier(
         opponent_team: 3-letter team abbreviation of the opponent.
         park_factors: Dict mapping team abbreviation to park factor.
         pitcher_xfip: Opposing pitcher's xFIP (None if unavailable).
+        temp_f: Game-time temperature in Fahrenheit (None if unavailable).
 
     Returns:
         Multiplicative adjustment clamped to [0.3, 3.0].
@@ -211,6 +214,17 @@ def compute_matchup_multiplier(
         quality = max(0.5, min(2.0, 2.0 - pitcher_xfip / 4.20))
         # Invert for hitters: good pitcher hurts hitter value
         mult *= 1.0 / max(0.5, quality)
+
+    # Weather adjustment — hot temps boost HR/power production
+    if temp_f is not None and is_hitter:
+        try:
+            from src.optimizer.matchup_adjustments import weather_hr_adjustment
+
+            weather_mult = weather_hr_adjustment(temp_f)
+            if weather_mult and weather_mult > 0:
+                mult *= weather_mult
+        except (ImportError, Exception):
+            pass
 
     return max(0.3, min(3.0, mult))  # Clamp to reasonable range
 
@@ -396,6 +410,37 @@ def build_daily_dcv_table(
     except Exception:
         urgency = {cat: 0.5 for cat in config.all_categories}
 
+    # Load weather data for today -- build team -> temp_f lookup
+    # Both home and away teams at a given venue experience the same weather
+    weather_by_team: dict[str, float] = {}
+    try:
+        from datetime import UTC as _utc
+        from datetime import datetime as _dt
+
+        from src.database import load_game_day_weather
+
+        today_date = _dt.now(_utc).strftime("%Y-%m-%d")
+        weather_df = load_game_day_weather(today_date)
+        if not weather_df.empty:
+            # Build venue_team -> temp_f mapping, then map both home and
+            # away teams at that venue to the same temperature
+            for _, wrow in weather_df.iterrows():
+                venue = str(wrow.get("venue_team", "")).upper()
+                temp = wrow.get("temp_f")
+                if venue and temp is not None:
+                    weather_by_team[venue] = float(temp)
+            # Also map away teams to the home venue's weather
+            if schedule_today:
+                for game in schedule_today:
+                    home_raw = str(game.get("home_name", "")).upper().strip()
+                    away_raw = str(game.get("away_name", "")).upper().strip()
+                    home_abbr = _FULL_TO_ABBR.get(home_raw, home_raw)
+                    away_abbr = _FULL_TO_ABBR.get(away_raw, away_raw)
+                    if home_abbr in weather_by_team and away_abbr:
+                        weather_by_team[away_abbr] = weather_by_team[home_abbr]
+    except Exception:
+        logger.debug("Could not load weather for DCV table", exc_info=True)
+
     rows: list[dict] = []
     for _, player in roster.iterrows():
         pid = player.get("player_id")
@@ -432,7 +477,8 @@ def build_daily_dcv_table(
             rows.append(row_data)
             continue
 
-        # Matchup multiplier (simplified -- uses team-level data)
+        # Matchup multiplier (simplified -- uses team-level data + weather)
+        player_temp = weather_by_team.get(team)
         matchup_mult = compute_matchup_multiplier(
             is_hitter=is_hitter,
             batter_hand="",  # Could be enhanced with player hand data
@@ -440,6 +486,7 @@ def build_daily_dcv_table(
             player_team=team,
             opponent_team="",  # Would need game-specific opponent
             park_factors=park_factors,
+            temp_f=player_temp,
         )
 
         # Compute DCV per category

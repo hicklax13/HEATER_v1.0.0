@@ -697,6 +697,13 @@ def test_get_draft_results_no_name_obj_bytes(client):
 # ---------------------------------------------------------------------------
 
 
+def _make_mock_selected_position(position: str = "SS"):
+    """Helper: create a mock SelectedPosition with the given position value."""
+    sp = MagicMock(spec=[])
+    sp.position = position
+    return sp
+
+
 def test_get_all_rosters_position_model_objects(client):
     """Roster position extraction should handle yfpy model objects."""
     mock_team = MagicMock()
@@ -708,6 +715,7 @@ def test_get_all_rosters_position_model_objects(client):
     mock_player.name.full = "Trea Turner"
     mock_player.player_id = "42"
     mock_player.status = "active"
+    mock_player.selected_position = _make_mock_selected_position("SS")
 
     # Simulate yfpy EligiblePosition model objects
     mock_pos_ss = MagicMock(spec=[])
@@ -738,6 +746,7 @@ def test_get_team_roster_position_model_objects(client):
     mock_player.name.full = "Francisco Lindor"
     mock_player.player_id = "55"
     mock_player.status = b"active"  # also test bytes status
+    mock_player.selected_position = _make_mock_selected_position("SS")
 
     mock_pos = MagicMock(spec=[])
     mock_pos.position = b"SS"  # bytes position
@@ -756,3 +765,92 @@ def test_get_team_roster_position_model_objects(client):
     assert len(result) == 1
     assert result.iloc[0]["position"] == "SS"
     assert result.iloc[0]["status"] == "active"
+
+
+def test_get_all_rosters_filters_traded_players(client):
+    """Traded-away players (selected_position=None) must be excluded.
+
+    Yahoo's get_team_roster_by_week returns all players who appeared
+    on the roster during the week, including those traded away. These
+    ghost entries have selected_position.position = None.
+    """
+    mock_team = MagicMock()
+    mock_team.name = "Test Team"
+    mock_team.team_key = "469.l.12345.t.1"
+
+    # Active player — should be included
+    active_player = MagicMock()
+    active_player.name = MagicMock()
+    active_player.name.full = "Bryce Harper"
+    active_player.player_id = "10"
+    active_player.status = "active"
+    active_player.selected_position = _make_mock_selected_position("1B")
+    mock_pos_1b = MagicMock(spec=[])
+    mock_pos_1b.position = "1B"
+    active_player.eligible_positions = [mock_pos_1b]
+    active_entry = MagicMock()
+    active_entry.player = active_player
+
+    # Traded-away player — should be EXCLUDED (position is None)
+    traded_player = MagicMock()
+    traded_player.name = MagicMock()
+    traded_player.name.full = "Corey Seager"
+    traded_player.player_id = "20"
+    traded_player.status = "active"
+    traded_player.selected_position = _make_mock_selected_position(None)
+    mock_pos_ss = MagicMock(spec=[])
+    mock_pos_ss.position = "SS"
+    traded_player.eligible_positions = [mock_pos_ss]
+    traded_entry = MagicMock()
+    traded_entry.player = traded_player
+
+    mock_roster = MagicMock()
+    mock_roster.players = [active_entry, traded_entry]
+
+    client._query = MagicMock()
+    client._query.get_league_teams.return_value = [mock_team]
+    client._query.get_team_roster_by_week.return_value = mock_roster
+
+    result = client.get_all_rosters()
+    assert len(result) == 1
+    assert result.iloc[0]["player_name"] == "Bryce Harper"
+    assert "Corey Seager" not in result["player_name"].values
+
+
+def test_get_team_roster_filters_traded_players(client):
+    """Traded-away players must be excluded from single-team roster."""
+    active_player = MagicMock()
+    active_player.name = MagicMock()
+    active_player.name.full = "Bryson Stott"
+    active_player.player_id = "30"
+    active_player.status = "active"
+    active_player.selected_position = _make_mock_selected_position("2B")
+    mock_pos = MagicMock(spec=[])
+    mock_pos.position = "2B"
+    active_player.eligible_positions = [mock_pos]
+    active_entry = MagicMock()
+    active_entry.player = active_player
+
+    traded_player = MagicMock()
+    traded_player.name = MagicMock()
+    traded_player.name.full = "Corey Seager"
+    traded_player.player_id = "40"
+    traded_player.status = "active"
+    # None position = traded away
+    traded_player.selected_position = _make_mock_selected_position(None)
+    mock_pos_ss = MagicMock(spec=[])
+    mock_pos_ss.position = "SS"
+    traded_player.eligible_positions = [mock_pos_ss]
+    traded_entry = MagicMock()
+    traded_entry.player = traded_player
+
+    mock_roster = MagicMock()
+    mock_roster.players = [active_entry, traded_entry]
+
+    client._query = MagicMock()
+    client._query.get_team_roster_by_week.return_value = mock_roster
+
+    result = client.get_team_roster("469.l.12345.t.1")
+    assert len(result) == 1
+    assert result.iloc[0]["player_name"] == "Bryson Stott"
+    assert "Corey Seager" not in result["player_name"].values

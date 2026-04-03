@@ -310,13 +310,40 @@ def _resolve_team_abbrev(full_name: str) -> str:
     return _MLB_TEAM_ABBREVS.get(full_name, "")
 
 
+def _load_weather_by_date(game_dates: set[str]) -> dict[str, dict[str, Any]]:
+    """Load weather data from DB for a set of game dates.
+
+    Returns a dict keyed by (game_date, venue_team) -> weather dict.
+    """
+    weather_lookup: dict[str, dict[str, Any]] = {}
+    try:
+        from src.database import load_game_day_weather
+
+        for gd in game_dates:
+            df = load_game_day_weather(gd)
+            if df.empty:
+                continue
+            for _, row in df.iterrows():
+                key = f"{gd}:{row.get('venue_team', '')}"
+                weather_lookup[key] = {
+                    "temp_f": row.get("temp_f"),
+                    "wind_mph": row.get("wind_mph"),
+                    "wind_dir": row.get("wind_dir"),
+                    "precip_pct": row.get("precip_pct"),
+                    "humidity_pct": row.get("humidity_pct"),
+                }
+    except Exception:
+        logger.debug("Could not load weather data from DB", exc_info=True)
+    return weather_lookup
+
+
 def _build_team_schedule(
     week_schedule: list[dict[str, Any]],
 ) -> dict[str, list[dict[str, Any]]]:
     """Group schedule entries by team abbreviation.
 
     For each team, stores a list of games with the opponent, venue,
-    and probable pitchers.
+    probable pitchers, and weather data (temp_f, wind_mph) when available.
 
     Args:
         week_schedule: List of game dicts from ``get_weekly_schedule()``.
@@ -325,6 +352,16 @@ def _build_team_schedule(
         Dict mapping team abbreviation to list of game info dicts.
     """
     team_games: dict[str, list[dict[str, Any]]] = {}
+
+    # Collect all game dates for batch weather lookup
+    game_dates: set[str] = set()
+    for game in week_schedule:
+        gd = game.get("game_date", "")
+        if gd:
+            game_dates.add(gd)
+
+    # Load weather from DB (populated by game_day.fetch_game_day_weather)
+    weather_lookup = _load_weather_by_date(game_dates) if game_dates else {}
 
     for game in week_schedule:
         home_full = game.get("home_name", "")
@@ -335,6 +372,10 @@ def _build_team_schedule(
         home_pitcher = game.get("home_probable_pitcher", "")
         away_pitcher = game.get("away_probable_pitcher", "")
 
+        # Look up weather for the venue (home team's park)
+        weather_key = f"{game_date}:{home_abbrev}"
+        weather = weather_lookup.get(weather_key, {})
+
         if home_abbrev:
             team_games.setdefault(home_abbrev, []).append(
                 {
@@ -343,6 +384,8 @@ def _build_team_schedule(
                     "is_home": True,
                     "park_team": home_abbrev,
                     "opposing_pitcher": away_pitcher,
+                    "temp_f": weather.get("temp_f"),
+                    "wind_mph": weather.get("wind_mph"),
                 }
             )
 
@@ -354,6 +397,8 @@ def _build_team_schedule(
                     "is_home": False,
                     "park_team": home_abbrev,
                     "opposing_pitcher": home_pitcher,
+                    "temp_f": weather.get("temp_f"),
+                    "wind_mph": weather.get("wind_mph"),
                 }
             )
 

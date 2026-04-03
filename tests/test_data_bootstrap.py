@@ -431,10 +431,12 @@ class TestStalenessConfig:
         cfg = StalenessConfig()
         assert cfg.players_hours == 168
         assert cfg.live_stats_hours == 1
-        assert cfg.projections_hours == 168
+        assert cfg.projections_hours == 24
         assert cfg.historical_hours == 720
         assert cfg.park_factors_hours == 720
-        assert cfg.yahoo_hours == 6
+        assert cfg.yahoo_hours == 0.5
+        assert cfg.game_day_hours == 2
+        assert cfg.team_strength_hours == 24
 
 
 class TestParkFactorsConstant:
