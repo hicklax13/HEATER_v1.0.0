@@ -19,7 +19,7 @@ python load_sample_data.py             # Load sample data (first time/testing)
 streamlit run app.py                   # Run the app
 ruff check .                           # Lint
 ruff format .                          # Format
-python -m pytest                       # Run all tests (2261 pass, 4 skipped)
+python -m pytest                       # Run all tests (2300 pass, 4 skipped)
 python -m pytest tests/test_foo.py -v  # Run single test file
 ```
 
@@ -37,7 +37,7 @@ python -m pytest tests/test_foo.py -v  # Run single test file
 ## Tech Stack
 
 - **Framework:** Streamlit (Python), multi-page app
-- **Database:** SQLite (`data/draft_tool.db`) — 21 tables
+- **Database:** SQLite (`data/draft_tool.db`) — 24 tables
 - **Core libs:** pandas, NumPy, SciPy, Plotly
 - **Analytics:** PyMC 5 (Bayesian), PuLP (LP optimizer), arviz
 - **Live data:** MLB-StatsAPI, pybaseball (FanGraphs Depth Charts + park factors)
@@ -68,7 +68,7 @@ pages/
   12_Matchup_Planner.py — Per-game matchup ratings with color-coded quality tiers (powered by src/matchup_planner.py)
   10_Trade_Finder.py    — 4-tab trade finder: By Partner, By Category Need, By Value, Trade Readiness (powered by src/trade_finder.py)
 src/
-  database.py           — SQLite schema (21 tables), player pool + in-season queries
+  database.py           — SQLite schema (24 tables), player pool + in-season queries
   valuation.py          — SGP calculator, replacement levels, VORP, category weights, percentiles
   draft_state.py        — Draft state management, roster tracking, snake pick order
   simulation.py         — Monte Carlo draft simulation, opponent modeling, survival probability
@@ -99,9 +99,10 @@ src/
   waiver_wire.py        — Waiver wire LP-verified add/drop recommendations
   trade_finder.py       — V3 trade finder: 3-tier scan (cosine→1v1→2v1), ADP/ECR/YTD/opponent needs, 52 variables
   opponent_trade_analysis.py — Opponent perspective: needs analysis, archetype detection, acceptance modeling
+  game_day.py           — Game-day intelligence: weather (Open-Meteo), opposing pitchers, team strength, lineups, recent form, pitch mix
   espn_injuries.py      — Real-time ESPN injury feed for IL/DTD status
   draft_grader.py       — Post-draft grader (3-component)
-  ecr.py                — Multi-platform ECR consensus (7 sources, Trimmed Borda Count)
+  ecr.py                — Multi-platform ECR consensus (7 sources, Trimmed Borda Count, auto in-season swap to ROS rankings)
   prospect_engine.py    — FanGraphs Board API + MLB Stats API MiLB stats
   player_news.py        — 2-source news aggregation (MLB Stats API + Yahoo) with template summaries
   closer_monitor.py     — 30-team job security scoring
@@ -137,7 +138,7 @@ src/
     game_theory/        — Opponent valuation, adverse selection, Bellman DP, sensitivity
     production/         — Convergence diagnostics, cache, adaptive sim scaling
     output/             — Master trade orchestrator (evaluate_trade)
-tests/                  — 98 test files, 2261 passing tests
+tests/                  — 101 test files, 2300 passing tests
 data/
   draft_tool.db         — SQLite database (created at runtime)
   backups/              — Draft state JSON backups
@@ -234,13 +235,14 @@ All trade valuations (Trade Finder + Trade Analyzer) flow through `src/trade_int
 2. **get_opponent_archetype()** — Maps `OPPONENT_PROFILES` tier to trade willingness (0.3 passive → 0.7 active).
 3. **analyze_from_opponent_view()** — Per-category impact assessment for opponent.
 
-### Bootstrap Pipeline
+### Bootstrap Pipeline (21 phases)
 - Every app launch: splash screen → `bootstrap_all_data()` with staleness-based refresh
-- Staleness thresholds: 1h live stats, 6h Yahoo, 7d players/projections, 30d historical/park factors
-- Phase order: players → park factors → projections → live stats → historical → injury → Yahoo
+- Staleness thresholds: 1h live stats/news, 30min Yahoo, 2h game-day, 24h projections/ADP/ECR/team strength, 7d players/prospects/depth charts, 30d historical/park factors
+- Phase order: players → park factors → projections → live stats → historical → injury → Yahoo → extended roster → ADP → depth charts → contracts → news → dedup → prospects → news intel → ECR → player IDs → Yahoo transactions → Yahoo FAs → ROS projections → **game-day intelligence → team strength** (last 2 in parallel)
+- Force Refresh sidebar button: `bootstrap_all_data(force=True)` overrides all staleness checks
 - Bootstrap primes the SQLite cache; the YahooDataService handles ongoing freshness per-page
 
-### Database Tables (21)
+### Database Tables (24)
 
 | Group | Tables |
 |-------|--------|
@@ -249,12 +251,28 @@ All trade valuations (Trade Finder + Trade Analyzer) flow through `src/trade_int
 | Analytics | `injury_history`, `transactions` |
 | Features | `player_tags`, `leagues` |
 | Intelligence | `prospect_rankings`, `ecr_consensus`, `player_id_map`, `player_news`, `ownership_trends` |
+| Game-Day | `game_day_weather`, `team_strength`, `opp_pitcher_stats` |
 
 ## Key API Signatures
 
 Only the commonly-misused ones. For others, read the source files.
 
 ```python
+# Game-Day Intelligence (src/game_day.py)
+from src.game_day import (
+    fetch_game_day_intelligence,    # Master: weather + pitchers + lineups + team strength
+    fetch_game_day_weather,         # Open-Meteo → game_day_weather table
+    fetch_opposing_pitchers,        # statsapi → opp_pitcher_stats table
+    fetch_team_strength,            # pybaseball/statsapi → team_strength table
+    get_team_strength,              # Read from DB, neutral defaults if missing
+    get_player_recent_form,         # statsapi lastXGames (L7/L14/L30)
+    get_player_recent_form_cached,  # Session-cached wrapper (2h TTL)
+    fetch_pitcher_pitch_mix,        # pybaseball Statcast pitch type usage
+    get_todays_lineups,             # statsapi boxscore_data batting orders
+    STADIUM_COORDS,                 # 30-team lat/lon dict
+    DOME_TEAMS,                     # 8 indoor/retractable stadiums
+)
+
 # YahooDataService (src/yahoo_data_service.py) — singleton accessor
 from src.yahoo_data_service import get_yahoo_data_service
 yds = get_yahoo_data_service()  # creates or retrieves from session_state
@@ -446,30 +464,38 @@ get_injury_badge(health_score) -> tuple[str, str]  # returns <span> with CSS dot
 ## Data Sources
 
 - **Players:** MLB Stats API (750+ active + 40-man); staleness: 7 days
-- **Projections:** 7 systems via FanGraphs JSON API + Marcel (local); staleness: 7 days
+- **Projections:** 7 systems via FanGraphs JSON API + Marcel (local); staleness: 24 hours
+- **ROS Projections:** Steamer ROS + ZiPS ROS + Depth Charts ROS via FanGraphs; staleness: 24 hours
 - **ADP:** FanGraphs Steamer + FantasyPros ECR + NFBC; staleness: 24 hours
 - **Current stats:** MLB Stats API; staleness: 1 hour
 - **Historical stats:** 3 years (2023-2025) from MLB Stats API; staleness: 30 days
 - **Park factors:** Hardcoded FanGraphs 2024 values (30 teams); staleness: 30 days
-- **League data:** Yahoo Fantasy API (optional); staleness: 6 hours
-- **News:** ESPN + RotoWire RSS + MLB Stats API + Yahoo; staleness: 1 hour
+- **League data:** Yahoo Fantasy API (optional); staleness: 30 minutes
+- **News:** MLB Stats API + Yahoo (2 active sources); staleness: 1 hour
 - **Prospects:** FanGraphs Board API + MLB Stats API MiLB; staleness: 7 days
-- **ECR:** 7-source aggregation; staleness: 24 hours
+- **ECR:** 7-source aggregation (auto-swaps to ROS rankings in-season); staleness: 24 hours
+- **Weather:** Open-Meteo API (30 stadium coords, dome detection); staleness: 2 hours
+- **Team strength:** pybaseball wRC+/FIP (FanGraphs) with statsapi fallback; staleness: 24 hours
+- **Opposing pitchers:** MLB Stats API season stats + platoon splits; staleness: 2 hours
+- **Recent form:** MLB Stats API lastXGames (L7/L14/L30); on-demand, 2h session cache
+- **Pitch mix:** pybaseball Statcast pitch type usage; on-demand, 24h session cache
+- **Lineups:** MLB Stats API boxscore_data (confirmed lineups); staleness: 2 hours
 
 ## GitHub
 
 - **Repo:** https://github.com/hicklax13/fantasy-baseball-draft-tool (public)
-- **Current release:** v1.0.0
+- **Current release:** v1.0.0 (live data pipeline added April 3, 2026)
 
 ## Testing
 
-- **2261 passing tests** across 98 test files, 4 skipped (PyMC/xgboost optional deps)
+- **2300 passing tests** across 101 test files, 4 skipped (PyMC/xgboost optional deps)
 - **CI:** GitHub Actions — ruff lint/format + pytest on Python 3.11, 3.12, 3.13
 - **Coverage:** 64% (above 60% CI threshold)
 - **8 rounds of systematic debugging** (207 bugs fixed) + **data pipeline audit** (32 issues fixed), all CI green
 - **Full system audit** (March 26, 2026) — 19 bugs cataloged, all critical/high fixed
 - **Manual UI testing** — All 13 pages tested via Playwright + Claude in Chrome (March 2026)
 - **Trade Engine V3** (March 31, 2026) — 5-agent deep research, 52-variable algorithm, 5+ rounds of iterative testing
+- **Live Data Pipeline** (April 3, 2026) — 10-agent parallel implementation, 15 data gaps filled, 39 new tests
 
 ## Current Implementation Plan
 
@@ -498,6 +524,10 @@ get_injury_badge(health_score) -> tuple[str, str]  # returns <span> with CSS dot
 - **`src/espn_injuries.py`** — Real-time ESPN injury feed for IL/DTD/NA status
 - **`src/optimizer/category_urgency.py`** — Sigmoid urgency for H2H matchup gaps (k=2.0 counting, k=3.0 rate)
 - **`src/optimizer/daily_optimizer.py`** — Daily Category Value (DCV) per-player per-day scoring with team name mapping
+
+## New Modules (Added April 3, 2026)
+
+- **`src/game_day.py`** — Game-day intelligence: 30-stadium weather (Open-Meteo), opposing pitcher stats + platoon splits, team strength (pybaseball wRC+/FIP), confirmed lineups (statsapi boxscore), recent player form (L7/L14/L30 game logs), Statcast pitch mix, session_state caching
 
 ## Key Fixes (March 26, 2026)
 
@@ -537,6 +567,24 @@ get_injury_badge(health_score) -> tuple[str, str]  # returns <span> with CSS dot
 - **Daily Lineup Validation** — My Team page now shows lineup issues (off-day starters) with position-eligible bench replacement suggestions
 - **Ownership Heat Index** — Free Agents page shows Heat Score (1-10) per player based on ownership trends and recent adds; breakout candidate filter
 - **Monday Morning Report** — Weekly report auto-expands on Mondays with opponent analysis, category projections, action items, streaming targets
+
+## Key Fixes (April 3, 2026)
+
+- **TRADED-PLAYER GHOST BUG:** Yahoo `get_team_roster_by_week()` returns players traded away mid-week with `position: None`. Fixed both `get_all_rosters()` and `get_team_roster()` to filter these ghosts. Corey Seager (traded for Harper + Stott) was appearing on Team Hickey's roster.
+- **Live Data Pipeline** — 10-agent parallel implementation filling 15 data gaps:
+  - Weather integration (Open-Meteo, 30 stadiums, dome detection) → wired into optimizer DCV
+  - Team strength (pybaseball wRC+/FIP with statsapi fallback)
+  - Opposing pitcher stats + platoon splits (vs LHB/RHB)
+  - Recent player form (L7/L14/L30 game log aggregation, session cached)
+  - FanGraphs ROS projections (steamerr/rzips/rfangraphsdc)
+  - ECR in-season auto-swap (dead sources → FantasyPros ROS)
+  - Confirmed lineups via statsapi boxscore_data
+  - Statcast pitch mix (pybaseball, 24h session cache)
+  - News cleanup (2 active sources documented, dead stubs removed from aggregation)
+- **Staleness Tightened** — Projections 7d→24h, Yahoo 6h→30min, new game-day 2h, team strength 24h
+- **Bootstrap Phases 20-21** — Game-day intelligence + team strength run in parallel at startup
+- **Force Refresh Button** — Sidebar button calls `bootstrap_all_data(force=True)`
+- **3 New DB Tables** — `game_day_weather`, `team_strength`, `opp_pitcher_stats`
 
 ## Season State (2026)
 
