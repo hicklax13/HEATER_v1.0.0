@@ -103,7 +103,7 @@ src/
   draft_grader.py       — Post-draft grader (3-component)
   ecr.py                — Multi-platform ECR consensus (7 sources, Trimmed Borda Count)
   prospect_engine.py    — FanGraphs Board API + MLB Stats API MiLB stats
-  player_news.py        — 4-source news aggregation with template summaries
+  player_news.py        — 2-source news aggregation (MLB Stats API + Yahoo) with template summaries
   closer_monitor.py     — 30-team job security scoring
   points_league.py      — Yahoo/ESPN/CBS scoring presets
   leaders.py            — Category/points leaders, breakout detection

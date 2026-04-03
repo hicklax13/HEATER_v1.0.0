@@ -1,10 +1,17 @@
-"""Multi-source player news intelligence module.
+"""Player news intelligence module.
 
-Aggregates news from ESPN, RotoWire RSS, MLB Stats API enhanced status,
-Yahoo injury fields, and existing MLB transaction feed. Classifies news
-by type (injury/transaction/callup/lineup/general), computes ownership
-trends, generates template-based analytical summaries, and persists to
-the player_news DB table for deduplication.
+Aggregates news from two active sources:
+  1. MLB Stats API enhanced status (transactions, IL status, roster moves)
+  2. Yahoo injury fields (IL/DTD status from fantasy rosters)
+
+ESPN news and RotoWire RSS were originally planned as sources but are not
+available without paid API keys / subscriptions. The parsing infrastructure
+is retained for future use if credentials become available, but these
+sources are excluded from the active aggregation pipeline.
+
+Classifies news by type (injury/transaction/callup/lineup/general),
+computes ownership trends, generates template-based analytical summaries,
+and persists to the player_news DB table for deduplication.
 """
 
 from __future__ import annotations
@@ -34,7 +41,6 @@ except ImportError:
 
 _RATE_LIMIT_SECONDS = 0.5
 _MAX_SOURCE_FAILURES = 3
-_STUB_SOURCES_WARNED = False
 
 
 # -- News type classification --------------------------------------------
@@ -146,12 +152,15 @@ def _parse_espn_news(data: dict) -> list[dict]:
 
 
 def fetch_espn_news() -> list[dict]:
-    """ESPN player news — not yet implemented (requires ESPN API key)."""
-    global _STUB_SOURCES_WARNED  # noqa: PLW0603
-    if not _STUB_SOURCES_WARNED:
-        logger.info("ESPN news and RotoWire RSS sources are not yet implemented. Using MLB Stats API and Yahoo only.")
-        _STUB_SOURCES_WARNED = True
-    logger.debug("ESPN news fetch not implemented")
+    """ESPN player news -- unavailable (no free public API).
+
+    ESPN does not provide a free public API for general player news.
+    The ESPN injuries feed (handled separately by ``src/espn_injuries.py``)
+    works for IL/DTD status, but general news articles require an API key
+    that is not publicly available. This function is retained so the
+    parsing infrastructure in ``_parse_espn_news()`` can be activated if
+    credentials become available in the future.
+    """
     return []
 
 
@@ -184,11 +193,13 @@ def _parse_rotowire_entries(entries: list) -> list[dict]:
 
 
 def fetch_rotowire_rss() -> list[dict]:
-    """RotoWire RSS feed — not yet implemented (requires RotoWire subscription)."""
-    if not FEEDPARSER_AVAILABLE:
-        logger.debug("feedparser not installed, skipping RotoWire RSS")
-        return []
-    logger.debug("RotoWire RSS fetch not implemented")
+    """RotoWire RSS feed -- unavailable (requires paid subscription).
+
+    RotoWire's MLB player news RSS feed requires an active subscription.
+    The parsing infrastructure in ``_parse_rotowire_entries()`` is retained
+    so this source can be activated if a subscription is added. The
+    ``feedparser`` dependency is already included in requirements.txt.
+    """
     return []
 
 
@@ -602,35 +613,21 @@ def aggregate_news(
     player_id: int,
     mlb_id: int | None = None,
 ) -> list[dict]:
-    """Combine all news sources for one player.
+    """Combine all active news sources for one player.
+
+    Active sources:
+      1. MLB Stats API enhanced status (transactions, IL moves)
+      2. Cached news from DB (includes Yahoo injury data stored earlier)
+
+    Inactive sources (retained for future use):
+      - ESPN news: requires paid API key (see ``fetch_espn_news()``)
+      - RotoWire RSS: requires paid subscription (see ``fetch_rotowire_rss()``)
 
     Tries each source independently with try/except for graceful degradation.
     """
     all_items: list[dict] = []
 
-    # Source 1: ESPN
-    try:
-        espn_items = fetch_espn_news()
-        # Filter to this player's ESPN items (would need player_id resolution)
-        for item in espn_items:
-            espn_aid = item.get("espn_athlete_id")
-            if espn_aid:
-                resolved = _resolve_espn_athlete_id(espn_aid)
-                if resolved == player_id:
-                    item["player_id"] = player_id
-                    all_items.append(item)
-    except Exception:
-        logger.debug("ESPN news fetch failed for player_id=%s", player_id, exc_info=True)
-
-    # Source 2: RotoWire RSS
-    try:
-        roto_items = fetch_rotowire_rss()
-        # RotoWire items need name matching -- skip for now
-        all_items.extend(roto_items)
-    except Exception:
-        logger.debug("RotoWire RSS failed for player_id=%s", player_id, exc_info=True)
-
-    # Source 3: MLB enhanced status
+    # Source 1: MLB enhanced status
     if mlb_id:
         try:
             mlb_items = fetch_mlb_enhanced_status([mlb_id])
@@ -640,7 +637,7 @@ def aggregate_news(
         except Exception:
             logger.debug("MLB enhanced status failed for player_id=%s", player_id, exc_info=True)
 
-    # Source 4: Cached news from DB
+    # Source 2: Cached news from DB (includes Yahoo injury data)
     try:
         cached = _query_player_news(player_id)
         # Avoid duplicates -- cached items are already deduplicated by DB constraint
@@ -713,23 +710,10 @@ def refresh_all_news(
     """
     total_stored = 0
 
-    # 1. ESPN news
-    try:
-        espn_items = fetch_espn_news()
-        if espn_items:
-            total_stored += _store_news_items(espn_items)
-    except Exception:
-        logger.warning("ESPN news refresh failed", exc_info=True)
+    # Note: ESPN news and RotoWire RSS are unavailable (require paid
+    # credentials). Only MLB Stats API and Yahoo are active sources.
 
-    # 2. RotoWire RSS
-    try:
-        roto_items = fetch_rotowire_rss()
-        if roto_items:
-            total_stored += _store_news_items(roto_items)
-    except Exception:
-        logger.warning("RotoWire news refresh failed", exc_info=True)
-
-    # 3. MLB Stats API enhanced status (requires player mlb_ids)
+    # 1. MLB Stats API enhanced status (requires player mlb_ids)
     try:
         from src.database import get_connection
 
@@ -746,7 +730,7 @@ def refresh_all_news(
     except Exception:
         logger.warning("MLB enhanced status refresh failed", exc_info=True)
 
-    # 4. Yahoo injury/ownership data (if client available)
+    # 2. Yahoo injury/ownership data (if client available)
     if yahoo_client is not None:
         try:
             # Extract injury news from Yahoo roster data

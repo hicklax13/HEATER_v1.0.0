@@ -194,12 +194,13 @@ def test_team_strength_fetch_success(mock_batting, mock_pitching):
     assert set(result["team_abbr"].tolist()) == {"NYY", "LAD"}
 
 
+@patch("src.game_day._statsapi", None)
 @patch("src.game_day.PYBASEBALL_AVAILABLE", False)
 def test_team_strength_pybaseball_unavailable():
-    """When pybaseball is not available, should fall back to cached DB data."""
+    """When pybaseball and statsapi are both unavailable, fall back to cached DB data."""
     result = fetch_team_strength(2026)
     assert isinstance(result, pd.DataFrame)
-    # With no cached data, should return empty DataFrame
+    # With no cached data and no APIs, should return empty DataFrame
     assert result.empty
 
 

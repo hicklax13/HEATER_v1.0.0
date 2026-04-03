@@ -179,6 +179,7 @@ def fetch_game_day_intelligence() -> dict:
 
     weather = fetch_game_day_weather(schedule)
     pitchers = fetch_opposing_pitchers(schedule)
+    lineups = get_todays_lineups(schedule)
 
     season = datetime.now(UTC).year
     team_str = fetch_team_strength(season)
@@ -188,7 +189,7 @@ def fetch_game_day_intelligence() -> dict:
         "weather": len(weather),
         "weather_data": weather,
         "pitchers": pitchers,
-        "lineups": {},
+        "lineups": lineups,
         "team_strength": team_str,
         "games_count": len(schedule),
         "weather_count": len(weather),
@@ -514,6 +515,127 @@ def _fetch_single_pitcher(
     return record
 
 
+def _fetch_team_strength_statsapi(season: int) -> pd.DataFrame:
+    """Fallback: fetch team strength via MLB Stats API when pybaseball fails.
+
+    Uses the same endpoints as ``fetch_team_batting_stats()`` in live_stats.py
+    to get team-level batting and pitching stats. Approximates wRC+ from OPS
+    and computes FIP from component stats.
+
+    Args:
+        season: MLB season year.
+
+    Returns:
+        DataFrame matching the ``fetch_team_strength()`` schema, or cached
+        data from SQLite if the API call also fails.
+    """
+    if _statsapi is None:
+        logger.warning("statsapi not available; loading cached team strength")
+        return load_team_strength(season)
+
+    try:
+        teams_data = _statsapi.get(
+            "teams",
+            {"sportId": 1, "season": season, "fields": "teams,id,abbreviation,name"},
+        )
+        teams_list = teams_data.get("teams", [])
+    except Exception:
+        logger.exception("MLB Stats API teams fetch failed")
+        return load_team_strength(season)
+
+    if not teams_list:
+        return load_team_strength(season)
+
+    rows: list[dict] = []
+    for team in teams_list:
+        abbr = team.get("abbreviation", "")
+        team_id = team.get("id")
+        if not abbr or not team_id:
+            continue
+
+        row: dict[str, object] = {"team_abbr": abbr, "season": season}
+
+        # Fetch batting stats
+        try:
+            bat_data = _statsapi.get(
+                "team_stats",
+                {"teamId": team_id, "season": season, "stats": "season", "group": "hitting"},
+            )
+            bat_splits = bat_data.get("stats", [{}])[0].get("splits", [])
+            if bat_splits:
+                stat = bat_splits[0].get("stat", {})
+                ops = float(stat.get("ops", "0.720") or 0.720)
+                # Approximate wRC+ from OPS: league average OPS ~0.720 maps to wRC+ 100
+                row["wrc_plus"] = round((ops / 0.720) * 100.0, 1)
+                row["team_ops"] = round(ops, 3)
+                pa = int(stat.get("plateAppearances", 0) or 0)
+                if pa > 0:
+                    row["k_pct"] = round(int(stat.get("strikeOuts", 0) or 0) / pa * 100, 1)
+                    row["bb_pct"] = round(int(stat.get("baseOnBalls", 0) or 0) / pa * 100, 1)
+                else:
+                    row["k_pct"] = _NEUTRAL_DEFAULTS["k_pct"]
+                    row["bb_pct"] = _NEUTRAL_DEFAULTS["bb_pct"]
+            else:
+                row["wrc_plus"] = _NEUTRAL_DEFAULTS["wrc_plus"]
+                row["team_ops"] = _NEUTRAL_DEFAULTS["team_ops"]
+                row["k_pct"] = _NEUTRAL_DEFAULTS["k_pct"]
+                row["bb_pct"] = _NEUTRAL_DEFAULTS["bb_pct"]
+        except Exception:
+            row["wrc_plus"] = _NEUTRAL_DEFAULTS["wrc_plus"]
+            row["team_ops"] = _NEUTRAL_DEFAULTS["team_ops"]
+            row["k_pct"] = _NEUTRAL_DEFAULTS["k_pct"]
+            row["bb_pct"] = _NEUTRAL_DEFAULTS["bb_pct"]
+
+        # Fetch pitching stats
+        try:
+            pit_data = _statsapi.get(
+                "team_stats",
+                {"teamId": team_id, "season": season, "stats": "season", "group": "pitching"},
+            )
+            pit_splits = pit_data.get("stats", [{}])[0].get("splits", [])
+            if pit_splits:
+                stat = pit_splits[0].get("stat", {})
+                row["team_era"] = _safe_float(stat.get("era")) or _NEUTRAL_DEFAULTS["team_era"]
+                row["team_whip"] = _safe_float(stat.get("whip")) or _NEUTRAL_DEFAULTS["team_whip"]
+                # Approximate FIP from component stats: FIP ~= ERA for this fallback
+                # True FIP requires HR, BB, HBP, K, IP which are available but
+                # the FIP constant changes yearly. Use ERA as proxy.
+                row["fip"] = row["team_era"]
+            else:
+                row["team_era"] = _NEUTRAL_DEFAULTS["team_era"]
+                row["team_whip"] = _NEUTRAL_DEFAULTS["team_whip"]
+                row["fip"] = _NEUTRAL_DEFAULTS["fip"]
+        except Exception:
+            row["team_era"] = _NEUTRAL_DEFAULTS["team_era"]
+            row["team_whip"] = _NEUTRAL_DEFAULTS["team_whip"]
+            row["fip"] = _NEUTRAL_DEFAULTS["fip"]
+
+        rows.append(row)
+
+        # Persist to DB
+        upsert_team_strength(
+            team_abbr=str(abbr),
+            season=season,
+            wrc_plus=row.get("wrc_plus"),  # type: ignore[arg-type]
+            fip=row.get("fip"),  # type: ignore[arg-type]
+            team_ops=row.get("team_ops"),  # type: ignore[arg-type]
+            team_era=row.get("team_era"),  # type: ignore[arg-type]
+            team_whip=row.get("team_whip"),  # type: ignore[arg-type]
+            k_pct=row.get("k_pct"),  # type: ignore[arg-type]
+            bb_pct=row.get("bb_pct"),  # type: ignore[arg-type]
+        )
+
+    if rows:
+        logger.info(
+            "Stored team strength via MLB Stats API for %d teams (season %d)",
+            len(rows),
+            season,
+        )
+        return pd.DataFrame(rows)
+
+    return load_team_strength(season)
+
+
 def fetch_team_strength(season: int) -> pd.DataFrame:
     """Fetch team-level wRC+/FIP/OPS/ERA from pybaseball (FanGraphs).
 
@@ -528,8 +650,8 @@ def fetch_team_strength(season: int) -> pd.DataFrame:
         team_ops, team_era, team_whip, k_pct, bb_pct, fetched_at.
     """
     if not PYBASEBALL_AVAILABLE:
-        logger.warning("pybaseball not available; loading cached team strength")
-        return load_team_strength(season)
+        logger.warning("pybaseball not available; trying MLB Stats API fallback")
+        return _fetch_team_strength_statsapi(season)
 
     try:
         logger.info("Fetching team batting stats from FanGraphs for %d", season)
@@ -537,12 +659,12 @@ def fetch_team_strength(season: int) -> pd.DataFrame:
         logger.info("Fetching team pitching stats from FanGraphs for %d", season)
         pit_df = team_pitching(season)
     except Exception:
-        logger.exception("Failed to fetch team stats from FanGraphs")
-        return load_team_strength(season)
+        logger.exception("Failed to fetch team stats from FanGraphs; trying MLB Stats API")
+        return _fetch_team_strength_statsapi(season)
 
     if bat_df is None or bat_df.empty or pit_df is None or pit_df.empty:
-        logger.warning("Empty team stats from FanGraphs; using cached data")
-        return load_team_strength(season)
+        logger.warning("Empty team stats from FanGraphs; trying MLB Stats API")
+        return _fetch_team_strength_statsapi(season)
 
     # Map FanGraphs team names to abbreviations
     bat_df = bat_df.copy()
@@ -847,18 +969,179 @@ def get_player_recent_form_cached(mlb_id: int) -> dict:
         return get_player_recent_form(mlb_id)
 
 
+def fetch_pitcher_pitch_mix(mlb_id: int, season: int = 2026) -> dict[str, float]:
+    """Fetch pitch mix percentages for a pitcher from Baseball Savant.
+
+    Uses pybaseball's statcast_pitcher endpoint to retrieve the last 30 days
+    of pitch data, then computes percentage breakdown by pitch type.
+
+    Args:
+        mlb_id: MLB player ID (integer).
+        season: MLB season year (default 2026).
+
+    Returns:
+        Dict mapping pitch type codes to usage percentages, e.g.
+        ``{"FF": 45.2, "SL": 22.1, "CH": 18.5, "CU": 14.2}``.
+        Returns empty dict if pybaseball is unavailable or data cannot
+        be fetched.
+    """
+    # Check session_state cache first (24h TTL)
+    cache_key = f"_pitch_mix_{mlb_id}_{season}"
+    try:
+        import streamlit as st
+
+        cached = st.session_state.get(cache_key)
+        if cached and (time.time() - cached["ts"]) < 86400:  # 24-hour TTL
+            return cached["data"]
+    except ImportError:
+        st = None  # type: ignore[assignment]
+
+    try:
+        from pybaseball import statcast_pitcher
+    except ImportError:
+        logger.debug("pybaseball not available; cannot fetch pitch mix")
+        return {}
+
+    from datetime import timedelta
+
+    today = datetime.now(UTC).date()
+    start_date = today - timedelta(days=30)
+
+    try:
+        data = statcast_pitcher(
+            str(start_date),
+            str(today),
+            mlb_id,
+        )
+    except Exception:
+        logger.debug("statcast_pitcher fetch failed for mlb_id=%d", mlb_id)
+        return {}
+
+    if data is None or data.empty:
+        logger.debug("No statcast pitch data for mlb_id=%d", mlb_id)
+        return {}
+
+    # Filter to valid pitch types
+    if "pitch_type" not in data.columns:
+        return {}
+
+    pitch_counts = data["pitch_type"].dropna().value_counts()
+    total = pitch_counts.sum()
+    if total == 0:
+        return {}
+
+    result: dict[str, float] = {}
+    for pitch_type, count in pitch_counts.items():
+        pct = round((count / total) * 100, 1)
+        if pct > 0:
+            result[str(pitch_type)] = pct
+
+    # Cache result
+    try:
+        if st is not None:
+            st.session_state[cache_key] = {"data": result, "ts": time.time()}
+    except Exception:
+        pass
+
+    logger.debug("Pitch mix for mlb_id=%d: %s", mlb_id, result)
+    return result
+
+
 def get_todays_lineups(schedule: list[dict]) -> dict:
     """Fetch confirmed starting lineups for today's games.
 
-    Uses the MLB Stats API to check which players are in the
-    confirmed starting lineup for each game.
+    Uses the MLB Stats API boxscore endpoint to retrieve batting orders
+    for each game. Lineups are typically posted 1-2 hours before game time;
+    if a lineup has not been posted yet the game entry will have an empty list.
 
     Args:
-        schedule: List of game dicts with 'game_pk' keys.
+        schedule: List of game dicts from ``statsapi.schedule()`` with
+            ``game_pk`` keys.
 
     Returns:
-        Dict mapping game_pk -> list of player dicts with
-        mlb_id, name, batting_order, position.
-        Games without confirmed lineups return empty lists.
+        Dict mapping team_abbr -> list of player name strings in batting
+        order. Teams without confirmed lineups are omitted.
     """
-    return {}
+    if _statsapi is None:
+        logger.warning("statsapi not available; cannot fetch lineups")
+        return {}
+
+    # Full-name to abbreviation mapping (reused from weather)
+    _NAME_TO_ABBR: dict[str, str] = {
+        "Arizona Diamondbacks": "ARI",
+        "Atlanta Braves": "ATL",
+        "Baltimore Orioles": "BAL",
+        "Boston Red Sox": "BOS",
+        "Chicago Cubs": "CHC",
+        "Chicago White Sox": "CWS",
+        "Cincinnati Reds": "CIN",
+        "Cleveland Guardians": "CLE",
+        "Colorado Rockies": "COL",
+        "Detroit Tigers": "DET",
+        "Houston Astros": "HOU",
+        "Kansas City Royals": "KC",
+        "Los Angeles Angels": "LAA",
+        "Los Angeles Dodgers": "LAD",
+        "Miami Marlins": "MIA",
+        "Milwaukee Brewers": "MIL",
+        "Minnesota Twins": "MIN",
+        "New York Mets": "NYM",
+        "New York Yankees": "NYY",
+        "Oakland Athletics": "ATH",
+        "Athletics": "ATH",
+        "Philadelphia Phillies": "PHI",
+        "Pittsburgh Pirates": "PIT",
+        "San Diego Padres": "SD",
+        "San Francisco Giants": "SF",
+        "Seattle Mariners": "SEA",
+        "St. Louis Cardinals": "STL",
+        "Tampa Bay Rays": "TB",
+        "Texas Rangers": "TEX",
+        "Toronto Blue Jays": "TOR",
+        "Washington Nationals": "WSH",
+    }
+
+    result: dict[str, list[str]] = {}
+
+    for game in schedule:
+        game_pk = game.get("game_pk") or game.get("gamePk", 0)
+        if not game_pk:
+            continue
+
+        try:
+            box = _statsapi.boxscore_data(game_pk)
+        except Exception:
+            logger.debug("Boxscore fetch failed for game_pk=%s", game_pk)
+            continue
+
+        for side in ("home", "away"):
+            side_data = box.get(side, {}) if isinstance(box, dict) else {}
+            team_name = game.get(f"{side}_name", "")
+            abbr = _NAME_TO_ABBR.get(team_name, "")
+
+            # Extract batting order — boxscore_data returns battingOrder as list
+            # of player ID integers, and playerInfo with player details
+            batting_order = side_data.get("battingOrder", [])
+            if not batting_order:
+                continue
+
+            player_info = side_data.get("players", {})
+            names: list[str] = []
+            for pid in batting_order:
+                # boxscore_data uses "ID{number}" keys in players dict
+                pkey = f"ID{pid}"
+                pdata = player_info.get(pkey, {})
+                full_name = pdata.get("fullName", "")
+                if not full_name:
+                    # Try person sub-dict
+                    person = pdata.get("person", {})
+                    full_name = person.get("fullName", f"Unknown ({pid})")
+                names.append(full_name)
+
+            if names and abbr:
+                result[abbr] = names
+
+        time.sleep(0.3)
+
+    logger.info("Fetched lineups for %d teams across %d games", len(result), len(schedule))
+    return result
