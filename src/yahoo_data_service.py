@@ -513,8 +513,20 @@ class YahooDataService:
             return standings_df
 
         # Write-through to SQLite (wide -> long conversion)
-        meta_cols = {"team_name", "team_key", "rank"}
-        cat_cols = [c for c in standings_df.columns if c not in meta_cols]
+        # Exclude non-category columns: H2H record fields and metadata
+        meta_cols = {
+            "team_name",
+            "team_key",
+            "rank",
+            "wins",
+            "losses",
+            "ties",
+            "percentage",
+            "points_for",
+            "points_against",
+            "streak",
+        }
+        cat_cols = [c for c in standings_df.columns if c.lower() not in meta_cols]
         for _, row in standings_df.iterrows():
             team_name = row.get("team_name", "")
             rank = int(row.get("rank", 0))

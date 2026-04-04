@@ -56,7 +56,7 @@ from typing import Any
 import pandas as pd
 
 from src.analytics_context import AnalyticsContext, DataQuality, ModuleStatus
-from src.database import load_league_standings
+from src.database import get_connection, load_league_standings
 from src.engine.context.concentration import (
     compute_concentration_delta,
     team_exposure_breakdown,
@@ -641,9 +641,46 @@ def evaluate_trade(
     standings = load_league_standings()
     all_team_totals = build_standings_totals(standings)
 
-    # Stamp standings data quality
+    # Validate that standings contain actual stat categories (R, HR, etc.)
+    # not just W/L records. If they only have matchup records, fall back to
+    # computing category totals from league rosters + season stats.
+    _stat_cats = set(config.all_categories)
+    _has_real_cats = False
     if all_team_totals:
+        for _team_cats in all_team_totals.values():
+            if _stat_cats & set(_team_cats.keys()):
+                _has_real_cats = True
+                break
+    if not _has_real_cats:
+        # Standings only have W/L records — compute from rosters instead
+        try:
+            from src.in_season import _roster_category_totals
+
+            _conn = get_connection()
+            try:
+                _lr = pd.read_sql_query("SELECT team_name, player_id FROM league_rosters", _conn)
+            finally:
+                _conn.close()
+            all_team_totals = {}
+            if not _lr.empty:
+                for _tn, _grp in _lr.groupby("team_name"):
+                    _pids = _grp["player_id"].dropna().astype(int).tolist()
+                    _totals = _roster_category_totals(_pids, player_pool)
+                    if _totals:
+                        all_team_totals[str(_tn)] = _totals
+        except Exception:
+            all_team_totals = {}
+
+    # Stamp standings data quality
+    if all_team_totals and _has_real_cats:
         ctx.stamp_data("league_standings", DataQuality.LIVE, record_count=len(all_team_totals))
+    elif all_team_totals:
+        ctx.stamp_data(
+            "league_standings",
+            DataQuality.SAMPLE,
+            notes="Computed from roster projections (no category standings in DB)",
+            record_count=len(all_team_totals),
+        )
     else:
         ctx.stamp_data("league_standings", DataQuality.MISSING, notes="No standings loaded")
 
@@ -966,7 +1003,7 @@ def _compute_risk_flags(
     giving = player_pool[player_pool["player_id"].isin(giving_ids)]
     for _, p in giving.iterrows():
         sgp = sgp_calc.total_sgp(p)
-        if sgp > 3.0:
+        if sgp > 6.0:
             pname = p.get(name_col, "Unknown")
             flags.append(f"Trading away elite player: {pname} (SGP: {sgp:.2f})")
 
