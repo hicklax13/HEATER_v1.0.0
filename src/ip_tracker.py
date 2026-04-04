@@ -29,13 +29,27 @@ def compute_weekly_ip_projection(roster_pitchers: list[dict], days_remaining: in
         if ip_season <= 0:
             continue
 
-        # Estimate weekly IP from season projection
-        # ~26 weeks in MLB season, so weekly IP ≈ season IP / 26
-        weekly_ip = ip_season / 26.0
+        # Skip IL stash players (0 actual IP, not pitching)
+        status = str(p.get("status", "active")).strip().lower()
+        if status in ("il10", "il15", "il60", "il", "na", "dl"):
+            continue
 
-        # Adjust by days remaining in the week
-        daily_ip = weekly_ip / 7.0
-        projected_contribution = daily_ip * days_remaining
+        is_starter = bool(p.get("is_starter", False))
+        positions = str(p.get("positions", "")).upper()
+        if not is_starter:
+            is_starter = "SP" in positions
+
+        if is_starter:
+            # SP: ~6 IP per start, starts every 5 days
+            ip_per_start = min(ip_season / 30.0, 7.0)  # Cap at 7 IP per start
+            expected_starts = max(1.0, days_remaining / 5.0)
+            projected_contribution = ip_per_start * expected_starts
+        else:
+            # RP: ~1 IP per appearance, appears ~50-60% of game days
+            ip_per_app = min(ip_season / 60.0, 2.0)  # Cap at 2 IP per appearance
+            expected_appearances = days_remaining * 0.55
+            projected_contribution = ip_per_app * expected_appearances
+
         total_projected += projected_contribution
 
     status = "safe"

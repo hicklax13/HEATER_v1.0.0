@@ -204,6 +204,23 @@ class LineupOptimizer:
                         f"ineligible_{p_idx}_{slot_name}",
                     )
 
+        # Constraint 4: Exclude IL/inactive players from starting
+        _il_statuses = {"il10", "il15", "il60", "il", "na", "not active", "dl"}
+        for p_idx in players:
+            row = self.roster.loc[p_idx]
+            status_val = str(row.get("status", "active")).strip().lower()
+            pa_val = float(row.get("pa", 0) or 0)
+            ip_val = float(row.get("ip", 0) or 0)
+            is_inactive = status_val in _il_statuses
+            # Pitchers with 0 IP and 0 PA are IL stashes (e.g., Bieber, Strider)
+            is_hitter = bool(row.get("is_hitter", 1))
+            is_zero_production = not is_hitter and pa_val == 0 and ip_val == 0
+            if is_inactive or is_zero_production:
+                prob += (
+                    lpSum(x[(p_idx, s)] for s, _ in expanded_slots) == 0,
+                    f"no_inactive_{p_idx}",
+                )
+
         # Solve
         solver = PULP_CBC_CMD(msg=0, timeLimit=10)
         prob.solve(solver)

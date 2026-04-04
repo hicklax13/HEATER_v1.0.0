@@ -310,9 +310,13 @@ standings = yds.get_standings()
 team_totals: dict[str, dict[str, float]] = {}
 my_totals: dict[str, float] = {}
 if not standings.empty and "category" in standings.columns:
+    # Filter out H2H match record entries — only keep stat categories
+    _MATCH_RECORD_CATS = {"WINS", "LOSSES", "TIES", "PERCENTAGE", "POINTS_FOR", "POINTS_AGAINST", "STREAK"}
     for _, srow in standings.iterrows():
         tname = srow.get("team_name", "")
         cat = str(srow.get("category", "")).strip()
+        if cat.upper() in _MATCH_RECORD_CATS:
+            continue
         raw_total = srow.get("total", 0)
         if not tname or not cat:
             continue
@@ -469,13 +473,29 @@ with ctx:
     if ip_budget_html:
         render_context_card("Innings Pitched Budget", ip_budget_html)
 
-    # Opponent selector
+    # Opponent selector — use live matchup data when available
     opponent_names = [t for t in team_totals if t != user_team_name]
     selected_opponent = None
     opp_totals: dict[str, float] = {}
 
+    # Try to populate my_totals and opp_totals from LIVE matchup (more accurate than standings)
+    _live_matchup = yds.get_matchup()
+    if _live_matchup and "categories" in _live_matchup:
+        _live_opp_name = _live_matchup.get("opp_name", "")
+        _live_my: dict[str, float] = {}
+        _live_opp: dict[str, float] = {}
+        for _mc in _live_matchup["categories"]:
+            _cat = str(_mc.get("cat", "")).lower()
+            if _cat:
+                _live_my[_cat] = float(_mc.get("you", 0) or 0)
+                _live_opp[_cat] = float(_mc.get("opp", 0) or 0)
+        if _live_my:
+            my_totals = _live_my
+            opp_totals = _live_opp
+            selected_opponent = _live_opp_name
+
     render_context_card("Head-to-Head Matchup", "")
-    if opponent_names:
+    if not selected_opponent and opponent_names:
         selected_opponent = st.selectbox(
             "This Week's Opponent",
             options=["(None - Season-Long Only)"] + sorted(opponent_names),
@@ -487,27 +507,30 @@ with ctx:
             opp_totals = team_totals.get(selected_opponent, {})
         else:
             selected_opponent = None
+    elif selected_opponent:
+        # Live matchup data already set my_totals and opp_totals
+        st.markdown(f"**{selected_opponent}** (from live matchup)")
 
-        if selected_opponent and opp_totals and my_totals and H2H_AVAILABLE:
-            try:
-                _h2h_quick = estimate_h2h_win_probability(my_totals, opp_totals)
-                _win_prob = _h2h_quick.get("overall_win_prob", 0.5)
-                _exp_wins = _h2h_quick.get("expected_wins", 5.0)
-                _status = "Favored" if _exp_wins > 5.5 else "Underdog" if _exp_wins < 4.5 else "Toss-up"
-                render_context_card(
-                    "Win Probability",
-                    f'<div class="context-stat-row">'
-                    f'<span class="context-stat-label">Probability</span>'
-                    f'<span class="context-stat-value">{_win_prob:.1%}</span></div>'
-                    f'<div class="context-stat-row">'
-                    f'<span class="context-stat-label">Expected Wins</span>'
-                    f'<span class="context-stat-value">{_exp_wins:.2f} / 10</span></div>'
-                    f'<div class="context-stat-row">'
-                    f'<span class="context-stat-label">Status</span>'
-                    f'<span class="context-stat-value">{_status}</span></div>',
-                )
-            except Exception:
-                pass
+    if selected_opponent and opp_totals and my_totals and H2H_AVAILABLE:
+        try:
+            _h2h_quick = estimate_h2h_win_probability(my_totals, opp_totals)
+            _win_prob = _h2h_quick.get("overall_win_prob", 0.5)
+            _exp_wins = _h2h_quick.get("expected_wins", 5.0)
+            _status = "Favored" if _exp_wins > 5.5 else "Underdog" if _exp_wins < 4.5 else "Toss-up"
+            render_context_card(
+                "Win Probability",
+                f'<div class="context-stat-row">'
+                f'<span class="context-stat-label">Probability</span>'
+                f'<span class="context-stat-value">{_win_prob:.1%}</span></div>'
+                f'<div class="context-stat-row">'
+                f'<span class="context-stat-label">Expected Wins</span>'
+                f'<span class="context-stat-value">{_exp_wins:.2f} / 10</span></div>'
+                f'<div class="context-stat-row">'
+                f'<span class="context-stat-label">Status</span>'
+                f'<span class="context-stat-value">{_status}</span></div>',
+            )
+        except Exception:
+            pass
     else:
         st.caption("No standings data loaded. Connect your Yahoo league to see opponents.")
 
@@ -543,7 +566,59 @@ with main:
         optimize_clicked = st.button("Optimize Lineup", type="primary", key="lineup_run_opt")
 
         if optimize_clicked:
-            progress_bar = st.progress(0, text="Initializing optimizer pipeline...")
+            progress_bar = st.progress(0, text="Syncing roster and initializing optimizer...")
+
+            # Force roster refresh to ensure current players only
+            try:
+                yds.get_rosters(force_refresh=True)
+                roster = get_team_roster(user_team_name)
+                # Re-normalize after refresh
+                if "name" in roster.columns and "player_name" not in roster.columns:
+                    roster = roster.rename(columns={"name": "player_name"})
+                for _sc in ["r", "hr", "rbi", "sb", "avg", "obp", "w", "l", "sv", "k", "era", "whip", "ip", "pa"]:
+                    if _sc in roster.columns:
+                        roster[_sc] = pd.to_numeric(roster[_sc], errors="coerce").fillna(0)
+            except Exception:
+                pass  # Continue with existing roster if refresh fails
+
+            # Compute matchup-aware urgency weights from live matchup score
+            _urgency_weights: dict[str, float] = {}
+            try:
+                _matchup = yds.get_matchup()
+                if _matchup:
+                    from src.optimizer.category_urgency import compute_urgency_weights
+
+                    _uw_result = compute_urgency_weights(_matchup, config=league_config)
+                    if _uw_result and "urgency" in _uw_result:
+                        _urgency_weights = _uw_result["urgency"]
+            except Exception:
+                pass
+
+            # Compute IP-aware pitching weight adjustment
+            _ip_boost = 1.0
+            try:
+                if IP_TRACKER_AVAILABLE:
+                    from src.ip_tracker import compute_weekly_ip_projection, get_days_remaining_in_week
+
+                    _pitchers = []
+                    for _, _pr in (
+                        roster[roster.get("is_hitter", 1) == 0].iterrows() if "is_hitter" in roster.columns else []
+                    ):
+                        _pitchers.append(
+                            {
+                                "ip": float(_pr.get("ip", 0) or 0),
+                                "positions": str(_pr.get("positions", "")),
+                                "status": str(_pr.get("status", "active")),
+                            }
+                        )
+                    if _pitchers:
+                        _ip_result = compute_weekly_ip_projection(_pitchers, get_days_remaining_in_week())
+                        if _ip_result.get("status") == "danger":
+                            _ip_boost = 1.5  # Boost pitching weights when IP is dangerously low
+                        elif _ip_result.get("status") == "safe":
+                            _ip_boost = 0.7  # Reduce pitching priority when IP minimum met
+            except Exception:
+                pass
 
             if PIPELINE_AVAILABLE:
                 progress_bar.progress(10, text=f"Running {mode} optimization pipeline...")
