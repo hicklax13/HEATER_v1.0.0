@@ -420,7 +420,9 @@ with main:
             try:
                 stats_df, _is_proj = _load_stats_df()
                 if stats_df.empty:
-                    st.info("No player stats available. Return to the Connect League page and click Force Refresh Data in the sidebar to load fresh statistics.")
+                    st.info(
+                        "No player stats available. Return to the Connect League page and click Force Refresh Data in the sidebar to load fresh statistics."
+                    )
                     st.stop()
                 if _is_proj:
                     st.caption("Showing preseason projections — season stats not yet available.")
@@ -463,7 +465,9 @@ with main:
 
                 stats_df_pts, _is_proj_pts = _load_stats_df()
                 if stats_df_pts.empty:
-                    st.info("No player stats available. Return to the Connect League page and click Force Refresh Data in the sidebar to load fresh statistics.")
+                    st.info(
+                        "No player stats available. Return to the Connect League page and click Force Refresh Data in the sidebar to load fresh statistics."
+                    )
                     st.stop()
                 if _is_proj_pts:
                     st.caption("Showing preseason projections — season stats not yet available.")

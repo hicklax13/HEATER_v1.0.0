@@ -345,7 +345,9 @@ def render_recommendations(pool: pd.DataFrame, ds: DraftState, n_sims: int) -> N
                     f"</div>",
                     unsafe_allow_html=True,
                 )
-                if st.button("Draft", key=f"mock_draft_{prow.get('player_id', ci)}_{ci}", type="primary", width="stretch"):
+                if st.button(
+                    "Draft", key=f"mock_draft_{prow.get('player_id', ci)}_{ci}", type="primary", width="stretch"
+                ):
                     ds.make_pick(
                         player_id=int(prow["player_id"]),
                         player_name=str(prow["player_name"]),

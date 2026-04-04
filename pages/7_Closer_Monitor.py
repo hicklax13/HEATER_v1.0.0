@@ -63,8 +63,14 @@ pool = load_player_pool()
 
 # Normalize duplicate team abbreviations to canonical 30-team set
 _TEAM_NORMALIZE: dict[str, str] = {
-    "ATH": "OAK", "AZ": "ARI", "WSN": "WSH", "CHW": "CWS",
-    "TBR": "TB", "KCR": "KC", "SDP": "SD", "SFG": "SF",
+    "ATH": "OAK",
+    "AZ": "ARI",
+    "WSN": "WSH",
+    "CHW": "CWS",
+    "TBR": "TB",
+    "KCR": "KC",
+    "SDP": "SD",
+    "SFG": "SF",
 }
 
 
