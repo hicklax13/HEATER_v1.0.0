@@ -100,8 +100,8 @@ with main:
         filtered_a = [n for n in player_names if search_a.lower() in n.lower()] if search_a else player_names
         if filtered_a:
             # Show top matches as selectable cards
-            top_a = filtered_a[:5]
-            a_cols = st.columns(min(len(top_a), 5))
+            top_a = filtered_a[:3]
+            a_cols = st.columns(min(len(top_a), 3))
             player_a_name = st.session_state.get("compare_a")
             for ai, aname in enumerate(top_a):
                 with a_cols[ai]:
@@ -118,8 +118,8 @@ with main:
         search_b = st.text_input("Search Player B", key="search_b", placeholder="Type a player name...")
         filtered_b = [n for n in player_names if search_b.lower() in n.lower()] if search_b else player_names
         if filtered_b:
-            top_b = filtered_b[:5]
-            b_cols = st.columns(min(len(top_b), 5))
+            top_b = filtered_b[:3]
+            b_cols = st.columns(min(len(top_b), 3))
             player_b_name = st.session_state.get("compare_b")
             for bi, bname in enumerate(top_b):
                 with b_cols[bi]:

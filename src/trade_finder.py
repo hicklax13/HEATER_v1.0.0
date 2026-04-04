@@ -17,6 +17,7 @@ import math
 import numpy as np
 import pandas as pd
 
+from src.alerts import IL_STASH_NAMES
 from src.in_season import _roster_category_totals
 from src.valuation import LeagueConfig
 
@@ -60,14 +61,19 @@ def compute_team_vectors(
             cat_values[c].append(totals.get(c, 0))
 
     means = {c: np.mean(cat_values[c]) if cat_values[c] else 0 for c in cats}
-    stds = {c: max(np.std(cat_values[c]), 1e-6) if cat_values[c] else 1.0 for c in cats}
+    stds = {c: max(np.std(cat_values[c]), 0.01) if cat_values[c] else 1.0 for c in cats}
 
     vectors = {}
     for team_name, totals in all_team_totals.items():
         vec = np.zeros(n_cats)
         for i, c in enumerate(cats):
             val = totals.get(c, 0)
-            z = (val - means[c]) / stds[c]
+            std_c = stds[c]
+            if std_c < 0.01:
+                # Very low variance across teams: use raw deviation to preserve ordering
+                z = val - means[c]
+            else:
+                z = (val - means[c]) / std_c
             # Flip inverse stats so higher z = better
             if c in config.inverse_stats:
                 z = -z
@@ -80,15 +86,16 @@ def compute_team_vectors(
 def cosine_dissimilarity(vec_a: np.ndarray, vec_b: np.ndarray) -> float:
     """Compute cosine dissimilarity between two team vectors.
 
-    Returns value in [0, 2]. Higher = more complementary needs.
-    1.0 = orthogonal (independent needs), 2.0 = opposite strengths.
+    Returns value in [0, 1]. Higher = more complementary needs.
+    0.5 = orthogonal/neutral, 1.0 = opposite strengths (most complementary).
     """
     norm_a = np.linalg.norm(vec_a)
     norm_b = np.linalg.norm(vec_b)
     if norm_a < 1e-9 or norm_b < 1e-9:
-        return 1.0  # orthogonal default
+        return 0.5  # neutral: insufficient data to differentiate
     cos_sim = np.dot(vec_a, vec_b) / (norm_a * norm_b)
-    return 1.0 - cos_sim
+    # Clamp to [0, 1] for display (raw range is [0, 2])
+    return max(0.0, min(1.0, 1.0 - cos_sim))
 
 
 def find_complementary_teams(
@@ -445,6 +452,10 @@ def scan_2_for_1(
             add_player = player_pool[player_pool["player_id"] == add_id]
             if add_player.empty:
                 continue
+            # Skip IL stash players — AVIS Section 7 protection
+            add_name = add_player.iloc[0].get("name", add_player.iloc[0].get("player_name", ""))
+            if add_name in IL_STASH_NAMES:
+                continue
 
             new_give = orig_give + [add_id]
             new_recv = list(orig_recv)
@@ -666,6 +677,9 @@ def scan_1_for_1(
         if give_player.empty:
             continue
         give_name = give_player.iloc[0].get("name", give_player.iloc[0].get("player_name", "?"))
+        # Skip IL stash players — AVIS Section 7 protection
+        if give_name in IL_STASH_NAMES:
+            continue
         give_raw_sgp = user_raw_sgps.get(give_id, 0.0)
 
         for recv_id in opponent_roster_ids:

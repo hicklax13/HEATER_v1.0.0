@@ -5,6 +5,7 @@ import logging
 import pandas as pd
 import streamlit as st
 
+from src.alerts import IL_STASH_NAMES
 from src.database import get_connection, init_db, load_player_pool
 from src.in_season import rank_free_agents
 from src.league_manager import get_free_agents, get_team_roster
@@ -715,7 +716,7 @@ with main:
         st.info("No drop recommendations available.")
     else:
         # AVIS Rule #6: Protect IL stashes (Bieber, Strider, AND players returning within 2 weeks)
-        protected_names = {"Shane Bieber", "Spencer Strider"}  # Per AVIS Section 7
+        protected_names = set(IL_STASH_NAMES)
 
         # Dynamic IL return-date check: protect players returning within 14 days
         try:

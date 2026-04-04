@@ -718,11 +718,32 @@ else:
                 pass  # Non-fatal
 
             # AVIS Rule #2: Closer count
+            # Check actual SV OR projected SV (early-season closers may have <5 actual saves)
             try:
                 closer_count = 0
+                proj_sv_map = {}
+                try:
+                    _conn2 = get_connection()
+                    try:
+                        roster_ids = roster["player_id"].dropna().astype(int).tolist()
+                        if roster_ids:
+                            placeholders = ",".join("?" * len(roster_ids))
+                            proj_df = pd.read_sql_query(
+                                f"SELECT player_id, sv FROM blended_projections WHERE player_id IN ({placeholders})",
+                                _conn2,
+                                params=roster_ids,
+                            )
+                            proj_sv_map = dict(zip(proj_df["player_id"], proj_df["sv"]))
+                    finally:
+                        _conn2.close()
+                except Exception:
+                    pass
+
                 for _, p in roster.iterrows():
-                    sv = float(p.get("sv", 0) or 0)
-                    if sv >= 5:
+                    actual_sv = float(p.get("sv", 0) or 0)
+                    pid = p.get("player_id")
+                    proj_sv = float(proj_sv_map.get(pid, 0) or 0)
+                    if actual_sv >= 5 or proj_sv >= 5:
                         closer_count += 1
                 if closer_count < 2:
                     st.warning(f"Closer Alert: Only {closer_count} closer(s) rostered. AVIS requires minimum 2.")

@@ -183,7 +183,8 @@ class TestCosineDissimlarity:
     def test_opposite_vectors(self):
         v1 = np.array([1.0, 0.0, 0.0])
         v2 = np.array([-1.0, 0.0, 0.0])
-        assert abs(cosine_dissimilarity(v1, v2) - 2.0) < 0.001
+        # Clamped to [0, 1]: opposite vectors = max complementarity = 1.0
+        assert abs(cosine_dissimilarity(v1, v2) - 1.0) < 0.001
 
     def test_orthogonal_vectors(self):
         v1 = np.array([1.0, 0.0])
@@ -193,7 +194,8 @@ class TestCosineDissimlarity:
     def test_zero_vector(self):
         v1 = np.zeros(5)
         v2 = np.ones(5)
-        assert cosine_dissimilarity(v1, v2) == 1.0
+        # Zero-norm fallback returns 0.5 (neutral)
+        assert cosine_dissimilarity(v1, v2) == 0.5
 
     def test_range(self):
         v1 = np.random.randn(12)

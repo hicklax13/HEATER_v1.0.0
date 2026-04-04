@@ -352,11 +352,18 @@ with main:
                             "team_name": team,
                             "roster_quality": round(rq, 3),
                             "category_balance": round(max(0.1, min(1.0, cb)), 3),
-                            "schedule_strength": None,
+                            "schedule_strength": rq,  # placeholder, computed below
                             "injury_exposure": None,
                             "momentum": None,
                         }
                     )
+
+            # Compute schedule_strength as avg opponent roster quality
+            if power_data:
+                all_rqs = {d["team_name"]: d["roster_quality"] for d in power_data}
+                for d in power_data:
+                    other_rqs = [rq2 for t2, rq2 in all_rqs.items() if t2 != d["team_name"]]
+                    d["schedule_strength"] = round(float(np.mean(other_rqs)), 3) if other_rqs else 0.5
 
             if not power_data:
                 # Fall back to synthetic demo data

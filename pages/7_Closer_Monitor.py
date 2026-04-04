@@ -61,8 +61,27 @@ st.info(
 # Load player pool for stat lookups
 pool = load_player_pool()
 
+# Normalize duplicate team abbreviations to canonical 30-team set
+_TEAM_NORMALIZE: dict[str, str] = {
+    "ATH": "OAK", "AZ": "ARI", "WSN": "WSH", "CHW": "CWS",
+    "TBR": "TB", "KCR": "KC", "SDP": "SD", "SFG": "SF",
+}
+
+
+def _normalize_team(abbr: str) -> str:
+    return _TEAM_NORMALIZE.get(abbr.upper().strip(), abbr.upper().strip())
+
+
 # Attempt to load depth chart data from session state (populated by bootstrap)
-depth_data: dict = st.session_state.get("closer_depth_data", {})
+_raw_depth_data: dict = st.session_state.get("closer_depth_data", {})
+# Normalize keys to canonical abbreviations
+depth_data: dict = {}
+for _k, _v in _raw_depth_data.items():
+    _canon = _normalize_team(_k)
+    if _canon not in depth_data:
+        depth_data[_canon] = _v
+    elif _v.get("closer_confidence", 0) > depth_data[_canon].get("closer_confidence", 0):
+        depth_data[_canon] = _v
 
 if not depth_data:
     # Try to build a minimal depth chart from pitcher pool using sv projections
@@ -76,17 +95,18 @@ if not depth_data:
             top_sv = pitchers[pitchers["sv"] > 0].sort_values("sv", ascending=False).drop_duplicates("team")
             if not top_sv.empty:
                 for _, row in top_sv.iterrows():
-                    team = str(row.get("team", ""))
+                    team = _normalize_team(str(row.get("team", "")))
                     if not team:
                         continue
                     sv = float(row.get("sv", 0) or 0)
                     # Confidence heuristic: top SV earners get higher confidence
                     confidence = min(1.0, sv / 35.0)
-                    depth_data[team] = {
-                        "closer": str(row.get("name", "Unknown")),
-                        "setup": [],
-                        "closer_confidence": confidence,
-                    }
+                    if team not in depth_data:
+                        depth_data[team] = {
+                            "closer": str(row.get("name", "Unknown")),
+                            "setup": [],
+                            "closer_confidence": confidence,
+                        }
 
 if not depth_data:
     st.warning(
@@ -118,14 +138,17 @@ else:
                     actual_era = actual.get("era")
                     actual_whip = actual.get("whip")
 
+                    import html as _html
+
                     era_str = f"{item['era']:.2f}" if item["era"] else "—"
                     whip_str = f"{item['whip']:.2f}" if item["whip"] else "—"
                     sv_str = f"{int(item['projected_sv'])}" if item["projected_sv"] else "—"
-                    setup_str = ", ".join(item["setup_names"]) if item["setup_names"] else "—"
+                    setup_str = _html.escape(", ".join(item["setup_names"]) if item["setup_names"] else "—")
+                    closer_name_safe = _html.escape(item["closer_name"])
                     headshot = _headshot_img_html(item.get("mlb_id"), size=32)
 
                     # Build actual stats line if available
-                    actual_sv_html = ""
+                    actual_sv_html = "<!-- no actual stats -->"
                     if actual_sv is not None:
                         actual_era_str = f"{actual_era:.2f}" if actual_era else "—"
                         actual_whip_str = f"{actual_whip:.2f}" if actual_whip else "—"
@@ -152,7 +175,7 @@ else:
         {item["team"]}
     </div>
     <div style="font-size:0.88rem; font-weight:700; color:#1a1a2e; margin:3px 0 2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; display:flex; align-items:center; gap:5px;">
-        {headshot}{item["closer_name"]}
+        {headshot}{closer_name_safe}
     </div>
     <div style="
         display:inline-block;

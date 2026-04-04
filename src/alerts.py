@@ -10,6 +10,9 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
+# AVIS Section 7: IL stash players — do NOT drop or trade within 2 weeks of return
+IL_STASH_NAMES: set[str] = {"Shane Bieber", "Spencer Strider"}
+
 
 def generate_roster_alerts(
     roster: pd.DataFrame,
@@ -68,12 +71,39 @@ def generate_roster_alerts(
             }
         )
 
-    # Alert 2: Injured starters not on IL
+    # Alert 2: Injured starters not on IL (roster-only)
     if player_news is not None and not player_news.empty:
         injury_news = player_news[player_news["news_type"] == "injury"]
         if not injury_news.empty:
-            recent = injury_news.sort_values("fetched_at", ascending=False).head(5)
+            # Filter to only players on this roster
+            roster_pids = set()
+            roster_names = set()
+            if roster is not None and not roster.empty:
+                if "player_id" in roster.columns:
+                    roster_pids = set(roster["player_id"].dropna().astype(int).tolist())
+                if "name" in roster.columns:
+                    roster_names = {str(n).strip().lower() for n in roster["name"].dropna()}
+
+            recent = injury_news.sort_values("fetched_at", ascending=False).head(20)
+            shown = 0
             for _, news in recent.iterrows():
+                if shown >= 5:
+                    break
+                # Check if this injury is for a rostered player
+                news_pid = news.get("player_id")
+                news_name = str(news.get("player_name", "")).strip().lower()
+                on_roster = False
+                if news_pid is not None:
+                    try:
+                        on_roster = int(news_pid) in roster_pids
+                    except (ValueError, TypeError):
+                        pass
+                if not on_roster and news_name:
+                    on_roster = news_name in roster_names
+
+                if not on_roster:
+                    continue
+
                 il_status = news.get("il_status", "")
                 if il_status and "IL" in str(il_status).upper():
                     alerts.append(
@@ -85,13 +115,36 @@ def generate_roster_alerts(
                             "action": "Move to IL and pick up a replacement from free agents.",
                         }
                     )
+                    shown += 1
 
-    # Alert 3: Closer count
+    # Alert 3: Closer count (check actual SV OR projected SV for early-season)
     closer_count = 0
     closer_names = []
+    proj_sv_map = {}
+    try:
+        from src.database import get_connection
+
+        conn = get_connection()
+        try:
+            roster_ids = roster["player_id"].dropna().astype(int).tolist()
+            if roster_ids:
+                placeholders = ",".join("?" * len(roster_ids))
+                proj_df = pd.read_sql_query(
+                    f"SELECT player_id, sv FROM blended_projections WHERE player_id IN ({placeholders})",
+                    conn,
+                    params=roster_ids,
+                )
+                proj_sv_map = dict(zip(proj_df["player_id"], proj_df["sv"]))
+        finally:
+            conn.close()
+    except Exception:
+        pass
+
     for _, p in roster.iterrows():
-        sv = float(p.get("sv", 0) or 0)
-        if sv >= 5:
+        actual_sv = float(p.get("sv", 0) or 0)
+        pid = p.get("player_id")
+        proj_sv = float(proj_sv_map.get(pid, 0) or 0)
+        if actual_sv >= 5 or proj_sv >= 5:
             closer_count += 1
             closer_names.append(p.get("name", "?"))
 
@@ -107,10 +160,9 @@ def generate_roster_alerts(
         )
 
     # Alert 4: IL stash return watch
-    il_stash_names = {"Shane Bieber", "Spencer Strider"}  # Per AVIS Section 7
     for _, p in roster.iterrows():
         name = p.get("name", "")
-        if name in il_stash_names:
+        if name in IL_STASH_NAMES:
             alerts.append(
                 {
                     "type": "il_watch",

@@ -496,6 +496,7 @@ get_injury_badge(health_score) -> tuple[str, str]  # returns <span> with CSS dot
 - **Manual UI testing** — All 13 pages tested via Playwright + Claude in Chrome (March 2026)
 - **Trade Engine V3** (March 31, 2026) — 5-agent deep research, 52-variable algorithm, 5+ rounds of iterative testing
 - **Live Data Pipeline** (April 3, 2026) — 10-agent parallel implementation, 15 data gaps filled, 39 new tests
+- **Deep Verification** (April 3, 2026) — All 13 pages tested via Claude in Chrome. 17 issues found, 14 fixed (V-001 through V-017). See `docs/VERIFICATION_LOG.md`
 
 ## Current Implementation Plan
 
@@ -585,6 +586,19 @@ get_injury_badge(health_score) -> tuple[str, str]  # returns <span> with CSS dot
 - **Bootstrap Phases 20-21** — Game-day intelligence + team strength run in parallel at startup
 - **Force Refresh Button** — Sidebar button calls `bootstrap_all_data(force=True)`
 - **3 New DB Tables** — `game_day_weather`, `team_strength`, `opp_pitcher_stats`
+
+## Deep Verification Fixes (April 3, 2026)
+
+- **V-004/V-007 FIXED:** Closer Alert used `sv >= 5` on actual saves — early-season closers have <5. Now checks projected SV too (`pages/1_My_Team.py`, `src/alerts.py`).
+- **V-006 FIXED:** Injury alerts showed league-wide injuries (Kirby Yates, Nick Lodolo) instead of roster-only. Added roster filtering by player_id and name (`src/alerts.py`).
+- **V-009/V-010 FIXED:** Shohei Ohtani appeared twice in Draft Simulator (TWP dual-entry) causing `StreamlitDuplicateElementKey` crash. Deduplicated by player_id + appended index to button key (`pages/2_Draft_Simulator.py`).
+- **V-011/V-016 FIXED:** IL stash players (Bieber, Strider) suggested for drops/trades. Promoted `IL_STASH_NAMES` to module-level constant in `src/alerts.py`. Added guard in `scan_1_for_1()` and `scan_2_for_1()` (`src/trade_finder.py`).
+- **V-015 FIXED:** All complementarity scores = 1.00. Root cause: z-score vectors had near-zero norms hitting the 1e-9 guard. Fixed std floor (1e-6→0.01), added raw deviation fallback, changed zero-norm default from 1.0 to 0.5 (neutral), clamped to [0,1] (`src/trade_finder.py`).
+- **V-001 FIXED:** HTML `<div style="f` leak in Closer Monitor cards (ARI, ATH, ATL). Replaced empty `actual_sv_html=""` with HTML comment + `html.escape()` for closer names (`pages/7_Closer_Monitor.py`).
+- **V-013 FIXED:** Closer Monitor showed 34 teams. Added `_TEAM_NORMALIZE` dict (ATH→OAK, AZ→ARI, etc.) (`pages/7_Closer_Monitor.py`).
+- **V-014 FIXED:** Power Rankings Schedule Strength was N/A. Now computes as avg opponent roster quality in projection-only path (`pages/8_Standings.py`).
+- **V-012 FIXED:** Player Compare buttons showed "A..." — reduced from 5 to 3 per row (`pages/6_Player_Compare.py`).
+- **V-017 FIXED:** Trade Finder BY VALUE tab truncated. Reduced to 8 essential columns + explicit widths (`pages/10_Trade_Finder.py`).
 
 ## Season State (2026)
 

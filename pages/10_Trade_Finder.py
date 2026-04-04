@@ -453,7 +453,17 @@ def main():
 
             df = _build_trade_df(opportunities)
             if not df.empty:
-                render_sortable_table(df, height=600)
+                # Show essential columns with explicit widths to prevent truncation
+                essential = ["You Give", "You Receive", "Type", "Partner", "Your Gain", "Grade", "Acceptance", "Score"]
+                display_df = df[[c for c in essential if c in df.columns]]
+                col_config = {
+                    "You Give": st.column_config.TextColumn("You Give", width="medium"),
+                    "You Receive": st.column_config.TextColumn("You Receive", width="medium"),
+                    "Partner": st.column_config.TextColumn("Partner", width="medium"),
+                    "Your Gain": st.column_config.NumberColumn("Your Gain", format="%.2f"),
+                    "Score": st.column_config.NumberColumn("Score", format="%.2f"),
+                }
+                render_sortable_table(display_df, column_config=col_config, height=600)
 
         # ── Tab 4: Trade Readiness ───────────────────────────────────
         with tab_readiness:

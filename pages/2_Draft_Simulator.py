@@ -156,6 +156,10 @@ def render_recommendations(pool: pd.DataFrame, ds: DraftState, n_sims: int) -> N
     if not recs.empty and "name" in recs.columns and "player_name" not in recs.columns:
         recs["player_name"] = recs["name"]
 
+    # Deduplicate by player_id (TWP players like Ohtani appear as both hitter and pitcher)
+    if not recs.empty and "player_id" in recs.columns:
+        recs = recs.drop_duplicates(subset=["player_id"], keep="first")
+
     # Merge mlb_id from pool for headshot rendering
     if not recs.empty and "mlb_id" not in recs.columns and "player_id" in recs.columns and "mlb_id" in pool.columns:
         _mlb_lookup = pool[["player_id", "mlb_id"]].drop_duplicates(subset=["player_id"])
@@ -341,7 +345,7 @@ def render_recommendations(pool: pd.DataFrame, ds: DraftState, n_sims: int) -> N
                     f"</div>",
                     unsafe_allow_html=True,
                 )
-                if st.button("Draft", key=f"mock_draft_{prow.get('player_id', ci)}", type="primary", width="stretch"):
+                if st.button("Draft", key=f"mock_draft_{prow.get('player_id', ci)}_{ci}", type="primary", width="stretch"):
                     ds.make_pick(
                         player_id=int(prow["player_id"]),
                         player_name=str(prow["player_name"]),
