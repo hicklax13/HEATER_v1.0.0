@@ -702,9 +702,11 @@ class LineupOptimizerPipeline:
                             if idx < len(adjusted_roster) and penalty < 0:
                                 # Convert negative penalty to a 0-1 risk fraction
                                 # Scale factor of 0.15 caps the maximum stat reduction
-                                risk_frac = min(abs(penalty / min_penalty), 1.0) * _CONSTANTS.get(
-                                    "risk_scale_cap", 0.15
-                                )
+                                try:
+                                    _risk_cap = _CONSTANTS.get("risk_scale_cap")
+                                except (TypeError, KeyError):
+                                    _risk_cap = 0.15
+                                risk_frac = min(abs(penalty / min_penalty), 1.0) * _risk_cap
                                 for cat in counting_cats:
                                     if cat in adjusted_roster.columns:
                                         col_loc = adjusted_roster.columns.get_loc(cat)
