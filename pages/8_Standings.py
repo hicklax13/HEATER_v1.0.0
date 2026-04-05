@@ -288,13 +288,11 @@ with main:
                         for cat in ["R", "HR", "RBI", "SB", "AVG", "OBP", "W", "L", "SV", "K", "ERA", "WHIP"]:
                             val = cats.get(cat, 0)
                             if cat in ("AVG", "OBP"):
-                                row[cat] = f"{val:.2f}"
-                            elif cat in ("ERA",):
-                                row[cat] = f"{val:.2f}"
-                            elif cat in ("WHIP",):
+                                row[cat] = f"{val:.3f}"
+                            elif cat in ("ERA", "WHIP"):
                                 row[cat] = f"{val:.2f}"
                             else:
-                                row[cat] = f"{val:.2f}"
+                                row[cat] = f"{val:.1f}"
                         rows.append(row)
                     render_compact_table(pd.DataFrame(rows))
                 else:
@@ -326,45 +324,86 @@ with main:
 
             if not rosters_df.empty and "team_name" in rosters_df.columns:
                 using_real_data = True
-                # Derive roster-size-based quality proxy per team
-                roster_sizes = rosters_df.groupby("team_name")["player_id"].count()
-                max_size = roster_sizes.max() or 1
 
-                # Category balance from standings: normalize spread across categories
+                # Filter to 12 H2H scoring categories only
+                from src.valuation import LeagueConfig as _LC_PR
+
+                _pr_config = _LC_PR()
+                _scoring_cats_pr = set(c.upper() for c in _pr_config.all_categories)
+                _inverse_cats_pr = set(c.upper() for c in _pr_config.inverse_stats)
+                _rate_stats_pr = {"AVG", "OBP", "ERA", "WHIP"}
+
+                # Category balance from standings — FILTERED to scoring cats
                 cat_totals: dict[str, dict[str, float]] = {}
                 if not standings_df_pr.empty and "team_name" in standings_df_pr.columns:
                     for _, row in standings_df_pr.iterrows():
                         t = str(row["team_name"])
-                        c = str(row["category"])
+                        c = str(row["category"]).strip()
+                        if c.upper() not in _scoring_cats_pr:
+                            continue  # Skip WINS, LOSSES, TIES, PERCENTAGE, etc.
                         v = float(row.get("total", 0.0) or 0.0)
                         cat_totals.setdefault(t, {})[c] = v
 
                 # Collect all team names from rosters (and standings)
                 team_names_real = sorted(set(rosters_df["team_name"].unique().tolist()) | set(cat_totals.keys()))
 
-                # Compute category balance: fraction of cats where team is above league median
+                # Compute per-category z-scores for each team → roster_quality
+                # This replaces the broken "roster count" approach with actual
+                # category performance. A team's roster_quality = mean z-score
+                # across all 12 scoring categories (inverse stats sign-flipped).
                 all_cat_values: dict[str, list[float]] = {}
                 for t_totals in cat_totals.values():
                     for cat, val in t_totals.items():
                         all_cat_values.setdefault(cat, []).append(val)
+                cat_means = {c: float(np.mean(vals)) for c, vals in all_cat_values.items() if vals}
+                cat_stds = {c: float(np.std(vals)) for c, vals in all_cat_values.items() if vals}
+
+                # Category balance: fraction of cats where team beats median
                 cat_medians = {c: float(np.median(vals)) for c, vals in all_cat_values.items() if vals}
-                # Inverse cats: lower is better
-                inverse_cats = {"ERA", "WHIP", "L"}
+
+                team_zscores: dict[str, float] = {}
+                for team in team_names_real:
+                    t_cats = cat_totals.get(team, {})
+                    z_total = 0.0
+                    z_count = 0
+                    for cat in _scoring_cats_pr:
+                        cat_lower = cat if cat in t_cats else cat.lower()
+                        val = t_cats.get(cat, t_cats.get(cat.lower()))
+                        if val is None:
+                            continue
+                        std = cat_stds.get(cat, cat_stds.get(cat.lower(), 0))
+                        mean = cat_means.get(cat, cat_means.get(cat.lower(), 0))
+                        if std < 1e-9:
+                            continue
+                        z = (val - mean) / std
+                        if cat.upper() in _inverse_cats_pr:
+                            z = -z  # Lower ERA/WHIP/L = higher quality
+                        z_total += z
+                        z_count += 1
+                    team_zscores[team] = z_total / max(z_count, 1)
+
+                # Normalize z-scores to 0-1 range for roster_quality
+                _z_vals = list(team_zscores.values())
+                _z_min = min(_z_vals) if _z_vals else 0
+                _z_max = max(_z_vals) if _z_vals else 1
+                _z_range = max(_z_max - _z_min, 1e-9)
 
                 for team in team_names_real:
-                    rq = float(roster_sizes.get(team, 0)) / float(max_size)
+                    rq = (team_zscores.get(team, 0) - _z_min) / _z_range
                     rq = max(0.1, min(1.0, rq))
 
-                    # Category balance: fraction of cats where team beats median
+                    # Category balance: fraction of scoring cats where team beats median
                     t_cats = cat_totals.get(team, {})
                     if t_cats and cat_medians:
                         beats = 0
                         total_cats = 0
                         for cat, median in cat_medians.items():
+                            if cat.upper() not in _scoring_cats_pr:
+                                continue
                             val = t_cats.get(cat)
                             if val is not None:
                                 total_cats += 1
-                                if cat in inverse_cats:
+                                if cat.upper() in _inverse_cats_pr:
                                     if val <= median:
                                         beats += 1
                                 else:
@@ -386,6 +425,8 @@ with main:
                     )
 
             # Compute schedule_strength as avg opponent roster quality
+            # With real roster_quality from z-scores, this now reflects
+            # whether a team faces strong or weak opponents on average.
             if power_data:
                 all_rqs = {d["team_name"]: d["roster_quality"] for d in power_data}
                 for d in power_data:
