@@ -427,7 +427,30 @@ with main:
                 if _is_proj:
                     st.caption("Showing preseason projections — season stats not yet available.")
                 total_eligible = len(stats_df)
-                leaders = compute_category_leaders(stats_df, categories=[category], top_n=15)
+
+                # Season-proportional minimum thresholds for early-season
+                # Full-season defaults: 50 PA for hitters, 20.0 IP for pitchers
+                # Scale by fraction of season elapsed (26 weeks total, started Mar 25)
+                from datetime import UTC, datetime
+
+                _season_start = datetime(2026, 3, 25, tzinfo=UTC)
+                _now = datetime.now(UTC)
+                _weeks_elapsed = max(1, (_now - _season_start).days / 7.0)
+                _season_frac = min(1.0, _weeks_elapsed / 26.0)
+                _min_pa = max(1, int(50 * _season_frac))
+                _min_ip = max(1.0, 20.0 * _season_frac)
+
+                leaders = compute_category_leaders(
+                    stats_df, categories=[category], top_n=15,
+                    min_pa=_min_pa if not _is_proj else 50,
+                    min_ip=_min_ip if not _is_proj else 20.0,
+                )
+                # Fallback: if 0 results, retry with absolute minimum thresholds
+                if category not in leaders or leaders[category].empty:
+                    leaders = compute_category_leaders(
+                        stats_df, categories=[category], top_n=15,
+                        min_pa=1, min_ip=1.0,
+                    )
                 if category in leaders:
                     ldf = leaders[category].copy()
                     st.caption(f"Showing top {len(ldf)} of {total_eligible:,} eligible players")
