@@ -433,15 +433,20 @@ with main:
                 _min_ip = max(1.0, 20.0 * _season_frac)
 
                 leaders = compute_category_leaders(
-                    stats_df, categories=[category], top_n=15,
+                    stats_df,
+                    categories=[category],
+                    top_n=15,
                     min_pa=_min_pa if not _is_proj else 50,
                     min_ip=_min_ip if not _is_proj else 20.0,
                 )
                 # Fallback: if 0 results, retry with absolute minimum thresholds
                 if category not in leaders or leaders[category].empty:
                     leaders = compute_category_leaders(
-                        stats_df, categories=[category], top_n=15,
-                        min_pa=1, min_ip=1.0,
+                        stats_df,
+                        categories=[category],
+                        top_n=15,
+                        min_pa=1,
+                        min_ip=1.0,
                     )
                 if category in leaders:
                     ldf = leaders[category].copy()
@@ -499,12 +504,18 @@ with main:
 
                 total_cv_eligible = len(stats_df_cv)
                 cv_leaders = compute_category_value_leaders(
-                    stats_df_cv, min_pa=_min_pa_cv, min_ip=_min_ip_cv, top_n=20,
+                    stats_df_cv,
+                    min_pa=_min_pa_cv,
+                    min_ip=_min_ip_cv,
+                    top_n=20,
                 )
                 # Fallback with absolute minimums if 0 results
                 if cv_leaders.empty:
                     cv_leaders = compute_category_value_leaders(
-                        stats_df_cv, min_pa=1, min_ip=1.0, top_n=20,
+                        stats_df_cv,
+                        min_pa=1,
+                        min_ip=1.0,
+                        top_n=20,
                     )
                 if not cv_leaders.empty:
                     cv_df = cv_leaders.copy()
