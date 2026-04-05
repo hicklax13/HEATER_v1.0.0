@@ -258,6 +258,14 @@ All trade valuations (Trade Finder + Trade Analyzer) flow through `src/trade_int
 Only the commonly-misused ones. For others, read the source files.
 
 ```python
+# Roster Display Sort (src/ui_shared.py)
+from src.ui_shared import sort_roster_for_display, SLOT_ORDER_HITTERS, SLOT_ORDER_PITCHERS
+sort_roster_for_display(roster_df: pd.DataFrame) -> pd.DataFrame  # Yahoo slot order, returns copy
+
+# Category Urgency (src/optimizer/category_urgency.py)
+from src.optimizer.category_urgency import compute_urgency_weights
+compute_urgency_weights(matchup: dict | None, config=None) -> dict  # {urgency: {cat: 0-1}, rate_modes: {}, summary: {}}
+
 # Game-Day Intelligence (src/game_day.py)
 from src.game_day import (
     fetch_game_day_intelligence,    # Master: weather + pitchers + lineups + team strength
@@ -432,6 +440,13 @@ get_injury_badge(health_score) -> tuple[str, str]  # returns <span> with CSS dot
 - **Opponent pick probability is additive blend** — Not multiplicative (collapses to near-zero).
 - **Trade analyzer needs standings for accuracy** — Without standings: no elasticity, no punts, no strategic context.
 
+### Lineup Optimizer Specifics
+- **Urgency wiring uses monkey-patch** — `pipeline._compute_category_weights` is wrapped with urgency multipliers at runtime. If patching fails, pipeline uses default weights (non-fatal).
+- **IP budget uses projected IP, not actual** — `_proj_ip_lookup` built from `load_player_pool()`. Actual IP (e.g., 11.0 after 2 starts) would give nonsensical per-start estimates.
+- **Weekly scaling divides counting stats by 26** — Rate stats (AVG, OBP, ERA, WHIP) pass through unchanged.
+- **Roster sort uses `selected_position` column** — Yahoo's actual slot assignment. Falls back to `positions` column with slot order inference.
+- **`sort_roster_for_display()` returns a copy** — Never modifies the input DataFrame.
+
 ### Dependencies & Platform
 - **Plotly 6.x hex colors** — Does NOT accept 8-digit hex (`#RRGGBBAA`). Use `rgba(r,g,b,a)`.
 - **PyMC/PuLP optional deps** — `PYMC_AVAILABLE`/`PULP_AVAILABLE` flags. Use `try/except ImportError`. CI skips with `@pytest.mark.skipif`.
@@ -599,6 +614,15 @@ get_injury_badge(health_score) -> tuple[str, str]  # returns <span> with CSS dot
 - **V-014 FIXED:** Power Rankings Schedule Strength was N/A. Now computes as avg opponent roster quality in projection-only path (`pages/8_Standings.py`).
 - **V-012 FIXED:** Player Compare buttons showed "A..." — reduced from 5 to 3 per row (`pages/6_Player_Compare.py`).
 - **V-017 FIXED:** Trade Finder BY VALUE tab truncated. Reduced to 8 essential columns + explicit widths (`pages/10_Trade_Finder.py`).
+
+## Key Fixes (April 4, 2026)
+
+- **Lineup Optimizer Redesign** — 3-agent parallel implementation fixing 5 interrelated bugs:
+  - **Roster Sort Order** — Added `sort_roster_for_display()` to `src/ui_shared.py` with `SLOT_ORDER_HITTERS`/`SLOT_ORDER_PITCHERS` constants. Yahoo Fantasy slot order (C→1B→...→Util→SP→RP→P→BN→IL). Applied to `pages/5_Lineup.py` (Roster tab) and `pages/1_My_Team.py`.
+  - **Live Matchup Urgency Wiring** — `compute_urgency_weights()` from `src/optimizer/category_urgency.py` now wired into pipeline. Monkey-patches `pipeline._compute_category_weights()` with per-category urgency multipliers (losing=1.5x, tied=1.2x, winning=0.6x). Context panel shows live W-L-T score + losing categories.
+  - **IP Budget Fix** — Pitcher dicts now include `positions`, `status`, `is_starter` fields. Uses **projected** season IP from player pool (not actual IP pitched). Fixes "1.23/20 IP" → realistic "35.2/20 IP".
+  - **Weekly Projection Scaling** — "Projected Category Totals" now divided by 26 (weeks). Rate stats unchanged. Header renamed to "Projected Weekly Category Totals".
+  - **IP-Aware Pitching Weights** — When projected weekly IP < 20 (danger), pitching weights boosted 1.5x. When safe, reduced to 0.7x.
 
 ## Season State (2026)
 
