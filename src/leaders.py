@@ -65,6 +65,82 @@ def compute_points_leaders(
         return pd.DataFrame()
 
 
+def compute_category_value_leaders(
+    season_stats_df: pd.DataFrame,
+    min_pa: int = 50,
+    min_ip: float = 20.0,
+    top_n: int = 20,
+) -> pd.DataFrame:
+    """Rank players by z-score composite across H2H Categories scoring.
+
+    For each of the 12 scoring categories (R, HR, RBI, SB, AVG, OBP,
+    W, L, SV, K, ERA, WHIP), compute each player's z-score relative
+    to the eligible population.  Inverse stats (L, ERA, WHIP) are
+    sign-flipped so lower raw values produce higher z-scores.
+
+    Hitters are scored on hitting cats only; pitchers on pitching only.
+    The resulting ``category_value`` is the sum of z-scores — a single
+    number that captures overall category impact in an H2H league.
+
+    Returns a DataFrame sorted by ``category_value`` descending with
+    the top *top_n* players.
+    """
+    if season_stats_df.empty:
+        return pd.DataFrame()
+
+    hit_cats = {"r": False, "hr": False, "rbi": False, "sb": False, "avg": False, "obp": False}
+    pit_cats = {"w": False, "l": True, "sv": False, "k": False, "era": True, "whip": True}
+
+    df = season_stats_df.copy()
+
+    # Coerce all stat columns to numeric
+    for col in list(hit_cats) + list(pit_cats) + ["pa", "ip"]:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+
+    # Split hitters and pitchers
+    hitters = df.copy()
+    pitchers = df.copy()
+    if "is_hitter" in df.columns:
+        hitters = df[df["is_hitter"].astype(int) == 1].copy()
+        pitchers = df[df["is_hitter"].astype(int) == 0].copy()
+    if "pa" in hitters.columns:
+        hitters = hitters[hitters["pa"] >= min_pa]
+    if "ip" in pitchers.columns:
+        pitchers = pitchers[pitchers["ip"] >= min_ip]
+
+    def _zscore_sum(sub_df: pd.DataFrame, cat_map: dict[str, bool]) -> pd.Series:
+        total = pd.Series(0.0, index=sub_df.index)
+        for col, is_inverse in cat_map.items():
+            if col not in sub_df.columns:
+                continue
+            vals = sub_df[col].astype(float)
+            std = vals.std()
+            if std < 1e-9:
+                continue
+            z = (vals - vals.mean()) / std
+            if is_inverse:
+                z = -z  # Lower ERA/WHIP/L = higher z
+            total = total + z
+        return total
+
+    # Compute z-scores
+    if not hitters.empty:
+        hitters["category_value"] = _zscore_sum(hitters, hit_cats).round(2)
+    if not pitchers.empty:
+        pitchers["category_value"] = _zscore_sum(pitchers, pit_cats).round(2)
+
+    combined = pd.concat([hitters, pitchers], ignore_index=True)
+    if combined.empty:
+        return pd.DataFrame()
+
+    combined = combined.sort_values("category_value", ascending=False).head(top_n)
+
+    display_cols = ["player_id", "name", "team", "positions", "category_value", "mlb_id"]
+    available = [c for c in display_cols if c in combined.columns]
+    return combined[available].reset_index(drop=True)
+
+
 def filter_leaders_by_position(leaders_df: pd.DataFrame, position: str, pos_col: str = "positions") -> pd.DataFrame:
     """Filter leaders to a specific position."""
     if pos_col not in leaders_df.columns:

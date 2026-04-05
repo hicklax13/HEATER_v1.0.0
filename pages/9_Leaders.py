@@ -30,11 +30,11 @@ except ImportError:
     LEADERS_AVAILABLE = False
 
 try:
-    from src.points_league import compute_fantasy_points, get_scoring_preset  # noqa: F401
+    from src.leaders import compute_category_value_leaders  # noqa: F401
 
-    POINTS_AVAILABLE = True
+    CATVALUE_AVAILABLE = True
 except ImportError:
-    POINTS_AVAILABLE = False
+    CATVALUE_AVAILABLE = False
 
 try:
     from src.prospect_engine import get_prospect_rankings, refresh_prospect_rankings
@@ -317,17 +317,9 @@ with ctx:
         )
         category = st.selectbox(
             "Category",
-            ["HR", "R", "RBI", "SB", "AVG", "OBP", "W", "SV", "K", "ERA", "WHIP"],
+            ["R", "HR", "RBI", "SB", "AVG", "OBP", "W", "L", "SV", "K", "ERA", "WHIP"],
             key="cat_leader",
         )
-
-    # Points Leaders controls
-    if POINTS_AVAILABLE:
-        render_context_card(
-            "Scoring Preset",
-            "<p>Select a scoring system for fantasy points calculation.</p>",
-        )
-        preset_name = st.selectbox("Scoring Preset", ["yahoo", "espn", "cbs"], key="pts_preset")
 
     # Prospects controls
     if PROSPECTS_AVAILABLE:
@@ -373,7 +365,7 @@ with ctx:
 # -- Main content (right): tabs + data tables -----------------------------
 
 with main:
-    tab1, tab2, tab3 = st.tabs(["Category Leaders", "Points Leaders", "Prospects"])
+    tab1, tab2, tab3 = st.tabs(["Category Leaders", "Category Value", "Prospects"])
 
     with tab1:
         if not LEADERS_AVAILABLE:
@@ -476,54 +468,71 @@ with main:
                 st.error(f"Failed to compute category leaders: {e}")
 
     with tab2:
-        if not POINTS_AVAILABLE:
-            st.info("Points league module not available. Ensure src/points_league.py exists.")
+        if not CATVALUE_AVAILABLE:
+            st.info("Category value module not available. Ensure src/leaders.py exists.")
         else:
-            st.markdown("Top performers by fantasy points scoring.")
+            st.markdown(
+                "Overall player value based on z-score composite across all 12 Head-to-Head "
+                "scoring categories (R, HR, RBI, SB, AVG, OBP, W, L, SV, K, ERA, WHIP). "
+                "Higher values mean the player contributes more to winning categories."
+            )
 
             try:
-                hitting_w, pitching_w = get_scoring_preset(preset_name)
-
-                from src.points_league import compute_points_leaders
-
-                stats_df_pts, _is_proj_pts = _load_stats_df()
-                if stats_df_pts.empty:
+                stats_df_cv, _is_proj_cv = _load_stats_df()
+                if stats_df_cv.empty:
                     st.info(
-                        "No player stats available. Return to the Connect League page and click Force Refresh Data in the sidebar to load fresh statistics."
+                        "No player stats available. Return to the Connect League page and click "
+                        "Force Refresh Data in the sidebar to load fresh statistics."
                     )
                     st.stop()
-                if _is_proj_pts:
+                if _is_proj_cv:
                     st.caption("Showing preseason projections — season stats not yet available.")
-                total_pts_eligible = len(stats_df_pts)
-                pts_leaders = compute_points_leaders(stats_df_pts, hitting_w, pitching_w, top_n=20)
-                if not pts_leaders.empty:
-                    pts_df = pts_leaders.copy()
-                    st.caption(f"Showing top {len(pts_df)} of {total_pts_eligible:,} eligible players")
-                    _pts_show = ["name", "team", "positions", "fantasy_points"]
-                    # Include mlb_id for headshot rendering (auto-hidden by table)
-                    if "mlb_id" in pts_df.columns:
-                        _pts_show.append("mlb_id")
-                    _pts_show = [c for c in _pts_show if c in pts_df.columns]
-                    _PTS_DISPLAY = {
+
+                # Season-proportional min thresholds (same as Category Leaders)
+                from datetime import UTC, datetime
+
+                _season_start_cv = datetime(2026, 3, 25, tzinfo=UTC)
+                _weeks_cv = max(1, (datetime.now(UTC) - _season_start_cv).days / 7.0)
+                _frac_cv = min(1.0, _weeks_cv / 26.0)
+                _min_pa_cv = max(1, int(50 * _frac_cv)) if not _is_proj_cv else 50
+                _min_ip_cv = max(1.0, 20.0 * _frac_cv) if not _is_proj_cv else 20.0
+
+                total_cv_eligible = len(stats_df_cv)
+                cv_leaders = compute_category_value_leaders(
+                    stats_df_cv, min_pa=_min_pa_cv, min_ip=_min_ip_cv, top_n=20,
+                )
+                # Fallback with absolute minimums if 0 results
+                if cv_leaders.empty:
+                    cv_leaders = compute_category_value_leaders(
+                        stats_df_cv, min_pa=1, min_ip=1.0, top_n=20,
+                    )
+                if not cv_leaders.empty:
+                    cv_df = cv_leaders.copy()
+                    st.caption(f"Showing top {len(cv_df)} of {total_cv_eligible:,} eligible players")
+                    _cv_show = ["name", "team", "positions", "category_value"]
+                    if "mlb_id" in cv_df.columns:
+                        _cv_show.append("mlb_id")
+                    _cv_show = [c for c in _cv_show if c in cv_df.columns]
+                    _CV_DISPLAY = {
                         "name": "Player",
                         "team": "Team",
                         "positions": "Position",
-                        "fantasy_points": "Fantasy Points",
+                        "category_value": "Category Value",
                     }
-                    display_pts = pts_df[_pts_show].rename(columns=_PTS_DISPLAY)
-                    render_compact_table(display_pts)
+                    display_cv = cv_df[_cv_show].rename(columns=_CV_DISPLAY)
+                    render_compact_table(display_cv)
 
                     # Player card selector
-                    if "player_id" in pts_df.columns and "Player" in display_pts.columns:
+                    if "player_id" in cv_df.columns and "Player" in display_cv.columns:
                         render_player_select(
-                            display_pts["Player"].tolist(),
-                            pts_df["player_id"].tolist(),
-                            key_suffix="leaders_pts",
+                            display_cv["Player"].tolist(),
+                            cv_df["player_id"].tolist(),
+                            key_suffix="leaders_cv",
                         )
                 else:
-                    st.info("No points leaders computed.")
+                    st.info("No category value leaders computed.")
             except Exception as e:
-                st.error(f"Failed to compute points leaders: {e}")
+                st.error(f"Failed to compute category value leaders: {e}")
 
     with tab3:
         if not PROSPECTS_AVAILABLE:
