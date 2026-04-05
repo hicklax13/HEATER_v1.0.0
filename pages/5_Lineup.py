@@ -600,7 +600,6 @@ with main:
         tab_analysis,
         tab_h2h,
         tab_streaming,
-        tab_roster,
         tab_daily,
     ) = st.tabs(
         [
@@ -609,7 +608,6 @@ with main:
             "Category Analysis",
             "Head-to-Head",
             "Streaming",
-            "Roster",
             "Daily Optimize",
         ]
     )
@@ -738,6 +736,14 @@ with main:
 
                 progress_bar.progress(30, text="Computing category weights and projections...")
 
+                # Fetch free agents for streaming suggestions (Full mode)
+                _fa_for_streaming = pd.DataFrame()
+                if mode == "full":
+                    try:
+                        _fa_for_streaming = yds.get_free_agents(max_players=500)
+                    except Exception:
+                        pass  # Streaming degrades gracefully without FA data
+
                 result = pipeline.optimize(
                     standings=standings if not standings.empty else None,
                     team_name=user_team_name,
@@ -745,6 +751,7 @@ with main:
                     my_totals=my_totals if my_totals else None,
                     week_schedule=week_schedule if week_schedule else None,
                     park_factors=PARK_FACTORS if PARK_FACTORS else None,
+                    free_agents=_fa_for_streaming if not _fa_for_streaming.empty else None,
                 )
 
                 progress_bar.progress(100, text="Optimization complete!")
@@ -816,10 +823,21 @@ with main:
                 if "mlb_id" in roster.columns and "player_id" in roster.columns:
                     _pid_to_mlb_lineup = dict(zip(roster["player_id"], roster["mlb_id"]))
 
-                # Sort assignments by Yahoo roster slot order
+                # Build the full expected slot template from ROSTER_SLOTS
+                # so all 18 starter slots appear even if unfilled.
+                from src.lineup_optimizer import ROSTER_SLOTS as _LP_SLOTS
                 from src.ui_shared import SLOT_ORDER_HITTERS, SLOT_ORDER_PITCHERS
 
                 _ALL_SLOTS_ORDERED = SLOT_ORDER_HITTERS + SLOT_ORDER_PITCHERS
+
+                # Expand slots: OF(3) → OF, OF, OF; P(4) → P, P, P, P; etc.
+                _expected_slots: list[str] = []
+                for _es in _ALL_SLOTS_ORDERED:
+                    _count = _LP_SLOTS.get(_es, (0, []))[0]
+                    if _count > 0:
+                        _expected_slots.extend([_es] * _count)
+
+                # Sort assignments by slot order, then greedily match to expected slots
                 _slot_order_map = {s: i for i, s in enumerate(_ALL_SLOTS_ORDERED)}
 
                 def _slot_sort_key(entry):
@@ -827,29 +845,60 @@ with main:
 
                 assignments_sorted = sorted(assignments, key=_slot_sort_key)
 
-                lineup_data = []
+                # Match assignments to expected slot positions
+                # Track how many of each slot type have been filled
+                _slot_fill_counts: dict[str, int] = {}
+                _assigned_to_expected: list[dict | None] = [None] * len(_expected_slots)
                 for entry in assignments_sorted:
                     slot = entry.get("slot", "")
-                    player = entry.get("player_name", "")
-                    pid = entry.get("player_id")
-                    hs = health_dict.get(pid, 1.0) if pid else 1.0
-                    badge, label = get_injury_badge(hs)
-                    lineup_data.append(
-                        {
-                            "Slot": slot,
-                            "Player": player,
-                            "Status": "START",
-                            "Health": f"{badge} {label}",
-                            "mlb_id": _pid_to_mlb_lineup.get(pid),
-                        }
-                    )
+                    _slot_fill_counts.setdefault(slot, 0)
+                    # Find the next unfilled expected slot of this type
+                    for ei, es in enumerate(_expected_slots):
+                        if es == slot and _assigned_to_expected[ei] is None:
+                            _assigned_to_expected[ei] = entry
+                            _slot_fill_counts[slot] += 1
+                            break
 
-                # Inject START row styling (green tint)
-                _start_row_classes = {i: "row-start" for i in range(len(lineup_data))}
+                lineup_data = []
+                for ei, es in enumerate(_expected_slots):
+                    entry = _assigned_to_expected[ei]
+                    if entry:
+                        player = entry.get("player_name", "")
+                        pid = entry.get("player_id")
+                        hs = health_dict.get(pid, 1.0) if pid else 1.0
+                        badge, label = get_injury_badge(hs)
+                        lineup_data.append(
+                            {
+                                "Slot": es,
+                                "Player": player,
+                                "Status": "START",
+                                "Health": f"{badge} {label}",
+                                "mlb_id": _pid_to_mlb_lineup.get(pid),
+                            }
+                        )
+                    else:
+                        lineup_data.append(
+                            {
+                                "Slot": es,
+                                "Player": "(empty)",
+                                "Status": "EMPTY",
+                                "Health": "",
+                                "mlb_id": None,
+                            }
+                        )
+
+                # Inject row styling: green for START, amber for EMPTY
+                _start_row_classes: dict[int, str] = {}
+                for _ri, _rd in enumerate(lineup_data):
+                    if _rd["Status"] == "START":
+                        _start_row_classes[_ri] = "row-start"
+                    elif _rd["Status"] == "EMPTY":
+                        _start_row_classes[_ri] = "row-empty"
                 st.markdown(
                     f"<style>"
                     f"tr.row-start td {{ background-color:{T['green']}15 !important; }}"
                     f"tr.row-bench td {{ background-color:{T['danger']}10 !important; }}"
+                    f"tr.row-empty td {{ background-color:{T['amber']}15 !important; color:{T['tx2']} !important; font-style:italic !important; }}"
                     f"</style>",
                     unsafe_allow_html=True,
                 )
@@ -1769,25 +1818,40 @@ with main:
     # ================================================================
 
     with tab_h2h:
+        # Attempt live matchup fallback if standings-based data is missing
+        _h2h_my = dict(my_totals) if my_totals else {}
+        _h2h_opp = dict(opp_totals) if opp_totals else {}
+        _h2h_opponent_name = selected_opponent or ""
+        if not _h2h_my or not _h2h_opp:
+            try:
+                _h2h_matchup = yds.get_matchup(force_refresh=True)
+                if _h2h_matchup and "categories" in _h2h_matchup:
+                    _h2h_opponent_name = _h2h_matchup.get("opp_name", _h2h_opponent_name)
+                    for _mc in _h2h_matchup["categories"]:
+                        _cat = str(_mc.get("cat", "")).lower()
+                        if _cat:
+                            _h2h_my[_cat] = float(_mc.get("you", 0) or 0)
+                            _h2h_opp[_cat] = float(_mc.get("opp", 0) or 0)
+            except Exception:
+                pass  # Fall through to error messages below
+
         if not H2H_AVAILABLE:
             st.info("Head-to-Head analysis module not available. Ensure scipy is installed.")
-        elif not selected_opponent or not opp_totals:
+        elif not _h2h_opponent_name or not _h2h_opp:
             if not opponent_names:
                 st.info(
-                    "League standings required for Head-to-Head analysis. "
-                    "Connect your Yahoo league to import standings data."
+                    "No matchup data available. Connect your Yahoo league and ensure "
+                    "an active matchup exists to see Head-to-Head analysis."
                 )
             else:
                 st.info(
                     "Select a Head-to-Head opponent in the settings panel to see "
                     "per-category win probabilities and matchup-specific strategy."
                 )
-        elif not my_totals:
-            st.info(
-                "League standings data required for Head-to-Head analysis. Sync your Yahoo league to get standings."
-            )
+        elif not _h2h_my:
+            st.info("No category totals available. Sync your Yahoo league to get matchup data.")
         else:
-            _opp_display = "".join(c for c in selected_opponent if ord(c) < 0x10000).strip()
+            _opp_display = "".join(c for c in _h2h_opponent_name if ord(c) < 0x10000).strip()
             st.markdown(
                 f'<p style="font-size:12px;font-weight:700;letter-spacing:1px;'
                 f"color:{T['tx2']};text-transform:uppercase;"
@@ -1795,7 +1859,7 @@ with main:
                 unsafe_allow_html=True,
             )
 
-            h2h_result = estimate_h2h_win_probability(my_totals, opp_totals)
+            h2h_result = estimate_h2h_win_probability(_h2h_my, _h2h_opp)
             per_cat = h2h_result.get("per_category", {})
             exp_wins = h2h_result.get("expected_wins", 5.0)
             overall_prob = h2h_result.get("overall_win_prob", 0.5)
@@ -1819,8 +1883,8 @@ with main:
             cat_rows = []
             for cat in ALL_CATS:
                 p_win = per_cat.get(cat, 0.5)
-                my_val = my_totals.get(cat, 0)
-                opp_val = opp_totals.get(cat, 0)
+                my_val = _h2h_my.get(cat, 0)
+                opp_val = _h2h_opp.get(cat, 0)
 
                 if p_win >= 0.65:
                     verdict = "Likely Win"
@@ -1864,7 +1928,7 @@ with main:
                 f'margin:16px 0 6px;">Optimal Focus Areas</p>',
                 unsafe_allow_html=True,
             )
-            h2h_weights = compute_h2h_category_weights(my_totals, opp_totals)
+            h2h_weights = compute_h2h_category_weights(_h2h_my, _h2h_opp)
             if h2h_weights:
                 focus_sorted = sorted(h2h_weights.items(), key=lambda x: x[1], reverse=True)
                 for cat, weight in focus_sorted[:5]:
@@ -2020,71 +2084,7 @@ with main:
             st.info("MLB schedule data unavailable. Install statsapi for two-start detection.")
 
     # ================================================================
-    # TAB 6: ROSTER
-    # ================================================================
-
-    with tab_roster:
-        st.markdown(
-            f'<p style="font-size:12px;font-weight:700;letter-spacing:1px;'
-            f"color:{T['tx2']};text-transform:uppercase;"
-            f'margin:0 0 6px;">Current Roster</p>',
-            unsafe_allow_html=True,
-        )
-
-        # Add health badges
-        try:
-            health_labels = []
-            for _, row in roster.iterrows():
-                pid = row.get("player_id")
-                hs = health_dict.get(pid, 1.0)
-                _, label = get_injury_badge(hs)
-                health_labels.append(label)
-            roster_display = roster.copy()
-            roster_display["Health"] = health_labels
-        except Exception:
-            roster_display = roster.copy()
-
-        if health_dict:
-            st.caption("Health-adjusted projections: counting stats reduced by up to 15% based on injury history risk.")
-
-        # Build display columns
-        display_cols = ["player_name", "positions", "Health"] + [c for c in stat_cols if c in roster_display.columns]
-        if "mlb_id" in roster_display.columns:
-            display_cols.append("mlb_id")
-        display_cols = [c for c in display_cols if c in roster_display.columns]
-
-        roster_show = roster_display[display_cols].copy()
-        roster_show = sort_roster_for_display(roster_show)
-
-        # Format numeric columns
-        counting = ["r", "hr", "rbi", "sb", "w", "l", "sv", "k"]
-        for col in counting:
-            if col in roster_show.columns:
-                roster_show[col] = pd.to_numeric(roster_show[col], errors="coerce").round(0).astype("Int64")
-        for col in ["avg", "obp", "era", "whip"]:
-            if col in roster_show.columns:
-                roster_show[col] = roster_show[col].apply(lambda v: f"{float(v):.2f}" if pd.notna(v) and v != 0 else "")
-
-        # Rename columns to display names
-        col_rename = {
-            "player_name": "Player",
-            "positions": "Position",
-        }
-        col_rename.update({cat: CAT_DISPLAY_NAMES.get(cat, cat.upper()) for cat in stat_cols})
-        roster_show = roster_show.rename(columns=col_rename)
-
-        render_compact_table(roster_show)
-
-        # Player card selector
-        if "player_id" in roster.columns:
-            render_player_select(
-                roster_show["Player"].tolist(),
-                roster["player_id"].tolist(),
-                key_suffix="lineup_roster",
-            )
-
-    # ================================================================
-    # TAB 7: DAILY OPTIMIZE
+    # TAB 6: DAILY OPTIMIZE
     # ================================================================
 
     with tab_daily:
