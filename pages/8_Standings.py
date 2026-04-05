@@ -178,12 +178,39 @@ with ctx:
             team_totals: dict[str, dict[str, float]] = {}
 
             if not standings_df.empty and "team_name" in standings_df.columns and "category" in standings_df.columns:
-                # Pivot long-form standings table into {team: {category: total}}
+                # Filter to 12 scoring categories only — exclude Yahoo W/L/T metadata
+                from src.valuation import LeagueConfig as _LC
+
+                _scoring_cats = set(c.upper() for c in _LC().all_categories)
+                _RATE_STATS = {"AVG", "OBP", "ERA", "WHIP"}
+
                 for _, row in standings_df.iterrows():
                     t = str(row["team_name"])
-                    c = str(row["category"])
+                    c = str(row["category"]).strip()
+                    if c.upper() not in _scoring_cats:
+                        continue  # Skip WINS, LOSSES, TIES, PERCENTAGE, etc.
                     v = float(row.get("total", 0.0) or 0.0)
                     team_totals.setdefault(t, {})[c] = v
+
+                # Convert season-to-date totals to weekly averages
+                # The simulator expects weekly means — feeding season totals
+                # makes all teams look identical (inter-team gaps are tiny vs noise)
+                if team_totals:
+                    from datetime import UTC, datetime
+
+                    _season_start = datetime(2026, 3, 25, tzinfo=UTC)
+                    _weeks_played = max(1.0, (datetime.now(UTC) - _season_start).days / 7.0)
+                    for _t_name, _t_cats in team_totals.items():
+                        for _cat_key in list(_t_cats.keys()):
+                            if _cat_key.upper() not in _RATE_STATS:
+                                # Counting stats: divide by weeks played
+                                _t_cats[_cat_key] = _t_cats[_cat_key] / _weeks_played
+
+                    # Validate: ensure teams have actual scoring categories (not just metadata)
+                    _sample = next(iter(team_totals.values()), {})
+                    _has_scoring = any(k.upper() in _scoring_cats for k in _sample)
+                    if not _has_scoring:
+                        team_totals = {}  # Force fallback to projections
 
             if not team_totals:
                 # Compute from roster projections
