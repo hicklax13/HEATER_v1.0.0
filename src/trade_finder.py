@@ -106,20 +106,55 @@ def find_complementary_teams(
 ) -> list[tuple[str, float]]:
     """Find the top N most complementary trade partner teams.
 
+    Uses rank-based needs vectors: a team ranked 12th in a category has
+    high need (12), ranked 1st has low need (1). Two teams are complementary
+    when one is strong where the other is weak (inverted needs).
+
     Returns list of (team_name, dissimilarity_score) sorted by dissimilarity desc.
     """
-    vectors = compute_team_vectors(all_team_totals, config)
+    if config is None:
+        config = LeagueConfig()
 
-    if user_team not in vectors:
+    if user_team not in all_team_totals:
         return []
 
-    user_vec = vectors[user_team]
+    teams = list(all_team_totals.keys())
+    cats = list(config.all_categories)
+
+    # Rank all teams in each category (1 = best, N = worst)
+    team_ranks: dict[str, dict[str, int]] = {t: {} for t in teams}
+    for cat in cats:
+        if cat in config.inverse_stats:
+            # Lower is better — ascending sort
+            ranked = sorted(teams, key=lambda t: all_team_totals[t].get(cat, 999))
+        else:
+            # Higher is better — descending sort
+            ranked = sorted(teams, key=lambda t: all_team_totals[t].get(cat, 0), reverse=True)
+        for rank_idx, t in enumerate(ranked):
+            team_ranks[t][cat] = rank_idx + 1
+
+    # Build needs vectors: rank value directly (high rank number = high need)
+    n_teams = len(teams)
+    user_needs = np.array([team_ranks[user_team].get(cat, n_teams // 2) for cat in cats], dtype=float)
+
     scores = []
-    for team_name, vec in vectors.items():
+    for team_name in teams:
         if team_name == user_team:
             continue
-        dissim = cosine_dissimilarity(user_vec, vec)
-        scores.append((team_name, dissim))
+        opp_ranks = np.array([team_ranks[team_name].get(cat, n_teams // 2) for cat in cats], dtype=float)
+        # Complementarity: opponent is strong (low rank) where user is weak (high rank)
+        # Invert opponent's ranks: strong (rank 1) becomes high value (n_teams)
+        opp_strength = (n_teams + 1) - opp_ranks
+        # Dot product of user_needs and opp_strength, normalized
+        dot = np.dot(user_needs, opp_strength)
+        max_dot = n_teams * n_teams * len(cats)  # theoretical max
+        min_dot = len(cats)  # theoretical min (all rank 1 vs all rank 1)
+        if max_dot > min_dot:
+            complementarity = (dot - min_dot) / (max_dot - min_dot)
+        else:
+            complementarity = 0.5
+        complementarity = max(0.0, min(1.0, complementarity))
+        scores.append((team_name, round(complementarity, 3)))
 
     scores.sort(key=lambda x: x[1], reverse=True)
     return scores[:top_n]
@@ -421,6 +456,7 @@ def scan_2_for_1(
     config: LeagueConfig | None = None,
     category_weights: dict[str, float] | None = None,
     max_expansions: int = 50,
+    user_category_profile: dict[str, dict] | None = None,
 ) -> list[dict]:
     """Expand top 1-for-1 seeds by adding a second give player.
 
@@ -513,15 +549,36 @@ def scan_2_for_1(
             need_match = min(1.0, max(0.0, (opp_delta + 1.0) / 2.0))
             p_accept = estimate_acceptance_probability(user_delta, opp_delta, need_match, adp_fairness=adp_fairness)
 
+            # Category strategic fit for 2-for-1
+            category_fit = 0.5
+            if user_category_profile:
+                try:
+                    _give_contribs: dict[str, float] = {}
+                    for gid in new_give:
+                        gp = player_pool[player_pool["player_id"] == gid]
+                        if not gp.empty:
+                            for cat, val in _player_category_contribution(gp.iloc[0], config).items():
+                                _give_contribs[cat] = _give_contribs.get(cat, 0) + val
+                    _recv_contribs: dict[str, float] = {}
+                    for rid in new_recv:
+                        rp = player_pool[player_pool["player_id"] == rid]
+                        if not rp.empty:
+                            for cat, val in _player_category_contribution(rp.iloc[0], config).items():
+                                _recv_contribs[cat] = _recv_contribs.get(cat, 0) + val
+                    category_fit = _compute_category_fit_score(_give_contribs, _recv_contribs, user_category_profile)
+                except Exception:
+                    category_fit = 0.5
+
             # Remove roster spot bonus from composite to match 1-for-1 scale
             user_delta_for_score = user_delta - ROSTER_SPOT_SGP
             composite = (
-                0.30 * user_delta_for_score
-                + 0.15 * adp_fairness * 2.0
-                + 0.15 * 0.5 * 2.0  # ECR neutral (not computed for multi-player)
-                + 0.20 * p_accept * 3.0
-                + 0.10 * max(opp_delta, 0)
+                0.25 * user_delta_for_score
+                + 0.12 * adp_fairness * 2.0
+                + 0.12 * 0.5 * 2.0  # ECR neutral (not computed for multi-player)
+                + 0.18 * p_accept * 3.0
+                + 0.08 * max(opp_delta, 0)
                 + 0.10 * need_match * 2.0
+                + 0.15 * category_fit * 2.0  # Category strategic fit
             ) + 0.1  # Small fixed bonus for roster flexibility
 
             give_names = seed.get("giving_names", []) + [
@@ -564,6 +621,7 @@ def scan_1_for_1(
     roster_statuses: dict[int, str] | None = None,
     opponent_team_name: str | None = None,
     all_team_totals: dict[str, dict[str, float]] | None = None,
+    user_category_profile: dict[str, dict] | None = None,
 ) -> list[dict]:
     """Fast deterministic scan of all 1-for-1 trades between user and opponent.
 
@@ -693,11 +751,10 @@ def scan_1_for_1(
             if recv_player.empty:
                 continue
 
-            # Same type check (hitter for hitter, pitcher for pitcher)
+            # Track cross-type trades (hitter ↔ pitcher) — allowed for category strategy
             give_is_hitter = int(give_player.iloc[0].get("is_hitter", 0))
             recv_is_hitter = int(recv_player.iloc[0].get("is_hitter", 0))
-            if give_is_hitter != recv_is_hitter:
-                continue  # Skip cross-type trades for simplicity
+            is_cross_type = give_is_hitter != recv_is_hitter
 
             # --- Elite player protection ---
             # If giving away a top-20% player, the return must be at least 75% as good
@@ -825,15 +882,26 @@ def scan_1_for_1(
                 opponent_trade_willingness=opp_archetype_willingness,
             )
 
+            # Category strategic fit — does this trade address user's category needs?
+            category_fit = 0.5  # neutral default
+            if user_category_profile:
+                try:
+                    _give_contrib = _player_category_contribution(give_player.iloc[0], config)
+                    _recv_contrib = _player_category_contribution(recv_player.iloc[0], config)
+                    category_fit = _compute_category_fit_score(_give_contrib, _recv_contrib, user_category_profile)
+                except Exception:
+                    category_fit = 0.5
+
             # Composite score: SGP gain * YTD modifier, weighted by acceptance,
-            # ADP fairness, ECR fairness, opponent benefit, and need matching
+            # ADP fairness, ECR fairness, opponent benefit, need matching, and category fit
             composite = (
-                0.30 * user_delta * ytd_modifier
-                + 0.15 * adp_fairness * 2.0
-                + 0.15 * ecr_fairness * 2.0  # ECR ranking fairness
-                + 0.20 * p_accept * 3.0
-                + 0.10 * max(opp_delta, 0)
+                0.25 * user_delta * ytd_modifier
+                + 0.12 * adp_fairness * 2.0
+                + 0.12 * ecr_fairness * 2.0
+                + 0.18 * p_accept * 3.0
+                + 0.08 * max(opp_delta, 0)
                 + 0.10 * need_match * 2.0
+                + 0.15 * category_fit * 2.0  # Category strategic fit
             )
 
             trade_result: dict = {
@@ -856,6 +924,8 @@ def scan_1_for_1(
                 "recv_ecr_rank": recv_ecr or "N/A",
                 "ytd_modifier": round(ytd_modifier, 3),
                 "opp_need_match": round(opp_need_match, 3),
+                "category_fit": round(category_fit, 3),
+                "is_cross_type": is_cross_type,
             }
 
             # Annotate health risk
@@ -930,6 +1000,111 @@ def _totals_sgp(totals: dict, config: LeagueConfig) -> float:
     return total
 
 
+# ── Category Strategic Helpers ───────────────────────────────────────
+
+
+def _compute_user_category_profile(
+    user_team_name: str,
+    all_team_totals: dict[str, dict[str, float]],
+    config,
+    weeks_remaining: int = 16,
+) -> dict[str, dict]:
+    """Classify each scoring category as strong, weak, or punt for the user.
+
+    Strong: rank <= 4 (top third). Weak: rank >= 8 (bottom third, not punted).
+    Punt: from gap analysis (rank >= 10, no gainable positions).
+
+    Returns {cat: {"rank": int, "is_strong": bool, "is_weak": bool, "is_punt": bool}}.
+    """
+    try:
+        from src.engine.portfolio.category_analysis import category_gap_analysis
+
+        user_totals = all_team_totals.get(user_team_name, {})
+        if not user_totals:
+            return {}
+
+        gap_analysis = category_gap_analysis(user_totals, all_team_totals, user_team_name, weeks_remaining)
+
+        profile = {}
+        for cat, info in gap_analysis.items():
+            rank = info.get("rank", 6)
+            is_punt = info.get("is_punt", False)
+            profile[cat] = {
+                "rank": rank,
+                "is_strong": rank <= 4,
+                "is_weak": rank >= 8 and not is_punt,
+                "is_punt": is_punt,
+            }
+        return profile
+    except Exception:
+        return {}
+
+
+def _player_category_contribution(player_row, config) -> dict[str, float]:
+    """Compute per-category SGP contribution for a single player.
+
+    Returns {cat: sgp_value} for categories where the player contributes.
+    Inverse stats are sign-flipped so positive = good contribution.
+    """
+    contributions = {}
+    for cat in config.all_categories:
+        denom = config.sgp_denominators.get(cat, 1.0)
+        if abs(denom) < 1e-9:
+            denom = 1.0
+        val = float(player_row.get(cat.lower(), player_row.get(cat, 0)) or 0)
+        if abs(val) < 1e-9:
+            continue
+        sgp = val / denom
+        if cat in config.inverse_stats:
+            sgp = -sgp  # For ERA/WHIP/L, lower raw value = positive contribution
+        if sgp > 0.01:
+            contributions[cat] = round(sgp, 3)
+    return contributions
+
+
+def _compute_category_fit_score(
+    give_contributions: dict[str, float],
+    recv_contributions: dict[str, float],
+    user_profile: dict[str, dict],
+) -> float:
+    """Score how well a trade addresses the user's category needs.
+
+    0.0 = terrible fit (giving from weakness, receiving for strength).
+    0.5 = neutral.
+    1.0 = perfect fit (giving from strength/punt, receiving for weakness).
+    """
+    if not user_profile:
+        return 0.5  # No profile data — neutral
+
+    score = 0.0
+
+    # Giving players: prefer giving from strength/punt, penalize giving from weakness
+    for cat, sgp in give_contributions.items():
+        info = user_profile.get(cat, user_profile.get(cat.upper(), {}))
+        if not info:
+            continue
+        if info.get("is_punt"):
+            score += 0.15 * sgp  # Giving from punt = great (free value)
+        elif info.get("is_strong"):
+            score += 0.10 * sgp  # Giving from strength = good
+        elif info.get("is_weak"):
+            score -= 0.10 * sgp  # Giving from weakness = bad
+
+    # Receiving players: prefer receiving for weakness, discount receiving for strength
+    for cat, sgp in recv_contributions.items():
+        info = user_profile.get(cat, user_profile.get(cat.upper(), {}))
+        if not info:
+            continue
+        if info.get("is_weak"):
+            score += 0.15 * sgp  # Receiving for weakness = great
+        elif info.get("is_strong"):
+            score -= 0.05 * sgp  # Receiving for already-strong = wasteful
+        # Punt categories: no bonus for receiving (useless)
+
+    # Normalize to [0, 1] via sigmoid-like clamping
+    return max(0.0, min(1.0, 0.5 + score * 0.3))
+
+
 # ── Main Trade Finder ─────────────────────────────────────────────────
 
 
@@ -976,6 +1151,7 @@ def find_trade_opportunities(
     category_weights: dict[str, float] | None = None
     fa_comparisons: dict[int, dict] = {}
     roster_statuses: dict[int, str] = {}
+    user_category_profile: dict[str, dict] = {}
 
     if user_team_name and all_team_totals:
         try:
@@ -994,6 +1170,11 @@ def find_trade_opportunities(
 
             # Category weights from gap analysis
             category_weights = get_category_weights(user_team_name, all_team_totals, config, weeks_remaining)
+
+            # Compute user category profile for strategic fit scoring
+            user_category_profile = _compute_user_category_profile(
+                user_team_name, all_team_totals, config, weeks_remaining
+            )
 
             # Load roster statuses
             try:
@@ -1044,6 +1225,7 @@ def find_trade_opportunities(
             roster_statuses=roster_statuses,
             opponent_team_name=opp_team,
             all_team_totals=all_team_totals,
+            user_category_profile=user_category_profile,
         )
 
         for trade in trades:
@@ -1078,6 +1260,7 @@ def find_trade_opportunities(
                     config,
                     category_weights=category_weights,
                     max_expansions=30,
+                    user_category_profile=user_category_profile,
                 )
                 for trade in multi:
                     trade["opponent_team"] = opp_team

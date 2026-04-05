@@ -464,6 +464,14 @@ get_injury_badge(health_score) -> tuple[str, str]  # returns <span> with CSS dot
 - **FA pickup median SGP cap** — Prevents unrealistic elite "FA" acquisitions when no rosters loaded.
 - **Replacement penalty skips rate stats** — AVG, ERA, WHIP excluded (roster-aggregate, not simple counting gaps).
 
+### Trade Finder V4 Specifics (April 4, 2026)
+- **Cross-type trades now allowed** — Same-type filter (H↔H, P↔P) removed. Can now trade SP for hitter when pitching is strong and hitting is weak.
+- **Category fit scoring (15% composite weight)** — New `_compute_category_fit_score()` rewards giving from strength/punt, receiving for weakness. Penalizes giving from weakness, receiving for already-strong.
+- **User category profile** — `_compute_user_category_profile()` classifies each category as strong (rank ≤ 4), weak (rank ≥ 8), or punt via `category_gap_analysis()`.
+- **Rank-based complementarity** — `find_complementary_teams()` rewritten to use rank vectors instead of raw z-scores. Produces meaningful 0.2-0.9 scores instead of flat 0.50.
+- **Composite formula reweighted** — SGP 25%, ADP 12%, ECR 12%, acceptance 18%, opp benefit 8%, need match 10%, **category fit 15%** (new).
+- **3 new helpers** — `_compute_user_category_profile()`, `_player_category_contribution()`, `_compute_category_fit_score()`.
+
 ### Trade Finder V3 Specifics
 - **LOSS_AVERSION = 1.8** — Up from 1.5 per Brown 2024 meta-analysis. Must match in tests.
 - **MAX_WEIGHT_RATIO = 1.5** — Category weight cap in `scan_1_for_1()`. Was 3.0 then 2.0. Prevents AVG-only specialists dominating when AVG is weighted.
