@@ -1,8 +1,14 @@
 """Shared UI constants, theme system, CSS injection, and SVG icons — Heater Edition."""
 
+from __future__ import annotations
+
 import html as _html
 import math as _math
 import time as _time
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 try:
     import streamlit as st
@@ -2420,6 +2426,115 @@ def build_compact_table_html(
         f"<tbody>{body_html}</tbody>"
         f"</table></div>"
     )
+
+
+# ── Roster Display Sorting ───────────────────────────────────────
+# Yahoo Fantasy slot order for consistent roster display across all pages.
+
+SLOT_ORDER_HITTERS = ["C", "1B", "2B", "3B", "SS", "OF", "LF", "CF", "RF", "Util", "DH"]
+SLOT_ORDER_PITCHERS = ["SP", "RP", "P"]
+SLOT_ORDER_BENCH = ["BN"]
+SLOT_ORDER_IL = ["IL", "IL+", "NA"]
+
+_SLOT_ORDER_MAP = {}
+for _i, _slot in enumerate(SLOT_ORDER_HITTERS):
+    _SLOT_ORDER_MAP[_slot] = _i
+for _i, _slot in enumerate(SLOT_ORDER_PITCHERS, start=len(SLOT_ORDER_HITTERS)):
+    _SLOT_ORDER_MAP[_slot] = _i
+for _i, _slot in enumerate(SLOT_ORDER_BENCH, start=len(SLOT_ORDER_HITTERS) + len(SLOT_ORDER_PITCHERS)):
+    _SLOT_ORDER_MAP[_slot] = _i
+for _i, _slot in enumerate(
+    SLOT_ORDER_IL, start=len(SLOT_ORDER_HITTERS) + len(SLOT_ORDER_PITCHERS) + len(SLOT_ORDER_BENCH)
+):
+    _SLOT_ORDER_MAP[_slot] = _i
+
+# Also map common aliases (case-insensitive handled in function)
+_SLOT_ORDER_MAP["BENCH"] = _SLOT_ORDER_MAP["BN"]
+
+
+def sort_roster_for_display(roster_df: pd.DataFrame) -> pd.DataFrame:
+    """Sort roster into Yahoo Fantasy slot order for display.
+
+    Uses ``roster_slot`` or ``selected_position`` column from league_rosters
+    (Yahoo's actual slot assignment).  Falls back to inferring from
+    ``positions`` column if neither slot column is available.
+
+    Order: Hitter starters (C,1B,2B,3B,SS,OF,Util) -> Pitcher starters
+    (SP,RP,P) -> BN -> IL/IL+/NA.
+
+    Returns a sorted **copy** of the DataFrame.  Never modifies in place.
+    """
+    import pandas as _pd
+
+    if roster_df is None or roster_df.empty:
+        return roster_df.copy() if roster_df is not None else _pd.DataFrame()
+
+    df = roster_df.copy()
+
+    # Determine which column carries the slot assignment
+    slot_col = None
+    for candidate in ("roster_slot", "selected_position", "Slot"):
+        if candidate in df.columns:
+            non_empty = df[candidate].dropna().astype(str).str.strip().replace("", _pd.NA).dropna()
+            if len(non_empty) > 0:
+                slot_col = candidate
+                break
+
+    if slot_col is None and "positions" not in df.columns:
+        # Nothing to sort on — return as-is
+        return df
+
+    _unknown_sort = len(_SLOT_ORDER_MAP) + 10  # large value for unknown slots
+
+    def _get_sort_key(row):
+        """Return integer sort key for a single roster row."""
+        slot_value = ""
+        if slot_col is not None:
+            raw = row.get(slot_col)
+            if raw is not None:
+                slot_value = str(raw).strip()
+
+        if slot_value:
+            key = _SLOT_ORDER_MAP.get(slot_value, _SLOT_ORDER_MAP.get(slot_value.upper(), -1))
+            if key >= 0:
+                return key
+
+        # Fallback: infer from positions column
+        positions_raw = row.get("positions", "") or row.get("Pos", "") or row.get("Position", "") or ""
+        if not positions_raw:
+            return _unknown_sort
+
+        positions_str = str(positions_raw).strip()
+        # Positions may be comma-separated or slash-separated
+        parts = [p.strip() for p in positions_str.replace("/", ",").split(",") if p.strip()]
+
+        # Find the first matching slot in our defined order
+        all_ordered = SLOT_ORDER_HITTERS + SLOT_ORDER_PITCHERS
+        for ordered_slot in all_ordered:
+            for part in parts:
+                if part.upper() == ordered_slot.upper():
+                    return _SLOT_ORDER_MAP.get(ordered_slot, _unknown_sort)
+
+        return _unknown_sort
+
+    sort_keys = df.apply(_get_sort_key, axis=1)
+
+    # Build a secondary sort key: player name (alphabetical within same slot)
+    name_col = None
+    for nc in ("player_name", "name", "Player"):
+        if nc in df.columns:
+            name_col = nc
+            break
+
+    df["_slot_sort_key"] = sort_keys
+    sort_cols = ["_slot_sort_key"]
+    if name_col:
+        sort_cols.append(name_col)
+
+    df = df.sort_values(by=sort_cols, ascending=True).reset_index(drop=True)
+    df = df.drop(columns=["_slot_sort_key"])
+
+    return df
 
 
 def render_compact_table(df, highlight_cols=None, row_classes=None, health_col=None, max_height=500, show_avatars=None):

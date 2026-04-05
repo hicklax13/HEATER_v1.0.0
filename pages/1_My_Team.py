@@ -21,6 +21,7 @@ from src.ui_shared import (
     render_data_freshness_card,
     render_page_layout,
     render_player_select,
+    sort_roster_for_display,
 )
 from src.yahoo_data_service import get_yahoo_data_service
 
@@ -1401,8 +1402,6 @@ else:
                     if "Health" in roster.columns:
                         display_df["Health"] = roster["Health"].values
 
-                    player_ids_list = display_df["player_id"].tolist()
-                    display_df = display_df.drop(columns=["player_id"])
                     display_df.rename(
                         columns={k: v for k, v in rename_map.items() if k in display_df.columns},
                         inplace=True,
@@ -1437,9 +1436,11 @@ else:
                     # Include mlb_id for headshot rendering (auto-hidden by table)
                     if "mlb_id" in roster.columns:
                         display_cols.append("mlb_id")
+                    # Include player_id temporarily for sort-stable extraction
+                    if "player_id" in roster.columns and "player_id" not in display_cols:
+                        display_cols.append("player_id")
                     available_cols = [c for c in display_cols if c in roster.columns]
                     display_df = roster[available_cols].copy()
-                    player_ids_list = roster["player_id"].tolist() if "player_id" in roster.columns else []
                     display_df.rename(
                         columns={k: v for k, v in rename_map.items() if k in display_df.columns},
                         inplace=True,
@@ -1454,6 +1455,14 @@ else:
                         f"Updates to actual stats once the season begins.</div>",
                         unsafe_allow_html=True,
                     )
+
+                # Sort roster into Yahoo slot order for display
+                display_df = sort_roster_for_display(display_df)
+
+                # Extract player IDs after sorting so order matches display
+                player_ids_list = display_df["player_id"].tolist() if "player_id" in display_df.columns else []
+                if "player_id" in display_df.columns:
+                    display_df = display_df.drop(columns=["player_id"])
 
                 # Assign row classes: starters vs bench
                 row_cls = {}

@@ -40,6 +40,7 @@ from src.ui_shared import (
     render_page_layout,
     render_player_select,
     render_styled_table,
+    sort_roster_for_display,
 )
 from src.valuation import LeagueConfig
 from src.yahoo_data_service import get_yahoo_data_service
@@ -226,6 +227,17 @@ if numeric_stats.sum().sum() == 0:
             if c in roster.columns:
                 roster[c] = pd.to_numeric(roster[c], errors="coerce").fillna(0)
 
+# ── Projected IP lookup (for IP budget tracker) ─────────────────────
+# The roster "ip" column contains ACTUAL IP pitched so far this season.
+# For weekly IP projection we need full-season PROJECTED IP from the player pool.
+_proj_ip_lookup: dict[int, float] = {}
+if not pool.empty and "ip" in pool.columns:
+    for _, _pp in pool.iterrows():
+        _pid = _pp.get("player_id")
+        _pip = float(_pp.get("ip", 0) or 0)
+        if _pid is not None and _pip > 0:
+            _proj_ip_lookup[_pid] = _pip
+
 
 # ── League config ────────────────────────────────────────────────────
 
@@ -365,7 +377,15 @@ if IP_TRACKER_AVAILABLE and not roster.empty:
             if _p.get("is_hitter") == 0 or any(
                 pos.strip() in ("P", "SP", "RP") for pos in str(_p.get("positions", "")).upper().split(",")
             ):
-                _pitcher_data.append({"name": _p.get("player_name", ""), "ip": _p.get("ip", 0)})
+                _pitcher_data.append(
+                    {
+                        "name": _p.get("player_name", ""),
+                        "ip": _proj_ip_lookup.get(_p.get("player_id"), float(_p.get("ip", 0) or 0)),
+                        "positions": str(_p.get("positions", "")),
+                        "status": str(_p.get("status", "active")),
+                        "is_starter": "SP" in str(_p.get("positions", "")).upper(),
+                    }
+                )
         if _pitcher_data:
             _ip_result = compute_weekly_ip_projection(_pitcher_data, get_days_remaining_in_week())
             _ip_color_map = {"safe": "#2d6a4f", "warning": "#ff9f1c", "danger": "#e63946"}
@@ -389,6 +409,9 @@ if IP_TRACKER_AVAILABLE and not roster.empty:
 
 matchup_state_label = "close"
 matchup_note = "No weekly totals available. Using balanced (close) matchup strategy."
+_live_losing_cats: list[str] = []
+_live_winning_cats: list[str] = []
+_live_tied_cats: list[str] = []
 if START_SIT_AVAILABLE and my_totals and opp_weekly_totals:
     try:
         matchup_state_label = classify_matchup_state(my_totals, opp_weekly_totals, league_config)
@@ -459,15 +482,58 @@ with ctx:
         key="lineup_risk",
     )
 
-    # Matchup state
-    render_context_card(
-        "Matchup State",
-        f'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">'
-        f'<span style="font-size:11px;color:{T["tx2"]};">Strategy</span>'
-        f'<span style="font-size:13px;font-weight:bold;font-family:IBM Plex Mono,monospace;">{matchup_state_label.upper()}</span></div>'
-        f'<p style="margin:4px 0 0;font-size:11px;color:{T["tx2"]};">'
-        f"{matchup_note}</p>",
-    )
+    # ── Load live matchup data early (for matchup state card + opponent selection) ──
+    _live_matchup = yds.get_matchup()
+    _pre_live_opp_name = ""
+    _pre_live_my: dict[str, float] = {}
+    _pre_live_opp: dict[str, float] = {}
+    try:
+        if _live_matchup and "categories" in _live_matchup:
+            _pre_live_opp_name = _live_matchup.get("opp_name", "")
+            for _mc in _live_matchup["categories"]:
+                _cat = str(_mc.get("cat", "")).lower()
+                if _cat:
+                    _pre_live_my[_cat] = float(_mc.get("you", 0) or 0)
+                    _pre_live_opp[_cat] = float(_mc.get("opp", 0) or 0)
+            # Compute W/L/T from live categories
+            for _mc in _live_matchup["categories"]:
+                _result = str(_mc.get("result", "")).upper()
+                _cat_display = str(_mc.get("cat", ""))
+                if _result == "LOSS":
+                    _live_losing_cats.append(_cat_display)
+                elif _result == "WIN":
+                    _live_winning_cats.append(_cat_display)
+                elif _result == "TIE":
+                    _live_tied_cats.append(_cat_display)
+    except Exception:
+        pass  # Non-fatal: fall back to pre-computed matchup state
+
+    # Matchup state — prefer live W/L/T when available
+    if _live_losing_cats or _live_winning_cats or _live_tied_cats:
+        _w = len(_live_winning_cats)
+        _l = len(_live_losing_cats)
+        _t = len(_live_tied_cats)
+        _live_state_label = f"{_w}-{_l}-{_t}"
+        _losing_str = ", ".join(_live_losing_cats) if _live_losing_cats else "None"
+        _matchup_state_html = (
+            f'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">'
+            f'<span style="font-size:11px;color:{T["tx2"]};">W-L-T</span>'
+            f'<span style="font-size:13px;font-weight:bold;font-family:IBM Plex Mono,monospace;">{_live_state_label}</span></div>'
+            f'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px;">'
+            f'<span style="font-size:11px;color:{T["tx2"]};">Strategy</span>'
+            f'<span style="font-size:13px;font-weight:bold;font-family:IBM Plex Mono,monospace;">{matchup_state_label.upper()}</span></div>'
+            f'<p style="margin:4px 0 0;font-size:11px;color:{T["tx2"]};">'
+            f"Losing: {_losing_str}</p>"
+        )
+    else:
+        _matchup_state_html = (
+            f'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">'
+            f'<span style="font-size:11px;color:{T["tx2"]};">Strategy</span>'
+            f'<span style="font-size:13px;font-weight:bold;font-family:IBM Plex Mono,monospace;">{matchup_state_label.upper()}</span></div>'
+            f'<p style="margin:4px 0 0;font-size:11px;color:{T["tx2"]};">'
+            f"{matchup_note}</p>"
+        )
+    render_context_card("Matchup State", _matchup_state_html)
 
     # IP budget
     if ip_budget_html:
@@ -478,21 +544,11 @@ with ctx:
     selected_opponent = None
     opp_totals: dict[str, float] = {}
 
-    # Try to populate my_totals and opp_totals from LIVE matchup (more accurate than standings)
-    _live_matchup = yds.get_matchup()
-    if _live_matchup and "categories" in _live_matchup:
-        _live_opp_name = _live_matchup.get("opp_name", "")
-        _live_my: dict[str, float] = {}
-        _live_opp: dict[str, float] = {}
-        for _mc in _live_matchup["categories"]:
-            _cat = str(_mc.get("cat", "")).lower()
-            if _cat:
-                _live_my[_cat] = float(_mc.get("you", 0) or 0)
-                _live_opp[_cat] = float(_mc.get("opp", 0) or 0)
-        if _live_my:
-            my_totals = _live_my
-            opp_totals = _live_opp
-            selected_opponent = _live_opp_name
+    # Apply pre-loaded live matchup data to my_totals and opp_totals
+    if _pre_live_my:
+        my_totals = _pre_live_my
+        opp_totals = _pre_live_opp
+        selected_opponent = _pre_live_opp_name
 
     render_context_card("Head-to-Head Matchup", "")
     if not selected_opponent and opponent_names:
@@ -606,9 +662,10 @@ with main:
                     ):
                         _pitchers.append(
                             {
-                                "ip": float(_pr.get("ip", 0) or 0),
+                                "ip": _proj_ip_lookup.get(_pr.get("player_id"), float(_pr.get("ip", 0) or 0)),
                                 "positions": str(_pr.get("positions", "")),
                                 "status": str(_pr.get("status", "active")),
+                                "is_starter": "SP" in str(_pr.get("positions", "")).upper(),
                             }
                         )
                     if _pitchers:
@@ -634,6 +691,50 @@ with main:
                 # Override risk aversion from settings
                 pipeline._preset = dict(pipeline._preset)
                 pipeline._preset["risk_aversion"] = risk_aversion
+
+                # ── Wire urgency weights + IP boost into pipeline ─────
+                # Monkey-patch _compute_category_weights to apply urgency
+                # multipliers on top of the pipeline's computed weights.
+                # This ensures the LP solver uses matchup-aware weights.
+                try:
+                    if _urgency_weights or _ip_boost != 1.0:
+                        _pitching_cats = {"w", "l", "sv", "k", "era", "whip"}
+                        # Build urgency multiplier map (lowercase keys)
+                        _urgency_mults: dict[str, float] = {}
+                        for _ucat, _urg in _urgency_weights.items():
+                            _ucat_lower = _ucat.lower()
+                            # Urgency: 0.0 = winning comfortably, 0.5 = tied, 1.0 = losing badly
+                            # Convert to multiplier: losing=1.5x, tied=1.2x, winning=0.6x
+                            if _urg > 0.6:
+                                _mult = 1.5
+                            elif _urg > 0.4:
+                                _mult = 1.2
+                            elif _urg > 0.25:
+                                _mult = 1.0
+                            else:
+                                _mult = 0.6
+                            # Apply IP-based pitching adjustment
+                            if _ucat_lower in _pitching_cats:
+                                _mult *= _ip_boost
+                            _urgency_mults[_ucat_lower] = _mult
+
+                        if _urgency_mults:
+                            _original_compute = pipeline._compute_category_weights
+
+                            def _urgency_wrapped_compute(*args, **kwargs):
+                                base_weights = _original_compute(*args, **kwargs)
+                                adjusted = {}
+                                for cat, base_w in base_weights.items():
+                                    cat_key = cat.lower()
+                                    if cat_key in _urgency_mults:
+                                        adjusted[cat] = base_w * _urgency_mults[cat_key]
+                                    else:
+                                        adjusted[cat] = base_w
+                                return adjusted
+
+                            pipeline._compute_category_weights = _urgency_wrapped_compute
+                except Exception:
+                    pass  # Non-fatal: pipeline uses default weights if patching fails
 
                 progress_bar.progress(30, text="Computing category weights and projections...")
 
@@ -736,19 +837,30 @@ with main:
                     st.markdown(
                         f'<p style="font-size:12px;font-weight:700;letter-spacing:1px;'
                         f"color:{T['tx2']};text-transform:uppercase;"
-                        f'margin:16px 0 6px;">Projected Category Totals</p>',
+                        f'margin:16px 0 6px;">Projected Weekly Category Totals</p>',
                         unsafe_allow_html=True,
                     )
                     proj = lineup["projected_stats"]
+                    # Scale counting stats to weekly (26-week MLB season).
+                    # Rate stats (AVG, OBP, ERA, WHIP) don't scale.
+                    WEEKS_IN_SEASON = 26.0
+                    _rate_stats = {"avg", "obp", "era", "whip"}
+                    weekly_proj: dict[str, float] = {}
+                    for cat, val in proj.items():
+                        if cat.lower() in _rate_stats:
+                            weekly_proj[cat] = val
+                        else:
+                            weekly_proj[cat] = val / WEEKS_IN_SEASON
+
                     display_proj = {}
                     for cat in ALL_CATS:
-                        if cat in proj:
+                        if cat in weekly_proj:
                             if cat in ("avg", "obp"):
-                                display_proj[CAT_DISPLAY_NAMES[cat]] = f"{proj[cat]:.3f}"
+                                display_proj[CAT_DISPLAY_NAMES[cat]] = f"{weekly_proj[cat]:.3f}"
                             elif cat in ("era", "whip"):
-                                display_proj[CAT_DISPLAY_NAMES[cat]] = f"{proj[cat]:.2f}"
+                                display_proj[CAT_DISPLAY_NAMES[cat]] = f"{weekly_proj[cat]:.2f}"
                             else:
-                                display_proj[CAT_DISPLAY_NAMES[cat]] = f"{proj[cat]:.2f}"
+                                display_proj[CAT_DISPLAY_NAMES[cat]] = f"{weekly_proj[cat]:.1f}"
                     render_styled_table(pd.DataFrame([display_proj]))
 
                 # Risk metrics
@@ -1872,6 +1984,7 @@ with main:
         display_cols = [c for c in display_cols if c in roster_display.columns]
 
         roster_show = roster_display[display_cols].copy()
+        roster_show = sort_roster_for_display(roster_show)
 
         # Format numeric columns
         counting = ["r", "hr", "rbi", "sb", "w", "l", "sv", "k"]
