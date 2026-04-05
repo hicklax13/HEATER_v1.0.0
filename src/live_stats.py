@@ -958,5 +958,5 @@ def fetch_player_enhanced_status(mlb_id: int) -> dict | None:
         people = data.get("people", [])
         return people[0] if people else None
     except Exception:
-        logger.warning("Enhanced status fetch failed for mlb_id=%s", mlb_id, exc_info=True)
+        logger.debug("Enhanced status fetch failed for mlb_id=%s", mlb_id, exc_info=True)
         return None
