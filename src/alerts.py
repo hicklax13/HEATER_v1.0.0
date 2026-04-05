@@ -4,7 +4,10 @@ Monitors for roster-impacting events and generates actionable alerts.
 Analyst tone, not cheerleader. Data-driven recommendations.
 """
 
+from __future__ import annotations
+
 import logging
+from datetime import UTC, datetime, timedelta
 
 import pandas as pd
 
@@ -22,6 +25,8 @@ def generate_roster_alerts(
     fa_pool: pd.DataFrame | None = None,
     user_roster_ids: list | None = None,
     player_pool: pd.DataFrame | None = None,
+    transactions: pd.DataFrame | None = None,
+    user_team_name: str = "",
 ) -> list[dict]:
     """Generate proactive alerts based on current roster state.
 
@@ -30,6 +35,7 @@ def generate_roster_alerts(
     2. Injured players not on IL
     3. Closer role changes
     4. Low closer count (AVIS Rule #2)
+    5. League trade monitoring (opponent acquisitions)
 
     Returns list of alert dicts: {type, severity, title, message, action}.
     """
@@ -159,10 +165,60 @@ def generate_roster_alerts(
             }
         )
 
-    # Alert 4: IL stash return watch
+    # Alert 5: League trade monitoring — flag opponent acquisitions
+    if transactions is not None and not transactions.empty:
+        _user_lower = user_team_name.strip().lower() if user_team_name else ""
+        trade_txns = transactions[transactions["type"].str.lower() == "trade"]
+        if not trade_txns.empty:
+            # Group by transaction_id to show each trade once
+            shown_txns: set[str] = set()
+            for _, tx in trade_txns.iterrows():
+                txid = str(tx.get("transaction_id", ""))
+                if txid in shown_txns:
+                    continue
+                team_to = str(tx.get("team_to", "")).strip()
+                team_from = str(tx.get("team_from", "")).strip()
+                player_name = str(tx.get("player_name", ""))
+                # Skip trades involving the user's own team
+                if _user_lower and (team_to.lower() == _user_lower or team_from.lower() == _user_lower):
+                    continue
+                if not team_to or not player_name:
+                    continue
+                shown_txns.add(txid)
+                alerts.append(
+                    {
+                        "type": "league_trade",
+                        "severity": "info",
+                        "title": f"LEAGUE TRADE: {player_name} to {team_to}",
+                        "message": f"{team_from} traded {player_name} to {team_to}. Monitor impact on opponent strength.",
+                        "action": "Check if this changes your upcoming matchup strategy.",
+                    }
+                )
+
+    # Alert 4: IL stash return watch — dynamic date-based protection
+    _return_dates = _get_il_return_dates(roster)
+    _now = datetime.now(UTC)
+    _two_weeks = timedelta(weeks=2)
+
     for _, p in roster.iterrows():
         name = p.get("name", "")
-        if name in IL_STASH_NAMES:
+        pid = p.get("player_id")
+
+        # Check dynamic return-date window from ESPN injury data
+        return_date = _return_dates.get(pid) or _return_dates.get(name)
+        if return_date and (return_date - _now) <= _two_weeks:
+            days_away = max(0, (return_date - _now).days)
+            alerts.append(
+                {
+                    "type": "il_watch",
+                    "severity": "warning",
+                    "title": f"IL STASH — PROTECTED: {name}",
+                    "message": f"{name} expected to return in ~{days_away} day(s) ({return_date.strftime('%b %d')}). Do NOT drop.",
+                    "action": "Hold this player — return is imminent. Clear an IL slot if needed.",
+                }
+            )
+        elif name in IL_STASH_NAMES:
+            # Fallback: named stash players always get a reminder even without date data
             alerts.append(
                 {
                     "type": "il_watch",
@@ -174,6 +230,53 @@ def generate_roster_alerts(
             )
 
     return alerts
+
+
+def _get_il_return_dates(roster: pd.DataFrame) -> dict:
+    """Fetch ESPN injury return dates for rostered players.
+
+    Returns:
+        dict mapping player_id (int) AND player name (str) to datetime.
+    """
+    result: dict = {}
+    try:
+        from src.espn_injuries import fetch_espn_injuries
+
+        injuries = fetch_espn_injuries()
+        if not injuries:
+            return result
+
+        roster_names = set()
+        if not roster.empty and "name" in roster.columns:
+            roster_names = {str(n).strip().lower() for n in roster["name"].dropna()}
+
+        for inj in injuries:
+            raw_date = inj.get("return_date", "")
+            if not raw_date:
+                continue
+            pname = inj.get("player_name", "")
+            if pname.strip().lower() not in roster_names:
+                continue
+            try:
+                # ESPN returns ISO-8601 or "YYYY-MM-DDTHH:MM:SSZ"
+                dt = datetime.fromisoformat(raw_date.replace("Z", "+00:00"))
+            except (ValueError, TypeError):
+                continue
+
+            result[pname] = dt
+            # Also map by player_id if we can resolve it
+            try:
+                from src.live_stats import match_player_id
+
+                pid = match_player_id(pname, inj.get("team", ""))
+                if pid is not None:
+                    result[pid] = dt
+            except Exception:
+                pass
+    except Exception:
+        logger.debug("Could not fetch ESPN injury return dates", exc_info=True)
+
+    return result
 
 
 def render_alerts_html(alerts: list[dict], theme: dict) -> str:

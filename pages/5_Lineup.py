@@ -804,7 +804,7 @@ with main:
                     except Exception:
                         pass
 
-                # Recommended lineup table
+                # Recommended lineup table — sorted by Yahoo slot order
                 st.markdown(
                     f'<p style="font-size:12px;font-weight:700;letter-spacing:1px;'
                     f"color:{T['tx2']};text-transform:uppercase;"
@@ -815,8 +815,20 @@ with main:
                 _pid_to_mlb_lineup = {}
                 if "mlb_id" in roster.columns and "player_id" in roster.columns:
                     _pid_to_mlb_lineup = dict(zip(roster["player_id"], roster["mlb_id"]))
+
+                # Sort assignments by Yahoo roster slot order
+                from src.ui_shared import SLOT_ORDER_HITTERS, SLOT_ORDER_PITCHERS
+
+                _ALL_SLOTS_ORDERED = SLOT_ORDER_HITTERS + SLOT_ORDER_PITCHERS
+                _slot_order_map = {s: i for i, s in enumerate(_ALL_SLOTS_ORDERED)}
+
+                def _slot_sort_key(entry):
+                    return _slot_order_map.get(entry.get("slot", ""), 99)
+
+                assignments_sorted = sorted(assignments, key=_slot_sort_key)
+
                 lineup_data = []
-                for entry in assignments:
+                for entry in assignments_sorted:
                     slot = entry.get("slot", "")
                     player = entry.get("player_name", "")
                     pid = entry.get("player_id")
@@ -826,11 +838,27 @@ with main:
                         {
                             "Slot": slot,
                             "Player": player,
+                            "Status": "START",
                             "Health": f"{badge} {label}",
                             "mlb_id": _pid_to_mlb_lineup.get(pid),
                         }
                     )
-                render_compact_table(pd.DataFrame(lineup_data), show_avatars=True, health_col="Health")
+
+                # Inject START row styling (green tint)
+                _start_row_classes = {i: "row-start" for i in range(len(lineup_data))}
+                st.markdown(
+                    f"<style>"
+                    f"tr.row-start td {{ background-color:{T['green']}15 !important; }}"
+                    f"tr.row-bench td {{ background-color:{T['danger']}10 !important; }}"
+                    f"</style>",
+                    unsafe_allow_html=True,
+                )
+                render_compact_table(
+                    pd.DataFrame(lineup_data),
+                    show_avatars=True,
+                    health_col="Health",
+                    row_classes=_start_row_classes,
+                )
 
                 # Projected stats
                 if lineup.get("projected_stats"):
@@ -900,13 +928,13 @@ with main:
                             unsafe_allow_html=True,
                         )
 
-                # Bench players
+                # Bench players — clearly labeled as BENCH
                 bench = lineup.get("bench", [])
                 if bench:
                     st.markdown(
                         f'<p style="font-size:12px;font-weight:700;letter-spacing:1px;'
                         f"color:{T['tx2']};text-transform:uppercase;"
-                        f'margin:16px 0 6px;">Bench</p>',
+                        f'margin:16px 0 6px;">Bench (Sit)</p>',
                         unsafe_allow_html=True,
                     )
                     name_col = "player_name" if "player_name" in roster.columns else "name"
@@ -924,13 +952,21 @@ with main:
                                 {
                                     "Player": pname,
                                     "Position": entry.get("positions", _pos_lookup.get(pname, "")),
+                                    "Status": "BENCH",
                                 }
                             )
                         else:
                             pname = str(entry)
-                            bench_data.append({"Player": pname, "Position": _pos_lookup.get(pname, "")})
+                            bench_data.append(
+                                {
+                                    "Player": pname,
+                                    "Position": _pos_lookup.get(pname, ""),
+                                    "Status": "BENCH",
+                                }
+                            )
                     if bench_data:
-                        render_styled_table(pd.DataFrame(bench_data))
+                        _bench_row_classes = {i: "row-bench" for i in range(len(bench_data))}
+                        render_compact_table(pd.DataFrame(bench_data), row_classes=_bench_row_classes)
 
                 # Timing breakdown
                 timing = result.get("timing", {})
@@ -1069,29 +1105,55 @@ with main:
                             elif slot_pos in bp_positions:
                                 bench_at_pos.append(int(bp["player_id"]))
 
-                    # Find top free agents at this position
+                    # Find top free agents at this position (ranked by marginal SGP)
                     fa_at_pos_ids: list[int] = []
                     if not fa_pool.empty and slot_pos:
                         fa_filtered = fa_pool[
                             fa_pool["positions"].astype(str).str.contains(slot_pos, case=False, na=False)
                         ].copy()
-                        # Sort by a proxy stat to get top candidates
-                        sort_col = "r" if slot_pos != "SP" and slot_pos != "RP" else "k"
-                        if sort_col in fa_filtered.columns:
-                            fa_filtered[sort_col] = pd.to_numeric(fa_filtered[sort_col], errors="coerce").fillna(0)
-                            fa_filtered = fa_filtered.nlargest(3, sort_col)
+                        # Prefer marginal_value (SGP-based) over raw counting stats
+                        if "marginal_value" in fa_filtered.columns:
+                            fa_filtered["_sort_val"] = pd.to_numeric(
+                                fa_filtered["marginal_value"], errors="coerce"
+                            ).fillna(0)
+                        elif "pick_score" in fa_filtered.columns:
+                            fa_filtered["_sort_val"] = pd.to_numeric(fa_filtered["pick_score"], errors="coerce").fillna(
+                                0
+                            )
                         else:
-                            fa_filtered = fa_filtered.head(3)
+                            # Fallback: sum relevant counting stats as proxy
+                            _hit_cols = ["r", "hr", "rbi", "sb"]
+                            _pit_cols = ["k", "sv", "w"]
+                            _proxy_cols = _hit_cols if slot_pos not in ("SP", "RP") else _pit_cols
+                            fa_filtered["_sort_val"] = sum(
+                                pd.to_numeric(fa_filtered[c], errors="coerce").fillna(0)
+                                for c in _proxy_cols
+                                if c in fa_filtered.columns
+                            )
+                        fa_filtered = fa_filtered.nlargest(3, "_sort_val")
                         fa_at_pos_ids = fa_filtered["player_id"].tolist()
                     elif not fa_pool.empty and slot_name == "Util":
-                        # For Util, show top hitters
+                        # For Util, show top hitters by SGP or composite stats
                         if "is_hitter" in fa_pool.columns:
                             fa_hitters = fa_pool[fa_pool["is_hitter"].fillna(0).astype(bool)].copy()
                         else:
                             fa_hitters = pd.DataFrame()
-                        if not fa_hitters.empty and "r" in fa_hitters.columns:
-                            fa_hitters["r"] = pd.to_numeric(fa_hitters["r"], errors="coerce").fillna(0)
-                            fa_hitters = fa_hitters.nlargest(3, "r")
+                        if not fa_hitters.empty:
+                            if "marginal_value" in fa_hitters.columns:
+                                fa_hitters["_sort_val"] = pd.to_numeric(
+                                    fa_hitters["marginal_value"], errors="coerce"
+                                ).fillna(0)
+                            elif "pick_score" in fa_hitters.columns:
+                                fa_hitters["_sort_val"] = pd.to_numeric(
+                                    fa_hitters["pick_score"], errors="coerce"
+                                ).fillna(0)
+                            else:
+                                fa_hitters["_sort_val"] = sum(
+                                    pd.to_numeric(fa_hitters[c], errors="coerce").fillna(0)
+                                    for c in ["r", "hr", "rbi", "sb"]
+                                    if c in fa_hitters.columns
+                                )
+                            fa_hitters = fa_hitters.nlargest(3, "_sort_val")
                             fa_at_pos_ids = fa_hitters["player_id"].tolist()
 
                     # Combine player IDs for comparison
@@ -1225,8 +1287,16 @@ with main:
                             row_classes: dict[int, str] = {}
                             for rank, p in enumerate(players_list):
                                 is_rec = p["player_id"] == rec_id
-                                rec_label = "START" if is_rec else "SIT"
                                 source = _pid_to_source.get(p["player_id"], "")
+                                # Clear decision label: START for recommended, source-aware for others
+                                if is_rec:
+                                    rec_label = "START"
+                                elif source == "Free Agent":
+                                    rec_label = "FA OPTION"
+                                elif source == "Bench":
+                                    rec_label = "BENCH ALT"
+                                else:
+                                    rec_label = "SIT"
                                 top_cat = ""
                                 if p.get("category_impact"):
                                     sorted_cats = sorted(
@@ -2092,7 +2162,12 @@ with main:
                         starters_dcv = eligible.nlargest(18, "total_dcv")
                         bench_dcv = dcv[~dcv.index.isin(starters_dcv.index)]
 
-                        st.markdown("**Recommended Starting Lineup**")
+                        st.markdown(
+                            f'<p style="font-size:12px;font-weight:700;letter-spacing:1px;'
+                            f"color:{T['tx2']};text-transform:uppercase;"
+                            f'margin:0 0 6px;">Starting Lineup (Start)</p>',
+                            unsafe_allow_html=True,
+                        )
                         display_cols = [
                             "name",
                             "positions",
@@ -2104,7 +2179,11 @@ with main:
                         if "stud_floor_applied" in starters_dcv.columns:
                             display_cols.append("stud_floor_applied")
 
-                        starter_display = starters_dcv[[c for c in display_cols if c in starters_dcv.columns]].rename(
+                        starter_display = starters_dcv[[c for c in display_cols if c in starters_dcv.columns]].copy()
+                        starter_display["Decision"] = "START"
+                        # Sort by Yahoo slot order using positions column
+                        starter_display = sort_roster_for_display(starter_display)
+                        starter_display = starter_display.rename(
                             columns={
                                 "name": "Player",
                                 "positions": "Position",
@@ -2115,29 +2194,37 @@ with main:
                                 "stud_floor_applied": "Stud Floor",
                             }
                         )
-                        render_styled_table(starter_display)
+                        _dcv_start_classes = {i: "row-start" for i in range(len(starter_display))}
+                        render_compact_table(starter_display, row_classes=_dcv_start_classes)
 
                         if not bench_dcv.empty:
-                            st.markdown("**Bench**")
+                            st.markdown(
+                                f'<p style="font-size:12px;font-weight:700;letter-spacing:1px;'
+                                f"color:{T['tx2']};text-transform:uppercase;"
+                                f'margin:16px 0 6px;">Bench (Sit)</p>',
+                                unsafe_allow_html=True,
+                            )
                             bench_cols_show = [
                                 "name",
                                 "positions",
                                 "team",
                                 "total_dcv",
-                                "status",
                                 "volume_factor",
                             ]
-                            bench_display = bench_dcv[[c for c in bench_cols_show if c in bench_dcv.columns]].rename(
+                            bench_display = bench_dcv[[c for c in bench_cols_show if c in bench_dcv.columns]].copy()
+                            bench_display["Decision"] = "BENCH"
+                            bench_display = sort_roster_for_display(bench_display)
+                            bench_display = bench_display.rename(
                                 columns={
                                     "name": "Player",
                                     "positions": "Position",
                                     "team": "Team",
                                     "total_dcv": "DCV Score",
-                                    "status": "Status",
                                     "volume_factor": "Volume",
                                 }
                             )
-                            render_styled_table(bench_display)
+                            _dcv_bench_classes = {i: "row-bench" for i in range(len(bench_display))}
+                            render_compact_table(bench_display, row_classes=_dcv_bench_classes)
 
                         st.caption(
                             "DCV = Daily Category Value. Computed from Bayesian-blended "

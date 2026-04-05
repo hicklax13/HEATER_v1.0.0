@@ -19,7 +19,7 @@ python load_sample_data.py             # Load sample data (first time/testing)
 streamlit run app.py                   # Run the app
 ruff check .                           # Lint
 ruff format .                          # Format
-python -m pytest                       # Run all tests (2300 pass, 4 skipped)
+python -m pytest                       # Run all tests (2285 pass, 3 skipped)
 python -m pytest tests/test_foo.py -v  # Run single test file
 ```
 
@@ -631,6 +631,22 @@ get_injury_badge(health_score) -> tuple[str, str]  # returns <span> with CSS dot
   - **IP Budget Fix** — Pitcher dicts now include `positions`, `status`, `is_starter` fields. Uses **projected** season IP from player pool (not actual IP pitched). Fixes "1.23/20 IP" → realistic "35.2/20 IP".
   - **Weekly Projection Scaling** — "Projected Category Totals" now divided by 26 (weeks). Rate stats unchanged. Header renamed to "Projected Weekly Category Totals".
   - **IP-Aware Pitching Weights** — When projected weekly IP < 20 (danger), pitching weights boosted 1.5x. When safe, reduced to 0.7x.
+
+## Key Fixes (April 5, 2026)
+
+- **The Last Plan — Gap Closure** — 4 remaining gaps from the AVIS implementation plan completed:
+  - **Yahoo 429 Exponential Backoff** — `_request_with_backoff()` in `src/yahoo_api.py` retries up to 3 times on HTTP 429 with delays of 1s→2s→4s. Wired into `get_free_agents()` direct API call.
+  - **yahoo_free_agents Table Population** — Bootstrap Phase 18 now writes FA rows into `yahoo_free_agents` table via `INSERT OR REPLACE` (was only upserting to `players` table). Stores `player_key`, `percent_owned`, `fetched_at`.
+  - **Dynamic IL Return-Date Protection** — `_get_il_return_dates()` in `src/alerts.py` fetches ESPN injury data and checks if rostered IL players return within 2 weeks. Shows WARNING severity with "PROTECTED" label and days-until-return. Falls back to static `IL_STASH_NAMES` when no date available.
+  - **League Trade Monitoring Alerts** — Alert 5 in `src/alerts.py` scans Yahoo transactions for opponent trades. Deduplicates by `transaction_id`, filters out user's own trades. Wired into `pages/1_My_Team.py` via `yds.get_transactions()`.
+
+- **Lineup Optimizer Audit** — 6 issues fixed across all 7 tabs in `pages/5_Lineup.py`:
+  - **START/BENCH Clarity** — Added "Status" column ("START"/"BENCH") with green/red row tinting to both Optimize and Daily Optimize tabs. Bench header changed to "Bench (Sit)".
+  - **Yahoo Slot Sort Order** — Optimize tab starting lineup now sorted by Yahoo roster order (C→1B→2B→3B→SS→OF→Util→SP→RP→P) using `SLOT_ORDER_HITTERS + SLOT_ORDER_PITCHERS`.
+  - **Daily Optimize Slot Order** — Starters and bench sections now sorted by `sort_roster_for_display()` for consistent Yahoo position ordering.
+  - **Start/Sit Decision Labels** — Changed from binary "START"/"SIT" to contextual labels: "START" for recommended, "BENCH ALT" for bench alternatives, "FA OPTION" for free agents.
+  - **FA Ranking by SGP** — Free agents in Start/Sit tab now ranked by `marginal_value` (SGP-based) instead of raw single-stat sort (R for hitters, K for pitchers).
+  - **H2H Tab Verified** — Confirmed correct use of live Yahoo matchup data throughout. No changes needed.
 
 ## Season State (2026)
 

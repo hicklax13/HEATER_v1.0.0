@@ -767,10 +767,25 @@ else:
                 except Exception:
                     pass
 
+                # Fetch recent transactions for league trade monitoring
+                _txn_df = pd.DataFrame()
+                _user_team = ""
+                try:
+                    from src.yahoo_data_service import get_yahoo_data_service
+
+                    _yds = get_yahoo_data_service()
+                    if _yds and _yds.is_connected():
+                        _txn_df = _yds.get_transactions()
+                        _user_team = st.session_state.get("user_team_name", "")
+                except Exception:
+                    pass
+
                 alerts = generate_roster_alerts(
                     roster=roster,
                     player_news=news_df if not news_df.empty else None,
                     max_roster_size=23,
+                    transactions=_txn_df if not _txn_df.empty else None,
+                    user_team_name=_user_team,
                 )
                 if alerts:
                     alerts_html = render_alerts_html(alerts, T)

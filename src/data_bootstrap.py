@@ -1012,7 +1012,34 @@ def bootstrap_all_data(
                             ]
                         )
                         new_players += 1
-                results["yahoo_free_agents"] = f"Checked {len(fa_df)} FAs, added {new_players} new"
+                # Also populate the yahoo_free_agents table for ownership tracking
+                from src.database import get_connection as _get_conn
+
+                _fa_conn = _get_conn()
+                try:
+                    from datetime import UTC, datetime
+
+                    _now = datetime.now(UTC).isoformat()
+                    for _, row in fa_df.iterrows():
+                        _fa_conn.execute(
+                            """INSERT OR REPLACE INTO yahoo_free_agents
+                               (player_key, player_name, positions, team, percent_owned, fetched_at)
+                               VALUES (?, ?, ?, ?, ?, ?)""",
+                            (
+                                row.get("player_key", ""),
+                                row.get("player_name", ""),
+                                row.get("positions", ""),
+                                row.get("team", ""),
+                                float(row.get("percent_owned", 0) or 0),
+                                _now,
+                            ),
+                        )
+                    _fa_conn.commit()
+                finally:
+                    _fa_conn.close()
+                results["yahoo_free_agents"] = (
+                    f"Checked {len(fa_df)} FAs, added {new_players} new, stored {len(fa_df)} to yahoo_free_agents"
+                )
             else:
                 results["yahoo_free_agents"] = "No FA data from Yahoo"
         except Exception as exc:

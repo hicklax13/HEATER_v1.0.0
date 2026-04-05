@@ -47,6 +47,7 @@ logger = logging.getLogger(__name__)
 _AUTH_DIR = Path(__file__).parent.parent / "data"
 _RATE_LIMIT_SECONDS = 0.5
 _last_request_time: float = 0.0
+_MAX_RETRIES = 3
 
 
 def _rate_limit():
@@ -56,6 +57,24 @@ def _rate_limit():
     if elapsed < _RATE_LIMIT_SECONDS:
         time.sleep(_RATE_LIMIT_SECONDS - elapsed)
     _last_request_time = time.monotonic()
+
+
+def _request_with_backoff(url: str, headers: dict, timeout: int = 15) -> _requests.Response:
+    """GET request with exponential backoff on 429 Too Many Requests.
+
+    Retries up to ``_MAX_RETRIES`` times with delays of 1s, 2s, 4s, ...
+    Raises the final response's HTTP error if all retries are exhausted.
+    """
+    for attempt in range(_MAX_RETRIES + 1):
+        _rate_limit()
+        resp = _requests.get(url, headers=headers, timeout=timeout)
+        if resp.status_code != 429 or attempt == _MAX_RETRIES:
+            resp.raise_for_status()
+            return resp
+        wait = 2**attempt  # 1s, 2s, 4s
+        logger.warning("Yahoo 429 rate-limited — retry %d/%d in %ds", attempt + 1, _MAX_RETRIES, wait)
+        time.sleep(wait)
+    return resp  # unreachable but satisfies type checker
 
 
 # ---------------------------------------------------------------------------
@@ -994,9 +1013,7 @@ class YahooFantasyClient:
                 f"{league_key}/players;status=FA;count={count};start={start}"
                 f";sort=OR;out=percent_owned?format=json"
             )
-            _rate_limit()
-            resp = _requests.get(url, headers=headers, timeout=15)
-            resp.raise_for_status()
+            resp = _request_with_backoff(url, headers=headers, timeout=15)
             data = resp.json()
 
             league = data.get("fantasy_content", {}).get("league", [])
