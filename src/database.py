@@ -363,6 +363,26 @@ def init_db():
             PRIMARY KEY (week, team_a)
         );
 
+        CREATE TABLE IF NOT EXISTS league_schedule_full (
+            week INTEGER NOT NULL,
+            team_a TEXT NOT NULL,
+            team_b TEXT NOT NULL,
+            PRIMARY KEY (week, team_a, team_b)
+        );
+
+        CREATE TABLE IF NOT EXISTS league_records (
+            team_name TEXT PRIMARY KEY,
+            wins INTEGER DEFAULT 0,
+            losses INTEGER DEFAULT 0,
+            ties INTEGER DEFAULT 0,
+            win_pct REAL DEFAULT 0.0,
+            points_for REAL DEFAULT 0.0,
+            points_against REAL DEFAULT 0.0,
+            streak TEXT DEFAULT '',
+            rank INTEGER DEFAULT 0,
+            updated_at TEXT
+        );
+
         CREATE TABLE IF NOT EXISTS yahoo_free_agents (
             player_key TEXT PRIMARY KEY,
             player_name TEXT NOT NULL,
@@ -1385,6 +1405,83 @@ def load_league_schedule() -> dict[int, str]:
         return {int(row[0]): row[1] for row in rows}
     finally:
         conn.close()
+
+
+def upsert_league_schedule_full(week: int, team_a: str, team_b: str) -> None:
+    """Insert or replace a full-league matchup entry."""
+    conn = get_connection()
+    try:
+        conn.execute(
+            "INSERT OR REPLACE INTO league_schedule_full (week, team_a, team_b) VALUES (?, ?, ?)",
+            (week, team_a, team_b),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def load_league_schedule_full() -> dict[int, list[tuple[str, str]]]:
+    """Load full league schedule: {week: [(team_a, team_b), ...]}."""
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            "SELECT week, team_a, team_b FROM league_schedule_full ORDER BY week"
+        ).fetchall()
+    finally:
+        conn.close()
+    result: dict[int, list[tuple[str, str]]] = {}
+    for week, team_a, team_b in rows:
+        week = int(week)
+        result.setdefault(week, []).append((str(team_a), str(team_b)))
+    return result
+
+
+def upsert_league_record(
+    team_name: str,
+    wins: int = 0,
+    losses: int = 0,
+    ties: int = 0,
+    win_pct: float = 0.0,
+    points_for: float = 0.0,
+    points_against: float = 0.0,
+    streak: str = "",
+    rank: int = 0,
+) -> None:
+    """Insert or replace a team's W-L-T record."""
+    conn = get_connection()
+    try:
+        conn.execute(
+            """INSERT OR REPLACE INTO league_records
+               (team_name, wins, losses, ties, win_pct, points_for,
+                points_against, streak, rank, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (team_name, wins, losses, ties, win_pct, points_for,
+             points_against, streak, rank, datetime.now(UTC).isoformat()),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def load_league_records() -> pd.DataFrame:
+    """Load all team W-L-T records."""
+    conn = get_connection()
+    try:
+        df = pd.read_sql_query(
+            "SELECT * FROM league_records ORDER BY rank",
+            conn,
+        )
+    finally:
+        conn.close()
+    if df.empty:
+        return pd.DataFrame(columns=[
+            "team_name", "wins", "losses", "ties", "win_pct",
+            "points_for", "points_against", "streak", "rank", "updated_at",
+        ])
+    for col in ("wins", "losses", "ties", "rank"):
+        df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0).astype(int)
+    df["win_pct"] = pd.to_numeric(df["win_pct"], errors="coerce").fillna(0.0)
+    return df
 
 
 def save_league_draft_picks(draft_df: "pd.DataFrame") -> int:
