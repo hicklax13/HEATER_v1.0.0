@@ -659,6 +659,73 @@ get_injury_badge(health_score) -> tuple[str, str]  # returns <span> with CSS dot
 - **League rosters:** All 12 teams synced (264 players)
 - **Free agents:** Exhaustive pagination from Yahoo API
 
+## League Standings + Matchup Planner Redesign (April 5-6, 2026) — PARTIALLY COMPLETE
+
+**Design spec:** `docs/superpowers/specs/2026-04-05-league-standings-matchup-planner-design.md`
+**Implementation plan:** `docs/superpowers/plans/2026-04-05-league-standings-matchup-planner.md`
+
+### What was completed (Waves 1-3):
+
+- **`src/standings_engine.py`** (NEW) — Shared computation engine with:
+  - `compute_category_win_probabilities()` — Bayesian-updated Normal + Gaussian copula (10K sims) for per-category P(win)
+  - `simulate_season_enhanced()` — Schedule-aware MC season simulation starting from current W-L-T records
+  - `compute_magic_numbers()` — Wins to clinch playoffs (0=clinched, None=eliminated)
+  - `compute_team_strength_profiles()` — 5-factor power rankings (all factors wired up)
+  - `parse_scoreboard_matchups()`, `find_user_opponent()`, `parse_week_category_results()` — schedule helpers
+  - `_build_correlation_matrix()`, `_estimate_team_weekly_stats()` — internal helpers
+  - `CATEGORY_CORRELATIONS` — pairwise category correlation values (HR/R/RBI cluster, AVG/OBP, ERA/WHIP)
+- **`src/database.py`** — Added `league_schedule_full` table (all 12 teams, all weeks) + `league_records` table (W-L-T records) + 4 CRUD functions
+- **`src/yahoo_data_service.py`** — Added `get_full_league_schedule()` (24 API calls, 24h cache) + W-L-T meta column capture in `_fetch_and_sync_standings()`
+- **`pages/8_League_Standings.py`** (NEW, replaces old `8_Standings.py`) — 2-tab page:
+  - Tab 1: Current Standings — Live Yahoo H2H W-L-T record table + 12x12 category rank grid
+  - Tab 2: Season Projections — Auto-run MC simulation, projected final standings, playoff odds, magic numbers, team strength profiles, scenario explorer
+  - Context panel: your position, live matchup, playoff odds, data freshness
+  - Reco banner: matchup preview with category focus areas
+- **`pages/11_Matchup_Planner.py`** (REWRITTEN) — Added:
+  - New "Category Probabilities" tab (first tab) — per-category win probability bars (0-100%), color-coded by confidence
+  - Week navigator (left/right arrows) — browse weeks 1-24, defaults to current week
+  - Overall win/tie/loss probability in context panel
+  - Past weeks show actual results, future weeks show projections
+  - All existing tabs preserved (renamed "Summary" to "Player Matchups")
+- **`src/ui_shared.py`** — Added "league_standings" icon to PAGE_ICONS and sidebar JS icon map
+- **Tests:** 31+ new tests across `tests/test_standings_engine.py` and `tests/test_yahoo_schedule.py`
+
+### What was NOT completed (Wave 4):
+
+- **Task 8: Integration Tests + Ruff Lint + Final Cleanup** — Never dispatched. Needs:
+  1. Run `python -m pytest -x -q` to verify full suite passes
+  2. Run `python -m ruff check . --fix && python -m ruff format .` to fix lint issues
+  3. Review `tests/test_league_standings_integration.py` — file exists but may need expansion
+  4. Manual smoke test: `streamlit run app.py` → navigate to League Standings and Matchup Planner pages
+  5. Verify both pages render without errors with Yahoo connected
+  6. Final commit + push
+
+### Key API Signatures (standings_engine.py)
+
+```python
+# Category win probabilities (src/standings_engine.py)
+compute_category_win_probabilities(
+    user_roster_ids: list[int], opp_roster_ids: list[int],
+    player_pool: pd.DataFrame, config: LeagueConfig,
+    weeks_played: int = 0, weeks_remaining: int = 16,
+    n_sims: int = 10000, seed: int = 42,
+) -> dict  # {overall_win_pct, overall_tie_pct, overall_loss_pct, projected_score, categories: [{name, user_proj, opp_proj, win_pct, confidence, is_inverse}]}
+
+# Enhanced MC simulation (src/standings_engine.py)
+simulate_season_enhanced(
+    current_standings: dict[str, dict], team_weekly_totals: dict[str, dict],
+    full_schedule: dict[int, list[tuple[str, str]]], current_week: int = 1,
+    n_sims: int = 1000, seed: int = 42, momentum_data: dict | None = None,
+    playoff_spots: int = 4,
+) -> dict  # {projected_records, playoff_probability, confidence_intervals, strength_of_schedule}
+
+# Magic numbers (src/standings_engine.py)
+compute_magic_numbers(current_wins: dict[str, int], remaining_matchups: int, playoff_spots: int = 4) -> dict[str, int | None]
+
+# Full league schedule (src/yahoo_data_service.py)
+yds.get_full_league_schedule(force_refresh=False, total_weeks=24) -> dict[int, list[tuple[str, str]]]
+```
+
 ## Resume Checklist (New Session)
 
 1. Read `CLAUDE.md` (this file) and `The_Last_Plan.md`
@@ -666,4 +733,5 @@ get_injury_badge(health_score) -> tuple[str, str]  # returns <span> with CSS dot
 3. Check `docs/AUDIT_REPORT.md` for any remaining bugs
 4. Run `python -m pytest -x -q` to verify all tests pass
 5. Run app with `streamlit run app.py` and verify Yahoo auto-reconnect works
-6. Continue with any remaining tasks from The Last Plan or user requests
+6. **Complete Wave 4 of League Standings plan** — see "What was NOT completed" section above
+7. Continue with any remaining tasks from The Last Plan or user requests
