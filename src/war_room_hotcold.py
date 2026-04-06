@@ -15,9 +15,10 @@ logger = logging.getLogger(__name__)
 # IL/inactive statuses to skip (case-insensitive)
 _INACTIVE_STATUSES = {"il10", "il15", "il60", "il", "na", "dl"}
 
-# Deviation thresholds
+# Deviation thresholds — raised moderate floor to prevent false signals
+# from near-identical L7 vs season lines (e.g., .320 vs .321)
 _STRONG_THRESHOLD = 1.2
-_MODERATE_THRESHOLD = 0.6
+_MODERATE_THRESHOLD = 1.0
 
 
 def compute_hot_cold_report(

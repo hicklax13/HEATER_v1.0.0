@@ -50,9 +50,13 @@ def _position_eligible(player_positions: str, slot: str) -> bool:
     return slot_upper in positions
 
 
-def _is_bench(roster_slot: str) -> bool:
-    """Return True if the roster slot is a bench/IL slot."""
-    return str(roster_slot).strip().upper() in _BENCH_SLOTS
+def _is_bench(roster_slot: str, status: str = "") -> bool:
+    """Return True if the roster slot is a bench/IL slot or player has IL status."""
+    if str(roster_slot).strip().upper() in _BENCH_SLOTS:
+        return True
+    # Also check player status (IL players may have non-IL roster_slot in some data)
+    s = str(status).strip().lower()
+    return s in {"il10", "il15", "il60", "il", "na", "dl"}
 
 
 def _is_sp(positions: str) -> bool:
@@ -147,7 +151,7 @@ def compute_todays_actions(
     # Priority 1 — Off-day starters (swap opportunities)
     # ------------------------------------------------------------------
     for _, starter in roster.iterrows():
-        if _is_bench(str(starter.get("roster_slot", "BN"))):
+        if _is_bench(str(starter.get("roster_slot", "BN")), str(starter.get("status", ""))):
             continue
         if _team_plays(starter.get("team", "")):
             continue
@@ -243,7 +247,7 @@ def compute_todays_actions(
     # Priority 3 — SP matchup quality
     # ------------------------------------------------------------------
     for _, player in roster.iterrows():
-        if _is_bench(str(player.get("roster_slot", "BN"))):
+        if _is_bench(str(player.get("roster_slot", "BN")), str(player.get("status", ""))):
             continue
         if not _is_sp(str(player.get("positions", ""))):
             continue
@@ -343,7 +347,7 @@ def compute_todays_actions(
     for _, player in roster.iterrows():
         if confirmed_count >= 2:
             break
-        if _is_bench(str(player.get("roster_slot", "BN"))):
+        if _is_bench(str(player.get("roster_slot", "BN")), str(player.get("status", ""))):
             continue
         if not _team_plays(player.get("team", "")):
             continue
