@@ -12,6 +12,13 @@ from __future__ import annotations
 
 import logging
 
+import numpy as np
+import pandas as pd
+from scipy.stats import norm
+
+from src.standings_projection import INVERSE_CATS, WEEKLY_TAU
+from src.valuation import LeagueConfig
+
 logger = logging.getLogger(__name__)
 
 
@@ -102,25 +109,33 @@ def parse_week_category_results(
 
 # ── Category win probability engine ──────────────────────────────────
 
-import numpy as np
-import pandas as pd
-from scipy.stats import norm
-
-from src.standings_projection import INVERSE_CATS, WEEKLY_TAU
-from src.valuation import LeagueConfig
-
 # ── Category correlation matrix ─────────────────────────────────────
 
 CATEGORY_CORRELATIONS: dict[tuple[str, str], float] = {
-    ("HR", "R"): 0.72,   ("HR", "RBI"): 0.68,   ("R", "RBI"): 0.65,
-    ("AVG", "OBP"): 0.85, ("ERA", "WHIP"): 0.78,
-    ("W", "K"): 0.45,     ("SB", "AVG"): -0.15,
-    ("W", "L"): -0.30,    ("SV", "W"): -0.10,
+    ("HR", "R"): 0.72,
+    ("HR", "RBI"): 0.68,
+    ("R", "RBI"): 0.65,
+    ("AVG", "OBP"): 0.85,
+    ("ERA", "WHIP"): 0.78,
+    ("W", "K"): 0.45,
+    ("SB", "AVG"): -0.15,
+    ("W", "L"): -0.30,
+    ("SV", "W"): -0.10,
 }
 
 ALL_CATEGORIES: list[str] = [
-    "R", "HR", "RBI", "SB", "AVG", "OBP",
-    "W", "L", "SV", "K", "ERA", "WHIP",
+    "R",
+    "HR",
+    "RBI",
+    "SB",
+    "AVG",
+    "OBP",
+    "W",
+    "L",
+    "SV",
+    "K",
+    "ERA",
+    "WHIP",
 ]
 
 
@@ -256,14 +271,16 @@ def compute_category_win_probabilities(
 
         confidence = "high" if weeks_played >= 8 else "medium" if weeks_played >= 4 else "low"
 
-        cat_results.append({
-            "name": cat,
-            "user_proj": round(mu_user, 3),
-            "opp_proj": round(mu_opp, 3),
-            "win_pct": round(p_win, 4),
-            "confidence": confidence,
-            "is_inverse": is_inv,
-        })
+        cat_results.append(
+            {
+                "name": cat,
+                "user_proj": round(mu_user, 3),
+                "opp_proj": round(mu_opp, 3),
+                "win_pct": round(p_win, 4),
+                "confidence": confidence,
+                "is_inverse": is_inv,
+            }
+        )
         marginal_probs.append(p_win)
 
     # Correlated overall matchup probability via Gaussian copula
@@ -453,8 +470,7 @@ def simulate_season_enhanced(
 
     # Strength of schedule: avg opponent quality
     total_games_per_team = {
-        t: current_standings[t]["W"] + current_standings[t]["L"] + current_standings[t]["T"]
-        for t in teams
+        t: current_standings[t]["W"] + current_standings[t]["L"] + current_standings[t]["T"] for t in teams
     }
     sos: dict[str, float] = {}
     for ti, team in enumerate(teams):
@@ -608,11 +624,7 @@ def compute_team_strength_profiles(
 
     # Schedule strength: avg opponent roster_quality for remaining weeks
     sos: dict[str, float] = {}
-    remaining_weeks = (
-        [w for w in sorted(full_schedule.keys()) if w >= current_week]
-        if full_schedule
-        else []
-    )
+    remaining_weeks = [w for w in sorted(full_schedule.keys()) if w >= current_week] if full_schedule else []
     for team in teams:
         opp_qualities: list[float] = []
         for week in remaining_weeks:
@@ -642,16 +654,18 @@ def compute_team_strength_profiles(
     results = []
     for _, row in pr_df.iterrows():
         p5, p95 = bootstrap_confidence_interval(row["power_rating"])
-        results.append({
-            "team_name": row["team_name"],
-            "power_rating": row["power_rating"],
-            "roster_quality": row["roster_quality"],
-            "category_balance": row["category_balance"],
-            "schedule_strength": row.get("schedule_strength"),
-            "injury_exposure": row.get("injury_exposure"),
-            "momentum": row.get("momentum"),
-            "rank": row["rank"],
-            "ci_low": p5,
-            "ci_high": p95,
-        })
+        results.append(
+            {
+                "team_name": row["team_name"],
+                "power_rating": row["power_rating"],
+                "roster_quality": row["roster_quality"],
+                "category_balance": row["category_balance"],
+                "schedule_strength": row.get("schedule_strength"),
+                "injury_exposure": row.get("injury_exposure"),
+                "momentum": row.get("momentum"),
+                "rank": row["rank"],
+                "ci_low": p5,
+                "ci_high": p95,
+            }
+        )
     return results

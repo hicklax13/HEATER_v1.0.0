@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -9,6 +10,7 @@ from src.database import (
     get_connection,
     init_db,
 )
+from src.valuation import LeagueConfig
 
 
 @pytest.fixture(autouse=True)
@@ -63,10 +65,8 @@ class TestLeagueRecordsTable:
     def test_upsert_and_load_records(self):
         from src.database import load_league_records, upsert_league_record
 
-        upsert_league_record("Team Hickey", wins=42, losses=32, ties=6,
-                             win_pct=0.563, streak="L1", rank=3)
-        upsert_league_record("Jonny Jockstrap", wins=48, losses=26, ties=6,
-                             win_pct=0.638, streak="W3", rank=1)
+        upsert_league_record("Team Hickey", wins=42, losses=32, ties=6, win_pct=0.563, streak="L1", rank=3)
+        upsert_league_record("Jonny Jockstrap", wins=48, losses=26, ties=6, win_pct=0.638, streak="W3", rank=1)
 
         df = load_league_records()
         assert isinstance(df, pd.DataFrame)
@@ -76,10 +76,8 @@ class TestLeagueRecordsTable:
     def test_upsert_record_overwrites(self):
         from src.database import load_league_records, upsert_league_record
 
-        upsert_league_record("Team A", wins=10, losses=5, ties=1,
-                             win_pct=0.656, streak="W1", rank=1)
-        upsert_league_record("Team A", wins=11, losses=5, ties=1,
-                             win_pct=0.688, streak="W2", rank=1)
+        upsert_league_record("Team A", wins=10, losses=5, ties=1, win_pct=0.656, streak="W1", rank=1)
+        upsert_league_record("Team A", wins=11, losses=5, ties=1, win_pct=0.688, streak="W2", rank=1)
 
         df = load_league_records()
         assert len(df) == 1
@@ -93,23 +91,41 @@ class TestLeagueRecordsTable:
         assert len(df) == 0
 
 
-import numpy as np
-
-from src.valuation import LeagueConfig
-
-
 class TestCategoryWinProbabilities:
     """Tests for per-category win probability computation."""
 
     def _make_pool(self, players: list[dict]) -> pd.DataFrame:
         """Build minimal player pool DataFrame for testing."""
         base = {
-            "player_id": 0, "name": "Test", "team": "TST", "positions": "OF",
-            "is_hitter": 1, "is_injured": 0,
-            "pa": 600, "ab": 550, "h": 150, "r": 80, "hr": 25, "rbi": 85,
-            "sb": 10, "avg": 0.273, "obp": 0.340, "bb": 50, "hbp": 5, "sf": 5,
-            "ip": 0, "w": 0, "l": 0, "sv": 0, "k": 0, "era": 0.0, "whip": 0.0,
-            "er": 0, "bb_allowed": 0, "h_allowed": 0, "adp": 100,
+            "player_id": 0,
+            "name": "Test",
+            "team": "TST",
+            "positions": "OF",
+            "is_hitter": 1,
+            "is_injured": 0,
+            "pa": 600,
+            "ab": 550,
+            "h": 150,
+            "r": 80,
+            "hr": 25,
+            "rbi": 85,
+            "sb": 10,
+            "avg": 0.273,
+            "obp": 0.340,
+            "bb": 50,
+            "hbp": 5,
+            "sf": 5,
+            "ip": 0,
+            "w": 0,
+            "l": 0,
+            "sv": 0,
+            "k": 0,
+            "era": 0.0,
+            "whip": 0.0,
+            "er": 0,
+            "bb_allowed": 0,
+            "h_allowed": 0,
+            "adp": 100,
         }
         rows = []
         for i, overrides in enumerate(players):
@@ -123,16 +139,50 @@ class TestCategoryWinProbabilities:
 
         config = LeagueConfig()
         # 5 identical hitters per team
-        hitter = {"name": "H", "is_hitter": 1, "r": 80, "hr": 25, "rbi": 85,
-                  "sb": 10, "avg": 0.273, "obp": 0.340, "pa": 600, "ab": 550,
-                  "h": 150, "bb": 50, "hbp": 5, "sf": 5}
-        pitcher = {"name": "P", "is_hitter": 0, "ip": 180, "w": 12, "l": 8,
-                   "sv": 0, "k": 180, "era": 3.50, "whip": 1.20,
-                   "er": 70, "bb_allowed": 55, "h_allowed": 165,
-                   "r": 0, "hr": 0, "rbi": 0, "sb": 0, "avg": 0, "obp": 0, "pa": 0, "ab": 0, "h": 0}
+        hitter = {
+            "name": "H",
+            "is_hitter": 1,
+            "r": 80,
+            "hr": 25,
+            "rbi": 85,
+            "sb": 10,
+            "avg": 0.273,
+            "obp": 0.340,
+            "pa": 600,
+            "ab": 550,
+            "h": 150,
+            "bb": 50,
+            "hbp": 5,
+            "sf": 5,
+        }
+        pitcher = {
+            "name": "P",
+            "is_hitter": 0,
+            "ip": 180,
+            "w": 12,
+            "l": 8,
+            "sv": 0,
+            "k": 180,
+            "era": 3.50,
+            "whip": 1.20,
+            "er": 70,
+            "bb_allowed": 55,
+            "h_allowed": 165,
+            "r": 0,
+            "hr": 0,
+            "rbi": 0,
+            "sb": 0,
+            "avg": 0,
+            "obp": 0,
+            "pa": 0,
+            "ab": 0,
+            "h": 0,
+        }
         pool = self._make_pool(
-            [hitter] * 5 + [pitcher] * 3 +  # user team (ids 1-8)
-            [hitter] * 5 + [pitcher] * 3     # opp team (ids 9-16)
+            [hitter] * 5
+            + [pitcher] * 3  # user team (ids 1-8)
+            + [hitter] * 5
+            + [pitcher] * 3  # opp team (ids 9-16)
         )
         user_ids = list(range(1, 9))
         opp_ids = list(range(9, 17))
@@ -155,24 +205,69 @@ class TestCategoryWinProbabilities:
         from src.standings_engine import compute_category_win_probabilities
 
         config = LeagueConfig()
-        strong_hitter = {"name": "Strong", "is_hitter": 1, "r": 120, "hr": 45,
-                         "rbi": 130, "sb": 25, "avg": 0.310, "obp": 0.400,
-                         "pa": 700, "ab": 600, "h": 186, "bb": 80, "hbp": 10, "sf": 5}
-        weak_hitter = {"name": "Weak", "is_hitter": 1, "r": 40, "hr": 8,
-                       "rbi": 35, "sb": 2, "avg": 0.220, "obp": 0.270,
-                       "pa": 400, "ab": 360, "h": 79, "bb": 30, "hbp": 3, "sf": 3}
-        pitcher = {"name": "P", "is_hitter": 0, "ip": 180, "w": 12, "l": 8,
-                   "sv": 5, "k": 180, "era": 3.50, "whip": 1.20,
-                   "er": 70, "bb_allowed": 55, "h_allowed": 165,
-                   "r": 0, "hr": 0, "rbi": 0, "sb": 0, "avg": 0, "obp": 0, "pa": 0, "ab": 0, "h": 0}
+        strong_hitter = {
+            "name": "Strong",
+            "is_hitter": 1,
+            "r": 120,
+            "hr": 45,
+            "rbi": 130,
+            "sb": 25,
+            "avg": 0.310,
+            "obp": 0.400,
+            "pa": 700,
+            "ab": 600,
+            "h": 186,
+            "bb": 80,
+            "hbp": 10,
+            "sf": 5,
+        }
+        weak_hitter = {
+            "name": "Weak",
+            "is_hitter": 1,
+            "r": 40,
+            "hr": 8,
+            "rbi": 35,
+            "sb": 2,
+            "avg": 0.220,
+            "obp": 0.270,
+            "pa": 400,
+            "ab": 360,
+            "h": 79,
+            "bb": 30,
+            "hbp": 3,
+            "sf": 3,
+        }
+        pitcher = {
+            "name": "P",
+            "is_hitter": 0,
+            "ip": 180,
+            "w": 12,
+            "l": 8,
+            "sv": 5,
+            "k": 180,
+            "era": 3.50,
+            "whip": 1.20,
+            "er": 70,
+            "bb_allowed": 55,
+            "h_allowed": 165,
+            "r": 0,
+            "hr": 0,
+            "rbi": 0,
+            "sb": 0,
+            "avg": 0,
+            "obp": 0,
+            "pa": 0,
+            "ab": 0,
+            "h": 0,
+        }
         pool = self._make_pool(
-            [strong_hitter] * 5 + [pitcher] * 3 +  # user (strong)
-            [weak_hitter] * 5 + [pitcher] * 3       # opp (weak)
+            [strong_hitter] * 5
+            + [pitcher] * 3  # user (strong)
+            + [weak_hitter] * 5
+            + [pitcher] * 3  # opp (weak)
         )
 
-        result = compute_category_win_probabilities(
-            list(range(1, 9)), list(range(9, 17)), pool, config
-        )
+        result = compute_category_win_probabilities(list(range(1, 9)), list(range(9, 17)), pool, config)
         assert result["overall_win_pct"] > 0.70
 
     def test_inverse_categories_correct_direction(self):
@@ -180,25 +275,71 @@ class TestCategoryWinProbabilities:
         from src.standings_engine import compute_category_win_probabilities
 
         config = LeagueConfig()
-        hitter = {"name": "H", "is_hitter": 1, "r": 80, "hr": 25, "rbi": 85,
-                  "sb": 10, "avg": 0.273, "obp": 0.340, "pa": 600, "ab": 550,
-                  "h": 150, "bb": 50, "hbp": 5, "sf": 5}
-        good_pitcher = {"name": "GP", "is_hitter": 0, "ip": 200, "w": 15, "l": 5,
-                        "sv": 0, "k": 200, "era": 2.50, "whip": 1.00,
-                        "er": 56, "bb_allowed": 40, "h_allowed": 160,
-                        "r": 0, "hr": 0, "rbi": 0, "sb": 0, "avg": 0, "obp": 0, "pa": 0, "ab": 0, "h": 0}
-        bad_pitcher = {"name": "BP", "is_hitter": 0, "ip": 150, "w": 6, "l": 14,
-                       "sv": 0, "k": 100, "era": 5.50, "whip": 1.60,
-                       "er": 92, "bb_allowed": 70, "h_allowed": 170,
-                       "r": 0, "hr": 0, "rbi": 0, "sb": 0, "avg": 0, "obp": 0, "pa": 0, "ab": 0, "h": 0}
-        pool = self._make_pool(
-            [hitter] * 5 + [good_pitcher] * 3 +
-            [hitter] * 5 + [bad_pitcher] * 3
-        )
+        hitter = {
+            "name": "H",
+            "is_hitter": 1,
+            "r": 80,
+            "hr": 25,
+            "rbi": 85,
+            "sb": 10,
+            "avg": 0.273,
+            "obp": 0.340,
+            "pa": 600,
+            "ab": 550,
+            "h": 150,
+            "bb": 50,
+            "hbp": 5,
+            "sf": 5,
+        }
+        good_pitcher = {
+            "name": "GP",
+            "is_hitter": 0,
+            "ip": 200,
+            "w": 15,
+            "l": 5,
+            "sv": 0,
+            "k": 200,
+            "era": 2.50,
+            "whip": 1.00,
+            "er": 56,
+            "bb_allowed": 40,
+            "h_allowed": 160,
+            "r": 0,
+            "hr": 0,
+            "rbi": 0,
+            "sb": 0,
+            "avg": 0,
+            "obp": 0,
+            "pa": 0,
+            "ab": 0,
+            "h": 0,
+        }
+        bad_pitcher = {
+            "name": "BP",
+            "is_hitter": 0,
+            "ip": 150,
+            "w": 6,
+            "l": 14,
+            "sv": 0,
+            "k": 100,
+            "era": 5.50,
+            "whip": 1.60,
+            "er": 92,
+            "bb_allowed": 70,
+            "h_allowed": 170,
+            "r": 0,
+            "hr": 0,
+            "rbi": 0,
+            "sb": 0,
+            "avg": 0,
+            "obp": 0,
+            "pa": 0,
+            "ab": 0,
+            "h": 0,
+        }
+        pool = self._make_pool([hitter] * 5 + [good_pitcher] * 3 + [hitter] * 5 + [bad_pitcher] * 3)
 
-        result = compute_category_win_probabilities(
-            list(range(1, 9)), list(range(9, 17)), pool, config
-        )
+        result = compute_category_win_probabilities(list(range(1, 9)), list(range(9, 17)), pool, config)
         era_cat = next(c for c in result["categories"] if c["name"] == "ERA")
         whip_cat = next(c for c in result["categories"] if c["name"] == "WHIP")
 
@@ -211,18 +352,48 @@ class TestCategoryWinProbabilities:
         from src.standings_engine import compute_category_win_probabilities
 
         config = LeagueConfig()
-        hitter = {"name": "H", "is_hitter": 1, "r": 80, "hr": 25, "rbi": 85,
-                  "sb": 10, "avg": 0.273, "obp": 0.340, "pa": 600, "ab": 550,
-                  "h": 150, "bb": 50, "hbp": 5, "sf": 5}
-        pitcher = {"name": "P", "is_hitter": 0, "ip": 180, "w": 12, "l": 8,
-                   "sv": 5, "k": 180, "era": 3.50, "whip": 1.20,
-                   "er": 70, "bb_allowed": 55, "h_allowed": 165,
-                   "r": 0, "hr": 0, "rbi": 0, "sb": 0, "avg": 0, "obp": 0, "pa": 0, "ab": 0, "h": 0}
+        hitter = {
+            "name": "H",
+            "is_hitter": 1,
+            "r": 80,
+            "hr": 25,
+            "rbi": 85,
+            "sb": 10,
+            "avg": 0.273,
+            "obp": 0.340,
+            "pa": 600,
+            "ab": 550,
+            "h": 150,
+            "bb": 50,
+            "hbp": 5,
+            "sf": 5,
+        }
+        pitcher = {
+            "name": "P",
+            "is_hitter": 0,
+            "ip": 180,
+            "w": 12,
+            "l": 8,
+            "sv": 5,
+            "k": 180,
+            "era": 3.50,
+            "whip": 1.20,
+            "er": 70,
+            "bb_allowed": 55,
+            "h_allowed": 165,
+            "r": 0,
+            "hr": 0,
+            "rbi": 0,
+            "sb": 0,
+            "avg": 0,
+            "obp": 0,
+            "pa": 0,
+            "ab": 0,
+            "h": 0,
+        }
         pool = self._make_pool([hitter] * 5 + [pitcher] * 3 + [hitter] * 5 + [pitcher] * 3)
 
-        result = compute_category_win_probabilities(
-            list(range(1, 9)), list(range(9, 17)), pool, config
-        )
+        result = compute_category_win_probabilities(list(range(1, 9)), list(range(9, 17)), pool, config)
 
         # Top-level keys
         assert "overall_win_pct" in result
@@ -262,10 +433,34 @@ class TestSimulateSeasonEnhanced:
         }
         # Minimal team totals
         team_totals = {
-            "Team A": {"R": 5, "HR": 2, "RBI": 5, "SB": 1, "AVG": 0.270, "OBP": 0.340,
-                        "W": 1, "L": 1, "SV": 1, "K": 8, "ERA": 3.50, "WHIP": 1.20},
-            "Team B": {"R": 5, "HR": 2, "RBI": 5, "SB": 1, "AVG": 0.270, "OBP": 0.340,
-                        "W": 1, "L": 1, "SV": 1, "K": 8, "ERA": 3.50, "WHIP": 1.20},
+            "Team A": {
+                "R": 5,
+                "HR": 2,
+                "RBI": 5,
+                "SB": 1,
+                "AVG": 0.270,
+                "OBP": 0.340,
+                "W": 1,
+                "L": 1,
+                "SV": 1,
+                "K": 8,
+                "ERA": 3.50,
+                "WHIP": 1.20,
+            },
+            "Team B": {
+                "R": 5,
+                "HR": 2,
+                "RBI": 5,
+                "SB": 1,
+                "AVG": 0.270,
+                "OBP": 0.340,
+                "W": 1,
+                "L": 1,
+                "SV": 1,
+                "K": 8,
+                "ERA": 3.50,
+                "WHIP": 1.20,
+            },
         }
 
         result = simulate_season_enhanced(
@@ -294,13 +489,22 @@ class TestSimulateSeasonEnhanced:
             "Team D": {"W": 0, "L": 0, "T": 0},
         }
         # A always plays B, C always plays D
-        schedule = {
-            i: [("Team A", "Team B"), ("Team C", "Team D")]
-            for i in range(1, 11)
-        }
+        schedule = {i: [("Team A", "Team B"), ("Team C", "Team D")] for i in range(1, 11)}
         team_totals = {
-            t: {"R": 5, "HR": 2, "RBI": 5, "SB": 1, "AVG": 0.270, "OBP": 0.340,
-                "W": 1, "L": 1, "SV": 1, "K": 8, "ERA": 3.50, "WHIP": 1.20}
+            t: {
+                "R": 5,
+                "HR": 2,
+                "RBI": 5,
+                "SB": 1,
+                "AVG": 0.270,
+                "OBP": 0.340,
+                "W": 1,
+                "L": 1,
+                "SV": 1,
+                "K": 8,
+                "ERA": 3.50,
+                "WHIP": 1.20,
+            }
             for t in current
         }
 
@@ -324,14 +528,24 @@ class TestSimulateSeasonEnhanced:
         current = {"A": {"W": 5, "L": 5, "T": 0}, "B": {"W": 5, "L": 5, "T": 0}}
         schedule = {i: [("A", "B")] for i in range(6, 11)}
         totals = {
-            t: {"R": 5, "HR": 2, "RBI": 5, "SB": 1, "AVG": 0.270, "OBP": 0.340,
-                "W": 1, "L": 1, "SV": 1, "K": 8, "ERA": 3.50, "WHIP": 1.20}
+            t: {
+                "R": 5,
+                "HR": 2,
+                "RBI": 5,
+                "SB": 1,
+                "AVG": 0.270,
+                "OBP": 0.340,
+                "W": 1,
+                "L": 1,
+                "SV": 1,
+                "K": 8,
+                "ERA": 3.50,
+                "WHIP": 1.20,
+            }
             for t in current
         }
 
-        result = simulate_season_enhanced(
-            current, totals, schedule, current_week=6, n_sims=50, seed=42
-        )
+        result = simulate_season_enhanced(current, totals, schedule, current_week=6, n_sims=50, seed=42)
 
         assert "projected_records" in result
         assert "playoff_probability" in result
@@ -375,10 +589,34 @@ class TestTeamStrengthProfiles:
         from src.standings_engine import compute_team_strength_profiles
 
         totals = {
-            "A": {"R": 5, "HR": 3, "RBI": 5, "SB": 2, "AVG": 0.280, "OBP": 0.350,
-                  "W": 2, "L": 1, "SV": 1, "K": 10, "ERA": 3.00, "WHIP": 1.10},
-            "B": {"R": 4, "HR": 2, "RBI": 4, "SB": 1, "AVG": 0.260, "OBP": 0.330,
-                  "W": 1, "L": 1, "SV": 1, "K": 8, "ERA": 4.00, "WHIP": 1.30},
+            "A": {
+                "R": 5,
+                "HR": 3,
+                "RBI": 5,
+                "SB": 2,
+                "AVG": 0.280,
+                "OBP": 0.350,
+                "W": 2,
+                "L": 1,
+                "SV": 1,
+                "K": 10,
+                "ERA": 3.00,
+                "WHIP": 1.10,
+            },
+            "B": {
+                "R": 4,
+                "HR": 2,
+                "RBI": 4,
+                "SB": 1,
+                "AVG": 0.260,
+                "OBP": 0.330,
+                "W": 1,
+                "L": 1,
+                "SV": 1,
+                "K": 8,
+                "ERA": 4.00,
+                "WHIP": 1.30,
+            },
         }
         schedule = {1: [("A", "B")]}
         result = compute_team_strength_profiles(totals, schedule, current_week=1)

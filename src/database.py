@@ -1424,9 +1424,7 @@ def load_league_schedule_full() -> dict[int, list[tuple[str, str]]]:
     """Load full league schedule: {week: [(team_a, team_b), ...]}."""
     conn = get_connection()
     try:
-        rows = conn.execute(
-            "SELECT week, team_a, team_b FROM league_schedule_full ORDER BY week"
-        ).fetchall()
+        rows = conn.execute("SELECT week, team_a, team_b FROM league_schedule_full ORDER BY week").fetchall()
     finally:
         conn.close()
     result: dict[int, list[tuple[str, str]]] = {}
@@ -1455,8 +1453,18 @@ def upsert_league_record(
                (team_name, wins, losses, ties, win_pct, points_for,
                 points_against, streak, rank, updated_at)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (team_name, wins, losses, ties, win_pct, points_for,
-             points_against, streak, rank, datetime.now(UTC).isoformat()),
+            (
+                team_name,
+                wins,
+                losses,
+                ties,
+                win_pct,
+                points_for,
+                points_against,
+                streak,
+                rank,
+                datetime.now(UTC).isoformat(),
+            ),
         )
         conn.commit()
     finally:
@@ -1474,10 +1482,20 @@ def load_league_records() -> pd.DataFrame:
     finally:
         conn.close()
     if df.empty:
-        return pd.DataFrame(columns=[
-            "team_name", "wins", "losses", "ties", "win_pct",
-            "points_for", "points_against", "streak", "rank", "updated_at",
-        ])
+        return pd.DataFrame(
+            columns=[
+                "team_name",
+                "wins",
+                "losses",
+                "ties",
+                "win_pct",
+                "points_for",
+                "points_against",
+                "streak",
+                "rank",
+                "updated_at",
+            ]
+        )
     for col in ("wins", "losses", "ties", "rank"):
         df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0).astype(int)
     df["win_pct"] = pd.to_numeric(df["win_pct"], errors="coerce").fillna(0.0)
