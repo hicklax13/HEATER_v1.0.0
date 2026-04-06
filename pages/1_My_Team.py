@@ -670,11 +670,43 @@ else:
 
             render_page_layout("MY TEAM", banner_teaser=banner_teaser, banner_icon="my_team")
 
+            # Last Refreshed timestamp from refresh_log
+            try:
+                from datetime import UTC as _UTC
+                from datetime import datetime as _dt
+                from datetime import timedelta
+                from datetime import timezone as _tz
+
+                from src.database import get_connection as _gc_refresh
+
+                _ET = _tz(timedelta(hours=-4))
+                _refresh_conn = _gc_refresh()
+                try:
+                    _last_refresh = pd.read_sql_query("SELECT MAX(last_refresh) AS lr FROM refresh_log", _refresh_conn)
+                    _lr_val = _last_refresh["lr"].iloc[0] if not _last_refresh.empty else None
+                    if _lr_val:
+                        _lr_dt = _dt.fromisoformat(str(_lr_val).replace("Z", "+00:00"))
+                        if _lr_dt.tzinfo is None:
+                            _lr_dt = _lr_dt.replace(tzinfo=_UTC)
+                        _lr_et = _lr_dt.astimezone(_ET)
+                        _lr_hour = _lr_et.hour % 12 or 12
+                        _lr_ampm = "AM" if _lr_et.hour < 12 else "PM"
+                        _lr_str = f"{_lr_et.strftime('%b %d')}, {_lr_hour}:{_lr_et.strftime('%M')} {_lr_ampm} ET"
+                        st.markdown(
+                            f'<div style="font-size:11px;color:{T["tx2"]};font-family:IBM Plex Mono,monospace;'
+                            f'margin-bottom:8px !important;">Last synced: {_lr_str}</div>',
+                            unsafe_allow_html=True,
+                        )
+                finally:
+                    _refresh_conn.close()
+            except Exception:
+                pass  # Non-fatal
+
             # ── AVIS Alerts ──────────────────────────────────────────────
             try:
                 from src.opponent_intel import get_current_opponent
 
-                opp = get_current_opponent()
+                opp = get_current_opponent(yds=yds)
                 if opp:
                     tier_colors = {1: T["danger"], 2: T["warn"], 3: T["sky"], 4: T["green"]}
                     tier_color = tier_colors.get(opp["tier"], T["tx2"])
@@ -811,6 +843,15 @@ else:
 
                     _report_opp = get_current_opponent(yds=yds)
                     _report_week = get_week_number()
+
+                    # If live Yahoo profile lacks strengths/weaknesses, merge from AVIS hardcoded profile
+                    if _report_opp and (not _report_opp.get("strengths") and not _report_opp.get("weaknesses")):
+                        _avis_opp = get_current_opponent()
+                        if _avis_opp:
+                            if _avis_opp.get("strengths"):
+                                _report_opp["strengths"] = _avis_opp["strengths"]
+                            if _avis_opp.get("weaknesses"):
+                                _report_opp["weaknesses"] = _avis_opp["weaknesses"]
                 except Exception:
                     pass
 

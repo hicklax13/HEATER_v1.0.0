@@ -7,9 +7,20 @@ Analyst tone, not cheerleader. Data-driven recommendations.
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, timezone
 
 import pandas as pd
+
+ET = timezone(timedelta(hours=-4))
+
+
+def _fmt_et(dt_obj: datetime) -> str:
+    """Format a datetime in ET as 'Apr 05, 7:34 PM ET' (cross-platform)."""
+    dt_et = dt_obj.astimezone(ET)
+    hour = dt_et.hour % 12 or 12
+    ampm = "AM" if dt_et.hour < 12 else "PM"
+    return f"{dt_et.strftime('%b %d')}, {hour}:{dt_et.strftime('%M')} {ampm} ET"
+
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +85,7 @@ def generate_roster_alerts(
                 "title": f"EMPTY ROSTER SPOTS ({empty})",
                 "message": f"You have {empty} empty roster slot(s). An empty spot is a zero — any player is better than nothing.{top_fills_str}",
                 "action": "Go to Free Agents and add the top-ranked available player immediately.",
+                "timestamp": datetime.now(UTC).isoformat(),
             }
         )
 
@@ -92,6 +104,7 @@ def generate_roster_alerts(
 
             recent = injury_news.sort_values("fetched_at", ascending=False).head(20)
             shown = 0
+            _alerted_players: set[str] = set()
             for _, news in recent.iterrows():
                 if shown >= 5:
                     break
@@ -110,8 +123,13 @@ def generate_roster_alerts(
                 if not on_roster:
                     continue
 
+                # Deduplicate: only show the most recent alert per player
+                if news_name in _alerted_players:
+                    continue
+
                 il_status = news.get("il_status", "")
                 if il_status and "IL" in str(il_status).upper():
+                    _alerted_players.add(news_name)
                     alerts.append(
                         {
                             "type": "injury",
@@ -119,6 +137,7 @@ def generate_roster_alerts(
                             "title": f"INJURY: {news.get('headline', 'Player injured')}",
                             "message": f"Status: {il_status}. Check if IL slot is available.",
                             "action": "Move to IL and pick up a replacement from free agents.",
+                            "timestamp": datetime.now(UTC).isoformat(),
                         }
                     )
                     shown += 1
@@ -136,7 +155,7 @@ def generate_roster_alerts(
             if roster_ids:
                 placeholders = ",".join("?" * len(roster_ids))
                 proj_df = pd.read_sql_query(
-                    f"SELECT player_id, sv FROM blended_projections WHERE player_id IN ({placeholders})",
+                    f"SELECT player_id, sv FROM projections WHERE system='blended' AND player_id IN ({placeholders})",
                     conn,
                     params=roster_ids,
                 )
@@ -162,6 +181,7 @@ def generate_roster_alerts(
                 "title": f"CLOSER ALERT: Only {closer_count} closer(s)",
                 "message": f"Current closers: {', '.join(closer_names) if closer_names else 'None'}. AVIS requires minimum 2 closers at all times.",
                 "action": "Check Waiver Wire for available closers (sorted by projected SV).",
+                "timestamp": datetime.now(UTC).isoformat(),
             }
         )
 
@@ -192,6 +212,7 @@ def generate_roster_alerts(
                         "title": f"LEAGUE TRADE: {player_name} to {team_to}",
                         "message": f"{team_from} traded {player_name} to {team_to}. Monitor impact on opponent strength.",
                         "action": "Check if this changes your upcoming matchup strategy.",
+                        "timestamp": datetime.now(UTC).isoformat(),
                     }
                 )
 
@@ -215,6 +236,7 @@ def generate_roster_alerts(
                     "title": f"IL STASH — PROTECTED: {name}",
                     "message": f"{name} expected to return in ~{days_away} day(s) ({return_date.strftime('%b %d')}). Do NOT drop.",
                     "action": "Hold this player — return is imminent. Clear an IL slot if needed.",
+                    "timestamp": datetime.now(UTC).isoformat(),
                 }
             )
         elif name in IL_STASH_NAMES:
@@ -226,6 +248,7 @@ def generate_roster_alerts(
                     "title": f"IL STASH: {name}",
                     "message": f"{name} is on your IL. Monitor return timeline — playoff weapon if healthy by August.",
                     "action": "Do NOT drop within 2 weeks of expected return date.",
+                    "timestamp": datetime.now(UTC).isoformat(),
                 }
             )
 
@@ -292,6 +315,9 @@ def render_alerts_html(alerts: list[dict], theme: dict) -> str:
     if not alerts:
         return ""
 
+    # Sort alerts by timestamp descending (newest first)
+    alerts = sorted(alerts, key=lambda a: a.get("timestamp", ""), reverse=True)
+
     severity_colors = {
         "critical": theme.get("danger", "#e63946"),
         "warning": theme.get("warn", "#ff9f1c"),
@@ -301,12 +327,26 @@ def render_alerts_html(alerts: list[dict], theme: dict) -> str:
     cards = []
     for alert in alerts:
         color = severity_colors.get(alert["severity"], theme.get("tx2", "#6b7280"))
+
+        # Format timestamp for display in ET
+        ts_html = ""
+        raw_ts = alert.get("timestamp", "")
+        if raw_ts:
+            try:
+                dt_utc = datetime.fromisoformat(raw_ts)
+                ts_html = (
+                    f'<span style="float:right;font-size:10px;color:{theme.get("tx2", "#6b7280")};">'
+                    f"{_fmt_et(dt_utc)}</span>"
+                )
+            except (ValueError, TypeError):
+                pass
+
         cards.append(
             f'<div style="background:{theme.get("card", "#fff")};'
             f"border-left:4px solid {color};"
             f"padding:8px 12px;border-radius:6px;margin-bottom:6px;font-size:12px;"
             f'font-family:IBM Plex Mono,monospace;">'
-            f'<b style="color:{color};">{alert["title"]}</b><br>'
+            f'<b style="color:{color};">{alert["title"]}</b>{ts_html}<br>'
             f'<span style="color:{theme.get("tx2", "#6b7280")};">{alert["message"]}</span><br>'
             f'<span style="color:{theme.get("tx", "#1d1d1f")};font-weight:600;">'
             f"Action: {alert['action']}</span>"
