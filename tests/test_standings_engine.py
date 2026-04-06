@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import pytest
 import pandas as pd
+import pytest
 
 from src.database import (
-    init_db,
     get_connection,
+    init_db,
 )
 
 
@@ -28,7 +28,7 @@ class TestLeagueScheduleFullTable:
     """Tests for league_schedule_full table CRUD."""
 
     def test_upsert_and_load_full_schedule(self):
-        from src.database import upsert_league_schedule_full, load_league_schedule_full
+        from src.database import load_league_schedule_full, upsert_league_schedule_full
 
         upsert_league_schedule_full(1, "Team A", "Team B")
         upsert_league_schedule_full(1, "Team C", "Team D")
@@ -42,7 +42,7 @@ class TestLeagueScheduleFullTable:
         assert ("Team A", "Team B") in result[1]
 
     def test_upsert_full_schedule_idempotent(self):
-        from src.database import upsert_league_schedule_full, load_league_schedule_full
+        from src.database import load_league_schedule_full, upsert_league_schedule_full
 
         upsert_league_schedule_full(1, "Team A", "Team B")
         upsert_league_schedule_full(1, "Team A", "Team B")  # duplicate
@@ -61,7 +61,7 @@ class TestLeagueRecordsTable:
     """Tests for league_records table CRUD."""
 
     def test_upsert_and_load_records(self):
-        from src.database import upsert_league_record, load_league_records
+        from src.database import load_league_records, upsert_league_record
 
         upsert_league_record("Team Hickey", wins=42, losses=32, ties=6,
                              win_pct=0.563, streak="L1", rank=3)
@@ -74,7 +74,7 @@ class TestLeagueRecordsTable:
         assert df.loc[df["team_name"] == "Team Hickey", "wins"].iloc[0] == 42
 
     def test_upsert_record_overwrites(self):
-        from src.database import upsert_league_record, load_league_records
+        from src.database import load_league_records, upsert_league_record
 
         upsert_league_record("Team A", wins=10, losses=5, ties=1,
                              win_pct=0.656, streak="W1", rank=1)
@@ -94,6 +94,7 @@ class TestLeagueRecordsTable:
 
 
 import numpy as np
+
 from src.valuation import LeagueConfig
 
 

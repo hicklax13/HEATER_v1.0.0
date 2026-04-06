@@ -106,7 +106,7 @@ import numpy as np
 import pandas as pd
 from scipy.stats import norm
 
-from src.standings_projection import WEEKLY_TAU, INVERSE_CATS
+from src.standings_projection import INVERSE_CATS, WEEKLY_TAU
 from src.valuation import LeagueConfig
 
 # ── Category correlation matrix ─────────────────────────────────────
@@ -567,7 +567,7 @@ def compute_team_strength_profiles(
     - injury_exposure (10%): Placeholder (requires live health data from caller)
     - momentum (10%): From momentum_data if provided
     """
-    from src.power_rankings import compute_power_rankings, bootstrap_confidence_interval
+    from src.power_rankings import bootstrap_confidence_interval, compute_power_rankings
 
     teams = list(team_weekly_totals.keys())
     n_teams = len(teams)
