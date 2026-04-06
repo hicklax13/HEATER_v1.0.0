@@ -351,6 +351,102 @@ class YahooDataService:
             force=force_refresh,
         )
 
+    def get_full_league_schedule(
+        self,
+        force_refresh: bool = False,
+        total_weeks: int = 24,
+    ) -> dict[int, list[tuple[str, str]]]:
+        """Fetch all matchups for all weeks (all 12 teams).
+
+        Returns:
+            ``{week: [(team_a, team_b), ...]}`` with 6 matchups per week.
+            Cached in session_state with 24h TTL. Stored in
+            ``league_schedule_full`` table.
+        """
+        try:
+            from src.database import load_league_schedule_full, upsert_league_schedule_full
+        except ImportError:
+            logger.warning("league_schedule_full DB functions not available")
+            return {}
+
+        store = _get_state_store()
+        cache_key = f"{self._PREFIX}full_league_schedule"
+        ts_key = f"{self._PREFIX}full_league_schedule_ts"
+
+        # Check session cache (24h TTL)
+        if not force_refresh:
+            entry = store.get(cache_key)
+            if isinstance(entry, _CacheEntry) and not entry.is_stale:
+                entry.hits += 1
+                self._stats.record_hit("full_league_schedule")
+                return entry.value
+
+        # Check DB cache
+        db_schedule = load_league_schedule_full()
+        if db_schedule and not force_refresh:
+            store[cache_key] = _CacheEntry(value=db_schedule, ttl=86400)
+            self._stats.record_miss("full_league_schedule")
+            return db_schedule
+
+        # Fetch from Yahoo API
+        if not self._client or not self.is_connected():
+            logger.warning("Yahoo not connected -- returning DB/empty schedule")
+            self._stats.record_miss("full_league_schedule")
+            return db_schedule or {}
+
+        schedule: dict[int, list[tuple[str, str]]] = {}
+        try:
+            for week in range(1, total_weeks + 1):
+                try:
+                    scoreboard = self._client._query.get_league_scoreboard_by_week(
+                        chosen_week=week,
+                    )
+                    if not scoreboard or not hasattr(scoreboard, "matchups"):
+                        continue
+                    week_matchups: list[tuple[str, str]] = []
+                    for matchup in scoreboard.matchups:
+                        teams = getattr(matchup, "teams", None)
+                        if not teams or len(teams) < 2:
+                            continue
+                        team_a_name = ""
+                        team_b_name = ""
+                        for i, team_entry in enumerate(teams):
+                            team_obj = (
+                                team_entry.get("team")
+                                if isinstance(team_entry, dict)
+                                else getattr(team_entry, "team", team_entry)
+                            )
+                            name = getattr(team_obj, "name", None)
+                            if isinstance(name, bytes):
+                                name = name.decode("utf-8", errors="replace")
+                            name = str(name) if name else f"Team_{i}"
+                            if i == 0:
+                                team_a_name = name
+                            else:
+                                team_b_name = name
+                        if team_a_name and team_b_name:
+                            week_matchups.append((team_a_name, team_b_name))
+                            upsert_league_schedule_full(week, team_a_name, team_b_name)
+                    schedule[week] = week_matchups
+                    time.sleep(0.5)  # Rate limit between week fetches
+                except Exception as exc:
+                    logger.warning("Failed to fetch week %d schedule: %s", week, exc)
+                    continue
+        except Exception as exc:
+            logger.error("Full schedule fetch failed: %s", exc)
+
+        # Merge with DB for any missing weeks
+        if not schedule:
+            schedule = db_schedule or {}
+        else:
+            for week, matchups in (db_schedule or {}).items():
+                if week not in schedule:
+                    schedule[week] = matchups
+
+        store[cache_key] = _CacheEntry(value=schedule, ttl=86400)
+        self._stats.record_miss("full_league_schedule")
+        return schedule
+
     def get_draft_results(self, force_refresh: bool = False) -> pd.DataFrame:
         """Draft results for ADP and opponent modeling."""
         return self._get_cached(
@@ -537,6 +633,53 @@ class YahooDataService:
                     total=float(row.get(cat, 0)),
                     rank=rank,
                 )
+
+        # ── Also capture W-L-T records ──────────────────────────
+        try:
+            from src.database import upsert_league_record
+        except ImportError:
+            upsert_league_record = None  # Task 1 not yet merged
+
+        if upsert_league_record is not None:
+            meta_col_map = {
+                "wins": "wins",
+                "losses": "losses",
+                "ties": "ties",
+                "percentage": "win_pct",
+                "points_for": "points_for",
+                "points_against": "points_against",
+                "streak": "streak",
+                "rank": "rank",
+            }
+            for _, row in standings_df.iterrows():
+                team_name = str(row.get("team_name", ""))
+                if not team_name:
+                    continue
+                record_kwargs: dict = {}
+                for src_col, dst_key in meta_col_map.items():
+                    val = row.get(src_col)
+                    if val is not None:
+                        if dst_key in ("wins", "losses", "ties", "rank"):
+                            try:
+                                record_kwargs[dst_key] = int(float(val))
+                            except (ValueError, TypeError):
+                                record_kwargs[dst_key] = 0
+                        elif dst_key == "win_pct":
+                            try:
+                                record_kwargs[dst_key] = float(val)
+                            except (ValueError, TypeError):
+                                record_kwargs[dst_key] = 0.0
+                        else:
+                            record_kwargs[dst_key] = str(val) if val else ""
+                if record_kwargs:
+                    try:
+                        upsert_league_record(team_name, **record_kwargs)
+                    except Exception:
+                        logger.debug(
+                            "Failed to upsert league record for %s",
+                            team_name,
+                            exc_info=True,
+                        )
 
         update_refresh_log("yahoo_standings", "success")
         # Return long-format from DB so all consumers get consistent schema
