@@ -345,3 +345,130 @@ class TestEndToEndSimulation:
             assert "team_name" in p
             assert "power_rating" in p
             assert 0.0 <= p["power_rating"] <= 100.0
+
+
+class TestEdgeCases:
+    """Edge cases that could crash the pages at runtime."""
+
+    def test_empty_roster_category_probs(self):
+        """Empty rosters should not crash, just produce 50/50 probs."""
+        from src.standings_engine import compute_category_win_probabilities
+
+        config = LeagueConfig()
+        pool = pd.DataFrame(
+            columns=[
+                "player_id",
+                "name",
+                "team",
+                "positions",
+                "is_hitter",
+                "is_injured",
+                "pa",
+                "ab",
+                "h",
+                "r",
+                "hr",
+                "rbi",
+                "sb",
+                "avg",
+                "obp",
+                "bb",
+                "hbp",
+                "sf",
+                "ip",
+                "w",
+                "l",
+                "sv",
+                "k",
+                "era",
+                "whip",
+                "er",
+                "bb_allowed",
+                "h_allowed",
+                "adp",
+            ]
+        )
+        result = compute_category_win_probabilities([], [], pool, config)
+        assert "overall_win_pct" in result
+        assert len(result["categories"]) == 12
+
+    def test_single_week_simulation(self):
+        """Simulation with only 1 remaining week should still work."""
+        from src.standings_engine import simulate_season_enhanced
+
+        teams = ["X", "Y"]
+        current = {"X": {"W": 20, "L": 3, "T": 0}, "Y": {"W": 3, "L": 20, "T": 0}}
+        team_totals = {
+            t: {
+                "R": 5,
+                "HR": 1.5,
+                "RBI": 5,
+                "SB": 0.5,
+                "AVG": 0.260,
+                "OBP": 0.330,
+                "W": 0.8,
+                "L": 0.5,
+                "SV": 0.3,
+                "K": 8,
+                "ERA": 3.80,
+                "WHIP": 1.25,
+            }
+            for t in teams
+        }
+        schedule = {24: [("X", "Y")]}
+
+        sim = simulate_season_enhanced(
+            current,
+            team_totals,
+            schedule,
+            current_week=24,
+            n_sims=20,
+            seed=42,
+        )
+        # X should still be ahead
+        assert sim["projected_records"]["X"]["W"] >= sim["projected_records"]["Y"]["W"]
+
+    def test_correlation_matrix_positive_definite(self):
+        """Correlation matrix should always be positive semi-definite."""
+        from src.standings_engine import _build_correlation_matrix
+
+        config = LeagueConfig()
+        all_cats = config.hitting_categories + config.pitching_categories
+        corr = _build_correlation_matrix(all_cats)
+        eigvals = np.linalg.eigvalsh(corr)
+        assert np.all(eigvals >= 0), f"Negative eigenvalue: {eigvals.min()}"
+        assert corr.shape == (12, 12)
+        np.testing.assert_array_almost_equal(np.diag(corr), 1.0)
+
+    def test_magic_numbers_single_team(self):
+        """Edge case: only one team should still compute."""
+        from src.standings_engine import compute_magic_numbers
+
+        magic = compute_magic_numbers({"Solo": 10}, remaining_matchups=5, playoff_spots=1)
+        assert "Solo" in magic
+        assert magic["Solo"] == 0  # Only team, auto-clinched
+
+    def test_schedule_helpers_round_trip(self):
+        """parse_scoreboard_matchups → find_user_opponent should be consistent."""
+        from src.standings_engine import find_user_opponent, parse_scoreboard_matchups
+
+        raw = [
+            {"team_a": "Alpha", "team_b": "Beta"},
+            {"team_a": "Gamma", "team_b": "Delta"},
+        ]
+        pairs = parse_scoreboard_matchups(raw)
+        assert len(pairs) == 2
+
+        schedule = {5: pairs}
+        opp = find_user_opponent(schedule, 5, "Alpha")
+        assert opp == "Beta"
+
+        opp2 = find_user_opponent(schedule, 5, "Delta")
+        assert opp2 == "Gamma"
+
+        opp3 = find_user_opponent(schedule, 5, "Nobody")
+        assert opp3 is None
+
+        # Week not in schedule
+        opp4 = find_user_opponent(schedule, 99, "Alpha")
+        assert opp4 is None
