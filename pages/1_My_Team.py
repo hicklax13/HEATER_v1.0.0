@@ -707,6 +707,14 @@ else:
                 from src.opponent_intel import get_current_opponent
 
                 opp = get_current_opponent(yds=yds)
+                # Merge AVIS hardcoded profile when Yahoo lacks tier/strengths/weaknesses
+                if opp and (opp.get("tier", 3) == 3 and not opp.get("strengths") and not opp.get("weaknesses")):
+                    _avis_banner = get_current_opponent()  # AVIS-only fallback
+                    if _avis_banner:
+                        opp["tier"] = _avis_banner.get("tier", opp.get("tier", 3))
+                        opp["threat"] = _avis_banner.get("threat", opp.get("threat", "Unknown"))
+                        opp["strengths"] = _avis_banner.get("strengths", [])
+                        opp["weaknesses"] = _avis_banner.get("weaknesses", [])
                 if opp:
                     tier_colors = {1: T["danger"], 2: T["warn"], 3: T["sky"], 4: T["green"]}
                     tier_color = tier_colors.get(opp["tier"], T["tx2"])
@@ -762,7 +770,7 @@ else:
                         if roster_ids:
                             placeholders = ",".join("?" * len(roster_ids))
                             proj_df = pd.read_sql_query(
-                                f"SELECT player_id, sv FROM blended_projections WHERE player_id IN ({placeholders})",
+                                f"SELECT player_id, sv FROM projections WHERE system='blended' AND player_id IN ({placeholders})",
                                 _conn2,
                                 params=roster_ids,
                             )
