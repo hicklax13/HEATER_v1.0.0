@@ -2657,7 +2657,7 @@ def render_sortable_table(
         column_config=column_config,
         hide_index=hide_index,
         height=height,
-        use_container_width=True,
+        width="stretch",
         key=key,
     )
 
@@ -2953,7 +2953,7 @@ def _render_radar_chart(radar: dict, is_hitter: bool) -> None:
         font=dict(family="Figtree, sans-serif", size=12),
     )
 
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 
 def _render_news_section(news: list[dict]) -> None:

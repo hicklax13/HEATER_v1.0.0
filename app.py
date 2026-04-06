@@ -1980,7 +1980,7 @@ def _render_radar_chart(ds, pool):
         margin=dict(l=40, r=40, t=30, b=30),
         height=350,
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 
 def _render_balance_bars(ds, pool):
@@ -2318,7 +2318,7 @@ def main():
     # Force Refresh button in sidebar (only after bootstrap is done)
     if st.session_state.get("bootstrap_complete"):
         with st.sidebar:
-            if st.button("Force Refresh Data", key="force_refresh_btn", use_container_width=True):
+            if st.button("Force Refresh Data", key="force_refresh_btn", width="stretch"):
                 with st.spinner("Refreshing all data sources..."):
                     yahoo_client = st.session_state.get("yahoo_client")
                     bootstrap_all_data(yahoo_client=yahoo_client, force=True)
