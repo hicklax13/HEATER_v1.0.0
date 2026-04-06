@@ -19,7 +19,6 @@ from src.ui_shared import (
     render_context_card,
     render_context_columns,
     render_data_freshness_card,
-    render_page_layout,
     render_player_select,
     sort_roster_for_display,
 )
@@ -668,9 +667,8 @@ else:
             if il_players:
                 banner_teaser += f" | {len(il_players)} on IL/DTD"
 
-            render_page_layout("MY TEAM", banner_teaser=banner_teaser, banner_icon="my_team")
-
-            # Last Refreshed timestamp from refresh_log
+            # Build "Last synced" timestamp to embed alongside the page title
+            _lr_badge_html = ""
             try:
                 from datetime import UTC as _UTC
                 from datetime import datetime as _dt
@@ -692,15 +690,39 @@ else:
                         _lr_hour = _lr_et.hour % 12 or 12
                         _lr_ampm = "AM" if _lr_et.hour < 12 else "PM"
                         _lr_str = f"{_lr_et.strftime('%b %d')}, {_lr_hour}:{_lr_et.strftime('%M')} {_lr_ampm} ET"
-                        st.markdown(
-                            f'<div style="font-size:11px;color:{T["tx2"]};font-family:IBM Plex Mono,monospace;'
-                            f'margin-bottom:8px !important;">Last synced: {_lr_str}</div>',
-                            unsafe_allow_html=True,
+                        _lr_badge_html = (
+                            f'<span style="display:inline-block;vertical-align:middle;'
+                            f"margin-left:12px;padding:6px 16px;border-radius:50px;"
+                            f"background:{T['card']};border:2px solid {T['green']};"
+                            f"font-family:IBM Plex Mono,monospace;font-size:12px;font-weight:600;"
+                            f"color:{T['green']};letter-spacing:0.5px;font-style:normal;"
+                            f'box-shadow:0 2px 8px rgba(0,0,0,0.08);">'
+                            f"Last synced: {_lr_str}</span>"
                         )
                 finally:
                     _refresh_conn.close()
             except Exception:
                 pass  # Non-fatal
+
+            # Render page title with inline sync badge
+            from src.ui_shared import PAGE_ICONS as _PI
+
+            _my_team_icon = _PI.get("my_team", "")
+            st.markdown(
+                f'<div style="text-align:center !important;margin-bottom:8px !important;">'
+                f'<div class="page-title" style="display:inline-block !important;">'
+                f"{_my_team_icon} MY TEAM</div>"
+                f"{_lr_badge_html}"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+            if banner_teaser:
+                from src.ui_shared import render_reco_banner
+
+                render_reco_banner(banner_teaser, "", "my_team")
+            from src.ui_shared import render_matchup_ticker
+
+            render_matchup_ticker()
 
             # ── AVIS Alerts ──────────────────────────────────────────────
             try:
