@@ -659,7 +659,7 @@ get_injury_badge(health_score) -> tuple[str, str]  # returns <span> with CSS dot
 - **League rosters:** All 12 teams synced (264 players)
 - **Free agents:** Exhaustive pagination from Yahoo API
 
-## League Standings + Matchup Planner Redesign (April 5-6, 2026) — PARTIALLY COMPLETE
+## League Standings + Matchup Planner Redesign (April 5-6, 2026) — COMPLETE
 
 **Design spec:** `docs/superpowers/specs/2026-04-05-league-standings-matchup-planner-design.md`
 **Implementation plan:** `docs/superpowers/plans/2026-04-05-league-standings-matchup-planner.md`
@@ -690,15 +690,12 @@ get_injury_badge(health_score) -> tuple[str, str]  # returns <span> with CSS dot
 - **`src/ui_shared.py`** — Added "league_standings" icon to PAGE_ICONS and sidebar JS icon map
 - **Tests:** 31+ new tests across `tests/test_standings_engine.py` and `tests/test_yahoo_schedule.py`
 
-### What was NOT completed (Wave 4):
+### Wave 4 completed (April 6, 2026):
 
-- **Task 8: Integration Tests + Ruff Lint + Final Cleanup** — Never dispatched. Needs:
-  1. Run `python -m pytest -x -q` to verify full suite passes
-  2. Run `python -m ruff check . --fix && python -m ruff format .` to fix lint issues
-  3. Review `tests/test_league_standings_integration.py` — file exists but may need expansion
-  4. Manual smoke test: `streamlit run app.py` → navigate to League Standings and Matchup Planner pages
-  5. Verify both pages render without errors with Yahoo connected
-  6. Final commit + push
+- **Pytest:** 2336 passed, 4 skipped, 0 failures (full suite green)
+- **Ruff:** All 240 files pass lint + format checks
+- **Integration tests expanded:** 5 → 10 tests in `tests/test_league_standings_integration.py` (added edge cases: empty rosters, single-week sim, correlation matrix PSD, single-team magic numbers, schedule helper round-trip)
+- **Browser-verified:** Both League Standings and Matchup Planner pages render correctly via Chrome — Season Projections table shows all 12 teams with playoff line, Player Matchups tab shows ratings with headshots and tier labels
 
 ### Key API Signatures (standings_engine.py)
 
@@ -733,5 +730,4 @@ yds.get_full_league_schedule(force_refresh=False, total_weeks=24) -> dict[int, l
 3. Check `docs/AUDIT_REPORT.md` for any remaining bugs
 4. Run `python -m pytest -x -q` to verify all tests pass
 5. Run app with `streamlit run app.py` and verify Yahoo auto-reconnect works
-6. **Complete Wave 4 of League Standings plan** — see "What was NOT completed" section above
-7. Continue with any remaining tasks from The Last Plan or user requests
+6. Continue with any remaining tasks from The Last Plan or user requests
