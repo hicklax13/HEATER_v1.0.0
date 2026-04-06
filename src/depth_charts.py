@@ -131,13 +131,13 @@ def fetch_depth_charts() -> dict[str, dict[str, Any]]:
             timeout=5,
         )
         if resp.status_code != 200:
-            logger.warning(
+            logger.debug(
                 "Roster Resource unavailable (HTTP %s). Depth charts will not be populated.",
                 resp.status_code,
             )
             return {}
     except Exception as exc:
-        logger.warning(
+        logger.debug(
             "Roster Resource unreachable: %s. Depth charts will not be populated.",
             exc,
         )

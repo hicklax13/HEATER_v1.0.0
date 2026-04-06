@@ -19,7 +19,6 @@ from src.ui_shared import (
     render_context_card,
     render_context_columns,
     render_data_freshness_card,
-    render_page_layout,
     render_player_select,
     sort_roster_for_display,
 )
@@ -668,131 +667,266 @@ else:
             if il_players:
                 banner_teaser += f" | {len(il_players)} on IL/DTD"
 
-            render_page_layout("MY TEAM", banner_teaser=banner_teaser, banner_icon="my_team")
-
-            # ── AVIS Alerts ──────────────────────────────────────────────
+            # Build "Last synced" timestamp to embed alongside the page title
+            _lr_badge_html = ""
             try:
-                from src.opponent_intel import get_current_opponent
+                from datetime import UTC as _UTC
+                from datetime import datetime as _dt
+                from datetime import timedelta
+                from datetime import timezone as _tz
 
-                opp = get_current_opponent()
-                if opp:
-                    tier_colors = {1: T["danger"], 2: T["warn"], 3: T["sky"], 4: T["green"]}
-                    tier_color = tier_colors.get(opp["tier"], T["tx2"])
-                    st.markdown(
-                        f'<div style="background:{T["card"]};border-left:4px solid {tier_color};'
-                        f"padding:8px 12px;border-radius:6px;margin-bottom:8px;font-size:13px;"
-                        f'font-family:IBM Plex Mono,monospace;">'
-                        f"<b>Week {opp['week']}</b> vs <b>{opp['name']}</b> "
-                        f"(Tier {opp['tier']} — {opp['threat']} threat) "
-                        f"| Strengths: {', '.join(opp.get('strengths', []))} "
-                        f"| Weaknesses: {', '.join(opp.get('weaknesses', []))}"
-                        f"</div>",
-                        unsafe_allow_html=True,
-                    )
-            except Exception:
-                pass  # Non-fatal
+                from src.database import get_connection as _gc_refresh
 
-            # AVIS Rule #1: IP Watch
-            try:
-                from src.ip_tracker import compute_weekly_ip_projection, get_days_remaining_in_week
-
-                pitcher_data = []
-                for _, p in roster.iterrows():
-                    if p.get("is_hitter") == 0 or any(
-                        pos.strip() in ("P", "SP", "RP") for pos in str(p.get("positions", "")).upper().split(",")
-                    ):
-                        pitcher_data.append({"name": p.get("name", ""), "ip": p.get("ip", 0)})
-                if pitcher_data:
-                    ip_result = compute_weekly_ip_projection(pitcher_data, get_days_remaining_in_week())
-                    ip_color = {"safe": T["green"], "warning": T["warn"], "danger": T["danger"]}
-                    st.markdown(
-                        f'<div style="background:{T["card"]};border-left:4px solid '
-                        f"{ip_color.get(ip_result['status'], T['tx2'])};"
-                        f"padding:6px 12px;border-radius:6px;margin-bottom:8px;font-size:12px;"
-                        f'font-family:IBM Plex Mono,monospace;">'
-                        f"IP Watch: {ip_result['projected_ip']} / {ip_result['ip_needed']:.0f} "
-                        f"({ip_result['ip_pace']:.0f}% pace) — {ip_result['message']}"
-                        f"</div>",
-                        unsafe_allow_html=True,
-                    )
-            except Exception:
-                pass  # Non-fatal
-
-            # AVIS Rule #2: Closer count
-            # Check actual SV OR projected SV (early-season closers may have <5 actual saves)
-            try:
-                closer_count = 0
-                proj_sv_map = {}
+                _ET = _tz(timedelta(hours=-4))
+                _refresh_conn = _gc_refresh()
                 try:
-                    _conn2 = get_connection()
-                    try:
-                        roster_ids = roster["player_id"].dropna().astype(int).tolist()
-                        if roster_ids:
-                            placeholders = ",".join("?" * len(roster_ids))
-                            proj_df = pd.read_sql_query(
-                                f"SELECT player_id, sv FROM blended_projections WHERE player_id IN ({placeholders})",
-                                _conn2,
-                                params=roster_ids,
-                            )
-                            proj_sv_map = dict(zip(proj_df["player_id"], proj_df["sv"]))
-                    finally:
-                        _conn2.close()
-                except Exception:
-                    pass
-
-                for _, p in roster.iterrows():
-                    actual_sv = float(p.get("sv", 0) or 0)
-                    pid = p.get("player_id")
-                    proj_sv = float(proj_sv_map.get(pid, 0) or 0)
-                    if actual_sv >= 5 or proj_sv >= 5:
-                        closer_count += 1
-                if closer_count < 2:
-                    st.warning(f"Closer Alert: Only {closer_count} closer(s) rostered. AVIS requires minimum 2.")
-            except Exception:
-                pass
-
-            # Proactive Alerts (AVIS Section 6)
-            try:
-                from src.alerts import generate_roster_alerts, render_alerts_html
-
-                news_df = pd.DataFrame()
-                try:
-                    _conn = get_connection()
-                    try:
-                        news_df = pd.read_sql_query(
-                            "SELECT * FROM player_news ORDER BY fetched_at DESC LIMIT 20", _conn
+                    _last_refresh = pd.read_sql_query("SELECT MAX(last_refresh) AS lr FROM refresh_log", _refresh_conn)
+                    _lr_val = _last_refresh["lr"].iloc[0] if not _last_refresh.empty else None
+                    if _lr_val:
+                        _lr_dt = _dt.fromisoformat(str(_lr_val).replace("Z", "+00:00"))
+                        if _lr_dt.tzinfo is None:
+                            _lr_dt = _lr_dt.replace(tzinfo=_UTC)
+                        _lr_et = _lr_dt.astimezone(_ET)
+                        _lr_hour = _lr_et.hour % 12 or 12
+                        _lr_ampm = "AM" if _lr_et.hour < 12 else "PM"
+                        _lr_str = f"{_lr_et.strftime('%b %d')}, {_lr_hour}:{_lr_et.strftime('%M')} {_lr_ampm} ET"
+                        _lr_badge_html = (
+                            f'<span style="display:inline-block;vertical-align:middle;'
+                            f"margin-left:12px;padding:6px 16px;border-radius:50px;"
+                            f"background:{T['card']};border:2px solid {T['green']};"
+                            f"font-family:IBM Plex Mono,monospace;font-size:12px;font-weight:600;"
+                            f"color:{T['green']};letter-spacing:0.5px;font-style:normal;"
+                            f'box-shadow:0 2px 8px rgba(0,0,0,0.08);">'
+                            f"Last synced: {_lr_str}</span>"
                         )
-                    finally:
-                        _conn.close()
-                except Exception:
-                    pass
-
-                # Fetch recent transactions for league trade monitoring
-                _txn_df = pd.DataFrame()
-                _user_team = ""
-                try:
-                    from src.yahoo_data_service import get_yahoo_data_service
-
-                    _yds = get_yahoo_data_service()
-                    if _yds and _yds.is_connected():
-                        _txn_df = _yds.get_transactions()
-                        _user_team = st.session_state.get("user_team_name", "")
-                except Exception:
-                    pass
-
-                alerts = generate_roster_alerts(
-                    roster=roster,
-                    player_news=news_df if not news_df.empty else None,
-                    max_roster_size=23,
-                    transactions=_txn_df if not _txn_df.empty else None,
-                    user_team_name=_user_team,
-                )
-                if alerts:
-                    alerts_html = render_alerts_html(alerts, T)
-                    if alerts_html:
-                        st.markdown(alerts_html, unsafe_allow_html=True)
+                finally:
+                    _refresh_conn.close()
             except Exception:
                 pass  # Non-fatal
+
+            # Render page title with inline sync badge
+            from src.ui_shared import PAGE_ICONS as _PI
+
+            _my_team_icon = _PI.get("my_team", "")
+            st.markdown(
+                f'<div style="text-align:center !important;margin-bottom:8px !important;">'
+                f'<div class="page-title" style="display:inline-block !important;">'
+                f"{_my_team_icon} MY TEAM</div>"
+                f"{_lr_badge_html}"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+            if banner_teaser:
+                from src.ui_shared import render_reco_banner
+
+                render_reco_banner(banner_teaser, "", "my_team")
+            from src.ui_shared import render_matchup_ticker
+
+            render_matchup_ticker()
+
+            # ── WAR ROOM BRIEFING ────────────────────────────────────────
+            # Dynamic, actionable intelligence replacing static alerts.
+            # Card 1: Matchup Pulse — live W-L-T with category breakdown
+            # Card 2: Flippable Categories — closest cats to flip + suggestions
+            # Card 3: Today's Actions — schedule-aware roster moves
+            # Card 4: Hot/Cold Report — L7 performance streaks
+            try:
+                from src.war_room import compute_matchup_pulse, get_flippable_categories
+                from src.war_room_actions import compute_todays_actions
+                from src.war_room_hotcold import compute_hot_cold_report
+
+                # Fetch matchup data from Yahoo
+                _wr_matchup = None
+                _wr_losing_cats: list[str] = []
+                try:
+                    if yds and yds.is_connected():
+                        _wr_matchup = yds.get_matchup()
+                except Exception:
+                    pass
+
+                # ── Card 1: Matchup Pulse ──
+                pulse = compute_matchup_pulse(_wr_matchup)
+                if pulse["available"]:
+                    _wr_losing_cats = pulse.get("losing_cats", [])
+                    _p_margin = pulse["margin"]
+                    if _p_margin > 0:
+                        _verdict_color = T["green"]
+                    elif _p_margin < 0:
+                        _verdict_color = T["danger"]
+                    else:
+                        _verdict_color = T["tx2"]
+
+                    # Winning cats in green, losing in red, tied in gray
+                    _win_tags = "".join(
+                        f'<span style="display:inline-block;background:{T["green"]};color:#fff;'
+                        f"padding:1px 6px;border-radius:4px;margin:1px 2px;font-size:11px;"
+                        f'font-weight:600;">{c}</span>'
+                        for c in pulse["winning_cats"]
+                    )
+                    _lose_tags = "".join(
+                        f'<span style="display:inline-block;background:{T["danger"]};color:#fff;'
+                        f"padding:1px 6px;border-radius:4px;margin:1px 2px;font-size:11px;"
+                        f'font-weight:600;">{c}</span>'
+                        for c in pulse["losing_cats"]
+                    )
+                    _tie_tags = "".join(
+                        f'<span style="display:inline-block;background:{T["tx2"]};color:#fff;'
+                        f"padding:1px 6px;border-radius:4px;margin:1px 2px;font-size:11px;"
+                        f'font-weight:600;">{c}</span>'
+                        for c in pulse["tied_cats"]
+                    )
+
+                    st.markdown(
+                        f'<div style="background:{T["card"]};border:1px solid {_verdict_color};'
+                        f'border-radius:8px;padding:10px 14px;margin-bottom:8px;">'
+                        f'<div style="display:flex;justify-content:space-between;align-items:center;'
+                        f'margin-bottom:6px;">'
+                        f'<span style="font-family:IBM Plex Mono,monospace;font-size:12px;'
+                        f'color:{T["tx2"]};">MATCHUP PULSE — Week {pulse["week"]} vs {pulse["opponent"]}</span>'
+                        f'<span style="font-family:IBM Plex Mono,monospace;font-size:20px;'
+                        f'font-weight:800;color:{_verdict_color};">{pulse["score"]}</span></div>'
+                        f'<div style="font-family:IBM Plex Mono,monospace;font-size:11px;'
+                        f'color:{T["tx"]};">'
+                        f"{_win_tags}{_lose_tags}{_tie_tags}"
+                        f"</div></div>",
+                        unsafe_allow_html=True,
+                    )
+
+                # ── Card 2: Flippable Categories ──
+                flippables = get_flippable_categories(_wr_matchup)
+                if flippables:
+                    _flip_rows = ""
+                    for fl in flippables:
+                        _fl_cat = fl["category"]
+                        _fl_dir = fl["direction"]
+                        if _fl_dir == "flip_to_win":
+                            _fl_icon_color = T["warn"]
+                            _fl_label = "FLIP TO WIN"
+                        else:
+                            _fl_icon_color = T["sky"]
+                            _fl_label = "AT RISK"
+                        _fl_gap = fl["gap"]
+                        # Format gap based on category type
+                        if _fl_cat in ("AVG", "OBP"):
+                            _fl_gap_str = f".{int(abs(_fl_gap) * 1000):03d}"
+                        elif _fl_cat in ("ERA", "WHIP"):
+                            _fl_gap_str = f"{abs(_fl_gap):.2f}"
+                        else:
+                            _fl_gap_str = str(int(abs(_fl_gap)))
+                        _flip_rows += (
+                            f'<div style="display:flex;align-items:center;gap:8px;'
+                            f'padding:4px 0;border-bottom:1px solid {T["border"]};">'
+                            f'<span style="background:{_fl_icon_color};color:#fff;padding:1px 6px;'
+                            f'border-radius:4px;font-size:10px;font-weight:700;white-space:nowrap;">'
+                            f"{_fl_label}</span>"
+                            f'<span style="font-weight:700;font-size:13px;min-width:40px;">{_fl_cat}</span>'
+                            f'<span style="color:{T["tx2"]};font-size:11px;">gap: {_fl_gap_str}</span>'
+                            f'<span style="color:{T["tx"]};font-size:11px;flex:1;">{fl["suggestion"]}</span>'
+                            f"</div>"
+                        )
+                    st.markdown(
+                        f'<div style="background:{T["card"]};border-left:4px solid {T["warn"]};'
+                        f"border-radius:8px;padding:8px 12px;margin-bottom:8px;"
+                        f'font-family:IBM Plex Mono,monospace;">'
+                        f'<div style="font-size:11px;color:{T["tx2"]};margin-bottom:4px;'
+                        f'font-weight:600;">FLIPPABLE CATEGORIES</div>'
+                        f"{_flip_rows}</div>",
+                        unsafe_allow_html=True,
+                    )
+
+                # ── Card 3: Today's Actions ──
+                try:
+                    _wr_actions = compute_todays_actions(
+                        roster=roster,
+                        matchup=_wr_matchup,
+                        losing_cats=_wr_losing_cats,
+                    )
+                    if _wr_actions:
+                        _action_rows = ""
+                        for _ai, _act in enumerate(_wr_actions, 1):
+                            _act_urgency = _act.get("urgency", "low")
+                            if _act_urgency == "high":
+                                _act_color = T["danger"]
+                                _act_badge = "HIGH"
+                            elif _act_urgency == "medium":
+                                _act_color = T["warn"]
+                                _act_badge = "MED"
+                            else:
+                                _act_color = T["green"]
+                                _act_badge = "OK"
+                            _cat_tags = ""
+                            for _c in _act.get("category_impact", []):
+                                _cat_tags += (
+                                    f'<span style="background:{T["border"]};color:{T["tx"]};'
+                                    f"padding:0 4px;border-radius:3px;font-size:9px;"
+                                    f'margin-left:4px;">{_c}</span>'
+                                )
+                            _action_rows += (
+                                f'<div style="display:flex;align-items:flex-start;gap:8px;'
+                                f'padding:4px 0;border-bottom:1px solid {T["border"]};">'
+                                f'<span style="background:{_act_color};color:#fff;padding:1px 5px;'
+                                f"border-radius:4px;font-size:10px;font-weight:700;"
+                                f'white-space:nowrap;min-width:32px;text-align:center;">'
+                                f"{_act_badge}</span>"
+                                f'<span style="font-size:12px;color:{T["tx"]};flex:1;'
+                                f'line-height:1.4;">{_act["detail"]}{_cat_tags}</span>'
+                                f"</div>"
+                            )
+                        st.markdown(
+                            f'<div style="background:{T["card"]};border-left:4px solid {T["sky"]};'
+                            f"border-radius:8px;padding:8px 12px;margin-bottom:8px;"
+                            f'font-family:IBM Plex Mono,monospace;">'
+                            f'<div style="font-size:11px;color:{T["tx2"]};margin-bottom:4px;'
+                            f"font-weight:600;\">TODAY'S ACTIONS</div>"
+                            f"{_action_rows}</div>",
+                            unsafe_allow_html=True,
+                        )
+                except Exception:
+                    pass  # Actions are non-fatal
+
+                # ── Card 4: Hot/Cold Report ──
+                try:
+                    _wr_hotcold = compute_hot_cold_report(roster, max_entries=4)
+                    if _wr_hotcold:
+                        _hc_rows = ""
+                        for _hc in _wr_hotcold:
+                            if _hc["status"] == "hot":
+                                _hc_accent = T["danger"]
+                                _hc_label = "HOT"
+                            else:
+                                _hc_accent = T["sky"]
+                                _hc_label = "COLD"
+                            _hc_rows += (
+                                f'<div style="display:flex;align-items:flex-start;gap:8px;'
+                                f'padding:5px 0;border-bottom:1px solid {T["border"]};">'
+                                f'<span style="background:{_hc_accent};color:#fff;padding:1px 6px;'
+                                f"border-radius:4px;font-size:10px;font-weight:700;"
+                                f'white-space:nowrap;">{_hc_label}</span>'
+                                f'<div style="flex:1;">'
+                                f'<div style="font-size:12px;font-weight:600;color:{T["tx"]};">'
+                                f'{_hc["player"]} <span style="color:{T["tx2"]};font-weight:400;">'
+                                f"{_hc['team']}</span></div>"
+                                f'<div style="font-size:11px;color:{T["tx"]};">{_hc["headline"]}</div>'
+                                f'<div style="font-size:10px;color:{T["tx2"]};">'
+                                f"{_hc['detail']}</div>"
+                                f'<div style="font-size:10px;color:{_hc_accent};font-style:italic;">'
+                                f"{_hc['verdict']}</div>"
+                                f"</div></div>"
+                            )
+                        st.markdown(
+                            f'<div style="background:{T["card"]};border-left:4px solid {T["danger"]};'
+                            f"border-radius:8px;padding:8px 12px;margin-bottom:8px;"
+                            f'font-family:IBM Plex Mono,monospace;">'
+                            f'<div style="font-size:11px;color:{T["tx2"]};margin-bottom:4px;'
+                            f'font-weight:600;">PLAYER STREAKS</div>'
+                            f"{_hc_rows}</div>",
+                            unsafe_allow_html=True,
+                        )
+                except Exception:
+                    pass  # Hot/cold is non-fatal
+
+            except ImportError:
+                pass  # War room modules not available — skip gracefully
 
             # AVIS Section 5: Weekly Report (always visible, auto-expanded on Mondays)
             try:
@@ -811,6 +945,15 @@ else:
 
                     _report_opp = get_current_opponent(yds=yds)
                     _report_week = get_week_number()
+
+                    # If live Yahoo profile lacks strengths/weaknesses, merge from AVIS hardcoded profile
+                    if _report_opp and (not _report_opp.get("strengths") and not _report_opp.get("weaknesses")):
+                        _avis_opp = get_current_opponent()
+                        if _avis_opp:
+                            if _avis_opp.get("strengths"):
+                                _report_opp["strengths"] = _avis_opp["strengths"]
+                            if _avis_opp.get("weaknesses"):
+                                _report_opp["weaknesses"] = _avis_opp["weaknesses"]
                 except Exception:
                     pass
 

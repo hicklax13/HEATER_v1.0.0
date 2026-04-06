@@ -615,7 +615,7 @@ else:
                                     )
                             if adp_detail:
                                 with st.expander("ADP and ECR Detail", expanded=False):
-                                    st.dataframe(pd.DataFrame(adp_detail), hide_index=True, use_container_width=True)
+                                    st.dataframe(pd.DataFrame(adp_detail), hide_index=True, width="stretch")
 
                     except ImportError:
                         pass  # trade_finder not available — skip acceptance panel

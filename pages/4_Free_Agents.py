@@ -323,7 +323,7 @@ with ctx:
     )
     for pos in POSITIONS:
         btn_type = "primary" if pos_filter == pos else "secondary"
-        if st.button(pos, key=f"fa_merged_pill_{pos}", type=btn_type, use_container_width=True):
+        if st.button(pos, key=f"fa_merged_pill_{pos}", type=btn_type, width="stretch"):
             st.session_state.fa_merged_pos_filter = pos
             st.rerun()
 
