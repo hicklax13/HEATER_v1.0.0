@@ -958,6 +958,7 @@ def generate_targeted_proposals(
         min_frac=0.55,
         max_frac=0.75,
         label="lowball",
+        user_team_name=user_team_name,
     )
 
     fair_value = _find_proposal(
@@ -974,6 +975,7 @@ def generate_targeted_proposals(
         min_frac=0.85,
         max_frac=1.15,
         label="fair_value",
+        user_team_name=user_team_name,
     )
 
     # --- Load historical stats and ECR for all involved players ---
@@ -1117,6 +1119,7 @@ def _find_proposal(
     min_frac: float,
     max_frac: float,
     label: str,
+    user_team_name: str | None = None,
 ) -> dict | None:
     """Find a 1-for-1 or 2-for-1 proposal within the given SGP fraction range."""
     min_sgp = target_sgp * min_frac
@@ -1136,6 +1139,7 @@ def _find_proposal(
                 opponent_team_name=opponent_team_name,
                 weeks_remaining=weeks_remaining,
                 label=label,
+                user_team_name=user_team_name,
             )
 
     # --- Try 2-for-1: find cheapest pair that sums into range ---
@@ -1154,6 +1158,7 @@ def _find_proposal(
                     opponent_team_name=opponent_team_name,
                     weeks_remaining=weeks_remaining,
                     label=label,
+                    user_team_name=user_team_name,
                 )
 
     return None
@@ -1170,6 +1175,7 @@ def _evaluate_proposal(
     opponent_team_name: str | None,
     weeks_remaining: int,
     label: str,
+    user_team_name: str | None = None,
 ) -> dict:
     """Evaluate a single proposal: run trade evaluator, acceptance, efficiency."""
     giving_ids = [c["player_id"] for c in giving]
@@ -1187,7 +1193,7 @@ def _evaluate_proposal(
             user_roster_ids=user_roster_ids,
             player_pool=player_pool,
             config=config,
-            user_team_name=None,
+            user_team_name=user_team_name,
             weeks_remaining=weeks_remaining,
             enable_mc=False,
             enable_context=False,
@@ -1199,6 +1205,36 @@ def _evaluate_proposal(
     grade = eval_result.get("grade", "?")
     surplus_sgp = eval_result.get("surplus_sgp", 0.0)
     category_impact = eval_result.get("category_impact", {})
+
+    # --- Fallback: raw per-player SGP delta when LP produces all zeros ---
+    # The LP optimizer can produce all-zero impacts when both traded players
+    # are bench-quality and don't affect the optimal starting lineup.
+    # In that case, compute a direct player-vs-player SGP comparison.
+    all_zero = all(abs(v) < 0.001 for v in category_impact.values()) if category_impact else True
+    if all_zero:
+        try:
+            sgp_calc = _import_sgp_calculator(config)
+            if sgp_calc is not None:
+                # Sum SGP of all give players
+                give_sgps: dict[str, float] = {cat: 0.0 for cat in config.all_categories}
+                for gid in giving_ids:
+                    g_rows = player_pool[player_pool["player_id"] == gid]
+                    if not g_rows.empty:
+                        g_player_sgp = sgp_calc.player_sgp(g_rows.iloc[0])
+                        for cat, val in g_player_sgp.items():
+                            give_sgps[cat] = give_sgps.get(cat, 0.0) + val
+
+                # SGP of received player
+                r_rows = player_pool[player_pool["player_id"] == target_player_id]
+                if not r_rows.empty:
+                    recv_sgps = sgp_calc.player_sgp(r_rows.iloc[0])
+                    category_impact = {
+                        cat: round(recv_sgps.get(cat, 0.0) - give_sgps.get(cat, 0.0), 3)
+                        for cat in config.all_categories
+                    }
+                    surplus_sgp = sum(category_impact.values())
+        except Exception:
+            logger.debug("Raw SGP fallback failed", exc_info=True)
 
     # --- Acceptance probability ---
     acceptance = 0.0
@@ -1613,17 +1649,35 @@ def _player_category_sgps(
     config: LeagueConfig,
     sgp_calc: Any,
 ) -> dict[str, float]:
-    """Compute per-category SGP for a single player (lightweight)."""
+    """Compute per-category SGP for a single player (lightweight).
+
+    Uses ``SGPCalculator.player_sgp()`` when available, which correctly
+    handles rate stats (AVG, OBP, ERA, WHIP) via volume weighting.
+    Falls back to naive counting-stat division only when the calculator
+    is unavailable.
+    """
     rows = player_pool[player_pool["player_id"] == player_id]
     if rows.empty:
         return {}
     row = rows.iloc[0]
+
+    # Prefer SGPCalculator — it handles rate stats correctly
+    if sgp_calc is not None:
+        try:
+            return sgp_calc.player_sgp(row)
+        except Exception:
+            pass  # Fall through to manual computation
+
+    # Fallback: manual computation (counting stats only are reliable)
     result: dict[str, float] = {}
     for cat in config.all_categories:
         col = cat.lower()
         val = float(row.get(col, 0) or 0)
         denom = config.sgp_denominators.get(cat, 1.0)
-        if denom > 0:
+        if cat in config.rate_stats:
+            # Rate stats need volume weighting — skip in fallback
+            result[cat] = 0.0
+        elif denom > 0:
             sgp = val / denom
             if cat in config.inverse_stats:
                 sgp = -sgp
