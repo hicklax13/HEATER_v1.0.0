@@ -841,6 +841,8 @@ def score_trade_by_need_efficiency(
             costly_cats.append(cat)
 
     efficiency_ratio = need_weighted_gain / max(affordability_weighted_cost, 0.01)
+    # Cap at 5x to prevent unrealistic ratios from dominating rankings
+    efficiency_ratio = min(efficiency_ratio, 5.0)
 
     return {
         "efficiency_ratio": round(efficiency_ratio, 3),
@@ -1410,7 +1412,7 @@ def recommend_trades_by_need(
     Prioritizes trades that boost weak categories the most for the least
     cost in strong categories (category need efficiency).
 
-    Composite score: 40% efficiency + 20% acceptance + 15% ADP + 15% ECR + 10% YTD
+    Composite score: 25% efficiency + 30% acceptance + 15% ADP + 15% ECR + 15% YTD
 
     Args:
         user_roster_ids: List of player_id on the user's roster.
@@ -1606,9 +1608,17 @@ def recommend_trades_by_need(
                 if proj_avg > 0:
                     ytd_mod = max(0.90, min(1.10, ytd_avg / proj_avg))
 
+            # ── Acceptance floor: skip trades below 15% acceptance ──────
+            if p_accept < 0.15:
+                continue
+
             # ── Composite score ─────────────────────────────────────────
-            norm_eff = min(eff.get("efficiency_ratio", 0.0) / 3.0, 1.0)
-            composite = 0.40 * norm_eff + 0.20 * p_accept + 0.15 * adp_fair + 0.15 * ecr_fair + 0.10 * ytd_mod
+            # Acceptance is heaviest factor — a brilliant trade that gets
+            # rejected is worthless.
+            norm_eff = min(eff.get("efficiency_ratio", 0.0) / 5.0, 1.0)
+            # Normalize ytd_mod from [0.90, 1.10] to [0.0, 1.0] so it differentiates
+            ytd_score = (ytd_mod - 0.90) / 0.20
+            composite = 0.25 * norm_eff + 0.30 * p_accept + 0.15 * adp_fair + 0.15 * ecr_fair + 0.15 * ytd_score
 
             # ── Grade estimate (quick heuristic from SGP delta) ─────────
             grade_estimate = _estimate_grade(user_sgp_gain)
@@ -1638,9 +1648,63 @@ def recommend_trades_by_need(
                 }
             )
 
-    # ── 8. Sort and return top results ──────────────────────────────────
+    # ── 8. Sort by composite, take top 50 for full evaluation ───────────
     raw_results.sort(key=lambda x: x["composite_score"], reverse=True)
-    return raw_results[:max_results]
+    top_candidates = raw_results[: min(50, len(raw_results))]
+
+    # ── 9. Run full evaluate_trade() on top candidates ─────────────────
+    # This replaces the quick SGP estimate with LP-constrained category
+    # impacts, real grades, and real surplus SGP.
+    try:
+        from src.engine.output.trade_evaluator import evaluate_trade as _eval_trade
+
+        for rec in top_candidates:
+            try:
+                eval_result = _eval_trade(
+                    giving_ids=[rec["giving_id"]],
+                    receiving_ids=[rec["receiving_id"]],
+                    user_roster_ids=user_roster_ids,
+                    player_pool=player_pool,
+                    config=config,
+                    user_team_name=user_team_name,
+                    weeks_remaining=weeks_remaining,
+                    enable_mc=False,
+                    enable_context=False,
+                    enable_game_theory=False,
+                )
+                # Override quick estimates with real engine results
+                real_impact = eval_result.get("category_impact", {})
+                # If LP produced all zeros, keep the quick estimate
+                if real_impact and not all(abs(v) < 0.001 for v in real_impact.values()):
+                    rec["category_impact"] = {k: round(v, 3) for k, v in real_impact.items()}
+                    rec["user_sgp_gain"] = round(eval_result.get("surplus_sgp", rec["user_sgp_gain"]), 2)
+                    # Recompute efficiency with real impacts
+                    real_eff = score_trade_by_need_efficiency(real_impact, category_needs, config)
+                    rec["need_efficiency"] = round(real_eff.get("efficiency_ratio", 0.0), 3)
+                    rec["boosted_cats"] = real_eff.get("boosted_cats", [])
+                    rec["costly_cats"] = real_eff.get("costly_cats", [])
+                rec["grade_estimate"] = eval_result.get("grade", rec["grade_estimate"])
+            except Exception:
+                pass  # Keep quick estimate if engine fails
+    except ImportError:
+        logger.debug("evaluate_trade not available for full evaluation pass")
+
+    # ── 10. Re-sort after full evaluation and return top results ───────
+    # Recompute composite with real data
+    for rec in top_candidates:
+        norm_eff = min(rec.get("need_efficiency", 0.0) / 5.0, 1.0)
+        # Normalize ytd_modifier from [0.90, 1.10] to [0.0, 1.0]
+        ytd_score = (rec.get("ytd_modifier", 1.0) - 0.90) / 0.20
+        rec["composite_score"] = round(
+            0.25 * norm_eff
+            + 0.30 * rec.get("acceptance_probability", 0.3)
+            + 0.15 * rec.get("adp_fairness", 0.5)
+            + 0.15 * rec.get("ecr_fairness", 0.5)
+            + 0.15 * ytd_score,
+            4,
+        )
+    top_candidates.sort(key=lambda x: x["composite_score"], reverse=True)
+    return top_candidates[:max_results]
 
 
 # ---------------------------------------------------------------------------

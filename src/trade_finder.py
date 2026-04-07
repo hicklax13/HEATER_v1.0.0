@@ -28,6 +28,8 @@ logger = logging.getLogger(__name__)
 MIN_SGP_GAIN = 0.3  # Minimum user SGP gain to surface a trade
 MAX_OPP_LOSS = -0.5  # Reject trades where opponent loses more than this (e.g., opp_delta < -0.5)
 LOSS_AVERSION = 1.8  # was 1.5 -- meta-analysis consensus (Brown 2024, Walasek 2024)
+ACCEPTANCE_FLOOR = 0.15  # Trades below 15% acceptance filtered out entirely
+MAX_EFFICIENCY_RATIO = 5.0  # Cap SGP gain ratio to prevent "trade your worst for their best"
 
 
 # ── Team Vector & Cosine Similarity ───────────────────────────────────
@@ -549,6 +551,11 @@ def scan_2_for_1(
             need_match = min(1.0, max(0.0, (opp_delta + 1.0) / 2.0))
             p_accept = estimate_acceptance_probability(user_delta, opp_delta, need_match, adp_fairness=adp_fairness)
 
+            # Acceptance floor: skip trades nobody would accept
+            if p_accept < ACCEPTANCE_FLOOR:
+                evaluated += 1
+                continue
+
             # Category strategic fit for 2-for-1
             category_fit = 0.5
             if user_category_profile:
@@ -571,15 +578,15 @@ def scan_2_for_1(
 
             # Remove roster spot bonus from composite to match 1-for-1 scale
             user_delta_for_score = user_delta - ROSTER_SPOT_SGP
+            norm_sgp_2 = min(user_delta_for_score / 3.0, 1.0) if user_delta_for_score > 0 else 0.0
             composite = (
-                0.25 * user_delta_for_score
-                + 0.12 * adp_fairness * 2.0
-                + 0.12 * 0.5 * 2.0  # ECR neutral (not computed for multi-player)
-                + 0.18 * p_accept * 3.0
-                + 0.08 * max(opp_delta, 0)
-                + 0.10 * need_match * 2.0
-                + 0.15 * category_fit * 2.0  # Category strategic fit
-            ) + 0.1  # Small fixed bonus for roster flexibility
+                0.15 * norm_sgp_2
+                + 0.15 * adp_fairness
+                + 0.15 * 0.5  # ECR neutral (not computed for multi-player)
+                + 0.30 * p_accept
+                + 0.10 * category_fit
+                + 0.15 * need_match
+            ) + 0.05  # Small fixed bonus for roster flexibility
 
             give_names = seed.get("giving_names", []) + [
                 str(add_player.iloc[0].get("name", add_player.iloc[0].get("player_name", "?")))
@@ -882,6 +889,19 @@ def scan_1_for_1(
                 opponent_trade_willingness=opp_archetype_willingness,
             )
 
+            # Acceptance floor: skip trades nobody would accept
+            if p_accept < ACCEPTANCE_FLOOR:
+                continue
+
+            # Efficiency cap: reject "trade your worst for their best" nonsense
+            # Use floor of 0.1 SGP so negative-value bench players can't acquire stars
+            recv_raw_sgp_check = _totals_sgp(_roster_category_totals([recv_id], player_pool), config)
+            if recv_raw_sgp_check > 0:
+                effective_give = max(give_raw_sgp, 0.1)
+                eff_ratio = recv_raw_sgp_check / effective_give
+                if eff_ratio > MAX_EFFICIENCY_RATIO:
+                    continue
+
             # Category strategic fit — does this trade address user's category needs?
             category_fit = 0.5  # neutral default
             if user_category_profile:
@@ -892,16 +912,16 @@ def scan_1_for_1(
                 except Exception:
                     category_fit = 0.5
 
-            # Composite score: SGP gain * YTD modifier, weighted by acceptance,
-            # ADP fairness, ECR fairness, opponent benefit, need matching, and category fit
+            # Composite score: acceptance-heavy weighting because rejected trades are worthless.
+            # Normalize SGP gain to [0,1] range by capping at 5x efficiency.
+            norm_sgp = min(user_delta * ytd_modifier / 3.0, 1.0) if user_delta > 0 else 0.0
             composite = (
-                0.25 * user_delta * ytd_modifier
-                + 0.12 * adp_fairness * 2.0
-                + 0.12 * ecr_fairness * 2.0
-                + 0.18 * p_accept * 3.0
-                + 0.08 * max(opp_delta, 0)
-                + 0.10 * need_match * 2.0
-                + 0.15 * category_fit * 2.0  # Category strategic fit
+                0.15 * norm_sgp
+                + 0.15 * adp_fairness
+                + 0.15 * ecr_fairness
+                + 0.30 * p_accept
+                + 0.10 * category_fit
+                + 0.15 * opp_need_match
             )
 
             trade_result: dict = {

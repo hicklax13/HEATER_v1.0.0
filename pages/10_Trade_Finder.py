@@ -1,8 +1,8 @@
 """Trade Finder — Proactive trade recommendations based on team needs.
 
-Scans all 12 league rosters for mutually beneficial 1-for-1 trades using
+Scans all 12 league rosters for mutually beneficial 1-for-1 and 2-for-1 trades using
 cosine dissimilarity team pairing and behavioral acceptance modeling.
-Three tab views: By Partner, By Need, By Value.
+Five tabs: Smart Recommendations, By Value, Target a Player, Browse Partners, Trade Readiness.
 """
 
 import time
@@ -121,50 +121,6 @@ def _get_user_weak_categories(
     # Sort by rank descending (worst categories first)
     sorted_cats = sorted(rankings.items(), key=lambda x: x[1], reverse=True)
     return [cat for cat, _rank in sorted_cats[:bottom_n]]
-
-
-def _categorize_trades_by_need(
-    trades: list[dict],
-    weak_categories: list[str],
-    user_roster_ids: list[int],
-    player_pool: pd.DataFrame,
-    config: LeagueConfig,
-) -> dict[str, list[dict]]:
-    """Group trades by which weak category they improve most."""
-    grouped: dict[str, list[dict]] = {cat: [] for cat in weak_categories}
-
-    user_totals = _roster_category_totals(user_roster_ids, player_pool)
-
-    for trade in trades:
-        # Compute post-trade totals
-        new_ids = [pid for pid in user_roster_ids if pid not in trade["giving_ids"]] + trade["receiving_ids"]
-        new_totals = _roster_category_totals(new_ids, player_pool)
-
-        # Find which weak category improves most
-        best_cat = None
-        best_improvement = -999
-
-        for cat in weak_categories:
-            old_val = user_totals.get(cat, 0)
-            new_val = new_totals.get(cat, 0)
-            if cat in config.inverse_stats:
-                improvement = old_val - new_val  # Lower is better
-            else:
-                improvement = new_val - old_val
-            if improvement > best_improvement:
-                best_improvement = improvement
-                best_cat = cat
-
-        if best_cat and best_improvement > 0:
-            trade_copy = dict(trade)
-            trade_copy["category_improvement"] = round(best_improvement, 2)
-            grouped[best_cat].append(trade_copy)
-
-    # Sort each group by improvement
-    for cat in grouped:
-        grouped[cat].sort(key=lambda x: x.get("category_improvement", 0), reverse=True)
-
-    return grouped
 
 
 # ── Main ──────────────────────────────────────────────────────────────
@@ -488,7 +444,7 @@ def main():
                 }
                 render_sortable_table(display_df, column_config=col_config, height=600)
 
-        # ── Tab 4: Trade Readiness ───────────────────────────────────
+        # ── Tab 5: Trade Readiness ───────────────────────────────────
         with tab_readiness:
             st.markdown(
                 f'<p style="font-size:13px;color:{T["tx2"]};">'
@@ -608,7 +564,7 @@ def main():
             except ImportError:
                 st.info("Trade intelligence module not available.")
 
-        # ── Tab 5: Target a Player ───────────────────────────────────
+        # ── Tab 3: Target a Player ───────────────────────────────────
         with tab_target:
             st.subheader("Target a Player")
             st.caption(
@@ -758,7 +714,7 @@ def main():
                     else:
                         st.warning("Could not find the selected player in the player pool.")
 
-        # ── Tab 6: Browse Partners ───────────────────────────────────
+        # ── Tab 4: Browse Partners ───────────────────────────────────
         with tab_browse:
             st.subheader("Browse Trade Partners")
             st.caption("Explore opponent rosters and compare category strengths to find trade fits.")
@@ -843,6 +799,97 @@ def main():
                         render_sortable_table(display_partner, height=min(350, 50 + len(display_partner) * 35))
                 else:
                     st.caption("No trade opportunities found with this team from the scan.")
+
+                # On-demand targeted proposals for top opponent players
+                if st.button(
+                    f"Generate Trade Proposals for {selected_browse_team}",
+                    type="secondary",
+                    key="browse_generate_proposals",
+                ):
+                    with st.spinner("Generating lowball + fair value proposals for top targets..."):
+                        try:
+                            from src.trade_intelligence import generate_targeted_proposals
+
+                            try:
+                                from src.validation.dynamic_context import compute_weeks_remaining
+
+                                weeks_rem_b = compute_weeks_remaining()
+                            except ImportError:
+                                weeks_rem_b = 22
+
+                            # Pick top 3 opponent players by total SGP
+                            opp_pids_b = league_rosters.get(selected_browse_team, [])
+                            opp_players_b = pool[pool["player_id"].isin(opp_pids_b)].copy()
+                            if not opp_players_b.empty:
+                                # Sort by a rough value estimate
+                                for stat_col in ["hr", "rbi", "k", "sv"]:
+                                    if stat_col not in opp_players_b.columns:
+                                        opp_players_b[stat_col] = 0
+                                opp_players_b["_rough_val"] = (
+                                    opp_players_b["hr"].fillna(0)
+                                    + opp_players_b["rbi"].fillna(0) / 3
+                                    + opp_players_b["k"].fillna(0) / 3
+                                    + opp_players_b["sv"].fillna(0)
+                                )
+                                top_targets = opp_players_b.nlargest(3, "_rough_val")
+
+                                for _, target_row in top_targets.iterrows():
+                                    target_pid_b = int(target_row["player_id"])
+                                    name_col_tb = "name" if "name" in target_row.index else "player_name"
+                                    target_name_b = str(target_row.get(name_col_tb, f"ID {target_pid_b}"))
+
+                                    try:
+                                        proposals_b = generate_targeted_proposals(
+                                            target_player_id=target_pid_b,
+                                            user_roster_ids=user_roster_ids,
+                                            player_pool=pool,
+                                            config=config,
+                                            all_team_totals=all_team_totals if all_team_totals else None,
+                                            user_team_name=user_team_name,
+                                            opponent_team_name=selected_browse_team,
+                                            weeks_remaining=weeks_rem_b,
+                                        )
+                                    except Exception:
+                                        proposals_b = None
+
+                                    if proposals_b:
+                                        with st.expander(
+                                            f"Proposals for {target_name_b} ({target_row.get('positions', '')})",
+                                            expanded=False,
+                                        ):
+                                            col_lb, col_fv = st.columns(2)
+                                            for col_p, lbl, pkey, clr in [
+                                                (col_lb, "LOWBALL", "lowball", T["hot"]),
+                                                (col_fv, "FAIR VALUE", "fair_value", T["ok"]),
+                                            ]:
+                                                with col_p:
+                                                    prop = proposals_b.get(pkey)
+                                                    if prop is None:
+                                                        st.caption(f"No {lbl.lower()} found")
+                                                        continue
+                                                    give_n = ", ".join(prop.get("giving_names", []))
+                                                    grade_p = prop.get("grade", "?")
+                                                    accept_p = prop.get("acceptance_probability", 0)
+                                                    eff_p = prop.get("efficiency", {})
+                                                    eff_r = (
+                                                        eff_p.get("efficiency_ratio", 0)
+                                                        if isinstance(eff_p, dict)
+                                                        else 0
+                                                    )
+                                                    st.markdown(
+                                                        f'<div style="background:{clr}20;border:1px solid {clr};'
+                                                        f'border-radius:6px;padding:8px;margin-bottom:4px;">'
+                                                        f'<span style="font-family:Bebas Neue,sans-serif;color:{clr};">'
+                                                        f"{lbl}</span></div>",
+                                                        unsafe_allow_html=True,
+                                                    )
+                                                    st.markdown(f"Give: **{give_n}**")
+                                                    pm1, pm2, pm3 = st.columns(3)
+                                                    pm1.metric("Grade", grade_p)
+                                                    pm2.metric("Efficiency", f"{eff_r:.1f}x")
+                                                    pm3.metric("Accept", f"{accept_p:.0%}")
+                        except ImportError:
+                            st.info("Trade intelligence module not available.")
 
                 # Opponent roster
                 opp_pids_browse = league_rosters.get(selected_browse_team, [])
