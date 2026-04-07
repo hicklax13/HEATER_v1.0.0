@@ -510,6 +510,36 @@ with ctx:
     )
     render_context_card("Rating Tiers", legend_rows)
 
+    # Opponent weakness card from MatchupContextService
+    try:
+        from src.matchup_context import get_matchup_context
+
+        _ctx = get_matchup_context()
+        _opp = _ctx.get_opponent_context()
+        if _opp.get("name") and _opp["name"] != "Unknown":
+            _weak = _opp.get("weaknesses", [])
+            _strong = _opp.get("strengths", [])
+            _opp_html = f'<div style="font-size:12px;color:{THEME["tx"]};">'
+            _opp_html += f'<b>{_opp["name"]}</b>'
+            if _opp.get("tier"):
+                _opp_html += f' ({_opp["tier"]})'
+            _opp_html += "</div>"
+            if _weak:
+                weak_str = ", ".join(str(w) for w in _weak[:4])
+                _opp_html += (
+                    f'<div style="font-size:11px;color:{THEME["danger"]};margin-top:4px;">'
+                    f"Weak: {weak_str}</div>"
+                )
+            if _strong:
+                strong_str = ", ".join(str(s) for s in _strong[:4])
+                _opp_html += (
+                    f'<div style="font-size:11px;color:{THEME["green"]};margin-top:2px;">'
+                    f"Strong: {strong_str}</div>"
+                )
+            render_context_card("Opponent Weakness", _opp_html)
+    except Exception:
+        pass  # Graceful fallback
+
 # ── Main panel ────────────────────────────────────────────────────────
 
 with main:
@@ -568,12 +598,23 @@ with main:
     # Run the matchup planner
     park_factors = PARK_FACTORS if PARK_FACTORS_AVAILABLE else {}
 
+    # Fetch team strength data from MatchupContextService for pitcher matchup ratings
+    team_batting_stats = None
+    try:
+        from src.matchup_context import get_matchup_context
+
+        ctx = get_matchup_context()
+        team_batting_stats = ctx.get_all_team_strengths()
+    except Exception:
+        pass  # Graceful fallback — ratings use defaults without team strength
+
     with st.spinner("Computing matchup ratings..."):
         try:
             ratings_df = compute_weekly_matchup_ratings(
                 roster=filtered_roster,
                 weekly_schedule=weekly_schedule,
                 park_factors=park_factors or None,
+                team_batting_stats=team_batting_stats,
             )
         except Exception as exc:
             logger.exception("Matchup planner failed")

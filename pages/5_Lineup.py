@@ -1340,6 +1340,33 @@ with main:
                             if not _new_fa.empty:
                                 _ss_pool = pd.concat([_ss_pool, _new_fa], ignore_index=True)
 
+                        # Fetch recent form and weather from MatchupContextService
+                        _ss_recent_form = None
+                        _ss_weather = None
+                        try:
+                            from src.matchup_context import get_matchup_context
+
+                            _ss_ctx = get_matchup_context()
+                            _ss_recent_form = {}
+                            for _pid in compare_ids:
+                                _p_row = _ss_pool[_ss_pool["player_id"] == _pid]
+                                if not _p_row.empty:
+                                    _mlb = _p_row.iloc[0].get("mlb_id")
+                                    if _mlb is not None:
+                                        try:
+                                            _ss_recent_form[_pid] = _ss_ctx.get_player_form(int(_mlb))
+                                        except (ValueError, TypeError):
+                                            pass
+                            _ss_weather = {}
+                            for _pid in compare_ids:
+                                _p_row = _ss_pool[_ss_pool["player_id"] == _pid]
+                                if not _p_row.empty:
+                                    _team = str(_p_row.iloc[0].get("team", ""))
+                                    if _team and _team not in _ss_weather:
+                                        _ss_weather[_team] = _ss_ctx.get_weather(_team)
+                        except Exception:
+                            pass  # Graceful fallback — start/sit works without form/weather
+
                         with st.spinner("Computing start/sit recommendation..."):
                             try:
                                 ss_result = start_sit_recommendation(
@@ -1352,6 +1379,8 @@ with main:
                                     opp_weekly_totals=opp_weekly_totals,
                                     standings=(standings if not standings.empty else None),
                                     team_name=user_team_name,
+                                    recent_form=_ss_recent_form if _ss_recent_form else None,
+                                    weather=_ss_weather if _ss_weather else None,
                                 )
                             except Exception as exc:
                                 logger.exception("start_sit_recommendation failed")
@@ -1578,11 +1607,31 @@ with main:
                     if len(selected_ids) < 2:
                         st.warning("Could not resolve player IDs for the selected players.")
                     else:
+                        # Fetch recent form for manual comparison
+                        _m_form = None
+                        try:
+                            from src.matchup_context import get_matchup_context
+
+                            _m_ctx = get_matchup_context()
+                            _m_form = {}
+                            _m_pool = pool.rename(columns={"player_name": "name"})
+                            for _mid in selected_ids:
+                                _mr = _m_pool[_m_pool["player_id"] == _mid]
+                                if not _mr.empty:
+                                    _mm = _mr.iloc[0].get("mlb_id")
+                                    if _mm is not None:
+                                        try:
+                                            _m_form[_mid] = _m_ctx.get_player_form(int(_mm))
+                                        except (ValueError, TypeError):
+                                            pass
+                        except Exception:
+                            _m_pool = pool.rename(columns={"player_name": "name"})
+
                         with st.spinner("Computing start/sit recommendation..."):
                             try:
                                 manual_result = start_sit_recommendation(
                                     player_ids=selected_ids,
-                                    player_pool=pool.rename(columns={"player_name": "name"}),
+                                    player_pool=_m_pool if "_m_pool" in dir() else pool.rename(columns={"player_name": "name"}),
                                     config=league_config,
                                     weekly_schedule=week_schedule if week_schedule else None,
                                     park_factors=(PARK_FACTORS if PARK_FACTORS else None),
@@ -1590,6 +1639,7 @@ with main:
                                     opp_weekly_totals=opp_weekly_totals,
                                     standings=(standings if not standings.empty else None),
                                     team_name=user_team_name,
+                                    recent_form=_m_form if _m_form else None,
                                 )
                             except Exception as exc:
                                 logger.exception("start_sit_recommendation failed")

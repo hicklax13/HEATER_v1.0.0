@@ -297,6 +297,8 @@ def start_sit_recommendation(
     opp_weekly_totals: dict[str, float] | None = None,
     standings: pd.DataFrame | None = None,
     team_name: str | None = None,
+    recent_form: dict[int, dict] | None = None,
+    weather: dict[str, dict] | None = None,
 ) -> dict[str, Any]:
     """Compare 2-4 players competing for the same roster slot.
 
@@ -315,6 +317,12 @@ def start_sit_recommendation(
         opp_weekly_totals: Opponent's projected weekly category totals.
         standings: League standings DataFrame (for SGP context).
         team_name: My team name (for standings lookups).
+        recent_form: Dict mapping player_id to form data from
+            MatchupContextService.get_player_form(). Hot players get a
+            +5% boost, cold players get a -5% penalty.
+        weather: Dict mapping team_abbr to weather data. Extreme heat
+            (>85F) gives hitters +3% HR boost, extreme cold (<50F)
+            gives -3% penalty.
 
     Returns:
         Dict with:
@@ -390,6 +398,24 @@ def start_sit_recommendation(
 
         # Start score: sum of H2H-weighted weekly projections
         start_score = _compute_start_score(weekly_proj, h2h_weights, matchup_factors, config, is_hitter)
+
+        # Recent form adjustment: hot streaks boost, cold streaks penalize
+        if recent_form and pid in recent_form:
+            trend = recent_form[pid].get("trend", "neutral")
+            if trend == "hot":
+                start_score *= 1.05
+            elif trend == "cold":
+                start_score *= 0.95
+
+        # Weather adjustment: extreme temps affect HR production for hitters
+        if weather and is_hitter:
+            team = str(player.get("team", ""))
+            w_data = weather.get(team, {})
+            temp = w_data.get("temp_f", 72.0) if w_data else 72.0
+            if isinstance(temp, (int, float)) and temp > 85:
+                start_score *= 1.03  # Heat boosts HR
+            elif isinstance(temp, (int, float)) and temp < 50:
+                start_score *= 0.97  # Cold suppresses HR
 
         # Floor/ceiling estimates (P10/P90 approximation)
         # Use additive variance band — multiplicative fails when score is negative
