@@ -1088,9 +1088,14 @@ def _build_give_candidates(
         if name in il_stash_names:
             continue
 
-        # Exclude NA/minors
+        # Exclude NA/minors and IL players (injured players can't be traded realistically)
         status = str(row.get("status", "active")).lower().strip()
-        if status in ("na", "not active", "minors"):
+        if status in ("na", "not active", "minors", "il", "il10", "il15", "il60", "dl", "out"):
+            continue
+
+        # Also check selected_position for IL (Yahoo roster slot)
+        sel_pos = str(row.get("selected_position", "")).upper().strip()
+        if sel_pos == "IL":
             continue
 
         sgp = sgp_calc.total_sgp(row) if sgp_calc else _quick_player_sgp(row, config)

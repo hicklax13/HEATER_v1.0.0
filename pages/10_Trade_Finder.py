@@ -268,7 +268,7 @@ def main():
             user_team_name=user_team_name,
             league_rosters=league_rosters,
             max_results=50,
-            top_partners=5,
+            top_partners=11,
         )
         scan_time = time.time() - t0
 
@@ -606,8 +606,7 @@ def main():
         with tab_target:
             st.subheader("Target a Player")
             st.caption(
-                "Select any player in the league and get two trade proposals: "
-                "a lowball offer and a fair value package."
+                "Select any player in the league and get two trade proposals: a lowball offer and a fair value package."
             )
 
             # Build target options: all non-user rostered players, grouped by team
@@ -691,8 +690,7 @@ def main():
                                     proposal = proposals.get(key_prop)
                                     if proposal is None:
                                         st.info(
-                                            f"No {label.lower()} proposal found "
-                                            "-- no viable package on your roster."
+                                            f"No {label.lower()} proposal found -- no viable package on your roster."
                                         )
                                         continue
 
@@ -708,19 +706,13 @@ def main():
 
                                     # Give players
                                     give_names = proposal.get("giving_names", [])
-                                    st.markdown(
-                                        f"**You give:** {', '.join(give_names) if give_names else 'N/A'}"
-                                    )
+                                    st.markdown(f"**You give:** {', '.join(give_names) if give_names else 'N/A'}")
 
                                     # Metrics row
                                     m1, m2, m3 = st.columns(3)
                                     m1.metric("Grade", proposal.get("grade", "N/A"))
                                     eff_data = proposal.get("efficiency", {})
-                                    eff_ratio = (
-                                        eff_data.get("efficiency_ratio", 0)
-                                        if isinstance(eff_data, dict)
-                                        else 0
-                                    )
+                                    eff_ratio = eff_data.get("efficiency_ratio", 0) if isinstance(eff_data, dict) else 0
                                     m2.metric("Efficiency", f"{eff_ratio:.1f}x")
                                     m3.metric(
                                         "Accept",
@@ -756,41 +748,27 @@ def main():
                                     # ADP + ECR
                                     adp_fair_t = proposal.get("adp_fairness", 0)
                                     ecr_fair_t = proposal.get("ecr_fairness", 0)
-                                    st.caption(
-                                        f"ADP Fairness: {adp_fair_t:.0%} | "
-                                        f"ECR Fairness: {ecr_fair_t:.0%}"
-                                    )
+                                    st.caption(f"ADP Fairness: {adp_fair_t:.0%} | ECR Fairness: {ecr_fair_t:.0%}")
                     else:
                         st.warning("Could not find the selected player in the player pool.")
 
         # ── Tab 6: Browse Partners ───────────────────────────────────
         with tab_browse:
             st.subheader("Browse Trade Partners")
-            st.caption(
-                "Explore opponent rosters and compare category strengths to find trade fits."
-            )
+            st.caption("Explore opponent rosters and compare category strengths to find trade fits.")
 
             opponent_teams = sorted([t for t in league_rosters if t != user_team_name])
-            selected_browse_team = st.selectbox(
-                "Select opponent team", opponent_teams, key="browse_team_select"
-            )
+            selected_browse_team = st.selectbox("Select opponent team", opponent_teams, key="browse_team_select")
 
             if selected_browse_team:
                 # Complementarity score
                 if all_team_totals:
-                    browse_partners = find_complementary_teams(
-                        user_team_name, all_team_totals, config, top_n=12
-                    )
+                    browse_partners = find_complementary_teams(user_team_name, all_team_totals, config, top_n=12)
                     comp_score_browse = dict(browse_partners).get(selected_browse_team, 0.5)
-                    st.caption(
-                        f"Complementarity score: **{comp_score_browse:.2f}** "
-                        "(higher = better trade fit)"
-                    )
+                    st.caption(f"Complementarity score: **{comp_score_browse:.2f}** (higher = better trade fit)")
 
                 # Category comparison table
-                user_totals_browse = all_team_totals.get(
-                    user_team_name, _roster_category_totals(user_roster_ids, pool)
-                )
+                user_totals_browse = all_team_totals.get(user_team_name, _roster_category_totals(user_roster_ids, pool))
                 opp_totals_browse = all_team_totals.get(
                     selected_browse_team,
                     _roster_category_totals(league_rosters.get(selected_browse_team, []), pool),
@@ -814,14 +792,10 @@ def main():
                         sorted_vals_b = sorted(all_vals_b, reverse=True)
 
                     user_rank_b = (
-                        sorted_vals_b.index(user_val_b) + 1
-                        if user_val_b in sorted_vals_b
-                        else len(sorted_vals_b)
+                        sorted_vals_b.index(user_val_b) + 1 if user_val_b in sorted_vals_b else len(sorted_vals_b)
                     )
                     opp_rank_b = (
-                        sorted_vals_b.index(opp_val_b) + 1
-                        if opp_val_b in sorted_vals_b
-                        else len(sorted_vals_b)
+                        sorted_vals_b.index(opp_val_b) + 1 if opp_val_b in sorted_vals_b else len(sorted_vals_b)
                     )
                     rank_gap_b = opp_rank_b - user_rank_b
 
@@ -855,9 +829,7 @@ def main():
                     for col_b in ["r", "hr", "rbi", "sb", "avg", "w", "sv", "k", "era", "whip"]:
                         if col_b in opp_pool_browse.columns:
                             display_cols_b.append(col_b)
-                    display_df_b = opp_pool_browse[
-                        [c for c in display_cols_b if c in opp_pool_browse.columns]
-                    ].copy()
+                    display_df_b = opp_pool_browse[[c for c in display_cols_b if c in opp_pool_browse.columns]].copy()
                     display_df_b = display_df_b.rename(
                         columns={"name": "Player", "player_name": "Player", "positions": "Pos"}
                     )
@@ -931,22 +903,16 @@ def main():
                             boosted = rec.get("boosted_cats", [])
                             costly = rec.get("costly_cats", [])
                             if boosted:
-                                boost_display = ", ".join(
-                                    [_CAT_DISPLAY.get(c, c) for c in boosted]
-                                )
+                                boost_display = ", ".join([_CAT_DISPLAY.get(c, c) for c in boosted])
                                 st.markdown(f"**Boosts:** {boost_display}")
                             if costly:
-                                cost_display = ", ".join(
-                                    [_CAT_DISPLAY.get(c, c) for c in costly]
-                                )
+                                cost_display = ", ".join([_CAT_DISPLAY.get(c, c) for c in costly])
                                 st.markdown(f"**Costs:** {cost_display}")
 
                             # ADP + ECR
                             adp_s = rec.get("adp_fairness", 0)
                             ecr_s = rec.get("ecr_fairness", 0)
-                            st.caption(
-                                f"ADP Fairness: {adp_s:.0%} | ECR Fairness: {ecr_s:.0%}"
-                            )
+                            st.caption(f"ADP Fairness: {adp_s:.0%} | ECR Fairness: {ecr_s:.0%}")
 
     page_timer_footer("Trade Finder")
 
