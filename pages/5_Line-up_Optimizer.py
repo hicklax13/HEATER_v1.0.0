@@ -1631,7 +1631,9 @@ with main:
                             try:
                                 manual_result = start_sit_recommendation(
                                     player_ids=selected_ids,
-                                    player_pool=_m_pool if "_m_pool" in dir() else pool.rename(columns={"player_name": "name"}),
+                                    player_pool=_m_pool
+                                    if "_m_pool" in dir()
+                                    else pool.rename(columns={"player_name": "name"}),
                                     config=league_config,
                                     weekly_schedule=week_schedule if week_schedule else None,
                                     park_factors=(PARK_FACTORS if PARK_FACTORS else None),

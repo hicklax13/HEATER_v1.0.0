@@ -520,21 +520,19 @@ with ctx:
             _weak = _opp.get("weaknesses", [])
             _strong = _opp.get("strengths", [])
             _opp_html = f'<div style="font-size:12px;color:{THEME["tx"]};">'
-            _opp_html += f'<b>{_opp["name"]}</b>'
+            _opp_html += f"<b>{_opp['name']}</b>"
             if _opp.get("tier"):
-                _opp_html += f' ({_opp["tier"]})'
+                _opp_html += f" ({_opp['tier']})"
             _opp_html += "</div>"
             if _weak:
                 weak_str = ", ".join(str(w) for w in _weak[:4])
                 _opp_html += (
-                    f'<div style="font-size:11px;color:{THEME["danger"]};margin-top:4px;">'
-                    f"Weak: {weak_str}</div>"
+                    f'<div style="font-size:11px;color:{THEME["danger"]};margin-top:4px;">Weak: {weak_str}</div>'
                 )
             if _strong:
                 strong_str = ", ".join(str(s) for s in _strong[:4])
                 _opp_html += (
-                    f'<div style="font-size:11px;color:{THEME["green"]};margin-top:2px;">'
-                    f"Strong: {strong_str}</div>"
+                    f'<div style="font-size:11px;color:{THEME["green"]};margin-top:2px;">Strong: {strong_str}</div>'
                 )
             render_context_card("Opponent Weakness", _opp_html)
     except Exception:

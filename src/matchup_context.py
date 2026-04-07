@@ -120,9 +120,7 @@ class MatchupContextService:
                 # Build all_team_totals from standings
                 all_team_totals: dict[str, dict[str, float]] = {}
                 if "category" in standings_df.columns:
-                    standings_df["total"] = pd.to_numeric(
-                        standings_df["total"], errors="coerce"
-                    ).fillna(0)
+                    standings_df["total"] = pd.to_numeric(standings_df["total"], errors="coerce").fillna(0)
                     wide = standings_df.pivot_table(
                         index="team_name", columns="category", values="total", aggfunc="first"
                     ).reset_index()
@@ -187,10 +185,36 @@ class MatchupContextService:
             return cached
 
         teams = [
-            "ARI", "ATL", "BAL", "BOS", "CHC", "CHW", "CIN", "CLE",
-            "COL", "DET", "HOU", "KC", "LAA", "LAD", "MIA", "MIL",
-            "MIN", "NYM", "NYY", "OAK", "PHI", "PIT", "SD", "SF",
-            "SEA", "STL", "TB", "TEX", "TOR", "WSH",
+            "ARI",
+            "ATL",
+            "BAL",
+            "BOS",
+            "CHC",
+            "CHW",
+            "CIN",
+            "CLE",
+            "COL",
+            "DET",
+            "HOU",
+            "KC",
+            "LAA",
+            "LAD",
+            "MIA",
+            "MIL",
+            "MIN",
+            "NYM",
+            "NYY",
+            "OAK",
+            "PHI",
+            "PIT",
+            "SD",
+            "SF",
+            "SEA",
+            "STL",
+            "TB",
+            "TEX",
+            "TOR",
+            "WSH",
         ]
         result = {}
         for team in teams:

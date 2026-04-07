@@ -161,7 +161,13 @@ def temp_db(tmp_path):
     )
 
     # Insert ADP
-    adp = [(1, None, None, 15.0), (2, None, None, 5.0), (3, None, None, 45.0), (4, None, None, 60.0), (5, None, None, 35.0)]
+    adp = [
+        (1, None, None, 15.0),
+        (2, None, None, 5.0),
+        (3, None, None, 45.0),
+        (4, None, None, 60.0),
+        (5, None, None, 35.0),
+    ]
     c.executemany("INSERT INTO adp (player_id, yahoo_adp, fantasypros_adp, adp) VALUES (?, ?, ?, ?)", adp)
 
     # Insert ECR for some players (not all — tests default behavior)
