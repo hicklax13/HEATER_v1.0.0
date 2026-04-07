@@ -49,13 +49,9 @@ if pool.empty:
 
 pool = pool.rename(columns={"name": "player_name"})
 
-# Apply health adjustments (IL/DTD status + injury history) so health_score is accurate
-try:
-    from src.trade_intelligence import get_health_adjusted_pool
-
-    pool = get_health_adjusted_pool(pool)
-except ImportError:
-    pass
+# health_score and status are already in the enriched pool from load_player_pool()
+# Player Compare does NOT need the destructive counting-stat reduction from
+# get_health_adjusted_pool() — it only needs health_score for display badges.
 
 rosters_df = load_league_rosters()
 config = LeagueConfig()
@@ -154,7 +150,7 @@ with main:
         time.sleep(0.3)
         compare_progress.empty()
 
-        # Health scores are already in the pool from get_health_adjusted_pool()
+        # Health scores are already in the pool from the enriched load_player_pool()
         # which accounts for both injury history AND current IL/DTD status.
 
         if "error" in result:

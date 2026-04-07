@@ -191,27 +191,28 @@ def get_health_adjusted_pool(
 
     pool = player_pool.copy()
 
-    # --- Load injury history for health scores ---
-    health_scores = _load_health_scores()
+    # --- Load health scores and statuses ---
+    # If the enriched player pool already has these columns (from _enrich_pool()
+    # in database.py), skip the expensive DB queries. The health_score and status
+    # columns are already set with display-safe values.
+    if "health_score" in pool.columns and "status" in pool.columns:
+        pool["_orig_health"] = pool["health_score"].copy()
+    else:
+        health_scores = _load_health_scores()
+        roster_statuses = _load_roster_statuses()
+        pool["health_score"] = pool["player_id"].map(health_scores).fillna(0.85)
+        pool["_orig_health"] = pool["health_score"].copy()
+        pool["status"] = pool["player_id"].map(roster_statuses).fillna("active")
 
-    # --- Load roster statuses (IL/DTD/NA) ---
-    roster_statuses = _load_roster_statuses()
-
-    # --- Apply health scores ---
-    pool["health_score"] = pool["player_id"].map(health_scores).fillna(0.85)
-    pool["_orig_health"] = pool["health_score"].copy()
-    pool["status"] = pool["player_id"].map(roster_statuses).fillna("active")
-
-    # --- Adjust health scores based on current IL/DTD status ---
-    # Players on IL with no injury history get a lower health score than the default
-    for idx, row in pool.iterrows():
-        status = str(row.get("status", "active")).lower().strip()
-        if status in ("il10", "il15", "dl") and row.get("health_score", 0.85) >= 0.80:
-            pool.at[idx, "health_score"] = 0.65  # Moderate risk — currently injured
-        elif status in ("il60", "out") and row.get("health_score", 0.85) >= 0.60:
-            pool.at[idx, "health_score"] = 0.40  # Elevated risk — long-term injury
-        elif status == "dtd" and row.get("health_score", 0.85) >= 0.80:
-            pool.at[idx, "health_score"] = 0.75  # Slightly elevated — day-to-day
+        # Adjust health scores based on current IL/DTD status
+        for idx, row in pool.iterrows():
+            status = str(row.get("status", "active")).lower().strip()
+            if status in ("il10", "il15", "dl") and row.get("health_score", 0.85) >= 0.80:
+                pool.at[idx, "health_score"] = 0.65
+            elif status in ("il60", "out") and row.get("health_score", 0.85) >= 0.60:
+                pool.at[idx, "health_score"] = 0.40
+            elif status == "dtd" and row.get("health_score", 0.85) >= 0.80:
+                pool.at[idx, "health_score"] = 0.75
 
     # --- Exclude NA/minors players ---
     na_mask = pool["status"].str.lower().isin(["na", "not active", "minors"])
@@ -493,9 +494,16 @@ def apply_scarcity_flags(player_pool: pd.DataFrame) -> pd.DataFrame:
     Players with projected SV >= 5 get a closer flag.
     Players at C/SS/2B get a scarce position flag.
 
+    If the enriched player pool already has these columns (from
+    ``_enrich_pool()`` in ``database.py``), returns immediately.
+
     Returns:
         Pool with ``is_closer`` and ``scarcity_mult`` columns added.
     """
+    # Short-circuit if pool already enriched
+    if "is_closer" in player_pool.columns and "scarcity_mult" in player_pool.columns:
+        return player_pool
+
     pool = player_pool.copy()
     sv = pd.to_numeric(pool.get("sv", 0), errors="coerce").fillna(0)
     pool["is_closer"] = sv >= 5

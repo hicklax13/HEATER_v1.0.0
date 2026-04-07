@@ -40,8 +40,34 @@ _INT_STAT_COLS = [
     "team_index",
     "is_user_team",
     "rank",
+    "consensus_rank",
+    "ecr_sources",
+    "ytd_pa",
+    "ytd_hr",
+    "ytd_rbi",
+    "ytd_sb",
+    "ytd_sv",
+    "ytd_k",
 ]
-_FLOAT_STAT_COLS = ["avg", "obp", "ip", "era", "whip", "adp", "total", "points", "fip", "xfip", "siera"]
+_FLOAT_STAT_COLS = [
+    "avg",
+    "obp",
+    "ip",
+    "era",
+    "whip",
+    "adp",
+    "total",
+    "points",
+    "fip",
+    "xfip",
+    "siera",
+    "ecr_avg",
+    "ytd_avg",
+    "ytd_era",
+    "ytd_whip",
+    "health_score",
+    "scarcity_mult",
+]
 
 
 def coerce_numeric_df(df: pd.DataFrame) -> pd.DataFrame:
@@ -924,6 +950,106 @@ def load_player_pool() -> pd.DataFrame:
     return _load_player_pool_impl()
 
 
+# ── Enrichment helpers for player pool ────────────────────────────────
+
+
+def _load_health_scores_for_pool() -> dict[int, float]:
+    """Load per-player health scores from injury_history (no trade_intelligence import)."""
+    try:
+        from src.injury_model import compute_health_score
+
+        conn = get_connection()
+        try:
+            df = pd.read_sql_query(
+                "SELECT player_id, games_played, games_available "
+                "FROM injury_history WHERE season >= 2024 "
+                "ORDER BY player_id, season DESC",
+                conn,
+            )
+        finally:
+            conn.close()
+        if df.empty:
+            return {}
+        scores: dict[int, float] = {}
+        for pid, group in df.groupby("player_id"):
+            gp = group["games_played"].tolist()[:3]
+            ga = group["games_available"].tolist()[:3]
+            scores[int(pid)] = compute_health_score(gp, ga)
+        return scores
+    except Exception:
+        return {}
+
+
+def _load_roster_statuses_for_pool() -> dict[int, str]:
+    """Load per-player roster status from league_rosters (no trade_intelligence import)."""
+    try:
+        conn = get_connection()
+        try:
+            df = pd.read_sql_query(
+                "SELECT player_id, status FROM league_rosters WHERE status IS NOT NULL",
+                conn,
+            )
+        finally:
+            conn.close()
+        if df.empty:
+            return {}
+        return dict(
+            zip(
+                pd.to_numeric(df["player_id"], errors="coerce").fillna(0).astype(int),
+                df["status"].astype(str),
+            )
+        )
+    except Exception:
+        return {}
+
+
+_SCARCE_POSITIONS = {"C", "SS", "2B"}
+_SV_SCARCITY_MULT = 1.3
+_SCARCE_POS_MULT = 1.15
+
+
+def _enrich_pool(df: pd.DataFrame) -> pd.DataFrame:
+    """Add health_score, status, is_closer, scarcity_mult to player pool.
+
+    Display-only enrichment — does NOT reduce counting stats.
+    Trade engines that need stat adjustment still call get_health_adjusted_pool().
+    """
+    if df.empty:
+        return df
+
+    # Health scores from injury_history
+    health_scores = _load_health_scores_for_pool()
+    df["health_score"] = df["player_id"].map(health_scores).fillna(0.85)
+
+    # Roster status from league_rosters
+    roster_statuses = _load_roster_statuses_for_pool()
+    df["status"] = df["player_id"].map(roster_statuses).fillna("active")
+
+    # Adjust health_score based on IL/DTD status (display caps only, no stat reduction)
+    status_lower = df["status"].str.lower()
+    mask_il = status_lower.isin(["il10", "il15", "dl"])
+    df.loc[mask_il & (df["health_score"] >= 0.80), "health_score"] = 0.65
+    mask_il60 = status_lower.isin(["il60", "out"])
+    df.loc[mask_il60 & (df["health_score"] >= 0.60), "health_score"] = 0.40
+    mask_dtd = status_lower == "dtd"
+    df.loc[mask_dtd & (df["health_score"] >= 0.80), "health_score"] = 0.75
+
+    # Scarcity flags
+    sv = pd.to_numeric(df.get("sv", pd.Series(dtype=float)), errors="coerce").fillna(0)
+    df["is_closer"] = sv >= 5
+
+    def _scarcity(row):
+        if row.get("is_closer", False):
+            return _SV_SCARCITY_MULT
+        positions = set(p.strip() for p in str(row.get("positions", "")).split(","))
+        if positions & _SCARCE_POSITIONS:
+            return _SCARCE_POS_MULT
+        return 1.0
+
+    df["scarcity_mult"] = df.apply(_scarcity, axis=1)
+    return df
+
+
 def _load_player_pool_impl() -> pd.DataFrame:
     """Internal implementation — loads player pool from SQLite.
 
@@ -961,16 +1087,30 @@ def _load_player_pool_impl() -> pd.DataFrame:
                     COALESCE(ros.er, 0) as er, COALESCE(ros.bb_allowed, 0) as bb_allowed,
                     COALESCE(ros.h_allowed, 0) as h_allowed,
                     ros.fip, ros.xfip, ros.siera,
-                    COALESCE(a.adp, 999) as adp
+                    COALESCE(a.adp, 999) as adp,
+                    ecr.consensus_rank,
+                    ecr.consensus_avg AS ecr_avg,
+                    ecr.n_sources AS ecr_sources,
+                    COALESCE(ss.pa, 0) AS ytd_pa,
+                    COALESCE(ss.avg, 0) AS ytd_avg,
+                    COALESCE(ss.hr, 0) AS ytd_hr,
+                    COALESCE(ss.rbi, 0) AS ytd_rbi,
+                    COALESCE(ss.sb, 0) AS ytd_sb,
+                    COALESCE(ss.era, 0) AS ytd_era,
+                    COALESCE(ss.whip, 0) AS ytd_whip,
+                    COALESCE(ss.sv, 0) AS ytd_sv,
+                    COALESCE(ss.k, 0) AS ytd_k
                 FROM players p
                 LEFT JOIN ros_projections ros ON p.player_id = ros.player_id
                 LEFT JOIN adp a ON p.player_id = a.player_id
+                LEFT JOIN ecr_consensus ecr ON p.player_id = ecr.player_id
+                LEFT JOIN season_stats ss ON p.player_id = ss.player_id AND ss.season = 2026
                 ORDER BY COALESCE(a.adp, 999)
             """,
                 conn,
             )
             if not df.empty:
-                return coerce_numeric_df(df)
+                return _enrich_pool(coerce_numeric_df(df))
 
         # Fallback: static blended projections (pre-season Steamer/ZiPS/DepthCharts)
         # Note: Do NOT use CAST on numeric columns — Python 3.14 SQLite returns raw bytes
@@ -995,11 +1135,25 @@ def _load_player_pool_impl() -> pd.DataFrame:
                 COALESCE(proj.er, 0) as er, COALESCE(proj.bb_allowed, 0) as bb_allowed,
                 COALESCE(proj.h_allowed, 0) as h_allowed,
                 proj.fip, proj.xfip, proj.siera,
-                COALESCE(a.adp, 999) as adp
+                COALESCE(a.adp, 999) as adp,
+                ecr.consensus_rank,
+                ecr.consensus_avg AS ecr_avg,
+                ecr.n_sources AS ecr_sources,
+                COALESCE(ss.pa, 0) AS ytd_pa,
+                COALESCE(ss.avg, 0) AS ytd_avg,
+                COALESCE(ss.hr, 0) AS ytd_hr,
+                COALESCE(ss.rbi, 0) AS ytd_rbi,
+                COALESCE(ss.sb, 0) AS ytd_sb,
+                COALESCE(ss.era, 0) AS ytd_era,
+                COALESCE(ss.whip, 0) AS ytd_whip,
+                COALESCE(ss.sv, 0) AS ytd_sv,
+                COALESCE(ss.k, 0) AS ytd_k
             FROM players p
             LEFT JOIN projections proj ON p.player_id = proj.player_id
                 AND proj.system = 'blended'
             LEFT JOIN adp a ON p.player_id = a.player_id
+            LEFT JOIN ecr_consensus ecr ON p.player_id = ecr.player_id
+            LEFT JOIN season_stats ss ON p.player_id = ss.player_id AND ss.season = 2026
             ORDER BY COALESCE(a.adp, 999)
         """,
             conn,
@@ -1030,10 +1184,24 @@ def _load_player_pool_impl() -> pd.DataFrame:
                     COALESCE(AVG(proj.h_allowed), 0) as h_allowed,
                     AVG(proj.fip) as fip, AVG(proj.xfip) as xfip,
                     AVG(proj.siera) as siera,
-                    COALESCE(a.adp, 999) as adp
+                    COALESCE(a.adp, 999) as adp,
+                    ecr.consensus_rank,
+                    ecr.consensus_avg AS ecr_avg,
+                    ecr.n_sources AS ecr_sources,
+                    COALESCE(ss.pa, 0) AS ytd_pa,
+                    COALESCE(ss.avg, 0) AS ytd_avg,
+                    COALESCE(ss.hr, 0) AS ytd_hr,
+                    COALESCE(ss.rbi, 0) AS ytd_rbi,
+                    COALESCE(ss.sb, 0) AS ytd_sb,
+                    COALESCE(ss.era, 0) AS ytd_era,
+                    COALESCE(ss.whip, 0) AS ytd_whip,
+                    COALESCE(ss.sv, 0) AS ytd_sv,
+                    COALESCE(ss.k, 0) AS ytd_k
                 FROM players p
                 LEFT JOIN projections proj ON p.player_id = proj.player_id
                 LEFT JOIN adp a ON p.player_id = a.player_id
+                LEFT JOIN ecr_consensus ecr ON p.player_id = ecr.player_id
+                LEFT JOIN season_stats ss ON p.player_id = ss.player_id AND ss.season = 2026
                 GROUP BY p.player_id
                 ORDER BY COALESCE(a.adp, 999)
             """,
@@ -1042,8 +1210,8 @@ def _load_player_pool_impl() -> pd.DataFrame:
     finally:
         conn.close()
 
-    # Fix Python 3.13+ SQLite bytes issue
-    df = coerce_numeric_df(df)
+    # Fix Python 3.13+ SQLite bytes issue + enrichment (health, scarcity)
+    df = _enrich_pool(coerce_numeric_df(df))
 
     return df
 
