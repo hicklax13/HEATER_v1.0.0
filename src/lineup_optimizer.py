@@ -204,8 +204,8 @@ class LineupOptimizer:
                         f"ineligible_{p_idx}_{slot_name}",
                     )
 
-        # Constraint 4: Exclude IL/inactive players from starting
-        _il_statuses = {"il10", "il15", "il60", "il", "na", "not active", "dl"}
+        # Constraint 4: Exclude IL/DTD/inactive players from starting
+        _il_statuses = {"il10", "il15", "il60", "il", "na", "not active", "dl", "dtd", "day-to-day"}
         for p_idx in players:
             row = self.roster.loc[p_idx]
             status_val = str(row.get("status", "active")).strip().lower()

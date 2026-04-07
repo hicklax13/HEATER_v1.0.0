@@ -19,7 +19,7 @@ python load_sample_data.py             # Load sample data (first time/testing)
 streamlit run app.py                   # Run the app
 ruff check .                           # Lint
 ruff format .                          # Format
-python -m pytest                       # Run all tests (2285 pass, 3 skipped)
+python -m pytest                       # Run all tests (2351 pass, 3 skipped)
 python -m pytest tests/test_foo.py -v  # Run single test file
 ```
 
@@ -441,6 +441,9 @@ get_injury_badge(health_score) -> tuple[str, str]  # returns <span> with CSS dot
 - **Trade analyzer needs standings for accuracy** — Without standings: no elasticity, no punts, no strategic context.
 
 ### Lineup Optimizer Specifics
+- **DTD/IL exclusion in LP solver** — `_il_statuses` in `lineup_optimizer.py:208` includes `dtd` and `day-to-day`. Both weekly and daily optimizers now exclude DTD players.
+- **Recent form blend (Step 4)** — `_apply_recent_form_adjustment()` in `projections.py` blends L14 game logs at 20% weight. Requires >= 7 games. First run fetches from MLB API (~20-30s), then cached 2h in session_state.
+- **Matchup data must load before state classification** — In `5_Lineup.py`, `yds.get_matchup()` must be called before `classify_matchup_state()`. Otherwise the context panel shows "No weekly totals available" even when Yahoo is connected.
 - **Urgency wiring uses monkey-patch** — `pipeline._compute_category_weights` is wrapped with urgency multipliers at runtime. If patching fails, pipeline uses default weights (non-fatal).
 - **IP budget uses projected IP, not actual** — `_proj_ip_lookup` built from `load_player_pool()`. Actual IP (e.g., 11.0 after 2 starts) would give nonsensical per-start estimates.
 - **Weekly scaling divides counting stats by 26** — Rate stats (AVG, OBP, ERA, WHIP) pass through unchanged.
@@ -511,7 +514,7 @@ get_injury_badge(health_score) -> tuple[str, str]  # returns <span> with CSS dot
 
 ## Testing
 
-- **2300 passing tests** across 101 test files, 4 skipped (PyMC/xgboost optional deps)
+- **2351 passing tests** across 101 test files, 3 skipped (PyMC/xgboost optional deps)
 - **CI:** GitHub Actions — ruff lint/format + pytest on Python 3.11, 3.12, 3.13
 - **Coverage:** 64% (above 60% CI threshold)
 - **8 rounds of systematic debugging** (207 bugs fixed) + **data pipeline audit** (32 issues fixed), all CI green
@@ -647,6 +650,14 @@ get_injury_badge(health_score) -> tuple[str, str]  # returns <span> with CSS dot
   - **Start/Sit Decision Labels** — Changed from binary "START"/"SIT" to contextual labels: "START" for recommended, "BENCH ALT" for bench alternatives, "FA OPTION" for free agents.
   - **FA Ranking by SGP** — Free agents in Start/Sit tab now ranked by `marginal_value` (SGP-based) instead of raw single-stat sort (R for hitters, K for pitchers).
   - **H2H Tab Verified** — Confirmed correct use of live Yahoo matchup data throughout. No changes needed.
+
+## Key Fixes (April 7, 2026)
+
+- **Lineup Optimizer Accuracy Audit** — 4 fixes addressing optimizer trust, data freshness, and injury filtering:
+  - **DTD/IL Filtering Fix** — Added `"dtd"` and `"day-to-day"` to `_il_statuses` in LP solver (`src/lineup_optimizer.py:208`). Previously only IL/NA/DL statuses were excluded — DTD players like Mike Trout were incorrectly recommended as START. The daily optimizer (`daily_optimizer.py`) already handled this correctly via `health_factor=0.0`.
+  - **Recent Form (L7/L14/L30) Wired Into Projections** — New Step 4 `_apply_recent_form_adjustment()` in `src/optimizer/projections.py`. Fetches L14 game-log stats via `get_player_recent_form_cached()` (2h session cache). Blends at 20% weight with existing projection (requires >= 7 games). Hitters: avg/obp direct blend + hr/rbi/sb/r rate ratio (clamped ±15%). Pitchers: era/whip direct blend + k rate ratio (clamped ±15%). First run ~20-30s (API calls), then cached.
+  - **Game-Today Awareness in Weekly Optimize** — Fetches today's MLB schedule via `statsapi.schedule()` when Optimize is clicked. Adds "Today" column showing "Yes" or "No game" per starter. Saved in `st.session_state["lineup_today_teams"]`. Informational only — doesn't change weekly lineup decisions.
+  - **Matchup Data Loading Order Fix** — Moved live Yahoo matchup fetch (`yds.get_matchup()`) BEFORE `classify_matchup_state()` in `pages/5_Lineup.py`. Previously, live W-L-T data was loaded inside the context panel (too late), causing "No weekly totals available" to display even when Yahoo was connected. Now `my_totals` and `opp_weekly_totals` are overridden with live data before state classification.
 
 ## Season State (2026)
 

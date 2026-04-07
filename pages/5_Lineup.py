@@ -405,17 +405,50 @@ if IP_TRACKER_AVAILABLE and not roster.empty:
         pass  # Non-fatal
 
 
+# ── Load live matchup data early (before matchup state classification) ──
+
+_live_matchup_early = yds.get_matchup()
+_pre_live_opp_name = ""
+_pre_live_my: dict[str, float] = {}
+_pre_live_opp: dict[str, float] = {}
+_live_losing_cats: list[str] = []
+_live_winning_cats: list[str] = []
+_live_tied_cats: list[str] = []
+try:
+    if _live_matchup_early and "categories" in _live_matchup_early:
+        _pre_live_opp_name = _live_matchup_early.get("opp_name", "")
+        for _mc in _live_matchup_early["categories"]:
+            _cat = str(_mc.get("cat", "")).lower()
+            if _cat:
+                _pre_live_my[_cat] = float(_mc.get("you", 0) or 0)
+                _pre_live_opp[_cat] = float(_mc.get("opp", 0) or 0)
+            _result = str(_mc.get("result", "")).upper()
+            _cat_display = str(_mc.get("cat", ""))
+            if _result == "LOSS":
+                _live_losing_cats.append(_cat_display)
+            elif _result == "WIN":
+                _live_winning_cats.append(_cat_display)
+            elif _result == "TIE":
+                _live_tied_cats.append(_cat_display)
+        # Override my_totals/opp_weekly_totals with live data
+        if _pre_live_my:
+            my_totals = _pre_live_my
+            opp_weekly_totals = _pre_live_opp
+except Exception:
+    pass  # Non-fatal: fall back to standings-derived matchup state
+
+
 # ── Matchup state classification ─────────────────────────────────────
 
 matchup_state_label = "close"
 matchup_note = "No weekly totals available. Using balanced (close) matchup strategy."
-_live_losing_cats: list[str] = []
-_live_winning_cats: list[str] = []
-_live_tied_cats: list[str] = []
 if START_SIT_AVAILABLE and my_totals and opp_weekly_totals:
     try:
         matchup_state_label = classify_matchup_state(my_totals, opp_weekly_totals, league_config)
-        matchup_note = "Matchup state derived from league standings. Opponent approximated by league median."
+        if _pre_live_my:
+            matchup_note = "Matchup state from live Yahoo H2H matchup data."
+        else:
+            matchup_note = "Matchup state derived from league standings. Opponent approximated by league median."
     except Exception:
         pass
 
@@ -482,33 +515,7 @@ with ctx:
         key="lineup_risk",
     )
 
-    # ── Load live matchup data early (for matchup state card + opponent selection) ──
-    _live_matchup = yds.get_matchup()
-    _pre_live_opp_name = ""
-    _pre_live_my: dict[str, float] = {}
-    _pre_live_opp: dict[str, float] = {}
-    try:
-        if _live_matchup and "categories" in _live_matchup:
-            _pre_live_opp_name = _live_matchup.get("opp_name", "")
-            for _mc in _live_matchup["categories"]:
-                _cat = str(_mc.get("cat", "")).lower()
-                if _cat:
-                    _pre_live_my[_cat] = float(_mc.get("you", 0) or 0)
-                    _pre_live_opp[_cat] = float(_mc.get("opp", 0) or 0)
-            # Compute W/L/T from live categories
-            for _mc in _live_matchup["categories"]:
-                _result = str(_mc.get("result", "")).upper()
-                _cat_display = str(_mc.get("cat", ""))
-                if _result == "LOSS":
-                    _live_losing_cats.append(_cat_display)
-                elif _result == "WIN":
-                    _live_winning_cats.append(_cat_display)
-                elif _result == "TIE":
-                    _live_tied_cats.append(_cat_display)
-    except Exception:
-        pass  # Non-fatal: fall back to pre-computed matchup state
-
-    # Matchup state — prefer live W/L/T when available
+    # Matchup state display — live W/L/T already loaded above
     if _live_losing_cats or _live_winning_cats or _live_tied_cats:
         _w = len(_live_winning_cats)
         _l = len(_live_losing_cats)
@@ -635,6 +642,23 @@ with main:
             except Exception:
                 pass  # Continue with existing roster if refresh fails
 
+            # Fetch today's MLB schedule for game-today annotations
+            _today_teams_playing: set[str] = set()
+            try:
+                from datetime import UTC, datetime
+
+                import statsapi
+
+                _today_str = datetime.now(UTC).strftime("%Y-%m-%d")
+                _today_sched = statsapi.schedule(date=_today_str)
+                for _g in _today_sched:
+                    for _side in ("home_name", "away_name"):
+                        _raw = str(_g.get(_side, ""))
+                        if _raw:
+                            _today_teams_playing.add(_raw)
+            except Exception:
+                pass  # Non-fatal: annotations just won't appear
+
             # Compute matchup-aware urgency weights from live matchup score
             _urgency_weights: dict[str, float] = {}
             try:
@@ -759,6 +783,7 @@ with main:
                 progress_bar.empty()
 
                 st.session_state["lineup_optimizer_result"] = result
+                st.session_state["lineup_today_teams"] = _today_teams_playing
 
             else:
                 # Fallback to basic optimizer
@@ -823,6 +848,12 @@ with main:
                 if "mlb_id" in roster.columns and "player_id" in roster.columns:
                     _pid_to_mlb_lineup = dict(zip(roster["player_id"], roster["mlb_id"]))
 
+                # Build team lookup for game-today annotation
+                _pid_to_team: dict[int, str] = {}
+                if "player_id" in roster.columns and "team" in roster.columns:
+                    _pid_to_team = dict(zip(roster["player_id"], roster["team"].astype(str)))
+                _saved_today_teams: set[str] = st.session_state.get("lineup_today_teams", set())
+
                 # Build the full expected slot template from ROSTER_SLOTS
                 # so all 18 starter slots appear even if unfilled.
                 from src.lineup_optimizer import ROSTER_SLOTS as _LP_SLOTS
@@ -859,6 +890,19 @@ with main:
                             _slot_fill_counts[slot] += 1
                             break
 
+                # Helper: check if a player's team plays today
+                def _has_game_today(pid: int | None) -> str:
+                    if not _saved_today_teams or pid is None:
+                        return ""
+                    team = _pid_to_team.get(pid, "")
+                    if not team or team in ("", "MLB", "None"):
+                        return ""
+                    # Check full team name or abbreviation match
+                    for _tn in _saved_today_teams:
+                        if team.upper() in _tn.upper() or _tn.upper() in team.upper():
+                            return "Yes"
+                    return "No game"
+
                 lineup_data = []
                 for ei, es in enumerate(_expected_slots):
                     entry = _assigned_to_expected[ei]
@@ -873,6 +917,7 @@ with main:
                                 "Player": player,
                                 "Status": "START",
                                 "Health": f"{badge} {label}",
+                                "Today": _has_game_today(pid),
                                 "mlb_id": _pid_to_mlb_lineup.get(pid),
                             }
                         )
@@ -883,6 +928,7 @@ with main:
                                 "Player": "(empty)",
                                 "Status": "EMPTY",
                                 "Health": "",
+                                "Today": "",
                                 "mlb_id": None,
                             }
                         )

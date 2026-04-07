@@ -102,6 +102,9 @@ def build_enhanced_projections(
     if enable_statcast:
         enhanced = _apply_statcast_adjustment(enhanced)
 
+    # Step 4: Recent form adjustment (L7/L14/L30)
+    enhanced = _apply_recent_form_adjustment(enhanced)
+
     # Step 5: Injury availability scaling
     if enable_injury:
         enhanced = _apply_injury_availability(enhanced, weeks_remaining)
@@ -383,6 +386,145 @@ def _apply_statcast_adjustment(roster: pd.DataFrame) -> pd.DataFrame:
         logger.warning("Statcast adjustment failed: %s", exc)
 
     return roster
+
+
+# ── Step 4: Recent Form Adjustment ───────────────────────────────────
+
+
+# Weight given to L14 recent form vs existing projection
+_RECENT_FORM_BLEND = 0.20
+
+# Minimum games in the L14 window to trust recent form data
+_MIN_RECENT_GAMES = 7
+
+
+def _apply_recent_form_adjustment(roster: pd.DataFrame) -> pd.DataFrame:
+    """Blend last-14-game stats into projections for hot/cold adjustment.
+
+    Uses ``get_player_recent_form_cached()`` (2h session-state cache) to
+    fetch L14 game-log aggregates from the MLB Stats API.  Blends into
+    the current projection at 20% weight when at least 7 games exist.
+
+    Hitter stats adjusted: avg, obp, hr (rate), rbi (rate), sb (rate), r (rate).
+    Pitcher stats adjusted: era, whip, k (rate per IP).
+
+    Counting-stat adjustments use a *rate ratio*: if recent HR rate is
+    1.3x the projected rate, counting projection scales by
+    ``1 + blend * (1.3 - 1) = 1.06``.
+    """
+    try:
+        from src.game_day import get_player_recent_form_cached
+    except ImportError:
+        logger.debug("game_day module not available; skipping recent form adjustment")
+        return roster
+
+    adjusted_count = 0
+
+    for idx, row in roster.iterrows():
+        mlb_id = row.get("mlb_id", None)
+        if mlb_id is None or (isinstance(mlb_id, float) and mlb_id != mlb_id):
+            continue
+        try:
+            mlb_id = int(mlb_id)
+        except (ValueError, TypeError):
+            continue
+
+        try:
+            form = get_player_recent_form_cached(mlb_id)
+        except Exception:
+            continue
+
+        l14 = form.get("l14", {})
+        games = l14.get("games", 0)
+        if games < _MIN_RECENT_GAMES:
+            continue
+
+        is_hitter = bool(row.get("is_hitter", True))
+        player_type = form.get("player_type", "unknown")
+
+        if is_hitter and player_type == "hitter":
+            _blend_hitter_form(roster, idx, row, l14)
+            adjusted_count += 1
+        elif not is_hitter and player_type == "pitcher":
+            _blend_pitcher_form(roster, idx, row, l14)
+            adjusted_count += 1
+
+    if adjusted_count > 0:
+        logger.info("Step 4 (Recent Form): adjusted %d players from L14 game logs", adjusted_count)
+
+    return roster
+
+
+def _blend_hitter_form(
+    roster: pd.DataFrame,
+    idx: int,
+    row: pd.Series,
+    l14: dict,
+) -> None:
+    """Blend L14 hitter stats into projection at ``_RECENT_FORM_BLEND`` weight."""
+    # Rate stats: direct blend
+    for stat in ("avg", "obp"):
+        recent_val = l14.get(stat, 0)
+        proj_val = float(row.get(stat, 0) or 0)
+        if recent_val > 0 and proj_val > 0:
+            blended = proj_val * (1 - _RECENT_FORM_BLEND) + recent_val * _RECENT_FORM_BLEND
+            roster.at[idx, stat] = blended
+
+    # Counting stats: use rate ratio from L14 games
+    l14_pa = l14.get("pa", 0)
+    if l14_pa < 20:
+        return  # Not enough PA for rate reliability
+
+    for stat in ("hr", "rbi", "sb", "r"):
+        recent_total = l14.get(stat, 0)
+        proj_val = float(row.get(stat, 0) or 0)
+        if proj_val <= 0:
+            continue
+        # Project L14 rate to full-season scale using PA
+        proj_pa = float(row.get("pa", 0) or 0)
+        if proj_pa <= 0:
+            continue
+        proj_rate = proj_val / proj_pa
+        recent_rate = recent_total / l14_pa
+        if proj_rate <= 0:
+            continue
+        ratio = recent_rate / proj_rate
+        # Clamp ratio so adjustments stay within ±15%
+        clamped_ratio = max(0.85, min(1.15, ratio))
+        adj_factor = 1 + _RECENT_FORM_BLEND * (clamped_ratio - 1)
+        roster.at[idx, stat] = proj_val * adj_factor
+
+
+def _blend_pitcher_form(
+    roster: pd.DataFrame,
+    idx: int,
+    row: pd.Series,
+    l14: dict,
+) -> None:
+    """Blend L14 pitcher stats into projection at ``_RECENT_FORM_BLEND`` weight."""
+    # Rate stats: direct blend
+    for stat in ("era", "whip"):
+        recent_val = l14.get(stat, 0)
+        proj_val = float(row.get(stat, 0) or 0)
+        if recent_val > 0 and proj_val > 0:
+            blended = proj_val * (1 - _RECENT_FORM_BLEND) + recent_val * _RECENT_FORM_BLEND
+            roster.at[idx, stat] = blended
+
+    # K rate: use per-IP ratio
+    l14_ip = l14.get("ip", 0)
+    if l14_ip < 5:
+        return  # Not enough IP for rate reliability
+
+    proj_ip = float(row.get("ip", 0) or 0)
+    proj_k = float(row.get("k", 0) or 0)
+    recent_k = l14.get("k", 0)
+    if proj_ip > 0 and proj_k > 0 and recent_k > 0:
+        proj_rate = proj_k / proj_ip
+        recent_rate = recent_k / l14_ip
+        ratio = recent_rate / proj_rate
+        clamped_ratio = max(0.85, min(1.15, ratio))
+        adj_factor = 1 + _RECENT_FORM_BLEND * (clamped_ratio - 1)
+        roster.at[idx, "k"] = proj_k * adj_factor
 
 
 # ── Step 5: Injury Availability Scaling ──────────────────────────────
