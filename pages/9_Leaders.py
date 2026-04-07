@@ -453,11 +453,22 @@ with main:
                     st.caption(f"Showing top {len(ldf)} of {total_eligible:,} eligible players")
                     stat_col = _CAT_COL.get(category, category.lower())
                     show_cols = ["name", "team", "positions", "rostered_by", stat_col]
+                    # Add health badge from enriched pool (if available)
+                    if "health_score" in ldf.columns:
+                        try:
+                            from src.injury_model import get_injury_badge
+
+                            ldf["health"] = ldf["health_score"].apply(
+                                lambda s: get_injury_badge(s)[0] if pd.notna(s) else ""
+                            )
+                            show_cols.insert(4, "health")
+                        except ImportError:
+                            pass
                     # Include mlb_id for headshot rendering (auto-hidden by table)
                     if "mlb_id" in ldf.columns:
                         show_cols.append("mlb_id")
                     show_cols = [c for c in show_cols if c in ldf.columns]
-                    ldf = ldf[show_cols].rename(columns=_CAT_DISPLAY)
+                    ldf = ldf[show_cols].rename(columns={**_CAT_DISPLAY, "health": "Health"})
                     render_compact_table(ldf)
 
                     # Player card selector

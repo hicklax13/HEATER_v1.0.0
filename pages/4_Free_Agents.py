@@ -636,6 +636,25 @@ with main:
                 )
 
         if not _display_fas.empty:
+            # Add enriched pool columns if available (health, ECR, YTD)
+            _enriched_cols = []
+            if "health_score" in _display_fas.columns:
+                try:
+                    from src.injury_model import get_injury_badge
+
+                    _display_fas["health_badge"] = _display_fas["health_score"].apply(
+                        lambda s: get_injury_badge(s)[0] if pd.notna(s) else ""
+                    )
+                    _enriched_cols.append("health_badge")
+                except ImportError:
+                    pass
+            if "consensus_rank" in _display_fas.columns:
+                _enriched_cols.append("consensus_rank")
+            if "ytd_avg" in _display_fas.columns:
+                _enriched_cols.append("ytd_avg")
+            if "ytd_hr" in _display_fas.columns:
+                _enriched_cols.append("ytd_hr")
+
             show_cols = [
                 "player_name",
                 "positions",
@@ -646,6 +665,10 @@ with main:
             ]
             if "heat" in _display_fas.columns:
                 show_cols.insert(2, "heat")
+            # Insert enriched columns after position
+            for _ec in reversed(_enriched_cols):
+                if _ec in _display_fas.columns:
+                    show_cols.insert(2, _ec)
             if "mlb_id" in _display_fas.columns:
                 show_cols.append("mlb_id")
             # Only include columns that exist
@@ -661,11 +684,21 @@ with main:
             if "heat" in display_fa_df.columns:
                 display_fa_df["heat"] = display_fa_df["heat"].apply(_heat_label)
 
+            # Format YTD AVG to 3 decimal places
+            if "ytd_avg" in display_fa_df.columns:
+                display_fa_df["ytd_avg"] = display_fa_df["ytd_avg"].apply(
+                    lambda x: f".{x:.3f}"[1:] if pd.notna(x) and x > 0 else ""
+                )
+
             display_fa_df = display_fa_df.rename(
                 columns={
                     "player_name": "Player",
                     "positions": "Position",
                     "heat": "Heat",
+                    "health_badge": "Health",
+                    "consensus_rank": "ECR",
+                    "ytd_avg": "YTD AVG",
+                    "ytd_hr": "YTD HR",
                     "marginal_value": "Marginal Value",
                     "impact": "Impact",
                     "best_category": "Best Category",

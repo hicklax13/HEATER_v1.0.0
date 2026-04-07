@@ -153,6 +153,29 @@ else:
                     closer_name_safe = _html.escape(item["closer_name"])
                     headshot = _headshot_img_html(item.get("mlb_id"), size=32)
 
+                    # Recent form indicator from MatchupContextService
+                    form_html = "<!-- no form data -->"
+                    try:
+                        from src.matchup_context import get_matchup_context
+
+                        _closer_ctx = get_matchup_context()
+                        _closer_mlb = item.get("mlb_id")
+                        if _closer_mlb is not None:
+                            _closer_form = _closer_ctx.get_player_form(int(_closer_mlb))
+                            _trend = _closer_form.get("trend", "neutral")
+                            if _trend == "hot":
+                                form_html = (
+                                    '<div style="font-size:0.6rem;color:#2e7d32;font-weight:600;">'
+                                    "Recent Form: HOT</div>"
+                                )
+                            elif _trend == "cold":
+                                form_html = (
+                                    '<div style="font-size:0.6rem;color:#c62828;font-weight:600;">'
+                                    "Recent Form: COLD</div>"
+                                )
+                    except Exception:
+                        pass
+
                     # Build actual stats line if available
                     actual_sv_html = "<!-- no actual stats -->"
                     if actual_sv is not None:
@@ -203,6 +226,7 @@ else:
         ERA: <b>{era_str}</b> &nbsp; WHIP: <b>{whip_str}</b>
     </div>
     {actual_sv_html}
+    {form_html}
     <div style="font-size:0.65rem; color:#888; margin-top:3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
         Setup: {setup_str}
     </div>

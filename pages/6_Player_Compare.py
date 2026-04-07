@@ -237,6 +237,55 @@ with main:
             render_compact_table(pd.DataFrame(rows))
             st.caption(METRIC_TOOLTIPS["z_score"])
 
+            # YTD 2026 Stats comparison (from enriched pool)
+            _has_ytd = any(c in pool.columns for c in ["ytd_pa", "ytd_avg", "ytd_hr"])
+            if _has_ytd:
+                _pa = pool[pool["player_id"] == id_a]
+                _pb = pool[pool["player_id"] == id_b]
+                if not _pa.empty and not _pb.empty:
+                    _ra = _pa.iloc[0]
+                    _rb = _pb.iloc[0]
+                    _ytd_pa_a = int(_ra.get("ytd_pa", 0) or 0)
+                    _ytd_pa_b = int(_rb.get("ytd_pa", 0) or 0)
+                    if _ytd_pa_a > 0 or _ytd_pa_b > 0:
+                        st.subheader("2026 Season Stats")
+                        _ytd_cols = {
+                            "ytd_pa": "Plate Appearances",
+                            "ytd_avg": "Batting Average",
+                            "ytd_hr": "Home Runs",
+                            "ytd_rbi": "Runs Batted In",
+                            "ytd_sb": "Stolen Bases",
+                            "ytd_era": "Earned Run Average",
+                            "ytd_whip": "Walks + Hits per Inning Pitched",
+                            "ytd_sv": "Saves",
+                            "ytd_k": "Strikeouts",
+                        }
+                        _ytd_rows = []
+                        for _col, _label in _ytd_cols.items():
+                            if _col in pool.columns:
+                                _va = _ra.get(_col, 0) or 0
+                                _vb = _rb.get(_col, 0) or 0
+                                # Format rate stats
+                                if _col in ("ytd_avg",):
+                                    _va_s = f".{float(_va):.3f}"[1:] if float(_va) > 0 else "--"
+                                    _vb_s = f".{float(_vb):.3f}"[1:] if float(_vb) > 0 else "--"
+                                elif _col in ("ytd_era", "ytd_whip"):
+                                    _va_s = f"{float(_va):.2f}" if float(_va) > 0 else "--"
+                                    _vb_s = f"{float(_vb):.2f}" if float(_vb) > 0 else "--"
+                                else:
+                                    _va_s = str(int(float(_va))) if float(_va) > 0 else "--"
+                                    _vb_s = str(int(float(_vb))) if float(_vb) > 0 else "--"
+                                _ytd_rows.append(
+                                    {
+                                        "Stat": _label,
+                                        result["player_a"]: _va_s,
+                                        result["player_b"]: _vb_s,
+                                    }
+                                )
+                        if _ytd_rows:
+                            render_compact_table(pd.DataFrame(_ytd_rows))
+                            st.caption("Actual 2026 stats from MLB Stats API. '--' = no data or zero.")
+
             # Player card selector for compared players
             render_player_select(
                 [player_a_name, player_b_name],
