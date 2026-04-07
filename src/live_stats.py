@@ -621,7 +621,7 @@ def fetch_historical_stats(
 ) -> dict[int, pd.DataFrame]:
     """Fetch season stats for multiple years. Returns {year: DataFrame}."""
     if seasons is None:
-        seasons = [2023, 2024, 2025]
+        seasons = [2025]
     results = {}
     for year in seasons:
         try:

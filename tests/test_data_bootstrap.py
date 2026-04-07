@@ -321,8 +321,8 @@ class TestFetchHistoricalStats:
             assert len(results) == 2
             assert 2023 in results and 2024 in results
 
-    def test_defaults_to_three_years(self):
-        """Default seasons are [2023, 2024, 2025]."""
+    def test_defaults_to_one_year(self):
+        """Default seasons are [2025] (2024 excluded per historical filter)."""
         with patch("src.live_stats.statsapi") as mock_api:
 
             def mock_get(endpoint, params=None):
@@ -366,7 +366,7 @@ class TestFetchHistoricalStats:
             from src.live_stats import fetch_historical_stats
 
             results = fetch_historical_stats()
-            assert len(results) == 3
+            assert len(results) == 1
 
 
 # ---------------------------------------------------------------------------

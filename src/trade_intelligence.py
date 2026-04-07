@@ -297,7 +297,7 @@ def _load_health_scores() -> dict[int, float]:
         conn = get_connection()
         try:
             df = pd.read_sql_query(
-                "SELECT player_id, games_played, games_available FROM injury_history ORDER BY player_id, season DESC",
+                "SELECT player_id, games_played, games_available FROM injury_history WHERE season >= 2025 ORDER BY player_id, season DESC",
                 conn,
             )
         finally:
@@ -715,3 +715,978 @@ def compute_trade_readiness_batch(
     if not result.empty:
         result = result.sort_values("score", ascending=False).reset_index(drop=True)
     return result
+
+
+# ---------------------------------------------------------------------------
+# Category need scores
+# ---------------------------------------------------------------------------
+
+
+def compute_category_need_scores(
+    gap_analysis: dict[str, dict[str, Any]],
+    config: LeagueConfig | None = None,
+) -> dict[str, float]:
+    """Convert category gap analysis into 0-1 need scores.
+
+    Higher score = you need improvement in this category more.
+    Used to weight trade evaluations toward addressing weaknesses.
+
+    Need tiers (based on rank):
+        Rank 10-12 + punt: 0.0 (punted, don't invest)
+        Rank 8-9: 1.0 (critical weakness)
+        Rank 5-7: 0.6 (competitive gap)
+        Rank 3-4: 0.3 (slight edge, protect)
+        Rank 1-2: 0.1 (dominant, can afford to trade from)
+
+    Args:
+        gap_analysis: Output of ``category_gap_analysis()`` — dict mapping
+            category name to ``{"rank": int, "is_punt": bool,
+            "marginal_value": float, "gap_to_next": float,
+            "gainable_positions": int}``.
+        config: League configuration (uses default if None).
+
+    Returns:
+        Dict mapping category -> need score (0.0-1.0).
+    """
+    config = config or LeagueConfig()
+
+    # Default: 0.5 for all categories when no analysis available
+    if not gap_analysis:
+        return {cat: 0.5 for cat in config.all_categories}
+
+    scores: dict[str, float] = {}
+    for cat in config.all_categories:
+        info = gap_analysis.get(cat)
+        if info is None:
+            scores[cat] = 0.5
+            continue
+
+        rank = info.get("rank", 6)
+        is_punt = info.get("is_punt", False)
+
+        if is_punt:
+            scores[cat] = 0.0
+        elif rank >= 10:
+            # Rank 10-12 but not officially punt — still very weak
+            scores[cat] = 0.0
+        elif rank >= 8:
+            scores[cat] = 1.0
+        elif rank >= 5:
+            scores[cat] = 0.6
+        elif rank >= 3:
+            scores[cat] = 0.3
+        else:
+            scores[cat] = 0.1
+
+    return scores
+
+
+# ---------------------------------------------------------------------------
+# Need-efficiency trade scoring
+# ---------------------------------------------------------------------------
+
+
+def score_trade_by_need_efficiency(
+    category_impact: dict[str, float],
+    category_needs: dict[str, float],
+    config: LeagueConfig | None = None,
+) -> dict[str, Any]:
+    """Score a trade by how efficiently it boosts weak categories at the expense of strong ones.
+
+    For each category in *category_impact*:
+
+    * If the impact is **positive** (gaining SGP), it is weighted by the
+      category need — gaining SGP in a category you desperately need is
+      worth more than gaining in one where you are already dominant.
+    * If the impact is **negative** (losing SGP), the cost is weighted by
+      how *expendable* that category is. Losing from strength is cheaper
+      than losing from weakness.
+
+    Args:
+        category_impact: Per-category SGP change from the trade
+            (positive = gaining, negative = losing).
+        category_needs: Per-category need scores (0-1) from
+            ``compute_category_need_scores()``.
+        config: League configuration (uses default if None).
+
+    Returns:
+        Dict with keys:
+            efficiency_ratio: float (higher = smarter trade, >1.0 means
+                gaining more need-weighted value than losing)
+            need_weighted_gain: float (sum of SGP gains weighted by need)
+            affordability_weighted_cost: float (sum of SGP losses weighted
+                by how much it hurts to lose them)
+            boosted_cats: list[str] (categories improved)
+            costly_cats: list[str] (categories worsened)
+    """
+    config = config or LeagueConfig()
+
+    need_weighted_gain = 0.0
+    affordability_weighted_cost = 0.0
+    boosted_cats: list[str] = []
+    costly_cats: list[str] = []
+
+    for cat, impact in category_impact.items():
+        need = category_needs.get(cat, 0.5)
+
+        if impact > 0.05:
+            # Gaining — weight by how much we need it
+            need_weighted_gain += impact * need
+            boosted_cats.append(cat)
+        elif impact < -0.05:
+            # Losing — affordability = 1.0 - need (high need = low affordability)
+            affordability = 1.0 - need
+            # Cost = |impact| * (1 - affordability) = |impact| * need
+            affordability_weighted_cost += abs(impact) * (1.0 - affordability)
+            costly_cats.append(cat)
+
+    efficiency_ratio = need_weighted_gain / max(affordability_weighted_cost, 0.01)
+
+    return {
+        "efficiency_ratio": round(efficiency_ratio, 3),
+        "need_weighted_gain": round(need_weighted_gain, 3),
+        "affordability_weighted_cost": round(affordability_weighted_cost, 3),
+        "boosted_cats": boosted_cats,
+        "costly_cats": costly_cats,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Targeted trade proposal generator
+# ---------------------------------------------------------------------------
+
+
+def generate_targeted_proposals(
+    target_player_id: int,
+    user_roster_ids: list[int],
+    player_pool: pd.DataFrame,
+    config: LeagueConfig | None = None,
+    all_team_totals: dict[str, dict[str, float]] | None = None,
+    user_team_name: str | None = None,
+    opponent_team_name: str | None = None,
+    weeks_remaining: int = 22,
+) -> dict[str, Any]:
+    """Generate lowball and fair value trade proposals for a target player.
+
+    Builds two proposals targeting different acceptance probability ranges:
+
+    * **Lowball** (~30% acceptance) — cheapest offer that is not insulting.
+      Give SGP between 55-75% of target SGP.
+    * **Fair value** (~60% acceptance) — competitive offer the opponent
+      should seriously consider. Give SGP between 85-115% of target SGP.
+
+    For each proposal the function runs the trade evaluator, computes
+    acceptance probability, ADP fairness, and need-efficiency.
+
+    Args:
+        target_player_id: ``player_id`` of the player you want to acquire.
+        user_roster_ids: List of ``player_id`` on your roster.
+        player_pool: Full player pool DataFrame.
+        config: League configuration (uses default if None).
+        all_team_totals: All teams' category totals for gap analysis.
+        user_team_name: Your team name in the standings.
+        opponent_team_name: The team that owns the target player.
+        weeks_remaining: Weeks left in the fantasy season.
+
+    Returns:
+        Dict with keys:
+            target: dict (player info — name, positions, sgp, stats, ecr)
+            lowball: dict | None (proposal targeting ~30% acceptance)
+            fair_value: dict | None (proposal targeting ~60% acceptance)
+
+        Each proposal contains:
+            giving_ids, giving_names, grade, surplus_sgp, category_impact,
+            acceptance_probability, adp_fairness, ecr_fairness, efficiency,
+            historical_stats, ecr_ranks
+    """
+    config = config or LeagueConfig()
+    sgp_calc = _import_sgp_calculator(config)
+
+    # --- Load IL stash names to exclude from give candidates ---
+    il_stash_names = _load_il_stash_names()
+
+    # --- Target player info ---
+    target_rows = player_pool[player_pool["player_id"] == target_player_id]
+    if target_rows.empty:
+        logger.warning("Target player_id %d not found in player pool", target_player_id)
+        return {"target": {}, "lowball": None, "fair_value": None}
+
+    target = target_rows.iloc[0]
+    target_sgp = sgp_calc.total_sgp(target) if sgp_calc else _quick_player_sgp(target, config)
+    target_name = str(target.get("name", target.get("player_name", "Unknown")))
+    target_positions = str(target.get("positions", ""))
+
+    # --- User category needs ---
+    gap_analysis = _get_user_gap_analysis(user_team_name, all_team_totals, weeks_remaining)
+    category_needs = compute_category_need_scores(gap_analysis, config)
+
+    # --- Opponent needs (best-effort) ---
+    opp_needs_analysis: dict[str, dict] = {}
+    if opponent_team_name and all_team_totals:
+        try:
+            from src.opponent_trade_analysis import compute_opponent_needs
+
+            opp_needs_analysis = compute_opponent_needs(opponent_team_name, all_team_totals, weeks_remaining)
+        except Exception:
+            logger.debug("Could not compute opponent needs", exc_info=True)
+
+    # --- Build give candidate list from user roster ---
+    candidates = _build_give_candidates(user_roster_ids, player_pool, config, sgp_calc, il_stash_names)
+    if not candidates:
+        logger.info("No tradeable candidates on user roster")
+        return {
+            "target": _target_info(target, target_sgp, target_positions),
+            "lowball": None,
+            "fair_value": None,
+        }
+
+    # Sort by SGP ascending (cheapest first)
+    candidates.sort(key=lambda c: c["sgp"])
+
+    # --- Generate proposals ---
+    lowball = _find_proposal(
+        candidates,
+        target_sgp,
+        target_player_id,
+        user_roster_ids,
+        player_pool,
+        config,
+        category_needs,
+        opp_needs_analysis,
+        opponent_team_name,
+        weeks_remaining,
+        min_frac=0.55,
+        max_frac=0.75,
+        label="lowball",
+    )
+
+    fair_value = _find_proposal(
+        candidates,
+        target_sgp,
+        target_player_id,
+        user_roster_ids,
+        player_pool,
+        config,
+        category_needs,
+        opp_needs_analysis,
+        opponent_team_name,
+        weeks_remaining,
+        min_frac=0.85,
+        max_frac=1.15,
+        label="fair_value",
+    )
+
+    # --- Load historical stats and ECR for all involved players ---
+    involved_ids = [target_player_id]
+    if lowball:
+        involved_ids.extend(lowball.get("giving_ids", []))
+    if fair_value:
+        involved_ids.extend(fair_value.get("giving_ids", []))
+    involved_ids = list(set(involved_ids))
+
+    historical = _load_historical_stats(involved_ids)
+    ecr_ranks = _load_ecr_ranks(involved_ids)
+
+    # Attach stats and ECR to proposals
+    target_info = _target_info(target, target_sgp, target_positions)
+    target_info["historical_stats"] = historical.get(target_player_id, {})
+    target_info["ecr_rank"] = ecr_ranks.get(target_player_id)
+
+    for proposal in (lowball, fair_value):
+        if proposal is not None:
+            proposal["historical_stats"] = {pid: historical.get(pid, {}) for pid in proposal.get("giving_ids", [])}
+            proposal["ecr_ranks"] = {pid: ecr_ranks.get(pid) for pid in proposal.get("giving_ids", [])}
+
+    return {
+        "target": target_info,
+        "lowball": lowball,
+        "fair_value": fair_value,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Private helpers for generate_targeted_proposals
+# ---------------------------------------------------------------------------
+
+
+def _import_sgp_calculator(config: LeagueConfig):
+    """Import and instantiate SGPCalculator, returning None on failure."""
+    try:
+        from src.valuation import SGPCalculator
+
+        return SGPCalculator(config)
+    except Exception:
+        logger.debug("Could not import SGPCalculator", exc_info=True)
+        return None
+
+
+def _load_il_stash_names() -> set[str]:
+    """Load IL stash player names from alerts module."""
+    try:
+        from src.alerts import IL_STASH_NAMES
+
+        return set(IL_STASH_NAMES)
+    except Exception:
+        return set()
+
+
+def _get_user_gap_analysis(
+    user_team_name: str | None,
+    all_team_totals: dict[str, dict[str, float]] | None,
+    weeks_remaining: int,
+) -> dict[str, dict]:
+    """Run category gap analysis for the user, returning empty on failure."""
+    if not user_team_name or not all_team_totals:
+        return {}
+    user_totals = all_team_totals.get(user_team_name, {})
+    if not user_totals:
+        return {}
+    try:
+        from src.engine.portfolio.category_analysis import category_gap_analysis
+
+        return category_gap_analysis(
+            your_totals=user_totals,
+            all_team_totals=all_team_totals,
+            your_team_id=user_team_name,
+            weeks_remaining=weeks_remaining,
+        )
+    except Exception:
+        logger.debug("Could not compute user gap analysis", exc_info=True)
+        return {}
+
+
+def _target_info(target_row: Any, target_sgp: float, positions: str) -> dict:
+    """Build a summary dict for the target player."""
+    return {
+        "player_id": int(target_row.get("player_id", 0)),
+        "name": str(target_row.get("name", target_row.get("player_name", "Unknown"))),
+        "positions": positions,
+        "team": str(target_row.get("team", "")),
+        "sgp": round(target_sgp, 2),
+    }
+
+
+def _build_give_candidates(
+    user_roster_ids: list[int],
+    player_pool: pd.DataFrame,
+    config: LeagueConfig,
+    sgp_calc,
+    il_stash_names: set[str],
+) -> list[dict]:
+    """Build sorted list of tradeable roster players with SGP values."""
+    candidates: list[dict] = []
+    for pid in user_roster_ids:
+        rows = player_pool[player_pool["player_id"] == pid]
+        if rows.empty:
+            continue
+        row = rows.iloc[0]
+        name = str(row.get("name", row.get("player_name", "")))
+
+        # Exclude IL stash players
+        if name in il_stash_names:
+            continue
+
+        # Exclude NA/minors
+        status = str(row.get("status", "active")).lower().strip()
+        if status in ("na", "not active", "minors"):
+            continue
+
+        sgp = sgp_calc.total_sgp(row) if sgp_calc else _quick_player_sgp(row, config)
+        candidates.append(
+            {
+                "player_id": pid,
+                "name": name,
+                "sgp": sgp,
+                "positions": str(row.get("positions", "")),
+            }
+        )
+    return candidates
+
+
+def _find_proposal(
+    candidates: list[dict],
+    target_sgp: float,
+    target_player_id: int,
+    user_roster_ids: list[int],
+    player_pool: pd.DataFrame,
+    config: LeagueConfig,
+    category_needs: dict[str, float],
+    opp_needs_analysis: dict[str, dict],
+    opponent_team_name: str | None,
+    weeks_remaining: int,
+    min_frac: float,
+    max_frac: float,
+    label: str,
+) -> dict | None:
+    """Find a 1-for-1 or 2-for-1 proposal within the given SGP fraction range."""
+    min_sgp = target_sgp * min_frac
+    max_sgp = target_sgp * max_frac
+
+    # --- Try 1-for-1 ---
+    for c in candidates:
+        if min_sgp <= c["sgp"] <= max_sgp:
+            return _evaluate_proposal(
+                giving=[c],
+                target_player_id=target_player_id,
+                user_roster_ids=user_roster_ids,
+                player_pool=player_pool,
+                config=config,
+                category_needs=category_needs,
+                opp_needs_analysis=opp_needs_analysis,
+                opponent_team_name=opponent_team_name,
+                weeks_remaining=weeks_remaining,
+                label=label,
+            )
+
+    # --- Try 2-for-1: find cheapest pair that sums into range ---
+    for i, c1 in enumerate(candidates):
+        for c2 in candidates[i + 1 :]:
+            total_sgp = c1["sgp"] + c2["sgp"]
+            if min_sgp <= total_sgp <= max_sgp:
+                return _evaluate_proposal(
+                    giving=[c1, c2],
+                    target_player_id=target_player_id,
+                    user_roster_ids=user_roster_ids,
+                    player_pool=player_pool,
+                    config=config,
+                    category_needs=category_needs,
+                    opp_needs_analysis=opp_needs_analysis,
+                    opponent_team_name=opponent_team_name,
+                    weeks_remaining=weeks_remaining,
+                    label=label,
+                )
+
+    return None
+
+
+def _evaluate_proposal(
+    giving: list[dict],
+    target_player_id: int,
+    user_roster_ids: list[int],
+    player_pool: pd.DataFrame,
+    config: LeagueConfig,
+    category_needs: dict[str, float],
+    opp_needs_analysis: dict[str, dict],
+    opponent_team_name: str | None,
+    weeks_remaining: int,
+    label: str,
+) -> dict:
+    """Evaluate a single proposal: run trade evaluator, acceptance, efficiency."""
+    giving_ids = [c["player_id"] for c in giving]
+    giving_names = [c["name"] for c in giving]
+    receiving_ids = [target_player_id]
+
+    # --- Run trade evaluator (Phase 1 only for speed) ---
+    eval_result: dict[str, Any] = {}
+    try:
+        from src.engine.output.trade_evaluator import evaluate_trade
+
+        eval_result = evaluate_trade(
+            giving_ids=giving_ids,
+            receiving_ids=receiving_ids,
+            user_roster_ids=user_roster_ids,
+            player_pool=player_pool,
+            config=config,
+            user_team_name=None,
+            weeks_remaining=weeks_remaining,
+            enable_mc=False,
+            enable_context=False,
+            enable_game_theory=False,
+        )
+    except Exception:
+        logger.debug("Trade evaluator failed for %s proposal", label, exc_info=True)
+
+    grade = eval_result.get("grade", "?")
+    surplus_sgp = eval_result.get("surplus_sgp", 0.0)
+    category_impact = eval_result.get("category_impact", {})
+
+    # --- Acceptance probability ---
+    acceptance = 0.0
+    adp_fair = 0.5
+    try:
+        from src.trade_finder import compute_adp_fairness, estimate_acceptance_probability
+
+        # ADP fairness: use first give player vs target
+        adp_fair = compute_adp_fairness(giving_ids[0], target_player_id, player_pool)
+
+        # Opponent need match
+        opp_need_match = 0.5
+        if opp_needs_analysis:
+            opp_need_scores = compute_category_need_scores(opp_needs_analysis, config)
+            # How well do our give players address opponent needs?
+            matched = sum(
+                1 for cat, need in opp_need_scores.items() if need >= 0.6 and category_impact.get(cat, 0) < -0.05
+            )
+            total_needs = sum(1 for v in opp_need_scores.values() if v >= 0.6)
+            opp_need_match = matched / max(total_needs, 1)
+
+        # Opponent trade willingness
+        opp_willingness = 0.5
+        if opponent_team_name:
+            try:
+                from src.opponent_trade_analysis import get_opponent_archetype
+
+                archetype = get_opponent_archetype(opponent_team_name)
+                opp_willingness = archetype.get("trade_willingness", 0.5)
+            except Exception:
+                pass
+
+        acceptance = estimate_acceptance_probability(
+            user_gain_sgp=surplus_sgp,
+            opponent_gain_sgp=-surplus_sgp,
+            need_match_score=opp_need_match,
+            adp_fairness=adp_fair,
+            opponent_need_match=opp_need_match,
+            opponent_trade_willingness=opp_willingness,
+        )
+    except Exception:
+        logger.debug("Acceptance probability computation failed", exc_info=True)
+
+    # --- ECR fairness (if available) ---
+    ecr_fair = 0.5
+    try:
+        ecr_ranks = _load_ecr_ranks(giving_ids + [target_player_id])
+        give_ecr = ecr_ranks.get(giving_ids[0])
+        recv_ecr = ecr_ranks.get(target_player_id)
+        if give_ecr and recv_ecr and give_ecr > 0 and recv_ecr > 0:
+            import math
+
+            ecr_fair = math.sqrt(min(give_ecr, recv_ecr) / max(give_ecr, recv_ecr))
+    except Exception:
+        pass
+
+    # --- Need efficiency ---
+    efficiency = score_trade_by_need_efficiency(category_impact, category_needs, config)
+
+    return {
+        "giving_ids": giving_ids,
+        "giving_names": giving_names,
+        "grade": grade,
+        "surplus_sgp": round(surplus_sgp, 2) if isinstance(surplus_sgp, (int, float)) else 0.0,
+        "category_impact": category_impact,
+        "acceptance_probability": round(acceptance, 3),
+        "adp_fairness": round(adp_fair, 3),
+        "ecr_fairness": round(ecr_fair, 3),
+        "efficiency": efficiency,
+    }
+
+
+def _load_historical_stats(player_ids: list[int]) -> dict[int, dict]:
+    """Load 2025 + 2026 season stats for a list of players from SQLite."""
+    if not player_ids:
+        return {}
+    try:
+        from src.database import get_connection
+
+        conn = get_connection()
+        try:
+            placeholders = ",".join("?" for _ in player_ids)
+            df = pd.read_sql_query(
+                f"SELECT player_id, season, pa, ab, h, r, hr, rbi, sb, avg, "
+                f"ip, w, sv, k, era, whip "
+                f"FROM season_stats WHERE player_id IN ({placeholders}) "
+                f"AND season IN (2025, 2026) ORDER BY player_id, season DESC",
+                conn,
+                params=player_ids,
+            )
+        finally:
+            conn.close()
+
+        result: dict[int, dict] = {}
+        if df.empty:
+            return result
+
+        for pid, group in df.groupby("player_id"):
+            pid_int = int(pid)
+            seasons: dict[int, dict] = {}
+            for _, row in group.iterrows():
+                season = int(row["season"])
+                seasons[season] = {
+                    col: (float(row[col]) if pd.notna(row[col]) else 0.0)
+                    for col in ["pa", "ab", "h", "r", "hr", "rbi", "sb", "avg", "ip", "w", "sv", "k", "era", "whip"]
+                }
+            result[pid_int] = seasons
+        return result
+    except Exception:
+        logger.debug("Could not load historical stats", exc_info=True)
+        return {}
+
+
+def _load_ecr_ranks(player_ids: list[int]) -> dict[int, int | None]:
+    """Load consensus ECR rank for a list of players from SQLite."""
+    if not player_ids:
+        return {}
+    try:
+        from src.database import get_connection
+
+        conn = get_connection()
+        try:
+            placeholders = ",".join("?" for _ in player_ids)
+            df = pd.read_sql_query(
+                f"SELECT player_id, consensus_rank FROM ecr_consensus WHERE player_id IN ({placeholders})",
+                conn,
+                params=player_ids,
+            )
+        finally:
+            conn.close()
+
+        if df.empty:
+            return {pid: None for pid in player_ids}
+
+        ranks: dict[int, int | None] = {}
+        for _, row in df.iterrows():
+            pid = int(row["player_id"])
+            rank = row["consensus_rank"]
+            ranks[pid] = int(rank) if pd.notna(rank) else None
+
+        # Fill missing
+        for pid in player_ids:
+            if pid not in ranks:
+                ranks[pid] = None
+        return ranks
+    except Exception:
+        logger.debug("Could not load ECR ranks", exc_info=True)
+        return {pid: None for pid in player_ids}
+
+
+# ---------------------------------------------------------------------------
+# Auto-scan trade recommendations by category need
+# ---------------------------------------------------------------------------
+
+
+def recommend_trades_by_need(
+    user_roster_ids: list[int],
+    player_pool: pd.DataFrame,
+    config: LeagueConfig | None = None,
+    all_team_totals: dict[str, dict[str, float]] | None = None,
+    user_team_name: str | None = None,
+    league_rosters: pd.DataFrame | None = None,
+    weeks_remaining: int = 22,
+    max_results: int = 20,
+) -> list[dict[str, Any]]:
+    """Auto-scan all opponents and produce ranked trade recommendations.
+
+    Prioritizes trades that boost weak categories the most for the least
+    cost in strong categories (category need efficiency).
+
+    Composite score: 40% efficiency + 20% acceptance + 15% ADP + 15% ECR + 10% YTD
+
+    Args:
+        user_roster_ids: List of player_id on the user's roster.
+        player_pool: Full player pool DataFrame.
+        config: League configuration (uses default if None).
+        all_team_totals: All teams' category totals for gap analysis.
+        user_team_name: User's team name in standings.
+        league_rosters: DataFrame with columns ``team_name``, ``player_id``
+            (and optionally ``status``, ``name``).
+        weeks_remaining: Weeks left in the fantasy season.
+        max_results: Maximum trades to return.
+
+    Returns:
+        List of dicts sorted by composite score descending, each containing:
+        giving_id, giving_name, giving_positions, receiving_id,
+        receiving_name, receiving_positions, opponent_team, user_sgp_gain,
+        category_impact, need_efficiency, acceptance_probability,
+        adp_fairness, ecr_fairness, ytd_modifier, composite_score,
+        grade_estimate, boosted_cats, costly_cats, give_ecr_rank,
+        recv_ecr_rank.
+    """
+    config = config or LeagueConfig()
+    sgp_calc = _import_sgp_calculator(config)
+    il_stash_names = _load_il_stash_names()
+
+    # ── 1. User category needs ──────────────────────────────────────────
+    gap_analysis = _get_user_gap_analysis(user_team_name, all_team_totals, weeks_remaining)
+    category_needs = compute_category_need_scores(gap_analysis, config)
+
+    # ── 2. Build user give-candidates (reuse existing helper) ───────────
+    user_candidates = _build_give_candidates(
+        user_roster_ids,
+        player_pool,
+        config,
+        sgp_calc,
+        il_stash_names,
+    )
+    if not user_candidates:
+        logger.info("recommend_trades_by_need: no tradeable user roster players")
+        return []
+
+    user_id_set = set(user_roster_ids)
+
+    # ── 3. Build opponent rosters: {team_name: [player_ids]} ────────────
+    opponent_rosters: dict[str, list[int]] = {}
+    if league_rosters is not None and not league_rosters.empty:
+        for team_name, grp in league_rosters.groupby("team_name"):
+            team_str = str(team_name)
+            # Skip user's own team
+            if user_team_name and team_str == user_team_name:
+                continue
+            pids = [int(pid) for pid in grp["player_id"].dropna().unique() if int(pid) not in user_id_set]
+            if pids:
+                opponent_rosters[team_str] = pids
+
+    if not opponent_rosters:
+        logger.info("recommend_trades_by_need: no opponent rosters available")
+        return []
+
+    # ── 4. Batch-load ECR ranks and YTD stats for ALL relevant players ──
+    all_candidate_ids = [c["player_id"] for c in user_candidates]
+    all_opp_ids: list[int] = []
+    for pids in opponent_rosters.values():
+        all_opp_ids.extend(pids)
+    all_player_ids = list(set(all_candidate_ids + all_opp_ids))
+
+    ecr_ranks = _load_ecr_ranks(all_player_ids)
+    ytd_stats = _batch_load_ytd_stats(all_player_ids)
+
+    # ── 5. Precompute per-category SGP for each user candidate ──────────
+    user_cat_sgps: dict[int, dict[str, float]] = {}
+    for c in user_candidates:
+        user_cat_sgps[c["player_id"]] = _player_category_sgps(
+            c["player_id"],
+            player_pool,
+            config,
+            sgp_calc,
+        )
+
+    # ── 6. Opponent archetype cache (best-effort) ───────────────────────
+    opp_willingness_cache: dict[str, float] = {}
+    try:
+        from src.opponent_trade_analysis import get_opponent_archetype
+
+        for team_name in opponent_rosters:
+            try:
+                arch = get_opponent_archetype(team_name)
+                opp_willingness_cache[team_name] = arch.get("trade_willingness", 0.5)
+            except Exception:
+                opp_willingness_cache[team_name] = 0.5
+    except ImportError:
+        pass
+
+    # ── 7. Scan all opponent players ────────────────────────────────────
+    raw_results: list[dict[str, Any]] = []
+
+    for team_name, opp_pids in opponent_rosters.items():
+        opp_willingness = opp_willingness_cache.get(team_name, 0.5)
+
+        for recv_id in opp_pids:
+            recv_rows = player_pool[player_pool["player_id"] == recv_id]
+            if recv_rows.empty:
+                continue
+            recv = recv_rows.iloc[0]
+
+            # Skip NA/injured/minors
+            recv_status = str(recv.get("status", "active")).lower().strip()
+            if recv_status in ("na", "not active", "minors"):
+                continue
+            recv_name = str(recv.get("name", recv.get("player_name", "Unknown")))
+            if recv_name in il_stash_names:
+                continue
+
+            recv_sgp = sgp_calc.total_sgp(recv) if sgp_calc else _quick_player_sgp(recv, config)
+            recv_positions = str(recv.get("positions", ""))
+            recv_cat_sgps = _player_category_sgps(recv_id, player_pool, config, sgp_calc)
+
+            # ── Find best 1-for-1 give candidate ────────────────────────
+            best_give: dict[str, Any] | None = None
+            best_efficiency: float = -999.0
+
+            for c in user_candidates:
+                give_sgp = c["sgp"]
+                # Quick SGP ratio filter: skip wildly unfair pairs
+                if recv_sgp > 0 and give_sgp / max(recv_sgp, 0.01) < 0.30:
+                    continue
+                if recv_sgp > 0 and give_sgp / max(recv_sgp, 0.01) > 3.0:
+                    continue
+
+                # Quick category impact: recv_cat - give_cat per category
+                cat_impact: dict[str, float] = {}
+                for cat in config.all_categories:
+                    recv_val = recv_cat_sgps.get(cat, 0.0)
+                    give_val = user_cat_sgps.get(c["player_id"], {}).get(cat, 0.0)
+                    cat_impact[cat] = recv_val - give_val
+
+                eff = score_trade_by_need_efficiency(cat_impact, category_needs, config)
+                eff_ratio = eff.get("efficiency_ratio", 0.0)
+
+                if eff_ratio > best_efficiency:
+                    best_efficiency = eff_ratio
+                    best_give = {
+                        "candidate": c,
+                        "cat_impact": cat_impact,
+                        "efficiency": eff,
+                        "user_sgp_gain": recv_sgp - give_sgp,
+                    }
+
+            if best_give is None or best_efficiency <= 0:
+                continue
+
+            give_c = best_give["candidate"]
+            cat_impact = best_give["cat_impact"]
+            eff = best_give["efficiency"]
+            user_sgp_gain = best_give["user_sgp_gain"]
+
+            # ── Acceptance probability ──────────────────────────────────
+            try:
+                from src.trade_finder import (
+                    compute_adp_fairness,
+                    estimate_acceptance_probability,
+                )
+
+                adp_fair = compute_adp_fairness(give_c["player_id"], recv_id, player_pool)
+
+                p_accept = estimate_acceptance_probability(
+                    user_gain_sgp=user_sgp_gain,
+                    opponent_gain_sgp=-user_sgp_gain,
+                    need_match_score=0.5,
+                    adp_fairness=adp_fair,
+                    opponent_need_match=0.5,
+                    opponent_trade_willingness=opp_willingness,
+                )
+            except Exception:
+                adp_fair = 0.5
+                p_accept = 0.3
+
+            # ── ECR fairness ────────────────────────────────────────────
+            ecr_fair = 0.5
+            give_ecr = ecr_ranks.get(give_c["player_id"])
+            recv_ecr = ecr_ranks.get(recv_id)
+            if give_ecr and recv_ecr and give_ecr > 0 and recv_ecr > 0:
+                import math
+
+                ecr_fair = math.sqrt(min(give_ecr, recv_ecr) / max(give_ecr, recv_ecr))
+
+            # ── YTD modifier ────────────────────────────────────────────
+            ytd_mod = 1.0
+            recv_ytd = ytd_stats.get(recv_id, {})
+            if recv_ytd.get("pa", 0) >= 10:
+                proj_avg = float(recv.get("avg", 0.260) or 0.260)
+                ytd_avg = recv_ytd.get("avg", proj_avg)
+                if proj_avg > 0:
+                    ytd_mod = max(0.90, min(1.10, ytd_avg / proj_avg))
+
+            # ── Composite score ─────────────────────────────────────────
+            norm_eff = min(eff.get("efficiency_ratio", 0.0) / 3.0, 1.0)
+            composite = 0.40 * norm_eff + 0.20 * p_accept + 0.15 * adp_fair + 0.15 * ecr_fair + 0.10 * ytd_mod
+
+            # ── Grade estimate (quick heuristic from SGP delta) ─────────
+            grade_estimate = _estimate_grade(user_sgp_gain)
+
+            raw_results.append(
+                {
+                    "giving_id": give_c["player_id"],
+                    "giving_name": give_c["name"],
+                    "giving_positions": give_c["positions"],
+                    "receiving_id": recv_id,
+                    "receiving_name": recv_name,
+                    "receiving_positions": recv_positions,
+                    "opponent_team": team_name,
+                    "user_sgp_gain": round(user_sgp_gain, 2),
+                    "category_impact": {k: round(v, 3) for k, v in cat_impact.items()},
+                    "need_efficiency": round(eff.get("efficiency_ratio", 0.0), 3),
+                    "acceptance_probability": round(p_accept, 3),
+                    "adp_fairness": round(adp_fair, 3),
+                    "ecr_fairness": round(ecr_fair, 3),
+                    "ytd_modifier": round(ytd_mod, 3),
+                    "composite_score": round(composite, 4),
+                    "grade_estimate": grade_estimate,
+                    "boosted_cats": eff.get("boosted_cats", []),
+                    "costly_cats": eff.get("costly_cats", []),
+                    "give_ecr_rank": give_ecr,
+                    "recv_ecr_rank": recv_ecr,
+                }
+            )
+
+    # ── 8. Sort and return top results ──────────────────────────────────
+    raw_results.sort(key=lambda x: x["composite_score"], reverse=True)
+    return raw_results[:max_results]
+
+
+# ---------------------------------------------------------------------------
+# Private helpers for recommend_trades_by_need
+# ---------------------------------------------------------------------------
+
+
+def _player_category_sgps(
+    player_id: int,
+    player_pool: pd.DataFrame,
+    config: LeagueConfig,
+    sgp_calc: Any,
+) -> dict[str, float]:
+    """Compute per-category SGP for a single player (lightweight)."""
+    rows = player_pool[player_pool["player_id"] == player_id]
+    if rows.empty:
+        return {}
+    row = rows.iloc[0]
+    result: dict[str, float] = {}
+    for cat in config.all_categories:
+        col = cat.lower()
+        val = float(row.get(col, 0) or 0)
+        denom = config.sgp_denominators.get(cat, 1.0)
+        if denom > 0:
+            sgp = val / denom
+            if cat in config.inverse_stats:
+                sgp = -sgp
+            result[cat] = sgp
+        else:
+            result[cat] = 0.0
+    return result
+
+
+def _batch_load_ytd_stats(player_ids: list[int]) -> dict[int, dict]:
+    """Batch-load 2026 YTD stats for a list of players from SQLite."""
+    if not player_ids:
+        return {}
+    try:
+        from src.database import get_connection
+
+        conn = get_connection()
+        try:
+            placeholders = ",".join("?" for _ in player_ids)
+            df = pd.read_sql_query(
+                f"SELECT player_id, pa, avg, hr, rbi, sb, era, whip "
+                f"FROM season_stats WHERE season = 2026 AND pa > 0 "
+                f"AND player_id IN ({placeholders})",
+                conn,
+                params=player_ids,
+            )
+        finally:
+            conn.close()
+
+        result: dict[int, dict] = {}
+        if df.empty:
+            return result
+        for _, row in df.iterrows():
+            pid = int(row["player_id"])
+            result[pid] = {
+                "pa": int(row.get("pa", 0) or 0),
+                "avg": float(row.get("avg", 0) or 0),
+                "hr": int(row.get("hr", 0) or 0),
+                "rbi": int(row.get("rbi", 0) or 0),
+                "sb": int(row.get("sb", 0) or 0),
+                "era": float(row.get("era", 0) or 0),
+                "whip": float(row.get("whip", 0) or 0),
+            }
+        return result
+    except Exception:
+        logger.debug("Could not batch-load YTD stats", exc_info=True)
+        return {}
+
+
+def _estimate_grade(sgp_gain: float) -> str:
+    """Quick letter grade from SGP delta (no full trade evaluation)."""
+    if sgp_gain >= 3.0:
+        return "A+"
+    if sgp_gain >= 2.0:
+        return "A"
+    if sgp_gain >= 1.0:
+        return "B+"
+    if sgp_gain >= 0.5:
+        return "B"
+    if sgp_gain >= 0.0:
+        return "C+"
+    if sgp_gain >= -0.5:
+        return "C"
+    if sgp_gain >= -1.0:
+        return "D"
+    return "F"

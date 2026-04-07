@@ -176,9 +176,9 @@ def _bootstrap_historical(progress: BootstrapProgress) -> tuple[str, dict | None
     from src.live_stats import fetch_historical_stats, save_season_stats_to_db
 
     current_year = datetime.now(UTC).year
-    seasons = [current_year - 3, current_year - 2, current_year - 1]
+    seasons = [current_year - 1]  # Only previous year (2025)
     progress.phase = "Historical"
-    progress.detail = f"Fetching {seasons[0]}-{seasons[-1]} stats..."
+    progress.detail = f"Fetching {seasons[0]} stats..."
     try:
         historical = fetch_historical_stats(seasons=seasons)
         total = 0
@@ -199,7 +199,7 @@ def _bootstrap_injury_data(progress: BootstrapProgress, historical: dict | None 
     from src.live_stats import fetch_historical_stats, fetch_injury_data_bulk, match_player_id
 
     current_year = datetime.now(UTC).year
-    seasons = [current_year - 3, current_year - 2, current_year - 1]
+    seasons = [current_year - 1]  # Only previous year (2025)
     progress.phase = "Injury Data"
     progress.detail = "Processing injury history..."
     try:

@@ -558,7 +558,7 @@ def update_ros_projections() -> int:
     try:
         # ── Step 1: Load all data ────────────────────────────────────
         season_stats = pd.read_sql_query(
-            "SELECT * FROM season_stats WHERE season IN (2024, 2025, 2026)",
+            "SELECT * FROM season_stats WHERE season IN (2025, 2026)",
             conn,
         )
         projections = pd.read_sql_query(
