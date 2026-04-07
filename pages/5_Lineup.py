@@ -649,13 +649,49 @@ with main:
 
                 import statsapi
 
+                _FULL_TO_ABBR: dict[str, str] = {
+                    "Arizona Diamondbacks": "ARI",
+                    "Atlanta Braves": "ATL",
+                    "Baltimore Orioles": "BAL",
+                    "Boston Red Sox": "BOS",
+                    "Chicago Cubs": "CHC",
+                    "Chicago White Sox": "CWS",
+                    "Cincinnati Reds": "CIN",
+                    "Cleveland Guardians": "CLE",
+                    "Colorado Rockies": "COL",
+                    "Detroit Tigers": "DET",
+                    "Houston Astros": "HOU",
+                    "Kansas City Royals": "KC",
+                    "Los Angeles Angels": "LAA",
+                    "Los Angeles Dodgers": "LAD",
+                    "Miami Marlins": "MIA",
+                    "Milwaukee Brewers": "MIL",
+                    "Minnesota Twins": "MIN",
+                    "New York Mets": "NYM",
+                    "New York Yankees": "NYY",
+                    "Athletics": "ATH",
+                    "Oakland Athletics": "OAK",
+                    "Philadelphia Phillies": "PHI",
+                    "Pittsburgh Pirates": "PIT",
+                    "San Diego Padres": "SD",
+                    "San Francisco Giants": "SF",
+                    "Seattle Mariners": "SEA",
+                    "St. Louis Cardinals": "STL",
+                    "Tampa Bay Rays": "TB",
+                    "Texas Rangers": "TEX",
+                    "Toronto Blue Jays": "TOR",
+                    "Washington Nationals": "WSH",
+                }
                 _today_str = datetime.now(UTC).strftime("%Y-%m-%d")
                 _today_sched = statsapi.schedule(date=_today_str)
                 for _g in _today_sched:
                     for _side in ("home_name", "away_name"):
                         _raw = str(_g.get(_side, ""))
+                        _abbr = _FULL_TO_ABBR.get(_raw, "")
+                        if _abbr:
+                            _today_teams_playing.add(_abbr)
                         if _raw:
-                            _today_teams_playing.add(_raw)
+                            _today_teams_playing.add(_raw)  # Keep full name too
             except Exception:
                 pass  # Non-fatal: annotations just won't appear
 
@@ -897,10 +933,9 @@ with main:
                     team = _pid_to_team.get(pid, "")
                     if not team or team in ("", "MLB", "None"):
                         return ""
-                    # Check full team name or abbreviation match
-                    for _tn in _saved_today_teams:
-                        if team.upper() in _tn.upper() or _tn.upper() in team.upper():
-                            return "Yes"
+                    # Direct lookup: _saved_today_teams has both abbreviations and full names
+                    if team in _saved_today_teams or team.upper() in {t.upper() for t in _saved_today_teams}:
+                        return "Yes"
                     return "No game"
 
                 lineup_data = []
