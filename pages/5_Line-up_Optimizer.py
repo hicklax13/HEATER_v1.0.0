@@ -124,7 +124,7 @@ except Exception:
 # ── Page Config ──────────────────────────────────────────────────────
 
 st.set_page_config(
-    page_title="Heater | Lineup",
+    page_title="Heater | Line-up Optimizer",
     page_icon="",
     layout="wide",
     initial_sidebar_state="collapsed",
@@ -135,7 +135,7 @@ inject_custom_css()
 page_timer_start()
 
 render_page_layout(
-    "LINEUP",
+    "LINE-UP OPTIMIZER",
     banner_teaser="Optimize your weekly lineup and make start/sit decisions",
     banner_icon="lineup_optimizer",
 )
