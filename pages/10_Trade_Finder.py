@@ -370,97 +370,103 @@ def main():
             page_timer_footer("Trade Finder")
             return
 
-        # ── 4 Tabs ───────────────────────────────────────────────────
-        tab_partner, tab_need, tab_value, tab_readiness, tab_target, tab_browse, tab_smart = st.tabs(
+        # ── 5 Tabs ───────────────────────────────────────────────────
+        # Group trades by opponent (used by Browse Partners tab)
+        trades_by_partner: dict[str, list[dict]] = {}
+        for trade in opportunities:
+            partner = trade.get("opponent_team", "Unknown")
+            trades_by_partner.setdefault(partner, []).append(trade)
+
+        tab_smart, tab_value, tab_target, tab_browse, tab_readiness = st.tabs(
             [
-                "By Partner",
-                "By Category Need",
+                "Smart Recommendations",
                 "By Value",
-                "Trade Readiness",
                 "Target a Player",
                 "Browse Partners",
-                "Smart Recommendations",
+                "Trade Readiness",
             ]
         )
 
-        # ── Tab 1: By Partner ─────────────────────────────────────────
-        with tab_partner:
-            st.markdown(
-                f'<p style="font-size:13px;color:{T["tx2"]};">'
-                "Trade opportunities grouped by opponent team, ranked by team complementarity.</p>",
-                unsafe_allow_html=True,
+        # ── Tab 1: Smart Recommendations ─────────────────────────────
+        with tab_smart:
+            st.subheader("Smart Recommendations")
+            st.caption(
+                "Auto-scan all opponents to find trades that boost your weakest "
+                "categories for the least cost in strong ones."
             )
 
-            # Group trades by opponent
-            trades_by_partner: dict[str, list[dict]] = {}
-            for trade in opportunities:
-                partner = trade.get("opponent_team", "Unknown")
-                trades_by_partner.setdefault(partner, []).append(trade)
+            if st.button("Generate Smart Recommendations", type="primary", key="smart_recs_btn"):
+                with st.spinner("Scanning all opponents for category-need-efficient trades..."):
+                    try:
+                        from src.trade_intelligence import recommend_trades_by_need
 
-            # Order partners by complementarity (best first)
-            if all_team_totals and user_team_name:
-                partner_order = [
-                    t for t, _ in find_complementary_teams(user_team_name, all_team_totals, config, top_n=11)
-                ]
-            else:
-                partner_order = list(trades_by_partner.keys())
+                        try:
+                            from src.validation.dynamic_context import compute_weeks_remaining
 
-            for partner in partner_order:
-                partner_trades = trades_by_partner.get(partner, [])
-                if not partner_trades:
-                    continue
+                            weeks_rem_s = compute_weeks_remaining()
+                        except ImportError:
+                            weeks_rem_s = 22
+                    except ImportError:
+                        st.info("Trade intelligence module not available for smart recommendations.")
+                        recommend_trades_by_need = None  # type: ignore[assignment]
+                        weeks_rem_s = 22
 
-                comp_score = partner_trades[0].get("complementarity", 0)
-                with st.expander(
-                    f"{partner} — {len(partner_trades)} trades (complementarity: {comp_score:.2f})",
-                    expanded=(partner == partner_order[0] if partner_order else False),
-                ):
-                    df = _build_trade_df(partner_trades[:10])
-                    if not df.empty:
-                        render_sortable_table(df, height=min(400, 50 + len(df) * 35))
+                    recs: list[dict] = []
+                    if recommend_trades_by_need is not None:
+                        try:
+                            recs = recommend_trades_by_need(
+                                user_roster_ids=user_roster_ids,
+                                player_pool=pool,
+                                config=config,
+                                all_team_totals=all_team_totals if all_team_totals else None,
+                                user_team_name=user_team_name,
+                                league_rosters=rosters_df,
+                                weeks_remaining=weeks_rem_s,
+                                max_results=20,
+                            )
+                        except Exception as e:
+                            st.error(f"Error: {e}")
 
-        # ── Tab 2: By Category Need ──────────────────────────────────
-        with tab_need:
-            st.markdown(
-                f'<p style="font-size:13px;color:{T["tx2"]};">'
-                "Trades grouped by which of your weak categories they improve most.</p>",
-                unsafe_allow_html=True,
-            )
+                if not recs:
+                    st.info("No recommendations found.")
+                else:
+                    st.success(f"Found {len(recs)} recommendations")
+                    for i, rec in enumerate(recs):
+                        give_name_s = rec.get("giving_name", "?")
+                        recv_name_s = rec.get("receiving_name", "?")
+                        partner_s = rec.get("opponent_team", "?")
+                        eff_s = rec.get("need_efficiency", 0)
+                        accept_s = rec.get("acceptance_probability", 0)
+                        grade_s = rec.get("grade_estimate", "?")
+                        composite_s = rec.get("composite_score", 0)
 
-            grouped = _categorize_trades_by_need(opportunities, weak_cats, user_roster_ids, pool, config)
+                        with st.expander(
+                            f"#{i + 1}: Give {give_name_s} -> Get {recv_name_s} ({partner_s}) "
+                            f"| Efficiency {eff_s:.1f}x | Accept {accept_s:.0%}",
+                            expanded=(i < 3),
+                        ):
+                            m1_s, m2_s, m3_s, m4_s = st.columns(4)
+                            m1_s.metric("Grade", grade_s)
+                            m2_s.metric("Efficiency", f"{eff_s:.1f}x")
+                            m3_s.metric("Accept Prob", f"{accept_s:.0%}")
+                            m4_s.metric("Composite", f"{composite_s:.2f}")
 
-            for cat in weak_cats:
-                cat_trades = grouped.get(cat, [])
-                display_name = _CAT_DISPLAY.get(cat, cat.upper())
+                            # Boosted and costly categories
+                            boosted = rec.get("boosted_cats", [])
+                            costly = rec.get("costly_cats", [])
+                            if boosted:
+                                boost_display = ", ".join([_CAT_DISPLAY.get(c, c) for c in boosted])
+                                st.markdown(f"**Boosts:** {boost_display}")
+                            if costly:
+                                cost_display = ", ".join([_CAT_DISPLAY.get(c, c) for c in costly])
+                                st.markdown(f"**Costs:** {cost_display}")
 
-                with st.expander(
-                    f"{display_name} — {len(cat_trades)} trades",
-                    expanded=(cat == weak_cats[0] if weak_cats else False),
-                ):
-                    if not cat_trades:
-                        st.caption("No trades found that improve this category.")
-                        continue
+                            # ADP + ECR
+                            adp_s = rec.get("adp_fairness", 0)
+                            ecr_s = rec.get("ecr_fairness", 0)
+                            st.caption(f"ADP Fairness: {adp_s:.0%} | ECR Fairness: {ecr_s:.0%}")
 
-                    rows = []
-                    for trade in cat_trades[:10]:
-                        giving = ", ".join(trade.get("giving_names", []))
-                        receiving = ", ".join(trade.get("receiving_names", []))
-                        rows.append(
-                            {
-                                "You Give": giving,
-                                "You Receive": receiving,
-                                "Partner": trade.get("opponent_team", ""),
-                                f"{display_name} Improvement": trade.get("category_improvement", 0),
-                                "Total Gain": round(trade.get("user_sgp_gain", 0), 2),
-                                "Grade": trade.get("grade", ""),
-                                "Acceptance": trade.get("acceptance_label", ""),
-                            }
-                        )
-                    df = pd.DataFrame(rows)
-                    if not df.empty:
-                        render_sortable_table(df, height=min(400, 50 + len(df) * 35))
-
-        # ── Tab 3: By Value ───────────────────────────────────────────
+        # ── Tab 2: By Value ───────────────────────────────────────────
         with tab_value:
             st.markdown(
                 f'<p style="font-size:13px;color:{T["tx2"]};">'
@@ -819,6 +825,25 @@ def main():
                 st.markdown("**Category Comparison**")
                 render_sortable_table(pd.DataFrame(comp_rows))
 
+                # Suggested trades with this partner (from trade finder scan)
+                partner_trades = trades_by_partner.get(selected_browse_team, [])
+                if partner_trades:
+                    st.markdown(f"**Suggested Trades ({len(partner_trades)} found)**")
+                    df_partner = _build_trade_df(partner_trades[:10])
+                    if not df_partner.empty:
+                        essential_cols = [
+                            "You Give",
+                            "You Receive",
+                            "Your Gain",
+                            "Grade",
+                            "Acceptance",
+                            "Score",
+                        ]
+                        display_partner = df_partner[[c for c in essential_cols if c in df_partner.columns]]
+                        render_sortable_table(display_partner, height=min(350, 50 + len(display_partner) * 35))
+                else:
+                    st.caption("No trade opportunities found with this team from the scan.")
+
                 # Opponent roster
                 opp_pids_browse = league_rosters.get(selected_browse_team, [])
                 opp_pool_browse = pool[pool["player_id"].isin(opp_pids_browse)].copy()
@@ -834,85 +859,6 @@ def main():
                         columns={"name": "Player", "player_name": "Player", "positions": "Pos"}
                     )
                     render_sortable_table(display_df_b, height=500)
-
-        # ── Tab 7: Smart Recommendations ─────────────────────────────
-        with tab_smart:
-            st.subheader("Smart Recommendations")
-            st.caption(
-                "Auto-scan all opponents to find trades that boost your weakest "
-                "categories for the least cost in strong ones."
-            )
-
-            if st.button("Generate Smart Recommendations", type="primary", key="smart_recs_btn"):
-                with st.spinner("Scanning all opponents for category-need-efficient trades..."):
-                    try:
-                        from src.trade_intelligence import recommend_trades_by_need
-
-                        try:
-                            from src.validation.dynamic_context import compute_weeks_remaining
-
-                            weeks_rem_s = compute_weeks_remaining()
-                        except ImportError:
-                            weeks_rem_s = 22
-                    except ImportError:
-                        st.info("Trade intelligence module not available for smart recommendations.")
-                        recommend_trades_by_need = None  # type: ignore[assignment]
-                        weeks_rem_s = 22
-
-                    recs: list[dict] = []
-                    if recommend_trades_by_need is not None:
-                        try:
-                            recs = recommend_trades_by_need(
-                                user_roster_ids=user_roster_ids,
-                                player_pool=pool,
-                                config=config,
-                                all_team_totals=all_team_totals if all_team_totals else None,
-                                user_team_name=user_team_name,
-                                league_rosters=rosters_df,
-                                weeks_remaining=weeks_rem_s,
-                                max_results=20,
-                            )
-                        except Exception as e:
-                            st.error(f"Error: {e}")
-
-                if not recs:
-                    st.info("No recommendations found.")
-                else:
-                    st.success(f"Found {len(recs)} recommendations")
-                    for i, rec in enumerate(recs):
-                        give_name_s = rec.get("giving_name", "?")
-                        recv_name_s = rec.get("receiving_name", "?")
-                        partner_s = rec.get("opponent_team", "?")
-                        eff_s = rec.get("need_efficiency", 0)
-                        accept_s = rec.get("acceptance_probability", 0)
-                        grade_s = rec.get("grade_estimate", "?")
-                        composite_s = rec.get("composite_score", 0)
-
-                        with st.expander(
-                            f"#{i + 1}: Give {give_name_s} -> Get {recv_name_s} ({partner_s}) "
-                            f"| Efficiency {eff_s:.1f}x | Accept {accept_s:.0%}",
-                            expanded=(i < 3),
-                        ):
-                            m1_s, m2_s, m3_s, m4_s = st.columns(4)
-                            m1_s.metric("Grade", grade_s)
-                            m2_s.metric("Efficiency", f"{eff_s:.1f}x")
-                            m3_s.metric("Accept Prob", f"{accept_s:.0%}")
-                            m4_s.metric("Composite", f"{composite_s:.2f}")
-
-                            # Boosted and costly categories
-                            boosted = rec.get("boosted_cats", [])
-                            costly = rec.get("costly_cats", [])
-                            if boosted:
-                                boost_display = ", ".join([_CAT_DISPLAY.get(c, c) for c in boosted])
-                                st.markdown(f"**Boosts:** {boost_display}")
-                            if costly:
-                                cost_display = ", ".join([_CAT_DISPLAY.get(c, c) for c in costly])
-                                st.markdown(f"**Costs:** {cost_display}")
-
-                            # ADP + ECR
-                            adp_s = rec.get("adp_fairness", 0)
-                            ecr_s = rec.get("ecr_fairness", 0)
-                            st.caption(f"ADP Fairness: {adp_s:.0%} | ECR Fairness: {ecr_s:.0%}")
 
     page_timer_footer("Trade Finder")
 
