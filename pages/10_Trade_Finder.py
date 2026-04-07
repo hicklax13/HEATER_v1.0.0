@@ -295,8 +295,17 @@ def main():
     ctx, main_col = render_context_columns()
 
     with ctx:
-        # Team needs summary
+        # Team needs summary — recompute from roster stats if standings have zero values
         user_totals = all_team_totals.get(user_team_name, {})
+        if not user_totals or all(v == 0 for v in user_totals.values()):
+            user_totals = _roster_category_totals(user_roster_ids, pool)
+            all_team_totals[user_team_name] = user_totals
+            # Also recompute for other teams if all zeros
+            for team_name_fix, pids_fix in league_rosters.items():
+                if team_name_fix != user_team_name:
+                    existing = all_team_totals.get(team_name_fix, {})
+                    if not existing or all(v == 0 for v in existing.values()):
+                        all_team_totals[team_name_fix] = _roster_category_totals(pids_fix, pool)
         weak_cats = _get_user_weak_categories(user_totals, all_team_totals, config, bottom_n=4)
 
         needs_html = "<ul style='margin:0;padding-left:16px;'>"
@@ -362,8 +371,16 @@ def main():
             return
 
         # ── 4 Tabs ───────────────────────────────────────────────────
-        tab_partner, tab_need, tab_value, tab_readiness = st.tabs(
-            ["By Partner", "By Category Need", "By Value", "Trade Readiness"]
+        tab_partner, tab_need, tab_value, tab_readiness, tab_target, tab_browse, tab_smart = st.tabs(
+            [
+                "By Partner",
+                "By Category Need",
+                "By Value",
+                "Trade Readiness",
+                "Target a Player",
+                "Browse Partners",
+                "Smart Recommendations",
+            ]
         )
 
         # ── Tab 1: By Partner ─────────────────────────────────────────
@@ -584,6 +601,352 @@ def main():
 
             except ImportError:
                 st.info("Trade intelligence module not available.")
+
+        # ── Tab 5: Target a Player ───────────────────────────────────
+        with tab_target:
+            st.subheader("Target a Player")
+            st.caption(
+                "Select any player in the league and get two trade proposals: "
+                "a lowball offer and a fair value package."
+            )
+
+            # Build target options: all non-user rostered players, grouped by team
+            target_options: list[str] = []
+            for team_t, pids_t in sorted(league_rosters.items()):
+                if team_t == user_team_name:
+                    continue
+                for pid_t in pids_t:
+                    p_t = pool[pool["player_id"] == pid_t]
+                    if not p_t.empty:
+                        pname = str(p_t.iloc[0].get("name", p_t.iloc[0].get("player_name", f"ID {pid_t}")))
+                        target_options.append(f"{team_t} | {pname}")
+
+            selected_target = st.selectbox(
+                "Select target player (Team | Player)",
+                [""] + sorted(target_options),
+                key="target_player_select",
+            )
+
+            if selected_target:
+                # Parse team and player name
+                parts = selected_target.split(" | ", 1)
+                if len(parts) == 2:
+                    target_team, target_name = parts
+                    # Find player_id
+                    name_col_t = "name" if "name" in pool.columns else "player_name"
+                    target_match = pool[pool[name_col_t] == target_name]
+                    if target_match.empty:
+                        target_match = pool[pool[name_col_t].str.contains(target_name, case=False, na=False)]
+
+                    if not target_match.empty:
+                        target_pid = int(target_match.iloc[0]["player_id"])
+
+                        with st.spinner("Generating proposals..."):
+                            try:
+                                from src.trade_intelligence import generate_targeted_proposals
+
+                                try:
+                                    from src.validation.dynamic_context import compute_weeks_remaining
+
+                                    weeks_rem = compute_weeks_remaining()
+                                except ImportError:
+                                    weeks_rem = 22
+                            except ImportError:
+                                st.info("Trade intelligence module not available for targeted proposals.")
+                                generate_targeted_proposals = None  # type: ignore[assignment]
+                                weeks_rem = 22
+
+                            proposals = None
+                            if generate_targeted_proposals is not None:
+                                try:
+                                    proposals = generate_targeted_proposals(
+                                        target_player_id=target_pid,
+                                        user_roster_ids=user_roster_ids,
+                                        player_pool=pool,
+                                        config=config,
+                                        all_team_totals=all_team_totals if all_team_totals else None,
+                                        user_team_name=user_team_name,
+                                        opponent_team_name=target_team,
+                                        weeks_remaining=weeks_rem,
+                                    )
+                                except Exception as e:
+                                    st.error(f"Error generating proposals: {e}")
+
+                        if proposals:
+                            # Target info header
+                            target_info = proposals.get("target", {})
+                            st.markdown(
+                                f"**Target:** {target_info.get('name', target_name)} "
+                                f"({target_info.get('positions', '')})"
+                            )
+
+                            # Two columns: Lowball | Fair Value
+                            col_low, col_fair = st.columns(2)
+
+                            for col_prop, label, key_prop, color in [
+                                (col_low, "LOWBALL", "lowball", T["hot"]),
+                                (col_fair, "FAIR VALUE", "fair_value", T["ok"]),
+                            ]:
+                                with col_prop:
+                                    proposal = proposals.get(key_prop)
+                                    if proposal is None:
+                                        st.info(
+                                            f"No {label.lower()} proposal found "
+                                            "-- no viable package on your roster."
+                                        )
+                                        continue
+
+                                    # Header
+                                    st.markdown(
+                                        f'<div style="background:{color}20;border:1px solid {color};'
+                                        f'border-radius:8px;padding:12px;margin-bottom:8px;">'
+                                        f'<div style="font-family:Bebas Neue,sans-serif;font-size:20px;'
+                                        f'color:{color};letter-spacing:2px;">{label}</div>'
+                                        f"</div>",
+                                        unsafe_allow_html=True,
+                                    )
+
+                                    # Give players
+                                    give_names = proposal.get("giving_names", [])
+                                    st.markdown(
+                                        f"**You give:** {', '.join(give_names) if give_names else 'N/A'}"
+                                    )
+
+                                    # Metrics row
+                                    m1, m2, m3 = st.columns(3)
+                                    m1.metric("Grade", proposal.get("grade", "N/A"))
+                                    eff_data = proposal.get("efficiency", {})
+                                    eff_ratio = (
+                                        eff_data.get("efficiency_ratio", 0)
+                                        if isinstance(eff_data, dict)
+                                        else 0
+                                    )
+                                    m2.metric("Efficiency", f"{eff_ratio:.1f}x")
+                                    m3.metric(
+                                        "Accept",
+                                        f"{proposal.get('acceptance_probability', 0):.0%}",
+                                    )
+
+                                    # Category impact
+                                    cat_impact = proposal.get("category_impact", {})
+                                    if cat_impact:
+                                        impact_rows = []
+                                        for cat_i in config.all_categories:
+                                            val_i = cat_impact.get(cat_i, 0)
+                                            display_name_i = _CAT_DISPLAY.get(cat_i, cat_i)
+                                            if val_i > 0.05:
+                                                arrow = "+"
+                                            elif val_i < -0.05:
+                                                arrow = "-"
+                                            else:
+                                                arrow = "~"
+                                            impact_rows.append(
+                                                {
+                                                    "Category": display_name_i,
+                                                    "Impact": f"{val_i:+.2f}",
+                                                    "Direction": arrow,
+                                                }
+                                            )
+                                        st.dataframe(
+                                            pd.DataFrame(impact_rows),
+                                            hide_index=True,
+                                            use_container_width=True,
+                                        )
+
+                                    # ADP + ECR
+                                    adp_fair_t = proposal.get("adp_fairness", 0)
+                                    ecr_fair_t = proposal.get("ecr_fairness", 0)
+                                    st.caption(
+                                        f"ADP Fairness: {adp_fair_t:.0%} | "
+                                        f"ECR Fairness: {ecr_fair_t:.0%}"
+                                    )
+                    else:
+                        st.warning("Could not find the selected player in the player pool.")
+
+        # ── Tab 6: Browse Partners ───────────────────────────────────
+        with tab_browse:
+            st.subheader("Browse Trade Partners")
+            st.caption(
+                "Explore opponent rosters and compare category strengths to find trade fits."
+            )
+
+            opponent_teams = sorted([t for t in league_rosters if t != user_team_name])
+            selected_browse_team = st.selectbox(
+                "Select opponent team", opponent_teams, key="browse_team_select"
+            )
+
+            if selected_browse_team:
+                # Complementarity score
+                if all_team_totals:
+                    browse_partners = find_complementary_teams(
+                        user_team_name, all_team_totals, config, top_n=12
+                    )
+                    comp_score_browse = dict(browse_partners).get(selected_browse_team, 0.5)
+                    st.caption(
+                        f"Complementarity score: **{comp_score_browse:.2f}** "
+                        "(higher = better trade fit)"
+                    )
+
+                # Category comparison table
+                user_totals_browse = all_team_totals.get(
+                    user_team_name, _roster_category_totals(user_roster_ids, pool)
+                )
+                opp_totals_browse = all_team_totals.get(
+                    selected_browse_team,
+                    _roster_category_totals(league_rosters.get(selected_browse_team, []), pool),
+                )
+
+                comp_rows: list[dict] = []
+                for cat_b in config.all_categories:
+                    display_name_b = _CAT_DISPLAY.get(cat_b, cat_b)
+                    user_val_b = user_totals_browse.get(cat_b, 0)
+                    opp_val_b = opp_totals_browse.get(cat_b, 0)
+
+                    # Compute rank for each team
+                    all_vals_b = (
+                        [t.get(cat_b, 0) for t in all_team_totals.values()]
+                        if all_team_totals
+                        else [user_val_b, opp_val_b]
+                    )
+                    if cat_b in config.inverse_stats:
+                        sorted_vals_b = sorted(all_vals_b)
+                    else:
+                        sorted_vals_b = sorted(all_vals_b, reverse=True)
+
+                    user_rank_b = (
+                        sorted_vals_b.index(user_val_b) + 1
+                        if user_val_b in sorted_vals_b
+                        else len(sorted_vals_b)
+                    )
+                    opp_rank_b = (
+                        sorted_vals_b.index(opp_val_b) + 1
+                        if opp_val_b in sorted_vals_b
+                        else len(sorted_vals_b)
+                    )
+                    rank_gap_b = opp_rank_b - user_rank_b
+
+                    if rank_gap_b >= 3:
+                        opp_label_b = "YOU GAIN"
+                    elif rank_gap_b <= -3:
+                        opp_label_b = "THEY GAIN"
+                    else:
+                        opp_label_b = "EVEN"
+
+                    comp_rows.append(
+                        {
+                            "Category": display_name_b,
+                            "Your Rank": user_rank_b,
+                            "Their Rank": opp_rank_b,
+                            "Rank Gap": rank_gap_b,
+                            "Opportunity": opp_label_b,
+                        }
+                    )
+
+                st.markdown("**Category Comparison**")
+                render_sortable_table(pd.DataFrame(comp_rows))
+
+                # Opponent roster
+                opp_pids_browse = league_rosters.get(selected_browse_team, [])
+                opp_pool_browse = pool[pool["player_id"].isin(opp_pids_browse)].copy()
+                if not opp_pool_browse.empty:
+                    st.markdown("**Opponent Roster**")
+                    name_col_b = "name" if "name" in opp_pool_browse.columns else "player_name"
+                    display_cols_b = [name_col_b, "positions"]
+                    for col_b in ["r", "hr", "rbi", "sb", "avg", "w", "sv", "k", "era", "whip"]:
+                        if col_b in opp_pool_browse.columns:
+                            display_cols_b.append(col_b)
+                    display_df_b = opp_pool_browse[
+                        [c for c in display_cols_b if c in opp_pool_browse.columns]
+                    ].copy()
+                    display_df_b = display_df_b.rename(
+                        columns={"name": "Player", "player_name": "Player", "positions": "Pos"}
+                    )
+                    render_sortable_table(display_df_b, height=500)
+
+        # ── Tab 7: Smart Recommendations ─────────────────────────────
+        with tab_smart:
+            st.subheader("Smart Recommendations")
+            st.caption(
+                "Auto-scan all opponents to find trades that boost your weakest "
+                "categories for the least cost in strong ones."
+            )
+
+            if st.button("Generate Smart Recommendations", type="primary", key="smart_recs_btn"):
+                with st.spinner("Scanning all opponents for category-need-efficient trades..."):
+                    try:
+                        from src.trade_intelligence import recommend_trades_by_need
+
+                        try:
+                            from src.validation.dynamic_context import compute_weeks_remaining
+
+                            weeks_rem_s = compute_weeks_remaining()
+                        except ImportError:
+                            weeks_rem_s = 22
+                    except ImportError:
+                        st.info("Trade intelligence module not available for smart recommendations.")
+                        recommend_trades_by_need = None  # type: ignore[assignment]
+                        weeks_rem_s = 22
+
+                    recs: list[dict] = []
+                    if recommend_trades_by_need is not None:
+                        try:
+                            recs = recommend_trades_by_need(
+                                user_roster_ids=user_roster_ids,
+                                player_pool=pool,
+                                config=config,
+                                all_team_totals=all_team_totals if all_team_totals else None,
+                                user_team_name=user_team_name,
+                                league_rosters=rosters_df,
+                                weeks_remaining=weeks_rem_s,
+                                max_results=20,
+                            )
+                        except Exception as e:
+                            st.error(f"Error: {e}")
+
+                if not recs:
+                    st.info("No recommendations found.")
+                else:
+                    st.success(f"Found {len(recs)} recommendations")
+                    for i, rec in enumerate(recs):
+                        give_name_s = rec.get("giving_name", "?")
+                        recv_name_s = rec.get("receiving_name", "?")
+                        partner_s = rec.get("opponent_team", "?")
+                        eff_s = rec.get("need_efficiency", 0)
+                        accept_s = rec.get("acceptance_probability", 0)
+                        grade_s = rec.get("grade_estimate", "?")
+                        composite_s = rec.get("composite_score", 0)
+
+                        with st.expander(
+                            f"#{i + 1}: Give {give_name_s} -> Get {recv_name_s} ({partner_s}) "
+                            f"| Efficiency {eff_s:.1f}x | Accept {accept_s:.0%}",
+                            expanded=(i < 3),
+                        ):
+                            m1_s, m2_s, m3_s, m4_s = st.columns(4)
+                            m1_s.metric("Grade", grade_s)
+                            m2_s.metric("Efficiency", f"{eff_s:.1f}x")
+                            m3_s.metric("Accept Prob", f"{accept_s:.0%}")
+                            m4_s.metric("Composite", f"{composite_s:.2f}")
+
+                            # Boosted and costly categories
+                            boosted = rec.get("boosted_cats", [])
+                            costly = rec.get("costly_cats", [])
+                            if boosted:
+                                boost_display = ", ".join(
+                                    [_CAT_DISPLAY.get(c, c) for c in boosted]
+                                )
+                                st.markdown(f"**Boosts:** {boost_display}")
+                            if costly:
+                                cost_display = ", ".join(
+                                    [_CAT_DISPLAY.get(c, c) for c in costly]
+                                )
+                                st.markdown(f"**Costs:** {cost_display}")
+
+                            # ADP + ECR
+                            adp_s = rec.get("adp_fairness", 0)
+                            ecr_s = rec.get("ecr_fairness", 0)
+                            st.caption(
+                                f"ADP Fairness: {adp_s:.0%} | ECR Fairness: {ecr_s:.0%}"
+                            )
 
     page_timer_footer("Trade Finder")
 
