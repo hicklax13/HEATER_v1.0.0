@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -282,3 +283,232 @@ def get_ml_ensemble(model_path: str | None = None) -> DraftMLEnsemble:
         DraftMLEnsemble instance (may be fallback-only).
     """
     return DraftMLEnsemble(model_path=model_path)
+
+
+# ── Statcast XGBoost Regression ─────────────────────────────────────
+
+# Feature columns for Statcast-based regression model
+STATCAST_FEATURES: list[str] = [
+    "ev_mean",
+    "barrel_pct",
+    "hard_hit_pct",
+    "xwoba",
+    "xba",
+    "sprint_speed",
+    "age",
+    "health_score",
+]
+
+
+def train_ensemble(
+    historical_stats: pd.DataFrame,
+    historical_projections: pd.DataFrame,
+    config: Any = None,
+) -> Any:
+    """Train XGBoost model on historical data to learn projection residuals.
+
+    The model learns what projections miss by training on Statcast features
+    to predict the gap between actual and projected SGP values.
+
+    Features: exit_velocity (ev_mean), barrel_rate (barrel_pct),
+              hard_hit_pct, xwoba, xba, sprint_speed, age, health_score
+    Target: actual_sgp - projected_sgp (what projections missed)
+
+    Args:
+        historical_stats: DataFrame with actual stats + Statcast columns,
+            must have ``player_id`` column.
+        historical_projections: DataFrame with projected stats,
+            must have ``player_id`` column.
+        config: Optional LeagueConfig for SGP computation. Uses default if None.
+
+    Returns:
+        Trained XGBRegressor model object, or None if xgboost is unavailable
+        or training data is insufficient (<50 samples).
+    """
+    if not XGBOOST_AVAILABLE:
+        logger.warning("XGBoost not installed -- skipping ensemble training")
+        return None
+
+    # Lazy import to avoid circular dependency
+    from src.valuation import LeagueConfig, SGPCalculator
+
+    if config is None:
+        config = LeagueConfig()
+
+    # Validate inputs
+    if historical_stats is None or historical_projections is None:
+        logger.warning("Missing historical data -- skipping ensemble training")
+        return None
+
+    if "player_id" not in historical_stats.columns or "player_id" not in historical_projections.columns:
+        logger.warning("Missing player_id column -- skipping ensemble training")
+        return None
+
+    # Merge on player_id
+    merged = historical_stats.merge(
+        historical_projections,
+        on="player_id",
+        suffixes=("_actual", "_proj"),
+        how="inner",
+    )
+
+    if len(merged) < MIN_TRAINING_SAMPLES:
+        logger.warning(
+            "Insufficient training samples (%d < %d) -- skipping",
+            len(merged),
+            MIN_TRAINING_SAMPLES,
+        )
+        return None
+
+    # Compute SGP for actual and projected stats
+    sgp_calc = SGPCalculator(config)
+
+    actual_sgp_vals = []
+    proj_sgp_vals = []
+
+    for _, row in merged.iterrows():
+        # Build Series with actual stat columns (strip _actual suffix)
+        actual_cols = {c.replace("_actual", ""): row[c] for c in merged.columns if c.endswith("_actual")}
+        actual_series = pd.Series(actual_cols)
+        # Ensure is_hitter is present
+        if "is_hitter" not in actual_series.index:
+            actual_series["is_hitter"] = row.get("is_hitter", row.get("is_hitter_actual", 1))
+
+        proj_cols = {c.replace("_proj", ""): row[c] for c in merged.columns if c.endswith("_proj")}
+        proj_series = pd.Series(proj_cols)
+        if "is_hitter" not in proj_series.index:
+            proj_series["is_hitter"] = row.get("is_hitter", row.get("is_hitter_proj", 1))
+
+        try:
+            actual_sgp_vals.append(sgp_calc.total_sgp(actual_series))
+        except Exception:
+            actual_sgp_vals.append(0.0)
+
+        try:
+            proj_sgp_vals.append(sgp_calc.total_sgp(proj_series))
+        except Exception:
+            proj_sgp_vals.append(0.0)
+
+    merged["actual_sgp"] = actual_sgp_vals
+    merged["proj_sgp"] = proj_sgp_vals
+    merged["target"] = merged["actual_sgp"] - merged["proj_sgp"]
+
+    # Build feature matrix from Statcast columns
+    features = pd.DataFrame(index=merged.index)
+    for col in STATCAST_FEATURES:
+        # Try multiple suffixed versions then raw column name
+        if f"{col}_actual" in merged.columns:
+            features[col] = pd.to_numeric(merged[f"{col}_actual"], errors="coerce")
+        elif col in merged.columns:
+            features[col] = pd.to_numeric(merged[col], errors="coerce")
+        else:
+            features[col] = np.nan
+
+    # Fill missing values with column medians
+    for col in features.columns:
+        median_val = features[col].median()
+        if pd.isna(median_val):
+            median_val = 0.0
+        features[col] = features[col].fillna(median_val)
+
+    target = merged["target"].values
+
+    # Drop rows where target is NaN
+    valid_mask = ~np.isnan(target)
+    features = features[valid_mask]
+    target = target[valid_mask]
+
+    if len(features) < MIN_TRAINING_SAMPLES:
+        logger.warning(
+            "Insufficient valid samples after cleanup (%d < %d)",
+            len(features),
+            MIN_TRAINING_SAMPLES,
+        )
+        return None
+
+    # Train XGBRegressor
+    model = xgb.XGBRegressor(
+        objective=DEFAULT_PARAMS["objective"],
+        max_depth=DEFAULT_PARAMS["max_depth"],
+        learning_rate=DEFAULT_PARAMS["eta"],
+        n_estimators=DEFAULT_PARAMS["n_estimators"],
+        subsample=DEFAULT_PARAMS["subsample"],
+        colsample_bytree=DEFAULT_PARAMS["colsample_bytree"],
+        min_child_weight=DEFAULT_PARAMS["min_child_weight"],
+        reg_alpha=DEFAULT_PARAMS["reg_alpha"],
+        reg_lambda=DEFAULT_PARAMS["reg_lambda"],
+        random_state=42,
+    )
+    model.fit(features, target)
+
+    logger.info(
+        "Trained Statcast ensemble on %d samples with %d features",
+        len(features),
+        len(STATCAST_FEATURES),
+    )
+    return model
+
+
+def predict_corrections(
+    model: Any,
+    current_pool: pd.DataFrame,
+    config: Any = None,
+) -> pd.Series:
+    """Predict SGP corrections for current players using a trained model.
+
+    Uses Statcast features from the current player pool to predict how much
+    projections over- or under-value each player.
+
+    Args:
+        model: Trained XGBRegressor from ``train_ensemble()``, or None.
+        current_pool: DataFrame with player data including Statcast columns.
+            Must have ``player_id`` column.
+        config: Optional LeagueConfig (unused, reserved for future).
+
+    Returns:
+        pd.Series indexed by player_id with correction values clamped to
+        [-MAX_CORRECTION, +MAX_CORRECTION] (plus/minus 2.0 SGP).
+        Returns all-zeros Series if model is None or xgboost unavailable.
+    """
+    # Determine index
+    if current_pool is not None and "player_id" in current_pool.columns:
+        index = current_pool["player_id"]
+    elif current_pool is not None:
+        index = current_pool.index
+    else:
+        return pd.Series(dtype=float, name="ml_correction")
+
+    # Fallback: zeros
+    if model is None or not XGBOOST_AVAILABLE:
+        return pd.Series(
+            np.zeros(len(current_pool)),
+            index=index,
+            name="ml_correction",
+        )
+
+    # Build feature matrix
+    features = pd.DataFrame(index=current_pool.index)
+    for col in STATCAST_FEATURES:
+        if col in current_pool.columns:
+            features[col] = pd.to_numeric(current_pool[col], errors="coerce")
+        else:
+            features[col] = np.nan
+
+    # Fill missing with column medians
+    for col in features.columns:
+        median_val = features[col].median()
+        if pd.isna(median_val):
+            median_val = 0.0
+        features[col] = features[col].fillna(median_val)
+
+    try:
+        predictions = model.predict(features)
+        clamped = np.clip(predictions, -MAX_CORRECTION, MAX_CORRECTION)
+        return pd.Series(clamped, index=index, name="ml_correction")
+    except Exception as exc:
+        logger.warning("Statcast prediction failed: %s", exc)
+        return pd.Series(
+            np.zeros(len(current_pool)),
+            index=index,
+            name="ml_correction",
+        )
