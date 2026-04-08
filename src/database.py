@@ -262,6 +262,9 @@ def init_db():
             sprint_speed REAL, ff_avg_speed REAL, ff_spin_rate REAL,
             k_pct REAL, bb_pct REAL, gb_pct REAL,
             stuff_plus REAL, location_plus REAL, pitching_plus REAL,
+            babip REAL, iso REAL,
+            hitter_k_pct REAL, hitter_bb_pct REAL,
+            ld_pct REAL, hitter_fb_pct REAL, hitter_gb_pct REAL,
             updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(player_id, season)
         );
@@ -562,6 +565,15 @@ def init_db():
     _safe_add_column(conn, "league_teams", "number_of_moves", "INTEGER")
     _safe_add_column(conn, "league_teams", "number_of_trades", "INTEGER")
 
+    # T2: Advanced batting stats in statcast_archive
+    _safe_add_column(conn, "statcast_archive", "babip", "REAL")
+    _safe_add_column(conn, "statcast_archive", "iso", "REAL")
+    _safe_add_column(conn, "statcast_archive", "hitter_k_pct", "REAL")
+    _safe_add_column(conn, "statcast_archive", "hitter_bb_pct", "REAL")
+    _safe_add_column(conn, "statcast_archive", "ld_pct", "REAL")
+    _safe_add_column(conn, "statcast_archive", "hitter_fb_pct", "REAL")
+    _safe_add_column(conn, "statcast_archive", "hitter_gb_pct", "REAL")
+
     conn.close()
 
 
@@ -592,6 +604,7 @@ _VALID_TABLE_NAMES = frozenset(
         "game_day_weather",
         "team_strength",
         "opp_pitcher_stats",
+        "statcast_archive",
     }
 )
 _VALID_COL_RE = __import__("re").compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
@@ -1069,6 +1082,46 @@ def _enrich_pool(df: pd.DataFrame) -> pd.DataFrame:
         df.loc[mask_buy, "regression_flag"] = "BUY_LOW"
         df.loc[mask_sell, "regression_flag"] = "SELL_HIGH"
 
+    # G3: BABIP regression flags (best early-season signal weeks 3-8)
+    # Career BABIP ~.300 for league average; deviation >0.030 suggests regression.
+    # Hitters only. Requires minimum 30 PA (ytd_pa) to avoid noise.
+    _BABIP_LEAGUE_AVG = 0.300
+    _BABIP_THRESHOLD = 0.030
+    _BABIP_MIN_PA = 30
+    df["babip_regression_flag"] = ""
+    if "babip" in df.columns:
+        babip_val = pd.to_numeric(df.get("babip", 0), errors="coerce").fillna(0)
+        ytd_pa = pd.to_numeric(df.get("ytd_pa", 0), errors="coerce").fillna(0)
+        is_hitter = df.get("is_hitter", 0) == 1
+        has_data = (babip_val > 0) & (ytd_pa >= _BABIP_MIN_PA) & is_hitter
+        babip_delta = babip_val - _BABIP_LEAGUE_AVG
+        df["babip_delta"] = babip_delta
+        # High BABIP = lucky, will regress down = SELL_HIGH
+        # Low BABIP = unlucky, will regress up = BUY_LOW
+        mask_sell_babip = has_data & (babip_delta >= _BABIP_THRESHOLD)
+        mask_buy_babip = has_data & (babip_delta <= -_BABIP_THRESHOLD)
+        df.loc[mask_sell_babip, "babip_regression_flag"] = "SELL_HIGH"
+        df.loc[mask_buy_babip, "babip_regression_flag"] = "BUY_LOW"
+
+    # G2: Stuff+ pitcher regression flags
+    # Stuff+ >100 = above-average stuff. If actual ERA >> expected (high Stuff+ but bad ERA),
+    # pitcher is likely unlucky and will regress to better performance = BUY_LOW.
+    # Conversely, low Stuff+ with great ERA = SELL_HIGH (outperforming stuff).
+    _STUFF_THRESHOLD = 15  # Stuff+ deviation from 100 (league avg)
+    df["stuff_regression_flag"] = ""
+    if "stuff_plus" in df.columns and "era" in df.columns:
+        stuff = pd.to_numeric(df.get("stuff_plus", 0), errors="coerce").fillna(0)
+        era = pd.to_numeric(df.get("era", 0), errors="coerce").fillna(0)
+        ytd_era = pd.to_numeric(df.get("ytd_era", 0), errors="coerce").fillna(0)
+        is_pitcher = df.get("is_hitter", 1) == 0
+        has_stuff = (stuff > 0) & is_pitcher & (era > 0)
+        # Stuff+ > 115 but YTD ERA > proj ERA + 0.50 → bad luck, BUY_LOW
+        # Stuff+ < 85 but YTD ERA < proj ERA - 0.50 → good luck, SELL_HIGH
+        stuff_buy = has_stuff & (stuff >= 100 + _STUFF_THRESHOLD) & (ytd_era > era + 0.50) & (ytd_era > 0)
+        stuff_sell = has_stuff & (stuff <= 100 - _STUFF_THRESHOLD) & (ytd_era < era - 0.50) & (ytd_era > 0)
+        df.loc[stuff_buy, "stuff_regression_flag"] = "BUY_LOW"
+        df.loc[stuff_sell, "stuff_regression_flag"] = "SELL_HIGH"
+
     return df
 
 
@@ -1126,7 +1179,9 @@ def _load_player_pool_impl() -> pd.DataFrame:
                     sa.xba AS xba,
                     sa.barrel_pct AS barrel_pct,
                     sa.hard_hit_pct AS hard_hit_pct,
-                    sa.ev_mean AS ev_mean
+                    sa.ev_mean AS ev_mean,
+                    sa.stuff_plus AS stuff_plus,
+                    sa.babip AS babip
                 FROM players p
                 LEFT JOIN ros_projections ros ON p.player_id = ros.player_id
                 LEFT JOIN adp a ON p.player_id = a.player_id
@@ -1180,7 +1235,9 @@ def _load_player_pool_impl() -> pd.DataFrame:
                 sa.xba AS xba,
                 sa.barrel_pct AS barrel_pct,
                 sa.hard_hit_pct AS hard_hit_pct,
-                sa.ev_mean AS ev_mean
+                sa.ev_mean AS ev_mean,
+                sa.stuff_plus AS stuff_plus,
+                sa.babip AS babip
             FROM players p
             LEFT JOIN projections proj ON p.player_id = proj.player_id
                 AND proj.system = 'blended'

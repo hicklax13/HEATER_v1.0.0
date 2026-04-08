@@ -1105,14 +1105,28 @@ def scan_1_for_1(
                 + COMPOSITE_W_OPP_NEED * opp_need_match
             )
 
-            # Regression bonus: reward trades that exploit xwOBA regression signals
+            # Regression bonus: reward trades that exploit regression signals
+            # G1: xwOBA regression (+0.03 each direction)
+            # G2: Stuff+ regression (+0.02 each direction)
+            # G3: BABIP regression (+0.02 each direction)
             regression_bonus = 0.0
-            recv_flag = str(recv_player.iloc[0].get("regression_flag", ""))
-            give_flag = str(give_player.iloc[0].get("regression_flag", ""))
-            if recv_flag == "BUY_LOW":
+            recv_row = recv_player.iloc[0]
+            give_row = give_player.iloc[0]
+            # G1: xwOBA
+            if str(recv_row.get("regression_flag", "")) == "BUY_LOW":
                 regression_bonus += 0.03
-            if give_flag == "SELL_HIGH":
+            if str(give_row.get("regression_flag", "")) == "SELL_HIGH":
                 regression_bonus += 0.03
+            # G3: BABIP (hitters — receiving unlucky, selling lucky)
+            if str(recv_row.get("babip_regression_flag", "")) == "BUY_LOW":
+                regression_bonus += 0.02
+            if str(give_row.get("babip_regression_flag", "")) == "SELL_HIGH":
+                regression_bonus += 0.02
+            # G2: Stuff+ (pitchers — receiving elite stuff w/ bad luck, selling weak stuff w/ good luck)
+            if str(recv_row.get("stuff_regression_flag", "")) == "BUY_LOW":
+                regression_bonus += 0.02
+            if str(give_row.get("stuff_regression_flag", "")) == "SELL_HIGH":
+                regression_bonus += 0.02
             composite += regression_bonus
 
             trade_result: dict = {

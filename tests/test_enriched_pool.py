@@ -215,6 +215,9 @@ def temp_db(tmp_path):
             sprint_speed REAL, ff_avg_speed REAL, ff_spin_rate REAL,
             k_pct REAL, bb_pct REAL, gb_pct REAL,
             stuff_plus REAL, location_plus REAL, pitching_plus REAL,
+            babip REAL, iso REAL,
+            hitter_k_pct REAL, hitter_bb_pct REAL,
+            ld_pct REAL, hitter_fb_pct REAL, hitter_gb_pct REAL,
             updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(player_id, season)
         )

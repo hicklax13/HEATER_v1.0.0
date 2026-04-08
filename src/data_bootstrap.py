@@ -56,6 +56,7 @@ class StalenessConfig:
     game_day_hours: float = 2  # 2 hours
     team_strength_hours: float = 24  # 24 hours
     stuff_plus_hours: float = 24  # 24 hours
+    batting_stats_hours: float = 24  # 24 hours
 
 
 @dataclass
@@ -878,6 +879,153 @@ def _bootstrap_stuff_plus(progress: BootstrapProgress) -> str:
         return f"Error: {exc}"
 
 
+def _bootstrap_batting_stats(progress: BootstrapProgress) -> str:
+    """Phase 23: Fetch advanced batting stats (BABIP, ISO, K%, BB%, etc.) from FanGraphs."""
+    progress.phase = "Batting Stats"
+    progress.detail = "Fetching BABIP/ISO/K%/BB% from FanGraphs..."
+    try:
+        from pybaseball import batting_stats
+    except ImportError:
+        logger.warning("pybaseball not installed — skipping batting stats fetch")
+        return "Skipped: pybaseball not installed"
+
+    try:
+        import pandas as pd
+
+        from src.database import get_connection, update_refresh_log
+
+        year = datetime.now(UTC).year
+        logger.info("Fetching FanGraphs batting stats for %d (qual=0)...", year)
+        fg_df = batting_stats(year, qual=0)
+
+        if fg_df is None or fg_df.empty:
+            logger.warning("pybaseball batting_stats returned empty data")
+            return "Skipped: no data returned"
+
+        # Map FanGraphs column names to DB column names
+        col_map = {}
+        for col in fg_df.columns:
+            cl = col.lower().replace(" ", "").replace("_", "")
+            if cl == "babip":
+                col_map[col] = "babip"
+            elif cl == "iso":
+                col_map[col] = "iso"
+            elif cl in ("k%", "kpct", "k_pct"):
+                col_map[col] = "hitter_k_pct"
+            elif cl in ("bb%", "bbpct", "bb_pct"):
+                col_map[col] = "hitter_bb_pct"
+            elif cl in ("ld%", "ldpct", "ld_pct"):
+                col_map[col] = "ld_pct"
+            elif cl in ("fb%", "fbpct", "fb_pct"):
+                col_map[col] = "hitter_fb_pct"
+            elif cl in ("gb%", "gbpct", "gb_pct"):
+                col_map[col] = "hitter_gb_pct"
+
+        if not col_map:
+            logger.warning(
+                "No batting advanced stat columns found. Columns: %s",
+                list(fg_df.columns)[:30],
+            )
+            return "Skipped: batting stat columns not in FanGraphs data"
+
+        logger.info("Found FanGraphs batting columns: %s", col_map)
+        fg_df = fg_df.rename(columns=col_map)
+
+        # Convert percentage strings (e.g., "25.3 %") to floats
+        pct_cols = ["hitter_k_pct", "hitter_bb_pct", "ld_pct", "hitter_fb_pct", "hitter_gb_pct"]
+        for pcol in pct_cols:
+            if pcol in fg_df.columns:
+                fg_df[pcol] = (
+                    fg_df[pcol]
+                    .astype(str)
+                    .str.replace("%", "", regex=False)
+                    .str.replace(" ", "", regex=False)
+                )
+                fg_df[pcol] = pd.to_numeric(fg_df[pcol], errors="coerce")
+
+        # Name→player_id lookup (hitters only)
+        conn = get_connection()
+        try:
+            players_df = pd.read_sql(
+                "SELECT player_id, name FROM players WHERE is_hitter = 1",
+                conn,
+            )
+            name_to_id = {}
+            for _, row in players_df.iterrows():
+                if row["name"]:
+                    name_to_id[str(row["name"]).strip().lower()] = int(row["player_id"])
+
+            # Find the Name column
+            name_col = None
+            for c in fg_df.columns:
+                if c.lower() == "name":
+                    name_col = c
+                    break
+            if name_col is None:
+                logger.warning("No 'Name' column in FanGraphs batting data")
+                return "Skipped: no Name column"
+
+            target_cols = [c for c in col_map.values() if c in fg_df.columns]
+            updated = 0
+
+            for _, row in fg_df.iterrows():
+                fg_name = str(row[name_col]).strip().lower()
+                pid = name_to_id.get(fg_name)
+                if pid is None:
+                    continue
+
+                set_parts = []
+                values = []
+                for col in target_cols:
+                    val = row.get(col)
+                    if pd.notna(val):
+                        set_parts.append(f"{col} = ?")
+                        values.append(float(val))
+
+                if not set_parts:
+                    continue
+
+                # Upsert statcast_archive
+                existing = conn.execute(
+                    "SELECT 1 FROM statcast_archive WHERE player_id = ? AND season = ?",
+                    (pid, year),
+                ).fetchone()
+                if existing:
+                    conn.execute(
+                        f"UPDATE statcast_archive SET {', '.join(set_parts)} WHERE player_id = ? AND season = ?",
+                        values + [pid, year],
+                    )
+                else:
+                    insert_cols = ["player_id", "season"] + target_cols
+                    placeholders = ", ".join(["?"] * len(insert_cols))
+                    insert_vals = [pid, year] + [
+                        float(row.get(c)) if pd.notna(row.get(c)) else None for c in target_cols
+                    ]
+                    conn.execute(
+                        f"INSERT INTO statcast_archive ({', '.join(insert_cols)}) VALUES ({placeholders})",
+                        insert_vals,
+                    )
+                updated += 1
+
+            conn.commit()
+        finally:
+            conn.close()
+
+        update_refresh_log("batting_stats", "success")
+        logger.info("Batting stats: updated %d hitters from %d FanGraphs rows", updated, len(fg_df))
+        return f"Updated {updated} hitters with BABIP/ISO/K%%/BB%%"
+
+    except Exception as exc:
+        logger.exception("Batting stats bootstrap failed: %s", exc)
+        try:
+            from src.database import update_refresh_log
+
+            update_refresh_log("batting_stats", "error")
+        except Exception:
+            pass
+        return f"Error: {exc}"
+
+
 # ── Master Orchestrator ──────────────────────────────────────────────
 
 
@@ -1234,12 +1382,28 @@ def bootstrap_all_data(
                 logger.exception("Bootstrap %s failed: %s", key, exc)
                 results[key] = f"Error: {exc}"
 
-    # Phase 22: Stuff+/Location+/Pitching+ from FanGraphs
+    # Phase 22+23: Stuff+ and Batting stats from FanGraphs (parallel — both independent)
     _notify(0.98)
-    if force or check_staleness("stuff_plus", staleness.stuff_plus_hours):
-        results["stuff_plus"] = _bootstrap_stuff_plus(progress)
-    else:
-        results["stuff_plus"] = "Fresh"
+    sp_stale = force or check_staleness("stuff_plus", staleness.stuff_plus_hours)
+    bs_stale = force or check_staleness("batting_stats", staleness.batting_stats_hours)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = {}
+        if sp_stale:
+            futures[executor.submit(_bootstrap_stuff_plus, progress)] = "stuff_plus"
+        else:
+            results["stuff_plus"] = "Fresh"
+        if bs_stale:
+            futures[executor.submit(_bootstrap_batting_stats, progress)] = "batting_stats"
+        else:
+            results["batting_stats"] = "Fresh"
+        for future in as_completed(futures):
+            key = futures[future]
+            try:
+                results[key] = future.result()
+            except Exception as exc:
+                logger.exception("Bootstrap %s failed: %s", key, exc)
+                results[key] = f"Error: {exc}"
 
     # Post-bootstrap validation (BUG-010 / data quality logging)
     try:
