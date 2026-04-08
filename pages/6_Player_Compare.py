@@ -253,22 +253,26 @@ with main:
                         sa = sgp_a.get(cat, 0)
                         sb = sgp_b.get(cat, 0)
                         if abs(sa) > 0.001 or abs(sb) > 0.001:
-                            sgp_rows.append({
-                                "Category": cat_full_names.get(cat, cat),
-                                f"{result['player_a']}": f"{sa:+.2f}",
-                                f"{result['player_b']}": f"{sb:+.2f}",
-                                "Delta": f"{sa - sb:+.2f}",
-                            })
+                            sgp_rows.append(
+                                {
+                                    "Category": cat_full_names.get(cat, cat),
+                                    f"{result['player_a']}": f"{sa:+.2f}",
+                                    f"{result['player_b']}": f"{sb:+.2f}",
+                                    "Delta": f"{sa - sb:+.2f}",
+                                }
+                            )
                     if sgp_rows:
                         # Summary row
                         total_a = sum(sgp_a.values())
                         total_b = sum(sgp_b.values())
-                        sgp_rows.append({
-                            "Category": "TOTAL",
-                            f"{result['player_a']}": f"{total_a:+.2f}",
-                            f"{result['player_b']}": f"{total_b:+.2f}",
-                            "Delta": f"{total_a - total_b:+.2f}",
-                        })
+                        sgp_rows.append(
+                            {
+                                "Category": "TOTAL",
+                                f"{result['player_a']}": f"{total_a:+.2f}",
+                                f"{result['player_b']}": f"{total_b:+.2f}",
+                                "Delta": f"{total_a - total_b:+.2f}",
+                            }
+                        )
                         render_compact_table(pd.DataFrame(sgp_rows))
                         st.caption(
                             "Standings Gained Points: how many standings positions "
@@ -298,11 +302,13 @@ with main:
                     ]:
                         va = _str_a.get(key, 0)
                         vb = _str_b.get(key, 0)
-                        sched_rows.append({
-                            "Metric": label,
-                            f"{result['player_a']} ({_team_a})": f"{va:{fmt}}",
-                            f"{result['player_b']} ({_team_b})": f"{vb:{fmt}}",
-                        })
+                        sched_rows.append(
+                            {
+                                "Metric": label,
+                                f"{result['player_a']} ({_team_a})": f"{va:{fmt}}",
+                                f"{result['player_b']} ({_team_b})": f"{vb:{fmt}}",
+                            }
+                        )
                     render_compact_table(pd.DataFrame(sched_rows))
                     st.caption(
                         "Team strength context: higher wRC+ = better offense (good for hitters on that team). "
@@ -426,6 +432,56 @@ with main:
                     row["Confidence"] = "—"
 
             render_styled_table(pd.DataFrame(health_rows))
+
+            # E10: Catcher Framing Value comparison
+            try:
+                from src.optimizer.matchup_adjustments import get_catcher_framing_data
+
+                framing_data = get_catcher_framing_data()
+                if framing_data:
+                    framing_rows = []
+                    for name_col, pid_col in [(player_a_name, id_a), (player_b_name, id_b)]:
+                        p_match = pool[pool["player_id"] == pid_col]
+                        if not p_match.empty:
+                            positions = str(p_match.iloc[0].get("positions", ""))
+                            if "C" in positions.split(","):
+                                fd = framing_data.get(int(pid_col), {})
+                                if fd:
+                                    framing_runs = fd.get("framing_runs", 0)
+                                    pop_time = fd.get("pop_time", 0)
+                                    cs_pct = fd.get("cs_pct", 0)
+                                    # ERA impact: ±0.01 per framing run
+                                    era_impact = round(-0.01 * framing_runs, 2)
+                                    tier = (
+                                        "Elite"
+                                        if framing_runs > 10
+                                        else "Good"
+                                        if framing_runs > 3
+                                        else "Average"
+                                        if framing_runs > -3
+                                        else "Poor"
+                                        if framing_runs > -10
+                                        else "Liability"
+                                    )
+                                    framing_rows.append(
+                                        {
+                                            "Player": name_col,
+                                            "Framing Runs": f"{framing_runs:+.1f}",
+                                            "Pitcher ERA Impact": f"{era_impact:+.2f}",
+                                            "Pop Time": f"{pop_time:.2f}s" if pop_time > 0 else "—",
+                                            "CS%": f"{cs_pct:.0%}" if cs_pct > 0 else "—",
+                                            "Tier": tier,
+                                        }
+                                    )
+                    if framing_rows:
+                        st.subheader("Catcher Framing Value")
+                        render_styled_table(pd.DataFrame(framing_rows))
+                        st.caption(
+                            "Pitcher ERA differs 0.20-0.40 by catcher. Elite framers "
+                            "generate 10-15 extra strikes per game."
+                        )
+            except Exception:
+                pass  # Graceful fallback — don't crash page if framing data unavailable
     else:
         if player_a_name == player_b_name:
             st.info("Select two different players to compare.")

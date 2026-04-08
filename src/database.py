@@ -483,6 +483,67 @@ def init_db():
             fetched_at TEXT NOT NULL,
             PRIMARY KEY (pitcher_id, season)
         );
+
+        -- T7: Umpire tendencies (K%, BB%, run environment)
+        CREATE TABLE IF NOT EXISTS umpire_tendencies (
+            umpire_name TEXT PRIMARY KEY,
+            games_umped INTEGER DEFAULT 0,
+            k_pct REAL DEFAULT 0.0,
+            bb_pct REAL DEFAULT 0.0,
+            runs_per_game REAL DEFAULT 0.0,
+            k_pct_delta REAL DEFAULT 0.0,
+            bb_pct_delta REAL DEFAULT 0.0,
+            run_env_delta REAL DEFAULT 0.0,
+            season INTEGER NOT NULL,
+            fetched_at TEXT NOT NULL
+        );
+
+        -- T8: Catcher framing and pop time
+        CREATE TABLE IF NOT EXISTS catcher_framing (
+            player_id INTEGER NOT NULL,
+            season INTEGER NOT NULL,
+            framing_runs REAL DEFAULT 0.0,
+            framing_runs_per_game REAL DEFAULT 0.0,
+            pop_time REAL DEFAULT 0.0,
+            cs_pct REAL DEFAULT 0.0,
+            games_caught INTEGER DEFAULT 0,
+            fetched_at TEXT NOT NULL,
+            PRIMARY KEY (player_id, season)
+        );
+
+        -- T12: Pitcher-vs-batter splits (cached for rostered players)
+        CREATE TABLE IF NOT EXISTS pvb_splits (
+            batter_id INTEGER NOT NULL,
+            pitcher_id INTEGER NOT NULL,
+            pa INTEGER DEFAULT 0,
+            avg REAL DEFAULT 0.0,
+            obp REAL DEFAULT 0.0,
+            slg REAL DEFAULT 0.0,
+            hr INTEGER DEFAULT 0,
+            k INTEGER DEFAULT 0,
+            bb INTEGER DEFAULT 0,
+            woba REAL DEFAULT 0.0,
+            fetched_at TEXT NOT NULL,
+            PRIMARY KEY (batter_id, pitcher_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_pvb_batter ON pvb_splits(batter_id);
+        CREATE INDEX IF NOT EXISTS idx_pvb_pitcher ON pvb_splits(pitcher_id);
+
+        -- D4: Opponent trade history for behavior learning
+        CREATE TABLE IF NOT EXISTS opponent_trade_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            opponent_team TEXT NOT NULL,
+            trade_date TEXT NOT NULL,
+            gave_player_ids TEXT,
+            received_player_ids TEXT,
+            gave_sgp REAL DEFAULT 0.0,
+            received_sgp REAL DEFAULT 0.0,
+            category_focus TEXT,
+            position_focus TEXT,
+            accepted INTEGER DEFAULT 1,
+            season INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_opp_trade_team ON opponent_trade_history(opponent_team);
     """)
     conn.commit()
 
@@ -608,6 +669,10 @@ _VALID_TABLE_NAMES = frozenset(
         "team_strength",
         "opp_pitcher_stats",
         "statcast_archive",
+        "umpire_tendencies",
+        "catcher_framing",
+        "pvb_splits",
+        "opponent_trade_history",
     }
 )
 _VALID_COL_RE = __import__("re").compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
@@ -1119,9 +1184,7 @@ def _enrich_pool(df: pd.DataFrame) -> pd.DataFrame:
     # xwOBA regression flags
     if "xwoba" in df.columns and "obp" in df.columns:
         # Approximate wOBA from OBP (wOBA ~ OBP * 1.15 for league-average hitters)
-        df["woba_approx"] = (
-            pd.to_numeric(df.get("obp", 0), errors="coerce").fillna(0) * 1.15
-        )
+        df["woba_approx"] = pd.to_numeric(df.get("obp", 0), errors="coerce").fillna(0) * 1.15
         xwoba = pd.to_numeric(df.get("xwoba", 0), errors="coerce").fillna(0)
         df["xwoba_delta"] = xwoba - df["woba_approx"]
         df["regression_flag"] = ""

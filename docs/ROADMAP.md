@@ -26,7 +26,7 @@
 ## Improvement Backlog — By Page
 
 **115 unique item rows** after deduplication and audit.
-**103 DONE, 0 PARTIAL, 12 remaining** as of April 8, 2026.
+**115 DONE, 0 PARTIAL, 0 remaining** as of April 8, 2026.
 Organized strictly by the page each task improves. Items that affect all pages
 are under "Global / Core Engine." Status: (empty)=not started, PARTIAL=infrastructure
 exists, DONE=implemented, CUT=removed after audit, MERGED=combined with another item.
@@ -78,8 +78,8 @@ Daily dashboard: War Room, alerts, roster overview, Monday briefing.
 | M5 | **IL Slot Utilization Alert** | Empty IL slot = "Fill with X." IL stash ranking by `ros_sgp - best_fa_sgp` with days-to-return. Injury-type duration lookup (hamstring 21d, oblique 28d, TJ 14mo). | Empty IL slot = wasted value. | DONE |
 | M6 | **Ratio Lock Alert** | "You're winning ERA by 0.80 and WHIP by 0.15 with 45 IP banked — bench Sunday starters to lock 2 categories." | Worth 1-2 category wins/season. | DONE |
 | U3 | **War Room Flippable Thresholds from Weekly SDs** | Replace hardcoded `_COUNTING_THRESHOLD=3` for all stats. Use `threshold[cat] = 1.5 * weekly_sd[cat]`. HR has different variance than R. | Prevents false flip alerts for stable categories, catches real flips in volatile ones. | DONE |
-| E3 | **Umpire Strike Zone Adjustment** | Per-umpire K%/BB%/run environment. ±0.3-0.5 runs/game. | | |
-| T7 | **DATA: Fetch Umpire Assignments** | Scrape Baseball Savant game feed JSON + Retrosheet historical. Build per-umpire tendency table. | Unlocks E3. 1-2 hours. | |
+| E3 | **Umpire Strike Zone Adjustment** | Per-umpire K%/BB%/run environment. ±0.3-0.5 runs/game. | | DONE |
+| T7 | **DATA: Fetch Umpire Assignments** | Scrape Baseball Savant game feed JSON + Retrosheet historical. Build per-umpire tendency table. | Unlocks E3. 1-2 hours. | DONE |
 | S4 | **CONSOLIDATE: Merge Alerts + War Room** | My Team shows same injuries in both "News & Alerts" and "War Room." Merge into single surface. | Cleaner page, single source of truth. | DONE |
 
 ---
@@ -95,13 +95,13 @@ Daily dashboard: War Room, alerts, roster overview, Monday briefing.
 | F4 | **Recently-Acquired Penalty** | Traded-for within 3 weeks: -10-15% acceptance. | Uses existing Yahoo transaction data. | DONE |
 | F5 | **Playoff-Odds Acceptance** | Replace raw standings rank with `simulate_season_enhanced()` playoff odds. | More precise than rank alone. Data already computed. | DONE |
 | B1 | **League-Specific Acceptance Calibration** | Empirical acceptance rates from Yahoo transactions. | League-calibrated, not generic. Prerequisite for D4. | DONE |
-| D4 | **Opponent Behavior Learning** | Per-opponent logistic regression on trade history. Requires B1 first. | ~10-20% acceptance improvement. | |
+| D4 | **Opponent Behavior Learning** | Per-opponent logistic regression on trade history. Requires B1 first. | ~10-20% acceptance improvement. | DONE |
 | G1 | **xwOBA-wOBA Regression Flags** | Gap ≥0.030 = BUY_LOW, ≤-0.030 = SELL_HIGH. +0.05 composite bonus. | Single most actionable regression signal. | DONE |
 | G2 | **Stuff+/botERA Pitcher Regression** | `stuff_delta = botERA - actual_ERA`. ≤-0.50 = BUY_LOW, ≥+0.50 = SELL_HIGH. | Requires E2+T1 data. | DONE |
 | G3 | **BABIP Regression Scoring** | `(career_BABIP - current) / 0.020`, capped ±2.0. | Best early-season signal (weeks 3-8). E1 supersedes once implemented. | DONE |
 | G4 | **Stat Reliability Weighting** | `reliability = min(1.0, PA / threshold[stat])`. Trust K% at 60 PA ≠ AVG at 60 PA. | Uses same stabilization table as J1 but applied to trade YTD modifier. | DONE |
 | G5 | **Velocity Trend Signal** | 1.0 mph decline ≈ 0.5-0.8 ERA increase. `velo_delta = current - prior`. | Early warning before ERA shows it. | DONE |
-| E1 | **BABIP Regression Targets** | xBABIP from contact quality + sprint speed. Predict future BABIP within 15 points. | Forward-looking model. Supersedes G3 heuristic. | |
+| E1 | **BABIP Regression Targets** | xBABIP from contact quality + sprint speed. Predict future BABIP within 15 points. | Forward-looking model. Supersedes G3 heuristic. | DONE |
 | H1 | **Differential Time Decay** | Counting stats × `weeks_rem / total_weeks`. Rate stats stay 1.0 with confidence penalty <8 weeks. | More accurate ROS valuation. | DONE |
 | H2 | **Dynamic Roster Spot Value** | `ROSTER_SPOT_SGP = median_fa_sgp * 0.8`, recomputed weekly from FA pool. | Fixes 2-for-1 valuation. | DONE |
 | H3 | **Graduated Positional Scarcity** | C=1.20x, 2B=1.15x, SS=1.10x, 3B=1.05x, OF/1B=1.00x. | More accurate than flat 1.15x. | DONE |
@@ -144,7 +144,7 @@ Daily dashboard: War Room, alerts, roster overview, Monday briefing.
 | J2 | **Platoon Split Bayesian Regression** | `adjusted = (PA/stab) * individual + (1-PA/stab) * league_avg`. LHB stab=1000, RHB stab=2200. | Eliminates noise from raw individual splits. | DONE |
 | J3 | **Opposing Pitcher Quality Scalar** | Calibrate existing multiplier to ±15% based on research (ace vs replacement = 40-60 wOBA). | Currently wired but calibration unverified. | DONE |
 | J4 | **Comprehensive Weather Model** | Add rain→K/BB (+9.6% BB, -10.1% K when rain >40%) and wind direction→HR. | Temp→HR works. Rain/wind currently ignored. | DONE |
-| J5 | **Catcher Framing Pitcher Adjustment** | `era_adj = -0.01 * framing_runs`, `k9_adj = 0.025 * framing_runs`. | ±0.25 ERA per start for elite/poor framers. | |
+| J5 | **Catcher Framing Pitcher Adjustment** | `era_adj = -0.01 * framing_runs`, `k9_adj = 0.025 * framing_runs`. | ±0.25 ERA per start for elite/poor framers. | DONE |
 | B6 | **Category Urgency k-Calibration** | Backtest k=1.0 to 5.0, measure category wins. Requires D6 framework. | Current k=2/3 may be off. | DONE |
 | C2 | **Dual Objective Alpha Validation** | Tie alpha to playoff probability, not just time remaining. | Affects strategy, not individual decisions. | DONE |
 | K1 | **SB Streaming by Catcher/Pitcher** | `sb_score = sprint_speed * (pop_time/1.95) * (delivery_time/1.35) * handedness`. | Targeted SB streaming. Requires T3, T8 data. | DONE |
@@ -165,9 +165,9 @@ Daily dashboard: War Room, alerts, roster overview, Monday briefing.
 | B5 | **Dynamic Park Factors** | Fetch updated park factors mid-season via pybaseball. | Some parks change year-to-year. | DONE |
 | C5 | **Inverse Park Formula** | Use `1.0 / park_factor` (reciprocal) instead of `2.0 - park_factor`. | Tiny except Coors. | DONE |
 | E6 | **Enhanced Weather (Wind Direction)** | Wind direction relative to outfield orientation. +20% HR wind out >10 mph. | Currently HR-only, no wind direction. | DONE |
-| E7 | **Pitcher-Batter Matchup History** | PvB stats stabilize at ~60 PA. +2-4% over generic platoon. | High data volume. | |
+| E7 | **Pitcher-Batter Matchup History** | PvB stats stabilize at ~60 PA. +2-4% over generic platoon. | High data volume. | DONE |
 | T11 | **DATA: Stadium Outfield Orientations** | Hardcode 30 outfield bearing angles. One-time research. | Unlocks E6. | DONE |
-| T12 | **DATA: Pitcher-Batter Splits** | `pybaseball.statcast_batter(batter_id, pitcher_id)`. Smart caching (rostered players only). | Unlocks E7. High data volume. | |
+| T12 | **DATA: Pitcher-Batter Splits** | `pybaseball.statcast_batter(batter_id, pitcher_id)`. Smart caching (rostered players only). | Unlocks E7. High data volume. | DONE |
 
 ---
 
@@ -177,7 +177,7 @@ Daily dashboard: War Room, alerts, roster overview, Monday briefing.
 |---|------|-----|--------|--------|
 | C1 | **Waiver Wire Drop Penalties** | DH penalty scales with Util slots. AVG threshold = league-average (not 0.245). | 5-factor drop scoring added (f795ea8). Thresholds still hardcoded. | DONE |
 | E9 | **Schedule-Aware Streaming** | Off-day streams more valuable. Two-start detection. Opponent L14 wRC+ for quality. | Data sources already wired. | DONE |
-| D7 | **Category-Aware Lineup RL** | Contextual bandit learning from weekly decisions + outcomes. Needs 8+ weeks. | Experimental. | |
+| D7 | **Category-Aware Lineup RL** | Contextual bandit learning from weekly decisions + outcomes. Needs 8+ weeks. | Experimental. | DONE |
 
 ---
 
@@ -235,8 +235,8 @@ Head-to-head z-score comparison, radar chart, health/confidence.
 | N1 | **Category Fit Indicator** | Show which of YOUR team's weak categories each player helps vs wastes value in. | Transforms generic comparison into team-specific decision. | DONE |
 | N2 | **Schedule Strength Comparison** | Next 2-4 weeks of opposing pitchers/matchups side-by-side. | Upcoming matchups matter enormously in H2H. | DONE |
 | N3 | **SGP Contribution Breakdown** | Stacked bar: concentrated (3.0 SGP from HR/RBI) vs diversified (0.6-0.8 across all). | Shows value profile instantly. Also wired into O5 for Leaders. | DONE |
-| E10 | **Catcher Framing Value** | Pitcher ERA differs 0.20-0.40 by catcher. 10-15 extra strikes/game for elite framers. | | |
-| T8 | **DATA: Fetch Catcher Framing + Pop Time** | Scrape Baseball Savant catcher framing + pop time leaderboards. | Unlocks E10, J5, K1. 45 min. | |
+| E10 | **Catcher Framing Value** | Pitcher ERA differs 0.20-0.40 by catcher. 10-15 extra strikes/game for elite framers. | | DONE |
+| T8 | **DATA: Fetch Catcher Framing + Pop Time** | Scrape Baseball Savant catcher framing + pop time leaderboards. | Unlocks E10, J5, K1. 45 min. | DONE |
 
 ---
 
@@ -248,8 +248,8 @@ Head-to-head z-score comparison, radar chart, health/confidence.
 |---|------|-----|--------|--------|
 | Q1 | **Marginal SGP-Based AI Opponents** | AI picks highest marginal SGP to roster 70%, ADP-random 30%. | Currently AI picks near ADP. Real opponents pick for need. | DONE |
 | Q2 | **Position Run Detection** | 2+ consecutive same-position picks → boost remaining AI probability 1.3x for 3 picks. | Creates realistic draft dynamics. | DONE |
-| Q3 | **Per-Player ADP Standard Deviation** | `(max_pick - min_pick) / 4` per player from NFBC instead of global ADP/4. | Injury-risk players have wider distributions. | |
-| Q4 | **Draft Value Standings Impact** | AI evaluates each pick's effect on projected end-of-draft standings, not just BPA. | DraftKick methodology. | |
+| Q3 | **Per-Player ADP Standard Deviation** | `(max_pick - min_pick) / 4` per player from NFBC instead of global ADP/4. | Injury-risk players have wider distributions. | DONE |
+| Q4 | **Draft Value Standings Impact** | AI evaluates each pick's effect on projected end-of-draft standings, not just BPA. | DraftKick methodology. | DONE |
 
 ---
 

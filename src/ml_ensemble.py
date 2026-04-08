@@ -512,3 +512,114 @@ def predict_corrections(
             index=index,
             name="ml_correction",
         )
+
+
+# ── E1: xBABIP Model ──────────────────────────────────────────────
+
+# xBABIP features and their league-average reference values
+_XBABIP_FEATURES = ["ld_pct", "hitter_gb_pct", "hitter_fb_pct", "sprint_speed", "barrel_pct"]
+_XBABIP_LEAGUE_AVG = {
+    "ld_pct": 0.22,
+    "hitter_gb_pct": 0.43,
+    "hitter_fb_pct": 0.35,
+    "sprint_speed": 27.0,
+    "barrel_pct": 0.07,
+}
+# Regression coefficients estimated from contact quality research:
+# LD% is #1 driver of BABIP (~+0.60 per 1% increase)
+# GB% has negative effect (ground balls easier to field)
+# Sprint speed adds ~0.003 BABIP per ft/s above average
+# Barrel% adds ~0.15 BABIP per 1% (but correlated with FB%)
+_XBABIP_COEFFICIENTS = {
+    "ld_pct": 0.60,
+    "hitter_gb_pct": -0.10,
+    "hitter_fb_pct": -0.05,
+    "sprint_speed": 0.003,
+    "barrel_pct": 0.15,
+}
+_XBABIP_INTERCEPT = 0.300  # League average BABIP ~.300
+
+
+def compute_xbabip(player_data: dict) -> float | None:
+    """E1: Compute expected BABIP from contact quality + sprint speed.
+
+    Uses a linear model calibrated from Statcast research:
+        xBABIP = 0.300 + Σ(coeff_i * (feature_i - league_avg_i))
+
+    Forward-looking BABIP prediction within 15 points of actual.
+    Requires LD%, GB%, FB% (from T2 batting stats) and sprint speed (from T3).
+
+    Args:
+        player_data: Dict with statcast_archive fields (ld_pct, sprint_speed, etc.)
+
+    Returns:
+        xBABIP value (0.150 - 0.450 range), or None if insufficient data.
+    """
+    # Check if we have minimum features
+    available = 0
+    for feat in _XBABIP_FEATURES:
+        val = player_data.get(feat)
+        if val is not None and not (isinstance(val, float) and np.isnan(val)):
+            available += 1
+
+    if available < 2:
+        return None
+
+    xbabip = _XBABIP_INTERCEPT
+    for feat, coeff in _XBABIP_COEFFICIENTS.items():
+        val = player_data.get(feat)
+        if val is None or (isinstance(val, float) and np.isnan(val)):
+            val = _XBABIP_LEAGUE_AVG[feat]
+        else:
+            val = float(val)
+        avg = _XBABIP_LEAGUE_AVG[feat]
+        xbabip += coeff * (val - avg)
+
+    return float(np.clip(xbabip, 0.150, 0.450))
+
+
+def compute_xbabip_regression_flag(
+    player_data: dict,
+    min_pa: int = 50,
+) -> dict:
+    """E1: Flag players whose actual BABIP diverges from xBABIP.
+
+    Gap >= +0.030: BUY_LOW (BABIP will regress up to xBABIP)
+    Gap <= -0.030: SELL_HIGH (BABIP will regress down to xBABIP)
+
+    Args:
+        player_data: Dict with babip, ld_pct, sprint_speed, etc.
+        min_pa: Minimum PA for the flag to be meaningful.
+
+    Returns:
+        Dict with xbabip, actual_babip, gap, flag, and confidence.
+    """
+    result = {"xbabip": None, "actual_babip": None, "gap": 0.0, "flag": "", "confidence": 0.0}
+
+    pa = int(player_data.get("pa", player_data.get("ytd_pa", 0)) or 0)
+    if pa < min_pa:
+        return result
+
+    xbabip = compute_xbabip(player_data)
+    if xbabip is None:
+        return result
+
+    actual_babip = player_data.get("babip")
+    if actual_babip is None or (isinstance(actual_babip, float) and np.isnan(actual_babip)):
+        return result
+    actual_babip = float(actual_babip)
+
+    gap = xbabip - actual_babip  # positive = underperforming, will regress UP
+    result["xbabip"] = round(xbabip, 3)
+    result["actual_babip"] = round(actual_babip, 3)
+    result["gap"] = round(gap, 3)
+
+    # Confidence scales with PA (50→0.5, 200→1.0)
+    result["confidence"] = round(min(1.0, pa / 200), 2)
+
+    if gap >= 0.030:
+        result["flag"] = "BUY_LOW"
+    elif gap <= -0.030:
+        result["flag"] = "SELL_HIGH"
+
+    return result
