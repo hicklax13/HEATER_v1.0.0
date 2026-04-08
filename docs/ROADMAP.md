@@ -24,7 +24,7 @@
 
 ## Accuracy & Improvement Backlog — Organized by Page
 
-**71 total items** (62 unique after deduplication) identified via algorithm audit, deep web research
+**99 total items** (87 unique after deduplication) identified via algorithm audit, deep web research
 (FanGraphs, Baseball Savant, behavioral economics, game theory, MIT Sloan, AMS, PMC), and
 sabermetric literature. Updated April 7, 2026 to reflect Line-up Optimizer V3 (f795ea8).
 
@@ -188,27 +188,85 @@ These cascade through all 53 engines. Highest leverage.
 
 ---
 
-### CLOSER MONITOR — 1 item
+### CLOSER MONITOR — 5 items
 
 | # | Item | Fix | Impact |
 |---|------|-----|--------|
 | E4 | **Pitcher Fatigue & Workload Model** — DUPLICATE of K2 | See K2 under Lineup Optimizer. | — |
+| L1 | **gmLI Trust Tracking** | Track game-entry Leverage Index trend (2-week rolling vs season avg). gmLI drop from 2.0+ to <1.5 = "Usage Downgrade" alert 1-2 weeks before blown saves pile up. | Earlier role change detection than counting blown saves. FanGraphs LI research. |
+| L2 | **K% Skill Decay Alert** | Rolling 14-day K% vs season average. K% drop ≥ 8 pts OR K-BB% < 10% = "Skill Warning" flag. More predictive of demotion than blown saves. | Catches closer decline via process, not outcomes. Athlon Sports 2025 case studies. |
+| L3 | **Committee Risk Score** | Combine: (a) number of pitchers with saves on team, (b) max single-closer save share %, (c) gmLI variance among top 3 RPs. No pitcher >60% of saves AND 3+ with saves = committee. | Only 8-9 closers truly "secure" across MLB. ~70% of teams have some committee element. |
+| L4 | **Opener Detection Flag** | When a reliever pitches 1st inning in >30% of appearances, flag as "Opener" not "Closer". Prevents false positives in closer identification. | Growing bullpen trend; prevents misidentifying openers as closers. |
 
 ---
 
-### MY TEAM — 1 item
+### MY TEAM — 7 items
 
 | # | Item | Fix | Impact |
 |---|------|-----|--------|
 | E3 | **Umpire Strike Zone Adjustment** | Per-umpire K%/BB%/run environment. ±0.3-0.5 runs/game. | Needs new data source. |
+| M1 | **Category Flip Analyzer** | Compute mid-week flip probability per category: `flip_prob = f(margin, daily_stdev, games_remaining)`. Show "categories within X% of flipping" as top-priority actions. | Most tools show scores but don't compute which categories are close enough to flip with a single roster move. |
+| M2 | **Conditional Swap Impact** | "If you bench Player X and start Player Y, you gain +2 K and lose -0.8 ERA delta." Show roster-level marginal impact per swap, not just player stats. | Bridges player-level data to roster-level decision. Currently invisible. |
+| M3 | **Opponent Lineup Tracking** | Surface opponent's mid-week roster moves: empty spots, pitcher streams, off-day players. Know what they're doing. | Almost never surfaced in fantasy tools. Uses existing Yahoo API. |
+| M4 | **Regression Alert System** | Compare L30 actual stats to expected stats (xBA, xwOBA via barrel% + speed). Flag >1.5 SD divergence as sell-high or buy-low. Weight K%/BB% changes over BA. Require 50 PA minimum. | Process metrics (barrel%, K%) are more predictive than outcome metrics (BA, HR count). FanGraphs streak research. |
+| M5 | **IL Slot Utilization Alert** | Empty IL slot = "Fill your IL slot with X". IL stash ranking sorted by `ros_sgp - best_fa_sgp` with days-to-return. Injury-type duration lookup (hamstring 21d, oblique 28d, TJ 14mo). | An empty IL slot is wasted value equivalent to a bench spot. IL-15 averages 18d actual, IL-60 averages 70d. |
+| M6 | **Ratio Lock Alert** | Automated detection: "You are winning ERA by 0.80 and WHIP by 0.15 with 45 IP banked — bench Sunday starters to lock 2 categories." Compute marginal ERA/WHIP risk per remaining start. | Worth 1-2 category wins/season for managers who don't naturally think about this. |
 
 ---
 
-### PLAYER COMPARE — 1 item
+### PLAYER COMPARE — 4 items
 
 | # | Item | Fix | Impact |
 |---|------|-----|--------|
 | E10 | **Catcher Framing Value** | 10-15 extra strikes/game for elite framers. Pitcher ERA differs 0.20-0.40 by catcher. | Needs new data source. |
+| N1 | **Category Fit Indicator** | For each compared player, show which of YOUR team's weak categories they help and which strong/punt categories they waste value in. | Transforms generic comparison into team-specific decision tool. |
+| N2 | **Schedule Strength Comparison** | Show next 2-4 weeks of opposing pitchers/matchups for each player side-by-side. | H2H: upcoming matchups matter enormously. No public comparison tool does this. |
+| N3 | **SGP Contribution Breakdown** | Stacked bar showing how many SGP come from each category. Concentrated (3.0 SGP from HR/RBI) vs diversified (0.6-0.8 across all cats). In H2H, diversified is usually more valuable. | Instantly shows concentrated vs balanced value profiles. |
+
+---
+
+### LEADERS — 5 items
+
+| # | Item | Fix | Impact |
+|---|------|-----|--------|
+| O1 | **Statcast Breakout Score** | Composite: EV50 percentile (30%), barrel rate change YoY (25%), xwOBA-wOBA gap (20%), bat speed (15%), launch angle change (10%). For pitchers: SwStr% (30%), Stuff+ (25%), SIERA-ERA gap (25%), K-BB% (20%). Flag >70th percentile as "Breakout Candidate." | xwOBA-wOBA gap predicts 40-80 pt wOBA surge. EV50 is stronger than raw exit velo. Barrel >8% = power threshold. |
+| O2 | **Prospect Fantasy Relevance Score** | Adjust raw FV by: (a) ETA proximity (exponential decay), (b) position scarcity in YOUR league, (c) path to playing time (depth chart), (d) historical hit rate for FV tier (55 FV = 67% chance of regular). | Bridges scouting grades to actionable fantasy timelines. FanGraphs FV accuracy data. |
+| O3 | **40-Man + Service Time Call-Up Alerts** | 40-man roster status flag (highest signal). Days until Super Two cutoff. MLB team injury cross-reference (IL at prospect's position = "imminent"). AAA performance triggers (OPS .900+, K/9 10+). | First-mover advantage on prospect adds worth 2-5 wins/season. Multiple call-up timing signals. |
+| O4 | **Projection Skew Indicator** | When 5 of 7 projection systems are above consensus (positive skew), flag as better bet. Negative skew = cautionary flag. Especially valuable for mid-round pitchers (+50-100% ROI for positive skew). | FanGraphs ATC Volatility research (2019-2024): positive skew = $8 premium. |
+| O5 | **SGP Contribution Breakdown** | Same as N3 but for leaders table — show concentrated vs diversified value per leader. | See N3. Applied to leaders context. |
+
+---
+
+### TRADE ANALYZER — 4 items
+
+| # | Item | Fix | Impact |
+|---|------|-----|--------|
+| P1 | **Trade Grade Confidence Interval** | Show grade RANGE (e.g., "B+ to A-") not just single letter. Based on projection uncertainty (+/- 1 SD). Ottoneu data: ~$5-10 surplus value range where trades are coin-flips. | More honest, better calibrated. Current single-letter grade implies false precision. |
+| P2 | **Antithetic Variate MC Sampling** | For each of 10K sims, generate mirror sim using negated z-scores. Gives 20K paired observations for cost of 10K. Cuts standard error of MC mean by ~30%. | Free precision improvement. Academic MC research validates O(1/sqrt(N)) convergence. |
+| P3 | **Phase 2 Copula Correlation Calibration** | Current copula uses hardcoded category correlations. Should use empirical correlations from your league's actual category data (league_standings weekly totals). | Ignoring correlations underestimates variance in total category wins by ~15%. |
+| P4 | **Per-Category Replacement Level** | Subtract replacement-level stats per category per position (not aggregate SGP). Captures positional scarcity in specific categories (e.g., catcher replacement HR much lower than 1B replacement HR). | Smart Fantasy Baseball methodology: more accurate VORP computation. |
+
+---
+
+### DRAFT SIMULATOR — 4 items
+
+| # | Item | Fix | Impact |
+|---|------|-----|--------|
+| Q1 | **Marginal SGP-Based AI Opponents** | AI picks player with highest marginal SGP improvement to their roster 70% of the time, ADP-weighted random 30%. Responds to roster composition. | Currently AI picks near ADP. Real opponents pick for need. DraftKick methodology. |
+| Q2 | **Position Run Detection** | When 2+ consecutive picks are same position, boost remaining AI teams' probability by 1.3x for next 3 picks. | Creates realistic draft dynamics. Position runs are a well-documented phenomenon. |
+| Q3 | **Per-Player ADP Standard Deviation** | Use `(max_pick - min_pick) / 4` per player from NFBC data instead of global ADP/4. Injury-risk players have wider distributions. Pitchers wider than hitters. | More accurate pick survival probability. Currently uses fixed sigma. |
+| Q4 | **Draft Value Standings Impact** | AI evaluates each candidate pick's effect on projected end-of-draft standings, not just BPA. | DraftKick methodology: best simulators model standings impact, not raw value. |
+
+---
+
+### LEAGUE STANDINGS — 4 items
+
+| # | Item | Fix | Impact |
+|---|------|-----|--------|
+| B7 | **Power Rankings Momentum Weight** | Increase momentum from 10% to 20%. Reduce roster quality from 40% to 30%. Add "trajectory" factor (L3W trend). | Better reflects hot-streak value in H2H. |
+| E8 | **Punt Strategy Optimizer** — DUPLICATE of K4 | See K4 under Lineup Optimizer. Also feeds H7 in Trade Finder. | — |
+| R1 | **MC Simulation Upgrade to 10K** | Default from 1,000 to 10,000 sims. Reduces playoff probability SE from ~1.5% to ~0.5%. Add "high precision" mode. | At 1K sims, playoff odds have significant sampling error. Standard is 10K+. FanGraphs ZiPS uses 1M. |
+| R2 | **Per-Category Variance Calibration** | Use quantified weekly SDs: K=1.2, R=1.6, W=1.7, SV=1.8, WHIP=2.0, HR=2.1, RBI=2.3, SB=2.3, ERA=2.2, AVG=2.9. Widen confidence intervals for ERA/AVG (ratio stats). | FanGraphs community research (48 leagues). Currently uses hardcoded WEEKLY_TAU. |
 
 ---
 
@@ -219,39 +277,45 @@ These cascade through all 53 engines. Highest leverage.
 | **Global / Core Engine** | 14 | A1 (dynamic SGP), A4 (ECR), E2 (Stuff+), A2+D3 (stacking) |
 | **Trade Finder** | 24 | G1 (xwOBA), G4 (reliability), F5 (playoff-odds), G2 (Stuff+) |
 | **Lineup Optimizer** | 20 | I1 (mid-week pivot), J1 (update rates), I2 (swing-category), I3 (ratio protection) |
+| **My Team** | 7 | M1 (category flip), M4 (regression alerts), M6 (ratio lock), M2 (swap impact) |
+| **Leaders** | 5 | O1 (Statcast breakout score), O3 (call-up alerts), O2 (prospect relevance) |
+| **Closer Monitor** | 5 | L1 (gmLI tracking), L2 (K% decay), L3 (committee risk score) |
 | **Matchup Planner** | 4 | B5 (dynamic park), E6 (weather wind) |
+| **Trade Analyzer** | 4 | P1 (grade confidence interval), P2 (antithetic MC), P4 (per-cat replacement) |
+| **Draft Simulator** | 4 | Q1 (marginal SGP AI), Q2 (position run detection), Q3 (per-player ADP SD) |
+| **League Standings** | 4 | R1 (10K sims), R2 (per-category variance), B7 (momentum) |
 | **Free Agents / Waiver** | 4 | E9 (streaming), E5 (SB prediction) |
-| **Standings / Rankings** | 2 | B7 (momentum), E8 (punt optimizer) |
-| **Closer Monitor** | 1 | E4 (fatigue model) |
-| **My Team** | 1 | E3 (umpire zones) |
-| **Player Compare** | 1 | E10 (catcher framing) |
-| **Total** | **71** | |
+| **Player Compare** | 4 | N1 (category fit), N2 (schedule comparison), N3 (SGP breakdown) |
+| **Total** | **99** (87 unique after dedup) | |
 
 ---
 
 ## Implementation Priority (Cross-Page)
 
-**Do first (cascade everywhere):**
+**Tier 1 — Cascade everywhere (do first):**
 1. A1: Dynamic SGP denominators
 2. A4: Remove self-referential ECR
 3. E2: Populate Stuff+/Location+/Pitching+
 4. A2+D3: Weighted projection stacking
 5. J1: Per-stat in-season update rates
 
-**Do second (biggest page-specific wins):**
+**Tier 2 — Biggest page-specific wins:**
 6. I1: Mid-week pivot advisor (Lineup Optimizer)
 7. G1: xwOBA regression flags (Trade Finder)
-8. D1: Statcast XGBoost regression (Global)
-9. D2: Playing time prediction (Global)
-10. I2: Swing-category weighting (Lineup Optimizer)
+8. M1: Category flip analyzer (My Team)
+9. O1: Statcast breakout score (Leaders)
+10. D1: Statcast XGBoost regression (Global)
+11. D2: Playing time prediction (Global)
+12. I2: Swing-category weighting (Lineup Optimizer)
+13. L1: gmLI closer trust tracking (Closer Monitor)
 
-**Do third (accuracy refinements):**
-11-20: A3, G4, F5, I3, J2, J3, J4, E1, G2, I5
+**Tier 3 — Accuracy refinements:**
+14-25: A3, G4, F5, I3, J2, J3, J4, P1, R1, R2, L2, M4
 
-**Do fourth (strategic features):**
-21-30: K4, H7, E9, K1, H8, I4, E8, E5, B1, D4
+**Tier 4 — Strategic features:**
+26-40: K4, H7, E9, K1, H8, I4, E5, B1, D4, Q1, Q2, N1, O3, M6, P4
 
-**Do fifth (validation):**
-31-35: D6, B6, B8, I6, K2
+**Tier 5 — Validation & polish:**
+41-50: D6, B6, B8, I6, K2, M5, L3, N2, O2, P2
 
-**Remaining:** All other B/C/D/E/F/G/H/I/J/K items — as time allows.
+**Remaining:** All other items — as time allows.
