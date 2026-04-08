@@ -279,6 +279,38 @@ with main:
             except Exception:
                 pass
 
+            # N2: Schedule strength comparison — next 2-4 weeks of matchup quality
+            try:
+                from src.game_day import get_team_strength
+
+                _team_a = str(pool[pool["player_id"] == id_a].iloc[0].get("team", ""))
+                _team_b = str(pool[pool["player_id"] == id_b].iloc[0].get("team", ""))
+                if _team_a and _team_b and _team_a != "MLB" and _team_b != "MLB":
+                    _str_a = get_team_strength(_team_a)
+                    _str_b = get_team_strength(_team_b)
+                    st.subheader("Schedule Strength")
+                    sched_rows = []
+                    for label, key, fmt, better in [
+                        ("Team wRC+ (offense)", "wrc_plus", ".0f", "higher"),
+                        ("Team FIP (pitching)", "fip", ".2f", "lower"),
+                        ("Team ERA (pitching)", "team_era", ".2f", "lower"),
+                        ("Team K% (pitching)", "k_pct", ".1f", "higher"),
+                    ]:
+                        va = _str_a.get(key, 0)
+                        vb = _str_b.get(key, 0)
+                        sched_rows.append({
+                            "Metric": label,
+                            f"{result['player_a']} ({_team_a})": f"{va:{fmt}}",
+                            f"{result['player_b']} ({_team_b})": f"{vb:{fmt}}",
+                        })
+                    render_compact_table(pd.DataFrame(sched_rows))
+                    st.caption(
+                        "Team strength context: higher wRC+ = better offense (good for hitters on that team). "
+                        "Lower FIP/ERA = better pitching staff (good for pitchers)."
+                    )
+            except Exception:
+                pass
+
             # YTD 2026 Stats comparison (from enriched pool)
             _has_ytd = any(c in pool.columns for c in ["ytd_pa", "ytd_avg", "ytd_hr"])
             if _has_ytd:

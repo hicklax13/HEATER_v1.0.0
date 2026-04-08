@@ -26,7 +26,7 @@
 ## Improvement Backlog — By Page
 
 **115 unique item rows** after deduplication and audit.
-**83 DONE, 2 PARTIAL, 30 remaining** as of April 8, 2026.
+**88 DONE, 2 PARTIAL, 25 remaining** as of April 8, 2026.
 Organized strictly by the page each task improves. Items that affect all pages
 are under "Global / Core Engine." Status: (empty)=not started, PARTIAL=infrastructure
 exists, DONE=implemented, CUT=removed after audit, MERGED=combined with another item.
@@ -50,12 +50,12 @@ Cascade through all 53 engines and all 13 pages. Highest leverage.
 | T4 | **DATA: Dynamic Park Factor Refresh** | Mid-season `pybaseball.team_batting()` + `team_pitching()` park factor derivation. Replace static 2024 values. | Some parks change year-to-year (humidor, dimensions). | Low | DONE |
 | B2 | **Position-Specific Health Scoring** | C: threshold 28/0.03yr. DH: 34/0.01yr. OF: 31. | Catchers age faster than DHs. | Low | DONE |
 | B3 | **Injury-Type Adjustment** | TJ = 0.4 health floor 2yr. Hamstring = 0.7 1yr. Concussion = 0.6. | 30 IL days from bone bruise ≠ 30 IL days from TJ. | Medium | DONE |
-| B4 | **Temporal ECR Weighting** | Exponential decay 14-day half-life. March rank = 0.25x weight vs April = 1.0x. | Stale preseason ranks devalued. | Low | |
+| B4 | **Temporal ECR Weighting** | Exponential decay 14-day half-life. March rank = 0.25x weight vs April = 1.0x. | Stale preseason ranks devalued. | Low | DONE |
 | D1 | **Statcast XGBoost Regression** | Train on EV, barrel, xwOBA, xBA, sprint speed. Target: actual − projected. Retrain daily. | ~10-15% projection improvement. | Medium | DONE |
 | D2 | **Playing Time Prediction** | Ridge regression: `remaining_PA = f(recent_PA_rate, depth_chart, health, age)`. Update weekly. | ~10-15% counting stat accuracy. #1 projection error source. | Medium | DONE |
 | D6 | **Backtesting Framework** | Replay past weeks, score engine recommendations vs actual outcomes. | Meta: validates ALL other changes. Without this, every weight is a guess. | Medium-High | DONE |
 | J1 | **Per-Stat In-Season Update Rates** | `STABILIZATION_POINTS` dict exists in `bayesian.py:38`. Verify trade YTD modifier (G4) also uses per-stat thresholds. | Projection blend already uses per-stat rates. Trade YTD modifier may not. | Low | PARTIAL |
-| J6 | **Projection Uncertainty Bands** | Use empirical SDs (ERA=1.20, WHIP=0.20, AVG=0.025) for P10/P50/P90. | Prevents over-optimizing on noise. | Low | |
+| J6 | **Projection Uncertainty Bands** | Use empirical SDs (ERA=1.20, WHIP=0.20, AVG=0.025) for P10/P50/P90. | Prevents over-optimizing on noise. | Low | DONE |
 | V1 | **UNIFY: Category Weights** | 4 divergent methods (urgency sigmoid, gap analysis, H2H PDF, simple median). Same roster gets contradictory priorities on different pages. Create `MatchupContextService.get_category_weights(mode)` with 3 modes: "matchup" (H2H urgency), "standings" (gap analysis), "blended" (alpha-weighted). All pages consume from ONE source. | **CRITICAL** — pages currently give contradictory advice for same roster. | Medium | DONE |
 | V2 | **UNIFY: SGP Computation** | 5 divergent paths. `_totals_sgp()` in trade_finder treats AVG like HR (no volume adjustment) — mathematically wrong. Remove `_totals_sgp()` and `_weighted_totals_sgp()`. Replace with `SGPCalculator.player_sgp()` which properly volume-weights rate stats. | **CRITICAL** — Trade Finder By Value tab inflates value of low-PA players. | Medium | DONE |
 | V3 | **UNIFY: Roster Totals** | 3 implementations (My Team, in_season, League Standings) with different defaults (AVG=0.250 vs 0.0) and formats (string vs float). Create `standings_utils.get_team_totals()` with session cache. | Inconsistent defaults across pages. | Low | |
@@ -77,7 +77,7 @@ Daily dashboard: War Room, alerts, roster overview, Monday briefing.
 | M4 | **Regression Alert System** | Compare L30 actual to expected stats (xBA, xwOBA via barrel% + speed). Flag >1.5 SD divergence as sell-high or buy-low. Weight K%/BB% over BA. Require 50 PA min. | Process metrics more predictive than outcome metrics. | DONE |
 | M5 | **IL Slot Utilization Alert** | Empty IL slot = "Fill with X." IL stash ranking by `ros_sgp - best_fa_sgp` with days-to-return. Injury-type duration lookup (hamstring 21d, oblique 28d, TJ 14mo). | Empty IL slot = wasted value. | DONE |
 | M6 | **Ratio Lock Alert** | "You're winning ERA by 0.80 and WHIP by 0.15 with 45 IP banked — bench Sunday starters to lock 2 categories." | Worth 1-2 category wins/season. | DONE |
-| U3 | **War Room Flippable Thresholds from Weekly SDs** | Replace hardcoded `_COUNTING_THRESHOLD=3` for all stats. Use `threshold[cat] = 1.5 * weekly_sd[cat]`. HR has different variance than R. | Prevents false flip alerts for stable categories, catches real flips in volatile ones. | |
+| U3 | **War Room Flippable Thresholds from Weekly SDs** | Replace hardcoded `_COUNTING_THRESHOLD=3` for all stats. Use `threshold[cat] = 1.5 * weekly_sd[cat]`. HR has different variance than R. | Prevents false flip alerts for stable categories, catches real flips in volatile ones. | DONE |
 | E3 | **Umpire Strike Zone Adjustment** | Per-umpire K%/BB%/run environment. ±0.3-0.5 runs/game. | | |
 | T7 | **DATA: Fetch Umpire Assignments** | Scrape Baseball Savant game feed JSON + Retrosheet historical. Build per-umpire tendency table. | Unlocks E3. 1-2 hours. | |
 | S4 | **CONSOLIDATE: Merge Alerts + War Room** | My Team shows same injuries in both "News & Alerts" and "War Room." Merge into single surface. | Cleaner page, single source of truth. | DONE |
@@ -124,7 +124,7 @@ Daily dashboard: War Room, alerts, roster overview, Monday briefing.
 | # | Item | Fix | Impact | Status |
 |---|------|-----|--------|--------|
 | P1 | **Trade Grade Confidence Interval** | Show grade RANGE ("B+ to A-") not single letter. Based on ±1 SD projection uncertainty. | More honest. Current single grade implies false precision. | DONE |
-| P2 | **Antithetic Variate MC Sampling** | For each sim, generate mirror using negated z-scores. 20K pairs for cost of 10K. Cuts SE ~30%. | Free precision improvement. | |
+| P2 | **Antithetic Variate MC Sampling** | For each sim, generate mirror using negated z-scores. 20K pairs for cost of 10K. Cuts SE ~30%. | Free precision improvement. | DONE |
 | P3 | **Copula Correlation Calibration** | Use empirical correlations from league weekly totals instead of hardcoded matrix. Share with scenario generator. | Hardcoded correlations underestimate variance by ~15%. | |
 | P4 | **Per-Category Replacement Level** | Subtract replacement-level stats per category per position (not aggregate SGP). | Captures positional scarcity in specific categories. | DONE |
 
@@ -233,7 +233,7 @@ Head-to-head z-score comparison, radar chart, health/confidence.
 | # | Item | Fix | Impact | Status |
 |---|------|-----|--------|--------|
 | N1 | **Category Fit Indicator** | Show which of YOUR team's weak categories each player helps vs wastes value in. | Transforms generic comparison into team-specific decision. | DONE |
-| N2 | **Schedule Strength Comparison** | Next 2-4 weeks of opposing pitchers/matchups side-by-side. | Upcoming matchups matter enormously in H2H. | |
+| N2 | **Schedule Strength Comparison** | Next 2-4 weeks of opposing pitchers/matchups side-by-side. | Upcoming matchups matter enormously in H2H. | DONE |
 | N3 | **SGP Contribution Breakdown** | Stacked bar: concentrated (3.0 SGP from HR/RBI) vs diversified (0.6-0.8 across all). | Shows value profile instantly. Also wired into O5 for Leaders. | DONE |
 | E10 | **Catcher Framing Value** | Pitcher ERA differs 0.20-0.40 by catcher. 10-15 extra strikes/game for elite framers. | | |
 | T8 | **DATA: Fetch Catcher Framing + Pop Time** | Scrape Baseball Savant catcher framing + pop time leaderboards. | Unlocks E10, J5, K1. 45 min. | |

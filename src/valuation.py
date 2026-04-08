@@ -1005,6 +1005,14 @@ def compute_percentile_projections(
     # z-multiplier for each percentile relative to median
     z_map = {p: _percentile_z(p) for p in percentiles}
 
+    # J6: Empirical SDs as fallback when volatility data is sparse.
+    # From full-season projection accuracy analysis (FanGraphs research).
+    _EMPIRICAL_SDS: dict[str, float] = {
+        "r": 12.0, "hr": 5.0, "rbi": 12.0, "sb": 4.0,
+        "w": 3.0, "l": 3.0, "sv": 6.0, "k": 25.0,
+        "avg": 0.025, "obp": 0.025, "era": 1.20, "whip": 0.20,
+    }
+
     merged = base.merge(
         volatility,
         on="player_id",
@@ -1037,6 +1045,9 @@ def compute_percentile_projections(
             vol_col = f"{col}_vol"
             if col in proj.columns and vol_col in merged.columns:
                 vol = merged[vol_col].fillna(0.0)
+                # J6: Use empirical SD as floor when per-player volatility is 0
+                empirical_sd = _EMPIRICAL_SDS.get(col, 0.0)
+                vol = vol.where(vol > 0, empirical_sd)
                 # For inverse rate stats (ERA, WHIP), higher percentile = best
                 # case = LOWEST value, so negate the z multiplier.
                 z_eff = -z if col in inverse_rate_stats else z

@@ -22,11 +22,23 @@ INVERSE_CATS = {"L", "ERA", "WHIP"}
 # Rate stats (non-counting)
 RATE_CATS = {"AVG", "OBP", "ERA", "WHIP"}
 
-# Flippable thresholds per category type
-_COUNTING_THRESHOLD = 3
-_L_THRESHOLD = 2
-_RATE_THRESHOLD = 0.015  # AVG, OBP
-_INVERSE_RATE_THRESHOLD = 0.30  # ERA, WHIP
+# U3: Per-category weekly SD thresholds (from FanGraphs 48-league empirical study).
+# Flippable = gap within 1.5x weekly SD. Replaces flat _COUNTING_THRESHOLD=3.
+_WEEKLY_SD: dict[str, float] = {
+    "R": 4.5,
+    "HR": 1.8,
+    "RBI": 4.5,
+    "SB": 1.5,
+    "W": 1.2,
+    "L": 1.2,
+    "SV": 1.5,
+    "K": 10.0,
+    "AVG": 0.015,
+    "OBP": 0.012,
+    "ERA": 0.80,
+    "WHIP": 0.08,
+}
+_FLIP_MULT = 1.5  # Gap within 1.5x weekly SD = flippable
 
 # Suggestion templates keyed by (category_set, direction)
 _SUGGESTIONS: dict[tuple[frozenset[str], str], str] = {
@@ -65,14 +77,9 @@ def _parse_cat_value(raw: str, cat: str) -> float:
 
 
 def _get_threshold(cat: str) -> float:
-    """Return the flippable threshold for a given category."""
-    if cat == "L":
-        return _L_THRESHOLD
-    if cat in {"ERA", "WHIP"}:
-        return _INVERSE_RATE_THRESHOLD
-    if cat in {"AVG", "OBP"}:
-        return _RATE_THRESHOLD
-    return _COUNTING_THRESHOLD
+    """U3: Return the flippable threshold for a given category using weekly SDs."""
+    sd = _WEEKLY_SD.get(cat, 3.0)
+    return sd * _FLIP_MULT
 
 
 def compute_matchup_pulse(

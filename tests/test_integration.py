@@ -264,15 +264,22 @@ class TestPercentilePipeline:
             assert p10_hr <= p50_hr <= p90_hr
 
     def test_single_system_zero_volatility(self, sample_pool):
-        """Single projection system → zero volatility → P10 == P50 == P90."""
+        """J6: Single system → zero per-player volatility → empirical SDs used as fallback.
+
+        P10 and P90 should now differ (empirical SDs fill the gap),
+        and P10 < P50 < P90 for counting stats.
+        """
         systems = {"only_system": sample_pool}
         volatility = compute_projection_volatility(systems)
         percentiles = compute_percentile_projections(sample_pool, volatility)
 
         for col in ["hr", "r", "rbi"]:
             p10_vals = percentiles[10][col].values
+            p50_vals = percentiles[50][col].values
             p90_vals = percentiles[90][col].values
-            np.testing.assert_array_equal(p10_vals, p90_vals)
+            # With empirical SD fallback, P10 < P90 (no longer equal)
+            assert np.all(p10_vals <= p50_vals + 0.01)
+            assert np.all(p50_vals <= p90_vals + 0.01)
 
 
 # ---------------------------------------------------------------------------

@@ -61,8 +61,33 @@ ESPN_POSITION_MAP = {
 # ══════════════════════════════════════════════════════════════════════
 
 
+# B4: Source recency weights — in-season, ROS rankings more valuable than preseason ADP.
+# fantasypros = ROS rankings (most current), espn/cbs = updated regularly,
+# fangraphs/yahoo/nfbc = preseason ADP (stale in-season).
+_SOURCE_WEIGHTS_INSEASON: dict[str, float] = {
+    "fantasypros": 1.5,
+    "espn": 1.2,
+    "cbs": 1.0,
+    "fangraphs": 0.6,
+    "yahoo": 0.4,
+    "nfbc": 0.4,
+}
+_SOURCE_WEIGHTS_PRESEASON: dict[str, float] = {
+    "fantasypros": 1.0,
+    "espn": 1.0,
+    "cbs": 1.0,
+    "fangraphs": 1.0,
+    "yahoo": 1.0,
+    "nfbc": 1.0,
+}
+
+
 def _compute_player_consensus(sources: dict) -> dict:
-    """Compute consensus ranking from multiple sources via trimmed mean.
+    """Compute consensus ranking from multiple sources via weighted trimmed mean.
+
+    B4: In-season, applies temporal weights — ROS rankings (fantasypros)
+    weighted 1.5x, preseason ADP sources (fangraphs, yahoo) weighted 0.4-0.6x.
+    Preseason uses equal weights.
 
     Args:
         sources: {source_name: rank_value} where values may be None.
@@ -94,14 +119,22 @@ def _compute_player_consensus(sources: dict) -> dict:
     else:
         rank_stddev = round(statistics.stdev(values), 1)
 
-    # Trimmed mean: drop min and max when >= 4 sources
-    if n >= 4:
-        sorted_vals = sorted(values)
-        trimmed = sorted_vals[1:-1]  # remove lowest and highest
-    else:
-        trimmed = values
+    # B4: Weighted mean with temporal source weights
+    in_season = _is_in_season()
+    weights = _SOURCE_WEIGHTS_INSEASON if in_season else _SOURCE_WEIGHTS_PRESEASON
 
-    consensus_avg = sum(trimmed) / len(trimmed)
+    # Trimmed: drop min and max when >= 4 sources (before weighting)
+    if n >= 4:
+        sorted_items = sorted(valid.items(), key=lambda x: x[1])
+        trimmed_items = sorted_items[1:-1]
+    else:
+        trimmed_items = list(valid.items())
+
+    total_weight = sum(weights.get(src, 1.0) for src, _ in trimmed_items)
+    if total_weight <= 0:
+        consensus_avg = sum(v for _, v in trimmed_items) / len(trimmed_items)
+    else:
+        consensus_avg = sum(v * weights.get(src, 1.0) for src, v in trimmed_items) / total_weight
 
     return {
         "consensus_avg": consensus_avg,
