@@ -3415,3 +3415,27 @@ def render_data_freshness_card():
                 refreshed = sum(1 for v in results.values() if v == "Refreshed")
                 st.toast(f"Refreshed {refreshed}/{len(results)} data sources")
                 st.rerun()
+
+
+# ── Unified Stat Formatting ──────────────────────────────────────────
+
+
+def format_stat(value: float, stat_type: str) -> str:
+    """Unified stat formatting across all pages.
+
+    AVG/OBP: .3f (e.g., .289)
+    ERA/WHIP: .2f (e.g., 3.50)
+    SGP: +.2f (e.g., +1.50)
+    Counting stats: .0f (e.g., 25)
+    Percentage: .1f% (e.g., 22.5%)
+    """
+    if stat_type in ("AVG", "OBP", "avg", "obp"):
+        return f"{value:.3f}"[1:] if 0 < value < 1 else f"{value:.3f}"
+    elif stat_type in ("ERA", "WHIP", "era", "whip"):
+        return f"{value:.2f}"
+    elif stat_type in ("SGP", "sgp"):
+        return f"{value:+.2f}"
+    elif stat_type in ("PCT", "pct", "K%", "BB%"):
+        return f"{value:.1f}%"
+    else:
+        return f"{int(value)}" if value == int(value) else f"{value:.1f}"

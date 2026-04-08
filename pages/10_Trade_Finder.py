@@ -2,7 +2,7 @@
 
 Scans all 12 league rosters for mutually beneficial 1-for-1 and 2-for-1 trades using
 cosine dissimilarity team pairing and behavioral acceptance modeling.
-Five tabs: Smart Recommendations, By Value, Target a Player, Browse Partners, Trade Readiness.
+Four tabs: Trade Recommendations, Target a Player, Browse Partners, Trade Readiness.
 """
 
 import time
@@ -326,32 +326,42 @@ def main():
             page_timer_footer("Trade Finder")
             return
 
-        # ── 5 Tabs ───────────────────────────────────────────────────
+        # ── 4 Tabs ───────────────────────────────────────────────────
         # Group trades by opponent (used by Browse Partners tab)
         trades_by_partner: dict[str, list[dict]] = {}
         for trade in opportunities:
             partner = trade.get("opponent_team", "Unknown")
             trades_by_partner.setdefault(partner, []).append(trade)
 
-        tab_smart, tab_value, tab_target, tab_browse, tab_readiness = st.tabs(
+        tab_recs, tab_target, tab_browse, tab_readiness = st.tabs(
             [
-                "Smart Recommendations",
-                "By Value",
+                "Trade Recommendations",
                 "Target a Player",
                 "Browse Partners",
                 "Trade Readiness",
             ]
         )
 
-        # ── Tab 1: Smart Recommendations ─────────────────────────────
-        with tab_smart:
-            st.subheader("Smart Recommendations")
-            st.caption(
-                "Auto-scan all opponents to find trades that boost your weakest "
-                "categories for the least cost in strong ones."
+        # ── Tab 1: Trade Recommendations (merged Smart Recs + By Value) ──
+        with tab_recs:
+            st.markdown(
+                f'<p style="font-size:13px;color:{T["tx2"]};">'
+                "All trade opportunities from the league scan. Use the sort dropdown "
+                "to rank by different criteria. Generate enhanced recommendations "
+                "for category-need-efficient trades.</p>",
+                unsafe_allow_html=True,
             )
 
-            if st.button("Generate Smart Recommendations", type="primary", key="smart_recs_btn"):
+            # Sort control
+            sort_option = st.selectbox(
+                "Sort by",
+                ["Composite Score", "Need Efficiency", "Acceptance Probability", "Your SGP Gain"],
+                key="trade_recs_sort",
+            )
+
+            # Enhanced recommendations button
+            enhanced_recs: list[dict] = []
+            if st.button("Generate Enhanced Recommendations", type="primary", key="smart_recs_btn"):
                 with st.spinner("Scanning all opponents for category-need-efficient trades..."):
                     try:
                         from src.trade_intelligence import recommend_trades_by_need
@@ -363,14 +373,12 @@ def main():
                         except ImportError:
                             weeks_rem_s = 22
                     except ImportError:
-                        st.info("Trade intelligence module not available for smart recommendations.")
                         recommend_trades_by_need = None  # type: ignore[assignment]
                         weeks_rem_s = 22
 
-                    recs: list[dict] = []
                     if recommend_trades_by_need is not None:
                         try:
-                            recs = recommend_trades_by_need(
+                            enhanced_recs = recommend_trades_by_need(
                                 user_roster_ids=user_roster_ids,
                                 player_pool=pool,
                                 config=config,
@@ -383,57 +391,86 @@ def main():
                         except Exception as e:
                             st.error(f"Error: {e}")
 
-                if not recs:
-                    st.info("No recommendations found.")
+                if enhanced_recs:
+                    st.success(f"Found {len(enhanced_recs)} enhanced recommendations (marked below)")
+                    st.session_state["_enhanced_recs"] = enhanced_recs
                 else:
-                    st.success(f"Found {len(recs)} recommendations")
-                    for i, rec in enumerate(recs):
-                        give_name_s = rec.get("giving_name", "?")
-                        recv_name_s = rec.get("receiving_name", "?")
-                        partner_s = rec.get("opponent_team", "?")
-                        eff_s = rec.get("need_efficiency", 0)
-                        accept_s = rec.get("acceptance_probability", 0)
-                        grade_s = rec.get("grade_estimate", "?")
-                        composite_s = rec.get("composite_score", 0)
+                    st.info("No enhanced recommendations found.")
 
-                        with st.expander(
-                            f"#{i + 1}: Give {give_name_s} -> Get {recv_name_s} ({partner_s}) "
-                            f"| Efficiency {eff_s:.1f}x | Accept {accept_s:.0%}",
-                            expanded=(i < 3),
-                        ):
-                            m1_s, m2_s, m3_s, m4_s = st.columns(4)
-                            m1_s.metric("Grade", grade_s)
-                            m2_s.metric("Efficiency", f"{eff_s:.1f}x")
-                            m3_s.metric("Accept Prob", f"{accept_s:.0%}")
-                            m4_s.metric("Composite", f"{composite_s:.2f}")
-
-                            # Boosted and costly categories
-                            boosted = rec.get("boosted_cats", [])
-                            costly = rec.get("costly_cats", [])
-                            if boosted:
-                                boost_display = ", ".join([_CAT_DISPLAY.get(c, c) for c in boosted])
-                                st.markdown(f"**Boosts:** {boost_display}")
-                            if costly:
-                                cost_display = ", ".join([_CAT_DISPLAY.get(c, c) for c in costly])
-                                st.markdown(f"**Costs:** {cost_display}")
-
-                            # ADP + ECR
-                            adp_s = rec.get("adp_fairness", 0)
-                            ecr_s = rec.get("ecr_fairness", 0)
-                            st.caption(f"ADP Fairness: {adp_s:.0%} | ECR Fairness: {ecr_s:.0%}")
-
-        # ── Tab 2: By Value ───────────────────────────────────────────
-        with tab_value:
-            st.markdown(
-                f'<p style="font-size:13px;color:{T["tx2"]};">'
-                "All trade opportunities ranked by composite value score.</p>",
-                unsafe_allow_html=True,
-            )
-
+            # Build the unified trade table
             df = _build_trade_df(opportunities)
+
+            # Merge in enhanced recs from session_state if available
+            stored_enhanced = st.session_state.get("_enhanced_recs", [])
+            if stored_enhanced:
+                enhanced_rows = []
+                for rec in stored_enhanced:
+                    enhanced_rows.append(
+                        {
+                            "You Give": rec.get("giving_name", "?"),
+                            "You Receive": rec.get("receiving_name", "?"),
+                            "Type": "1-for-1",
+                            "Partner": rec.get("opponent_team", ""),
+                            "Your Gain": round(rec.get("user_sgp_gain", rec.get("sgp_gain", 0)), 2),
+                            "Their Gain": 0.0,
+                            "Give ADP": "N/A",
+                            "Recv ADP": "N/A",
+                            "ADP Fair": f"{rec.get('adp_fairness', 0):.0%}"
+                            if isinstance(rec.get("adp_fairness"), (int, float))
+                            else "N/A",
+                            "ECR Fair": f"{rec.get('ecr_fairness', 0):.0%}"
+                            if isinstance(rec.get("ecr_fairness"), (int, float))
+                            else "",
+                            "Grade": rec.get("grade_estimate", rec.get("grade", "")),
+                            "Acceptance": f"{rec.get('acceptance_probability', 0):.0%}"
+                            if isinstance(rec.get("acceptance_probability"), (int, float))
+                            else "",
+                            "Health": "",
+                            "Score": round(rec.get("composite_score", 0), 2),
+                            "FA Alt": "",
+                            "Need Efficiency": round(rec.get("need_efficiency", 0), 2),
+                            "Source": "Enhanced",
+                        }
+                    )
+                enhanced_df = pd.DataFrame(enhanced_rows)
+                # Add Source and Need Efficiency columns to main df too
+                if not df.empty:
+                    df["Source"] = "Scan"
+                    df["Need Efficiency"] = 0.0
+                    # Deduplicate: remove scan rows that match enhanced recs by give+receive
+                    enhanced_keys = set(
+                        zip(enhanced_df["You Give"], enhanced_df["You Receive"])
+                    )
+                    df = df[
+                        ~df.apply(lambda r: (r["You Give"], r["You Receive"]) in enhanced_keys, axis=1)
+                    ]
+                    df = pd.concat([enhanced_df, df], ignore_index=True)
+                else:
+                    df = enhanced_df
+            else:
+                if not df.empty:
+                    df["Source"] = "Scan"
+                    df["Need Efficiency"] = 0.0
+
             if not df.empty:
-                # Show essential columns with explicit widths to prevent truncation
-                essential = ["You Give", "You Receive", "Type", "Partner", "Your Gain", "Grade", "Acceptance", "Score"]
+                # Apply sort
+                sort_map = {
+                    "Composite Score": ("Score", False),
+                    "Need Efficiency": ("Need Efficiency", False),
+                    "Acceptance Probability": ("Acceptance", False),
+                    "Your SGP Gain": ("Your Gain", False),
+                }
+                sort_col, sort_asc = sort_map.get(sort_option, ("Score", False))
+                if sort_col in df.columns:
+                    df = df.sort_values(sort_col, ascending=sort_asc, na_position="last")
+
+                # Show essential columns
+                essential = [
+                    "Source", "You Give", "You Receive", "Type", "Partner",
+                    "Your Gain", "Grade", "Acceptance", "Score",
+                ]
+                if stored_enhanced:
+                    essential.insert(6, "Need Efficiency")
                 display_df = df[[c for c in essential if c in df.columns]]
                 col_config = {
                     "You Give": st.column_config.TextColumn("You Give", width="medium"),
@@ -441,6 +478,7 @@ def main():
                     "Partner": st.column_config.TextColumn("Partner", width="medium"),
                     "Your Gain": st.column_config.NumberColumn("Your Gain", format="%.2f"),
                     "Score": st.column_config.NumberColumn("Score", format="%.2f"),
+                    "Need Efficiency": st.column_config.NumberColumn("Need Eff", format="%.2f"),
                 }
                 render_sortable_table(display_df, column_config=col_config, height=600)
 

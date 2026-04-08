@@ -16,6 +16,32 @@ import math
 
 from scipy.stats import norm
 
+
+def recommend_ip_management_mode(urgency_data: dict) -> str:
+    """Recommend IP management mode from category urgency state.
+
+    "CHASE_KW": Losing K and/or W -- stream aggressively, accept ratio risk
+    "PROTECT_RATIOS": Winning ERA/WHIP -- bench risky pitchers
+    "BALANCED": Mixed -- standard approach
+
+    Returns: mode string
+    """
+    summary = urgency_data.get("summary", {})
+    winning = summary.get("winning", [])
+    losing = summary.get("losing", [])
+
+    era_safe = "ERA" in winning
+    whip_safe = "WHIP" in winning
+
+    k_losing = "K" in losing
+    w_losing = "W" in losing
+
+    if era_safe and whip_safe:
+        return "PROTECT_RATIOS"
+    elif k_losing or w_losing:
+        return "CHASE_KW"
+    return "BALANCED"
+
 logger = logging.getLogger(__name__)
 
 # Weekly category standard deviations in RAW stat units, calibrated from

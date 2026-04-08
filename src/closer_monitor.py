@@ -116,6 +116,68 @@ def compute_skill_decay(
     }
 
 
+def compute_committee_risk(
+    team_save_distribution: dict[str, int],
+    team_gmli_data: dict[str, float] | None = None,
+) -> dict:
+    """Detect closer committee from save distribution.
+
+    Returns: {is_committee: bool, risk_score: float 0-1,
+              primary_share: float, num_contributors: int, signal: str}
+    """
+    if not team_save_distribution:
+        return {
+            "is_committee": False,
+            "risk_score": 0.5,
+            "primary_share": 0.0,
+            "num_contributors": 0,
+            "signal": "UNKNOWN",
+        }
+
+    total_sv = sum(team_save_distribution.values())
+    if total_sv == 0:
+        return {
+            "is_committee": False,
+            "risk_score": 0.5,
+            "primary_share": 0.0,
+            "num_contributors": 0,
+            "signal": "NO_SAVES",
+        }
+
+    sorted_closers = sorted(
+        team_save_distribution.items(), key=lambda x: x[1], reverse=True
+    )
+    primary_share = sorted_closers[0][1] / total_sv
+    num_contributors = sum(1 for _, sv in sorted_closers if sv > 0)
+
+    is_committee = primary_share < 0.60 and num_contributors >= 3
+    risk_score = 1.0 - primary_share  # Higher = more committee-like
+
+    if is_committee:
+        signal = "COMMITTEE"
+    elif primary_share >= 0.75:
+        signal = "DEFINED"
+    else:
+        signal = "SHAKY"
+
+    return {
+        "is_committee": is_committee,
+        "risk_score": round(risk_score, 2),
+        "primary_share": round(primary_share, 2),
+        "num_contributors": num_contributors,
+        "signal": signal,
+    }
+
+
+def detect_opener(first_inning_pct: float, total_appearances: int) -> bool:
+    """Detect if a reliever is being used as an opener.
+
+    A reliever pitching the 1st inning in >30% of appearances
+    with 10+ appearances = opener.
+    """
+    return first_inning_pct > 0.30 and total_appearances >= 10
+
+
 def build_closer_grid(
     depth_data: dict,
     player_pool: pd.DataFrame | None = None,

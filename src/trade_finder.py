@@ -33,6 +33,15 @@ MAX_EFFICIENCY_RATIO = 5.0  # Cap SGP gain ratio to prevent "trade your worst fo
 ELITE_RETURN_FLOOR = 0.75  # Return must be >= 75% of given player's raw SGP
 MAX_WEIGHT_RATIO = 1.5  # No category can be weighted more than 1.5x average
 
+# Trade Finder composite weights (ROADMAP B8 — validate via D6 backtesting)
+# Sum must equal 1.0. Acceptance-heavy because rejected trades are worthless.
+COMPOSITE_W_SGP = 0.15  # Normalized SGP gain
+COMPOSITE_W_ADP = 0.15  # ADP fairness (league draft round or generic ADP)
+COMPOSITE_W_ECR = 0.15  # ECR fairness (expert consensus ranking parity)
+COMPOSITE_W_ACCEPT = 0.30  # Acceptance probability (sigmoid with loss aversion)
+COMPOSITE_W_CAT_FIT = 0.10  # Category fit (give from strength, receive for weakness)
+COMPOSITE_W_OPP_NEED = 0.15  # Opponent need match (their weak categories)
+
 
 def _player_sgp_volume_aware(
     pid: int,
@@ -641,12 +650,12 @@ def scan_2_for_1(
             user_delta_for_score = user_delta - ROSTER_SPOT_SGP
             norm_sgp_2 = min(user_delta_for_score / 3.0, 1.0) if user_delta_for_score > 0 else 0.0
             composite = (
-                0.15 * norm_sgp_2
-                + 0.15 * adp_fairness
-                + 0.15 * 0.5  # ECR neutral (not computed for multi-player)
-                + 0.30 * p_accept
-                + 0.10 * category_fit
-                + 0.15 * need_match
+                COMPOSITE_W_SGP * norm_sgp_2
+                + COMPOSITE_W_ADP * adp_fairness
+                + COMPOSITE_W_ECR * 0.5  # ECR neutral (not computed for multi-player)
+                + COMPOSITE_W_ACCEPT * p_accept
+                + COMPOSITE_W_CAT_FIT * category_fit
+                + COMPOSITE_W_OPP_NEED * need_match
             ) + 0.05  # Small fixed bonus for roster flexibility
 
             give_names = seed.get("giving_names", []) + [
@@ -1088,12 +1097,12 @@ def scan_1_for_1(
             # Normalize SGP gain to [0,1] range by capping at 5x efficiency.
             norm_sgp = min(user_delta * ytd_modifier / 3.0, 1.0) if user_delta > 0 else 0.0
             composite = (
-                0.15 * norm_sgp
-                + 0.15 * adp_fairness
-                + 0.15 * ecr_fairness
-                + 0.30 * p_accept
-                + 0.10 * category_fit
-                + 0.15 * opp_need_match
+                COMPOSITE_W_SGP * norm_sgp
+                + COMPOSITE_W_ADP * adp_fairness
+                + COMPOSITE_W_ECR * ecr_fairness
+                + COMPOSITE_W_ACCEPT * p_accept
+                + COMPOSITE_W_CAT_FIT * category_fit
+                + COMPOSITE_W_OPP_NEED * opp_need_match
             )
 
             # Regression bonus: reward trades that exploit xwOBA regression signals

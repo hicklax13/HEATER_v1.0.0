@@ -36,6 +36,23 @@ ALL_CATS: list[str] = COUNTING_CATS + RATE_CATS
 _MIN_SAMPLE_BAYESIAN: int = 30
 
 
+def compute_fatigue_multiplier(current_ip: float, is_elite: bool = False) -> float:
+    """Fatigue discount for pitchers above 100 IP.
+
+    -0.3% per IP above 100, capped at 15% discount.
+    Elite pitchers (top Stuff+) are exempt -- research shows 16/20 Cy Young
+    winners had better second-half ERA.
+
+    Returns: multiplier in [0.85, 1.0]
+    """
+    if is_elite:
+        return 1.0
+    if current_ip <= 100:
+        return 1.0
+    discount = 0.003 * (current_ip - 100)
+    return max(0.85, 1.0 - discount)
+
+
 def build_enhanced_projections(
     roster: pd.DataFrame,
     config: LeagueConfig | None = None,

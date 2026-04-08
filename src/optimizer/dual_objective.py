@@ -122,11 +122,18 @@ def recommend_alpha(
     num_teams: int = 12,
     playoff_cutoff: int = 6,
     desperation_level: float = 0.0,
+    playoff_probability: float | None = None,
 ) -> float:
     """Auto-recommend the H2H/roto blend alpha based on league situation.
 
-    In H2H category leagues, winning each weekly matchup is always the
-    primary objective.  The base alpha therefore never drops below 0.5:
+    If ``playoff_probability`` is provided (from standings_engine MC sim),
+    it takes priority over the time-based heuristic:
+
+      - >85% playoffs: alpha = 0.80 (strong H2H focus, protect position)
+      - 40-85%: alpha = 0.60 (balanced, fighting for spot)
+      - <40%: alpha = 0.35 (lean roto, build for long term)
+
+    Otherwise, falls back to the time-based heuristic:
 
       - Early season (>16 weeks remaining): 0.55 (slight season-long tilt)
       - Mid season (8-16 weeks): 0.65 (balanced, H2H leaning)
@@ -141,8 +148,9 @@ def recommend_alpha(
       - Desperation level (0.0-1.0): boosts alpha by up to +0.25
         for teams that must win now.
 
-    The result is always clamped to [0.5, 1.0] — H2H weekly matchups
-    always matter at least as much as season-long in H2H leagues.
+    The result is always clamped to [0.3, 1.0].  When playoff_probability
+    is provided the floor is 0.3 (rebuild mode).  When using the legacy
+    time-based path the floor remains 0.5.
 
     Args:
         weeks_remaining: Number of weeks left in the regular season.
@@ -157,10 +165,38 @@ def recommend_alpha(
         desperation_level: Float in [0.0, 1.0] indicating how desperate
             the team is (e.g. bubble team near playoffs).  Boosts alpha
             by up to +0.25.  Default 0.0 for backward compatibility.
+        playoff_probability: Float in [0.0, 1.0] from MC season
+            simulation.  When provided, overrides the time-based base
+            alpha with a playoff-probability-aware value.
 
     Returns:
-        Recommended alpha in [0.5, 1.0].
+        Recommended alpha in [0.3, 1.0] (playoff-aware) or [0.5, 1.0]
+        (legacy time-based).
     """
+    # ── Playoff-probability-aware path (C2 validation) ────────────────
+    if playoff_probability is not None:
+        pp = max(0.0, min(1.0, playoff_probability))
+        if pp > 0.85:
+            alpha = 0.80  # Contender: strong H2H, protect position
+        elif pp >= 0.40:
+            alpha = 0.60  # Bubble: balanced fight for playoff spot
+        else:
+            alpha = 0.35  # Long shot: lean roto, build for long term
+
+        # Still apply desperation and record adjustments
+        desperation_level = max(0.0, min(1.0, desperation_level))
+        alpha += desperation_level * 0.25
+
+        if h2h_record_wins is not None and h2h_record_losses is not None:
+            total_games = h2h_record_wins + h2h_record_losses
+            if total_games > 0:
+                win_rate = h2h_record_wins / total_games
+                if win_rate < 0.4:
+                    alpha -= 0.1
+
+        return max(0.3, min(1.0, alpha))
+
+    # ── Legacy time-based path ────────────────────────────────────────
     # Base alpha from time remaining — H2H floor of 0.55
     if weeks_remaining < 3:
         alpha = 0.85

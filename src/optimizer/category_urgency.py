@@ -14,6 +14,14 @@ import math
 
 logger = logging.getLogger(__name__)
 
+# Sigmoid steepness parameters (validated via ROADMAP B6)
+# Higher k = steeper transition near toss-up
+# k=2.0 for counting stats: moderate sensitivity to gaps
+# k=3.0 for rate stats: higher sensitivity (rate stats are noisier)
+# TODO: Backtest with D6 framework to find optimal k values
+COUNTING_STAT_K = 2.0
+RATE_STAT_K = 3.0
+
 
 def compute_category_urgency(
     my_totals: dict[str, float],
@@ -60,7 +68,7 @@ def compute_category_urgency(
 
         # Sigmoid: approaches 1.0 when losing (gap > 0), 0.0 when winning (gap < 0)
         # k controls steepness: 2.0 for counting stats, 3.0 for rate stats
-        k = 3.0 if cat in rate_stats else 2.0
+        k = RATE_STAT_K if cat in rate_stats else COUNTING_STAT_K
 
         exponent = -k * gap
         exponent = max(-500, min(500, exponent))
