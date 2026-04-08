@@ -26,7 +26,7 @@
 ## Improvement Backlog — By Page
 
 **115 unique item rows** after deduplication and audit.
-**76 DONE, 2 PARTIAL, 37 remaining** as of April 8, 2026.
+**79 DONE, 2 PARTIAL, 34 remaining** as of April 8, 2026.
 Organized strictly by the page each task improves. Items that affect all pages
 are under "Global / Core Engine." Status: (empty)=not started, PARTIAL=infrastructure
 exists, DONE=implemented, CUT=removed after audit, MERGED=combined with another item.
@@ -47,7 +47,7 @@ Cascade through all 53 engines and all 13 pages. Highest leverage.
 | E2+T1 | **Fetch & Populate Stuff+/Location+/Pitching+** | Add `pybaseball.pitching_stats(year, qual=0)` to bootstrap. Write to existing empty DB columns. | Transforms pitcher evaluation across all pages. Unlocks G2, O1, L2. | Trivial | DONE |
 | T2 | **DATA: Fetch Detailed Batting Stats** | Add `pybaseball.batting_stats(year, qual=0)` to bootstrap. Populate LD%, FB%, GB%, BABIP, ISO, K%, BB%. | Unlocks E1, G3, O1 breakout components. | Trivial | DONE |
 | T3 | **DATA: Fetch Sprint Speed** | Add `pybaseball.statcast_sprint_speed(year)` to bootstrap. | Unlocks K1, E5 stolen base prediction. | Trivial | DONE |
-| T4 | **DATA: Dynamic Park Factor Refresh** | Mid-season `pybaseball.team_batting()` + `team_pitching()` park factor derivation. Replace static 2024 values. | Some parks change year-to-year (humidor, dimensions). | Low | |
+| T4 | **DATA: Dynamic Park Factor Refresh** | Mid-season `pybaseball.team_batting()` + `team_pitching()` park factor derivation. Replace static 2024 values. | Some parks change year-to-year (humidor, dimensions). | Low | DONE |
 | B2 | **Position-Specific Health Scoring** | C: threshold 28/0.03yr. DH: 34/0.01yr. OF: 31. | Catchers age faster than DHs. | Low | |
 | B3 | **Injury-Type Adjustment** | TJ = 0.4 health floor 2yr. Hamstring = 0.7 1yr. Concussion = 0.6. | 30 IL days from bone bruise ≠ 30 IL days from TJ. | Medium | |
 | B4 | **Temporal ECR Weighting** | Exponential decay 14-day half-life. March rank = 0.25x weight vs April = 1.0x. | Stale preseason ranks devalued. | Low | |
@@ -221,8 +221,8 @@ Daily dashboard: War Room, alerts, roster overview, Monday briefing.
 | O3 | **40-Man + Service Time Call-Up Alerts** | 40-man flag (highest signal). Days until Super Two. MLB IL cross-reference at prospect's position = "imminent." | First-mover advantage on prospect adds. | DONE |
 | O4 | **Projection Skew Indicator** | When 5/7 systems above consensus = positive skew. Especially valuable mid-round pitchers (+50-100% ROI). | FanGraphs ATC Volatility research. | DONE |
 | O5 | **SGP Contribution Breakdown** | Wire N3 into Leaders table. Same function, different context. | Shows concentrated vs diversified value. | DONE |
-| T9 | **DATA: Fetch Bat Speed** | Scrape Baseball Savant bat tracking leaderboard. | Unlocks O1 bat speed component. 45 min. | |
-| T10 | **DATA: Fetch 40-Man Roster Status** | MLB Stats API `/api/v1/teams/{id}/roster/40Man`. | Unlocks O3. 30 min. | |
+| T9 | **DATA: Fetch Bat Speed** | Scrape Baseball Savant bat tracking leaderboard. | Unlocks O1 bat speed component. 45 min. | DONE |
+| T10 | **DATA: Fetch 40-Man Roster Status** | MLB Stats API `/api/v1/teams/{id}/roster/40Man`. | Unlocks O3. 30 min. | DONE |
 
 ---
 

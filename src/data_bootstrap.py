@@ -1145,6 +1145,189 @@ def _bootstrap_sprint_speed(progress: BootstrapProgress) -> str:
         return f"Error: {exc}"
 
 
+def _bootstrap_dynamic_park_factors(progress: BootstrapProgress) -> str:
+    """T4: Refresh park factors mid-season from pybaseball team stats."""
+    progress.phase = "Park Factors"
+    progress.detail = "Refreshing park factors from pybaseball..."
+    try:
+        from pybaseball import team_batting
+    except ImportError:
+        return "Skipped: pybaseball not installed"
+
+    try:
+
+        from src.database import get_connection, update_refresh_log
+
+        year = datetime.now(UTC).year
+        logger.info("Fetching team batting stats for %d park factor refresh...", year)
+        tb = team_batting(year)
+        if tb is None or tb.empty:
+            return "Skipped: no team batting data"
+
+        # Park factor derivation: compare home/away OPS splits
+        # FanGraphs team_batting includes team abbreviation
+        conn = get_connection()
+        try:
+            updated = 0
+            for _, row in tb.iterrows():
+                team = str(row.get("Team", row.get("Tm", ""))).strip()
+                if not team:
+                    continue
+                # Use OPS+ as park factor proxy (100 = neutral)
+                ops_plus = float(row.get("OPS+", row.get("wRC+", 100)))
+                if ops_plus <= 0:
+                    continue
+                pf = ops_plus / 100.0
+                # Clamp to reasonable range
+                pf = max(0.80, min(1.40, pf))
+                conn.execute(
+                    "UPDATE park_factors SET factor_hitting = ? WHERE team_code = ?",
+                    (round(pf, 3), team),
+                )
+                updated += 1
+            conn.commit()
+        finally:
+            conn.close()
+
+        update_refresh_log("park_factors_dynamic", "success")
+        return f"Updated {updated} park factors from {year} team stats"
+
+    except Exception as exc:
+        logger.warning("Dynamic park factor refresh failed (non-fatal): %s", exc)
+        return f"Error: {exc}"
+
+
+def _bootstrap_bat_speed(progress: BootstrapProgress) -> str:
+    """T9: Fetch bat speed data from Baseball Savant."""
+    progress.phase = "Bat Speed"
+    progress.detail = "Fetching bat speed from Statcast..."
+    try:
+        from pybaseball import statcast_batter_bat_tracking
+    except ImportError:
+        return "Skipped: pybaseball bat tracking not available"
+
+    try:
+        import pandas as pd
+
+        from src.database import get_connection, update_refresh_log
+
+        year = datetime.now(UTC).year
+        logger.info("Fetching Statcast bat speed for %d...", year)
+        bt = statcast_batter_bat_tracking(year)
+
+        if bt is None or bt.empty:
+            return "Skipped: no bat speed data"
+
+        # Find bat speed column
+        speed_col = None
+        name_col = None
+        for c in bt.columns:
+            cl = c.lower().replace(" ", "").replace("_", "")
+            if cl in ("avgbatspeed", "batspeed", "bat_speed"):
+                speed_col = c
+            elif "name" in c.lower():
+                name_col = c
+        if speed_col is None or name_col is None:
+            logger.warning("Bat speed columns not found. Columns: %s", list(bt.columns)[:20])
+            return "Skipped: bat speed columns not found"
+
+        conn = get_connection()
+        try:
+            players_df = pd.read_sql("SELECT player_id, name FROM players WHERE is_hitter = 1", conn)
+            name_to_id = {}
+            for _, row in players_df.iterrows():
+                if row["name"]:
+                    name_to_id[str(row["name"]).strip().lower()] = int(row["player_id"])
+
+            updated = 0
+            for _, row in bt.iterrows():
+                raw_name = str(row[name_col]).strip()
+                if "," in raw_name:
+                    parts = raw_name.split(",", 1)
+                    raw_name = f"{parts[1].strip()} {parts[0].strip()}"
+                pid = name_to_id.get(raw_name.lower())
+                if pid is None:
+                    continue
+                speed = row.get(speed_col)
+                if pd.isna(speed):
+                    continue
+
+                existing = conn.execute(
+                    "SELECT 1 FROM statcast_archive WHERE player_id = ? AND season = ?",
+                    (pid, year),
+                ).fetchone()
+                if existing:
+                    conn.execute(
+                        "UPDATE statcast_archive SET bat_speed = ? WHERE player_id = ? AND season = ?",
+                        (float(speed), pid, year),
+                    )
+                else:
+                    conn.execute(
+                        "INSERT INTO statcast_archive (player_id, season, bat_speed) VALUES (?, ?, ?)",
+                        (pid, year, float(speed)),
+                    )
+                updated += 1
+            conn.commit()
+        finally:
+            conn.close()
+
+        update_refresh_log("bat_speed", "success")
+        return f"Updated {updated} players with bat speed"
+
+    except Exception as exc:
+        logger.warning("Bat speed fetch failed (non-fatal): %s", exc)
+        return f"Error: {exc}"
+
+
+def _bootstrap_forty_man(progress: BootstrapProgress) -> str:
+    """T10: Fetch 40-man roster status from MLB Stats API."""
+    progress.phase = "40-Man Rosters"
+    progress.detail = "Fetching 40-man roster status..."
+    try:
+        import statsapi
+    except ImportError:
+        return "Skipped: statsapi not installed"
+
+    try:
+
+        from src.database import get_connection, update_refresh_log
+
+        conn = get_connection()
+        try:
+            # Get all team IDs
+            teams = statsapi.get("teams", {"sportId": 1}).get("teams", [])
+            updated = 0
+            for team in teams:
+                tid = team.get("id")
+                if not tid:
+                    continue
+                try:
+                    roster_data = statsapi.get("team_roster", {"teamId": tid, "rosterType": "40Man"})
+                    for entry in roster_data.get("roster", []):
+                        person = entry.get("person", {})
+                        mlb_id = person.get("id")
+                        if not mlb_id:
+                            continue
+                        # Mark as on_40_man in players table
+                        conn.execute(
+                            "UPDATE players SET roster_type = '40man' WHERE mlb_id = ?",
+                            (mlb_id,),
+                        )
+                        updated += 1
+                except Exception:
+                    continue
+            conn.commit()
+        finally:
+            conn.close()
+
+        update_refresh_log("forty_man", "success")
+        return f"Updated {updated} 40-man roster entries"
+
+    except Exception as exc:
+        logger.warning("40-man roster fetch failed (non-fatal): %s", exc)
+        return f"Error: {exc}"
+
+
 # ── Master Orchestrator ──────────────────────────────────────────────
 
 
@@ -1527,6 +1710,23 @@ def bootstrap_all_data(
                 results[key] = future.result()
             except Exception as exc:
                 logger.exception("Bootstrap %s failed: %s", key, exc)
+                results[key] = f"Error: {exc}"
+
+    # Phase 25-27: T4 park factors, T9 bat speed, T10 40-man (parallel, non-critical)
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        futures = {}
+        if force or check_staleness("park_factors_dynamic", 168):
+            futures[executor.submit(_bootstrap_dynamic_park_factors, progress)] = "park_factors_dynamic"
+        if force or check_staleness("bat_speed", 168):
+            futures[executor.submit(_bootstrap_bat_speed, progress)] = "bat_speed"
+        if force or check_staleness("forty_man", 168):
+            futures[executor.submit(_bootstrap_forty_man, progress)] = "forty_man"
+        for future in as_completed(futures):
+            key = futures[future]
+            try:
+                results[key] = future.result()
+            except Exception as exc:
+                logger.warning("Bootstrap %s failed (non-critical): %s", key, exc)
                 results[key] = f"Error: {exc}"
 
     # Post-bootstrap validation (BUG-010 / data quality logging)

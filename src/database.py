@@ -265,6 +265,7 @@ def init_db():
             babip REAL, iso REAL,
             hitter_k_pct REAL, hitter_bb_pct REAL,
             ld_pct REAL, hitter_fb_pct REAL, hitter_gb_pct REAL,
+            bat_speed REAL,
             updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(player_id, season)
         );
@@ -574,6 +575,7 @@ def init_db():
     _safe_add_column(conn, "statcast_archive", "ld_pct", "REAL")
     _safe_add_column(conn, "statcast_archive", "hitter_fb_pct", "REAL")
     _safe_add_column(conn, "statcast_archive", "hitter_gb_pct", "REAL")
+    _safe_add_column(conn, "statcast_archive", "bat_speed", "REAL")
 
     conn.close()
 
