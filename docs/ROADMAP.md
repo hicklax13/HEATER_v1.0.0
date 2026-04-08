@@ -131,3 +131,81 @@ Only items with genuine data support and measurable accuracy improvement are inc
 12. D7: Category-aware lineup RL (after 8+ weeks of data)
 
 **Remaining calibration items (B1-B5, B7, C1-C5):** As time allows, in numbered order.
+
+---
+
+## Data Signal & Intelligence Backlog
+
+Identified April 7, 2026 via deep web research across FanGraphs, Baseball Savant, academic papers,
+and industry analysis. These are NEW data signals and intelligence layers that HEATER does not
+currently use at all, backed by published research showing quantified accuracy improvements.
+
+### E — New Data Signals (Not Currently in HEATER)
+
+| # | Item | What It Is | Research Basis | Where It Helps | Data Source | Effort |
+|---|------|-----------|---------------|---------------|-------------|--------|
+| E1 | **BABIP Regression Targets** | Flag hitters whose BABIP is far from expected (based on line-drive rate, sprint speed, fly-ball rate). BABIP stabilizes at ~800 BIP but individual baselines vary by 30+ points. | FanGraphs Sabermetrics Library: hitters with high LD% and sprint speed sustain .320+ BABIP; fly-ball hitters sustain .270-.280. xBABIP models (contact quality + speed) predict future BABIP within 15 points. | Waiver Wire (buy low on unlucky hitters), Trade Finder (sell high on lucky hitters), Start/Sit (trust process over results for low-BABIP contact hitters) | pybaseball `batting_stats()` — LD%, FB%, sprint_speed from Statcast, BIP count from season_stats | Medium |
+| E2 | **Pitcher Stuff+ / Location+ / Pitching+** | FanGraphs' pitch-quality models that rate each pitch type on a 80-120 scale (100 = average). Stuff+ measures raw pitch movement/velocity, Location+ measures command, Pitching+ combines both. | FanGraphs research (2022-2025): Stuff+ correlates with future K% at r=0.72, stronger than current-year K% itself. Pitching+ is the single best predictor of pitcher future ERA. Already stored in `season_stats` schema (`stuff_plus`, `location_plus`, `pitching_plus` columns exist but are never populated). | Pitcher projections, Start/Sit (pitcher matchup quality), Streaming recommendations, Trade valuation for pitchers | pybaseball `pitching_stats(qual=0)` with `fangraphs` source — includes stuff_plus, location_plus, pitching_plus columns | Low — DB columns already exist, just need to populate in bootstrap |
+| E3 | **Umpire Strike Zone Adjustment** | Home plate umpires vary by ±0.3-0.5 runs per game. "Pitcher's umps" expand the zone (more K, fewer BB, fewer runs); "hitter's umps" squeeze it (more walks, more runs). | Sports Info Solutions 2024: Extra Strikes Per 150 Called Pitches metric. FantasyGuru publishes daily umpire reports with quantified K% and run environment deltas. SABR Umpire Analytics. | Start/Sit (pitcher vs hitter's ump = +5% K value), Matchup Planner (umpire-adjusted run environment), Daily Lineup Optimizer (DCV adjustment per game) | Free: retrosheet.org umpire assignments (historical). Paid: UmpScoreCards.com API or FantasyGuru umpire reports. Alternatively, scrape from Baseball Savant game feeds (umpire listed per game). | Medium — need umpire assignment data source + per-umpire tendency model |
+| E4 | **Pitcher Fatigue & Workload Model** | Track pitch count accumulation, days of rest, velocity trends, and innings workload to predict late-season decline. Pitchers on >100 IP by ASB with rising pitch counts show measurable K% decline and ERA increase. | PMC Research (2020): reduced time between appearances predicts UCL injury. FanGraphs Fatigue Units model (2023): workload-adjusted projections outperform static projections by 3-5% in second half. Velocity decline of 0.5+ mph correlates with 15%+ ERA increase within 3 starts. | Pitcher projections (second-half discount), Start/Sit (fade high-workload pitchers in August/September), Trade timing (sell pitchers approaching workload thresholds), IL prediction | MLB Stats API game logs (pitch counts per start), pybaseball Statcast (velocity per start), season_stats (cumulative IP), game_day.py (existing L7/L14/L30 framework) | Medium — data exists, need workload tracking + fatigue multiplier |
+| E5 | **Stolen Base Prediction Model** | Current SB projections are static preseason numbers. Modern analytics use sprint speed + baserunning opportunity rate + catcher pop time + pitcher slide step tendency to predict SB attempts and success rate. | Baseball Savant: sprint speed >29 ft/s = 80.3% SB success rate. Logistic regression on sprint speed + catcher pop time + pitcher handedness predicts SB outcomes with ~75% accuracy. FanGraphs: "How Sprint Speed Relates to Stolen Bases" — sprint speed explains 60% of SB variance. | SB projection accuracy (SB is the most volatile counting stat), Waiver Wire (identify speed upside not reflected in projections), Lineup Optimizer (game-level SB opportunity based on opposing catcher) | Statcast sprint speed leaderboard (pybaseball), Baseball Savant catcher pop times, pitcher pickoff/slide step data. Sprint speed already partially used in injury_model but NOT in SB projections. | Medium |
+| E6 | **Enhanced Weather Model** | Current weather adjustment is HR-only (Alan Nathan's +0.9%/degree above 72F). Research shows temperature also affects ball carry for all fly balls, wind direction/speed is the strongest weather variable, and humidity is negligible (lighter than dry air). | Home Run Forecast physics model: +0.33 feet per 1°F. Climate Central 2025: 500+ extra HRs since 2010 from warming alone. Research: wind blowing out >10mph increases HR rate by ~15-20%. K rate increases 7.5% in clear vs cloudy conditions. Humidity effect is near-zero (opposite of intuition). | Matchup Planner (wind-adjusted game ratings), DCV optimizer (wind + temp for all hitters, not just HR), Start/Sit (fade fly-ball pitchers in high-wind-out conditions), Streaming picks | Open-Meteo (already in bootstrap) — need to add wind direction relative to outfield orientation per stadium. `STADIUM_COORDS` already has lat/lon for 30 parks. Need outfield orientation angles (static, one-time data entry). | Medium — weather data exists, need wind direction model relative to park orientation |
+| E7 | **Pitcher-Batter Matchup History** | Direct pitcher-vs-batter historical stats (e.g., Trout is 8-for-15 lifetime vs Verlander). Small sample but stabilizes after ~60 PA. When combined with handedness and pitch-type splits, adds 2-4% prediction value over generic platoon adjustments. | FanGraphs Splits Library: PvB data has predictive value because "pitch repertoire creates systematic vulnerabilities" — a batter who struggles against high-spin curveballs does so because of a documented mechanical tendency, not random variation. Stabilizes at ~60 PA per matchup. BaseballHQ 2025: handedness splits are the most stable of all matchup drivers. | Start/Sit (specific PvB history for tiebreakers), Matchup Planner (player-level matchup quality vs specific opposing pitcher), Daily Optimizer (game-level PvB adjustment) | pybaseball `statcast_batter(pitcher_id)` or Baseball Savant PvB lookup. MLB Stats API also provides batter-vs-pitcher splits. | High — large data volume, need smart caching + minimum PA threshold |
+| E8 | **Punt Strategy Optimizer** | Current punt detection (category_gap_analysis) identifies WHAT to punt but doesn't optimize WHICH categories to punt or how many. In H2H, the optimal punt count depends on league structure and opponent distribution. | FantasyPros 2026 punt strategy research: "Punting one category gives an advantage in 11 others." FanGraphs: in 12-team H2H with 12 categories, optimally punting 1-2 categories and redistributing resources wins 7-5 or 8-4 more often than winning 6.5-5.5 across all 12. The key is punting categories that are CORRELATED (e.g., punt SV + L together since they're closer-related). | Trade strategy (trade away assets in punted categories for strength in contested ones), Draft strategy (skip closers entirely if punting SV), Lineup Optimizer (zero weight punted categories), Weekly matchup planning (identify when opponent is already winning your punted categories = free losses, focus resources on contested categories) | `league_standings` (category ranks), `category_gap_analysis()` (already exists), `CATEGORY_CORRELATIONS` in standings_engine.py | Medium — algorithm design, not data collection |
+| E9 | **Schedule-Aware Streaming Intelligence** | Current streaming candidates are scored by raw pitcher quality + park factor. Should also factor: number of games the user's team plays that day (off-day streams are more valuable), whether the stream spot can be used for a two-start pitcher later in the week, and opposing team's recent offensive form (L14 wRC+). | FanGraphs Starting Pitcher Chart methodology: matchup quality = f(pitcher quality, opposing lineup quality, park, weather). Fantasy Six Pack streaming algorithm: two-start pitchers with favorable both-start matchups are 2-3x more valuable than single-start streams. | Lineup Optimizer (Streaming tab), Free Agents page, Daily Optimizer (DCV already factors park but not opponent recent form or schedule slot optimization) | Weekly schedule (already in matchup_adjustments), team_strength (already in game_day.py and MatchupContextService), game_day_weather (already populated) | Low-Medium — data sources exist, need scheduling logic |
+| E10 | **Catcher Framing Value** | Elite pitch framers (e.g., Contreras, Raleigh) add 10-15 extra strikes per game, translating to measurable ERA/WHIP benefit for their team's pitchers. This affects pitcher projections when paired with different catchers. | Baseball Savant Catcher Framing leaderboard: top framers save 15+ runs per season. Research: pitcher ERA can differ by 0.20-0.40 depending on catcher framing ability. FanGraphs Shadow Zone data. | Pitcher projections (catcher-adjusted ERA), Start/Sit (pitcher with elite catcher gets ERA boost), Trade valuation (catcher framing value not captured by counting stats) | Baseball Savant catcher framing leaderboard (via pybaseball `statcast_running_value` or scrape), team rosters to identify starting catcher per game | Medium — need framing data + pitcher-catcher pairing logic |
+
+### Implementation Priority for New Signals
+
+**Highest value / lowest effort (do first):**
+1. E2: Stuff+/Location+/Pitching+ — DB columns already exist, just populate in bootstrap
+2. E9: Schedule-aware streaming — data sources already wired, need scheduling logic
+3. E1: BABIP regression targets — simple computation from existing stats
+
+**High value / medium effort:**
+4. E6: Enhanced weather model (wind direction relative to park)
+5. E4: Pitcher fatigue & workload model
+6. E5: Stolen base prediction model (sprint speed + catcher pop time)
+7. E8: Punt strategy optimizer
+
+**High value / high effort:**
+8. E3: Umpire strike zone adjustment (needs new data source)
+9. E7: Pitcher-batter matchup history (large data volume)
+10. E10: Catcher framing value (needs new data source)
+
+---
+
+## Complete Priority Matrix (All Backlogs Combined)
+
+**Tier 1 — Do Now (highest leverage, cascade everywhere):**
+1. A1: Dynamic SGP denominators
+2. A4: Remove self-referential ECR
+3. E2: Populate Stuff+/Location+/Pitching+ columns
+4. A2+D3: Weighted projection stacking
+
+**Tier 2 — Core ML Models:**
+5. D1: Statcast XGBoost regression model
+6. D2: Playing time prediction model
+7. A3: Bayesian SGP updating
+8. E1: BABIP regression targets
+
+**Tier 3 — Intelligence Layer Upgrades:**
+9. E9: Schedule-aware streaming
+10. E6: Enhanced weather (wind direction)
+11. E4: Pitcher fatigue & workload model
+12. E5: Stolen base prediction model
+13. D5: NLP news sentiment
+14. D4: Opponent behavior learning
+
+**Tier 4 — Validation & Strategy:**
+15. D6: Backtesting framework
+16. E8: Punt strategy optimizer
+17. B6+B8: Urgency k-calibration + trade finder weight validation
+
+**Tier 5 — Advanced / Experimental:**
+18. E3: Umpire strike zone adjustment
+19. E7: Pitcher-batter matchup history
+20. E10: Catcher framing value
+21. D7: Category-aware lineup RL
+
+**Remaining calibration items (B1-B5, B7, C1-C5):** As time allows, in numbered order.
