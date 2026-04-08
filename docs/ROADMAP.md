@@ -24,9 +24,30 @@
 
 ## Accuracy & Improvement Backlog — Organized by Page
 
-**71 total items** identified via algorithm audit, deep web research (FanGraphs, Baseball Savant,
-behavioral economics, game theory, MIT Sloan, American Meteorological Society, PMC), and
-sabermetric literature. Each item includes research basis, quantified impact, and data requirements.
+**71 total items** (62 unique after deduplication) identified via algorithm audit, deep web research
+(FanGraphs, Baseball Savant, behavioral economics, game theory, MIT Sloan, AMS, PMC), and
+sabermetric literature. Updated April 7, 2026 to reflect Line-up Optimizer V3 (f795ea8).
+
+### Status Key
+- (empty) = Not started
+- **PARTIAL** = Infrastructure exists, full wiring incomplete
+- **DONE** = Fully implemented
+- **DUPLICATE** = Merged with another item (see note)
+
+### Deduplication Notes
+- E4 (Pitcher Fatigue) + K2 (Pitcher Fatigue Multiplier) → merged as **K2** under Lineup Optimizer
+- E5 (SB Prediction) + K1 (SB Streaming) → merged as **K1** under Lineup Optimizer
+- H6 (Consistency Trade) + K3 (Consistency Lineup) → kept separate (different application contexts)
+- G4 (Stat Reliability) + J1 (Per-Stat Update) → kept separate (trade YTD modifier vs projection blend)
+- E8 (Punt Strategy) + H7 (Punt Advisor) + K4 (Punt Mode) → merged as **K4** under Lineup Optimizer (single feature, 3 consumers)
+- C1 (Drop Penalties) → **PARTIAL** via f795ea8 FA recommender 5-factor drop scoring
+
+### What f795ea8 (Line-up Optimizer V3) Completed
+- ✅ Shared data layer loads confirmed lineups, weather, recent form, opposing pitcher, AVIS constraints
+- ✅ Category correlation dampening in weight computation
+- ✅ FA recommender with 5-factor drop scoring and AVIS hard constraints
+- ✅ Recent form 25% blend in DCV daily decisions
+- ✅ Unified scope router (Today/This Week/Rest of Season)
 
 Legend: Items that affect ALL pages are listed under "Global / Core Engine" first.
 
@@ -90,7 +111,7 @@ These cascade through all 53 engines. Highest leverage.
 | H4 | **SB Independence Premium** | Increase from 1.08x to 1.12-1.15x (R²=0.0002 with RBI). | SB contributors undervalued. |
 | H5 | **Trade Timing Multiplier** | Weeks 1-4 = ±5% YTD clamp, weeks 5-8 = ±10%, weeks 9+ = ±15%. 1.1x bonus weeks 4-10. | Prevents chasing April hot streaks. |
 | H6 | **Consistency/Variance Modifier** | Weekly CV from game logs. CV<0.30 = +5-8% SGP, CV>0.50 = -5-8%. | H2H dimension invisible today. |
-| H7 | **Proactive Punt Advisor** | `recommend_punt_targets()` by mean pairwise correlation. SB (r=0.12) and W (R²=0.03) safest. | Transforms Trade Finder from reactive to strategic. |
+| H7 | **Proactive Punt Advisor** — see K4 | Same engine as K4, surfaced in Trade Readiness tab. Implement K4 first, then wire into Trade Finder. | Transforms Trade Finder from reactive to strategic. |
 | H8 | **Closer Stability Discount** | `sv_adjusted = sv_proj * (confidence / 100)`. Wire closer_monitor into trade valuation. | Prevents overvaluing shaky closers. |
 | H9 | **Prospect Call-Up Valuation** | `value = P(call_up) * ROS_SGP * (weeks_avail / weeks_rem) - ROSTER_SPOT_SGP`. | Better than binary stash/zero. |
 | B8 | **Validate Trade Finder Weights** | Backtest: top-ranked trades vs actual improvement by week 24. | Optimize for improvement, not acceptance. |
@@ -108,7 +129,7 @@ These cascade through all 53 engines. Highest leverage.
 | I2 | **Swing-Category Weighting** | Maximize P(win) for 30-70% categories in LP objective. De-emphasize locked/lost categories. | +0.5-1 category wins/week. |
 | I3 | **Ratio Protection Calculator** | `marginal_era_risk = (proj_ER * 9) / (banked_IP + proj_IP) - current_ERA`. Bench if risk > lead. | Protects ratio categories. |
 | I4 | **Category Flip Probability** | `flip_prob = f(margin, daily_stdev, games_remaining)`. Target flippable losses on final day. | Critical for close matchups. |
-| I5 | **Batting Order Slot PA Adjustment** | PA rates: 4.65 leadoff, 3.77 9th. Wire confirmed lineups into daily projections. | +5-10% daily accuracy. |
+| I5 | **Batting Order Slot PA Adjustment** — PARTIAL | `LINEUP_SLOT_PA` dict + confirmed lineups loaded (f795ea8). Wire PA rates into DCV counting stats. | +5-10% daily accuracy. |
 | I6 | **IP Management Mode** | "Chase K/W", "Protect Ratios", "Balanced" toggle. Auto-recommend from urgency state. | Prevents ratio destruction. |
 
 #### Projection & Signal (J1-J6)
@@ -116,8 +137,8 @@ These cascade through all 53 engines. Highest leverage.
 | # | Item | Fix | Impact |
 |---|------|-----|--------|
 | J2 | **Platoon Split Bayesian Regression** | `adjusted = (PA/stab) * individual + (1-PA/stab) * league_avg`. LHB stab=1000, RHB stab=2200. | Eliminates noise from raw individual splits. |
-| J3 | **Opposing Pitcher Quality Scalar** | `mult = 1.0 + 0.15 * (league_xFIP - opp_xFIP) / std_xFIP`. Calibrate to ±15%. | Better Start/Sit and streaming decisions. |
-| J4 | **Comprehensive Weather Model** | Rain >40%: BB ×1.10, K ×0.90. Wind out >10 mph: HR ×1.15-1.20. Full temp scalar. | Rain K/BB effects currently ignored. |
+| J3 | **Opposing Pitcher Quality Scalar** — PARTIAL | Pitcher quality multiplier wired (f795ea8). Calibration to ±15% unverified. | Verify calibration against research magnitudes. |
+| J4 | **Comprehensive Weather Model** — PARTIAL | Temp→HR works (f795ea8). Add rain→K/BB and wind direction→HR. | Rain K/BB effects currently ignored. |
 | J5 | **Catcher Framing Pitcher Adjustment** | `era_adj = -0.01 * framing_runs`, `k9_adj = 0.025 * framing_runs`. | ±0.25 ERA per start for elite/poor framers. |
 | B6 | **Category Urgency k-Calibration** | Backtest k=1.0 to 5.0, measure category wins. | Current k=2/3 may be off. |
 | C2 | **Dual Objective Alpha Validation** | Tie alpha to playoff probability, not just time remaining. | Affects strategy, not individual decisions. |
@@ -132,7 +153,7 @@ These cascade through all 53 engines. Highest leverage.
 | K3 | **Consistency Premium** | `penalty = k * weekly_CV`. k=0.05-0.10. Penalize volatile, reward consistent. | H2H-specific dimension. |
 | K4 | **Punt Mode Optimizer** | User selects 0-2 categories to punt → weight 0.0 in LP. | Strategy-aware optimization. |
 | K5 | **Streaming Composite Score** | `K_proj * (1/opp_wOBA) * park * form_L3 * whip_safety`. Career WHIP >1.40 = avoid. | Better streaming picks. |
-| K6 | **Dynamic Volume from Confirmed Lineups** | Leadoff volume=4.65/4.3, 9th=3.77/4.3. Not in lineup=0.0 (not 0.3). | More accurate DCV. |
+| K6 | **Dynamic Volume from Confirmed Lineups** — PARTIAL | Confirmed lineups loaded (f795ea8). Wire slot PA rates into volume_factor. | More accurate DCV. |
 
 ---
 
@@ -151,9 +172,9 @@ These cascade through all 53 engines. Highest leverage.
 
 | # | Item | Fix | Impact |
 |---|------|-----|--------|
-| C1 | **Waiver Wire Drop Penalties** | DH penalty scales with Util slots. AVG threshold = league-average AVG (not hardcoded 0.245). | Edge-case drop decisions. |
+| C1 | **Waiver Wire Drop Penalties** — PARTIAL | FA recommender 5-factor drop scoring added (f795ea8). DH/Util/AVG thresholds still hardcoded. | Derive from league context dynamically. |
 | E9 | **Schedule-Aware Streaming** | Off-day streams more valuable. Two-start pitcher detection. Opponent L14 wRC+ for quality. | Data sources already wired. |
-| E5 | **Stolen Base Prediction** | Sprint speed + catcher pop time + pitcher handedness. 75% accuracy. | SB is most volatile counting stat. |
+| E5 | **Stolen Base Prediction** — DUPLICATE of K1 | See K1 under Lineup Optimizer. | — |
 | D7 | **Category-Aware Lineup RL** | Contextual bandit learning from weekly decisions + outcomes. Needs 8+ weeks of data. | Experimental. |
 
 ---
@@ -163,7 +184,7 @@ These cascade through all 53 engines. Highest leverage.
 | # | Item | Fix | Impact |
 |---|------|-----|--------|
 | B7 | **Power Rankings Momentum Weight** | Increase momentum from 10% to 20%. Reduce roster quality from 40% to 30%. | Better reflects hot-streak value in H2H. |
-| E8 | **Punt Strategy Optimizer** | Optimal punt selection by category isolation (mean pairwise correlation). SB + W safest punt combo. | Strategic standings intelligence. |
+| E8 | **Punt Strategy Optimizer** — DUPLICATE of K4 | See K4 under Lineup Optimizer. Also feeds H7 in Trade Finder. | — |
 
 ---
 
@@ -171,7 +192,7 @@ These cascade through all 53 engines. Highest leverage.
 
 | # | Item | Fix | Impact |
 |---|------|-----|--------|
-| E4 | **Pitcher Fatigue & Workload Model** | Velocity trend + pitch count accumulation + ACWR. Predict late-season decline. | Closer role instability prediction. |
+| E4 | **Pitcher Fatigue & Workload Model** — DUPLICATE of K2 | See K2 under Lineup Optimizer. | — |
 
 ---
 
