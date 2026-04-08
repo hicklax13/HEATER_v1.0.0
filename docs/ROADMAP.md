@@ -55,6 +55,12 @@ Cascade through all 53 engines and all 13 pages. Highest leverage.
 | D6 | **Backtesting Framework** | Replay past weeks, score engine recommendations vs actual outcomes. | Meta: validates ALL other changes. Without this, every weight is a guess. | Medium-High | |
 | J1 | **Per-Stat In-Season Update Rates** | `STABILIZATION_POINTS` dict exists in `bayesian.py:38`. Verify trade YTD modifier (G4) also uses per-stat thresholds. | Projection blend already uses per-stat rates. Trade YTD modifier may not. | Low | PARTIAL |
 | J6 | **Projection Uncertainty Bands** | Use empirical SDs (ERA=1.20, WHIP=0.20, AVG=0.025) for P10/P50/P90. | Prevents over-optimizing on noise. | Low | |
+| V1 | **UNIFY: Category Weights** | 4 divergent methods (urgency sigmoid, gap analysis, H2H PDF, simple median). Same roster gets contradictory priorities on different pages. Create `MatchupContextService.get_category_weights(mode)` with 3 modes: "matchup" (H2H urgency), "standings" (gap analysis), "blended" (alpha-weighted). All pages consume from ONE source. | **CRITICAL** — pages currently give contradictory advice for same roster. | Medium | |
+| V2 | **UNIFY: SGP Computation** | 5 divergent paths. `_totals_sgp()` in trade_finder treats AVG like HR (no volume adjustment) — mathematically wrong. Remove `_totals_sgp()` and `_weighted_totals_sgp()`. Replace with `SGPCalculator.player_sgp()` which properly volume-weights rate stats. | **CRITICAL** — Trade Finder By Value tab inflates value of low-PA players. | Medium | |
+| V3 | **UNIFY: Roster Totals** | 3 implementations (My Team, in_season, League Standings) with different defaults (AVG=0.250 vs 0.0) and formats (string vs float). Create `standings_utils.get_team_totals()` with session cache. | Inconsistent defaults across pages. | Low | |
+| V4 | **UNIFY: Opponent Intelligence** | My Team + Free Agents import `opponent_intel.py` directly (no cache). Trade Analyzer uses `opponent_trade_analysis.py` independently. Only Matchup Planner uses `MatchupContextService`. All should use MCS. | Different opponent profiles on different pages. | Low | |
+| V5 | **UNIFY: FA Pool Access** | 4 loading paths (Yahoo API, local function, enriched pool filter, DB query). FA pool loaded differently on Free Agents page vs Optimizer. Create single `get_fa_pool()` in session cache. | Different FA lists on different pages. | Low | |
+| V6 | **UNIFY: Stat Display Formatting** | AVG shown as `.2f` in some variance displays (wrong, should be `.3f`). SGP sign inconsistent (`+.2f` vs `.2f`). Create `format_stat(value, stat_type)` in `ui_shared.py`. Enforce: AVG/OBP=`.3f`, ERA/WHIP=`.2f`, SGP=`+.2f`. | Formatting inconsistencies confuse users. | Trivial | |
 
 ---
 
@@ -259,12 +265,14 @@ Head-to-head z-score comparison, radar chart, health/confidence.
 ## Implementation Priority
 
 **Tier 1 — Cascade everywhere (do first):**
-1. A1: Dynamic SGP denominators (PARTIAL — wire existing function)
-2. U1: Rate-stat baselines from league data (pairs with A1)
-3. A4: Remove self-referential ECR
-4. E2+T1: Fetch & populate Stuff+/Location+/Pitching+ (trivial)
-5. A2+D3: Weighted projection stacking
-6. D6: Backtesting framework (validates everything else)
+1. V1: UNIFY category weights (CRITICAL — pages give contradictory advice)
+2. V2: UNIFY SGP computation (CRITICAL — trade_finder rate stats mathematically wrong)
+3. A1: Dynamic SGP denominators (PARTIAL — wire existing function)
+4. U1: Rate-stat baselines from league data (pairs with A1)
+5. A4: Remove self-referential ECR
+6. E2+T1: Fetch & populate Stuff+/Location+/Pitching+ (trivial)
+7. A2+D3: Weighted projection stacking
+8. D6: Backtesting framework (validates everything else)
 
 **Tier 2 — Biggest page-specific wins:**
 7. I1+I4: Mid-week pivot + category flip (Lineup Optimizer)
