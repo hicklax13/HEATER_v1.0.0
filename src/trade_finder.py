@@ -1124,18 +1124,28 @@ def scan_1_for_1(
                 ecr_ratio = min(give_ecr, recv_ecr) / max(give_ecr, recv_ecr, 1)
                 ecr_fairness = ecr_ratio**0.5  # sqrt softens extreme gaps
 
-            # YTD performance modifier: slight bonus for hot players, slight
-            # penalty for cold players. Capped at +/- 10% to avoid chasing streaks.
+            # H5: YTD performance modifier with trade timing clamp.
+            # Weeks 1-4: ±5% (too early, mostly noise).
+            # Weeks 5-8: ±10% (standard).
+            # Weeks 9+: ±15% (enough data to trust divergence).
+            # Bonus 1.1x multiplier during prime trade window (weeks 4-10).
             ytd_modifier = 1.0
             recv_ytd = ytd_stats.get(recv_id, {})
             if recv_ytd.get("pa", 0) >= 10:
-                # Compare YTD AVG to projected AVG
                 proj_avg = float(recv_player.iloc[0].get("avg", 0.260) or 0.260)
                 ytd_avg = recv_ytd.get("avg", proj_avg)
                 if proj_avg > 0:
                     perf_ratio = ytd_avg / proj_avg
-                    # Clamp to [0.90, 1.10] — max 10% adjustment
-                    ytd_modifier = max(0.90, min(1.10, perf_ratio))
+                    # H5: Dynamic clamp by season phase
+                    _season_start = datetime(datetime.now(UTC).year, 3, 25, tzinfo=UTC)
+                    _weeks_elapsed = max(1, (datetime.now(UTC) - _season_start).days // 7)
+                    if _weeks_elapsed <= 4:
+                        _clamp = 0.05  # ±5%
+                    elif _weeks_elapsed <= 8:
+                        _clamp = 0.10  # ±10%
+                    else:
+                        _clamp = 0.15  # ±15%
+                    ytd_modifier = max(1.0 - _clamp, min(1.0 + _clamp, perf_ratio))
 
             # Scale YTD modifier by stat reliability — different stats stabilize
             # at different sample sizes (K% ~60 PA, HR ~170 PA, AVG ~910 PA).
@@ -1256,6 +1266,23 @@ def scan_1_for_1(
             if str(give_row.get("velo_regression_flag", "")) == "SELL_HIGH":
                 regression_bonus += 0.02
             composite += regression_bonus
+
+            # H6: Consistency/variance modifier for H2H.
+            # In weekly H2H, consistent players are more valuable than volatile ones.
+            # Use xwOBA delta and BABIP delta as volatility proxies:
+            # large |delta| = outcomes diverge from expected = higher variance.
+            # Receiving consistent player = bonus. Receiving volatile = penalty.
+            _H6_K = 0.05  # Weight of consistency adjustment
+            recv_xwoba_d = abs(float(recv_row.get("xwoba_delta", 0) or 0))
+            recv_babip_d = abs(float(recv_row.get("babip_delta", 0) or 0))
+            give_xwoba_d = abs(float(give_row.get("xwoba_delta", 0) or 0))
+            give_babip_d = abs(float(give_row.get("babip_delta", 0) or 0))
+            # Normalize: xwOBA delta ~0.030 = 1 SD, BABIP ~0.030 = 1 SD
+            recv_vol = (recv_xwoba_d / 0.030 + recv_babip_d / 0.030) / 2.0
+            give_vol = (give_xwoba_d / 0.030 + give_babip_d / 0.030) / 2.0
+            # Positive = receiving less volatile player (good for H2H)
+            consistency_adj = _H6_K * (give_vol - recv_vol)
+            composite += max(-0.05, min(0.05, consistency_adj))
 
             trade_result: dict = {
                 "giving_ids": [give_id],

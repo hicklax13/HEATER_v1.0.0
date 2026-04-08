@@ -59,7 +59,7 @@ PITCHING_RATE_CLUSTER = {"ERA", "WHIP"}
 # Discount = reduce SGP credit because the categories move together
 # Premium = increase SGP credit because the category is independent
 POWER_CLUSTER_DISCOUNT = 0.83  # 17% discount
-SB_INDEPENDENCE_PREMIUM = 1.08  # 8% premium
+SB_INDEPENDENCE_PREMIUM = 1.15  # H4: 15% premium (R²=0.0002 with RBI — nearly independent)
 CONTACT_CLUSTER_DISCOUNT = 0.90  # 10% discount
 PITCHING_RATE_DISCOUNT = 0.88  # 12% discount
 

@@ -104,9 +104,9 @@ Daily dashboard: War Room, alerts, roster overview, Monday briefing.
 | H1 | **Differential Time Decay** | Counting stats × `weeks_rem / total_weeks`. Rate stats stay 1.0 with confidence penalty <8 weeks. | More accurate ROS valuation. | DONE |
 | H2 | **Dynamic Roster Spot Value** | `ROSTER_SPOT_SGP = median_fa_sgp * 0.8`, recomputed weekly from FA pool. | Fixes 2-for-1 valuation. | DONE |
 | H3 | **Graduated Positional Scarcity** | C=1.20x, 2B=1.15x, SS=1.10x, 3B=1.05x, OF/1B=1.00x. | More accurate than flat 1.15x. | DONE |
-| H4 | **SB Independence Premium** | Increase from 1.08x to 1.12-1.15x. | SB contributors undervalued (R²=0.0002 with RBI). | |
-| H5 | **Trade Timing Multiplier** | Weeks 1-4 = ±5% YTD clamp, weeks 5-8 = ±10%, weeks 9+ = ±15%. 1.1x bonus weeks 4-10. | Prevents chasing April hot streaks. | |
-| H6 | **Consistency/Variance Modifier** | Weekly CV from game logs. CV<0.30 = +5-8% SGP, CV>0.50 = -5-8%. | H2H dimension invisible today. | |
+| H4 | **SB Independence Premium** | Increase from 1.08x to 1.12-1.15x. | SB contributors undervalued (R²=0.0002 with RBI). | DONE |
+| H5 | **Trade Timing Multiplier** | Weeks 1-4 = ±5% YTD clamp, weeks 5-8 = ±10%, weeks 9+ = ±15%. 1.1x bonus weeks 4-10. | Prevents chasing April hot streaks. | DONE |
+| H6 | **Consistency/Variance Modifier** | Weekly CV from game logs. CV<0.30 = +5-8% SGP, CV>0.50 = -5-8%. | H2H dimension invisible today. | DONE |
 | H7 | **Proactive Punt Advisor** | Same engine as K4. Surface in Trade Readiness: "Punt SB to gain +1.5 in HR/R/RBI." | Transforms Trade Finder from reactive to strategic. | DONE |
 | H8 | **Closer Stability Discount** | `sv_adjusted = sv_proj * (confidence / 100)`. Wire closer_monitor into trade valuation. | Prevents overvaluing shaky closers. | DONE |
 | H9 | **Prospect Call-Up Valuation** | `value = P(call_up) * ROS_SGP * (weeks_avail / weeks_rem) - ROSTER_SPOT_SGP`. | Better than binary stash/zero. | |
