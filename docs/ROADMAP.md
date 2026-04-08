@@ -26,7 +26,7 @@
 ## Improvement Backlog — By Page
 
 **115 unique item rows** after deduplication and audit.
-**72 DONE, 2 PARTIAL, 41 remaining** as of April 8, 2026.
+**76 DONE, 2 PARTIAL, 37 remaining** as of April 8, 2026.
 Organized strictly by the page each task improves. Items that affect all pages
 are under "Global / Core Engine." Status: (empty)=not started, PARTIAL=infrastructure
 exists, DONE=implemented, CUT=removed after audit, MERGED=combined with another item.
@@ -80,7 +80,7 @@ Daily dashboard: War Room, alerts, roster overview, Monday briefing.
 | U3 | **War Room Flippable Thresholds from Weekly SDs** | Replace hardcoded `_COUNTING_THRESHOLD=3` for all stats. Use `threshold[cat] = 1.5 * weekly_sd[cat]`. HR has different variance than R. | Prevents false flip alerts for stable categories, catches real flips in volatile ones. | |
 | E3 | **Umpire Strike Zone Adjustment** | Per-umpire K%/BB%/run environment. ±0.3-0.5 runs/game. | | |
 | T7 | **DATA: Fetch Umpire Assignments** | Scrape Baseball Savant game feed JSON + Retrosheet historical. Build per-umpire tendency table. | Unlocks E3. 1-2 hours. | |
-| S4 | **CONSOLIDATE: Merge Alerts + War Room** | My Team shows same injuries in both "News & Alerts" and "War Room." Merge into single surface. | Cleaner page, single source of truth. | |
+| S4 | **CONSOLIDATE: Merge Alerts + War Room** | My Team shows same injuries in both "News & Alerts" and "War Room." Merge into single surface. | Cleaner page, single source of truth. | DONE |
 
 ---
 
@@ -110,7 +110,7 @@ Daily dashboard: War Room, alerts, roster overview, Monday briefing.
 | H6 | **Consistency/Variance Modifier** | Weekly CV from game logs. CV<0.30 = +5-8% SGP, CV>0.50 = -5-8%. | H2H dimension invisible today. | DONE |
 | H7 | **Proactive Punt Advisor** | Same engine as K4. Surface in Trade Readiness: "Punt SB to gain +1.5 in HR/R/RBI." | Transforms Trade Finder from reactive to strategic. | DONE |
 | H8 | **Closer Stability Discount** | `sv_adjusted = sv_proj * (confidence / 100)`. Wire closer_monitor into trade valuation. | Prevents overvaluing shaky closers. | DONE |
-| H9 | **Prospect Call-Up Valuation** | `value = P(call_up) * ROS_SGP * (weeks_avail / weeks_rem) - ROSTER_SPOT_SGP`. | Better than binary stash/zero. | |
+| H9 | **Prospect Call-Up Valuation** | `value = P(call_up) * ROS_SGP * (weeks_avail / weeks_rem) - ROSTER_SPOT_SGP`. | Better than binary stash/zero. | DONE |
 | U2 | **LP-Constrained Totals in By Value Tab** | `scan_1_for_1()` uses raw roster totals counting bench. Wire LP-constrained 18-starter totals. | By Value currently overcounts bench production. | DONE |
 | B8 | **Validate Trade Finder Weights** | Backtest top-ranked trades vs actual improvement by week 24. | Requires D6 backtesting framework. | DONE |
 | S1 | **CONSOLIDATE: Merge Smart Recs + By Value Tabs** | Same data, different sort. Single tab with sort/filter toggles. | Reduces user confusion. | DONE |
@@ -193,7 +193,7 @@ Daily dashboard: War Room, alerts, roster overview, Monday briefing.
 | L4 | **Opener Detection Flag** | Reliever pitches 1st inning >30% of appearances = "Opener" not "Closer." | Growing bullpen trend. | DONE |
 | T5 | **DATA: Fetch gmLI per Reliever** | `pybaseball.pitching_stats()` includes gmLI. | Unlocks L1, L3. 30 min. | DONE |
 | T6 | **DATA: Fetch Reliever Appearance Inning** | MLB Stats API game logs: inning of entry per appearance. | Unlocks L4. 30 min. | DONE |
-| S3 | **CONSOLIDATE: Streaming Tab** | Lineup Optimizer Streaming tab duplicates Free Agents pitcher rankings. Convert to quick-view or remove. | Prevents different rankings in two places. | |
+| S3 | **CONSOLIDATE: Streaming Tab** | Lineup Optimizer Streaming tab duplicates Free Agents pitcher rankings. Convert to quick-view or remove. | Prevents different rankings in two places. | DONE |
 
 ---
 
@@ -219,7 +219,7 @@ Daily dashboard: War Room, alerts, roster overview, Monday briefing.
 | O1 | **Statcast Breakout Score** | Composite: EV50 (30%), barrel rate YoY (25%), xwOBA-wOBA (20%), bat speed (15%), launch angle (10%). Pitchers: SwStr% (30%), Stuff+ (25%), SIERA-ERA (25%), K-BB% (20%). >70th pctl = "Breakout." | Strongest buy-low signal. | DONE |
 | O2 | **Prospect Fantasy Relevance Score** | Adjust FV by: ETA proximity, position scarcity in YOUR league, path to playing time, historical FV hit rate (55 FV = 67% regular). | Bridges scouting to fantasy timelines. | |
 | O3 | **40-Man + Service Time Call-Up Alerts** | 40-man flag (highest signal). Days until Super Two. MLB IL cross-reference at prospect's position = "imminent." | First-mover advantage on prospect adds. | DONE |
-| O4 | **Projection Skew Indicator** | When 5/7 systems above consensus = positive skew. Especially valuable mid-round pitchers (+50-100% ROI). | FanGraphs ATC Volatility research. | |
+| O4 | **Projection Skew Indicator** | When 5/7 systems above consensus = positive skew. Especially valuable mid-round pitchers (+50-100% ROI). | FanGraphs ATC Volatility research. | DONE |
 | O5 | **SGP Contribution Breakdown** | Wire N3 into Leaders table. Same function, different context. | Shows concentrated vs diversified value. | DONE |
 | T9 | **DATA: Fetch Bat Speed** | Scrape Baseball Savant bat tracking leaderboard. | Unlocks O1 bat speed component. 45 min. | |
 | T10 | **DATA: Fetch 40-Man Roster Status** | MLB Stats API `/api/v1/teams/{id}/roster/40Man`. | Unlocks O3. 30 min. | |

@@ -448,3 +448,70 @@ def compute_breakout_scores_batch(pool: pd.DataFrame, config=None) -> pd.DataFra
         scores.append(compute_breakout_score(row, pool=pool, config=config))
     result["breakout_score"] = scores
     return result
+
+
+def compute_projection_skew(player_pool: pd.DataFrame) -> pd.DataFrame:
+    """O4: Detect projection system agreement/disagreement.
+
+    When 5+ of 7 systems project above the consensus (blended) average,
+    that's positive skew — the player is likely undervalued. Especially
+    valuable for mid-round pitchers (+50-100% ROI per FanGraphs research).
+
+    Returns pool copy with ``projection_skew`` column:
+    - "Positive" when 5+ systems above consensus
+    - "Negative" when 5+ systems below consensus
+    - "" when balanced or insufficient data
+
+    Also adds ``skew_ratio`` (float): fraction of systems above consensus (0-1).
+    """
+    result = player_pool.copy()
+    result["projection_skew"] = ""
+    result["skew_ratio"] = 0.5
+
+    try:
+        from src.database import get_connection
+
+        conn = get_connection()
+        try:
+            # Load per-system projections for all players
+            systems_df = pd.read_sql_query(
+                """
+                SELECT player_id, system,
+                    COALESCE(hr, 0) + COALESCE(rbi, 0) + COALESCE(r, 0) + COALESCE(sb, 0) AS counting_sum,
+                    COALESCE(avg, 0) AS avg_proj
+                FROM projections
+                WHERE system != 'blended'
+                """,
+                conn,
+            )
+        finally:
+            conn.close()
+
+        if systems_df.empty:
+            return result
+
+        # Get per-player blended (consensus) counting sum
+        blended = systems_df.groupby("player_id")["counting_sum"].mean().to_dict()
+
+        # Count systems above/below consensus per player
+        skew_data = {}
+        for pid, grp in systems_df.groupby("player_id"):
+            consensus = blended.get(pid, 0)
+            if consensus <= 0:
+                continue
+            n_systems = len(grp)
+            if n_systems < 3:
+                continue
+            above = (grp["counting_sum"] > consensus).sum()
+            ratio = above / n_systems
+            skew_data[pid] = ratio
+
+        result["skew_ratio"] = result["player_id"].map(skew_data).fillna(0.5)
+        # 5/7 = 0.714 → positive skew. 2/7 = 0.286 → negative skew.
+        result.loc[result["skew_ratio"] >= 0.70, "projection_skew"] = "Positive"
+        result.loc[result["skew_ratio"] <= 0.30, "projection_skew"] = "Negative"
+
+    except Exception:
+        pass
+
+    return result

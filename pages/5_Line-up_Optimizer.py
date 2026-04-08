@@ -2420,10 +2420,11 @@ with main:
     # ================================================================
 
     with tab_streaming:
+        # S3: Consolidated streaming view — quick summary here, full rankings on Free Agents page
         st.markdown(
             f'<p style="font-size:12px;font-weight:700;letter-spacing:1px;'
             f"color:{T['tx2']};text-transform:uppercase;"
-            f'margin:0 0 6px;">Pitcher Streaming Candidates</p>',
+            f'margin:0 0 6px;">Streaming Quick View</p>',
             unsafe_allow_html=True,
         )
 
@@ -2431,28 +2432,19 @@ with main:
         streaming = result.get("streaming_suggestions") if result else None
 
         if streaming:
+            # Show top 5 only (compact view)
             stream_data = []
-            for s in streaming:
+            for s in streaming[:5]:
                 stream_data.append(
                     {
                         "Pitcher": s.get("player_name", "Unknown"),
                         "Team": s.get("team", ""),
-                        "Net Value (Standings Gained Points)": f"{s.get('net_value', 0):.2f}",
-                        "Counting Standings Gained Points": f"{s.get('counting_sgp', 0):.2f}",
-                        "Rate Impact": f"{s.get('rate_damage', 0):.2f}",
+                        "Net Value": f"{s.get('net_value', 0):+.2f}",
                         "Games": s.get("n_games", 0),
                     }
                 )
             render_styled_table(pd.DataFrame(stream_data))
-            st.caption(
-                "Net Value = Counting stat Standings Gained Points gains minus ERA/WHIP "
-                "rate damage. Pick up pitchers with positive net value for streaming starts."
-            )
-        else:
-            st.info(
-                "Run optimization in Full mode to see streaming recommendations. "
-                "Requires free agent data from Yahoo sync."
-            )
+        st.info("Full streaming rankings with schedule-aware scoring available on the **Free Agents** page.")
 
         # Two-start SP detection
         st.divider()

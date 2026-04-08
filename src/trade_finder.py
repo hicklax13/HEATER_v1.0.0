@@ -990,11 +990,31 @@ def scan_1_for_1(
         give_raw_sgp = user_raw_sgps.get(give_id, 0.0)
 
         for recv_id in opponent_roster_ids:
-            # Filter NA/minors players
+            # Filter NA players. H9: Minors players get discounted valuation
+            # instead of auto-exclusion — prospects with call-up signals retain value.
+            _prospect_discount = 1.0
             if roster_statuses:
                 recv_status = str(roster_statuses.get(recv_id, "active")).lower()
-                if recv_status in ("na", "not active", "minors"):
+                if recv_status in ("na", "not active"):
                     continue
+                if recv_status == "minors":
+                    # H9: Prospect call-up valuation — P(call_up) * discount
+                    try:
+                        from src.prospect_engine import compute_call_up_signals
+
+                        _p_row = player_pool[player_pool["player_id"] == recv_id]
+                        if not _p_row.empty:
+                            _signals = compute_call_up_signals(_p_row.iloc[0].to_dict())
+                            _score = _signals.get("call_up_score", 0)
+                            if _score >= 50:
+                                # Scale: 50 score → 0.3x value, 100 score → 0.8x value
+                                _prospect_discount = 0.3 + (_score - 50) * 0.01
+                            else:
+                                continue  # Low call-up probability — skip
+                        else:
+                            continue
+                    except Exception:
+                        continue  # Can't evaluate — skip
 
             recv_player = player_pool[player_pool["player_id"] == recv_id]
             if recv_player.empty:
@@ -1059,6 +1079,10 @@ def scan_1_for_1(
             new_user_totals = _roster_category_totals(new_user_ids, player_pool)
             user_new_sgp = _weighted_totals_sgp(new_user_totals, config, capped_weights)
             user_delta = user_new_sgp - user_baseline
+
+            # H9: Apply prospect discount if receiving a minors player
+            if _prospect_discount < 1.0:
+                user_delta *= _prospect_discount
 
             # Apply closer scarcity premium if receiving a closer
             recv_sv = float(recv_player.iloc[0].get("sv", 0) or 0)
