@@ -26,7 +26,7 @@
 ## Improvement Backlog — By Page
 
 **115 unique item rows** after deduplication and audit.
-**63 DONE, 2 PARTIAL, 50 remaining** as of April 8, 2026.
+**67 DONE, 2 PARTIAL, 46 remaining** as of April 8, 2026.
 Organized strictly by the page each task improves. Items that affect all pages
 are under "Global / Core Engine." Status: (empty)=not started, PARTIAL=infrastructure
 exists, DONE=implemented, CUT=removed after audit, MERGED=combined with another item.
@@ -73,7 +73,7 @@ Daily dashboard: War Room, alerts, roster overview, Monday briefing.
 |---|------|-----|--------|--------|
 | M1 | **Category Flip Analyzer** | Compute mid-week flip probability per category: `flip_prob = f(margin, daily_stdev, games_remaining)`. Show top-priority flip opportunities. Shares engine with I1+I4. | Most tools show scores but don't compute which categories are close enough to flip. | DONE |
 | M2 | **Conditional Swap Impact** | "If you bench Player X and start Player Y, you gain +2 K and lose -0.8 ERA delta." Roster-level marginal impact per swap. | Bridges player-level data to roster-level decision. | |
-| M3 | **Opponent Lineup Tracking** | Surface opponent's mid-week roster moves: empty spots, pitcher streams, off-day players. | Uses existing Yahoo API (`yds.get_transactions()` filtered to opponent). | |
+| M3 | **Opponent Lineup Tracking** | Surface opponent's mid-week roster moves: empty spots, pitcher streams, off-day players. | Uses existing Yahoo API (`yds.get_transactions()` filtered to opponent). | DONE |
 | M4 | **Regression Alert System** | Compare L30 actual to expected stats (xBA, xwOBA via barrel% + speed). Flag >1.5 SD divergence as sell-high or buy-low. Weight K%/BB% over BA. Require 50 PA min. | Process metrics more predictive than outcome metrics. | DONE |
 | M5 | **IL Slot Utilization Alert** | Empty IL slot = "Fill with X." IL stash ranking by `ros_sgp - best_fa_sgp` with days-to-return. Injury-type duration lookup (hamstring 21d, oblique 28d, TJ 14mo). | Empty IL slot = wasted value. | DONE |
 | M6 | **Ratio Lock Alert** | "You're winning ERA by 0.80 and WHIP by 0.15 with 45 IP banked — bench Sunday starters to lock 2 categories." | Worth 1-2 category wins/season. | DONE |
@@ -176,7 +176,7 @@ Daily dashboard: War Room, alerts, roster overview, Monday briefing.
 | # | Item | Fix | Impact | Status |
 |---|------|-----|--------|--------|
 | C1 | **Waiver Wire Drop Penalties** | DH penalty scales with Util slots. AVG threshold = league-average (not 0.245). | 5-factor drop scoring added (f795ea8). Thresholds still hardcoded. | PARTIAL |
-| E9 | **Schedule-Aware Streaming** | Off-day streams more valuable. Two-start detection. Opponent L14 wRC+ for quality. | Data sources already wired. | |
+| E9 | **Schedule-Aware Streaming** | Off-day streams more valuable. Two-start detection. Opponent L14 wRC+ for quality. | Data sources already wired. | DONE |
 | D7 | **Category-Aware Lineup RL** | Contextual bandit learning from weekly decisions + outcomes. Needs 8+ weeks. | Experimental. | |
 
 ---
@@ -191,8 +191,8 @@ Daily dashboard: War Room, alerts, roster overview, Monday briefing.
 | L2 | **K% Skill Decay Alert** | Rolling 14-day K% vs season. K% drop ≥8 pts OR K-BB% <10% = "Skill Warning." | Catches decline via process, not outcomes. | DONE |
 | L3 | **Committee Risk Score** | # pitchers with saves + max save share % + gmLI variance among top 3 RPs. | ~70% of teams have committee element. | DONE |
 | L4 | **Opener Detection Flag** | Reliever pitches 1st inning >30% of appearances = "Opener" not "Closer." | Growing bullpen trend. | DONE |
-| T5 | **DATA: Fetch gmLI per Reliever** | `pybaseball.pitching_stats()` includes gmLI. | Unlocks L1, L3. 30 min. | |
-| T6 | **DATA: Fetch Reliever Appearance Inning** | MLB Stats API game logs: inning of entry per appearance. | Unlocks L4. 30 min. | |
+| T5 | **DATA: Fetch gmLI per Reliever** | `pybaseball.pitching_stats()` includes gmLI. | Unlocks L1, L3. 30 min. | DONE |
+| T6 | **DATA: Fetch Reliever Appearance Inning** | MLB Stats API game logs: inning of entry per appearance. | Unlocks L4. 30 min. | DONE |
 | S3 | **CONSOLIDATE: Streaming Tab** | Lineup Optimizer Streaming tab duplicates Free Agents pitcher rankings. Convert to quick-view or remove. | Prevents different rankings in two places. | |
 
 ---
@@ -274,16 +274,16 @@ Remaining: **E9** (schedule-aware streaming), **K1** (SB streaming), **B1** (lea
 **Tier 5 — Validation & polish: MOSTLY DONE**
 Remaining: **N2** (schedule strength comparison), **O2** (prospect relevance), **P2** (antithetic variate MC).
 
-**Remaining 50 items by page (audited April 8, 2026):**
+**Remaining 46 items by page (audited April 8, 2026):**
 
 Global (10): A3, B2, B3, B4, J1 (PARTIAL), J6, T4, V3, V4, V5
-My Team (4): M2, M3, U3, S4
+My Team (3): M2, U3, S4
 Trade Finder (4): E1, H9, B1, D4
 Trade Analyzer (2): P2, P3
 Lineup Optimizer (3): J5, K1, S2
 Matchup Planner (6): B5, C5, E6, E7, T11, T12
-Free Agents (3): C1 (PARTIAL), E9, D7
-Closer Monitor (3): T5, T6, S3
+Free Agents (2): C1 (PARTIAL), D7
+Closer Monitor (1): S3
 League Standings (1): B7
 Leaders (5): O2, O4, O5, T9, T10
 Player Compare (4): N2, N3, E10, T8

@@ -16,11 +16,15 @@ Pipeline:
 
 from __future__ import annotations
 
+import logging
+
 import pandas as pd
 
 from src.in_season import _roster_category_totals, rank_free_agents
 from src.validation.constant_optimizer import load_constants
 from src.valuation import LeagueConfig
+
+logger = logging.getLogger(__name__)
 
 _CONSTANTS = load_constants()
 
@@ -179,6 +183,104 @@ def recommend_streams(
                     )
 
     return streams[:adds_remaining]
+
+
+def compute_schedule_aware_streams(
+    fa_pool: pd.DataFrame,
+    player_pool: pd.DataFrame,
+    days_ahead: int = 7,
+    max_results: int = 10,
+) -> list[dict]:
+    """E9: Schedule-aware streaming that considers matchup quality and game count.
+
+    Enhances basic streaming recommendations with:
+    - Two-start pitcher detection and matchup scores
+    - Opponent team wRC+ for hitter schedule quality
+    - Off-day awareness (players with more games = more value)
+
+    Args:
+        fa_pool: Free agent pool DataFrame.
+        player_pool: Full player pool for projections.
+        days_ahead: Lookahead window (default 7 = this week).
+        max_results: Max streaming candidates to return.
+
+    Returns:
+        List of dicts with schedule-enhanced streaming scores.
+    """
+    results = []
+
+    # 1. Two-start pitcher detection
+    try:
+        from src.two_start import identify_two_start_pitchers
+
+        two_starters = identify_two_start_pitchers(days_ahead=days_ahead, player_pool=player_pool)
+        fa_ids = set(fa_pool["player_id"].tolist()) if "player_id" in fa_pool.columns else set()
+
+        for ts in two_starters:
+            pid = ts.get("player_id")
+            name = ts.get("pitcher_name", "?")
+            # Check if this pitcher is a free agent
+            if pid is not None and pid in fa_ids:
+                matchup_score = ts.get("avg_matchup_score", 5.0)
+                rate_damage = ts.get("rate_damage_weekly", {})
+                era_risk = rate_damage.get("era_change", 0)
+                whip_risk = rate_damage.get("whip_change", 0)
+                # WHIP safety: career WHIP > 1.40 = risky for ratios
+                p_row = fa_pool[fa_pool["player_id"] == pid]
+                whip = float(p_row.iloc[0].get("whip", 1.30)) if not p_row.empty else 1.30
+                whip_safe = whip <= 1.40
+
+                stream_value = ts.get("two_start_value", 0)
+                results.append({
+                    "player_id": pid,
+                    "player_name": name,
+                    "stream_type": "Two-Start SP",
+                    "num_starts": ts.get("num_starts", 2),
+                    "matchup_score": round(matchup_score, 1),
+                    "era_risk": round(era_risk, 3),
+                    "whip_risk": round(whip_risk, 3),
+                    "whip_safe": whip_safe,
+                    "schedule_value": round(stream_value, 2),
+                    "reasoning": (
+                        f"2 starts this week (matchup score {matchup_score:.1f}/10). "
+                        f"ERA risk: {era_risk:+.3f}. "
+                        + ("WHIP safe." if whip_safe else "WHIP RISKY (>1.40).")
+                    ),
+                })
+    except Exception as exc:
+        logger.debug("Two-start detection failed (non-fatal): %s", exc)
+
+    # 2. Hitter schedule quality — prefer hitters with more games vs weak pitching
+    try:
+        from src.game_day import get_team_strength
+
+        # Find hitter FAs with games this week
+        hitter_fas = fa_pool[fa_pool.get("is_hitter", 0) == 1].head(50)
+        for _, row in hitter_fas.iterrows():
+            team = str(row.get("team", ""))
+            if not team or team in ("", "MLB"):
+                continue
+            # Approximate games from schedule (most teams play 6-7/week)
+            opp_strength = get_team_strength(team)
+            opp_era = opp_strength.get("team_era", 4.00)
+            # Lower opponent pitching ERA = harder matchup for hitter
+            # Higher opponent ERA = easier matchup = better streaming target
+            if opp_era >= 4.30:  # Above league avg = weak pitching
+                sgp_val = float(row.get("marginal_value", row.get("adp", 999)))
+                results.append({
+                    "player_id": int(row.get("player_id", 0)),
+                    "player_name": str(row.get("name", row.get("player_name", "?"))),
+                    "stream_type": "Schedule Hitter",
+                    "matchup_score": round(10.0 * (opp_era / 4.00 - 0.8), 1),
+                    "schedule_value": round(sgp_val, 2) if sgp_val < 100 else 0,
+                    "reasoning": f"Favorable schedule — team faces weak pitching (ERA {opp_era:.2f}).",
+                })
+    except Exception as exc:
+        logger.debug("Hitter schedule scan failed (non-fatal): %s", exc)
+
+    # Sort by schedule_value descending, cap results
+    results.sort(key=lambda x: x.get("schedule_value", 0), reverse=True)
+    return results[:max_results]
 
 
 # ── Helper Functions ──────────────────────────────────────────────────

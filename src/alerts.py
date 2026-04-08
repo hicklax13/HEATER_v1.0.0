@@ -302,6 +302,66 @@ def generate_roster_alerts(
     return alerts
 
 
+def generate_opponent_move_alerts(
+    transactions: pd.DataFrame,
+    opponent_team_name: str,
+    days_back: int = 7,
+) -> list[dict]:
+    """M3: Track opponent's recent roster moves (adds, drops, trades).
+
+    Surfaces mid-week streaming adds, pitcher pickups, and trades that
+    could change the opponent's strategy for this week's matchup.
+
+    Args:
+        transactions: All league transactions (from yds.get_transactions()).
+        opponent_team_name: Current week's opponent team name.
+        days_back: How many days back to look (default 7).
+
+    Returns:
+        List of alert dicts with opponent move details.
+    """
+    alerts = []
+    if transactions.empty or not opponent_team_name:
+        return alerts
+
+    opp_lower = opponent_team_name.strip().lower()
+    cutoff = (datetime.now(UTC) - timedelta(days=days_back)).isoformat()
+
+    for _, tx in transactions.iterrows():
+        team_to = str(tx.get("team_to", "")).strip().lower()
+        team_from = str(tx.get("team_from", "")).strip().lower()
+        ts = str(tx.get("timestamp", ""))
+        player = str(tx.get("player_name", "Unknown"))
+        tx_type = str(tx.get("type", ""))
+
+        # Filter to opponent's moves within time window
+        if ts < cutoff:
+            continue
+        if team_to != opp_lower and team_from != opp_lower:
+            continue
+
+        if team_to == opp_lower and tx_type in ("add", "trade"):
+            alerts.append({
+                "type": "opponent_add",
+                "severity": "info",
+                "title": f"OPP ADD: {player}",
+                "message": f"{opponent_team_name} added {player} ({tx_type}). Check if this targets your weak categories.",
+                "action": "Review their streaming strategy and adjust.",
+                "timestamp": ts,
+            })
+        elif team_from == opp_lower and tx_type in ("drop", "trade"):
+            alerts.append({
+                "type": "opponent_drop",
+                "severity": "info",
+                "title": f"OPP DROP: {player}",
+                "message": f"{opponent_team_name} dropped {player}. Potential waiver target if valuable.",
+                "action": f"Check if {player} is worth claiming.",
+                "timestamp": ts,
+            })
+
+    return alerts
+
+
 def _get_il_return_dates(roster: pd.DataFrame) -> dict:
     """Fetch ESPN injury return dates for rostered players.
 

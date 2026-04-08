@@ -758,7 +758,7 @@ def _bootstrap_stuff_plus(progress: BootstrapProgress) -> str:
             logger.warning("pybaseball pitching_stats returned empty data")
             return "Skipped: no data returned"
 
-        # Identify the Stuff+/Location+/Pitching+ columns
+        # Identify the Stuff+/Location+/Pitching+ and gmLI columns
         # FanGraphs uses "Stuff+" or "stuff_plus" depending on pybaseball version
         col_map = {}
         for col in fg_df.columns:
@@ -769,14 +769,17 @@ def _bootstrap_stuff_plus(progress: BootstrapProgress) -> str:
                 col_map[col] = "location_plus"
             elif cl in ("pitching+", "pitchingplus"):
                 col_map[col] = "pitching_plus"
+            # T5: gmLI (game-log leverage index) for closer monitor
+            elif cl in ("gmli", "gmli", "leverageindex", "gmleverageindex"):
+                col_map[col] = "gmli"
 
         if not col_map:
             logger.warning(
-                "No Stuff+/Location+/Pitching+ columns found in FanGraphs data. "
+                "No Stuff+/Location+/Pitching+/gmLI columns found in FanGraphs data. "
                 "Columns: %s",
                 list(fg_df.columns)[:30],
             )
-            return "Skipped: Stuff+ columns not in FanGraphs data"
+            return "Skipped: target columns not in FanGraphs data"
 
         logger.info("Found FanGraphs columns: %s", col_map)
 
@@ -797,7 +800,7 @@ def _bootstrap_stuff_plus(progress: BootstrapProgress) -> str:
                     name_to_id[str(row["name"]).strip().lower()] = int(row["player_id"])
 
             updated = 0
-            found_cols = [c for c in ("stuff_plus", "location_plus", "pitching_plus") if c in fg_df.columns]
+            found_cols = [c for c in ("stuff_plus", "location_plus", "pitching_plus", "gmli") if c in fg_df.columns]
 
             # FanGraphs "Name" column contains the pitcher name
             name_col = "Name" if "Name" in fg_df.columns else None

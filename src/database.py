@@ -525,11 +525,12 @@ def init_db():
     _safe_add_column(conn, "players", "contract_details", "TEXT")
     _safe_add_column(conn, "players", "spring_training_stats", "TEXT")
 
-    # Gap closure: Statcast Stuff+/Location+/Pitching+
+    # Gap closure: Statcast Stuff+/Location+/Pitching+ + T5: gmLI
     for table in ("projections", "season_stats", "ros_projections"):
         _safe_add_column(conn, table, "stuff_plus", "REAL")
         _safe_add_column(conn, table, "location_plus", "REAL")
         _safe_add_column(conn, table, "pitching_plus", "REAL")
+    _safe_add_column(conn, "season_stats", "gmli", "REAL")
 
     # Gap 6: Persist computed fields on players table
     _safe_add_column(conn, "players", "depth_chart_role", "TEXT")
