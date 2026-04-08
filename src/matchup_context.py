@@ -372,6 +372,145 @@ class MatchupContextService:
         self._set_cached(cache_key, result, TTL_URGENCY)
         return result
 
+    # ── Unified Category Weights ─────────────────────────────────────
+
+    def get_category_weights(
+        self,
+        mode: str = "blended",
+        alpha: float = 0.6,
+    ) -> dict[str, float]:
+        """Unified category weights across all subsystems.
+
+        Provides 3 modes so every page uses the same weight source:
+
+        - ``"matchup"``: H2H urgency-based (high weight for categories
+          you're losing in the current matchup).
+        - ``"standings"``: Gap-analysis-based (high weight for categories
+          where you can gain standings positions).
+        - ``"blended"`` (default): ``alpha * matchup + (1 - alpha) * standings``,
+          normalized so the mean weight equals 1.0.
+
+        Args:
+            mode: One of ``"matchup"``, ``"standings"``, or ``"blended"``.
+            alpha: Blend ratio (only used for ``"blended"``). 0.6 means
+                60 % matchup, 40 % standings.
+
+        Returns:
+            Dict mapping each of the 12 scoring categories to a
+            non-negative float weight. Mean is ~1.0 for blended mode.
+        """
+        cache_key = f"cat_weights_{mode}_{alpha}"
+        cached = self._get_cached(cache_key)
+        if cached is not None:
+            return cached
+
+        from src.valuation import LeagueConfig
+
+        config = LeagueConfig()
+        all_cats = config.all_categories
+        equal = {cat: 1.0 for cat in all_cats}
+
+        # ── Matchup weights ──────────────────────────────────────────
+        matchup_weights: dict[str, float] | None = None
+        try:
+            urgency_data = self.get_category_urgency()
+            urgency_map = urgency_data.get("urgency", {})
+            if urgency_map:
+                matchup_weights = {
+                    cat: 0.5 + float(urgency_map.get(cat, 0.5))
+                    for cat in all_cats
+                }
+        except Exception as exc:
+            logger.debug("matchup weights failed: %s", exc)
+
+        # ── Standings weights ────────────────────────────────────────
+        standings_weights: dict[str, float] | None = None
+        try:
+            from src.yahoo_data_service import get_yahoo_data_service
+
+            yds = get_yahoo_data_service()
+            standings_df = yds.get_standings()
+            if standings_df is not None and not standings_df.empty:
+                # Build all_team_totals dict from standings
+                all_team_totals: dict[str, dict[str, float]] = {}
+                user_team_name: str | None = None
+                if "category" in standings_df.columns:
+                    standings_df["total"] = pd.to_numeric(
+                        standings_df["total"], errors="coerce"
+                    ).fillna(0)
+                    wide = standings_df.pivot_table(
+                        index="team_name",
+                        columns="category",
+                        values="total",
+                        aggfunc="first",
+                    ).reset_index()
+                    for _, row in wide.iterrows():
+                        team = str(row.get("team_name", ""))
+                        if team:
+                            totals = {}
+                            for cat in all_cats:
+                                totals[cat] = float(
+                                    pd.to_numeric(row.get(cat, 0), errors="coerce") or 0
+                                )
+                            all_team_totals[team] = totals
+
+                # Determine user team name
+                try:
+                    user_team_name = yds._user_team_name  # type: ignore[attr-defined]
+                except AttributeError:
+                    pass
+                if not user_team_name:
+                    # Fallback: try session_state
+                    try:
+                        import streamlit as st
+
+                        user_team_name = st.session_state.get("team_name")
+                    except Exception:
+                        pass
+
+                if user_team_name and all_team_totals:
+                    from src.trade_intelligence import (
+                        get_category_weights as _ti_get_weights,
+                    )
+
+                    standings_weights = _ti_get_weights(
+                        user_team_name, all_team_totals, config
+                    )
+        except Exception as exc:
+            logger.debug("standings weights failed: %s", exc)
+
+        # ── Assemble result ──────────────────────────────────────────
+        if mode == "matchup":
+            result = matchup_weights if matchup_weights else equal
+        elif mode == "standings":
+            result = standings_weights if standings_weights else equal
+        else:
+            # blended (default)
+            if matchup_weights and standings_weights:
+                raw: dict[str, float] = {}
+                for cat in all_cats:
+                    mw = matchup_weights.get(cat, 1.0)
+                    sw = standings_weights.get(cat, 1.0)
+                    raw[cat] = alpha * mw + (1.0 - alpha) * sw
+                # Normalize to mean = 1.0
+                mean_val = sum(raw.values()) / max(len(raw), 1)
+                if mean_val > 1e-9:
+                    result = {c: v / mean_val for c, v in raw.items()}
+                else:
+                    result = equal
+            elif matchup_weights:
+                result = matchup_weights
+            elif standings_weights:
+                result = standings_weights
+            else:
+                result = equal
+
+        # Ensure non-negative
+        result = {c: max(0.0, v) for c, v in result.items()}
+
+        self._set_cached(cache_key, result, TTL_URGENCY)
+        return result
+
     # ── Data Freshness ───────────────────────────────────────────────
 
     def get_data_freshness(self) -> dict[str, str]:

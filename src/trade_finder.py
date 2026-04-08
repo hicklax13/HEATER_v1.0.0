@@ -19,7 +19,7 @@ import pandas as pd
 
 from src.alerts import IL_STASH_NAMES
 from src.in_season import _roster_category_totals
-from src.valuation import LeagueConfig
+from src.valuation import LeagueConfig, SGPCalculator
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +30,53 @@ MAX_OPP_LOSS = -0.5  # Reject trades where opponent loses more than this (e.g., 
 LOSS_AVERSION = 1.8  # was 1.5 -- meta-analysis consensus (Brown 2024, Walasek 2024)
 ACCEPTANCE_FLOOR = 0.15  # Trades below 15% acceptance filtered out entirely
 MAX_EFFICIENCY_RATIO = 5.0  # Cap SGP gain ratio to prevent "trade your worst for their best"
+
+
+def _player_sgp_volume_aware(
+    pid: int,
+    player_pool: pd.DataFrame,
+    config: LeagueConfig,
+    sgp_calc: SGPCalculator | None = None,
+) -> float:
+    """Compute SGP for a single player with proper volume weighting for rate stats.
+
+    Use this instead of ``_totals_sgp(_roster_category_totals([pid], pool), config)``
+    for individual players. The latter ignores AB/IP volume, inflating the SGP of
+    low-PA players (a 200 PA .300 hitter gets the same AVG SGP as a 600 PA .300 hitter).
+
+    ``SGPCalculator.total_sgp()`` properly handles rate stats by computing marginal
+    impact relative to a team baseline with volume weighting.
+    """
+    p = player_pool[player_pool["player_id"] == pid]
+    if p.empty:
+        return 0.0
+    if sgp_calc is None:
+        sgp_calc = SGPCalculator(config)
+    try:
+        return sgp_calc.total_sgp(p.iloc[0])
+    except Exception:
+        return 0.0
+
+
+# ── Volume-Aware Individual Player SGP ──────────────────────────────
+
+
+def _player_sgp_volume_aware(player_id: int, player_pool: pd.DataFrame, config: LeagueConfig) -> float:
+    """Compute volume-aware SGP for a single player using SGPCalculator.
+
+    Unlike _totals_sgp() which treats rate stats as raw values (appropriate for
+    full-roster aggregates), this function properly accounts for volume: a 600 AB
+    .300 hitter gets more AVG SGP than a 200 AB .300 hitter because the former
+    moves team AVG 3x more.
+
+    Use this for individual player valuations (elite protection, efficiency cap,
+    drop cost). Use _totals_sgp() only for full-roster category totals.
+    """
+    p = player_pool[player_pool["player_id"] == player_id]
+    if p.empty:
+        return 0.0
+    sgp_calc = SGPCalculator(config)
+    return sgp_calc.total_sgp(p.iloc[0])
 
 
 # ── Team Vector & Cosine Similarity ───────────────────────────────────
@@ -395,18 +442,12 @@ def _compute_drop_cost(
     # Combine current roster + incoming to find the full post-trade roster
     all_ids = set(roster_ids) | set(incoming_ids)
 
-    # Quick SGP per player
+    # Volume-aware SGP per player (accounts for AB/IP in rate stats)
     sgps: dict[int, float] = {}
     for pid in all_ids:
-        p = player_pool[player_pool["player_id"] == pid]
-        if not p.empty:
-            total = 0.0
-            for cat in config.all_categories:
-                val = float(p.iloc[0].get(cat.lower(), 0) or 0)
-                denom = config.sgp_denominators.get(cat, 1.0)
-                if abs(denom) > 1e-9:
-                    total += val / denom if cat not in config.inverse_stats else -val / denom
-            sgps[pid] = total
+        sgp_val = _player_sgp_volume_aware(pid, player_pool, config)
+        if sgp_val != 0.0 or not player_pool[player_pool["player_id"] == pid].empty:
+            sgps[pid] = sgp_val
 
     if not sgps:
         return 0.0, None
@@ -675,7 +716,7 @@ def scan_1_for_1(
     for pid in user_roster_ids:
         p = player_pool[player_pool["player_id"] == pid]
         if not p.empty:
-            user_raw_sgps[pid] = _totals_sgp(_roster_category_totals([pid], player_pool), config)
+            user_raw_sgps[pid] = _player_sgp_volume_aware(pid, player_pool, config)
     if user_raw_sgps:
         elite_threshold = float(np.percentile(list(user_raw_sgps.values()), ELITE_PERCENTILE))
     else:
@@ -766,7 +807,7 @@ def scan_1_for_1(
             # --- Elite player protection ---
             # If giving away a top-20% player, the return must be at least 75% as good
             if give_raw_sgp >= elite_threshold:
-                recv_raw_sgp = _totals_sgp(_roster_category_totals([recv_id], player_pool), config)
+                recv_raw_sgp = _player_sgp_volume_aware(recv_id, player_pool, config)
                 if recv_raw_sgp < give_raw_sgp * ELITE_RETURN_FLOOR:
                     continue  # Don't trade elite players for scrubs
 
@@ -895,7 +936,7 @@ def scan_1_for_1(
 
             # Efficiency cap: reject "trade your worst for their best" nonsense
             # Use floor of 0.1 SGP so negative-value bench players can't acquire stars
-            recv_raw_sgp_check = _totals_sgp(_roster_category_totals([recv_id], player_pool), config)
+            recv_raw_sgp_check = _player_sgp_volume_aware(recv_id, player_pool, config)
             if recv_raw_sgp_check > 0:
                 effective_give = max(give_raw_sgp, 0.1)
                 eff_ratio = recv_raw_sgp_check / effective_give
@@ -1006,7 +1047,17 @@ def _weighted_totals_sgp(
 
 
 def _totals_sgp(totals: dict, config: LeagueConfig) -> float:
-    """Convert roster category totals to total SGP."""
+    """Convert roster category totals to total SGP.
+
+    WARNING: This function should ONLY be used on full-roster aggregated totals
+    (from _roster_category_totals() with a full team). For rate stats (AVG, OBP,
+    ERA, WHIP), it divides the raw rate value by the SGP denominator, which is
+    correct when the rate is already the volume-weighted team average.
+
+    For INDIVIDUAL player SGP, use _player_sgp_volume_aware() instead, which
+    properly accounts for volume (AB/IP) via SGPCalculator.total_sgp(). A 600 AB
+    .300 hitter moves team AVG 3x more than a 200 AB .300 hitter.
+    """
     total = 0.0
     for cat in config.all_categories:
         denom = config.sgp_denominators.get(cat, 1.0)
@@ -1188,8 +1239,14 @@ def find_trade_opportunities(
             # Add scarcity flags
             player_pool = apply_scarcity_flags(player_pool)
 
-            # Category weights from gap analysis
-            category_weights = get_category_weights(user_team_name, all_team_totals, config, weeks_remaining)
+            # Category weights — prefer unified service, fall back to direct call
+            try:
+                from src.matchup_context import get_matchup_context
+
+                _mctx = get_matchup_context()
+                category_weights = _mctx.get_category_weights(mode="standings")
+            except Exception:
+                category_weights = get_category_weights(user_team_name, all_team_totals, config, weeks_remaining)
 
             # Compute user category profile for strategic fit scoring
             user_category_profile = _compute_user_category_profile(
