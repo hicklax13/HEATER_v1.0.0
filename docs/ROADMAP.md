@@ -25,7 +25,8 @@
 
 ## Improvement Backlog — By Page
 
-**97 unique actionable items** after deduplication and audit (April 8, 2026).
+**115 unique item rows** after deduplication and audit.
+**63 DONE, 2 PARTIAL, 50 remaining** as of April 8, 2026.
 Organized strictly by the page each task improves. Items that affect all pages
 are under "Global / Core Engine." Status: (empty)=not started, PARTIAL=infrastructure
 exists, DONE=implemented, CUT=removed after audit, MERGED=combined with another item.
@@ -96,8 +97,8 @@ Daily dashboard: War Room, alerts, roster overview, Monday briefing.
 | B1 | **League-Specific Acceptance Calibration** | Empirical acceptance rates from Yahoo transactions. | League-calibrated, not generic. Prerequisite for D4. | |
 | D4 | **Opponent Behavior Learning** | Per-opponent logistic regression on trade history. Requires B1 first. | ~10-20% acceptance improvement. | |
 | G1 | **xwOBA-wOBA Regression Flags** | Gap ≥0.030 = BUY_LOW, ≤-0.030 = SELL_HIGH. +0.05 composite bonus. | Single most actionable regression signal. | DONE |
-| G2 | **Stuff+/botERA Pitcher Regression** | `stuff_delta = botERA - actual_ERA`. ≤-0.50 = BUY_LOW, ≥+0.50 = SELL_HIGH. | Requires E2+T1 data. | | DONE |
-| G3 | **BABIP Regression Scoring** | `(career_BABIP - current) / 0.020`, capped ±2.0. | Best early-season signal (weeks 3-8). E1 supersedes once implemented. | | DONE |
+| G2 | **Stuff+/botERA Pitcher Regression** | `stuff_delta = botERA - actual_ERA`. ≤-0.50 = BUY_LOW, ≥+0.50 = SELL_HIGH. | Requires E2+T1 data. | DONE |
+| G3 | **BABIP Regression Scoring** | `(career_BABIP - current) / 0.020`, capped ±2.0. | Best early-season signal (weeks 3-8). E1 supersedes once implemented. | DONE |
 | G4 | **Stat Reliability Weighting** | `reliability = min(1.0, PA / threshold[stat])`. Trust K% at 60 PA ≠ AVG at 60 PA. | Uses same stabilization table as J1 but applied to trade YTD modifier. | DONE |
 | G5 | **Velocity Trend Signal** | 1.0 mph decline ≈ 0.5-0.8 ERA increase. `velo_delta = current - prior`. | Early warning before ERA shows it. | DONE |
 | E1 | **BABIP Regression Targets** | xBABIP from contact quality + sprint speed. Predict future BABIP within 15 points. | Forward-looking model. Supersedes G3 heuristic. | |
@@ -264,29 +265,27 @@ Head-to-head z-score comparison, radar chart, health/confidence.
 
 ## Implementation Priority
 
-**Tier 1 — Cascade everywhere: ~~ALL DONE~~**
-~~V1, V2, A1, U1, A4, E2+T1, A2+D3, D6~~ — completed in Phases 1-2.
-
-**Tier 2 — Biggest page-specific wins: ~~ALL DONE~~**
-~~I1+I4, G1, M1, O1, D1, D2, I2, L1, U2~~ — completed in Phases 2-3.
-
-**Tier 3 — Accuracy refinements: ~~ALL DONE~~**
-~~G4, F5, I3, J2, J3, J4, P1, R1, R2, L2, M4~~ — completed in Phase 3.
-Remaining: **A3** (Bayesian SGP updating).
+**Tiers 1-3: ALL DONE** (Phases 1-3 + session commits)
+All cascade, page-specific, and accuracy items complete except **A3** (Bayesian SGP updating).
 
 **Tier 4 — Strategic features: MOSTLY DONE**
-~~K4, H7, H8, I5+K6, N1, O3, M6, P4~~ — completed in Phase 4.
-Remaining: **E9** (schedule-aware streaming), **K1** (SB streaming), **E5** (SB prediction), **B1** (league-specific calibration), **D4** (opponent behavior learning), **Q1, Q2** (draft simulator AI).
+Remaining: **E9** (schedule-aware streaming), **K1** (SB streaming), **B1** (league-specific acceptance calibration), **D4** (opponent behavior learning), **Q1, Q2** (draft simulator AI).
 
 **Tier 5 — Validation & polish: MOSTLY DONE**
-~~B6, B8, I6, K2, L3~~ — completed in Phase 5.
-Remaining: **M5** (IL slot utilization), **N2** (schedule strength comparison), **O2** (prospect relevance), **P2** (antithetic variate MC).
+Remaining: **N2** (schedule strength comparison), **O2** (prospect relevance), **P2** (antithetic variate MC).
 
-**Next priorities (by impact):**
-1. T2: Fetch detailed batting stats → unlocks G3, E1, O1 components (Trivial)
-2. T3: Fetch sprint speed → unlocks K1, E5 (Trivial)
-3. G3: BABIP regression scoring — best early-season signal weeks 3-8 (Low)
-4. G2: Stuff+/botERA pitcher regression — data already fetched (Low)
-5. V3-V5: Remaining unification (roster totals, opponent intel, FA pool)
-6. F2+F3+F4: Behavioral acceptance model (draft anchoring, disposition, recency)
-7. A3: Bayesian SGP updating (prevents stale denominators mid-season)
+**Remaining 50 items by page (audited April 8, 2026):**
+
+Global (10): A3, B2, B3, B4, J1 (PARTIAL), J6, T4, V3, V4, V5
+My Team (4): M2, M3, U3, S4
+Trade Finder (4): E1, H9, B1, D4
+Trade Analyzer (2): P2, P3
+Lineup Optimizer (3): J5, K1, S2
+Matchup Planner (6): B5, C5, E6, E7, T11, T12
+Free Agents (3): C1 (PARTIAL), E9, D7
+Closer Monitor (3): T5, T6, S3
+League Standings (1): B7
+Leaders (5): O2, O4, O5, T9, T10
+Player Compare (4): N2, N3, E10, T8
+Draft Simulator (4): Q1, Q2, Q3, Q4
+Cross-page (1): S6
