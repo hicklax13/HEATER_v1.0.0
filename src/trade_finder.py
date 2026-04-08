@@ -965,6 +965,16 @@ def scan_1_for_1(
                 + 0.15 * opp_need_match
             )
 
+            # Regression bonus: reward trades that exploit xwOBA regression signals
+            regression_bonus = 0.0
+            recv_flag = str(recv_player.iloc[0].get("regression_flag", ""))
+            give_flag = str(give_player.iloc[0].get("regression_flag", ""))
+            if recv_flag == "BUY_LOW":
+                regression_bonus += 0.03
+            if give_flag == "SELL_HIGH":
+                regression_bonus += 0.03
+            composite += regression_bonus
+
             trade_result: dict = {
                 "giving_ids": [give_id],
                 "receiving_ids": [recv_id],

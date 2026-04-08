@@ -204,6 +204,22 @@ def temp_db(tmp_path):
         ("Team Hickey", 0, 1, "OF", 1, "IL15"),
     )
 
+    # Statcast archive table (required by LEFT JOIN in player pool queries)
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS statcast_archive (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            player_id INTEGER NOT NULL,
+            season INTEGER NOT NULL,
+            ev_mean REAL, ev_p90 REAL, barrel_pct REAL, hard_hit_pct REAL,
+            xba REAL, xslg REAL, xwoba REAL, whiff_pct REAL, chase_rate REAL,
+            sprint_speed REAL, ff_avg_speed REAL, ff_spin_rate REAL,
+            k_pct REAL, bb_pct REAL, gb_pct REAL,
+            stuff_plus REAL, location_plus REAL, pitching_plus REAL,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(player_id, season)
+        )
+    """)
+
     conn.commit()
     conn.close()
     return db_path

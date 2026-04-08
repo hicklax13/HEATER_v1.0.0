@@ -88,14 +88,17 @@ def compute_h2h_category_weights(
     """Compute category weights optimized for beating a specific H2H opponent.
 
     The weight for each category is based on the Normal PDF of the gap
-    divided by sigma. This peaks when the category is tied (maximum
-    marginal value of improvement) and drops off as the gap grows
-    (already winning or losing by too much to affect outcome).
+    divided by sigma, with a swing-category emphasis multiplier
+    (Haugh & Singal 2019). This peaks when the category is tied
+    (maximum marginal value of improvement) and drops off as the gap
+    grows (already winning or losing by too much to affect outcome).
 
     Formula per category c:
         gap = my_total - opp_total  (flipped for ERA/WHIP)
         sigma = sqrt(var_my + var_opp)
-        weight = phi(gap / sigma) / sigma
+        p_win = Phi(gap / sigma)
+        emphasis = 1.5 if swing (0.30-0.70), 1.0 if moderate, 0.5 if locked/lost
+        weight = phi(gap / sigma) / sigma * emphasis
 
     Weights are normalized so their mean equals 1.0.
 
@@ -135,8 +138,20 @@ def compute_h2h_category_weights(
             gap = float(my_val) - float(opp_val)
 
         z = gap / sigma
+
+        # Swing-category emphasis (Haugh & Singal 2019):
+        # Maximize investment in "swing" categories (30-70% P(win))
+        # where marginal roster improvement has highest ROI.
+        p_win = float(norm.cdf(z))
+        if 0.30 <= p_win <= 0.70:
+            emphasis = 1.5  # Toss-up: high marginal value
+        elif 0.15 <= p_win < 0.30 or 0.70 < p_win <= 0.85:
+            emphasis = 1.0  # Moderate: standard weight
+        else:
+            emphasis = 0.5  # Locked (>85%) or lost (<15%): deprioritize
+
         # Normal PDF at z, divided by sigma (marginal value density)
-        raw_weights[cat] = float(norm.pdf(z)) / sigma
+        raw_weights[cat] = float(norm.pdf(z)) / sigma * emphasis
 
     if not raw_weights:
         return {}

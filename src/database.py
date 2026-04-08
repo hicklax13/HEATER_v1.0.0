@@ -67,6 +67,13 @@ _FLOAT_STAT_COLS = [
     "ytd_whip",
     "health_score",
     "scarcity_mult",
+    "xwoba",
+    "xba",
+    "barrel_pct",
+    "hard_hit_pct",
+    "ev_mean",
+    "woba_approx",
+    "xwoba_delta",
 ]
 
 
@@ -1047,6 +1054,21 @@ def _enrich_pool(df: pd.DataFrame) -> pd.DataFrame:
         return 1.0
 
     df["scarcity_mult"] = df.apply(_scarcity, axis=1)
+
+    # xwOBA regression flags
+    if "xwoba" in df.columns and "obp" in df.columns:
+        # Approximate wOBA from OBP (wOBA ~ OBP * 1.15 for league-average hitters)
+        df["woba_approx"] = (
+            pd.to_numeric(df.get("obp", 0), errors="coerce").fillna(0) * 1.15
+        )
+        xwoba = pd.to_numeric(df.get("xwoba", 0), errors="coerce").fillna(0)
+        df["xwoba_delta"] = xwoba - df["woba_approx"]
+        df["regression_flag"] = ""
+        mask_buy = (df["xwoba_delta"] >= 0.030) & (xwoba > 0)
+        mask_sell = (df["xwoba_delta"] <= -0.030) & (xwoba > 0)
+        df.loc[mask_buy, "regression_flag"] = "BUY_LOW"
+        df.loc[mask_sell, "regression_flag"] = "SELL_HIGH"
+
     return df
 
 
@@ -1099,12 +1121,18 @@ def _load_player_pool_impl() -> pd.DataFrame:
                     COALESCE(ss.era, 0) AS ytd_era,
                     COALESCE(ss.whip, 0) AS ytd_whip,
                     COALESCE(ss.sv, 0) AS ytd_sv,
-                    COALESCE(ss.k, 0) AS ytd_k
+                    COALESCE(ss.k, 0) AS ytd_k,
+                    sa.xwoba AS xwoba,
+                    sa.xba AS xba,
+                    sa.barrel_pct AS barrel_pct,
+                    sa.hard_hit_pct AS hard_hit_pct,
+                    sa.ev_mean AS ev_mean
                 FROM players p
                 LEFT JOIN ros_projections ros ON p.player_id = ros.player_id
                 LEFT JOIN adp a ON p.player_id = a.player_id
                 LEFT JOIN ecr_consensus ecr ON p.player_id = ecr.player_id
                 LEFT JOIN season_stats ss ON p.player_id = ss.player_id AND ss.season = 2026
+                LEFT JOIN statcast_archive sa ON p.player_id = sa.player_id AND sa.season = 2026
                 ORDER BY COALESCE(a.adp, 999)
             """,
                 conn,
@@ -1147,13 +1175,19 @@ def _load_player_pool_impl() -> pd.DataFrame:
                 COALESCE(ss.era, 0) AS ytd_era,
                 COALESCE(ss.whip, 0) AS ytd_whip,
                 COALESCE(ss.sv, 0) AS ytd_sv,
-                COALESCE(ss.k, 0) AS ytd_k
+                COALESCE(ss.k, 0) AS ytd_k,
+                sa.xwoba AS xwoba,
+                sa.xba AS xba,
+                sa.barrel_pct AS barrel_pct,
+                sa.hard_hit_pct AS hard_hit_pct,
+                sa.ev_mean AS ev_mean
             FROM players p
             LEFT JOIN projections proj ON p.player_id = proj.player_id
                 AND proj.system = 'blended'
             LEFT JOIN adp a ON p.player_id = a.player_id
             LEFT JOIN ecr_consensus ecr ON p.player_id = ecr.player_id
             LEFT JOIN season_stats ss ON p.player_id = ss.player_id AND ss.season = 2026
+            LEFT JOIN statcast_archive sa ON p.player_id = sa.player_id AND sa.season = 2026
             ORDER BY COALESCE(a.adp, 999)
         """,
             conn,
@@ -1196,12 +1230,18 @@ def _load_player_pool_impl() -> pd.DataFrame:
                     COALESCE(ss.era, 0) AS ytd_era,
                     COALESCE(ss.whip, 0) AS ytd_whip,
                     COALESCE(ss.sv, 0) AS ytd_sv,
-                    COALESCE(ss.k, 0) AS ytd_k
+                    COALESCE(ss.k, 0) AS ytd_k,
+                    sa.xwoba AS xwoba,
+                    sa.xba AS xba,
+                    sa.barrel_pct AS barrel_pct,
+                    sa.hard_hit_pct AS hard_hit_pct,
+                    sa.ev_mean AS ev_mean
                 FROM players p
                 LEFT JOIN projections proj ON p.player_id = proj.player_id
                 LEFT JOIN adp a ON p.player_id = a.player_id
                 LEFT JOIN ecr_consensus ecr ON p.player_id = ecr.player_id
                 LEFT JOIN season_stats ss ON p.player_id = ss.player_id AND ss.season = 2026
+                LEFT JOIN statcast_archive sa ON p.player_id = sa.player_id AND sa.season = 2026
                 GROUP BY p.player_id
                 ORDER BY COALESCE(a.adp, 999)
             """,
