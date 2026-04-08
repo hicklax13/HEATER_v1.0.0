@@ -24,7 +24,7 @@
 
 ## Accuracy & Improvement Backlog — Organized by Page
 
-**117 total items** (103 unique after deduplication) identified via algorithm audit, deep web research
+**117 items → 113 after audit** (97 unique actionable after dedup + cuts) identified via algorithm audit, deep web research
 (FanGraphs, Baseball Savant, behavioral economics, game theory, MIT Sloan, AMS, PMC), and
 sabermetric literature. Updated April 7, 2026 to reflect Line-up Optimizer V3 (f795ea8).
 
@@ -59,7 +59,7 @@ These cascade through all 53 engines. Highest leverage.
 
 | # | Item | Fix | Impact | Effort |
 |---|------|-----|--------|--------|
-| A1 | **Dynamic SGP Denominators** | Compute from `league_standings`: `denom = (max - min) / (n_teams - 1)`. Update weekly. | Propagates to EVERY engine. Single highest-leverage fix. | Low |
+| A1 | **Dynamic SGP Denominators** — PARTIAL | `compute_sgp_denominators()` EXISTS in `valuation.py:718` but not wired into pipeline. Wire it into `value_all_players()` to replace hardcoded denoms. Update weekly. | Propagates to EVERY engine. Single highest-leverage fix. | Low |
 | A2+D3 | **Weighted Projection Stacking** | Ridge regression stacking model (each system = feature, 2025 actuals = target). Learned weights > naive average. | ~5-8% projection improvement. Cascades everywhere. | Low |
 | A3 | **Bayesian SGP Updating** | Start with preseason denoms as prior, update weekly from standings. By week 8: 70% actual / 30% prior. | Prevents stale denominators mid-season. | Medium |
 | A4 | **Remove Self-Referential ECR** | Remove HEATER SGP rank as source #7 in ECR consensus. Use 6 external sources only. | Removes circular confirmation bias. | Trivial |
@@ -68,15 +68,16 @@ These cascade through all 53 engines. Highest leverage.
 | B4 | **Temporal ECR Weighting** | Exponential decay 14-day half-life. March rank = 0.25x weight vs April = 1.0x. | Stale preseason ranks devalued. | Low |
 | D1 | **Statcast XGBoost Regression** | Train on EV, barrel, xwOBA, xBA, sprint speed. Target: actual − projected. Retrain daily. | ~10-15% projection improvement. | Medium |
 | D2 | **Playing Time Prediction** | Ridge regression: `remaining_PA = f(recent_PA_rate, depth_chart, health, age)`. Update weekly. | ~10-15% counting stat accuracy. #1 projection error source. | Medium |
-| D5 | **NLP News Sentiment** | Pre-trained DistilBERT. 3 lines, <100ms/headline. | ~3-5% trade/waiver timing. | Low |
+| ~~D5~~ | ~~NLP News Sentiment~~ — CUT | 250MB model adds cold-start latency for ~3-5% improvement on vague "timing" metric. Current keyword matching is crude but fast. Not worth the dependency for a local Streamlit app. | — | — |
 | D6 | **Backtesting Framework** | Replay past weeks, score engine recommendations vs actual outcomes. | Meta: validates ALL other changes. | Medium-High |
-| E2 | **Populate Stuff+/Location+/Pitching+** | DB columns exist but empty. Populate via `pybaseball pitching_stats()`. | Transforms pitcher evaluation across all pages. | Low |
-| J1 | **Per-Stat In-Season Update Rates** | `current_weight[stat] = PA / stabilization[stat]`. K% at 60, AVG at 910, BABIP at 820. | Highest-impact projection fix. K% updates 15x faster than AVG. | Medium |
+| E2+T1 | **Fetch & Populate Stuff+/Location+/Pitching+** | Add `pybaseball.pitching_stats(year, qual=0)` to bootstrap, write to existing empty DB columns. Single task: fetch + populate. | Transforms pitcher evaluation across all pages. Unlocks G2, O1, L2. | Trivial |
+| J1 | **Per-Stat In-Season Update Rates** — PARTIAL | `STABILIZATION_POINTS` dict exists in `bayesian.py:38` and is used by `_apply_bayesian_update()`. Algorithm implemented for projections. Remaining: verify trade YTD modifier (G4) also uses per-stat thresholds instead of uniform blend. | Projection blend uses per-stat rates. Trade YTD modifier may not. | Low |
 | J6 | **Projection Uncertainty Bands** | Use empirical SDs (ERA=1.20, WHIP=0.20, AVG=0.025) for P10/P50/P90. | Prevents over-optimizing on noise. | Low |
-| T1 | **DATA: Fetch Stuff+/Location+/Pitching+** | Add `pybaseball.pitching_stats(year, qual=0)` to bootstrap. Write stuff_plus, location_plus, pitching_plus to existing empty DB columns. 15 min. | Unlocks E2, G2, O1, L2. Single highest-ROI data addition. | Trivial |
+| ~~T1~~ | ~~Merged into E2+T1 above~~ | — | — | — |
 | T2 | **DATA: Fetch detailed batting stats** | Add `pybaseball.batting_stats(year, qual=0)` to bootstrap. Populate LD%, FB%, GB%, BABIP, ISO, K%, BB% in enriched pool. | Unlocks E1, G3, O1 breakout score components. | Trivial |
 | T3 | **DATA: Fetch sprint speed leaderboard** | Add `pybaseball.statcast_sprint_speed(year)` to bootstrap. Store sprint_speed per player. | Unlocks K1, E5 stolen base prediction. Currently partial (only in statcast_archive). | Trivial |
 | T4 | **DATA: Dynamic park factor refresh** | Add mid-season `pybaseball.team_batting(year)` + `team_pitching(year)` park factor derivation to bootstrap. Replace static 2024 values. | Unlocks B5. Some parks change year-to-year (humidor, dimensions). | Low |
+| U1 | **Rate-Stat Baselines from League Data** | Current AVG SGP assumes 5500 AB baseline, ERA assumes 1300 IP. Auto-compute from actual league AB/IP totals in `league_standings`. If league AB is 5200, every AVG SGP is off by ~5%. | Cascades through all rate-stat SGP calculations. Pairs with A1. | Low |
 
 ---
 
@@ -86,7 +87,7 @@ These cascade through all 53 engines. Highest leverage.
 
 | # | Item | Fix | Impact |
 |---|------|-----|--------|
-| F1 | **Nash Bargaining Fairness** | `nash_fairness` where alpha = bargaining power from standings/FA alternatives/weeks remaining. | Theoretically grounded acceptance metric. |
+| ~~F1~~ | ~~Nash Bargaining Fairness~~ — CUT | Current sigmoid already accounts for opponent gain, fairness gap, and need match. Nash adds theoretical elegance but produces near-identical outputs in practice. Low ROI. | — |
 | F2 | **Draft-Round Anchoring** | Rd 1-3 = 1.3x endowment, Rd 4-8 = 1.15x, Rd 9+ = 1.0x on opponent perceived value. | 15-30% more realistic acceptance for early-round players. |
 | F3 | **Disposition Effect** | YTD > projection: +10-15% acceptance. YTD < projection: -10-15%. | Captures #1 behavioral rejection pattern. |
 | F4 | **Recently-Acquired Penalty** | Traded-for within 3 weeks: -10-15% acceptance. | Uses existing Yahoo transaction data. |
@@ -119,7 +120,8 @@ These cascade through all 53 engines. Highest leverage.
 | H8 | **Closer Stability Discount** | `sv_adjusted = sv_proj * (confidence / 100)`. Wire closer_monitor into trade valuation. | Prevents overvaluing shaky closers. |
 | H9 | **Prospect Call-Up Valuation** | `value = P(call_up) * ROS_SGP * (weeks_avail / weeks_rem) - ROSTER_SPOT_SGP`. | Better than binary stash/zero. |
 | B8 | **Validate Trade Finder Weights** | Backtest: top-ranked trades vs actual improvement by week 24. | Optimize for improvement, not acceptance. |
-| C4 | **Trade Readiness Normalization** | Compute actual SGP range dynamically. | Cosmetic. |
+| U2 | **LP-Constrained Totals in By Value Tab** | `scan_1_for_1()` uses raw `_roster_category_totals()` sums that count bench production. Smart Recs calls `evaluate_trade()` which uses LP-constrained 18-starter totals. Wire LP into By Value composite for consistent accuracy. | Currently By Value overcounts bench — trades look better than they are. |
+| ~~C4~~ | ~~Trade Readiness Normalization~~ — CUT | Purely cosmetic (display scaling). Does not improve accuracy. | — |
 
 ---
 
@@ -129,11 +131,11 @@ These cascade through all 53 engines. Highest leverage.
 
 | # | Item | Fix | Impact |
 |---|------|-----|--------|
-| I1 | **Mid-Week Pivot Advisor** | Classify categories WON (P>85%), LOST (P<15%), CONTESTED (30-70%). Bench pitchers to protect WON ratios, stream for CONTESTED. | +1-2 category wins/week. |
+| I1+I4 | **Mid-Week Pivot Advisor + Category Flip Probability** | (1) Compute `flip_prob = f(margin, daily_stdev, games_remaining)` per category. (2) Classify as WON (P>85%), LOST (P<15%), CONTESTED (30-70%). (3) Bench pitchers to protect WON ratios, stream for CONTESTED. I4 is the math engine, I1 is the consumer. | +1-2 category wins/week. |
 | I2 | **Swing-Category Weighting** | Maximize P(win) for 30-70% categories in LP objective. De-emphasize locked/lost categories. | +0.5-1 category wins/week. |
 | I3 | **Ratio Protection Calculator** | `marginal_era_risk = (proj_ER * 9) / (banked_IP + proj_IP) - current_ERA`. Bench if risk > lead. | Protects ratio categories. |
-| I4 | **Category Flip Probability** | `flip_prob = f(margin, daily_stdev, games_remaining)`. Target flippable losses on final day. | Critical for close matchups. |
-| I5 | **Batting Order Slot PA Adjustment** — PARTIAL | `LINEUP_SLOT_PA` dict + confirmed lineups loaded (f795ea8). Wire PA rates into DCV counting stats. | +5-10% daily accuracy. |
+| ~~I4~~ | ~~Category Flip Probability~~ — MERGED into I1+I4 above | Math engine for I1. Implement together. Also feeds M1 on My Team page. | — |
+| I5+K6 | **Batting Order Slot PA Adjustment** — PARTIAL | `LINEUP_SLOT_PA` dict + confirmed lineups loaded (f795ea8). Wire PA rates into BOTH DCV counting stats (I5) AND volume_factor (K6). Single implementation, two consumers. | +5-10% daily accuracy. |
 | I6 | **IP Management Mode** | "Chase K/W", "Protect Ratios", "Balanced" toggle. Auto-recommend from urgency state. | Prevents ratio destruction. |
 
 #### Projection & Signal (J1-J6)
@@ -146,7 +148,7 @@ These cascade through all 53 engines. Highest leverage.
 | J5 | **Catcher Framing Pitcher Adjustment** | `era_adj = -0.01 * framing_runs`, `k9_adj = 0.025 * framing_runs`. | ±0.25 ERA per start for elite/poor framers. |
 | B6 | **Category Urgency k-Calibration** | Backtest k=1.0 to 5.0, measure category wins. | Current k=2/3 may be off. |
 | C2 | **Dual Objective Alpha Validation** | Tie alpha to playoff probability, not just time remaining. | Affects strategy, not individual decisions. |
-| C3 | **Start/Sit Home Advantage** | Update 1.02 to 1.015. | Very small effect. |
+| ~~C3~~ | ~~Start/Sit Home Advantage~~ — CUT | 0.5% per-game change. Over a 7-game week, shifts one player's score by ~0.03%. Not worth implementing. | — |
 
 #### H2H Strategic Features (K1-K6)
 
@@ -157,7 +159,7 @@ These cascade through all 53 engines. Highest leverage.
 | K3 | **Consistency Premium** | `penalty = k * weekly_CV`. k=0.05-0.10. Penalize volatile, reward consistent. | H2H-specific dimension. |
 | K4 | **Punt Mode Optimizer** | User selects 0-2 categories to punt → weight 0.0 in LP. | Strategy-aware optimization. |
 | K5 | **Streaming Composite Score** | `K_proj * (1/opp_wOBA) * park * form_L3 * whip_safety`. Career WHIP >1.40 = avoid. | Better streaming picks. |
-| K6 | **Dynamic Volume from Confirmed Lineups** — PARTIAL | Confirmed lineups loaded (f795ea8). Wire slot PA rates into volume_factor. | More accurate DCV. |
+| ~~K6~~ | ~~Dynamic Volume~~ — MERGED into I5+K6 above | See I5+K6 under Weekly & Daily Optimization. | — |
 
 ---
 
@@ -185,12 +187,12 @@ These cascade through all 53 engines. Highest leverage.
 
 ---
 
-### LEAGUE STANDINGS & POWER RANKINGS — 2 items
+### LEAGUE STANDINGS & POWER RANKINGS — 1 item (see also League Standings section below)
 
 | # | Item | Fix | Impact |
 |---|------|-----|--------|
-| B7 | **Power Rankings Momentum Weight** | Increase momentum from 10% to 20%. Reduce roster quality from 40% to 30%. | Better reflects hot-streak value in H2H. |
 | E8 | **Punt Strategy Optimizer** — DUPLICATE of K4 | See K4 under Lineup Optimizer. Also feeds H7 in Trade Finder. | — |
+| — | B7 moved to League Standings section below (was duplicated here) | — | — |
 
 ---
 
@@ -220,6 +222,7 @@ These cascade through all 53 engines. Highest leverage.
 | M4 | **Regression Alert System** | Compare L30 actual stats to expected stats (xBA, xwOBA via barrel% + speed). Flag >1.5 SD divergence as sell-high or buy-low. Weight K%/BB% changes over BA. Require 50 PA minimum. | Process metrics (barrel%, K%) are more predictive than outcome metrics (BA, HR count). FanGraphs streak research. |
 | M5 | **IL Slot Utilization Alert** | Empty IL slot = "Fill your IL slot with X". IL stash ranking sorted by `ros_sgp - best_fa_sgp` with days-to-return. Injury-type duration lookup (hamstring 21d, oblique 28d, TJ 14mo). | An empty IL slot is wasted value equivalent to a bench spot. IL-15 averages 18d actual, IL-60 averages 70d. |
 | M6 | **Ratio Lock Alert** | Automated detection: "You are winning ERA by 0.80 and WHIP by 0.15 with 45 IP banked — bench Sunday starters to lock 2 categories." Compute marginal ERA/WHIP risk per remaining start. | Worth 1-2 category wins/season for managers who don't naturally think about this. |
+| U3 | **War Room Flippable Thresholds from Weekly SDs** | `_COUNTING_THRESHOLD=3` is hardcoded for all counting stats. HR has different weekly variance than R. Wire per-category weekly SDs (from R2) into flippable detection: `threshold[cat] = 1.5 * weekly_sd[cat]`. | Prevents false "flippable" alerts for stable categories and missing real flip opportunities in volatile ones. |
 
 ---
 
@@ -243,7 +246,7 @@ These cascade through all 53 engines. Highest leverage.
 | O2 | **Prospect Fantasy Relevance Score** | Adjust raw FV by: (a) ETA proximity (exponential decay), (b) position scarcity in YOUR league, (c) path to playing time (depth chart), (d) historical hit rate for FV tier (55 FV = 67% chance of regular). | Bridges scouting grades to actionable fantasy timelines. FanGraphs FV accuracy data. |
 | O3 | **40-Man + Service Time Call-Up Alerts** | 40-man roster status flag (highest signal). Days until Super Two cutoff. MLB team injury cross-reference (IL at prospect's position = "imminent"). AAA performance triggers (OPS .900+, K/9 10+). | First-mover advantage on prospect adds worth 2-5 wins/season. Multiple call-up timing signals. |
 | O4 | **Projection Skew Indicator** | When 5 of 7 projection systems are above consensus (positive skew), flag as better bet. Negative skew = cautionary flag. Especially valuable for mid-round pitchers (+50-100% ROI for positive skew). | FanGraphs ATC Volatility research (2019-2024): positive skew = $8 premium. |
-| O5 | **SGP Contribution Breakdown** | Same as N3 but for leaders table — show concentrated vs diversified value per leader. | See N3. Applied to leaders context. |
+| O5 | **SGP Contribution Breakdown** — wire-in of N3 | Implement N3 first, then call same function in Leaders context. Not a separate algorithm. | See N3. Applied to leaders context. |
 | T9 | **DATA: Fetch bat speed leaderboard** | Scrape Baseball Savant bat tracking leaderboard (new 2024+). Store bat_speed, swing_length per hitter. | Unlocks O1 breakout score bat speed component (15% weight). Free. 45 min. |
 | T10 | **DATA: Fetch 40-man roster status** | Call MLB Stats API `/api/v1/teams/{id}/roster/40Man` for all 30 teams. Store 40-man flag per player. | Unlocks O3 call-up alerts (highest signal for imminent promotion). Free. 30 min. |
 
@@ -338,21 +341,22 @@ each other across pages, creating user confusion and maintenance burden.
 ## Implementation Priority (Cross-Page)
 
 **Tier 1 — Cascade everywhere (do first):**
-1. A1: Dynamic SGP denominators
-2. A4: Remove self-referential ECR
-3. E2: Populate Stuff+/Location+/Pitching+
-4. A2+D3: Weighted projection stacking
-5. J1: Per-stat in-season update rates
+1. A1: Dynamic SGP denominators (PARTIAL — wire existing function)
+2. U1: Rate-stat baselines from league data (pairs with A1)
+3. A4: Remove self-referential ECR
+4. E2+T1: Fetch & populate Stuff+/Location+/Pitching+ (trivial)
+5. A2+D3: Weighted projection stacking
 
 **Tier 2 — Biggest page-specific wins:**
-6. I1: Mid-week pivot advisor (Lineup Optimizer)
+6. I1+I4: Mid-week pivot + category flip probability (Lineup Optimizer)
 7. G1: xwOBA regression flags (Trade Finder)
-8. M1: Category flip analyzer (My Team)
+8. M1: Category flip analyzer (My Team — shares engine with I1)
 9. O1: Statcast breakout score (Leaders)
 10. D1: Statcast XGBoost regression (Global)
 11. D2: Playing time prediction (Global)
 12. I2: Swing-category weighting (Lineup Optimizer)
 13. L1: gmLI closer trust tracking (Closer Monitor)
+14. U2: LP-constrained totals in Trade Finder By Value tab
 
 **Tier 3 — Accuracy refinements:**
 14-25: A3, G4, F5, I3, J2, J3, J4, P1, R1, R2, L2, M4
