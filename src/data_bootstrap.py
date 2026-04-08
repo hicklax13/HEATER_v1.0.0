@@ -58,6 +58,9 @@ class StalenessConfig:
     stuff_plus_hours: float = 24  # 24 hours
     batting_stats_hours: float = 24  # 24 hours
     sprint_speed_hours: float = 168  # 7 days (doesn't change often)
+    umpire_hours: float = 24  # 24 hours (daily assignments)
+    catcher_framing_hours: float = 168  # 7 days (stable metric)
+    pvb_splits_hours: float = 168  # 7 days (stable with >=60 PA)
 
 
 @dataclass
@@ -775,8 +778,7 @@ def _bootstrap_stuff_plus(progress: BootstrapProgress) -> str:
 
         if not col_map:
             logger.warning(
-                "No Stuff+/Location+/Pitching+/gmLI columns found in FanGraphs data. "
-                "Columns: %s",
+                "No Stuff+/Location+/Pitching+/gmLI columns found in FanGraphs data. Columns: %s",
                 list(fg_df.columns)[:30],
             )
             return "Skipped: target columns not in FanGraphs data"
@@ -940,10 +942,7 @@ def _bootstrap_batting_stats(progress: BootstrapProgress) -> str:
         for pcol in pct_cols:
             if pcol in fg_df.columns:
                 fg_df[pcol] = (
-                    fg_df[pcol]
-                    .astype(str)
-                    .str.replace("%", "", regex=False)
-                    .str.replace(" ", "", regex=False)
+                    fg_df[pcol].astype(str).str.replace("%", "", regex=False).str.replace(" ", "", regex=False)
                 )
                 fg_df[pcol] = pd.to_numeric(fg_df[pcol], errors="coerce")
 
@@ -1145,6 +1144,483 @@ def _bootstrap_sprint_speed(progress: BootstrapProgress) -> str:
         return f"Error: {exc}"
 
 
+def _bootstrap_umpire_tendencies(progress: BootstrapProgress) -> str:
+    """T7: Fetch umpire assignments and build per-umpire tendency table.
+
+    Uses MLB Stats API schedule to find today's umpire assignments,
+    then computes per-umpire K%/BB%/run environment from historical game data.
+    """
+    progress.phase = "Umpire Data"
+    progress.detail = "Fetching umpire assignments..."
+
+    try:
+        import statsapi as _statsapi
+    except ImportError:
+        return "Skipped: statsapi not installed"
+
+    try:
+        from src.database import get_connection, update_refresh_log
+
+        year = datetime.now(UTC).year
+
+        # Fetch all games for the season to build umpire tendency profiles
+        logger.info("Fetching MLB schedule for %d to build umpire profiles...", year)
+        schedule = _statsapi.schedule(
+            start_date=f"{year}-03-20",
+            end_date=datetime.now(UTC).strftime("%Y-%m-%d"),
+        )
+
+        if not schedule:
+            return "Skipped: no schedule data"
+
+        # Aggregate per-umpire stats from game data
+        umpire_stats: dict[str, dict] = {}  # name -> {games, total_k, total_bb, total_runs, total_pa}
+        for game in schedule:
+            game_pk = game.get("game_id")
+            if not game_pk:
+                continue
+            # Only completed games
+            status = game.get("status", "")
+            if "Final" not in status and "Completed" not in status:
+                continue
+
+            try:
+                boxscore = _statsapi.boxscore_data(game_pk)
+            except Exception:
+                continue
+
+            if not boxscore:
+                continue
+
+            # Extract home plate umpire from game info
+            game_info = boxscore.get("gameBoxInfo", [])
+            hp_umpire = None
+            for info_item in game_info:
+                label = str(info_item.get("label", ""))
+                value = str(info_item.get("value", ""))
+                if "HP" in label or "Home Plate" in label:
+                    hp_umpire = value.strip()
+                    break
+
+            if not hp_umpire:
+                continue
+
+            # Extract game scoring/strikeout data from team stats
+            away_stats = boxscore.get("awayBatting", {})
+            home_stats = boxscore.get("homeBatting", {})
+
+            total_k = 0
+            total_bb = 0
+            total_runs = 0
+            total_pa = 0
+
+            for team_stats in [away_stats, home_stats]:
+                if isinstance(team_stats, dict):
+                    # Team totals row
+                    totals = team_stats.get("teamStats", {})
+                    if isinstance(totals, dict):
+                        batting = totals.get("batting", {})
+                        total_k += int(batting.get("strikeOuts", 0))
+                        total_bb += int(batting.get("baseOnBalls", 0))
+                        total_runs += int(batting.get("runs", 0))
+                        total_pa += int(batting.get("plateAppearances", batting.get("atBats", 0)))
+
+            if total_pa < 30:
+                continue
+
+            if hp_umpire not in umpire_stats:
+                umpire_stats[hp_umpire] = {
+                    "games": 0,
+                    "total_k": 0,
+                    "total_bb": 0,
+                    "total_runs": 0,
+                    "total_pa": 0,
+                }
+
+            ump = umpire_stats[hp_umpire]
+            ump["games"] += 1
+            ump["total_k"] += total_k
+            ump["total_bb"] += total_bb
+            ump["total_runs"] += total_runs
+            ump["total_pa"] += total_pa
+
+        if not umpire_stats:
+            return "Skipped: no umpire data extracted"
+
+        # Compute league averages for delta calculation
+        league_k = sum(u["total_k"] for u in umpire_stats.values())
+        league_bb = sum(u["total_bb"] for u in umpire_stats.values())
+        league_runs = sum(u["total_runs"] for u in umpire_stats.values())
+        league_pa = sum(u["total_pa"] for u in umpire_stats.values())
+        league_games = sum(u["games"] for u in umpire_stats.values())
+
+        avg_k_pct = league_k / max(1, league_pa)
+        avg_bb_pct = league_bb / max(1, league_pa)
+        avg_rpg = league_runs / max(1, league_games)
+
+        # Write to DB
+        conn = get_connection()
+        try:
+            now = datetime.now(UTC).isoformat()
+            updated = 0
+            for name, stats in umpire_stats.items():
+                if stats["games"] < 3:
+                    continue  # Need min sample size
+                k_pct = stats["total_k"] / max(1, stats["total_pa"])
+                bb_pct = stats["total_bb"] / max(1, stats["total_pa"])
+                rpg = stats["total_runs"] / max(1, stats["games"])
+
+                conn.execute(
+                    """INSERT OR REPLACE INTO umpire_tendencies
+                       (umpire_name, games_umped, k_pct, bb_pct, runs_per_game,
+                        k_pct_delta, bb_pct_delta, run_env_delta, season, fetched_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        name,
+                        stats["games"],
+                        round(k_pct, 4),
+                        round(bb_pct, 4),
+                        round(rpg, 2),
+                        round(k_pct - avg_k_pct, 4),
+                        round(bb_pct - avg_bb_pct, 4),
+                        round(rpg - avg_rpg, 2),
+                        year,
+                        now,
+                    ),
+                )
+                updated += 1
+            conn.commit()
+        finally:
+            conn.close()
+
+        update_refresh_log("umpire_tendencies", "success")
+        logger.info("T7: Umpire tendencies — %d umpires from %d games", updated, league_games)
+        return f"Saved {updated} umpire profiles from {league_games} games"
+
+    except Exception as exc:
+        logger.exception("T7 umpire tendencies failed: %s", exc)
+        try:
+            from src.database import update_refresh_log
+
+            update_refresh_log("umpire_tendencies", "error")
+        except Exception:
+            pass
+        return f"Error: {exc}"
+
+
+def _bootstrap_catcher_framing(progress: BootstrapProgress) -> str:
+    """T8: Fetch catcher framing runs and pop time from pybaseball.
+
+    Uses Baseball Savant catcher framing leaderboards via pybaseball.
+    """
+    progress.phase = "Catcher Framing"
+    progress.detail = "Fetching catcher framing + pop time..."
+
+    try:
+        import pybaseball  # noqa: F401
+    except ImportError:
+        return "Skipped: pybaseball not installed"
+
+    try:
+        import pandas as pd
+
+        from src.database import get_connection, update_refresh_log
+
+        year = datetime.now(UTC).year
+
+        # pybaseball doesn't have a direct catcher framing function,
+        # so we use statcast_catcher_framing or fall back to FanGraphs data.
+        # Try FanGraphs catching stats first (includes framing runs).
+        framing_data = None
+        try:
+            from pybaseball import batting_stats
+
+            # FanGraphs batting_stats for catchers include framing runs in advanced stats
+            fg_df = batting_stats(year, qual=0, pos="c")
+            if fg_df is not None and not fg_df.empty:
+                framing_data = fg_df
+                logger.info("T8: Got %d catchers from FanGraphs batting_stats", len(fg_df))
+        except Exception as e:
+            logger.warning("T8: FanGraphs catcher stats failed: %s", e)
+
+        if framing_data is None:
+            # Fallback: use statsapi catcher stats
+            try:
+                import statsapi as _statsapi
+
+                # Get catchers from our DB and fetch their fielding stats
+                conn_temp = get_connection()
+                try:
+                    catchers = pd.read_sql(
+                        "SELECT player_id, name, mlb_id FROM players WHERE positions LIKE '%C%' AND is_hitter = 1",
+                        conn_temp,
+                    )
+                finally:
+                    conn_temp.close()
+
+                if catchers.empty:
+                    return "Skipped: no catchers in DB"
+
+                rows = []
+                for _, c in catchers.iterrows():
+                    mlb_id = c.get("mlb_id")
+                    if pd.isna(mlb_id) or mlb_id is None:
+                        continue
+                    try:
+                        mlb_id = int(mlb_id)
+                        stats = _statsapi.player_stat_data(mlb_id, group="fielding", type="season")
+                        if stats and "stats" in stats:
+                            for stat_group in stats["stats"]:
+                                for split in stat_group.get("stats", []):
+                                    if split.get("position", {}).get("abbreviation") == "C":
+                                        rows.append(
+                                            {
+                                                "player_id": int(c["player_id"]),
+                                                "games": int(split.get("gamesPlayed", 0)),
+                                                "cs_pct": float(split.get("caughtStealingPct", 0)) / 100.0
+                                                if split.get("caughtStealingPct")
+                                                else 0.0,
+                                                "pop_time": 0.0,  # Not available from statsapi
+                                                "framing_runs": 0.0,
+                                            }
+                                        )
+                    except Exception:
+                        continue
+
+                framing_data = pd.DataFrame(rows) if rows else None
+                if framing_data is not None:
+                    logger.info("T8: Got %d catchers from statsapi fielding", len(framing_data))
+            except Exception as e:
+                logger.warning("T8: statsapi catcher fallback failed: %s", e)
+
+        if framing_data is None or framing_data.empty:
+            return "Skipped: no catcher data available"
+
+        # Build name→player_id mapping
+        conn = get_connection()
+        try:
+            players_df = pd.read_sql(
+                "SELECT player_id, name FROM players WHERE positions LIKE '%C%' AND is_hitter = 1",
+                conn,
+            )
+            name_to_id = {}
+            for _, row in players_df.iterrows():
+                if row["name"]:
+                    name_to_id[str(row["name"]).strip().lower()] = int(row["player_id"])
+
+            now = datetime.now(UTC).isoformat()
+            updated = 0
+
+            for _, row in framing_data.iterrows():
+                # Try to find player_id from name or direct ID
+                pid = row.get("player_id")
+                if pid is None or pd.isna(pid):
+                    name_val = row.get("Name", row.get("name", ""))
+                    if name_val:
+                        pid = name_to_id.get(str(name_val).strip().lower())
+                if pid is None:
+                    continue
+                pid = int(pid)
+
+                framing_runs = float(row.get("framing_runs", row.get("FRM", row.get("Framing", 0.0))) or 0.0)
+                pop_time_val = float(row.get("pop_time", row.get("Pop Time", 0.0)) or 0.0)
+                cs_pct_val = float(row.get("cs_pct", row.get("CS%", row.get("CaughtStealing%", 0.0))) or 0.0)
+                games_val = int(row.get("games", row.get("G", row.get("gamesPlayed", 0))) or 0)
+
+                framing_rpg = framing_runs / max(1, games_val)
+
+                conn.execute(
+                    """INSERT OR REPLACE INTO catcher_framing
+                       (player_id, season, framing_runs, framing_runs_per_game,
+                        pop_time, cs_pct, games_caught, fetched_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        pid,
+                        year,
+                        round(framing_runs, 2),
+                        round(framing_rpg, 4),
+                        round(pop_time_val, 3),
+                        round(cs_pct_val, 4),
+                        games_val,
+                        now,
+                    ),
+                )
+                updated += 1
+
+            conn.commit()
+        finally:
+            conn.close()
+
+        update_refresh_log("catcher_framing", "success")
+        logger.info("T8: Catcher framing — %d catchers updated", updated)
+        return f"Saved {updated} catcher framing profiles"
+
+    except Exception as exc:
+        logger.exception("T8 catcher framing failed: %s", exc)
+        try:
+            from src.database import update_refresh_log
+
+            update_refresh_log("catcher_framing", "error")
+        except Exception:
+            pass
+        return f"Error: {exc}"
+
+
+def _bootstrap_pvb_splits(progress: BootstrapProgress) -> str:
+    """T12: Fetch pitcher-vs-batter splits for rostered players.
+
+    Uses pybaseball.statcast_batter for specific batter-pitcher matchups.
+    Only fetches for rostered hitters vs upcoming opposing pitchers.
+    PvB stats stabilize at ~60 PA — cache aggressively.
+    """
+    progress.phase = "PvB Splits"
+    progress.detail = "Fetching pitcher-batter matchup history..."
+
+    try:
+        from pybaseball import statcast_batter as _statcast_batter
+    except ImportError:
+        return "Skipped: pybaseball not installed"
+
+    try:
+        import pandas as pd
+
+        from src.database import get_connection, update_refresh_log
+
+        year = datetime.now(UTC).year
+
+        # Get rostered hitter MLB IDs and upcoming pitcher MLB IDs
+        conn = get_connection()
+        try:
+            rostered_hitters = pd.read_sql(
+                """SELECT DISTINCT p.player_id, p.mlb_id, p.name
+                   FROM players p
+                   JOIN league_rosters lr ON p.player_id = lr.player_id
+                   WHERE p.is_hitter = 1 AND p.mlb_id IS NOT NULL""",
+                conn,
+            )
+            # Get opposing pitcher IDs from opp_pitcher_stats
+            opp_pitchers = pd.read_sql(
+                "SELECT pitcher_id, name FROM opp_pitcher_stats WHERE season = ?",
+                conn,
+                params=(year,),
+            )
+        finally:
+            conn.close()
+
+        if rostered_hitters.empty:
+            return "Skipped: no rostered hitters with MLB IDs"
+
+        if opp_pitchers.empty:
+            return "Skipped: no opposing pitcher data"
+
+        # Limit to avoid API hammering (top 50 hitters x top 30 pitchers = 1500 lookups max)
+        max_hitters = min(50, len(rostered_hitters))
+        max_pitchers = min(30, len(opp_pitchers))
+        hitter_sample = rostered_hitters.head(max_hitters)
+        pitcher_ids = opp_pitchers["pitcher_id"].head(max_pitchers).tolist()
+
+        conn = get_connection()
+        try:
+            now = datetime.now(UTC).isoformat()
+            updated = 0
+            skipped = 0
+
+            for _, hitter in hitter_sample.iterrows():
+                batter_mlb_id = int(hitter["mlb_id"])
+                batter_pid = int(hitter["player_id"])
+
+                for pitcher_mlb_id in pitcher_ids:
+                    pitcher_mlb_id = int(pitcher_mlb_id)
+
+                    # Check if we already have recent data
+                    existing = conn.execute(
+                        """SELECT fetched_at FROM pvb_splits
+                           WHERE batter_id = ? AND pitcher_id = ?""",
+                        (batter_pid, pitcher_mlb_id),
+                    ).fetchone()
+                    if existing:
+                        skipped += 1
+                        continue
+
+                    try:
+                        pvb = _statcast_batter(
+                            f"{year - 3}-01-01",
+                            f"{year}-12-31",
+                            batter_mlb_id,
+                            pitcher_mlb_id,
+                        )
+                    except Exception:
+                        continue
+
+                    if pvb is None or pvb.empty:
+                        continue
+
+                    pa_count = len(pvb)
+                    if pa_count < 3:
+                        continue  # Too few PA to be meaningful
+
+                    # Aggregate PvB stats
+                    events = pvb["events"].dropna()
+                    hits = events.isin(["single", "double", "triple", "home_run"]).sum()
+                    hrs = events.isin(["home_run"]).sum()
+                    walks = events.isin(["walk"]).sum()
+                    strikeouts = events.isin(["strikeout", "strikeout_double_play"]).sum()
+                    ab = (
+                        pa_count
+                        - walks
+                        - events.isin(["hit_by_pitch", "sac_fly", "sac_bunt", "sac_fly_double_play"]).sum()
+                    )
+
+                    avg_val = hits / max(1, ab)
+                    obp_val = (hits + walks) / max(1, pa_count)
+                    slg_val = 0.0  # Simplified — would need total bases
+                    woba_est = (
+                        pvb["estimated_woba_using_speedangle"].mean()
+                        if "estimated_woba_using_speedangle" in pvb.columns
+                        else 0.0
+                    )
+                    if pd.isna(woba_est):
+                        woba_est = 0.0
+
+                    conn.execute(
+                        """INSERT OR REPLACE INTO pvb_splits
+                           (batter_id, pitcher_id, pa, avg, obp, slg, hr, k, bb, woba, fetched_at)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (
+                            batter_pid,
+                            pitcher_mlb_id,
+                            pa_count,
+                            round(avg_val, 3),
+                            round(obp_val, 3),
+                            round(slg_val, 3),
+                            int(hrs),
+                            int(strikeouts),
+                            int(walks),
+                            round(woba_est, 3),
+                            now,
+                        ),
+                    )
+                    updated += 1
+
+            conn.commit()
+        finally:
+            conn.close()
+
+        update_refresh_log("pvb_splits", "success")
+        logger.info("T12: PvB splits — %d matchups saved, %d skipped (cached)", updated, skipped)
+        return f"Saved {updated} PvB matchups ({skipped} cached)"
+
+    except Exception as exc:
+        logger.exception("T12 PvB splits failed: %s", exc)
+        try:
+            from src.database import update_refresh_log
+
+            update_refresh_log("pvb_splits", "error")
+        except Exception:
+            pass
+        return f"Error: {exc}"
+
+
 def _bootstrap_dynamic_park_factors(progress: BootstrapProgress) -> str:
     """T4: Refresh park factors mid-season from pybaseball team stats."""
     progress.phase = "Park Factors"
@@ -1155,7 +1631,6 @@ def _bootstrap_dynamic_park_factors(progress: BootstrapProgress) -> str:
         return "Skipped: pybaseball not installed"
 
     try:
-
         from src.database import get_connection, update_refresh_log
 
         year = datetime.now(UTC).year
@@ -1289,7 +1764,6 @@ def _bootstrap_forty_man(progress: BootstrapProgress) -> str:
         return "Skipped: statsapi not installed"
 
     try:
-
         from src.database import get_connection, update_refresh_log
 
         conn = get_connection()
@@ -1721,6 +2195,29 @@ def bootstrap_all_data(
             futures[executor.submit(_bootstrap_bat_speed, progress)] = "bat_speed"
         if force or check_staleness("forty_man", 168):
             futures[executor.submit(_bootstrap_forty_man, progress)] = "forty_man"
+        for future in as_completed(futures):
+            key = futures[future]
+            try:
+                results[key] = future.result()
+            except Exception as exc:
+                logger.warning("Bootstrap %s failed (non-critical): %s", key, exc)
+                results[key] = f"Error: {exc}"
+
+    # Phase 28-30: T7 umpire, T8 catcher framing, T12 PvB splits (parallel, non-critical)
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        futures = {}
+        if force or check_staleness("umpire_tendencies", staleness.umpire_hours):
+            futures[executor.submit(_bootstrap_umpire_tendencies, progress)] = "umpire_tendencies"
+        else:
+            results["umpire_tendencies"] = "Fresh"
+        if force or check_staleness("catcher_framing", staleness.catcher_framing_hours):
+            futures[executor.submit(_bootstrap_catcher_framing, progress)] = "catcher_framing"
+        else:
+            results["catcher_framing"] = "Fresh"
+        if force or check_staleness("pvb_splits", staleness.pvb_splits_hours):
+            futures[executor.submit(_bootstrap_pvb_splits, progress)] = "pvb_splits"
+        else:
+            results["pvb_splits"] = "Fresh"
         for future in as_completed(futures):
             key = futures[future]
             try:

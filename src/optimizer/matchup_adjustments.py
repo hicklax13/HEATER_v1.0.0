@@ -683,17 +683,13 @@ def compute_weekly_matchup_adjustments(
 
                                 _park = game.get("park_team", "")
                                 if _park not in DOME_TEAMS and _park in OUTFIELD_BEARING:
-                                    wind_blowing_out = is_wind_blowing_out(
-                                        float(wind_dir_val), OUTFIELD_BEARING[_park]
-                                    )
+                                    wind_blowing_out = is_wind_blowing_out(float(wind_dir_val), OUTFIELD_BEARING[_park])
                             except Exception:
                                 pass
                         elif isinstance(wind_dir_val, str) and "out" in wind_dir_val.lower():
                             # Fallback: string-based "blowing out" from API
                             wind_blowing_out = True
-                        factor *= weather_wind_hr_adjustment(
-                            float(wind_mph_val), wind_out=wind_blowing_out
-                        )
+                        factor *= weather_wind_hr_adjustment(float(wind_mph_val), wind_out=wind_blowing_out)
 
                     # Rain K/BB adjustment (pitchers: K stat)
                     if stat == "k" and not is_hitter and precip is not None:
@@ -727,3 +723,272 @@ def compute_weekly_matchup_adjustments(
             result.at[idx, "matchup_adjusted"] = True
 
     return result
+
+
+# ── E3: Umpire Strike Zone Adjustment ──────────────────────────────
+
+
+def get_umpire_adjustment(game_date: str | None = None) -> dict[str, dict[str, float]]:
+    """E3: Get per-game umpire adjustments for today's or a specific date's games.
+
+    Looks up the home plate umpire for each game and returns K%/BB%/run
+    environment deltas from their historical tendencies.
+
+    Returns:
+        Dict mapping venue_team_abbr -> {k_pct_delta, bb_pct_delta, run_env_delta, umpire_name}.
+        Deltas are relative to league average: +0.02 means 2% higher K rate.
+    """
+    try:
+        import statsapi
+    except ImportError:
+        return {}
+
+    try:
+        from src.database import get_connection
+
+        if game_date is None:
+            game_date = datetime.now(UTC).strftime("%Y-%m-%d")
+
+        # Get today's schedule with umpire assignments
+        schedule = statsapi.schedule(start_date=game_date, end_date=game_date)
+        if not schedule:
+            return {}
+
+        # Load umpire tendencies from DB
+        conn = get_connection()
+        try:
+            umpire_df = pd.read_sql("SELECT * FROM umpire_tendencies", conn)
+        finally:
+            conn.close()
+
+        if umpire_df.empty:
+            return {}
+
+        umpire_lookup = {}
+        for _, row in umpire_df.iterrows():
+            umpire_lookup[str(row["umpire_name"]).strip().lower()] = {
+                "k_pct_delta": float(row.get("k_pct_delta", 0)),
+                "bb_pct_delta": float(row.get("bb_pct_delta", 0)),
+                "run_env_delta": float(row.get("run_env_delta", 0)),
+                "umpire_name": str(row["umpire_name"]),
+                "games_umped": int(row.get("games_umped", 0)),
+            }
+
+        result = {}
+        for game in schedule:
+            game_pk = game.get("game_id")
+            home_name = game.get("home_name", "")
+            home_abbr = _MLB_TEAM_ABBREVS.get(home_name, "")
+            if not home_abbr or not game_pk:
+                continue
+
+            # Try to get umpire from game data
+            try:
+                boxscore = statsapi.boxscore_data(game_pk)
+                if not boxscore:
+                    continue
+                game_info = boxscore.get("gameBoxInfo", [])
+                for info in game_info:
+                    label = str(info.get("label", ""))
+                    value = str(info.get("value", ""))
+                    if "HP" in label or "Home Plate" in label:
+                        ump_data = umpire_lookup.get(value.strip().lower())
+                        if ump_data:
+                            result[home_abbr] = ump_data
+                        break
+            except Exception:
+                continue
+
+        return result
+
+    except Exception:
+        logger.debug("E3: umpire adjustment lookup failed", exc_info=True)
+        return {}
+
+
+def apply_umpire_adjustment(
+    k_proj: float,
+    bb_proj: float,
+    runs_proj: float,
+    umpire_data: dict[str, float],
+) -> tuple[float, float, float]:
+    """E3: Apply umpire-specific adjustments to pitcher/hitter projections.
+
+    Per-umpire adjustments are ±0.3-0.5 runs/game impact.
+
+    Args:
+        k_proj: Projected strikeouts.
+        bb_proj: Projected walks.
+        runs_proj: Projected runs (for hitters) or earned runs (for pitchers).
+        umpire_data: Dict with k_pct_delta, bb_pct_delta, run_env_delta.
+
+    Returns:
+        Adjusted (k, bb, runs) tuple.
+    """
+    if not umpire_data:
+        return k_proj, bb_proj, runs_proj
+
+    # K% delta: +0.02 means umpire calls 2% more strikeouts than average
+    k_delta = umpire_data.get("k_pct_delta", 0)
+    bb_delta = umpire_data.get("bb_pct_delta", 0)
+    run_delta = umpire_data.get("run_env_delta", 0)
+
+    # Apply as multiplicative adjustments (clamped to ±15% impact)
+    k_mult = max(0.85, min(1.15, 1.0 + k_delta * 5.0))
+    bb_mult = max(0.85, min(1.15, 1.0 + bb_delta * 5.0))
+    run_mult = max(0.85, min(1.15, 1.0 + run_delta * 0.10))
+
+    return k_proj * k_mult, bb_proj * bb_mult, runs_proj * run_mult
+
+
+# ── J5: Catcher Framing Pitcher Adjustment ─────────────────────────
+
+
+def get_catcher_framing_data() -> dict[int, dict[str, float]]:
+    """Load catcher framing data from the database.
+
+    Returns:
+        Dict mapping player_id -> {framing_runs, framing_runs_per_game, pop_time, cs_pct}.
+    """
+    try:
+        from src.database import get_connection
+
+        conn = get_connection()
+        try:
+            df = pd.read_sql("SELECT * FROM catcher_framing", conn)
+        finally:
+            conn.close()
+
+        if df.empty:
+            return {}
+
+        result = {}
+        for _, row in df.iterrows():
+            result[int(row["player_id"])] = {
+                "framing_runs": float(row.get("framing_runs", 0)),
+                "framing_runs_per_game": float(row.get("framing_runs_per_game", 0)),
+                "pop_time": float(row.get("pop_time", 0)),
+                "cs_pct": float(row.get("cs_pct", 0)),
+                "games_caught": int(row.get("games_caught", 0)),
+            }
+        return result
+    except Exception:
+        return {}
+
+
+def catcher_framing_pitcher_adjustment(
+    pitcher_era: float,
+    pitcher_k9: float,
+    catcher_framing_runs: float,
+) -> tuple[float, float]:
+    """J5: Adjust pitcher ERA and K/9 based on catcher framing quality.
+
+    Elite framers (>10 framing runs) lower pitcher ERA by ~0.10-0.20.
+    Poor framers (<-10 framing runs) raise it by similar amounts.
+
+    Formula:
+        era_adj = -0.01 * framing_runs  (capped at ±0.40)
+        k9_adj = 0.025 * framing_runs   (capped at ±0.50)
+
+    Args:
+        pitcher_era: Pitcher's projected ERA.
+        pitcher_k9: Pitcher's projected K/9.
+        catcher_framing_runs: Catcher's framing runs (positive = good framing).
+
+    Returns:
+        Adjusted (era, k9) tuple.
+    """
+    # ERA adjustment: elite framers save ~0.10-0.20 ERA per start
+    era_delta = max(-0.40, min(0.40, -0.01 * catcher_framing_runs))
+    k9_delta = max(-0.50, min(0.50, 0.025 * catcher_framing_runs))
+
+    adjusted_era = max(0.50, pitcher_era + era_delta)
+    adjusted_k9 = max(0.0, pitcher_k9 + k9_delta)
+
+    return adjusted_era, adjusted_k9
+
+
+# ── E7: Pitcher-Batter Matchup History ─────────────────────────────
+
+
+def get_pvb_matchup_data(
+    batter_ids: list[int] | None = None,
+    pitcher_ids: list[int] | None = None,
+) -> dict[tuple[int, int], dict]:
+    """E7: Load pitcher-vs-batter splits from the database.
+
+    Args:
+        batter_ids: Optional filter to specific batters.
+        pitcher_ids: Optional filter to specific pitchers.
+
+    Returns:
+        Dict mapping (batter_id, pitcher_id) -> {pa, avg, obp, slg, hr, k, bb, woba}.
+    """
+    try:
+        from src.database import get_connection
+
+        conn = get_connection()
+        try:
+            query = "SELECT * FROM pvb_splits WHERE pa >= 5"
+            params: list = []
+
+            if batter_ids:
+                placeholders = ",".join("?" * len(batter_ids))
+                query += f" AND batter_id IN ({placeholders})"
+                params.extend(batter_ids)
+            if pitcher_ids:
+                placeholders = ",".join("?" * len(pitcher_ids))
+                query += f" AND pitcher_id IN ({placeholders})"
+                params.extend(pitcher_ids)
+
+            df = pd.read_sql(query, conn, params=params)
+        finally:
+            conn.close()
+
+        if df.empty:
+            return {}
+
+        result = {}
+        for _, row in df.iterrows():
+            key = (int(row["batter_id"]), int(row["pitcher_id"]))
+            result[key] = {
+                "pa": int(row.get("pa", 0)),
+                "avg": float(row.get("avg", 0)),
+                "obp": float(row.get("obp", 0)),
+                "slg": float(row.get("slg", 0)),
+                "hr": int(row.get("hr", 0)),
+                "k": int(row.get("k", 0)),
+                "bb": int(row.get("bb", 0)),
+                "woba": float(row.get("woba", 0)),
+            }
+        return result
+    except Exception:
+        return {}
+
+
+def pvb_matchup_adjustment(
+    batter_generic_woba: float,
+    pvb_woba: float,
+    pvb_pa: int,
+    stabilization_pa: int = 60,
+) -> float:
+    """E7: Compute PvB-adjusted wOBA using regression to mean.
+
+    PvB stats stabilize at ~60 PA. Below that, regress toward generic
+    platoon split. Above 60 PA, PvB data provides +2-4% accuracy over
+    generic platoon splits.
+
+    Args:
+        batter_generic_woba: Batter's overall wOBA (generic, no PvB).
+        pvb_woba: Batter's wOBA in this specific PvB matchup.
+        pvb_pa: Number of PA in this matchup history.
+        stabilization_pa: PA threshold for full weight (default 60).
+
+    Returns:
+        Regressed wOBA estimate blending PvB with generic.
+    """
+    if pvb_pa <= 0 or pvb_woba <= 0:
+        return batter_generic_woba
+
+    weight = min(1.0, pvb_pa / stabilization_pa)
+    return weight * pvb_woba + (1.0 - weight) * batter_generic_woba

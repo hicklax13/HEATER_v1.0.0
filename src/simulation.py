@@ -372,7 +372,7 @@ class DraftSimulator:
             pick_schedule.append((pick, team_idx))
 
         # Q2: Track recent pick positions per simulation for run detection
-        if not hasattr(self, '_recent_pick_positions'):
+        if not hasattr(self, "_recent_pick_positions"):
             self._recent_pick_positions = {}
 
         for sim in range(n_simulations):
@@ -444,7 +444,7 @@ class DraftSimulator:
 
                     # Q2: Position run detection — if 2+ recent picks at same position,
                     # boost remaining players at that position by 1.3x for 3 picks.
-                    if pick > 3 and hasattr(self, '_recent_pick_positions'):
+                    if pick > 3 and hasattr(self, "_recent_pick_positions"):
                         _recent = self._recent_pick_positions.get(sim, [])[-8:]
                         _pos_counts: dict[str, int] = {}
                         for _rp in _recent:
@@ -700,3 +700,146 @@ def detect_position_run(pick_log: list, lookback: int = 8, threshold: int = 3) -
                 position_counts[pos] = position_counts.get(pos, 0) + 1
 
     return [pos for pos, count in position_counts.items() if count >= threshold]
+
+
+# ── Q3: Per-Player ADP Standard Deviation ──────────────────────────
+
+
+def compute_player_adp_sigma(
+    player_pool: pd.DataFrame,
+) -> pd.Series:
+    """Q3: Compute per-player ADP standard deviation from NFBC multi-source data.
+
+    Instead of a global ADP/4 sigma for all players, each player gets an
+    individual sigma based on: (max_pick - min_pick) / 4 from multi-source
+    ADP data (NFBC, FanGraphs, Yahoo, FantasyPros).
+
+    Injury-prone players and those with role uncertainty have wider
+    distributions. High-floor established stars have narrow distributions.
+
+    Args:
+        player_pool: DataFrame with adp, nfbc_adp, and optionally health_score columns.
+
+    Returns:
+        Series of per-player sigma values indexed by player_id.
+    """
+    if player_pool.empty:
+        return pd.Series(dtype=float)
+
+    result = pd.Series(index=player_pool.index, dtype=float)
+
+    for idx, row in player_pool.iterrows():
+        adp_primary = float(row.get("adp", 999) or 999)
+        nfbc_adp = row.get("nfbc_adp")
+
+        # Collect ADP values from multiple sources
+        adp_values = [adp_primary]
+        if nfbc_adp is not None and not (isinstance(nfbc_adp, float) and np.isnan(nfbc_adp)):
+            adp_values.append(float(nfbc_adp))
+
+        # If we have ECR rank data, use that as another signal
+        ecr_rank = row.get("consensus_rank")
+        if ecr_rank is not None and not (isinstance(ecr_rank, float) and np.isnan(ecr_rank)):
+            adp_values.append(float(ecr_rank))
+
+        if len(adp_values) >= 2:
+            # Q3 formula: (max - min) / 4 approximates 1 SD
+            adp_range = max(adp_values) - min(adp_values)
+            sigma = max(2.0, adp_range / 4.0)
+        else:
+            # Fallback: global ADP/4 with floor
+            sigma = max(3.0, adp_primary / 4.0)
+
+        # Adjust for injury risk: injured/fragile players have wider distributions
+        health = row.get("health_score")
+        if health is not None and not (isinstance(health, float) and np.isnan(health)):
+            health = float(health)
+            if health < 0.65:
+                sigma *= 1.4  # High injury risk = 40% wider ADP range
+            elif health < 0.85:
+                sigma *= 1.15  # Moderate risk
+
+        # Cap at reasonable range
+        sigma = min(sigma, adp_primary * 0.5)  # Never wider than half their ADP
+        sigma = max(2.0, sigma)
+
+        result.at[idx] = sigma
+
+    return result
+
+
+# ── Q4: Draft Value Standings Impact ───────────────────────────────
+
+
+def evaluate_pick_standings_impact(
+    candidate: pd.Series,
+    current_roster_sgp: dict[str, float],
+    league_avg_sgp: dict[str, float],
+    config: "LeagueConfig",
+) -> dict:
+    """Q4: Evaluate a draft pick's effect on projected standings.
+
+    Instead of just picking BPA, AI evaluates each pick's marginal impact
+    on the team's projected category standings. A player who helps in weak
+    categories is worth more than one who pads already-strong categories.
+
+    Args:
+        candidate: Series for the player being evaluated.
+        current_roster_sgp: Dict mapping category -> current team total SGP.
+        league_avg_sgp: Dict mapping category -> league average SGP.
+        config: LeagueConfig for category definitions.
+
+    Returns:
+        Dict with standings_impact (total projected points gained),
+        weak_cats_helped (count), strong_cats_padded (count),
+        and per_cat_impact dict.
+    """
+    from src.valuation import SGPCalculator
+
+    sgp_calc = SGPCalculator(config)
+
+    result = {
+        "standings_impact": 0.0,
+        "weak_cats_helped": 0,
+        "strong_cats_padded": 0,
+        "per_cat_impact": {},
+    }
+
+    # Get per-category SGP for this candidate
+    candidate_sgp = {}
+    for cat in config.hitting_categories + config.pitching_categories:
+        cat_lower = cat.lower()
+        val = candidate.get(cat_lower, candidate.get(cat, 0))
+        if val is None or (isinstance(val, float) and np.isnan(val)):
+            val = 0.0
+        # Simple per-category marginal value
+        candidate_sgp[cat_lower] = float(val)
+
+    total_impact = 0.0
+    for cat in config.all_categories:
+        cat_lower = cat.lower()
+        current = current_roster_sgp.get(cat_lower, 0)
+        avg = league_avg_sgp.get(cat_lower, 0)
+        player_contrib = candidate_sgp.get(cat_lower, 0)
+
+        # Gap from league average — negative means we're below average
+        gap = current - avg
+
+        # Impact: larger positive impact when filling a weak category
+        if gap < -0.5:
+            # Below average — each unit of player contribution is worth 1.5x
+            impact = player_contrib * 1.5
+            result["weak_cats_helped"] += 1
+        elif gap > 1.0:
+            # Well above average — diminishing returns (0.5x)
+            impact = player_contrib * 0.5
+            result["strong_cats_padded"] += 1
+        else:
+            # Near average — normal value
+            impact = player_contrib * 1.0
+
+        result["per_cat_impact"][cat_lower] = round(impact, 3)
+        total_impact += impact
+
+    result["standings_impact"] = round(total_impact, 3)
+    return result

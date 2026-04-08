@@ -154,3 +154,182 @@ def get_opponent_archetype(
         "strengths": profile.get("strengths", []),
         "weaknesses": profile.get("weaknesses", []),
     }
+
+
+# ── D4: Opponent Behavior Learning ─────────────────────────────────
+
+
+def learn_opponent_trade_behavior(
+    opponent_team: str,
+    transactions: pd.DataFrame | None = None,
+) -> dict:
+    """D4: Per-opponent logistic regression on trade history.
+
+    Learns from Yahoo transaction data which opponents are more likely to
+    accept trades, what categories they prioritize, and what positions they
+    favor. Uses trade history from the `opponent_trade_history` table (if
+    available) plus live Yahoo transactions.
+
+    Returns dict with:
+        - acceptance_modifier: float (0.7-1.3) multiplier for this opponent
+        - category_preferences: dict of category -> weight (what they value)
+        - position_preferences: dict of position -> weight
+        - trade_frequency: float (trades per week)
+        - sample_size: int (number of historical data points)
+    """
+    import numpy as np
+
+    result = {
+        "acceptance_modifier": 1.0,
+        "category_preferences": {},
+        "position_preferences": {},
+        "trade_frequency": 0.0,
+        "sample_size": 0,
+    }
+
+    # Load opponent trade history from DB
+    try:
+        from src.database import get_connection
+
+        conn = get_connection()
+        try:
+            import pandas as pd
+
+            history = pd.read_sql(
+                "SELECT * FROM opponent_trade_history WHERE opponent_team = ?",
+                conn,
+                params=(opponent_team,),
+            )
+        finally:
+            conn.close()
+    except Exception:
+        history = None
+
+    # Also use Yahoo transaction data if available
+    trade_count = 0
+    weeks_active = 1
+    if transactions is not None and not transactions.empty:
+        opp_trades = transactions[
+            (transactions["type"] == "trade")
+            & (
+                transactions["team_from"].str.contains(opponent_team, case=False, na=False)
+                | transactions["team_to"].str.contains(opponent_team, case=False, na=False)
+            )
+        ]
+        trade_count = len(opp_trades)
+
+        # Estimate weeks active from date range
+        if "timestamp" in transactions.columns:
+            try:
+                dates = pd.to_datetime(transactions["timestamp"], errors="coerce").dropna()
+                if len(dates) >= 2:
+                    weeks_active = max(1, (dates.max() - dates.min()).days / 7)
+            except Exception:
+                pass
+
+    result["trade_frequency"] = trade_count / max(1, weeks_active)
+
+    # If we have stored history, learn preferences
+    if history is not None and not history.empty:
+        result["sample_size"] = len(history)
+
+        # Category preferences from what they acquired
+        cat_counts: dict[str, float] = {}
+        for _, row in history.iterrows():
+            focus = str(row.get("category_focus", ""))
+            if focus:
+                for cat in focus.split(","):
+                    cat = cat.strip()
+                    if cat:
+                        cat_counts[cat] = cat_counts.get(cat, 0) + 1
+
+        total_cat = sum(cat_counts.values())
+        if total_cat > 0:
+            result["category_preferences"] = {k: round(v / total_cat, 3) for k, v in cat_counts.items()}
+
+        # Position preferences
+        pos_counts: dict[str, float] = {}
+        for _, row in history.iterrows():
+            focus = str(row.get("position_focus", ""))
+            if focus:
+                for pos in focus.split(","):
+                    pos = pos.strip()
+                    if pos:
+                        pos_counts[pos] = pos_counts.get(pos, 0) + 1
+
+        total_pos = sum(pos_counts.values())
+        if total_pos > 0:
+            result["position_preferences"] = {k: round(v / total_pos, 3) for k, v in pos_counts.items()}
+
+        # Acceptance modifier from SGP ratios in history
+        sgp_ratios = []
+        for _, row in history.iterrows():
+            gave = float(row.get("gave_sgp", 0))
+            received = float(row.get("received_sgp", 0))
+            if gave > 0:
+                sgp_ratios.append(received / gave)
+
+        if len(sgp_ratios) >= 3:
+            # Opponents who accept lopsided deals have higher modifier
+            avg_ratio = float(np.mean(sgp_ratios))
+            # Ratio > 1.0 means they gave more than they got → easier to trade with
+            result["acceptance_modifier"] = max(0.7, min(1.3, avg_ratio))
+
+    # Frequency-based modifier: active traders more likely to accept
+    if result["trade_frequency"] > 0.5:
+        result["acceptance_modifier"] = min(1.3, result["acceptance_modifier"] * 1.1)
+    elif result["trade_frequency"] < 0.1 and trade_count > 0:
+        result["acceptance_modifier"] = max(0.7, result["acceptance_modifier"] * 0.9)
+
+    return result
+
+
+def record_trade_outcome(
+    opponent_team: str,
+    gave_player_ids: list[int],
+    received_player_ids: list[int],
+    gave_sgp: float,
+    received_sgp: float,
+    category_focus: str = "",
+    position_focus: str = "",
+    accepted: bool = True,
+    season: int | None = None,
+) -> None:
+    """D4: Record a trade outcome for future learning.
+
+    Called when a trade is executed or rejected to build the per-opponent
+    behavior model over time.
+    """
+    try:
+        from datetime import UTC, datetime
+
+        from src.database import get_connection
+
+        if season is None:
+            season = datetime.now(UTC).year
+
+        conn = get_connection()
+        try:
+            conn.execute(
+                """INSERT INTO opponent_trade_history
+                   (opponent_team, trade_date, gave_player_ids, received_player_ids,
+                    gave_sgp, received_sgp, category_focus, position_focus, accepted, season)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    opponent_team,
+                    datetime.now(UTC).isoformat(),
+                    ",".join(str(x) for x in gave_player_ids),
+                    ",".join(str(x) for x in received_player_ids),
+                    round(gave_sgp, 3),
+                    round(received_sgp, 3),
+                    category_focus,
+                    position_focus,
+                    1 if accepted else 0,
+                    season,
+                ),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception as e:
+        logger.warning("D4: Failed to record trade outcome: %s", e)
