@@ -406,8 +406,12 @@ if IP_TRACKER_AVAILABLE and not roster.empty:
 
 
 # ── Load live matchup data early (before matchup state classification) ──
+# Try YDS first, then fall back to the matchup ticker's session cache
+# (which uses the raw Yahoo client directly and is often populated when YDS isn't)
 
 _live_matchup_early = yds.get_matchup()
+if _live_matchup_early is None:
+    _live_matchup_early = st.session_state.get("_matchup_ticker_data")
 _pre_live_opp_name = ""
 _pre_live_my: dict[str, float] = {}
 _pre_live_opp: dict[str, float] = {}
@@ -467,17 +471,33 @@ ctx, main = render_context_columns()
 # ── Context panel ────────────────────────────────────────────────────
 
 with ctx:
-    # Team info
+    # Team info — show active roster size (excluding IL/NA/DTD)
+    _IL_STATUSES_CTX = {"il10", "il15", "il60", "il", "na", "not active", "dl", "dtd", "day-to-day"}
+    _active_count = len(user_player_ids)
+    _il_count = 0
+    if "status" in roster.columns:
+        _il_count = int(roster["status"].apply(
+            lambda s: str(s or "").strip().lower() in _IL_STATUSES_CTX
+        ).sum())
+        _active_count = len(user_player_ids) - _il_count
+    _roster_detail = f"{_active_count} active"
+    if _il_count > 0:
+        _roster_detail += f" + {_il_count} IL"
     render_context_card(
         "Team",
-        f'<div class="context-stat-row"><span class="context-stat-label">Active</span>'
+        f'<div class="context-stat-row"><span class="context-stat-label">Team</span>'
         f'<span class="context-stat-value">{_display_team_name}</span></div>'
         f'<div class="context-stat-row"><span class="context-stat-label">Roster</span>'
-        f'<span class="context-stat-value">{len(user_player_ids)} players</span></div>',
+        f'<span class="context-stat-value">{_roster_detail}</span></div>',
     )
 
     # Optimizer settings
-    render_context_card("Optimization Settings", "")
+    st.markdown(
+        f'<p style="font-family:Bebas Neue,sans-serif;font-size:10px;text-transform:uppercase;'
+        f'letter-spacing:2px;color:{T["tx2"]};margin:12px 0 6px;padding-bottom:4px;'
+        f'border-bottom:1px solid {T["border"]};">Optimization Settings</p>',
+        unsafe_allow_html=True,
+    )
     mode = st.radio(
         "Optimization Mode",
         options=["quick", "standard", "full"],
@@ -503,11 +523,23 @@ with ctx:
         help="0.0 = pure season-long, 1.0 = pure weekly Head-to-Head, 0.5 = balanced.",
         key="lineup_alpha",
     )
+    # Auto-compute weeks remaining from current date (season is 24 weeks)
+    try:
+        from datetime import UTC as _utc
+        from datetime import datetime as _dt
+
+        # MLB 2026 fantasy Week 1 started March 23, 2026
+        _SEASON_START = _dt(2026, 3, 23, tzinfo=_utc)
+        _TOTAL_WEEKS = 24
+        _weeks_elapsed = max(0, (_dt.now(_utc) - _SEASON_START).days // 7)
+        _auto_weeks = max(1, _TOTAL_WEEKS - _weeks_elapsed)
+    except Exception:
+        _auto_weeks = 16
     weeks_remaining = st.number_input(
         "Weeks Remaining",
         min_value=1,
-        max_value=26,
-        value=16,
+        max_value=24,
+        value=_auto_weeks,
         help="Weeks left in the fantasy season. Affects urgency calculations.",
         key="lineup_weeks",
     )
@@ -538,13 +570,17 @@ with ctx:
                         _you = float(_mc.get("you", 0) or 0)
                         _opp = float(_mc.get("opp", 0) or 0)
                         _cat_lower = _cat_name.lower()
+                        _rate_stats = {"avg", "obp", "era", "whip"}
                         # For inverse stats, gap = your value - opp value (positive = bad)
                         if _cat_lower in _inverse:
                             _gap = _you - _opp
                             _gap_str = f"+{_gap:.2f}" if _cat_lower in ("era", "whip") else f"+{_gap:.0f}"
+                        elif _cat_lower in _rate_stats:
+                            _gap = _you - _opp
+                            _gap_str = f"{_gap:+.3f}"
                         else:
                             _gap = _you - _opp
-                            _gap_str = f"{_gap:.0f}" if abs(_gap) > 1 else f"{_gap:.1f}"
+                            _gap_str = f"{_gap:.0f}" if abs(_gap) > 1 else f"{_gap:.0f}"
                         _losing_with_gaps.append(f"{_cat_name} ({_gap_str})")
                     except (ValueError, TypeError):
                         _losing_with_gaps.append(_cat_name)
@@ -585,7 +621,7 @@ with ctx:
         opp_totals = _pre_live_opp
         selected_opponent = _pre_live_opp_name
 
-    render_context_card("Head-to-Head Matchup", "")
+    # Opponent selector — only show when no live matchup (need manual selection)
     if not selected_opponent and opponent_names:
         selected_opponent = st.selectbox(
             "This Week's Opponent",
@@ -598,9 +634,6 @@ with ctx:
             opp_totals = team_totals.get(selected_opponent, {})
         else:
             selected_opponent = None
-    elif selected_opponent:
-        # Live matchup data already set my_totals and opp_totals
-        st.markdown(f"**{selected_opponent}** (from live matchup)")
 
     if selected_opponent and opp_totals and my_totals and H2H_AVAILABLE:
         try:
@@ -611,19 +644,17 @@ with ctx:
             render_context_card(
                 "Win Probability",
                 f'<div class="context-stat-row">'
-                f'<span class="context-stat-label">Probability</span>'
+                f'<span class="context-stat-label">Win Probability</span>'
                 f'<span class="context-stat-value">{_win_prob:.1%}</span></div>'
                 f'<div class="context-stat-row">'
                 f'<span class="context-stat-label">Expected Wins</span>'
-                f'<span class="context-stat-value">{_exp_wins:.2f} / 10</span></div>'
+                f'<span class="context-stat-value">{_exp_wins:.1f} / 10</span></div>'
                 f'<div class="context-stat-row">'
-                f'<span class="context-stat-label">Status</span>'
+                f'<span class="context-stat-label">Outlook</span>'
                 f'<span class="context-stat-value">{_status}</span></div>',
             )
         except Exception:
             pass
-    else:
-        st.caption("Run the Optimizer to populate matchup data, or connect Yahoo for live data.")
 
     # Data freshness card
     try:
@@ -978,17 +1009,17 @@ with main:
             else:
                 st.success("Daily lineup optimized (DCV engine, matchup-adjusted)")
 
-                # Show urgency summary from shared context
+                # Show W-L-T summary from actual Yahoo matchup results
                 _ctx_disp = st.session_state.get("optimizer_context")
-                _urg_inner = (
-                    _ctx_disp.urgency_weights.get("urgency", {})
+                _urg_summary = (
+                    _ctx_disp.urgency_weights.get("summary", {})
                     if _ctx_disp and isinstance(_ctx_disp.urgency_weights, dict)
                     else {}
                 )
-                if _urg_inner:
-                    _losing = [c for c, u in _urg_inner.items() if u > 0.6]
-                    _tied = [c for c, u in _urg_inner.items() if 0.4 < u <= 0.6]
-                    _winning = [c for c, u in _urg_inner.items() if u <= 0.25]
+                _winning = _urg_summary.get("winning", [])
+                _losing = _urg_summary.get("losing", [])
+                _tied = _urg_summary.get("tied", [])
+                if _winning or _losing or _tied:
                     col1, col2, col3 = st.columns(3)
                     with col1:
                         st.metric("Winning", len(_winning))
@@ -1013,7 +1044,8 @@ with main:
                     else dcv.copy()
                 )
                 starters_dcv = eligible.nlargest(18, "total_dcv") if "total_dcv" in eligible.columns else eligible
-                bench_dcv = dcv[~dcv.index.isin(starters_dcv.index)]
+                # Bench = eligible players not in starters (exclude IL/DTD/NA with health_factor=0)
+                bench_dcv = eligible[~eligible.index.isin(starters_dcv.index)]
 
                 st.markdown(
                     f'<p style="font-size:12px;font-weight:700;letter-spacing:1px;'
@@ -1269,9 +1301,9 @@ with main:
                         unsafe_allow_html=True,
                     )
                     proj = lineup["projected_stats"]
-                    # Scale counting stats to weekly (26-week MLB season).
+                    # Scale counting stats to weekly (24-week fantasy season).
                     # Rate stats (AVG, OBP, ERA, WHIP) don't scale.
-                    WEEKS_IN_SEASON = 26.0
+                    WEEKS_IN_SEASON = 24.0
                     _rate_stats = {"avg", "obp", "era", "whip"}
                     weekly_proj: dict[str, float] = {}
                     for cat, val in proj.items():
@@ -2457,6 +2489,8 @@ with main:
 
         # Use shared context for two-start detection when available
         two_start_sps = []
+        # IL/DTD/NA statuses to exclude from two-start candidates
+        _IL_EXCLUDE = {"il10", "il15", "il60", "il", "na", "not active", "dl", "dtd", "day-to-day", "minors", "out", "suspended"}
         _stream_ctx = st.session_state.get("optimizer_context")
         if _stream_ctx and _stream_ctx.two_start_pitchers:
             # Build display from shared context (pre-computed, consistent with optimizer)
@@ -2469,8 +2503,17 @@ with main:
             _pid_team = (
                 dict(zip(roster.get("player_id", []), roster.get("team", []))) if "player_id" in roster.columns else {}
             )
+            _pid_status = (
+                dict(zip(roster.get("player_id", []), roster.get("status", [])))
+                if "player_id" in roster.columns and "status" in roster.columns
+                else {}
+            )
             _remaining = _stream_ctx.remaining_games_this_week or {}
             for _ts_pid in _stream_ctx.two_start_pitchers:
+                # Skip IL/DTD/NA players (e.g. IL stash pitchers like Strider)
+                _ts_status = str(_pid_status.get(_ts_pid, "")).strip().lower()
+                if _ts_status in _IL_EXCLUDE:
+                    continue
                 _ts_name = _pid_name.get(_ts_pid, f"Player {_ts_pid}")
                 _ts_team = str(_pid_team.get(_ts_pid, ""))
                 _ts_games = _remaining.get(_ts_team, 0)
@@ -2532,6 +2575,10 @@ with main:
                 TWO_START_THRESHOLD = 7
                 for _, row in roster.iterrows():
                     if not row.get("is_hitter", True) and "SP" in str(row.get("positions", "")):
+                        # Skip IL/DTD/NA players
+                        _row_status = str(row.get("status", "")).strip().lower()
+                        if _row_status in _IL_EXCLUDE:
+                            continue
                         team = str(row.get("team", "")).strip()
                         games = team_game_counts.get(team, 0)
                         if games >= TWO_START_THRESHOLD:
