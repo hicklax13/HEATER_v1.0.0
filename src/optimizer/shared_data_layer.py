@@ -186,7 +186,7 @@ def build_optimizer_context(
         ctx.roster = roster
     else:
         try:
-            rosters = yds.get_rosters(force_refresh=True)
+            rosters = yds.get_rosters()
             if not rosters.empty and user_team_name:
                 ctx.roster = rosters[rosters["team_name"] == user_team_name].copy()
             elif not rosters.empty:
@@ -197,9 +197,26 @@ def build_optimizer_context(
     if "player_id" in ctx.roster.columns:
         ctx.user_roster_ids = ctx.roster["player_id"].dropna().astype(int).tolist()
 
-    # ── Step 3: Load free agents ──────────────────────────────────────
+    # ── Step 3: Load free agents (enriched with player pool data) ─────
     try:
-        ctx.free_agents = yds.get_free_agents()
+        _raw_fa = yds.get_free_agents()
+        if not _raw_fa.empty and not ctx.player_pool.empty:
+            # Enrich Yahoo FA data with player_id, is_hitter, stat columns
+            # from the player pool (matched by name)
+            _fa_name_col = "player_name" if "player_name" in _raw_fa.columns else "name"
+            _pool_name_col = "name" if "name" in ctx.player_pool.columns else "player_name"
+            # Columns to bring in from pool (skip those already in FA data)
+            _pool_cols = [c for c in ctx.player_pool.columns if c not in _raw_fa.columns or c == _pool_name_col]
+            _pool_for_merge = ctx.player_pool[_pool_cols].drop_duplicates(subset=[_pool_name_col], keep="first")
+            ctx.free_agents = _raw_fa.merge(
+                _pool_for_merge,
+                left_on=_fa_name_col,
+                right_on=_pool_name_col,
+                how="left",
+                suffixes=("", "_pool"),
+            )
+        else:
+            ctx.free_agents = _raw_fa
     except Exception:
         logger.warning("Failed to load free agents")
 
@@ -277,19 +294,24 @@ def _build_matchup_totals(ctx: OptimizerDataContext, yds, user_team_name: str | 
     try:
         standings = yds.get_standings()
         if not standings.empty and "category" in standings.columns:
-            _cats = [
-                c
+            _cats = {
+                c.lower()
                 for c in standings["category"].unique()
                 if c.lower() not in ("w-l-t", "record", "wins", "losses", "ties")
-            ]
+            }
             for _, row in standings.iterrows():
                 team = str(row.get("team_name", ""))
                 cat = str(row.get("category", "")).lower()
-                val = row.get("value", 0)
+                val = row.get("total", 0)
                 if cat in _cats:
                     if team == user_team_name:
                         try:
                             ctx.my_totals[cat] = float(val)
+                        except (ValueError, TypeError):
+                            pass
+                    elif team == ctx.opponent_name:
+                        try:
+                            ctx.opp_totals[cat] = float(val)
                         except (ValueError, TypeError):
                             pass
     except Exception:
@@ -611,7 +633,7 @@ def _load_ownership_trends(ctx: OptimizerDataContext) -> None:
         conn = get_connection()
         try:
             df = pd.read_sql(
-                "SELECT player_id, percent_owned, fetched_at FROM ownership_trends ORDER BY fetched_at DESC",
+                "SELECT player_id, percent_owned, date FROM ownership_trends ORDER BY date DESC",
                 conn,
             )
             if not df.empty:
@@ -649,6 +671,8 @@ def _compute_avis_constraints(ctx: OptimizerDataContext, yds) -> None:
                 if str(row.get("type", "")).lower() == "add":
                     try:
                         ts = pd.to_datetime(row.get("timestamp", ""))
+                        if ts.tzinfo is None:
+                            ts = ts.tz_localize("UTC")
                         if ts >= week_start:
                             adds_this_week += 1
                     except Exception:
@@ -755,8 +779,11 @@ def scale_projections_for_scope(
             season_rate = remaining / max(_SEASON_GAMES, 1)
             pid = row.get("player_id")
 
-            # Two-start pitcher bonus
-            is_two_start = pid is not None and int(pid) in ctx.two_start_pitchers
+            # Two-start pitcher bonus (guard against NaN player_id from pandas)
+            try:
+                is_two_start = pid is not None and int(pid) in ctx.two_start_pitchers
+            except (ValueError, TypeError):
+                is_two_start = False
             pitcher_mult = _TWO_START_COUNTING_MULT if is_two_start else 1.0
 
             for col in counting_cats:
@@ -789,24 +816,33 @@ def scale_projections_for_scope(
 
     # Apply opposing pitcher adjustment for today/week scopes
     if ctx.scope in ("today", "rest_of_week") and ctx.opposing_pitchers:
+        # Build team→opponent mapping from today's schedule
+        _team_opponent: dict[str, str] = {}
+        for _game in ctx.todays_schedule or []:
+            _h = str(_game.get("home_name", ""))
+            _a = str(_game.get("away_name", ""))
+            if _h and _a:
+                _team_opponent[_h] = _a
+                _team_opponent[_a] = _h
         for idx, row in df.iterrows():
             if not row.get("is_hitter", True):
                 continue
             team = str(row.get("team", ""))
-            # Look up opposing pitching quality
-            for opp_team, opp_data in ctx.opposing_pitchers.items():
-                opp_fip = float(opp_data.get("fip", 4.00) or 4.00)
-                if opp_fip < _OPP_PITCHER_FIP_STRONG:
-                    mult = _OPP_PITCHER_STRONG_MULT
-                elif opp_fip > _OPP_PITCHER_FIP_WEAK:
-                    mult = _OPP_PITCHER_WEAK_MULT
-                else:
-                    mult = 1.0
-                if mult != 1.0:
-                    for col in counting_cats:
-                        if col in df.columns and col in ("r", "hr", "rbi", "sb"):
-                            df.at[idx, col] = float(df.at[idx, col] or 0) * mult
-                break  # Only use first match for now
+            opp_team = _team_opponent.get(team, "")
+            if not opp_team or opp_team not in ctx.opposing_pitchers:
+                continue
+            opp_data = ctx.opposing_pitchers[opp_team]
+            opp_fip = float(opp_data.get("fip", 4.00) or 4.00)
+            if opp_fip < _OPP_PITCHER_FIP_STRONG:
+                mult = _OPP_PITCHER_STRONG_MULT
+            elif opp_fip > _OPP_PITCHER_FIP_WEAK:
+                mult = _OPP_PITCHER_WEAK_MULT
+            else:
+                mult = 1.0
+            if mult != 1.0:
+                for col in counting_cats:
+                    if col in df.columns and col in ("r", "hr", "rbi", "sb"):
+                        df.at[idx, col] = float(df.at[idx, col] or 0) * mult
 
     return df
 

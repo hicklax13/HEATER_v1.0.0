@@ -477,10 +477,11 @@ def build_daily_dcv_table(
         team_plays = team in teams_playing if teams_playing else True
         in_lineup = None  # default: lineup not posted
         if confirmed_lineups is not None:
-            if team in confirmed_lineups:
-                # Team has posted lineup
+            is_hitter = bool(int(player.get("is_hitter", 1)))
+            if is_hitter and team in confirmed_lineups:
+                # Batting lineups only meaningful for hitters
                 in_lineup = name in confirmed_lineups[team]
-            # else: team hasn't posted, keep None (0.9 default)
+            # Pitchers keep None (0.9 default) — batting lineups don't list SPs
         volume = compute_volume_factor(team_plays, in_lineup)
 
         # Skip entirely if excluded

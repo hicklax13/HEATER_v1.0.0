@@ -36,7 +36,7 @@ _MAX_DROP_CANDIDATES = 5
 _MAX_FA_CANDIDATES = 10
 _CATEGORY_WORSEN_THRESHOLD = -0.1
 _MAX_WORSENED_CATEGORIES = 3
-_HITTER_SLOTS = 13  # C/1B/2B/3B/SS/3OF/2Util = 13
+_HITTER_SLOTS = 10  # C/1B/2B/3B/SS/3OF/2Util = 10 starting hitter slots
 _CROSS_TYPE_SGP_MIN = 0.3
 _OWNERSHIP_BOOST_DELTA = 5.0
 _OWNERSHIP_BOOST_MULT = 1.10
@@ -448,10 +448,8 @@ def _allow_cross_type(
         # Already at or above hitter capacity, no room for another hitter
         return False
     if not fa_is_hitter and hitter_count <= _HITTER_SLOTS:
-        # Would reduce hitters below capacity
-        # But we have surplus if hitters > slots
-        if hitter_count <= _HITTER_SLOTS:
-            return False
+        # No hitter surplus — can't drop a hitter for a pitcher
+        return False
 
     # Check if swap improves a target category by >= 0.3 SGP
     swap = compute_net_swap_value(

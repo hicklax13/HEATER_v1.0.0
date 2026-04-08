@@ -826,7 +826,13 @@ with main:
                 # Use shared context weights instead of monkey-patching
                 _urgency_weights: dict[str, float] = {}
                 if _opt_ctx and _opt_ctx.urgency_weights:
-                    _urgency_weights = _opt_ctx.urgency_weights
+                    # Extract inner urgency dict — compute_urgency_weights() returns
+                    # {"urgency": {cat: float}, "rate_modes": {...}, "summary": {...}}
+                    _urgency_weights = (
+                        _opt_ctx.urgency_weights.get("urgency", {})
+                        if isinstance(_opt_ctx.urgency_weights, dict)
+                        else {}
+                    )
 
                 # IP-aware pitching weight adjustment
                 _ip_boost = 1.0
@@ -972,10 +978,15 @@ with main:
 
                 # Show urgency summary from shared context
                 _ctx_disp = st.session_state.get("optimizer_context")
-                if _ctx_disp and _ctx_disp.urgency_weights:
-                    _losing = [c for c, u in _ctx_disp.urgency_weights.items() if u > 0.6]
-                    _tied = [c for c, u in _ctx_disp.urgency_weights.items() if 0.4 < u <= 0.6]
-                    _winning = [c for c, u in _ctx_disp.urgency_weights.items() if u <= 0.25]
+                _urg_inner = (
+                    _ctx_disp.urgency_weights.get("urgency", {})
+                    if _ctx_disp and isinstance(_ctx_disp.urgency_weights, dict)
+                    else {}
+                )
+                if _urg_inner:
+                    _losing = [c for c, u in _urg_inner.items() if u > 0.6]
+                    _tied = [c for c, u in _urg_inner.items() if 0.4 < u <= 0.6]
+                    _winning = [c for c, u in _urg_inner.items() if u <= 0.25]
                     col1, col2, col3 = st.columns(3)
                     with col1:
                         st.metric("Winning", len(_winning))
@@ -1095,7 +1106,7 @@ with main:
                                     f'<span style="color:{_color};font-weight:700;">'
                                     f"({_delta:+.2f} Standings Gained Points)</span>"
                                     f"{'<br>Helps: ' + ', '.join(_cats) if _cats else ''}"
-                                    f"{'<br><span style=color:' + T['danger'] + '>' + _warn + '</span>' if _warn else ''}"
+                                    f"{'<br><span style=' + chr(34) + 'color:' + T['danger'] + chr(34) + '>' + _warn + '</span>' if _warn else ''}"
                                     f"</div>",
                                     unsafe_allow_html=True,
                                 )
@@ -1398,7 +1409,7 @@ with main:
                                     f'<span style="color:{_color};font-weight:700;">'
                                     f"({_delta:+.2f} Standings Gained Points)</span>"
                                     f"{'<br>Helps: ' + ', '.join(_cats) if _cats else ''}"
-                                    f"{'<br><span style=color:' + T['danger'] + '>' + _warn + '</span>' if _warn else ''}"
+                                    f"{'<br><span style=' + chr(34) + 'color:' + T['danger'] + chr(34) + '>' + _warn + '</span>' if _warn else ''}"
                                     f"</div>",
                                     unsafe_allow_html=True,
                                 )

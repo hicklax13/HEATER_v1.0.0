@@ -197,7 +197,7 @@ class LineupOptimizer:
                     val *= opp_mult
 
                 # Apply two-start boost to pitching counting stats
-                if two_start and cat in ("w", "k", "sv"):
+                if two_start and cat in ("w", "l", "k", "sv"):
                     val *= 2.0
 
                 if cat in ("era", "whip"):
