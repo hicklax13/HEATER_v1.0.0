@@ -24,7 +24,7 @@
 
 ## Accuracy & Improvement Backlog — Organized by Page
 
-**99 total items** (87 unique after deduplication) identified via algorithm audit, deep web research
+**105 total items** (91 unique after deduplication) identified via algorithm audit, deep web research
 (FanGraphs, Baseball Savant, behavioral economics, game theory, MIT Sloan, AMS, PMC), and
 sabermetric literature. Updated April 7, 2026 to reflect Line-up Optimizer V3 (f795ea8).
 
@@ -270,6 +270,38 @@ These cascade through all 53 engines. Highest leverage.
 
 ---
 
+## Redundancy Consolidation Backlog
+
+Identified April 7, 2026 via full-app redundancy audit. Features/tabs that duplicate
+each other across pages, creating user confusion and maintenance burden.
+
+### S — Consolidation Tasks
+
+| # | Item | What's Redundant | Fix | Impact |
+|---|------|-----------------|-----|--------|
+| S1 | **Merge Trade Finder "Smart Recs" + "By Value" tabs** | Both tabs show the same trade opportunities from `find_trade_opportunities()`. "Smart Recs" re-ranks by need efficiency, "By Value" by composite score — but it's the same data displayed twice. | Merge into a single "Trade Recommendations" tab with sort/filter toggles (sort by: Composite Score, Need Efficiency, Acceptance Probability, Your SGP Gain). Remove the redundant tab. | Reduces confusion ("which tab do I use?"). Frees tab space. |
+| S2 | **Remove Lineup Optimizer "H2H Analysis" tab** | H2H tab shows per-category win probabilities + expected wins — identical to Matchup Planner's "Category Probabilities" tab. Both call `estimate_h2h_win_probability()`. | Remove the H2H tab from Lineup Optimizer. Add a "View Full Matchup Analysis" link to Matchup Planner page. The Matchup Planner is the canonical H2H surface (it also has per-game ratings, week navigation, opponent weakness). | Eliminates duplicate H2H display. Matchup Planner is richer. |
+| S3 | **Consolidate Lineup Optimizer "Streaming" tab with Free Agents page** | Streaming tab shows pitcher streaming candidates ranked by net SGP value. Free Agents page shows the same free agents ranked by marginal value, including pitchers. Streaming is a subset of Free Agents. | Either: (a) Remove Streaming tab and link to Free Agents, or (b) Keep Streaming as a "quick view" that shows only the top 5 pitcher streamers with a "See All Free Agents" link. No separate full table. | Prevents users from seeing different pitcher rankings in two places. |
+| S4 | **Consolidate My Team alerts + War Room briefing** | My Team shows injury alerts in two surfaces: the "News and Alerts" section (detailed cards) AND the "War Room Briefing" (IL alerts card). Same injuries appear in both. | Merge into a single "Alerts & Intelligence" section. War Room shows the matchup pulse + actions + hot/cold. Alerts show IL/closer/trade monitoring. No duplication of injury data. | Cleaner My Team page. Single source of truth for alerts. |
+| S5 | **Extract shared standings utilities** | `_roster_category_totals()` computed independently in Trade Finder (4x), League Standings, My Team. `category_gap_analysis()` computed in Trade Finder, Trade Intelligence, Opponent Trade Analysis. No shared cache. | Create `src/standings_utils.py` with cached versions: `get_all_team_totals()` (session-cached), `get_category_gaps()` (session-cached). All consumers import from one place. | Eliminates 8+ redundant computations per page load. Guarantees consistency. |
+| S6 | **Deduplicate roster rendering** | My Team and Lineup Optimizer both render the full roster table with similar columns (player, position, team, stats). Different formatting but same data. | Extract a `render_roster_table(roster_df, mode="overview"|"optimizer")` function in `src/ui_shared.py`. My Team uses "overview" mode (health, news, alerts). Lineup Optimizer uses "optimizer" mode (DCV, matchup multiplier, start/bench). | Shared rendering code. Easier to maintain consistent formatting. |
+
+### Consolidation Priority
+
+**Do first (user-facing confusion):**
+1. S1: Merge Trade Finder Smart Recs + By Value (trivial — combine into one sortable tab)
+2. S4: Consolidate My Team alerts (medium — restructure alert display)
+
+**Do second (eliminate duplicate computation):**
+3. S5: Extract shared standings utilities (medium — new module + rewire consumers)
+4. S2: Remove Lineup Optimizer H2H tab (trivial — delete tab, add link)
+
+**Do third (polish):**
+5. S3: Consolidate Streaming tab (low — either remove or convert to quick-view)
+6. S6: Deduplicate roster rendering (low — refactor shared code)
+
+---
+
 ## Summary by Page
 
 | Page | Items | Top Priority |
@@ -286,7 +318,8 @@ These cascade through all 53 engines. Highest leverage.
 | **League Standings** | 4 | R1 (10K sims), R2 (per-category variance), B7 (momentum) |
 | **Free Agents / Waiver** | 4 | E9 (streaming), E5 (SB prediction) |
 | **Player Compare** | 4 | N1 (category fit), N2 (schedule comparison), N3 (SGP breakdown) |
-| **Total** | **99** (87 unique after dedup) | |
+| **Consolidation (cross-page)** | 6 | S1 (merge TF tabs), S2 (remove H2H tab), S4 (merge alerts) |
+| **Total** | **105** (91 unique after dedup) | |
 
 ---
 
