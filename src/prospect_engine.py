@@ -668,3 +668,63 @@ def compute_call_up_signals(
 
     signal = "IMMINENT" if score >= 70 else "WATCH" if score >= 40 else ""
     return {"on_40_man": on_40_man, "call_up_score": min(score, 100), "signal": signal}
+
+
+def compute_fantasy_relevance_score(
+    prospect_row: dict,
+    user_roster_positions: list[str] | None = None,
+) -> dict:
+    """O2: Prospect fantasy relevance score.
+
+    Adjusts raw FV (Future Value) by:
+    - ETA proximity (2026 = 1.0x, 2027 = 0.6x, 2028+ = 0.3x)
+    - Position scarcity in user's league (C/SS/2B get 1.2x)
+    - Path to playing time (40-man = 1.3x, not 40-man = 0.7x)
+    - Historical FV hit rates (55 FV = 67% become regulars)
+
+    Returns:
+        dict with fantasy_relevance (0-100), fv, eta_mult, scarcity_mult,
+        playing_time_mult, historical_hit_rate.
+    """
+    fv = float(prospect_row.get("fv", prospect_row.get("future_value", 40)))
+    eta = str(prospect_row.get("fg_eta", prospect_row.get("eta", "")))
+    position = str(prospect_row.get("position", ""))
+    on_40_man = bool(prospect_row.get("on_40_man", False))
+
+    # ETA proximity multiplier
+    if "2026" in eta:
+        eta_mult = 1.0
+    elif "2027" in eta:
+        eta_mult = 0.6
+    else:
+        eta_mult = 0.3
+
+    # Position scarcity (C, SS, 2B are scarce in 12-team leagues)
+    scarce = {"C", "SS", "2B"}
+    pos_set = set(p.strip() for p in position.split(",") if p.strip())
+    scarcity_mult = 1.2 if pos_set & scarce else 1.0
+
+    # Path to playing time
+    playing_time_mult = 1.3 if on_40_man else 0.7
+
+    # Historical FV hit rates (FanGraphs data)
+    # FV 80 = 95% become stars, FV 55 = 67% become regulars, FV 40 = 30% reach majors
+    fv_hit_rates = {80: 0.95, 70: 0.85, 65: 0.80, 60: 0.75, 55: 0.67, 50: 0.50, 45: 0.40, 40: 0.30}
+    hit_rate = 0.30
+    for fv_threshold in sorted(fv_hit_rates.keys()):
+        if fv >= fv_threshold:
+            hit_rate = fv_hit_rates[fv_threshold]
+
+    # Composite: FV normalized to 0-100 * adjustments * hit rate
+    base = min(100.0, max(0.0, (fv - 30) * 2.0))  # FV 30-80 → 0-100
+    relevance = base * eta_mult * scarcity_mult * playing_time_mult * hit_rate
+    relevance = min(100.0, max(0.0, relevance))
+
+    return {
+        "fantasy_relevance": round(relevance, 1),
+        "fv": fv,
+        "eta_mult": eta_mult,
+        "scarcity_mult": scarcity_mult,
+        "playing_time_mult": playing_time_mult,
+        "historical_hit_rate": hit_rate,
+    }

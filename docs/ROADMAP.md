@@ -26,7 +26,7 @@
 ## Improvement Backlog — By Page
 
 **115 unique item rows** after deduplication and audit.
-**79 DONE, 2 PARTIAL, 34 remaining** as of April 8, 2026.
+**83 DONE, 2 PARTIAL, 30 remaining** as of April 8, 2026.
 Organized strictly by the page each task improves. Items that affect all pages
 are under "Global / Core Engine." Status: (empty)=not started, PARTIAL=infrastructure
 exists, DONE=implemented, CUT=removed after audit, MERGED=combined with another item.
@@ -48,8 +48,8 @@ Cascade through all 53 engines and all 13 pages. Highest leverage.
 | T2 | **DATA: Fetch Detailed Batting Stats** | Add `pybaseball.batting_stats(year, qual=0)` to bootstrap. Populate LD%, FB%, GB%, BABIP, ISO, K%, BB%. | Unlocks E1, G3, O1 breakout components. | Trivial | DONE |
 | T3 | **DATA: Fetch Sprint Speed** | Add `pybaseball.statcast_sprint_speed(year)` to bootstrap. | Unlocks K1, E5 stolen base prediction. | Trivial | DONE |
 | T4 | **DATA: Dynamic Park Factor Refresh** | Mid-season `pybaseball.team_batting()` + `team_pitching()` park factor derivation. Replace static 2024 values. | Some parks change year-to-year (humidor, dimensions). | Low | DONE |
-| B2 | **Position-Specific Health Scoring** | C: threshold 28/0.03yr. DH: 34/0.01yr. OF: 31. | Catchers age faster than DHs. | Low | |
-| B3 | **Injury-Type Adjustment** | TJ = 0.4 health floor 2yr. Hamstring = 0.7 1yr. Concussion = 0.6. | 30 IL days from bone bruise ≠ 30 IL days from TJ. | Medium | |
+| B2 | **Position-Specific Health Scoring** | C: threshold 28/0.03yr. DH: 34/0.01yr. OF: 31. | Catchers age faster than DHs. | Low | DONE |
+| B3 | **Injury-Type Adjustment** | TJ = 0.4 health floor 2yr. Hamstring = 0.7 1yr. Concussion = 0.6. | 30 IL days from bone bruise ≠ 30 IL days from TJ. | Medium | DONE |
 | B4 | **Temporal ECR Weighting** | Exponential decay 14-day half-life. March rank = 0.25x weight vs April = 1.0x. | Stale preseason ranks devalued. | Low | |
 | D1 | **Statcast XGBoost Regression** | Train on EV, barrel, xwOBA, xBA, sprint speed. Target: actual − projected. Retrain daily. | ~10-15% projection improvement. | Medium | DONE |
 | D2 | **Playing Time Prediction** | Ridge regression: `remaining_PA = f(recent_PA_rate, depth_chart, health, age)`. Update weekly. | ~10-15% counting stat accuracy. #1 projection error source. | Medium | DONE |
@@ -72,7 +72,7 @@ Daily dashboard: War Room, alerts, roster overview, Monday briefing.
 | # | Item | Fix | Impact | Status |
 |---|------|-----|--------|--------|
 | M1 | **Category Flip Analyzer** | Compute mid-week flip probability per category: `flip_prob = f(margin, daily_stdev, games_remaining)`. Show top-priority flip opportunities. Shares engine with I1+I4. | Most tools show scores but don't compute which categories are close enough to flip. | DONE |
-| M2 | **Conditional Swap Impact** | "If you bench Player X and start Player Y, you gain +2 K and lose -0.8 ERA delta." Roster-level marginal impact per swap. | Bridges player-level data to roster-level decision. | |
+| M2 | **Conditional Swap Impact** | "If you bench Player X and start Player Y, you gain +2 K and lose -0.8 ERA delta." Roster-level marginal impact per swap. | Bridges player-level data to roster-level decision. | DONE |
 | M3 | **Opponent Lineup Tracking** | Surface opponent's mid-week roster moves: empty spots, pitcher streams, off-day players. | Uses existing Yahoo API (`yds.get_transactions()` filtered to opponent). | DONE |
 | M4 | **Regression Alert System** | Compare L30 actual to expected stats (xBA, xwOBA via barrel% + speed). Flag >1.5 SD divergence as sell-high or buy-low. Weight K%/BB% over BA. Require 50 PA min. | Process metrics more predictive than outcome metrics. | DONE |
 | M5 | **IL Slot Utilization Alert** | Empty IL slot = "Fill with X." IL stash ranking by `ros_sgp - best_fa_sgp` with days-to-return. Injury-type duration lookup (hamstring 21d, oblique 28d, TJ 14mo). | Empty IL slot = wasted value. | DONE |
@@ -217,7 +217,7 @@ Daily dashboard: War Room, alerts, roster overview, Monday briefing.
 | # | Item | Fix | Impact | Status |
 |---|------|-----|--------|--------|
 | O1 | **Statcast Breakout Score** | Composite: EV50 (30%), barrel rate YoY (25%), xwOBA-wOBA (20%), bat speed (15%), launch angle (10%). Pitchers: SwStr% (30%), Stuff+ (25%), SIERA-ERA (25%), K-BB% (20%). >70th pctl = "Breakout." | Strongest buy-low signal. | DONE |
-| O2 | **Prospect Fantasy Relevance Score** | Adjust FV by: ETA proximity, position scarcity in YOUR league, path to playing time, historical FV hit rate (55 FV = 67% regular). | Bridges scouting to fantasy timelines. | |
+| O2 | **Prospect Fantasy Relevance Score** | Adjust FV by: ETA proximity, position scarcity in YOUR league, path to playing time, historical FV hit rate (55 FV = 67% regular). | Bridges scouting to fantasy timelines. | DONE |
 | O3 | **40-Man + Service Time Call-Up Alerts** | 40-man flag (highest signal). Days until Super Two. MLB IL cross-reference at prospect's position = "imminent." | First-mover advantage on prospect adds. | DONE |
 | O4 | **Projection Skew Indicator** | When 5/7 systems above consensus = positive skew. Especially valuable mid-round pitchers (+50-100% ROI). | FanGraphs ATC Volatility research. | DONE |
 | O5 | **SGP Contribution Breakdown** | Wire N3 into Leaders table. Same function, different context. | Shows concentrated vs diversified value. | DONE |

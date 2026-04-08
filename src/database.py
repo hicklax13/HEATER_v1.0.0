@@ -977,9 +977,13 @@ def load_player_pool() -> pd.DataFrame:
 
 
 def _load_health_scores_for_pool() -> dict[int, float]:
-    """Load per-player health scores from injury_history (no trade_intelligence import)."""
+    """Load per-player health scores from injury_history with B2/B3 adjustments."""
     try:
-        from src.injury_model import compute_health_score
+        from src.injury_model import (
+            age_risk_adjustment,
+            compute_health_score,
+            injury_type_adjustment,
+        )
 
         conn = get_connection()
         try:
@@ -989,15 +993,53 @@ def _load_health_scores_for_pool() -> dict[int, float]:
                 "ORDER BY player_id, season DESC",
                 conn,
             )
+            # B2+B3: Load player age, position, and injury notes
+            player_info = pd.read_sql_query(
+                "SELECT player_id, positions, is_hitter, "
+                "CASE WHEN birth_date IS NOT NULL AND birth_date != '' "
+                "  THEN CAST((julianday('now') - julianday(birth_date)) / 365.25 AS INTEGER) "
+                "  ELSE NULL END AS age, "
+                "injury_note "
+                "FROM players",
+                conn,
+            )
         finally:
             conn.close()
         if df.empty:
             return {}
+
+        # Build lookup dicts for age/position/injury
+        _info = {}
+        for _, row in player_info.iterrows():
+            _info[int(row["player_id"])] = {
+                "age": row.get("age"),
+                "positions": str(row.get("positions", "")),
+                "is_hitter": int(row.get("is_hitter", 1)),
+                "injury_note": str(row.get("injury_note", "") or ""),
+            }
+
         scores: dict[int, float] = {}
         for pid, group in df.groupby("player_id"):
+            pid_int = int(pid)
             gp = group["games_played"].tolist()[:3]
             ga = group["games_available"].tolist()[:3]
-            scores[int(pid)] = compute_health_score(gp, ga)
+            base_score = compute_health_score(gp, ga)
+
+            info = _info.get(pid_int, {})
+            age = info.get("age")
+            pos = info.get("positions", "")
+            is_pitcher = info.get("is_hitter", 1) == 0
+
+            # B2: Position-specific age adjustment
+            age_mult = age_risk_adjustment(age, is_pitcher, pos)
+            adjusted = base_score * age_mult
+
+            # B3: Injury-type floor (TJ, hamstring, etc.)
+            inj_floor = injury_type_adjustment(info.get("injury_note", ""))
+            if inj_floor < 1.0:
+                adjusted = min(adjusted, inj_floor)
+
+            scores[pid_int] = adjusted
         return scores
     except Exception:
         return {}

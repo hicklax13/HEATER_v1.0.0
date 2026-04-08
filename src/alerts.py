@@ -362,6 +362,84 @@ def generate_opponent_move_alerts(
     return alerts
 
 
+def compute_swap_impacts(
+    roster: pd.DataFrame,
+    player_pool: pd.DataFrame,
+    config=None,
+) -> list[dict]:
+    """M2: Compute category impact of benching one player and starting another.
+
+    Finds bench players who could start and shows the marginal impact
+    on each counting category. Helps answer "should I start X over Y?"
+
+    Returns:
+        List of dicts with bench_player, start_player, category impacts.
+    """
+    if roster.empty or player_pool.empty:
+        return []
+
+    try:
+        from src.valuation import LeagueConfig, SGPCalculator
+
+        if config is None:
+            config = LeagueConfig()
+        sgp_calc = SGPCalculator(config)
+
+        # Identify starters and bench
+        starters = []
+        bench = []
+        for _, row in roster.iterrows():
+            sel_pos = str(row.get("selected_position", "")).upper()
+            pid = int(row.get("player_id", 0))
+            if sel_pos in ("BN", "IL", "IL+", "NA", "DL"):
+                bench.append(pid)
+            elif sel_pos and pid:
+                starters.append(pid)
+
+        if not bench or not starters:
+            return []
+
+        swaps = []
+        for bench_pid in bench:
+            bp = player_pool[player_pool["player_id"] == bench_pid]
+            if bp.empty:
+                continue
+            bp_row = bp.iloc[0]
+            bp_sgp = sgp_calc.player_sgp(bp_row)
+            bp_name = str(bp_row.get("name", bp_row.get("player_name", "?")))
+            bp_is_hitter = int(bp_row.get("is_hitter", 1))
+
+            # Find worst starter of same type to swap with
+            best_swap = None
+            best_delta = -999
+            for start_pid in starters:
+                sp = player_pool[player_pool["player_id"] == start_pid]
+                if sp.empty:
+                    continue
+                sp_row = sp.iloc[0]
+                if int(sp_row.get("is_hitter", 1)) != bp_is_hitter:
+                    continue
+                sp_sgp = sgp_calc.player_sgp(sp_row)
+                total_delta = sum(bp_sgp.values()) - sum(sp_sgp.values())
+                if total_delta > best_delta:
+                    best_delta = total_delta
+                    sp_name = str(sp_row.get("name", sp_row.get("player_name", "?")))
+                    impacts = {cat: round(bp_sgp.get(cat, 0) - sp_sgp.get(cat, 0), 3) for cat in config.all_categories}
+                    best_swap = {
+                        "bench_player": bp_name,
+                        "start_player": sp_name,
+                        "total_sgp_delta": round(total_delta, 3),
+                        "category_impacts": impacts,
+                    }
+            if best_swap and best_swap["total_sgp_delta"] > 0.1:
+                swaps.append(best_swap)
+
+        swaps.sort(key=lambda x: x["total_sgp_delta"], reverse=True)
+        return swaps[:5]
+    except Exception:
+        return []
+
+
 def _get_il_return_dates(roster: pd.DataFrame) -> dict:
     """Fetch ESPN injury return dates for rostered players.
 

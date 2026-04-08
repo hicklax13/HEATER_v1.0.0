@@ -26,20 +26,41 @@ logger = logging.getLogger(__name__)
 LEAGUE_AVG_HEALTH: float = 0.85
 """Default health score when season data is missing."""
 
-POSITION_PLAYER_AGE_THRESHOLD: int = 30
-"""Age after which position players accrue additional injury risk."""
-
-PITCHER_AGE_THRESHOLD: int = 28
-"""Age after which pitchers accrue additional injury risk."""
-
-POSITION_PLAYER_RISK_PER_YEAR: float = 0.02
-"""Extra injury risk per year past threshold for position players."""
-
-PITCHER_RISK_PER_YEAR: float = 0.03
-"""Extra injury risk per year past threshold for pitchers."""
+# B2: Position-specific age thresholds and risk rates.
+# Catchers age faster (squatting wears knees/back), DHs age slowest.
+POSITION_AGE_PROFILES: dict[str, dict] = {
+    "C": {"threshold": 28, "risk_per_year": 0.03},
+    "SP": {"threshold": 28, "risk_per_year": 0.03},
+    "RP": {"threshold": 29, "risk_per_year": 0.025},
+    "SS": {"threshold": 30, "risk_per_year": 0.02},
+    "2B": {"threshold": 30, "risk_per_year": 0.02},
+    "CF": {"threshold": 30, "risk_per_year": 0.02},
+    "3B": {"threshold": 31, "risk_per_year": 0.02},
+    "OF": {"threshold": 31, "risk_per_year": 0.02},
+    "1B": {"threshold": 32, "risk_per_year": 0.015},
+    "DH": {"threshold": 34, "risk_per_year": 0.01},
+}
+DEFAULT_AGE_PROFILE: dict = {"threshold": 30, "risk_per_year": 0.02}
 
 AGE_RISK_FLOOR: float = 0.5
 """Minimum age-risk multiplier (no one drops below 50%)."""
+
+# B3: Injury-type severity floors (minimum health score while recovering).
+# TJ surgery is career-altering; hamstrings recur; concussions are unpredictable.
+INJURY_TYPE_FLOORS: dict[str, dict] = {
+    "tommy john": {"floor": 0.40, "duration_years": 2},
+    "tj": {"floor": 0.40, "duration_years": 2},
+    "ucl": {"floor": 0.40, "duration_years": 2},
+    "hamstring": {"floor": 0.70, "duration_years": 1},
+    "oblique": {"floor": 0.65, "duration_years": 1},
+    "concussion": {"floor": 0.60, "duration_years": 1},
+    "shoulder": {"floor": 0.55, "duration_years": 2},
+    "elbow": {"floor": 0.55, "duration_years": 1},
+    "back": {"floor": 0.60, "duration_years": 1},
+    "knee": {"floor": 0.60, "duration_years": 1},
+    "ankle": {"floor": 0.70, "duration_years": 1},
+    "wrist": {"floor": 0.70, "duration_years": 1},
+}
 
 DEFAULT_WORKLOAD_THRESHOLD: float = 40.0
 """IP increase over previous season that triggers a workload flag."""
@@ -137,21 +158,27 @@ def compute_health_score(
     return float(np.mean(ratios))
 
 
-def age_risk_adjustment(age: int, is_pitcher: bool) -> float:
-    """Return a multiplier (0.5-1.0) reflecting age-based injury risk.
+def age_risk_adjustment(age: int, is_pitcher: bool, position: str | None = None) -> float:
+    """B2: Position-specific age-risk multiplier (0.5-1.0).
 
-    Position players lose 2% per year past 30; pitchers lose 3% per
-    year past 28.  The multiplier never drops below ``AGE_RISK_FLOOR``.
+    Uses graduated thresholds: catchers age at 28 (0.03/yr), DHs at 34
+    (0.01/yr). Falls back to pitcher/hitter defaults when position unknown.
     """
     if age is None:
         return 1.0
 
+    # B2: Use position-specific profile when available
     if is_pitcher:
-        threshold = PITCHER_AGE_THRESHOLD
-        risk_per_year = PITCHER_RISK_PER_YEAR
+        profile = POSITION_AGE_PROFILES.get("SP", DEFAULT_AGE_PROFILE)
     else:
-        threshold = POSITION_PLAYER_AGE_THRESHOLD
-        risk_per_year = POSITION_PLAYER_RISK_PER_YEAR
+        profile = DEFAULT_AGE_PROFILE
+    if position:
+        primary = position.split(",")[0].strip().upper()
+        if primary in POSITION_AGE_PROFILES:
+            profile = POSITION_AGE_PROFILES[primary]
+
+    threshold = profile["threshold"]
+    risk_per_year = profile["risk_per_year"]
 
     if age <= threshold:
         return 1.0
@@ -159,6 +186,24 @@ def age_risk_adjustment(age: int, is_pitcher: bool) -> float:
     years_over = age - threshold
     multiplier = 1.0 - years_over * risk_per_year
     return max(multiplier, AGE_RISK_FLOOR)
+
+
+def injury_type_adjustment(injury_note: str | None) -> float:
+    """B3: Return a health-score floor based on injury type.
+
+    TJ surgery = 0.40 floor (career-altering). Hamstring = 0.70 (recurrent).
+    Returns 1.0 when no injury type matched (no adjustment).
+    """
+    if not injury_note:
+        return 1.0
+
+    note_lower = injury_note.lower()
+    best_floor = 1.0
+    for keyword, profile in INJURY_TYPE_FLOORS.items():
+        if keyword in note_lower:
+            if profile["floor"] < best_floor:
+                best_floor = profile["floor"]
+    return best_floor
 
 
 def workload_flag(
