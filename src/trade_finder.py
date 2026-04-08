@@ -663,6 +663,76 @@ def scan_2_for_1(
     return results[:20]
 
 
+# ── LP-Constrained Baseline ─────────────────────────────────────────
+
+
+def _lp_constrained_totals(
+    roster_ids: list[int],
+    player_pool: pd.DataFrame,
+    config: LeagueConfig | None = None,
+) -> dict[str, float] | None:
+    """Compute category totals using only LP-optimal starters (no bench).
+
+    Returns a dict with uppercase keys matching ``_roster_category_totals()``
+    format (R, HR, AVG, ERA, etc.), or None if the LP solver is unavailable
+    or fails.
+    """
+    try:
+        from src.lineup_optimizer import LineupOptimizer
+
+        roster = player_pool[player_pool["player_id"].isin(roster_ids)].copy()
+        if roster.empty or len(roster) < 5:
+            return None
+
+        # LineupOptimizer needs player_name column
+        if "player_name" not in roster.columns and "name" in roster.columns:
+            roster = roster.rename(columns={"name": "player_name"})
+
+        optimizer = LineupOptimizer(roster, config=config)
+        result = optimizer.optimize_lineup()
+        if not result or result.get("status") != "Optimal":
+            return None
+
+        projected = result.get("projected_stats")
+        if not projected:
+            return None
+
+        # Map lowercase LP keys to uppercase _roster_category_totals format
+        totals: dict[str, float] = {}
+        _key_map = {
+            "r": "R",
+            "hr": "HR",
+            "rbi": "RBI",
+            "sb": "SB",
+            "w": "W",
+            "l": "L",
+            "sv": "SV",
+            "k": "K",
+            "avg": "AVG",
+            "obp": "OBP",
+            "era": "ERA",
+            "whip": "WHIP",
+        }
+        for lc_key, uc_key in _key_map.items():
+            if lc_key in projected:
+                totals[uc_key] = float(projected[lc_key])
+
+        # Also carry over component stats for downstream use (ip, ab, etc.)
+        for comp_key in ("ab", "h", "bb", "hbp", "sf", "ip", "er", "bb_allowed", "h_allowed"):
+            if comp_key in projected:
+                totals[comp_key] = float(projected[comp_key])
+
+        # Verify we got the key scoring categories
+        required = {"R", "HR", "RBI", "SB", "AVG", "ERA"}
+        if not required.issubset(totals.keys()):
+            return None
+
+        return totals
+    except Exception:
+        logger.debug("LP-constrained totals failed, falling back to raw totals")
+        return None
+
+
 # ── 1-for-1 Trade Scanner ────────────────────────────────────────────
 
 
@@ -698,7 +768,15 @@ def scan_1_for_1(
         config = LeagueConfig()
 
     # Pre-compute baseline totals
+    # Try LP-constrained baseline for user (starters only, no bench inflation).
+    # The LP solver selects optimal 18 starters; bench production excluded.
+    # Only computed ONCE before the scan loop (not per-candidate).
     user_totals = _roster_category_totals(user_roster_ids, player_pool)
+    lp_user_totals = _lp_constrained_totals(user_roster_ids, player_pool, config)
+    if lp_user_totals is not None:
+        user_totals = lp_user_totals
+        logger.debug("Using LP-constrained user baseline (starters only)")
+
     opp_totals = _roster_category_totals(opponent_roster_ids, player_pool)
 
     opp_baseline = _totals_sgp(opp_totals, config)
