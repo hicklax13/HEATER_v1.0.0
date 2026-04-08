@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import time
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import numpy as np
@@ -202,7 +203,7 @@ class LineupOptimizerPipeline:
         roster: pd.DataFrame,
         mode: str = "standard",
         alpha: float = 0.5,
-        weeks_remaining: int = 16,
+        weeks_remaining: int | None = None,
         config: Any | None = None,
     ):
         """Initialize the pipeline.
@@ -211,9 +212,16 @@ class LineupOptimizerPipeline:
             roster: Player DataFrame with stat projections and positions.
             mode: Optimization mode — "quick", "standard", "full", or "daily".
             alpha: H2H vs season-long blend (0=pure season-long, 1=pure H2H).
-            weeks_remaining: Weeks left in the season.
+            weeks_remaining: Weeks left in the season. If None, computed
+                dynamically from today's date and the 2026 season start.
             config: Optional LeagueConfig for SGP denominators.
         """
+        if weeks_remaining is None:
+            _ET = timezone(timedelta(hours=-4))
+            _season_start = datetime(2026, 3, 25, tzinfo=_ET)
+            _now = datetime.now(_ET)
+            _weeks_elapsed = max(0, (_now - _season_start).days // 7)
+            weeks_remaining = max(1, 24 - _weeks_elapsed)
         self.roster = roster.copy()
         self.mode = mode if mode in MODE_PRESETS else "standard"
         self.alpha = alpha

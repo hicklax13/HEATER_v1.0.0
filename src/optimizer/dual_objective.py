@@ -121,22 +121,28 @@ def recommend_alpha(
     h2h_record_losses: int | None = None,
     num_teams: int = 12,
     playoff_cutoff: int = 6,
+    desperation_level: float = 0.0,
 ) -> float:
     """Auto-recommend the H2H/roto blend alpha based on league situation.
 
-    The base alpha is driven by time remaining:
-      - Early season (>12 weeks remaining): 0.3 (roto lean)
-      - Mid season (6-12 weeks): 0.5 (balanced)
-      - Late season / playoff push (<6 weeks): 0.7 (H2H lean)
-      - Playoff weeks (<3 weeks): 0.85
+    In H2H category leagues, winning each weekly matchup is always the
+    primary objective.  The base alpha therefore never drops below 0.5:
+
+      - Early season (>16 weeks remaining): 0.55 (slight season-long tilt)
+      - Mid season (8-16 weeks): 0.65 (balanced, H2H leaning)
+      - Late season (3-8 weeks): 0.85 (strong H2H focus)
+      - Playoff weeks (<3 weeks): 0.85 (maximum H2H focus)
 
     Adjustments are made based on standings:
       - Very bad roto rank (bottom 3 of league): alpha += 0.1
         (punt roto, focus on salvaging H2H wins)
       - Very bad H2H record (below .400 win rate): alpha -= 0.1
         (H2H is lost cause, focus roto)
+      - Desperation level (0.0-1.0): boosts alpha by up to +0.25
+        for teams that must win now.
 
-    The result is always clamped to [0.0, 1.0].
+    The result is always clamped to [0.5, 1.0] — H2H weekly matchups
+    always matter at least as much as season-long in H2H leagues.
 
     Args:
         weeks_remaining: Number of weeks left in the regular season.
@@ -148,19 +154,26 @@ def recommend_alpha(
             adjustment is applied.
         num_teams: Number of teams in the league (default 12).
         playoff_cutoff: Number of teams that make playoffs (default 6).
+        desperation_level: Float in [0.0, 1.0] indicating how desperate
+            the team is (e.g. bubble team near playoffs).  Boosts alpha
+            by up to +0.25.  Default 0.0 for backward compatibility.
 
     Returns:
-        Recommended alpha in [0.0, 1.0].
+        Recommended alpha in [0.5, 1.0].
     """
-    # Base alpha from time remaining
+    # Base alpha from time remaining — H2H floor of 0.55
     if weeks_remaining < 3:
         alpha = 0.85
-    elif weeks_remaining < 6:
-        alpha = _CONSTANTS.get("dual_alpha_week6")
-    elif weeks_remaining <= 12:
-        alpha = 0.5
+    elif weeks_remaining < 8:
+        alpha = 0.85
+    elif weeks_remaining <= 16:
+        alpha = 0.65
     else:
-        alpha = 0.3
+        alpha = 0.55
+
+    # Desperation boost: up to +0.25 for desperate teams
+    desperation_level = max(0.0, min(1.0, desperation_level))
+    alpha += desperation_level * 0.25
 
     # Roto rank adjustment: bottom 3 teams shift toward H2H
     if roto_rank is not None and num_teams > 0:
@@ -176,5 +189,5 @@ def recommend_alpha(
             if win_rate < 0.4:
                 alpha -= 0.1
 
-    # Clamp to [0.0, 1.0]
-    return max(0.0, min(1.0, alpha))
+    # Clamp to [0.5, 1.0] — H2H always matters at least 50% in H2H leagues
+    return max(0.5, min(1.0, alpha))

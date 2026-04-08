@@ -116,23 +116,23 @@ class TestBlendH2hRotoWeights:
 class TestRecommendAlpha:
     """Tests for recommend_alpha()."""
 
-    def test_early_season_low_alpha(self):
-        """Early season (>12 weeks) should produce low alpha (roto lean)."""
+    def test_early_season_h2h_floor(self):
+        """Early season (>16 weeks) should produce alpha=0.55 (H2H floor)."""
         alpha = recommend_alpha(weeks_remaining=20)
-        assert alpha == pytest.approx(0.3, abs=0.01)
+        assert alpha == pytest.approx(0.55, abs=0.01)
 
     def test_mid_season_balanced(self):
-        """Mid season (6-12 weeks) should produce balanced alpha."""
+        """Mid season (8-16 weeks) should produce alpha=0.65."""
         alpha = recommend_alpha(weeks_remaining=10)
-        assert alpha == pytest.approx(0.5, abs=0.01)
+        assert alpha == pytest.approx(0.65, abs=0.01)
 
     def test_late_season_high_alpha(self):
-        """Late season (<6 weeks) should lean H2H."""
+        """Late season (3-8 weeks) should lean strongly H2H."""
         alpha = recommend_alpha(weeks_remaining=4)
-        assert alpha == pytest.approx(0.7, abs=0.01)
+        assert alpha == pytest.approx(0.85, abs=0.01)
 
     def test_playoff_weeks_very_high_alpha(self):
-        """Playoff weeks (<3 weeks) should be nearly pure H2H."""
+        """Playoff weeks (<3 weeks) should be strong H2H."""
         alpha = recommend_alpha(weeks_remaining=2)
         assert alpha == pytest.approx(0.85, abs=0.01)
 
@@ -164,15 +164,15 @@ class TestRecommendAlpha:
         # win_rate = 8/13 = 0.615 > 0.4
         assert adj_alpha == pytest.approx(base_alpha, abs=0.01)
 
-    def test_result_always_in_zero_one(self):
-        """Alpha should always be clamped to [0.0, 1.0]."""
+    def test_result_always_in_half_to_one(self):
+        """Alpha should always be clamped to [0.5, 1.0] for H2H leagues."""
         # Try to push alpha very high: playoff weeks + bad roto
         alpha_high = recommend_alpha(weeks_remaining=1, roto_rank=12, num_teams=12)
-        assert 0.0 <= alpha_high <= 1.0
+        assert 0.5 <= alpha_high <= 1.0
 
         # Try to push alpha very low: early season + bad H2H
         alpha_low = recommend_alpha(weeks_remaining=25, h2h_record_wins=0, h2h_record_losses=20)
-        assert 0.0 <= alpha_low <= 1.0
+        assert 0.5 <= alpha_low <= 1.0
 
     def test_both_adjustments_combine(self):
         """Bad roto + bad H2H adjustments can cancel each other out."""
@@ -188,17 +188,34 @@ class TestRecommendAlpha:
         # +0.1 (roto) - 0.1 (h2h) = 0.0 net adjustment
         assert adj_alpha == pytest.approx(base_alpha, abs=0.01)
 
-    def test_edge_12_weeks_is_mid_season(self):
-        """Exactly 12 weeks remaining should be mid-season (alpha=0.5)."""
-        alpha = recommend_alpha(weeks_remaining=12)
-        assert alpha == pytest.approx(0.5, abs=0.01)
+    def test_edge_16_weeks_is_mid_season(self):
+        """Exactly 16 weeks remaining should be mid-season (alpha=0.65)."""
+        alpha = recommend_alpha(weeks_remaining=16)
+        assert alpha == pytest.approx(0.65, abs=0.01)
 
-    def test_edge_6_weeks_is_mid_season(self):
-        """Exactly 6 weeks remaining should be mid-season (alpha=0.5)."""
-        alpha = recommend_alpha(weeks_remaining=6)
-        assert alpha == pytest.approx(0.5, abs=0.01)
+    def test_edge_8_weeks_is_mid_season(self):
+        """Exactly 8 weeks remaining should be mid-season (alpha=0.65)."""
+        alpha = recommend_alpha(weeks_remaining=8)
+        assert alpha == pytest.approx(0.65, abs=0.01)
 
     def test_edge_3_weeks_is_late_season(self):
-        """Exactly 3 weeks remaining should be late season (alpha=0.7)."""
+        """Exactly 3 weeks remaining should be late season (alpha=0.85)."""
         alpha = recommend_alpha(weeks_remaining=3)
-        assert alpha == pytest.approx(0.7, abs=0.01)
+        assert alpha == pytest.approx(0.85, abs=0.01)
+
+    def test_desperation_level_boosts_alpha(self):
+        """Desperation level should boost alpha by up to +0.25."""
+        base_alpha = recommend_alpha(weeks_remaining=20)
+        desp_alpha = recommend_alpha(weeks_remaining=20, desperation_level=1.0)
+        assert desp_alpha == pytest.approx(base_alpha + 0.25, abs=0.01)
+
+    def test_desperation_level_zero_no_change(self):
+        """Zero desperation should not change alpha."""
+        base_alpha = recommend_alpha(weeks_remaining=10)
+        desp_alpha = recommend_alpha(weeks_remaining=10, desperation_level=0.0)
+        assert desp_alpha == pytest.approx(base_alpha, abs=0.01)
+
+    def test_desperation_level_clamped(self):
+        """Even with max desperation, alpha should not exceed 1.0."""
+        alpha = recommend_alpha(weeks_remaining=2, roto_rank=12, num_teams=12, desperation_level=1.0)
+        assert alpha <= 1.0

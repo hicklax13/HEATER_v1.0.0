@@ -200,7 +200,7 @@ def classify_category_priority(
     user_totals: dict[str, float],
     all_team_totals: dict[str, dict[str, float]],
     user_team_name: str,
-    weeks_remaining: int = 16,
+    weeks_remaining: int | None = None,
     config: LeagueConfig | None = None,
 ) -> dict[str, str]:
     """Classify each category as ATTACK, DEFEND, or IGNORE.
@@ -211,6 +211,15 @@ def classify_category_priority(
 
     Returns dict[category, priority_tier].
     """
+    if weeks_remaining is None:
+        from datetime import datetime, timedelta, timezone
+
+        _ET = timezone(timedelta(hours=-4))
+        _season_start = datetime(2026, 3, 25, tzinfo=_ET)
+        _now = datetime.now(_ET)
+        _weeks_elapsed = max(0, (_now - _season_start).days // 7)
+        weeks_remaining = max(1, 24 - _weeks_elapsed)
+
     if config is None:
         config = LeagueConfig()
 
@@ -486,7 +495,7 @@ def compute_add_drop_recommendations(
     config: LeagueConfig | None = None,
     standings_totals: dict[str, dict[str, float]] | None = None,
     user_team_name: str | None = None,
-    weeks_remaining: int = 16,
+    weeks_remaining: int | None = None,
     max_moves: int = 3,
     max_fa_candidates: int = 100,
     max_drop_candidates: int = 5,
@@ -507,6 +516,15 @@ def compute_add_drop_recommendations(
       net_sgp_delta, category_impact, sustainability_score,
       reasoning (list of strings)
     """
+    if weeks_remaining is None:
+        from datetime import datetime, timedelta, timezone
+
+        _ET = timezone(timedelta(hours=-4))
+        _season_start = datetime(2026, 3, 25, tzinfo=_ET)
+        _now = datetime.now(_ET)
+        _weeks_elapsed = max(0, (_now - _season_start).days // 7)
+        weeks_remaining = max(1, 24 - _weeks_elapsed)
+
     if config is None:
         config = LeagueConfig()
 
@@ -635,6 +653,358 @@ def compute_add_drop_recommendations(
         final_results.append(swap)
 
     return final_results
+
+
+# ── Matchup-Targeted Free Agent Recommendations ─────────────────────
+
+
+# Games-per-day assumptions for weekly production estimates
+_HITTER_GAMES_PER_DAY = 0.85  # rest days, off days
+_PITCHER_RP_GAMES_PER_DAY = 0.70  # reliever appearances
+_SP_DAYS_PER_START = 5.0  # one start per 5 days
+_SP_IP_PER_START = 6.0  # average IP per start
+
+# Categories where lower values help (inverse stats)
+_INVERSE_RATE_CATS = {"ERA", "WHIP"}
+_HITTING_COUNTING = {"R", "HR", "RBI", "SB"}
+_PITCHING_COUNTING = {"W", "SV", "K", "L"}
+_HITTING_RATE = {"AVG", "OBP"}
+_PITCHING_RATE = {"ERA", "WHIP"}
+
+# Full-season basis for per-game scaling
+_SEASON_GAMES = 162
+
+
+def _estimate_weekly_production(player_row: pd.Series, days_remaining: int = 5) -> dict:
+    """Estimate a player's production for the remaining days of the week.
+
+    Uses projected per-game rates scaled to remaining days.
+    Hitters: assume ~0.85 games per day (rest days, off days)
+    Pitchers SP: assume 1 start per 5 days, ~6 IP per start
+    Pitchers RP: assume ~0.7 appearances per day
+
+    Args:
+        player_row: Series with player projection columns (r, hr, rbi, sb,
+            avg, obp, w, l, sv, k, era, whip, ip, is_hitter, positions).
+        days_remaining: Days left in the matchup week (1-7).
+
+    Returns:
+        Dict of {category_name: projected_value} for the remaining days.
+        Counting stats are scaled; rate stats pass through as-is.
+    """
+    result: dict[str, float] = {}
+    val = player_row.get("is_hitter")
+    is_hitter = bool(int(val)) if val is not None else True
+
+    if is_hitter:
+        expected_games = days_remaining * _HITTER_GAMES_PER_DAY
+        scale = expected_games / _SEASON_GAMES
+
+        for cat in _HITTING_COUNTING:
+            col = cat.lower()
+            raw = float(player_row.get(col, 0) or 0)
+            result[cat] = raw * scale
+
+        # Rate stats pass through (they represent quality, not volume)
+        for cat in _HITTING_RATE:
+            col = cat.lower()
+            raw = player_row.get(col, None)
+            if raw is not None and pd.notna(raw):
+                result[cat] = float(raw)
+    else:
+        # Determine SP vs RP from positions column
+        positions = str(player_row.get("positions", "")).upper()
+        is_sp = "SP" in positions
+
+        if is_sp:
+            expected_starts = days_remaining / _SP_DAYS_PER_START
+            projected_season_ip = float(player_row.get("ip", 0) or 0)
+            if projected_season_ip > 0:
+                # Scale counting stats by fraction of season IP expected this week
+                expected_weekly_ip = expected_starts * _SP_IP_PER_START
+                scale = expected_weekly_ip / projected_season_ip
+            else:
+                scale = 0.0
+        else:
+            # Reliever: scale by games per day ratio
+            expected_games = days_remaining * _PITCHER_RP_GAMES_PER_DAY
+            scale = expected_games / _SEASON_GAMES
+
+        for cat in _PITCHING_COUNTING:
+            col = cat.lower()
+            raw = float(player_row.get(col, 0) or 0)
+            result[cat] = raw * scale
+
+        # Rate stats pass through
+        for cat in _PITCHING_RATE:
+            col = cat.lower()
+            raw = player_row.get(col, None)
+            if raw is not None and pd.notna(raw):
+                result[cat] = float(raw)
+
+    return result
+
+
+def compute_matchup_targeted_adds(
+    fa_pool: pd.DataFrame,
+    target_categories: list[dict],
+    roster_ids: list[int] | None = None,
+    player_pool: pd.DataFrame | None = None,
+    days_remaining: int = 5,
+    max_results: int = 10,
+) -> pd.DataFrame:
+    """Rank free agents by their ability to help win specific categories this week.
+
+    Unlike compute_add_drop_recommendations() which optimizes season-long SGP,
+    this function answers: "Which FA helps me close the gap in HR/SB/K this week?"
+
+    Args:
+        fa_pool: DataFrame of available free agents (from load_player_pool or Yahoo).
+        target_categories: list of dicts from weekly strategy, each with:
+            - name: category name (e.g. "HR")
+            - gap: how far behind (negative = losing)
+            - priority: 0-1 urgency score
+            - status: "losing" / "tied" / "winning"
+        roster_ids: current roster player IDs (to exclude from FA pool).
+        player_pool: full player pool for projection data. When provided and a
+            FA row lacks projection columns, the player_pool row is used instead.
+        days_remaining: days left in matchup week (1-7).
+        max_results: max FAs to return.
+
+    Returns:
+        DataFrame with columns: player_id, name, team, positions,
+        matchup_value (0-100 composite score), target_cats (which cats they help),
+        projected_weekly_contribution (dict of cat -> projected value this week),
+        reason (human-readable string).
+        Sorted by matchup_value descending.
+    """
+    if fa_pool is None or fa_pool.empty or not target_categories:
+        return pd.DataFrame(
+            columns=[
+                "player_id",
+                "name",
+                "team",
+                "positions",
+                "matchup_value",
+                "target_cats",
+                "projected_weekly_contribution",
+                "reason",
+            ]
+        )
+
+    # Build lookup from target_categories list
+    cat_lookup: dict[str, dict] = {}
+    for tc in target_categories:
+        cat_name = tc.get("name", "")
+        if cat_name:
+            cat_lookup[cat_name] = tc
+
+    if not cat_lookup:
+        return pd.DataFrame(
+            columns=[
+                "player_id",
+                "name",
+                "team",
+                "positions",
+                "matchup_value",
+                "target_cats",
+                "projected_weekly_contribution",
+                "reason",
+            ]
+        )
+
+    # Filter out rostered players
+    pool = fa_pool.copy()
+    if roster_ids:
+        pool = pool[~pool["player_id"].isin(roster_ids)]
+
+    if pool.empty:
+        return pd.DataFrame(
+            columns=[
+                "player_id",
+                "name",
+                "team",
+                "positions",
+                "matchup_value",
+                "target_cats",
+                "projected_weekly_contribution",
+                "reason",
+            ]
+        )
+
+    # Merge with player_pool for projection data if available
+    if player_pool is not None and not player_pool.empty:
+        # Use player_pool projections as fallback for missing columns
+        proj_cols = [
+            "player_id",
+            "r",
+            "hr",
+            "rbi",
+            "sb",
+            "avg",
+            "obp",
+            "w",
+            "l",
+            "sv",
+            "k",
+            "era",
+            "whip",
+            "ip",
+            "is_hitter",
+            "positions",
+        ]
+        available_cols = [c for c in proj_cols if c in player_pool.columns]
+        pp_subset = player_pool[available_cols].drop_duplicates(subset=["player_id"], keep="first")
+
+        # For FAs missing key stat columns, fill from player_pool
+        stat_cols = ["r", "hr", "rbi", "sb", "avg", "obp", "w", "l", "sv", "k", "era", "whip", "ip"]
+        missing_stats = [c for c in stat_cols if c not in pool.columns]
+        if missing_stats:
+            merge_cols = ["player_id"] + [c for c in missing_stats if c in pp_subset.columns]
+            if len(merge_cols) > 1:
+                pool = pool.merge(pp_subset[merge_cols], on="player_id", how="left", suffixes=("", "_pp"))
+
+    # Status weights: losing categories matter most, protect winning ones
+    status_weights = {"losing": 1.5, "tied": 1.0, "winning": 0.3}
+
+    results = []
+    for _, fa_row in pool.iterrows():
+        pid = int(fa_row.get("player_id", 0))
+        name = str(fa_row.get("name", fa_row.get("player_name", "Unknown")))
+        team = str(fa_row.get("team", ""))
+        positions = str(fa_row.get("positions", ""))
+
+        weekly = _estimate_weekly_production(fa_row, days_remaining)
+        if not weekly:
+            continue
+
+        # Score against target categories
+        raw_score = 0.0
+        helped_cats: list[str] = []
+        contributions: dict[str, float] = {}
+        reason_parts: list[str] = []
+
+        for cat_name, cat_info in cat_lookup.items():
+            priority = float(cat_info.get("priority", 0.5))
+            status = cat_info.get("status", "tied")
+            gap = float(cat_info.get("gap", 0))
+            sw = status_weights.get(status, 1.0)
+
+            if cat_name not in weekly:
+                continue
+
+            contribution = weekly[cat_name]
+            contributions[cat_name] = round(contribution, 4)
+
+            is_inverse = cat_name in _INVERSE_RATE_CATS
+
+            if cat_name in RATE_STATS:
+                # Rate stat: for inverse (ERA/WHIP), lower is better
+                # For AVG/OBP, higher is better
+                if is_inverse:
+                    # Good ERA/WHIP (low) helps; bad hurts
+                    if status == "winning":
+                        # Protect: penalize bad rate stats
+                        if contribution > 4.0 and cat_name == "ERA":
+                            raw_score -= priority * sw * 5.0
+                        elif contribution > 1.30 and cat_name == "WHIP":
+                            raw_score -= priority * sw * 5.0
+                        else:
+                            raw_score += priority * sw * 2.0
+                            helped_cats.append(cat_name)
+                    else:
+                        # Losing/tied: reward low ERA/WHIP
+                        if cat_name == "ERA" and contribution < 3.50:
+                            raw_score += priority * sw * 3.0
+                            helped_cats.append(cat_name)
+                        elif cat_name == "WHIP" and contribution < 1.15:
+                            raw_score += priority * sw * 3.0
+                            helped_cats.append(cat_name)
+                else:
+                    # AVG/OBP: higher is better
+                    if status == "winning":
+                        if contribution < 0.240 and cat_name == "AVG":
+                            raw_score -= priority * sw * 3.0
+                        elif contribution < 0.300 and cat_name == "OBP":
+                            raw_score -= priority * sw * 3.0
+                    else:
+                        if cat_name == "AVG" and contribution > 0.270:
+                            raw_score += priority * sw * 3.0
+                            helped_cats.append(cat_name)
+                        elif cat_name == "OBP" and contribution > 0.340:
+                            raw_score += priority * sw * 3.0
+                            helped_cats.append(cat_name)
+            else:
+                # Counting stat: more is better (except L which is inverse counting)
+                if cat_name == "L":
+                    # Fewer projected losses is better
+                    if contribution > 0:
+                        raw_score -= priority * sw * contribution * 2.0
+                else:
+                    if contribution > 0:
+                        raw_score += priority * sw * contribution
+                        helped_cats.append(cat_name)
+
+        if raw_score <= 0:
+            continue
+
+        # Build reason string
+        if helped_cats:
+            top_contribs = []
+            for c in helped_cats[:3]:
+                val = contributions.get(c, 0)
+                if c in RATE_STATS:
+                    top_contribs.append(f"{c} {val:.3f}")
+                else:
+                    top_contribs.append(f"+{val:.1f} {c}")
+            reason_parts.append(f"Helps in {', '.join(helped_cats[:3])}")
+            if top_contribs:
+                reason_parts.append(f"Projected this week: {', '.join(top_contribs)}")
+
+        losing_helped = [c for c in helped_cats if cat_lookup.get(c, {}).get("status") == "losing"]
+        if losing_helped:
+            reason_parts.append(f"Closes gap in losing categories: {', '.join(losing_helped)}")
+
+        results.append(
+            {
+                "player_id": pid,
+                "name": name,
+                "team": team,
+                "positions": positions,
+                "matchup_value": raw_score,
+                "target_cats": helped_cats,
+                "projected_weekly_contribution": contributions,
+                "reason": " | ".join(reason_parts) if reason_parts else "Marginal matchup fit",
+            }
+        )
+
+    if not results:
+        return pd.DataFrame(
+            columns=[
+                "player_id",
+                "name",
+                "team",
+                "positions",
+                "matchup_value",
+                "target_cats",
+                "projected_weekly_contribution",
+                "reason",
+            ]
+        )
+
+    df = pd.DataFrame(results)
+
+    # Normalize matchup_value to 0-100 scale
+    max_val = df["matchup_value"].max()
+    if max_val > 0:
+        df["matchup_value"] = (df["matchup_value"] / max_val * 100).round(1)
+    else:
+        df["matchup_value"] = 0.0
+
+    df = df.sort_values("matchup_value", ascending=False).head(max_results)
+    df = df.reset_index(drop=True)
+
+    return df
 
 
 def _generate_reasoning(

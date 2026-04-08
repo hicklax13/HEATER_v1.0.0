@@ -392,7 +392,7 @@ def _apply_statcast_adjustment(roster: pd.DataFrame) -> pd.DataFrame:
 
 
 # Weight given to L14 recent form vs existing projection
-_RECENT_FORM_BLEND = 0.20
+_RECENT_FORM_BLEND = 0.35
 
 # Minimum games in the L14 window to trust recent form data
 _MIN_RECENT_GAMES = 7
@@ -490,7 +490,7 @@ def _blend_hitter_form(
             continue
         ratio = recent_rate / proj_rate
         # Clamp ratio so adjustments stay within ±15%
-        clamped_ratio = max(0.85, min(1.15, ratio))
+        clamped_ratio = max(0.70, min(1.30, ratio))
         adj_factor = 1 + _RECENT_FORM_BLEND * (clamped_ratio - 1)
         roster.at[idx, stat] = proj_val * adj_factor
 
@@ -522,7 +522,7 @@ def _blend_pitcher_form(
         proj_rate = proj_k / proj_ip
         recent_rate = recent_k / l14_ip
         ratio = recent_rate / proj_rate
-        clamped_ratio = max(0.85, min(1.15, ratio))
+        clamped_ratio = max(0.70, min(1.30, ratio))
         adj_factor = 1 + _RECENT_FORM_BLEND * (clamped_ratio - 1)
         roster.at[idx, "k"] = proj_k * adj_factor
 

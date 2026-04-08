@@ -30,6 +30,8 @@ MAX_OPP_LOSS = -0.5  # Reject trades where opponent loses more than this (e.g., 
 LOSS_AVERSION = 1.8  # was 1.5 -- meta-analysis consensus (Brown 2024, Walasek 2024)
 ACCEPTANCE_FLOOR = 0.15  # Trades below 15% acceptance filtered out entirely
 MAX_EFFICIENCY_RATIO = 5.0  # Cap SGP gain ratio to prevent "trade your worst for their best"
+ELITE_RETURN_FLOOR = 0.75  # Return must be >= 75% of given player's raw SGP
+MAX_WEIGHT_RATIO = 1.5  # No category can be weighted more than 1.5x average
 
 
 def _player_sgp_volume_aware(
@@ -220,6 +222,7 @@ def estimate_acceptance_probability(
     opponent_need_match: float = 0.5,
     opponent_standings_rank: int | None = None,
     opponent_trade_willingness: float = 0.5,
+    loss_aversion: float = LOSS_AVERSION,
 ) -> float:
     """Estimate probability that opponent accepts the trade.
 
@@ -240,9 +243,9 @@ def estimate_acceptance_probability(
         float in [0, 1] -- estimated acceptance probability.
     """
     # Fairness gap (adjusted for loss aversion per Kahneman & Tversky):
-    # Losses feel LOSS_AVERSION x worse. If opponent loses, multiply loss magnitude.
+    # Losses feel loss_aversion x worse. If opponent loses, multiply loss magnitude.
     if opponent_gain_sgp < 0:
-        perceived_opp_gain = opponent_gain_sgp * LOSS_AVERSION  # Losses feel worse
+        perceived_opp_gain = opponent_gain_sgp * loss_aversion  # Losses feel worse
     else:
         perceived_opp_gain = opponent_gain_sgp
 
@@ -500,6 +503,8 @@ def scan_2_for_1(
     category_weights: dict[str, float] | None = None,
     max_expansions: int = 50,
     user_category_profile: dict[str, dict] | None = None,
+    loss_aversion: float = LOSS_AVERSION,
+    max_opp_loss: float = MAX_OPP_LOSS,
 ) -> list[dict]:
     """Expand top 1-for-1 seeds by adding a second give player.
 
@@ -567,7 +572,7 @@ def scan_2_for_1(
             drop_cost, _drop_pid = _compute_drop_cost(existing_opp, list(new_give), player_pool, config)
             opp_delta -= drop_cost
 
-            if opp_delta < MAX_OPP_LOSS:
+            if opp_delta < max_opp_loss:
                 evaluated += 1
                 continue
 
@@ -590,7 +595,9 @@ def scan_2_for_1(
             adp_fairness = min(fairness_scores) if fairness_scores else 0.5
 
             need_match = min(1.0, max(0.0, (opp_delta + 1.0) / 2.0))
-            p_accept = estimate_acceptance_probability(user_delta, opp_delta, need_match, adp_fairness=adp_fairness)
+            p_accept = estimate_acceptance_probability(
+                user_delta, opp_delta, need_match, adp_fairness=adp_fairness, loss_aversion=loss_aversion
+            )
 
             # Acceptance floor: skip trades nobody would accept
             if p_accept < ACCEPTANCE_FLOOR:
@@ -670,6 +677,10 @@ def scan_1_for_1(
     opponent_team_name: str | None = None,
     all_team_totals: dict[str, dict[str, float]] | None = None,
     user_category_profile: dict[str, dict] | None = None,
+    elite_return_floor: float = 0.75,
+    max_weight_ratio: float = 1.5,
+    loss_aversion: float = LOSS_AVERSION,
+    max_opp_loss: float = MAX_OPP_LOSS,
 ) -> list[dict]:
     """Fast deterministic scan of all 1-for-1 trades between user and opponent.
 
@@ -695,9 +706,7 @@ def scan_1_for_1(
     # --- Cap extreme category weights ---
     # Prevent a single weak category from dominating all trade valuations.
     # Without this, being 12th in SB makes speed guys "outvalue" elite power bats.
-    MAX_WEIGHT_RATIO = (
-        1.5  # No category can be weighted more than 1.5x average (trade decisions are season-long, not weekly)
-    )
+    MAX_WEIGHT_RATIO = max_weight_ratio  # Scaled by desperation (default 1.5x average)
     capped_weights = category_weights
     if category_weights:
         non_zero = [v for v in category_weights.values() if v > 0]
@@ -710,7 +719,7 @@ def scan_1_for_1(
     # Players in the top 20% by raw SGP require the return player to have
     # at least 50% of their raw SGP. Prevents trading away stars for role players.
     ELITE_PERCENTILE = 80  # Top 20%
-    ELITE_RETURN_FLOOR = 0.75  # Return must be >= 75% of given player's raw SGP
+    ELITE_RETURN_FLOOR = elite_return_floor  # Scaled by desperation (default 0.75)
 
     user_raw_sgps: dict[int, float] = {}
     for pid in user_roster_ids:
@@ -879,7 +888,7 @@ def scan_1_for_1(
             opp_new_sgp = _totals_sgp(new_opp_totals, config)
             opp_delta = opp_new_sgp - opp_baseline
 
-            if opp_delta < MAX_OPP_LOSS:
+            if opp_delta < max_opp_loss:
                 continue  # Opponent loses too much
 
             # Need match: how much does trade fill opponent's weak categories
@@ -928,6 +937,7 @@ def scan_1_for_1(
                 adp_fairness=adp_fairness,
                 opponent_need_match=opp_need_match,
                 opponent_trade_willingness=opp_archetype_willingness,
+                loss_aversion=loss_aversion,
             )
 
             # Acceptance floor: skip trades nobody would accept
@@ -1196,9 +1206,11 @@ def find_trade_opportunities(
     all_team_totals: dict[str, dict[str, float]] | None = None,
     user_team_name: str | None = None,
     league_rosters: dict[str, list[int]] | None = None,
-    weeks_remaining: int = 16,
+    weeks_remaining: int | None = None,
     max_results: int = 20,
     top_partners: int = 5,
+    standings_rank: int | None = None,
+    team_record: tuple | None = None,
 ) -> list[dict]:
     """Scan league for the best trade opportunities.
 
@@ -1212,13 +1224,25 @@ def find_trade_opportunities(
         all_team_totals: {team_name: {cat: total}} for all 12 teams.
         user_team_name: User's team name.
         league_rosters: {team_name: [player_ids]} for all teams.
-        weeks_remaining: Remaining weeks in season.
+        weeks_remaining: Remaining weeks in season. If None, computed
+            dynamically from today's date.
         max_results: Maximum trade opportunities to return.
         top_partners: Number of complementary teams to scan.
+        standings_rank: User's rank in standings (1-12, None if unknown).
+        team_record: User's W-L-T record as (wins, losses, ties), None if unknown.
 
     Returns:
         List of trade opportunity dicts sorted by composite_score.
     """
+    if weeks_remaining is None:
+        from datetime import datetime, timedelta, timezone
+
+        _ET = timezone(timedelta(hours=-4))
+        _season_start = datetime(2026, 3, 25, tzinfo=_ET)
+        _now = datetime.now(_ET)
+        _weeks_elapsed = max(0, (_now - _season_start).days // 7)
+        weeks_remaining = max(1, 24 - _weeks_elapsed)
+
     if config is None:
         config = LeagueConfig()
 
@@ -1227,6 +1251,32 @@ def find_trade_opportunities(
 
     if not league_rosters or not all_team_totals:
         return []
+
+    # ── Compute desperation level based on team performance ───────────
+    _desperation = 0.0
+    if standings_rank is not None:
+        total_teams = 12
+        _desperation += (standings_rank / total_teams) * 0.5  # Bottom of standings = more desperate
+    if team_record is not None:
+        wins, losses, ties = team_record
+        total_games = wins + losses + ties
+        if total_games > 0:
+            _desperation += (losses / total_games) * 0.5  # More losses = more desperate
+    _desperation = min(1.0, _desperation)
+
+    # Scale trade aggressiveness with desperation
+    _elite_floor = ELITE_RETURN_FLOOR - (_desperation * 0.25)  # 0.75 -> 0.50 at max desperation
+    _max_weight = MAX_WEIGHT_RATIO + (_desperation * 1.0)  # 1.5 -> 2.5 at max desperation
+    _loss_aversion = LOSS_AVERSION - (_desperation * 0.5)  # 1.8 -> 1.3 at max desperation
+    _max_opp_loss_adj = MAX_OPP_LOSS - (_desperation * 1.0)  # -0.5 -> -1.5 at max desperation
+
+    if _desperation > 0.3:
+        logger.info(
+            "Trade finder desperation mode: level=%.2f, elite_floor=%.2f, weight_ratio=%.1f",
+            _desperation,
+            _elite_floor,
+            _max_weight,
+        )
 
     # ── Compute trade intelligence context ──────────────────────────────
     category_weights: dict[str, float] | None = None
@@ -1313,6 +1363,10 @@ def find_trade_opportunities(
             opponent_team_name=opp_team,
             all_team_totals=all_team_totals,
             user_category_profile=user_category_profile,
+            elite_return_floor=_elite_floor,
+            max_weight_ratio=_max_weight,
+            loss_aversion=_loss_aversion,
+            max_opp_loss=_max_opp_loss_adj,
         )
 
         for trade in trades:
@@ -1348,6 +1402,8 @@ def find_trade_opportunities(
                     category_weights=category_weights,
                     max_expansions=30,
                     user_category_profile=user_category_profile,
+                    loss_aversion=_loss_aversion,
+                    max_opp_loss=_max_opp_loss_adj,
                 )
                 for trade in multi:
                     trade["opponent_team"] = opp_team

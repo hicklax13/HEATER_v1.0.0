@@ -416,7 +416,7 @@ def evaluate_trade(
     player_pool: pd.DataFrame,
     config: LeagueConfig | None = None,
     user_team_name: str | None = None,
-    weeks_remaining: int = 16,
+    weeks_remaining: int | None = None,
     enable_mc: bool = False,
     n_sims: int = 10_000,
     enable_context: bool = True,
@@ -455,7 +455,8 @@ def evaluate_trade(
         player_pool: Full player pool DataFrame (must have player_name or name col).
         config: League configuration.
         user_team_name: User's team name (for standings lookup).
-        weeks_remaining: Weeks left in the season.
+        weeks_remaining: Weeks left in the season. If None, computed
+            dynamically from today's date.
         enable_mc: Whether to run Phase 2 Monte Carlo simulation.
         n_sims: Number of MC simulations (default 10K).
         enable_context: Whether to run Phase 4 context analysis
@@ -488,6 +489,15 @@ def evaluate_trade(
           - market_values: per-player market analysis
           - sensitivity_report: category sensitivity + breakeven
     """
+    if weeks_remaining is None:
+        from datetime import datetime, timedelta, timezone
+
+        _ET = timezone(timedelta(hours=-4))
+        _season_start = datetime(2026, 3, 25, tzinfo=_ET)
+        _now = datetime.now(_ET)
+        _weeks_elapsed = max(0, (_now - _season_start).days // 7)
+        weeks_remaining = max(1, 24 - _weeks_elapsed)
+
     if config is None:
         config = LeagueConfig()
 

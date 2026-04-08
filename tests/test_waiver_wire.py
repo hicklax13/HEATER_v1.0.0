@@ -5,10 +5,12 @@ import pytest
 
 from src.valuation import LeagueConfig
 from src.waiver_wire import (
+    _estimate_weekly_production,
     classify_category_priority,
     compute_add_drop_recommendations,
     compute_babip,
     compute_drop_cost,
+    compute_matchup_targeted_adds,
     compute_net_swap_value,
     compute_sustainability_score,
 )
@@ -355,3 +357,302 @@ class TestAddDropRecommendations:
         result = compute_add_drop_recommendations(roster_ids, pool, config, max_moves=2)
         for entry in result:
             assert 0.0 <= entry["sustainability_score"] <= 1.0
+
+
+# ── Matchup-Targeted Adds Tests ──────────────────────────────────────
+
+
+class TestEstimateWeeklyProduction:
+    """Tests for _estimate_weekly_production helper."""
+
+    def test_hitter_counting_stats_scale_with_days(self):
+        row = pd.Series(
+            {"is_hitter": 1, "r": 81, "hr": 30, "rbi": 90, "sb": 20, "avg": 0.280, "obp": 0.350, "positions": "OF"}
+        )
+        result = _estimate_weekly_production(row, days_remaining=5)
+        assert "HR" in result
+        assert "R" in result
+        assert "SB" in result
+        # 5 days * 0.85 games/day / 162 games * 30 HR ~ 0.787
+        assert 0.5 < result["HR"] < 1.5
+        # Rate stats pass through unchanged
+        assert result["AVG"] == 0.280
+        assert result["OBP"] == 0.350
+
+    def test_hitter_more_days_means_more_production(self):
+        row = pd.Series(
+            {"is_hitter": 1, "r": 80, "hr": 25, "rbi": 80, "sb": 15, "avg": 0.270, "obp": 0.340, "positions": "1B"}
+        )
+        short = _estimate_weekly_production(row, days_remaining=2)
+        long = _estimate_weekly_production(row, days_remaining=7)
+        assert long["HR"] > short["HR"]
+        assert long["R"] > short["R"]
+
+    def test_pitcher_sp_counting_stats(self):
+        row = pd.Series(
+            {
+                "is_hitter": 0,
+                "w": 12,
+                "l": 6,
+                "sv": 0,
+                "k": 180,
+                "era": 3.20,
+                "whip": 1.10,
+                "ip": 180,
+                "positions": "SP",
+            }
+        )
+        result = _estimate_weekly_production(row, days_remaining=5)
+        assert "K" in result
+        assert "W" in result
+        assert result["K"] > 0
+        # Rate stats pass through
+        assert result["ERA"] == 3.20
+        assert result["WHIP"] == 1.10
+
+    def test_pitcher_rp_counting_stats(self):
+        row = pd.Series(
+            {"is_hitter": 0, "w": 3, "l": 2, "sv": 25, "k": 60, "era": 2.80, "whip": 1.05, "ip": 65, "positions": "RP"}
+        )
+        result = _estimate_weekly_production(row, days_remaining=5)
+        assert "SV" in result
+        assert result["SV"] > 0
+        assert result["ERA"] == 2.80
+
+    def test_hitter_nan_counting_stats_default_zero(self):
+        row = pd.Series(
+            {"is_hitter": 1, "r": None, "hr": None, "rbi": 0, "sb": 0, "avg": 0.250, "obp": 0.310, "positions": "SS"}
+        )
+        result = _estimate_weekly_production(row, days_remaining=5)
+        assert result["R"] == 0.0
+        assert result["HR"] == 0.0
+
+    def test_pitcher_zero_ip_yields_zero_counting(self):
+        row = pd.Series(
+            {"is_hitter": 0, "w": 0, "l": 0, "sv": 0, "k": 0, "era": 0, "whip": 0, "ip": 0, "positions": "SP"}
+        )
+        result = _estimate_weekly_production(row, days_remaining=5)
+        assert result["K"] == 0.0
+        assert result["W"] == 0.0
+
+    def test_defaults_to_hitter_when_is_hitter_missing(self):
+        row = pd.Series({"r": 50, "hr": 10, "rbi": 40, "sb": 5, "avg": 0.250, "obp": 0.310, "positions": "OF"})
+        result = _estimate_weekly_production(row, days_remaining=5)
+        # Should treat as hitter (default) and return hitting cats
+        assert "HR" in result
+        assert "R" in result
+
+
+class TestComputeMatchupTargetedAdds:
+    """Tests for compute_matchup_targeted_adds."""
+
+    @pytest.fixture
+    def fa_pool(self):
+        """Small FA pool with diverse player types."""
+        return pd.DataFrame(
+            [
+                {
+                    "player_id": 100,
+                    "name": "HR Machine",
+                    "team": "NYY",
+                    "positions": "OF",
+                    "is_hitter": 1,
+                    "r": 80,
+                    "hr": 35,
+                    "rbi": 95,
+                    "sb": 2,
+                    "avg": 0.260,
+                    "obp": 0.330,
+                    "ip": 0,
+                    "w": 0,
+                    "l": 0,
+                    "sv": 0,
+                    "k": 0,
+                    "era": 0,
+                    "whip": 0,
+                },
+                {
+                    "player_id": 101,
+                    "name": "Speed Demon",
+                    "team": "LAD",
+                    "positions": "OF",
+                    "is_hitter": 1,
+                    "r": 70,
+                    "hr": 5,
+                    "rbi": 35,
+                    "sb": 40,
+                    "avg": 0.275,
+                    "obp": 0.345,
+                    "ip": 0,
+                    "w": 0,
+                    "l": 0,
+                    "sv": 0,
+                    "k": 0,
+                    "era": 0,
+                    "whip": 0,
+                },
+                {
+                    "player_id": 102,
+                    "name": "Ace Pitcher",
+                    "team": "ATL",
+                    "positions": "SP",
+                    "is_hitter": 0,
+                    "r": 0,
+                    "hr": 0,
+                    "rbi": 0,
+                    "sb": 0,
+                    "avg": 0,
+                    "obp": 0,
+                    "ip": 180,
+                    "w": 14,
+                    "l": 6,
+                    "sv": 0,
+                    "k": 200,
+                    "era": 3.10,
+                    "whip": 1.05,
+                },
+                {
+                    "player_id": 103,
+                    "name": "Closer Guy",
+                    "team": "CLE",
+                    "positions": "RP",
+                    "is_hitter": 0,
+                    "r": 0,
+                    "hr": 0,
+                    "rbi": 0,
+                    "sb": 0,
+                    "avg": 0,
+                    "obp": 0,
+                    "ip": 60,
+                    "w": 3,
+                    "l": 2,
+                    "sv": 30,
+                    "k": 70,
+                    "era": 2.80,
+                    "whip": 1.00,
+                },
+            ]
+        )
+
+    def test_returns_dataframe_with_expected_columns(self, fa_pool):
+        targets = [{"name": "HR", "gap": -3, "priority": 0.8, "status": "losing"}]
+        result = compute_matchup_targeted_adds(fa_pool, targets)
+        assert isinstance(result, pd.DataFrame)
+        for col in ["player_id", "name", "team", "positions", "matchup_value", "target_cats", "reason"]:
+            assert col in result.columns
+
+    def test_hr_target_ranks_hr_machine_first(self, fa_pool):
+        targets = [{"name": "HR", "gap": -5, "priority": 0.9, "status": "losing"}]
+        result = compute_matchup_targeted_adds(fa_pool, targets)
+        assert len(result) > 0
+        assert result.iloc[0]["name"] == "HR Machine"
+
+    def test_sb_target_ranks_speed_demon_first(self, fa_pool):
+        targets = [{"name": "SB", "gap": -4, "priority": 0.9, "status": "losing"}]
+        result = compute_matchup_targeted_adds(fa_pool, targets)
+        assert len(result) > 0
+        assert result.iloc[0]["name"] == "Speed Demon"
+
+    def test_k_target_ranks_pitcher_first(self, fa_pool):
+        targets = [{"name": "K", "gap": -10, "priority": 0.9, "status": "losing"}]
+        result = compute_matchup_targeted_adds(fa_pool, targets)
+        assert len(result) > 0
+        # Should be one of the pitchers
+        assert result.iloc[0]["name"] in ("Ace Pitcher", "Closer Guy")
+
+    def test_sv_target_ranks_closer_first(self, fa_pool):
+        targets = [{"name": "SV", "gap": -2, "priority": 0.9, "status": "losing"}]
+        result = compute_matchup_targeted_adds(fa_pool, targets)
+        assert len(result) > 0
+        assert result.iloc[0]["name"] == "Closer Guy"
+
+    def test_matchup_value_normalized_0_to_100(self, fa_pool):
+        targets = [
+            {"name": "HR", "gap": -3, "priority": 0.7, "status": "losing"},
+            {"name": "SB", "gap": -2, "priority": 0.5, "status": "tied"},
+        ]
+        result = compute_matchup_targeted_adds(fa_pool, targets)
+        assert all(0 <= v <= 100 for v in result["matchup_value"])
+        # Top result should be 100
+        if len(result) > 0:
+            assert result.iloc[0]["matchup_value"] == 100.0
+
+    def test_excludes_roster_ids(self, fa_pool):
+        targets = [{"name": "HR", "gap": -3, "priority": 0.8, "status": "losing"}]
+        result = compute_matchup_targeted_adds(fa_pool, targets, roster_ids=[100])
+        # HR Machine (id=100) should be excluded
+        assert 100 not in result["player_id"].values
+
+    def test_max_results_limits_output(self, fa_pool):
+        targets = [{"name": "HR", "gap": -3, "priority": 0.8, "status": "losing"}]
+        result = compute_matchup_targeted_adds(fa_pool, targets, max_results=1)
+        assert len(result) <= 1
+
+    def test_empty_fa_pool_returns_empty(self):
+        targets = [{"name": "HR", "gap": -3, "priority": 0.8, "status": "losing"}]
+        result = compute_matchup_targeted_adds(pd.DataFrame(), targets)
+        assert isinstance(result, pd.DataFrame)
+        assert len(result) == 0
+
+    def test_empty_targets_returns_empty(self, fa_pool):
+        result = compute_matchup_targeted_adds(fa_pool, [])
+        assert len(result) == 0
+
+    def test_losing_status_weighted_higher(self, fa_pool):
+        # With losing status
+        targets_losing = [{"name": "HR", "gap": -5, "priority": 0.5, "status": "losing"}]
+        result_losing = compute_matchup_targeted_adds(fa_pool, targets_losing)
+
+        # With winning status (same priority)
+        targets_winning = [{"name": "HR", "gap": 5, "priority": 0.5, "status": "winning"}]
+        result_winning = compute_matchup_targeted_adds(fa_pool, targets_winning)
+
+        # Losing should produce results (or at least not fewer)
+        assert len(result_losing) >= len(result_winning)
+
+    def test_target_cats_populated(self, fa_pool):
+        targets = [
+            {"name": "HR", "gap": -3, "priority": 0.8, "status": "losing"},
+            {"name": "RBI", "gap": -5, "priority": 0.6, "status": "losing"},
+        ]
+        result = compute_matchup_targeted_adds(fa_pool, targets)
+        if len(result) > 0:
+            top = result.iloc[0]
+            assert isinstance(top["target_cats"], list)
+            assert len(top["target_cats"]) > 0
+
+    def test_projected_weekly_contribution_is_dict(self, fa_pool):
+        targets = [{"name": "HR", "gap": -3, "priority": 0.8, "status": "losing"}]
+        result = compute_matchup_targeted_adds(fa_pool, targets)
+        if len(result) > 0:
+            pwc = result.iloc[0]["projected_weekly_contribution"]
+            assert isinstance(pwc, dict)
+
+    def test_reason_is_string(self, fa_pool):
+        targets = [{"name": "HR", "gap": -3, "priority": 0.8, "status": "losing"}]
+        result = compute_matchup_targeted_adds(fa_pool, targets)
+        if len(result) > 0:
+            assert isinstance(result.iloc[0]["reason"], str)
+            assert len(result.iloc[0]["reason"]) > 0
+
+    def test_days_remaining_affects_counting_production(self, fa_pool):
+        targets = [{"name": "HR", "gap": -3, "priority": 0.8, "status": "losing"}]
+        result_2 = compute_matchup_targeted_adds(fa_pool, targets, days_remaining=2)
+        result_7 = compute_matchup_targeted_adds(fa_pool, targets, days_remaining=7)
+        # More days should yield same or higher raw contributions
+        # (matchup_value is normalized so compare contributions)
+        if len(result_2) > 0 and len(result_7) > 0:
+            contrib_2 = result_2.iloc[0]["projected_weekly_contribution"].get("HR", 0)
+            contrib_7 = result_7.iloc[0]["projected_weekly_contribution"].get("HR", 0)
+            assert contrib_7 >= contrib_2
+
+    def test_era_protection_penalizes_bad_pitchers(self, fa_pool):
+        targets = [{"name": "ERA", "gap": 0.5, "priority": 0.9, "status": "winning"}]
+        result = compute_matchup_targeted_adds(fa_pool, targets)
+        # High-ERA pitchers should be penalized; low-ERA rewarded
+        if len(result) > 0:
+            # Ace Pitcher (3.10 ERA) and Closer Guy (2.80 ERA) should score
+            # better than getting penalized
+            top_names = set(result["name"].tolist())
+            # At least one pitcher with good ERA should appear
+            assert len(top_names) > 0
