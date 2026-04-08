@@ -270,3 +270,72 @@ page and its 5 tabs.
 30. H8: Closer stability discount
 
 **Remaining items:** B1-B5, B7, C1-C5, F1, F4, G3, G5, H2-H6, H9 — as time allows.
+
+---
+
+## Lineup Optimizer Accuracy Backlog
+
+Identified April 7, 2026 via deep research across FanGraphs, Baseball Savant, academic papers
+(Management Science, MIT Sloan, American Meteorological Society), and sabermetric literature.
+All items specific to the Lineup Optimizer page and its 6 tabs.
+
+### I — Weekly & Daily Optimization Improvements
+
+| # | Item | Current State | Research Basis | Fix | Impact |
+|---|------|--------------|---------------|-----|--------|
+| I1 | **Mid-Week Pivot Advisor** | No mid-week category state tracking. Optimizer runs once at start of week. | FanGraphs H2H: you only need 7 of 12 categories. Identifying 2-3 lost causes by Wednesday and redirecting resources swings 1-2 extra category wins/week = 24+ category wins/season. | Classify each category as WON (P(win)>85%, protect), LOST (P(win)<15%, concede), or CONTESTED (30-70%, pursue). Bench pitchers to protect WON ratios. Stream for CONTESTED counting stats. | Estimated +1-2 category wins/week. Uses existing Yahoo matchup data. |
+| I2 | **Swing-Category Weighting** | H2H weights use Normal PDF proximity to toss-up. Does not distinguish "swing" from "locked". | Haugh & Singal 2019 (Management Science/Columbia): optimal lineup maximizes P(winning 7+ categories) not total SGP. Categories at P(win)=40-60% have highest marginal value. | Replace or supplement current H2H weights: maximize investment in categories where P(win) is 30-70%. De-emphasize categories where P(win) > 80% (already won) or < 20% (already lost). | +0.5-1 category wins/week. standings_engine.py already computes P(win). |
+| I3 | **Ratio Protection Calculator** | No ERA/WHIP protection logic. Optimizer treats all starts equally regardless of current ratio lead. | With 30 IP at 2.50 ERA, one 6 IP / 5 ER start raises ERA to 3.50. With 60 IP banked, same disaster = 3.18. Protection decision depends on IP base + lead size + remaining matchup quality. | `marginal_era_risk = (proj_ER * 9) / (banked_IP + proj_IP) - current_ERA`. If risk > lead * threshold: bench the pitcher. Show "Protect Ratios" mode in Daily Optimize. | Protects 1-2 ratio category wins/week when leading ERA/WHIP. |
+| I4 | **Category Flip Probability** | No model for which categories might flip on remaining days of the matchup. | SB is most volatile (binary event), AVG/ERA can swing dramatically with low sample. K/RBI are most stable (accumulated). Quantified: SB has highest single-day flip probability. | Compute `flip_prob = f(current_margin, daily_stdev, games_remaining)`. On final day: recommend targeting highest flip-probability LOSING categories and protecting highest flip-probability WINNING categories. | Critical for close H2H matchups. Especially valuable for playoff weeks. |
+| I5 | **Batting Order Slot PA Adjustment** | Daily projections use `season_proj / 162` regardless of batting order position. | FanGraphs: leadoff gets 4.65 PA/game, 9th gets 3.77 PA/game — a 19% difference. Each slot costs ~17.8 PA per 600 PA. | When confirmed lineups are available (via `get_todays_lineups()`), adjust daily counting stat projections by `PA_at_slot / PA_at_reference_slot`. Player moved from 6th to 2nd = +8% daily projection. | +5-10% daily projection accuracy. game_day.py already fetches batting orders. |
+| I6 | **IP Management Mode** | Fixed `IP_BUDGET` concept exists but no dynamic strategy that adapts to mid-week ratio position. | Expert consensus: if winning ERA by 0.50+ with 40+ IP and winning WHIP by 0.15+, bench borderline starters. Career WHIP > 1.40 = avoid streaming regardless of matchup. | Add IP management mode toggle: "Chase K/W" (stream aggressively), "Protect Ratios" (bench risky arms), "Balanced" (default). Mode auto-recommended from category urgency state. | Prevents ratio destruction from unnecessary starts. |
+
+### J — Projection & Signal Improvements
+
+| # | Item | Current State | Research Basis | Fix | Impact |
+|---|------|--------------|---------------|-----|--------|
+| J1 | **Per-Stat In-Season Update Rates** | Bayesian updater uses uniform blend weight. Same trust in AVG at 100 PA as K% at 100 PA. | FanGraphs/Carleton: K% stabilizes at 60 PA, AVG at 910 AB, BABIP at 820 BIP, pitcher K% at 70 BF, pitcher BABIP at 2000 BIP. Trust in stats should scale per-stat. | Replace uniform blend with stat-specific: `current_weight[stat] = PA / stabilization_threshold[stat]`. At 100 PA: K% is 62.5% observed (trust it), AVG is 11% observed (don't trust it), HR rate is 59% observed (trust it). | Single highest-impact projection improvement. Different stats should update at drastically different speeds. |
+| J2 | **Platoon Split Bayesian Regression** | Uses individual platoon data when available. Falls back to league-average defaults. | The Book (Tango/Lichtman/Dolphin): LHB platoon splits need ~1000 PA to stabilize, RHB need ~2200 PA. Individual single-season splits are almost entirely noise. | Always use Bayesian blend: `adjusted = (individual_PA / stab_PA) * individual + (1 - individual_PA / stab_PA) * league_avg`. For LHB with 200 PA vs LHP: use 80% league-avg, 20% individual. | Eliminates noise injection from unreliable individual splits. Currently matchup_adjustments.py may use raw splits. |
+| J3 | **Opposing Pitcher Quality Scalar** | `matchup_adjustments.py` has Log5-based adjustment but calibration unknown. | Research: facing ace vs replacement-level = ~40-60 wOBA points = 15-20% counting stat adjustment. Pitcher quality scalar: `mult = 1.0 + 0.15 * (league_avg_xFIP - opp_xFIP) / league_std_xFIP`. | Calibrate existing opposing pitcher adjustment to these specific magnitudes: ±15% for extreme matchups, centered at 1.0 for league-average. | Currently may be over- or under-adjusted. Data exists in opp_pitcher_stats. |
+| J4 | **Comprehensive Weather Model** | HR-only temperature adjustment (Nathan +0.9%/°F). No rain, wind, K/BB effects. | AMS research: rain = +9.6% walks, -10.1% K. Wind out 10+ mph = +20% HR. 90°F vs 50°F = +20% HR, 0.037 ISO gap. Humidity effect near-zero. | Expand weather model: (1) Rain > 40% chance: pitcher BB proj × 1.10, K proj × 0.90. (2) Wind out > 10 mph: HR proj × 1.15-1.20. (3) Temperature: linear power scalar 0.96 at 40F to 1.04 at 90F. | Rain K/BB effects are larger than most realize. Data from Open-Meteo already fetched. |
+| J5 | **Catcher Framing Pitcher Adjustment** | No catcher framing data used. | Pitcher List/Baseball Savant: best-to-worst framer gap = ~0.34 ERA and ~0.95 K/9 over full season. Per start: ±0.25 ERA adjustment for elite/poor framers. | Fetch catcher framing leaderboard (Baseball Savant). For each pitcher start: `era_adj = -0.01 * catcher_framing_runs`, `k9_adj = 0.025 * catcher_framing_runs`. Patrick Bailey (+25 runs) = -0.25 ERA, +0.625 K/9 vs baseline. | Meaningful for streaming decisions between similar-tier pitchers on different teams. |
+| J6 | **Projection Uncertainty Bands** | Percentile projections use cross-system variance. Not calibrated to empirical year-to-year SD. | Baseball Prospectus: ERA year-to-year SD = 1.20, WHIP SD = 0.20, K/9 SD = 1.82. A 3.50 ERA pitcher's 90% CI is [2.30, 4.70]. AVG SD = ~0.025. | Use empirical SDs for P10/P50/P90 instead of cross-system spread. When two players are within 1 SD, treat as interchangeable — use tiebreakers (matchup, weather, platoon). | Prevents over-optimizing on noise. Focuses optimizer energy on categories with reliable projections (K/9, BB/9). |
+
+### K — H2H Strategic Features
+
+| # | Item | Current State | Research Basis | Fix | Impact |
+|---|------|--------------|---------------|-----|--------|
+| K1 | **SB Streaming by Catcher/Pitcher** | No catcher pop time or pitcher delivery time in SB projections. | Statcast: pitcher delivery + catcher pop time threshold is ~3.5s total (coin flip). Below 3.3s = runner out. Above 3.7s = runner safe. Success rate: 80.3% when sprint speed > 29 ft/s. | Build `sb_opportunity_score = sprint_speed * (pop_time / 1.95) * (delivery_time / 1.35) * handedness_factor`. Surface highest-scoring runners when losing SB mid-week. | Targeted SB streaming. Uses Statcast pop time (free) + pitcher delivery data. |
+| K2 | **Pitcher Fatigue Multiplier** | No workload tracking for in-season projection decay. | PMC research: self-reported fatigue = 36x injury risk. 100+ IP in calendar year = 3.5x risk. ACWR > 1.3 = 15x injury risk. 16/20 Cy Youngs had BETTER second-half ERA (elite pitchers defy trend). | `fatigue_factor = max(0.85, 1.0 - 0.003 * max(0, current_IP - 100))`. 0.3%/IP discount above 100 IP, cap at 15%. Flag ACWR > 1.3 pitchers. Exempt top-10 Stuff+ pitchers (elite arms resist fatigue). | Prevents over-projecting fatigued mid-tier pitchers in August/September. |
+| K3 | **Consistency Premium** | No variance tracking. Equal SGP for consistent vs volatile players. | FanGraphs ATC Volatility: higher projection volatility correlates with lower rotisserie earnings. Positive skew = +$8 value at mid-round. H2H simulation: consistent player wins ~5-8% more weekly matchups. | `consistency_penalty = k * (weekly_CV)` where k = 0.05-0.10. Applied as SGP discount for volatile players, SGP bonus for consistent ones. Requires L7/L14/L30 game log data (exists in game_day.py). | H2H-specific value dimension. Currently invisible in optimization. |
+| K4 | **Punt Mode Optimizer** | Category urgency sets low weight for losing categories. No explicit punt configuration. | FanGraphs MC: punting 1-2 correlated categories in H2H concentrates resources for 7-5 or 8-4 weekly wins. SB (r=0.12) and W (R²=0.03) are safest punt targets. | Add punt mode toggle: user selects 0-2 categories to punt. Optimizer sets those weights to exactly 0.0 and redistributes freed roster slots to strengthen remaining categories. | Transforms optimizer from balanced-roster-only to strategy-aware. |
+| K5 | **Streaming Composite Score** | Current streaming uses counting_sgp + rate_impact. No opponent strength or WHIP safety filter. | FanGraphs SP Chart: composite = K_proj × (1/opp_wOBA) × park_factor × recent_form. Career WHIP < 1.25 = safe stream floor. WHIP > 1.40 = avoid. | `stream_score = K_proj * (1/opp_wOBA) * park_factor * form_L3 * whip_safety`. Filter: career WHIP > 1.40 → excluded unless opp wOBA < .290. Two-start bonus: 1.8x (not 2x, accounts for fatigue). | Better streaming picks. Data mostly exists. |
+| K6 | **Dynamic Volume Factor from Confirmed Lineups** | volume_factor = 0.9 when lineup not posted, 1.0 when confirmed. No batting order granularity. | MLB lineups posted 2-4 hours before first pitch. Confirmed lineup gives batting order slot → PA/game rates differ by 19% (slot 1 vs 9). | When lineup confirmed: set volume_factor from batting order slot PA rate (4.65 for leadoff, 3.77 for 9th). When NOT in lineup: volume_factor = 0.0 (not 0.3). When not yet posted: volume_factor = 0.85 (slightly conservative). | More accurate daily DCV scores. game_day.py already fetches lineups. |
+
+### Lineup Optimizer Priority Order
+
+**Tier 1 (biggest wins/week impact):**
+1. I1: Mid-week pivot advisor (classify WON/LOST/CONTESTED)
+2. J1: Per-stat in-season update rates (K% 15x faster than AVG)
+3. I2: Swing-category weighting (maximize 30-70% P(win) categories)
+4. I3: Ratio protection calculator (bench risky pitchers when protecting ERA/WHIP)
+
+**Tier 2 (projection accuracy):**
+5. J2: Platoon split Bayesian regression (eliminate noise from raw individual splits)
+6. J3: Opposing pitcher quality scalar (calibrate to ±15%)
+7. J4: Comprehensive weather model (rain K/BB, wind HR, full temperature)
+8. I5: Batting order slot PA adjustment (+5-10% daily accuracy)
+
+**Tier 3 (strategic features):**
+9. K4: Punt mode optimizer (zero-weight designated categories)
+10. K1: SB streaming by catcher/pitcher matchup
+11. K2: Pitcher fatigue multiplier (100+ IP decay)
+12. I4: Category flip probability (last-day strategy)
+
+**Tier 4 (refinements):**
+13. I6: IP management mode (protect/chase/balanced)
+14. K5: Streaming composite score (opponent strength + WHIP filter)
+15. K3: Consistency premium (CV-based SGP adjustment)
+16. J5: Catcher framing pitcher adjustment
+17. J6: Projection uncertainty bands (empirical SDs)
+18. K6: Dynamic volume factor from confirmed lineups
