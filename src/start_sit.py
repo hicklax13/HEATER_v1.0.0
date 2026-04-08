@@ -387,8 +387,18 @@ def start_sit_recommendation(
 
     # Filter out IL/DTD/NA/minors players — they cannot start
     _INACTIVE_STATUSES = {
-        "il10", "il15", "il60", "il", "na", "not active", "dl",
-        "dtd", "day-to-day", "minors", "out", "suspended",
+        "il10",
+        "il15",
+        "il60",
+        "il",
+        "na",
+        "not active",
+        "dl",
+        "dtd",
+        "day-to-day",
+        "minors",
+        "out",
+        "suspended",
     }
     if "status" in player_pool.columns:
         active_ids = []

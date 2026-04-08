@@ -1053,9 +1053,18 @@ def compute_percentile_projections(
     # J6: Empirical SDs as fallback when volatility data is sparse.
     # From full-season projection accuracy analysis (FanGraphs research).
     _EMPIRICAL_SDS: dict[str, float] = {
-        "r": 12.0, "hr": 5.0, "rbi": 12.0, "sb": 4.0,
-        "w": 3.0, "l": 3.0, "sv": 6.0, "k": 25.0,
-        "avg": 0.025, "obp": 0.025, "era": 1.20, "whip": 0.20,
+        "r": 12.0,
+        "hr": 5.0,
+        "rbi": 12.0,
+        "sb": 4.0,
+        "w": 3.0,
+        "l": 3.0,
+        "sv": 6.0,
+        "k": 25.0,
+        "avg": 0.025,
+        "obp": 0.025,
+        "era": 1.20,
+        "whip": 0.20,
     }
 
     merged = base.merge(

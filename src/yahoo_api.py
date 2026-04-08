@@ -768,8 +768,7 @@ class YahooFantasyClient:
             # yfpy's get_league_standings() often returns team_stats=None,
             # so we need to supplement with direct Yahoo API calls.
             stat_cols_present = any(
-                col in rows[0]
-                for col in ("r", "hr", "rbi", "sb", "avg", "obp", "w", "l", "sv", "k", "era", "whip")
+                col in rows[0] for col in ("r", "hr", "rbi", "sb", "avg", "obp", "w", "l", "sv", "k", "era", "whip")
             )
 
             if not stat_cols_present:
@@ -1601,10 +1600,7 @@ class YahooFantasyClient:
             if not team_key:
                 continue
 
-            url = (
-                f"https://fantasysports.yahooapis.com/fantasy/v2/team/"
-                f"{team_key}/stats;type=season?format=json"
-            )
+            url = f"https://fantasysports.yahooapis.com/fantasy/v2/team/{team_key}/stats;type=season?format=json"
             try:
                 _rate_limit()
                 resp = _requests.get(url, headers=headers, timeout=15)

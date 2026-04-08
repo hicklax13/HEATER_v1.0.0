@@ -44,7 +44,8 @@ class TestBayesianPlatoonAdjustment:
         # Blend weight = 200/1000 = 0.20
         # Blended = 0.20 * 0.0741 + 0.80 * 0.086 = 0.01481 + 0.0688 = 0.08361
         result = bayesian_platoon_adjustment(
-            "L", "R",
+            "L",
+            "R",
             individual_split_avg=0.290,
             individual_overall_avg=0.270,
             sample_pa=200,
@@ -62,7 +63,8 @@ class TestBayesianPlatoonAdjustment:
         # Blend weight = 1000/1000 = 1.0
         # Blended = 1.0 * 0.1111 + 0.0 * 0.086 = 0.1111
         result = bayesian_platoon_adjustment(
-            "L", "R",
+            "L",
+            "R",
             individual_split_avg=0.300,
             individual_overall_avg=0.270,
             sample_pa=1000,
@@ -74,7 +76,8 @@ class TestBayesianPlatoonAdjustment:
     def test_rhb_2200pa_full_individual_weight(self):
         """RHB at 2200 PA (stabilization point) uses full individual data."""
         result = bayesian_platoon_adjustment(
-            "R", "L",
+            "R",
+            "L",
             individual_split_avg=0.310,
             individual_overall_avg=0.280,
             sample_pa=2200,
@@ -87,7 +90,8 @@ class TestBayesianPlatoonAdjustment:
         """Result clamped to 0.80 minimum."""
         # Extreme same-side with terrible individual split
         result = bayesian_platoon_adjustment(
-            "L", "L",
+            "L",
+            "L",
             individual_split_avg=0.100,
             individual_overall_avg=0.270,
             sample_pa=2000,
@@ -98,7 +102,8 @@ class TestBayesianPlatoonAdjustment:
         """Result clamped to 1.20 maximum."""
         # Extreme advantage with great individual split
         result = bayesian_platoon_adjustment(
-            "L", "R",
+            "L",
+            "R",
             individual_split_avg=0.400,
             individual_overall_avg=0.250,
             sample_pa=2000,
@@ -114,7 +119,8 @@ class TestBayesianPlatoonAdjustment:
     def test_zero_overall_avg_uses_league_default(self):
         """Zero overall average falls back to league default."""
         result = bayesian_platoon_adjustment(
-            "L", "R",
+            "L",
+            "R",
             individual_split_avg=0.300,
             individual_overall_avg=0.0,
             sample_pa=500,
@@ -125,7 +131,8 @@ class TestBayesianPlatoonAdjustment:
     def test_none_split_avg_uses_league_default(self):
         """None individual split falls back to league default."""
         result = bayesian_platoon_adjustment(
-            "R", "L",
+            "R",
+            "L",
             individual_split_avg=None,
             individual_overall_avg=0.270,
             sample_pa=500,

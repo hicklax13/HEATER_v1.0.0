@@ -42,6 +42,7 @@ def recommend_ip_management_mode(urgency_data: dict) -> str:
         return "CHASE_KW"
     return "BALANCED"
 
+
 logger = logging.getLogger(__name__)
 
 # Weekly category standard deviations in RAW stat units, calibrated from

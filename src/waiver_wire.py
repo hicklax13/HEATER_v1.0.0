@@ -231,22 +231,23 @@ def compute_schedule_aware_streams(
                 whip_safe = whip <= 1.40
 
                 stream_value = ts.get("two_start_value", 0)
-                results.append({
-                    "player_id": pid,
-                    "player_name": name,
-                    "stream_type": "Two-Start SP",
-                    "num_starts": ts.get("num_starts", 2),
-                    "matchup_score": round(matchup_score, 1),
-                    "era_risk": round(era_risk, 3),
-                    "whip_risk": round(whip_risk, 3),
-                    "whip_safe": whip_safe,
-                    "schedule_value": round(stream_value, 2),
-                    "reasoning": (
-                        f"2 starts this week (matchup score {matchup_score:.1f}/10). "
-                        f"ERA risk: {era_risk:+.3f}. "
-                        + ("WHIP safe." if whip_safe else "WHIP RISKY (>1.40).")
-                    ),
-                })
+                results.append(
+                    {
+                        "player_id": pid,
+                        "player_name": name,
+                        "stream_type": "Two-Start SP",
+                        "num_starts": ts.get("num_starts", 2),
+                        "matchup_score": round(matchup_score, 1),
+                        "era_risk": round(era_risk, 3),
+                        "whip_risk": round(whip_risk, 3),
+                        "whip_safe": whip_safe,
+                        "schedule_value": round(stream_value, 2),
+                        "reasoning": (
+                            f"2 starts this week (matchup score {matchup_score:.1f}/10). "
+                            f"ERA risk: {era_risk:+.3f}. " + ("WHIP safe." if whip_safe else "WHIP RISKY (>1.40).")
+                        ),
+                    }
+                )
     except Exception as exc:
         logger.debug("Two-start detection failed (non-fatal): %s", exc)
 
@@ -267,14 +268,16 @@ def compute_schedule_aware_streams(
             # Higher opponent ERA = easier matchup = better streaming target
             if opp_era >= 4.30:  # Above league avg = weak pitching
                 sgp_val = float(row.get("marginal_value", row.get("adp", 999)))
-                results.append({
-                    "player_id": int(row.get("player_id", 0)),
-                    "player_name": str(row.get("name", row.get("player_name", "?"))),
-                    "stream_type": "Schedule Hitter",
-                    "matchup_score": round(10.0 * (opp_era / 4.00 - 0.8), 1),
-                    "schedule_value": round(sgp_val, 2) if sgp_val < 100 else 0,
-                    "reasoning": f"Favorable schedule — team faces weak pitching (ERA {opp_era:.2f}).",
-                })
+                results.append(
+                    {
+                        "player_id": int(row.get("player_id", 0)),
+                        "player_name": str(row.get("name", row.get("player_name", "?"))),
+                        "stream_type": "Schedule Hitter",
+                        "matchup_score": round(10.0 * (opp_era / 4.00 - 0.8), 1),
+                        "schedule_value": round(sgp_val, 2) if sgp_val < 100 else 0,
+                        "reasoning": f"Favorable schedule — team faces weak pitching (ERA {opp_era:.2f}).",
+                    }
+                )
     except Exception as exc:
         logger.debug("Hitter schedule scan failed (non-fatal): %s", exc)
 

@@ -83,35 +83,45 @@ def enriched_db(tmp_path):
     # Insert test players
     # Hitter 1: High BABIP (lucky) — should be SELL_HIGH
     c.execute("INSERT INTO players VALUES (1, 'Lucky Larry', 'NYY', 'OF', 1, 0, 100, NULL, NULL)")
-    c.execute("INSERT INTO projections VALUES (1, 'blended', 550, 500, 150, 80, 25, 80, 10, .300, .360, 40, 5, 3, 0, 0, 0, 0, 0, NULL, NULL, 0, 0, 0, NULL, NULL, NULL, NULL, NULL, NULL)")
+    c.execute(
+        "INSERT INTO projections VALUES (1, 'blended', 550, 500, 150, 80, 25, 80, 10, .300, .360, 40, 5, 3, 0, 0, 0, 0, 0, NULL, NULL, 0, 0, 0, NULL, NULL, NULL, NULL, NULL, NULL)"
+    )
     c.execute("INSERT INTO adp VALUES (1, 50, NULL)")
     c.execute("INSERT INTO season_stats VALUES (1, 2026, 80, .340, 5, 15, 3, 0, 0, 0, 0)")
     c.execute("INSERT INTO statcast_archive (player_id, season, xwoba, babip) VALUES (1, 2026, 0.380, 0.370)")
 
     # Hitter 2: Low BABIP (unlucky) — should be BUY_LOW
     c.execute("INSERT INTO players VALUES (2, 'Unlucky Ugo', 'LAD', 'SS', 1, 0, 200, NULL, NULL)")
-    c.execute("INSERT INTO projections VALUES (2, 'blended', 550, 500, 130, 70, 20, 70, 15, .260, .330, 40, 5, 3, 0, 0, 0, 0, 0, NULL, NULL, 0, 0, 0, NULL, NULL, NULL, NULL, NULL, NULL)")
+    c.execute(
+        "INSERT INTO projections VALUES (2, 'blended', 550, 500, 130, 70, 20, 70, 15, .260, .330, 40, 5, 3, 0, 0, 0, 0, 0, NULL, NULL, 0, 0, 0, NULL, NULL, NULL, NULL, NULL, NULL)"
+    )
     c.execute("INSERT INTO adp VALUES (2, 60, NULL)")
     c.execute("INSERT INTO season_stats VALUES (2, 2026, 70, .220, 3, 10, 5, 0, 0, 0, 0)")
     c.execute("INSERT INTO statcast_archive (player_id, season, xwoba, babip) VALUES (2, 2026, 0.340, 0.250)")
 
     # Pitcher 3: Elite Stuff+ but bad ERA (unlucky) — should be BUY_LOW
     c.execute("INSERT INTO players VALUES (3, 'Nasty Nate', 'HOU', 'SP', 0, 0, 300, NULL, NULL)")
-    c.execute("INSERT INTO projections VALUES (3, 'blended', 0, 0, 0, 0, 0, 0, 0, NULL, NULL, 0, 0, 0, 180, 12, 8, 0, 200, 3.50, 1.20, 70, 60, 220, 3.20, 3.10, 3.00, NULL, NULL, NULL)")
+    c.execute(
+        "INSERT INTO projections VALUES (3, 'blended', 0, 0, 0, 0, 0, 0, 0, NULL, NULL, 0, 0, 0, 180, 12, 8, 0, 200, 3.50, 1.20, 70, 60, 220, 3.20, 3.10, 3.00, NULL, NULL, NULL)"
+    )
     c.execute("INSERT INTO adp VALUES (3, 30, NULL)")
     c.execute("INSERT INTO season_stats VALUES (3, 2026, 0, 0, 0, 0, 0, 4.80, 1.35, 0, 35)")
     c.execute("INSERT INTO statcast_archive (player_id, season, stuff_plus) VALUES (3, 2026, 125)")
 
     # Pitcher 4: Low Stuff+ but great ERA (lucky) — should be SELL_HIGH
     c.execute("INSERT INTO players VALUES (4, 'Soft Sam', 'COL', 'SP', 0, 0, 400, NULL, NULL)")
-    c.execute("INSERT INTO projections VALUES (4, 'blended', 0, 0, 0, 0, 0, 0, 0, NULL, NULL, 0, 0, 0, 160, 8, 10, 0, 120, 4.20, 1.30, 75, 55, 200, 4.50, 4.60, 4.40, NULL, NULL, NULL)")
+    c.execute(
+        "INSERT INTO projections VALUES (4, 'blended', 0, 0, 0, 0, 0, 0, 0, NULL, NULL, 0, 0, 0, 160, 8, 10, 0, 120, 4.20, 1.30, 75, 55, 200, 4.50, 4.60, 4.40, NULL, NULL, NULL)"
+    )
     c.execute("INSERT INTO adp VALUES (4, 120, NULL)")
     c.execute("INSERT INTO season_stats VALUES (4, 2026, 0, 0, 0, 0, 0, 3.10, 1.05, 0, 20)")
     c.execute("INSERT INTO statcast_archive (player_id, season, stuff_plus) VALUES (4, 2026, 80)")
 
     # Hitter 5: Normal BABIP (no flag)
     c.execute("INSERT INTO players VALUES (5, 'Normal Nick', 'CHC', '1B', 1, 0, 500, NULL, NULL)")
-    c.execute("INSERT INTO projections VALUES (5, 'blended', 500, 450, 120, 60, 18, 65, 5, .267, .340, 35, 4, 3, 0, 0, 0, 0, 0, NULL, NULL, 0, 0, 0, NULL, NULL, NULL, NULL, NULL, NULL)")
+    c.execute(
+        "INSERT INTO projections VALUES (5, 'blended', 500, 450, 120, 60, 18, 65, 5, .267, .340, 35, 4, 3, 0, 0, 0, 0, 0, NULL, NULL, 0, 0, 0, NULL, NULL, NULL, NULL, NULL, NULL)"
+    )
     c.execute("INSERT INTO adp VALUES (5, 80, NULL)")
     c.execute("INSERT INTO season_stats VALUES (5, 2026, 60, .270, 4, 12, 2, 0, 0, 0, 0)")
     c.execute("INSERT INTO statcast_archive (player_id, season, xwoba, babip) VALUES (5, 2026, 0.330, 0.305)")
@@ -125,6 +135,7 @@ def _load_pool(db_path):
     """Load enriched pool using the test database."""
     with patch("src.database.DB_PATH", db_path):
         from src.database import _load_player_pool_impl
+
         return _load_player_pool_impl()
 
 
@@ -161,6 +172,7 @@ class TestBABIPRegression:
     def test_babip_low_pa_no_flag(self, enriched_db):
         """Hitters with <30 PA shouldn't get BABIP flags (noise)."""
         import sqlite3
+
         conn = sqlite3.connect(str(enriched_db))
         conn.execute("UPDATE season_stats SET pa = 15 WHERE player_id = 1")
         conn.commit()
@@ -215,11 +227,13 @@ class TestRegressionInComposite:
 
     def test_babip_buy_low_adds_bonus(self):
         """Receiving a BUY_LOW BABIP player should add +0.02 to composite."""
-        recv_row = pd.Series({
-            "regression_flag": "",
-            "babip_regression_flag": "BUY_LOW",
-            "stuff_regression_flag": "",
-        })
+        recv_row = pd.Series(
+            {
+                "regression_flag": "",
+                "babip_regression_flag": "BUY_LOW",
+                "stuff_regression_flag": "",
+            }
+        )
         bonus = 0.0
         if str(recv_row.get("babip_regression_flag", "")) == "BUY_LOW":
             bonus += 0.02
@@ -227,11 +241,13 @@ class TestRegressionInComposite:
 
     def test_stuff_sell_high_adds_bonus(self):
         """Giving away a SELL_HIGH Stuff+ player should add +0.02."""
-        give_row = pd.Series({
-            "regression_flag": "",
-            "babip_regression_flag": "",
-            "stuff_regression_flag": "SELL_HIGH",
-        })
+        give_row = pd.Series(
+            {
+                "regression_flag": "",
+                "babip_regression_flag": "",
+                "stuff_regression_flag": "SELL_HIGH",
+            }
+        )
         bonus = 0.0
         if str(give_row.get("stuff_regression_flag", "")) == "SELL_HIGH":
             bonus += 0.02
@@ -253,11 +269,13 @@ class TestRegressionInComposite:
 
     def test_no_flags_no_bonus(self):
         """Empty flags should add 0.0."""
-        row = pd.Series({
-            "regression_flag": "",
-            "babip_regression_flag": "",
-            "stuff_regression_flag": "",
-        })
+        row = pd.Series(
+            {
+                "regression_flag": "",
+                "babip_regression_flag": "",
+                "stuff_regression_flag": "",
+            }
+        )
         bonus = 0.0
         for flag_col, threshold in [
             ("regression_flag", 0.03),

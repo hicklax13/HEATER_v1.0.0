@@ -15,26 +15,60 @@ from src.valuation import LeagueConfig, SGPCalculator
 # ── Helpers ─────────────────────────────────────────────────────────
 
 
-def _hitter(pid=1, name="Hitter", pa=600, ab=550, h=150, r=80, hr=25,
-            rbi=80, sb=10, avg=None, obp=None, positions="OF"):
+def _hitter(
+    pid=1, name="Hitter", pa=600, ab=550, h=150, r=80, hr=25, rbi=80, sb=10, avg=None, obp=None, positions="OF"
+):
     if avg is None:
         avg = h / ab if ab > 0 else 0.0
     if obp is None:
         obp = (h + 50) / pa if pa > 0 else 0.0
     return {
-        "player_id": pid, "name": name, "team": "TST",
-        "positions": positions, "is_hitter": 1, "is_injured": 0,
-        "pa": pa, "ab": ab, "h": h, "r": r, "hr": hr, "rbi": rbi,
-        "sb": sb, "avg": avg, "obp": obp,
-        "bb": 50, "hbp": 5, "sf": 3,
-        "ip": 0, "w": 0, "l": 0, "sv": 0, "k": 0,
-        "era": 0, "whip": 0, "er": 0, "bb_allowed": 0, "h_allowed": 0,
+        "player_id": pid,
+        "name": name,
+        "team": "TST",
+        "positions": positions,
+        "is_hitter": 1,
+        "is_injured": 0,
+        "pa": pa,
+        "ab": ab,
+        "h": h,
+        "r": r,
+        "hr": hr,
+        "rbi": rbi,
+        "sb": sb,
+        "avg": avg,
+        "obp": obp,
+        "bb": 50,
+        "hbp": 5,
+        "sf": 3,
+        "ip": 0,
+        "w": 0,
+        "l": 0,
+        "sv": 0,
+        "k": 0,
+        "era": 0,
+        "whip": 0,
+        "er": 0,
+        "bb_allowed": 0,
+        "h_allowed": 0,
         "adp": pid,
     }
 
 
-def _pitcher(pid=100, name="Pitcher", ip=180, w=12, l=8, sv=0, k=180,
-             era=3.50, whip=1.20, er=None, bb_allowed=None, h_allowed=None):
+def _pitcher(
+    pid=100,
+    name="Pitcher",
+    ip=180,
+    w=12,
+    l=8,
+    sv=0,
+    k=180,
+    era=3.50,
+    whip=1.20,
+    er=None,
+    bb_allowed=None,
+    h_allowed=None,
+):
     if er is None:
         er = era * ip / 9
     if bb_allowed is None:
@@ -42,13 +76,34 @@ def _pitcher(pid=100, name="Pitcher", ip=180, w=12, l=8, sv=0, k=180,
     if h_allowed is None:
         h_allowed = int(whip * ip * 0.65)
     return {
-        "player_id": pid, "name": name, "team": "TST",
-        "positions": "SP", "is_hitter": 0, "is_injured": 0,
-        "pa": 0, "ab": 0, "h": 0, "r": 0, "hr": 0, "rbi": 0,
-        "sb": 0, "avg": 0, "obp": 0, "bb": 0, "hbp": 0, "sf": 0,
-        "ip": ip, "w": w, "l": l, "sv": sv, "k": k,
-        "era": era, "whip": whip, "er": er,
-        "bb_allowed": bb_allowed, "h_allowed": h_allowed,
+        "player_id": pid,
+        "name": name,
+        "team": "TST",
+        "positions": "SP",
+        "is_hitter": 0,
+        "is_injured": 0,
+        "pa": 0,
+        "ab": 0,
+        "h": 0,
+        "r": 0,
+        "hr": 0,
+        "rbi": 0,
+        "sb": 0,
+        "avg": 0,
+        "obp": 0,
+        "bb": 0,
+        "hbp": 0,
+        "sf": 0,
+        "ip": ip,
+        "w": w,
+        "l": l,
+        "sv": sv,
+        "k": k,
+        "era": era,
+        "whip": whip,
+        "er": er,
+        "bb_allowed": bb_allowed,
+        "h_allowed": h_allowed,
         "adp": pid,
     }
 
@@ -72,10 +127,20 @@ class TestCustomDenominators:
     def test_custom_denominators_stored(self):
         """Custom denoms passed to __init__ are stored on the instance."""
         config = LeagueConfig()
-        custom = {"R": 50.0, "HR": 20.0, "RBI": 50.0, "SB": 20.0,
-                  "AVG": 0.006, "OBP": 0.007,
-                  "W": 5.0, "L": 4.0, "SV": 12.0, "K": 60.0,
-                  "ERA": 0.30, "WHIP": 0.030}
+        custom = {
+            "R": 50.0,
+            "HR": 20.0,
+            "RBI": 50.0,
+            "SB": 20.0,
+            "AVG": 0.006,
+            "OBP": 0.007,
+            "W": 5.0,
+            "L": 4.0,
+            "SV": 12.0,
+            "K": 60.0,
+            "ERA": 0.30,
+            "WHIP": 0.030,
+        }
         calc = SGPCalculator(config, denominators=custom)
         assert calc._denominators is custom
         assert calc._denominators["R"] == 50.0
@@ -96,7 +161,7 @@ class TestCustomDenominators:
 
         # Double all counting denominators -> halve SGP values
         big_denoms = dict(config.sgp_denominators)
-        big_denoms["R"] = 64.0   # 2x default 32
+        big_denoms["R"] = 64.0  # 2x default 32
         big_denoms["HR"] = 26.0  # 2x default 13
         big_denoms["RBI"] = 64.0
         big_denoms["SB"] = 28.0
@@ -113,9 +178,7 @@ class TestCustomDenominators:
         player = pd.Series(_hitter())
 
         calc_default = SGPCalculator(config)
-        calc_custom = SGPCalculator(config, denominators={
-            **config.sgp_denominators, "R": 100.0, "HR": 100.0
-        })
+        calc_custom = SGPCalculator(config, denominators={**config.sgp_denominators, "R": 100.0, "HR": 100.0})
 
         assert calc_default.total_sgp(player) != calc_custom.total_sgp(player)
 
@@ -125,9 +188,7 @@ class TestCustomDenominators:
         pool = _pool([_hitter(pid=1, r=80), _hitter(pid=2, r=40)])
 
         calc_default = SGPCalculator(config)
-        calc_custom = SGPCalculator(config, denominators={
-            **config.sgp_denominators, "R": 100.0
-        })
+        calc_custom = SGPCalculator(config, denominators={**config.sgp_denominators, "R": 100.0})
 
         batch_default = calc_default.total_sgp_batch(pool)
         batch_custom = calc_custom.total_sgp_batch(pool)
@@ -139,15 +200,24 @@ class TestCustomDenominators:
         """marginal_sgp uses custom denominators."""
         config = LeagueConfig()
         player = pd.Series(_hitter())
-        roster = {"R": 800, "HR": 250, "RBI": 800, "SB": 100,
-                  "ab": 5500, "h": 1400, "ip": 0, "er": 0,
-                  "bb_allowed": 0, "h_allowed": 0,
-                  "bb": 500, "hbp": 30, "sf": 40}
+        roster = {
+            "R": 800,
+            "HR": 250,
+            "RBI": 800,
+            "SB": 100,
+            "ab": 5500,
+            "h": 1400,
+            "ip": 0,
+            "er": 0,
+            "bb_allowed": 0,
+            "h_allowed": 0,
+            "bb": 500,
+            "hbp": 30,
+            "sf": 40,
+        }
 
         calc_default = SGPCalculator(config)
-        calc_custom = SGPCalculator(config, denominators={
-            **config.sgp_denominators, "RBI": 100.0
-        })
+        calc_custom = SGPCalculator(config, denominators={**config.sgp_denominators, "RBI": 100.0})
 
         marg_default = calc_default.marginal_sgp(player, roster)
         marg_custom = calc_custom.marginal_sgp(player, roster)

@@ -4,12 +4,11 @@ from __future__ import annotations
 
 import pytest
 
-from src.optimizer.pivot_advisor import compute_ratio_protection
 from src.optimizer.matchup_adjustments import (
     weather_rain_adjustment,
     weather_wind_hr_adjustment,
 )
-
+from src.optimizer.pivot_advisor import compute_ratio_protection
 
 # ── I3: Ratio Protection Calculator ─────────────────────────────────
 

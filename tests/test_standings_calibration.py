@@ -38,14 +38,62 @@ class TestDefaultNSims:
             "Team D": {"W": 6, "L": 2, "T": 0},
         }
         weekly_totals = {
-            "Team A": {"R": 30, "HR": 8, "RBI": 28, "SB": 4, "AVG": 0.265, "OBP": 0.335,
-                        "W": 3, "L": 2, "SV": 2, "K": 35, "ERA": 3.80, "WHIP": 1.22},
-            "Team B": {"R": 25, "HR": 6, "RBI": 24, "SB": 3, "AVG": 0.250, "OBP": 0.320,
-                        "W": 2, "L": 3, "SV": 1, "K": 30, "ERA": 4.20, "WHIP": 1.35},
-            "Team C": {"R": 28, "HR": 7, "RBI": 26, "SB": 5, "AVG": 0.258, "OBP": 0.328,
-                        "W": 3, "L": 2, "SV": 3, "K": 32, "ERA": 3.95, "WHIP": 1.28},
-            "Team D": {"R": 32, "HR": 9, "RBI": 30, "SB": 2, "AVG": 0.270, "OBP": 0.340,
-                        "W": 4, "L": 2, "SV": 2, "K": 38, "ERA": 3.50, "WHIP": 1.18},
+            "Team A": {
+                "R": 30,
+                "HR": 8,
+                "RBI": 28,
+                "SB": 4,
+                "AVG": 0.265,
+                "OBP": 0.335,
+                "W": 3,
+                "L": 2,
+                "SV": 2,
+                "K": 35,
+                "ERA": 3.80,
+                "WHIP": 1.22,
+            },
+            "Team B": {
+                "R": 25,
+                "HR": 6,
+                "RBI": 24,
+                "SB": 3,
+                "AVG": 0.250,
+                "OBP": 0.320,
+                "W": 2,
+                "L": 3,
+                "SV": 1,
+                "K": 30,
+                "ERA": 4.20,
+                "WHIP": 1.35,
+            },
+            "Team C": {
+                "R": 28,
+                "HR": 7,
+                "RBI": 26,
+                "SB": 5,
+                "AVG": 0.258,
+                "OBP": 0.328,
+                "W": 3,
+                "L": 2,
+                "SV": 3,
+                "K": 32,
+                "ERA": 3.95,
+                "WHIP": 1.28,
+            },
+            "Team D": {
+                "R": 32,
+                "HR": 9,
+                "RBI": 30,
+                "SB": 2,
+                "AVG": 0.270,
+                "OBP": 0.340,
+                "W": 4,
+                "L": 2,
+                "SV": 2,
+                "K": 38,
+                "ERA": 3.50,
+                "WHIP": 1.18,
+            },
         }
         schedule = {
             9: [("Team A", "Team B"), ("Team C", "Team D")],
@@ -95,9 +143,7 @@ class TestCalibratedWeeklyTau:
         counting_cats = ("R", "HR", "RBI", "SB", "W", "L", "SV", "K")
         max_rate = max(CALIBRATED_WEEKLY_TAU[c] for c in rate_cats)
         min_counting = min(CALIBRATED_WEEKLY_TAU[c] for c in counting_cats)
-        assert max_rate < min_counting, (
-            f"Rate stat max tau ({max_rate}) should be < counting stat min ({min_counting})"
-        )
+        assert max_rate < min_counting, f"Rate stat max tau ({max_rate}) should be < counting stat min ({min_counting})"
 
     def test_specific_calibrated_values(self) -> None:
         """Spot-check specific FanGraphs-derived values."""

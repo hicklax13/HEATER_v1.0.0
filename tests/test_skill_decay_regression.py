@@ -8,7 +8,6 @@ import pytest
 from src.alerts import generate_regression_alerts
 from src.closer_monitor import compute_skill_decay
 
-
 # ─── L2: K% Skill Decay ─────────────────────────────────────────────
 
 

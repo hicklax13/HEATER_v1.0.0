@@ -476,9 +476,7 @@ with ctx:
     _active_count = len(user_player_ids)
     _il_count = 0
     if "status" in roster.columns:
-        _il_count = int(roster["status"].apply(
-            lambda s: str(s or "").strip().lower() in _IL_STATUSES_CTX
-        ).sum())
+        _il_count = int(roster["status"].apply(lambda s: str(s or "").strip().lower() in _IL_STATUSES_CTX).sum())
         _active_count = len(user_player_ids) - _il_count
     _roster_detail = f"{_active_count} active"
     if _il_count > 0:
@@ -494,7 +492,7 @@ with ctx:
     # Optimizer settings
     st.markdown(
         f'<p style="font-family:Bebas Neue,sans-serif;font-size:10px;text-transform:uppercase;'
-        f'letter-spacing:2px;color:{T["tx2"]};margin:12px 0 6px;padding-bottom:4px;'
+        f"letter-spacing:2px;color:{T['tx2']};margin:12px 0 6px;padding-bottom:4px;"
         f'border-bottom:1px solid {T["border"]};">Optimization Settings</p>',
         unsafe_allow_html=True,
     )
@@ -1046,8 +1044,16 @@ with main:
 
                 # Greedy slot assignment: fill specific positions first, then flex
                 _SLOT_ORDER = [
-                    ("C", 1), ("1B", 1), ("2B", 1), ("3B", 1), ("SS", 1),
-                    ("OF", 3), ("SP", 2), ("RP", 2), ("P", 4), ("Util", 2),
+                    ("C", 1),
+                    ("1B", 1),
+                    ("2B", 1),
+                    ("3B", 1),
+                    ("SS", 1),
+                    ("OF", 3),
+                    ("SP", 2),
+                    ("RP", 2),
+                    ("P", 4),
+                    ("Util", 2),
                 ]
                 _OF_POSITIONS = {"LF", "CF", "RF", "OF"}
                 _PITCHER_POSITIONS = {"SP", "RP", "P"}
@@ -2536,7 +2542,20 @@ with main:
         # Use shared context for two-start detection when available
         two_start_sps = []
         # IL/DTD/NA statuses to exclude from two-start candidates
-        _IL_EXCLUDE = {"il10", "il15", "il60", "il", "na", "not active", "dl", "dtd", "day-to-day", "minors", "out", "suspended"}
+        _IL_EXCLUDE = {
+            "il10",
+            "il15",
+            "il60",
+            "il",
+            "na",
+            "not active",
+            "dl",
+            "dtd",
+            "day-to-day",
+            "minors",
+            "out",
+            "suspended",
+        }
         _stream_ctx = st.session_state.get("optimizer_context")
         if _stream_ctx and _stream_ctx.two_start_pitchers:
             # Build display from shared context (pre-computed, consistent with optimizer)

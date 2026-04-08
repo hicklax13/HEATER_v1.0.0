@@ -144,9 +144,7 @@ def compute_committee_risk(
             "signal": "NO_SAVES",
         }
 
-    sorted_closers = sorted(
-        team_save_distribution.items(), key=lambda x: x[1], reverse=True
-    )
+    sorted_closers = sorted(team_save_distribution.items(), key=lambda x: x[1], reverse=True)
     primary_share = sorted_closers[0][1] / total_sv
     num_contributors = sum(1 for _, sv in sorted_closers if sv > 0)
 

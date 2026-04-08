@@ -138,8 +138,7 @@ class TestVolumeAwareHitterSGP:
         expected = sgp_calc.total_sgp(pool.iloc[0])
 
         assert abs(vol_sgp - expected) < 1e-9, (
-            f"_player_sgp_volume_aware ({vol_sgp:.4f}) should match "
-            f"SGPCalculator.total_sgp ({expected:.4f})"
+            f"_player_sgp_volume_aware ({vol_sgp:.4f}) should match SGPCalculator.total_sgp ({expected:.4f})"
         )
 
     def test_volume_aware_differentiates_same_avg(self, config):
@@ -152,10 +151,7 @@ class TestVolumeAwareHitterSGP:
         sgp_low = _player_sgp_volume_aware(2, pool, config)
 
         # High-volume player should have higher total SGP due to AVG/OBP contribution
-        assert sgp_high > sgp_low, (
-            f"600 AB player SGP ({sgp_high:.4f}) should exceed "
-            f"200 AB player SGP ({sgp_low:.4f})"
-        )
+        assert sgp_high > sgp_low, f"600 AB player SGP ({sgp_high:.4f}) should exceed 200 AB player SGP ({sgp_low:.4f})"
 
 
 class TestVolumeAwarePitcherSGP:
@@ -172,8 +168,7 @@ class TestVolumeAwarePitcherSGP:
         # Both have below-average ERA (3.00 < 3.80 baseline), so both positive
         # But the 200 IP pitcher should have a larger positive ERA SGP
         assert high_sgp["ERA"] > low_sgp["ERA"], (
-            f"200 IP ERA SGP ({high_sgp['ERA']:.4f}) should exceed "
-            f"50 IP ERA SGP ({low_sgp['ERA']:.4f})"
+            f"200 IP ERA SGP ({high_sgp['ERA']:.4f}) should exceed 50 IP ERA SGP ({low_sgp['ERA']:.4f})"
         )
 
     def test_volume_aware_pitcher_differentiation(self, config):
@@ -187,8 +182,7 @@ class TestVolumeAwarePitcherSGP:
 
         # High-IP pitcher should have higher total SGP overall
         assert sgp_high > sgp_low, (
-            f"200 IP pitcher SGP ({sgp_high:.4f}) should exceed "
-            f"50 IP pitcher SGP ({sgp_low:.4f})"
+            f"200 IP pitcher SGP ({sgp_high:.4f}) should exceed 50 IP pitcher SGP ({sgp_low:.4f})"
         )
 
 
@@ -217,10 +211,34 @@ class TestTotalsSGPRosterTotals:
 
     def test_totals_sgp_inverse_stats_subtract(self, config):
         """Inverse stats (L, ERA, WHIP) should reduce total SGP."""
-        low_era = {"R": 0, "HR": 0, "RBI": 0, "SB": 0, "AVG": 0, "OBP": 0,
-                   "W": 0, "L": 0, "SV": 0, "K": 0, "ERA": 3.00, "WHIP": 0}
-        high_era = {"R": 0, "HR": 0, "RBI": 0, "SB": 0, "AVG": 0, "OBP": 0,
-                    "W": 0, "L": 0, "SV": 0, "K": 0, "ERA": 5.00, "WHIP": 0}
+        low_era = {
+            "R": 0,
+            "HR": 0,
+            "RBI": 0,
+            "SB": 0,
+            "AVG": 0,
+            "OBP": 0,
+            "W": 0,
+            "L": 0,
+            "SV": 0,
+            "K": 0,
+            "ERA": 3.00,
+            "WHIP": 0,
+        }
+        high_era = {
+            "R": 0,
+            "HR": 0,
+            "RBI": 0,
+            "SB": 0,
+            "AVG": 0,
+            "OBP": 0,
+            "W": 0,
+            "L": 0,
+            "SV": 0,
+            "K": 0,
+            "ERA": 5.00,
+            "WHIP": 0,
+        }
 
         sgp_low = _totals_sgp(low_era, config)
         sgp_high = _totals_sgp(high_era, config)
@@ -231,12 +249,32 @@ class TestTotalsSGPRosterTotals:
     def test_totals_sgp_still_used_for_roster_deltas(self, config):
         """Verify that roster-level before/after deltas using _totals_sgp are unaffected."""
         roster_before = {
-            "R": 700, "HR": 200, "RBI": 700, "SB": 100, "AVG": 0.265, "OBP": 0.330,
-            "W": 80, "L": 60, "SV": 50, "K": 1200, "ERA": 3.80, "WHIP": 1.25,
+            "R": 700,
+            "HR": 200,
+            "RBI": 700,
+            "SB": 100,
+            "AVG": 0.265,
+            "OBP": 0.330,
+            "W": 80,
+            "L": 60,
+            "SV": 50,
+            "K": 1200,
+            "ERA": 3.80,
+            "WHIP": 1.25,
         }
         roster_after = {
-            "R": 710, "HR": 205, "RBI": 710, "SB": 102, "AVG": 0.267, "OBP": 0.332,
-            "W": 82, "L": 59, "SV": 52, "K": 1210, "ERA": 3.75, "WHIP": 1.23,
+            "R": 710,
+            "HR": 205,
+            "RBI": 710,
+            "SB": 102,
+            "AVG": 0.267,
+            "OBP": 0.332,
+            "W": 82,
+            "L": 59,
+            "SV": 52,
+            "K": 1210,
+            "ERA": 3.75,
+            "WHIP": 1.23,
         }
 
         delta = _totals_sgp(roster_after, config) - _totals_sgp(roster_before, config)
@@ -295,6 +333,4 @@ class TestOldVsNewComparison:
         new_high = _player_sgp_volume_aware(1, pool, config)
         new_low = _player_sgp_volume_aware(2, pool, config)
 
-        assert new_high > new_low, (
-            f"Volume-aware SGP should differentiate: 600AB={new_high:.4f} > 200AB={new_low:.4f}"
-        )
+        assert new_high > new_low, f"Volume-aware SGP should differentiate: 600AB={new_high:.4f} > 200AB={new_low:.4f}"

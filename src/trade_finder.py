@@ -442,7 +442,11 @@ def compute_roster_spot_sgp(player_pool: pd.DataFrame, config: LeagueConfig | No
         fa_mask = (
             (player_pool.get("status", pd.Series("", index=player_pool.index)).isin(["", "active", "FA"]))
             & (player_pool.get("adp", pd.Series(999, index=player_pool.index)) > 250)
-            & (player_pool.get("pa", pd.Series(0, index=player_pool.index)).fillna(0) + player_pool.get("ip", pd.Series(0, index=player_pool.index)).fillna(0) > 0)
+            & (
+                player_pool.get("pa", pd.Series(0, index=player_pool.index)).fillna(0)
+                + player_pool.get("ip", pd.Series(0, index=player_pool.index)).fillna(0)
+                > 0
+            )
         )
         fa_pool = player_pool[fa_mask]
         if len(fa_pool) < 10:
@@ -1266,9 +1270,7 @@ def scan_1_for_1(
             recv_recently_acq = False
             if _transactions_df is not None and not _transactions_df.empty:
                 try:
-                    _three_weeks_ago = (
-                        datetime.now(UTC) - timedelta(weeks=3)
-                    ).isoformat()
+                    _three_weeks_ago = (datetime.now(UTC) - timedelta(weeks=3)).isoformat()
                     recent_trades = _transactions_df[
                         (_transactions_df["player_id"] == recv_id)
                         & (_transactions_df["type"] == "trade")

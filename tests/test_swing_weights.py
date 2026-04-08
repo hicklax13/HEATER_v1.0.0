@@ -169,12 +169,15 @@ def test_weights_normalize_to_mean_one():
     variances = default_category_variances()
 
     # Create varied scenario: some ahead, some behind, some tied
-    opp = _make_opponent(my, {
-        "hr": my["hr"] - 25,   # dominating
-        "sb": my["sb"] - 15,   # dominating
-        "k": my["k"] + 40,     # losing badly
-        "era": my["era"] + 2.0,  # losing badly (inverse: higher ERA = worse)
-    })
+    opp = _make_opponent(
+        my,
+        {
+            "hr": my["hr"] - 25,  # dominating
+            "sb": my["sb"] - 15,  # dominating
+            "k": my["k"] + 40,  # losing badly
+            "era": my["era"] + 2.0,  # losing badly (inverse: higher ERA = worse)
+        },
+    )
 
     weights = compute_h2h_category_weights(my, opp, variances)
     mean_w = np.mean(list(weights.values()))
@@ -204,9 +207,7 @@ def test_inverse_stats_flip_for_p_win():
     weights = compute_h2h_category_weights(my, opp, variances)
 
     # ERA should be deprioritized (0.5x emphasis) relative to tied cats
-    assert weights["era"] < 0.5, (
-        f"Dominating ERA (inverse) should have low weight, got {weights['era']}"
-    )
+    assert weights["era"] < 0.5, f"Dominating ERA (inverse) should have low weight, got {weights['era']}"
 
 
 def test_inverse_stats_losing_gets_low_emphasis():
@@ -222,9 +223,7 @@ def test_inverse_stats_losing_gets_low_emphasis():
 
     weights = compute_h2h_category_weights(my, opp, variances)
 
-    assert weights["era"] < 0.5, (
-        f"Badly losing ERA (inverse) should have low weight, got {weights['era']}"
-    )
+    assert weights["era"] < 0.5, f"Badly losing ERA (inverse) should have low weight, got {weights['era']}"
 
 
 # ── Test: swing emphasis relative ordering ──────────────────────────

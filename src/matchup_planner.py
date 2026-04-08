@@ -301,9 +301,7 @@ def compute_weekly_matchup_ratings(
 
             _pf_conn = get_connection()
             try:
-                _pf_rows = _pf_conn.execute(
-                    "SELECT team_code, factor_hitting FROM park_factors"
-                ).fetchall()
+                _pf_rows = _pf_conn.execute("SELECT team_code, factor_hitting FROM park_factors").fetchall()
                 if _pf_rows:
                     park_factors = {str(r[0]): float(r[1]) for r in _pf_rows if r[0] and r[1]}
             finally:

@@ -76,7 +76,7 @@ DOME_TEAMS: set[str] = {"ARI", "HOU", "MIA", "MIL", "SEA", "TB", "TEX", "TOR"}
 # Used by E6 for wind direction adjustment. Compiled from satellite imagery.
 # 0° = North, 90° = East, 180° = South, 270° = West.
 OUTFIELD_BEARING: dict[str, float] = {
-    "ARI": 0,    # Chase Field (retractable, indoor mostly)
+    "ARI": 0,  # Chase Field (retractable, indoor mostly)
     "ATL": 175,  # Truist Park — CF faces roughly south
     "BAL": 180,  # Camden Yards — CF faces south
     "BOS": 200,  # Fenway Park — CF faces SSW
@@ -86,25 +86,25 @@ OUTFIELD_BEARING: dict[str, float] = {
     "CLE": 175,  # Progressive Field — CF faces roughly south
     "COL": 175,  # Coors Field — CF faces south
     "DET": 180,  # Comerica Park — CF faces south
-    "HOU": 0,    # Minute Maid (retractable)
-    "KC": 180,   # Kauffman Stadium — CF faces south
+    "HOU": 0,  # Minute Maid (retractable)
+    "KC": 180,  # Kauffman Stadium — CF faces south
     "LAA": 200,  # Angel Stadium — CF faces SSW
     "LAD": 180,  # Dodger Stadium — CF faces south
-    "MIA": 0,    # loanDepot Park (retractable)
-    "MIL": 0,    # American Family Field (retractable)
+    "MIA": 0,  # loanDepot Park (retractable)
+    "MIL": 0,  # American Family Field (retractable)
     "MIN": 205,  # Target Field — CF faces SSW
     "NYM": 135,  # Citi Field — CF faces SE
     "NYY": 180,  # Yankee Stadium — CF faces south
     "ATH": 170,  # Sutter Health Park (Sacramento) — CF faces roughly south
     "PHI": 190,  # Citizens Bank Park — CF faces south
-    "PIT": 45,   # PNC Park — CF faces NE (unique)
-    "SD": 180,   # Petco Park — CF faces south
-    "SF": 180,   # Oracle Park — CF faces south
-    "SEA": 0,    # T-Mobile Park (retractable)
+    "PIT": 45,  # PNC Park — CF faces NE (unique)
+    "SD": 180,  # Petco Park — CF faces south
+    "SF": 180,  # Oracle Park — CF faces south
+    "SEA": 0,  # T-Mobile Park (retractable)
     "STL": 180,  # Busch Stadium — CF faces south
-    "TB": 0,     # Tropicana Field (dome)
-    "TEX": 0,    # Globe Life Field (retractable)
-    "TOR": 0,    # Rogers Centre (retractable)
+    "TB": 0,  # Tropicana Field (dome)
+    "TEX": 0,  # Globe Life Field (retractable)
+    "TOR": 0,  # Rogers Centre (retractable)
     "WSH": 180,  # Nationals Park — CF faces south
 }
 

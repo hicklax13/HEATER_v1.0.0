@@ -968,12 +968,8 @@ else:
                         _flip_dow = _dt_flip.now(UTC).weekday()  # 0=Mon
                         _flip_games_remaining = max(0, 7 - _flip_dow)
 
-                        _flip_probs = compute_category_flip_probabilities(
-                            _flip_my, _flip_opp, _flip_games_remaining
-                        )
-                        _flip_summary = get_pivot_summary(
-                            _flip_my, _flip_opp, _flip_games_remaining
-                        )
+                        _flip_probs = compute_category_flip_probabilities(_flip_my, _flip_opp, _flip_games_remaining)
+                        _flip_summary = get_pivot_summary(_flip_my, _flip_opp, _flip_games_remaining)
 
                         # Build category rows grouped: CONTESTED first, WON, LOST
                         _flip_rows = ""
@@ -1028,13 +1024,11 @@ else:
                         _top_actions = _flip_summary.get("recommended_actions", [])[:2]
                         if _top_actions:
                             _flip_actions_html = (
-                                f'<div style="margin-top:6px;padding-top:4px;'
-                                f'border-top:1px solid {T["border"]};">'
+                                f'<div style="margin-top:6px;padding-top:4px;border-top:1px solid {T["border"]};">'
                             )
                             for _fa in _top_actions:
                                 _flip_actions_html += (
-                                    f'<div style="font-size:10px;color:{T["tx2"]};'
-                                    f'padding:1px 0;">{_fa}</div>'
+                                    f'<div style="font-size:10px;color:{T["tx2"]};padding:1px 0;">{_fa}</div>'
                                 )
                             _flip_actions_html += "</div>"
 
@@ -1079,11 +1073,11 @@ else:
                             f'white-space:nowrap;">{_ra_label}</span>'
                             f'<div style="flex:1;">'
                             f'<div style="font-size:12px;font-weight:600;color:{T["tx"]};">'
-                            f'{_ra["player_name"]}'
+                            f"{_ra['player_name']}"
                             f'<span style="color:{T["tx2"]};font-weight:400;font-size:10px;'
                             f'margin-left:6px;">{_ra_div:.1f} SD</span></div>'
                             f'<div style="font-size:10px;color:{T["tx2"]};">'
-                            f'xwOBA {_ra["expected"]:.3f} vs actual wOBA {_ra["actual"]:.3f}</div>'
+                            f"xwOBA {_ra['expected']:.3f} vs actual wOBA {_ra['actual']:.3f}</div>"
                             f"</div></div>"
                         )
                     st.markdown(

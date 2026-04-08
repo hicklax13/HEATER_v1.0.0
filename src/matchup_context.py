@@ -416,10 +416,7 @@ class MatchupContextService:
             urgency_data = self.get_category_urgency()
             urgency_map = urgency_data.get("urgency", {})
             if urgency_map:
-                matchup_weights = {
-                    cat: 0.5 + float(urgency_map.get(cat, 0.5))
-                    for cat in all_cats
-                }
+                matchup_weights = {cat: 0.5 + float(urgency_map.get(cat, 0.5)) for cat in all_cats}
         except Exception as exc:
             logger.debug("matchup weights failed: %s", exc)
 
@@ -435,9 +432,7 @@ class MatchupContextService:
                 all_team_totals: dict[str, dict[str, float]] = {}
                 user_team_name: str | None = None
                 if "category" in standings_df.columns:
-                    standings_df["total"] = pd.to_numeric(
-                        standings_df["total"], errors="coerce"
-                    ).fillna(0)
+                    standings_df["total"] = pd.to_numeric(standings_df["total"], errors="coerce").fillna(0)
                     wide = standings_df.pivot_table(
                         index="team_name",
                         columns="category",
@@ -449,9 +444,7 @@ class MatchupContextService:
                         if team:
                             totals = {}
                             for cat in all_cats:
-                                totals[cat] = float(
-                                    pd.to_numeric(row.get(cat, 0), errors="coerce") or 0
-                                )
+                                totals[cat] = float(pd.to_numeric(row.get(cat, 0), errors="coerce") or 0)
                             all_team_totals[team] = totals
 
                 # Determine user team name
@@ -473,9 +466,7 @@ class MatchupContextService:
                         get_category_weights as _ti_get_weights,
                     )
 
-                    standings_weights = _ti_get_weights(
-                        user_team_name, all_team_totals, config
-                    )
+                    standings_weights = _ti_get_weights(user_team_name, all_team_totals, config)
         except Exception as exc:
             logger.debug("standings weights failed: %s", exc)
 

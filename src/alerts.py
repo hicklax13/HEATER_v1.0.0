@@ -269,9 +269,9 @@ def generate_roster_alerts(
         if empty_il > 0 and fa_pool is not None and not fa_pool.empty:
             # Find IL-eligible FAs with highest ROS SGP
             il_candidates = fa_pool[
-                fa_pool.get("status", pd.Series("", index=fa_pool.index)).str.lower().isin(
-                    ["il10", "il15", "il60", "dl", "out"]
-                )
+                fa_pool.get("status", pd.Series("", index=fa_pool.index))
+                .str.lower()
+                .isin(["il10", "il15", "il60", "dl", "out"])
             ]
             if not il_candidates.empty:
                 # Sort by projected value (SGP or marginal_value)
@@ -341,23 +341,27 @@ def generate_opponent_move_alerts(
             continue
 
         if team_to == opp_lower and tx_type in ("add", "trade"):
-            alerts.append({
-                "type": "opponent_add",
-                "severity": "info",
-                "title": f"OPP ADD: {player}",
-                "message": f"{opponent_team_name} added {player} ({tx_type}). Check if this targets your weak categories.",
-                "action": "Review their streaming strategy and adjust.",
-                "timestamp": ts,
-            })
+            alerts.append(
+                {
+                    "type": "opponent_add",
+                    "severity": "info",
+                    "title": f"OPP ADD: {player}",
+                    "message": f"{opponent_team_name} added {player} ({tx_type}). Check if this targets your weak categories.",
+                    "action": "Review their streaming strategy and adjust.",
+                    "timestamp": ts,
+                }
+            )
         elif team_from == opp_lower and tx_type in ("drop", "trade"):
-            alerts.append({
-                "type": "opponent_drop",
-                "severity": "info",
-                "title": f"OPP DROP: {player}",
-                "message": f"{opponent_team_name} dropped {player}. Potential waiver target if valuable.",
-                "action": f"Check if {player} is worth claiming.",
-                "timestamp": ts,
-            })
+            alerts.append(
+                {
+                    "type": "opponent_drop",
+                    "severity": "info",
+                    "title": f"OPP DROP: {player}",
+                    "message": f"{opponent_team_name} dropped {player}. Potential waiver target if valuable.",
+                    "action": f"Check if {player} is worth claiming.",
+                    "timestamp": ts,
+                }
+            )
 
     return alerts
 

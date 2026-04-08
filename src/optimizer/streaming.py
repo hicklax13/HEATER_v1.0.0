@@ -209,9 +209,7 @@ def compute_streaming_composite(
         whip_safe, and the underlying net_value from compute_streaming_value.
     """
     # Base streaming value
-    base = compute_streaming_value(
-        pitcher, weekly_games, park_factor, category_weights, sgp_denominators
-    )
+    base = compute_streaming_value(pitcher, weekly_games, park_factor, category_weights, sgp_denominators)
     net_value = base["net_value"]
 
     # Opponent quality multiplier: weaker opponents = better streaming target

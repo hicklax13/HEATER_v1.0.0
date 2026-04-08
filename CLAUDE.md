@@ -15,11 +15,12 @@ A fantasy baseball draft assistant + in-season manager for a 12-team Yahoo Sport
 
 ```bash
 pip install -r requirements.txt        # Install deps
+python scripts/install-hooks.py        # Install pre-commit hook (first time)
 python load_sample_data.py             # Load sample data (first time/testing)
 streamlit run app.py                   # Run the app
 ruff check .                           # Lint
 ruff format .                          # Format
-python -m pytest                       # Run all tests (2351 pass, 3 skipped)
+python -m pytest                       # Run all tests (2947 pass, 13 skipped)
 python -m pytest tests/test_foo.py -v  # Run single test file
 ```
 
@@ -138,7 +139,10 @@ src/
     game_theory/        — Opponent valuation, adverse selection, Bellman DP, sensitivity
     production/         — Convergence diagnostics, cache, adaptive sim scaling
     output/             — Master trade orchestrator (evaluate_trade)
-tests/                  — 101 test files, 2300 passing tests
+tests/                  — 101+ test files, 2947 passing tests
+scripts/
+  install-hooks.py      — Installs git pre-commit hook (run once after clone)
+  pre-commit            — Hook source: ruff format + lint check on staged .py files
 data/
   draft_tool.db         — SQLite database (created at runtime)
   backups/              — Draft state JSON backups
@@ -451,6 +455,7 @@ get_injury_badge(health_score) -> tuple[str, str]  # returns <span> with CSS dot
 - **`sort_roster_for_display()` returns a copy** — Never modifies the input DataFrame.
 
 ### Dependencies & Platform
+- **Pre-commit hook** — `scripts/pre-commit` runs `ruff format --check` + `ruff check` on staged `.py` files. Install with `python scripts/install-hooks.py`. Prevents committing unformatted or lint-failing code. The hook is NOT auto-installed — run the install script after cloning.
 - **Plotly 6.x hex colors** — Does NOT accept 8-digit hex (`#RRGGBBAA`). Use `rgba(r,g,b,a)`.
 - **PyMC/PuLP optional deps** — `PYMC_AVAILABLE`/`PULP_AVAILABLE` flags. Use `try/except ImportError`. CI skips with `@pytest.mark.skipif`.
 - **XGBoost optional** — `XGBOOST_AVAILABLE` flag. Returns zeros when unavailable.
@@ -514,9 +519,10 @@ get_injury_badge(health_score) -> tuple[str, str]  # returns <span> with CSS dot
 
 ## Testing
 
-- **2351 passing tests** across 101 test files, 3 skipped (PyMC/xgboost optional deps)
+- **2947 passing tests** across 101+ test files, 13 skipped (PyMC/xgboost optional deps)
 - **CI:** GitHub Actions — ruff lint/format + pytest on Python 3.11, 3.12, 3.13
-- **Coverage:** 64% (above 60% CI threshold)
+- **Coverage:** 64.86% (above 60% CI threshold)
+- **Pre-commit hook:** `scripts/pre-commit` enforces `ruff format` + `ruff check` on staged files before every commit. Install via `python scripts/install-hooks.py`.
 - **8 rounds of systematic debugging** (207 bugs fixed) + **data pipeline audit** (32 issues fixed), all CI green
 - **Full system audit** (March 26, 2026) — 19 bugs cataloged, all critical/high fixed
 - **Manual UI testing** — All 13 pages tested via Playwright + Claude in Chrome (March 2026)

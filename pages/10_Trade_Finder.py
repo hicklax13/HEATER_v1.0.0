@@ -438,12 +438,8 @@ def main():
                     df["Source"] = "Scan"
                     df["Need Efficiency"] = 0.0
                     # Deduplicate: remove scan rows that match enhanced recs by give+receive
-                    enhanced_keys = set(
-                        zip(enhanced_df["You Give"], enhanced_df["You Receive"])
-                    )
-                    df = df[
-                        ~df.apply(lambda r: (r["You Give"], r["You Receive"]) in enhanced_keys, axis=1)
-                    ]
+                    enhanced_keys = set(zip(enhanced_df["You Give"], enhanced_df["You Receive"]))
+                    df = df[~df.apply(lambda r: (r["You Give"], r["You Receive"]) in enhanced_keys, axis=1)]
                     df = pd.concat([enhanced_df, df], ignore_index=True)
                 else:
                     df = enhanced_df
@@ -466,8 +462,15 @@ def main():
 
                 # Show essential columns
                 essential = [
-                    "Source", "You Give", "You Receive", "Type", "Partner",
-                    "Your Gain", "Grade", "Acceptance", "Score",
+                    "Source",
+                    "You Give",
+                    "You Receive",
+                    "Type",
+                    "Partner",
+                    "Your Gain",
+                    "Grade",
+                    "Acceptance",
+                    "Score",
                 ]
                 if stored_enhanced:
                     essential.insert(6, "Need Efficiency")

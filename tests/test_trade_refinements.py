@@ -52,8 +52,7 @@ class TestPlayoffOddsAcceptance:
         prob_none = self._acceptance_no_rank()
         # Positive bubble_bonus subtracts from exponent -> higher acceptance
         assert prob_rank6 > prob_none, (
-            f"Rank 6 (bubble team) should have HIGHER acceptance than no rank, "
-            f"got {prob_rank6:.4f} vs {prob_none:.4f}"
+            f"Rank 6 (bubble team) should have HIGHER acceptance than no rank, got {prob_rank6:.4f} vs {prob_none:.4f}"
         )
 
     def test_contender_slight_negative_bonus(self):
@@ -88,9 +87,7 @@ class TestPlayoffOddsAcceptance:
         # Rank 12 -> odds = 1 - 11/11 = 0.0
         n_teams = 12
         assert max(0.0, 1.0 - (1 - 1) / (n_teams - 1)) == pytest.approx(1.0)
-        assert max(0.0, 1.0 - (6 - 1) / (n_teams - 1)) == pytest.approx(
-            0.5454, abs=0.01
-        )
+        assert max(0.0, 1.0 - (6 - 1) / (n_teams - 1)) == pytest.approx(0.5454, abs=0.01)
         assert max(0.0, 1.0 - (12 - 1) / (n_teams - 1)) == pytest.approx(0.0)
 
 

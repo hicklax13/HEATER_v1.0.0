@@ -1,0 +1,36 @@
+#!/bin/sh
+# Pre-commit hook: runs ruff format + ruff check on staged Python files.
+# Prevents committing unformatted or lint-failing code.
+# Installed by HEATER project — see CLAUDE.md for details.
+
+# Get list of staged .py files (added, modified, or renamed)
+STAGED_PY=$(git diff --cached --name-only --diff-filter=ACM | grep '\.py$')
+
+if [ -z "$STAGED_PY" ]; then
+    exit 0
+fi
+
+# Run ruff format check (don't auto-fix, just fail)
+echo "pre-commit: checking ruff format..."
+python -m ruff format --check $STAGED_PY
+FORMAT_EXIT=$?
+
+if [ $FORMAT_EXIT -ne 0 ]; then
+    echo ""
+    echo "pre-commit: ruff format check failed. Run 'python -m ruff format .' then re-stage."
+    exit 1
+fi
+
+# Run ruff lint check
+echo "pre-commit: checking ruff lint..."
+python -m ruff check $STAGED_PY
+LINT_EXIT=$?
+
+if [ $LINT_EXIT -ne 0 ]; then
+    echo ""
+    echo "pre-commit: ruff lint check failed. Run 'python -m ruff check --fix .' then re-stage."
+    exit 1
+fi
+
+echo "pre-commit: ruff checks passed."
+exit 0

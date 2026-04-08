@@ -194,10 +194,7 @@ else:
                             _trust_label = "Low Trust"
                         _trend_html = ""
                         if _gmli_prev is not None and (_gmli_prev - _gmli_val) > 0.5:
-                            _trend_html = (
-                                ' <span style="color:#e63946;font-weight:700;">'
-                                "&#8595; Declining</span>"
-                            )
+                            _trend_html = ' <span style="color:#e63946;font-weight:700;">&#8595; Declining</span>'
                         gmli_html = (
                             f'<div style="font-size:0.6rem;margin-top:2px;white-space:nowrap;">'
                             f'<span style="display:inline-block;width:7px;height:7px;'
