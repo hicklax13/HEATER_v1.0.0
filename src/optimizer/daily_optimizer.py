@@ -316,6 +316,9 @@ def build_daily_dcv_table(
     schedule_today: list[dict] | None,
     park_factors: dict | None,
     config=None,
+    urgency_weights: dict | None = None,
+    confirmed_lineups: dict[str, list] | None = None,
+    recent_form: dict[int, dict] | None = None,
 ) -> pd.DataFrame:
     """Build the Daily Category Value table for all roster players.
 
@@ -330,6 +333,18 @@ def build_daily_dcv_table(
         schedule_today: List of game dicts from statsapi for today.
         park_factors: Dict of team -> park factor.
         config: LeagueConfig.
+        urgency_weights: Output of compute_urgency_weights(). When provided,
+            each dcv_{cat} is multiplied by urgency_weights["urgency"][cat]
+            AFTER initial DCV computation, then total_dcv is recomputed.
+            When None, the function computes urgency internally (existing behavior).
+        confirmed_lineups: Dict mapping team abbreviation to list of player
+            names confirmed in today's starting lineup. Used for volume factor
+            lookup. When None, all lineups treated as not-yet-posted (0.9 default).
+        recent_form: Dict mapping player_id to form data dict. Expected
+            structure: {player_id: {"last_14": {"avg": .., "obp": .., "era": ..,
+            "whip": .., "games": ..}}}. When provided, blends L14 form at 25%
+            weight with preseason projections (clamped +/-20%). When None, no
+            recent form adjustment is applied.
 
     Returns:
         DataFrame with columns: player_id, name, positions,
@@ -401,14 +416,19 @@ def build_daily_dcv_table(
                     # Also add the raw value in case it's already an abbreviation
                     teams_playing.add(raw)
 
-    # Get urgency weights from matchup
-    try:
-        from src.optimizer.category_urgency import compute_urgency_weights
+    # Get urgency weights from matchup (use caller-provided if available)
+    if urgency_weights is not None:
+        urgency = urgency_weights.get("urgency", {})
+        _external_urgency = True
+    else:
+        _external_urgency = False
+        try:
+            from src.optimizer.category_urgency import compute_urgency_weights as _cuw
 
-        urgency_result = compute_urgency_weights(matchup, config)
-        urgency = urgency_result.get("urgency", {})
-    except Exception:
-        urgency = {cat: 0.5 for cat in config.all_categories}
+            urgency_result = _cuw(matchup, config)
+            urgency = urgency_result.get("urgency", {})
+        except Exception:
+            urgency = {cat: 0.5 for cat in config.all_categories}
 
     # Load weather data for today -- build team -> temp_f lookup
     # Both home and away teams at a given venue experience the same weather
@@ -455,7 +475,13 @@ def build_daily_dcv_table(
 
         # Volume factor
         team_plays = team in teams_playing if teams_playing else True
-        volume = compute_volume_factor(team_plays, None)  # lineup not posted = 0.9
+        in_lineup = None  # default: lineup not posted
+        if confirmed_lineups is not None:
+            if team in confirmed_lineups:
+                # Team has posted lineup
+                in_lineup = name in confirmed_lineups[team]
+            # else: team hasn't posted, keep None (0.9 default)
+        volume = compute_volume_factor(team_plays, in_lineup)
 
         # Skip entirely if excluded
         if health == 0.0 or volume == 0.0:
@@ -489,6 +515,33 @@ def build_daily_dcv_table(
             temp_f=player_temp,
         )
 
+        # Recent form blending: adjust projections with L14 data
+        form_adjustments: dict[str, float] = {}
+        if recent_form is not None:
+            form = recent_form.get(pid, {}).get("last_14", {})
+            form_games = int(form.get("games", 0) or 0)
+            if form_games >= 7:
+                if is_hitter:
+                    for stat_key in ("avg", "obp"):
+                        form_val = form.get(stat_key)
+                        if form_val is not None:
+                            orig = float(player.get(stat_key, 0) or 0)
+                            if orig > 0:
+                                blended = 0.75 * orig + 0.25 * float(form_val)
+                                lo = orig * 0.80
+                                hi = orig * 1.20
+                                form_adjustments[stat_key] = max(lo, min(hi, blended))
+                else:
+                    for stat_key in ("era", "whip"):
+                        form_val = form.get(stat_key)
+                        if form_val is not None:
+                            orig = float(player.get(stat_key, 0) or 0)
+                            if orig > 0:
+                                blended = 0.75 * orig + 0.25 * float(form_val)
+                                lo = orig * 0.80
+                                hi = orig * 1.20
+                                form_adjustments[stat_key] = max(lo, min(hi, blended))
+
         # Compute DCV per category
         total_dcv = 0.0
         row_data = {
@@ -506,7 +559,7 @@ def build_daily_dcv_table(
 
         for cat in config.all_categories:
             col = cat.lower()
-            proj_val = float(player.get(col, 0) or 0)
+            proj_val = form_adjustments.get(col, float(player.get(col, 0) or 0))
 
             # Per-game rate: divide season projection by ~162 games
             daily_proj = proj_val / 162.0
@@ -514,11 +567,13 @@ def build_daily_dcv_table(
             # Apply factors
             dcv = daily_proj * matchup_mult * health * volume
 
-            # Weight by urgency
-            cat_urgency = urgency.get(cat, 0.5)
-            weighted_dcv = dcv * cat_urgency
+            # Weight by urgency (skip if external urgency -- applied post-hoc)
+            if not _external_urgency:
+                cat_urgency = urgency.get(cat, 0.5)
+                dcv = dcv * cat_urgency
 
             # SGP normalization
+            weighted_dcv = dcv
             denom = config.sgp_denominators.get(cat, 1.0)
             if abs(denom) > 1e-9:
                 if cat in config.inverse_stats:
@@ -535,6 +590,18 @@ def build_daily_dcv_table(
         rows.append(row_data)
 
     dcv_df = pd.DataFrame(rows) if rows else pd.DataFrame()
+
+    # Post-hoc urgency weighting when caller provides urgency_weights
+    if _external_urgency and not dcv_df.empty:
+        for cat in config.all_categories:
+            col = f"dcv_{cat.lower()}"
+            if col in dcv_df.columns:
+                cat_urg = urgency.get(cat, 1.0)
+                dcv_df[col] = dcv_df[col] * cat_urg
+        # Recompute total_dcv as sum of weighted dcv columns
+        dcv_cols = [f"dcv_{c.lower()}" for c in config.all_categories if f"dcv_{c.lower()}" in dcv_df.columns]
+        if dcv_cols:
+            dcv_df["total_dcv"] = dcv_df[dcv_cols].sum(axis=1).round(4)
 
     # Apply stud floor
     if not dcv_df.empty:

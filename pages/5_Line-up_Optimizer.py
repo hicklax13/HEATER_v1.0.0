@@ -434,6 +434,12 @@ try:
         if _pre_live_my:
             my_totals = _pre_live_my
             opp_weekly_totals = _pre_live_opp
+        # When standings are empty, populate team_totals from live matchup
+        # so H2H tab and opponent selector have data to work with
+        if not team_totals and _pre_live_opp_name and _pre_live_opp:
+            team_totals[_pre_live_opp_name] = _pre_live_opp
+            if user_team_name and _pre_live_my:
+                team_totals[user_team_name] = _pre_live_my
 except Exception:
     pass  # Non-fatal: fall back to standings-derived matchup state
 
@@ -521,14 +527,36 @@ with ctx:
         _l = len(_live_losing_cats)
         _t = len(_live_tied_cats)
         _live_state_label = f"{_w}-{_l}-{_t}"
-        _losing_str = ", ".join(_live_losing_cats) if _live_losing_cats else "None"
+        # Build losing categories with gap values from live matchup data
+        _losing_with_gaps = []
+        if _live_matchup_early and "categories" in _live_matchup_early:
+            _inverse = {"era", "whip", "l"}
+            for _mc in _live_matchup_early["categories"]:
+                if str(_mc.get("result", "")).upper() == "LOSS":
+                    _cat_name = str(_mc.get("cat", ""))
+                    try:
+                        _you = float(_mc.get("you", 0) or 0)
+                        _opp = float(_mc.get("opp", 0) or 0)
+                        _cat_lower = _cat_name.lower()
+                        # For inverse stats, gap = your value - opp value (positive = bad)
+                        if _cat_lower in _inverse:
+                            _gap = _you - _opp
+                            _gap_str = f"+{_gap:.2f}" if _cat_lower in ("era", "whip") else f"+{_gap:.0f}"
+                        else:
+                            _gap = _you - _opp
+                            _gap_str = f"{_gap:.0f}" if abs(_gap) > 1 else f"{_gap:.1f}"
+                        _losing_with_gaps.append(f"{_cat_name} ({_gap_str})")
+                    except (ValueError, TypeError):
+                        _losing_with_gaps.append(_cat_name)
+        if not _losing_with_gaps:
+            _losing_with_gaps = _live_losing_cats if _live_losing_cats else ["None"]
+        _losing_str = ", ".join(_losing_with_gaps)
+        # Combined W-L-T + strategy on one line (remove redundant strategy row)
         _matchup_state_html = (
             f'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">'
-            f'<span style="font-size:11px;color:{T["tx2"]};">W-L-T</span>'
-            f'<span style="font-size:13px;font-weight:bold;font-family:IBM Plex Mono,monospace;">{_live_state_label}</span></div>'
-            f'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px;">'
-            f'<span style="font-size:11px;color:{T["tx2"]};">Strategy</span>'
-            f'<span style="font-size:13px;font-weight:bold;font-family:IBM Plex Mono,monospace;">{matchup_state_label.upper()}</span></div>'
+            f'<span style="font-size:11px;color:{T["tx2"]};">Matchup</span>'
+            f'<span style="font-size:13px;font-weight:bold;font-family:IBM Plex Mono,monospace;">'
+            f"{_live_state_label} ({matchup_state_label.upper()})</span></div>"
             f'<p style="margin:4px 0 0;font-size:11px;color:{T["tx2"]};">'
             f"Losing: {_losing_str}</p>"
         )
@@ -595,7 +623,15 @@ with ctx:
         except Exception:
             pass
     else:
-        st.caption("No standings data loaded. Connect your Yahoo league to see opponents.")
+        st.caption("Run the Optimizer to populate matchup data, or connect Yahoo for live data.")
+
+    # Data freshness card
+    try:
+        from src.ui_shared import render_data_freshness_card
+
+        render_data_freshness_card()
+    except Exception:
+        pass
 
 
 # ── Main content panel ───────────────────────────────────────────────
@@ -607,15 +643,13 @@ with main:
         tab_analysis,
         tab_h2h,
         tab_streaming,
-        tab_daily,
     ) = st.tabs(
         [
-            "Optimize",
+            "Optimizer",
             "Start/Sit",
             "Category Analysis",
             "Head-to-Head",
             "Streaming",
-            "Daily Optimize",
         ]
     )
 
@@ -624,23 +658,58 @@ with main:
     # ================================================================
 
     with tab_optimize:
+        # ── Scope selector ────────────────────────────────────────────
+        _opt_scope = st.radio(
+            "Optimization Scope",
+            ["Today", "Rest of Week", "Rest of Season"],
+            horizontal=True,
+            key="optimizer_scope",
+            help=(
+                "**Today:** Daily Category Value (DCV) engine — who to start today based on "
+                "confirmed lineups, park factors, and matchup urgency. "
+                "**Rest of Week:** LP solver with remaining-games scaling and two-start premiums. "
+                "**Rest of Season:** LP solver with full projections and schedule strength."
+            ),
+        )
+        _scope_key = {"Today": "today", "Rest of Week": "rest_of_week", "Rest of Season": "rest_of_season"}[_opt_scope]
+
         optimize_clicked = st.button("Optimize Lineup", type="primary", key="lineup_run_opt")
 
         if optimize_clicked:
-            progress_bar = st.progress(0, text="Syncing roster and initializing optimizer...")
+            progress_bar = st.progress(0, text="Syncing roster and building shared data context...")
 
             # Force roster refresh to ensure current players only
             try:
                 yds.get_rosters(force_refresh=True)
                 roster = get_team_roster(user_team_name)
-                # Re-normalize after refresh
                 if "name" in roster.columns and "player_name" not in roster.columns:
                     roster = roster.rename(columns={"name": "player_name"})
                 for _sc in ["r", "hr", "rbi", "sb", "avg", "obp", "w", "l", "sv", "k", "era", "whip", "ip", "pa"]:
                     if _sc in roster.columns:
                         roster[_sc] = pd.to_numeric(roster[_sc], errors="coerce").fillna(0)
             except Exception:
-                pass  # Continue with existing roster if refresh fails
+                pass
+
+            # ── Build shared optimizer context (single source of truth) ──
+            _opt_ctx = None
+            try:
+                from src.optimizer.shared_data_layer import build_optimizer_context
+
+                progress_bar.progress(10, text="Loading matchup data, schedule, and player intelligence...")
+                _opt_ctx = build_optimizer_context(
+                    scope=_scope_key,
+                    yds=yds,
+                    config=league_config,
+                    weeks_remaining=weeks_remaining,
+                    park_factors=PARK_FACTORS if PARK_FACTORS else None,
+                    user_team_name=user_team_name,
+                    roster=roster,
+                )
+                st.session_state["optimizer_context"] = _opt_ctx
+            except Exception as _ctx_err:
+                import logging as _log
+
+                _log.getLogger(__name__).warning("Failed to build optimizer context: %s", _ctx_err)
 
             # Fetch today's MLB schedule for game-today annotations
             _today_teams_playing: set[str] = set()
@@ -691,163 +760,351 @@ with main:
                         if _abbr:
                             _today_teams_playing.add(_abbr)
                         if _raw:
-                            _today_teams_playing.add(_raw)  # Keep full name too
-            except Exception:
-                pass  # Non-fatal: annotations just won't appear
-
-            # Compute matchup-aware urgency weights from live matchup score
-            _urgency_weights: dict[str, float] = {}
-            try:
-                _matchup = yds.get_matchup()
-                if _matchup:
-                    from src.optimizer.category_urgency import compute_urgency_weights
-
-                    _uw_result = compute_urgency_weights(_matchup, config=league_config)
-                    if _uw_result and "urgency" in _uw_result:
-                        _urgency_weights = _uw_result["urgency"]
+                            _today_teams_playing.add(_raw)
             except Exception:
                 pass
 
-            # Compute IP-aware pitching weight adjustment
-            _ip_boost = 1.0
-            try:
-                if IP_TRACKER_AVAILABLE:
-                    from src.ip_tracker import compute_weekly_ip_projection, get_days_remaining_in_week
-
-                    _pitchers = []
-                    for _, _pr in (
-                        roster[roster.get("is_hitter", 1) == 0].iterrows() if "is_hitter" in roster.columns else []
-                    ):
-                        _pitchers.append(
-                            {
-                                "ip": _proj_ip_lookup.get(_pr.get("player_id"), float(_pr.get("ip", 0) or 0)),
-                                "positions": str(_pr.get("positions", "")),
-                                "status": str(_pr.get("status", "active")),
-                                "is_starter": "SP" in str(_pr.get("positions", "")).upper(),
-                            }
-                        )
-                    if _pitchers:
-                        _ip_result = compute_weekly_ip_projection(_pitchers, get_days_remaining_in_week())
-                        if _ip_result.get("status") == "danger":
-                            _ip_boost = 1.5  # Boost pitching weights when IP is dangerously low
-                        elif _ip_result.get("status") == "safe":
-                            _ip_boost = 0.7  # Reduce pitching priority when IP minimum met
-            except Exception:
-                pass
-
-            if PIPELINE_AVAILABLE:
-                progress_bar.progress(10, text=f"Running {mode} optimization pipeline...")
-
-                pipeline = LineupOptimizerPipeline(
-                    roster,
-                    mode=mode,
-                    alpha=alpha,
-                    weeks_remaining=weeks_remaining,
-                    config=league_config,
-                )
-
-                # Override risk aversion from settings
-                pipeline._preset = dict(pipeline._preset)
-                pipeline._preset["risk_aversion"] = risk_aversion
-
-                # ── Wire urgency weights + IP boost into pipeline ─────
-                # Monkey-patch _compute_category_weights to apply urgency
-                # multipliers on top of the pipeline's computed weights.
-                # This ensures the LP solver uses matchup-aware weights.
+            # ── Route to appropriate engine based on scope ────────────
+            if _scope_key == "today":
+                # ── TODAY: DCV engine ─────────────────────────────────
+                progress_bar.progress(30, text="Computing Daily Category Values...")
                 try:
-                    if _urgency_weights or _ip_boost != 1.0:
-                        _pitching_cats = {"w", "l", "sv", "k", "era", "whip"}
-                        # Build urgency multiplier map (lowercase keys)
-                        _urgency_mults: dict[str, float] = {}
-                        for _ucat, _urg in _urgency_weights.items():
-                            _ucat_lower = _ucat.lower()
-                            # Urgency: 0.0 = winning comfortably, 0.5 = tied, 1.0 = losing badly
-                            # Convert to multiplier: losing=1.5x, tied=1.2x, winning=0.6x
-                            if _urg > 0.6:
-                                _mult = 1.5
-                            elif _urg > 0.4:
-                                _mult = 1.2
-                            elif _urg > 0.25:
-                                _mult = 1.0
-                            else:
-                                _mult = 0.6
-                            # Apply IP-based pitching adjustment
-                            if _ucat_lower in _pitching_cats:
-                                _mult *= _ip_boost
-                            _urgency_mults[_ucat_lower] = _mult
+                    from src.optimizer.daily_optimizer import build_daily_dcv_table
 
-                        if _urgency_mults:
-                            _original_compute = pipeline._compute_category_weights
-
-                            def _urgency_wrapped_compute(*args, **kwargs):
-                                base_weights = _original_compute(*args, **kwargs)
-                                adjusted = {}
-                                for cat, base_w in base_weights.items():
-                                    cat_key = cat.lower()
-                                    if cat_key in _urgency_mults:
-                                        adjusted[cat] = base_w * _urgency_mults[cat_key]
-                                    else:
-                                        adjusted[cat] = base_w
-                                return adjusted
-
-                            pipeline._compute_category_weights = _urgency_wrapped_compute
-                except Exception:
-                    pass  # Non-fatal: pipeline uses default weights if patching fails
-
-                progress_bar.progress(30, text="Computing category weights and projections...")
-
-                # Fetch free agents for streaming suggestions (Full mode)
-                _fa_for_streaming = pd.DataFrame()
-                if mode == "full":
+                    _dcv_sched = None
                     try:
-                        _fa_for_streaming = yds.get_free_agents(max_players=500)
+                        from datetime import UTC, datetime
+
+                        import statsapi
+
+                        _dcv_sched = statsapi.schedule(date=datetime.now(UTC).strftime("%Y-%m-%d"))
                     except Exception:
-                        pass  # Streaming degrades gracefully without FA data
+                        _dcv_sched = []
 
-                result = pipeline.optimize(
-                    standings=standings if not standings.empty else None,
-                    team_name=user_team_name,
-                    h2h_opponent_totals=opp_totals if opp_totals else None,
-                    my_totals=my_totals if my_totals else None,
-                    week_schedule=week_schedule if week_schedule else None,
-                    park_factors=PARK_FACTORS if PARK_FACTORS else None,
-                    free_agents=_fa_for_streaming if not _fa_for_streaming.empty else None,
-                )
+                    # Pass shared context enrichments into DCV
+                    _dcv_urgency = _opt_ctx.urgency_weights if _opt_ctx else None
+                    _dcv_lineups = _opt_ctx.confirmed_lineups if _opt_ctx else None
+                    _dcv_form = _opt_ctx.recent_form if _opt_ctx else None
 
-                progress_bar.progress(100, text="Optimization complete!")
-                time.sleep(0.3)
-                progress_bar.empty()
+                    dcv = build_daily_dcv_table(
+                        roster=roster if not roster.empty else pool,
+                        matchup=yds.get_matchup(),
+                        schedule_today=_dcv_sched if _dcv_sched else None,
+                        park_factors=PARK_FACTORS if PARK_FACTORS else {},
+                        urgency_weights=_dcv_urgency,
+                        confirmed_lineups=_dcv_lineups,
+                        recent_form=_dcv_form,
+                    )
 
-                st.session_state["lineup_optimizer_result"] = result
-                st.session_state["lineup_today_teams"] = _today_teams_playing
+                    progress_bar.progress(100, text="Daily optimization complete!")
+                    time.sleep(0.3)
+                    progress_bar.empty()
+
+                    # Store as result in compatible format for display
+                    st.session_state["lineup_optimizer_result"] = {
+                        "dcv_table": dcv,
+                        "scope": "today",
+                        "lineup": None,
+                        "category_weights": _opt_ctx.category_weights if _opt_ctx else {},
+                        "h2h_analysis": None,
+                        "streaming_suggestions": None,
+                        "risk_metrics": None,
+                        "maximin_comparison": None,
+                        "recommendations": [],
+                        "timing": {"total": 0},
+                        "mode": "dcv",
+                        "matchup_adjusted": True,
+                    }
+                    st.session_state["lineup_today_teams"] = _today_teams_playing
+
+                except Exception as e:
+                    progress_bar.empty()
+                    st.error(f"Daily optimization failed: {e}")
 
             else:
-                # Fallback to basic optimizer
-                progress_bar.progress(20, text="Building constraint matrix...")
-                optimizer = LineupOptimizer(roster, league_config)
-                basic_result = optimizer.optimize_lineup()
-                progress_bar.progress(100, text="Optimization complete!")
-                time.sleep(0.3)
-                progress_bar.empty()
+                # ── REST OF WEEK / REST OF SEASON: LP pipeline ────────
+                # Use shared context weights instead of monkey-patching
+                _urgency_weights: dict[str, float] = {}
+                if _opt_ctx and _opt_ctx.urgency_weights:
+                    _urgency_weights = _opt_ctx.urgency_weights
 
-                result = {
-                    "lineup": basic_result,
-                    "category_weights": {},
-                    "h2h_analysis": None,
-                    "streaming_suggestions": None,
-                    "risk_metrics": None,
-                    "maximin_comparison": None,
-                    "recommendations": [],
-                    "timing": {"total": 0},
-                    "mode": "basic",
-                    "matchup_adjusted": False,
-                }
-                st.session_state["lineup_optimizer_result"] = result
+                # IP-aware pitching weight adjustment
+                _ip_boost = 1.0
+                try:
+                    if IP_TRACKER_AVAILABLE:
+                        from src.ip_tracker import compute_weekly_ip_projection, get_days_remaining_in_week
+
+                        _pitchers = []
+                        for _, _pr in (
+                            roster[roster.get("is_hitter", 1) == 0].iterrows() if "is_hitter" in roster.columns else []
+                        ):
+                            _pitchers.append(
+                                {
+                                    "ip": _proj_ip_lookup.get(_pr.get("player_id"), float(_pr.get("ip", 0) or 0)),
+                                    "positions": str(_pr.get("positions", "")),
+                                    "status": str(_pr.get("status", "active")),
+                                    "is_starter": "SP" in str(_pr.get("positions", "")).upper(),
+                                }
+                            )
+                        if _pitchers:
+                            _ip_result = compute_weekly_ip_projection(_pitchers, get_days_remaining_in_week())
+                            if _ip_result.get("status") == "danger":
+                                _ip_boost = 1.5
+                            elif _ip_result.get("status") == "safe":
+                                _ip_boost = 0.7
+                except Exception:
+                    pass
+
+                if PIPELINE_AVAILABLE:
+                    progress_bar.progress(20, text=f"Running {mode} optimization pipeline ({_opt_scope})...")
+
+                    pipeline = LineupOptimizerPipeline(
+                        roster,
+                        mode=mode,
+                        alpha=alpha,
+                        weeks_remaining=weeks_remaining,
+                        config=league_config,
+                    )
+
+                    pipeline._preset = dict(pipeline._preset)
+                    pipeline._preset["risk_aversion"] = risk_aversion
+
+                    # Wire urgency weights + IP boost via monkey-patch
+                    try:
+                        if _urgency_weights or _ip_boost != 1.0:
+                            _pitching_cats = {"w", "l", "sv", "k", "era", "whip"}
+                            _urgency_mults: dict[str, float] = {}
+                            for _ucat, _urg in _urgency_weights.items():
+                                _ucat_lower = _ucat.lower()
+                                if _urg > 0.6:
+                                    _mult = 1.5
+                                elif _urg > 0.4:
+                                    _mult = 1.2
+                                elif _urg > 0.25:
+                                    _mult = 1.0
+                                else:
+                                    _mult = 0.6
+                                if _ucat_lower in _pitching_cats:
+                                    _mult *= _ip_boost
+                                _urgency_mults[_ucat_lower] = _mult
+
+                            if _urgency_mults:
+                                _original_compute = pipeline._compute_category_weights
+
+                                def _urgency_wrapped_compute(*args, **kwargs):
+                                    base_weights = _original_compute(*args, **kwargs)
+                                    adjusted = {}
+                                    for cat, base_w in base_weights.items():
+                                        cat_key = cat.lower()
+                                        if cat_key in _urgency_mults:
+                                            adjusted[cat] = base_w * _urgency_mults[cat_key]
+                                        else:
+                                            adjusted[cat] = base_w
+                                    return adjusted
+
+                                pipeline._compute_category_weights = _urgency_wrapped_compute
+                    except Exception:
+                        pass
+
+                    progress_bar.progress(40, text="Computing category weights and projections...")
+
+                    _fa_for_streaming = pd.DataFrame()
+                    if mode == "full":
+                        try:
+                            _fa_for_streaming = yds.get_free_agents(max_players=500)
+                        except Exception:
+                            pass
+
+                    result = pipeline.optimize(
+                        standings=standings if not standings.empty else None,
+                        team_name=user_team_name,
+                        h2h_opponent_totals=opp_totals if opp_totals else None,
+                        my_totals=my_totals if my_totals else None,
+                        week_schedule=week_schedule if week_schedule else None,
+                        park_factors=PARK_FACTORS if PARK_FACTORS else None,
+                        free_agents=_fa_for_streaming if not _fa_for_streaming.empty else None,
+                    )
+
+                    progress_bar.progress(100, text="Optimization complete!")
+                    time.sleep(0.3)
+                    progress_bar.empty()
+
+                    result["scope"] = _scope_key
+                    st.session_state["lineup_optimizer_result"] = result
+                    st.session_state["lineup_today_teams"] = _today_teams_playing
+
+                else:
+                    # Fallback to basic optimizer
+                    progress_bar.progress(20, text="Building constraint matrix...")
+                    optimizer = LineupOptimizer(roster, league_config)
+                    basic_result = optimizer.optimize_lineup(
+                        category_weights=_opt_ctx.category_weights if _opt_ctx else None,
+                    )
+                    progress_bar.progress(100, text="Optimization complete!")
+                    time.sleep(0.3)
+                    progress_bar.empty()
+
+                    result = {
+                        "lineup": basic_result,
+                        "scope": _scope_key,
+                        "category_weights": {},
+                        "h2h_analysis": None,
+                        "streaming_suggestions": None,
+                        "risk_metrics": None,
+                        "maximin_comparison": None,
+                        "recommendations": [],
+                        "timing": {"total": 0},
+                        "mode": "basic",
+                        "matchup_adjusted": False,
+                    }
+                    st.session_state["lineup_optimizer_result"] = result
 
         # Display results from session state
         result = st.session_state.get("lineup_optimizer_result")
 
-        if result:
+        if result and result.get("scope") == "today" and result.get("dcv_table") is not None:
+            # ── DCV "Today" results display ───────────────────────────
+            dcv = result["dcv_table"]
+            if dcv.empty:
+                st.info("Could not compute Daily Category Values. Check that roster data is loaded.")
+            else:
+                st.success("Daily lineup optimized (DCV engine, matchup-adjusted)")
+
+                # Show urgency summary from shared context
+                _ctx_disp = st.session_state.get("optimizer_context")
+                if _ctx_disp and _ctx_disp.urgency_weights:
+                    _losing = [c for c, u in _ctx_disp.urgency_weights.items() if u > 0.6]
+                    _tied = [c for c, u in _ctx_disp.urgency_weights.items() if 0.4 < u <= 0.6]
+                    _winning = [c for c, u in _ctx_disp.urgency_weights.items() if u <= 0.25]
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("Winning", len(_winning))
+                        if _winning:
+                            st.caption(", ".join(_winning))
+                    with col2:
+                        st.metric("Losing", len(_losing))
+                        if _losing:
+                            st.caption(", ".join(_losing))
+                    with col3:
+                        st.metric("Tied", len(_tied))
+                        if _tied:
+                            st.caption(", ".join(_tied))
+
+                # Starters (top by DCV, volume > 0, healthy)
+                eligible = (
+                    dcv[
+                        (dcv.get("volume_factor", pd.Series(dtype=float)) > 0)
+                        & (dcv.get("health_factor", pd.Series(dtype=float)) > 0)
+                    ].copy()
+                    if "volume_factor" in dcv.columns and "health_factor" in dcv.columns
+                    else dcv.copy()
+                )
+                starters_dcv = eligible.nlargest(18, "total_dcv") if "total_dcv" in eligible.columns else eligible
+                bench_dcv = dcv[~dcv.index.isin(starters_dcv.index)]
+
+                st.markdown(
+                    f'<p style="font-size:12px;font-weight:700;letter-spacing:1px;'
+                    f"color:{T['tx2']};text-transform:uppercase;"
+                    f'margin:0 0 6px;">Starting Lineup (Start)</p>',
+                    unsafe_allow_html=True,
+                )
+                display_cols = ["name", "positions", "team", "total_dcv", "volume_factor", "matchup_mult"]
+                if "stud_floor_applied" in starters_dcv.columns:
+                    display_cols.append("stud_floor_applied")
+
+                starter_display = starters_dcv[[c for c in display_cols if c in starters_dcv.columns]].copy()
+                starter_display["Decision"] = "START"
+                starter_display = sort_roster_for_display(starter_display)
+                starter_display = starter_display.rename(
+                    columns={
+                        "name": "Player",
+                        "positions": "Position",
+                        "team": "Team",
+                        "total_dcv": "DCV Score",
+                        "volume_factor": "Volume",
+                        "matchup_mult": "Matchup",
+                        "stud_floor_applied": "Stud Floor",
+                    }
+                )
+                st.markdown(
+                    f"<style>"
+                    f"tr.row-start td {{ background-color:{T['green']}15 !important; }}"
+                    f"tr.row-bench td {{ background-color:{T['danger']}10 !important; }}"
+                    f"</style>",
+                    unsafe_allow_html=True,
+                )
+                _dcv_start_classes = {i: "row-start" for i in range(len(starter_display))}
+                render_compact_table(starter_display, row_classes=_dcv_start_classes)
+
+                if not bench_dcv.empty:
+                    st.markdown(
+                        f'<p style="font-size:12px;font-weight:700;letter-spacing:1px;'
+                        f"color:{T['tx2']};text-transform:uppercase;"
+                        f'margin:16px 0 6px;">Bench (Sit)</p>',
+                        unsafe_allow_html=True,
+                    )
+                    bench_cols_show = ["name", "positions", "team", "total_dcv", "volume_factor"]
+                    bench_display = bench_dcv[[c for c in bench_cols_show if c in bench_dcv.columns]].copy()
+                    bench_display["Decision"] = "BENCH"
+                    bench_display = sort_roster_for_display(bench_display)
+                    bench_display = bench_display.rename(
+                        columns={
+                            "name": "Player",
+                            "positions": "Position",
+                            "team": "Team",
+                            "total_dcv": "DCV Score",
+                            "volume_factor": "Volume",
+                        }
+                    )
+                    _dcv_bench_classes = {i: "row-bench" for i in range(len(bench_display))}
+                    render_compact_table(bench_display, row_classes=_dcv_bench_classes)
+
+                st.caption(
+                    "DCV = Daily Category Value. Computed from Bayesian-blended projections "
+                    "* matchup factors * H2H category urgency * confirmed lineups. "
+                    "Higher = more valuable today."
+                )
+
+                # FA recommendations for Today scope
+                _ctx_fa = st.session_state.get("optimizer_context")
+                if _ctx_fa:
+                    try:
+                        from src.optimizer.fa_recommender import recommend_fa_moves
+
+                        _fa_moves = recommend_fa_moves(_ctx_fa, max_moves=3)
+                        if _fa_moves:
+                            st.divider()
+                            st.markdown(
+                                f'<p style="font-size:12px;font-weight:700;letter-spacing:1px;'
+                                f"color:{T['tx2']};text-transform:uppercase;"
+                                f'margin:0 0 6px;">Recommended Free Agent Moves</p>',
+                                unsafe_allow_html=True,
+                            )
+                            for _mv in _fa_moves:
+                                _add = _mv.get("add_name", "?")
+                                _drop = _mv.get("drop_name", "?")
+                                _delta = _mv.get("net_sgp_delta", 0)
+                                _cats = _mv.get("urgency_categories", [])
+                                _warn = _mv.get("news_warning")
+                                _reasons = _mv.get("reasoning", [])
+                                _color = T["green"] if _delta > 0 else T["danger"]
+                                st.markdown(
+                                    f'<div style="border-left:3px solid {_color};padding:8px 12px;margin:6px 0;'
+                                    f'background:{T["bg"]};border-radius:4px;">'
+                                    f"<b>Add</b> {_add} / <b>Drop</b> {_drop} "
+                                    f'<span style="color:{_color};font-weight:700;">'
+                                    f"({_delta:+.2f} Standings Gained Points)</span>"
+                                    f"{'<br>Helps: ' + ', '.join(_cats) if _cats else ''}"
+                                    f"{'<br><span style=color:' + T['danger'] + '>' + _warn + '</span>' if _warn else ''}"
+                                    f"</div>",
+                                    unsafe_allow_html=True,
+                                )
+                                if _reasons:
+                                    st.caption(" | ".join(_reasons))
+                    except Exception:
+                        pass
+
+        elif result:
             lineup = result.get("lineup", {})
 
             if not lineup or not lineup.get("assignments"):
@@ -1110,6 +1367,45 @@ with main:
                             for k, v in timing.items()
                         ]
                         render_styled_table(pd.DataFrame(timing_data))
+
+                # ── FA Recommendations (post-optimization) ────────────
+                _ctx_fa_lp = st.session_state.get("optimizer_context")
+                if _ctx_fa_lp:
+                    try:
+                        from src.optimizer.fa_recommender import recommend_fa_moves
+
+                        _fa_moves_lp = recommend_fa_moves(_ctx_fa_lp, max_moves=3)
+                        if _fa_moves_lp:
+                            st.divider()
+                            st.markdown(
+                                f'<p style="font-size:12px;font-weight:700;letter-spacing:1px;'
+                                f"color:{T['tx2']};text-transform:uppercase;"
+                                f'margin:0 0 6px;">Recommended Free Agent Moves</p>',
+                                unsafe_allow_html=True,
+                            )
+                            for _mv in _fa_moves_lp:
+                                _add = _mv.get("add_name", "?")
+                                _drop = _mv.get("drop_name", "?")
+                                _delta = _mv.get("net_sgp_delta", 0)
+                                _cats = _mv.get("urgency_categories", [])
+                                _warn = _mv.get("news_warning")
+                                _reasons = _mv.get("reasoning", [])
+                                _color = T["green"] if _delta > 0 else T["danger"]
+                                st.markdown(
+                                    f'<div style="border-left:3px solid {_color};padding:8px 12px;margin:6px 0;'
+                                    f'background:{T["bg"]};border-radius:4px;">'
+                                    f"<b>Add</b> {_add} / <b>Drop</b> {_drop} "
+                                    f'<span style="color:{_color};font-weight:700;">'
+                                    f"({_delta:+.2f} Standings Gained Points)</span>"
+                                    f"{'<br>Helps: ' + ', '.join(_cats) if _cats else ''}"
+                                    f"{'<br><span style=color:' + T['danger'] + '>' + _warn + '</span>' if _warn else ''}"
+                                    f"</div>",
+                                    unsafe_allow_html=True,
+                                )
+                                if _reasons:
+                                    st.caption(" | ".join(_reasons))
+                    except Exception:
+                        pass
         else:
             st.info("Click **Optimize Lineup** to generate your optimal start/sit decisions.")
 
@@ -1126,7 +1422,7 @@ with main:
         else:
             # Auto-population from optimizer result
             opt_result = st.session_state.get("lineup_optimizer_result")
-            opt_lineup = opt_result.get("lineup", {}) if opt_result else {}
+            opt_lineup = (opt_result.get("lineup") or {}) if opt_result else {}
             opt_assignments = opt_lineup.get("assignments", [])
             opt_bench = opt_lineup.get("bench", [])
 
@@ -1841,6 +2137,12 @@ with main:
         result = st.session_state.get("lineup_optimizer_result")
         weights = result.get("category_weights", {}) if result else {}
 
+        # Use shared context weights for consistency (same weights optimizer used)
+        if not weights:
+            _analysis_ctx = st.session_state.get("optimizer_context")
+            if _analysis_ctx and hasattr(_analysis_ctx, "category_weights") and _analysis_ctx.category_weights:
+                weights = dict(_analysis_ctx.category_weights)
+
         if not weights and not standings.empty:
             if SGP_AVAILABLE:
                 try:
@@ -1951,10 +2253,21 @@ with main:
     # ================================================================
 
     with tab_h2h:
-        # Attempt live matchup fallback if standings-based data is missing
-        _h2h_my = dict(my_totals) if my_totals else {}
-        _h2h_opp = dict(opp_totals) if opp_totals else {}
-        _h2h_opponent_name = selected_opponent or ""
+        # Build H2H data from multiple sources (priority order):
+        # 1. Shared optimizer context (if optimizer has been run)
+        # 2. Context panel selections (my_totals, opp_totals, selected_opponent)
+        # 3. Live matchup data (fresh fetch)
+        _h2h_ctx = st.session_state.get("optimizer_context")
+        if _h2h_ctx and hasattr(_h2h_ctx, "my_totals") and _h2h_ctx.my_totals:
+            _h2h_my = dict(_h2h_ctx.my_totals)
+            _h2h_opp = dict(_h2h_ctx.opp_totals)
+            _h2h_opponent_name = _h2h_ctx.opponent_name or ""
+        else:
+            _h2h_my = dict(my_totals) if my_totals else {}
+            _h2h_opp = dict(opp_totals) if opp_totals else {}
+            _h2h_opponent_name = selected_opponent or ""
+
+        # Fallback: if still missing, fetch live matchup directly
         if not _h2h_my or not _h2h_opp:
             try:
                 _h2h_matchup = yds.get_matchup(force_refresh=True)
@@ -1963,15 +2276,23 @@ with main:
                     for _mc in _h2h_matchup["categories"]:
                         _cat = str(_mc.get("cat", "")).lower()
                         if _cat:
-                            _h2h_my[_cat] = float(_mc.get("you", 0) or 0)
-                            _h2h_opp[_cat] = float(_mc.get("opp", 0) or 0)
-            except Exception:
-                pass  # Fall through to error messages below
+                            try:
+                                _h2h_my[_cat] = float(_mc.get("you", 0) or 0)
+                                _h2h_opp[_cat] = float(_mc.get("opp", 0) or 0)
+                            except (ValueError, TypeError):
+                                pass
+            except Exception as e:
+                logger.warning("H2H live matchup fallback failed: %s", e)
+
+        # Build opponent_names from live data if standings were empty
+        _h2h_opponent_names = opponent_names
+        if not _h2h_opponent_names and _h2h_opponent_name:
+            _h2h_opponent_names = [_h2h_opponent_name]
 
         if not H2H_AVAILABLE:
             st.info("Head-to-Head analysis module not available. Ensure scipy is installed.")
         elif not _h2h_opponent_name or not _h2h_opp:
-            if not opponent_names:
+            if not _h2h_opponent_names:
                 st.info(
                     "No matchup data available. Connect your Yahoo league and ensure "
                     "an active matchup exists to see Head-to-Head analysis."
@@ -2131,247 +2452,107 @@ with main:
             unsafe_allow_html=True,
         )
 
+        # Use shared context for two-start detection when available
         two_start_sps = []
-        try:
-            from datetime import UTC, datetime, timedelta
-
-            import statsapi
-
-            _MLB_TEAM_ABBREVS: dict[str, str] = {
-                "Arizona Diamondbacks": "ARI",
-                "Atlanta Braves": "ATL",
-                "Baltimore Orioles": "BAL",
-                "Boston Red Sox": "BOS",
-                "Chicago Cubs": "CHC",
-                "Chicago White Sox": "CWS",
-                "Cincinnati Reds": "CIN",
-                "Cleveland Guardians": "CLE",
-                "Colorado Rockies": "COL",
-                "Detroit Tigers": "DET",
-                "Houston Astros": "HOU",
-                "Kansas City Royals": "KC",
-                "Los Angeles Angels": "LAA",
-                "Los Angeles Dodgers": "LAD",
-                "Miami Marlins": "MIA",
-                "Milwaukee Brewers": "MIL",
-                "Minnesota Twins": "MIN",
-                "New York Mets": "NYM",
-                "New York Yankees": "NYY",
-                "Oakland Athletics": "OAK",
-                "Philadelphia Phillies": "PHI",
-                "Pittsburgh Pirates": "PIT",
-                "San Diego Padres": "SD",
-                "San Francisco Giants": "SF",
-                "Seattle Mariners": "SEA",
-                "St. Louis Cardinals": "STL",
-                "Tampa Bay Rays": "TB",
-                "Texas Rangers": "TEX",
-                "Toronto Blue Jays": "TOR",
-                "Washington Nationals": "WSH",
-            }
-
-            today = datetime.now(UTC)
-            end = today + timedelta(days=7)
-            schedule = statsapi.schedule(
-                start_date=today.strftime("%Y-%m-%d"),
-                end_date=end.strftime("%Y-%m-%d"),
+        _stream_ctx = st.session_state.get("optimizer_context")
+        if _stream_ctx and _stream_ctx.two_start_pitchers:
+            # Build display from shared context (pre-computed, consistent with optimizer)
+            _name_col = "player_name" if "player_name" in roster.columns else "name"
+            _pid_name = (
+                dict(zip(roster.get("player_id", []), roster.get(_name_col, [])))
+                if "player_id" in roster.columns
+                else {}
             )
+            _pid_team = (
+                dict(zip(roster.get("player_id", []), roster.get("team", []))) if "player_id" in roster.columns else {}
+            )
+            _remaining = _stream_ctx.remaining_games_this_week or {}
+            for _ts_pid in _stream_ctx.two_start_pitchers:
+                _ts_name = _pid_name.get(_ts_pid, f"Player {_ts_pid}")
+                _ts_team = str(_pid_team.get(_ts_pid, ""))
+                _ts_games = _remaining.get(_ts_team, 0)
+                two_start_sps.append({"Pitcher": _ts_name, "Team": _ts_team, "Team Games": _ts_games})
+        else:
+            # Fallback: compute inline when optimizer hasn't run
+            try:
+                from datetime import UTC, datetime, timedelta
 
-            team_game_counts: dict[str, int] = {}
-            for game in schedule:
-                for team_key in ["home_name", "away_name"]:
-                    full_name = game.get(team_key, "")
-                    abbrev = _MLB_TEAM_ABBREVS.get(full_name, "")
-                    if abbrev:
-                        team_game_counts[abbrev] = team_game_counts.get(abbrev, 0) + 1
+                import statsapi
 
-            TWO_START_THRESHOLD = 7
-            for _, row in roster.iterrows():
-                if not row.get("is_hitter", True) and "SP" in str(row.get("positions", "")):
-                    team = str(row.get("team", "")).strip()
-                    games = team_game_counts.get(team, 0)
-                    if games >= TWO_START_THRESHOLD:
-                        two_start_sps.append(
-                            {
-                                "Pitcher": row.get("player_name", row.get("name", "")),
-                                "Team": team,
-                                "Team Games": games,
-                            }
-                        )
-
-            if two_start_sps:
-                st.markdown(
-                    f"{PAGE_ICONS['trending_up']} **{len(two_start_sps)} potential two-start pitcher(s) this week:**",
-                    unsafe_allow_html=True,
+                _MLB_TEAM_ABBREVS: dict[str, str] = {
+                    "Arizona Diamondbacks": "ARI",
+                    "Atlanta Braves": "ATL",
+                    "Baltimore Orioles": "BAL",
+                    "Boston Red Sox": "BOS",
+                    "Chicago Cubs": "CHC",
+                    "Chicago White Sox": "CWS",
+                    "Cincinnati Reds": "CIN",
+                    "Cleveland Guardians": "CLE",
+                    "Colorado Rockies": "COL",
+                    "Detroit Tigers": "DET",
+                    "Houston Astros": "HOU",
+                    "Kansas City Royals": "KC",
+                    "Los Angeles Angels": "LAA",
+                    "Los Angeles Dodgers": "LAD",
+                    "Miami Marlins": "MIA",
+                    "Milwaukee Brewers": "MIL",
+                    "Minnesota Twins": "MIN",
+                    "New York Mets": "NYM",
+                    "New York Yankees": "NYY",
+                    "Oakland Athletics": "OAK",
+                    "Philadelphia Phillies": "PHI",
+                    "Pittsburgh Pirates": "PIT",
+                    "San Diego Padres": "SD",
+                    "San Francisco Giants": "SF",
+                    "Seattle Mariners": "SEA",
+                    "St. Louis Cardinals": "STL",
+                    "Tampa Bay Rays": "TB",
+                    "Texas Rangers": "TEX",
+                    "Toronto Blue Jays": "TOR",
+                    "Washington Nationals": "WSH",
+                }
+                today = datetime.now(UTC)
+                end = today + timedelta(days=7)
+                schedule = statsapi.schedule(
+                    start_date=today.strftime("%Y-%m-%d"),
+                    end_date=end.strftime("%Y-%m-%d"),
                 )
-                render_styled_table(pd.DataFrame(two_start_sps))
-                st.caption(
-                    "Starting pitchers on teams with 7+ games this week likely get two starts. "
-                    "Two starts double counting stat contributions (K, W) but also double "
-                    "rate-stat exposure (ERA, WHIP)."
-                )
-            else:
-                st.info("No two-start starting pitchers detected for your roster this week.")
+                team_game_counts: dict[str, int] = {}
+                for game in schedule:
+                    for team_key in ["home_name", "away_name"]:
+                        full_name = game.get(team_key, "")
+                        abbrev = _MLB_TEAM_ABBREVS.get(full_name, "")
+                        if abbrev:
+                            team_game_counts[abbrev] = team_game_counts.get(abbrev, 0) + 1
 
-        except Exception:
-            st.info("MLB schedule data unavailable. Install statsapi for two-start detection.")
-
-    # ================================================================
-    # TAB 6: DAILY OPTIMIZE
-    # ================================================================
-
-    with tab_daily:
-        st.markdown("Optimize your starting lineup for today using the Daily Category Value system.")
-
-        # Get live matchup data
-        matchup = yds.get_matchup()
-
-        if matchup:
-            opp_name = matchup.get("opp_name", "Unknown")
-            wins = matchup.get("wins", 0)
-            losses = matchup.get("losses", 0)
-            ties = matchup.get("ties", 0)
-            st.markdown(f"**Week {matchup.get('week', '?')} vs {opp_name}: {wins}-{losses}-{ties}**")
-
-        if st.button("Optimize for Today", type="primary", key="daily_optimize_btn"):
-            with st.spinner("Computing Daily Category Values..."):
-                try:
-                    from src.optimizer.category_urgency import compute_urgency_weights
-                    from src.optimizer.daily_optimizer import build_daily_dcv_table
-
-                    # Get today's schedule
-                    try:
-                        from datetime import UTC, datetime
-
-                        import statsapi
-
-                        today = datetime.now(UTC).strftime("%Y-%m-%d")
-                        sched = statsapi.schedule(date=today)
-                    except Exception:
-                        sched = []
-
-                    # Build DCV table
-                    user_roster = roster
-                    dcv = build_daily_dcv_table(
-                        roster=user_roster if not user_roster.empty else pool,
-                        matchup=matchup,
-                        schedule_today=sched if sched else None,
-                        park_factors=PARK_FACTORS if PARK_FACTORS else {},
-                    )
-
-                    if not dcv.empty:
-                        # Show urgency indicators
-                        if matchup:
-                            urgency_result = compute_urgency_weights(matchup)
-                            urgency = urgency_result.get("urgency", {})
-                            rate_modes = urgency_result.get("rate_modes", {})
-                            summary = urgency_result.get("summary", {})
-
-                            # Category status
-                            col1, col2, col3 = st.columns(3)
-                            with col1:
-                                winning = summary.get("winning", [])
-                                st.metric("Winning", len(winning))
-                                if winning:
-                                    st.caption(", ".join(winning))
-                            with col2:
-                                losing = summary.get("losing", [])
-                                st.metric("Losing", len(losing))
-                                if losing:
-                                    st.caption(", ".join(losing))
-                            with col3:
-                                tied = summary.get("tied", [])
-                                st.metric("Tied", len(tied))
-                                if tied:
-                                    st.caption(", ".join(tied))
-
-                            # Rate stat modes
-                            if rate_modes:
-                                mode_text = " | ".join(f"{cat}: {_mode.upper()}" for cat, _mode in rate_modes.items())
-                                st.caption(f"Rate stat strategy: {mode_text}")
-
-                        # Recommended starters (top by DCV, volume > 0)
-                        eligible = dcv[(dcv["volume_factor"] > 0) & (dcv["health_factor"] > 0)].copy()
-                        starters_dcv = eligible.nlargest(18, "total_dcv")
-                        bench_dcv = dcv[~dcv.index.isin(starters_dcv.index)]
-
-                        st.markdown(
-                            f'<p style="font-size:12px;font-weight:700;letter-spacing:1px;'
-                            f"color:{T['tx2']};text-transform:uppercase;"
-                            f'margin:0 0 6px;">Starting Lineup (Start)</p>',
-                            unsafe_allow_html=True,
-                        )
-                        display_cols = [
-                            "name",
-                            "positions",
-                            "team",
-                            "total_dcv",
-                            "volume_factor",
-                            "matchup_mult",
-                        ]
-                        if "stud_floor_applied" in starters_dcv.columns:
-                            display_cols.append("stud_floor_applied")
-
-                        starter_display = starters_dcv[[c for c in display_cols if c in starters_dcv.columns]].copy()
-                        starter_display["Decision"] = "START"
-                        # Sort by Yahoo slot order using positions column
-                        starter_display = sort_roster_for_display(starter_display)
-                        starter_display = starter_display.rename(
-                            columns={
-                                "name": "Player",
-                                "positions": "Position",
-                                "team": "Team",
-                                "total_dcv": "DCV Score",
-                                "volume_factor": "Volume",
-                                "matchup_mult": "Matchup",
-                                "stud_floor_applied": "Stud Floor",
-                            }
-                        )
-                        _dcv_start_classes = {i: "row-start" for i in range(len(starter_display))}
-                        render_compact_table(starter_display, row_classes=_dcv_start_classes)
-
-                        if not bench_dcv.empty:
-                            st.markdown(
-                                f'<p style="font-size:12px;font-weight:700;letter-spacing:1px;'
-                                f"color:{T['tx2']};text-transform:uppercase;"
-                                f'margin:16px 0 6px;">Bench (Sit)</p>',
-                                unsafe_allow_html=True,
-                            )
-                            bench_cols_show = [
-                                "name",
-                                "positions",
-                                "team",
-                                "total_dcv",
-                                "volume_factor",
-                            ]
-                            bench_display = bench_dcv[[c for c in bench_cols_show if c in bench_dcv.columns]].copy()
-                            bench_display["Decision"] = "BENCH"
-                            bench_display = sort_roster_for_display(bench_display)
-                            bench_display = bench_display.rename(
-                                columns={
-                                    "name": "Player",
-                                    "positions": "Position",
-                                    "team": "Team",
-                                    "total_dcv": "DCV Score",
-                                    "volume_factor": "Volume",
+                TWO_START_THRESHOLD = 7
+                for _, row in roster.iterrows():
+                    if not row.get("is_hitter", True) and "SP" in str(row.get("positions", "")):
+                        team = str(row.get("team", "")).strip()
+                        games = team_game_counts.get(team, 0)
+                        if games >= TWO_START_THRESHOLD:
+                            two_start_sps.append(
+                                {
+                                    "Pitcher": row.get("player_name", row.get("name", "")),
+                                    "Team": team,
+                                    "Team Games": games,
                                 }
                             )
-                            _dcv_bench_classes = {i: "row-bench" for i in range(len(bench_display))}
-                            render_compact_table(bench_display, row_classes=_dcv_bench_classes)
+            except Exception:
+                pass
 
-                        st.caption(
-                            "DCV = Daily Category Value. Computed from Bayesian-blended "
-                            "projections * matchup factors * H2H category urgency. "
-                            "Higher = more valuable today."
-                        )
-                    else:
-                        st.info("Could not compute Daily Category Values. Check that roster data is loaded.")
-                except Exception as e:
-                    st.error(f"Daily optimization failed: {e}")
-        else:
-            st.info(
-                "Click Optimize for Today to compute your optimal starting lineup "
-                "using the V2 Daily Category Value system."
+        if two_start_sps:
+            st.markdown(
+                f"{PAGE_ICONS['trending_up']} **{len(two_start_sps)} potential two-start pitcher(s) this week:**",
+                unsafe_allow_html=True,
             )
+            render_styled_table(pd.DataFrame(two_start_sps))
+            st.caption(
+                "Starting pitchers on teams with 7+ games this week likely get two starts. "
+                "Two starts double counting stat contributions (K, W) but also double "
+                "rate-stat exposure (ERA, WHIP)."
+            )
+        else:
+            st.info("No two-start starting pitchers detected for your roster this week.")
 
 page_timer_footer("Lineup")

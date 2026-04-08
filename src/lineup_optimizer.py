@@ -89,12 +89,27 @@ class LineupOptimizer:
         self.slots = roster_slots or ROSTER_SLOTS
         self._category_weights: dict[str, float] = {cat: 1.0 for cat in ALL_CATS}
 
-    def optimize_lineup(self, category_weights: dict[str, float] | None = None) -> dict:
+    def optimize_lineup(
+        self,
+        category_weights: dict[str, float] | None = None,
+        remaining_games_scale: dict[int, float] | None = None,
+        two_start_ids: set[int] | None = None,
+        opposing_pitcher_mult: dict[int, float] | None = None,
+    ) -> dict:
         """Find the optimal lineup assignment.
 
         Args:
             category_weights: Optional per-category weights for objective function.
                             Higher weight = prioritize that category. Default all 1.0.
+            remaining_games_scale: Maps player_id to scale factor for counting
+                stats. Accounts for remaining games in scoring period. Rate stats
+                are unchanged. When None, no scaling applied.
+            two_start_ids: Set of pitcher player_ids with two starts this week.
+                Their pitching counting stats (w, k, sv) are doubled in the LP
+                objective. When None, no two-start boost applied.
+            opposing_pitcher_mult: Maps hitter player_id to matchup multiplier
+                based on opposing pitcher quality. Applied to hitter counting
+                stats in the LP objective. When None, no adjustment applied.
 
         Returns:
             Dict with keys:
@@ -149,17 +164,42 @@ class LineupOptimizer:
         # contribution's stdev so the IP-weighting is preserved but normalized.
         scale = _compute_scale_factors(self.roster)
 
+        # Pre-compute counting stat sets for new parameter application
+        _HITTING_COUNTING = {"r", "hr", "rbi", "sb"}
+        _PITCHING_COUNTING = {"w", "l", "sv", "k"}
+
         objective_terms = []
         for p_idx in players:
             row = self.roster.loc[p_idx]
             player_value = 0.0
             ip = float(row.get("ip", 0) or 0)
+            pid = int(row.get("player_id", p_idx) or p_idx)
+            is_hitter = bool(row.get("is_hitter", 1))
+
+            # Per-player scale factors from new parameters
+            games_scale = remaining_games_scale.get(pid, 1.0) if remaining_games_scale is not None else 1.0
+            opp_mult = opposing_pitcher_mult.get(pid, 1.0) if opposing_pitcher_mult is not None and is_hitter else 1.0
+            two_start = two_start_ids is not None and pid in two_start_ids
+
             for cat in ALL_CATS:
                 if cat not in row.index:
                     continue
                 val = float(row.get(cat, 0) or 0)
                 w = weights.get(cat, 1.0)
                 s = scale.get(cat, 1.0)
+
+                # Apply remaining_games_scale to counting stats only
+                if cat in _HITTING_COUNTING or cat in _PITCHING_COUNTING:
+                    val *= games_scale
+
+                # Apply opposing_pitcher_mult to hitter counting stats
+                if is_hitter and cat in _HITTING_COUNTING:
+                    val *= opp_mult
+
+                # Apply two-start boost to pitching counting stats
+                if two_start and cat in ("w", "k", "sv"):
+                    val *= 2.0
+
                 if cat in ("era", "whip"):
                     # For ERA/WHIP, lower is better — weight by IP so
                     # high-workload pitchers' rates count proportionally more,
