@@ -237,6 +237,48 @@ with main:
             render_compact_table(pd.DataFrame(rows))
             st.caption(METRIC_TOOLTIPS["z_score"])
 
+            # N3: SGP Contribution Breakdown — shows concentrated vs diversified value
+            try:
+                from src.valuation import SGPCalculator
+
+                _sgp_calc = SGPCalculator(config)
+                _row_a = pool[pool["player_id"] == id_a]
+                _row_b = pool[pool["player_id"] == id_b]
+                if not _row_a.empty and not _row_b.empty:
+                    sgp_a = _sgp_calc.player_sgp(_row_a.iloc[0])
+                    sgp_b = _sgp_calc.player_sgp(_row_b.iloc[0])
+                    st.subheader("Standings Gained Points Breakdown")
+                    sgp_rows = []
+                    for cat in ALL_CATEGORIES:
+                        sa = sgp_a.get(cat, 0)
+                        sb = sgp_b.get(cat, 0)
+                        if abs(sa) > 0.001 or abs(sb) > 0.001:
+                            sgp_rows.append({
+                                "Category": cat_full_names.get(cat, cat),
+                                f"{result['player_a']}": f"{sa:+.2f}",
+                                f"{result['player_b']}": f"{sb:+.2f}",
+                                "Delta": f"{sa - sb:+.2f}",
+                            })
+                    if sgp_rows:
+                        # Summary row
+                        total_a = sum(sgp_a.values())
+                        total_b = sum(sgp_b.values())
+                        sgp_rows.append({
+                            "Category": "TOTAL",
+                            f"{result['player_a']}": f"{total_a:+.2f}",
+                            f"{result['player_b']}": f"{total_b:+.2f}",
+                            "Delta": f"{total_a - total_b:+.2f}",
+                        })
+                        render_compact_table(pd.DataFrame(sgp_rows))
+                        st.caption(
+                            "Standings Gained Points: how many standings positions "
+                            "each player's stats are worth. Concentrated value "
+                            "(e.g., 3.0 from Home Runs/Runs Batted In) vs diversified "
+                            "(0.5 across many) affects trade and roster strategy."
+                        )
+            except Exception:
+                pass
+
             # YTD 2026 Stats comparison (from enriched pool)
             _has_ytd = any(c in pool.columns for c in ["ytd_pa", "ytd_avg", "ytd_hr"])
             if _has_ytd:

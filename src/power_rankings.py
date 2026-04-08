@@ -6,13 +6,13 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-# Component weights (sum to 1.0)
+# B7: Component weights (sum to 1.0) — momentum increased for H2H hot-streak value
 WEIGHTS: dict[str, float] = {
-    "roster_quality": 0.40,
+    "roster_quality": 0.30,
     "category_balance": 0.25,
     "schedule_strength": 0.15,
     "injury_exposure": 0.10,
-    "momentum": 0.10,
+    "momentum": 0.20,
 }
 
 

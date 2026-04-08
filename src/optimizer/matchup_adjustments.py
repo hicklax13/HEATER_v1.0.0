@@ -360,8 +360,9 @@ def park_factor_adjustment(
     pf = park_factors.get(ot, park_factors.get(pt, 1.0))
 
     if not is_hitter:
-        # Dampen park factor effect for pitchers (rate stats partially captured)
-        return 1.0 + (pf - 1.0) * 0.3  # 30% of hitter park effect
+        # C5: Reciprocal park factor for pitchers — Coors (1.38) → 0.72 for pitchers
+        # (hitter-friendly parks hurt pitcher stats). More accurate than linear dampening.
+        return 1.0 / pf if pf > 0 else 1.0
 
     return float(pf)
 

@@ -637,18 +637,17 @@ with ctx:
 # ── Main content panel ───────────────────────────────────────────────
 
 with main:
+    # S2: H2H tab removed — duplicate of Matchup Planner Category Probabilities.
     (
         tab_optimize,
         tab_startsit,
         tab_analysis,
-        tab_h2h,
         tab_streaming,
     ) = st.tabs(
         [
             "Optimizer",
             "Start/Sit",
             "Category Analysis",
-            "Head-to-Head",
             "Streaming",
         ]
     )
@@ -2262,11 +2261,9 @@ with main:
                 )
             render_styled_table(pd.DataFrame(position_rows))
 
-    # ================================================================
-    # TAB 4: HEAD-TO-HEAD
-    # ================================================================
-
-    with tab_h2h:
+    # S2: H2H tab removed — was duplicate of Matchup Planner.
+    # See pages/11_Matchup_Planner.py for Category Probabilities.
+    if False:  # pragma: no cover — dead code preserved for reference
         # Build H2H data from multiple sources (priority order):
         # 1. Shared optimizer context (if optimizer has been run)
         # 2. Context panel selections (my_totals, opp_totals, selected_opponent)
@@ -2419,7 +2416,7 @@ with main:
                 )
 
     # ================================================================
-    # TAB 5: STREAMING
+    # TAB 4: STREAMING
     # ================================================================
 
     with tab_streaming:

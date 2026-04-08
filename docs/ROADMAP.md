@@ -26,7 +26,7 @@
 ## Improvement Backlog — By Page
 
 **115 unique item rows** after deduplication and audit.
-**67 DONE, 2 PARTIAL, 46 remaining** as of April 8, 2026.
+**72 DONE, 2 PARTIAL, 41 remaining** as of April 8, 2026.
 Organized strictly by the page each task improves. Items that affect all pages
 are under "Global / Core Engine." Status: (empty)=not started, PARTIAL=infrastructure
 exists, DONE=implemented, CUT=removed after audit, MERGED=combined with another item.
@@ -152,7 +152,7 @@ Daily dashboard: War Room, alerts, roster overview, Monday briefing.
 | K3 | **Consistency Premium** | `penalty = k * weekly_CV`. k=0.05-0.10. Penalize volatile, reward consistent. | H2H-specific dimension. | DONE |
 | K4 | **Punt Mode Optimizer** | User selects 0-2 categories to punt → weight 0.0 in LP. Also feeds H7 in Trade Finder. | Strategy-aware optimization. | DONE |
 | K5 | **Streaming Composite Score** | `K_proj * (1/opp_wOBA) * park * form_L3 * whip_safety`. Career WHIP >1.40 = avoid. | Better streaming picks. | DONE |
-| S2 | **CONSOLIDATE: Remove H2H Analysis Tab** | Duplicate of Matchup Planner Category Probabilities. Link to Matchup Planner instead. | Eliminates duplicate display. | |
+| S2 | **CONSOLIDATE: Remove H2H Analysis Tab** | Duplicate of Matchup Planner Category Probabilities. Link to Matchup Planner instead. | Eliminates duplicate display. | DONE |
 
 ---
 
@@ -163,7 +163,7 @@ Daily dashboard: War Room, alerts, roster overview, Monday briefing.
 | # | Item | Fix | Impact | Status |
 |---|------|-----|--------|--------|
 | B5 | **Dynamic Park Factors** | Fetch updated park factors mid-season via pybaseball. | Some parks change year-to-year. | |
-| C5 | **Inverse Park Formula** | Use `1.0 / park_factor` (reciprocal) instead of `2.0 - park_factor`. | Tiny except Coors. | |
+| C5 | **Inverse Park Formula** | Use `1.0 / park_factor` (reciprocal) instead of `2.0 - park_factor`. | Tiny except Coors. | DONE |
 | E6 | **Enhanced Weather (Wind Direction)** | Wind direction relative to outfield orientation. +20% HR wind out >10 mph. | Currently HR-only, no wind direction. | |
 | E7 | **Pitcher-Batter Matchup History** | PvB stats stabilize at ~60 PA. +2-4% over generic platoon. | High data volume. | |
 | T11 | **DATA: Stadium Outfield Orientations** | Hardcode 30 outfield bearing angles. One-time research. | Unlocks E6. | |
@@ -203,7 +203,7 @@ Daily dashboard: War Room, alerts, roster overview, Monday briefing.
 
 | # | Item | Fix | Impact | Status |
 |---|------|-----|--------|--------|
-| B7 | **Power Rankings Momentum Weight** | Increase momentum 10%→20%. Reduce roster quality 40%→30%. Add L3W trajectory factor. | Better reflects hot-streak value in H2H. | |
+| B7 | **Power Rankings Momentum Weight** | Increase momentum 10%→20%. Reduce roster quality 40%→30%. Add L3W trajectory factor. | Better reflects hot-streak value in H2H. | DONE |
 | R1 | **MC Simulation Upgrade to 10K** | Default 1,000→10,000 sims. Reduces playoff probability SE from ~1.5% to ~0.5%. | Standard is 10K+. | DONE |
 | R2 | **Per-Category Variance Calibration** | Use quantified weekly SDs: K=1.2, R=1.6, W=1.7, SV=1.8, WHIP=2.0, HR=2.1, RBI=2.3, SB=2.3, ERA=2.2, AVG=2.9. | FanGraphs community research (48 leagues). | DONE |
 | S5 | **CONSOLIDATE: Shared Standings Utilities** | `_roster_category_totals()` computed 8+ times independently. Extract `standings_utils.py` with session cache. | Eliminates redundant computation. Guarantees consistency. | DONE |
@@ -220,7 +220,7 @@ Daily dashboard: War Room, alerts, roster overview, Monday briefing.
 | O2 | **Prospect Fantasy Relevance Score** | Adjust FV by: ETA proximity, position scarcity in YOUR league, path to playing time, historical FV hit rate (55 FV = 67% regular). | Bridges scouting to fantasy timelines. | |
 | O3 | **40-Man + Service Time Call-Up Alerts** | 40-man flag (highest signal). Days until Super Two. MLB IL cross-reference at prospect's position = "imminent." | First-mover advantage on prospect adds. | DONE |
 | O4 | **Projection Skew Indicator** | When 5/7 systems above consensus = positive skew. Especially valuable mid-round pitchers (+50-100% ROI). | FanGraphs ATC Volatility research. | |
-| O5 | **SGP Contribution Breakdown** | Wire N3 into Leaders table. Same function, different context. | Shows concentrated vs diversified value. | |
+| O5 | **SGP Contribution Breakdown** | Wire N3 into Leaders table. Same function, different context. | Shows concentrated vs diversified value. | DONE |
 | T9 | **DATA: Fetch Bat Speed** | Scrape Baseball Savant bat tracking leaderboard. | Unlocks O1 bat speed component. 45 min. | |
 | T10 | **DATA: Fetch 40-Man Roster Status** | MLB Stats API `/api/v1/teams/{id}/roster/40Man`. | Unlocks O3. 30 min. | |
 
@@ -234,7 +234,7 @@ Head-to-head z-score comparison, radar chart, health/confidence.
 |---|------|-----|--------|--------|
 | N1 | **Category Fit Indicator** | Show which of YOUR team's weak categories each player helps vs wastes value in. | Transforms generic comparison into team-specific decision. | DONE |
 | N2 | **Schedule Strength Comparison** | Next 2-4 weeks of opposing pitchers/matchups side-by-side. | Upcoming matchups matter enormously in H2H. | |
-| N3 | **SGP Contribution Breakdown** | Stacked bar: concentrated (3.0 SGP from HR/RBI) vs diversified (0.6-0.8 across all). | Shows value profile instantly. Also wired into O5 for Leaders. | |
+| N3 | **SGP Contribution Breakdown** | Stacked bar: concentrated (3.0 SGP from HR/RBI) vs diversified (0.6-0.8 across all). | Shows value profile instantly. Also wired into O5 for Leaders. | DONE |
 | E10 | **Catcher Framing Value** | Pitcher ERA differs 0.20-0.40 by catcher. 10-15 extra strikes/game for elite framers. | | |
 | T8 | **DATA: Fetch Catcher Framing + Pop Time** | Scrape Baseball Savant catcher framing + pop time leaderboards. | Unlocks E10, J5, K1. 45 min. | |
 

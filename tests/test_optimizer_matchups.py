@@ -104,17 +104,17 @@ class TestParkFactorAdjustment:
         assert factor == 1.0
 
     def test_park_factor_pitcher_dampened(self) -> None:
-        """Pitcher park factor is dampened to 30% of hitter effect."""
+        """C5: Pitcher park factor uses reciprocal (1/pf)."""
         pf = {"COL": 1.38}
         factor = park_factor_adjustment("COL", "COL", pf, is_hitter=False)
-        # 1.0 + (1.38 - 1.0) * 0.3 = 1.114
-        assert factor == pytest.approx(1.114, abs=1e-6)
+        # 1.0 / 1.38 = 0.7246
+        assert factor == pytest.approx(1.0 / 1.38, abs=1e-3)
 
     def test_park_factor_pitcher_unknown_neutral(self) -> None:
         """Pitcher in unknown park gets neutral 1.0 (pf defaults to 1.0)."""
         pf = {"COL": 1.38}
         factor = park_factor_adjustment("XYZ", "ABC", pf, is_hitter=False)
-        # pf = 1.0, so 1.0 + (1.0 - 1.0) * 0.3 = 1.0
+        # pf = 1.0, so 1.0 / 1.0 = 1.0
         assert factor == pytest.approx(1.0, abs=1e-6)
 
 
