@@ -938,6 +938,120 @@ else:
                 except Exception:
                     pass  # Hot/cold is non-fatal
 
+                # ── Card 5: Category Flip Analysis ──
+                try:
+                    from src.optimizer.pivot_advisor import (
+                        compute_category_flip_probabilities,
+                        get_pivot_summary,
+                    )
+
+                    if _wr_matchup and _wr_matchup.get("categories"):
+                        # Extract my/opp totals from matchup categories
+                        _flip_my: dict[str, float] = {}
+                        _flip_opp: dict[str, float] = {}
+                        for _fe in _wr_matchup["categories"]:
+                            _fc = _fe.get("cat", "")
+                            if _fc:
+                                try:
+                                    _flip_my[_fc] = float(_fe.get("you", 0) or 0)
+                                except (ValueError, TypeError):
+                                    _flip_my[_fc] = 0.0
+                                try:
+                                    _flip_opp[_fc] = float(_fe.get("opp", 0) or 0)
+                                except (ValueError, TypeError):
+                                    _flip_opp[_fc] = 0.0
+
+                        # Approximate games remaining: 7 - day_of_week (Mon=0)
+                        from datetime import UTC
+                        from datetime import datetime as _dt_flip
+
+                        _flip_dow = _dt_flip.now(UTC).weekday()  # 0=Mon
+                        _flip_games_remaining = max(0, 7 - _flip_dow)
+
+                        _flip_probs = compute_category_flip_probabilities(
+                            _flip_my, _flip_opp, _flip_games_remaining
+                        )
+                        _flip_summary = get_pivot_summary(
+                            _flip_my, _flip_opp, _flip_games_remaining
+                        )
+
+                        # Build category rows grouped: CONTESTED first, WON, LOST
+                        _flip_rows = ""
+                        # Contested categories (amber) with flip probability
+                        for _fc in _flip_summary.get("contested", []):
+                            _fi = _flip_probs.get(_fc, {})
+                            _fp = _fi.get("flip_prob", 0.5)
+                            _fp_pct = int(_fp * 100)
+                            _flip_rows += (
+                                f'<div style="display:flex;align-items:center;gap:6px;'
+                                f'padding:3px 0;border-bottom:1px solid {T["border"]};">'
+                                f'<span style="background:{T["hot"]};color:#fff;padding:1px 5px;'
+                                f"border-radius:4px;font-size:9px;font-weight:700;"
+                                f'white-space:nowrap;min-width:60px;text-align:center;">'
+                                f"CONTESTED</span>"
+                                f'<span style="font-weight:700;font-size:12px;min-width:36px;">'
+                                f"{_fc}</span>"
+                                f'<span style="color:{T["hot"]};font-size:11px;font-weight:600;">'
+                                f"{_fp_pct}% flip</span></div>"
+                            )
+                        # Won categories (green)
+                        for _fc in _flip_summary.get("won", []):
+                            _flip_rows += (
+                                f'<div style="display:flex;align-items:center;gap:6px;'
+                                f'padding:3px 0;border-bottom:1px solid {T["border"]};">'
+                                f'<span style="background:{T["green"]};color:#fff;padding:1px 5px;'
+                                f"border-radius:4px;font-size:9px;font-weight:700;"
+                                f'white-space:nowrap;min-width:60px;text-align:center;">'
+                                f"WON</span>"
+                                f'<span style="font-weight:700;font-size:12px;min-width:36px;">'
+                                f"{_fc}</span>"
+                                f'<span style="color:{T["green"]};font-size:11px;">Protect</span>'
+                                f"</div>"
+                            )
+                        # Lost categories (red)
+                        for _fc in _flip_summary.get("lost", []):
+                            _flip_rows += (
+                                f'<div style="display:flex;align-items:center;gap:6px;'
+                                f'padding:3px 0;border-bottom:1px solid {T["border"]};">'
+                                f'<span style="background:{T["danger"]};color:#fff;padding:1px 5px;'
+                                f"border-radius:4px;font-size:9px;font-weight:700;"
+                                f'white-space:nowrap;min-width:60px;text-align:center;">'
+                                f"LOST</span>"
+                                f'<span style="font-weight:700;font-size:12px;min-width:36px;">'
+                                f"{_fc}</span>"
+                                f'<span style="color:{T["danger"]};font-size:11px;">Concede</span>'
+                                f"</div>"
+                            )
+
+                        # Top 1-2 recommended actions
+                        _flip_actions_html = ""
+                        _top_actions = _flip_summary.get("recommended_actions", [])[:2]
+                        if _top_actions:
+                            _flip_actions_html = (
+                                f'<div style="margin-top:6px;padding-top:4px;'
+                                f'border-top:1px solid {T["border"]};">'
+                            )
+                            for _fa in _top_actions:
+                                _flip_actions_html += (
+                                    f'<div style="font-size:10px;color:{T["tx2"]};'
+                                    f'padding:1px 0;">{_fa}</div>'
+                                )
+                            _flip_actions_html += "</div>"
+
+                        st.markdown(
+                            f'<div style="background:{T["card"]};border-left:4px solid {T["hot"]};'
+                            f"border-radius:8px;padding:8px 12px;margin-bottom:8px;"
+                            f'font-family:IBM Plex Mono,monospace;">'
+                            f'<div style="font-size:11px;color:{T["tx2"]};margin-bottom:4px;'
+                            f'font-weight:600;">CATEGORY FLIP ANALYSIS'
+                            f'<span style="font-weight:400;margin-left:6px;">'
+                            f"({_flip_games_remaining}d left)</span></div>"
+                            f"{_flip_rows}{_flip_actions_html}</div>",
+                            unsafe_allow_html=True,
+                        )
+                except Exception:
+                    pass  # Flip analysis is non-fatal
+
             except ImportError:
                 pass  # War room modules not available — skip gracefully
 

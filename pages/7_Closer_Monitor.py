@@ -176,6 +176,38 @@ else:
                     except Exception:
                         pass
 
+                    # gmLI trust indicator (data may come from session_state in future)
+                    gmli_html = "<!-- no gmli data -->"
+                    _gmli_data = st.session_state.get("closer_gmli_data", {})
+                    _player_gmli = _gmli_data.get(closer_name, {})
+                    _gmli_val = _player_gmli.get("gmli") if _player_gmli else None
+                    _gmli_prev = _player_gmli.get("gmli_prev") if _player_gmli else None
+                    if _gmli_val is not None:
+                        if _gmli_val >= 1.8:
+                            _trust_dot = "#2d6a4f"
+                            _trust_label = "High Trust"
+                        elif _gmli_val >= 1.0:
+                            _trust_dot = "#ff9f1c"
+                            _trust_label = "Moderate"
+                        else:
+                            _trust_dot = "#e63946"
+                            _trust_label = "Low Trust"
+                        _trend_html = ""
+                        if _gmli_prev is not None and (_gmli_prev - _gmli_val) > 0.5:
+                            _trend_html = (
+                                ' <span style="color:#e63946;font-weight:700;">'
+                                "&#8595; Declining</span>"
+                            )
+                        gmli_html = (
+                            f'<div style="font-size:0.6rem;margin-top:2px;white-space:nowrap;">'
+                            f'<span style="display:inline-block;width:7px;height:7px;'
+                            f"border-radius:50%;background:{_trust_dot};"
+                            f'vertical-align:middle;margin-right:3px;"></span>'
+                            f'<span style="color:{_trust_dot};font-weight:600;">'
+                            f"gmLI {_gmli_val:.2f} - {_trust_label}</span>"
+                            f"{_trend_html}</div>"
+                        )
+
                     # Build actual stats line if available
                     actual_sv_html = "<!-- no actual stats -->"
                     if actual_sv is not None:
@@ -227,6 +259,7 @@ else:
     </div>
     {actual_sv_html}
     {form_html}
+    {gmli_html}
     <div style="font-size:0.65rem; color:#888; margin-top:3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
         Setup: {setup_str}
     </div>

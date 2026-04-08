@@ -5,13 +5,58 @@ from __future__ import annotations
 import pandas as pd
 
 
-def compute_job_security(hierarchy_confidence: float, projected_sv: float) -> float:
+def _compute_gmli_component(gmli: float) -> float:
+    """Convert gmLI to a 0-1 trust component via piecewise linear interpolation.
+
+    Thresholds:
+    - gmli >= 1.8: 1.0 (high-leverage usage = trusted closer)
+    - gmli  = 1.0: 0.5 (average leverage = questionable)
+    - gmli <= 0.5: 0.0 (low leverage = not trusted)
+    """
+    gmli = max(0.0, gmli)
+    if gmli >= 1.8:
+        return 1.0
+    elif gmli >= 1.0:
+        # Linear from 0.5 (at 1.0) to 1.0 (at 1.8)
+        return 0.5 + (gmli - 1.0) / (1.8 - 1.0) * 0.5
+    elif gmli >= 0.5:
+        # Linear from 0.0 (at 0.5) to 0.5 (at 1.0)
+        return (gmli - 0.5) / (1.0 - 0.5) * 0.5
+    else:
+        return 0.0
+
+
+def compute_job_security(
+    hierarchy_confidence: float,
+    projected_sv: float,
+    gmli: float | None = None,
+    gmli_prev: float | None = None,
+) -> float:
     """Compute closer job security score [0, 1].
 
-    Formula: security = 0.6 * hierarchy_confidence + 0.4 * min(1.0, projected_sv / 30)
+    Original formula (gmli=None):
+        security = 0.6 * hierarchy + 0.4 * saves_component
+
+    Enhanced formula (gmli provided):
+        security = 0.45 * hierarchy + 0.30 * saves_component + 0.25 * gmli_component
+
+    gmli_trend penalty:
+        If gmli_prev provided and gmli dropped > 0.5: additional -0.10 penalty.
     """
     sv_component = min(1.0, max(0.0, projected_sv) / 30.0)
-    raw = 0.6 * max(0.0, min(1.0, hierarchy_confidence)) + 0.4 * sv_component
+    hierarchy_clamped = max(0.0, min(1.0, hierarchy_confidence))
+
+    if gmli is None:
+        # Original formula — backward compatible
+        raw = 0.6 * hierarchy_clamped + 0.4 * sv_component
+    else:
+        gmli_component = _compute_gmli_component(gmli)
+        raw = 0.45 * hierarchy_clamped + 0.30 * sv_component + 0.25 * gmli_component
+
+        # Trend penalty: large drop signals demotion risk
+        if gmli_prev is not None and (gmli_prev - gmli) > 0.5:
+            raw -= 0.10
+
     return max(0.0, min(1.0, raw))
 
 

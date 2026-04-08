@@ -37,6 +37,13 @@ except ImportError:
     CATVALUE_AVAILABLE = False
 
 try:
+    from src.leaders import compute_breakout_scores_batch  # noqa: F401
+
+    BREAKOUT_SCORE_AVAILABLE = True
+except ImportError:
+    BREAKOUT_SCORE_AVAILABLE = False
+
+try:
     from src.prospect_engine import get_prospect_rankings, refresh_prospect_rankings
 
     PROSPECTS_AVAILABLE = True
@@ -365,7 +372,7 @@ with ctx:
 # -- Main content (right): tabs + data tables -----------------------------
 
 with main:
-    tab1, tab2, tab3 = st.tabs(["Category Leaders", "Category Value", "Prospects"])
+    tab1, tab2, tab4, tab3 = st.tabs(["Category Leaders", "Category Value", "Breakout Candidates", "Prospects"])
 
     with tab1:
         if not LEADERS_AVAILABLE:
@@ -555,6 +562,108 @@ with main:
                     st.info("No category value leaders computed.")
             except Exception as e:
                 st.error(f"Failed to compute category value leaders: {e}")
+
+    with tab4:
+        if not BREAKOUT_SCORE_AVAILABLE:
+            st.info("Breakout score module not available. Ensure src/leaders.py has compute_breakout_scores_batch.")
+        else:
+            st.markdown(
+                "Players with elite process metrics (Statcast barrel rate, xwOBA, hard hit percentage, "
+                "Stuff+) that signal a breakout before traditional stats catch up. "
+                "Scores above 70 are flagged as Breakout Candidates."
+            )
+            try:
+                stats_df_bo, _is_proj_bo = _load_stats_df()
+                if stats_df_bo.empty:
+                    st.info(
+                        "No player stats available. Return to the Connect League page and click "
+                        "Force Refresh Data in the sidebar to load fresh statistics."
+                    )
+                    st.stop()
+                if _is_proj_bo:
+                    st.caption("Showing preseason projections — season stats not yet available.")
+
+                # Also load enriched player pool for Statcast columns
+                enriched_pool = load_player_pool()
+
+                # Merge Statcast columns into stats if available
+                _statcast_cols = [
+                    "barrel_pct",
+                    "xwoba",
+                    "hard_hit_pct",
+                    "ev_mean",
+                    "stuff_plus",
+                    "location_plus",
+                    "pitching_plus",
+                    "k_pct",
+                    "bb_pct",
+                    "swstr_pct",
+                    "siera",
+                    "woba",
+                ]
+                merge_cols = ["player_id"] + [c for c in _statcast_cols if c in enriched_pool.columns]
+                if len(merge_cols) > 1 and not enriched_pool.empty:
+                    stats_df_bo = stats_df_bo.merge(
+                        enriched_pool[merge_cols].drop_duplicates(subset=["player_id"]),
+                        on="player_id",
+                        how="left",
+                        suffixes=("", "_pool"),
+                    )
+
+                scored = compute_breakout_scores_batch(stats_df_bo)
+
+                # Filter and sort
+                scored = scored.sort_values("breakout_score", ascending=False)
+
+                # Separate candidates (>70) and rest
+                candidates = scored[scored["breakout_score"] >= 70].head(25)
+                others = scored[(scored["breakout_score"] >= 40) & (scored["breakout_score"] < 70)].head(15)
+
+                if candidates.empty:
+                    st.info("No players currently score above 70. Showing top scorers instead.")
+                    candidates = scored.head(20)
+
+                _BO_DISPLAY = {
+                    "name": "Player",
+                    "team": "Team",
+                    "positions": "Position",
+                    "breakout_score": "Breakout Score",
+                    "breakout_flag": "Status",
+                    "rostered_by": "Rostered By",
+                }
+
+                def _format_bo_table(df_in: pd.DataFrame) -> pd.DataFrame:
+                    df_out = df_in.copy()
+                    df_out["breakout_score"] = df_out["breakout_score"].round(1)
+                    df_out["breakout_flag"] = df_out["breakout_score"].apply(
+                        lambda s: "Breakout Candidate" if s >= 70 else ("Watch List" if s >= 55 else "")
+                    )
+                    show = ["name", "team", "positions", "breakout_score", "breakout_flag"]
+                    if "rostered_by" in df_out.columns:
+                        show.append("rostered_by")
+                    if "mlb_id" in df_out.columns:
+                        show.append("mlb_id")
+                    show = [c for c in show if c in df_out.columns]
+                    return df_out[show].rename(columns=_BO_DISPLAY)
+
+                st.subheader("Breakout Candidates (Score 70+)")
+                st.caption(f"Showing {len(candidates)} players")
+                render_compact_table(_format_bo_table(candidates))
+
+                if "player_id" in candidates.columns:
+                    render_player_select(
+                        candidates["name"].tolist(),
+                        candidates["player_id"].tolist(),
+                        key_suffix="leaders_bo",
+                    )
+
+                if not others.empty:
+                    st.subheader("Watch List (Score 40-70)")
+                    st.caption(f"Showing {len(others)} players")
+                    render_compact_table(_format_bo_table(others))
+
+            except Exception as e:
+                st.error(f"Failed to compute breakout scores: {e}")
 
     with tab3:
         if not PROSPECTS_AVAILABLE:
