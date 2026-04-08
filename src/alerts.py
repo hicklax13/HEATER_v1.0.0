@@ -252,6 +252,53 @@ def generate_roster_alerts(
                 }
             )
 
+    # Alert 6: M5 — IL slot utilization
+    # If team has empty IL slots, suggest stashing injured players.
+    # IL slots = free storage for upside players. Empty IL slot = wasted value.
+    try:
+        il_capacity = 4  # Standard Yahoo leagues have 4 IL slots
+        # Count players currently in IL slots
+        il_occupied = 0
+        for _, row in roster.iterrows():
+            sel_pos = str(row.get("selected_position", "")).upper()
+            status = str(row.get("status", "")).lower()
+            if sel_pos in ("IL", "IL+", "DL") or status in ("il10", "il15", "il60", "dl"):
+                il_occupied += 1
+
+        empty_il = il_capacity - il_occupied
+        if empty_il > 0 and fa_pool is not None and not fa_pool.empty:
+            # Find IL-eligible FAs with highest ROS SGP
+            il_candidates = fa_pool[
+                fa_pool.get("status", pd.Series("", index=fa_pool.index)).str.lower().isin(
+                    ["il10", "il15", "il60", "dl", "out"]
+                )
+            ]
+            if not il_candidates.empty:
+                # Sort by projected value (SGP or marginal_value)
+                val_col = "marginal_value" if "marginal_value" in il_candidates.columns else "adp"
+                if val_col == "adp":
+                    il_candidates = il_candidates.sort_values("adp", ascending=True)
+                else:
+                    il_candidates = il_candidates.sort_values(val_col, ascending=False)
+                top = il_candidates.head(3)
+                names = [str(r.get("name", r.get("player_name", "?"))) for _, r in top.iterrows()]
+                alerts.append(
+                    {
+                        "type": "il_slot",
+                        "severity": "warning",
+                        "title": f"EMPTY IL SLOT ({empty_il} available)",
+                        "message": (
+                            f"You have {empty_il} empty IL slot(s). "
+                            f"Stash injured upside: {', '.join(names)}. "
+                            "Free storage — no roster cost until they return."
+                        ),
+                        "action": f"Add one of: {', '.join(names)} to IL slot.",
+                        "timestamp": datetime.now(UTC).isoformat(),
+                    }
+                )
+    except Exception:
+        pass
+
     return alerts
 
 

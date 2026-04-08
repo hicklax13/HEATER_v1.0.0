@@ -74,7 +74,7 @@ Daily dashboard: War Room, alerts, roster overview, Monday briefing.
 | M2 | **Conditional Swap Impact** | "If you bench Player X and start Player Y, you gain +2 K and lose -0.8 ERA delta." Roster-level marginal impact per swap. | Bridges player-level data to roster-level decision. | |
 | M3 | **Opponent Lineup Tracking** | Surface opponent's mid-week roster moves: empty spots, pitcher streams, off-day players. | Uses existing Yahoo API (`yds.get_transactions()` filtered to opponent). | |
 | M4 | **Regression Alert System** | Compare L30 actual to expected stats (xBA, xwOBA via barrel% + speed). Flag >1.5 SD divergence as sell-high or buy-low. Weight K%/BB% over BA. Require 50 PA min. | Process metrics more predictive than outcome metrics. | DONE |
-| M5 | **IL Slot Utilization Alert** | Empty IL slot = "Fill with X." IL stash ranking by `ros_sgp - best_fa_sgp` with days-to-return. Injury-type duration lookup (hamstring 21d, oblique 28d, TJ 14mo). | Empty IL slot = wasted value. | |
+| M5 | **IL Slot Utilization Alert** | Empty IL slot = "Fill with X." IL stash ranking by `ros_sgp - best_fa_sgp` with days-to-return. Injury-type duration lookup (hamstring 21d, oblique 28d, TJ 14mo). | Empty IL slot = wasted value. | DONE |
 | M6 | **Ratio Lock Alert** | "You're winning ERA by 0.80 and WHIP by 0.15 with 45 IP banked — bench Sunday starters to lock 2 categories." | Worth 1-2 category wins/season. | DONE |
 | U3 | **War Room Flippable Thresholds from Weekly SDs** | Replace hardcoded `_COUNTING_THRESHOLD=3` for all stats. Use `threshold[cat] = 1.5 * weekly_sd[cat]`. HR has different variance than R. | Prevents false flip alerts for stable categories, catches real flips in volatile ones. | |
 | E3 | **Umpire Strike Zone Adjustment** | Per-umpire K%/BB%/run environment. ±0.3-0.5 runs/game. | | |
@@ -148,9 +148,9 @@ Daily dashboard: War Room, alerts, roster overview, Monday briefing.
 | C2 | **Dual Objective Alpha Validation** | Tie alpha to playoff probability, not just time remaining. | Affects strategy, not individual decisions. | DONE |
 | K1 | **SB Streaming by Catcher/Pitcher** | `sb_score = sprint_speed * (pop_time/1.95) * (delivery_time/1.35) * handedness`. | Targeted SB streaming. Requires T3, T8 data. | |
 | K2 | **Pitcher Fatigue Multiplier** | `fatigue = max(0.85, 1.0 - 0.003 * max(0, IP - 100))`. ACWR >1.3 flag. Exempt top Stuff+. | Prevents over-projecting fatigued arms. | DONE |
-| K3 | **Consistency Premium** | `penalty = k * weekly_CV`. k=0.05-0.10. Penalize volatile, reward consistent. | H2H-specific dimension. | |
+| K3 | **Consistency Premium** | `penalty = k * weekly_CV`. k=0.05-0.10. Penalize volatile, reward consistent. | H2H-specific dimension. | DONE |
 | K4 | **Punt Mode Optimizer** | User selects 0-2 categories to punt → weight 0.0 in LP. Also feeds H7 in Trade Finder. | Strategy-aware optimization. | DONE |
-| K5 | **Streaming Composite Score** | `K_proj * (1/opp_wOBA) * park * form_L3 * whip_safety`. Career WHIP >1.40 = avoid. | Better streaming picks. | |
+| K5 | **Streaming Composite Score** | `K_proj * (1/opp_wOBA) * park * form_L3 * whip_safety`. Career WHIP >1.40 = avoid. | Better streaming picks. | DONE |
 | S2 | **CONSOLIDATE: Remove H2H Analysis Tab** | Duplicate of Matchup Planner Category Probabilities. Link to Matchup Planner instead. | Eliminates duplicate display. | |
 
 ---

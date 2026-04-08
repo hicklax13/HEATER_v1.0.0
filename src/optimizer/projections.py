@@ -126,6 +126,23 @@ def build_enhanced_projections(
     if enable_injury:
         enhanced = _apply_injury_availability(enhanced, weeks_remaining)
 
+    # Step 6: K3 consistency premium for H2H
+    # Consistent players are more valuable in weekly H2H matchups.
+    # Use xwOBA/BABIP delta as volatility proxy. Small multiplier on counting stats.
+    _K3_BONUS = 0.05  # 5% bonus for consistent players
+    _K3_PENALTY = 0.05  # 5% penalty for volatile players
+    _K3_THRESHOLD = 1.0  # volatility score threshold (1.0 = 1 SD)
+    if "xwoba_delta" in enhanced.columns or "babip_delta" in enhanced.columns:
+        xd = pd.to_numeric(enhanced.get("xwoba_delta", 0), errors="coerce").fillna(0).abs()
+        bd = pd.to_numeric(enhanced.get("babip_delta", 0), errors="coerce").fillna(0).abs()
+        vol_score = (xd / 0.030 + bd / 0.030) / 2.0  # normalized to SDs
+        counting_cols = ["r", "hr", "rbi", "sb", "w", "sv", "k"]
+        for col in counting_cols:
+            if col in enhanced.columns:
+                # Low volatility (<0.5 SD) → bonus. High (>1.5 SD) → penalty.
+                mult = 1.0 + _K3_BONUS * (1.0 - vol_score).clip(-1.0, 1.0)
+                enhanced[col] = enhanced[col] * mult
+
     return enhanced
 
 

@@ -178,6 +178,74 @@ def compute_streaming_value(
     }
 
 
+def compute_streaming_composite(
+    pitcher: Any,
+    opp_woba: float = 0.320,
+    park_factor: float = 1.0,
+    recent_form_era: float | None = None,
+    career_whip: float | None = None,
+    weekly_games: int = 1,
+    category_weights: dict[str, float] | None = None,
+    sgp_denominators: dict[str, float] | None = None,
+) -> dict[str, float]:
+    """K5: Enhanced streaming composite score incorporating opponent quality,
+    recent form, and WHIP safety gate.
+
+    Formula: K_proj * (1/opp_wOBA) * park * form_L3 * whip_safety
+    Career WHIP >1.40 = avoid (ratio destruction risk).
+
+    Args:
+        pitcher: Dict-like with k, w, l, era, whip, ip.
+        opp_woba: Opponent team wOBA (lower = tougher, default league avg).
+        park_factor: Venue park factor (>1.0 = hitter friendly).
+        recent_form_era: Pitcher's L3 start ERA (None = use projected).
+        career_whip: Career WHIP for safety check (None = skip).
+        weekly_games: Number of starts this week.
+        category_weights: Per-category SGP weights.
+        sgp_denominators: Per-category SGP denominators.
+
+    Returns:
+        dict with composite_score, base_value, opp_mult, form_mult,
+        whip_safe, and the underlying net_value from compute_streaming_value.
+    """
+    # Base streaming value
+    base = compute_streaming_value(
+        pitcher, weekly_games, park_factor, category_weights, sgp_denominators
+    )
+    net_value = base["net_value"]
+
+    # Opponent quality multiplier: weaker opponents = better streaming target
+    # League avg wOBA ~0.320. Inverse scaling: 0.280 opp → 1.14x, 0.360 → 0.89x
+    opp_mult = min(1.3, max(0.7, 0.320 / max(opp_woba, 0.200)))
+
+    # Recent form multiplier: L3 starts ERA relative to season projection
+    form_mult = 1.0
+    proj_era = _get(pitcher, "era", 4.50)
+    if recent_form_era is not None and proj_era > 0:
+        # Good recent form (lower ERA than projected) = bonus
+        form_ratio = proj_era / max(recent_form_era, 1.0)
+        form_mult = min(1.2, max(0.8, form_ratio))
+
+    # WHIP safety gate: career WHIP > 1.40 = high ratio destruction risk
+    whip_safe = True
+    whip_penalty = 1.0
+    if career_whip is not None and career_whip > 1.40:
+        whip_safe = False
+        whip_penalty = 0.5  # Halve value for WHIP-risky pitchers
+
+    composite = net_value * opp_mult * form_mult * whip_penalty
+
+    return {
+        "composite_score": round(composite, 4),
+        "base_value": round(net_value, 4),
+        "opp_mult": round(opp_mult, 3),
+        "form_mult": round(form_mult, 3),
+        "whip_safe": whip_safe,
+        "k_per_start": base["k_per_start"],
+        "era_per_start": base["era_per_start"],
+    }
+
+
 # ── Streaming Candidate Ranking ─────────────────────────────────────
 
 
