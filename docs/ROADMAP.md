@@ -45,7 +45,7 @@ Cascade through all 53 engines and all 13 pages. Highest leverage.
 | A4 | **Remove Self-Referential ECR** | Remove HEATER SGP rank as source #7 in ECR consensus. Use 6 external sources only. | Removes circular confirmation bias. Confirmed still present in `ecr.py:910`. | Trivial | DONE |
 | E2+T1 | **Fetch & Populate Stuff+/Location+/Pitching+** | Add `pybaseball.pitching_stats(year, qual=0)` to bootstrap. Write to existing empty DB columns. | Transforms pitcher evaluation across all pages. Unlocks G2, O1, L2. | Trivial | DONE |
 | T2 | **DATA: Fetch Detailed Batting Stats** | Add `pybaseball.batting_stats(year, qual=0)` to bootstrap. Populate LD%, FB%, GB%, BABIP, ISO, K%, BB%. | Unlocks E1, G3, O1 breakout components. | Trivial | DONE |
-| T3 | **DATA: Fetch Sprint Speed** | Add `pybaseball.statcast_sprint_speed(year)` to bootstrap. | Unlocks K1, E5 stolen base prediction. | Trivial | |
+| T3 | **DATA: Fetch Sprint Speed** | Add `pybaseball.statcast_sprint_speed(year)` to bootstrap. | Unlocks K1, E5 stolen base prediction. | Trivial | DONE |
 | T4 | **DATA: Dynamic Park Factor Refresh** | Mid-season `pybaseball.team_batting()` + `team_pitching()` park factor derivation. Replace static 2024 values. | Some parks change year-to-year (humidor, dimensions). | Low | |
 | B2 | **Position-Specific Health Scoring** | C: threshold 28/0.03yr. DH: 34/0.01yr. OF: 31. | Catchers age faster than DHs. | Low | |
 | B3 | **Injury-Type Adjustment** | TJ = 0.4 health floor 2yr. Hamstring = 0.7 1yr. Concussion = 0.6. | 30 IL days from bone bruise ≠ 30 IL days from TJ. | Medium | |

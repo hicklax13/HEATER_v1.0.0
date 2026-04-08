@@ -57,6 +57,7 @@ class StalenessConfig:
     team_strength_hours: float = 24  # 24 hours
     stuff_plus_hours: float = 24  # 24 hours
     batting_stats_hours: float = 24  # 24 hours
+    sprint_speed_hours: float = 168  # 7 days (doesn't change often)
 
 
 @dataclass
@@ -1026,6 +1027,121 @@ def _bootstrap_batting_stats(progress: BootstrapProgress) -> str:
         return f"Error: {exc}"
 
 
+def _bootstrap_sprint_speed(progress: BootstrapProgress) -> str:
+    """Phase 24: Fetch Statcast sprint speed data."""
+    progress.phase = "Sprint Speed"
+    progress.detail = "Fetching sprint speed from Statcast..."
+    try:
+        from pybaseball import statcast_sprint_speed
+    except ImportError:
+        logger.warning("pybaseball not installed — skipping sprint speed fetch")
+        return "Skipped: pybaseball not installed"
+
+    try:
+        import pandas as pd
+
+        from src.database import get_connection, update_refresh_log
+
+        year = datetime.now(UTC).year
+        logger.info("Fetching Statcast sprint speed for %d...", year)
+        ss_df = statcast_sprint_speed(year, min_opp=5)
+
+        if ss_df is None or ss_df.empty:
+            logger.warning("Sprint speed returned empty data")
+            return "Skipped: no data returned"
+
+        # Find the sprint speed and player name columns
+        speed_col = None
+        name_col = None
+        for c in ss_df.columns:
+            cl = c.lower().replace(" ", "").replace("_", "")
+            if cl in ("hpsprint", "sprintspeed", "sprint_speed"):
+                speed_col = c
+            elif cl in ("last_name,first_name", "player_name", "name"):
+                name_col = c
+        # Fallback: common column names from pybaseball
+        if speed_col is None and "hp_to_1b" in ss_df.columns:
+            speed_col = "hp_to_1b"
+        if speed_col is None:
+            for c in ss_df.columns:
+                if "sprint" in c.lower() or "speed" in c.lower():
+                    speed_col = c
+                    break
+        if name_col is None:
+            for c in ss_df.columns:
+                if "name" in c.lower():
+                    name_col = c
+                    break
+
+        if speed_col is None or name_col is None:
+            logger.warning("Sprint speed columns not found. Columns: %s", list(ss_df.columns)[:20])
+            return "Skipped: sprint speed columns not found"
+
+        logger.info("Sprint speed columns: name=%s, speed=%s", name_col, speed_col)
+
+        # Name→player_id lookup (hitters)
+        conn = get_connection()
+        try:
+            players_df = pd.read_sql(
+                "SELECT player_id, name FROM players WHERE is_hitter = 1",
+                conn,
+            )
+            name_to_id = {}
+            for _, row in players_df.iterrows():
+                if row["name"]:
+                    name_to_id[str(row["name"]).strip().lower()] = int(row["player_id"])
+
+            updated = 0
+            for _, row in ss_df.iterrows():
+                raw_name = str(row[name_col]).strip()
+                # Statcast uses "Last, First" format — convert to "First Last"
+                if "," in raw_name:
+                    parts = raw_name.split(",", 1)
+                    raw_name = f"{parts[1].strip()} {parts[0].strip()}"
+                pid = name_to_id.get(raw_name.lower())
+                if pid is None:
+                    continue
+
+                speed = row.get(speed_col)
+                if pd.isna(speed):
+                    continue
+                speed = float(speed)
+
+                existing = conn.execute(
+                    "SELECT 1 FROM statcast_archive WHERE player_id = ? AND season = ?",
+                    (pid, year),
+                ).fetchone()
+                if existing:
+                    conn.execute(
+                        "UPDATE statcast_archive SET sprint_speed = ? WHERE player_id = ? AND season = ?",
+                        (speed, pid, year),
+                    )
+                else:
+                    conn.execute(
+                        "INSERT INTO statcast_archive (player_id, season, sprint_speed) VALUES (?, ?, ?)",
+                        (pid, year, speed),
+                    )
+                updated += 1
+
+            conn.commit()
+        finally:
+            conn.close()
+
+        update_refresh_log("sprint_speed", "success")
+        logger.info("Sprint speed: updated %d players from %d Statcast rows", updated, len(ss_df))
+        return f"Updated {updated} players with sprint speed"
+
+    except Exception as exc:
+        logger.exception("Sprint speed bootstrap failed: %s", exc)
+        try:
+            from src.database import update_refresh_log
+
+            update_refresh_log("sprint_speed", "error")
+        except Exception:
+            pass
+        return f"Error: {exc}"
+
+
 # ── Master Orchestrator ──────────────────────────────────────────────
 
 
@@ -1382,12 +1498,13 @@ def bootstrap_all_data(
                 logger.exception("Bootstrap %s failed: %s", key, exc)
                 results[key] = f"Error: {exc}"
 
-    # Phase 22+23: Stuff+ and Batting stats from FanGraphs (parallel — both independent)
+    # Phase 22-24: Stuff+, Batting stats, Sprint speed (parallel — all independent)
     _notify(0.98)
     sp_stale = force or check_staleness("stuff_plus", staleness.stuff_plus_hours)
     bs_stale = force or check_staleness("batting_stats", staleness.batting_stats_hours)
+    ss_stale = force or check_staleness("sprint_speed", staleness.sprint_speed_hours)
 
-    with ThreadPoolExecutor(max_workers=2) as executor:
+    with ThreadPoolExecutor(max_workers=3) as executor:
         futures = {}
         if sp_stale:
             futures[executor.submit(_bootstrap_stuff_plus, progress)] = "stuff_plus"
@@ -1397,6 +1514,10 @@ def bootstrap_all_data(
             futures[executor.submit(_bootstrap_batting_stats, progress)] = "batting_stats"
         else:
             results["batting_stats"] = "Fresh"
+        if ss_stale:
+            futures[executor.submit(_bootstrap_sprint_speed, progress)] = "sprint_speed"
+        else:
+            results["sprint_speed"] = "Fresh"
         for future in as_completed(futures):
             key = futures[future]
             try:
