@@ -222,9 +222,9 @@ class TestSGPRateStats:
         calc = SGPCalculator(config)
         # .300 hitter: 165 H in 550 AB
         player = _hitter(1, "Test", ab=550, h=165, avg=0.300)
-        # Code uses int() truncation: roster_h = int(5500 * 0.265) = 1457
-        roster_ab = 5500
-        roster_h = int(5500 * 0.265)  # 1457, matching code's int() truncation
+        # Code uses float math: roster_h = 5500.0 * 0.265 = 1457.5
+        roster_ab = 5500.0
+        roster_h = 5500.0 * 0.265  # 1457.5, matching code's float baseline
         new_avg = (roster_h + 165) / (roster_ab + 550)
         old_avg = roster_h / roster_ab  # 1457/5500, not 0.265
         expected = (new_avg - old_avg) / denom
@@ -238,9 +238,9 @@ class TestSGPRateStats:
         ip = 200
         er = 3.00 * ip / 9  # = 66.67
         player = _pitcher(1, "Ace", ip=ip, era=3.00, er=er)
-        # Code uses int() truncation: roster_er = int(1300 * 3.80 / 9) = 548
-        roster_ip = 1300
-        roster_er = int(1300 * 3.80 / 9)  # 548, matching code's int()
+        # Code uses float math: roster_er = 1300.0 * 3.80 / 9
+        roster_ip = 1300.0
+        roster_er = 1300.0 * 3.80 / 9  # ~548.89, matching code's float baseline
         new_era = (roster_er + er) * 9 / (roster_ip + ip)
         old_era = roster_er * 9 / roster_ip  # 548*9/1300, not 3.80
         expected = -(new_era - old_era) / denom

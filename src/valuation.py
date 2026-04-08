@@ -49,6 +49,10 @@ class LeagueConfig:
         }
     )
     risk_aversion: float = 0.15  # lambda for variance penalty
+    # Rate-stat baselines — league-average roster totals for volume-weighted SGP
+    roster_ab_baseline: float = 5500.0
+    roster_pa_baseline: float = 6100.0
+    roster_ip_baseline: float = 1300.0
 
     # Canonical mapping from display category to DB/DataFrame column name
     STAT_MAP: dict = field(
@@ -112,14 +116,15 @@ class LeagueConfig:
 class SGPCalculator:
     """Compute Standings Gain Points for players."""
 
-    def __init__(self, config: LeagueConfig):
+    def __init__(self, config: LeagueConfig, denominators: dict[str, float] | None = None):
         self.config = config
+        self._denominators = denominators if denominators else config.sgp_denominators
 
     def player_sgp(self, player: pd.Series) -> dict:
         """Compute raw SGP per category for a single player."""
         sgp = {}
         for cat in self.config.all_categories:
-            denom = self.config.sgp_denominators.get(cat, 1.0)
+            denom = self._denominators.get(cat, 1.0)
             if abs(denom) < 1e-9:
                 denom = 1.0
             stat_val = self._get_stat(player, cat)
@@ -146,7 +151,7 @@ class SGPCalculator:
         """
         sgp = {}
         for cat in self.config.all_categories:
-            denom = self.config.sgp_denominators.get(cat, 1.0)
+            denom = self._denominators.get(cat, 1.0)
             if abs(denom) < 1e-9:
                 denom = 1.0
             weight = (category_weights or {}).get(cat, 1.0)
@@ -191,7 +196,7 @@ class SGPCalculator:
         }
 
         for cat in self.config.all_categories:
-            denom = self.config.sgp_denominators.get(cat, 1.0)
+            denom = self._denominators.get(cat, 1.0)
             if abs(denom) < 1e-9:
                 denom = 1.0
 
@@ -200,7 +205,8 @@ class SGPCalculator:
                 if cat == "AVG":
                     ab = pool["ab"].fillna(0).values if "ab" in pool.columns else np.zeros(n)
                     h = pool["h"].fillna(0).values if "h" in pool.columns else np.zeros(n)
-                    roster_ab, roster_h = 5500.0, 5500.0 * 0.265
+                    roster_ab = self.config.roster_ab_baseline
+                    roster_h = roster_ab * 0.265
                     with np.errstate(divide="ignore", invalid="ignore"):
                         new_avg = np.where(ab > 0, (roster_h + h) / (roster_ab + ab), roster_h / roster_ab)
                     old_avg = roster_h / roster_ab
@@ -210,7 +216,7 @@ class SGPCalculator:
                     h = pool["h"].fillna(0).values if "h" in pool.columns else np.zeros(n)
                     bb = pool["bb"].fillna(0).values if "bb" in pool.columns else np.zeros(n)
                     hbp = pool["hbp"].fillna(0).values if "hbp" in pool.columns else np.zeros(n)
-                    roster_pa = 6100.0
+                    roster_pa = self.config.roster_pa_baseline
                     roster_obp_num = roster_pa * 0.317
                     player_obp_num = h + bb + hbp
                     with np.errstate(divide="ignore", invalid="ignore"):
@@ -222,7 +228,8 @@ class SGPCalculator:
                 elif cat == "ERA":
                     ip = pool["ip"].fillna(0).values if "ip" in pool.columns else np.zeros(n)
                     er = pool["er"].fillna(0).values if "er" in pool.columns else np.zeros(n)
-                    roster_ip, roster_er = 1300.0, 1300.0 * 3.80 / 9
+                    roster_ip = self.config.roster_ip_baseline
+                    roster_er = roster_ip * 3.80 / 9
                     with np.errstate(divide="ignore", invalid="ignore"):
                         new_era = np.where(ip > 0, (roster_er + er) * 9 / (roster_ip + ip), roster_er * 9 / roster_ip)
                     old_era = roster_er * 9 / roster_ip
@@ -231,8 +238,8 @@ class SGPCalculator:
                     ip = pool["ip"].fillna(0).values if "ip" in pool.columns else np.zeros(n)
                     bb_a = pool["bb_allowed"].fillna(0).values if "bb_allowed" in pool.columns else np.zeros(n)
                     h_a = pool["h_allowed"].fillna(0).values if "h_allowed" in pool.columns else np.zeros(n)
-                    roster_ip = 1300.0
-                    roster_whip_total = 1300.0 * 1.25
+                    roster_ip = self.config.roster_ip_baseline
+                    roster_whip_total = roster_ip * 1.25
                     with np.errstate(divide="ignore", invalid="ignore"):
                         new_whip = np.where(
                             ip > 0, (roster_whip_total + bb_a + h_a) / (roster_ip + ip), roster_whip_total / roster_ip
@@ -259,8 +266,9 @@ class SGPCalculator:
             h = player.get("h", 0) or 0
             if ab == 0:
                 return 0
-            # Approximate: assume league-average roster has ~5500 AB, .265 AVG
-            roster_ab, roster_h = 5500, int(5500 * 0.265)
+            # Use configurable league-average roster baseline
+            roster_ab = self.config.roster_ab_baseline
+            roster_h = roster_ab * 0.265
             new_avg = (roster_h + h) / (roster_ab + ab)
             old_avg = roster_h / roster_ab
             return (new_avg - old_avg) / denom
@@ -272,9 +280,9 @@ class SGPCalculator:
             sf = player.get("sf", 0) or 0
             if pa == 0:
                 return 0
-            # Approximate: league-average roster has ~6100 PA, .317 OBP
-            roster_pa = 6100
-            roster_obp_num = int(roster_pa * 0.317)
+            # Use configurable league-average roster baseline
+            roster_pa = self.config.roster_pa_baseline
+            roster_obp_num = roster_pa * 0.317
             player_obp_num = h + bb + hbp
             player_denom = pa  # PA ≈ AB + BB + HBP + SF
             new_obp = (roster_obp_num + player_obp_num) / (roster_pa + player_denom)
@@ -285,7 +293,8 @@ class SGPCalculator:
             er = player.get("er", 0) or 0
             if ip == 0:
                 return 0
-            roster_ip, roster_er = 1300, int(1300 * 3.80 / 9)
+            roster_ip = self.config.roster_ip_baseline
+            roster_er = roster_ip * 3.80 / 9
             new_era = (roster_er + er) * 9 / (roster_ip + ip)
             old_era = roster_er * 9 / roster_ip
             return -(new_era - old_era) / denom  # lower ERA = positive value
@@ -295,8 +304,8 @@ class SGPCalculator:
             ha = player.get("h_allowed", 0) or 0
             if ip == 0:
                 return 0
-            roster_ip = 1300
-            roster_whip_total = 1300 * 1.25  # ~1.25 WHIP baseline
+            roster_ip = self.config.roster_ip_baseline
+            roster_whip_total = roster_ip * 1.25  # ~1.25 WHIP baseline
             new_whip = (roster_whip_total + bb + ha) / (roster_ip + ip)
             old_whip = roster_whip_total / roster_ip
             return -(new_whip - old_whip) / denom
