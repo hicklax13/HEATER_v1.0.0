@@ -844,6 +844,51 @@ def compute_sgp_denominators(player_pool: pd.DataFrame, config: LeagueConfig) ->
     return denoms
 
 
+def bayesian_sgp_update(
+    preseason_denoms: dict[str, float],
+    in_season_denoms: dict[str, float],
+    weeks_played: int = 0,
+    total_weeks: int = 24,
+) -> dict[str, float]:
+    """A3: Bayesian blend of preseason SGP denominators with in-season actuals.
+
+    Early season: mostly preseason prior. By week 8: 70% actual / 30% prior.
+    By week 16: 90% actual. This prevents stale denominators while avoiding
+    noise from small samples early on.
+
+    Args:
+        preseason_denoms: SGP denominators from preseason projections.
+        in_season_denoms: SGP denominators computed from actual league standings.
+        weeks_played: Number of weeks completed so far.
+        total_weeks: Total weeks in the season (default 24).
+
+    Returns:
+        Blended denominator dict.
+    """
+    if weeks_played <= 0 or not in_season_denoms:
+        return preseason_denoms.copy()
+
+    # Sigmoid blend: starts at ~10% actual, reaches ~70% at week 8, ~90% by week 16
+    # Formula: actual_weight = 1 / (1 + exp(-0.4 * (weeks - 6)))
+    import math
+
+    actual_weight = 1.0 / (1.0 + math.exp(-0.4 * (weeks_played - 6)))
+    actual_weight = max(0.05, min(0.95, actual_weight))
+    prior_weight = 1.0 - actual_weight
+
+    blended = {}
+    all_cats = set(preseason_denoms) | set(in_season_denoms)
+    for cat in all_cats:
+        pre = preseason_denoms.get(cat, 1.0)
+        act = in_season_denoms.get(cat)
+        if act is not None and act > 0:
+            blended[cat] = prior_weight * pre + actual_weight * act
+        else:
+            blended[cat] = pre
+
+    return blended
+
+
 # ── Tier Assignment ─────────────────────────────────────────────────
 
 

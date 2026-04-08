@@ -26,7 +26,7 @@
 ## Improvement Backlog — By Page
 
 **115 unique item rows** after deduplication and audit.
-**99 DONE, 0 PARTIAL, 16 remaining** as of April 8, 2026.
+**104 DONE, 0 PARTIAL, 11 remaining** as of April 8, 2026.
 Organized strictly by the page each task improves. Items that affect all pages
 are under "Global / Core Engine." Status: (empty)=not started, PARTIAL=infrastructure
 exists, DONE=implemented, CUT=removed after audit, MERGED=combined with another item.
@@ -42,7 +42,7 @@ Cascade through all 53 engines and all 13 pages. Highest leverage.
 | A1 | **Dynamic SGP Denominators** | `compute_sgp_denominators()` EXISTS at `valuation.py:718` but not wired. Wire into `value_all_players()`. Update weekly. | Propagates to EVERY engine. Single highest-leverage fix. | Low | DONE |
 | U1 | **Rate-Stat Baselines from League Data** | Auto-compute AB/IP baselines from `league_standings` instead of hardcoded 5500 AB / 1300 IP. If league AB is 5200, every AVG SGP is off ~5%. | Cascades through all rate-stat SGP. Pairs with A1. | Low | DONE |
 | A2+D3 | **Weighted Projection Stacking** | Ridge regression: each system = feature, 2025 actuals = target. Learned weights > naive 1/n average. | ~5-8% projection improvement. | Low | DONE |
-| A3 | **Bayesian SGP Updating** | Preseason denoms as prior, update weekly from standings. By week 8: 70% actual / 30% prior. | Prevents stale denominators mid-season. | Medium | |
+| A3 | **Bayesian SGP Updating** | Preseason denoms as prior, update weekly from standings. By week 8: 70% actual / 30% prior. | Prevents stale denominators mid-season. | Medium | DONE |
 | A4 | **Remove Self-Referential ECR** | Remove HEATER SGP rank as source #7 in ECR consensus. Use 6 external sources only. | Removes circular confirmation bias. Confirmed still present in `ecr.py:910`. | Trivial | DONE |
 | E2+T1 | **Fetch & Populate Stuff+/Location+/Pitching+** | Add `pybaseball.pitching_stats(year, qual=0)` to bootstrap. Write to existing empty DB columns. | Transforms pitcher evaluation across all pages. Unlocks G2, O1, L2. | Trivial | DONE |
 | T2 | **DATA: Fetch Detailed Batting Stats** | Add `pybaseball.batting_stats(year, qual=0)` to bootstrap. Populate LD%, FB%, GB%, BABIP, ISO, K%, BB%. | Unlocks E1, G3, O1 breakout components. | Trivial | DONE |
@@ -94,7 +94,7 @@ Daily dashboard: War Room, alerts, roster overview, Monday briefing.
 | F3 | **Disposition Effect** | YTD > projection: +10-15% acceptance. YTD < projection: -10-15%. | Captures #1 behavioral rejection pattern. | DONE |
 | F4 | **Recently-Acquired Penalty** | Traded-for within 3 weeks: -10-15% acceptance. | Uses existing Yahoo transaction data. | DONE |
 | F5 | **Playoff-Odds Acceptance** | Replace raw standings rank with `simulate_season_enhanced()` playoff odds. | More precise than rank alone. Data already computed. | DONE |
-| B1 | **League-Specific Acceptance Calibration** | Empirical acceptance rates from Yahoo transactions. | League-calibrated, not generic. Prerequisite for D4. | |
+| B1 | **League-Specific Acceptance Calibration** | Empirical acceptance rates from Yahoo transactions. | League-calibrated, not generic. Prerequisite for D4. | DONE |
 | D4 | **Opponent Behavior Learning** | Per-opponent logistic regression on trade history. Requires B1 first. | ~10-20% acceptance improvement. | |
 | G1 | **xwOBA-wOBA Regression Flags** | Gap ≥0.030 = BUY_LOW, ≤-0.030 = SELL_HIGH. +0.05 composite bonus. | Single most actionable regression signal. | DONE |
 | G2 | **Stuff+/botERA Pitcher Regression** | `stuff_delta = botERA - actual_ERA`. ≤-0.50 = BUY_LOW, ≥+0.50 = SELL_HIGH. | Requires E2+T1 data. | DONE |
@@ -147,7 +147,7 @@ Daily dashboard: War Room, alerts, roster overview, Monday briefing.
 | J5 | **Catcher Framing Pitcher Adjustment** | `era_adj = -0.01 * framing_runs`, `k9_adj = 0.025 * framing_runs`. | ±0.25 ERA per start for elite/poor framers. | |
 | B6 | **Category Urgency k-Calibration** | Backtest k=1.0 to 5.0, measure category wins. Requires D6 framework. | Current k=2/3 may be off. | DONE |
 | C2 | **Dual Objective Alpha Validation** | Tie alpha to playoff probability, not just time remaining. | Affects strategy, not individual decisions. | DONE |
-| K1 | **SB Streaming by Catcher/Pitcher** | `sb_score = sprint_speed * (pop_time/1.95) * (delivery_time/1.35) * handedness`. | Targeted SB streaming. Requires T3, T8 data. | |
+| K1 | **SB Streaming by Catcher/Pitcher** | `sb_score = sprint_speed * (pop_time/1.95) * (delivery_time/1.35) * handedness`. | Targeted SB streaming. Requires T3, T8 data. | DONE |
 | K2 | **Pitcher Fatigue Multiplier** | `fatigue = max(0.85, 1.0 - 0.003 * max(0, IP - 100))`. ACWR >1.3 flag. Exempt top Stuff+. | Prevents over-projecting fatigued arms. | DONE |
 | K3 | **Consistency Premium** | `penalty = k * weekly_CV`. k=0.05-0.10. Penalize volatile, reward consistent. | H2H-specific dimension. | DONE |
 | K4 | **Punt Mode Optimizer** | User selects 0-2 categories to punt → weight 0.0 in LP. Also feeds H7 in Trade Finder. | Strategy-aware optimization. | DONE |
@@ -246,8 +246,8 @@ Head-to-head z-score comparison, radar chart, health/confidence.
 
 | # | Item | Fix | Impact | Status |
 |---|------|-----|--------|--------|
-| Q1 | **Marginal SGP-Based AI Opponents** | AI picks highest marginal SGP to roster 70%, ADP-random 30%. | Currently AI picks near ADP. Real opponents pick for need. | |
-| Q2 | **Position Run Detection** | 2+ consecutive same-position picks → boost remaining AI probability 1.3x for 3 picks. | Creates realistic draft dynamics. | |
+| Q1 | **Marginal SGP-Based AI Opponents** | AI picks highest marginal SGP to roster 70%, ADP-random 30%. | Currently AI picks near ADP. Real opponents pick for need. | DONE |
+| Q2 | **Position Run Detection** | 2+ consecutive same-position picks → boost remaining AI probability 1.3x for 3 picks. | Creates realistic draft dynamics. | DONE |
 | Q3 | **Per-Player ADP Standard Deviation** | `(max_pick - min_pick) / 4` per player from NFBC instead of global ADP/4. | Injury-risk players have wider distributions. | |
 | Q4 | **Draft Value Standings Impact** | AI evaluates each pick's effect on projected end-of-draft standings, not just BPA. | DraftKick methodology. | |
 

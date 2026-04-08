@@ -246,6 +246,57 @@ def compute_streaming_composite(
     }
 
 
+def compute_sb_streaming_score(
+    player_row: Any,
+    opp_catcher_pop_time: float = 1.95,
+    opp_pitcher_delivery: float = 1.35,
+) -> dict[str, float]:
+    """K1: SB streaming score based on sprint speed + catcher/pitcher matchup.
+
+    Formula: sb_score = sprint_speed * (pop_time/1.95) * (delivery/1.35) * handedness
+    Higher = better SB streaming target. League avg pop_time=1.95s, delivery=1.35s.
+
+    Args:
+        player_row: Dict-like with sprint_speed, sb (projected), is_hitter.
+        opp_catcher_pop_time: Opposing catcher's pop time (lower = harder to steal).
+        opp_pitcher_delivery: Opposing pitcher's delivery time (lower = harder).
+
+    Returns:
+        dict with sb_score, sprint_speed, projected_sb, pop_time_mult, delivery_mult.
+    """
+    sprint_speed = float(_get(player_row, "sprint_speed", 0))
+    projected_sb = float(_get(player_row, "sb", 0))
+
+    if sprint_speed <= 0 or projected_sb <= 0:
+        return {
+            "sb_score": 0.0,
+            "sprint_speed": sprint_speed,
+            "projected_sb": projected_sb,
+            "pop_time_mult": 1.0,
+            "delivery_mult": 1.0,
+        }
+
+    # Catcher pop time multiplier: slow catcher = easier to steal
+    # 1.95s = league average. 2.05s = slow (1.05x). 1.85s = fast (0.95x).
+    pop_mult = min(1.15, max(0.85, opp_catcher_pop_time / 1.95))
+
+    # Pitcher delivery multiplier: slow delivery = easier to steal
+    # 1.35s = league average. 1.50s = slow (1.11x). 1.20s = fast (0.89x).
+    delivery_mult = min(1.15, max(0.85, opp_pitcher_delivery / 1.35))
+
+    # Composite: sprint speed normalized (27 ft/s = average, 30+ = elite)
+    speed_factor = sprint_speed / 27.0  # >1.0 for above-average speed
+    sb_score = projected_sb * speed_factor * pop_mult * delivery_mult
+
+    return {
+        "sb_score": round(sb_score, 2),
+        "sprint_speed": round(sprint_speed, 1),
+        "projected_sb": round(projected_sb, 1),
+        "pop_time_mult": round(pop_mult, 3),
+        "delivery_mult": round(delivery_mult, 3),
+    }
+
+
 # ── Streaming Candidate Ranking ─────────────────────────────────────
 
 

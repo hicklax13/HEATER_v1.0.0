@@ -326,6 +326,44 @@ def estimate_acceptance_probability(
     return max(0.01, min(0.99, prob))
 
 
+def calibrate_acceptance_from_history(
+    transactions: pd.DataFrame | None = None,
+) -> float:
+    """B1: Compute league-specific acceptance calibration factor.
+
+    Counts actual trades vs total trade-eligible roster moves in the league.
+    If league trades frequently (>15% of transactions are trades), increase
+    base acceptance. If rarely (<5%), decrease.
+
+    Returns:
+        Calibration multiplier (0.7 to 1.3) applied to acceptance probability.
+    """
+    if transactions is None or transactions.empty:
+        return 1.0
+
+    try:
+        total_moves = len(transactions)
+        trade_moves = len(transactions[transactions["type"] == "trade"])
+
+        if total_moves < 10:
+            return 1.0  # Not enough data
+
+        trade_rate = trade_moves / total_moves
+
+        # Calibrate: league avg ~10% trade rate → 1.0x
+        # Active trading league (>15%) → up to 1.3x
+        # Inactive (<5%) → down to 0.7x
+        if trade_rate > 0.15:
+            return min(1.3, 1.0 + (trade_rate - 0.10) * 3.0)
+        elif trade_rate < 0.05:
+            return max(0.7, 1.0 - (0.10 - trade_rate) * 3.0)
+        else:
+            return 1.0
+
+    except Exception:
+        return 1.0
+
+
 def acceptance_label(prob: float) -> str:
     """Convert acceptance probability to human-readable label."""
     if prob >= 0.6:
@@ -977,6 +1015,20 @@ def scan_1_for_1(
     except Exception:
         pass
 
+    # B1: League-specific acceptance calibration from trade history
+    _all_txns = None
+    try:
+        from src.database import get_connection as _gc4
+
+        _conn4 = _gc4()
+        try:
+            _all_txns = pd.read_sql_query("SELECT type FROM transactions", _conn4)
+        finally:
+            _conn4.close()
+    except Exception:
+        pass
+    _acceptance_calibration = calibrate_acceptance_from_history(_all_txns)
+
     results = []
 
     for give_id in user_roster_ids:
@@ -1238,6 +1290,9 @@ def scan_1_for_1(
                 recv_ytd_vs_proj=recv_ytd_ratio,
                 recv_recently_acquired=recv_recently_acq,
             )
+
+            # B1: Apply league-specific calibration
+            p_accept = max(0.01, min(0.99, p_accept * _acceptance_calibration))
 
             # Acceptance floor: skip trades nobody would accept
             if p_accept < ACCEPTANCE_FLOOR:

@@ -371,8 +371,13 @@ class DraftSimulator:
                 team_idx = num_teams - 1 - pos_in_round
             pick_schedule.append((pick, team_idx))
 
+        # Q2: Track recent pick positions per simulation for run detection
+        if not hasattr(self, '_recent_pick_positions'):
+            self._recent_pick_positions = {}
+
         for sim in range(n_simulations):
             is_available = np.ones(n_players, dtype=bool)
+            self._recent_pick_positions[sim] = []
             # Track simulated opponent rosters (copy from actual state)
             sim_team_pos = {}
             if team_positions:
@@ -417,6 +422,13 @@ class DraftSimulator:
                     adp_diffs = np.abs(adp_values[avail_indices] - pick)
                     weights = np.exp(-adp_diffs / self.sigma)
 
+                    # Q1: SGP-based AI picks — 70% marginal SGP, 30% ADP-random.
+                    # AI teams pick for roster need, not just BPA by ADP.
+                    if sgp_values is not None and len(sgp_values) > 0:
+                        sgp_weights = np.maximum(sgp_values[avail_indices], 0.01)
+                        sgp_weights = sgp_weights / sgp_weights.max()  # normalize to [0,1]
+                        weights = 0.30 * weights + 0.70 * sgp_weights * weights.max()
+
                     # Apply positional need boost for this opponent
                     opp_positions = sim_team_pos.get(team_idx, [])
                     if opp_positions:
@@ -429,6 +441,21 @@ class DraftSimulator:
                                 if pos and filled.get(pos, 0) < max(1, _DEFAULT_ROSTER_SLOTS.get(pos, 1)):
                                     weights[j] *= 1.4
                                     break
+
+                    # Q2: Position run detection — if 2+ recent picks at same position,
+                    # boost remaining players at that position by 1.3x for 3 picks.
+                    if pick > 3 and hasattr(self, '_recent_pick_positions'):
+                        _recent = self._recent_pick_positions.get(sim, [])[-8:]
+                        _pos_counts: dict[str, int] = {}
+                        for _rp in _recent:
+                            _pos_counts[_rp] = _pos_counts.get(_rp, 0) + 1
+                        _hot_positions = {p for p, c in _pos_counts.items() if c >= 2}
+                        if _hot_positions:
+                            for j, ai in enumerate(avail_indices):
+                                for pos in pos_lists[ai]:
+                                    if pos.strip() in _hot_positions:
+                                        weights[j] *= 1.3
+                                        break
 
                     weight_sum = weights.sum()
                     if weight_sum <= 0:
@@ -444,6 +471,8 @@ class DraftSimulator:
                         pos = pos.strip()
                         if pos:
                             sim_team_pos.setdefault(team_idx, []).append(pos)
+                            # Q2: Track for position run detection
+                            self._recent_pick_positions[sim].append(pos)
                             break
 
             results[sim] = user_sgp_total
