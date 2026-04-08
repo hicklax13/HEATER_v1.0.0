@@ -79,10 +79,55 @@ Priority: HIGH items affect every downstream calculation. MEDIUM items affect sp
 | C4 | **Trade Readiness Normalization** | `(sgp + 5) * 5` assumes SGP range [-5, +15] | Compute actual SGP range from pool, normalize to [0, 100] dynamically. | Affects Trade Readiness tab scores — cosmetic more than functional. |
 | C5 | **Matchup Planner Inverse Park Formula** | `2.0 - park_factor` for pitchers (linear) | Use `1.0 / park_factor` (reciprocal) — theoretically correct since pitcher benefit is inverse of hitter benefit. | Tiny difference for most parks. Only Coors (1.38 → 0.62 vs 0.72) is meaningfully different. |
 
-### Implementation Priority
+---
 
-**Do first (A1):** Dynamic SGP denominators. One function change, cascades everywhere.
-**Do second (A2+A4):** Weighted projection ensemble + remove self-referential ECR. Two independent fixes.
-**Do third (A3):** Bayesian SGP updating. Builds on A1.
-**Do fourth (B1):** League-specific acceptance calibration. Requires trade history data.
-**Rest:** As time allows, in numbered order within each tier.
+## Machine Learning & Advanced Analytics Backlog
+
+Identified April 7, 2026 via deep research across academic papers, FanGraphs, and industry analysis.
+Only items with genuine data support and measurable accuracy improvement are included.
+
+### ML — High Impact (Data Exists, Signal Is Real)
+
+| # | Item | Current State | What to Build | Data Source | Accuracy Gain | Effort |
+|---|------|--------------|---------------|-------------|---------------|--------|
+| D1 | **Statcast Regression Model** | XGBoost stub in `src/ml_ensemble.py` — no pre-trained model, falls back to zeros, 0.1 weight | Train XGBoost on exit_velocity, barrel_rate, hard_hit_pct, xwOBA, xBA, xSLG, xERA, sprint_speed. Target: (actual_value_next_30d - projected). Retrain daily in bootstrap. | pybaseball `statcast_batter/pitcher_expected_stats()` (2023-2025 leaderboards, ~2100 player-seasons) | ~10-15% on player projections. Identifies regression candidates (high xwOBA but low wOBA = buy, reverse = sell). | Medium — scaffold exists, need training pipeline + daily retrain |
+| D2 | **Playing Time Prediction Model** | No explicit model. Static preseason PA/IP from Steamer/ZiPS, never updated. | Ridge/Lasso regression: `remaining_PA = f(recent_PA_rate, depth_chart_slot, health_score, age, platoon_pct)`. Update weekly. Apply as multiplier to all counting stats. | Depth charts (bootstrap), game logs (L7/L14/L30 from game_day.py), IL status (ESPN feed), age (players table) | ~10-15% on counting stats. This is the #1 source of projection error per FantasyPros 2025 accuracy study — OOPSY led accuracy mainly via playing time. | Medium |
+| D3 | **Weighted Projection Stacking** | A2 in calibration backlog says "inverse RMSE weighting" | Go further: train a **ridge regression stacking model** where each system's projection is a feature, 2025 actuals are the target. Learned weights > hand-tuned weights. 50 lines of sklearn. | `projections` table (7 systems × ~700 players), `season_stats` 2025 actuals | ~5-8% over naive averaging. Research: composite systems consistently outperform individual ones (FanGraphs 2023 game-theory comparison). | Low — tiny model, fast to train |
+| D4 | **Opponent Behavior Learning** | Generic `LOSS_AVERSION=1.8` from behavioral economics, applied uniformly to all 11 opponents | Per-opponent **logistic regression**: features = SGP_delta, ADP_gap, standings_rank, days_since_draft, trade_count_this_season. Target = accepted (1) or rejected (0). Fallback to current sigmoid when <3 data points per opponent. | Yahoo `transactions` table (all completed + rejected trades). Even 20-30 trades over 2-3 seasons gives enough signal. | ~10-20% on acceptance prediction. Replaces lab-derived loss aversion with league-derived behavior. | Medium |
+
+### ML — Medium Impact (Pre-Trained Models, Low Effort)
+
+| # | Item | Current State | What to Build | Data Source | Accuracy Gain | Effort |
+|---|------|--------------|---------------|-------------|---------------|--------|
+| D5 | **NLP News Sentiment** | `src/news_sentiment.py` — 40 hardcoded keywords, no NLP. "TJ surgery consultation" scores same as "fractured finger." | Replace with pre-trained `distilbert-base-uncased-finetuned-sst-2-english` from HuggingFace. 3 lines of code, <100ms per headline, no training. Classify positive/negative/neutral with confidence. | MLB Stats API + Yahoo news headlines (already fetched in `src/player_news.py`) | ~3-5% on trade/waiver timing. Research: transformer sentiment improved Fantasy Premier League prediction by 8-12% (ResearchGate 2024). | Low — pre-trained, no training needed |
+| D6 | **Backtesting & Validation Framework** | No backtesting exists. Weights/thresholds are domain guesses with no validation. | Build `src/backtesting_framework.py`: replay past weeks, measure whether engine recommendations (start/sit, waiver adds, trade proposals) would have improved category wins. Score each engine against actual outcomes. | `season_stats` (2025 actuals), `league_standings` (historical), `transactions` (past trades/adds) | Meta-improvement: enables validating ALL other changes. Without this, every weight is a guess. | Medium-High — framework, not a model |
+
+### ML — Future / Experimental
+
+| # | Item | Current State | What to Build | Data Source | Accuracy Gain | Effort |
+|---|------|--------------|---------------|-------------|---------------|--------|
+| D7 | **Category-Aware Lineup RL** | LP optimizer with H2H weights — optimal for single week but doesn't learn from outcomes | Contextual bandit: state=(category_gaps, opp_strength, weather, day), action=(start A vs B), reward=(won category?). After 8+ weeks, learns patterns LP can't capture. | Weekly lineup decisions + category outcomes (8+ weeks of tracked data needed) | Unknown — promising but needs data accumulation. | High — requires 8+ weeks of tracked decisions before useful |
+
+### Implementation Priority (Combined)
+
+**Phase A — Calibration (no ML, highest leverage):**
+1. A1: Dynamic SGP denominators
+2. A4: Remove self-referential ECR
+3. A2+D3: Weighted projection stacking (upgrade A2 to ML stacking)
+4. A3: Bayesian SGP updating
+
+**Phase B — ML Models (train on existing data):**
+5. D1: Statcast regression model (XGBoost)
+6. D2: Playing time prediction model
+7. D5: NLP news sentiment (pre-trained, no training)
+8. D4: Opponent behavior learning (logistic regression)
+
+**Phase C — Validation & Learning:**
+9. D6: Backtesting framework
+10. B6: Category urgency k-calibration (using backtesting framework)
+11. B8: Trade finder weight validation (using backtesting framework)
+
+**Phase D — Experimental:**
+12. D7: Category-aware lineup RL (after 8+ weeks of data)
+
+**Remaining calibration items (B1-B5, B7, C1-C5):** As time allows, in numbered order.
