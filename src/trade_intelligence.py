@@ -64,6 +64,43 @@ CONTACT_CLUSTER_DISCOUNT = 0.90  # 10% discount
 PITCHING_RATE_DISCOUNT = 0.88  # 12% discount
 
 
+def apply_time_decay(
+    player_sgp_by_cat: dict[str, float],
+    weeks_remaining: int,
+    total_weeks: int = 24,
+    config: Any = None,
+) -> dict[str, float]:
+    """Apply differential time decay to per-category SGP.
+
+    Counting stats: scale by weeks_remaining / total_weeks (linear decay)
+    Rate stats: stay at 1.0 but apply confidence penalty below 8 weeks
+
+    Args:
+        player_sgp_by_cat: Per-category SGP values {cat: sgp_value}.
+        weeks_remaining: Weeks left in the fantasy season.
+        total_weeks: Total weeks in the fantasy season.
+        config: League configuration for identifying rate stats.
+
+    Returns:
+        Adjusted {cat: sgp} dict with time decay applied.
+    """
+    if config is None:
+        config = LeagueConfig()
+
+    time_fraction = weeks_remaining / max(total_weeks, 1)
+    rate_confidence = min(1.0, weeks_remaining / 8.0)
+
+    adjusted = {}
+    for cat, sgp in player_sgp_by_cat.items():
+        if cat in config.rate_stats:
+            # Rate stats: constant value, confidence penalty late season
+            adjusted[cat] = sgp * rate_confidence
+        else:
+            # Counting stats: linear decay
+            adjusted[cat] = sgp * time_fraction
+    return adjusted
+
+
 def apply_correlation_adjustments(
     sgp_dict: dict[str, float],
     config: Any = None,

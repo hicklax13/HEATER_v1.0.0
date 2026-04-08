@@ -409,6 +409,39 @@ def grade_trade(surplus_sgp: float) -> str:
     return "F"
 
 
+def _compute_grade_range(surplus_sgp: float, uncertainty_sd: float = 0.8) -> dict:
+    """Compute grade range based on projection uncertainty.
+
+    A surplus of 1.5 SGP with SD 0.8 means the true surplus could be
+    0.7 to 2.3, spanning B to A+. Show the range, not just the point estimate.
+
+    Args:
+        surplus_sgp: Net SGP from the trade (positive = good).
+        uncertainty_sd: Standard deviation of projection uncertainty.
+
+    Returns:
+        dict with grade, grade_low, grade_high, confidence.
+    """
+    grade_center = grade_trade(surplus_sgp)
+    grade_low = grade_trade(surplus_sgp - uncertainty_sd)
+    grade_high = grade_trade(surplus_sgp + uncertainty_sd)
+
+    # Confidence based on how narrow the range is
+    if grade_center == grade_low == grade_high:
+        confidence = "high"
+    elif grade_low == grade_center or grade_high == grade_center:
+        confidence = "medium"
+    else:
+        confidence = "low"
+
+    return {
+        "grade": grade_center,
+        "grade_low": grade_low,
+        "grade_high": grade_high,
+        "confidence": confidence,
+    }
+
+
 def evaluate_trade(
     giving_ids: list[int],
     receiving_ids: list[int],
@@ -833,8 +866,11 @@ def evaluate_trade(
         )
         verdict = "DECLINE"
 
+    grade_range = _compute_grade_range(total_surplus)
+
     result = {
         "grade": trade_grade,
+        "grade_range": grade_range,
         "surplus_sgp": round(total_surplus, 3),
         "category_impact": category_impact,
         "category_analysis": cat_analysis,

@@ -255,10 +255,23 @@ def estimate_acceptance_probability(
     # ADP penalty: strong penalty when opponent gives up a higher-drafted player
     adp_penalty = max(0, (0.5 - adp_fairness) * 3.0)
 
-    # Bubble team bonus: teams ranked 4-8 are fighting and more willing to trade
+    # Playoff-odds-aware bubble bonus: teams on the bubble trade most actively.
+    # Approximates playoff odds from standings rank when full simulation
+    # (simulate_season_enhanced) is not available.
     bubble_bonus = 0.0
-    if opponent_standings_rank and 4 <= opponent_standings_rank <= 8:
-        bubble_bonus = 0.4
+    playoff_odds = None
+    if opponent_standings_rank:
+        # Simple linear approximation: odds decrease with rank
+        n_teams = 12
+        playoff_odds = max(0.0, 1.0 - (opponent_standings_rank - 1) / (n_teams - 1))
+
+        if playoff_odds < 0.15:
+            bubble_bonus = -0.2  # Checked out, less willing
+        elif 0.30 <= playoff_odds <= 0.70:
+            bubble_bonus = 0.4  # Bubble team, most active
+        elif playoff_odds > 0.85:
+            bubble_bonus = -0.1  # Conservative contender
+        # else: playoff_odds between 0.15-0.30 or 0.70-0.85 -> neutral (0.0)
 
     exponent = (
         2.0 * fairness_gap
@@ -1007,6 +1020,21 @@ def scan_1_for_1(
                     perf_ratio = ytd_avg / proj_avg
                     # Clamp to [0.90, 1.10] — max 10% adjustment
                     ytd_modifier = max(0.90, min(1.10, perf_ratio))
+
+            # Scale YTD modifier by stat reliability — different stats stabilize
+            # at different sample sizes (K% ~60 PA, HR ~170 PA, AVG ~910 PA).
+            # Early-season performance changes are mostly noise.
+            if recv_ytd.get("pa", 0) >= 10:
+                is_hitter = int(recv_player.iloc[0].get("is_hitter", 1))
+                if is_hitter:
+                    # For hitters, AVG stabilizes slowest (~910 PA)
+                    reliability = min(1.0, recv_ytd["pa"] / 910.0)
+                else:
+                    # For pitchers, ERA stabilizes around 540 BF (~180 IP)
+                    ip = float(recv_player.iloc[0].get("ip", 0) or 0)
+                    reliability = min(1.0, ip / 180.0)
+                raw_divergence = ytd_modifier - 1.0
+                ytd_modifier = 1.0 + raw_divergence * reliability
 
             p_accept = estimate_acceptance_probability(
                 user_delta,
