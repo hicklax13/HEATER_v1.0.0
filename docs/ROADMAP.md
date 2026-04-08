@@ -175,6 +175,56 @@ currently use at all, backed by published research showing quantified accuracy i
 
 ---
 
+## Trade Finder Accuracy Backlog
+
+Identified April 7, 2026 via deep research across FanGraphs, Baseball Savant, behavioral economics
+(Kahneman/Tversky, Hobbs 2022), game theory (Nash Bargaining Solution), and sabermetric literature
+(Carleton stabilization thresholds, Alan Nathan physics). All items specific to the Trade Finder
+page and its 5 tabs.
+
+### F — Acceptance Model Improvements
+
+| # | Item | Research Basis | Fix | Impact |
+|---|------|---------------|-----|--------|
+| F1 | **Nash Bargaining Fairness** | Nash Bargaining Solution: fair trade = both sides gain proportional to bargaining power, not equal raw value. | Compute `nash_fairness` where alpha = bargaining power (standings, FA alternatives, weeks remaining). Replace or supplement ADP/ECR fairness. | Theoretically grounded; captures that desperate teams should concede more. |
+| F2 | **Draft-Round Anchoring** | Endowment effect 2.3x (Kahneman 1990). Round 1-3 picks have 30% higher perceived value due to sunk cost. | In acceptance model: Rd 1-3 = 1.3x endowment multiplier, Rd 4-8 = 1.15x, Rd 9+ = 1.0x. Apply to opponent's perceived value. | 15-30% more realistic acceptance for early-round players. Uses existing draft data. |
+| F3 | **Disposition Effect** | Managers hold losers too long, sell winners 1.5x more readily. | If opponent player YTD > projection: +10-15% acceptance (willing to "lock in gains"). If YTD < projection: -10-15% acceptance. | Captures #1 behavioral trade rejection pattern. Uses existing YTD data. |
+| F4 | **Recently-Acquired Penalty** | Hobbs 2022: compounding endowment — recently traded-for players overvalued MORE than drafted ones. | Check transactions: if opponent acquired player via trade within 3 weeks, -10-15% acceptance. | Uses existing Yahoo transaction data. |
+| F5 | **Playoff-Odds Acceptance** | Teams at 30-70% playoff probability trade most actively. >85% conservative. <15% disengaged. | Replace raw standings rank with playoff odds from `simulate_season_enhanced()`. Willingness curve: <15% = 0.5x, 30-70% = 1.2x, >85% = 0.7x. | More precise than rank alone. Data already computed in standings_engine. |
+
+### G — Regression Signal Improvements
+
+| # | Item | Research Basis | Fix | Impact |
+|---|------|---------------|-----|--------|
+| G1 | **xwOBA-wOBA Regression Flags** | FanGraphs/Savant: gap ≥0.030 = 1.5 SD, predicts 40-80 point wOBA surge. Stabilizes at 50-60 batted ball events. | Add `xwoba_delta` to pool. ≥+0.030 = BUY_LOW, ≤-0.030 = SELL_HIGH. +0.05 composite bonus when receiving buy-low / giving sell-high. | Single most actionable regression signal. Free via pybaseball. |
+| G2 | **Stuff+/botERA Pitcher Regression** | Stuff+ to ERA r²=0.996. Pitching+ beats ALL projection systems for relievers after 250 pitches. | Populate existing DB columns via pybaseball. `stuff_delta = botERA - actual_ERA`. ≤-0.50 = pitcher BUY_LOW, ≥+0.50 = SELL_HIGH. | Low effort — DB columns exist but are empty. Transforms pitcher trade evaluation. |
+| G3 | **BABIP Regression Scoring** | Stabilizes at 820 BIP (~1.6 seasons). Early-season BABIP is 80-90% noise. LD%+speed predicts individual baseline. | `babip_regression = (career_BABIP - current_BABIP) / 0.020`, capped ±2.0. Add career BABIP from historical_stats. | Best early-season regression signal (weeks 3-8). |
+| G4 | **Stat Reliability Weighting** | Carleton/FanGraphs: K% at 60 PA, BB% at 120, HR at 170, AVG at 910, BABIP at 820. | `reliability = min(1.0, PA / threshold[stat])`. YTD modifier = `1.0 + (divergence * reliability * clamp)`. At 50 PA, HR reliability = 0.29. | Prevents over-reacting to small samples AND under-reacting late season. No new data. |
+| G5 | **Velocity Trend Signal** | 1.0 mph fastball decline ≈ 0.5-0.8 ERA increase, 2-3% K% decrease. Gainers maintain gains 8/9 times. | `velo_delta = current_FF_velo - prior_season_FF_velo`. ≤-1.0 = SELL, ≥+1.0 = BUY. Weight 10-15% of pitcher valuation. | Early warning before ERA/WHIP show decline. Free via pybaseball Statcast. |
+
+### H — Strategic & Structural Improvements
+
+| # | Item | Research Basis | Fix | Impact |
+|---|------|---------------|-----|--------|
+| H1 | **Differential Time Decay** | Counting stats value ∝ weeks remaining (linear). Rate stats ≈ constant but confidence decreases below 8 weeks. | Split: `counting *= weeks_rem / total_weeks`. Rate stays 1.0 with `confidence = min(1.0, weeks_rem / 8)`. | More accurate ROS valuation. Prevents overvaluing counting stats late. |
+| H2 | **Dynamic Roster Spot Value** | FanGraphs: spot = $2-3 in $260 budget. Actual value = f(FA pool quality). | `ROSTER_SPOT_SGP = median_fa_sgp * 0.8`, recomputed weekly from FA pool. | Fixes 2-for-1 valuation in leagues with strong/weak waivers. |
+| H3 | **Graduated Positional Scarcity** | C most scarce (24th C = -$9), 2B second, SS loaded top but thin middle, OF deepest. | C=1.20x, 2B=1.15x, SS=1.10x, 3B=1.05x, OF/1B=1.00x. Or compute from replacement-level gap. | More accurate than flat 1.15x for C/SS/2B. Trivial change. |
+| H4 | **SB Independence Premium Increase** | Published R²: SB-RBI = 0.0002, SB-HR = 0.048. Mean r=0.12, most isolated category. | Increase from 1.08x to 1.12-1.15x. | SB contributors slightly undervalued currently. |
+| H5 | **Trade Timing Multiplier** | Buy-low window peaks weeks 3-6. AVG unreliable before 100 PA. Stats stabilize by week 10+. | Dynamic YTD clamp: weeks 1-4 = ±5%, weeks 5-8 = ±10%, weeks 9+ = ±15%. Add 1.1x bonus for weeks 4-10. | Prevents chasing April hot streaks; allows meaningful June adjustments. |
+| H6 | **Consistency/Variance Modifier** | BaseballHQ DOM%/DIS%. Consistent 2 HR/week beats volatile 8 HR in 6 weeks. | Weekly CV from game logs. CV<0.30 = +5-8% SGP. CV>0.50 = -5-8% SGP. Needs 6+ weeks. | H2H-specific dimension currently invisible in trade valuation. |
+| H7 | **Proactive Punt Advisor** | FanGraphs MC: SB lowest mean correlation (r=0.12). W lowest pitching (R²≈0.03). Punting correlated pairs is safer. | `recommend_punt_targets()` using mean pairwise correlation. Show in Trade Readiness: "Punt SB to gain +1.5 standings in HR/R/RBI." | Transforms Trade Finder from reactive to strategic. |
+| H8 | **Closer Stability Discount** | Full closer = 25-30 SV. Committee = 12-15 SV (50% cut). 3+ BS in 2 weeks = leading indicator. | `sv_adjusted = sv_proj * (confidence / 100)`. Wire closer_monitor job security into trade valuation. | Prevents overvaluing shaky closers. closer_monitor already exists. |
+| H9 | **Prospect Call-Up Valuation** | `value = P(call_up) * ROS_SGP * (weeks_avail / weeks_rem) - ROSTER_SPOT_SGP`. Top-25 produce value ~40-50% of time. | Add call-up probability from FanGraphs ETA (already fetched). Compute expected value for incoming prospects. | Better than binary "stash or zero" treatment. |
+
+### Trade Finder Priority Order
+
+**Tier 1 (biggest composite improvement):** G1 (xwOBA), G4 (stat reliability), F5 (playoff-odds acceptance), G2 (Stuff+/botERA)
+**Tier 2 (acceptance refinements):** F2 (anchoring), F3 (disposition), H1 (time decay), H2 (dynamic roster spot)
+**Tier 3 (strategic intelligence):** H7 (punt advisor), H8 (closer discount), G3 (BABIP), H5 (trade timing)
+**Tier 4 (polish):** F1 (Nash), F4 (recently-acquired), H3 (scarcity), H4 (SB premium), H6 (consistency), G5 (velocity), H9 (prospects)
+
+---
+
 ## Complete Priority Matrix (All Backlogs Combined)
 
 **Tier 1 — Do Now (highest leverage, cascade everywhere):**
@@ -208,4 +258,15 @@ currently use at all, backed by published research showing quantified accuracy i
 20. E10: Catcher framing value
 21. D7: Category-aware lineup RL
 
-**Remaining calibration items (B1-B5, B7, C1-C5):** As time allows, in numbered order.
+**Tier 6 — Trade Finder Specific (F/G/H items):**
+22. G1: xwOBA regression flags
+23. G4: Stat reliability weighting
+24. F5: Playoff-odds acceptance
+25. G2: Stuff+/botERA pitcher regression
+26. F2: Draft-round anchoring
+27. F3: Disposition effect modifier
+28. H1: Differential time decay
+29. H7: Proactive punt advisor
+30. H8: Closer stability discount
+
+**Remaining items:** B1-B5, B7, C1-C5, F1, F4, G3, G5, H2-H6, H9 — as time allows.
