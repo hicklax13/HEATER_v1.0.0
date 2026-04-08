@@ -26,7 +26,7 @@
 ## Improvement Backlog — By Page
 
 **115 unique item rows** after deduplication and audit.
-**88 DONE, 2 PARTIAL, 25 remaining** as of April 8, 2026.
+**94 DONE, 1 PARTIAL, 20 remaining** as of April 8, 2026.
 Organized strictly by the page each task improves. Items that affect all pages
 are under "Global / Core Engine." Status: (empty)=not started, PARTIAL=infrastructure
 exists, DONE=implemented, CUT=removed after audit, MERGED=combined with another item.
@@ -54,11 +54,11 @@ Cascade through all 53 engines and all 13 pages. Highest leverage.
 | D1 | **Statcast XGBoost Regression** | Train on EV, barrel, xwOBA, xBA, sprint speed. Target: actual − projected. Retrain daily. | ~10-15% projection improvement. | Medium | DONE |
 | D2 | **Playing Time Prediction** | Ridge regression: `remaining_PA = f(recent_PA_rate, depth_chart, health, age)`. Update weekly. | ~10-15% counting stat accuracy. #1 projection error source. | Medium | DONE |
 | D6 | **Backtesting Framework** | Replay past weeks, score engine recommendations vs actual outcomes. | Meta: validates ALL other changes. Without this, every weight is a guess. | Medium-High | DONE |
-| J1 | **Per-Stat In-Season Update Rates** | `STABILIZATION_POINTS` dict exists in `bayesian.py:38`. Verify trade YTD modifier (G4) also uses per-stat thresholds. | Projection blend already uses per-stat rates. Trade YTD modifier may not. | Low | PARTIAL |
+| J1 | **Per-Stat In-Season Update Rates** | `STABILIZATION_POINTS` dict exists in `bayesian.py:38`. Verify trade YTD modifier (G4) also uses per-stat thresholds. | Projection blend already uses per-stat rates. Trade YTD modifier may not. | Low | DONE |
 | J6 | **Projection Uncertainty Bands** | Use empirical SDs (ERA=1.20, WHIP=0.20, AVG=0.025) for P10/P50/P90. | Prevents over-optimizing on noise. | Low | DONE |
 | V1 | **UNIFY: Category Weights** | 4 divergent methods (urgency sigmoid, gap analysis, H2H PDF, simple median). Same roster gets contradictory priorities on different pages. Create `MatchupContextService.get_category_weights(mode)` with 3 modes: "matchup" (H2H urgency), "standings" (gap analysis), "blended" (alpha-weighted). All pages consume from ONE source. | **CRITICAL** — pages currently give contradictory advice for same roster. | Medium | DONE |
 | V2 | **UNIFY: SGP Computation** | 5 divergent paths. `_totals_sgp()` in trade_finder treats AVG like HR (no volume adjustment) — mathematically wrong. Remove `_totals_sgp()` and `_weighted_totals_sgp()`. Replace with `SGPCalculator.player_sgp()` which properly volume-weights rate stats. | **CRITICAL** — Trade Finder By Value tab inflates value of low-PA players. | Medium | DONE |
-| V3 | **UNIFY: Roster Totals** | 3 implementations (My Team, in_season, League Standings) with different defaults (AVG=0.250 vs 0.0) and formats (string vs float). Create `standings_utils.get_team_totals()` with session cache. | Inconsistent defaults across pages. | Low | |
+| V3 | **UNIFY: Roster Totals** | 3 implementations (My Team, in_season, League Standings) with different defaults (AVG=0.250 vs 0.0) and formats (string vs float). Create `standings_utils.get_team_totals()` with session cache. | Inconsistent defaults across pages. | Low | DONE |
 | V4 | **UNIFY: Opponent Intelligence** | My Team + Free Agents import `opponent_intel.py` directly (no cache). Trade Analyzer uses `opponent_trade_analysis.py` independently. Only Matchup Planner uses `MatchupContextService`. All should use MCS. | Different opponent profiles on different pages. | Low | |
 | V5 | **UNIFY: FA Pool Access** | 4 loading paths (Yahoo API, local function, enriched pool filter, DB query). FA pool loaded differently on Free Agents page vs Optimizer. Create single `get_fa_pool()` in session cache. | Different FA lists on different pages. | Low | |
 | V6 | **UNIFY: Stat Display Formatting** | AVG shown as `.2f` in some variance displays (wrong, should be `.3f`). SGP sign inconsistent (`+.2f` vs `.2f`). Create `format_stat(value, stat_type)` in `ui_shared.py`. Enforce: AVG/OBP=`.3f`, ERA/WHIP=`.2f`, SGP=`+.2f`. | Formatting inconsistencies confuse users. | Trivial | DONE |
@@ -125,7 +125,7 @@ Daily dashboard: War Room, alerts, roster overview, Monday briefing.
 |---|------|-----|--------|--------|
 | P1 | **Trade Grade Confidence Interval** | Show grade RANGE ("B+ to A-") not single letter. Based on ±1 SD projection uncertainty. | More honest. Current single grade implies false precision. | DONE |
 | P2 | **Antithetic Variate MC Sampling** | For each sim, generate mirror using negated z-scores. 20K pairs for cost of 10K. Cuts SE ~30%. | Free precision improvement. | DONE |
-| P3 | **Copula Correlation Calibration** | Use empirical correlations from league weekly totals instead of hardcoded matrix. Share with scenario generator. | Hardcoded correlations underestimate variance by ~15%. | |
+| P3 | **Copula Correlation Calibration** | Use empirical correlations from league weekly totals instead of hardcoded matrix. Share with scenario generator. | Hardcoded correlations underestimate variance by ~15%. | DONE |
 | P4 | **Per-Category Replacement Level** | Subtract replacement-level stats per category per position (not aggregate SGP). | Captures positional scarcity in specific categories. | DONE |
 
 ---
@@ -162,7 +162,7 @@ Daily dashboard: War Room, alerts, roster overview, Monday briefing.
 
 | # | Item | Fix | Impact | Status |
 |---|------|-----|--------|--------|
-| B5 | **Dynamic Park Factors** | Fetch updated park factors mid-season via pybaseball. | Some parks change year-to-year. | |
+| B5 | **Dynamic Park Factors** | Fetch updated park factors mid-season via pybaseball. | Some parks change year-to-year. | DONE |
 | C5 | **Inverse Park Formula** | Use `1.0 / park_factor` (reciprocal) instead of `2.0 - park_factor`. | Tiny except Coors. | DONE |
 | E6 | **Enhanced Weather (Wind Direction)** | Wind direction relative to outfield orientation. +20% HR wind out >10 mph. | Currently HR-only, no wind direction. | |
 | E7 | **Pitcher-Batter Matchup History** | PvB stats stabilize at ~60 PA. +2-4% over generic platoon. | High data volume. | |
@@ -259,7 +259,7 @@ Head-to-head z-score comparison, radar chart, health/confidence.
 
 | # | Item | Fix | Impact | Status |
 |---|------|-----|--------|--------|
-| S6 | **Deduplicate Roster Rendering** | Extract `render_roster_table(mode="overview"|"optimizer")` in `ui_shared.py`. | Shared code between My Team + Lineup Optimizer. | |
+| S6 | **Deduplicate Roster Rendering** | Extract `render_roster_table(mode="overview"|"optimizer")` in `ui_shared.py`. | Shared code between My Team + Lineup Optimizer. | DONE |
 
 ---
 

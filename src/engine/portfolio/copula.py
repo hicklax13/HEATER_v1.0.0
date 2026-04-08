@@ -58,6 +58,54 @@ DEFAULT_CORRELATION: np.ndarray = np.array(
 )
 
 
+CAT_ORDER = ["R", "HR", "RBI", "SB", "AVG", "OBP", "W", "L", "SV", "K", "ERA", "WHIP"]
+
+
+def compute_empirical_correlation(
+    team_weekly_totals: dict[str, dict[str, float]],
+) -> np.ndarray | None:
+    """P3: Compute empirical correlation matrix from league weekly totals.
+
+    Uses actual league category totals to build a 12x12 correlation matrix,
+    replacing the hardcoded DEFAULT_CORRELATION. Returns None if insufficient
+    data (need at least 8 team-weeks).
+
+    Args:
+        team_weekly_totals: {team_name: {cat: total}} for all teams.
+
+    Returns:
+        12x12 numpy array or None if insufficient data.
+    """
+    if not team_weekly_totals or len(team_weekly_totals) < 8:
+        return None
+
+    try:
+        # Build data matrix: rows=teams, cols=categories
+        rows = []
+        for _team, totals in team_weekly_totals.items():
+            row = [float(totals.get(cat, 0)) for cat in CAT_ORDER]
+            if any(v != 0 for v in row):
+                rows.append(row)
+
+        if len(rows) < 8:
+            return None
+
+        data = np.array(rows, dtype=float)
+        # Compute Pearson correlation
+        corr = np.corrcoef(data.T)
+
+        # Sanitize: replace NaN with 0 (constant columns)
+        corr = np.nan_to_num(corr, nan=0.0)
+        # Ensure diagonal is 1.0
+        np.fill_diagonal(corr, 1.0)
+        # Clamp to [-1, 1]
+        corr = np.clip(corr, -1.0, 1.0)
+
+        return corr
+    except Exception:
+        return None
+
+
 class GaussianCopula:
     """Gaussian copula for sampling correlated uniform variates.
 
@@ -73,6 +121,9 @@ class GaussianCopula:
 
     def __init__(self, correlation: np.ndarray | None = None) -> None:
         """Initialize with a correlation matrix.
+
+        P3: Prefers empirical correlation when provided; falls back to
+        DEFAULT_CORRELATION (12×12 hardcoded from historical MLB data).
 
         Args:
             correlation: n×n correlation matrix. Must be positive semi-definite.

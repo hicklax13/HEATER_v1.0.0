@@ -2540,6 +2540,53 @@ def sort_roster_for_display(roster_df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def render_roster_table(
+    roster_df: pd.DataFrame,
+    mode: str = "overview",
+    health_col: str | None = "health_score",
+) -> None:
+    """S6: Shared roster table rendering for My Team and Lineup Optimizer.
+
+    Sorts by Yahoo slot order, selects mode-appropriate columns, and
+    renders via render_compact_table(). Both pages should call this
+    instead of building their own render pipelines.
+
+    Args:
+        roster_df: Roster DataFrame with player_name/name, positions,
+            selected_position, and stat columns.
+        mode: "overview" (My Team — key stats) or "optimizer" (Lineup — projection focus).
+        health_col: Column name for health badges (None to skip).
+    """
+    import streamlit as st
+
+    if roster_df is None or roster_df.empty:
+        st.info("No roster data available.")
+        return
+
+    df = sort_roster_for_display(roster_df)
+
+    # Determine name column
+    name_col = "player_name" if "player_name" in df.columns else "name"
+
+    if mode == "overview":
+        cols = [name_col, "positions", "team"]
+        # Add key stats
+        for c in ["r", "hr", "rbi", "sb", "avg", "w", "sv", "k", "era", "whip"]:
+            if c in df.columns:
+                cols.append(c)
+    else:  # optimizer
+        cols = [name_col, "positions"]
+        for c in ["r", "hr", "rbi", "sb", "avg", "obp", "w", "l", "sv", "k", "era", "whip"]:
+            if c in df.columns:
+                cols.append(c)
+
+    if health_col and health_col in df.columns:
+        cols.append(health_col)
+
+    display = df[[c for c in cols if c in df.columns]]
+    render_compact_table(display, health_col=health_col if health_col in display.columns else None)
+
+
 def render_compact_table(df, highlight_cols=None, row_classes=None, health_col=None, max_height=500, show_avatars=None):
     """Render compact ESPN-style table via st.markdown().
 

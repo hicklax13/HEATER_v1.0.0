@@ -1171,18 +1171,30 @@ def scan_1_for_1(
                         _clamp = 0.15  # ±15%
                     ytd_modifier = max(1.0 - _clamp, min(1.0 + _clamp, perf_ratio))
 
-            # Scale YTD modifier by stat reliability — different stats stabilize
-            # at different sample sizes (K% ~60 PA, HR ~170 PA, AVG ~910 PA).
-            # Early-season performance changes are mostly noise.
+            # J1: Scale YTD modifier by per-stat stabilization points.
+            # Uses STABILIZATION_POINTS from bayesian.py instead of hardcoded values.
             if recv_ytd.get("pa", 0) >= 10:
-                is_hitter = int(recv_player.iloc[0].get("is_hitter", 1))
-                if is_hitter:
-                    # For hitters, AVG stabilizes slowest (~910 PA)
-                    reliability = min(1.0, recv_ytd["pa"] / 910.0)
-                else:
-                    # For pitchers, ERA stabilizes around 540 BF (~180 IP)
-                    ip = float(recv_player.iloc[0].get("ip", 0) or 0)
-                    reliability = min(1.0, ip / 180.0)
+                try:
+                    from src.bayesian import STABILIZATION_POINTS
+
+                    is_hitter = int(recv_player.iloc[0].get("is_hitter", 1))
+                    if is_hitter:
+                        # Use AVG stabilization (slowest to stabilize for hitters)
+                        stab_pa = STABILIZATION_POINTS.get("avg", 910)
+                        reliability = min(1.0, recv_ytd["pa"] / stab_pa)
+                    else:
+                        # Use ERA stabilization for pitchers (IP-based)
+                        stab_ip = STABILIZATION_POINTS.get("era", 70) * 2.6  # BF to IP approx
+                        ip = float(recv_player.iloc[0].get("ip", 0) or 0)
+                        reliability = min(1.0, ip / stab_ip)
+                except ImportError:
+                    # Fallback to hardcoded
+                    is_hitter = int(recv_player.iloc[0].get("is_hitter", 1))
+                    if is_hitter:
+                        reliability = min(1.0, recv_ytd["pa"] / 910.0)
+                    else:
+                        ip = float(recv_player.iloc[0].get("ip", 0) or 0)
+                        reliability = min(1.0, ip / 180.0)
                 raw_divergence = ytd_modifier - 1.0
                 ytd_modifier = 1.0 + raw_divergence * reliability
 

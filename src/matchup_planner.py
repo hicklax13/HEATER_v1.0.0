@@ -295,7 +295,23 @@ def compute_weekly_matchup_ratings(
         return _empty_result()
 
     if park_factors is None:
-        park_factors = PARK_FACTORS
+        # B5: Try dynamic park factors from DB (T4 refresh), fall back to static
+        try:
+            from src.database import get_connection
+
+            _pf_conn = get_connection()
+            try:
+                _pf_rows = _pf_conn.execute(
+                    "SELECT team_code, factor_hitting FROM park_factors"
+                ).fetchall()
+                if _pf_rows:
+                    park_factors = {str(r[0]): float(r[1]) for r in _pf_rows if r[0] and r[1]}
+            finally:
+                _pf_conn.close()
+        except Exception:
+            pass
+        if not park_factors:
+            park_factors = PARK_FACTORS
 
     if config is None:
         config = LeagueConfig()
