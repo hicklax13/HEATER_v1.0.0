@@ -45,6 +45,12 @@ DEFAULT_AGE_PROFILE: dict = {"threshold": 30, "risk_per_year": 0.02}
 AGE_RISK_FLOOR: float = 0.5
 """Minimum age-risk multiplier (no one drops below 50%)."""
 
+PITCHER_AGE_THRESHOLD: int = 28
+"""Age at which pitchers begin showing elevated injury risk."""
+
+POSITION_PLAYER_AGE_THRESHOLD: int = 30
+"""Age at which position players begin showing elevated injury risk."""
+
 # B3: Injury-type severity floors (minimum health score while recovering).
 # TJ surgery is career-altering; hamstrings recur; concussions are unpredictable.
 INJURY_TYPE_FLOORS: dict[str, dict] = {
