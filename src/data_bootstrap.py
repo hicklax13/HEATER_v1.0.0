@@ -55,6 +55,7 @@ class StalenessConfig:
     ecr_consensus_hours: float = 24  # 24 hours
     game_day_hours: float = 2  # 2 hours
     team_strength_hours: float = 24  # 24 hours
+    stuff_plus_hours: float = 24  # 24 hours
 
 
 @dataclass
@@ -732,6 +733,151 @@ def _bootstrap_team_strength(progress: BootstrapProgress) -> str:
         return f"Error: {exc}"
 
 
+def _bootstrap_stuff_plus(progress: BootstrapProgress) -> str:
+    """Phase 22: Fetch Stuff+/Location+/Pitching+ from FanGraphs via pybaseball."""
+    progress.phase = "Stuff+ Metrics"
+    progress.detail = "Fetching Stuff+/Location+/Pitching+ from FanGraphs..."
+    try:
+        from pybaseball import pitching_stats
+    except ImportError:
+        logger.warning("pybaseball not installed — skipping Stuff+ fetch")
+        return "Skipped: pybaseball not installed"
+
+    try:
+        import pandas as pd
+
+        from src.database import get_connection, update_refresh_log
+
+        year = datetime.now(UTC).year
+        logger.info("Fetching FanGraphs pitching stats for %d (qual=0)...", year)
+        fg_df = pitching_stats(year, qual=0)
+
+        if fg_df is None or fg_df.empty:
+            logger.warning("pybaseball pitching_stats returned empty data")
+            return "Skipped: no data returned"
+
+        # Identify the Stuff+/Location+/Pitching+ columns
+        # FanGraphs uses "Stuff+" or "stuff_plus" depending on pybaseball version
+        col_map = {}
+        for col in fg_df.columns:
+            cl = col.lower().replace(" ", "").replace("_", "")
+            if cl in ("stuff+", "stuffplus"):
+                col_map[col] = "stuff_plus"
+            elif cl in ("location+", "locationplus"):
+                col_map[col] = "location_plus"
+            elif cl in ("pitching+", "pitchingplus"):
+                col_map[col] = "pitching_plus"
+
+        if not col_map:
+            logger.warning(
+                "No Stuff+/Location+/Pitching+ columns found in FanGraphs data. "
+                "Columns: %s",
+                list(fg_df.columns)[:30],
+            )
+            return "Skipped: Stuff+ columns not in FanGraphs data"
+
+        logger.info("Found FanGraphs columns: %s", col_map)
+
+        # Rename to DB column names
+        fg_df = fg_df.rename(columns=col_map)
+
+        # Build a name→player_id lookup from the players table
+        conn = get_connection()
+        try:
+            players_df = pd.read_sql(
+                "SELECT player_id, name FROM players WHERE is_hitter = 0",
+                conn,
+            )
+            # Case-insensitive name lookup
+            name_to_id = {}
+            for _, row in players_df.iterrows():
+                if row["name"]:
+                    name_to_id[str(row["name"]).strip().lower()] = int(row["player_id"])
+
+            updated = 0
+            found_cols = [c for c in ("stuff_plus", "location_plus", "pitching_plus") if c in fg_df.columns]
+
+            # FanGraphs "Name" column contains the pitcher name
+            name_col = "Name" if "Name" in fg_df.columns else None
+            if name_col is None:
+                # Try lowercase
+                for c in fg_df.columns:
+                    if c.lower() == "name":
+                        name_col = c
+                        break
+
+            if name_col is None:
+                logger.warning("No 'Name' column in FanGraphs data")
+                return "Skipped: no Name column in FanGraphs data"
+
+            for _, row in fg_df.iterrows():
+                fg_name = str(row[name_col]).strip().lower()
+                pid = name_to_id.get(fg_name)
+                if pid is None:
+                    continue
+
+                # Build SET clause for available columns
+                set_parts = []
+                values = []
+                for col in found_cols:
+                    val = row.get(col)
+                    if pd.notna(val):
+                        set_parts.append(f"{col} = ?")
+                        values.append(float(val))
+
+                if not set_parts:
+                    continue
+
+                # Update season_stats
+                values_ss = values + [pid, year]
+                conn.execute(
+                    f"UPDATE season_stats SET {', '.join(set_parts)} WHERE player_id = ? AND season = ?",
+                    values_ss,
+                )
+
+                # Update statcast_archive (upsert: insert if missing)
+                existing = conn.execute(
+                    "SELECT 1 FROM statcast_archive WHERE player_id = ? AND season = ?",
+                    (pid, year),
+                ).fetchone()
+                if existing:
+                    values_sa = values + [pid, year]
+                    conn.execute(
+                        f"UPDATE statcast_archive SET {', '.join(set_parts)} WHERE player_id = ? AND season = ?",
+                        values_sa,
+                    )
+                else:
+                    insert_cols = ["player_id", "season"] + found_cols
+                    placeholders = ", ".join(["?"] * len(insert_cols))
+                    insert_vals = [pid, year] + [
+                        float(row.get(c)) if pd.notna(row.get(c)) else None for c in found_cols
+                    ]
+                    conn.execute(
+                        f"INSERT INTO statcast_archive ({', '.join(insert_cols)}) VALUES ({placeholders})",
+                        insert_vals,
+                    )
+
+                updated += 1
+
+            conn.commit()
+        finally:
+            conn.close()
+
+        update_refresh_log("stuff_plus", "success")
+        logger.info("Stuff+ metrics: updated %d pitchers from %d FanGraphs rows", updated, len(fg_df))
+        return f"Updated {updated} pitchers with Stuff+/Location+/Pitching+"
+
+    except Exception as exc:
+        logger.exception("Stuff+ bootstrap failed: %s", exc)
+        try:
+            from src.database import update_refresh_log
+
+            update_refresh_log("stuff_plus", "error")
+        except Exception:
+            pass
+        return f"Error: {exc}"
+
+
 # ── Master Orchestrator ──────────────────────────────────────────────
 
 
@@ -1087,6 +1233,13 @@ def bootstrap_all_data(
             except Exception as exc:
                 logger.exception("Bootstrap %s failed: %s", key, exc)
                 results[key] = f"Error: {exc}"
+
+    # Phase 22: Stuff+/Location+/Pitching+ from FanGraphs
+    _notify(0.98)
+    if force or check_staleness("stuff_plus", staleness.stuff_plus_hours):
+        results["stuff_plus"] = _bootstrap_stuff_plus(progress)
+    else:
+        results["stuff_plus"] = "Fresh"
 
     # Post-bootstrap validation (BUG-010 / data quality logging)
     try:
