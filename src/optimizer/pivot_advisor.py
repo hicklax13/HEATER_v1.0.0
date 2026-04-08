@@ -270,3 +270,226 @@ def compute_ratio_protection(
         "era_after": round(era_after, 3),
         "whip_after": round(whip_after, 3),
     }
+
+
+# ── Punt Mode Optimizer ───────────────────────────────────────────────
+
+# Mean absolute correlation of each category with all other 11 categories.
+# Lower values = more independent = safer to punt without hurting other cats.
+# Derived from 10-year FanGraphs H2H category correlation analysis.
+CATEGORY_MEAN_CORRELATION: dict[str, float] = {
+    "SB": 0.12,
+    "W": 0.17,
+    "L": 0.17,
+    "SV": 0.18,
+    "K": 0.25,
+    "AVG": 0.40,
+    "OBP": 0.42,
+    "ERA": 0.45,
+    "WHIP": 0.45,
+    "HR": 0.55,
+    "R": 0.60,
+    "RBI": 0.62,
+}
+
+# Pairwise correlation clusters — punting one category in a cluster
+# drags down the others.  Keys are frozensets of correlated categories.
+_CORRELATION_CLUSTERS: list[tuple[set[str], float]] = [
+    ({"HR", "R", "RBI"}, 0.83),  # Power cluster
+    ({"AVG", "OBP"}, 0.90),  # Contact cluster
+    ({"ERA", "WHIP"}, 0.88),  # Pitching rate cluster
+    ({"W", "K"}, 0.45),  # Workload cluster (moderate)
+]
+
+# Minimum rank threshold to consider a category punt-worthy.
+_PUNT_RANK_THRESHOLD = 9
+
+
+def recommend_punt_targets(
+    category_ranks: dict[str, int],
+    config: object | None = None,
+    max_punts: int = 2,
+) -> list[dict]:
+    """Recommend categories to punt based on isolation + current weakness.
+
+    A category is a good punt candidate if:
+    1. You're already bad at it (rank >= 9 out of 12)
+    2. It has low mean correlation with other categories (independent)
+    3. Punting it frees resources for correlated categories you CAN win
+
+    Args:
+        category_ranks: Dict mapping category name to standings rank (1=best, 12=worst).
+        config: LeagueConfig instance (default created if None).
+        max_punts: Maximum number of punt recommendations (0 returns empty).
+
+    Returns:
+        List of dicts sorted by punt_value descending:
+        [{category, rank, isolation_score, punt_value, reason}]
+    """
+    if max_punts <= 0:
+        return []
+
+    if config is None:
+        from src.valuation import LeagueConfig
+
+        config = LeagueConfig()
+
+    all_cats = config.all_categories
+    candidates: list[dict] = []
+
+    for cat in all_cats:
+        rank = category_ranks.get(cat, 6)  # Default to middle if unknown
+        if rank < _PUNT_RANK_THRESHOLD:
+            continue  # Only punt categories where you're already weak
+
+        # Isolation score: 1 - mean_correlation (higher = more independent)
+        mean_corr = CATEGORY_MEAN_CORRELATION.get(cat, 0.40)
+        isolation_score = 1.0 - mean_corr
+
+        # Cluster penalty: if punting this cat drags down a cluster partner
+        # that you're competitive in, reduce the punt value.
+        cluster_penalty = 0.0
+        for cluster_cats, cluster_corr in _CORRELATION_CLUSTERS:
+            if cat in cluster_cats:
+                # Check if any cluster partner is competitive (rank <= 6)
+                partners = cluster_cats - {cat}
+                for partner in partners:
+                    partner_rank = category_ranks.get(partner, 6)
+                    if partner_rank <= 6:
+                        # Punting this cat would hurt a competitive partner
+                        cluster_penalty = max(cluster_penalty, cluster_corr * 0.5)
+
+        # Weakness bonus: the worse you are, the less you lose by punting
+        weakness_bonus = (rank - _PUNT_RANK_THRESHOLD) * 0.10  # 0.0 at rank 9, 0.3 at rank 12
+
+        # Punt value: isolation + weakness - cluster drag
+        punt_value = round(isolation_score + weakness_bonus - cluster_penalty, 3)
+
+        # Build reason string
+        reason_parts: list[str] = []
+        if isolation_score >= 0.75:
+            reason_parts.append(f"highly independent (correlation {mean_corr:.2f})")
+        elif isolation_score >= 0.50:
+            reason_parts.append(f"moderately independent (correlation {mean_corr:.2f})")
+        else:
+            reason_parts.append(f"somewhat correlated (correlation {mean_corr:.2f})")
+
+        reason_parts.append(f"rank {rank} of 12")
+
+        if cluster_penalty > 0:
+            reason_parts.append("cluster drag on competitive categories")
+
+        candidates.append(
+            {
+                "category": cat,
+                "rank": rank,
+                "isolation_score": round(isolation_score, 3),
+                "punt_value": punt_value,
+                "reason": "; ".join(reason_parts),
+            }
+        )
+
+    # Sort by punt_value descending, then by rank descending (worst first)
+    candidates.sort(key=lambda x: (-x["punt_value"], -x["rank"]))
+
+    return candidates[:max_punts]
+
+
+def compute_punt_redistribution_value(
+    punt_cats: list[str],
+    category_ranks: dict[str, int],
+    config: object | None = None,
+) -> dict:
+    """Estimate standings positions gained if resources from punted categories
+    were redistributed to remaining categories.
+
+    The model assumes punting a category frees ~1.0 standings positions of
+    resources that can be spread across non-punted categories proportional
+    to how close they are to gaining a position (i.e., categories ranked
+    5-8 benefit most, already-strong categories benefit less).
+
+    Args:
+        punt_cats: List of category names to punt.
+        category_ranks: Dict mapping category name to standings rank (1-12).
+        config: LeagueConfig instance (default created if None).
+
+    Returns:
+        {positions_gained: float, helped_categories: list[str],
+         per_category_gain: dict[str, float]}
+    """
+    if config is None:
+        from src.valuation import LeagueConfig
+
+        config = LeagueConfig()
+
+    if not punt_cats:
+        return {
+            "positions_gained": 0.0,
+            "helped_categories": [],
+            "per_category_gain": {},
+        }
+
+    all_cats = config.all_categories
+    non_punted = [c for c in all_cats if c not in punt_cats]
+
+    if not non_punted:
+        return {
+            "positions_gained": 0.0,
+            "helped_categories": [],
+            "per_category_gain": {},
+        }
+
+    # Total freed resources: ~1.0 standings position per punted category
+    # scaled by how independent the punted category is (more independent
+    # = more resources freed without collateral damage).
+    total_freed = 0.0
+    for cat in punt_cats:
+        mean_corr = CATEGORY_MEAN_CORRELATION.get(cat, 0.40)
+        independence = 1.0 - mean_corr
+        total_freed += 0.8 + 0.4 * independence  # 0.8-1.2 range
+
+    # Distribute freed resources to non-punted categories weighted by
+    # how improvable they are.  Middle ranks (4-8) benefit most.
+    improvability: dict[str, float] = {}
+    for cat in non_punted:
+        rank = category_ranks.get(cat, 6)
+        if rank <= 2:
+            # Already elite, diminishing returns
+            improvability[cat] = 0.2
+        elif rank <= 5:
+            # Competitive, moderate room
+            improvability[cat] = 0.6
+        elif rank <= 8:
+            # Middle tier, most improvable
+            improvability[cat] = 1.0
+        else:
+            # Weak but not punted, some room
+            improvability[cat] = 0.5
+
+    total_weight = sum(improvability.values())
+    if total_weight <= 0:
+        return {
+            "positions_gained": 0.0,
+            "helped_categories": [],
+            "per_category_gain": {},
+        }
+
+    # Allocate freed resources proportionally
+    per_category_gain: dict[str, float] = {}
+    helped: list[str] = []
+    total_gain = 0.0
+
+    for cat in non_punted:
+        share = (improvability[cat] / total_weight) * total_freed
+        # Cap at realistic gain per category (~1.5 positions max)
+        gain = min(share, 1.5)
+        if gain >= 0.05:
+            per_category_gain[cat] = round(gain, 2)
+            helped.append(cat)
+            total_gain += gain
+
+    return {
+        "positions_gained": round(total_gain, 2),
+        "helped_categories": helped,
+        "per_category_gain": per_category_gain,
+    }

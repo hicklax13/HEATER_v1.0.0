@@ -368,6 +368,51 @@ def generate_regression_alerts(
     return alerts
 
 
+def generate_ratio_lock_alert(
+    current_era: float,
+    opp_era: float,
+    current_whip: float,
+    opp_whip: float,
+    banked_ip: float,
+    remaining_starts: int = 0,
+) -> dict | None:
+    """Generate ratio lock alert when you should bench pitchers.
+
+    When you have a comfortable lead in ERA and WHIP with enough innings
+    banked, benching remaining starters locks 2 category wins.
+
+    Args:
+        current_era: Your team's current ERA.
+        opp_era: Opponent's current ERA.
+        current_whip: Your team's current WHIP.
+        opp_whip: Opponent's current WHIP.
+        banked_ip: Total innings pitched so far this matchup week.
+        remaining_starts: Number of scheduled starts remaining.
+
+    Returns:
+        Alert dict or None if no lock opportunity.
+    """
+    era_lead = opp_era - current_era  # Positive = you're winning
+    whip_lead = opp_whip - current_whip  # Positive = you're winning
+
+    if era_lead > 0.50 and whip_lead > 0.10 and banked_ip >= 30:
+        return {
+            "type": "ratio_lock",
+            "severity": "info",
+            "title": "Ratio Lock Opportunity",
+            "message": (
+                f"Winning ERA by {era_lead:.2f} and WHIP by {whip_lead:.2f} "
+                f"with {banked_ip:.0f} IP banked. Consider benching remaining "
+                f"{remaining_starts} starts to lock 2 category wins."
+            ),
+            "action": f"Bench remaining {remaining_starts} scheduled starters.",
+            "era_lead": round(era_lead, 2),
+            "whip_lead": round(whip_lead, 2),
+            "timestamp": datetime.now(UTC).isoformat(),
+        }
+    return None
+
+
 def render_alerts_html(alerts: list[dict], theme: dict) -> str:
     """Render alerts as HTML cards for Streamlit st.markdown().
 

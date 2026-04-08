@@ -69,9 +69,27 @@ LINEUP_SLOT_PA: dict[int, float] = {
 
 # Baseline PA/game for an "average" starter (slot 5-6 territory)
 _BASELINE_PA_PER_GAME: float = 4.30
+REFERENCE_PA: float = 4.30  # Public alias for batting order multiplier
 
 # Approximate games in a season used for PA → SGP conversion
 _GAMES_PER_SEASON: int = 162
+
+
+def batting_order_pa_multiplier(lineup_slot: int) -> float:
+    """Multiplier for counting stat projections based on batting order slot.
+
+    Leadoff (slot 1) gets ~1.08x, 9th slot gets ~0.88x. Unknown or
+    out-of-range slots return 1.0 (neutral).
+
+    Args:
+        lineup_slot: 1-based batting order position (1-9).
+
+    Returns:
+        Multiplicative PA adjustment relative to REFERENCE_PA.
+    """
+    pa = LINEUP_SLOT_PA.get(lineup_slot, REFERENCE_PA)
+    return pa / REFERENCE_PA
+
 
 # SGP per extra PA (rough composite across R, HR, RBI, SB, AVG, OBP).
 # Derived empirically: each PA is worth ~0.0018 composite SGP for an

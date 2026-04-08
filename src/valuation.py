@@ -1107,3 +1107,57 @@ def add_process_risk(
         adjusted[col] = adjusted[col] / np.sqrt(c)
 
     return adjusted
+
+
+def compute_per_category_replacement(
+    pool: pd.DataFrame,
+    config: LeagueConfig | None = None,
+    position_counts: dict[str, int] | None = None,
+) -> dict[str, dict[str, float]]:
+    """Compute replacement-level stat per category per position.
+
+    Instead of a single aggregate replacement level, this gives a
+    per-category breakdown so that positional scarcity can be measured
+    at the category level (e.g., C replacement AVG vs OF replacement AVG).
+
+    Args:
+        pool: Player pool DataFrame with positions and stat columns.
+        config: League configuration. Defaults to standard 12-team.
+        position_counts: Number of rostered players per position league-wide.
+            Defaults to standard 12-team counts.
+
+    Returns:
+        Nested dict: {position: {category: replacement_level_stat}}.
+    """
+    if config is None:
+        config = LeagueConfig()
+    if position_counts is None:
+        position_counts = {
+            "C": 12,
+            "1B": 23,
+            "2B": 18,
+            "3B": 17,
+            "SS": 16,
+            "OF": 62,
+            "SP": 62,
+            "RP": 36,
+        }
+
+    if pool.empty or "positions" not in pool.columns:
+        return {}
+
+    result: dict[str, dict[str, float]] = {}
+    for pos, count in position_counts.items():
+        pos_players = pool[pool["positions"].str.contains(pos, na=False)]
+        if pos_players.empty or len(pos_players) < count:
+            continue
+        for cat in config.all_categories:
+            col = config.STAT_MAP.get(cat, cat.lower())
+            if col not in pos_players.columns:
+                continue
+            ascending = cat in config.inverse_stats
+            sorted_vals = pos_players[col].dropna().sort_values(ascending=ascending)
+            if len(sorted_vals) >= count:
+                repl_val = float(sorted_vals.iloc[count - 1])
+                result.setdefault(pos, {})[cat] = repl_val
+    return result

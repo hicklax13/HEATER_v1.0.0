@@ -476,11 +476,19 @@ def build_daily_dcv_table(
         # Volume factor
         team_plays = team in teams_playing if teams_playing else True
         in_lineup = None  # default: lineup not posted
+        lineup_slot = 0  # 0 = unknown batting order slot
         if confirmed_lineups is not None:
             is_hitter = bool(int(player.get("is_hitter", 1)))
             if is_hitter and team in confirmed_lineups:
                 # Batting lineups only meaningful for hitters
-                in_lineup = name in confirmed_lineups[team]
+                team_lineup = confirmed_lineups[team]
+                in_lineup = name in team_lineup
+                if in_lineup:
+                    # Batting order slot is 1-based index in the lineup list
+                    try:
+                        lineup_slot = team_lineup.index(name) + 1
+                    except ValueError:
+                        lineup_slot = 0
             # Pitchers keep None (0.9 default) — batting lineups don't list SPs
         volume = compute_volume_factor(team_plays, in_lineup)
 
@@ -558,12 +566,26 @@ def build_daily_dcv_table(
             "status": status,
         }
 
+        # Batting order PA multiplier for confirmed hitters
+        pa_mult = 1.0
+        if lineup_slot >= 1 and is_hitter:
+            try:
+                from src.contextual_factors import batting_order_pa_multiplier
+
+                pa_mult = batting_order_pa_multiplier(lineup_slot)
+            except Exception:
+                pa_mult = 1.0
+
         for cat in config.all_categories:
             col = cat.lower()
             proj_val = form_adjustments.get(col, float(player.get(col, 0) or 0))
 
             # Per-game rate: divide season projection by ~162 games
             daily_proj = proj_val / 162.0
+
+            # Apply batting order PA adjustment to counting stats only
+            if pa_mult != 1.0 and cat in config.counting_stats:
+                daily_proj *= pa_mult
 
             # Apply factors
             dcv = daily_proj * matchup_mult * health * volume

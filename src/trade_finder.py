@@ -961,6 +961,7 @@ def scan_1_for_1(
 
             # Apply closer scarcity premium if receiving a closer
             recv_sv = float(recv_player.iloc[0].get("sv", 0) or 0)
+            sv_bonus = 0.0
             if recv_sv >= 5:
                 from src.trade_intelligence import SV_SCARCITY_MULT
 
@@ -969,6 +970,20 @@ def scan_1_for_1(
                 if abs(sv_denom) > 1e-9:
                     sv_bonus = (recv_sv / sv_denom) * (SV_SCARCITY_MULT - 1.0)
                     user_delta += sv_bonus
+
+                # Closer stability discount: reduce SV value for shaky closers
+                try:
+                    from src.closer_monitor import compute_job_security
+
+                    # Default moderate hierarchy confidence
+                    hierarchy_conf = 0.7
+                    job_sec = compute_job_security(hierarchy_conf, recv_sv)
+                    if job_sec < 0.5:
+                        # Shaky closer: discount the SV bonus by (1 - job_security)
+                        sv_discount = sv_bonus * (1.0 - job_sec)
+                        user_delta -= sv_discount
+                except Exception:
+                    pass  # Keep original SV bonus if closer_monitor unavailable
 
             if user_delta < MIN_SGP_GAIN:
                 continue

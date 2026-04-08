@@ -14,6 +14,30 @@ from src.valuation import (
 )
 
 
+def compute_category_fit(
+    player_sgp_by_cat: dict[str, float],
+    team_category_profile: dict[str, str],
+) -> dict:
+    """How well does this player fit your team's category needs?
+
+    Args:
+        player_sgp_by_cat: Per-category SGP contributions for the player.
+        team_category_profile: Maps category name to "strong", "weak", or "punt".
+
+    Returns:
+        dict with keys: helps (list of weak cats player contributes to),
+        wastes (list of strong/punt cats where player over-contributes),
+        fit_score (float 0-100).
+    """
+    helps = [c for c, s in team_category_profile.items() if s == "weak" and player_sgp_by_cat.get(c, 0) > 0.1]
+    wastes = [
+        c for c, s in team_category_profile.items() if s in ("strong", "punt") and player_sgp_by_cat.get(c, 0) > 0.5
+    ]
+    total_cats = len([c for c in team_category_profile if team_category_profile[c] != "punt"])
+    fit_score = (len(helps) / max(total_cats, 1)) * 100 if helps else 0
+    return {"helps": helps, "wastes": wastes, "fit_score": round(fit_score, 1)}
+
+
 def _roster_category_totals(roster_ids: list, player_pool: pd.DataFrame) -> dict:
     """Compute aggregate category totals for a set of player IDs."""
     roster = player_pool[player_pool["player_id"].isin(roster_ids)]

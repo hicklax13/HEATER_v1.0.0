@@ -629,3 +629,42 @@ def get_prospect_detail(prospect_id: int) -> dict | None:
         return dict(row) if row else None
     finally:
         conn.close()
+
+
+def compute_call_up_signals(
+    prospect_row: dict,
+    mlb_team_il_players: list[dict] | None = None,
+) -> dict:
+    """Compute call-up probability signals for a prospect.
+
+    Args:
+        prospect_row: Dict-like prospect data with keys like on_40_man,
+            fg_eta/eta, position, team.
+        mlb_team_il_players: Optional list of IL player dicts with team
+            and positions keys, used to detect position openings.
+
+    Returns:
+        dict with on_40_man (bool), call_up_score (float 0-100),
+        signal (str: "IMMINENT", "WATCH", or "").
+    """
+    on_40_man = bool(prospect_row.get("on_40_man", False))
+    eta = str(prospect_row.get("fg_eta", prospect_row.get("eta", "")))
+
+    score = 0
+    if on_40_man:
+        score += 40
+    if "2026" in eta:
+        score += 30
+    elif "2027" in eta:
+        score += 10
+
+    if mlb_team_il_players:
+        pos = str(prospect_row.get("position", ""))
+        team = str(prospect_row.get("team", ""))
+        for il_player in mlb_team_il_players:
+            if il_player.get("team") == team and pos in str(il_player.get("positions", "")):
+                score += 20
+                break
+
+    signal = "IMMINENT" if score >= 70 else "WATCH" if score >= 40 else ""
+    return {"on_40_man": on_40_man, "call_up_score": min(score, 100), "signal": signal}
