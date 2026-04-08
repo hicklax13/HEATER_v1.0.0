@@ -38,3 +38,51 @@ def clear_cache():
     """Clear cached totals (call when rosters change)."""
     global _cached_team_totals
     _cached_team_totals = None
+
+
+_cached_fa_pool: pd.DataFrame | None = None
+
+
+def get_fa_pool(
+    player_pool: pd.DataFrame,
+    force_refresh: bool = False,
+) -> pd.DataFrame:
+    """V5: Single access point for free agent pool across all pages.
+
+    Priority: Yahoo FA data → enriched pool filter → DB query.
+    Cached in module scope to avoid redundant computation.
+
+    Returns:
+        DataFrame of free agent players (not on any roster).
+    """
+    global _cached_fa_pool
+    if _cached_fa_pool is not None and not force_refresh:
+        return _cached_fa_pool
+
+    fa_pool = pd.DataFrame()
+
+    # Try Yahoo first
+    try:
+        import streamlit as st
+
+        yds = st.session_state.get("_yahoo_data_service")
+        if yds is not None and yds.is_connected():
+            fa_pool = yds.get_free_agents()
+    except Exception:
+        pass
+
+    # Fallback: filter enriched pool to exclude rostered players
+    if fa_pool.empty:
+        try:
+            from src.database import get_all_rostered_player_ids
+
+            rostered = get_all_rostered_player_ids()
+            if rostered:
+                fa_pool = player_pool[~player_pool["player_id"].isin(rostered)].copy()
+            else:
+                fa_pool = player_pool.copy()
+        except Exception:
+            fa_pool = player_pool.copy()
+
+    _cached_fa_pool = fa_pool
+    return fa_pool

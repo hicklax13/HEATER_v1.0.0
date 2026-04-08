@@ -1111,13 +1111,19 @@ else:
                 _report_opp = None
                 _report_week = 1
                 try:
-                    from src.opponent_intel import get_current_opponent, get_week_number
+                    # V4: Use MatchupContextService for opponent intel (unified)
+                    from src.matchup_context import get_matchup_context_service
 
-                    _report_opp = get_current_opponent(yds=yds)
+                    _mcs = get_matchup_context_service()
+                    _report_opp = _mcs.get_opponent_context()
+                    from src.opponent_intel import get_week_number
+
                     _report_week = get_week_number()
 
                     # If live Yahoo profile lacks strengths/weaknesses, merge from AVIS hardcoded profile
                     if _report_opp and (not _report_opp.get("strengths") and not _report_opp.get("weaknesses")):
+                        from src.opponent_intel import get_current_opponent
+
                         _avis_opp = get_current_opponent()
                         if _avis_opp:
                             if _avis_opp.get("strengths"):

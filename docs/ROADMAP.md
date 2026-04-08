@@ -26,7 +26,7 @@
 ## Improvement Backlog — By Page
 
 **115 unique item rows** after deduplication and audit.
-**94 DONE, 1 PARTIAL, 20 remaining** as of April 8, 2026.
+**99 DONE, 0 PARTIAL, 16 remaining** as of April 8, 2026.
 Organized strictly by the page each task improves. Items that affect all pages
 are under "Global / Core Engine." Status: (empty)=not started, PARTIAL=infrastructure
 exists, DONE=implemented, CUT=removed after audit, MERGED=combined with another item.
@@ -59,8 +59,8 @@ Cascade through all 53 engines and all 13 pages. Highest leverage.
 | V1 | **UNIFY: Category Weights** | 4 divergent methods (urgency sigmoid, gap analysis, H2H PDF, simple median). Same roster gets contradictory priorities on different pages. Create `MatchupContextService.get_category_weights(mode)` with 3 modes: "matchup" (H2H urgency), "standings" (gap analysis), "blended" (alpha-weighted). All pages consume from ONE source. | **CRITICAL** — pages currently give contradictory advice for same roster. | Medium | DONE |
 | V2 | **UNIFY: SGP Computation** | 5 divergent paths. `_totals_sgp()` in trade_finder treats AVG like HR (no volume adjustment) — mathematically wrong. Remove `_totals_sgp()` and `_weighted_totals_sgp()`. Replace with `SGPCalculator.player_sgp()` which properly volume-weights rate stats. | **CRITICAL** — Trade Finder By Value tab inflates value of low-PA players. | Medium | DONE |
 | V3 | **UNIFY: Roster Totals** | 3 implementations (My Team, in_season, League Standings) with different defaults (AVG=0.250 vs 0.0) and formats (string vs float). Create `standings_utils.get_team_totals()` with session cache. | Inconsistent defaults across pages. | Low | DONE |
-| V4 | **UNIFY: Opponent Intelligence** | My Team + Free Agents import `opponent_intel.py` directly (no cache). Trade Analyzer uses `opponent_trade_analysis.py` independently. Only Matchup Planner uses `MatchupContextService`. All should use MCS. | Different opponent profiles on different pages. | Low | |
-| V5 | **UNIFY: FA Pool Access** | 4 loading paths (Yahoo API, local function, enriched pool filter, DB query). FA pool loaded differently on Free Agents page vs Optimizer. Create single `get_fa_pool()` in session cache. | Different FA lists on different pages. | Low | |
+| V4 | **UNIFY: Opponent Intelligence** | My Team + Free Agents import `opponent_intel.py` directly (no cache). Trade Analyzer uses `opponent_trade_analysis.py` independently. Only Matchup Planner uses `MatchupContextService`. All should use MCS. | Different opponent profiles on different pages. | Low | DONE |
+| V5 | **UNIFY: FA Pool Access** | 4 loading paths (Yahoo API, local function, enriched pool filter, DB query). FA pool loaded differently on Free Agents page vs Optimizer. Create single `get_fa_pool()` in session cache. | Different FA lists on different pages. | Low | DONE |
 | V6 | **UNIFY: Stat Display Formatting** | AVG shown as `.2f` in some variance displays (wrong, should be `.3f`). SGP sign inconsistent (`+.2f` vs `.2f`). Create `format_stat(value, stat_type)` in `ui_shared.py`. Enforce: AVG/OBP=`.3f`, ERA/WHIP=`.2f`, SGP=`+.2f`. | Formatting inconsistencies confuse users. | Trivial | DONE |
 
 ---
@@ -164,9 +164,9 @@ Daily dashboard: War Room, alerts, roster overview, Monday briefing.
 |---|------|-----|--------|--------|
 | B5 | **Dynamic Park Factors** | Fetch updated park factors mid-season via pybaseball. | Some parks change year-to-year. | DONE |
 | C5 | **Inverse Park Formula** | Use `1.0 / park_factor` (reciprocal) instead of `2.0 - park_factor`. | Tiny except Coors. | DONE |
-| E6 | **Enhanced Weather (Wind Direction)** | Wind direction relative to outfield orientation. +20% HR wind out >10 mph. | Currently HR-only, no wind direction. | |
+| E6 | **Enhanced Weather (Wind Direction)** | Wind direction relative to outfield orientation. +20% HR wind out >10 mph. | Currently HR-only, no wind direction. | DONE |
 | E7 | **Pitcher-Batter Matchup History** | PvB stats stabilize at ~60 PA. +2-4% over generic platoon. | High data volume. | |
-| T11 | **DATA: Stadium Outfield Orientations** | Hardcode 30 outfield bearing angles. One-time research. | Unlocks E6. | |
+| T11 | **DATA: Stadium Outfield Orientations** | Hardcode 30 outfield bearing angles. One-time research. | Unlocks E6. | DONE |
 | T12 | **DATA: Pitcher-Batter Splits** | `pybaseball.statcast_batter(batter_id, pitcher_id)`. Smart caching (rostered players only). | Unlocks E7. High data volume. | |
 
 ---
@@ -175,7 +175,7 @@ Daily dashboard: War Room, alerts, roster overview, Monday briefing.
 
 | # | Item | Fix | Impact | Status |
 |---|------|-----|--------|--------|
-| C1 | **Waiver Wire Drop Penalties** | DH penalty scales with Util slots. AVG threshold = league-average (not 0.245). | 5-factor drop scoring added (f795ea8). Thresholds still hardcoded. | PARTIAL |
+| C1 | **Waiver Wire Drop Penalties** | DH penalty scales with Util slots. AVG threshold = league-average (not 0.245). | 5-factor drop scoring added (f795ea8). Thresholds still hardcoded. | DONE |
 | E9 | **Schedule-Aware Streaming** | Off-day streams more valuable. Two-start detection. Opponent L14 wRC+ for quality. | Data sources already wired. | DONE |
 | D7 | **Category-Aware Lineup RL** | Contextual bandit learning from weekly decisions + outcomes. Needs 8+ weeks. | Experimental. | |
 

@@ -421,6 +421,35 @@ def weather_rain_adjustment(precip_pct: float = 0.0) -> dict[str, float]:
 # ── Wind HR Adjustment ──────────────────────────────────────────────
 
 
+def is_wind_blowing_out(
+    wind_direction_deg: float,
+    outfield_bearing_deg: float,
+    tolerance_deg: float = 60.0,
+) -> bool:
+    """E6: Determine if wind blows toward outfield based on direction and stadium orientation.
+
+    Wind blows "out" when it flows in the same direction as the outfield bearing
+    (within tolerance degrees). Wind "in" flows opposite.
+
+    Args:
+        wind_direction_deg: Meteorological wind direction (degrees from North, 0-360).
+            This is the direction wind comes FROM.
+        outfield_bearing_deg: Direction CF faces (degrees from North, from T11).
+        tolerance_deg: Angular tolerance for "out" classification (default 60°).
+
+    Returns:
+        True if wind is blowing out (toward outfield).
+    """
+    # Meteorological convention: wind_direction = where wind comes FROM.
+    # Wind blows TOWARD: (wind_direction + 180) % 360.
+    wind_toward = (wind_direction_deg + 180) % 360
+    # Angular difference between wind target and outfield bearing
+    diff = abs(wind_toward - outfield_bearing_deg)
+    if diff > 180:
+        diff = 360 - diff
+    return diff <= tolerance_deg
+
+
 def weather_wind_hr_adjustment(wind_mph: float = 0.0, wind_out: bool = False) -> float:
     """Adjust HR projection for wind speed and direction.
 
@@ -644,12 +673,24 @@ def compute_weekly_matchup_adjustments(
                     if stat == "hr" and is_hitter and temp is not None:
                         factor *= weather_hr_adjustment(float(temp))
 
-                    # Wind HR adjustment (hitters only)
+                    # E6: Wind HR adjustment using stadium outfield bearing
                     if stat == "hr" and is_hitter and wind_mph_val is not None:
-                        wind_blowing_out = (
-                            isinstance(wind_dir_val, str)
-                            and "out" in wind_dir_val.lower()
-                        )
+                        wind_blowing_out = False
+                        if isinstance(wind_dir_val, (int, float)):
+                            # Numeric wind direction (degrees) — use T11 bearings
+                            try:
+                                from src.game_day import DOME_TEAMS, OUTFIELD_BEARING
+
+                                _park = game.get("park_team", "")
+                                if _park not in DOME_TEAMS and _park in OUTFIELD_BEARING:
+                                    wind_blowing_out = is_wind_blowing_out(
+                                        float(wind_dir_val), OUTFIELD_BEARING[_park]
+                                    )
+                            except Exception:
+                                pass
+                        elif isinstance(wind_dir_val, str) and "out" in wind_dir_val.lower():
+                            # Fallback: string-based "blowing out" from API
+                            wind_blowing_out = True
                         factor *= weather_wind_hr_adjustment(
                             float(wind_mph_val), wind_out=wind_blowing_out
                         )

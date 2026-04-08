@@ -490,11 +490,12 @@ with main:
     try:
         from src.waiver_wire import recommend_streams
 
+        # V4: Use MatchupContextService for opponent intel (unified)
         _opp_profile = None
         try:
-            from src.opponent_intel import get_current_opponent
+            from src.matchup_context import get_matchup_context_service
 
-            _opp_profile = get_current_opponent()
+            _opp_profile = get_matchup_context_service().get_opponent_context()
         except Exception:
             pass
 

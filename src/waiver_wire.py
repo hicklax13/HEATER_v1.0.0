@@ -469,12 +469,28 @@ def compute_drop_cost(
         if hr < 5:
             adjustment -= 0.5
 
-        # Rate stat drag — below-average AVG/OBP hurts team totals
+        # C1: Rate stat drag — below league-average AVG/OBP hurts team totals.
+        # Uses dynamic league averages when available, not hardcoded .245/.310.
         avg = float(row.get("avg", 0) or 0)
         obp = float(row.get("obp", 0) or 0)
-        if 0 < avg < 0.245:
+        _lg_avg = 0.250  # Dynamic: compute from league data if available
+        _lg_obp = 0.320
+        try:
+            import streamlit as st
+
+            _cached = st.session_state.get("_cached_team_totals")
+            if _cached:
+                _all_avgs = [t.get("AVG", 0) for t in _cached.values() if t.get("AVG", 0) > 0]
+                if _all_avgs:
+                    _lg_avg = sum(_all_avgs) / len(_all_avgs)
+                _all_obps = [t.get("OBP", 0) for t in _cached.values() if t.get("OBP", 0) > 0]
+                if _all_obps:
+                    _lg_obp = sum(_all_obps) / len(_all_obps)
+        except Exception:
+            pass
+        if 0 < avg < _lg_avg:
             adjustment -= 1.0
-        if 0 < obp < 0.310:
+        if 0 < obp < _lg_obp:
             adjustment -= 0.5
 
     return base_cost + adjustment
