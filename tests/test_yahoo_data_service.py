@@ -6,7 +6,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, PropertyMock, patch
 
 import pandas as pd
 import pytest
@@ -110,7 +110,7 @@ def isolated_state_store(monkeypatch):
 def mock_yahoo_client():
     """Create a mock Yahoo client with standard return values."""
     client = MagicMock()
-    client.is_authenticated.return_value = True
+    type(client).is_authenticated = PropertyMock(return_value=True)
 
     # Standings: wide-format DataFrame (team_name, team_key, rank, HR, ERA, ...)
     client.get_league_standings.return_value = pd.DataFrame(
@@ -236,18 +236,17 @@ class TestTTLConfig:
 class TestConnection:
     def test_connected_with_client(self, service, mock_yahoo_client):
         assert service.is_connected() is True
-        mock_yahoo_client.is_authenticated.assert_called()
 
     def test_disconnected_without_client(self, offline_service):
         assert offline_service.is_connected() is False
 
     def test_disconnected_when_auth_fails(self, mock_yahoo_client):
-        mock_yahoo_client.is_authenticated.return_value = False
+        type(mock_yahoo_client).is_authenticated = PropertyMock(return_value=False)
         svc = YahooDataService(yahoo_client=mock_yahoo_client)
         assert svc.is_connected() is False
 
     def test_disconnected_when_auth_throws(self, mock_yahoo_client):
-        mock_yahoo_client.is_authenticated.side_effect = RuntimeError("broken")
+        type(mock_yahoo_client).is_authenticated = PropertyMock(side_effect=RuntimeError("broken"))
         svc = YahooDataService(yahoo_client=mock_yahoo_client)
         assert svc.is_connected() is False
 

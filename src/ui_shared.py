@@ -1793,6 +1793,28 @@ def inject_custom_css():
         border-bottom: 1px solid {t["border"]} !important;
     }}
 
+    /* ── CONTEXT CARD STAT ROWS ───────────── */
+    .context-stat-row {{
+        display: flex !important;
+        justify-content: space-between !important;
+        align-items: center !important;
+        margin-bottom: 4px !important;
+        padding: 2px 0 !important;
+    }}
+    .context-stat-label {{
+        font-family: 'Figtree', sans-serif !important;
+        font-size: 11px !important;
+        color: {t["tx2"]} !important;
+        font-weight: 500 !important;
+    }}
+    .context-stat-value {{
+        font-family: 'IBM Plex Mono', monospace !important;
+        font-size: 12px !important;
+        color: {t["tx"]} !important;
+        font-weight: 600 !important;
+        text-align: right !important;
+    }}
+
     /* ── COMPACT TABLE (ESPN-style) ───────────── */
     .compact-table-wrap {{
         overflow-x: auto !important;

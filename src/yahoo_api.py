@@ -489,6 +489,28 @@ class YahooFantasyClient:
             return value.decode("utf-8", errors="replace")
         return str(value)
 
+    def _get_bearer_token(self) -> str:
+        """Extract OAuth bearer token from yfpy internal state or disk.
+
+        Returns:
+            The access token string, or empty string if unavailable.
+        """
+        # Try yfpy's in-memory token first
+        refreshed = getattr(self._query, "_yahoo_access_token_dict", None)
+        if refreshed and refreshed.get("access_token"):
+            return refreshed["access_token"]
+        # Fallback: read from disk
+        token_file = _AUTH_DIR / "yahoo_token.json"
+        if token_file.exists():
+            import json
+
+            try:
+                saved = json.loads(token_file.read_text(encoding="utf-8"))
+                return saved.get("access_token", "")
+            except Exception:
+                pass
+        return ""
+
     @staticmethod
     def _extract_position(pos_obj) -> str:
         """Extract a clean position abbreviation from a yfpy position object.
@@ -739,7 +761,26 @@ class YahooFantasyClient:
                                 row[str(name).lower()] = value
                 rows.append(row)
 
-            return pd.DataFrame(rows) if rows else pd.DataFrame()
+            if not rows:
+                return pd.DataFrame()
+
+            # Check if any stat category columns were found.
+            # yfpy's get_league_standings() often returns team_stats=None,
+            # so we need to supplement with direct Yahoo API calls.
+            stat_cols_present = any(
+                col in rows[0]
+                for col in ("r", "hr", "rbi", "sb", "avg", "obp", "w", "l", "sv", "k", "era", "whip")
+            )
+
+            if not stat_cols_present:
+                logger.info(
+                    "No stat category data in standings response. "
+                    "Fetching season stats via direct Yahoo API for %d teams.",
+                    len(rows),
+                )
+                self._supplement_standings_with_season_stats(rows)
+
+            return pd.DataFrame(rows)
         except Exception:
             logger.exception("Failed to fetch league standings.")
             return pd.DataFrame()
@@ -1532,6 +1573,72 @@ class YahooFantasyClient:
         return counts
 
     # ------------------------------------------------------------------
+    # Supplementary season stats (direct Yahoo REST API)
+    # ------------------------------------------------------------------
+
+    def _supplement_standings_with_season_stats(self, rows: list[dict]) -> None:
+        """Fetch season-long stat totals for each team via direct Yahoo REST API.
+
+        yfpy's ``get_league_standings()`` returns ``team_stats=None`` in H2H
+        leagues, so standings only contain W-L-T records.  This method calls
+        the Yahoo REST API directly (same pattern as
+        ``_get_team_week_stats_raw``) to fetch season stats for each team
+        and merges them into the ``rows`` list in-place.
+
+        Args:
+            rows: List of row dicts from ``get_league_standings()``.
+                  Modified in-place to add stat category columns.
+        """
+        token = self._get_bearer_token()
+        if not token:
+            logger.warning("No bearer token available for supplementary season stats.")
+            return
+
+        headers = {"Authorization": f"Bearer {token}"}
+
+        for row in rows:
+            team_key = row.get("team_key", "")
+            if not team_key:
+                continue
+
+            url = (
+                f"https://fantasysports.yahooapis.com/fantasy/v2/team/"
+                f"{team_key}/stats;type=season?format=json"
+            )
+            try:
+                _rate_limit()
+                resp = _requests.get(url, headers=headers, timeout=15)
+                if resp.status_code != 200:
+                    logger.warning(
+                        "Yahoo API returned %d for season stats of %s",
+                        resp.status_code,
+                        row.get("team_name", team_key),
+                    )
+                    continue
+
+                team_data = resp.json().get("fantasy_content", {}).get("team", [])
+                if isinstance(team_data, list):
+                    for item in team_data:
+                        if not isinstance(item, dict):
+                            continue
+                        if "team_stats" in item:
+                            for entry in item["team_stats"].get("stats", []):
+                                stat = entry.get("stat", {})
+                                sid = str(stat.get("stat_id", ""))
+                                val = str(stat.get("value", ""))
+                                if sid in self._STAT_ID_MAP:
+                                    cat_name = self._STAT_ID_MAP[sid].lower()
+                                    try:
+                                        row[cat_name] = float(val)
+                                    except (ValueError, TypeError):
+                                        row[cat_name] = val
+            except Exception:
+                logger.exception(
+                    "Failed to fetch season stats for %s",
+                    row.get("team_name", team_key),
+                )
+
+    # ------------------------------------------------------------------
     # Matchup scoreboard
     # ------------------------------------------------------------------
 
@@ -1573,19 +1680,7 @@ class YahooFantasyClient:
         stats: dict[str, str] = {}
         points: float = 0.0
 
-        # Extract bearer token from yfpy's internal state
-        token = ""
-        refreshed = getattr(self._query, "_yahoo_access_token_dict", None)
-        if refreshed and refreshed.get("access_token"):
-            token = refreshed["access_token"]
-        if not token:
-            # Fallback: read from disk
-            token_file = _AUTH_DIR / "yahoo_token.json"
-            if token_file.exists():
-                import json
-
-                saved = json.loads(token_file.read_text(encoding="utf-8"))
-                token = saved.get("access_token", "")
+        token = self._get_bearer_token()
         if not token:
             logger.warning("No bearer token available for raw API call.")
             return stats, points

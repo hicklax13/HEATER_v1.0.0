@@ -479,7 +479,7 @@ class YahooDataService:
         if self._client is None:
             return False
         try:
-            return self._client.is_authenticated()
+            return self._client.is_authenticated
         except Exception:
             return False
 

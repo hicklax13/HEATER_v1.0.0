@@ -261,13 +261,17 @@ def compute_weekly_projection(
         if weekly_ab > 0:
             weekly["avg"] = weekly_h / weekly_ab
         else:
-            weekly["avg"] = season_totals.get("avg", 0.250)
+            # IL stash hitters have 0 AB and stored AVG/OBP of 0.00;
+            # fall back to league-average baselines to avoid "zero production" scoring
+            avg_val = season_totals.get("avg", 0.250)
+            weekly["avg"] = avg_val if avg_val > 0 else 0.250
 
         obp_denom = weekly_ab + weekly_bb + weekly_hbp + weekly_sf
         if obp_denom > 0:
             weekly["obp"] = (weekly_h + weekly_bb + weekly_hbp) / obp_denom
         else:
-            weekly["obp"] = season_totals.get("obp", 0.320)
+            obp_val = season_totals.get("obp", 0.320)
+            weekly["obp"] = obp_val if obp_val > 0 else 0.320
     else:
         weekly_ip = per_game.get("ip", 0) * games_this_week
         weekly_er = per_game.get("er", 0) * games_this_week
@@ -278,8 +282,12 @@ def compute_weekly_projection(
             weekly["era"] = weekly_er * 9 / weekly_ip
             weekly["whip"] = (weekly_bb_a + weekly_h_a) / weekly_ip
         else:
-            weekly["era"] = season_totals.get("era", 4.00)
-            weekly["whip"] = season_totals.get("whip", 1.25)
+            # IL stash pitchers have 0 IP and stored ERA/WHIP of 0.00;
+            # fall back to league-average baselines to avoid "perfect pitcher" scoring
+            era_val = season_totals.get("era", 4.00)
+            weekly["era"] = era_val if era_val > 0 else 4.00
+            whip_val = season_totals.get("whip", 1.25)
+            weekly["whip"] = whip_val if whip_val > 0 else 1.25
 
     return weekly
 
@@ -376,6 +384,33 @@ def start_sit_recommendation(
 
     # Classify matchup state for risk adjustment
     matchup_state = classify_matchup_state(my_weekly_totals, opp_weekly_totals, config)
+
+    # Filter out IL/DTD/NA/minors players — they cannot start
+    _INACTIVE_STATUSES = {
+        "il10", "il15", "il60", "il", "na", "not active", "dl",
+        "dtd", "day-to-day", "minors", "out", "suspended",
+    }
+    if "status" in player_pool.columns:
+        active_ids = []
+        for pid in player_ids:
+            p_rows = player_pool[player_pool["player_id"] == pid]
+            if p_rows.empty:
+                active_ids.append(pid)  # Unknown player, let it through
+                continue
+            status = str(p_rows.iloc[0].get("status", "") or "").strip().lower()
+            if status in _INACTIVE_STATUSES:
+                logger.info("Skipping inactive player %s (status=%s)", pid, status)
+                continue
+            active_ids.append(pid)
+        player_ids = active_ids
+
+    if len(player_ids) == 0:
+        return {
+            "recommendation": None,
+            "confidence": 0.0,
+            "confidence_label": "Toss-up",
+            "players": [],
+        }
 
     player_results = []
 

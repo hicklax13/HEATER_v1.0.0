@@ -182,7 +182,10 @@ def render_analytics_badge(ctx: AnalyticsContext) -> None:
 
     with st.expander(expander_label, expanded=False):
         html = build_analytics_badge_html(ctx)
-        st.markdown(html, unsafe_allow_html=True)
+        if hasattr(st, "html"):
+            st.html(html)
+        else:
+            st.markdown(html, unsafe_allow_html=True)
 
         # Show quality score as a progress bar
         score = ctx.quality_score
