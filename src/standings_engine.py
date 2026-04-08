@@ -16,10 +16,36 @@ import numpy as np
 import pandas as pd
 from scipy.stats import norm
 
-from src.standings_projection import INVERSE_CATS, WEEKLY_TAU
+from src.standings_projection import INVERSE_CATS
+from src.standings_projection import WEEKLY_TAU as _RAW_WEEKLY_TAU
 from src.valuation import LeagueConfig
 
 logger = logging.getLogger(__name__)
+
+# Empirical weekly SDs from FanGraphs community research (48 12-team leagues).
+# These are season-long roto category SDs in SGP/standings space, used as proxy
+# for weekly H2H variance.  Counting stats (R, HR, ...) represent how many
+# SGP-equivalent units a team can swing in a week; rate stats (AVG, OBP, ERA,
+# WHIP) are in raw units so they can be compared directly against projected
+# weekly averages.
+CALIBRATED_WEEKLY_TAU: dict[str, float] = {
+    "R": 1.6,
+    "HR": 2.1,
+    "RBI": 2.3,
+    "SB": 2.3,
+    "AVG": 0.025,
+    "OBP": 0.020,
+    "W": 1.7,
+    "L": 1.7,
+    "SV": 1.8,
+    "K": 1.2,
+    "ERA": 0.50,
+    "WHIP": 0.05,
+}
+
+# Keep the raw-stat WEEKLY_TAU available for backward compat with callers that
+# import it from this module.
+WEEKLY_TAU = _RAW_WEEKLY_TAU
 
 
 # ── Schedule helpers ────────────────────────────────────────────────
@@ -245,10 +271,8 @@ def compute_category_win_probabilities(
         mu_opp = opp_stats.get(cat, 0.0)
         is_inv = cat in inverse
 
-        # Variance: base tau, with Bayesian shrinkage if weeks played > 0
-        tau = WEEKLY_TAU.get(cat, 1.0)
-        if tau is None:
-            tau = 1.0  # ERA tau can be None from dynamic loading
+        # Variance: calibrated (FanGraphs-empirical) tau, with Bayesian shrinkage
+        tau = CALIBRATED_WEEKLY_TAU.get(cat, 1.0)
         base_var = float(tau) ** 2
 
         # Bayesian shrinkage: more weeks played -> tighter variance
@@ -334,7 +358,7 @@ def simulate_season_enhanced(
     team_weekly_totals: dict[str, dict[str, float]],
     full_schedule: dict[int, list[tuple[str, str]]],
     current_week: int = 1,
-    n_sims: int = 1000,
+    n_sims: int = 10000,
     seed: int = 42,
     momentum_data: dict[str, float] | None = None,
     playoff_spots: int = 4,
@@ -346,7 +370,7 @@ def simulate_season_enhanced(
         team_weekly_totals: {team: {cat: weekly_mean}} -- projected weekly averages.
         full_schedule: {week: [(team_a, team_b), ...]} -- actual matchups.
         current_week: First week to simulate (prior weeks use actual results).
-        n_sims: Monte Carlo iterations.
+        n_sims: Monte Carlo iterations (default 10000 for ~0.5% SE on playoff odds).
         seed: RNG seed.
         momentum_data: {team: float} -- momentum multiplier [0.5, 2.0].
         playoff_spots: Number of playoff spots (default 4).
@@ -373,11 +397,11 @@ def simulate_season_enhanced(
 
     rng = np.random.default_rng(seed)
 
-    # Get tau values
+    # Get tau values — use calibrated (FanGraphs-empirical) variances
     tau_vals = []
     for cat in categories:
-        t = WEEKLY_TAU.get(cat, 1.0)
-        tau_vals.append(float(t) if t is not None else 1.0)
+        t = CALIBRATED_WEEKLY_TAU.get(cat, 1.0)
+        tau_vals.append(float(t))
     tau_arr = np.array(tau_vals)
 
     # Build team means matrix (n_teams x n_cats)

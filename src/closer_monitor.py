@@ -75,6 +75,47 @@ def get_security_color(security: float) -> str:
         return "#e63946"
 
 
+def compute_skill_decay(
+    season_k_pct: float,
+    recent_k_pct: float,
+    season_kbb_pct: float,
+    recent_kbb_pct: float,
+) -> dict:
+    """Detect closer skill decay from K% and K-BB% trends.
+
+    Args:
+        season_k_pct: Season-average strikeout rate.
+        recent_k_pct: Rolling L14 strikeout rate.
+        season_kbb_pct: Season-average K-BB%.
+        recent_kbb_pct: Rolling L14 K-BB%.
+
+    Returns:
+        Dict with k_pct_drop, kbb_warning, severity, and message.
+    """
+    k_drop = season_k_pct - recent_k_pct
+    kbb_low = recent_kbb_pct < 10.0
+
+    if k_drop >= 8.0 or kbb_low:
+        severity = "CRITICAL"
+        if k_drop >= 8.0:
+            msg = f"K% dropped {k_drop:.1f} pts"
+        else:
+            msg = f"K-BB% at {recent_kbb_pct:.1f}% (danger zone)"
+    elif k_drop >= 5.0:
+        severity = "WARNING"
+        msg = f"K% declining ({k_drop:.1f} pts from season avg)"
+    else:
+        severity = "NONE"
+        msg = ""
+
+    return {
+        "k_pct_drop": round(k_drop, 1),
+        "kbb_warning": kbb_low,
+        "severity": severity,
+        "message": msg,
+    }
+
+
 def build_closer_grid(
     depth_data: dict,
     player_pool: pd.DataFrame | None = None,

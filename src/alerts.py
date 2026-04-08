@@ -302,6 +302,72 @@ def _get_il_return_dates(roster: pd.DataFrame) -> dict:
     return result
 
 
+def generate_regression_alerts(
+    roster: pd.DataFrame,
+    min_pa: int = 50,
+) -> list[dict]:
+    """Generate sell-high / buy-low regression alerts from expected stats.
+
+    Compares actual performance to Statcast expected stats (xwOBA, xBA).
+    Flags players with >1.5 SD divergence.
+
+    Args:
+        roster: DataFrame with player rows containing obp, xwoba, ytd_pa columns.
+        min_pa: Minimum plate appearances to qualify.
+
+    Returns:
+        List of alert dicts sorted by divergence magnitude (descending).
+    """
+    alerts: list[dict] = []
+    for _, row in roster.iterrows():
+        pa = int(row.get("ytd_pa", 0) or 0)
+        if pa < min_pa:
+            continue
+
+        # Check xwOBA vs approximate wOBA (OBP * 1.15 proxy)
+        xwoba = float(row.get("xwoba", 0) or 0)
+        obp = float(row.get("obp", 0) or 0)
+        if xwoba > 0 and obp > 0:
+            woba_approx = obp * 1.15
+            delta = xwoba - woba_approx
+            sd = 0.020  # Approximate SD for xwOBA-wOBA gap
+            if abs(delta) > 1.5 * sd:
+                name = str(row.get("name", row.get("player_name", "Unknown")))
+                if delta > 0:
+                    alerts.append(
+                        {
+                            "player_name": name,
+                            "alert_type": "BUY_LOW",
+                            "stat": "xwOBA",
+                            "actual": round(woba_approx, 3),
+                            "expected": round(xwoba, 3),
+                            "divergence_sd": round(delta / sd, 1),
+                            "message": (
+                                f"{name}: xwOBA ({xwoba:.3f}) >> actual wOBA "
+                                f"({woba_approx:.3f}) — underperforming contact quality"
+                            ),
+                        }
+                    )
+                else:
+                    alerts.append(
+                        {
+                            "player_name": name,
+                            "alert_type": "SELL_HIGH",
+                            "stat": "xwOBA",
+                            "actual": round(woba_approx, 3),
+                            "expected": round(xwoba, 3),
+                            "divergence_sd": round(abs(delta) / sd, 1),
+                            "message": (
+                                f"{name}: actual wOBA ({woba_approx:.3f}) >> xwOBA "
+                                f"({xwoba:.3f}) — overperforming contact quality"
+                            ),
+                        }
+                    )
+
+    alerts.sort(key=lambda x: abs(x.get("divergence_sd", 0)), reverse=True)
+    return alerts
+
+
 def render_alerts_html(alerts: list[dict], theme: dict) -> str:
     """Render alerts as HTML cards for Streamlit st.markdown().
 

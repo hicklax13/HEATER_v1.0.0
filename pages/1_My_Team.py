@@ -1055,6 +1055,49 @@ else:
             except ImportError:
                 pass  # War room modules not available — skip gracefully
 
+            # ── Card 6: Regression Alerts ──
+            try:
+                from src.alerts import generate_regression_alerts
+
+                _reg_alerts = generate_regression_alerts(roster, min_pa=50)
+                if _reg_alerts:
+                    _reg_rows = ""
+                    for _ra in _reg_alerts[:5]:
+                        _ra_type = _ra["alert_type"]
+                        if _ra_type == "SELL_HIGH":
+                            _ra_color = T["danger"]
+                            _ra_label = "SELL HIGH"
+                        else:
+                            _ra_color = T["green"]
+                            _ra_label = "BUY LOW"
+                        _ra_div = _ra.get("divergence_sd", 0)
+                        _reg_rows += (
+                            f'<div style="display:flex;align-items:flex-start;gap:8px;'
+                            f'padding:4px 0;border-bottom:1px solid {T["border"]};">'
+                            f'<span style="background:{_ra_color};color:#fff;padding:1px 6px;'
+                            f"border-radius:4px;font-size:10px;font-weight:700;"
+                            f'white-space:nowrap;">{_ra_label}</span>'
+                            f'<div style="flex:1;">'
+                            f'<div style="font-size:12px;font-weight:600;color:{T["tx"]};">'
+                            f'{_ra["player_name"]}'
+                            f'<span style="color:{T["tx2"]};font-weight:400;font-size:10px;'
+                            f'margin-left:6px;">{_ra_div:.1f} SD</span></div>'
+                            f'<div style="font-size:10px;color:{T["tx2"]};">'
+                            f'xwOBA {_ra["expected"]:.3f} vs actual wOBA {_ra["actual"]:.3f}</div>'
+                            f"</div></div>"
+                        )
+                    st.markdown(
+                        f'<div style="background:{T["card"]};border-left:4px solid {T["warn"]};'
+                        f"border-radius:8px;padding:8px 12px;margin-bottom:8px;"
+                        f'font-family:IBM Plex Mono,monospace;">'
+                        f'<div style="font-size:11px;color:{T["tx2"]};margin-bottom:4px;'
+                        f'font-weight:600;">REGRESSION ALERTS</div>'
+                        f"{_reg_rows}</div>",
+                        unsafe_allow_html=True,
+                    )
+            except Exception:
+                pass  # Regression alerts are non-fatal
+
             # AVIS Section 5: Weekly Report (always visible, auto-expanded on Mondays)
             try:
                 from datetime import UTC, datetime
