@@ -260,6 +260,30 @@ def render_splash_screen():
         except Exception:
             pass  # Blending failures are non-fatal
 
+        # Pre-fetch all YDS data so every page starts with LIVE caches
+        if yahoo_client is not None:
+            try:
+                from src.yahoo_data_service import get_yahoo_data_service
+
+                status_text.text("Warming Yahoo data caches...")
+                progress_bar.progress(0.95)
+                yds = get_yahoo_data_service()
+                for _fetch_name, _fetch_fn in [
+                    ("rosters", yds.get_rosters),
+                    ("standings", yds.get_standings),
+                    ("matchup", yds.get_matchup),
+                    ("free_agents", yds.get_free_agents),
+                    ("transactions", yds.get_transactions),
+                    ("settings", yds.get_settings),
+                    ("schedule", yds.get_schedule),
+                ]:
+                    try:
+                        _fetch_fn()
+                    except Exception:
+                        logger.debug("YDS pre-fetch failed for %s", _fetch_name)
+            except Exception:
+                logger.debug("YDS pre-fetch skipped.", exc_info=True)
+
         st.session_state["bootstrap_complete"] = True
         st.session_state["bootstrap_results"] = results
 

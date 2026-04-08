@@ -1034,7 +1034,7 @@ with main:
                         if _tied:
                             st.caption(", ".join(_tied))
 
-                # Starters (top by DCV, volume > 0, healthy)
+                # Starters (position-slot-aware assignment respecting Yahoo roster)
                 eligible = (
                     dcv[
                         (dcv.get("volume_factor", pd.Series(dtype=float)) > 0)
@@ -1043,9 +1043,55 @@ with main:
                     if "volume_factor" in dcv.columns and "health_factor" in dcv.columns
                     else dcv.copy()
                 )
-                starters_dcv = eligible.nlargest(18, "total_dcv") if "total_dcv" in eligible.columns else eligible
-                # Bench = eligible players not in starters (exclude IL/DTD/NA with health_factor=0)
-                bench_dcv = eligible[~eligible.index.isin(starters_dcv.index)]
+
+                # Greedy slot assignment: fill specific positions first, then flex
+                _SLOT_ORDER = [
+                    ("C", 1), ("1B", 1), ("2B", 1), ("3B", 1), ("SS", 1),
+                    ("OF", 3), ("SP", 2), ("RP", 2), ("P", 4), ("Util", 2),
+                ]
+                _OF_POSITIONS = {"LF", "CF", "RF", "OF"}
+                _PITCHER_POSITIONS = {"SP", "RP", "P"}
+
+                if "total_dcv" in eligible.columns:
+                    _sorted = eligible.sort_values("total_dcv", ascending=False)
+                else:
+                    _sorted = eligible
+
+                _assigned_idx: set[int] = set()
+                _starter_indices: list[int] = []
+
+                def _player_fits_slot(row, slot: str) -> bool:
+                    pos_str = str(row.get("positions", "") or "").upper()
+                    pos_set = {p.strip() for p in pos_str.replace("/", ",").split(",") if p.strip()}
+                    if slot == "C":
+                        return "C" in pos_set
+                    if slot == "OF":
+                        return bool(pos_set & _OF_POSITIONS)
+                    if slot == "SP":
+                        return "SP" in pos_set
+                    if slot == "RP":
+                        return "RP" in pos_set
+                    if slot == "P":
+                        return bool(pos_set & _PITCHER_POSITIONS)
+                    if slot == "Util":
+                        # Util = any hitter (not a pitcher-only player)
+                        return bool(pos_set - _PITCHER_POSITIONS)
+                    return slot in pos_set
+
+                for slot, count in _SLOT_ORDER:
+                    filled = 0
+                    for idx, row in _sorted.iterrows():
+                        if filled >= count:
+                            break
+                        if idx in _assigned_idx:
+                            continue
+                        if _player_fits_slot(row, slot):
+                            _assigned_idx.add(idx)
+                            _starter_indices.append(idx)
+                            filled += 1
+
+                starters_dcv = eligible.loc[[i for i in _starter_indices if i in eligible.index]]
+                bench_dcv = eligible[~eligible.index.isin(_assigned_idx)]
 
                 st.markdown(
                     f'<p style="font-size:12px;font-weight:700;letter-spacing:1px;'
