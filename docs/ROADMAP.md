@@ -39,3 +39,50 @@
 - Standings projections + playoff odds
 - Mobile-responsive layout for draft day
 - Cloud deployment for remote access
+
+---
+
+## Accuracy & Calibration Backlog
+
+Identified April 7, 2026 via full algorithm audit. All 53 engines reviewed.
+Priority: HIGH items affect every downstream calculation. MEDIUM items affect specific features. LOW items are polish.
+
+### HIGH — Cascade Through All Engines
+
+| # | Item | Current State | Fix | Impact |
+|---|------|--------------|-----|--------|
+| A1 | **Dynamic SGP Denominators** | Hardcoded (R:32, HR:13, SB:14, etc.) — never recomputed | Compute from `league_standings`: `denom = (max - min) / (n_teams - 1)` at bootstrap, update weekly | Propagates to EVERY engine that uses SGP — trade values, draft picks, lineup optimizer, waiver recs, power rankings. Single highest-leverage fix. |
+| A2 | **Weighted Projection Ensemble** | Simple average of Steamer/ZiPS/DepthCharts (equal 1/n weight) | Weight by inverse RMSE from prior season. Even crude 40/35/25 beats naive average. FanGraphs publishes annual accuracy comparisons. | More accurate player projections = better everything downstream. |
+| A3 | **Bayesian SGP Updating** | Static denominators all season | Start with preseason denoms as prior, update weekly from actual standings. By week 8: 70% actual / 30% prior. | Denominators drift as season progresses — teams that tank, injuries, trade deadline. Static denoms become stale. |
+| A4 | **Remove Self-Referential ECR Input** | HEATER SGP rank is source #7 in ECR consensus | Remove source #7 (HEATER SGP). Use only 6 external sources (ESPN, Yahoo, CBS, NFBC, FanGraphs, FantasyPros). | Circular input: model's output feeds back into its own valuation. Removes confirmation bias. |
+
+### MEDIUM — Specific Engine Improvements
+
+| # | Item | Current State | Fix | Impact |
+|---|------|--------------|-----|--------|
+| B1 | **League-Specific Acceptance Calibration** | Generic behavioral economics (loss aversion 1.8 from Kahneman/Tversky) | Compute empirical acceptance rates from Yahoo `transactions` data — what SGP/ADP gaps led to accepted vs rejected trades in this league | Trade Finder recommendations become league-calibrated, not generic. Even 10-20 past trades would help. |
+| B2 | **Position-Specific Health Scoring** | Same age threshold (30 hitters, 28 pitchers) regardless of position | Catchers: threshold 28 with 0.03/yr. DH: threshold 34 with 0.01/yr. OF: threshold 31. | Catchers age faster than DHs. Current model treats them identically. |
+| B3 | **Injury-Type Adjustment** | Linear IL days / 162 penalty — all injuries equal | Weight by injury type: TJ surgery = 0.4 health floor for 2 years. Hamstring = 0.7 for 1 year. Concussion = 0.6. | 30 IL days from a bone bruise (heals fully) is NOT the same as 30 IL days from TJ. |
+| B4 | **Temporal ECR Weighting** | All ECR sources weighted equally regardless of when fetched | Weight recent rankings higher: exponential decay with 14-day half-life. March rank = 0.25x weight vs April rank = 1.0x. | Stale preseason ranks shouldn't carry same weight as in-season updates. |
+| B5 | **Dynamic Park Factors** | Static FanGraphs 2024 values (e.g., Coors always 1.38) | Fetch updated park factors from FanGraphs/pybaseball mid-season. Some parks change significantly year-to-year (new dimensions, humidor). | Matchup Planner and Lineup Optimizer use stale park data all season. |
+| B6 | **Category Urgency k-Calibration** | Sigmoid k=2.0 counting, k=3.0 rate — no sensitivity analysis | Run backtests: simulate weekly decisions with k from 1.0 to 5.0, measure end-of-season category wins. Pick k that maximizes weekly W-L. | Current k values control how aggressively you chase losing categories. Could be significantly off. |
+| B7 | **Power Rankings Momentum Weight** | Momentum = 10% of power rating | In 12-team H2H, hot streaks dominate weekly outcomes. Consider momentum 20%, reduce roster quality to 30%. | Power rankings may undervalue teams on 4-week winning streaks. |
+| B8 | **Validate Trade Finder Composite Weights** | 15/15/15/30/10/15 — acceptance-heavy, not backtested | Simulate: run trade finder on week 1-10 data, check if top-ranked trades would have improved your team by week 24. Tune weights to maximize post-trade improvement. | Currently optimizing for "trades that get accepted" rather than "trades that make you better." |
+
+### LOW — Polish & Edge Cases
+
+| # | Item | Current State | Fix | Impact |
+|---|------|--------------|-----|--------|
+| C1 | **Waiver Wire Drop Penalties** | Hardcoded: DH -3.0, low SB -1.5, low AVG -1.0 | Derive from league context: DH penalty should scale with how many Util slots you have. AVG threshold should be league-average AVG, not 0.245. | Mostly affects edge-case drop decisions. |
+| C2 | **Dual Objective Alpha Thresholds** | Time-based: 0.3/0.5/0.7/0.85 with ±0.1 adjustments | Validate against playoff probability: if you're 95% to make playoffs, alpha should be high (H2H focus). If 20%, pivot to spoiler/roto mode. | Affects lineup optimization strategy, not individual decisions. |
+| C3 | **Start/Sit Home Advantage** | Hardcoded 1.02 (2% boost) | MLB home advantage has declined to ~1.5% in recent years. Update to 1.015 and cite source. | Very small per-game effect. |
+| C4 | **Trade Readiness Normalization** | `(sgp + 5) * 5` assumes SGP range [-5, +15] | Compute actual SGP range from pool, normalize to [0, 100] dynamically. | Affects Trade Readiness tab scores — cosmetic more than functional. |
+| C5 | **Matchup Planner Inverse Park Formula** | `2.0 - park_factor` for pitchers (linear) | Use `1.0 / park_factor` (reciprocal) — theoretically correct since pitcher benefit is inverse of hitter benefit. | Tiny difference for most parks. Only Coors (1.38 → 0.62 vs 0.72) is meaningfully different. |
+
+### Implementation Priority
+
+**Do first (A1):** Dynamic SGP denominators. One function change, cascades everywhere.
+**Do second (A2+A4):** Weighted projection ensemble + remove self-referential ECR. Two independent fixes.
+**Do third (A3):** Bayesian SGP updating. Builds on A1.
+**Do fourth (B1):** League-specific acceptance calibration. Requires trade history data.
+**Rest:** As time allows, in numbered order within each tier.
