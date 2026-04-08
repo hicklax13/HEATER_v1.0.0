@@ -546,6 +546,19 @@ else:
 
         # Load roster
         roster = get_team_roster(user_team_name)
+
+        # Filter ghost players: traded-away players may linger in the DB with
+        # empty/null selected_position or roster_slot.  Also deduplicate by
+        # player_id and cap at league roster size (23).
+        if not roster.empty:
+            if "selected_position" in roster.columns:
+                roster = roster[
+                    roster["selected_position"].fillna("").astype(str).str.strip().ne("")
+                    & roster["selected_position"].astype(str).str.lower().ne("none")
+                ]
+            if "player_id" in roster.columns:
+                roster = roster.drop_duplicates(subset=["player_id"], keep="first")
+
         if roster.empty:
             st.info("No players on your roster yet.")
         else:
@@ -1228,135 +1241,158 @@ else:
                     )
                     render_context_card(f"Pitching Totals — {_totals_label}", pitch_html)
 
-                # Category Gaps card — compare team totals to league or H2H benchmarks
+                # Category Gaps card — compare user vs opponent in weekly H2H matchup
                 if hit_stats or pitch_stats:
-                    # Default H2H benchmarks (12-team, full-season averages)
-                    _BENCHMARKS: dict[str, float] = {
-                        "R": 800.0,
-                        "HR": 250.0,
-                        "RBI": 800.0,
-                        "SB": 100.0,
-                        "AVG": 0.260,
-                        "OBP": 0.330,
-                        "W": 85.0,
-                        "SV": 80.0,
-                        "K": 1200.0,
-                        "ERA": 3.80,
-                        "WHIP": 1.22,
-                    }
-                    # Inverse categories: lower is better
                     _INVERSE_CATS: set[str] = {"ERA", "WHIP"}
 
-                    # Attempt to derive per-team league averages from league_standings
-                    try:
-                        _ls = yds.get_standings()
-                        if not _ls.empty and "category" in _ls.columns and "total" in _ls.columns:
-                            # Compute mean total per category across all teams
-                            _ls_avg = _ls.groupby("category")["total"].mean().to_dict()
-                            # Normalise category keys to uppercase
-                            _ls_avg = {str(k).upper(): v for k, v in _ls_avg.items()}
-                            # Override defaults only for categories present in standings
-                            for _cat, _val in _ls_avg.items():
-                                if _cat in _BENCHMARKS and _val and _val > 0:
-                                    _BENCHMARKS[_cat] = float(_val)
-                    except Exception:
-                        pass  # Fall back to hardcoded benchmarks silently
-
-                    # Merge hit_stats and pitch_stats into one lookup; cast rate stats to float
-                    _team_totals: dict[str, float] = {}
-                    for _cat, _val in {**hit_stats, **pitch_stats}.items():
-                        try:
-                            _team_totals[_cat] = float(str(_val))
-                        except (ValueError, TypeError):
-                            pass
-
-                    # Compute gap and direction for each benchmarked category
-                    _gap_rows: list[dict] = []
-                    for _cat, _bench in _BENCHMARKS.items():
-                        if _cat not in _team_totals:
-                            continue
-                        _team_val = _team_totals[_cat]
-                        _is_inverse = _cat in _INVERSE_CATS
-                        # "above" means better: for inverse cats, lower team value is better
-                        _above = (_team_val < _bench) if _is_inverse else (_team_val >= _bench)
-                        if _is_inverse and _bench != 0:
-                            # Percentage gap: negative means below (worse for inverse)
-                            _pct = (_bench - _team_val) / _bench * 100.0
-                        elif _bench != 0:
-                            _pct = (_team_val - _bench) / _bench * 100.0
-                        else:
-                            _pct = 0.0
-                        _gap_rows.append(
-                            {
-                                "cat": _cat,
-                                "team_val": _team_val,
-                                "bench": _bench,
-                                "above": _above,
-                                "pct": _pct,
-                            }
+                    # Try to get live H2H matchup data from Yahoo
+                    _matchup_for_gaps = yds.get_matchup()
+                    _opp_totals: dict[str, float] = {}
+                    _matchup_label = ""
+                    if _matchup_for_gaps and isinstance(_matchup_for_gaps, dict):
+                        _matchup_label = (
+                            f"Week {_matchup_for_gaps.get('week', '?')} "
+                            f"vs {_matchup_for_gaps.get('opp_name', 'Opponent')}"
                         )
+                        for _cdict in _matchup_for_gaps.get("categories", []):
+                            _cat = str(_cdict.get("cat", "")).upper()
+                            _ov_str = str(_cdict.get("opp", "-"))
+                            try:
+                                if _ov_str not in ("-", ""):
+                                    _opp_totals[_cat] = float(_ov_str)
+                            except (ValueError, TypeError):
+                                pass
 
-                    if _gap_rows:
-                        # Identify 2 weakest categories (lowest pct gap, i.e. most below bench)
-                        _sorted_by_gap = sorted(_gap_rows, key=lambda x: x["pct"])
-                        _priority_cats = {r["cat"] for r in _sorted_by_gap[:2]}
+                    if _opp_totals:
+                        # Build user totals lookup
+                        _team_totals: dict[str, float] = {}
+                        for _cat, _val in {**hit_stats, **pitch_stats}.items():
+                            try:
+                                _team_totals[_cat.upper()] = float(str(_val))
+                            except (ValueError, TypeError):
+                                pass
 
-                        # Build priority targets block
-                        _priority_names = [r["cat"] for r in _sorted_by_gap[:2]]
-                        _priority_html = (
-                            f'<div style="margin-bottom:8px;padding:6px 8px;'
-                            f"background:rgba(230,57,70,0.07);border-radius:6px;"
-                            f'border-left:3px solid {T["danger"]};">'
-                            f'<div style="font-size:10px;font-weight:700;letter-spacing:0.8px;'
-                            f'text-transform:uppercase;color:{T["danger"]};margin-bottom:3px;">'
-                            f"Priority Targets</div>"
-                            f'<div style="font-size:12px;font-weight:600;'
-                            f'font-family:IBM Plex Mono,monospace;color:{T["tx"]};">'
-                            f"{' · '.join(_priority_names)}</div>"
-                            f"</div>"
-                        )
+                        # Also get user values from matchup for consistency
+                        _user_matchup_totals: dict[str, float] = {}
+                        for _cdict in _matchup_for_gaps.get("categories", []):
+                            _cat = str(_cdict.get("cat", "")).upper()
+                            _yv_str = str(_cdict.get("you", "-"))
+                            try:
+                                if _yv_str not in ("-", ""):
+                                    _user_matchup_totals[_cat] = float(_yv_str)
+                            except (ValueError, TypeError):
+                                pass
 
-                        # Build per-category rows
-                        _rows_html = ""
-                        for _row in _gap_rows:
-                            _cat = _row["cat"]
-                            _above = _row["above"]
-                            _pct = _row["pct"]
-                            _team_val = _row["team_val"]
-                            _bench = _row["bench"]
-                            _is_priority = _cat in _priority_cats
-                            _color = T["green"] if _above else T["danger"]
-                            _direction = "+" if _pct >= 0 else ""
-                            # Format values sensibly
-                            if _cat in ("AVG", "OBP"):
-                                _tv_str = f"{_team_val:.3f}"
-                                _bv_str = f"{_bench:.3f}"
-                            elif _cat in ("ERA", "WHIP"):
-                                _tv_str = f"{_team_val:.2f}"
-                                _bv_str = f"{_bench:.2f}"
+                        # Use matchup user values if available, else fall back to computed totals
+                        _user_vals = _user_matchup_totals if _user_matchup_totals else _team_totals
+
+                        # Compute gap vs opponent for each category
+                        _gap_rows: list[dict] = []
+                        for _cat, _opp_val in _opp_totals.items():
+                            if _cat not in _user_vals:
+                                continue
+                            _user_val = _user_vals[_cat]
+                            _is_inverse = _cat in _INVERSE_CATS
+                            # "above" means winning: for inverse cats, lower user value is better
+                            _above = (_user_val < _opp_val) if _is_inverse else (_user_val > _opp_val)
+                            _tied = abs(_user_val - _opp_val) < 1e-6
+                            # Diff: positive = winning for user
+                            if _is_inverse:
+                                _diff = _opp_val - _user_val  # positive when user ERA < opp ERA
                             else:
-                                _tv_str = f"{int(_team_val)}"
-                                _bv_str = f"{int(_bench)}"
-
-                            _label_weight = "700" if _is_priority else "400"
-                            _rows_html += (
-                                f'<div style="display:flex;justify-content:space-between;'
-                                f"align-items:center;padding:3px 0;font-size:12px;"
-                                f"font-family:IBM Plex Mono,monospace;"
-                                f'border-bottom:1px solid {T["border"]};">'
-                                f'<span style="font-weight:{_label_weight};color:{T["tx2"]};">'
-                                f"{_cat}</span>"
-                                f'<span style="display:flex;gap:6px;align-items:center;">'
-                                f'<span style="color:{T["tx2"]};font-size:11px;">'
-                                f"{_tv_str} / {_bv_str}</span>"
-                                f'<span style="font-weight:700;color:{_color};min-width:40px;'
-                                f'text-align:right;">'
-                                f"{_direction}{_pct:.1f}%</span>"
-                                f"</span></div>"
+                                _diff = _user_val - _opp_val
+                            _gap_rows.append(
+                                {
+                                    "cat": _cat,
+                                    "user_val": _user_val,
+                                    "opp_val": _opp_val,
+                                    "above": _above,
+                                    "tied": _tied,
+                                    "diff": _diff,
+                                    "is_inverse": _is_inverse,
+                                }
                             )
 
-                        _gaps_html = _priority_html + _rows_html
-                        render_context_card("Category Gaps", _gaps_html)
+                        if _gap_rows:
+                            # Identify losing categories (priority targets)
+                            _losing = [r for r in _gap_rows if not r["above"] and not r["tied"]]
+                            _losing_sorted = sorted(_losing, key=lambda x: x["diff"])
+                            _priority_cats = {r["cat"] for r in _losing_sorted[:2]}
+                            _priority_names = [r["cat"] for r in _losing_sorted[:2]]
+
+                            _priority_html = ""
+                            if _priority_names:
+                                _priority_html = (
+                                    f'<div style="margin-bottom:8px;padding:6px 8px;'
+                                    f"background:rgba(230,57,70,0.07);border-radius:6px;"
+                                    f'border-left:3px solid {T["danger"]};">'
+                                    f'<div style="font-size:10px;font-weight:700;letter-spacing:0.8px;'
+                                    f'text-transform:uppercase;color:{T["danger"]};margin-bottom:3px;">'
+                                    f"Losing Categories</div>"
+                                    f'<div style="font-size:12px;font-weight:600;'
+                                    f'font-family:IBM Plex Mono,monospace;color:{T["tx"]};">'
+                                    f"{' · '.join(_priority_names)}</div>"
+                                    f"</div>"
+                                )
+
+                            # Build per-category rows
+                            _rows_html = ""
+                            for _row in _gap_rows:
+                                _cat = _row["cat"]
+                                _above = _row["above"]
+                                _tied = _row["tied"]
+                                _diff = _row["diff"]
+                                _user_val = _row["user_val"]
+                                _opp_val = _row["opp_val"]
+                                _is_priority = _cat in _priority_cats
+                                if _tied:
+                                    _color = T["tx2"]
+                                elif _above:
+                                    _color = T["green"]
+                                else:
+                                    _color = T["danger"]
+                                # Format values
+                                if _cat in ("AVG", "OBP"):
+                                    _uv_str = f"{_user_val:.3f}"
+                                    _ov_str = f"{_opp_val:.3f}"
+                                    _diff_str = f"{_diff:+.3f}"
+                                elif _cat in ("ERA", "WHIP"):
+                                    _uv_str = f"{_user_val:.2f}"
+                                    _ov_str = f"{_opp_val:.2f}"
+                                    _diff_str = f"{_diff:+.2f}"
+                                else:
+                                    _uv_str = f"{int(_user_val)}"
+                                    _ov_str = f"{int(_opp_val)}"
+                                    _diff_str = f"{_diff:+.0f}"
+
+                                _label_weight = "700" if _is_priority else "400"
+                                _rows_html += (
+                                    f'<div style="display:flex;justify-content:space-between;'
+                                    f"align-items:center;padding:3px 0;font-size:12px;"
+                                    f"font-family:IBM Plex Mono,monospace;"
+                                    f'border-bottom:1px solid {T["border"]};">'
+                                    f'<span style="font-weight:{_label_weight};color:{T["tx2"]};">'
+                                    f"{_cat}</span>"
+                                    f'<span style="display:flex;gap:6px;align-items:center;">'
+                                    f'<span style="color:{T["tx2"]};font-size:11px;">'
+                                    f"{_uv_str} / {_ov_str}</span>"
+                                    f'<span style="font-weight:700;color:{_color};min-width:40px;'
+                                    f'text-align:right;">'
+                                    f"{_diff_str}</span>"
+                                    f"</span></div>"
+                                )
+
+                            _title = f"Category Gaps — {_matchup_label}" if _matchup_label else "Category Gaps"
+                            _gaps_html = _priority_html + _rows_html
+                            render_context_card(_title, _gaps_html)
+                    else:
+                        # No matchup data available
+                        render_context_card(
+                            "Category Gaps",
+                            f'<div style="font-size:12px;color:{T["tx2"]};">'
+                            f"No weekly matchup data available. Connect Yahoo to see "
+                            f"head-to-head category gaps vs your current opponent.</div>",
+                        )
 
                 # IL alerts card
                 if il_players:
@@ -1697,6 +1733,9 @@ else:
                                     "SELECT * FROM projections WHERE system = 'blended'", conn
                                 )
                                 preseason = coerce_numeric_df(preseason)
+                                # Filter preseason to roster players only (Bug fix: was showing ~9K players)
+                                if roster_pids and "player_id" in preseason.columns:
+                                    preseason = preseason[preseason["player_id"].isin(roster_pids)]
                                 bayes_progress.progress(
                                     30,
                                     text="Applying Marcel regression with stabilization thresholds...",
