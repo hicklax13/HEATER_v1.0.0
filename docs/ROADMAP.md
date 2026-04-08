@@ -89,9 +89,9 @@ Daily dashboard: War Room, alerts, roster overview, Monday briefing.
 
 | # | Item | Fix | Impact | Status |
 |---|------|-----|--------|--------|
-| F2 | **Draft-Round Anchoring** | Rd 1-3 = 1.3x endowment, Rd 4-8 = 1.15x, Rd 9+ = 1.0x on opponent perceived value. | 15-30% more realistic acceptance for early-round players. | |
-| F3 | **Disposition Effect** | YTD > projection: +10-15% acceptance. YTD < projection: -10-15%. | Captures #1 behavioral rejection pattern. | |
-| F4 | **Recently-Acquired Penalty** | Traded-for within 3 weeks: -10-15% acceptance. | Uses existing Yahoo transaction data. | |
+| F2 | **Draft-Round Anchoring** | Rd 1-3 = 1.3x endowment, Rd 4-8 = 1.15x, Rd 9+ = 1.0x on opponent perceived value. | 15-30% more realistic acceptance for early-round players. | DONE |
+| F3 | **Disposition Effect** | YTD > projection: +10-15% acceptance. YTD < projection: -10-15%. | Captures #1 behavioral rejection pattern. | DONE |
+| F4 | **Recently-Acquired Penalty** | Traded-for within 3 weeks: -10-15% acceptance. | Uses existing Yahoo transaction data. | DONE |
 | F5 | **Playoff-Odds Acceptance** | Replace raw standings rank with `simulate_season_enhanced()` playoff odds. | More precise than rank alone. Data already computed. | DONE |
 | B1 | **League-Specific Acceptance Calibration** | Empirical acceptance rates from Yahoo transactions. | League-calibrated, not generic. Prerequisite for D4. | |
 | D4 | **Opponent Behavior Learning** | Per-opponent logistic regression on trade history. Requires B1 first. | ~10-20% acceptance improvement. | |

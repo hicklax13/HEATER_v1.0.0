@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import math
+from datetime import UTC, datetime, timedelta
 
 import numpy as np
 import pandas as pd
@@ -232,12 +233,15 @@ def estimate_acceptance_probability(
     opponent_standings_rank: int | None = None,
     opponent_trade_willingness: float = 0.5,
     loss_aversion: float = LOSS_AVERSION,
+    recv_draft_round: int | None = None,
+    recv_ytd_vs_proj: float | None = None,
+    recv_recently_acquired: bool = False,
 ) -> float:
     """Estimate probability that opponent accepts the trade.
 
     Uses behavioral model: loss aversion, fairness gap, need matching,
-    ADP fairness, opponent need alignment, standings position, and
-    trade willingness archetype.
+    ADP fairness, opponent need alignment, standings position, trade
+    willingness archetype, and behavioral biases (F2/F3/F4).
 
     Args:
         user_gain_sgp: How much YOU gain (SGP).
@@ -247,6 +251,9 @@ def estimate_acceptance_probability(
         opponent_need_match: How well trade fills opponent category gaps (0-1).
         opponent_standings_rank: Opponent rank in standings (1-12, None if unknown).
         opponent_trade_willingness: Archetype willingness to trade (0-1).
+        recv_draft_round: F2 — draft round of player opponent gives up (1-23).
+        recv_ytd_vs_proj: F3 — ratio of YTD performance to projection (e.g., 1.1 = 10% above).
+        recv_recently_acquired: F4 — True if opponent acquired player via trade within 3 weeks.
 
     Returns:
         float in [0, 1] -- estimated acceptance probability.
@@ -264,13 +271,32 @@ def estimate_acceptance_probability(
     # ADP penalty: strong penalty when opponent gives up a higher-drafted player
     adp_penalty = max(0, (0.5 - adp_fairness) * 3.0)
 
+    # F2: Draft-round anchoring — owners overvalue early-round picks (endowment effect).
+    # Rd 1-3 = 1.3x perceived value, Rd 4-8 = 1.15x, Rd 9+ = 1.0x.
+    draft_anchor_penalty = 0.0
+    if recv_draft_round is not None and recv_draft_round >= 1:
+        if recv_draft_round <= 3:
+            draft_anchor_penalty = 0.6  # Strong resistance to giving up 1st-3rd rounders
+        elif recv_draft_round <= 8:
+            draft_anchor_penalty = 0.3  # Moderate for mid-round picks
+
+    # F3: Disposition effect — owners hold winners and sell losers.
+    # If the player opponent gives up is outperforming projections, they
+    # feel good and are LESS willing to trade. Underperformers → more willing.
+    disposition_bonus = 0.0
+    if recv_ytd_vs_proj is not None:
+        if recv_ytd_vs_proj > 1.10:
+            disposition_bonus = -0.3  # Outperforming → harder to pry away
+        elif recv_ytd_vs_proj < 0.90:
+            disposition_bonus = 0.3  # Underperforming → more willing to deal
+
+    # F4: Recently-acquired penalty — owners who just traded FOR a player
+    # won't flip them within 3 weeks (sunk cost + cognitive dissonance).
+    recency_penalty = 0.3 if recv_recently_acquired else 0.0
+
     # Playoff-odds-aware bubble bonus: teams on the bubble trade most actively.
-    # Approximates playoff odds from standings rank when full simulation
-    # (simulate_season_enhanced) is not available.
     bubble_bonus = 0.0
-    playoff_odds = None
     if opponent_standings_rank:
-        # Simple linear approximation: odds decrease with rank
         n_teams = 12
         playoff_odds = max(0.0, 1.0 - (opponent_standings_rank - 1) / (n_teams - 1))
 
@@ -280,7 +306,6 @@ def estimate_acceptance_probability(
             bubble_bonus = 0.4  # Bubble team, most active
         elif playoff_odds > 0.85:
             bubble_bonus = -0.1  # Conservative contender
-        # else: playoff_odds between 0.15-0.30 or 0.70-0.85 -> neutral (0.0)
 
     exponent = (
         2.0 * fairness_gap
@@ -288,6 +313,9 @@ def estimate_acceptance_probability(
         - 0.5 * max(opponent_gain_sgp, 0)
         - 1.0 * opponent_need_match
         + adp_penalty
+        + draft_anchor_penalty
+        + recency_penalty
+        + disposition_bonus
         - bubble_bonus
         - 0.5 * opponent_trade_willingness
     )
@@ -885,6 +913,22 @@ def scan_1_for_1(
     except Exception:
         pass
 
+    # F4: Load recent transactions to detect recently-acquired players
+    _transactions_df = None
+    try:
+        from src.database import get_connection as _gc3
+
+        _conn3 = _gc3()
+        try:
+            _transactions_df = pd.read_sql_query(
+                "SELECT player_id, type, timestamp FROM transactions WHERE type = 'trade'",
+                _conn3,
+            )
+        finally:
+            _conn3.close()
+    except Exception:
+        pass
+
     results = []
 
     for give_id in user_roster_ids:
@@ -1060,6 +1104,34 @@ def scan_1_for_1(
                 raw_divergence = ytd_modifier - 1.0
                 ytd_modifier = 1.0 + raw_divergence * reliability
 
+            # F2: Draft-round anchoring — look up opponent's player draft round
+            recv_round = None
+            try:
+                from src.database import get_player_draft_round
+
+                recv_round = get_player_draft_round(recv_id)
+            except Exception:
+                pass
+
+            # F3: Disposition effect — reuse perf_ratio from YTD modifier above
+            recv_ytd_ratio = ytd_modifier if ytd_modifier != 1.0 else None
+
+            # F4: Recently-acquired penalty — check if opponent got this player via trade
+            recv_recently_acq = False
+            if _transactions_df is not None and not _transactions_df.empty:
+                try:
+                    _three_weeks_ago = (
+                        datetime.now(UTC) - timedelta(weeks=3)
+                    ).isoformat()
+                    recent_trades = _transactions_df[
+                        (_transactions_df["player_id"] == recv_id)
+                        & (_transactions_df["type"] == "trade")
+                        & (_transactions_df["timestamp"] >= _three_weeks_ago)
+                    ]
+                    recv_recently_acq = not recent_trades.empty
+                except Exception:
+                    pass
+
             p_accept = estimate_acceptance_probability(
                 user_delta,
                 opp_delta,
@@ -1068,6 +1140,9 @@ def scan_1_for_1(
                 opponent_need_match=opp_need_match,
                 opponent_trade_willingness=opp_archetype_willingness,
                 loss_aversion=loss_aversion,
+                recv_draft_round=recv_round,
+                recv_ytd_vs_proj=recv_ytd_ratio,
+                recv_recently_acquired=recv_recently_acq,
             )
 
             # Acceptance floor: skip trades nobody would accept
