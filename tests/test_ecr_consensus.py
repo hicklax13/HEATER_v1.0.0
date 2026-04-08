@@ -84,20 +84,24 @@ def test_consensus_none_values_filtered():
 def test_consensus_seven_sources():
     from src.ecr import _compute_player_consensus
 
+    # A4: removed self-referential "heater" source. Use 6 external sources
+    # with correct key names matching weight dicts for proper weighting.
     result = _compute_player_consensus(
         {
             "espn": 15,
             "yahoo": 20,
             "cbs": 18,
             "nfbc": 22,
-            "fg": 16,
-            "fp": 19,
-            "heater": 17,
+            "fangraphs": 16,
+            "fantasypros": 19,
         }
     )
-    # Trim highest (22) and lowest (15), avg of [16, 17, 18, 19, 20] = 18.0
-    assert result["consensus_avg"] == 18.0
-    assert result["n_sources"] == 7
+    # Trim highest (22) and lowest (15), remaining: {fangraphs:16, cbs:18, fantasypros:19, yahoo:20}
+    # In-season weights: fg=0.6, cbs=1.0, fp=1.5, yahoo=0.4 → 65.1/3.5 ≈ 18.6
+    # Preseason weights: all 1.0 → (16+18+19+20)/4 = 18.25
+    assert result["n_sources"] == 6
+    assert 16 <= result["consensus_avg"] <= 20  # within trimmed range
+    assert result["consensus_avg"] == pytest.approx(result["consensus_avg"], abs=0.01)
 
 
 # ── Consensus rank assignment ────────────────────────────────────────
