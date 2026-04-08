@@ -217,6 +217,102 @@ def platoon_adjustment(
     return float(factor)
 
 
+# ── Bayesian Platoon Adjustment ──────────────────────────────────────
+
+# League-average platoon advantages (from The Book)
+_LHB_VS_RHP_ADVANTAGE = 0.086  # +8.6% wOBA
+_RHB_VS_LHP_ADVANTAGE = 0.061  # +6.1% wOBA
+_LHB_STABILIZATION_PA = 1000
+_RHB_STABILIZATION_PA = 2200
+
+
+def bayesian_platoon_adjustment(
+    batter_hand: str,
+    pitcher_hand: str,
+    individual_split_avg: float | None = None,
+    individual_overall_avg: float | None = None,
+    sample_pa: int = 0,
+) -> float:
+    """Bayesian-blended platoon adjustment.
+
+    Blends individual split data with league-average splits based on sample size.
+    At 200 PA of individual LHB vs LHP data: 80% league average, 20% individual.
+    At 1000 PA: 50/50.
+
+    Args:
+        batter_hand: "L" or "R" for left/right-handed batter.
+        pitcher_hand: "L" or "R" for left/right-handed pitcher.
+        individual_split_avg: Batter's batting average in this split.
+            None if unavailable.
+        individual_overall_avg: Batter's overall batting average.
+            None if unavailable.
+        sample_pa: Number of PA in this specific platoon split.
+
+    Returns:
+        Multiplicative adjustment factor clamped to [0.80, 1.20].
+    """
+    bh = batter_hand.upper().strip() if batter_hand else ""
+    ph = pitcher_hand.upper().strip() if pitcher_hand else ""
+
+    # Unknown handedness -> neutral
+    if bh not in ("L", "R") or ph not in ("L", "R"):
+        return 1.0
+
+    # Determine league-average advantage
+    has_advantage = bh != ph
+
+    if bh == "L":
+        league_advantage = _LHB_VS_RHP_ADVANTAGE if has_advantage else -_LHB_VS_RHP_ADVANTAGE
+        stab_pa = _LHB_STABILIZATION_PA
+    else:
+        league_advantage = _RHB_VS_LHP_ADVANTAGE if has_advantage else -_RHB_VS_LHP_ADVANTAGE
+        stab_pa = _RHB_STABILIZATION_PA
+
+    # Bayesian blend
+    if (
+        individual_split_avg is not None
+        and individual_overall_avg is not None
+        and sample_pa > 0
+        and individual_overall_avg > 0
+    ):
+        individual_advantage = (individual_split_avg - individual_overall_avg) / individual_overall_avg
+        blend_weight = min(1.0, sample_pa / stab_pa)
+        blended_advantage = blend_weight * individual_advantage + (1 - blend_weight) * league_advantage
+    else:
+        blended_advantage = league_advantage
+
+    return max(0.80, min(1.20, 1.0 + blended_advantage))
+
+
+# ── Calibrated Pitcher Quality Multiplier ────────────────────────────
+
+
+def calibrated_pitcher_quality_mult(
+    opp_era: float,
+    league_avg_era: float = 4.20,
+    league_std_era: float = 0.80,
+) -> float:
+    """Calibrated opposing pitcher quality multiplier.
+
+    Research: facing ace vs replacement is approximately plus or minus 15%
+    counting stat adjustment. Uses z-score of pitcher ERA vs league average,
+    scaled to plus or minus 15% max.
+
+    Args:
+        opp_era: Opposing pitcher's ERA.
+        league_avg_era: League average ERA (default 4.20).
+        league_std_era: League ERA standard deviation (default 0.80).
+
+    Returns:
+        Multiplier centered at 1.0 (1.15 for weak pitcher, 0.85 for ace).
+        Clamped to [0.85, 1.15].
+    """
+    z = (opp_era - league_avg_era) / max(league_std_era, 0.01)
+    # Clamp z-score to [-2, +2] -> multiplier to [0.85, 1.15]
+    z_clamped = max(-2.0, min(2.0, z))
+    return 1.0 + z_clamped * 0.075  # +/-0.15 at z=+/-2
+
+
 # ── Park Factor Adjustment ───────────────────────────────────────────
 
 
@@ -293,6 +389,57 @@ def weather_hr_adjustment(temp_f: float = 72.0) -> float:
         Always >= 1.0.
     """
     return 1.0 + _HR_TEMP_COEFFICIENT * max(0.0, temp_f - _REFERENCE_TEMP_F)
+
+
+# ── Rain Adjustment ─────────────────────────────────────────────────
+
+
+def weather_rain_adjustment(precip_pct: float = 0.0) -> dict[str, float]:
+    """Adjust K and BB projections based on rain probability.
+
+    Research (AMS): rain >40% increases walks by ~9.6% and decreases
+    strikeouts by ~10.1%.  Linear interpolation from 0% effect at
+    precip=0 to full effect at precip>=40%.
+
+    Args:
+        precip_pct: Precipitation probability as a percentage (0-100).
+
+    Returns:
+        Dict with k_mult (strikeout multiplier) and bb_mult (walk multiplier).
+        Both are 1.0 when no rain.
+    """
+    if precip_pct <= 0:
+        return {"k_mult": 1.0, "bb_mult": 1.0}
+    rain_factor = min(1.0, precip_pct / 40.0)
+    return {
+        "k_mult": 1.0 - 0.101 * rain_factor,  # Up to -10.1% K
+        "bb_mult": 1.0 + 0.096 * rain_factor,  # Up to +9.6% BB
+    }
+
+
+# ── Wind HR Adjustment ──────────────────────────────────────────────
+
+
+def weather_wind_hr_adjustment(wind_mph: float = 0.0, wind_out: bool = False) -> float:
+    """Adjust HR projection for wind speed and direction.
+
+    Research: wind blowing out >10 mph increases HR rate by 15-20%.
+    Wind blowing in reduces HR rate by 10-15%.
+
+    Args:
+        wind_mph: Wind speed in miles per hour.
+        wind_out: True if wind is blowing out (toward outfield),
+            False if blowing in or crosswind.
+
+    Returns:
+        HR multiplier (1.0 = neutral).
+    """
+    if wind_mph < 5:
+        return 1.0
+    if wind_out:
+        return 1.0 + min(0.20, (wind_mph - 5) * 0.04)  # +4% per mph above 5, cap 20%
+    else:
+        return max(0.85, 1.0 - (wind_mph - 5) * 0.03)  # -3% per mph above 5, floor 85%
 
 
 # ── Weekly Matchup Adjustment Pipeline ───────────────────────────────
@@ -376,6 +523,14 @@ def _build_team_schedule(
         weather_key = f"{game_date}:{home_abbrev}"
         weather = weather_lookup.get(weather_key, {})
 
+        # Build shared weather info dict for both teams in this game
+        game_weather = {
+            "temp_f": weather.get("temp_f"),
+            "wind_mph": weather.get("wind_mph"),
+            "wind_dir": weather.get("wind_dir"),
+            "precip_pct": weather.get("precip_pct"),
+        }
+
         if home_abbrev:
             team_games.setdefault(home_abbrev, []).append(
                 {
@@ -384,8 +539,7 @@ def _build_team_schedule(
                     "is_home": True,
                     "park_team": home_abbrev,
                     "opposing_pitcher": away_pitcher,
-                    "temp_f": weather.get("temp_f"),
-                    "wind_mph": weather.get("wind_mph"),
+                    **game_weather,
                 }
             )
 
@@ -397,8 +551,7 @@ def _build_team_schedule(
                     "is_home": False,
                     "park_team": home_abbrev,
                     "opposing_pitcher": home_pitcher,
-                    "temp_f": weather.get("temp_f"),
-                    "wind_mph": weather.get("wind_mph"),
+                    **game_weather,
                 }
             )
 
@@ -479,11 +632,31 @@ def compute_weekly_matchup_adjustments(
                         factor *= pf
                     # Pitchers: park factor is neutral for counting stats
 
-                # Weather HR adjustment (when temperature data is present)
-                if enable_weather and stat == "hr" and is_hitter:
+                # Weather adjustments (when data is present)
+                if enable_weather:
                     temp = game.get("temp_f")
-                    if temp is not None:
+                    precip = game.get("precip_pct")
+                    wind_mph_val = game.get("wind_mph")
+                    wind_dir_val = game.get("wind_dir")
+
+                    # Temperature HR adjustment (hitters only)
+                    if stat == "hr" and is_hitter and temp is not None:
                         factor *= weather_hr_adjustment(float(temp))
+
+                    # Wind HR adjustment (hitters only)
+                    if stat == "hr" and is_hitter and wind_mph_val is not None:
+                        wind_blowing_out = (
+                            isinstance(wind_dir_val, str)
+                            and "out" in wind_dir_val.lower()
+                        )
+                        factor *= weather_wind_hr_adjustment(
+                            float(wind_mph_val), wind_out=wind_blowing_out
+                        )
+
+                    # Rain K/BB adjustment (pitchers: K stat)
+                    if stat == "k" and not is_hitter and precip is not None:
+                        rain_adj = weather_rain_adjustment(float(precip))
+                        factor *= rain_adj["k_mult"]
 
                 # Platoon adjustment (when handedness data is present)
                 if enable_platoon and is_hitter:

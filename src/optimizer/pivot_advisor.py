@@ -196,3 +196,77 @@ def get_pivot_summary(
         "contested": contested,
         "recommended_actions": actions,
     }
+
+
+# ── Ratio Protection Calculator ─────────────────────────────────────
+
+
+def compute_ratio_protection(
+    current_era: float,
+    current_whip: float,
+    banked_ip: float,
+    pitcher_proj_era: float,
+    pitcher_proj_whip: float = 1.30,
+    pitcher_proj_ip: float = 6.0,
+    era_lead: float = 0.0,
+    whip_lead: float = 0.0,
+) -> dict:
+    """Compute marginal ERA/WHIP risk from one additional pitcher start.
+
+    When you are winning ERA/WHIP, each start risks destroying the lead.
+    This function quantifies that risk so the manager can decide whether
+    to bench a pitcher to protect rate-stat leads.
+
+    The math:
+        new_era = (current_era * banked_ip + pitcher_era * pitcher_ip)
+                  / (banked_ip + pitcher_ip)
+        era_risk = new_era - current_era  (positive = ERA gets worse)
+
+    Args:
+        current_era: Team's current ERA for the matchup week.
+        current_whip: Team's current WHIP for the matchup week.
+        banked_ip: Innings pitched so far this matchup week.
+        pitcher_proj_era: Projected ERA for the pitcher being considered.
+        pitcher_proj_whip: Projected WHIP for the pitcher being considered.
+        pitcher_proj_ip: Expected innings for this start (default 6.0).
+        era_lead: Current ERA lead over opponent (positive = winning).
+        whip_lead: Current WHIP lead over opponent (positive = winning).
+
+    Returns:
+        Dict with keys: era_risk, whip_risk, recommend, era_after, whip_after.
+        recommend is one of "START", "BENCH", or "RISKY".
+    """
+    total_ip = banked_ip + pitcher_proj_ip
+    if total_ip <= 0:
+        return {
+            "era_risk": 0.0,
+            "whip_risk": 0.0,
+            "recommend": "START",
+            "era_after": current_era,
+            "whip_after": current_whip,
+        }
+
+    # Blend current rate stats with pitcher's projected rate stats by IP
+    era_after = (current_era * banked_ip + pitcher_proj_era * pitcher_proj_ip) / total_ip
+    era_risk = era_after - current_era
+
+    whip_after = (current_whip * banked_ip + pitcher_proj_whip * pitcher_proj_ip) / total_ip
+    whip_risk = whip_after - current_whip
+
+    # Recommend based on risk vs lead
+    if era_lead > 0 and era_risk > era_lead * 0.5:
+        recommend = "BENCH"  # Risk losing >50% of ERA lead
+    elif whip_lead > 0 and whip_risk > whip_lead * 0.5:
+        recommend = "BENCH"  # Risk losing >50% of WHIP lead
+    elif era_risk > 0.30 or whip_risk > 0.10:
+        recommend = "RISKY"
+    else:
+        recommend = "START"
+
+    return {
+        "era_risk": round(era_risk, 3),
+        "whip_risk": round(whip_risk, 3),
+        "recommend": recommend,
+        "era_after": round(era_after, 3),
+        "whip_after": round(whip_after, 3),
+    }
