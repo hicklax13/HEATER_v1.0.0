@@ -714,7 +714,7 @@ with main:
             # Fetch today's MLB schedule for game-today annotations
             _today_teams_playing: set[str] = set()
             try:
-                from datetime import UTC, datetime
+                from datetime import datetime, timedelta, timezone
 
                 import statsapi
 
@@ -751,7 +751,9 @@ with main:
                     "Toronto Blue Jays": "TOR",
                     "Washington Nationals": "WSH",
                 }
-                _today_str = datetime.now(UTC).strftime("%Y-%m-%d")
+                # MLB schedule dates are in US Eastern time
+                _ET = timezone(timedelta(hours=-4))
+                _today_str = datetime.now(_ET).strftime("%Y-%m-%d")
                 _today_sched = statsapi.schedule(date=_today_str)
                 for _g in _today_sched:
                     for _side in ("home_name", "away_name"):
@@ -773,11 +775,12 @@ with main:
 
                     _dcv_sched = None
                     try:
-                        from datetime import UTC, datetime
+                        from datetime import datetime, timedelta, timezone
 
                         import statsapi
 
-                        _dcv_sched = statsapi.schedule(date=datetime.now(UTC).strftime("%Y-%m-%d"))
+                        _ET2 = timezone(timedelta(hours=-4))
+                        _dcv_sched = statsapi.schedule(date=datetime.now(_ET2).strftime("%Y-%m-%d"))
                     except Exception:
                         _dcv_sched = []
 
@@ -2486,7 +2489,7 @@ with main:
         else:
             # Fallback: compute inline when optimizer hasn't run
             try:
-                from datetime import UTC, datetime, timedelta
+                from datetime import datetime, timedelta, timezone
 
                 import statsapi
 
@@ -2522,7 +2525,8 @@ with main:
                     "Toronto Blue Jays": "TOR",
                     "Washington Nationals": "WSH",
                 }
-                today = datetime.now(UTC)
+                _ET3 = timezone(timedelta(hours=-4))
+                today = datetime.now(_ET3)
                 end = today + timedelta(days=7)
                 schedule = statsapi.schedule(
                     start_date=today.strftime("%Y-%m-%d"),

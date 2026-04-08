@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 import math
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, timezone
 
 import pandas as pd
 
@@ -411,7 +411,9 @@ def _load_schedule_data(ctx: OptimizerDataContext) -> None:
     try:
         import statsapi
 
-        today = datetime.now(UTC).strftime("%Y-%m-%d")
+        # MLB schedule dates are in US Eastern time, not UTC
+        _ET = timezone(timedelta(hours=-4))  # EDT
+        today = datetime.now(_ET).strftime("%Y-%m-%d")
         games = statsapi.schedule(date=today)
         ctx.todays_schedule = games if games else []
     except Exception:

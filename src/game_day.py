@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 import time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta, timezone
 
 import pandas as pd
 
@@ -201,7 +201,9 @@ def fetch_game_day_intelligence() -> dict:
             "fetched_at": datetime.now(UTC).isoformat(),
         }
 
-    today_str = datetime.now(UTC).strftime("%Y-%m-%d")
+    # MLB schedule dates are in US Eastern time, not UTC
+    _ET = timezone(timedelta(hours=-4))  # EDT
+    today_str = datetime.now(_ET).strftime("%Y-%m-%d")
     try:
         schedule = _statsapi.schedule(date=today_str)
     except Exception:

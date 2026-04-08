@@ -86,6 +86,80 @@ def _get_opponent_team(player_team: str, teams_playing: list[str]) -> str | None
     return None
 
 
+def _build_schedule_context() -> tuple[dict[str, str], set[str]]:
+    """Build schedule pairings and set of probable starters from statsapi.
+
+    Returns
+    -------
+    pairings : dict[str, str]
+        Maps team abbreviation to opponent abbreviation (both directions).
+    probable_starters : set[str]
+        Lowercased last names of today's probable pitchers.
+    """
+    pairings: dict[str, str] = {}
+    probable_starters: set[str] = set()
+    try:
+        from datetime import datetime, timedelta, timezone
+
+        import statsapi
+
+        # MLB schedule dates are in US Eastern time, not UTC.
+        # Using UTC after ~8pm ET would pull tomorrow's schedule.
+        _ET = timezone(timedelta(hours=-4))  # EDT (summer)
+        _FULL_TO_ABBR: dict[str, str] = {
+            "Arizona Diamondbacks": "ARI",
+            "Atlanta Braves": "ATL",
+            "Baltimore Orioles": "BAL",
+            "Boston Red Sox": "BOS",
+            "Chicago Cubs": "CHC",
+            "Chicago White Sox": "CWS",
+            "Cincinnati Reds": "CIN",
+            "Cleveland Guardians": "CLE",
+            "Colorado Rockies": "COL",
+            "Detroit Tigers": "DET",
+            "Houston Astros": "HOU",
+            "Kansas City Royals": "KC",
+            "Los Angeles Angels": "LAA",
+            "Los Angeles Dodgers": "LAD",
+            "Miami Marlins": "MIA",
+            "Milwaukee Brewers": "MIL",
+            "Minnesota Twins": "MIN",
+            "New York Mets": "NYM",
+            "New York Yankees": "NYY",
+            "Athletics": "ATH",
+            "Oakland Athletics": "OAK",
+            "Philadelphia Phillies": "PHI",
+            "Pittsburgh Pirates": "PIT",
+            "San Diego Padres": "SD",
+            "San Francisco Giants": "SF",
+            "Seattle Mariners": "SEA",
+            "St. Louis Cardinals": "STL",
+            "Tampa Bay Rays": "TB",
+            "Texas Rangers": "TEX",
+            "Toronto Blue Jays": "TOR",
+            "Washington Nationals": "WSH",
+        }
+        today = datetime.now(_ET).strftime("%Y-%m-%d")
+        sched = statsapi.schedule(date=today)
+        for game in sched:
+            home = _FULL_TO_ABBR.get(game.get("home_name", ""), "")
+            away = _FULL_TO_ABBR.get(game.get("away_name", ""), "")
+            if home and away:
+                pairings[home] = away
+                pairings[away] = home
+            # Collect probable pitchers (last name, lowercased)
+            for key in ("home_probable_pitcher", "away_probable_pitcher"):
+                name = game.get(key, "") or ""
+                if name and name != "TBD":
+                    # Store last name lowercased for fuzzy matching
+                    parts = name.strip().split()
+                    if parts:
+                        probable_starters.add(parts[-1].lower())
+    except Exception:
+        logger.warning("Failed to build schedule context from statsapi")
+    return pairings, probable_starters
+
+
 def compute_todays_actions(
     roster: pd.DataFrame,
     teams_playing: list[str] | None = None,
@@ -134,6 +208,9 @@ def compute_todays_actions(
 
     teams_playing_upper = {t.upper() for t in teams_playing}
     losing_cats = [c.upper() for c in (losing_cats or [])]
+
+    # Build schedule pairings and probable starters from MLB API
+    _schedule_pairings, _probable_starters = _build_schedule_context()
 
     # Determine if we are winning ERA/WHIP (affects risky-start threshold)
     winning_era = matchup is not None and "ERA" not in losing_cats
@@ -244,7 +321,7 @@ def compute_todays_actions(
                 )
 
     # ------------------------------------------------------------------
-    # Priority 3 — SP matchup quality
+    # Priority 3 — SP matchup quality (only probable starters)
     # ------------------------------------------------------------------
     for _, player in roster.iterrows():
         if _is_bench(str(player.get("roster_slot", "BN")), str(player.get("status", ""))):
@@ -257,40 +334,27 @@ def compute_todays_actions(
         player_name = player.get("name", "Unknown")
         player_team = str(player.get("team", "")).strip().upper()
 
-        # Try to assess opponent quality via get_team_strength for each
-        # team playing today that is NOT the player's own team.
-        # Without explicit pairings, we check all opposing teams.
-        opp_wrc: float | None = None
-        opp_label: str = ""
-        try:
-            from src.game_day import get_team_strength
+        # Only show SP alerts for probable starters (from MLB schedule)
+        if _probable_starters:
+            name_parts = str(player_name).strip().split()
+            last_name = name_parts[-1].lower() if name_parts else ""
+            if last_name not in _probable_starters:
+                continue  # Not a probable starter today — skip
 
-            # Heuristic: check every other team playing for a plausible opponent
-            for opp in teams_playing_upper:
-                if opp == player_team:
-                    continue
-                strength = get_team_strength(opp)
+        # Look up actual opponent from schedule pairings
+        opp_wrc: float | None = None
+        opp_label: str = _schedule_pairings.get(player_team, "")
+        if opp_label:
+            try:
+                from src.game_day import get_team_strength
+
+                strength = get_team_strength(opp_label)
                 if strength and isinstance(strength, dict):
                     wrc = strength.get("wrc_plus")
                     if wrc is not None:
-                        try:
-                            wrc = float(wrc)
-                        except (ValueError, TypeError):
-                            continue
-                        # Take the first plausible opponent; we cannot know
-                        # the real one without a schedule pairing.
-                        # In practice, the schedule usually has pairings
-                        # but we keep this defensive.
-                        if opp_wrc is None:
-                            opp_wrc = wrc
-                            opp_label = opp
-                        # Accept the weakest opponent as the likely matchup
-                        # (best-case for optimistic display).  This is a
-                        # simplification; the real pairing should be used
-                        # when available.
-                        break
-        except Exception:
-            pass
+                        opp_wrc = float(wrc)
+            except Exception:
+                pass
 
         if opp_wrc is not None and opp_wrc > 110:
             # Tough matchup

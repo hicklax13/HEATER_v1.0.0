@@ -5,7 +5,7 @@ and daily lineup checks.
 """
 
 import logging
-from datetime import UTC, datetime
+from datetime import datetime, timedelta, timezone
 
 import pandas as pd
 
@@ -336,7 +336,9 @@ def get_todays_mlb_games() -> list[str]:
     try:
         import statsapi
 
-        today = datetime.now(UTC).strftime("%Y-%m-%d")
+        # MLB schedule dates are in US Eastern time, not UTC
+        _ET = timezone(timedelta(hours=-4))  # EDT (summer)
+        today = datetime.now(_ET).strftime("%Y-%m-%d")
         schedule = statsapi.schedule(start_date=today, end_date=today)
         teams_playing = set()
         for game in schedule:
