@@ -24,7 +24,7 @@
 
 ## Accuracy & Improvement Backlog — Organized by Page
 
-**105 total items** (91 unique after deduplication) identified via algorithm audit, deep web research
+**117 total items** (103 unique after deduplication) identified via algorithm audit, deep web research
 (FanGraphs, Baseball Savant, behavioral economics, game theory, MIT Sloan, AMS, PMC), and
 sabermetric literature. Updated April 7, 2026 to reflect Line-up Optimizer V3 (f795ea8).
 
@@ -53,7 +53,7 @@ Legend: Items that affect ALL pages are listed under "Global / Core Engine" firs
 
 ---
 
-### GLOBAL / CORE ENGINE (affects every page downstream) — 14 items
+### GLOBAL / CORE ENGINE (affects every page downstream) — 18 items
 
 These cascade through all 53 engines. Highest leverage.
 
@@ -73,6 +73,10 @@ These cascade through all 53 engines. Highest leverage.
 | E2 | **Populate Stuff+/Location+/Pitching+** | DB columns exist but empty. Populate via `pybaseball pitching_stats()`. | Transforms pitcher evaluation across all pages. | Low |
 | J1 | **Per-Stat In-Season Update Rates** | `current_weight[stat] = PA / stabilization[stat]`. K% at 60, AVG at 910, BABIP at 820. | Highest-impact projection fix. K% updates 15x faster than AVG. | Medium |
 | J6 | **Projection Uncertainty Bands** | Use empirical SDs (ERA=1.20, WHIP=0.20, AVG=0.025) for P10/P50/P90. | Prevents over-optimizing on noise. | Low |
+| T1 | **DATA: Fetch Stuff+/Location+/Pitching+** | Add `pybaseball.pitching_stats(year, qual=0)` to bootstrap. Write stuff_plus, location_plus, pitching_plus to existing empty DB columns. 15 min. | Unlocks E2, G2, O1, L2. Single highest-ROI data addition. | Trivial |
+| T2 | **DATA: Fetch detailed batting stats** | Add `pybaseball.batting_stats(year, qual=0)` to bootstrap. Populate LD%, FB%, GB%, BABIP, ISO, K%, BB% in enriched pool. | Unlocks E1, G3, O1 breakout score components. | Trivial |
+| T3 | **DATA: Fetch sprint speed leaderboard** | Add `pybaseball.statcast_sprint_speed(year)` to bootstrap. Store sprint_speed per player. | Unlocks K1, E5 stolen base prediction. Currently partial (only in statcast_archive). | Trivial |
+| T4 | **DATA: Dynamic park factor refresh** | Add mid-season `pybaseball.team_batting(year)` + `team_pitching(year)` park factor derivation to bootstrap. Replace static 2024 values. | Unlocks B5. Some parks change year-to-year (humidor, dimensions). | Low |
 
 ---
 
@@ -157,7 +161,7 @@ These cascade through all 53 engines. Highest leverage.
 
 ---
 
-### MATCHUP PLANNER — 4 items
+### MATCHUP PLANNER — 6 items
 
 | # | Item | Fix | Impact |
 |---|------|-----|--------|
@@ -165,6 +169,8 @@ These cascade through all 53 engines. Highest leverage.
 | C5 | **Inverse Park Formula** | Use `1.0 / park_factor` (reciprocal) instead of `2.0 - park_factor` (linear) for pitchers. | Tiny difference except Coors. |
 | E6 | **Enhanced Weather (Wind Direction)** | Wind direction relative to outfield orientation per stadium. +20% HR wind blowing out >10 mph. | Currently HR-only, no wind direction. |
 | E7 | **Pitcher-Batter Matchup History** | PvB stats stabilize at ~60 PA. Add 2-4% prediction value over generic platoon. | High data volume. |
+| T11 | **DATA: Hardcode stadium outfield orientations** | Research and hardcode outfield orientation angle (degrees from north) for all 30 stadiums. One-time data entry. Needed to compute wind direction relative to outfield (wind blowing out vs in). | Unlocks E6. `STADIUM_COORDS` already has lat/lon — add `outfield_bearing` per park. 1 hour one-time. |
+| T12 | **DATA: Fetch pitcher-batter splits** | `pybaseball.statcast_batter(batter_id, pitcher_id)` or MLB Stats API PvB endpoint. Cache with 60 PA minimum threshold. | Unlocks E7. Free but high data volume — need smart caching (only fetch for rostered players vs scheduled opposing pitchers). |
 
 ---
 
@@ -188,7 +194,7 @@ These cascade through all 53 engines. Highest leverage.
 
 ---
 
-### CLOSER MONITOR — 5 items
+### CLOSER MONITOR — 7 items
 
 | # | Item | Fix | Impact |
 |---|------|-----|--------|
@@ -197,14 +203,17 @@ These cascade through all 53 engines. Highest leverage.
 | L2 | **K% Skill Decay Alert** | Rolling 14-day K% vs season average. K% drop ≥ 8 pts OR K-BB% < 10% = "Skill Warning" flag. More predictive of demotion than blown saves. | Catches closer decline via process, not outcomes. Athlon Sports 2025 case studies. |
 | L3 | **Committee Risk Score** | Combine: (a) number of pitchers with saves on team, (b) max single-closer save share %, (c) gmLI variance among top 3 RPs. No pitcher >60% of saves AND 3+ with saves = committee. | Only 8-9 closers truly "secure" across MLB. ~70% of teams have some committee element. |
 | L4 | **Opener Detection Flag** | When a reliever pitches 1st inning in >30% of appearances, flag as "Opener" not "Closer". Prevents false positives in closer identification. | Growing bullpen trend; prevents misidentifying openers as closers. |
+| T5 | **DATA: Fetch gmLI per reliever** | `pybaseball.pitching_stats(year, qual=0)` includes `gmLI` column in FanGraphs data. Store per-reliever gmLI in enriched pool or new table. | Unlocks L1, L3. Free via pybaseball. 30 min. |
+| T6 | **DATA: Fetch reliever appearance inning** | MLB Stats API game logs include inning of entry per appearance. Track 1st-inning appearances for opener detection (L4). | Unlocks L4. Free via statsapi. 30 min. |
 
 ---
 
-### MY TEAM — 7 items
+### MY TEAM — 9 items
 
 | # | Item | Fix | Impact |
 |---|------|-----|--------|
 | E3 | **Umpire Strike Zone Adjustment** | Per-umpire K%/BB%/run environment. ±0.3-0.5 runs/game. | Needs new data source. |
+| T7 | **DATA: Fetch umpire assignments** | Scrape Baseball Savant game feed JSON (free) — umpire listed per game. Build per-umpire K%/BB% tendency table from Retrosheet historical data (free). | Unlocks E3. 1-2 hours initial setup, then auto-refresh per game day. |
 | M1 | **Category Flip Analyzer** | Compute mid-week flip probability per category: `flip_prob = f(margin, daily_stdev, games_remaining)`. Show "categories within X% of flipping" as top-priority actions. | Most tools show scores but don't compute which categories are close enough to flip with a single roster move. |
 | M2 | **Conditional Swap Impact** | "If you bench Player X and start Player Y, you gain +2 K and lose -0.8 ERA delta." Show roster-level marginal impact per swap, not just player stats. | Bridges player-level data to roster-level decision. Currently invisible. |
 | M3 | **Opponent Lineup Tracking** | Surface opponent's mid-week roster moves: empty spots, pitcher streams, off-day players. Know what they're doing. | Almost never surfaced in fantasy tools. Uses existing Yahoo API. |
@@ -214,18 +223,19 @@ These cascade through all 53 engines. Highest leverage.
 
 ---
 
-### PLAYER COMPARE — 4 items
+### PLAYER COMPARE — 5 items
 
 | # | Item | Fix | Impact |
 |---|------|-----|--------|
 | E10 | **Catcher Framing Value** | 10-15 extra strikes/game for elite framers. Pitcher ERA differs 0.20-0.40 by catcher. | Needs new data source. |
+| T8 | **DATA: Fetch catcher framing + pop time** | Scrape Baseball Savant catcher framing leaderboard (`/leaderboard/catcher-framing`) and pop time leaderboard (`/leaderboard/poptime`). Store framing_runs and pop_time_2b per catcher. | Unlocks E10, J5, K1. Free. 45 min. |
 | N1 | **Category Fit Indicator** | For each compared player, show which of YOUR team's weak categories they help and which strong/punt categories they waste value in. | Transforms generic comparison into team-specific decision tool. |
 | N2 | **Schedule Strength Comparison** | Show next 2-4 weeks of opposing pitchers/matchups for each player side-by-side. | H2H: upcoming matchups matter enormously. No public comparison tool does this. |
 | N3 | **SGP Contribution Breakdown** | Stacked bar showing how many SGP come from each category. Concentrated (3.0 SGP from HR/RBI) vs diversified (0.6-0.8 across all cats). In H2H, diversified is usually more valuable. | Instantly shows concentrated vs balanced value profiles. |
 
 ---
 
-### LEADERS — 5 items
+### LEADERS — 7 items
 
 | # | Item | Fix | Impact |
 |---|------|-----|--------|
@@ -234,6 +244,8 @@ These cascade through all 53 engines. Highest leverage.
 | O3 | **40-Man + Service Time Call-Up Alerts** | 40-man roster status flag (highest signal). Days until Super Two cutoff. MLB team injury cross-reference (IL at prospect's position = "imminent"). AAA performance triggers (OPS .900+, K/9 10+). | First-mover advantage on prospect adds worth 2-5 wins/season. Multiple call-up timing signals. |
 | O4 | **Projection Skew Indicator** | When 5 of 7 projection systems are above consensus (positive skew), flag as better bet. Negative skew = cautionary flag. Especially valuable for mid-round pitchers (+50-100% ROI for positive skew). | FanGraphs ATC Volatility research (2019-2024): positive skew = $8 premium. |
 | O5 | **SGP Contribution Breakdown** | Same as N3 but for leaders table — show concentrated vs diversified value per leader. | See N3. Applied to leaders context. |
+| T9 | **DATA: Fetch bat speed leaderboard** | Scrape Baseball Savant bat tracking leaderboard (new 2024+). Store bat_speed, swing_length per hitter. | Unlocks O1 breakout score bat speed component (15% weight). Free. 45 min. |
+| T10 | **DATA: Fetch 40-man roster status** | Call MLB Stats API `/api/v1/teams/{id}/roster/40Man` for all 30 teams. Store 40-man flag per player. | Unlocks O3 call-up alerts (highest signal for imminent promotion). Free. 30 min. |
 
 ---
 
@@ -306,20 +318,20 @@ each other across pages, creating user confusion and maintenance burden.
 
 | Page | Items | Top Priority |
 |------|-------|-------------|
-| **Global / Core Engine** | 14 | A1 (dynamic SGP), A4 (ECR), E2 (Stuff+), A2+D3 (stacking) |
+| **Global / Core Engine** | 18 | A1 (dynamic SGP), A4 (ECR), **T1 (fetch Stuff+)**, **T2 (fetch batting stats)**, E2, A2+D3 |
 | **Trade Finder** | 24 | G1 (xwOBA), G4 (reliability), F5 (playoff-odds), G2 (Stuff+) |
 | **Lineup Optimizer** | 20 | I1 (mid-week pivot), J1 (update rates), I2 (swing-category), I3 (ratio protection) |
-| **My Team** | 7 | M1 (category flip), M4 (regression alerts), M6 (ratio lock), M2 (swap impact) |
-| **Leaders** | 5 | O1 (Statcast breakout score), O3 (call-up alerts), O2 (prospect relevance) |
-| **Closer Monitor** | 5 | L1 (gmLI tracking), L2 (K% decay), L3 (committee risk score) |
-| **Matchup Planner** | 4 | B5 (dynamic park), E6 (weather wind) |
+| **My Team** | 9 | M1 (category flip), M4 (regression alerts), M6 (ratio lock), **T7 (fetch umpire data)** |
+| **Leaders** | 7 | O1 (breakout score), O3 (call-up alerts), **T9 (fetch bat speed)**, **T10 (fetch 40-man)** |
+| **Closer Monitor** | 7 | L1 (gmLI tracking), L2 (K% decay), **T5 (fetch gmLI)**, **T6 (fetch reliever innings)** |
+| **Matchup Planner** | 6 | B5 (dynamic park), E6 (weather wind), **T11 (stadium orientations)**, **T12 (PvB splits)** |
+| **Player Compare** | 5 | N1 (category fit), N2 (schedule comparison), **T8 (fetch catcher framing + pop time)** |
 | **Trade Analyzer** | 4 | P1 (grade confidence interval), P2 (antithetic MC), P4 (per-cat replacement) |
 | **Draft Simulator** | 4 | Q1 (marginal SGP AI), Q2 (position run detection), Q3 (per-player ADP SD) |
 | **League Standings** | 4 | R1 (10K sims), R2 (per-category variance), B7 (momentum) |
 | **Free Agents / Waiver** | 4 | E9 (streaming), E5 (SB prediction) |
-| **Player Compare** | 4 | N1 (category fit), N2 (schedule comparison), N3 (SGP breakdown) |
 | **Consolidation (cross-page)** | 6 | S1 (merge TF tabs), S2 (remove H2H tab), S4 (merge alerts) |
-| **Total** | **105** (91 unique after dedup) | |
+| **Total** | **117** (103 unique after dedup) | |
 
 ---
 
