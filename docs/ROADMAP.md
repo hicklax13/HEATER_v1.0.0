@@ -99,11 +99,11 @@ Daily dashboard: War Room, alerts, roster overview, Monday briefing.
 | G2 | **Stuff+/botERA Pitcher Regression** | `stuff_delta = botERA - actual_ERA`. ≤-0.50 = BUY_LOW, ≥+0.50 = SELL_HIGH. | Requires E2+T1 data. | | DONE |
 | G3 | **BABIP Regression Scoring** | `(career_BABIP - current) / 0.020`, capped ±2.0. | Best early-season signal (weeks 3-8). E1 supersedes once implemented. | | DONE |
 | G4 | **Stat Reliability Weighting** | `reliability = min(1.0, PA / threshold[stat])`. Trust K% at 60 PA ≠ AVG at 60 PA. | Uses same stabilization table as J1 but applied to trade YTD modifier. | DONE |
-| G5 | **Velocity Trend Signal** | 1.0 mph decline ≈ 0.5-0.8 ERA increase. `velo_delta = current - prior`. | Early warning before ERA shows it. | |
+| G5 | **Velocity Trend Signal** | 1.0 mph decline ≈ 0.5-0.8 ERA increase. `velo_delta = current - prior`. | Early warning before ERA shows it. | DONE |
 | E1 | **BABIP Regression Targets** | xBABIP from contact quality + sprint speed. Predict future BABIP within 15 points. | Forward-looking model. Supersedes G3 heuristic. | |
 | H1 | **Differential Time Decay** | Counting stats × `weeks_rem / total_weeks`. Rate stats stay 1.0 with confidence penalty <8 weeks. | More accurate ROS valuation. | DONE |
-| H2 | **Dynamic Roster Spot Value** | `ROSTER_SPOT_SGP = median_fa_sgp * 0.8`, recomputed weekly from FA pool. | Fixes 2-for-1 valuation. | |
-| H3 | **Graduated Positional Scarcity** | C=1.20x, 2B=1.15x, SS=1.10x, 3B=1.05x, OF/1B=1.00x. | More accurate than flat 1.15x. | |
+| H2 | **Dynamic Roster Spot Value** | `ROSTER_SPOT_SGP = median_fa_sgp * 0.8`, recomputed weekly from FA pool. | Fixes 2-for-1 valuation. | DONE |
+| H3 | **Graduated Positional Scarcity** | C=1.20x, 2B=1.15x, SS=1.10x, 3B=1.05x, OF/1B=1.00x. | More accurate than flat 1.15x. | DONE |
 | H4 | **SB Independence Premium** | Increase from 1.08x to 1.12-1.15x. | SB contributors undervalued (R²=0.0002 with RBI). | |
 | H5 | **Trade Timing Multiplier** | Weeks 1-4 = ±5% YTD clamp, weeks 5-8 = ±10%, weeks 9+ = ±15%. 1.1x bonus weeks 4-10. | Prevents chasing April hot streaks. | |
 | H6 | **Consistency/Variance Modifier** | Weekly CV from game logs. CV<0.30 = +5-8% SGP, CV>0.50 = -5-8%. | H2H dimension invisible today. | |

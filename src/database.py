@@ -1023,9 +1023,9 @@ def _load_roster_statuses_for_pool() -> dict[int, str]:
         return {}
 
 
-_SCARCE_POSITIONS = {"C", "SS", "2B"}
+# H3: Graduated positional scarcity (C most scarce → OF/1B/DH least)
 _SV_SCARCITY_MULT = 1.3
-_SCARCE_POS_MULT = 1.15
+_GRADUATED_SCARCITY = {"C": 1.20, "2B": 1.15, "SS": 1.10, "3B": 1.05}
 
 
 def _enrich_pool(df: pd.DataFrame) -> pd.DataFrame:
@@ -1062,9 +1062,12 @@ def _enrich_pool(df: pd.DataFrame) -> pd.DataFrame:
         if row.get("is_closer", False):
             return _SV_SCARCITY_MULT
         positions = set(p.strip() for p in str(row.get("positions", "")).split(","))
-        if positions & _SCARCE_POSITIONS:
-            return _SCARCE_POS_MULT
-        return 1.0
+        # H3: graduated scarcity — highest multiplier among eligible positions
+        best_mult = 1.0
+        for pos, mult in _GRADUATED_SCARCITY.items():
+            if pos in positions and mult > best_mult:
+                best_mult = mult
+        return best_mult
 
     df["scarcity_mult"] = df.apply(_scarcity, axis=1)
 
@@ -1102,6 +1105,48 @@ def _enrich_pool(df: pd.DataFrame) -> pd.DataFrame:
         mask_buy_babip = has_data & (babip_delta <= -_BABIP_THRESHOLD)
         df.loc[mask_sell_babip, "babip_regression_flag"] = "SELL_HIGH"
         df.loc[mask_buy_babip, "babip_regression_flag"] = "BUY_LOW"
+
+    # G5: Velocity trend signal for pitchers
+    # 1.0 mph decline ~ 0.5-0.8 ERA increase (research consensus).
+    # Compare current year ff_avg_speed to prior year.
+    df["velo_regression_flag"] = ""
+    _VELO_DECLINE_THRESHOLD = 1.0  # mph
+    try:
+        _conn_velo = get_connection()
+        try:
+            _year = datetime.now(UTC).year
+            _prior_year = _year - 1
+            _velo_df = pd.read_sql_query(
+                f"""
+                SELECT sa_curr.player_id,
+                       sa_curr.ff_avg_speed AS curr_velo,
+                       sa_prev.ff_avg_speed AS prev_velo
+                FROM statcast_archive sa_curr
+                LEFT JOIN statcast_archive sa_prev
+                    ON sa_curr.player_id = sa_prev.player_id AND sa_prev.season = {_prior_year}
+                WHERE sa_curr.season = {_year}
+                    AND sa_curr.ff_avg_speed IS NOT NULL AND sa_curr.ff_avg_speed > 0
+                    AND sa_prev.ff_avg_speed IS NOT NULL AND sa_prev.ff_avg_speed > 0
+                """,
+                _conn_velo,
+            )
+            if not _velo_df.empty:
+                _velo_map = {}
+                for _, _vrow in _velo_df.iterrows():
+                    _delta = float(_vrow["curr_velo"]) - float(_vrow["prev_velo"])
+                    _velo_map[int(_vrow["player_id"])] = _delta
+                df["velo_delta"] = df["player_id"].map(_velo_map).fillna(0.0)
+                is_pitcher = df.get("is_hitter", 1) == 0
+                # Decline >= 1.0 mph = SELL_HIGH (early warning of ERA spike)
+                mask_decline = is_pitcher & (df["velo_delta"] <= -_VELO_DECLINE_THRESHOLD)
+                # Gain >= 1.0 mph = BUY_LOW (stuff improvement not yet in ERA)
+                mask_gain = is_pitcher & (df["velo_delta"] >= _VELO_DECLINE_THRESHOLD)
+                df.loc[mask_decline, "velo_regression_flag"] = "SELL_HIGH"
+                df.loc[mask_gain, "velo_regression_flag"] = "BUY_LOW"
+        finally:
+            _conn_velo.close()
+    except Exception:
+        pass
 
     # G2: Stuff+ pitcher regression flags
     # Stuff+ >100 = above-average stuff. If actual ERA >> expected (high Stuff+ but bad ERA),

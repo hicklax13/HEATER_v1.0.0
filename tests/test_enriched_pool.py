@@ -347,13 +347,13 @@ class TestEnrichedPoolValues:
         assert clase["scarcity_mult"] == pytest.approx(1.3)
 
     def test_catcher_scarcity_mult(self, temp_db):
-        """Catcher gets 1.15x scarcity multiplier."""
+        """H3: Catcher gets 1.20x graduated scarcity multiplier (most scarce)."""
         df = _load_pool(temp_db)
         raleigh = df[df["player_id"] == 3].iloc[0]
-        assert raleigh["scarcity_mult"] == pytest.approx(1.15)
+        assert raleigh["scarcity_mult"] == pytest.approx(1.20)
 
-    def test_ss_scarcity_mult(self, temp_db):
-        """SS/2B gets 1.15x scarcity multiplier."""
+    def test_ss_2b_scarcity_mult(self, temp_db):
+        """H3: SS,2B player gets max(SS=1.10, 2B=1.15) = 1.15x."""
         df = _load_pool(temp_db)
         semien = df[df["player_id"] == 5].iloc[0]
         assert semien["scarcity_mult"] == pytest.approx(1.15)

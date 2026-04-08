@@ -382,9 +382,54 @@ def compute_adp_fairness(
 
 # ── Multi-Player Helpers ─────────────────────────────────────────────
 
-# Roster spot value: SGP bonus for gaining an open slot (2-for-1) or
-# penalty for losing one (1-for-2). Decays over the season.
-ROSTER_SPOT_SGP = 0.8
+# H2: Dynamic roster spot value — recomputed weekly from FA pool median.
+# Fallback to 0.8 if FA pool is unavailable.
+ROSTER_SPOT_SGP_DEFAULT = 0.8
+
+
+def compute_roster_spot_sgp(player_pool: pd.DataFrame, config: LeagueConfig | None = None) -> float:
+    """Compute dynamic roster spot value as 80% of median FA SGP.
+
+    When the FA pool has data, uses the median SGP of available free agents
+    as the opportunity cost of a roster spot. Multiplied by 0.8 because not
+    all FAs are equally accessible (waiver priority, etc.).
+
+    Returns:
+        float: ROSTER_SPOT_SGP value (minimum 0.2, maximum 2.0)
+    """
+    if config is None:
+        config = LeagueConfig()
+    try:
+        # Filter to likely free agents (no roster status or ADP > 300)
+        fa_mask = (
+            (player_pool.get("status", pd.Series("", index=player_pool.index)).isin(["", "active", "FA"]))
+            & (player_pool.get("adp", pd.Series(999, index=player_pool.index)) > 250)
+            & (player_pool.get("pa", pd.Series(0, index=player_pool.index)).fillna(0) + player_pool.get("ip", pd.Series(0, index=player_pool.index)).fillna(0) > 0)
+        )
+        fa_pool = player_pool[fa_mask]
+        if len(fa_pool) < 10:
+            return ROSTER_SPOT_SGP_DEFAULT
+
+        # Compute SGP for FA players
+        from src.valuation import SGPCalculator
+
+        sgp_calc = SGPCalculator(config)
+        fa_sgps = []
+        for _, row in fa_pool.head(100).iterrows():
+            try:
+                sgp = sgp_calc.total_sgp(row)
+                if sgp > 0:
+                    fa_sgps.append(sgp)
+            except Exception:
+                continue
+
+        if len(fa_sgps) < 5:
+            return ROSTER_SPOT_SGP_DEFAULT
+
+        median_sgp = float(np.median(fa_sgps))
+        return max(0.2, min(2.0, median_sgp * 0.8))
+    except Exception:
+        return ROSTER_SPOT_SGP_DEFAULT
 
 
 def _count_contributing_categories(
@@ -564,6 +609,9 @@ def scan_2_for_1(
     if config is None:
         config = LeagueConfig()
 
+    # H2: Dynamic roster spot value from FA pool
+    roster_spot_sgp = compute_roster_spot_sgp(player_pool, config)
+
     results: list[dict] = []
     evaluated = 0
 
@@ -603,8 +651,8 @@ def scan_2_for_1(
             user_base_sgp = _weighted_totals_sgp(user_baseline, config, category_weights)
             user_delta = user_new_sgp - user_base_sgp
 
-            # Add roster spot bonus (user gains a slot)
-            user_delta += ROSTER_SPOT_SGP
+            # H2: Add dynamic roster spot bonus (user gains a slot)
+            user_delta += roster_spot_sgp
 
             if user_delta < MIN_SGP_GAIN:
                 evaluated += 1
@@ -675,7 +723,7 @@ def scan_2_for_1(
                     category_fit = 0.5
 
             # Remove roster spot bonus from composite to match 1-for-1 scale
-            user_delta_for_score = user_delta - ROSTER_SPOT_SGP
+            user_delta_for_score = user_delta - roster_spot_sgp
             norm_sgp_2 = min(user_delta_for_score / 3.0, 1.0) if user_delta_for_score > 0 else 0.0
             composite = (
                 COMPOSITE_W_SGP * norm_sgp_2
@@ -1201,6 +1249,11 @@ def scan_1_for_1(
             if str(recv_row.get("stuff_regression_flag", "")) == "BUY_LOW":
                 regression_bonus += 0.02
             if str(give_row.get("stuff_regression_flag", "")) == "SELL_HIGH":
+                regression_bonus += 0.02
+            # G5: Velocity trend (pitchers — velo gain = buy, velo decline = sell)
+            if str(recv_row.get("velo_regression_flag", "")) == "BUY_LOW":
+                regression_bonus += 0.02
+            if str(give_row.get("velo_regression_flag", "")) == "SELL_HIGH":
                 regression_bonus += 0.02
             composite += regression_bonus
 
