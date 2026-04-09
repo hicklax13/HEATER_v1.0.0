@@ -689,6 +689,11 @@ def _bootstrap_ecr_consensus(progress: BootstrapProgress) -> str:
         from src.ecr import refresh_ecr_consensus
 
         df = refresh_ecr_consensus(force=True)
+        is_cached = getattr(df, "attrs", {}).get("ecr_is_cached", False)
+        if is_cached:
+            logger.warning("ECR consensus returned cached data — all sources failed")
+            update_refresh_log("ecr_consensus", "cached")
+            return f"ECR Consensus: {len(df)} players (cached — sources unavailable)"
         update_refresh_log("ecr_consensus", "success")
         return f"ECR Consensus: {len(df)} players ranked"
     except Exception as e:

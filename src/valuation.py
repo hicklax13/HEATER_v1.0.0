@@ -1099,9 +1099,17 @@ def compute_percentile_projections(
             vol_col = f"{col}_vol"
             if col in proj.columns and vol_col in merged.columns:
                 vol = merged[vol_col].fillna(0.0)
-                # J6: Use empirical SD as floor when per-player volatility is 0
+                # J6: Use empirical SD as a FLOOR for per-player volatility.
+                # Cross-system agreement (e.g. Steamer/ZiPS/DC all project
+                # Harper at .272 AVG → vol ≈ 0.001) does not mean the player
+                # has near-zero real uncertainty — it just means the models
+                # agree.  The empirical SD from actual projection accuracy
+                # research (e.g. AVG ≈ 0.025) is the irreducible minimum.
                 empirical_sd = _EMPIRICAL_SDS.get(col, 0.0)
-                vol = vol.where(vol > 0, empirical_sd)
+                if empirical_sd > 0:
+                    vol = vol.clip(lower=empirical_sd)
+                else:
+                    vol = vol.where(vol > 0, 0.0)
                 # For inverse rate stats (ERA, WHIP), higher percentile = best
                 # case = LOWEST value, so negate the z multiplier.
                 z_eff = -z if col in inverse_rate_stats else z

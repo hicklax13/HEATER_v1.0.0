@@ -232,6 +232,7 @@ def build_standings_totals(
 
 def compute_category_weights_from_analysis(
     analysis: dict[str, dict],
+    max_weight: float = 3.0,
 ) -> dict[str, float]:
     """Convert gap analysis into trade evaluation category weights.
 
@@ -239,8 +240,17 @@ def compute_category_weights_from_analysis(
     Punted categories get zero weight.
     Normalizes so the average non-punt weight is ~1.0.
 
+    After normalization, individual weights are capped at *max_weight* to
+    prevent a single category with a tiny gap (e.g. AVG gap of 0.01 →
+    marginal 100) from dominating the trade evaluation.  Without the cap,
+    LP-solver lineup reshuffling noise in rate stats can be amplified into
+    multi-SGP swings that dwarf the actual player swap.
+
     Args:
         analysis: Output from category_gap_analysis().
+        max_weight: Upper bound for any single category weight after
+            normalization.  Default ``3.0`` means no category can
+            contribute more than 3× the average non-punt category.
 
     Returns:
         Dict mapping category -> weight (float, 0.0 for punts).
@@ -263,5 +273,14 @@ def compute_category_weights_from_analysis(
             for cat in weights:
                 if weights[cat] > 0:
                     weights[cat] = weights[cat] / mean_mv
+
+    # Cap individual weights to prevent runaway amplification.
+    # Rate stats with tiny standings gaps (e.g. AVG gap = 0.01 →
+    # marginal = 100) can produce weights 100× the mean.  Capping at
+    # max_weight keeps trade evaluations grounded in real player value.
+    if max_weight > 0:
+        for cat in weights:
+            if weights[cat] > max_weight:
+                weights[cat] = max_weight
 
     return weights

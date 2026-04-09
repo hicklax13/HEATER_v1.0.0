@@ -767,8 +767,8 @@ else:
                                                 "Player": name,
                                                 "10th Percentile Home Runs (Floor)": f"{p10_hr:.2f}",
                                                 "90th Percentile Home Runs (Ceiling)": f"{p90_hr:.2f}",
-                                                "10th Percentile Batting Average (Floor)": f"{p10_avg:.2f}",
-                                                "90th Percentile Batting Average (Ceiling)": f"{p90_avg:.2f}",
+                                                "10th Percentile Batting Average (Floor)": f"{p10_avg:.3f}",
+                                                "90th Percentile Batting Average (Ceiling)": f"{p90_avg:.3f}",
                                             }
                                         )
                                 if risk_rows:

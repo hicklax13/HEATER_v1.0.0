@@ -244,6 +244,9 @@ def _espn_api_request(offset: int, limit: int = 50) -> list[dict]:
         resp = requests.get(url, params=params, headers=headers, timeout=15)
         resp.raise_for_status()
         data = resp.json()
+        # ESPN API may return either {"players": [...]} (dict) or [...] (list)
+        if isinstance(data, list):
+            return data
         return data.get("players", [])
     except Exception:
         logger.error("ESPN ECR fetch failed — source dropped from consensus", exc_info=True)
@@ -966,7 +969,10 @@ def refresh_ecr_consensus(force: bool = False) -> pd.DataFrame:
 
     if not sources:
         logger.warning("No ECR sources available, returning cached data")
-        return load_ecr_consensus()
+        cached = load_ecr_consensus()
+        # Tag the return so callers know this is stale cached data, not fresh
+        cached.attrs["ecr_is_cached"] = True
+        return cached
 
     # Build per-player rank dict accumulating ALL source ranks
     player_data: dict[int, dict] = {}  # pid -> {player_id, name, espn_rank, ...}
@@ -1010,6 +1016,18 @@ def refresh_ecr_consensus(force: bool = False) -> pd.DataFrame:
                 if pid not in player_data:
                     player_data[pid] = {"player_id": pid, "name": name}
                 player_data[pid][f"{source_name}_rank"] = rank_val
+                # Map source_name to _store_consensus() DB column names.
+                # refresh_ecr_consensus creates "{source}_rank" columns but
+                # _store_consensus reads legacy names (fp_ecr, fg_adp, etc.).
+                _DB_COLUMN_MAP = {
+                    "fantasypros": "fp_ecr",
+                    "fangraphs": "fg_adp",
+                    "yahoo": "yahoo_adp",
+                    "nfbc": "nfbc_adp",
+                }
+                db_col = _DB_COLUMN_MAP.get(source_name)
+                if db_col:
+                    player_data[pid][db_col] = rank_val
 
     all_players = list(player_data.values())
 
