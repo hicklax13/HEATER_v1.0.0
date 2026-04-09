@@ -194,6 +194,144 @@ def _lineup_constrained_totals(
         return _roster_category_totals(roster_ids, player_pool), []
 
 
+def _compute_reshuffle_transparency(
+    before_assignments: list[dict],
+    after_assignments: list[dict],
+    giving_ids: list[int],
+    receiving_ids: list[int],
+    player_pool: pd.DataFrame,
+    config: LeagueConfig,
+    category_weights: dict[str, float],
+) -> dict[str, Any]:
+    """Decompose LP lineup changes into trade-swap vs reshuffle components.
+
+    When the LP solver re-optimizes after a trade, it may bench or promote
+    players who weren't involved in the trade.  This function identifies
+    those reshuffles and quantifies how much of the total category change
+    comes from lineup rearrangement vs the actual player swap.
+
+    Args:
+        before_assignments: LP starter assignments pre-trade.
+        after_assignments: LP starter assignments post-trade.
+        giving_ids: Player IDs traded away.
+        receiving_ids: Player IDs received.
+        player_pool: Full player pool DataFrame.
+        config: League configuration.
+        category_weights: Per-category marginal weights.
+
+    Returns:
+        Dict with keys:
+          - promoted: List of {player_id, name} promoted from bench.
+          - demoted: List of {player_id, name} demoted to bench.
+          - reshuffle_sgp: SGP attributable to lineup reshuffling (float).
+          - trade_swap_sgp: SGP attributable to actual player swap (float).
+          - reshuffle_pct: What % of total surplus comes from reshuffling.
+          - slot_changes: Per-slot breakdown of what changed.
+    """
+    if not before_assignments or not after_assignments:
+        return {}
+
+    name_col = "player_name" if "player_name" in player_pool.columns else "name"
+
+    def _name(pid: int) -> str:
+        match = player_pool[player_pool["player_id"] == pid]
+        if match.empty:
+            return f"Unknown ({pid})"
+        return str(match.iloc[0].get(name_col, f"ID:{pid}"))
+
+    traded_ids = set(giving_ids) | set(receiving_ids)
+    before_starter_ids = {a["player_id"] for a in before_assignments}
+    after_starter_ids = {a["player_id"] for a in after_assignments}
+
+    # Identify promotions/demotions (excluding traded players)
+    promoted_ids = (after_starter_ids - before_starter_ids) - set(receiving_ids)
+    demoted_ids = (before_starter_ids - after_starter_ids) - set(giving_ids)
+
+    promoted = [{"player_id": pid, "name": _name(pid)} for pid in promoted_ids]
+    demoted = [{"player_id": pid, "name": _name(pid)} for pid in demoted_ids]
+
+    # Compute reshuffle SGP: sum weighted SGP for promoted minus demoted
+    # across all categories.  This isolates the LP rearrangement effect.
+    sgp_denoms = config.sgp_denominators
+    reshuffle_sgp = 0.0
+    slot_changes: list[dict[str, Any]] = []
+
+    # Build before/after slot maps: slot -> player_id
+    before_slot_map = {a.get("slot", ""): a["player_id"] for a in before_assignments}
+    after_slot_map = {a.get("slot", ""): a["player_id"] for a in after_assignments}
+
+    for slot in set(list(before_slot_map.keys()) + list(after_slot_map.keys())):
+        b_pid = before_slot_map.get(slot)
+        a_pid = after_slot_map.get(slot)
+        if b_pid == a_pid:
+            continue  # unchanged slot
+
+        b_name = _name(b_pid) if b_pid else "empty"
+        a_name = _name(a_pid) if a_pid else "empty"
+
+        # Classify: trade-swap (involves traded player) or reshuffle
+        involves_trade = (b_pid in traded_ids) or (a_pid in traded_ids)
+        change_type = "trade_swap" if involves_trade else "reshuffle"
+
+        slot_changes.append(
+            {
+                "slot": slot,
+                "before": b_name,
+                "after": a_name,
+                "type": change_type,
+            }
+        )
+
+    # Compute per-category SGP from reshuffle moves only.
+    # Reshuffle effect = stats of promoted players minus stats of demoted players,
+    # converted to weighted SGP.
+    reshuffle_sgp = 0.0
+    for cat in config.all_categories:
+        col = STAT_MAP.get(cat)
+        if col is None:
+            continue
+        weight = category_weights.get(cat, 1.0)
+        denom = sgp_denoms.get(cat, 1.0)
+        if abs(denom) < 1e-9:
+            continue
+
+        # Sum stats for promoted players
+        promoted_stat = 0.0
+        for pid in promoted_ids:
+            match = player_pool[player_pool["player_id"] == pid]
+            if not match.empty:
+                promoted_stat += float(match.iloc[0].get(col, 0) or 0)
+
+        # Sum stats for demoted players
+        demoted_stat = 0.0
+        for pid in demoted_ids:
+            match = player_pool[player_pool["player_id"] == pid]
+            if not match.empty:
+                demoted_stat += float(match.iloc[0].get(col, 0) or 0)
+
+        # Rate stats: promoted/demoted affect the team average differently.
+        # For simplicity, skip rate stats in the reshuffle computation —
+        # the counting stat breakdown is most useful for transparency.
+        if cat in config.rate_stats:
+            continue
+
+        raw_diff = promoted_stat - demoted_stat
+        if cat in config.inverse_stats:
+            raw_diff = -raw_diff  # fewer L = good
+
+        cat_sgp = (raw_diff / denom) * weight
+        reshuffle_sgp += cat_sgp
+
+    reshuffle_sgp = round(reshuffle_sgp, 3)
+
+    return {
+        "promoted": promoted,
+        "demoted": demoted,
+        "reshuffle_sgp": reshuffle_sgp,
+        "slot_changes": slot_changes,
+    }
+
+
 def _find_drop_candidate(
     bench_ids: list[int],
     player_pool: pd.DataFrame,
@@ -901,6 +1039,31 @@ def evaluate_trade(
 
     grade_range = _compute_grade_range(total_surplus)
 
+    # LP reshuffle transparency: decompose surplus into trade-swap vs
+    # lineup rearrangement components.
+    reshuffle_info: dict[str, Any] = {}
+    if lineup_constrained and before_assignments and after_assignments:
+        reshuffle_info = _compute_reshuffle_transparency(
+            before_assignments=before_assignments,
+            after_assignments=after_assignments,
+            giving_ids=giving_ids,
+            receiving_ids=receiving_ids,
+            player_pool=player_pool,
+            config=config,
+            category_weights=category_weights,
+        )
+        # Add risk flag when reshuffle is a large fraction of surplus
+        reshuffle_sgp = reshuffle_info.get("reshuffle_sgp", 0.0)
+        demoted = reshuffle_info.get("demoted", [])
+        if demoted and abs(total_surplus) > 0.01:
+            reshuffle_pct = abs(reshuffle_sgp) / abs(total_surplus)
+            reshuffle_info["reshuffle_pct"] = round(reshuffle_pct * 100, 1)
+            if reshuffle_pct > 0.3:
+                demoted_names = ", ".join(d["name"] for d in demoted)
+                risk_flags.append(
+                    f"Lineup reshuffle accounts for {reshuffle_pct:.0%} of surplus — benching {demoted_names}"
+                )
+
     result = {
         "grade": trade_grade,
         "grade_range": grade_range,
@@ -925,6 +1088,7 @@ def evaluate_trade(
         "lineup_constrained": lineup_constrained,
         "drop_candidate": drop_candidate_name,
         "fa_pickup": fa_pickup_name,
+        "reshuffle": reshuffle_info,
         # Backward compat with existing UI
         "total_sgp_change": round(total_surplus, 3),
         "mc_mean": round(total_surplus, 3),

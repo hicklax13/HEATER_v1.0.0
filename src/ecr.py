@@ -284,6 +284,8 @@ def fetch_espn_rankings(max_players: int = 500) -> pd.DataFrame:
     """Fetch ESPN Fantasy Baseball draft rankings via paginated API.
 
     Returns DataFrame with columns: espn_id, name, espn_rank, position.
+    Filters to players with actual rank values and deduplicates by name
+    (keeping the best rank for each player).
     """
     all_players = []
     offset = 0
@@ -301,7 +303,17 @@ def fetch_espn_rankings(max_players: int = 500) -> pd.DataFrame:
     if not all_players:
         return pd.DataFrame(columns=["espn_id", "name", "espn_rank", "position"])
 
-    return pd.DataFrame(all_players)
+    df = pd.DataFrame(all_players)
+
+    # Filter to players with actual rank values (API returns unranked players too)
+    df = df.dropna(subset=["espn_rank"])
+
+    # Deduplicate by name — keep the best (lowest) rank for each player
+    if not df.empty:
+        df = df.sort_values("espn_rank").drop_duplicates(subset=["name"], keep="first")
+        df = df.reset_index(drop=True)
+
+    return df
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -418,12 +430,21 @@ def fetch_yahoo_adp() -> pd.DataFrame:
 def fetch_fantasypros_ros() -> pd.DataFrame:
     """Fetch FantasyPros Rest-of-Season overall rankings (in-season source).
 
-    Scrapes the ROS rankings page for player name and rank.
-    Returns DataFrame with columns: player_name, rank.
+    Extracts the embedded ``ecrData`` JavaScript object from the ROS
+    rankings page.  This JSON blob contains the full ranking table with
+    expert consensus ranks, positions, and player metadata.  It's far
+    more reliable than HTML table scraping because FantasyPros renders
+    the table via JavaScript — the raw HTML contains no ``<table>`` with
+    ranking data.
+
+    Returns DataFrame with columns: player_name, name, rank.
     Returns empty DataFrame on any failure.
     """
-    if not REQUESTS_AVAILABLE or not BS4_AVAILABLE:
+    if not REQUESTS_AVAILABLE:
         return pd.DataFrame(columns=["player_name", "rank"])
+
+    import json
+    import re
 
     url = "https://www.fantasypros.com/mlb/rankings/ros-overall.php"
     headers = {
@@ -434,10 +455,6 @@ def fetch_fantasypros_ros() -> pd.DataFrame:
         ),
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.9",
-        "Referer": "https://www.fantasypros.com/mlb/rankings/",
-        "Sec-Fetch-Dest": "document",
-        "Sec-Fetch-Mode": "navigate",
-        "Sec-Fetch-Site": "same-origin",
     }
 
     try:
@@ -448,49 +465,36 @@ def fetch_fantasypros_ros() -> pd.DataFrame:
         return pd.DataFrame(columns=["player_name", "rank"])
 
     try:
-        soup = BeautifulSoup(resp.text, "html.parser")
-        # FantasyPros uses a table with id="ranking-table" or class="player-table"
-        table = soup.select_one("table#ranking-table") or soup.select_one("table.player-table")
-        if table is None:
-            # Fallback: try any table with ranking data
-            tables = soup.select("table")
-            table = tables[0] if tables else None
-
-        if table is None:
-            logger.warning("FantasyPros ROS: no ranking table found in HTML")
+        # Extract embedded ecrData JSON from the page source.
+        # FantasyPros embeds all ranking data as: ecrData = {...};
+        match = re.search(r"ecrData\s*=\s*(\{.*?\});\s*\n", resp.text, re.DOTALL)
+        if not match:
+            logger.warning("FantasyPros ROS: ecrData not found in page source")
             return pd.DataFrame(columns=["player_name", "rank"])
 
-        rows = table.select("tbody tr")
+        data = json.loads(match.group(1))
+        raw_players = data.get("players", [])
+        if not raw_players:
+            logger.warning("FantasyPros ROS: ecrData.players is empty")
+            return pd.DataFrame(columns=["player_name", "rank"])
+
         players = []
-        for row in rows:
-            cells = row.find_all("td")
-            if len(cells) < 2:
-                continue
-
-            # Try to extract player name from the name cell (usually 2nd column)
-            # FantasyPros typically has rank in first column, player in second
-            name_cell = cells[1] if len(cells) > 1 else cells[0]
-            # Look for an anchor tag with player name
-            name_link = name_cell.find("a")
-            if name_link:
-                name = name_link.get_text(strip=True)
-            else:
-                name = name_cell.get_text(strip=True)
-
+        for p in raw_players:
+            name = p.get("player_name", "")
             if not name:
                 continue
-
-            # Rank from first column or sequential
-            rank_text = cells[0].get_text(strip=True)
+            # rank_ecr is the expert consensus rank
+            rank = p.get("rank_ecr")
+            if rank is None:
+                continue
             try:
-                rank = int(rank_text)
+                rank = int(float(rank))
             except (ValueError, TypeError):
-                rank = len(players) + 1
-
+                continue
             players.append({"player_name": name, "name": name, "rank": rank})
 
         if not players:
-            logger.info("FantasyPros ROS: parsed 0 players from table")
+            logger.info("FantasyPros ROS: parsed 0 players from ecrData")
             return pd.DataFrame(columns=["player_name", "rank"])
 
         logger.info("FantasyPros ROS: parsed %d players", len(players))
@@ -924,13 +928,32 @@ def refresh_ecr_consensus(force: bool = False) -> pd.DataFrame:
         from src.data_pipeline import fetch_projections
 
         def _fetch_fg_adp():
-            df, _ = fetch_projections("steamer", "bat")
-            if df is not None and not df.empty and "adp" in df.columns:
-                fg = df[["name", "adp"]].dropna(subset=["adp"]).copy()
-                fg = fg.rename(columns={"adp": "fg_adp"})
-                fg["rank"] = fg["fg_adp"]
-                return fg
-            return pd.DataFrame()
+            # fetch_projections returns (normalized_df, raw_json).
+            # The normalized DF doesn't include ADP, but the raw JSON
+            # from FanGraphs has it as "ADP" (uppercase).
+            players = []
+            for stats_type in ("bat", "pit"):
+                try:
+                    _, raw = fetch_projections("steamer", stats_type)
+                except Exception:
+                    continue
+                if not raw:
+                    continue
+                for p in raw:
+                    name = p.get("PlayerName", "")
+                    adp = p.get("ADP")
+                    if name and adp is not None:
+                        try:
+                            adp_val = float(adp)
+                        except (ValueError, TypeError):
+                            continue
+                        players.append({"name": name, "fg_adp": adp_val, "rank": adp_val})
+            if not players:
+                return pd.DataFrame()
+            # Deduplicate (Ohtani appears in both), keep lowest ADP
+            df = pd.DataFrame(players)
+            df = df.sort_values("fg_adp").drop_duplicates(subset=["name"], keep="first")
+            return df.reset_index(drop=True)
 
         source_fetchers.append(("fangraphs", _fetch_fg_adp))
     except ImportError:
