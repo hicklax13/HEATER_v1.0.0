@@ -67,6 +67,7 @@ def _player_sgp_volume_aware(
     try:
         return sgp_calc.total_sgp(p.iloc[0])
     except Exception:
+        logger.error("SGP calculation failed for player_id=%s — returning 0.0", pid, exc_info=True)
         return 0.0
 
 
@@ -1520,6 +1521,7 @@ def _compute_user_category_profile(
             }
         return profile
     except Exception:
+        logger.error("Category profile build failed — returning empty profile", exc_info=True)
         return {}
 
 

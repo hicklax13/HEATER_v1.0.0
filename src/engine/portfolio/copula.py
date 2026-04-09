@@ -25,8 +25,12 @@ Wires into:
 
 from __future__ import annotations
 
+import logging
+
 import numpy as np
 from scipy.stats import norm
+
+logger = logging.getLogger(__name__)
 
 CATEGORIES: list[str] = ["R", "HR", "RBI", "SB", "AVG", "OBP", "W", "L", "SV", "K", "ERA", "WHIP"]
 INVERSE_CATEGORIES: set[str] = {"L", "ERA", "WHIP"}
@@ -103,6 +107,7 @@ def compute_empirical_correlation(
 
         return corr
     except Exception:
+        logger.error("Correlation matrix estimation failed — MC sim loses correlation structure", exc_info=True)
         return None
 
 

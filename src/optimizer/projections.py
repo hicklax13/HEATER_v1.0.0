@@ -426,7 +426,7 @@ def _apply_statcast_adjustment(roster: pd.DataFrame) -> pd.DataFrame:
 
 
 # Weight given to L14 recent form vs existing projection
-_RECENT_FORM_BLEND = 0.35
+_RECENT_FORM_BLEND = 0.20
 
 # Minimum games in the L14 window to trust recent form data
 _MIN_RECENT_GAMES = 7

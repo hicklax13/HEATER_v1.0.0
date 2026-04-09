@@ -1,5 +1,6 @@
 """Database module: SQLite schema, data loading, and projection blending."""
 
+import logging
 import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
@@ -103,60 +104,70 @@ def get_connection() -> sqlite3.Connection:
 def init_db():
     """Create all tables if they don't exist."""
     conn = get_connection()
-    conn.executescript("""
-        CREATE TABLE IF NOT EXISTS players (
-            player_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            team TEXT,
-            positions TEXT NOT NULL,  -- comma-separated: "SS,OF"
-            is_hitter INTEGER NOT NULL DEFAULT 1,  -- 1=hitter, 0=pitcher
-            is_injured INTEGER NOT NULL DEFAULT 0,
-            injury_note TEXT
-        );
+    try:
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS players (
+                player_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                team TEXT,
+                positions TEXT NOT NULL,  -- comma-separated: "SS,OF"
+                is_hitter INTEGER NOT NULL DEFAULT 1,  -- 1=hitter, 0=pitcher
+                is_injured INTEGER NOT NULL DEFAULT 0,
+                injury_note TEXT
+            );
 
-        CREATE TABLE IF NOT EXISTS projections (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            player_id INTEGER NOT NULL,
-            system TEXT NOT NULL,  -- 'steamer', 'zips', 'depthcharts', 'blended'
-            -- Hitting stats
-            pa INTEGER DEFAULT 0,
-            ab INTEGER DEFAULT 0,
-            h INTEGER DEFAULT 0,
-            r INTEGER DEFAULT 0,
-            hr INTEGER DEFAULT 0,
-            rbi INTEGER DEFAULT 0,
-            sb INTEGER DEFAULT 0,
-            avg REAL DEFAULT 0,
-            -- Pitching stats
-            ip REAL DEFAULT 0,
-            w INTEGER DEFAULT 0,
-            sv INTEGER DEFAULT 0,
-            k INTEGER DEFAULT 0,
-            era REAL DEFAULT 0,
-            whip REAL DEFAULT 0,
-            er INTEGER DEFAULT 0,
-            bb_allowed INTEGER DEFAULT 0,
-            h_allowed INTEGER DEFAULT 0,
-            FOREIGN KEY (player_id) REFERENCES players(player_id)
-        );
+            CREATE TABLE IF NOT EXISTS projections (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                player_id INTEGER NOT NULL,
+                system TEXT NOT NULL,  -- 'steamer', 'zips', 'depthcharts', 'blended'
+                -- Hitting stats
+                pa INTEGER DEFAULT 0,
+                ab INTEGER DEFAULT 0,
+                h INTEGER DEFAULT 0,
+                r INTEGER DEFAULT 0,
+                hr INTEGER DEFAULT 0,
+                rbi INTEGER DEFAULT 0,
+                sb INTEGER DEFAULT 0,
+                avg REAL DEFAULT 0,
+                -- Pitching stats
+                ip REAL DEFAULT 0,
+                w INTEGER DEFAULT 0,
+                sv INTEGER DEFAULT 0,
+                k INTEGER DEFAULT 0,
+                era REAL DEFAULT 0,
+                whip REAL DEFAULT 0,
+                er INTEGER DEFAULT 0,
+                bb_allowed INTEGER DEFAULT 0,
+                h_allowed INTEGER DEFAULT 0,
+                FOREIGN KEY (player_id) REFERENCES players(player_id)
+            );
 
-        CREATE TABLE IF NOT EXISTS adp (
-            player_id INTEGER PRIMARY KEY,
-            yahoo_adp REAL,
-            fantasypros_adp REAL,
-            adp REAL NOT NULL,  -- best available ADP
-            FOREIGN KEY (player_id) REFERENCES players(player_id)
-        );
+            CREATE TABLE IF NOT EXISTS adp (
+                player_id INTEGER PRIMARY KEY,
+                yahoo_adp REAL,
+                fantasypros_adp REAL,
+                adp REAL NOT NULL,  -- best available ADP
+                FOREIGN KEY (player_id) REFERENCES players(player_id)
+            );
 
-        CREATE INDEX IF NOT EXISTS idx_projections_player ON projections(player_id);
-        CREATE INDEX IF NOT EXISTS idx_projections_system ON projections(system);
-        CREATE INDEX IF NOT EXISTS idx_projections_player_system ON projections(player_id, system);
-        CREATE INDEX IF NOT EXISTS idx_players_name ON players(name);
-    """)
-    conn.commit()
-    conn.close()
+            CREATE INDEX IF NOT EXISTS idx_projections_player ON projections(player_id);
+            CREATE INDEX IF NOT EXISTS idx_projections_system ON projections(system);
+            CREATE INDEX IF NOT EXISTS idx_projections_player_system ON projections(player_id, system);
+            CREATE INDEX IF NOT EXISTS idx_players_name ON players(name);
+        """)
+        conn.commit()
+    finally:
+        conn.close()
 
     conn = get_connection()
+    try:
+        _init_db_tables_and_columns(conn)
+    finally:
+        conn.close()
+
+
+def _init_db_tables_and_columns(conn):
+    """Create remaining tables and add migration columns (called by init_db)."""
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS season_stats (
             player_id INTEGER NOT NULL,
@@ -638,8 +649,6 @@ def init_db():
     _safe_add_column(conn, "statcast_archive", "hitter_gb_pct", "REAL")
     _safe_add_column(conn, "statcast_archive", "bat_speed", "REAL")
 
-    conn.close()
-
 
 _VALID_TABLE_NAMES = frozenset(
     {
@@ -1107,6 +1116,7 @@ def _load_health_scores_for_pool() -> dict[int, float]:
             scores[pid_int] = adjusted
         return scores
     except Exception:
+        logging.getLogger(__name__).error("Health score computation failed — all players appear healthy", exc_info=True)
         return {}
 
 
@@ -1130,6 +1140,7 @@ def _load_roster_statuses_for_pool() -> dict[int, str]:
             )
         )
     except Exception:
+        logging.getLogger(__name__).error("Roster status loading failed — DTD/IL players not flagged", exc_info=True)
         return {}
 
 

@@ -712,6 +712,7 @@ def evaluate_trade(
                     if _totals:
                         all_team_totals[str(_tn)] = _totals
         except Exception:
+            logger.error("Failed to compute team totals from league_rosters — no strategic context", exc_info=True)
             all_team_totals = {}
 
     # Stamp standings data quality

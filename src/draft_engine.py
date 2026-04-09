@@ -693,6 +693,7 @@ class DraftRecommendationEngine:
                     horizon_days=183,  # full season
                 )
             except Exception:
+                logger.error("Injury probability estimation failed for player — returning 0.0", exc_info=True)
                 return 0.0
 
         pool["injury_probability"] = pool.apply(_estimate_prob, axis=1)

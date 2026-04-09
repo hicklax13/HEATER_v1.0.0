@@ -314,6 +314,7 @@ def compute_category_win_probabilities(
     try:
         L = np.linalg.cholesky(corr_matrix)
     except np.linalg.LinAlgError:
+        logger.warning("Cholesky decomposition failed — falling back to identity (independent categories)")
         L = np.eye(len(categories))
 
     z = rng.standard_normal((n_sims, len(categories)))

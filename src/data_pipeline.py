@@ -703,7 +703,7 @@ def refresh_if_stale(force: bool = False) -> bool:
     # Skip if data is fresh and not forcing refresh
     if not force:
         try:
-            is_stale = check_staleness("projections", max_age_hours=168)
+            is_stale = check_staleness("projections", max_age_hours=24)
         except Exception:
             logger.exception("Staleness check failed, proceeding with fetch")
             is_stale = True

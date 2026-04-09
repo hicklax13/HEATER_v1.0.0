@@ -428,6 +428,7 @@ def build_daily_dcv_table(
             urgency_result = _cuw(matchup, config)
             urgency = urgency_result.get("urgency", {})
         except Exception:
+            logger.error("Category urgency computation failed — using equal weights", exc_info=True)
             urgency = {cat: 0.5 for cat in config.all_categories}
 
     # Load weather data for today -- build team -> temp_f lookup
