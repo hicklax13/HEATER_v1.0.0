@@ -26,6 +26,14 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# ── Optional dependency: Playing Time Model ─────────────────────────
+try:
+    from src.playing_time_model import predict_remaining_pa_batch
+
+    _PT_MODEL_AVAILABLE = True
+except ImportError:
+    _PT_MODEL_AVAILABLE = False
+
 # ── Constants ────────────────────────────────────────────────────────
 
 COUNTING_CATS: list[str] = ["r", "hr", "rbi", "sb", "w", "l", "sv", "k"]
@@ -60,6 +68,7 @@ def build_enhanced_projections(
     enable_kalman: bool = True,
     enable_statcast: bool = True,
     enable_injury: bool = True,
+    enable_playing_time: bool = True,
     weeks_remaining: int = 16,
 ) -> pd.DataFrame:
     """Build enhanced projections by chaining analytics modules.
@@ -76,6 +85,8 @@ def build_enhanced_projections(
         enable_kalman: Run Kalman filter for true talent estimation.
         enable_statcast: Use Statcast leading indicators (barrel%, xwOBA).
         enable_injury: Scale counting stats by expected availability.
+        enable_playing_time: Adjust counting stats by predicted remaining
+            playing time (PA for hitters, IP for pitchers).
         weeks_remaining: Weeks left in the fantasy season.
 
     Returns:
@@ -125,6 +136,10 @@ def build_enhanced_projections(
     # Step 5: Injury availability scaling
     if enable_injury:
         enhanced = _apply_injury_availability(enhanced, weeks_remaining)
+
+    # Step 5b: Playing time adjustment
+    if enable_playing_time:
+        enhanced = _apply_playing_time_adjustment(enhanced, weeks_remaining)
 
     # Step 6: K3 consistency premium for H2H
     # Consistent players are more valuable in weekly H2H matchups.
@@ -641,6 +656,86 @@ def _apply_injury_availability(
 
     except Exception as exc:
         logger.warning("Injury availability scaling failed: %s", exc)
+
+    return roster
+
+
+# ── Step 5b: Playing Time Adjustment ────────────────────────────────
+
+
+# Cap for playing-time scaling ratio to prevent unreasonable upward adjustments
+_PT_MAX_SCALE_RATIO = 1.5
+
+
+def _apply_playing_time_adjustment(
+    roster: pd.DataFrame,
+    weeks_remaining: int = 16,
+) -> pd.DataFrame:
+    """Scale counting stats by predicted remaining playing time.
+
+    Uses ``predict_remaining_pa_batch()`` to get Bayesian-blended PA/IP
+    predictions, then scales counting stats proportionally:
+      - Hitters: R, HR, RBI, SB scaled by predicted_remaining_pa / projected_pa
+      - Pitchers: W, L, SV, K scaled by predicted_remaining_ip / projected_ip
+      - Rate stats (AVG, OBP, ERA, WHIP) are NOT scaled.
+
+    Scaling ratios are capped at ``_PT_MAX_SCALE_RATIO`` (1.5) to prevent
+    unreasonable upward adjustments.
+    """
+    if not _PT_MODEL_AVAILABLE:
+        logger.debug("Playing time model not available; skipping step 5b")
+        return roster
+
+    try:
+        pt_result = predict_remaining_pa_batch(roster, weeks_remaining=weeks_remaining)
+
+        # Cast counting stat columns to float to avoid FutureWarning on assignment
+        for _cc in ("r", "hr", "rbi", "sb", "w", "l", "sv", "k"):
+            if _cc in roster.columns:
+                roster[_cc] = roster[_cc].astype(float)
+
+        adjusted_count = 0
+        for idx, row in pt_result.iterrows():
+            is_hitter = bool(row.get("is_hitter", True))
+
+            if is_hitter:
+                projected_pa = float(row.get("pa", 0) or 0)
+                predicted_pa = float(row.get("predicted_remaining_pa", 0) or 0)
+                if projected_pa <= 0 or predicted_pa <= 0:
+                    continue
+                # Projected remaining PA from the original full-season projection,
+                # prorated to weeks_remaining out of a 26-week season.
+                proj_remaining_pa = projected_pa * (weeks_remaining / 26.0)
+                if proj_remaining_pa <= 0:
+                    continue
+                ratio = min(predicted_pa / proj_remaining_pa, _PT_MAX_SCALE_RATIO)
+                for cat in ("r", "hr", "rbi", "sb"):
+                    if cat in roster.columns:
+                        roster.at[idx, cat] = float(roster.at[idx, cat]) * ratio
+                adjusted_count += 1
+            else:
+                projected_ip = float(row.get("ip", 0) or 0)
+                predicted_ip = float(row.get("predicted_remaining_ip", 0) or 0)
+                if projected_ip <= 0 or predicted_ip <= 0:
+                    continue
+                proj_remaining_ip = projected_ip * (weeks_remaining / 26.0)
+                if proj_remaining_ip <= 0:
+                    continue
+                ratio = min(predicted_ip / proj_remaining_ip, _PT_MAX_SCALE_RATIO)
+                for cat in ("w", "l", "sv", "k"):
+                    if cat in roster.columns:
+                        val = float(roster.at[idx, cat])
+                        roster.at[idx, cat] = val * ratio
+                adjusted_count += 1
+
+        if adjusted_count > 0:
+            logger.info(
+                "Step 5b (Playing Time): adjusted %d players by predicted PA/IP",
+                adjusted_count,
+            )
+
+    except Exception as exc:
+        logger.warning("Playing time adjustment failed: %s", exc)
 
     return roster
 

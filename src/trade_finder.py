@@ -655,6 +655,23 @@ def scan_2_for_1(
     # H2: Dynamic roster spot value from FA pool
     roster_spot_sgp = compute_roster_spot_sgp(player_pool, config)
 
+    # Pre-compute LP-constrained user baseline ONCE (starters only, bench excluded).
+    # Raw totals include all 23 players; LP selects optimal 18 starters.
+    raw_2for1_user_totals = _roster_category_totals(user_roster_ids, player_pool)
+    lp_2for1_user_totals = _lp_constrained_totals(user_roster_ids, player_pool, config)
+    if lp_2for1_user_totals is not None:
+        user_2for1_baseline = lp_2for1_user_totals
+    else:
+        user_2for1_baseline = raw_2for1_user_totals
+
+    user_base_sgp = _weighted_totals_sgp(user_2for1_baseline, config, category_weights)
+
+    # Bench inflation correction for per-candidate raw totals
+    bench_inflation_2for1 = 0.0
+    if lp_2for1_user_totals is not None:
+        raw_base_sgp = _weighted_totals_sgp(raw_2for1_user_totals, config, category_weights)
+        bench_inflation_2for1 = raw_base_sgp - user_base_sgp
+
     results: list[dict] = []
     evaluated = 0
 
@@ -685,13 +702,13 @@ def scan_2_for_1(
             new_give = orig_give + [add_id]
             new_recv = list(orig_recv)
 
-            # Compute new SGP delta for user
+            # Compute new SGP delta for user (baseline pre-computed with LP constraint)
             new_user_ids = [pid for pid in user_roster_ids if pid not in new_give] + new_recv
             new_user_totals = _roster_category_totals(new_user_ids, player_pool)
-            user_baseline = _roster_category_totals(user_roster_ids, player_pool)
 
             user_new_sgp = _weighted_totals_sgp(new_user_totals, config, category_weights)
-            user_base_sgp = _weighted_totals_sgp(user_baseline, config, category_weights)
+            # Subtract bench inflation so delta compares starters-only rosters
+            user_new_sgp -= bench_inflation_2for1
             user_delta = user_new_sgp - user_base_sgp
 
             # H2: Add dynamic roster spot bonus (user gains a slot)
@@ -912,8 +929,10 @@ def scan_1_for_1(
     # Try LP-constrained baseline for user (starters only, no bench inflation).
     # The LP solver selects optimal 18 starters; bench production excluded.
     # Only computed ONCE before the scan loop (not per-candidate).
-    user_totals = _roster_category_totals(user_roster_ids, player_pool)
+    raw_user_totals = _roster_category_totals(user_roster_ids, player_pool)
+    user_totals = raw_user_totals
     lp_user_totals = _lp_constrained_totals(user_roster_ids, player_pool, config)
+
     if lp_user_totals is not None:
         user_totals = lp_user_totals
         logger.debug("Using LP-constrained user baseline (starters only)")
@@ -952,6 +971,16 @@ def scan_1_for_1(
 
     # Baseline must use the same capped weights as post-trade calculations
     user_baseline = _weighted_totals_sgp(user_totals, config, capped_weights)
+
+    # Bench inflation correction: the difference between raw totals (all 23 players)
+    # and LP-constrained totals (18 starters only). Computed ONCE before the loop.
+    # Subtracted from each candidate's raw new_user_sgp so the delta compares
+    # starters-only rosters without calling the expensive LP solver per-candidate.
+    bench_inflation_sgp = 0.0
+    if lp_user_totals is not None:
+        raw_baseline_sgp = _weighted_totals_sgp(raw_user_totals, config, capped_weights)
+        bench_inflation_sgp = raw_baseline_sgp - user_baseline
+        logger.debug("Bench inflation correction: %.3f SGP", bench_inflation_sgp)
 
     # --- Load opponent needs (from opponent_trade_analysis) ---
     opp_needs_analysis: dict = {}
@@ -1135,6 +1164,9 @@ def scan_1_for_1(
             new_user_ids = [pid for pid in user_roster_ids if pid != give_id] + [recv_id]
             new_user_totals = _roster_category_totals(new_user_ids, player_pool)
             user_new_sgp = _weighted_totals_sgp(new_user_totals, config, capped_weights)
+            # Subtract bench inflation so the delta compares starters-only rosters.
+            # The baseline is already LP-constrained; raw new totals include bench.
+            user_new_sgp -= bench_inflation_sgp
             user_delta = user_new_sgp - user_baseline
 
             # H9: Apply prospect discount if receiving a minors player

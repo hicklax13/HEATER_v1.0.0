@@ -581,8 +581,12 @@ def build_daily_dcv_table(
             col = cat.lower()
             proj_val = form_adjustments.get(col, float(player.get(col, 0) or 0))
 
-            # Per-game rate: divide season projection by ~162 games
-            daily_proj = proj_val / 162.0
+            # Per-game rate: divide counting stats by ~162 games.
+            # Rate stats (AVG, OBP, ERA, WHIP) are already per-game rates.
+            if cat in config.rate_stats:
+                daily_proj = proj_val
+            else:
+                daily_proj = proj_val / 162.0
 
             # Apply batting order PA adjustment to counting stats only
             if pa_mult != 1.0 and cat in config.counting_stats:

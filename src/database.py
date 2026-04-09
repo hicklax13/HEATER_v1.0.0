@@ -7,6 +7,8 @@ from pathlib import Path
 
 import pandas as pd
 
+logger = logging.getLogger(__name__)
+
 DB_PATH = Path(__file__).parent.parent / "data" / "draft_tool.db"
 
 # ── Stat column lists for bytes coercion ─────────────────────────
@@ -829,11 +831,85 @@ def import_pitcher_csv(csv_path: str, system: str):
     return imported
 
 
+def _load_stacking_weights(conn) -> dict[str, dict[str, float]]:
+    """Try to compute ridge-regression stacking weights from prior-year actuals.
+
+    Returns ``{stat: {system_name: weight}}`` or empty dict on failure.
+    """
+    try:
+        from src.projection_stacking import compute_all_stat_weights
+    except ImportError:
+        logger.info("projection_stacking module not available; using uniform weights.")
+        return {}
+
+    try:
+        # Load prior-year actuals (2025 season stats)
+        actuals = pd.read_sql_query("SELECT * FROM season_stats WHERE season = 2025", conn)
+        if actuals.empty or len(actuals) < 10:
+            logger.info(
+                "Not enough prior-year actuals (%d rows); using uniform weights.",
+                len(actuals),
+            )
+            return {}
+
+        # Load per-system projections as separate DataFrames
+        systems_df = pd.read_sql_query("SELECT DISTINCT system FROM projections WHERE system != 'blended'", conn)
+        system_names = [row[0] for row in systems_df.itertuples(index=False)]
+        if len(system_names) < 2:
+            logger.info(
+                "Only %d projection system(s); stacking needs >= 2. Using uniform.",
+                len(system_names),
+            )
+            return {}
+
+        systems: dict[str, pd.DataFrame] = {}
+        for sys_name in system_names:
+            df = pd.read_sql_query(
+                "SELECT player_id, pa, ab, h, r, hr, rbi, sb, avg, obp, bb, hbp, sf, "
+                "ip, w, l, sv, k, era, whip, er, bb_allowed, h_allowed "
+                "FROM projections WHERE system = ?",
+                conn,
+                params=(sys_name,),
+            )
+            if not df.empty:
+                systems[sys_name] = df
+
+        if len(systems) < 2:
+            logger.info("Fewer than 2 systems with data; using uniform weights.")
+            return {}
+
+        weights = compute_all_stat_weights(systems, actuals)
+        if weights:
+            logger.info(
+                "Projection stacking: computed ridge-regression weights for %d stats across %d systems.",
+                len(weights),
+                len(systems),
+            )
+        return weights
+
+    except Exception:
+        logger.info(
+            "Projection stacking failed; falling back to uniform weights.",
+            exc_info=True,
+        )
+        return {}
+
+
 def create_blended_projections():
-    """Create blended projections by averaging all imported systems."""
+    """Create blended projections by averaging all imported systems.
+
+    When prior-year actuals are available in the ``season_stats`` table,
+    ridge-regression stacking weights (from ``projection_stacking.py``) are
+    used instead of uniform 1/n averaging for counting stats.  Rate stats
+    (AVG, OBP, ERA, WHIP) are always recomputed from weighted components.
+    """
     conn = get_connection()
     try:
         cursor = conn.cursor()
+
+        # ── Optional: compute stacking weights from prior-year actuals ──
+        stacking_weights = _load_stacking_weights(conn)
+        use_stacking = bool(stacking_weights)
 
         # Remove old blended projections
         cursor.execute("DELETE FROM projections WHERE system = 'blended'")
@@ -843,9 +919,11 @@ def create_blended_projections():
         player_ids = [row[0] for row in cursor.fetchall()]
 
         for pid in player_ids:
+            # Fetch system name alongside stats so we can apply per-system weights
             cursor.execute(
                 """
-                SELECT pa, ab, h, r, hr, rbi, sb, avg, obp, bb, hbp, sf,
+                SELECT system,
+                       pa, ab, h, r, hr, rbi, sb, avg, obp, bb, hbp, sf,
                        ip, w, l, sv, k, era, whip, er, bb_allowed, h_allowed,
                        COALESCE(fip, 0) as fip, COALESCE(xfip, 0) as xfip,
                        COALESCE(siera, 0) as siera
@@ -858,6 +936,7 @@ def create_blended_projections():
                 continue
 
             n = len(rows)
+            row_systems = [row[0] for row in rows]
             # Average all stats
             avg_stats = {}
             stat_names = [
@@ -888,8 +967,21 @@ def create_blended_projections():
                 "siera",
             ]
             for i, name in enumerate(stat_names):
-                vals = [row[i] or 0 for row in rows]
-                avg_stats[name] = sum(vals) / n
+                # Values start at column index 1 (index 0 is 'system')
+                vals = [row[i + 1] or 0 for row in rows]
+
+                if use_stacking:
+                    # Apply per-system ridge-regression weights
+                    stat_weights = stacking_weights.get(name, {})
+                    weighted_sum = 0.0
+                    weight_total = 0.0
+                    for sys_name, val in zip(row_systems, vals):
+                        w = stat_weights.get(sys_name, 1.0)
+                        weighted_sum += val * w
+                        weight_total += w
+                    avg_stats[name] = weighted_sum / weight_total if weight_total > 0 else sum(vals) / n
+                else:
+                    avg_stats[name] = sum(vals) / n
 
             # For rate stats, recompute from components rather than averaging rates
             if avg_stats["ab"] > 0:

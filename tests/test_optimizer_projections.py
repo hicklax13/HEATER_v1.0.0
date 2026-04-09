@@ -112,6 +112,7 @@ class TestBuildEnhancedProjections:
             enable_kalman=False,
             enable_statcast=False,
             enable_injury=False,
+            enable_playing_time=False,
         )
         # Original columns preserved
         for col in mixed_roster.columns:
@@ -130,6 +131,7 @@ class TestBuildEnhancedProjections:
             enable_kalman=False,
             enable_statcast=False,
             enable_injury=False,
+            enable_playing_time=False,
         )
         for cat in COUNTING_CATS:
             if cat in original.columns:
@@ -144,6 +146,7 @@ class TestBuildEnhancedProjections:
             enable_kalman=False,
             enable_statcast=False,
             enable_injury=False,
+            enable_playing_time=False,
         )
         pd.testing.assert_frame_equal(sample_hitter_roster, original)
 
@@ -155,6 +158,7 @@ class TestBuildEnhancedProjections:
             enable_kalman=False,
             enable_statcast=False,
             enable_injury=False,
+            enable_playing_time=False,
         )
         assert all(result["projection_confidence"] == 1.0)
 
@@ -186,6 +190,7 @@ class TestBuildEnhancedProjections:
             enable_kalman=False,
             enable_statcast=False,
             enable_injury=False,
+            enable_playing_time=False,
         )
         assert "projection_confidence" in result.columns
         assert len(result) == 0
@@ -448,6 +453,7 @@ class TestGracefulDegradation:
             enable_kalman=False,
             enable_statcast=False,
             enable_injury=False,
+            enable_playing_time=False,
         )
         # Should return valid DataFrame regardless
         assert len(result) == len(sample_hitter_roster)
@@ -495,6 +501,7 @@ class TestPipelineIntegration:
             enable_kalman=False,
             enable_statcast=False,
             enable_injury=False,
+            enable_playing_time=False,
         )
 
         # The pipeline should have adjusted at least some counting stats
@@ -512,6 +519,7 @@ class TestPipelineIntegration:
             enable_kalman=True,
             enable_statcast=False,
             enable_injury=False,
+            enable_playing_time=False,
         )
         assert len(result) == len(mixed_roster)
 
@@ -523,6 +531,7 @@ class TestPipelineIntegration:
             enable_kalman=False,
             enable_statcast=False,
             enable_injury=False,
+            enable_playing_time=False,
         )
         for cat in COUNTING_CATS:
             if cat in result.columns:
