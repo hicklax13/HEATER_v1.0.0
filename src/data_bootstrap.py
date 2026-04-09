@@ -1525,36 +1525,43 @@ def _bootstrap_pvb_splits(progress: BootstrapProgress) -> str:
             updated = 0
             skipped = 0
 
-            for _, hitter in hitter_sample.iterrows():
+            for idx, (_, hitter) in enumerate(hitter_sample.iterrows()):
                 batter_mlb_id = int(hitter["mlb_id"])
                 batter_pid = int(hitter["player_id"])
 
-                for pitcher_mlb_id in pitcher_ids:
-                    pitcher_mlb_id = int(pitcher_mlb_id)
-
-                    # Check if we already have recent data
+                # Check which pitchers still need data for this batter
+                uncached_pitcher_ids = []
+                for pid in pitcher_ids:
+                    pid = int(pid)
                     existing = conn.execute(
                         """SELECT fetched_at FROM pvb_splits
                            WHERE batter_id = ? AND pitcher_id = ?""",
-                        (batter_pid, pitcher_mlb_id),
+                        (batter_pid, pid),
                     ).fetchone()
                     if existing:
                         skipped += 1
-                        continue
+                    else:
+                        uncached_pitcher_ids.append(pid)
 
-                    try:
-                        # statcast_batter() takes (start, end, player_id) only.
-                        # Filter by pitcher_id after fetching batter's Statcast data.
-                        all_batter_data = _statcast_batter(
-                            f"{year - 3}-01-01",
-                            f"{year}-12-31",
-                            batter_mlb_id,
-                        )
-                        if all_batter_data is None or all_batter_data.empty:
-                            continue
-                        pvb = all_batter_data[all_batter_data["pitcher"] == pitcher_mlb_id]
-                    except Exception:
+                if not uncached_pitcher_ids:
+                    continue  # All pitchers cached for this batter
+
+                # Fetch this batter's Statcast data ONCE (not per-pitcher!)
+                progress.detail = f"PvB splits: batter {idx + 1}/{max_hitters}..."
+                try:
+                    all_batter_data = _statcast_batter(
+                        f"{year - 3}-01-01",
+                        f"{year}-12-31",
+                        batter_mlb_id,
+                    )
+                    if all_batter_data is None or all_batter_data.empty:
                         continue
+                except Exception:
+                    continue
+
+                # Now filter for each uncached pitcher from the single fetch
+                for pitcher_mlb_id in uncached_pitcher_ids:
+                    pvb = all_batter_data[all_batter_data["pitcher"] == pitcher_mlb_id]
 
                     if pvb is None or pvb.empty:
                         continue
