@@ -182,37 +182,10 @@ def main():
         st.warning(f"No roster found for '{user_team_name}'. Check Yahoo sync.")
         return
 
-    # Compute team category totals from standings or roster stats
-    standings_df = yds.get_standings()
-    all_team_totals: dict[str, dict[str, float]] = {}
+    # Compute team category totals (Yahoo standings first, projection fallback)
+    from src.standings_utils import get_all_team_totals
 
-    if not standings_df.empty and "team_name" in standings_df.columns and "category" in standings_df.columns:
-        # Standings table is normalized (long format): one row per team-category pair.
-        # Pivot to wide format: one row per team, columns = categories.
-        standings_df["total"] = pd.to_numeric(standings_df["total"], errors="coerce").fillna(0)
-        wide = standings_df.pivot_table(
-            index="team_name", columns="category", values="total", aggfunc="first"
-        ).reset_index()
-        for _, row in wide.iterrows():
-            team = row.get("team_name", "")
-            if team:
-                totals = {}
-                for cat in config.all_categories:
-                    totals[cat] = float(pd.to_numeric(row.get(cat, 0), errors="coerce") or 0)
-                all_team_totals[team] = totals
-    elif not standings_df.empty and "team_name" in standings_df.columns:
-        # Wide format fallback (legacy schema)
-        for _, row in standings_df.iterrows():
-            team = row.get("team_name", "")
-            if team:
-                totals = {}
-                for cat in config.all_categories:
-                    totals[cat] = float(pd.to_numeric(row.get(cat, 0), errors="coerce") or 0)
-                all_team_totals[team] = totals
-    else:
-        # Fallback: compute from roster stats
-        for team_name, pids in league_rosters.items():
-            all_team_totals[team_name] = _roster_category_totals(pids, pool)
+    all_team_totals = get_all_team_totals(league_rosters=league_rosters, player_pool=pool)
 
     # ── Run trade finder engine ───────────────────────────────────────
     with st.spinner("Scanning league for trade opportunities..."):
@@ -509,9 +482,9 @@ def main():
                 else:
                     # Get FA pool for comparison
                     try:
-                        from src.league_manager import get_free_agents as _get_fa_pool
+                        from src.standings_utils import get_fa_pool
 
-                        _fa_pool = _get_fa_pool(pool)
+                        _fa_pool = get_fa_pool(pool)
                     except Exception:
                         _fa_pool = pd.DataFrame()
 

@@ -518,16 +518,11 @@ else:
 
                             if _recv_teams:
                                 opp_team = list(_recv_teams)[0]
-                                standings = yds.get_standings()
-                                if not standings.empty:
-                                    all_team_totals = {}
-                                    for _, row in standings.iterrows():
-                                        tn = row.get("team_name", "")
-                                        totals = {}
-                                        for cat in config.all_categories:
-                                            totals[cat] = float(row.get(cat.lower(), row.get(cat, 0)) or 0)
-                                        all_team_totals[tn] = totals
+                                from src.standings_utils import get_all_team_totals
 
+                                standings = yds.get_standings()
+                                all_team_totals = get_all_team_totals()
+                                if all_team_totals:
                                     opp_needs = compute_opponent_needs(opp_team, all_team_totals)
                                     arch = get_opponent_archetype(opp_team)
                                     opp_willingness = arch.get("trade_willingness", 0.5)

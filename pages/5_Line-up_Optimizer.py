@@ -27,6 +27,7 @@ from src.database import (
 )
 from src.injury_model import compute_health_score, get_injury_badge
 from src.league_manager import get_free_agents, get_team_roster
+from src.standings_utils import get_all_team_totals
 from src.ui_shared import (
     METRIC_TOOLTIPS,
     PAGE_ICONS,
@@ -319,27 +320,8 @@ except Exception:
 
 standings = yds.get_standings()
 
-# Build team totals from standings for H2H and SGP.
-team_totals: dict[str, dict[str, float]] = {}
-my_totals: dict[str, float] = {}
-if not standings.empty and "category" in standings.columns:
-    # Filter out H2H match record entries — only keep stat categories
-    _MATCH_RECORD_CATS = {"WINS", "LOSSES", "TIES", "PERCENTAGE", "POINTS_FOR", "POINTS_AGAINST", "STREAK"}
-    for _, srow in standings.iterrows():
-        tname = srow.get("team_name", "")
-        cat = str(srow.get("category", "")).strip()
-        if cat.upper() in _MATCH_RECORD_CATS:
-            continue
-        raw_total = srow.get("total", 0)
-        if not tname or not cat:
-            continue
-        try:
-            val = float(raw_total) if raw_total is not None else 0.0
-        except (ValueError, TypeError):
-            val = 0.0
-        team_totals.setdefault(tname, {})[cat] = val
-        if tname == user_team_name:
-            my_totals[cat] = val
+team_totals = get_all_team_totals()
+my_totals: dict[str, float] = team_totals.get(user_team_name, {})
 
 # Opponent weekly totals (league median proxy)
 opp_weekly_totals: dict[str, float] | None = None

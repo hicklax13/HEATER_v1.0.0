@@ -8,7 +8,8 @@ import streamlit as st
 from src.alerts import IL_STASH_NAMES
 from src.database import get_connection, init_db, load_player_pool
 from src.in_season import rank_free_agents
-from src.league_manager import get_free_agents, get_team_roster
+from src.league_manager import get_team_roster
+from src.standings_utils import get_fa_pool
 from src.ui_shared import (
     METRIC_TOOLTIPS,
     THEME,
@@ -185,22 +186,9 @@ if not user_roster_ids:
     st.warning("Your roster appears to be empty. No free agent analysis can be generated.")
     st.stop()
 
-# ── Get free agents — via YahooDataService (Yahoo-first with DB fallback) ─────
+# ── Get free agents — unified service (Yahoo-first with DB fallback) ──────────
 
-fa_pool = yds.get_free_agents()
-# Cross-reference with player pool to get projection data
-if not fa_pool.empty and not pool.empty:
-    from src.live_stats import match_player_id
-
-    yahoo_pids = set()
-    for _, row in fa_pool.iterrows():
-        pid = match_player_id(row.get("player_name", ""), row.get("team", ""))
-        if pid is not None:
-            yahoo_pids.add(pid)
-    if yahoo_pids:
-        fa_pool = pool[pool["player_id"].isin(yahoo_pids)].copy()
-    else:
-        fa_pool = get_free_agents(pool)
+fa_pool = get_fa_pool(pool)
 
 if fa_pool.empty:
     st.info("No free agents available (all players are rostered).")
