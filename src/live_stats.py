@@ -76,7 +76,19 @@ def match_player_id(player_name: str, team_abbr: str) -> int | None:
         # Clean the input name
         clean_name = _normalize_name(player_name)
 
-        # Primary: exact name match, prefer entry with projections
+        # Primary: exact name + team match (prevents same-name collisions)
+        if team_abbr:
+            cursor.execute(
+                "SELECT player_id FROM players WHERE name = ? AND team = ?",
+                (player_name, team_abbr),
+            )
+            results = cursor.fetchall()
+            if results:
+                if len(results) == 1:
+                    return results[0][0]
+                return _pick_canonical_id(cursor, [r[0] for r in results])
+
+        # Fallback: exact name match without team (for callers that don't pass team)
         cursor.execute("SELECT player_id FROM players WHERE name = ?", (player_name,))
         results = cursor.fetchall()
         # If exact match fails, try accent-stripped name
@@ -151,11 +163,24 @@ def _pick_canonical_id(cursor, player_ids: list[int]) -> int:
     return min(player_ids)
 
 
+def _match_by_mlb_id(cursor, mlb_id: int) -> int | None:
+    """Match a player by their MLB Stats API ID — unambiguous, no name collisions."""
+    cursor.execute("SELECT player_id FROM players WHERE mlb_id = ?", (mlb_id,))
+    result = cursor.fetchone()
+    if result:
+        return result[0]
+    # Also check the player_id_map table
+    cursor.execute("SELECT player_id FROM player_id_map WHERE mlb_id = ?", (mlb_id,))
+    result = cursor.fetchone()
+    return result[0] if result else None
+
+
 def _parse_hitting_stat(player_info: dict, stat: dict) -> dict:
     """Parse a hitting stat split into a row dict."""
     return {
         "player_name": player_info.get("fullName", ""),
         "team": player_info.get("team_abbr", ""),
+        "mlb_id": player_info.get("mlb_id", 0),
         "is_hitter": True,
         "pa": int(stat.get("plateAppearances", 0)),
         "ab": int(stat.get("atBats", 0)),
@@ -188,6 +213,7 @@ def _parse_pitching_stat(player_info: dict, stat: dict) -> dict:
     return {
         "player_name": player_info.get("fullName", ""),
         "team": player_info.get("team_abbr", ""),
+        "mlb_id": player_info.get("mlb_id", 0),
         "is_hitter": False,
         "pa": 0,
         "ab": 0,
@@ -225,7 +251,7 @@ def fetch_season_stats(season: int = 2026) -> pd.DataFrame:
         raise ImportError("MLB-StatsAPI is required. Install with: pip install MLB-StatsAPI")
 
     rows = []
-    seen_players: set[str] = set()  # Avoid duplicates across teams
+    seen_players: set[tuple[str, int]] = set()  # (name, mlb_id) to handle same-name players
 
     try:
         # Get all MLB team IDs for the season
@@ -252,13 +278,18 @@ def fetch_season_stats(season: int = 2026) -> pd.DataFrame:
             for entry in roster.get("roster", []):
                 person = entry.get("person", {})
                 full_name = person.get("fullName", "")
-                if not full_name or full_name in seen_players:
+                mlb_id = person.get("id", 0)
+                if not full_name:
                     continue
-                seen_players.add(full_name)
+                # Dedup by (name, mlb_id) — handles same-name players on different teams
+                dedup_key = (full_name, mlb_id)
+                if dedup_key in seen_players:
+                    continue
+                seen_players.add(dedup_key)
 
                 current_team = person.get("currentTeam", {})
                 team_abbr = current_team.get("abbreviation", "")
-                player_info = {"fullName": full_name, "team_abbr": team_abbr}
+                player_info = {"fullName": full_name, "team_abbr": team_abbr, "mlb_id": mlb_id}
 
                 # Determine position type from roster entry
                 position = entry.get("position", {})
@@ -349,7 +380,13 @@ def save_season_stats_to_db(stats_df: pd.DataFrame, season: int = 2026) -> int:
         saved = 0
         now = datetime.now(UTC).isoformat()
         for _, row in stats_df.iterrows():
-            player_id = match_player_id(row["player_name"], row.get("team", ""))
+            # Prefer mlb_id match (unambiguous), fall back to name+team
+            player_id = None
+            row_mlb_id = row.get("mlb_id", 0)
+            if row_mlb_id:
+                player_id = _match_by_mlb_id(cursor, int(row_mlb_id))
+            if player_id is None:
+                player_id = match_player_id(row["player_name"], row.get("team", ""))
             if player_id is None:
                 continue
             row_dict = row.to_dict()

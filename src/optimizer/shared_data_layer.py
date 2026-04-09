@@ -102,6 +102,7 @@ class OptimizerDataContext:
     urgency_weights: dict = field(default_factory=dict)
     category_weights: dict[str, float] = field(default_factory=dict)
     category_gaps: dict[str, float] = field(default_factory=dict)
+    h2h_strategy: dict = field(default_factory=dict)  # weekly_h2h_strategy output
 
     # Schedule & matchup context
     todays_schedule: list[dict] = field(default_factory=list)
@@ -241,6 +242,9 @@ def build_optimizer_context(
     # ── Step 7: Category gaps from live matchup ───────────────────────
     _build_category_gaps(ctx)
 
+    # ── Step 7b: Weekly H2H strategy (winnable/protect/punt) ──────────
+    _load_h2h_strategy(ctx, yds)
+
     # ── Step 8: Unified category weights ──────────────────────────────
     _build_unified_category_weights(ctx)
 
@@ -363,6 +367,27 @@ def _build_category_gaps(ctx: OptimizerDataContext) -> None:
             ctx.category_gaps[cat] = my_val - opp_val
 
 
+def _load_h2h_strategy(ctx: OptimizerDataContext, yds) -> None:
+    """Load weekly H2H strategy: winnable, protect, and punt classifications.
+
+    This bridges the gap between raw urgency (0-1 per category) and
+    strategic decision-making (which categories to chase vs concede).
+    """
+    try:
+        from src.weekly_h2h_strategy import compute_weekly_matchup_state
+
+        state = compute_weekly_matchup_state(yds)
+        ctx.h2h_strategy = state
+        logger.info(
+            "H2H strategy: winnable=%s, protect=%s, punt=%s",
+            state.get("winnable_cats", []),
+            state.get("protect_cats", []),
+            state.get("punt_cats", []),
+        )
+    except Exception:
+        logger.warning("Failed to load H2H strategy", exc_info=True)
+
+
 def _build_unified_category_weights(ctx: OptimizerDataContext) -> None:
     """Build unified category weights: urgency * correlation adjustment.
 
@@ -376,11 +401,27 @@ def _build_unified_category_weights(ctx: OptimizerDataContext) -> None:
         ctx.category_weights = {c: 1.0 for c in all_cats}
         return
 
+    # Get H2H strategy classifications if available
+    punt_cats = {c.lower() for c in ctx.h2h_strategy.get("punt_cats", [])}
+    winnable_cats = {c.lower() for c in ctx.h2h_strategy.get("winnable_cats", [])}
+    protect_cats = {c.lower() for c in ctx.h2h_strategy.get("protect_cats", [])}
+
     weights: dict[str, float] = {}
     for cat, urg in urgency.items():
-        # Start with urgency as base weight (0-1 scale, higher = more important)
-        # Transform to usable LP weight: losing cats ~1.5x, tied ~1.0x, winning ~0.5x
-        w = 0.5 + urg  # Range: 0.5 (winning) to 1.5 (losing)
+        cat_l = cat.lower()
+
+        if cat_l in punt_cats:
+            # Punt: near-zero weight — don't waste lineup slots chasing uncloseable gaps
+            w = 0.1
+        elif cat_l in winnable_cats:
+            # Winnable: boost weight — these are the categories that can flip the matchup
+            w = 0.5 + urg * 1.3  # Range: 0.5 to ~1.8
+        elif cat_l in protect_cats:
+            # Protect: moderate weight — don't sacrifice leads
+            w = 0.6 + urg * 0.4  # Range: 0.6 to ~1.0
+        else:
+            # Default: standard urgency transform
+            w = 0.5 + urg  # Range: 0.5 to 1.5
         weights[cat] = w
 
     # Apply correlation dampening
