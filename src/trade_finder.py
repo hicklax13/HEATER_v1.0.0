@@ -71,25 +71,7 @@ def _player_sgp_volume_aware(
         return 0.0
 
 
-# ── Volume-Aware Individual Player SGP ──────────────────────────────
-
-
-def _player_sgp_volume_aware(player_id: int, player_pool: pd.DataFrame, config: LeagueConfig) -> float:
-    """Compute volume-aware SGP for a single player using SGPCalculator.
-
-    Unlike _totals_sgp() which treats rate stats as raw values (appropriate for
-    full-roster aggregates), this function properly accounts for volume: a 600 AB
-    .300 hitter gets more AVG SGP than a 200 AB .300 hitter because the former
-    moves team AVG 3x more.
-
-    Use this for individual player valuations (elite protection, efficiency cap,
-    drop cost). Use _totals_sgp() only for full-roster category totals.
-    """
-    p = player_pool[player_pool["player_id"] == player_id]
-    if p.empty:
-        return 0.0
-    sgp_calc = SGPCalculator(config)
-    return sgp_calc.total_sgp(p.iloc[0])
+# (Duplicate _player_sgp_volume_aware removed — first definition at line 47 is canonical)
 
 
 # ── Team Vector & Cosine Similarity ───────────────────────────────────

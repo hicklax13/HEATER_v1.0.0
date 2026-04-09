@@ -633,6 +633,13 @@ def compute_weekly_matchup_adjustments(
     # Build per-team schedule lookup
     team_schedule = _build_team_schedule(week_schedule)
 
+    # Pre-load umpire tendency data for today's games (venue -> adjustments)
+    umpire_data: dict[str, dict[str, float]] = {}
+    try:
+        umpire_data = get_umpire_adjustment()
+    except Exception:
+        pass  # Umpire data is a nice-to-have enhancement
+
     result = roster.copy()
     result["matchup_adjusted"] = False
 
@@ -735,6 +742,32 @@ def compute_weekly_matchup_adjustments(
                             any_adjusted = True
             except Exception:
                 pass  # Catcher framing is a nice-to-have, not critical
+
+        # Umpire tendency adjustment (pitchers: K/BB; hitters: runs)
+        if umpire_data and games:
+            try:
+                # Use the venue team from the first game as the umpire lookup key
+                venue = str(games[0].get("park_team", "")).upper().strip()
+                ump = umpire_data.get(venue)
+                if ump:
+                    if not is_hitter and "k" in result.columns:
+                        k_val = float(result.at[idx, "k"] or 0)
+                        bb_val = float(result.at[idx, "bb_allowed"] or 0) if "bb_allowed" in result.columns else 0.0
+                        er_val = float(result.at[idx, "er"] or 0) if "er" in result.columns else 0.0
+                        adj_k, adj_bb, adj_er = apply_umpire_adjustment(k_val, bb_val, er_val, ump)
+                        result.at[idx, "k"] = adj_k
+                        if "bb_allowed" in result.columns:
+                            result.at[idx, "bb_allowed"] = adj_bb
+                        if "er" in result.columns:
+                            result.at[idx, "er"] = adj_er
+                        any_adjusted = True
+                    elif is_hitter and "r" in result.columns:
+                        r_val = float(result.at[idx, "r"] or 0)
+                        _, _, adj_r = apply_umpire_adjustment(0, 0, r_val, ump)
+                        result.at[idx, "r"] = adj_r
+                        any_adjusted = True
+            except Exception:
+                pass  # Umpire adjustment is a nice-to-have
 
         if any_adjusted:
             result.at[idx, "matchup_adjusted"] = True

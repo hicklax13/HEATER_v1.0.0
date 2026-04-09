@@ -496,7 +496,7 @@ class LineupOptimizerPipeline:
 
                 schedule_today = kwargs.get("schedule_today")
                 dcv_table = build_daily_dcv_table(
-                    roster=self.roster,
+                    roster=enhanced_roster,
                     matchup=kwargs.get("matchup"),
                     schedule_today=schedule_today,
                     park_factors=park_factors,
