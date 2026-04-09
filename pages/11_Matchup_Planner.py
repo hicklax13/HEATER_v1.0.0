@@ -11,7 +11,7 @@ from src.database import init_db, load_player_pool
 from src.league_manager import get_team_roster
 from src.ui_shared import (
     THEME,
-    format_stat,  # noqa: F401
+    format_stat,
     inject_custom_css,
     page_timer_footer,
     page_timer_start,
@@ -316,11 +316,11 @@ def _build_category_prob_html(cat_data: list[dict]) -> str:
 
         # Format projection values
         if name in ("AVG", "OBP"):
-            user_str = f"{user_proj:.3f}"
-            opp_str = f"{opp_proj:.3f}"
+            user_str = format_stat(user_proj, name)
+            opp_str = format_stat(opp_proj, name)
         elif name in ("ERA", "WHIP"):
-            user_str = f"{user_proj:.2f}"
-            opp_str = f"{opp_proj:.2f}"
+            user_str = format_stat(user_proj, name)
+            opp_str = format_stat(opp_proj, name)
         else:
             user_str = f"{user_proj:.1f}"
             opp_str = f"{opp_proj:.1f}"

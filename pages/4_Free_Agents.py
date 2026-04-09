@@ -12,7 +12,7 @@ from src.league_manager import get_free_agents, get_team_roster
 from src.ui_shared import (
     METRIC_TOOLTIPS,
     THEME,
-    format_stat,  # noqa: F401
+    format_stat,
     inject_custom_css,
     page_timer_footer,
     page_timer_start,
@@ -285,7 +285,9 @@ if recommendations:
     _top_add = _top_rec.get("add_name", "Unknown")
     _top_drop = _top_rec.get("drop_name", "Unknown")
     _top_delta = _top_rec.get("net_sgp_delta", 0)
-    _banner_teaser = f"Top pickup: Add {_top_add} (drop {_top_drop}) for +{_top_delta:.2f} Standings Gained Points"
+    _banner_teaser = (
+        f"Top pickup: Add {_top_add} (drop {_top_drop}) for {format_stat(_top_delta, 'SGP')} Standings Gained Points"
+    )
 
 render_page_layout("FREE AGENTS", banner_teaser=_banner_teaser, banner_icon="free_agents")
 
@@ -453,7 +455,7 @@ with main:
             entry = {
                 "Add": rec.get("add_name", ""),
                 "Position": rec.get("add_positions", ""),
-                "Net Standings Gained Points Delta": f"{rec.get('net_sgp_delta', 0):.2f}",
+                "Net Standings Gained Points Delta": format_stat(rec.get("net_sgp_delta", 0), "SGP"),
                 "Sustainability": f"{sustainability_pct}%",
                 "Drop": rec.get("drop_name", ""),
             }
@@ -790,7 +792,7 @@ with main:
             if category_impact:
                 top_cat = max(category_impact, key=lambda c: abs(category_impact[c]))
                 top_delta = category_impact[top_cat]
-                impact_str = f"{top_cat}: {top_delta:+.2f}"
+                impact_str = f"{top_cat}: {format_stat(top_delta, 'SGP')}"
             else:
                 impact_str = ""
 

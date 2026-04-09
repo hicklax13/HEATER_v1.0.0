@@ -1543,12 +1543,16 @@ def _bootstrap_pvb_splits(progress: BootstrapProgress) -> str:
                         continue
 
                     try:
-                        pvb = _statcast_batter(
+                        # statcast_batter() takes (start, end, player_id) only.
+                        # Filter by pitcher_id after fetching batter's Statcast data.
+                        all_batter_data = _statcast_batter(
                             f"{year - 3}-01-01",
                             f"{year}-12-31",
                             batter_mlb_id,
-                            pitcher_mlb_id,
                         )
+                        if all_batter_data is None or all_batter_data.empty:
+                            continue
+                        pvb = all_batter_data[all_batter_data["pitcher"] == pitcher_mlb_id]
                     except Exception:
                         continue
 

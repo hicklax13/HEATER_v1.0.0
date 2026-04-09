@@ -18,7 +18,7 @@ from src.ui_shared import (
     METRIC_TOOLTIPS,
     PAGE_ICONS,
     T,
-    format_stat,  # noqa: F401
+    format_stat,
     inject_custom_css,
     page_timer_footer,
     page_timer_start,
@@ -390,7 +390,7 @@ else:
                         )
                         col2.metric(
                             "Surplus Standings Gained Points",
-                            f"{result.get('surplus_sgp', 0):+.2f}",
+                            format_stat(result.get("surplus_sgp", 0), "SGP"),
                             help=METRIC_TOOLTIPS["sgp"],
                         )
                         # Roster move indicator (drop or pickup for uneven trades)
@@ -406,7 +406,7 @@ else:
                         )
                         col4.metric(
                             "Replacement Penalty",
-                            f"{result.get('replacement_penalty', 0):+.2f}",
+                            format_stat(result.get("replacement_penalty", 0), "SGP"),
                             help=METRIC_TOOLTIPS["replacement_penalty"],
                         )
                         col5.metric(
@@ -424,12 +424,12 @@ else:
                         col1, col2, col3 = st.columns(3)
                         col1.metric(
                             "Total Standings Gained Points Change",
-                            f"{result['total_sgp_change']:+.2f}",
+                            format_stat(result["total_sgp_change"], "SGP"),
                             help=METRIC_TOOLTIPS["sgp"],
                         )
                         col2.metric(
                             "Monte Carlo Mean",
-                            f"{result['mc_mean']:+.2f}",
+                            format_stat(result["mc_mean"], "SGP"),
                             help=METRIC_TOOLTIPS["mc_mean"],
                         )
                         col3.metric(
@@ -637,7 +637,7 @@ else:
                             impact_rows.append(
                                 {
                                     "Category": cat,
-                                    "Standings Gained Points Change": f"{sgp_val:+.2f}",
+                                    "Standings Gained Points Change": format_stat(sgp_val, "SGP"),
                                     "Your Rank": status,
                                     "Gap to Next": f"{gap:.2f}" if not is_punt else "-",
                                 }
@@ -646,7 +646,7 @@ else:
                     else:
                         impact_df = pd.DataFrame(
                             [
-                                {"Category": cat, "Standings Gained Points Change": f"{val:+.2f}"}
+                                {"Category": cat, "Standings Gained Points Change": format_stat(val, "SGP")}
                                 for cat, val in result["category_impact"].items()
                             ]
                         )
@@ -674,7 +674,7 @@ else:
                                         "Raw Loss": f"{d['raw_loss']:.2f}",
                                         "Best Free Agent": f"{d.get('best_fa_name', 'N/A')} ({d['best_fa']:.2f})",
                                         "Unrecoverable Gap": f"{d['unrecoverable']:.2f}",
-                                        "Standings Gained Points Penalty": f"{d['sgp_penalty']:+.2f}",
+                                        "Standings Gained Points Penalty": format_stat(d["sgp_penalty"], "SGP"),
                                     }
                                 )
                             if repl_rows:

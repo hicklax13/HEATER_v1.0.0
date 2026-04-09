@@ -22,7 +22,7 @@ from src.trade_finder import (
 )
 from src.ui_shared import (
     T,
-    format_stat,  # noqa: F401
+    format_stat,
     inject_custom_css,
     page_timer_footer,
     page_timer_start,
@@ -238,7 +238,7 @@ def main():
         best_gain = best.get("user_sgp_gain", 0)
         banner_text = (
             f"Top opportunity: Send {best_give} to {best_partner} for {best_recv} "
-            f"(+{best_gain:.2f} Standings Gained Points)"
+            f"({format_stat(best_gain, 'SGP')} Standings Gained Points)"
         )
         render_page_layout(
             "TRADE FINDER",
@@ -739,7 +739,7 @@ def main():
                                             impact_rows.append(
                                                 {
                                                     "Category": display_name_i,
-                                                    "Impact": f"{val_i:+.2f}",
+                                                    "Impact": format_stat(val_i, "SGP"),
                                                     "Direction": arrow,
                                                 }
                                             )

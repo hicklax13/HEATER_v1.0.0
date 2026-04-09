@@ -11,7 +11,7 @@ from src.injury_model import get_injury_badge
 from src.ui_shared import (
     ALL_CATEGORIES,
     METRIC_TOOLTIPS,
-    format_stat,  # noqa: F401
+    format_stat,
     get_plotly_layout,
     get_plotly_polar,
     get_theme,
@@ -257,9 +257,9 @@ with main:
                             sgp_rows.append(
                                 {
                                     "Category": cat_full_names.get(cat, cat),
-                                    f"{result['player_a']}": f"{sa:+.2f}",
-                                    f"{result['player_b']}": f"{sb:+.2f}",
-                                    "Delta": f"{sa - sb:+.2f}",
+                                    f"{result['player_a']}": format_stat(sa, "SGP"),
+                                    f"{result['player_b']}": format_stat(sb, "SGP"),
+                                    "Delta": format_stat(sa - sb, "SGP"),
                                 }
                             )
                     if sgp_rows:
@@ -269,9 +269,9 @@ with main:
                         sgp_rows.append(
                             {
                                 "Category": "TOTAL",
-                                f"{result['player_a']}": f"{total_a:+.2f}",
-                                f"{result['player_b']}": f"{total_b:+.2f}",
-                                "Delta": f"{total_a - total_b:+.2f}",
+                                f"{result['player_a']}": format_stat(total_a, "SGP"),
+                                f"{result['player_b']}": format_stat(total_b, "SGP"),
+                                "Delta": format_stat(total_a - total_b, "SGP"),
                             }
                         )
                         render_compact_table(pd.DataFrame(sgp_rows))
@@ -348,11 +348,12 @@ with main:
                                 _vb = _rb.get(_col, 0) or 0
                                 # Format rate stats
                                 if _col in ("ytd_avg",):
-                                    _va_s = f".{float(_va):.3f}"[1:] if float(_va) > 0 else "--"
-                                    _vb_s = f".{float(_vb):.3f}"[1:] if float(_vb) > 0 else "--"
+                                    _va_s = format_stat(float(_va), "AVG") if float(_va) > 0 else "--"
+                                    _vb_s = format_stat(float(_vb), "AVG") if float(_vb) > 0 else "--"
                                 elif _col in ("ytd_era", "ytd_whip"):
-                                    _va_s = f"{float(_va):.2f}" if float(_va) > 0 else "--"
-                                    _vb_s = f"{float(_vb):.2f}" if float(_vb) > 0 else "--"
+                                    _stat_type = "ERA" if _col == "ytd_era" else "WHIP"
+                                    _va_s = format_stat(float(_va), _stat_type) if float(_va) > 0 else "--"
+                                    _vb_s = format_stat(float(_vb), _stat_type) if float(_vb) > 0 else "--"
                                 else:
                                     _va_s = str(int(float(_va))) if float(_va) > 0 else "--"
                                     _vb_s = str(int(float(_vb))) if float(_vb) > 0 else "--"

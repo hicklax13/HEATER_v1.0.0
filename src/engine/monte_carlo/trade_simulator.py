@@ -287,7 +287,9 @@ def _simulate_roster_sgp(
             obp_val = stats["obp"]
             p_bb = max(0.0, (obp_val * p_pa - p_h))
         if p_ip == 0.0 and (stats.get("era", 0.0) > 0 or stats.get("whip", 0.0) > 0):
-            p_ip = 150.0  # Default estimate for a typical pitcher
+            # Use position-appropriate IP default: relievers ~60 IP, starters ~150 IP
+            sv = stats.get("sv", 0.0)
+            p_ip = 60.0 if sv > 5 else 150.0
             if stats.get("era", 0.0) > 0:
                 p_er = stats["era"] * p_ip / 9.0
             if stats.get("whip", 0.0) > 0:

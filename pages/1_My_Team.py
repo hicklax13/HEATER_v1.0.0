@@ -12,7 +12,7 @@ from src.live_stats import refresh_all_stats
 from src.ui_shared import (
     PAGE_ICONS,
     THEME,
-    format_stat,  # noqa: F401
+    format_stat,
     inject_custom_css,
     page_timer_footer,
     page_timer_start,
@@ -131,12 +131,12 @@ def _compute_category_totals(df: pd.DataFrame) -> tuple[dict, dict]:
             hit_stats[cat] = int(hitters[col].sum()) if col in hitters.columns else 0
         ab = hitters["ab"].sum() if "ab" in hitters.columns else 0
         h = hitters["h"].sum() if "h" in hitters.columns else 0
-        hit_stats["AVG"] = f"{h / ab:.3f}" if ab > 0 else ".000"
+        hit_stats["AVG"] = format_stat(h / ab, "AVG") if ab > 0 else ".000"
         hit_bb = hitters["bb"].sum() if "bb" in hitters.columns else 0
         hit_hbp = hitters["hbp"].sum() if "hbp" in hitters.columns else 0
         hit_sf = hitters["sf"].sum() if "sf" in hitters.columns else 0
         obp_denom = ab + hit_bb + hit_hbp + hit_sf
-        hit_stats["OBP"] = f"{(h + hit_bb + hit_hbp) / obp_denom:.3f}" if obp_denom > 0 else ".000"
+        hit_stats["OBP"] = format_stat((h + hit_bb + hit_hbp) / obp_denom, "OBP") if obp_denom > 0 else ".000"
 
     pitch_stats: dict = {}
     if not pitchers.empty:
@@ -146,8 +146,8 @@ def _compute_category_totals(df: pd.DataFrame) -> tuple[dict, dict]:
         er = pitchers["er"].sum() if "er" in pitchers.columns else 0
         bb = pitchers["bb_allowed"].sum() if "bb_allowed" in pitchers.columns else 0
         ha = pitchers["h_allowed"].sum() if "h_allowed" in pitchers.columns else 0
-        pitch_stats["ERA"] = f"{er * 9 / ip:.2f}" if ip > 0 else "0.00"
-        pitch_stats["WHIP"] = f"{(bb + ha) / ip:.2f}" if ip > 0 else "0.00"
+        pitch_stats["ERA"] = format_stat(er * 9 / ip, "ERA") if ip > 0 else "0.00"
+        pitch_stats["WHIP"] = format_stat((bb + ha) / ip, "WHIP") if ip > 0 else "0.00"
 
     return hit_stats, pitch_stats
 
@@ -1511,12 +1511,12 @@ else:
                                     _color = T["danger"]
                                 # Format values
                                 if _cat in ("AVG", "OBP"):
-                                    _uv_str = f"{_user_val:.3f}"
-                                    _ov_str = f"{_opp_val:.3f}"
+                                    _uv_str = format_stat(_user_val, _cat)
+                                    _ov_str = format_stat(_opp_val, _cat)
                                     _diff_str = f"{_diff:+.3f}"
                                 elif _cat in ("ERA", "WHIP"):
-                                    _uv_str = f"{_user_val:.2f}"
-                                    _ov_str = f"{_opp_val:.2f}"
+                                    _uv_str = format_stat(_user_val, _cat)
+                                    _ov_str = format_stat(_opp_val, _cat)
                                     _diff_str = f"{_diff:+.2f}"
                                 else:
                                     _uv_str = f"{int(_user_val)}"

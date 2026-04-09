@@ -18,7 +18,7 @@ from src.database import (
 from src.ui_shared import (
     THEME,
     build_compact_table_html,
-    format_stat,  # noqa: F401
+    format_stat,
     inject_custom_css,
     page_timer_footer,
     page_timer_start,
@@ -435,7 +435,7 @@ with main:
                         "W": w,
                         "L": l,
                         "T": t,
-                        "Win%": f"{wp:.3f}",
+                        "Win%": format_stat(wp, "AVG"),
                         "GB": gb_str,
                         "Streak": streak,
                     }
@@ -660,7 +660,7 @@ with main:
                         "Proj W": rec.get("W", 0),
                         "Proj L": rec.get("L", 0),
                         "Proj T": rec.get("T", 0),
-                        "Win%": f"{rec.get('win_pct', 0):.3f}",
+                        "Win%": format_stat(rec.get("win_pct", 0), "AVG"),
                         "Playoff%": f"{pp * 100:.0f}%",
                         "Magic#": magic_str,
                         "SOS": f"{ss:.3f}",

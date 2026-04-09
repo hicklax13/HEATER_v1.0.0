@@ -10,7 +10,7 @@ from src.closer_monitor import build_closer_grid
 from src.database import get_connection, init_db, load_player_pool
 from src.ui_shared import (
     _headshot_img_html,
-    format_stat,  # noqa: F401
+    format_stat,
     inject_custom_css,
     page_timer_footer,
     page_timer_start,
@@ -153,8 +153,8 @@ else:
 
                     import html as _html
 
-                    era_str = f"{item['era']:.2f}" if item["era"] else "—"
-                    whip_str = f"{item['whip']:.2f}" if item["whip"] else "—"
+                    era_str = format_stat(item["era"], "ERA") if item["era"] else "—"
+                    whip_str = format_stat(item["whip"], "WHIP") if item["whip"] else "—"
                     sv_str = f"{int(item['projected_sv'])}" if item["projected_sv"] else "—"
                     setup_str = _html.escape(", ".join(item["setup_names"]) if item["setup_names"] else "—")
                     closer_name_safe = _html.escape(item["closer_name"])
@@ -215,8 +215,8 @@ else:
                     # Build actual stats line if available
                     actual_sv_html = "<!-- no actual stats -->"
                     if actual_sv is not None:
-                        actual_era_str = f"{actual_era:.2f}" if actual_era else "—"
-                        actual_whip_str = f"{actual_whip:.2f}" if actual_whip else "—"
+                        actual_era_str = format_stat(actual_era, "ERA") if actual_era else "—"
+                        actual_whip_str = format_stat(actual_whip, "WHIP") if actual_whip else "—"
                         actual_sv_html = (
                             f'<div style="font-size:0.65rem;color:#2e7d32;'
                             f'margin-top:2px;white-space:nowrap;font-weight:600;">'

@@ -11,7 +11,7 @@ from src.draft_state import DraftState
 from src.simulation import DraftSimulator
 from src.ui_shared import (
     T,
-    format_stat,  # noqa: F401
+    format_stat,
     get_session_config,
     get_session_replacement_levels,
     inject_custom_css,
@@ -428,16 +428,16 @@ def render_draft_summary(pool: pd.DataFrame, ds: DraftState) -> None:
     col_hr.metric("Home Runs", int(totals.get("HR", 0)))
     col_rbi.metric("Runs Batted In", int(totals.get("RBI", 0)))
     col_sb.metric("Stolen Bases", int(totals.get("SB", 0)))
-    col_avg.metric("Batting Average", f"{totals.get('AVG', 0):.2f}")
-    col_obp.metric("On-Base Percentage", f"{totals.get('OBP', 0):.2f}")
+    col_avg.metric("Batting Average", format_stat(totals.get("AVG", 0), "AVG"))
+    col_obp.metric("On-Base Percentage", format_stat(totals.get("OBP", 0), "OBP"))
 
     col_w, col_l, col_sv, col_k, col_era, col_whip = st.columns(6)
     col_w.metric("Wins", int(totals.get("W", 0)))
     col_l.metric("Losses", int(totals.get("L", 0)))
     col_sv.metric("Saves", int(totals.get("SV", 0)))
     col_k.metric("Strikeouts", int(totals.get("K", 0)))
-    col_era.metric("Earned Run Average", f"{totals.get('ERA', 0):.2f}")
-    col_whip.metric("Walks + Hits per Inning Pitched", f"{totals.get('WHIP', 0):.2f}")
+    col_era.metric("Earned Run Average", format_stat(totals.get("ERA", 0), "ERA"))
+    col_whip.metric("Walks + Hits per Inning Pitched", format_stat(totals.get("WHIP", 0), "WHIP"))
 
     # Estimate grade: sum SGP of user's picks vs other teams
     all_totals = ds.get_all_team_roster_totals(pool)

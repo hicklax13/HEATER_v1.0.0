@@ -31,7 +31,7 @@ from src.ui_shared import (
     METRIC_TOOLTIPS,
     PAGE_ICONS,
     THEME,
-    format_stat,  # noqa: F401
+    format_stat,
     inject_custom_css,
     page_timer_footer,
     page_timer_start,
@@ -1369,9 +1369,9 @@ with main:
                     for cat in ALL_CATS:
                         if cat in weekly_proj:
                             if cat in ("avg", "obp"):
-                                display_proj[CAT_DISPLAY_NAMES[cat]] = f"{weekly_proj[cat]:.3f}"
+                                display_proj[CAT_DISPLAY_NAMES[cat]] = format_stat(weekly_proj[cat], cat.upper())
                             elif cat in ("era", "whip"):
-                                display_proj[CAT_DISPLAY_NAMES[cat]] = f"{weekly_proj[cat]:.2f}"
+                                display_proj[CAT_DISPLAY_NAMES[cat]] = format_stat(weekly_proj[cat], cat.upper())
                             else:
                                 display_proj[CAT_DISPLAY_NAMES[cat]] = f"{weekly_proj[cat]:.1f}"
                     render_styled_table(pd.DataFrame([display_proj]))
@@ -2329,9 +2329,9 @@ with main:
                             rank += 1
 
                 if cat in ("avg", "obp"):
-                    val_fmt = f"{my_val:.3f}"
+                    val_fmt = format_stat(my_val, cat.upper())
                 elif cat in ("era", "whip"):
-                    val_fmt = f"{my_val:.2f}"
+                    val_fmt = format_stat(my_val, cat.upper())
                 else:
                     val_fmt = f"{my_val:.0f}"
                 rank_label = f"{rank}" + ("st" if rank == 1 else "nd" if rank == 2 else "rd" if rank == 3 else "th")
@@ -2449,11 +2449,11 @@ with main:
                 bar = "\u2588" * bar_len + "\u2591" * (20 - bar_len)
 
                 if cat in ("avg", "obp"):
-                    you_fmt = f"{my_val:.3f}"
-                    opp_fmt = f"{opp_val:.3f}"
+                    you_fmt = format_stat(my_val, cat.upper())
+                    opp_fmt = format_stat(opp_val, cat.upper())
                 elif cat in ("era", "whip"):
-                    you_fmt = f"{my_val:.2f}"
-                    opp_fmt = f"{opp_val:.2f}"
+                    you_fmt = format_stat(my_val, cat.upper())
+                    opp_fmt = format_stat(opp_val, cat.upper())
                 else:
                     you_fmt = f"{my_val:.0f}"
                     opp_fmt = f"{opp_val:.0f}"
