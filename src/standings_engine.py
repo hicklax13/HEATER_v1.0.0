@@ -149,20 +149,8 @@ CATEGORY_CORRELATIONS: dict[tuple[str, str], float] = {
     ("SV", "W"): -0.10,
 }
 
-ALL_CATEGORIES: list[str] = [
-    "R",
-    "HR",
-    "RBI",
-    "SB",
-    "AVG",
-    "OBP",
-    "W",
-    "L",
-    "SV",
-    "K",
-    "ERA",
-    "WHIP",
-]
+_LC = LeagueConfig()
+ALL_CATEGORIES: list[str] = list(_LC.all_categories)
 
 
 def _build_correlation_matrix(categories: list[str]) -> np.ndarray:
@@ -335,8 +323,12 @@ def compute_category_win_probabilities(
     overall_loss = float(np.mean(cats_won < half))
 
     # Projected score (expected category W-L-T)
+    # Note: per-category ties are ~0 in continuous simulation (Normal draws
+    # produce exact equality with probability zero). T is kept for API
+    # compatibility but will be near-zero.
     expected_w = float(np.mean(cats_won))
     expected_l = float(n_cats - expected_w)
+    expected_t = 0.0
 
     return {
         "overall_win_pct": round(overall_win, 4),
@@ -345,7 +337,7 @@ def compute_category_win_probabilities(
         "projected_score": {
             "W": round(expected_w, 1),
             "L": round(expected_l, 1),
-            "T": round(n_cats - expected_w - expected_l, 1) if expected_w + expected_l < n_cats else 0.0,
+            "T": expected_t,
         },
         "categories": cat_results,
     }
@@ -602,11 +594,11 @@ def compute_team_strength_profiles(
     """Compute 5-factor team strength profiles using existing power_rankings.py.
 
     Wires up all 5 factors:
-    - roster_quality (40%): Z-score of team's avg category rank
+    - roster_quality (30%): Z-score of team's avg category rank
     - category_balance (25%): Fraction of cats beating median
     - schedule_strength (15%): Avg opponent roster_quality for remaining weeks
     - injury_exposure (10%): Placeholder (requires live health data from caller)
-    - momentum (10%): From momentum_data if provided
+    - momentum (20%): From momentum_data if provided (H2H hot-streak value)
     """
     from src.power_rankings import bootstrap_confidence_interval, compute_power_rankings
 

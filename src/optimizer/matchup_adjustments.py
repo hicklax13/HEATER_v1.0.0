@@ -719,6 +719,23 @@ def compute_weekly_matchup_adjustments(
                     result.at[idx, stat] = current_val * adj
                     any_adjusted = True
 
+        # Catcher framing adjustment (pitchers only)
+        if not is_hitter:
+            try:
+                catcher_data = _get_catcher_framing_for_team(team)
+                if catcher_data is not None:
+                    framing_runs = catcher_data.get("framing_runs", 0)
+                    if abs(framing_runs) > 0.5:  # Only adjust for non-trivial framing
+                        if "era" in result.columns:
+                            era_val = float(result.at[idx, "era"] or 0)
+                            k9_val = float(result.at[idx, "k"] or 0)
+                            adj_era, adj_k = catcher_framing_pitcher_adjustment(era_val, k9_val, framing_runs)
+                            result.at[idx, "era"] = adj_era
+                            result.at[idx, "k"] = adj_k
+                            any_adjusted = True
+            except Exception:
+                pass  # Catcher framing is a nice-to-have, not critical
+
         if any_adjusted:
             result.at[idx, "matchup_adjusted"] = True
 
@@ -906,6 +923,52 @@ def catcher_framing_pitcher_adjustment(
     adjusted_k9 = max(0.0, pitcher_k9 + k9_delta)
 
     return adjusted_era, adjusted_k9
+
+
+# Cache catcher framing data to avoid repeated DB reads per optimizer run
+_catcher_framing_cache: dict[str, dict[str, float] | None] | None = None
+
+
+def _get_catcher_framing_for_team(team_abbr: str) -> dict[str, float] | None:
+    """Look up the primary catcher's framing data for a team.
+
+    Uses get_catcher_framing_data() and matches by team via player pool.
+    Returns the framing data dict for the catcher with most games caught,
+    or None if no data available.
+    """
+    global _catcher_framing_cache
+    if _catcher_framing_cache is None:
+        # Build the cache once per session
+        try:
+            from src.database import get_connection
+
+            framing_data = get_catcher_framing_data()
+            if not framing_data:
+                _catcher_framing_cache = {}
+                return None
+
+            conn = get_connection()
+            try:
+                catcher_df = pd.read_sql(
+                    "SELECT player_id, team FROM players WHERE positions LIKE '%C%'",
+                    conn,
+                )
+            finally:
+                conn.close()
+
+            cache: dict[str, dict[str, float] | None] = {}
+            for _, row in catcher_df.iterrows():
+                pid = int(row["player_id"])
+                team = str(row.get("team", "")).upper().strip()
+                if pid in framing_data and team:
+                    existing = cache.get(team)
+                    if existing is None or framing_data[pid].get("games_caught", 0) > existing.get("games_caught", 0):
+                        cache[team] = framing_data[pid]
+            _catcher_framing_cache = cache
+        except Exception:
+            _catcher_framing_cache = {}
+
+    return _catcher_framing_cache.get(team_abbr)
 
 
 # ── E7: Pitcher-Batter Matchup History ─────────────────────────────

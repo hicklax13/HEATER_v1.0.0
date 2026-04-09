@@ -8,8 +8,10 @@ import pandas as pd
 from scipy.stats import norm
 
 from src.validation.constant_optimizer import load_constants
+from src.valuation import LeagueConfig
 
 _CONSTANTS = load_constants()
+_LC = LeagueConfig()
 
 # Weekly stat standard deviations (tau) per category
 WEEKLY_TAU: dict[str, float] = {
@@ -27,22 +29,9 @@ WEEKLY_TAU: dict[str, float] = {
     "WHIP": 0.15,
 }
 
-INVERSE_CATS: set[str] = {"L", "ERA", "WHIP"}
+INVERSE_CATS: set[str] = set(_LC.inverse_stats)
 
-ALL_CATEGORIES: list[str] = [
-    "R",
-    "HR",
-    "RBI",
-    "SB",
-    "AVG",
-    "OBP",
-    "W",
-    "L",
-    "SV",
-    "K",
-    "ERA",
-    "WHIP",
-]
+ALL_CATEGORIES: list[str] = list(_LC.all_categories)
 
 
 def compute_category_win_probability(
