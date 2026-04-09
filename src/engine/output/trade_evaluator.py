@@ -816,6 +816,20 @@ def evaluate_trade(
             total_surplus -= replacement_penalty
         _mod_repl.influence = 0.3
 
+    # Step 6c: Positional flexibility penalty
+    # Penalises trades that lose multi-position eligibility slots.
+    flexibility_penalty = 0.0
+    flexibility_detail: dict[str, Any] = {}
+    with ctx.track_module("phase1_flexibility_penalty") as _mod_flex:
+        flexibility_penalty, flexibility_detail = _compute_flexibility_penalty(
+            giving_ids=giving_ids,
+            receiving_ids=receiving_ids,
+            player_pool=player_pool,
+        )
+        if flexibility_penalty > 0:
+            total_surplus -= flexibility_penalty
+        _mod_flex.influence = 0.2
+
     # Step 7: Grade the trade
     trade_grade = grade_trade(total_surplus)
 
@@ -851,8 +865,26 @@ def evaluate_trade(
 
     # Verdict
     verdict = "ACCEPT" if total_surplus > 0 else "DECLINE"
-    # Confidence: how far above/below 0 the surplus is, scaled to percentage
-    confidence_pct = min(100.0, max(0.0, 50.0 + total_surplus * _CONSTANTS.get("trade_confidence_scale")))
+    # Confidence: blend of surplus magnitude (how far from 0) and category
+    # agreement (what fraction of non-zero hitting categories agree with
+    # the verdict direction).  Pure surplus scaling can hit 100% on a
+    # trade that wins AVG/OBP but loses HR/SB — the category disagreement
+    # should temper confidence.
+    _surplus_conf = min(100.0, max(0.0, 50.0 + total_surplus * _CONSTANTS.get("trade_confidence_scale")))
+    # Count non-zero hitting/pitching categories that agree vs disagree
+    _agree = 0
+    _disagree = 0
+    for _cat, _impact in category_impact.items():
+        if abs(_impact) < 0.001:
+            continue  # skip zero-impact categories
+        if (total_surplus > 0 and _impact > 0) or (total_surplus <= 0 and _impact <= 0):
+            _agree += 1
+        else:
+            _disagree += 1
+    _total_nonzero = _agree + _disagree
+    _agreement_ratio = _agree / _total_nonzero if _total_nonzero > 0 else 1.0
+    # Blend: 70% surplus magnitude, 30% category agreement
+    confidence_pct = _surplus_conf * (0.7 + 0.3 * _agreement_ratio)
 
     # Get player names for display
     giving_players = _get_player_names(giving_ids, player_pool, name_col)
@@ -879,6 +911,8 @@ def evaluate_trade(
         "bench_cost": round(bench_cost, 3),
         "replacement_penalty": round(replacement_penalty, 3),
         "replacement_detail": replacement_detail,
+        "flexibility_penalty": round(flexibility_penalty, 3),
+        "flexibility_detail": flexibility_detail,
         "risk_flags": risk_flags,
         "verdict": verdict,
         "avis_compliant": avis_compliant,
@@ -1188,6 +1222,77 @@ def _compute_replacement_penalty(
         total_penalty += sgp_penalty
 
     return round(total_penalty, 3), detail
+
+
+# ── Positional flexibility penalty ──────────────────────────────────
+
+# Positions that matter for lineup construction (excludes Util/DH/BN).
+_REAL_POSITIONS = {"C", "1B", "2B", "3B", "SS", "OF", "SP", "RP"}
+
+# SGP penalty per net position-slot lost.  Calibrated conservatively:
+# losing one positional slot is roughly equivalent to losing ~0.15 SGP
+# of lineup flexibility (based on typical LP solver re-optimization).
+_FLEXIBILITY_SGP_PER_SLOT = 0.15
+
+
+def _compute_flexibility_penalty(
+    giving_ids: list[int],
+    receiving_ids: list[int],
+    player_pool: pd.DataFrame,
+) -> tuple[float, dict[str, Any]]:
+    """Compute SGP penalty for net loss of positional eligibility slots.
+
+    Multi-position players (e.g., Harper with 1B/OF) give the LP solver
+    more degrees of freedom.  Trading them for single-position players
+    reduces lineup construction flexibility.
+
+    Computes the *net* change in total position-slot count across giving
+    and receiving sides.  Only real roster positions count (C, 1B, 2B,
+    3B, SS, OF, SP, RP) — Util/DH/BN are excluded because every player
+    is eligible for those.
+
+    Returns:
+        Tuple of (penalty_sgp, detail_dict) where:
+          - penalty_sgp: SGP penalty (>= 0).  Zero if flexibility improves.
+          - detail_dict: Breakdown with giving/receiving position counts.
+    """
+
+    def _count_slots(player_ids: list[int]) -> tuple[int, dict[str, int]]:
+        """Count total real-position slots and per-position breakdown."""
+        total = 0
+        breakdown: dict[str, int] = {}
+        for pid in player_ids:
+            match = player_pool[player_pool["player_id"] == pid]
+            if match.empty:
+                continue
+            positions = str(match.iloc[0].get("positions", "")).upper()
+            pos_list = [p.strip() for p in positions.split(",") if p.strip()]
+            real = [p for p in pos_list if p in _REAL_POSITIONS]
+            total += len(real)
+            for p in real:
+                breakdown[p] = breakdown.get(p, 0) + 1
+        return total, breakdown
+
+    giving_slots, giving_breakdown = _count_slots(giving_ids)
+    receiving_slots, receiving_breakdown = _count_slots(receiving_ids)
+    net_change = receiving_slots - giving_slots  # positive = gained flexibility
+
+    detail: dict[str, Any] = {
+        "giving_slots": giving_slots,
+        "giving_breakdown": giving_breakdown,
+        "receiving_slots": receiving_slots,
+        "receiving_breakdown": receiving_breakdown,
+        "net_slot_change": net_change,
+    }
+
+    if net_change >= 0:
+        detail["penalty"] = 0.0
+        return 0.0, detail
+
+    # Net loss of positional slots — apply penalty
+    penalty = abs(net_change) * _FLEXIBILITY_SGP_PER_SLOT
+    detail["penalty"] = round(penalty, 3)
+    return round(penalty, 3), detail
 
 
 def _apply_game_theory(

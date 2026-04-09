@@ -1145,19 +1145,25 @@ def load_player_pool() -> pd.DataFrame:
 def _load_health_scores_for_pool() -> dict[int, float]:
     """Load per-player health scores from injury_history with B2/B3 adjustments."""
     try:
+        import datetime
+
         from src.injury_model import (
             age_risk_adjustment,
             compute_health_score,
             injury_type_adjustment,
         )
 
+        current_year = datetime.datetime.now(datetime.UTC).year
+        expected_seasons = list(range(current_year, current_year - 3, -1))  # e.g. [2026, 2025, 2024]
+
         conn = get_connection()
         try:
             df = pd.read_sql_query(
-                "SELECT player_id, games_played, games_available "
-                "FROM injury_history WHERE season >= 2024 "
+                "SELECT player_id, season, games_played, games_available "
+                "FROM injury_history WHERE season >= ? "
                 "ORDER BY player_id, season DESC",
                 conn,
+                params=(current_year - 2,),
             )
             # B2+B3: Load player age, position, and injury notes
             player_info = pd.read_sql_query(
@@ -1187,8 +1193,23 @@ def _load_health_scores_for_pool() -> dict[int, float]:
         scores: dict[int, float] = {}
         for pid, group in df.groupby("player_id"):
             pid_int = int(pid)
-            gp = group["games_played"].tolist()[:3]
-            ga = group["games_available"].tolist()[:3]
+            # Build GP/GA lists aligned to expected_seasons (DESC order).
+            # If a season row is missing (player was out all year), treat as
+            # 0 GP / 162 GA so the health score correctly reflects the absence.
+            present_seasons = set(int(s) for s in group["season"].tolist())
+            gp: list[int] = []
+            ga: list[int] = []
+            for yr in expected_seasons:
+                yr_row = group[group["season"] == yr]
+                if not yr_row.empty:
+                    gp.append(int(yr_row.iloc[0]["games_played"]))
+                    ga.append(int(yr_row.iloc[0]["games_available"]))
+                elif yr < current_year or (yr == current_year and yr in present_seasons):
+                    # Past season with no row = missed entire season
+                    gp.append(0)
+                    ga.append(162)
+                # else: future/current season with no data yet — skip (filled
+                # with LEAGUE_AVG_HEALTH by compute_health_score)
             base_score = compute_health_score(gp, ga)
 
             info = _info.get(pid_int, {})
