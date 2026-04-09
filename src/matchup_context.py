@@ -204,7 +204,7 @@ class MatchupContextService:
             "MIN",
             "NYM",
             "NYY",
-            "OAK",
+            "ATH",
             "PHI",
             "PIT",
             "SD",
@@ -418,7 +418,7 @@ class MatchupContextService:
             if urgency_map:
                 matchup_weights = {cat: 0.5 + float(urgency_map.get(cat, 0.5)) for cat in all_cats}
         except Exception as exc:
-            logger.debug("matchup weights failed: %s", exc)
+            logger.warning("matchup weights failed: %s", exc)
 
         # ── Standings weights ────────────────────────────────────────
         standings_weights: dict[str, float] | None = None
@@ -468,7 +468,7 @@ class MatchupContextService:
 
                     standings_weights = _ti_get_weights(user_team_name, all_team_totals, config)
         except Exception as exc:
-            logger.debug("standings weights failed: %s", exc)
+            logger.warning("standings weights failed: %s", exc)
 
         # ── Assemble result ──────────────────────────────────────────
         if mode == "matchup":

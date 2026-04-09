@@ -786,7 +786,7 @@ def _fallback_team_stats(defaults: dict) -> dict[str, dict[str, float]]:
         "MIN",
         "NYM",
         "NYY",
-        "OAK",
+        "ATH",
         "PHI",
         "PIT",
         "SD",

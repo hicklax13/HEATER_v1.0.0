@@ -108,7 +108,7 @@ _STAR_RBI_MIN: int = 90
 MLB_DIVISIONS: dict[str, list[str]] = {
     "AL_East": ["NYY", "BOS", "TOR", "BAL", "TB"],
     "AL_Central": ["CLE", "MIN", "DET", "CWS", "KC"],
-    "AL_West": ["HOU", "TEX", "SEA", "LAA", "OAK"],
+    "AL_West": ["HOU", "TEX", "SEA", "LAA", "ATH"],
     "NL_East": ["ATL", "NYM", "PHI", "MIA", "WSH"],
     "NL_Central": ["MIL", "CHC", "STL", "PIT", "CIN"],
     "NL_West": ["LAD", "SD", "ARI", "SF", "COL"],

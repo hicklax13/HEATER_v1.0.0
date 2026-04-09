@@ -11,6 +11,7 @@ from src.database import init_db, load_player_pool
 from src.league_manager import get_team_roster
 from src.ui_shared import (
     THEME,
+    format_stat,  # noqa: F401
     inject_custom_css,
     page_timer_footer,
     page_timer_start,

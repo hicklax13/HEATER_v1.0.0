@@ -8,7 +8,14 @@ import streamlit as st
 
 from src.closer_monitor import build_closer_grid
 from src.database import get_connection, init_db, load_player_pool
-from src.ui_shared import _headshot_img_html, inject_custom_css, page_timer_footer, page_timer_start, render_page_layout
+from src.ui_shared import (
+    _headshot_img_html,
+    format_stat,  # noqa: F401
+    inject_custom_css,
+    page_timer_footer,
+    page_timer_start,
+    render_page_layout,
+)
 
 logger = logging.getLogger(__name__)
 

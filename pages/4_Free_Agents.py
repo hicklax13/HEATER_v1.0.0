@@ -12,6 +12,7 @@ from src.league_manager import get_free_agents, get_team_roster
 from src.ui_shared import (
     METRIC_TOOLTIPS,
     THEME,
+    format_stat,  # noqa: F401
     inject_custom_css,
     page_timer_footer,
     page_timer_start,

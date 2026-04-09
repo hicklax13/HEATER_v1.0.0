@@ -372,7 +372,7 @@ def build_daily_dcv_table(
     # Schedule may use full names ("CHICAGO CUBS") or abbreviations ("CHC")
     # Normalize both to abbreviations for matching against roster team column
     _FULL_TO_ABBR: dict[str, str] = {
-        "ATHLETICS": "OAK",
+        "ATHLETICS": "ATH",
         "ATLANTA BRAVES": "ATL",
         "BALTIMORE ORIOLES": "BAL",
         "BOSTON RED SOX": "BOS",
@@ -391,7 +391,7 @@ def build_daily_dcv_table(
         "MINNESOTA TWINS": "MIN",
         "NEW YORK METS": "NYM",
         "NEW YORK YANKEES": "NYY",
-        "OAKLAND ATHLETICS": "OAK",
+        "OAKLAND ATHLETICS": "ATH",
         "PHILADELPHIA PHILLIES": "PHI",
         "PITTSBURGH PIRATES": "PIT",
         "SAN DIEGO PADRES": "SD",

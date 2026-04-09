@@ -95,7 +95,7 @@ PARK_FACTORS: dict[str, float] = {
     "MIN": 1.03,
     "NYM": 0.95,
     "NYY": 1.05,
-    "OAK": 1.02,
+    "ATH": 1.02,
     "PHI": 1.03,
     "PIT": 0.94,
     "SD": 0.93,

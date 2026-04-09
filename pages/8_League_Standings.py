@@ -18,6 +18,7 @@ from src.database import (
 from src.ui_shared import (
     THEME,
     build_compact_table_html,
+    format_stat,  # noqa: F401
     inject_custom_css,
     page_timer_footer,
     page_timer_start,

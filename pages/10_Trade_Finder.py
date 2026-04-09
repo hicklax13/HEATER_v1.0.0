@@ -22,6 +22,7 @@ from src.trade_finder import (
 )
 from src.ui_shared import (
     T,
+    format_stat,  # noqa: F401
     inject_custom_css,
     page_timer_footer,
     page_timer_start,

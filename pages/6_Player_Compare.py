@@ -11,6 +11,7 @@ from src.injury_model import get_injury_badge
 from src.ui_shared import (
     ALL_CATEGORIES,
     METRIC_TOOLTIPS,
+    format_stat,  # noqa: F401
     get_plotly_layout,
     get_plotly_polar,
     get_theme,

@@ -52,7 +52,7 @@ _MLB_TEAM_ABBREVS: dict[str, str] = {
     "Minnesota Twins": "MIN",
     "New York Mets": "NYM",
     "New York Yankees": "NYY",
-    "Oakland Athletics": "OAK",
+    "Oakland Athletics": "ATH",
     "Philadelphia Phillies": "PHI",
     "Pittsburgh Pirates": "PIT",
     "San Diego Padres": "SD",

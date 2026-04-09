@@ -8,6 +8,7 @@ import streamlit as st
 from src.database import coerce_numeric_df, get_connection, init_db, load_player_pool
 from src.ui_shared import (
     THEME,
+    format_stat,  # noqa: F401
     get_plotly_layout,
     get_plotly_polar,
     inject_custom_css,

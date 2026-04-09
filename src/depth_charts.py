@@ -72,7 +72,7 @@ _TEAM_SLUG_TO_CODE: dict[str, str] = {
     "minnesota-twins": "MIN",
     "new-york-mets": "NYM",
     "new-york-yankees": "NYY",
-    "oakland-athletics": "OAK",
+    "oakland-athletics": "ATH",
     "philadelphia-phillies": "PHI",
     "pittsburgh-pirates": "PIT",
     "san-diego-padres": "SD",

@@ -96,12 +96,14 @@ def test_consensus_seven_sources():
             "fantasypros": 19,
         }
     )
-    # Trim highest (22) and lowest (15), remaining: {fangraphs:16, cbs:18, fantasypros:19, yahoo:20}
-    # In-season weights: fg=0.6, cbs=1.0, fp=1.5, yahoo=0.4 → 65.1/3.5 ≈ 18.6
+    # Trim highest (nfbc:22) and lowest (espn:15), remaining: {fangraphs:16, cbs:18, fantasypros:19, yahoo:20}
+    # In-season weights: fg=0.6, cbs=1.0, fp=1.5, yahoo=0.4
+    #   weighted = 16*0.6 + 18*1.0 + 19*1.5 + 20*0.4 = 64.1, total_w = 3.5, avg ≈ 18.314
     # Preseason weights: all 1.0 → (16+18+19+20)/4 = 18.25
     assert result["n_sources"] == 6
     assert 16 <= result["consensus_avg"] <= 20  # within trimmed range
-    assert result["consensus_avg"] == pytest.approx(result["consensus_avg"], abs=0.01)
+    # Verify actual weighted Trimmed Borda Count math (not tautological)
+    assert result["consensus_avg"] == pytest.approx(18.31, abs=0.1)
 
 
 # ── Consensus rank assignment ────────────────────────────────────────

@@ -127,7 +127,7 @@ def _build_schedule_context() -> tuple[dict[str, str], set[str]]:
             "New York Mets": "NYM",
             "New York Yankees": "NYY",
             "Athletics": "ATH",
-            "Oakland Athletics": "OAK",
+            "Oakland Athletics": "ATH",
             "Philadelphia Phillies": "PHI",
             "Pittsburgh Pirates": "PIT",
             "San Diego Padres": "SD",

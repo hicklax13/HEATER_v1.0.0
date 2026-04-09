@@ -246,6 +246,7 @@ def _espn_api_request(offset: int, limit: int = 50) -> list[dict]:
         data = resp.json()
         return data.get("players", [])
     except Exception:
+        logger.error("ESPN ECR fetch failed — source dropped from consensus", exc_info=True)
         return []
 
 
@@ -402,6 +403,7 @@ def fetch_yahoo_adp() -> pd.DataFrame:
 
         return df
     except Exception:
+        logger.error("Yahoo ADP fetch failed — source dropped from consensus", exc_info=True)
         return pd.DataFrame()
 
 
@@ -625,6 +627,7 @@ def load_ecr_consensus() -> pd.DataFrame:
         df = pd.read_sql_query("SELECT * FROM ecr_consensus ORDER BY consensus_rank", conn)
         return df
     except Exception:
+        logger.error("ECR consensus DB load failed — rankings unavailable", exc_info=True)
         return pd.DataFrame()
     finally:
         conn.close()

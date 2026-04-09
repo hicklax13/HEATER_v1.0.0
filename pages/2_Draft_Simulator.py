@@ -11,6 +11,7 @@ from src.draft_state import DraftState
 from src.simulation import DraftSimulator
 from src.ui_shared import (
     T,
+    format_stat,  # noqa: F401
     get_session_config,
     get_session_replacement_levels,
     inject_custom_css,

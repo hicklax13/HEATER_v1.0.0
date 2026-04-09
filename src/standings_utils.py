@@ -69,7 +69,7 @@ def get_fa_pool(
         if yds is not None and yds.is_connected():
             fa_pool = yds.get_free_agents()
     except Exception:
-        pass
+        logger.warning("Yahoo FA fetch failed in get_fa_pool — falling back to pool filter")
 
     # Fallback: filter enriched pool to exclude rostered players
     if fa_pool.empty:

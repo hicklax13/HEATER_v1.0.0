@@ -12,6 +12,7 @@ from src.live_stats import refresh_all_stats
 from src.ui_shared import (
     PAGE_ICONS,
     THEME,
+    format_stat,  # noqa: F401
     inject_custom_css,
     page_timer_footer,
     page_timer_start,
