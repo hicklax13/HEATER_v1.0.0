@@ -721,6 +721,18 @@ def update_ros_projections() -> int:
                 row_out["ab"] = int(remaining_ab)
                 row_out["h"] = int(row_out["avg"] * remaining_ab) if remaining_ab > 0 else 0
 
+                # Derive BB/HBP/SF from blended projection per-PA rates.
+                # These are needed for proper OBP computation in
+                # _roster_category_totals().  Without them OBP = H/AB = AVG.
+                for component in ("bb", "hbp", "sf"):
+                    proj_component = int(float(proj_row.get(component, 0) or 0))
+                    obs_component = int(float(obs.get(component, 0) or 0)) if obs is not None else 0
+                    if proj_pa > 0 and remaining_pa > 0:
+                        rate = proj_component / proj_pa
+                        row_out[component] = max(0, int(rate * remaining_pa))
+                    else:
+                        row_out[component] = 0
+
                 for stat in _HITTING_COUNTING:
                     rate = updated_rates.get(f"{stat}_rate", 0)
                     obs_val = int(float(obs.get(stat, 0) or 0)) if obs is not None else 0
@@ -777,6 +789,9 @@ def update_ros_projections() -> int:
             "sb",
             "avg",
             "obp",
+            "bb",
+            "hbp",
+            "sf",
             "ip",
             "w",
             "l",
