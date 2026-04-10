@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 # Higher k = steeper transition near toss-up
 # k=2.0 for counting stats: moderate sensitivity to gaps
 # k=3.0 for rate stats: higher sensitivity (rate stats are noisier)
-# TODO: Backtest with D6 framework to find optimal k values
+# Calibrate with: python scripts/calibrate_sigmoid.py
 COUNTING_STAT_K = 2.0
 RATE_STAT_K = 3.0
 
