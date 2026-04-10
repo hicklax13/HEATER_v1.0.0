@@ -7,7 +7,7 @@ A fantasy baseball draft assistant + in-season manager for a 12-team Yahoo Sport
 1. **Draft Tool** (`app.py`) — Heater-themed Streamlit app with glassmorphic design, splash screen bootstrap, setup wizard, 3-column draft page, Monte Carlo recommendations with percentile sampling.
 2. **In-Season Management** (`pages/`) — 11 pages: team overview, draft simulator, trade analysis, player comparison, free agents, lineup optimizer, closer monitor, league standings, leaders/prospects, trade finder, matchup planner.
 3. **Trade Analyzer Engine** (`src/engine/`) — 6-phase pipeline: deterministic SGP → stochastic MC → signal intelligence → contextual adjustments → game theory → production convergence/caching.
-4. **Lineup Optimizer** (`src/optimizer/`) — 15-module pipeline: enhanced projections, matchup adjustments, H2H weights, non-linear SGP, streaming, scenarios, dual objective, advanced LP, category urgency, daily optimizer (DCV), FA recommender, pivot advisor, shared data layer.
+4. **Lineup Optimizer** (`src/optimizer/`) — 21-module pipeline: enhanced projections, matchup adjustments, H2H weights, non-linear SGP, streaming, scenarios, dual objective, advanced LP, category urgency, daily optimizer (DCV), FA recommender, pivot advisor, shared data layer, data freshness tracking, constants registry (30 constants w/ citations), backtest validator, backtest runner, sensitivity analysis, sigmoid calibrator.
 5. **Draft Recommendation Engine** (`src/draft_engine.py`) — 8-stage enhancement chain with 3 execution modes (Quick/Standard/Full).
 6. **War Room** (`src/war_room*.py`) — Mid-week pivot analysis, category flip probability, hot/cold detection, action recommendations.
 7. **Backtesting** (`src/backtesting*.py`) — Historical replay framework for validating engine recommendations against actual outcomes.
@@ -21,8 +21,13 @@ python load_sample_data.py             # Load sample data (first time/testing)
 streamlit run app.py                   # Run the app
 python -m ruff check .                 # Lint
 python -m ruff format .                # Format
-python -m pytest                       # Run all tests (~2960 pass, ~14 skipped)
+python -m pytest                       # Run all tests (~3180 pass, ~14 skipped)
 python -m pytest tests/test_foo.py -v  # Run single test file
+
+# Optimizer validation tools
+python scripts/run_backtest.py --quick          # Replay 3 historical MLB weeks, score accuracy
+python scripts/compute_empirical_stats.py       # Compare correlation/CV defaults vs real MLB data
+python scripts/calibrate_sigmoid.py --full      # Grid-search optimal sigmoid k-values
 ```
 
 ## League Context
@@ -172,21 +177,27 @@ src/
   analytics_context.py      — Analytics context tracking
 
   # Sub-packages
-  optimizer/                — Enhanced Lineup Optimizer (15 modules)
+  optimizer/                — Enhanced Lineup Optimizer (21 modules)
     pipeline.py             — Master orchestrator (Quick/Standard/Full modes)
     projections.py          — Enhanced projections (Bayesian/Kalman/regime/injury/recent form)
     matchup_adjustments.py  — Park factors, platoon splits, weather, umpire, catcher framing, PvB
     h2h_engine.py           — H2H category weights + win probability
     sgp_theory.py           — Non-linear marginal SGP
-    streaming.py            — Pitcher streaming + Bayesian stream scoring
-    scenario_generator.py   — Gaussian copula scenarios + CVaR
+    streaming.py            — Pitcher streaming + Bayesian stream scoring + two-start fatigue
+    scenario_generator.py   — Gaussian copula scenarios + CVaR + empirical correlation utils
     dual_objective.py       — H2H/Roto weight blending
     advanced_lp.py          — Maximin, epsilon-constraint, stochastic MIP
     category_urgency.py     — Sigmoid urgency for H2H matchup gaps
     daily_optimizer.py      — Daily Category Value (DCV) per-player per-day scoring
     fa_recommender.py       — Free agent recommendation engine
     pivot_advisor.py        — Mid-week pivot recommendations
-    shared_data_layer.py    — Unified data infrastructure across optimizer modules
+    shared_data_layer.py    — Unified data infrastructure + data timestamps across optimizer modules
+    data_freshness.py       — Per-source staleness tracking with TTLs + UI badge support
+    constants_registry.py   — 30 optimizer constants with citations, bounds, sensitivity levels
+    backtest_validator.py   — RMSE, Spearman rank correlation, bust rate, lineup grading
+    backtest_runner.py      — Historical replay via statsapi game logs (20-player roster, 10 weeks)
+    sensitivity_analysis.py — Mock.patch perturbation of 11 constants, lineup/weight diff scoring
+    sigmoid_calibrator.py   — Grid-search calibration of sigmoid k-values for H2H urgency
   engine/                   — Trade Analyzer Engine (6 phases, 7 sub-packages)
     portfolio/              — Z-scores, SGP, category analysis, lineup optimizer, copula
     projections/            — ROS projections, BMA, KDE marginals
@@ -200,7 +211,10 @@ src/
 scripts/
   install-hooks.py          — Installs git pre-commit hook
   pre-commit                — Hook: ruff format + lint check on staged .py files
-tests/                      — 140 test files, ~2960 passing tests
+  run_backtest.py           — CLI: replay historical MLB weeks through optimizer (--quick/--weeks/--verbose)
+  compute_empirical_stats.py — CLI: compute Spearman correlations + CVs from pybaseball 2022-2024 data
+  calibrate_sigmoid.py      — CLI: grid-search optimal sigmoid k-values (--quick/--full/--verbose)
+tests/                      — 150 test files, ~3180 passing tests
 data/
   draft_tool.db             — SQLite database (created at runtime)
   backups/                  — Draft state JSON backups
@@ -283,6 +297,31 @@ sort_roster_for_display(roster_df: pd.DataFrame) -> pd.DataFrame  # Yahoo slot o
 # Injury badges
 from src.injury_model import get_injury_badge
 get_injury_badge(health_score) -> tuple[str, str]  # CSS dot, NOT emoji
+
+# Optimizer validation tools
+from src.optimizer.data_freshness import DataFreshnessTracker
+tracker = DataFreshnessTracker()
+tracker.record("projections")                # Record data was refreshed now
+tracker.check("projections") -> FreshnessStatus  # FRESH/STALE/UNKNOWN
+
+from src.optimizer.constants_registry import CONSTANTS_REGISTRY
+CONSTANTS_REGISTRY["sigmoid_k_counting"].value  # 2.0, with citation + bounds
+
+from src.optimizer.sensitivity_analysis import run_sensitivity_analysis, summarize_results
+results = run_sensitivity_analysis(roster, constants_to_test=["sigmoid_k_counting"])
+summarize_results(results) -> pd.DataFrame  # With mismatch column
+
+from src.optimizer.backtest_runner import run_backtest, format_report
+report = run_backtest(roster, weeks=[(date(2025,4,7), date(2025,4,13))])
+print(format_report(report))  # RMSE, Spearman, bust rate, grades
+
+from src.optimizer.sigmoid_calibrator import calibrate_sigmoid_k, recommend_k_values
+result = calibrate_sigmoid_k(roster)  # Grid search over k-value pairs
+print(recommend_k_values(roster))     # Human-readable recommendation
+
+from src.optimizer.scenario_generator import load_cached_empirical_stats, compare_to_defaults
+cached = load_cached_empirical_stats("data/empirical_stats.json")
+divergences = compare_to_defaults(cached)  # Flags >20% divergence
 ```
 
 ## Gotchas
@@ -322,11 +361,16 @@ get_injury_badge(health_score) -> tuple[str, str]  # CSS dot, NOT emoji
 
 ### Lineup Optimizer
 - **DTD/IL exclusion** — `_il_statuses` includes `dtd` and `day-to-day`.
-- **Recent form blend** — L14 game logs at 20% weight. Requires >= 7 games. First run ~20-30s, then 2h cache.
+- **Recent form blend** — Dynamic weight: linear interpolation from 0.10 (7 games) to scope max (14+ games). Below 7 games = 0 weight.
 - **Matchup data before state classification** — `yds.get_matchup()` must be called before `classify_matchup_state()`.
 - **IP budget uses projected IP** — Not actual IP pitched.
 - **Weekly scaling** — Counting stats divided by 26 weeks. Rate stats unchanged.
 - **`sort_roster_for_display()` returns a copy** — Never modifies input DataFrame.
+- **Two-start pitcher fatigue** — 0.93x rate stat quality on 2nd start (~7% ERA/WHIP decay). Applied in streaming module.
+- **Platoon splits (2020-2024)** — LHB vs RHP: 7.5% wOBA advantage (was 8.6%). RHB vs LHP: 5.8% (was 6.1%).
+- **Sigmoid urgency** — `COUNTING_STAT_K=2.0`, `RATE_STAT_K=3.0`. Calibrate with `python scripts/calibrate_sigmoid.py`.
+- **Data freshness UI** — Colored CSS dots (green=fresh, orange=stale) in optimizer context panel expander.
+- **Constants registry** — 30 constants in `constants_registry.py` with citations, bounds, and sensitivity levels. Run sensitivity analysis to verify declared vs actual sensitivity.
 
 ### Dependencies
 - **Pre-commit hook** — `scripts/pre-commit` runs ruff format + lint on staged files. Install with `python scripts/install-hooks.py`.
@@ -366,11 +410,22 @@ get_injury_badge(health_score) -> tuple[str, str]  # CSS dot, NOT emoji
 
 ## Testing
 
-- **~2960 passing tests** across 140 test files, ~14 skipped (PyMC/XGBoost optional)
+- **~3180 passing tests** across 150 test files, ~14 skipped (PyMC/XGBoost optional)
 - **CI:** GitHub Actions — ruff lint/format, pytest (3.11, 3.12, 3.13), build check
 - **Coverage:** ~65% (60% CI floor)
 - **Pre-commit hook:** Enforces `ruff format` + `ruff check` on every commit
 - **Backtesting framework:** Historical replay validates engine recommendations vs actual outcomes
+- **Optimizer validation suite** (220 tests across 10 files):
+  - `test_optimizer_math_proofs.py` — 29 hand-verified formula proofs (rate stats, LP, Bayesian, SGP, correlations)
+  - `test_shared_data_layer.py` — 18 data context contract tests (fields, scaling, form weight, timestamps)
+  - `test_optimizer_integration.py` — 48 cross-module tests (3 modes × 3 alphas × 5 invariants + settings axis)
+  - `test_data_freshness.py` — 6 freshness tracker tests
+  - `test_constants_registry.py` — 10 constants validation tests (citations, bounds, sensitivity)
+  - `test_optimizer_backtest.py` — 10 accuracy metric tests (RMSE, Spearman, bust rate, grading)
+  - `test_sensitivity_analysis.py` — 32 perturbation framework tests
+  - `test_backtest_runner.py` — 34 historical replay tests (IP parsing, aggregation, scaling, API fallback)
+  - `test_empirical_stats.py` — 15 correlation/CV computation tests
+  - `test_sigmoid_calibrator.py` — 18 calibration framework tests (H2H sim, urgency scoring, grid search)
 
 ## Resume Checklist (New Session)
 
