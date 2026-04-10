@@ -172,7 +172,11 @@ class TestMarginalSGPSanity:
     """
 
     def test_close_gap_high_marginal(self):
-        """When you're 2 HR from the next team, marginal value is high (~0.5)."""
+        """When you're 2 HR from the next team, marginal value is high.
+
+        Gap is normalized to SGP units: 2 HR / 13.0 SGP_denom ≈ 0.154 SGP.
+        Marginal = 1 / 0.154 ≈ 6.5 standings points per SGP invested.
+        """
         all_totals = {
             "my_team": {"HR": 150},
             "team_b": {"HR": 152},
@@ -188,8 +192,9 @@ class TestMarginalSGPSanity:
             categories=["HR"],
         )
 
-        # Gap to next team above (152) is 2 HR -> marginal = 1/2 = 0.5
-        assert marginal["HR"] == pytest.approx(0.5, abs=0.01)
+        # Gap = 2 HR, SGP denom = 13.0, SGP gap = 2/13 ≈ 0.154
+        # Marginal = 1/0.154 ≈ 6.5
+        assert marginal["HR"] == pytest.approx(6.5, abs=0.5)
 
     def test_dominant_low_marginal(self):
         """When you're far ahead, marginal value is near zero."""
@@ -210,7 +215,11 @@ class TestMarginalSGPSanity:
         assert marginal["HR"] == pytest.approx(0.01, abs=0.005)
 
     def test_inverse_stat_era(self):
-        """ERA: lower is better. Close gap = high marginal."""
+        """ERA: lower is better. Close gap = high marginal.
+
+        Gap = 0.05 ERA, SGP denom = 0.2, SGP gap = 0.05/0.2 = 0.25.
+        Marginal = 1/0.25 = 4.0 standings points per SGP invested.
+        """
         all_totals = {
             "my_team": {"ERA": 3.85},
             "team_b": {"ERA": 3.80},
@@ -223,8 +232,9 @@ class TestMarginalSGPSanity:
             categories=["ERA"],
         )
 
-        # Gap to next team below (3.80) is 0.05 -> marginal = 1/0.05 = 20.0
-        assert marginal["ERA"] > 10.0
+        # Gap = 0.05 ERA, SGP denom = 0.2, SGP gap = 0.25
+        # Marginal = 1/0.25 = 4.0
+        assert marginal["ERA"] == pytest.approx(4.0, abs=0.5)
 
 
 # ── Test 2: Punt Detection (Spec Section 16.2) ─────────────────────

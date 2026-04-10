@@ -263,8 +263,15 @@ else:
                         engine_used = "phase1"
                     except Exception as e:
                         import logging
+                        import traceback
 
-                        logging.getLogger(__name__).warning("Phase 1 engine failed, falling back to legacy: %s", e)
+                        _tb = traceback.format_exc()
+                        logging.getLogger(__name__).warning(
+                            "Phase 1 engine failed, falling back to legacy: %s\n%s", e, _tb
+                        )
+                        st.warning(
+                            f"Phase 1 engine failed ({type(e).__name__}: {e}), using legacy analyzer. Details in console."
+                        )
                         # Fall back to legacy analyzer
                         from src.in_season import analyze_trade
 

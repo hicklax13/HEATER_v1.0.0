@@ -156,11 +156,12 @@ class TestPhase1MarginalElasticity(unittest.TestCase):
     """Hand-verify the marginal SGP formula: 1/gap."""
 
     def test_marginal_sgp_close_gap(self):
-        """marginal = 1/gap. Close gap = high marginal value.
+        """marginal = 1/sgp_gap. Close gap = high marginal value.
 
         Hand calculation:
-          Your HR = 198, next team = 200, gap = 2
-          marginal = 1/2 = 0.5
+          Your HR = 198, next team = 200, raw gap = 2
+          SGP denom for HR = 13.0, SGP gap = 2/13 ≈ 0.154
+          marginal = 1/0.154 ≈ 6.5
         """
         from src.engine.portfolio.category_analysis import compute_marginal_sgp
 
@@ -170,14 +171,15 @@ class TestPhase1MarginalElasticity(unittest.TestCase):
             "Team C": {"HR": 190},
         }
         result = compute_marginal_sgp(totals["My Team"], totals, categories=["HR"])
-        # gap to next above = 200 - 198 = 2, marginal = 1/2 = 0.5
-        assert abs(result["HR"] - 0.5) < 0.01
+        # gap = 2 HR / 13.0 SGP_denom = 0.154 SGP, marginal = 1/0.154 ≈ 6.5
+        assert abs(result["HR"] - 6.5) < 0.5
 
     def test_marginal_sgp_large_gap(self):
-        """Large gap → near-zero marginal value.
+        """Large gap → low marginal value.
 
-        Your HR = 150, next = 200, gap = 50
-        marginal = 1/50 = 0.02
+        Your HR = 150, next = 200, raw gap = 50
+        SGP denom for HR = 13.0, SGP gap = 50/13 ≈ 3.846
+        marginal = 1/3.846 ≈ 0.26
         """
         from src.engine.portfolio.category_analysis import compute_marginal_sgp
 
@@ -186,7 +188,8 @@ class TestPhase1MarginalElasticity(unittest.TestCase):
             "Team B": {"HR": 200},
         }
         result = compute_marginal_sgp(totals["My Team"], totals, categories=["HR"])
-        assert abs(result["HR"] - 0.02) < 0.001
+        # SGP gap = 50/13 ≈ 3.846, marginal ≈ 0.26
+        assert abs(result["HR"] - 0.26) < 0.05
 
     def test_marginal_sgp_first_place(self):
         """First place → marginal = 0.01 (floor value)."""
@@ -202,8 +205,9 @@ class TestPhase1MarginalElasticity(unittest.TestCase):
     def test_marginal_sgp_inverse_category(self):
         """For ERA, lower is better. Gap to next LOWER team.
 
-        Your ERA = 3.90, next better = 3.60, gap = 0.30
-        marginal = 1/0.30 = 3.333
+        Your ERA = 3.90, next better = 3.60, raw gap = 0.30
+        SGP denom for ERA = 0.2, SGP gap = 0.30/0.2 = 1.5
+        marginal = 1/1.5 ≈ 0.667
         """
         from src.engine.portfolio.category_analysis import compute_marginal_sgp
 
@@ -213,8 +217,8 @@ class TestPhase1MarginalElasticity(unittest.TestCase):
             "Team C": {"ERA": 4.20},
         }
         result = compute_marginal_sgp(totals["My Team"], totals, categories=["ERA"])
-        expected = 1.0 / 0.30  # 3.333
-        assert abs(result["ERA"] - expected) < 0.01
+        # SGP gap = 0.30/0.2 = 1.5, marginal = 1/1.5 ≈ 0.667
+        assert abs(result["ERA"] - 0.667) < 0.05
 
     def test_punt_detection_both_conditions(self):
         """Punt requires BOTH: gainable_positions == 0 AND rank >= 10.

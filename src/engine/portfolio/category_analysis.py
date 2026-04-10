@@ -49,14 +49,15 @@ def compute_marginal_sgp(
     categories: list[str] | None = None,
     your_team_name: str | None = None,
 ) -> dict[str, float]:
-    """Compute marginal SGP: dE[standings_points] / d(your_stat).
+    """Compute marginal SGP: dE[standings_points] / d(SGP invested).
 
     Spec ref: Section 10 L7A — non-linear marginal value depends on exact
     proximity to adjacent teams in the standings.
 
-    The marginal value is 1/gap to the next team. If you're 2 HR from
-    gaining a standings point, each HR is worth ~0.5 standings points.
-    If you're 40 HR ahead, each additional HR is nearly worthless.
+    Gaps are normalized to SGP units (raw gap / SGP denominator) before
+    computing 1/gap.  This ensures rate stats (AVG gap=0.01) and counting
+    stats (R gap=10) are on an equal footing — without normalization, rate
+    stats always dominate because their raw gaps are 100-1000x smaller.
 
     Args:
         your_totals: Your team's category totals (e.g. {"R": 780, "HR": 200, ...}).
@@ -94,9 +95,17 @@ def compute_marginal_sgp(
             # Already in 1st place in this category
             marginal[cat] = 0.01
         else:
-            gap = max(abs(better[0] - your_val), 0.001)
-            # 1 standings point per gap unit of stat
-            marginal[cat] = 1.0 / gap
+            raw_gap = max(abs(better[0] - your_val), 1e-9)
+            # Normalize gap to SGP units so rate stats (AVG gap=0.01,
+            # denom=0.004) and counting stats (R gap=10, denom=32) are
+            # on the same scale.  A 2.75-SGP gap in AVG is comparable
+            # to a 0.31-SGP gap in R, not 1000x smaller.
+            sgp_denom = _LC.sgp_denominators.get(cat, 1.0)
+            if abs(sgp_denom) < 1e-9:
+                sgp_denom = 1.0
+            sgp_gap = raw_gap / sgp_denom
+            # 1 standings point per SGP-unit of gap
+            marginal[cat] = 1.0 / max(sgp_gap, 0.01)
 
     return marginal
 
