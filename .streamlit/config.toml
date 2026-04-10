@@ -13,3 +13,7 @@ enableCORS = false
 [browser]
 # Silence the "running on localhost" banner on cloud deployments
 gatherUsageStats = false
+
+[client]
+# Hide the Deploy button / toolbar chrome so the nav bar sits flush at top
+toolbarMode = "minimal"

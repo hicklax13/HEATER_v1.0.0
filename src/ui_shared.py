@@ -534,6 +534,14 @@ def inject_custom_css():
     }}
     .block-container {{ padding-top: 1rem; padding-bottom: 1rem; }}
 
+    /* ── HIDE STREAMLIT CHROME ────────────────── */
+    /* Toolbar decoration bar and deploy button — suppressed by config
+       toolbarMode=minimal but belt-and-suspenders CSS for all versions */
+    [data-testid="stDecoration"] {{ display: none !important; }}
+    [data-testid="stToolbar"] {{ display: none !important; }}
+    [data-testid="stAppDeployButton"] {{ display: none !important; }}
+    header[data-testid="stHeader"] {{ display: none !important; }}
+
     /* ── TEXT PROTECTION (global) ─────────────── */
     .stApp p, .stApp span, .stApp td, .stApp th,
     .stApp label, .stApp .stMarkdown {{
