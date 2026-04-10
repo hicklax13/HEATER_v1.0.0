@@ -20,6 +20,7 @@ from __future__ import annotations
 import logging
 
 import numpy as np
+import pandas as pd
 from scipy.stats import norm
 
 from src.validation.constant_optimizer import load_constants
@@ -487,6 +488,46 @@ def compute_scenario_lineup_values(
 
 
 # ── Internal helpers (continued) ─────────────────────────────────────
+
+
+def compute_empirical_correlations(
+    df: pd.DataFrame,
+    min_sample: int = 20,
+) -> dict[tuple[str, str], float]:
+    """Compute pairwise Pearson correlations from observed player stats.
+
+    Takes a DataFrame of player statistics and returns a dictionary
+    mapping stat-pair tuples to their empirical correlation coefficients.
+    Only numeric columns are included. Pairs where both columns are the
+    same are excluded (diagonal of correlation matrix).
+
+    Args:
+        df: DataFrame of player stats. Each row is a player, each column
+            is a stat category.
+        min_sample: Minimum number of rows required to compute correlations.
+            Returns empty dict if ``len(df) < min_sample``.
+
+    Returns:
+        Dict mapping ``(stat_a, stat_b)`` tuples to Pearson correlation
+        coefficients. Only the upper triangle is returned (no duplicates).
+    """
+    if len(df) < min_sample:
+        return {}
+
+    numeric_cols = df.select_dtypes(include="number").columns.tolist()
+    if len(numeric_cols) < 2:
+        return {}
+
+    corr_matrix = df[numeric_cols].corr()
+
+    result: dict[tuple[str, str], float] = {}
+    for i, col_a in enumerate(numeric_cols):
+        for col_b in numeric_cols[i + 1 :]:
+            val = corr_matrix.loc[col_a, col_b]
+            if pd.notna(val):
+                result[(col_a, col_b)] = float(val)
+
+    return result
 
 
 def _is_hitter_from_stats(stat_row: np.ndarray) -> bool:

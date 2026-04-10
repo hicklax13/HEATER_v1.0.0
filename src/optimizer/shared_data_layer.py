@@ -124,6 +124,7 @@ class OptimizerDataContext:
     scope: str = "rest_of_week"
     weeks_remaining: int = 16
     config: LeagueConfig = field(default_factory=LeagueConfig)
+    data_timestamps: dict[str, str] = field(default_factory=dict)
 
     # AVIS constraints
     adds_remaining_this_week: int = _MAX_WEEKLY_ADDS
