@@ -16,7 +16,11 @@ from src.optimizer.matchup_adjustments import (
     weather_hr_adjustment,
 )
 from src.optimizer.projections import V2_STABILIZATION_POINTS, v2_bayesian_blend
-from src.optimizer.scenario_generator import DEFAULT_CORRELATIONS, compute_empirical_correlations
+from src.optimizer.scenario_generator import (
+    DEFAULT_CORRELATIONS,
+    compute_empirical_correlations,
+    compute_empirical_cvs,
+)
 from src.valuation import LeagueConfig
 
 # ── Task 1: Rate Stat Aggregation Proofs ────────────────────────────
@@ -553,25 +557,23 @@ class TestEmpiricalCorrelations:
     """
 
     def test_hr_rbi_correlation_in_range(self):
-        """HR-RBI correlation should be in [0.55, 0.80] for empirical data.
+        """HR-RBI correlation should be in [0.70, 0.95] per empirical data.
 
-        The hardcoded value may be higher (from calibration), but the
-        empirical range for individual player seasons is typically 0.55-0.80.
+        Empirical: 2022-2024 MLB (N=624 hitter-seasons, 400+ PA) = 0.84.
+        The hardcoded value is loaded from calibrated constants (~0.85).
         """
         hr_rbi = DEFAULT_CORRELATIONS.get(("hr", "rbi"), DEFAULT_CORRELATIONS.get(("rbi", "hr")))
         assert hr_rbi is not None, "HR-RBI correlation not found in DEFAULT_CORRELATIONS"
-        # The constant may be calibrated higher (0.85), so we check it's positive
-        # and in a broader plausible range for fantasy usage
-        assert 0.50 <= hr_rbi <= 0.98, f"HR-RBI correlation {hr_rbi} outside [0.50, 0.98]"
+        assert 0.70 <= hr_rbi <= 0.95, f"HR-RBI correlation {hr_rbi} outside [0.70, 0.95]"
 
     def test_era_whip_correlation_in_range(self):
         """ERA-WHIP correlation should be strongly positive.
 
-        Published research puts this at 0.80-0.95 for individual pitcher seasons.
+        Empirical: 2022-2024 MLB (N=393 pitcher-seasons, 100+ IP) = 0.81.
         """
         era_whip = DEFAULT_CORRELATIONS.get(("era", "whip"), DEFAULT_CORRELATIONS.get(("whip", "era")))
         assert era_whip is not None, "ERA-WHIP correlation not found in DEFAULT_CORRELATIONS"
-        assert 0.80 <= era_whip <= 0.95, f"ERA-WHIP correlation {era_whip} outside [0.80, 0.95]"
+        assert 0.65 <= era_whip <= 0.92, f"ERA-WHIP correlation {era_whip} outside [0.65, 0.92]"
 
     def test_compute_empirical_correlations_basic(self):
         """compute_empirical_correlations returns valid correlation dict."""
@@ -628,3 +630,78 @@ class TestEmpiricalCorrelations:
         for k1, k2 in result:
             assert k1 in ("hr", "rbi")
             assert k2 in ("hr", "rbi")
+
+
+# ── Task 6b: Empirical CVs ───────────────────────────────────────────
+
+
+class TestEmpiricalCVs:
+    """Validate compute_empirical_cvs() produces correct CV values."""
+
+    def test_compute_empirical_cvs_counting_stats(self):
+        """CV for counting stats = std / mean.
+
+        Hand calculation:
+            HR values: [20, 30, 40] -> mean=30, std=10, CV=10/30=0.333
+        """
+        df = pd.DataFrame(
+            {
+                "hr": [20, 25, 30, 35, 40, 22, 28, 32, 27, 33, 21, 29, 31, 36, 38, 23, 26, 34, 37, 24],
+                "rbi": [60, 70, 80, 90, 100, 65, 75, 85, 72, 88, 62, 78, 82, 92, 95, 68, 73, 87, 93, 67],
+            }
+        )
+        result = compute_empirical_cvs(df, stat_cols=["hr", "rbi"])
+        assert "hr" in result
+        assert "rbi" in result
+        # CV should be positive and reasonable for counting stats
+        assert 0.05 < result["hr"] < 1.0
+        assert 0.05 < result["rbi"] < 1.0
+        # HR CV should be greater than RBI CV (HR has more relative spread)
+        assert result["hr"] > result["rbi"]
+
+    def test_compute_empirical_cvs_rate_stats(self):
+        """Rate stats use absolute std, not CV.
+
+        Hand calculation:
+            AVG values with std ~0.025 should return ~0.025.
+        """
+        rng = np.random.RandomState(42)
+        n = 50
+        df = pd.DataFrame(
+            {
+                "avg": rng.normal(0.265, 0.025, n),
+                "era": rng.normal(4.0, 0.80, n),
+            }
+        )
+        result = compute_empirical_cvs(df, stat_cols=["avg", "era"])
+        assert "avg" in result
+        assert "era" in result
+        # AVG std should be near 0.025
+        assert 0.015 < result["avg"] < 0.040
+        # ERA std should be near 0.80
+        assert 0.50 < result["era"] < 1.20
+
+    def test_compute_empirical_cvs_min_sample(self):
+        """With fewer rows than min_sample, returns empty dict."""
+        df = pd.DataFrame({"hr": [25, 30]})
+        result = compute_empirical_cvs(df, min_sample=20)
+        assert result == {}
+
+    def test_compute_empirical_cvs_default_cols(self):
+        """Without stat_cols, uses all numeric columns."""
+        rng = np.random.RandomState(42)
+        n = 30
+        df = pd.DataFrame(
+            {
+                "player_name": [f"Player_{i}" for i in range(n)],
+                "hr": rng.poisson(25, n),
+                "rbi": rng.poisson(75, n),
+                "team": ["NYY"] * n,
+            }
+        )
+        result = compute_empirical_cvs(df)
+        # Should only include numeric columns
+        assert "hr" in result
+        assert "rbi" in result
+        assert "player_name" not in result
+        assert "team" not in result

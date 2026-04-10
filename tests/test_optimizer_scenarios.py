@@ -135,7 +135,11 @@ class TestGenerateStatScenarios:
         assert corr > 0.3, f"HR-RBI correlation {corr:.3f} should be positive"
 
     def test_scenarios_correlation_sb_hr(self):
-        """SB and HR are negatively correlated across scenarios."""
+        """SB and HR are approximately uncorrelated across scenarios.
+
+        Empirical: 2022-2024 MLB (N=624 hitters) shows SB-HR correlation ~0.01.
+        The modern speed-power tradeoff has largely disappeared.
+        """
         # Use a player with non-trivial values in both
         roster = [_sample_hitter(hr=25, sb=20)]
         scenarios = generate_stat_scenarios(roster, n_scenarios=2000, seed=42)
@@ -147,7 +151,8 @@ class TestGenerateStatScenarios:
         sb_vals = scenarios[:, 0, sb_idx]
         corr = np.corrcoef(hr_vals, sb_vals)[0, 1]
 
-        assert corr < 0.0, f"SB-HR correlation {corr:.3f} should be negative"
+        # SB-HR correlation should be near zero (within sampling noise)
+        assert abs(corr) < 0.15, f"SB-HR correlation {corr:.3f} should be near zero"
 
 
 # ── Mean-variance adjustment tests ───────────────────────────────────

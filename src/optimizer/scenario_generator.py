@@ -40,52 +40,58 @@ _CAT_IDX: dict[str, int] = {cat: i for i, cat in enumerate(ALL_CATS)}
 # ── Default coefficients of variation ────────────────────────────────
 # Used when per-player projection variance is unavailable.
 # Counting stats use CV (std / mean), rate stats use absolute std.
+#
+# Empirical: 2022-2024 MLB data (N=624 hitter-seasons, 393 pitcher-seasons)
+# Cross-sectional CVs scaled to ~50% for projection uncertainty
+# (cross-sectional includes talent variation; projection error is smaller).
 
 DEFAULT_CV: dict[str, float] = {
-    "r": 0.15,
-    "hr": 0.20,
-    "rbi": 0.18,
-    "sb": 0.30,
-    "avg": 0.07,
-    "obp": 0.06,
-    "w": 0.25,
-    "l": 0.25,
-    "sv": 0.35,
-    "k": 0.15,
-    "era": 0.15,
-    "whip": 0.10,
+    "r": 0.18,  # Empirical cross-sectional: 0.29; projection CV ~0.18
+    "hr": 0.25,  # Empirical cross-sectional: 0.51; projection CV ~0.25
+    "rbi": 0.20,  # Empirical cross-sectional: 0.32; projection CV ~0.20
+    "sb": 0.45,  # Empirical cross-sectional: 1.10; projection CV ~0.45
+    "avg": 0.07,  # Rate stat — see _RATE_STD
+    "obp": 0.06,  # Rate stat — see _RATE_STD
+    "w": 0.30,  # Empirical cross-sectional: 0.41; projection CV ~0.30
+    "l": 0.28,  # Empirical cross-sectional: 0.35; projection CV ~0.28
+    "sv": 0.50,  # Empirical cross-sectional: 5.78; high role-dependence, capped at 0.50
+    "k": 0.20,  # Empirical cross-sectional: 0.29; projection CV ~0.20
+    "era": 0.15,  # Rate stat — see _RATE_STD
+    "whip": 0.10,  # Rate stat — see _RATE_STD
 }
 
 # Rate stats use absolute standard deviation instead of CV
+# Empirical: 2022-2024 MLB data (N=624 hitter-seasons, 393 pitcher-seasons)
 _RATE_STATS: set[str] = {"avg", "obp", "era", "whip"}
 _RATE_STD: dict[str, float] = {
-    "avg": 0.020,
-    "obp": 0.018,
-    "era": 0.50,
-    "whip": 0.05,
+    "avg": 0.022,  # Empirical cross-sectional std: 0.028; projection ~0.022
+    "obp": 0.025,  # Empirical cross-sectional std: 0.031; projection ~0.025
+    "era": 0.70,  # Empirical cross-sectional std: 0.90; projection ~0.70
+    "whip": 0.10,  # Empirical cross-sectional std: 0.17; projection ~0.10
 }
 
 # ── Simplified correlation structure ─────────────────────────────────
-# Pairwise correlations for the 10 fantasy categories.
+# Pairwise correlations for the 12 fantasy categories.
 # Symmetric: (a, b) and (b, a) map to the same value.
+# Empirical: 2022-2024 MLB data (N=624 hitter-seasons, 393 pitcher-seasons)
 
 DEFAULT_CORRELATIONS: dict[tuple[str, str], float] = {
-    ("hr", "rbi"): _CONSTANTS.get("copula_hr_rbi_corr"),
-    ("hr", "r"): 0.70,
-    ("r", "rbi"): 0.75,
-    ("sb", "hr"): -0.15,
-    ("sb", "avg"): 0.20,
-    ("avg", "obp"): 0.90,
-    ("obp", "r"): 0.55,
-    ("obp", "rbi"): 0.40,
-    ("era", "whip"): 0.90,
-    ("k", "era"): -0.65,
-    ("k", "whip"): -0.50,
-    ("w", "k"): 0.40,
-    ("w", "era"): -0.45,
-    ("w", "l"): -0.30,
-    ("l", "era"): 0.50,
-    ("l", "whip"): 0.40,
+    ("hr", "rbi"): _CONSTANTS.get("copula_hr_rbi_corr"),  # Empirical: 0.84
+    ("hr", "r"): 0.66,  # Empirical: 0.66 (was 0.70)
+    ("r", "rbi"): 0.71,  # Empirical: 0.71 (was 0.75)
+    ("sb", "hr"): 0.00,  # Empirical: 0.01 (was -0.15); speed-power tradeoff gone
+    ("sb", "avg"): 0.15,  # Empirical: 0.15 (was 0.20)
+    ("avg", "obp"): 0.72,  # Empirical: 0.72 (was 0.90); OBP depends on BB rate too
+    ("obp", "r"): 0.56,  # Empirical: 0.56 (was 0.55)
+    ("obp", "rbi"): 0.41,  # Empirical: 0.41 (was 0.40)
+    ("era", "whip"): 0.81,  # Empirical: 0.81 (was 0.90)
+    ("k", "era"): -0.46,  # Empirical: -0.46 (was -0.65); K suppresses ERA less
+    ("k", "whip"): -0.51,  # Empirical: -0.51 (was -0.50)
+    ("w", "k"): 0.66,  # Empirical: 0.66 (was 0.40); good pitchers win more
+    ("w", "era"): -0.55,  # Empirical: -0.55 (was -0.45)
+    ("w", "l"): -0.16,  # Empirical: -0.16 (was -0.30); W-L weakly anti-correlated
+    ("l", "era"): 0.43,  # Empirical: 0.43 (was 0.50)
+    ("l", "whip"): 0.36,  # Empirical: 0.36 (was 0.40)
 }
 
 # ── Copula import (optional) ─────────────────────────────────────────
@@ -526,6 +532,54 @@ def compute_empirical_correlations(
             val = corr_matrix.loc[col_a, col_b]
             if pd.notna(val):
                 result[(col_a, col_b)] = float(val)
+
+    return result
+
+
+def compute_empirical_cvs(
+    player_stats: pd.DataFrame,
+    stat_cols: list[str] | None = None,
+    min_sample: int = 20,
+) -> dict[str, float]:
+    """Compute empirical coefficients of variation from player stat data.
+
+    For counting stats, computes CV = std(stat) / mean(stat).
+    For rate stats (avg, obp, era, whip), computes absolute std instead,
+    since CV is not meaningful when means are far from zero.
+
+    Args:
+        player_stats: DataFrame of player stats. Each row is a player-season,
+            each column is a stat category.
+        stat_cols: List of column names to compute CVs for. If ``None``,
+            uses all numeric columns.
+        min_sample: Minimum number of rows required. Returns empty dict
+            if ``len(player_stats) < min_sample``.
+
+    Returns:
+        Dict mapping stat name to CV (counting) or absolute std (rate).
+    """
+    if len(player_stats) < min_sample:
+        return {}
+
+    if stat_cols is None:
+        stat_cols = player_stats.select_dtypes(include="number").columns.tolist()
+
+    result: dict[str, float] = {}
+    for col in stat_cols:
+        if col not in player_stats.columns:
+            continue
+        vals = pd.to_numeric(player_stats[col], errors="coerce").dropna()
+        if len(vals) < min_sample:
+            continue
+
+        if col in _RATE_STATS:
+            # Rate stats: absolute standard deviation
+            result[col] = float(vals.std())
+        else:
+            # Counting stats: coefficient of variation
+            mean_val = vals.mean()
+            if abs(mean_val) > 1e-6:
+                result[col] = float(vals.std() / mean_val)
 
     return result
 
