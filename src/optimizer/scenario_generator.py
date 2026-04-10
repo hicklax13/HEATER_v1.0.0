@@ -17,7 +17,9 @@ for correlated sampling; falls back to independent Normal draws.
 
 from __future__ import annotations
 
+import json
 import logging
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -596,3 +598,105 @@ def _is_hitter_from_stats(stat_row: np.ndarray) -> bool:
     k_idx = _CAT_IDX.get("k", 9)
     pitching_sum = abs(stat_row[w_idx]) + abs(stat_row[sv_idx]) + abs(stat_row[k_idx])
     return pitching_sum < 0.01
+
+
+# ── Empirical stats caching and comparison ──────────────────────────
+
+_DEFAULT_EMPIRICAL_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "empirical_stats.json"
+
+
+def load_cached_empirical_stats(
+    path: Path | None = None,
+) -> dict | None:
+    """Load cached empirical stats from JSON file.
+
+    Reads ``data/empirical_stats.json`` (or a custom path) produced by
+    ``scripts/compute_empirical_stats.py``.  Returns the parsed dict
+    if the file exists, or ``None`` if it does not.
+
+    The returned dict has at minimum:
+        - ``correlations``: dict mapping "cat_a-cat_b" to Spearman rho
+        - ``cvs``: dict mapping stat name to CV (counting) or std (rate)
+
+    Falls back to DEFAULT_CORRELATIONS / DEFAULT_CV when file is missing.
+
+    Args:
+        path: Path to the JSON file.  Defaults to
+            ``<project_root>/data/empirical_stats.json``.
+
+    Returns:
+        Parsed dict, or ``None`` if the file does not exist or is invalid.
+    """
+    if path is None:
+        path = _DEFAULT_EMPIRICAL_PATH
+
+    try:
+        if not path.exists():
+            logger.debug("No cached empirical stats at %s", path)
+            return None
+        with open(path) as f:
+            data = json.load(f)
+        if not isinstance(data, dict) or "correlations" not in data:
+            logger.warning("Invalid empirical stats format at %s", path)
+            return None
+        logger.info("Loaded cached empirical stats from %s", path)
+        return data
+    except (json.JSONDecodeError, OSError) as exc:
+        logger.warning("Failed to load empirical stats from %s: %s", path, exc)
+        return None
+
+
+def compare_to_defaults(
+    cached: dict | None = None,
+) -> dict:
+    """Compare cached empirical stats to hardcoded defaults.
+
+    Returns a dict with two keys:
+        - ``correlation_divergences``: maps "cat_a-cat_b" to the signed
+          difference (empirical - default).
+        - ``cv_divergences``: maps stat name to the signed difference
+          (empirical - default).
+
+    If ``cached`` is ``None``, attempts to load from the default path.
+    If the file is missing, returns empty divergence dicts.
+
+    Args:
+        cached: Pre-loaded empirical stats dict (as from
+            :func:`load_cached_empirical_stats`), or ``None`` to load
+            from disk.
+
+    Returns:
+        Dict with ``correlation_divergences`` and ``cv_divergences``.
+    """
+    if cached is None:
+        cached = load_cached_empirical_stats()
+    if cached is None:
+        return {"correlation_divergences": {}, "cv_divergences": {}}
+
+    # Correlation divergences
+    corr_div: dict[str, float] = {}
+    empirical_corr = cached.get("correlations", {})
+    for (cat_a, cat_b), default_val in DEFAULT_CORRELATIONS.items():
+        key_fwd = f"{cat_a}-{cat_b}"
+        key_rev = f"{cat_b}-{cat_a}"
+        emp = empirical_corr.get(key_fwd, empirical_corr.get(key_rev))
+        if emp is not None:
+            corr_div[key_fwd] = round(float(emp) - float(default_val), 6)
+
+    # CV divergences
+    cv_div: dict[str, float] = {}
+    empirical_cvs = cached.get("cvs", {})
+    for stat in ALL_CATS:
+        emp = empirical_cvs.get(stat)
+        if emp is None:
+            continue
+        if stat in _RATE_STATS:
+            default_val = _RATE_STD.get(stat, DEFAULT_CV.get(stat, 0.0))
+        else:
+            default_val = DEFAULT_CV.get(stat, 0.0)
+        cv_div[stat] = round(float(emp) - float(default_val), 6)
+
+    return {
+        "correlation_divergences": corr_div,
+        "cv_divergences": cv_div,
+    }
