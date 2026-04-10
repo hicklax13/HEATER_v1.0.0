@@ -451,8 +451,9 @@ def _apply_recent_form_adjustment(roster: pd.DataFrame) -> pd.DataFrame:
     """Blend last-14-game stats into projections for hot/cold adjustment.
 
     Uses ``get_player_recent_form_cached()`` (2h session-state cache) to
-    fetch L14 game-log aggregates from the MLB Stats API.  Blends into
-    the current projection at 20% weight when at least 7 games exist.
+    fetch L14 game-log aggregates from the MLB Stats API.  Blend weight
+    scales dynamically with sample size via ``get_recent_form_weight()``
+    -- more L14 games means a higher weight (up to 0.20 at 14 games).
 
     Hitter stats adjusted: avg, obp, hr (rate), rbi (rate), sb (rate), r (rate).
     Pitcher stats adjusted: era, whip, k (rate per IP).
@@ -466,6 +467,8 @@ def _apply_recent_form_adjustment(roster: pd.DataFrame) -> pd.DataFrame:
     except ImportError:
         logger.debug("game_day module not available; skipping recent form adjustment")
         return roster
+
+    from src.optimizer.shared_data_layer import get_recent_form_weight
 
     adjusted_count = 0
 
@@ -488,14 +491,17 @@ def _apply_recent_form_adjustment(roster: pd.DataFrame) -> pd.DataFrame:
         if games < _MIN_RECENT_GAMES:
             continue
 
+        # Dynamic weight: scales with sample size (7 games = 0.10, 14 games = 0.20)
+        form_weight = get_recent_form_weight("rest_of_season", n_games=games)
+
         is_hitter = bool(row.get("is_hitter", True))
         player_type = form.get("player_type", "unknown")
 
         if is_hitter and player_type == "hitter":
-            _blend_hitter_form(roster, idx, row, l14)
+            _blend_hitter_form(roster, idx, row, l14, form_weight=form_weight)
             adjusted_count += 1
         elif not is_hitter and player_type == "pitcher":
-            _blend_pitcher_form(roster, idx, row, l14)
+            _blend_pitcher_form(roster, idx, row, l14, form_weight=form_weight)
             adjusted_count += 1
 
     if adjusted_count > 0:
@@ -509,14 +515,15 @@ def _blend_hitter_form(
     idx: int,
     row: pd.Series,
     l14: dict,
+    form_weight: float = _RECENT_FORM_BLEND,
 ) -> None:
-    """Blend L14 hitter stats into projection at ``_RECENT_FORM_BLEND`` weight."""
+    """Blend L14 hitter stats into projection at the given form weight."""
     # Rate stats: direct blend
     for stat in ("avg", "obp"):
         recent_val = l14.get(stat, 0)
         proj_val = float(row.get(stat, 0) or 0)
         if recent_val > 0 and proj_val > 0:
-            blended = proj_val * (1 - _RECENT_FORM_BLEND) + recent_val * _RECENT_FORM_BLEND
+            blended = proj_val * (1 - form_weight) + recent_val * form_weight
             roster.at[idx, stat] = blended
 
     # Counting stats: use rate ratio from L14 games
@@ -540,7 +547,7 @@ def _blend_hitter_form(
         ratio = recent_rate / proj_rate
         # Clamp ratio so adjustments stay within ±15%
         clamped_ratio = max(0.70, min(1.30, ratio))
-        adj_factor = 1 + _RECENT_FORM_BLEND * (clamped_ratio - 1)
+        adj_factor = 1 + form_weight * (clamped_ratio - 1)
         roster.at[idx, stat] = proj_val * adj_factor
 
 
@@ -549,14 +556,15 @@ def _blend_pitcher_form(
     idx: int,
     row: pd.Series,
     l14: dict,
+    form_weight: float = _RECENT_FORM_BLEND,
 ) -> None:
-    """Blend L14 pitcher stats into projection at ``_RECENT_FORM_BLEND`` weight."""
+    """Blend L14 pitcher stats into projection at the given form weight."""
     # Rate stats: direct blend
     for stat in ("era", "whip"):
         recent_val = l14.get(stat, 0)
         proj_val = float(row.get(stat, 0) or 0)
         if recent_val > 0 and proj_val > 0:
-            blended = proj_val * (1 - _RECENT_FORM_BLEND) + recent_val * _RECENT_FORM_BLEND
+            blended = proj_val * (1 - form_weight) + recent_val * form_weight
             roster.at[idx, stat] = blended
 
     # K rate: use per-IP ratio
@@ -572,7 +580,7 @@ def _blend_pitcher_form(
         recent_rate = recent_k / l14_ip
         ratio = recent_rate / proj_rate
         clamped_ratio = max(0.70, min(1.30, ratio))
-        adj_factor = 1 + _RECENT_FORM_BLEND * (clamped_ratio - 1)
+        adj_factor = 1 + form_weight * (clamped_ratio - 1)
         roster.at[idx, "k"] = proj_k * adj_factor
 
 

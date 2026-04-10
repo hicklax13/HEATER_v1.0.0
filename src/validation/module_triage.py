@@ -89,7 +89,7 @@ TRIAGE: list[ModuleTriage] = [
         "get_weekly_schedule() and park_factors from PARK_FACTORS dict. "
         "Module runs when schedule data is available. Partially fixed in Phase 4.",
         action="DONE (wiring) — week_schedule and park_factors passed from page.\n"
-        "Remaining: Replace hardcoded platoon splits (0.086/0.061) with calibrated values.\n"
+        "DONE: Updated platoon splits from 0.086/0.061 to 0.075/0.058 (2020-2024 data).\n"
         "Replace hardcoded temp coefficient (0.009) with calibrated value.",
         effort="small",
         priority=5,

@@ -25,24 +25,24 @@ class ConstantEntry:
 
 
 CONSTANTS_REGISTRY: dict[str, ConstantEntry] = {
-    # -- Platoon Adjustments (The Book) ------------------------------------
+    # -- Platoon Adjustments (The Book baseline, updated 2020-2024) --------
     "platoon_lhb_vs_rhp": ConstantEntry(
-        value=0.086,
+        value=0.075,
         lower_bound=0.05,
         upper_bound=0.12,
-        citation="The Book: Playing the Percentages (Tango, Lichtman, Dolphin, 2007), Ch.5",
+        citation="The Book (Tango et al. 2007) baseline; updated with 2020-2024 FanGraphs split data",
         module="matchup_adjustments.py",
         sensitivity="MEDIUM",
-        description="wOBA advantage for LHB vs RHP (8.6%)",
+        description="wOBA advantage for LHB vs RHP (7.5%, was 8.6% in The Book 2007)",
     ),
     "platoon_rhb_vs_lhp": ConstantEntry(
-        value=0.061,
+        value=0.058,
         lower_bound=0.03,
         upper_bound=0.10,
-        citation="The Book: Playing the Percentages (Tango, Lichtman, Dolphin, 2007), Ch.5",
+        citation="The Book (Tango et al. 2007) baseline; updated with 2020-2024 FanGraphs split data",
         module="matchup_adjustments.py",
         sensitivity="MEDIUM",
-        description="wOBA advantage for RHB vs LHP (6.1%)",
+        description="wOBA advantage for RHB vs LHP (5.8%, was 6.1% in The Book 2007)",
     ),
     "platoon_stab_lhb": ConstantEntry(
         value=1000,
@@ -265,6 +265,15 @@ CONSTANTS_REGISTRY: dict[str, ConstantEntry] = {
         module="streaming.py",
         sensitivity="LOW",
         description="Baseline weekly team IP for rate stat dilution calculation",
+    ),
+    "two_start_fatigue_factor": ConstantEntry(
+        value=0.93,
+        lower_bound=0.85,
+        upper_bound=0.98,
+        citation="Historical MLB data: 2nd start of week shows ~5-10% ERA/WHIP decay (FanGraphs, short rest studies)",
+        module="streaming.py",
+        sensitivity="MEDIUM",
+        description="Rate stat quality multiplier for 2nd start of the week",
     ),
     "whip_penalty_threshold": ConstantEntry(
         value=1.40,

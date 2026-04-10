@@ -294,6 +294,23 @@ class TestDataFreshnessInContext:
         assert "data_timestamps" in OptimizerDataContext.__dataclass_fields__
 
 
+class TestDataTimestampsPopulation:
+    """Verify data_timestamps are populated during context build."""
+
+    def test_data_timestamps_is_dict(self):
+        """data_timestamps should be a dict when set."""
+        from src.optimizer.data_freshness import DataFreshnessTracker
+
+        tracker = DataFreshnessTracker()
+        tracker.record("live_stats", ttl_hours=1.0)
+        tracker.record("projections", ttl_hours=24.0)
+        result = tracker.get_all()
+        assert isinstance(result, dict)
+        assert "live_stats" in result
+        assert "projections" in result
+        assert result["live_stats"]["status"] in ("fresh", "stale")
+
+
 class TestRecentFormWeight:
     """Verify scope-specific recent form weights."""
 
@@ -305,3 +322,45 @@ class TestRecentFormWeight:
 
     def test_season_weight(self):
         assert get_recent_form_weight("rest_of_season") == pytest.approx(0.20, abs=0.01)
+
+
+class TestDynamicRecentFormWeight:
+    """Verify sample-size-aware recent form weighting."""
+
+    def test_no_games_param_returns_fixed_weight(self):
+        """Backward compatible: no n_games returns fixed weight."""
+        assert get_recent_form_weight("rest_of_week") == pytest.approx(0.30, abs=0.01)
+        assert get_recent_form_weight("today") == pytest.approx(0.25, abs=0.01)
+        assert get_recent_form_weight("rest_of_season") == pytest.approx(0.20, abs=0.01)
+
+    def test_below_minimum_returns_zero(self):
+        """Fewer than 7 games should return 0.0 weight."""
+        assert get_recent_form_weight("rest_of_week", n_games=3) == 0.0
+        assert get_recent_form_weight("rest_of_week", n_games=6) == 0.0
+
+    def test_maximum_games_returns_max_weight(self):
+        """14+ games should return the scope's maximum weight."""
+        assert get_recent_form_weight("rest_of_week", n_games=14) == pytest.approx(0.30, abs=0.01)
+        assert get_recent_form_weight("rest_of_week", n_games=20) == pytest.approx(0.30, abs=0.01)
+
+    def test_midpoint_interpolates(self):
+        """10-11 games should return weight between min and max."""
+        w = get_recent_form_weight("rest_of_week", n_games=10)
+        assert 0.15 < w < 0.30  # Between min (0.15) and max (0.30)
+
+    def test_monotonically_increasing(self):
+        """More games should always mean equal or higher weight."""
+        weights = [get_recent_form_weight("rest_of_week", n_games=n) for n in range(7, 15)]
+        for i in range(len(weights) - 1):
+            assert weights[i] <= weights[i + 1]
+
+    def test_all_scopes_scale_correctly(self):
+        """Each scope should scale between its own min and max."""
+        # At 7 games: half of max weight
+        assert get_recent_form_weight("today", n_games=7) == pytest.approx(0.125, abs=0.01)
+        assert get_recent_form_weight("rest_of_week", n_games=7) == pytest.approx(0.15, abs=0.01)
+        assert get_recent_form_weight("rest_of_season", n_games=7) == pytest.approx(0.10, abs=0.01)
+
+    def test_zero_games_returns_zero(self):
+        """Zero games should return 0.0 weight."""
+        assert get_recent_form_weight("rest_of_season", n_games=0) == 0.0

@@ -645,6 +645,30 @@ with ctx:
     except Exception:
         pass
 
+    # Optimizer data source freshness (from DataFreshnessTracker)
+    _freshness_ctx = st.session_state.get("optimizer_context")
+    if _freshness_ctx and hasattr(_freshness_ctx, "data_timestamps") and _freshness_ctx.data_timestamps:
+        with st.expander("Data Freshness", expanded=False):
+            for _src_name, _src_info in _freshness_ctx.data_timestamps.items():
+                _f_status = _src_info.get("status", "unknown")
+                _f_age = _src_info.get("age", "unknown")
+                _f_label = _src_name.replace("_", " ").title()
+                if _f_status == "fresh":
+                    st.markdown(
+                        f"<span style='color:#4CAF50 !important;font-size:14px;'>&#9679;</span> {_f_label}: {_f_age}",
+                        unsafe_allow_html=True,
+                    )
+                elif _f_status == "stale":
+                    st.markdown(
+                        f"<span style='color:#FF9800 !important;font-size:14px;'>&#9679;</span> {_f_label}: {_f_age}",
+                        unsafe_allow_html=True,
+                    )
+                else:
+                    st.markdown(
+                        f"<span style='color:#9E9E9E !important;font-size:14px;'>&#9679;</span> {_f_label}: unknown",
+                        unsafe_allow_html=True,
+                    )
+
 
 # ── Main content panel ───────────────────────────────────────────────
 

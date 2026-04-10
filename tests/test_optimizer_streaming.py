@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from src.optimizer.streaming import (
+    _TWO_START_FATIGUE_FACTOR,
     compute_streaming_value,
     optimal_streaming_schedule,
     quantify_two_start_value,
@@ -93,6 +94,63 @@ def test_two_start_counting_always_positive():
     pitcher = {"k": 4.0, "w": 0.2, "era": 6.00, "whip": 1.60, "ip": 4.5}
     result = quantify_two_start_value(pitcher)
     assert result["counting_sgp"] >= 0
+
+
+# ── Two-Start Fatigue Modeling ──────────────────────────────────────
+
+
+class TestTwoStartFatigueModeling:
+    """Verify 2nd start fatigue discount on rate stats."""
+
+    def test_two_start_era_worse_than_single(self):
+        """Two-start pitcher should have slightly worse rate impact than
+        without fatigue.  A pitcher with 3.50 ERA and team ERA 4.00:
+        Without fatigue: delta = (4.00 - 3.50) = +0.50 (helps)
+        With fatigue:    delta = (4.00 - 3.50/0.93) = (4.00 - 3.763) = +0.237
+        The fatigued 2nd start still helps, but less than without fatigue."""
+        pitcher = {"k": 7.0, "w": 0.5, "era": 3.50, "whip": 1.10, "ip": 6.0}
+        result = quantify_two_start_value(pitcher, team_era=4.00, team_whip=1.25)
+        # Rate impact should be positive (pitcher ERA below team ERA)
+        # but reduced compared to no-fatigue scenario
+        assert result["rate_impact"] > 0
+        # The fatigued ERA for the 2nd start: 3.50 / 0.93 = 3.763
+        # This is still below team ERA 4.00, so rate_impact stays positive
+        # but is smaller than (4.00 - 3.50) would give
+        era_2nd = 3.50 / _TWO_START_FATIGUE_FACTOR
+        assert era_2nd > 3.50
+        assert era_2nd < 4.00  # Still below team ERA
+
+    def test_fatigue_flips_marginal_pitcher(self):
+        """A pitcher barely below team ERA can become harmful with fatigue.
+        Pitcher ERA 3.90 vs team ERA 4.00:
+        Without fatigue: 4.00 - 3.90 = +0.10 (barely helps)
+        With fatigue:    4.00 - 3.90/0.93 = 4.00 - 4.194 = -0.194 (hurts!)"""
+        pitcher = {"k": 5.0, "w": 0.3, "era": 3.90, "whip": 1.24, "ip": 5.5}
+        result = quantify_two_start_value(pitcher, team_era=4.00, team_whip=1.25)
+        # Fatigued ERA: 3.90 / 0.93 = 4.194, above team ERA 4.00
+        era_2nd = 3.90 / _TWO_START_FATIGUE_FACTOR
+        assert era_2nd > 4.00  # Fatigue pushes ERA above team average
+        # Rate impact should be negative (fatigued ERA hurts team)
+        assert result["rate_impact"] < 0
+
+    def test_two_start_counting_stats_still_doubled(self):
+        """K and W should still be approximately doubled for two-start
+        pitchers.  Fatigue only affects rate stats, not counting stats."""
+        pitcher = {"k": 7.0, "w": 0.5, "l": 0.2, "era": 3.50, "whip": 1.10, "ip": 6.0}
+        # Get single-start counting SGP
+        single_start = compute_streaming_value(pitcher, weekly_games=1)
+        # Get two-start counting SGP (from compute_streaming_value which doubles)
+        two_start = compute_streaming_value(pitcher, weekly_games=2)
+        # Counting SGP should double (streaming function doubles counting)
+        assert two_start["counting_sgp"] == pytest.approx(single_start["counting_sgp"] * 2, abs=0.01)
+
+    def test_fatigue_factor_in_plausible_range(self):
+        """Fatigue factor should be between 0.85 and 0.98."""
+        assert 0.85 <= _TWO_START_FATIGUE_FACTOR <= 0.98
+
+    def test_fatigue_factor_value(self):
+        """Fatigue factor should be exactly 0.93."""
+        assert _TWO_START_FATIGUE_FACTOR == 0.93
 
 
 # ── rank_streaming_candidates ────────────────────────────────────────

@@ -373,10 +373,11 @@ class TestMatchupAdjustmentCompounding:
     """
 
     def test_platoon_advantage_values(self):
-        """LHB vs RHP gets ~8.6% boost, RHB vs LHP gets ~6.1% boost.
+        """LHB vs RHP gets ~7.5% boost, RHB vs LHP gets ~5.8% boost.
 
-        Source: The Book (Tango, Lichtman, Dolphin)
-        These are regressed defaults when no individual split data exists.
+        Source: The Book (Tango, Lichtman, Dolphin) baseline, updated with
+        2020-2024 FanGraphs split data. Modern pitching has compressed
+        platoon gaps relative to the original 2007 values.
         """
         lhb_factor = bayesian_platoon_adjustment(
             batter_hand="L",
@@ -392,10 +393,10 @@ class TestMatchupAdjustmentCompounding:
             individual_overall_avg=None,
             sample_pa=0,
         )
-        # LHB vs RHP: ~1.086 (8.6% boost)
-        assert lhb_factor == pytest.approx(1.086, abs=0.01)
-        # RHB vs LHP: ~1.061 (6.1% boost)
-        assert rhb_factor == pytest.approx(1.061, abs=0.01)
+        # LHB vs RHP: ~1.075 (7.5% boost, was 8.6% in The Book 2007)
+        assert lhb_factor == pytest.approx(1.075, abs=0.01)
+        # RHB vs LHP: ~1.058 (5.8% boost, was 6.1% in The Book 2007)
+        assert rhb_factor == pytest.approx(1.058, abs=0.01)
 
     def test_same_hand_no_advantage(self):
         """LHB vs LHP or RHB vs RHP should get no platoon advantage (<=1.0)."""

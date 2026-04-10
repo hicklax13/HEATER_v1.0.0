@@ -24,13 +24,14 @@ class TestConstantsRegistry:
                 f"Constant '{name}' value {entry.value} outside bounds [{entry.lower_bound}, {entry.upper_bound}]"
             )
 
-    def test_platoon_constants_match_the_book(self):
-        """Platoon advantages should match The Book (Tango et al.)."""
+    def test_platoon_constants_match_modern_values(self):
+        """Platoon advantages should match 2020-2024 updated values."""
         lhb = CONSTANTS_REGISTRY["platoon_lhb_vs_rhp"]
         rhb = CONSTANTS_REGISTRY["platoon_rhb_vs_lhp"]
-        assert lhb.value == pytest.approx(0.086, abs=0.01)
-        assert rhb.value == pytest.approx(0.061, abs=0.01)
-        assert "The Book" in lhb.citation or "Tango" in lhb.citation
+        assert lhb.value == pytest.approx(0.075, abs=0.01)
+        assert rhb.value == pytest.approx(0.058, abs=0.01)
+        assert "Tango" in lhb.citation or "The Book" in lhb.citation
+        assert "2020-2024" in lhb.citation
 
     def test_stabilization_points_match_fangraphs(self):
         """Stabilization points should match FanGraphs research."""

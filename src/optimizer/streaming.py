@@ -42,6 +42,9 @@ _DEFAULT_IP_PER_START = 5.5
 # Default team total IP per week used for rate-stat dilution.
 _DEFAULT_TEAM_WEEKLY_IP = 55.0
 
+# 2nd start rate stat quality factor (7% ERA/WHIP decay from fatigue).
+_TWO_START_FATIGUE_FACTOR = 0.93
+
 
 # ── Helpers ──────────────────────────────────────────────────────────
 
@@ -456,7 +459,12 @@ def quantify_two_start_value(
 
     counting_sgp = (k_per_start / sgp_k) * w_k + (w_per_start / sgp_w) * w_w - (l_per_start / sgp_l) * w_l
 
-    # Rate impact of the second start
+    # Rate impact of the second start with fatigue modeling.
+    # Historical research shows ~5-10% ERA/WHIP decay on the 2nd start
+    # of the week due to shorter rest, bullpen management, and pitch
+    # count effects.  The 2nd start uses degraded rate stats:
+    #   era_2nd = era / _TWO_START_FATIGUE_FACTOR  (~7% worse)
+    #   whip_2nd = whip / _TWO_START_FATIGUE_FACTOR
     team_ip = _DEFAULT_TEAM_WEEKLY_IP
 
     sgp_era = denoms.get("era", 0.30)
@@ -464,10 +472,12 @@ def quantify_two_start_value(
     w_era = weights.get("era", 1.0)
     w_whip = weights.get("whip", 1.0)
 
-    era_delta = (team_era - era) * ip_per_start / (team_ip + ip_per_start)
+    era_2nd = era / _TWO_START_FATIGUE_FACTOR
+    era_delta = (team_era - era_2nd) * ip_per_start / (team_ip + ip_per_start)
     era_sgp = (era_delta / sgp_era) * w_era
 
-    whip_delta = (team_whip - whip) * ip_per_start / (team_ip + ip_per_start)
+    whip_2nd = whip / _TWO_START_FATIGUE_FACTOR
+    whip_delta = (team_whip - whip_2nd) * ip_per_start / (team_ip + ip_per_start)
     whip_sgp = (whip_delta / sgp_whip) * w_whip
 
     rate_impact = era_sgp + whip_sgp

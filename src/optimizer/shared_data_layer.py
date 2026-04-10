@@ -18,6 +18,7 @@ from datetime import UTC, datetime, timedelta, timezone
 
 import pandas as pd
 
+from src.optimizer.data_freshness import DataFreshnessTracker
 from src.valuation import LeagueConfig
 
 logger = logging.getLogger(__name__)
@@ -171,6 +172,7 @@ def build_optimizer_context(
     if config is None:
         config = LeagueConfig()
 
+    tracker = DataFreshnessTracker()
     ctx = OptimizerDataContext(scope=scope, weeks_remaining=weeks_remaining, config=config)
     ctx.park_factors = park_factors or {}
 
@@ -199,6 +201,9 @@ def build_optimizer_context(
     if "player_id" in ctx.roster.columns:
         ctx.user_roster_ids = ctx.roster["player_id"].dropna().astype(int).tolist()
 
+    if not ctx.roster.empty:
+        tracker.record("yahoo_roster", ttl_hours=0.5)
+
     # ── Step 3: Load free agents (enriched with player pool data) ─────
     try:
         _raw_fa = yds.get_free_agents()
@@ -219,12 +224,14 @@ def build_optimizer_context(
             )
         else:
             ctx.free_agents = _raw_fa
+        tracker.record("free_agents", ttl_hours=1.0)
     except Exception:
         logger.warning("Failed to load free agents")
 
     # ── Step 4: Load live matchup ─────────────────────────────────────
     try:
         ctx.live_matchup = yds.get_matchup()
+        tracker.record("live_matchup", ttl_hours=0.083)
     except Exception:
         logger.warning("Failed to load live matchup")
 
@@ -257,6 +264,8 @@ def build_optimizer_context(
 
     # ── Step 11: Remaining games this week per team ───────────────────
     _compute_remaining_games(ctx)
+    if ctx.remaining_games_this_week:
+        tracker.record("schedule", ttl_hours=2.0)
 
     # ── Step 12: Two-start pitchers ───────────────────────────────────
     _detect_two_start_pitchers(ctx)
@@ -269,21 +278,29 @@ def build_optimizer_context(
 
     # ── Step 15: Weather ──────────────────────────────────────────────
     _load_weather(ctx)
+    if ctx.weather:
+        tracker.record("weather", ttl_hours=2.0)
 
     # ── Step 16: Recent form ──────────────────────────────────────────
     _load_recent_form(ctx)
+    if ctx.recent_form:
+        tracker.record("recent_form", ttl_hours=2.0)
 
     # ── Step 17: Health scores (single source) ────────────────────────
     _build_health_scores(ctx)
 
     # ── Step 18: News flags ───────────────────────────────────────────
     _load_news_flags(ctx)
+    if ctx.news_flags:
+        tracker.record("news_flags", ttl_hours=1.0)
 
     # ── Step 19: Ownership trends ─────────────────────────────────────
     _load_ownership_trends(ctx)
 
     # ── Step 20: AVIS constraints ─────────────────────────────────────
     _compute_avis_constraints(ctx, yds)
+
+    ctx.data_timestamps = tracker.get_all()
 
     return ctx
 
@@ -891,11 +908,38 @@ def scale_projections_for_scope(
     return df
 
 
-def get_recent_form_weight(scope: str) -> float:
-    """Get the recent form blend weight for the given scope."""
+def get_recent_form_weight(scope: str, n_games: int | None = None) -> float:
+    """Return scope-specific recent form weight, optionally scaled by sample size.
+
+    With n_games: scales between min_weight and max_weight based on game count.
+    Without n_games: returns the fixed scope-based weight (backward compatible).
+
+    Scaling: linear interpolation from min_weight at 7 games to max_weight at 14 games.
+    Below 7 games: returns 0.0 (insufficient sample).
+    Above 14 games: capped at max_weight.
+    """
+    # Scope max weights
     if scope == "today":
-        return _RECENT_FORM_WEIGHT_TODAY
+        max_weight = _RECENT_FORM_WEIGHT_TODAY
     elif scope == "rest_of_week":
-        return _RECENT_FORM_WEIGHT_WEEK
+        max_weight = _RECENT_FORM_WEIGHT_WEEK
     else:
-        return _RECENT_FORM_WEIGHT_SEASON
+        max_weight = _RECENT_FORM_WEIGHT_SEASON
+
+    # Backward compatible: no n_games returns fixed weight
+    if n_games is None:
+        return max_weight
+
+    # Dynamic scaling by sample size
+    _MIN_GAMES = 7
+    _MAX_GAMES = 14
+    min_weight = max_weight * 0.5
+
+    if n_games < _MIN_GAMES:
+        return 0.0
+    if n_games >= _MAX_GAMES:
+        return max_weight
+
+    # Linear interpolation between min_weight (at 7 games) and max_weight (at 14 games)
+    t = (n_games - _MIN_GAMES) / (_MAX_GAMES - _MIN_GAMES)
+    return min_weight + t * (max_weight - min_weight)

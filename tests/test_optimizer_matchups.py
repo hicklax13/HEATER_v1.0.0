@@ -13,6 +13,7 @@ from src.optimizer.matchup_adjustments import (
     DEFAULT_PLATOON_ADVANTAGE,
     PLATOON_REGRESSION_PA,
     _build_team_schedule,
+    compute_modern_platoon_splits,
     compute_weekly_matchup_adjustments,
     park_factor_adjustment,
     platoon_adjustment,
@@ -24,14 +25,14 @@ from src.optimizer.matchup_adjustments import (
 
 class TestPlatoonAdjustment:
     def test_platoon_lhb_advantage(self) -> None:
-        """LHB vs RHP gets the default 8.6% platoon advantage."""
+        """LHB vs RHP gets the default 7.5% platoon advantage."""
         factor = platoon_adjustment(batter_hand="L", pitcher_hand="R")
         expected = 1.0 + DEFAULT_PLATOON_ADVANTAGE["LHB"]
         assert factor == pytest.approx(expected, abs=1e-6)
         assert factor > 1.0
 
     def test_platoon_rhb_advantage(self) -> None:
-        """RHB vs LHP gets the smaller 6.1% advantage."""
+        """RHB vs LHP gets the smaller 5.8% advantage."""
         factor = platoon_adjustment(batter_hand="R", pitcher_hand="L")
         expected = 1.0 + DEFAULT_PLATOON_ADVANTAGE["RHB"]
         assert factor == pytest.approx(expected, abs=1e-6)
@@ -264,3 +265,25 @@ class TestBuildTeamSchedule:
         assert "MIA" in result
         assert result["COL"][0]["is_home"] is True
         assert result["MIA"][0]["is_home"] is False
+
+
+# ── Modern Platoon Splits Utility Tests ─────────────────────────────
+
+
+class TestModernPlatoonSplits:
+    """Verify compute_modern_platoon_splits() utility."""
+
+    def test_returns_dict_with_lhb_and_rhb(self) -> None:
+        result = compute_modern_platoon_splits()
+        assert "LHB" in result
+        assert "RHB" in result
+
+    def test_values_in_plausible_range(self) -> None:
+        result = compute_modern_platoon_splits()
+        assert 0.03 <= result["LHB"] <= 0.12
+        assert 0.03 <= result["RHB"] <= 0.10
+
+    def test_lhb_advantage_greater_than_rhb(self) -> None:
+        """LHB vs RHP advantage should be larger than RHB vs LHP."""
+        result = compute_modern_platoon_splits()
+        assert result["LHB"] > result["RHB"]
