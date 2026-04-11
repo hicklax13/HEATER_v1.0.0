@@ -1026,10 +1026,7 @@ def evaluate_trade(
 
     # Add category-worsening warning to risk flags (informational, not blocking)
     if len(worsened_cats) >= 3:
-        risk_flags.append(
-            f"Caution: Trade worsens {len(worsened_cats)} categories "
-            f"({', '.join(worsened_cats)})."
-        )
+        risk_flags.append(f"Caution: Trade worsens {len(worsened_cats)} categories ({', '.join(worsened_cats)}).")
 
     grade_range = _compute_grade_range(total_surplus)
 
