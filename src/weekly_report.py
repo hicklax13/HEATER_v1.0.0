@@ -1,4 +1,4 @@
-"""Weekly Report Generator — AVIS Section 5 operating cadence.
+"""Weekly Report Generator — operating cadence.
 
 Produces Monday matchup reports, Thursday mid-week checkpoints,
 and daily lineup checks.
@@ -19,7 +19,7 @@ def generate_monday_report(
     week: int,
     config=None,
 ) -> dict:
-    """Generate the Monday matchup report per AVIS Section 2.1.
+    """Generate the Monday matchup report.
 
     Returns dict with sections: opponent_summary, category_projections,
     exploit_weaknesses, protect_floor, streaming_targets.
@@ -81,8 +81,8 @@ def generate_monday_report(
     report["exploit_weaknesses"] = exploit
 
     # Section 4: Protect your floor
-    # Team Hickey structural weaknesses from AVIS Section 2.2
-    hickey_weak = ["SB"]  # Per AVIS manual
+    # Team Hickey structural weaknesses based on draft profile
+    hickey_weak = ["SB"]
     protect = []
     for cat in hickey_weak:
         if cat not in opp_weaknesses:  # Only protect if opponent isn't also weak
@@ -109,7 +109,7 @@ def generate_thursday_checkpoint(
     matchup_score: dict | None = None,
     ip_projected: float = 0.0,
 ) -> dict:
-    """Thursday mid-week checkpoint per AVIS Section 5.
+    """Thursday mid-week checkpoint.
 
     Args:
         user_roster: Current roster DataFrame.

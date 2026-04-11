@@ -1093,7 +1093,7 @@ else:
             except Exception:
                 pass  # Regression alerts are non-fatal
 
-            # AVIS Section 5: Weekly Report (always visible, auto-expanded on Mondays)
+            # Weekly Report (always visible, auto-expanded on Mondays)
             try:
                 from datetime import UTC, datetime
 
@@ -1115,16 +1115,16 @@ else:
 
                     _report_week = get_week_number()
 
-                    # If live Yahoo profile lacks strengths/weaknesses, merge from AVIS hardcoded profile
+                    # If live Yahoo profile lacks strengths/weaknesses, merge from fallback hardcoded profile
                     if _report_opp and (not _report_opp.get("strengths") and not _report_opp.get("weaknesses")):
                         from src.opponent_intel import get_current_opponent
 
-                        _avis_opp = get_current_opponent()
-                        if _avis_opp:
-                            if _avis_opp.get("strengths"):
-                                _report_opp["strengths"] = _avis_opp["strengths"]
-                            if _avis_opp.get("weaknesses"):
-                                _report_opp["weaknesses"] = _avis_opp["weaknesses"]
+                        _fallback_opp = get_current_opponent()
+                        if _fallback_opp:
+                            if _fallback_opp.get("strengths"):
+                                _report_opp["strengths"] = _fallback_opp["strengths"]
+                            if _fallback_opp.get("weaknesses"):
+                                _report_opp["weaknesses"] = _fallback_opp["weaknesses"]
                 except Exception:
                     pass
 
@@ -1355,7 +1355,7 @@ else:
             except Exception:
                 pass  # Non-fatal
 
-            # Daily Lineup Validation (AVIS Section 5)
+            # Daily Lineup Validation
             try:
                 from src.weekly_report import get_todays_mlb_games, validate_daily_lineup
 

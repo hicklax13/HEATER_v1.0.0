@@ -461,7 +461,7 @@ class YahooDataService:
         """Build opponent profile from live standings + roster data.
 
         Derives tier, threat level, strengths, and weaknesses from
-        the current standings. Falls back to hardcoded AVIS profiles
+        the current standings. Falls back to hardcoded profiles
         when live data is unavailable.
         """
         standings = self.get_standings()
@@ -721,7 +721,7 @@ class YahooDataService:
         the schedule from the scoreboard by querying each week's matchups.
         This is expensive (1 call per week), so the 24-hour TTL is critical.
 
-        Falls back to the AVIS hardcoded schedule if Yahoo call fails.
+        Falls back to the hardcoded schedule if Yahoo call fails.
         """
         from src.database import upsert_league_schedule
 
@@ -751,7 +751,7 @@ class YahooDataService:
             if week_num not in schedule:
                 schedule[week_num] = opponent
 
-        # If we still have gaps, use AVIS fallback
+        # If we still have gaps, use hardcoded fallback
         fallback = self._fallback_schedule()
         for week_num, opponent in fallback.items():
             if week_num not in schedule:
@@ -839,7 +839,7 @@ class YahooDataService:
 
     @staticmethod
     def _fallback_opponent_profile(team_name: str) -> dict:
-        """Fall back to AVIS hardcoded profiles."""
+        """Fall back to hardcoded opponent profiles."""
         try:
             from src.opponent_intel import OPPONENT_PROFILES
 
@@ -866,7 +866,7 @@ class YahooDataService:
 
     @staticmethod
     def _fallback_schedule() -> dict[int, str]:
-        """Fall back to AVIS hardcoded schedule."""
+        """Fall back to hardcoded schedule."""
         try:
             from src.opponent_intel import TEAM_HICKEY_SCHEDULE
 

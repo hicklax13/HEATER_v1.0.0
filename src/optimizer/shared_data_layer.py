@@ -68,7 +68,7 @@ _OPP_PITCHER_WEAK_MULT = 1.08  # vs bottom-tier pitching
 _OPP_PITCHER_FIP_STRONG = 3.20  # FIP threshold for "strong"
 _OPP_PITCHER_FIP_WEAK = 4.50  # FIP threshold for "weak"
 
-# AVIS league rules
+# League rules
 _MAX_WEEKLY_ADDS = 10
 _MIN_CLOSERS = 2
 _CLOSER_SV_THRESHOLD = 5  # Projected SV >= 5 counts as closer
@@ -127,7 +127,7 @@ class OptimizerDataContext:
     config: LeagueConfig = field(default_factory=LeagueConfig)
     data_timestamps: dict[str, str] = field(default_factory=dict)
 
-    # AVIS constraints
+    # League constraints
     adds_remaining_this_week: int = _MAX_WEEKLY_ADDS
     closer_count: int = 0
     il_stash_ids: set[int] = field(default_factory=set)
@@ -297,8 +297,8 @@ def build_optimizer_context(
     # ── Step 19: Ownership trends ─────────────────────────────────────
     _load_ownership_trends(ctx)
 
-    # ── Step 20: AVIS constraints ─────────────────────────────────────
-    _compute_avis_constraints(ctx, yds)
+    # ── Step 20: League constraints ────────────────────────────────────
+    _compute_league_constraints(ctx, yds)
 
     ctx.data_timestamps = tracker.get_all()
 
@@ -718,8 +718,8 @@ def _load_ownership_trends(ctx: OptimizerDataContext) -> None:
         logger.warning("Failed to load ownership trends")
 
 
-def _compute_avis_constraints(ctx: OptimizerDataContext, yds) -> None:
-    """Compute AVIS league rule constraints."""
+def _compute_league_constraints(ctx: OptimizerDataContext, yds) -> None:
+    """Compute league rule constraints (add budget, closer count)."""
     # Count adds this week
     try:
         txns = yds.get_transactions()

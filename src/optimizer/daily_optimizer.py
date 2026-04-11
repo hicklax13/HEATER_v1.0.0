@@ -655,7 +655,7 @@ def check_ip_override(
     """Force-start a pitcher if weekly IP is below minimum threshold.
 
     If projected IP is below the minimum, find the best available pitcher
-    and boost their DCV to ensure they start. This enforces the AVIS
+    and boost their DCV to ensure they start. This enforces the
     requirement for minimum weekly innings pitched.
 
     Args:

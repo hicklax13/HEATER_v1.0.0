@@ -1,6 +1,6 @@
 """IP Tracker — Weekly innings pitched monitoring for 20 IP minimum.
 
-AVIS Rule #1: Never forfeit pitching categories. Hitting 20 IP is non-negotiable.
+Never forfeit pitching categories. Hitting 20 IP is non-negotiable.
 """
 
 import logging

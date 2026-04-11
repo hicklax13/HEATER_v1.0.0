@@ -971,16 +971,12 @@ def evaluate_trade(
     # Step 7: Grade the trade
     trade_grade = grade_trade(total_surplus)
 
-    # AVIS Rule #3: Never make a trade that worsens 3+ categories
+    # Count categories that worsen (informational only — no auto-reject)
     worsened_cats = [
         cat
         for cat, delta in category_impact.items()
         if delta < -0.1  # meaningful worsening threshold
     ]
-    avis_compliant = len(worsened_cats) < 3
-    if not avis_compliant:
-        trade_grade = "F"
-        total_surplus = min(total_surplus, -1.0)  # Force negative
 
     # Risk flags
     risk_flags: list[str] = _compute_risk_flags(
@@ -1028,14 +1024,12 @@ def evaluate_trade(
     giving_players = _get_player_names(giving_ids, player_pool, name_col)
     receiving_players = _get_player_names(receiving_ids, player_pool, name_col)
 
-    # Add AVIS violation to risk flags
-    if not avis_compliant:
-        risk_flags.insert(
-            0,
-            f"AVIS RULE VIOLATION: Trade worsens {len(worsened_cats)} categories "
-            f"({', '.join(worsened_cats)}). Auto-rejected per league strategy.",
+    # Add category-worsening warning to risk flags (informational, not blocking)
+    if len(worsened_cats) >= 3:
+        risk_flags.append(
+            f"Caution: Trade worsens {len(worsened_cats)} categories "
+            f"({', '.join(worsened_cats)})."
         )
-        verdict = "DECLINE"
 
     grade_range = _compute_grade_range(total_surplus)
 
@@ -1078,7 +1072,7 @@ def evaluate_trade(
         "flexibility_detail": flexibility_detail,
         "risk_flags": risk_flags,
         "verdict": verdict,
-        "avis_compliant": avis_compliant,
+        "compliant": True,  # Legacy field — no longer enforced
         "confidence_pct": round(confidence_pct, 1),
         "before_totals": before_totals,
         "after_totals": after_totals,

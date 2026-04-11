@@ -676,7 +676,7 @@ def scan_2_for_1(
             add_player = player_pool[player_pool["player_id"] == add_id]
             if add_player.empty:
                 continue
-            # Skip IL stash players — AVIS Section 7 protection
+            # Skip IL stash players — IL stash protection
             add_name = add_player.iloc[0].get("name", add_player.iloc[0].get("player_name", ""))
             if add_name in IL_STASH_NAMES:
                 continue
@@ -1052,7 +1052,7 @@ def scan_1_for_1(
         if give_player.empty:
             continue
         give_name = give_player.iloc[0].get("name", give_player.iloc[0].get("player_name", "?"))
-        # Skip IL stash players — AVIS Section 7 protection
+        # Skip IL stash players — IL stash protection
         if give_name in IL_STASH_NAMES:
             continue
         give_raw_sgp = user_raw_sgps.get(give_id, 0.0)

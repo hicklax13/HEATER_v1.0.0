@@ -191,7 +191,7 @@ class TestEmptyInputs:
         assert recommend_fa_moves(ctx) == []
 
 
-class TestAVISBudget:
+class TestAddsBudget:
     """No adds remaining returns empty list."""
 
     def test_no_adds_remaining(self):

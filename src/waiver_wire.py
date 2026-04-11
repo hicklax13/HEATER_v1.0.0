@@ -49,12 +49,12 @@ WEEKLY_RATE_DEFAULTS: dict[str, float] = {
 
 RATE_STATS = {"AVG", "OBP", "ERA", "WHIP"}
 
-# Default weekly adds budget per AVIS: 5 streaming + 3 injury + 2 reserve = 10
+# Default weekly adds budget: 5 streaming + 3 injury + 2 reserve = 10
 DEFAULT_WEEKLY_ADDS = 10
 STREAMING_ADDS_BUDGET = 5
 
 
-# ── Streaming Recommendations (AVIS Section 2.4) ────────────────────
+# ── Streaming Recommendations ────────────────────────────────────────
 
 
 def recommend_streams(
@@ -673,7 +673,7 @@ def compute_add_drop_recommendations(
     # ── Stage 2: Rank and pre-filter FAs ──────────────────────────────
     fa_ranked = rank_free_agents(user_roster_ids, fa_pool, player_pool, config)
 
-    # AVIS Rule #2: Closer priority override — if user has < 2 closers,
+    # Closer priority override — if user has < 2 closers,
     # bump available closers to the top of the FA list.
     roster_players_pre = player_pool[player_pool["player_id"].isin(user_roster_ids)]
     closer_count = 0

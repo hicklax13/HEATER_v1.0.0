@@ -627,7 +627,7 @@ def value_all_players(
             optimization and projection confidence weighting.
         num_rounds: Total rounds in the draft.
         season_phase: "regular" (default) weights consistency/floor higher;
-            "playoff" weights upside/ceiling higher. Per AVIS Rule #5.
+            "playoff" weights upside/ceiling higher.
     """
     sgp_calc = SGPCalculator(config)
 
@@ -687,7 +687,7 @@ def value_all_players(
         confidence = np.clip(0.8 + 0.2 * volume, 0.8, 1.0)
         pool["pick_score"] = pool["pick_score"] * confidence
 
-    # AVIS Rule #5: Floor over ceiling in regular season, ceiling in playoffs.
+    # Floor over ceiling in regular season, ceiling in playoffs.
     # Players with low projection volatility (consistent) are preferred during
     # the regular season. High-volatility (upside) players preferred in playoffs.
     if season_phase in ("regular", "playoff") and "projection_vol" in pool.columns:

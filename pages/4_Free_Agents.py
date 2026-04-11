@@ -740,7 +740,7 @@ with main:
     if not filtered_recs:
         st.info("No drop recommendations available.")
     else:
-        # AVIS Rule #6: Protect IL stashes (Bieber, Strider, AND players returning within 2 weeks)
+        # Protect IL stashes (Bieber, Strider, AND players returning within 2 weeks)
         protected_names = set(IL_STASH_NAMES)
 
         # Dynamic IL return-date check: protect players returning within 14 days
@@ -771,7 +771,7 @@ with main:
             if drop_name in protected_names:
                 st.info(
                     f"IL STASH PROTECTED: {drop_name} — excluded from drop candidates "
-                    f"per AVIS rules (returning soon or per AVIS Section 7)."
+                    f"(returning soon or IL stash protected)."
                 )
                 continue
 

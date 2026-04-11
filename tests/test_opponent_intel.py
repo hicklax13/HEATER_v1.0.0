@@ -77,7 +77,7 @@ class TestGetWeekNumber:
 
 
 class TestGetCurrentOpponent:
-    def test_fallback_to_avis_data(self):
+    def test_fallback_to_hardcoded_data(self):
         from src.opponent_intel import get_current_opponent
 
         with patch("src.opponent_intel.get_week_number", return_value=1):
@@ -105,7 +105,7 @@ class TestGetCurrentOpponent:
             assert result["name"] == "Custom Team"
 
     def test_live_profile_fallback_on_unknown_threat(self):
-        """When live profile has threat=Unknown, should fall back to AVIS."""
+        """When live profile has threat=Unknown, should fall back to hardcoded data."""
         from src.opponent_intel import get_current_opponent
 
         mock_yds = MagicMock()
@@ -114,7 +114,7 @@ class TestGetCurrentOpponent:
 
         with patch("src.opponent_intel.get_week_number", return_value=1):
             result = get_current_opponent(yds=mock_yds)
-            # Should fall back to AVIS profile
+            # Should fall back to hardcoded profile
             assert result["threat"] == "Medium-Low"
 
     def test_yds_exception_handled(self):
@@ -125,7 +125,7 @@ class TestGetCurrentOpponent:
 
         with patch("src.opponent_intel.get_week_number", return_value=1):
             result = get_current_opponent(yds=mock_yds)
-            # Should still return AVIS data
+            # Should still return hardcoded fallback data
             assert result["name"] == "The Good The Vlad The Ugly"
 
     def test_empty_dict_for_invalid_week(self):

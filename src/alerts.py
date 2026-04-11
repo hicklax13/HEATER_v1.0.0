@@ -1,4 +1,4 @@
-"""Proactive Alert System — AVIS Section 6 communication.
+"""Proactive Alert System — roster communication.
 
 Monitors for roster-impacting events and generates actionable alerts.
 Analyst tone, not cheerleader. Data-driven recommendations.
@@ -24,7 +24,7 @@ def _fmt_et(dt_obj: datetime) -> str:
 
 logger = logging.getLogger(__name__)
 
-# AVIS Section 7: IL stash players — do NOT drop or trade within 2 weeks of return
+# IL stash players — do NOT drop or trade within 2 weeks of return
 IL_STASH_NAMES: set[str] = {"Shane Bieber", "Spencer Strider"}
 
 
@@ -42,10 +42,10 @@ def generate_roster_alerts(
     """Generate proactive alerts based on current roster state.
 
     Checks:
-    1. Empty roster spots (AVIS Rule #4)
+    1. Empty roster spots
     2. Injured players not on IL
     3. Closer role changes
-    4. Low closer count (AVIS Rule #2)
+    4. Low closer count (minimum 2 closers)
     5. League trade monitoring (opponent acquisitions)
 
     Returns list of alert dicts: {type, severity, title, message, action}.
@@ -179,7 +179,7 @@ def generate_roster_alerts(
                 "type": "closer_shortage",
                 "severity": "warning",
                 "title": f"CLOSER ALERT: Only {closer_count} closer(s)",
-                "message": f"Current closers: {', '.join(closer_names) if closer_names else 'None'}. AVIS requires minimum 2 closers at all times.",
+                "message": f"Current closers: {', '.join(closer_names) if closer_names else 'None'}. Maintain minimum 2 closers at all times.",
                 "action": "Check Waiver Wire for available closers (sorted by projected SV).",
                 "timestamp": datetime.now(UTC).isoformat(),
             }

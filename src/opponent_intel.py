@@ -1,7 +1,7 @@
 """Opponent Intelligence — profiles, schedule, and matchup context.
 
-Populated from the AVIS Operations Manual. Provides opponent threat levels,
-category strengths/weaknesses, and the full 24-week schedule.
+Provides opponent threat levels, category strengths/weaknesses,
+and the full 24-week schedule.
 """
 
 import logging
@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 
 logger = logging.getLogger(__name__)
 
-# ── Schedule: Team Hickey's opponents by week (AVIS Section 4) ────────
+# ── Schedule: Team Hickey's opponents by week ────────────────────────
 
 TEAM_HICKEY_SCHEDULE = {
     1: "The Good The Vlad The Ugly",
@@ -38,7 +38,7 @@ TEAM_HICKEY_SCHEDULE = {
     24: "Baty Babies",
 }
 
-# ── Opponent Profiles (AVIS Section 3) ────────────────────────────────
+# ── Opponent Profiles ────────────────────────────────────────────────
 
 OPPONENT_PROFILES = {
     "Over the Rembow": {
@@ -147,11 +147,11 @@ def get_current_opponent(yds=None) -> dict:
     """Get this week's opponent profile.
 
     When a YahooDataService is provided, uses live data (schedule from
-    Yahoo matchups, profile from live standings). Falls back to the
-    hardcoded AVIS data when live data is unavailable.
+    Yahoo matchups, profile from live standings). Falls back to
+    hardcoded data when live data is unavailable.
 
     Args:
-        yds: Optional YahooDataService instance. If None, uses AVIS data only.
+        yds: Optional YahooDataService instance. If None, uses fallback data only.
 
     Returns:
         Dict with: name, tier, threat, manager, strengths, weaknesses, notes, week.
@@ -167,9 +167,9 @@ def get_current_opponent(yds=None) -> dict:
             if schedule:
                 opponent_name = schedule.get(week)
         except Exception:
-            logger.debug("Live schedule unavailable, falling back to AVIS")
+            logger.debug("Live schedule unavailable, falling back to hardcoded data")
 
-    # Fall back to hardcoded AVIS schedule
+    # Fall back to hardcoded schedule
     if not opponent_name:
         opponent_name = TEAM_HICKEY_SCHEDULE.get(week)
     if not opponent_name:
@@ -186,9 +186,9 @@ def get_current_opponent(yds=None) -> dict:
                     **live_profile,
                 }
         except Exception:
-            logger.debug("Live profile unavailable for %s, falling back to AVIS", opponent_name)
+            logger.debug("Live profile unavailable for %s, falling back to hardcoded data", opponent_name)
 
-    # Fall back to AVIS hardcoded profiles
+    # Fall back to hardcoded profiles
     profile = OPPONENT_PROFILES.get(opponent_name, {})
     return {
         "name": opponent_name,
@@ -328,12 +328,12 @@ def analyze_weekly_matchup(
         )
 
     # Exploitation targets: opponent weaknesses that align with our strengths
-    # Team Hickey structural strengths from AVIS: HR, RBI, K
+    # Team Hickey structural strengths: HR, RBI, K
     hickey_strengths = {"HR", "RBI", "K"}
     exploit_targets = [cat for cat in opp_weaknesses if cat in hickey_strengths or cat in toss_ups]
 
     # Vulnerabilities: opponent strengths that overlap with our weaknesses
-    hickey_weaknesses = {"SB"}  # Per AVIS Section 2.2
+    hickey_weaknesses = {"SB"}  # Structural weakness based on draft profile
     vulnerabilities = [cat for cat in opp_strengths if cat in hickey_weaknesses or cat in toss_ups]
 
     # Streaming recommendations based on matchup

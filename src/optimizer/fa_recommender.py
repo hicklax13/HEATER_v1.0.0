@@ -2,8 +2,8 @@
 
 After the Line-up Optimizer runs (LP or DCV), this module evaluates whether
 any free agent swaps would improve the roster given the current matchup state.
-Enforces AVIS league rules: weekly add budget, closer minimum, IL stash
-protection, and category worsening limits.
+Enforces league rules: weekly add budget, closer minimum, IL stash
+protection, and category-impact analysis.
 
 Usage:
     ctx = build_optimizer_context("rest_of_week", yds, config)
@@ -70,7 +70,7 @@ def recommend_fa_moves(
         Recommended swaps sorted by net SGP delta descending.
         Each dict contains add/drop info, category impact, reasoning, etc.
     """
-    # ── AVIS budget check ────────────────────────────────────────────
+    # ── Weekly add budget check ───────────────────────────────────────
     if ctx.adds_remaining_this_week <= 0:
         logger.info("No adds remaining this week — skipping FA recommendations")
         return []
@@ -257,7 +257,7 @@ def _evaluate_swaps(
     drop_candidates: list[dict],
     fa_candidates: list[dict],
 ) -> list[dict]:
-    """Evaluate all (drop, add) pairs and filter by AVIS rules."""
+    """Evaluate all (drop, add) pairs and filter by league rules."""
     results: list[dict] = []
     losing_cats = _get_losing_categories(ctx)
     tied_cats = _get_tied_categories(ctx)
@@ -286,10 +286,9 @@ def _evaluate_swaps(
             if net_sgp <= 0:
                 continue
 
-            # AVIS Rule #3: reject if 3+ categories worsen
+            # Category worsening check (informational — log but don't block)
             worsened = sum(1 for v in cat_deltas.values() if v < _CATEGORY_WORSEN_THRESHOLD)
-            if worsened >= _MAX_WORSENED_CATEGORIES:
-                continue
+            # Note: previously auto-rejected when worsened >= 3; now uses net SGP only
 
             # Build reasoning
             reasoning = _build_reasoning(fa, drop, swap, ctx)

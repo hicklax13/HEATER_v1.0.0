@@ -140,7 +140,7 @@ src/
   contextual_factors.py     — Closer hierarchy, platoon risk, lineup protection
 
   # In-season management
-  alerts.py                 — AVIS decision rules: auto-IL, closer handcuff, regression alerts
+  alerts.py                 — Proactive alerts: auto-IL, closer handcuff, regression alerts
   opponent_intel.py         — Opponent roster analysis, weakness detection
   waiver_wire.py            — LP-verified add/drop recommendations
   weekly_report.py          — Monday morning briefing
