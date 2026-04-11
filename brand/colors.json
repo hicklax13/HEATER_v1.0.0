@@ -1,0 +1,36 @@
+{
+  "brand": {
+    "name": "HEATER",
+    "tagline": "10,000 simulations. One decision.",
+    "description": "Fantasy Baseball Intelligence"
+  },
+  "colors": {
+    "primary": {
+      "flame": "#e63946",
+      "amber": "#ff6d00",
+      "gold": "#ffd60a"
+    },
+    "neutral": {
+      "bg": "#f4f5f0",
+      "card": "#ffffff",
+      "text": "#1d1d1f",
+      "muted": "#6b7280"
+    },
+    "accent": {
+      "green": "#2d6a4f",
+      "sky": "#457b9d",
+      "purple": "#6c63ff"
+    },
+    "semantic": {
+      "success": "#2d6a4f",
+      "warning": "#ff6d00",
+      "error": "#e63946",
+      "info": "#457b9d"
+    }
+  },
+  "typography": {
+    "heading": "Inter, system-ui, sans-serif",
+    "body": "Inter, system-ui, sans-serif",
+    "mono": "JetBrains Mono, monospace"
+  }
+}

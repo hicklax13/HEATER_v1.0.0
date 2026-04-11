@@ -5,6 +5,7 @@ Uses staleness-based smart refresh to avoid unnecessary API calls.
 """
 
 import logging
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -13,9 +14,38 @@ from src.analytics_context import AnalyticsContext, DataQuality
 
 logger = logging.getLogger(__name__)
 
+# Maximum seconds any single bootstrap phase is allowed to run.
+_PHASE_TIMEOUT_SECONDS = 90
+
 # Module-level context from the last bootstrap run.
 # Pages import this to show data freshness badges.
 _LAST_BOOTSTRAP_CTX: AnalyticsContext | None = None
+
+
+def _run_with_timeout(fn: Callable, timeout: int = _PHASE_TIMEOUT_SECONDS) -> str:
+    """Run *fn* in a thread and return its result, or a timeout message.
+
+    This prevents any single bootstrap phase from hanging the entire app.
+    The worker thread is daemonized so it won't block process exit.
+    """
+    result_box: list[str] = []
+    error_box: list[Exception] = []
+
+    def _worker():
+        try:
+            result_box.append(fn())
+        except Exception as exc:
+            error_box.append(exc)
+
+    t = threading.Thread(target=_worker, daemon=True)
+    t.start()
+    t.join(timeout=timeout)
+    if t.is_alive():
+        logger.warning("Bootstrap phase timed out after %ds", timeout)
+        return f"Timeout after {timeout}s"
+    if error_box:
+        raise error_box[0]
+    return result_box[0] if result_box else "No result"
 
 
 def get_bootstrap_context() -> AnalyticsContext | None:

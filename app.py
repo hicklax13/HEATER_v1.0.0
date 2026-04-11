@@ -89,6 +89,26 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
+st.markdown(
+    """
+    <div style="
+        background: linear-gradient(90deg, #e63946 0%, #ff6d00 100%);
+        color: #ffffff;
+        text-align: center;
+        font-size: 14px;
+        font-weight: 500;
+        padding: 6px 16px;
+        margin: 0;
+        width: 100%;
+        box-sizing: border-box;
+    ">
+        HEATER Beta &mdash; Thanks for testing! &nbsp;
+        <a href="https://forms.gle/PLACEHOLDER" target="_blank" style="color: #ffd60a !important; text-decoration: underline;">Share feedback</a>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
 
 # ── Session Init ─────────────────────────────────────────────────────
 

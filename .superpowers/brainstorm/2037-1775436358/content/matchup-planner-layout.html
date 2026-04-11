@@ -1,0 +1,234 @@
+<h2>Matchup Planner Redesign</h2>
+<p class="subtitle">Week-by-week navigator with per-category win probabilities + existing player matchup ratings</p>
+
+<div class="mockup">
+  <div class="mockup-header">Matchup Planner Page</div>
+  <div class="mockup-body" style="padding:0;">
+    <!-- Reco Banner -->
+    <div style="background:#1a1a2e;color:#e0e0e0;padding:12px 20px;font-size:13px;border-bottom:1px solid #333;">
+      <span style="color:#ff6d00;font-weight:700;">WEEK 14</span> &mdash;
+      vs The Good The Vlad The Ugly:
+      <span style="font-weight:700;color:#2d6a4f;">68% chance to win</span> (projected 7.2 - 4.1 - 0.7).
+      Best odds: K (91%), RBI (84%). Toss-ups: ERA (52%), SB (48%).
+    </div>
+
+    <div style="display:flex;min-height:600px;">
+      <!-- Context Panel (Left ~20%) -->
+      <div style="width:22%;padding:16px;background:#f8f8f4;border-right:1px solid #d4d5cf;">
+        <!-- Week Navigator -->
+        <div style="background:#fff;border:1px solid #d4d5cf;border-radius:12px;padding:14px;margin-bottom:14px;">
+          <div style="font-size:11px;font-weight:700;color:#6b7280;letter-spacing:0.5px;margin-bottom:10px;">WEEK NAVIGATOR</div>
+          <div style="display:flex;align-items:center;justify-content:center;gap:12px;">
+            <div style="width:32px;height:32px;border-radius:50%;background:#f0f1ec;display:flex;align-items:center;justify-content:center;cursor:pointer;font-weight:700;color:#1d1d1f;border:1px solid #d4d5cf;">&larr;</div>
+            <div style="text-align:center;">
+              <div style="font-size:24px;font-weight:800;color:#e63946;">W14</div>
+              <div style="font-size:11px;color:#6b7280;">Apr 7 - Apr 13</div>
+            </div>
+            <div style="width:32px;height:32px;border-radius:50%;background:#f0f1ec;display:flex;align-items:center;justify-content:center;cursor:pointer;font-weight:700;color:#1d1d1f;border:1px solid #d4d5cf;">&rarr;</div>
+          </div>
+          <div style="font-size:12px;color:#1d1d1f;text-align:center;margin-top:8px;font-weight:600;">vs The Good The Vlad The Ugly</div>
+          <div style="font-size:11px;color:#6b7280;text-align:center;margin-top:2px;">Current week</div>
+        </div>
+
+        <!-- Overall Win Probability -->
+        <div style="background:#fff;border:1px solid #d4d5cf;border-radius:12px;padding:14px;margin-bottom:14px;">
+          <div style="font-size:11px;font-weight:700;color:#6b7280;letter-spacing:0.5px;margin-bottom:8px;">WIN PROBABILITY</div>
+          <div style="display:flex;justify-content:space-between;align-items:baseline;">
+            <div>
+              <div style="font-size:32px;font-weight:800;color:#2d6a4f;">68%</div>
+              <div style="font-size:11px;color:#6b7280;">Win</div>
+            </div>
+            <div style="text-align:center;">
+              <div style="font-size:18px;font-weight:700;color:#6b7280;">7%</div>
+              <div style="font-size:11px;color:#6b7280;">Tie</div>
+            </div>
+            <div style="text-align:right;">
+              <div style="font-size:18px;font-weight:700;color:#e63946;">25%</div>
+              <div style="font-size:11px;color:#6b7280;">Loss</div>
+            </div>
+          </div>
+          <!-- Probability bar -->
+          <div style="height:8px;border-radius:4px;background:#f0f1ec;margin-top:10px;overflow:hidden;display:flex;">
+            <div style="width:68%;background:#2d6a4f;"></div>
+            <div style="width:7%;background:#6b7280;"></div>
+            <div style="width:25%;background:#e63946;"></div>
+          </div>
+        </div>
+
+        <!-- Projected Category Score -->
+        <div style="background:#fff;border:1px solid #d4d5cf;border-radius:12px;padding:14px;margin-bottom:14px;">
+          <div style="font-size:11px;font-weight:700;color:#6b7280;letter-spacing:0.5px;margin-bottom:8px;">PROJECTED SCORE</div>
+          <div style="font-size:22px;font-weight:800;text-align:center;">
+            <span style="color:#2d6a4f;">7.2</span>
+            <span style="color:#6b7280;font-size:14px;"> - </span>
+            <span style="color:#e63946;">4.1</span>
+            <span style="color:#6b7280;font-size:14px;"> - </span>
+            <span style="color:#6b7280;">0.7</span>
+          </div>
+        </div>
+
+        <!-- Player type filter + days ahead -->
+        <div style="background:#fff;border:1px solid #d4d5cf;border-radius:12px;padding:14px;">
+          <div style="font-size:11px;font-weight:700;color:#6b7280;letter-spacing:0.5px;margin-bottom:8px;">FILTERS</div>
+          <div style="font-size:12px;color:#6b7280;">
+            Player Type: <span style="font-weight:600;color:#1d1d1f;">All</span><br>
+            Team: <span style="font-weight:600;color:#1d1d1f;">Team Hickey</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Main Content (Right ~80%) -->
+      <div style="width:78%;padding:20px;">
+        <!-- Tabs -->
+        <div style="display:flex;gap:0;border-bottom:2px solid #d4d5cf;margin-bottom:20px;">
+          <div style="padding:10px 24px;font-size:13px;font-weight:700;color:#e63946;border-bottom:2px solid #e63946;margin-bottom:-2px;">Category Probabilities</div>
+          <div style="padding:10px 24px;font-size:13px;font-weight:500;color:#6b7280;">Player Matchups</div>
+          <div style="padding:10px 24px;font-size:13px;font-weight:500;color:#6b7280;">Per-Game Detail</div>
+        </div>
+
+        <!-- Category Win Probabilities Tab -->
+        <div style="font-size:11px;font-weight:700;color:#6b7280;letter-spacing:0.5px;margin-bottom:12px;">PER-CATEGORY WIN PROBABILITY</div>
+
+        <!-- Category probability rows -->
+        <div style="display:flex;flex-direction:column;gap:8px;">
+          <!-- K - strong -->
+          <div style="display:flex;align-items:center;gap:12px;padding:8px 12px;background:#fff;border:1px solid #e8e9e4;border-radius:8px;">
+            <div style="width:50px;font-size:13px;font-weight:700;color:#e63946;">K</div>
+            <div style="flex:1;">
+              <div style="height:24px;border-radius:4px;background:#f0f1ec;overflow:hidden;position:relative;">
+                <div style="width:91%;height:100%;background:linear-gradient(90deg,#2d6a4f,#2d6a4f);border-radius:4px;"></div>
+                <div style="position:absolute;right:8px;top:50%;transform:translateY(-50%);font-size:11px;font-weight:700;color:#1d1d1f;">91%</div>
+              </div>
+            </div>
+            <div style="width:120px;text-align:right;font-size:11px;font-family:'Geist Mono',monospace;color:#6b7280;">
+              <span style="color:#2d6a4f;font-weight:700;">68.2</span> vs <span style="color:#e63946;">52.1</span>
+            </div>
+          </div>
+
+          <!-- RBI - strong -->
+          <div style="display:flex;align-items:center;gap:12px;padding:8px 12px;background:#fff;border:1px solid #e8e9e4;border-radius:8px;">
+            <div style="width:50px;font-size:13px;font-weight:700;color:#457b9d;">RBI</div>
+            <div style="flex:1;">
+              <div style="height:24px;border-radius:4px;background:#f0f1ec;overflow:hidden;position:relative;">
+                <div style="width:84%;height:100%;background:linear-gradient(90deg,#2d6a4f,#2d6a4f);border-radius:4px;"></div>
+                <div style="position:absolute;right:8px;top:50%;transform:translateY(-50%);font-size:11px;font-weight:700;color:#1d1d1f;">84%</div>
+              </div>
+            </div>
+            <div style="width:120px;text-align:right;font-size:11px;font-family:'Geist Mono',monospace;color:#6b7280;">
+              <span style="color:#2d6a4f;font-weight:700;">42.5</span> vs <span style="color:#e63946;">35.8</span>
+            </div>
+          </div>
+
+          <!-- R - good -->
+          <div style="display:flex;align-items:center;gap:12px;padding:8px 12px;background:#fff;border:1px solid #e8e9e4;border-radius:8px;">
+            <div style="width:50px;font-size:13px;font-weight:700;color:#457b9d;">R</div>
+            <div style="flex:1;">
+              <div style="height:24px;border-radius:4px;background:#f0f1ec;overflow:hidden;position:relative;">
+                <div style="width:72%;height:100%;background:linear-gradient(90deg,#2d6a4f,#457b9d);border-radius:4px;"></div>
+                <div style="position:absolute;right:8px;top:50%;transform:translateY(-50%);font-size:11px;font-weight:700;color:#1d1d1f;">72%</div>
+              </div>
+            </div>
+            <div style="width:120px;text-align:right;font-size:11px;font-family:'Geist Mono',monospace;color:#6b7280;">
+              <span style="color:#2d6a4f;font-weight:700;">38.1</span> vs <span style="color:#e63946;">33.4</span>
+            </div>
+          </div>
+
+          <!-- HR - moderate -->
+          <div style="display:flex;align-items:center;gap:12px;padding:8px 12px;background:#fff;border:1px solid #e8e9e4;border-radius:8px;">
+            <div style="width:50px;font-size:13px;font-weight:700;color:#457b9d;">HR</div>
+            <div style="flex:1;">
+              <div style="height:24px;border-radius:4px;background:#f0f1ec;overflow:hidden;position:relative;">
+                <div style="width:65%;height:100%;background:linear-gradient(90deg,#457b9d,#457b9d);border-radius:4px;"></div>
+                <div style="position:absolute;right:8px;top:50%;transform:translateY(-50%);font-size:11px;font-weight:700;color:#1d1d1f;">65%</div>
+              </div>
+            </div>
+            <div style="width:120px;text-align:right;font-size:11px;font-family:'Geist Mono',monospace;color:#6b7280;">
+              <span style="color:#2d6a4f;font-weight:700;">12.4</span> vs <span style="color:#e63946;">10.8</span>
+            </div>
+          </div>
+
+          <!-- AVG - slight edge -->
+          <div style="display:flex;align-items:center;gap:12px;padding:8px 12px;background:#fff;border:1px solid #e8e9e4;border-radius:8px;">
+            <div style="width:50px;font-size:13px;font-weight:700;color:#457b9d;">AVG</div>
+            <div style="flex:1;">
+              <div style="height:24px;border-radius:4px;background:#f0f1ec;overflow:hidden;position:relative;">
+                <div style="width:58%;height:100%;background:linear-gradient(90deg,#457b9d,#6b7280);border-radius:4px;"></div>
+                <div style="position:absolute;right:8px;top:50%;transform:translateY(-50%);font-size:11px;font-weight:700;color:#1d1d1f;">58%</div>
+              </div>
+            </div>
+            <div style="width:120px;text-align:right;font-size:11px;font-family:'Geist Mono',monospace;color:#6b7280;">
+              <span style="color:#2d6a4f;font-weight:700;">.271</span> vs <span style="color:#e63946;">.265</span>
+            </div>
+          </div>
+
+          <!-- ERA - toss-up -->
+          <div style="display:flex;align-items:center;gap:12px;padding:8px 12px;background:#fff;border:1px solid #ffd60a40;border-radius:8px;">
+            <div style="width:50px;font-size:13px;font-weight:700;color:#e63946;">ERA</div>
+            <div style="flex:1;">
+              <div style="height:24px;border-radius:4px;background:#f0f1ec;overflow:hidden;position:relative;">
+                <div style="width:52%;height:100%;background:linear-gradient(90deg,#ffd60a,#ff6d00);border-radius:4px;"></div>
+                <div style="position:absolute;right:8px;top:50%;transform:translateY(-50%);font-size:11px;font-weight:700;color:#1d1d1f;">52%</div>
+              </div>
+            </div>
+            <div style="width:120px;text-align:right;font-size:11px;font-family:'Geist Mono',monospace;color:#6b7280;">
+              <span style="color:#2d6a4f;font-weight:700;">3.42</span> vs <span style="color:#e63946;">3.38</span>
+            </div>
+          </div>
+
+          <!-- SB - losing -->
+          <div style="display:flex;align-items:center;gap:12px;padding:8px 12px;background:#fff;border:1px solid #e6394620;border-radius:8px;">
+            <div style="width:50px;font-size:13px;font-weight:700;color:#457b9d;">SB</div>
+            <div style="flex:1;">
+              <div style="height:24px;border-radius:4px;background:#f0f1ec;overflow:hidden;position:relative;">
+                <div style="width:35%;height:100%;background:linear-gradient(90deg,#e63946,#e63946);border-radius:4px;"></div>
+                <div style="position:absolute;right:8px;top:50%;transform:translateY(-50%);font-size:11px;font-weight:700;color:#1d1d1f;">35%</div>
+              </div>
+            </div>
+            <div style="width:120px;text-align:right;font-size:11px;font-family:'Geist Mono',monospace;color:#6b7280;">
+              <span style="color:#e63946;font-weight:700;">4.2</span> vs <span style="color:#2d6a4f;">7.1</span>
+            </div>
+          </div>
+
+          <!-- WHIP - losing -->
+          <div style="display:flex;align-items:center;gap:12px;padding:8px 12px;background:#fff;border:1px solid #e6394620;border-radius:8px;">
+            <div style="width:50px;font-size:13px;font-weight:700;color:#e63946;">WHIP</div>
+            <div style="flex:1;">
+              <div style="height:24px;border-radius:4px;background:#f0f1ec;overflow:hidden;position:relative;">
+                <div style="width:28%;height:100%;background:linear-gradient(90deg,#e63946,#e63946);border-radius:4px;"></div>
+                <div style="position:absolute;right:8px;top:50%;transform:translateY(-50%);font-size:11px;font-weight:700;color:#1d1d1f;">28%</div>
+              </div>
+            </div>
+            <div style="width:120px;text-align:right;font-size:11px;font-family:'Geist Mono',monospace;color:#6b7280;">
+              <span style="color:#e63946;font-weight:700;">1.24</span> vs <span style="color:#2d6a4f;">1.18</span>
+            </div>
+          </div>
+        </div>
+
+        <div style="margin-top:16px;padding:12px;background:#f8f8f4;border-radius:8px;font-size:11px;color:#6b7280;">
+          <strong>How it works:</strong> Each probability is computed using Bayesian-updated Normal approximation with category correlations (Gaussian copula).
+          Your team's projected weekly production is estimated from ROS projections for active starters, weighted by PA (hitting) or IP (pitching).
+          Variance shrinks as the season progresses (more data = more confidence). Correlated categories (HR/R/RBI, ERA/WHIP) are modeled together.
+          <br><br>
+          <strong>Color coding:</strong>
+          <span style="color:#2d6a4f;font-weight:700;">Green (70%+)</span> = strong advantage &nbsp;
+          <span style="color:#457b9d;font-weight:700;">Blue (55-70%)</span> = slight edge &nbsp;
+          <span style="color:#ff6d00;font-weight:700;">Orange (45-55%)</span> = toss-up &nbsp;
+          <span style="color:#e63946;font-weight:700;">Red (&lt;45%)</span> = disadvantage
+          <br><br>
+          <strong>For past weeks:</strong> Shows actual results (W/L) instead of probabilities. For future weeks: uses projected rosters and ROS projections.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div style="margin-top:24px;padding:16px;background:#1a1a2e;border-radius:12px;color:#e0e0e0;font-size:12px;">
+  <strong>Key changes from current Matchup Planner:</strong><br>
+  &bull; <strong>Week navigator</strong> (left/right arrows) defaults to current week, can browse all weeks 1-24<br>
+  &bull; <strong>New "Category Probabilities" tab</strong> — the headline feature: per-category win probability bars<br>
+  &bull; <strong>Past weeks</strong> show actual results (W/L per category) instead of probabilities<br>
+  &bull; <strong>Future weeks</strong> show projected probabilities using ROS projections + opponent roster<br>
+  &bull; <strong>Existing tabs preserved</strong> — "Player Matchups" (renamed from Summary) and "Per-Game Detail" stay<br>
+  &bull; <strong>Context panel</strong> — week navigator, overall win probability, projected category score, filters<br>
+  &bull; <strong>Reco banner</strong> — overall win %, best/worst categories, focus areas
+</div>
