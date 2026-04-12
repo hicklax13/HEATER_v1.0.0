@@ -510,6 +510,12 @@ def load_databank(
     if "player_name" not in pool.columns and "name" in pool.columns:
         pool = pool.rename(columns={"name": "player_name"})
 
+    # Deduplicate by player_id — load_player_pool() can return multiple rows
+    # per player when multiple projection systems exist.  Keep the first row
+    # (which is the preferred/blended projection).
+    if "player_id" in pool.columns:
+        pool = pool.drop_duplicates(subset=["player_id"], keep="first")
+
     # For views backed by season-level projections, return pool as-is.
     # The pool already holds the best available season/ROS projection stats.
     if view_type in ("total", "proj", "special", "ranks", "research", "matchups", "opponents", "live"):
