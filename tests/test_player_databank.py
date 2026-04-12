@@ -6,7 +6,13 @@ import pandas as pd
 import pytest
 
 from src.database import get_connection, init_db
-from src.player_databank import compute_rolling_stats, filter_databank, load_databank, load_game_logs
+from src.player_databank import (
+    compute_rolling_stats,
+    filter_databank,
+    load_databank,
+    load_game_logs,
+    render_databank_table,
+)
 
 
 class TestGameLogsSchema:
@@ -237,3 +243,107 @@ class TestDataAssembly:
         filtered = filter_databank(df)
         # Default position="B" filters to batters, so filtered <= df
         assert len(filtered) <= len(df)
+
+
+class TestHTMLTableRenderer:
+    """Test custom HTML table rendering."""
+
+    def test_render_returns_html_string(self):
+        df = pd.DataFrame(
+            {
+                "player_name": ["Test Player"],
+                "team": ["NYY"],
+                "positions": ["1B"],
+                "r": [10],
+                "hr": [5],
+                "rbi": [15],
+                "sb": [2],
+                "avg": [0.285],
+                "obp": [0.350],
+            }
+        )
+        html = render_databank_table(df, stat_view="S_S_2026", is_pitcher=False)
+        assert isinstance(html, str)
+        assert "<table" in html
+        assert "Test Player" in html
+
+    def test_render_empty_df(self):
+        html = render_databank_table(pd.DataFrame(), stat_view="S_S_2026", is_pitcher=False)
+        assert "No players" in html
+
+    def test_render_includes_sort_javascript(self):
+        df = pd.DataFrame(
+            {
+                "player_name": ["P1"],
+                "team": ["BOS"],
+                "positions": ["SP"],
+                "ip": [45.2],
+                "w": [3],
+                "l": [1],
+                "sv": [0],
+                "k": [50],
+                "era": [3.25],
+                "whip": [1.10],
+            }
+        )
+        html = render_databank_table(df, stat_view="S_S_2026", is_pitcher=True)
+        assert "sortTable" in html
+        assert "onclick" in html.lower() or "onClick" in html
+
+    def test_render_formats_avg_correctly(self):
+        df = pd.DataFrame(
+            {
+                "player_name": ["Hitter"],
+                "team": ["LAD"],
+                "positions": ["OF"],
+                "r": [0],
+                "hr": [0],
+                "rbi": [0],
+                "sb": [0],
+                "avg": [0.3],
+                "obp": [0.4],
+            }
+        )
+        html = render_databank_table(df, stat_view="S_S_2026", is_pitcher=False)
+        assert ".300" in html
+        assert ".400" in html
+
+    def test_render_pitcher_columns(self):
+        df = pd.DataFrame(
+            {
+                "player_name": ["Pitcher"],
+                "team": ["HOU"],
+                "positions": ["SP"],
+                "ip": [100.1],
+                "w": [7],
+                "l": [3],
+                "sv": [0],
+                "k": [95],
+                "era": [2.85],
+                "whip": [1.05],
+            }
+        )
+        html = render_databank_table(df, stat_view="S_S_2026", is_pitcher=True)
+        assert "ERA" in html
+        assert "WHIP" in html
+        assert "2.85" in html
+        assert "1.05" in html
+
+    def test_render_heater_theme_colors(self):
+        df = pd.DataFrame(
+            {
+                "player_name": ["Player"],
+                "team": ["NYM"],
+                "positions": ["2B"],
+                "r": [1],
+                "hr": [0],
+                "rbi": [0],
+                "sb": [0],
+                "avg": [0.250],
+                "obp": [0.300],
+            }
+        )
+        html = render_databank_table(df, stat_view="S_S_2026", is_pitcher=False)
+        # Check HEATER theme colors are present
+        assert "#1d1d1f" in html  # Header background
+        assert "#fff7ed" in html  # Hover color

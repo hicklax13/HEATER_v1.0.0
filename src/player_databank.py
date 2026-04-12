@@ -5,11 +5,13 @@ STAT_VIEW_PARAMS dictionaries that drive the Player Databank UI dropdowns.
 """
 
 import logging
+import math
 from datetime import UTC, datetime, timedelta
 
 import pandas as pd
 
 from src.database import get_connection, load_player_pool
+from src.ui_shared import T
 
 logger = logging.getLogger(__name__)
 
@@ -633,3 +635,343 @@ def filter_databank(
         result = result[result["is_user_team"].fillna(False).astype(bool)]
 
     return result
+
+
+# ── HTML table rendering ──────────────────────────────────────────────────────
+
+# Computed rate-stat column aliases: maps calc column → display column name
+_CALC_ALIAS: dict[str, str] = {
+    "avg_calc": "avg",
+    "obp_calc": "obp",
+    "era_calc": "era",
+    "whip_calc": "whip",
+}
+
+# Rate-stat column names (all variants)
+_RATE_STAT_COLS: set[str] = {"avg", "obp", "era", "whip", "avg_calc", "obp_calc", "era_calc", "whip_calc"}
+
+
+def _format_cell(value: object, col: str) -> str:
+    """Format a single cell value based on stat column type.
+
+    Args:
+        value: Raw cell value from the DataFrame.
+        col: Column name (lowercase).
+
+    Returns:
+        Formatted string for display.
+    """
+    # NaN / None → dash
+    try:
+        if value is None or (isinstance(value, float) and math.isnan(value)):
+            return "-"
+    except (TypeError, ValueError):
+        pass
+
+    col_lower = col.lower()
+
+    # AVG / OBP style: .3f
+    if col_lower in ("avg", "obp", "avg_calc", "obp_calc"):
+        try:
+            return f"{float(value):.3f}"
+        except (TypeError, ValueError):
+            return str(value)
+
+    # ERA / WHIP style: .2f
+    if col_lower in ("era", "whip", "era_calc", "whip_calc"):
+        try:
+            return f"{float(value):.2f}"
+        except (TypeError, ValueError):
+            return str(value)
+
+    # IP: .1f
+    if col_lower == "ip":
+        try:
+            return f"{float(value):.1f}"
+        except (TypeError, ValueError):
+            return str(value)
+
+    # Integer floats (e.g. 5.0 → "5")
+    try:
+        fval = float(value)
+        if fval == int(fval):
+            return str(int(fval))
+        return str(fval)
+    except (TypeError, ValueError):
+        return str(value)
+
+
+def render_databank_table(
+    df: pd.DataFrame,
+    stat_view: str = "S_S_2026",
+    sort_col: str | None = None,
+    sort_dir: str = "desc",
+    is_pitcher: bool = False,
+) -> str:
+    """Render a player databank DataFrame as a sortable HTML table.
+
+    Args:
+        df: Player DataFrame from ``load_databank`` / ``filter_databank``.
+        stat_view: Key from ``STAT_VIEW_OPTIONS`` used for the stat-group header.
+        sort_col: Column to pre-sort by (None = no pre-sort).
+        sort_dir: "asc" or "desc" initial sort direction.
+        is_pitcher: True = pitcher stat columns; False = batter stat columns.
+
+    Returns:
+        Self-contained HTML string with embedded CSS and JavaScript.
+    """
+    if df is None or df.empty:
+        return (
+            f'<div style="padding:20px;text-align:center;color:{T["tx2"]};'
+            f'font-family:Inter,sans-serif;">No players match the current filters.</div>'
+        )
+
+    # ── Column definitions ───────────────────────────────────────────────────
+    if is_pitcher:
+        stat_cols_raw = ["ip", "w", "l", "sv", "k", "era", "whip"]
+        stat_labels = ["IP", "W", "L", "SV", "K", "ERA", "WHIP"]
+    else:
+        stat_cols_raw = ["r", "hr", "rbi", "sb", "avg", "obp"]
+        stat_labels = ["R", "HR", "RBI", "SB", "AVG", "OBP"]
+
+    # Resolve computed rate-stat aliases: prefer calc column, fall back to plain
+    def _resolve_col(col: str) -> str:
+        """Return the actual column present in df for a given stat col name."""
+        calc = col + "_calc"
+        if calc in df.columns:
+            return calc
+        return col
+
+    stat_cols: list[str] = [_resolve_col(c) for c in stat_cols_raw]
+
+    # Meta columns
+    player_label = "Pitchers" if is_pitcher else "Batters"
+    meta_cols = ["player_name", "team", "positions"]
+    meta_labels = [player_label, "Team", "Pos"]
+
+    # Optional GP column
+    gp_col: str | None = None
+    for candidate in ("games_played", "gp"):
+        if candidate in df.columns:
+            gp_col = candidate
+            break
+
+    # Build full column / label lists
+    all_cols: list[str] = meta_cols.copy()
+    all_labels: list[str] = meta_labels.copy()
+    if gp_col is not None:
+        all_cols.append(gp_col)
+        all_labels.append("GP")
+    all_cols.extend(stat_cols)
+    all_labels.extend(stat_labels)
+
+    n_meta = len(meta_cols) + (1 if gp_col else 0)
+    n_stat = len(stat_cols)
+
+    # Stat group label from STAT_VIEW_OPTIONS
+    group_label: str = STAT_VIEW_OPTIONS.get(stat_view, stat_view)
+
+    # ── CSS ──────────────────────────────────────────────────────────────────
+    css = f"""
+<style>
+.hdb-table-wrap {{
+    overflow-x: auto;
+    border-radius: 8px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.10);
+    background: {T["card"]};
+}}
+.hdb-table {{
+    width: 100%;
+    border-collapse: collapse;
+    font-family: Inter, -apple-system, BlinkMacSystemFont, sans-serif;
+    font-size: 13px;
+}}
+.hdb-table thead th {{
+    background: #1d1d1f;
+    color: #ffffff;
+    padding: 8px 10px;
+    position: sticky;
+    top: 0;
+    cursor: pointer;
+    white-space: nowrap;
+    text-align: left;
+    user-select: none;
+}}
+.hdb-table thead th:hover {{
+    background: #333333;
+}}
+.sort-arrow {{
+    font-size: 10px;
+    margin-left: 3px;
+    opacity: 0.5;
+}}
+.hdb-table thead th.sorted .sort-arrow {{
+    opacity: 1.0;
+    color: #ff6d00;
+}}
+.hdb-table .stat-group {{
+    background: #2a2a2a;
+    color: #ff6d00;
+    text-align: center;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    padding: 4px 8px;
+}}
+.hdb-table tbody tr {{
+    border-bottom: 1px solid #e5e7eb;
+}}
+.hdb-table tbody tr:nth-child(even) {{
+    background: #fafaf8;
+}}
+.hdb-table tbody tr:hover {{
+    background: #fff7ed !important;
+}}
+.hdb-table td {{
+    padding: 8px 10px;
+    white-space: nowrap;
+}}
+.hdb-table .player-name {{
+    font-weight: 600;
+    color: {T["sky"]};
+    min-width: 160px;
+}}
+.hdb-table .stat-cell {{
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}}
+.hdb-table .rate-stat {{
+    font-weight: 600;
+}}
+</style>
+"""
+
+    # ── JavaScript ───────────────────────────────────────────────────────────
+    # Arrow characters as Python strings to avoid JS unicode escapes
+    up_arrow = "\u25b2"
+    down_arrow = "\u25bc"
+    js = f"""
+<script>
+function sortTable(colIdx, headerEl) {{
+    var table = headerEl.closest('table');
+    var tbody = table.querySelector('tbody');
+    var rows = Array.from(tbody.querySelectorAll('tr'));
+    var headers = table.querySelectorAll('thead tr:last-child th');
+
+    // Determine sort direction: toggle if already sorted, else default desc
+    var asc = true;
+    if (headerEl.classList.contains('sorted')) {{
+        asc = headerEl.dataset.sortDir !== 'asc';
+    }}
+
+    // Clear sorted state on all headers
+    headers.forEach(function(h) {{
+        h.classList.remove('sorted');
+        h.dataset.sortDir = '';
+        var arrow = h.querySelector('.sort-arrow');
+        if (arrow) {{ arrow.textContent = '{up_arrow}'; }}
+    }});
+
+    // Mark this header as sorted
+    headerEl.classList.add('sorted');
+    headerEl.dataset.sortDir = asc ? 'asc' : 'desc';
+    var thisArrow = headerEl.querySelector('.sort-arrow');
+    if (thisArrow) {{ thisArrow.textContent = asc ? '{up_arrow}' : '{down_arrow}'; }}
+
+    // Sort rows by data-sort attribute
+    rows.sort(function(a, b) {{
+        var aCells = a.querySelectorAll('td');
+        var bCells = b.querySelectorAll('td');
+        var aVal = aCells[colIdx] ? aCells[colIdx].dataset.sort : '';
+        var bVal = bCells[colIdx] ? bCells[colIdx].dataset.sort : '';
+
+        var aNum = parseFloat(aVal);
+        var bNum = parseFloat(bVal);
+        var useNum = !isNaN(aNum) && !isNaN(bNum);
+
+        var cmp = useNum ? (aNum - bNum) : aVal.localeCompare(bVal);
+        return asc ? cmp : -cmp;
+    }});
+
+    // Re-append sorted rows to tbody
+    rows.forEach(function(r) {{ tbody.appendChild(r); }});
+}}
+</script>
+"""
+
+    # ── Table HTML ───────────────────────────────────────────────────────────
+    # Stat group header row
+    group_row = "<tr>"
+    for _ in range(n_meta):
+        group_row += '<th class="stat-group" style="background:#1d1d1f;color:#ffffff;"></th>'
+    group_row += f'<th class="stat-group" colspan="{n_stat}">{_html_escape(group_label)}</th>'
+    group_row += "</tr>"
+
+    # Column header row (with onclick for JS sort)
+    header_row = "<tr>"
+    for idx, (col, label) in enumerate(zip(all_cols, all_labels)):
+        header_row += (
+            f'<th onclick="sortTable({idx}, this)">{_html_escape(label)}<span class="sort-arrow">{up_arrow}</span></th>'
+        )
+    header_row += "</tr>"
+
+    # Data rows
+    data_rows = ""
+    for _, row in df.iterrows():
+        data_rows += "<tr>"
+        for col in all_cols:
+            raw_val = row.get(col, None) if hasattr(row, "get") else getattr(row, col, None)
+            formatted = _format_cell(raw_val, col)
+
+            # data-sort: raw numeric string for JS comparison, empty for missing
+            try:
+                if raw_val is None or (isinstance(raw_val, float) and math.isnan(raw_val)):
+                    sort_val = ""
+                else:
+                    sort_val = str(float(raw_val))
+            except (TypeError, ValueError):
+                sort_val = str(raw_val) if raw_val is not None else ""
+
+            # CSS classes
+            is_rate = col.lower() in _RATE_STAT_COLS
+            if col == "player_name":
+                td_class = "player-name"
+            elif col in ("team", "positions") or col == gp_col:
+                td_class = ""
+            else:
+                td_class = "stat-cell rate-stat" if is_rate else "stat-cell"
+
+            class_attr = f' class="{td_class}"' if td_class else ""
+            data_rows += f'<td{class_attr} data-sort="{_html_escape(sort_val)}">{_html_escape(formatted)}</td>'
+        data_rows += "</tr>"
+
+    table_html = (
+        f'<div class="hdb-table-wrap">'
+        f'<table class="hdb-table">'
+        f"<thead>{group_row}{header_row}</thead>"
+        f"<tbody>{data_rows}</tbody>"
+        f"</table>"
+        f"</div>"
+    )
+
+    # Wrap in scrollable container
+    return f'<div style="max-height:600px;overflow-y:auto;">{css}{table_html}{js}</div>'
+
+
+def _html_escape(text: str) -> str:
+    """Escape HTML special characters in a string.
+
+    Args:
+        text: Input string.
+
+    Returns:
+        HTML-safe string with &, <, >, ", ' escaped.
+    """
+    return (
+        str(text)
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+        .replace("'", "&#39;")
+    )
