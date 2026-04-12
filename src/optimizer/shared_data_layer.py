@@ -202,7 +202,21 @@ def build_optimizer_context(
         ctx.user_roster_ids = ctx.roster["player_id"].dropna().astype(int).tolist()
 
     if not ctx.roster.empty:
-        tracker.record("yahoo_roster", ttl_hours=0.5)
+        tracker.record(
+            "yahoo_roster",
+            ttl_hours=0.5,
+            source_label="Yahoo Fantasy API",
+            data_as_of="Current roster state",
+        )
+
+    # Track projections from player pool
+    if not ctx.player_pool.empty:
+        tracker.record(
+            "projections",
+            ttl_hours=24.0,
+            source_label="Blended (Steamer/ZiPS/DC)",
+            data_as_of="ROS projections",
+        )
 
     # ── Step 3: Load free agents (enriched with player pool data) ─────
     try:
@@ -224,14 +238,14 @@ def build_optimizer_context(
             )
         else:
             ctx.free_agents = _raw_fa
-        tracker.record("free_agents", ttl_hours=1.0)
+        tracker.record("free_agents", ttl_hours=1.0, source_label="Yahoo Fantasy API", data_as_of="Current FA pool")
     except Exception:
         logger.warning("Failed to load free agents")
 
     # ── Step 4: Load live matchup ─────────────────────────────────────
     try:
         ctx.live_matchup = yds.get_matchup()
-        tracker.record("live_matchup", ttl_hours=0.083)
+        tracker.record("live_matchup", ttl_hours=0.083, source_label="Yahoo Fantasy API", data_as_of="Live H2H scores")
     except Exception:
         logger.warning("Failed to load live matchup")
 
@@ -261,17 +275,31 @@ def build_optimizer_context(
 
     # ── Step 10: Confirmed lineups ────────────────────────────────────
     _load_confirmed_lineups(ctx)
+    if ctx.confirmed_lineups:
+        tracker.record(
+            "confirmed_lineups",
+            ttl_hours=2.0,
+            source_label="MLB Stats API",
+            data_as_of="Today's confirmed lineups",
+        )
 
     # ── Step 11: Remaining games this week per team ───────────────────
     _compute_remaining_games(ctx)
     if ctx.remaining_games_this_week:
-        tracker.record("schedule", ttl_hours=2.0)
+        tracker.record("schedule", ttl_hours=2.0, source_label="MLB Stats API", data_as_of="Today's game schedule")
 
     # ── Step 12: Two-start pitchers ───────────────────────────────────
     _detect_two_start_pitchers(ctx)
 
     # ── Step 13: Opposing pitcher data ────────────────────────────────
     _load_opposing_pitchers(ctx)
+    if ctx.opposing_pitchers:
+        tracker.record(
+            "opposing_pitchers",
+            ttl_hours=2.0,
+            source_label="MLB Stats API",
+            data_as_of="Today's probable pitchers",
+        )
 
     # ── Step 14: Team strength ────────────────────────────────────────
     _load_team_strength(ctx)
@@ -279,20 +307,34 @@ def build_optimizer_context(
     # ── Step 15: Weather ──────────────────────────────────────────────
     _load_weather(ctx)
     if ctx.weather:
-        tracker.record("weather", ttl_hours=2.0)
+        tracker.record("weather", ttl_hours=2.0, source_label="Open-Meteo", data_as_of="Today's game-time forecast")
 
     # ── Step 16: Recent form ──────────────────────────────────────────
     _load_recent_form(ctx)
     if ctx.recent_form:
-        tracker.record("recent_form", ttl_hours=2.0)
+        tracker.record(
+            "recent_form",
+            ttl_hours=2.0,
+            source_label="Season Stats (DB)",
+            data_as_of="Last 14 games performance",
+        )
 
     # ── Step 17: Health scores (single source) ────────────────────────
     _build_health_scores(ctx)
+    if ctx.health_scores:
+        tracker.record(
+            "health_status",
+            ttl_hours=1.0,
+            source_label="Yahoo + ESPN",
+            data_as_of="Current IL/DTD status",
+        )
 
     # ── Step 18: News flags ───────────────────────────────────────────
     _load_news_flags(ctx)
     if ctx.news_flags:
-        tracker.record("news_flags", ttl_hours=1.0)
+        tracker.record(
+            "news_flags", ttl_hours=1.0, source_label="MLB + ESPN + RotoWire", data_as_of="Recent player news"
+        )
 
     # ── Step 19: Ownership trends ─────────────────────────────────────
     _load_ownership_trends(ctx)

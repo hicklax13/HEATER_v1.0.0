@@ -30,6 +30,8 @@ class _SourceRecord:
     name: str
     timestamp: datetime
     ttl_hours: float
+    data_as_of: str  # human-readable description of what the data represents
+    source_label: str  # where the data came from (e.g. "Yahoo API", "MLB Stats API")
 
 
 class DataFreshnessTracker:
@@ -43,6 +45,8 @@ class DataFreshnessTracker:
         source: str,
         ttl_hours: float,
         timestamp: datetime | None = None,
+        data_as_of: str = "",
+        source_label: str = "",
     ) -> None:
         """Record a data fetch with its TTL.
 
@@ -50,11 +54,15 @@ class DataFreshnessTracker:
             source: Data source name (e.g. "live_stats", "projections").
             ttl_hours: Hours before this data is considered stale.
             timestamp: When the data was fetched.  Defaults to now.
+            data_as_of: What the data represents (e.g. "Games through 4/11").
+            source_label: Data provider (e.g. "Yahoo API", "MLB Stats API").
         """
         self._sources[source] = _SourceRecord(
             name=source,
             timestamp=timestamp or datetime.now(UTC),
             ttl_hours=ttl_hours,
+            data_as_of=data_as_of or "",
+            source_label=source_label or "",
         )
 
     def check(self, source: str) -> FreshnessStatus:
@@ -89,6 +97,8 @@ class DataFreshnessTracker:
                 "timestamp": rec.timestamp.isoformat(),
                 "ttl_hours": rec.ttl_hours,
                 "age": self.get_age_str(name),
+                "data_as_of": rec.data_as_of,
+                "source_label": rec.source_label,
             }
         return result
 

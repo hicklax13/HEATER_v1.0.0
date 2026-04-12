@@ -2390,6 +2390,8 @@ def deduplicate_players() -> dict[str, int]:
     3. Remaps all FK references in dependent tables to the canonical ID
     4. Deletes the duplicate rows
 
+    Uses batch SQL operations for performance (avoids row-by-row queries).
+
     Returns:
         Dict with keys: duplicates_found, players_merged, fk_remapped
     """
@@ -2413,13 +2415,20 @@ def deduplicate_players() -> dict[str, int]:
             return {"duplicates_found": 0, "players_merged": 0, "fk_remapped": 0}
 
         dup_names = [row[0] for row in duplicates]
-        logger.info("Found %d duplicate player names: %s", len(dup_names), dup_names[:10])
+        logger.info("Found %d duplicate player names", len(dup_names))
 
-        total_merged = 0
-        total_remapped = 0
+        # Step 2: Build canonical_id map and collect all duplicate IDs in one pass
+        # Pre-fetch which player_ids have projections (batch query)
+        cursor.execute("SELECT DISTINCT player_id FROM projections WHERE system = 'blended'")
+        _has_blended = {row[0] for row in cursor.fetchall()}
+        cursor.execute("SELECT DISTINCT player_id FROM projections")
+        _has_any_proj = {row[0] for row in cursor.fetchall()}
+
+        # Build the remap: dup_id -> canonical_id
+        remap: dict[int, int] = {}  # dup_id -> canonical_id
+        all_dup_ids: list[int] = []
 
         for norm_name in dup_names:
-            # Get all player_ids for this name
             cursor.execute(
                 "SELECT player_id FROM players WHERE LOWER(TRIM(name)) = ? ORDER BY player_id",
                 (norm_name,),
@@ -2428,274 +2437,141 @@ def deduplicate_players() -> dict[str, int]:
             if len(ids) < 2:
                 continue
 
-            # Step 2: Pick canonical — prefer the one with projections (blended first)
-            canonical_id = ids[0]  # default to lowest
+            # Pick canonical: prefer blended projections, then any projections, then lowest ID
+            canonical_id = ids[0]
             for pid in ids:
-                cursor.execute(
-                    "SELECT COUNT(*) FROM projections WHERE player_id = ? AND system = 'blended'",
-                    (pid,),
-                )
-                if cursor.fetchone()[0] > 0:
+                if pid in _has_blended:
                     canonical_id = pid
                     break
             else:
-                # No blended — try any projection system
                 for pid in ids:
-                    cursor.execute(
-                        "SELECT COUNT(*) FROM projections WHERE player_id = ?",
-                        (pid,),
-                    )
-                    if cursor.fetchone()[0] > 0:
+                    if pid in _has_any_proj:
                         canonical_id = pid
                         break
 
-            duplicate_ids = [pid for pid in ids if pid != canonical_id]
-            if not duplicate_ids:
-                continue
+            for pid in ids:
+                if pid != canonical_id:
+                    remap[pid] = canonical_id
+                    all_dup_ids.append(pid)
 
-            logger.info(
-                "Merging player '%s': canonical=%d, duplicates=%s",
-                norm_name,
-                canonical_id,
-                duplicate_ids,
+        if not all_dup_ids:
+            logger.info("No actionable duplicates found.")
+            return {"duplicates_found": len(dup_names), "players_merged": 0, "fk_remapped": 0}
+
+        logger.info("Remapping %d duplicate player IDs", len(all_dup_ids))
+        total_remapped = 0
+
+        # Step 3: Batch remap FK references using UPDATE ... CASE ... WHEN
+        # Build a temp table for the remap to use in joins (much faster than row-by-row)
+        cursor.execute(
+            "CREATE TEMP TABLE IF NOT EXISTS _dedup_remap (dup_id INTEGER PRIMARY KEY, canonical_id INTEGER)"
+        )
+        cursor.execute("DELETE FROM _dedup_remap")
+        cursor.executemany(
+            "INSERT INTO _dedup_remap (dup_id, canonical_id) VALUES (?, ?)",
+            list(remap.items()),
+        )
+
+        # Simple FK tables — batch UPDATE via join
+        for table in ["league_rosters", "transactions", "player_news", "projections"]:
+            cursor.execute(f"""
+                UPDATE {table} SET player_id = (
+                    SELECT canonical_id FROM _dedup_remap WHERE dup_id = {table}.player_id
+                ) WHERE player_id IN (SELECT dup_id FROM _dedup_remap)
+            """)
+            total_remapped += cursor.rowcount
+
+        # PK tables — delete dups where canonical already exists, remap the rest
+        for pk_table in ["adp", "ecr_consensus", "player_id_map"]:
+            # Delete where canonical already has a row
+            cursor.execute(f"""
+                DELETE FROM {pk_table} WHERE player_id IN (SELECT dup_id FROM _dedup_remap)
+                AND (SELECT canonical_id FROM _dedup_remap WHERE dup_id = {pk_table}.player_id)
+                    IN (SELECT player_id FROM {pk_table})
+            """)
+            total_remapped += cursor.rowcount
+            # Remap remaining
+            cursor.execute(f"""
+                UPDATE {pk_table} SET player_id = (
+                    SELECT canonical_id FROM _dedup_remap WHERE dup_id = {pk_table}.player_id
+                ) WHERE player_id IN (SELECT dup_id FROM _dedup_remap)
+            """)
+            total_remapped += cursor.rowcount
+
+        # Composite PK tables — delete conflicts first, then remap remainder
+        _composite_tables = [
+            ("season_stats", "season"),
+            ("ros_projections", "system"),
+            ("injury_history", "season"),
+            ("statcast_archive", "season"),
+            ("player_tags", "tag"),
+            ("ownership_trends", "date"),
+        ]
+        for table, key_col in _composite_tables:
+            # Delete dup rows where canonical already has the same key
+            cursor.execute(f"""
+                DELETE FROM {table}
+                WHERE player_id IN (SELECT dup_id FROM _dedup_remap)
+                AND EXISTS (
+                    SELECT 1 FROM {table} t2
+                    WHERE t2.player_id = (
+                        SELECT canonical_id FROM _dedup_remap r WHERE r.dup_id = {table}.player_id
+                    )
+                    AND t2.{key_col} = {table}.{key_col}
+                )
+            """)
+            total_remapped += cursor.rowcount
+            # Remap remaining (no conflict)
+            cursor.execute(f"""
+                UPDATE {table} SET player_id = (
+                    SELECT canonical_id FROM _dedup_remap WHERE dup_id = {table}.player_id
+                ) WHERE player_id IN (SELECT dup_id FROM _dedup_remap)
+            """)
+            total_remapped += cursor.rowcount
+
+        # Step 4: Merge useful data from duplicates into canonical
+        # Positions require Python-side set union (comma-separated), so loop
+        # over canonical IDs only (small set — just the duplicate names, not 9K+)
+        cursor.execute("""
+            SELECT DISTINCT r.canonical_id,
+                   c.positions, c.mlb_id, c.team
+            FROM _dedup_remap r
+            JOIN players c ON c.player_id = r.canonical_id
+        """)
+        canonical_rows = cursor.fetchall()
+        for canon_id, canon_pos, canon_mlb, canon_team in canonical_rows:
+            cursor.execute(
+                """
+                SELECT d.positions, d.mlb_id, d.team
+                FROM players d
+                JOIN _dedup_remap r ON d.player_id = r.dup_id
+                WHERE r.canonical_id = ?
+            """,
+                (canon_id,),
+            )
+            dup_rows = cursor.fetchall()
+            merged_pos = set(canon_pos.split(",")) if canon_pos else set()
+            new_mlb = canon_mlb
+            new_team = canon_team
+            for dup_pos_str, dup_mlb, dup_team in dup_rows:
+                if dup_pos_str:
+                    merged_pos.update(dup_pos_str.split(","))
+                if not new_mlb and dup_mlb:
+                    new_mlb = dup_mlb
+                if (not new_team or new_team == "") and dup_team:
+                    new_team = dup_team
+            merged_pos.discard("")
+            cursor.execute(
+                "UPDATE players SET positions = ?, mlb_id = ?, team = ? WHERE player_id = ?",
+                (",".join(sorted(merged_pos)), new_mlb, new_team, canon_id),
             )
 
-            # Step 3: Remap FK references in all dependent tables
-            # Tables with simple player_id FK (safe UPDATE)
-            simple_fk_tables = [
-                "league_rosters",
-                "transactions",
-                "player_news",
-            ]
-            for table in simple_fk_tables:
-                for dup_id in duplicate_ids:
-                    cursor.execute(
-                        f"UPDATE {table} SET player_id = ? WHERE player_id = ?",
-                        (canonical_id, dup_id),
-                    )
-                    total_remapped += cursor.rowcount
+        # Step 5: Delete all duplicate player rows in one batch
+        cursor.execute("DELETE FROM players WHERE player_id IN (SELECT dup_id FROM _dedup_remap)")
+        total_merged = cursor.rowcount
 
-            # Handle adp table specially (has PRIMARY KEY on player_id)
-            for dup_id in duplicate_ids:
-                cursor.execute("SELECT 1 FROM adp WHERE player_id = ?", (canonical_id,))
-                if cursor.fetchone():
-                    cursor.execute("DELETE FROM adp WHERE player_id = ?", (dup_id,))
-                else:
-                    cursor.execute(
-                        "UPDATE adp SET player_id = ? WHERE player_id = ?",
-                        (canonical_id, dup_id),
-                    )
-                total_remapped += cursor.rowcount
-
-            # Handle ecr_consensus and player_id_map (PRIMARY KEY on player_id)
-            for pk_table in ["ecr_consensus", "player_id_map"]:
-                for dup_id in duplicate_ids:
-                    cursor.execute(
-                        f"SELECT 1 FROM {pk_table} WHERE player_id = ?",
-                        (canonical_id,),
-                    )
-                    if cursor.fetchone():
-                        cursor.execute(
-                            f"DELETE FROM {pk_table} WHERE player_id = ?",
-                            (dup_id,),
-                        )
-                    else:
-                        cursor.execute(
-                            f"UPDATE {pk_table} SET player_id = ? WHERE player_id = ?",
-                            (canonical_id, dup_id),
-                        )
-                    total_remapped += cursor.rowcount
-
-            # player_tags: PRIMARY KEY (player_id, tag) — may conflict
-            for dup_id in duplicate_ids:
-                cursor.execute(
-                    "SELECT player_id, tag FROM player_tags WHERE player_id = ?",
-                    (dup_id,),
-                )
-                dup_rows = cursor.fetchall()
-                for _, tag in dup_rows:
-                    cursor.execute(
-                        "SELECT 1 FROM player_tags WHERE player_id = ? AND tag = ?",
-                        (canonical_id, tag),
-                    )
-                    if cursor.fetchone() is None:
-                        cursor.execute(
-                            "UPDATE player_tags SET player_id = ? WHERE player_id = ? AND tag = ?",
-                            (canonical_id, dup_id, tag),
-                        )
-                        total_remapped += 1
-                    else:
-                        cursor.execute(
-                            "DELETE FROM player_tags WHERE player_id = ? AND tag = ?",
-                            (dup_id, tag),
-                        )
-
-            # ownership_trends: PRIMARY KEY (player_id, date) — may conflict
-            for dup_id in duplicate_ids:
-                cursor.execute(
-                    "SELECT player_id, date FROM ownership_trends WHERE player_id = ?",
-                    (dup_id,),
-                )
-                dup_rows = cursor.fetchall()
-                for _, date_val in dup_rows:
-                    cursor.execute(
-                        "SELECT 1 FROM ownership_trends WHERE player_id = ? AND date = ?",
-                        (canonical_id, date_val),
-                    )
-                    if cursor.fetchone() is None:
-                        cursor.execute(
-                            "UPDATE ownership_trends SET player_id = ? WHERE player_id = ? AND date = ?",
-                            (canonical_id, dup_id, date_val),
-                        )
-                        total_remapped += 1
-                    else:
-                        cursor.execute(
-                            "DELETE FROM ownership_trends WHERE player_id = ? AND date = ?",
-                            (dup_id, date_val),
-                        )
-
-            # statcast_archive: UNIQUE(player_id, season) — may conflict
-            for dup_id in duplicate_ids:
-                cursor.execute(
-                    "SELECT player_id, season FROM statcast_archive WHERE player_id = ?",
-                    (dup_id,),
-                )
-                dup_rows = cursor.fetchall()
-                for _, season in dup_rows:
-                    cursor.execute(
-                        "SELECT 1 FROM statcast_archive WHERE player_id = ? AND season = ?",
-                        (canonical_id, season),
-                    )
-                    if cursor.fetchone() is None:
-                        cursor.execute(
-                            "UPDATE statcast_archive SET player_id = ? WHERE player_id = ? AND season = ?",
-                            (canonical_id, dup_id, season),
-                        )
-                        total_remapped += 1
-                    else:
-                        cursor.execute(
-                            "DELETE FROM statcast_archive WHERE player_id = ? AND season = ?",
-                            (dup_id, season),
-                        )
-
-            # Tables with composite PK including player_id — need conflict handling
-            # projections: (id PK autoincrement, player_id FK) — safe UPDATE
-            for dup_id in duplicate_ids:
-                cursor.execute(
-                    "UPDATE projections SET player_id = ? WHERE player_id = ?",
-                    (canonical_id, dup_id),
-                )
-                total_remapped += cursor.rowcount
-
-            # season_stats: PRIMARY KEY (player_id, season) — may conflict
-            for dup_id in duplicate_ids:
-                cursor.execute(
-                    "SELECT player_id, season FROM season_stats WHERE player_id = ?",
-                    (dup_id,),
-                )
-                dup_rows = cursor.fetchall()
-                for _, season in dup_rows:
-                    # Check if canonical already has this season
-                    cursor.execute(
-                        "SELECT 1 FROM season_stats WHERE player_id = ? AND season = ?",
-                        (canonical_id, season),
-                    )
-                    if cursor.fetchone() is None:
-                        # Safe to remap
-                        cursor.execute(
-                            "UPDATE season_stats SET player_id = ? WHERE player_id = ? AND season = ?",
-                            (canonical_id, dup_id, season),
-                        )
-                        total_remapped += 1
-                    else:
-                        # Canonical already has data for this season — delete duplicate
-                        cursor.execute(
-                            "DELETE FROM season_stats WHERE player_id = ? AND season = ?",
-                            (dup_id, season),
-                        )
-
-            # ros_projections: PRIMARY KEY (player_id, system) — may conflict
-            for dup_id in duplicate_ids:
-                cursor.execute(
-                    "SELECT player_id, system FROM ros_projections WHERE player_id = ?",
-                    (dup_id,),
-                )
-                dup_rows = cursor.fetchall()
-                for _, system in dup_rows:
-                    cursor.execute(
-                        "SELECT 1 FROM ros_projections WHERE player_id = ? AND system = ?",
-                        (canonical_id, system),
-                    )
-                    if cursor.fetchone() is None:
-                        cursor.execute(
-                            "UPDATE ros_projections SET player_id = ? WHERE player_id = ? AND system = ?",
-                            (canonical_id, dup_id, system),
-                        )
-                        total_remapped += 1
-                    else:
-                        cursor.execute(
-                            "DELETE FROM ros_projections WHERE player_id = ? AND system = ?",
-                            (dup_id, system),
-                        )
-
-            # injury_history: UNIQUE(player_id, season) — may conflict
-            for dup_id in duplicate_ids:
-                cursor.execute(
-                    "SELECT player_id, season FROM injury_history WHERE player_id = ?",
-                    (dup_id,),
-                )
-                dup_rows = cursor.fetchall()
-                for _, season in dup_rows:
-                    cursor.execute(
-                        "SELECT 1 FROM injury_history WHERE player_id = ? AND season = ?",
-                        (canonical_id, season),
-                    )
-                    if cursor.fetchone() is None:
-                        cursor.execute(
-                            "UPDATE injury_history SET player_id = ? WHERE player_id = ? AND season = ?",
-                            (canonical_id, dup_id, season),
-                        )
-                        total_remapped += 1
-                    else:
-                        cursor.execute(
-                            "DELETE FROM injury_history WHERE player_id = ? AND season = ?",
-                            (dup_id, season),
-                        )
-
-            # Step 4: Merge any useful data from duplicates into canonical
-            # (e.g., mlb_id, team info, positions)
-            for dup_id in duplicate_ids:
-                cursor.execute(
-                    "SELECT team, positions, mlb_id FROM players WHERE player_id = ?",
-                    (dup_id,),
-                )
-                dup_data = cursor.fetchone()
-                if dup_data:
-                    dup_team, dup_positions, dup_mlb_id = dup_data
-                    # Merge positions
-                    cursor.execute(
-                        "SELECT positions, mlb_id, team FROM players WHERE player_id = ?",
-                        (canonical_id,),
-                    )
-                    canon_data = cursor.fetchone()
-                    if canon_data:
-                        canon_pos = set(canon_data[0].split(",")) if canon_data[0] else set()
-                        dup_pos = set(dup_positions.split(",")) if dup_positions else set()
-                        merged_pos = ",".join(sorted(canon_pos | dup_pos))
-                        # Take mlb_id if canonical doesn't have one
-                        new_mlb_id = canon_data[1] or dup_mlb_id
-                        # Prefer non-empty team
-                        new_team = canon_data[2] if canon_data[2] else dup_team
-                        cursor.execute(
-                            "UPDATE players SET positions = ?, mlb_id = ?, team = ? WHERE player_id = ?",
-                            (merged_pos, new_mlb_id, new_team, canonical_id),
-                        )
-
-            # Step 5: Delete duplicate player rows
-            for dup_id in duplicate_ids:
-                cursor.execute("DELETE FROM players WHERE player_id = ?", (dup_id,))
-
-            total_merged += len(duplicate_ids)
+        # Cleanup temp table
+        cursor.execute("DROP TABLE IF EXISTS _dedup_remap")
 
         conn.commit()
         result = {

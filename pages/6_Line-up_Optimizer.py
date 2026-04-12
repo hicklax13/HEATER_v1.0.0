@@ -42,7 +42,6 @@ from src.ui_shared import (
     render_page_layout,
     render_player_select,
     render_styled_table,
-    sort_roster_for_display,
 )
 from src.valuation import LeagueConfig
 from src.yahoo_data_service import get_yahoo_data_service
@@ -495,15 +494,6 @@ with ctx:
         ),
         key="lineup_mode",
     )
-    alpha = st.slider(
-        "Head-to-Head vs Season-Long Balance",
-        min_value=0.0,
-        max_value=1.0,
-        value=0.5,
-        step=0.05,
-        help="0.0 = pure season-long, 1.0 = pure weekly Head-to-Head, 0.5 = balanced.",
-        key="lineup_alpha",
-    )
     # Auto-compute weeks remaining from current date (season is 24 weeks)
     try:
         from datetime import UTC as _utc
@@ -516,14 +506,8 @@ with ctx:
         _auto_weeks = max(1, _TOTAL_WEEKS - _weeks_elapsed)
     except Exception:
         _auto_weeks = 16
-    weeks_remaining = st.number_input(
-        "Weeks Remaining",
-        min_value=1,
-        max_value=24,
-        value=_auto_weeks,
-        help="Weeks left in the fantasy season. Affects urgency calculations.",
-        key="lineup_weeks",
-    )
+    weeks_remaining = _auto_weeks
+    alpha = 0.5  # Default; auto-overridden per scope when optimization runs
     risk_aversion = st.slider(
         "Risk Aversion",
         min_value=0.0,
@@ -637,37 +621,76 @@ with ctx:
         except Exception:
             pass
 
-    # Data freshness card
-    try:
-        from src.ui_shared import render_data_freshness_card
-
-        render_data_freshness_card()
-    except Exception:
-        pass
-
-    # Optimizer data source freshness (from DataFreshnessTracker)
+    # Unified Data Freshness panel (optimizer sources + Yahoo status)
     _freshness_ctx = st.session_state.get("optimizer_context")
-    if _freshness_ctx and hasattr(_freshness_ctx, "data_timestamps") and _freshness_ctx.data_timestamps:
-        with st.expander("Data Freshness", expanded=False):
-            for _src_name, _src_info in _freshness_ctx.data_timestamps.items():
-                _f_status = _src_info.get("status", "unknown")
-                _f_age = _src_info.get("age", "unknown")
-                _f_label = _src_name.replace("_", " ").title()
-                if _f_status == "fresh":
-                    st.markdown(
-                        f"<span style='color:#4CAF50 !important;font-size:14px;'>&#9679;</span> {_f_label}: {_f_age}",
-                        unsafe_allow_html=True,
-                    )
-                elif _f_status == "stale":
-                    st.markdown(
-                        f"<span style='color:#FF9800 !important;font-size:14px;'>&#9679;</span> {_f_label}: {_f_age}",
-                        unsafe_allow_html=True,
-                    )
-                else:
-                    st.markdown(
-                        f"<span style='color:#9E9E9E !important;font-size:14px;'>&#9679;</span> {_f_label}: unknown",
-                        unsafe_allow_html=True,
-                    )
+    _opt_timestamps = (
+        _freshness_ctx.data_timestamps
+        if _freshness_ctx and hasattr(_freshness_ctx, "data_timestamps") and _freshness_ctx.data_timestamps
+        else {}
+    )
+    # Show Yahoo connection status + optimizer data sources
+    try:
+        from src.yahoo_data_service import get_yahoo_data_service as _get_yds_fresh
+
+        _yds_fresh = _get_yds_fresh()
+        _yahoo_connected = _yds_fresh.is_connected()
+    except Exception:
+        _yahoo_connected = False
+
+    _status_colors = {"fresh": "#4CAF50", "stale": "#FF9800", "unknown": "#9E9E9E"}
+
+    _freshness_html = (
+        f'<div class="context-stat-row" style="margin-bottom:6px;">'
+        f'<span class="context-stat-label">Yahoo</span>'
+        f'<span class="context-stat-value" style="color:{"#4CAF50" if _yahoo_connected else "#9E9E9E"}">'
+        f"{'Connected' if _yahoo_connected else 'Offline'}</span></div>"
+    )
+
+    if _opt_timestamps:
+        for _src_name, _src_info in _opt_timestamps.items():
+            _f_status = _src_info.get("status", "unknown")
+            _f_color = _status_colors.get(_f_status, "#9E9E9E")
+            _f_label = _src_name.replace("_", " ").title()
+            _f_source = _src_info.get("source_label", "")
+            _f_as_of = _src_info.get("data_as_of", "")
+            _f_ts = _src_info.get("timestamp", "")
+            # Format timestamp to readable local time
+            _f_time_str = ""
+            if _f_ts:
+                try:
+                    from datetime import datetime as _dt_fresh
+
+                    _parsed = _dt_fresh.fromisoformat(_f_ts)
+                    _local = _parsed.astimezone()
+                    _f_time_str = _local.strftime("%I:%M %p").lstrip("0")
+                except Exception:
+                    _f_time_str = _src_info.get("age", "")
+            _detail = _f_as_of if _f_as_of else ""
+            if _f_source:
+                _detail = f"{_f_source}: {_detail}" if _detail else _f_source
+            _freshness_html += (
+                f'<div style="display:flex;justify-content:space-between;align-items:baseline;'
+                f'padding:2px 0;border-bottom:1px solid {T["border"]}33;">'
+                f'<span style="font-size:11px;color:{T["tx2"]};max-width:55%;">{_f_label}</span>'
+                f'<span style="font-size:11px;font-family:IBM Plex Mono,monospace;color:{_f_color};">'
+                f"{_f_time_str}</span></div>"
+            )
+            if _detail:
+                _freshness_html += (
+                    f'<div style="font-size:9px;color:{T["tx2"]};opacity:0.7;padding:0 0 3px;'
+                    f'margin-top:-1px;">{_detail}</div>'
+                )
+    else:
+        # Fallback: show Yahoo freshness when optimizer hasn't run
+        try:
+            from src.ui_shared import render_data_freshness_card
+
+            render_data_freshness_card()
+        except Exception:
+            pass
+
+    if _opt_timestamps:
+        render_context_card("Data Freshness", _freshness_html)
 
 
 # ── Main content panel ───────────────────────────────────────────────
@@ -711,6 +734,13 @@ with main:
         optimize_clicked = st.button("Optimize Lineup", type="primary", key="lineup_run_opt")
 
         if optimize_clicked:
+            # Auto-compute alpha per scope (replaces manual slider)
+            if _scope_key == "rest_of_week":
+                alpha = 1.0  # Pure H2H for weekly matchup
+            elif _scope_key == "rest_of_season":
+                alpha = max(0.0, 1.0 - (weeks_remaining / 24.0))
+            # "today" scope: alpha unused by DCV engine
+
             progress_bar = st.progress(0, text="Syncing roster and building shared data context...")
 
             # Force roster refresh to ensure current players only
@@ -1039,7 +1069,19 @@ with main:
                         if _tied:
                             st.caption(", ".join(_tied))
 
-                # Starters (position-slot-aware assignment respecting Yahoo roster)
+                # ── Merge Yahoo slot assignment + eligible positions from roster ──
+                if "selected_position" not in dcv.columns and "player_id" in dcv.columns:
+                    _merge_cols = ["player_id", "selected_position"]
+                    if "roster_slot" in roster.columns:
+                        _merge_cols.append("roster_slot")
+                    _sp_lookup = roster[_merge_cols].drop_duplicates("player_id")
+                    dcv = dcv.merge(_sp_lookup, on="player_id", how="left")
+                    dcv["selected_position"] = dcv["selected_position"].fillna("").astype(str).str.strip()
+                    dcv.loc[dcv["selected_position"].isin(["", "None", "none"]), "selected_position"] = "BN"
+                    if "roster_slot" in dcv.columns:
+                        dcv["roster_slot"] = dcv["roster_slot"].fillna("").astype(str).str.strip()
+
+                # ── Greedy slot assignment for START/BENCH decisions ──
                 eligible = (
                     dcv[
                         (dcv.get("volume_factor", pd.Series(dtype=float)) > 0)
@@ -1049,7 +1091,6 @@ with main:
                     else dcv.copy()
                 )
 
-                # Greedy slot assignment: fill specific positions first, then flex
                 _SLOT_ORDER = [
                     ("C", 1),
                     ("1B", 1),
@@ -1087,7 +1128,6 @@ with main:
                     if slot == "P":
                         return bool(pos_set & _PITCHER_POSITIONS)
                     if slot == "Util":
-                        # Util = any hitter (not a pitcher-only player)
                         return bool(pos_set - _PITCHER_POSITIONS)
                     return slot in pos_set
 
@@ -1103,65 +1143,143 @@ with main:
                             _starter_indices.append(idx)
                             filled += 1
 
-                starters_dcv = eligible.loc[[i for i in _starter_indices if i in eligible.index]]
-                bench_dcv = eligible[~eligible.index.isin(_assigned_idx)]
+                # ── Decision column on full DCV table ──
+                dcv["Decision"] = "BENCH"
+                dcv.loc[dcv.index.isin(set(_starter_indices)), "Decision"] = "START"
+                _il_slots = {"IL", "IL+", "NA"}
+                if "selected_position" in dcv.columns:
+                    dcv.loc[dcv["selected_position"].isin(_il_slots), "Decision"] = "IL"
+                if "health_factor" in dcv.columns:
+                    dcv.loc[
+                        (dcv["health_factor"] == 0) & (~dcv["Decision"].isin(["IL"])),
+                        "Decision",
+                    ] = "IL"
 
-                st.markdown(
-                    f'<p style="font-size:12px;font-weight:700;letter-spacing:1px;'
-                    f"color:{T['tx2']};text-transform:uppercase;"
-                    f'margin:0 0 6px;">Starting Lineup (Start)</p>',
-                    unsafe_allow_html=True,
-                )
-                display_cols = ["name", "positions", "team", "total_dcv", "volume_factor", "matchup_mult"]
-                if "stud_floor_applied" in starters_dcv.columns:
-                    display_cols.append("stud_floor_applied")
+                # ── Split batters / pitchers ──
+                _is_hitter_col = dcv.get("is_hitter", pd.Series(dtype=float))
+                batters_dcv = dcv[_is_hitter_col == 1].copy()
+                pitchers_dcv = dcv[_is_hitter_col == 0].copy()
 
-                starter_display = starters_dcv[[c for c in display_cols if c in starters_dcv.columns]].copy()
-                starter_display["Decision"] = "START"
-                starter_display = sort_roster_for_display(starter_display)
-                starter_display = starter_display.rename(
-                    columns={
-                        "name": "Player",
-                        "positions": "Position",
-                        "team": "Team",
-                        "total_dcv": "DCV Score",
-                        "volume_factor": "Volume",
-                        "matchup_mult": "Matchup",
-                        "stud_floor_applied": "Stud Floor",
-                    }
-                )
+                # ── Sort by Yahoo slot order, then DCV within same slot ──
+                _BATTER_SLOT_ORDER = {
+                    "C": 0,
+                    "1B": 1,
+                    "2B": 2,
+                    "3B": 3,
+                    "SS": 4,
+                    "OF": 5,
+                    "LF": 5,
+                    "CF": 5,
+                    "RF": 5,
+                    "Util": 6,
+                    "DH": 6,
+                    "BN": 7,
+                    "IL": 8,
+                    "IL+": 8,
+                    "NA": 9,
+                }
+                _PITCHER_SLOT_ORDER = {
+                    "SP": 0,
+                    "RP": 1,
+                    "P": 2,
+                    "BN": 3,
+                    "IL": 4,
+                    "IL+": 4,
+                    "NA": 5,
+                }
+
+                def _slot_sort_key(df_in, order_map):
+                    default = max(order_map.values()) + 1
+                    return df_in["selected_position"].map(lambda s: order_map.get(s, default))
+
+                # Sort: START on top, then BENCH, then IL — within each group by slot order
+                _DECISION_ORDER = {"START": 0, "BENCH": 1, "IL": 2}
+
+                if not batters_dcv.empty and "selected_position" in batters_dcv.columns:
+                    batters_dcv["_slot_sort"] = _slot_sort_key(batters_dcv, _BATTER_SLOT_ORDER)
+                    batters_dcv["_dec_sort"] = batters_dcv["Decision"].map(_DECISION_ORDER).fillna(2)
+                    batters_dcv = batters_dcv.sort_values(
+                        ["_dec_sort", "_slot_sort", "total_dcv"], ascending=[True, True, False]
+                    ).drop(columns=["_slot_sort", "_dec_sort"])
+                if not pitchers_dcv.empty and "selected_position" in pitchers_dcv.columns:
+                    pitchers_dcv["_slot_sort"] = _slot_sort_key(pitchers_dcv, _PITCHER_SLOT_ORDER)
+                    pitchers_dcv["_dec_sort"] = pitchers_dcv["Decision"].map(_DECISION_ORDER).fillna(2)
+                    pitchers_dcv = pitchers_dcv.sort_values(
+                        ["_dec_sort", "_slot_sort", "total_dcv"], ascending=[True, True, False]
+                    ).drop(columns=["_slot_sort", "_dec_sort"])
+
+                # ── Build display DataFrames ──
+                # Use roster_slot (Yahoo eligible positions) if available, else positions
+                _pos_col = "roster_slot" if "roster_slot" in dcv.columns else "positions"
+                _display_cols = [
+                    "selected_position",
+                    "name",
+                    _pos_col,
+                    "team",
+                    "total_dcv",
+                    "matchup_mult",
+                    "Decision",
+                ]
+                _col_rename = {
+                    "selected_position": "Slot",
+                    "name": "Player",
+                    _pos_col: "Position Eligibility",
+                    "team": "Team",
+                    "total_dcv": "DCV Score",
+                    "matchup_mult": "Matchup",
+                }
+
+                def _build_dcv_display(df_in):
+                    disp = df_in[[c for c in _display_cols if c in df_in.columns]].copy()
+                    disp = disp.rename(columns=_col_rename).reset_index(drop=True)
+                    return disp
+
+                batters_display = _build_dcv_display(batters_dcv)
+                pitchers_display = _build_dcv_display(pitchers_dcv)
+
+                # ── Row styling by decision ──
+                def _decision_row_classes(df_in):
+                    classes = {}
+                    for i in range(len(df_in)):
+                        decision = df_in.iloc[i].get("Decision", "BENCH")
+                        if decision == "START":
+                            classes[i] = "row-start"
+                        elif decision == "IL":
+                            classes[i] = "row-il"
+                        else:
+                            classes[i] = "row-bench"
+                    return classes
+
                 st.markdown(
                     f"<style>"
-                    f"tr.row-start td {{ background-color:{T['green']}15 !important; }}"
-                    f"tr.row-bench td {{ background-color:{T['danger']}10 !important; }}"
+                    f"tr.row-start td {{ background-color:{T['green']}12 !important; }}"
+                    f"tr.row-start td.col-name {{ color:{T['green']} !important; font-weight:700 !important; }}"
+                    f"tr.row-bench td {{ background-color: rgba(230,57,70,0.08) !important; }}"
+                    f"tr.row-bench td.col-name {{ color:{T['danger']} !important; }}"
+                    f"tr.row-il td {{ background-color: rgba(158,158,158,0.06) !important; opacity:0.5; }}"
                     f"</style>",
                     unsafe_allow_html=True,
                 )
-                _dcv_start_classes = {i: "row-start" for i in range(len(starter_display))}
-                render_compact_table(starter_display, row_classes=_dcv_start_classes)
 
-                if not bench_dcv.empty:
-                    st.markdown(
-                        f'<p style="font-size:12px;font-weight:700;letter-spacing:1px;'
-                        f"color:{T['tx2']};text-transform:uppercase;"
-                        f'margin:16px 0 6px;">Bench (Sit)</p>',
-                        unsafe_allow_html=True,
-                    )
-                    bench_cols_show = ["name", "positions", "team", "total_dcv", "volume_factor"]
-                    bench_display = bench_dcv[[c for c in bench_cols_show if c in bench_dcv.columns]].copy()
-                    bench_display["Decision"] = "BENCH"
-                    bench_display = sort_roster_for_display(bench_display)
-                    bench_display = bench_display.rename(
-                        columns={
-                            "name": "Player",
-                            "positions": "Position",
-                            "team": "Team",
-                            "total_dcv": "DCV Score",
-                            "volume_factor": "Volume",
-                        }
-                    )
-                    _dcv_bench_classes = {i: "row-bench" for i in range(len(bench_display))}
-                    render_compact_table(bench_display, row_classes=_dcv_bench_classes)
+                # ── Batters table ──
+                st.markdown(
+                    f'<p style="font-size:12px;font-weight:700;letter-spacing:1px;'
+                    f"color:{T['tx2']};text-transform:uppercase;"
+                    f'margin:0 0 6px;">Batters</p>',
+                    unsafe_allow_html=True,
+                )
+                if not batters_display.empty:
+                    render_compact_table(batters_display, row_classes=_decision_row_classes(batters_display))
+
+                # ── Pitchers table ──
+                st.markdown(
+                    f'<p style="font-size:12px;font-weight:700;letter-spacing:1px;'
+                    f"color:{T['tx2']};text-transform:uppercase;"
+                    f'margin:16px 0 6px;">Pitchers</p>',
+                    unsafe_allow_html=True,
+                )
+                if not pitchers_display.empty:
+                    render_compact_table(pitchers_display, row_classes=_decision_row_classes(pitchers_display))
 
                 st.caption(
                     "DCV = Daily Category Value. Computed from Bayesian-blended projections "
