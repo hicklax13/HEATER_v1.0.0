@@ -7,6 +7,7 @@ STAT_VIEW_PARAMS dictionaries that drive the Player Databank UI dropdowns.
 import logging
 import math
 from datetime import UTC, datetime, timedelta
+from io import BytesIO
 
 import pandas as pd
 
@@ -975,3 +976,60 @@ def _html_escape(text: str) -> str:
         .replace('"', "&quot;")
         .replace("'", "&#39;")
     )
+
+
+def export_to_excel(df: pd.DataFrame, stat_view_label: str) -> bytes:
+    """Export the databank DataFrame to a branded Excel file.
+
+    Args:
+        df: Filtered and sorted DataFrame to export.
+        stat_view_label: Human-readable stat view name for sheet name.
+
+    Returns:
+        Excel file as bytes.
+    """
+    from openpyxl.styles import Alignment, Font, PatternFill
+    from openpyxl.utils import get_column_letter
+
+    output = BytesIO()
+    sheet_name = stat_view_label[:31]  # Excel 31-char limit
+
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False, sheet_name=sheet_name)
+        wb = writer.book
+        ws = wb[sheet_name]
+
+        # HEATER branding
+        flame_fill = PatternFill(start_color="E63946", end_color="E63946", fill_type="solid")
+        white_font = Font(color="FFFFFF", bold=True, name="Calibri", size=11)
+        stat_font = Font(name="Calibri", size=10)
+
+        # Style header row
+        for cell in ws[1]:
+            cell.fill = flame_fill
+            cell.font = white_font
+            cell.alignment = Alignment(horizontal="center")
+
+        # Auto-width columns
+        for col_idx, col_name in enumerate(df.columns, 1):
+            max_len = max(
+                len(str(col_name)),
+                df[col_name].astype(str).str.len().max() if len(df) > 0 else 0,
+            )
+            ws.column_dimensions[get_column_letter(col_idx)].width = min(max_len + 3, 20)
+
+        # Format stat cells
+        for row in ws.iter_rows(min_row=2, max_row=ws.max_row):
+            for cell in row:
+                if cell.column <= len(df.columns):
+                    col_name = df.columns[cell.column - 1]
+                    cell.font = stat_font
+                    if col_name in ("avg", "obp", "avg_calc", "obp_calc"):
+                        cell.number_format = "0.000"
+                    elif col_name in ("era", "whip", "era_calc", "whip_calc"):
+                        cell.number_format = "0.00"
+                    elif col_name == "ip":
+                        cell.number_format = "0.0"
+
+    output.seek(0)
+    return output.getvalue()

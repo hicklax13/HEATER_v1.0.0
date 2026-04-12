@@ -8,6 +8,7 @@ import pytest
 from src.database import get_connection, init_db
 from src.player_databank import (
     compute_rolling_stats,
+    export_to_excel,
     filter_databank,
     load_databank,
     load_game_logs,
@@ -347,3 +348,40 @@ class TestHTMLTableRenderer:
         # Check HEATER theme colors are present
         assert "#1d1d1f" in html  # Header background
         assert "#fff7ed" in html  # Hover color
+
+
+class TestExcelExport:
+    """Test Excel export functionality."""
+
+    def test_export_returns_bytes(self):
+        df = pd.DataFrame(
+            {
+                "player_name": ["Test Player"],
+                "team": ["NYY"],
+                "r": [10],
+                "hr": [5],
+                "avg": [0.285],
+            }
+        )
+        result = export_to_excel(df, "Season (total)")
+        assert isinstance(result, bytes)
+        assert len(result) > 0
+
+    def test_export_is_valid_xlsx(self):
+        df = pd.DataFrame(
+            {
+                "player_name": ["Player A", "Player B"],
+                "team": ["BOS", "LAD"],
+                "r": [20, 15],
+                "hr": [8, 12],
+                "avg": [0.300, 0.275],
+            }
+        )
+        result = export_to_excel(df, "Season (total)")
+        assert result[:2] == b"PK"  # XLSX is a zip file
+
+    def test_export_empty_dataframe(self):
+        df = pd.DataFrame(columns=["player_name", "team", "r"])
+        result = export_to_excel(df, "Empty")
+        assert isinstance(result, bytes)
+        assert len(result) > 0
