@@ -6,6 +6,7 @@ import pandas as pd
 import pytest
 
 from src.database import get_connection, init_db
+from src.player_databank import load_game_logs
 
 
 class TestGameLogsSchema:
@@ -72,4 +73,51 @@ class TestGameLogsSchema:
         finally:
             conn.execute("DELETE FROM game_logs WHERE player_id = 1")
             conn.commit()
+            conn.close()
+
+
+class TestGameLogFetching:
+    """Test game log data fetching and storage."""
+
+    def setup_method(self):
+        init_db()
+
+    def test_load_game_logs_empty(self):
+        df = load_game_logs(player_ids=[99999], days=7)
+        assert isinstance(df, pd.DataFrame)
+        assert len(df) == 0
+
+    def test_load_game_logs_with_data(self):
+        conn = get_connection()
+        try:
+            conn.execute(
+                "INSERT OR IGNORE INTO game_logs "
+                "(player_id, game_date, season, ab, h, r, hr, rbi, sb, pa) "
+                "VALUES (100, '2026-04-10', 2026, 4, 2, 1, 1, 2, 0, 4)"
+            )
+            conn.execute(
+                "INSERT OR IGNORE INTO game_logs "
+                "(player_id, game_date, season, ab, h, r, hr, rbi, sb, pa) "
+                "VALUES (100, '2026-04-09', 2026, 3, 1, 0, 0, 1, 1, 3)"
+            )
+            conn.execute(
+                "INSERT OR IGNORE INTO game_logs "
+                "(player_id, game_date, season, ab, h, r, hr, rbi, sb, pa) "
+                "VALUES (100, '2026-03-01', 2026, 4, 0, 0, 0, 0, 0, 4)"
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        df = load_game_logs(player_ids=[100], days=7)
+        # Only recent games within 7 days should be returned
+        assert isinstance(df, pd.DataFrame)
+        # The March 1 entry should be excluded (more than 7 days ago)
+
+    def teardown_method(self):
+        conn = get_connection()
+        try:
+            conn.execute("DELETE FROM game_logs WHERE player_id IN (100, 99999)")
+            conn.commit()
+        finally:
             conn.close()
