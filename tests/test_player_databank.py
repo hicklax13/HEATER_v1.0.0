@@ -6,7 +6,7 @@ import pandas as pd
 import pytest
 
 from src.database import get_connection, init_db
-from src.player_databank import compute_rolling_stats, load_game_logs
+from src.player_databank import compute_rolling_stats, filter_databank, load_databank, load_game_logs
 
 
 class TestGameLogsSchema:
@@ -186,3 +186,54 @@ class TestRollingStats:
             conn.commit()
         finally:
             conn.close()
+
+
+class TestDataAssembly:
+    """Test main data loading and filtering."""
+
+    def setup_method(self):
+        init_db()
+
+    def test_load_databank_returns_dataframe(self):
+        df = load_databank("S_S_2026")
+        assert isinstance(df, pd.DataFrame)
+
+    def test_load_databank_has_player_columns(self):
+        df = load_databank("S_S_2026")
+        if not df.empty:
+            assert "player_name" in df.columns or "name" in df.columns
+
+    def test_filter_by_position_batters(self):
+        df = load_databank("S_S_2026")
+        if not df.empty and "is_hitter" in df.columns:
+            batters = filter_databank(df, position="B")
+            if not batters.empty:
+                assert all(batters["is_hitter"] == 1)
+
+    def test_filter_by_position_pitchers(self):
+        df = load_databank("S_S_2026")
+        if not df.empty and "is_hitter" in df.columns:
+            pitchers = filter_databank(df, position="P")
+            if not pitchers.empty:
+                assert all(pitchers["is_hitter"] == 0)
+
+    def test_filter_by_search_no_match(self):
+        df = load_databank("S_S_2026")
+        if not df.empty:
+            result = filter_databank(df, search="ZZZNONEXISTENT999")
+            assert len(result) == 0
+
+    def test_filter_by_mlb_team(self):
+        df = load_databank("S_S_2026")
+        if not df.empty and "team" in df.columns:
+            teams = df["team"].dropna().unique()
+            if len(teams) > 0:
+                target = teams[0]
+                result = filter_databank(df, mlb_team=target)
+                assert all(result["team"] == target)
+
+    def test_filter_defaults_return_all(self):
+        df = load_databank("S_S_2026")
+        filtered = filter_databank(df)
+        # Default position="B" filters to batters, so filtered <= df
+        assert len(filtered) <= len(df)

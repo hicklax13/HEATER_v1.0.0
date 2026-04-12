@@ -9,7 +9,7 @@ from datetime import UTC, datetime, timedelta
 
 import pandas as pd
 
-from src.database import get_connection
+from src.database import get_connection, load_player_pool
 
 logger = logging.getLogger(__name__)
 
@@ -463,3 +463,173 @@ def _parse_game_log_row(
         )
 
     return base
+
+
+# ── Databank assembly ─────────────────────────────────────────────────────────
+
+
+def load_databank(
+    stat_view: str,
+    season: int = 2026,
+) -> pd.DataFrame:
+    """Load a player pool DataFrame for the given stat view key.
+
+    Uses ``STAT_VIEW_PARAMS`` to determine the computation type and dispatches
+    to the appropriate data source.  The returned DataFrame always has a
+    ``player_name`` column (renamed from ``name`` if necessary).
+
+    Args:
+        stat_view: One of the keys in ``STAT_VIEW_OPTIONS`` / ``STAT_VIEW_PARAMS``
+                   (e.g. ``"S_S_2026"``, ``"S_L7"``).
+        season: Fallback season year when not encoded in ``stat_view``.
+
+    Returns:
+        DataFrame with player metadata and stats columns for the requested view.
+        Returns an empty DataFrame if the player pool is unavailable.
+    """
+    params = STAT_VIEW_PARAMS.get(stat_view, {"type": "total", "days": None, "season": None})
+    view_type = params.get("type", "total")
+    days = params.get("days")
+    view_season = params.get("season") or season
+
+    # Load base player pool (includes metadata + blended/ROS projections)
+    try:
+        pool = load_player_pool()
+    except Exception:
+        logger.exception("load_databank: failed to load player pool")
+        return pd.DataFrame()
+
+    if pool is None or pool.empty:
+        return pd.DataFrame()
+
+    # Normalise "name" → "player_name" (database returns "name"; pool may
+    # already have "player_name" if enriched by _enrich_pool).
+    if "player_name" not in pool.columns and "name" in pool.columns:
+        pool = pool.rename(columns={"name": "player_name"})
+
+    # For views backed by season-level projections, return pool as-is.
+    # The pool already holds the best available season/ROS projection stats.
+    if view_type in ("total", "proj", "special", "ranks", "research", "matchups", "opponents", "live"):
+        return pool.copy()
+
+    # For rolling avg / stddev views, compute from game logs and merge metadata.
+    if view_type in ("avg", "stddev"):
+        player_ids: list[int] = pool["player_id"].dropna().astype(int).tolist()
+        if not player_ids:
+            return pool.copy()
+
+        rolled = compute_rolling_stats(
+            player_ids,
+            days=days,
+            stat_type=view_type,
+            season=view_season,
+        )
+        if rolled.empty:
+            # No game log data — return pool metadata without stat columns
+            return pool.copy()
+
+        # Merge rolled stats onto pool metadata
+        meta_cols = [c for c in pool.columns if c not in rolled.columns or c == "player_id"]
+        merged = pool[meta_cols].merge(rolled, on="player_id", how="left")
+        return merged
+
+    # For advanced (Statcast) views, return pool which already contains
+    # xwoba, barrel_pct, ev_mean, stuff_plus, etc. columns.
+    if view_type == "advanced":
+        return pool.copy()
+
+    # Fallback: return pool unchanged
+    return pool.copy()
+
+
+# ── Databank filtering ────────────────────────────────────────────────────────
+
+
+def filter_databank(
+    df: pd.DataFrame,
+    position: str = "B",
+    status: str = "A",
+    mlb_team: str = "ALL",
+    fantasy_team: str = "NONE",
+    search: str = "",
+    show_my_team: bool = False,
+) -> pd.DataFrame:
+    """Filter a databank DataFrame by common UI criteria.
+
+    Args:
+        df: DataFrame returned by ``load_databank()``.
+        position: ``"B"`` = batters (``is_hitter==1``), ``"P"`` = pitchers
+                  (``is_hitter==0``), or a specific position string (e.g.
+                  ``"SS"``) matched via case-insensitive substring in the
+                  ``positions`` column.  Anything else is treated as ``"ALL"``
+                  (no filter).
+        status: ``"A"`` = available (not on a fantasy roster), ``"FA"`` = free
+                agents, ``"T"`` = taken (on a roster), ``"ALL"`` = no filter.
+                Requires an ``is_available`` or ``roster_team`` column; skipped
+                gracefully when absent.
+        mlb_team: Filter to players on this MLB team.  ``"ALL"`` disables the
+                  filter.  Matched against the ``team`` column.
+        fantasy_team: Filter to players on this fantasy roster.  ``"NONE"``
+                      disables the filter.  Matched against ``roster_team``.
+        search: Case-insensitive substring search applied to ``player_name``
+                (or ``name``).  Empty string disables the filter.
+        show_my_team: When ``True`` and an ``is_user_team`` column is present,
+                      restrict to rows where ``is_user_team`` is truthy.
+
+    Returns:
+        Filtered copy of ``df``.  Never modifies the input DataFrame.
+    """
+    result = df.copy()
+
+    # ── Position filter ──────────────────────────────────────────────────────
+    if position == "B":
+        if "is_hitter" in result.columns:
+            result = result[result["is_hitter"] == 1]
+    elif position == "P":
+        if "is_hitter" in result.columns:
+            result = result[result["is_hitter"] == 0]
+    elif position not in ("ALL", "", None):
+        # Specific positional filter (e.g. "SS", "2B", "SP", "RP")
+        if "positions" in result.columns:
+            pos_upper = str(position).upper()
+            result = result[result["positions"].fillna("").str.upper().str.contains(pos_upper, regex=False)]
+
+    # ── Status filter ────────────────────────────────────────────────────────
+    if status == "A":
+        # Available = not on any fantasy roster
+        if "is_available" in result.columns:
+            result = result[result["is_available"].fillna(True).astype(bool)]
+        elif "roster_team" in result.columns:
+            result = result[result["roster_team"].isna() | (result["roster_team"] == "")]
+    elif status == "FA":
+        if "roster_team" in result.columns:
+            result = result[result["roster_team"].isna() | (result["roster_team"] == "")]
+    elif status == "T":
+        if "roster_team" in result.columns:
+            result = result[result["roster_team"].notna() & (result["roster_team"] != "")]
+    # "ALL" — no filter
+
+    # ── MLB team filter ──────────────────────────────────────────────────────
+    if mlb_team and mlb_team != "ALL":
+        if "team" in result.columns:
+            result = result[result["team"] == mlb_team]
+
+    # ── Fantasy team filter ──────────────────────────────────────────────────
+    if fantasy_team and fantasy_team != "NONE":
+        if "roster_team" in result.columns:
+            result = result[result["roster_team"] == fantasy_team]
+
+    # ── Search filter ────────────────────────────────────────────────────────
+    if search:
+        name_col = "player_name" if "player_name" in result.columns else "name"
+        if name_col in result.columns:
+            result = result[result[name_col].fillna("").str.contains(search, case=False, regex=False)]
+        else:
+            # No name column — return empty
+            result = result.iloc[0:0]
+
+    # ── My team filter ───────────────────────────────────────────────────────
+    if show_my_team and "is_user_team" in result.columns:
+        result = result[result["is_user_team"].fillna(False).astype(bool)]
+
+    return result
