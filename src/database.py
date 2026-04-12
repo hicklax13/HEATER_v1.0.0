@@ -557,6 +557,32 @@ def _init_db_tables_and_columns(conn):
             season INTEGER NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_opp_trade_team ON opponent_trade_history(opponent_team);
+
+        -- Game Logs (per-game stats for Player Databank)
+        CREATE TABLE IF NOT EXISTS game_logs (
+            player_id INTEGER NOT NULL,
+            game_date TEXT NOT NULL,
+            season INTEGER NOT NULL DEFAULT 2026,
+            pa INTEGER DEFAULT 0,
+            ab INTEGER DEFAULT 0,
+            h INTEGER DEFAULT 0,
+            r INTEGER DEFAULT 0,
+            hr INTEGER DEFAULT 0,
+            rbi INTEGER DEFAULT 0,
+            sb INTEGER DEFAULT 0,
+            bb INTEGER DEFAULT 0,
+            hbp INTEGER DEFAULT 0,
+            sf INTEGER DEFAULT 0,
+            ip REAL DEFAULT 0.0,
+            w INTEGER DEFAULT 0,
+            l INTEGER DEFAULT 0,
+            sv INTEGER DEFAULT 0,
+            k INTEGER DEFAULT 0,
+            er INTEGER DEFAULT 0,
+            bb_allowed INTEGER DEFAULT 0,
+            h_allowed INTEGER DEFAULT 0,
+            PRIMARY KEY (player_id, game_date)
+        );
     """)
     conn.commit()
 
