@@ -1848,6 +1848,59 @@ def _bootstrap_forty_man(progress: BootstrapProgress) -> str:
         return f"Error: {exc}"
 
 
+def _bootstrap_game_logs(progress: BootstrapProgress, force: bool = False) -> str:
+    """Phase 31: Fetch per-game logs from MLB Stats API for Player Databank.
+
+    Fetches the current season (2026) game logs and, when historical data is
+    absent, also back-fills 2025 and 2024.  All work is delegated to
+    ``fetch_game_logs_from_api`` which handles INSERT OR REPLACE internally.
+    """
+    progress.phase = "Game Logs"
+    progress.detail = "Fetching per-game stats from MLB Stats API..."
+    try:
+        from src.database import get_connection, update_refresh_log
+        from src.player_databank import fetch_game_logs_from_api
+
+        current_year = datetime.now(UTC).year
+
+        # Current season
+        progress.detail = f"Fetching {current_year} game logs..."
+        count_current = fetch_game_logs_from_api(season=current_year, force=force)
+
+        # Back-fill historical seasons if the game_logs table is sparse
+        hist_counts: dict[int, int] = {}
+        for hist_year in (current_year - 1, current_year - 2):
+            conn = get_connection()
+            try:
+                row = conn.execute("SELECT COUNT(*) FROM game_logs WHERE season = ?", (hist_year,)).fetchone()
+                existing = int(row[0]) if row else 0
+            except Exception:
+                existing = 0
+            finally:
+                conn.close()
+
+            if existing == 0 or force:
+                progress.detail = f"Back-filling {hist_year} game logs..."
+                hist_counts[hist_year] = fetch_game_logs_from_api(season=hist_year, force=force)
+
+        update_refresh_log("game_logs", "success")
+
+        parts = [f"{current_year}: {count_current} rows"]
+        for yr, cnt in hist_counts.items():
+            parts.append(f"{yr}: {cnt} rows")
+        return f"Game logs — {', '.join(parts)}"
+
+    except Exception as exc:
+        logger.warning("Game logs bootstrap failed (non-fatal): %s", exc)
+        try:
+            from src.database import update_refresh_log
+
+            update_refresh_log("game_logs", f"error: {exc}")
+        except Exception:
+            pass
+        return f"Game logs: error ({exc})"
+
+
 # ── Master Orchestrator ──────────────────────────────────────────────
 
 
@@ -2271,6 +2324,12 @@ def bootstrap_all_data(
             except Exception as exc:
                 logger.warning("Bootstrap %s failed (non-critical): %s", key, exc)
                 results[key] = f"Error: {exc}"
+
+    # Phase 31: Game logs for Player Databank (1-hour staleness, non-critical)
+    if force or check_staleness("game_logs", 1):
+        results["game_logs"] = _bootstrap_game_logs(progress, force=force)
+    else:
+        results["game_logs"] = "Fresh"
 
     # Post-bootstrap validation (BUG-010 / data quality logging)
     try:
