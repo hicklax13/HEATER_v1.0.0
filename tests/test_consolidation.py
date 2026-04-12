@@ -15,7 +15,7 @@ class TestTradeFinderTabStructure:
         import ast
         from pathlib import Path
 
-        src = Path(__file__).resolve().parent.parent / "pages" / "10_Trade_Finder.py"
+        src = Path(__file__).resolve().parent.parent / "pages" / "11_Trade_Finder.py"
         tree = ast.parse(src.read_text(encoding="utf-8"))
 
         tab_labels: list[str] = []
@@ -41,7 +41,7 @@ class TestTradeFinderTabStructure:
         import ast
         from pathlib import Path
 
-        src = Path(__file__).resolve().parent.parent / "pages" / "10_Trade_Finder.py"
+        src = Path(__file__).resolve().parent.parent / "pages" / "11_Trade_Finder.py"
         tree = ast.parse(src.read_text(encoding="utf-8"))
 
         tab_labels: list[str] = []
@@ -66,7 +66,7 @@ class TestTradeFinderTabStructure:
         """The old 'Smart Recommendations' tab name should not appear in st.tabs."""
         from pathlib import Path
 
-        src = Path(__file__).resolve().parent.parent / "pages" / "10_Trade_Finder.py"
+        src = Path(__file__).resolve().parent.parent / "pages" / "11_Trade_Finder.py"
         content = src.read_text(encoding="utf-8")
 
         # Should NOT appear as a tab label (it can appear in comments/docstrings)
@@ -76,7 +76,7 @@ class TestTradeFinderTabStructure:
         """The old 'By Value' tab name should not appear in st.tabs."""
         from pathlib import Path
 
-        src = Path(__file__).resolve().parent.parent / "pages" / "10_Trade_Finder.py"
+        src = Path(__file__).resolve().parent.parent / "pages" / "11_Trade_Finder.py"
         content = src.read_text(encoding="utf-8")
 
         assert '"By Value"' not in content
