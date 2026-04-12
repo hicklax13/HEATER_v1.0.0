@@ -6,7 +6,7 @@ import pandas as pd
 import pytest
 
 from src.database import get_connection, init_db
-from src.player_databank import load_game_logs
+from src.player_databank import compute_rolling_stats, load_game_logs
 
 
 class TestGameLogsSchema:
@@ -118,6 +118,71 @@ class TestGameLogFetching:
         conn = get_connection()
         try:
             conn.execute("DELETE FROM game_logs WHERE player_id IN (100, 99999)")
+            conn.commit()
+        finally:
+            conn.close()
+
+
+class TestRollingStats:
+    """Test rolling window stat computations."""
+
+    def setup_method(self):
+        init_db()
+        conn = get_connection()
+        try:
+            # Insert 5 games for batter (player 200)
+            games = [
+                (200, "2026-04-10", 2026, 4, 4, 2, 1, 1, 2, 0, 0, 0, 0, 0.0, 0, 0, 0, 0, 0, 0, 0),
+                (200, "2026-04-09", 2026, 4, 4, 1, 0, 0, 1, 1, 0, 0, 0, 0.0, 0, 0, 0, 0, 0, 0, 0),
+                (200, "2026-04-08", 2026, 3, 3, 0, 1, 0, 0, 0, 0, 0, 0, 0.0, 0, 0, 0, 0, 0, 0, 0),
+                (200, "2026-04-07", 2026, 5, 5, 3, 2, 2, 3, 0, 0, 0, 0, 0.0, 0, 0, 0, 0, 0, 0, 0),
+                (200, "2026-04-06", 2026, 4, 4, 1, 0, 0, 1, 0, 0, 0, 0, 0.0, 0, 0, 0, 0, 0, 0, 0),
+            ]
+            for g in games:
+                conn.execute(
+                    "INSERT OR IGNORE INTO game_logs "
+                    "(player_id, game_date, season, pa, ab, h, r, hr, rbi, sb, bb, hbp, sf, "
+                    "ip, w, l, sv, k, er, bb_allowed, h_allowed) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    g,
+                )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def test_compute_total(self):
+        df = compute_rolling_stats([200], days=7, stat_type="total")
+        assert len(df) == 1
+        row = df.iloc[0]
+        assert row["h"] == 7  # 2+1+0+3+1
+        assert row["r"] == 4  # 1+0+1+2+0
+        assert row["hr"] == 3  # 1+0+0+2+0
+
+    def test_compute_avg(self):
+        df = compute_rolling_stats([200], days=7, stat_type="avg")
+        assert len(df) == 1
+        row = df.iloc[0]
+        # Average per game: h=[2,1,0,3,1] -> mean=1.4
+        assert abs(row["h"] - 1.4) < 0.01
+        assert abs(row["r"] - 0.8) < 0.01  # [1,0,1,2,0] -> 0.8
+
+    def test_compute_stddev(self):
+        df = compute_rolling_stats([200], days=7, stat_type="stddev")
+        assert len(df) == 1
+        assert df.iloc[0]["h"] > 0  # std dev of [2,1,0,3,1] > 0
+
+    def test_compute_total_rate_stats(self):
+        """Verify rate stats are computed correctly from totals."""
+        df = compute_rolling_stats([200], days=7, stat_type="total")
+        row = df.iloc[0]
+        # Total: 7 hits / 20 AB = .350 AVG
+        if "avg_calc" in df.columns:
+            assert abs(row["avg_calc"] - 0.350) < 0.001
+
+    def teardown_method(self):
+        conn = get_connection()
+        try:
+            conn.execute("DELETE FROM game_logs WHERE player_id = 200")
             conn.commit()
         finally:
             conn.close()

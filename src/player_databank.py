@@ -149,6 +149,78 @@ def load_game_logs(
         conn.close()
 
 
+# ── Rolling stat computation ──────────────────────────────────────────────────
+
+
+def compute_rolling_stats(
+    player_ids: list[int],
+    days: int | None = None,
+    stat_type: str = "total",
+    season: int = 2026,
+) -> pd.DataFrame:
+    """Compute rolling window stats from game logs.
+
+    Args:
+        player_ids: Player IDs to compute for.
+        days: Number of days in the rolling window. None = entire season.
+        stat_type: "total", "avg", or "stddev".
+        season: Season year.
+
+    Returns:
+        DataFrame with one row per player, stat columns computed per stat_type.
+        For "total" and "avg", computed rate stat columns are appended:
+        ``avg_calc``, ``obp_calc``, ``era_calc``, ``whip_calc``.
+    """
+    logs = load_game_logs(player_ids, days=days, season=season)
+    if logs.empty:
+        return pd.DataFrame()
+
+    # Determine numeric columns present in the result
+    all_count_cols = HITTING_COLS_TOTAL + PITCHING_COLS_TOTAL
+    num_cols = [c for c in all_count_cols if c in logs.columns]
+
+    if stat_type == "stddev":
+        result = logs.groupby("player_id")[num_cols].std(ddof=1).fillna(0).reset_index()
+        return result
+
+    # "total" and "avg" both start from sums
+    sums = logs.groupby("player_id")[num_cols].sum()
+    game_counts = logs.groupby("player_id").size().rename("_game_count")
+    result = sums.join(game_counts).reset_index()
+
+    if stat_type == "avg":
+        for col in num_cols:
+            result[col] = result[col] / result["_game_count"]
+
+    result = result.drop(columns=["_game_count"])
+
+    # Append computed rate stats (using weighted formulas per CLAUDE.md)
+    def _safe_div(num: pd.Series, den: pd.Series) -> pd.Series:
+        """Divide num by den, returning NaN where denominator is zero."""
+        return num.where(den != 0).div(den.where(den != 0))
+
+    # AVG = sum(h) / sum(ab)
+    if "h" in result.columns and "ab" in result.columns:
+        result["avg_calc"] = _safe_div(result["h"], result["ab"])
+
+    # OBP = sum(h + bb + hbp) / sum(ab + bb + hbp + sf)
+    if all(c in result.columns for c in ["h", "bb", "hbp", "ab", "sf"]):
+        obp_num = result["h"] + result["bb"] + result["hbp"]
+        obp_den = result["ab"] + result["bb"] + result["hbp"] + result["sf"]
+        result["obp_calc"] = _safe_div(obp_num, obp_den)
+
+    # ERA = sum(er) * 9 / sum(ip)
+    if "er" in result.columns and "ip" in result.columns:
+        result["era_calc"] = _safe_div(result["er"] * 9, result["ip"])
+
+    # WHIP = sum(bb_allowed + h_allowed) / sum(ip)
+    if all(c in result.columns for c in ["bb_allowed", "h_allowed", "ip"]):
+        whip_num = result["bb_allowed"] + result["h_allowed"]
+        result["whip_calc"] = _safe_div(whip_num, result["ip"])
+
+    return result
+
+
 # ── Game log fetching from MLB Stats API ──────────────────────────────────────
 
 
