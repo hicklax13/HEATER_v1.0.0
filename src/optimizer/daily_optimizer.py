@@ -546,26 +546,58 @@ def build_daily_dcv_table(
             form = recent_form.get(pid, {}).get("l14", {})
             form_games = int(form.get("games", 0) or 0)
             if form_games >= 7:
+                # Dynamic form weight: scales from 0.10 (7 games) to 0.25 (14+ games)
+                _form_weight = min(0.25, 0.10 + (form_games - 7) * 0.02)
+                _base_weight = 1.0 - _form_weight
                 if is_hitter:
+                    # Rate stats: blend directly
                     for stat_key in ("avg", "obp"):
                         form_val = form.get(stat_key)
                         if form_val is not None:
                             orig = float(player.get(stat_key, 0) or 0)
                             if orig > 0:
-                                blended = 0.75 * orig + 0.25 * float(form_val)
+                                blended = _base_weight * orig + _form_weight * float(form_val)
                                 lo = orig * 0.80
                                 hi = orig * 1.20
                                 form_adjustments[stat_key] = max(lo, min(hi, blended))
+                    # Counting stats: use rate-ratio from L14 per-game vs projected per-game
+                    for stat_key in ("r", "hr", "rbi", "sb"):
+                        form_val = form.get(stat_key)
+                        if form_val is not None and form_games > 0:
+                            orig = float(player.get(stat_key, 0) or 0)
+                            if orig > 0:
+                                # L14 per-game rate vs projected per-162 per-game rate
+                                form_per_game = float(form_val) / form_games
+                                proj_per_game = orig / 162.0
+                                if proj_per_game > 0:
+                                    ratio = form_per_game / proj_per_game
+                                    adj = _base_weight * 1.0 + _form_weight * ratio
+                                    adj = max(0.80, min(1.20, adj))
+                                    form_adjustments[stat_key] = orig * adj
                 else:
+                    # Pitcher rate stats: blend directly
                     for stat_key in ("era", "whip"):
                         form_val = form.get(stat_key)
                         if form_val is not None:
                             orig = float(player.get(stat_key, 0) or 0)
                             if orig > 0:
-                                blended = 0.75 * orig + 0.25 * float(form_val)
+                                blended = _base_weight * orig + _form_weight * float(form_val)
                                 lo = orig * 0.80
                                 hi = orig * 1.20
                                 form_adjustments[stat_key] = max(lo, min(hi, blended))
+                    # Pitcher counting stats: K, W, SV
+                    for stat_key in ("k", "w", "sv"):
+                        form_val = form.get(stat_key)
+                        if form_val is not None and form_games > 0:
+                            orig = float(player.get(stat_key, 0) or 0)
+                            if orig > 0:
+                                form_per_game = float(form_val) / form_games
+                                proj_per_game = orig / 162.0
+                                if proj_per_game > 0:
+                                    ratio = form_per_game / proj_per_game
+                                    adj = _base_weight * 1.0 + _form_weight * ratio
+                                    adj = max(0.80, min(1.20, adj))
+                                    form_adjustments[stat_key] = orig * adj
 
         # Compute DCV per category
         total_dcv = 0.0

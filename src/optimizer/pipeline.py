@@ -297,7 +297,7 @@ class LineupOptimizerPipeline:
                     config=self.config,
                     enable_bayesian=True,
                     enable_kalman=True,
-                    enable_statcast=(self.mode == "full"),
+                    enable_statcast=(self.mode in ("full", "standard")),
                     enable_injury=True,
                     weeks_remaining=self.weeks_remaining,
                 )
