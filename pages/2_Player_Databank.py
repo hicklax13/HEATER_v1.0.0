@@ -14,6 +14,7 @@ from src.player_databank import (
     STAT_VIEW_OPTIONS,
     export_to_excel,
     filter_databank,
+    get_data_as_of_label,
     load_databank,
     render_databank_table,
 )
@@ -207,9 +208,12 @@ with fcol5:
             key="db_export",
         )
 
-# Player count
+# Player count + data freshness label
+as_of_label = get_data_as_of_label(stat_view)
+freshness_html = f' &middot; <span style="color:{T["amber"]}">{as_of_label}</span>' if as_of_label else ""
 st.markdown(
-    f'<div style="color:{T["tx2"]};font-size:13px;margin:4px 0 8px 0;">Showing {len(filtered):,} players</div>',
+    f'<div style="color:{T["tx2"]};font-size:13px;margin:4px 0 8px 0;">'
+    f"Showing {len(filtered):,} players{freshness_html}</div>",
     unsafe_allow_html=True,
 )
 

@@ -1305,6 +1305,30 @@ def _enrich_pool(df: pd.DataFrame) -> pd.DataFrame:
     roster_statuses = _load_roster_statuses_for_pool()
     df["status"] = df["player_id"].map(roster_statuses).fillna("active")
 
+    # Fantasy roster team + ownership from league_rosters
+    try:
+        _conn_roster = get_connection()
+        try:
+            _roster_df = pd.read_sql_query(
+                "SELECT player_id, team_name, is_user_team FROM league_rosters",
+                _conn_roster,
+            )
+        finally:
+            _conn_roster.close()
+        if not _roster_df.empty:
+            _roster_df["player_id"] = pd.to_numeric(_roster_df["player_id"], errors="coerce")
+            _roster_dedup = _roster_df.drop_duplicates("player_id").set_index("player_id")
+            df["roster_team"] = df["player_id"].map(_roster_dedup["team_name"])
+            df["is_user_team"] = df["player_id"].map(_roster_dedup["is_user_team"]).fillna(0).astype(bool)
+        else:
+            df["roster_team"] = None
+            df["is_user_team"] = False
+    except Exception:
+        logging.getLogger(__name__).error("Failed to load roster team data for enrichment", exc_info=True)
+        df["roster_team"] = None
+        df["is_user_team"] = False
+    df["is_available"] = df["roster_team"].isna()
+
     # Adjust health_score based on IL/DTD status (display caps only, no stat reduction)
     status_lower = df["status"].str.lower()
     mask_il = status_lower.isin(["il10", "il15", "dl"])

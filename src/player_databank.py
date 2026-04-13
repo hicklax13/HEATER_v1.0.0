@@ -195,7 +195,8 @@ def compute_rolling_stats(
         for col in num_cols:
             result[col] = result[col] / result["_game_count"]
 
-    result = result.drop(columns=["_game_count"])
+    # Rename to games_played so the databank table can show GP
+    result = result.rename(columns={"_game_count": "games_played"})
 
     # Append computed rate stats (using weighted formulas per CLAUDE.md)
     def _safe_div(num: pd.Series, den: pd.Series) -> pd.Series:
@@ -516,13 +517,16 @@ def load_databank(
     if "player_id" in pool.columns:
         pool = pool.drop_duplicates(subset=["player_id"], keep="first")
 
-    # For views backed by season-level projections, return pool as-is.
-    # The pool already holds the best available season/ROS projection stats.
-    if view_type in ("total", "proj", "special", "ranks", "research", "matchups", "opponents", "live"):
+    # For projection / special / advanced views, return pool as-is.
+    # The pool already holds the best available projection stats.
+    if view_type in ("proj", "special", "ranks", "research", "matchups", "opponents", "live", "advanced"):
         return pool.copy()
 
-    # For rolling avg / stddev views, compute from game logs and merge metadata.
-    if view_type in ("avg", "stddev"):
+    # For total / avg / stddev views, compute from game logs.
+    # "total" = season or rolling window sums (actual stats, not projections)
+    # "avg"   = per-game averages over the window
+    # "stddev"= standard deviation over the window
+    if view_type in ("total", "avg", "stddev"):
         player_ids: list[int] = pool["player_id"].dropna().astype(int).tolist()
         if not player_ids:
             return pool.copy()
@@ -541,11 +545,6 @@ def load_databank(
         meta_cols = [c for c in pool.columns if c not in rolled.columns or c == "player_id"]
         merged = pool[meta_cols].merge(rolled, on="player_id", how="left")
         return merged
-
-    # For advanced (Statcast) views, return pool which already contains
-    # xwoba, barrel_pct, ev_mean, stuff_plus, etc. columns.
-    if view_type == "advanced":
-        return pool.copy()
 
     # Fallback: return pool unchanged
     return pool.copy()
@@ -604,19 +603,22 @@ def filter_databank(
             result = result[result["positions"].fillna("").str.upper().str.contains(pos_upper, regex=False)]
 
     # ── Status filter ────────────────────────────────────────────────────────
-    if status == "A":
-        # Available = not on any fantasy roster
-        if "is_available" in result.columns:
-            result = result[result["is_available"].fillna(True).astype(bool)]
-        elif "roster_team" in result.columns:
-            result = result[result["roster_team"].isna() | (result["roster_team"] == "")]
-    elif status == "FA":
-        if "roster_team" in result.columns:
-            result = result[result["roster_team"].isna() | (result["roster_team"] == "")]
-    elif status == "T":
-        if "roster_team" in result.columns:
-            result = result[result["roster_team"].notna() & (result["roster_team"] != "")]
-    # "ALL" — no filter
+    # Skip status filter when a specific fantasy team is selected — the user
+    # wants to see that team's players regardless of availability.
+    if not (fantasy_team and fantasy_team != "NONE"):
+        if status == "A":
+            # Available = not on any fantasy roster
+            if "is_available" in result.columns:
+                result = result[result["is_available"].fillna(True).astype(bool)]
+            elif "roster_team" in result.columns:
+                result = result[result["roster_team"].isna() | (result["roster_team"] == "")]
+        elif status == "FA":
+            if "roster_team" in result.columns:
+                result = result[result["roster_team"].isna() | (result["roster_team"] == "")]
+        elif status == "T":
+            if "roster_team" in result.columns:
+                result = result[result["roster_team"].notna() & (result["roster_team"] != "")]
+        # "ALL" — no filter
 
     # ── MLB team filter ──────────────────────────────────────────────────────
     if mlb_team and mlb_team != "ALL":
@@ -982,6 +984,59 @@ def _html_escape(text: str) -> str:
         .replace('"', "&quot;")
         .replace("'", "&#39;")
     )
+
+
+def get_data_as_of_label(stat_view: str, season: int = 2026) -> str:
+    """Return a human-readable 'as of' label for the current stat view.
+
+    For total/avg/stddev views, returns the most recent game date from
+    game_logs (e.g. "As of 04/11's games").  For projection views, returns
+    "Based on ROS projections".  Returns empty string if no data available.
+
+    Args:
+        stat_view: Key from ``STAT_VIEW_OPTIONS``.
+        season: Default season year.
+
+    Returns:
+        Label string for display, or empty string.
+    """
+    params = STAT_VIEW_PARAMS.get(stat_view, {})
+    view_type = params.get("type", "total")
+    view_season = params.get("season") or season
+    days = params.get("days")
+
+    if view_type in ("proj",):
+        return "Based on ROS projections"
+
+    if view_type in ("total", "avg", "stddev"):
+        conn = get_connection()
+        try:
+            clauses: list[str] = []
+            sql_params: list = []
+            if view_season:
+                clauses.append("season = ?")
+                sql_params.append(view_season)
+            if days is not None and days > 0:
+                cutoff = (datetime.now(UTC) - timedelta(days=days)).strftime("%Y-%m-%d")
+                clauses.append("game_date >= ?")
+                sql_params.append(cutoff)
+            where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+            cursor = conn.cursor()
+            cursor.execute(f"SELECT MAX(game_date) FROM game_logs {where}", sql_params)
+            row = cursor.fetchone()
+            if row and row[0]:
+                dt = datetime.strptime(row[0], "%Y-%m-%d")
+                return f"As of {dt.strftime('%m/%d')}'s games"
+        except Exception:
+            logger.debug("Failed to get latest game date for stat view %s", stat_view)
+        finally:
+            conn.close()
+        return ""
+
+    if view_type == "advanced":
+        return "Statcast advanced metrics"
+
+    return ""
 
 
 def export_to_excel(df: pd.DataFrame, stat_view_label: str) -> bytes:
