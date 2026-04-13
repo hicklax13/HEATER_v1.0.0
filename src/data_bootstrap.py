@@ -1815,14 +1815,16 @@ def _bootstrap_forty_man(progress: BootstrapProgress) -> str:
         conn = get_connection()
         try:
             # Get all team IDs
-            teams = statsapi.get("teams", {"sportId": 1}).get("teams", [])
+            teams = statsapi.get("teams", {"sportId": 1}, request_kwargs={"timeout": 30}).get("teams", [])
             updated = 0
             for team in teams:
                 tid = team.get("id")
                 if not tid:
                     continue
                 try:
-                    roster_data = statsapi.get("team_roster", {"teamId": tid, "rosterType": "40Man"})
+                    roster_data = statsapi.get(
+                        "team_roster", {"teamId": tid, "rosterType": "40Man"}, request_kwargs={"timeout": 30}
+                    )
                     for entry in roster_data.get("roster", []):
                         person = entry.get("person", {})
                         mlb_id = person.get("id")

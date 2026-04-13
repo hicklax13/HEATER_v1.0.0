@@ -277,7 +277,7 @@ class TestFetchHistoricalStats:
         """fetch_historical_stats returns data for multiple seasons."""
         with patch("src.live_stats.statsapi") as mock_api:
 
-            def mock_get(endpoint, params=None):
+            def mock_get(endpoint, params=None, **kwargs):
                 if endpoint == "teams":
                     return {"teams": [{"id": 147}]}
                 if endpoint == "team_roster":
@@ -325,7 +325,7 @@ class TestFetchHistoricalStats:
         """Default seasons are [2025] (2024 excluded per historical filter)."""
         with patch("src.live_stats.statsapi") as mock_api:
 
-            def mock_get(endpoint, params=None):
+            def mock_get(endpoint, params=None, **kwargs):
                 if endpoint == "teams":
                     return {"teams": [{"id": 147}]}
                 if endpoint == "team_roster":

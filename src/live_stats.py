@@ -23,6 +23,11 @@ try:
 except ImportError:
     statsapi = None
 
+# ── API Timeout ──────────────────────────────────────────────────
+# Default timeout (seconds) for all statsapi.get() calls.
+# Prevents indefinite hangs when the MLB Stats API is unresponsive.
+_API_TIMEOUT = 30
+
 # ── Team ID → Abbreviation Cache ─────────────────────────────────
 # MLB Stats API sports_players endpoint returns currentTeam.id (integer)
 # but NOT currentTeam.abbreviation. We build a lookup map from the
@@ -38,7 +43,7 @@ def _build_team_id_map(season: int = 2026) -> dict[int, str]:
     if statsapi is None:
         return {}
     try:
-        data = statsapi.get("teams", {"sportId": 1, "season": season})
+        data = statsapi.get("teams", {"sportId": 1, "season": season}, request_kwargs={"timeout": _API_TIMEOUT})
         mapping = {t["id"]: t["abbreviation"] for t in data.get("teams", [])}
         _team_id_cache[season] = mapping
         logger.info("Built team ID map: %d teams for season %d", len(mapping), season)
@@ -256,7 +261,7 @@ def fetch_season_stats(season: int = 2026) -> pd.DataFrame:
 
     try:
         # Get all MLB team IDs for the season
-        teams_data = statsapi.get("teams", {"sportId": 1, "season": season})
+        teams_data = statsapi.get("teams", {"sportId": 1, "season": season}, request_kwargs={"timeout": _API_TIMEOUT})
         team_ids = [t["id"] for t in teams_data.get("teams", [])]
         logger.info("Fetching %d season stats from %d teams...", season, len(team_ids))
     except Exception as e:
@@ -275,6 +280,7 @@ def fetch_season_stats(season: int = 2026) -> pd.DataFrame:
                     "rosterType": "fullSeason",
                     "hydrate": hydrate,
                 },
+                request_kwargs={"timeout": _API_TIMEOUT},
             )
             for entry in roster.get("roster", []):
                 person = entry.get("person", {})
@@ -462,6 +468,7 @@ def fetch_probable_pitchers(date_str: str | None = None) -> pd.DataFrame:
         schedule = statsapi.get(
             "schedule",
             {"date": date_str, "sportId": 1, "hydrate": "probablePitcher"},
+            request_kwargs={"timeout": _API_TIMEOUT},
         )
     except Exception:
         logger.warning("Failed to fetch probable pitchers for %s", date_str)
@@ -524,6 +531,7 @@ def fetch_mlb_transactions(
         data = statsapi.get(
             "transactions",
             {"startDate": start_date, "endDate": end_date},
+            request_kwargs={"timeout": _API_TIMEOUT},
         )
     except Exception:
         logger.warning("Failed to fetch MLB transactions %s to %s", start_date, end_date)
@@ -561,6 +569,7 @@ def fetch_all_mlb_players(season: int = 2026) -> pd.DataFrame:
         data = statsapi.get(
             "sports_players",
             {"season": season, "sportId": 1, "gameType": "R"},
+            request_kwargs={"timeout": _API_TIMEOUT},
         )
     except Exception as e:
         logger.warning("Failed to fetch player roster: %s", e)
@@ -620,6 +629,7 @@ def fetch_extended_roster(season: int = 2026) -> pd.DataFrame:
             data = statsapi.get(
                 "sports_players",
                 {"season": season, "sportId": 1, "gameType": game_type},
+                request_kwargs={"timeout": _API_TIMEOUT},
             )
             for p in data.get("people", []):
                 if not p.get("active", False):
@@ -747,6 +757,7 @@ def fetch_team_batting_stats(season: int = 2026) -> dict[str, dict[str, float]]:
         teams_data = statsapi.get(
             "teams",
             {"sportId": 1, "season": season, "fields": "teams,id,abbreviation,name"},
+            request_kwargs={"timeout": _API_TIMEOUT},
         )
         teams_list = teams_data.get("teams", [])
 
@@ -761,6 +772,7 @@ def fetch_team_batting_stats(season: int = 2026) -> dict[str, dict[str, float]]:
                 stats_data = statsapi.get(
                     "team_stats",
                     {"teamId": team_id, "season": season, "stats": "season", "group": "hitting"},
+                    request_kwargs={"timeout": _API_TIMEOUT},
                 )
                 splits = stats_data.get("stats", [{}])[0].get("splits", [])
                 if splits:
@@ -995,6 +1007,7 @@ def fetch_player_enhanced_status(mlb_id: int) -> dict | None:
         data = statsapi.get(
             "person",
             {"personId": mlb_id, "hydrate": "rosterEntries,transactions"},
+            request_kwargs={"timeout": _API_TIMEOUT},
         )
         people = data.get("people", [])
         return people[0] if people else None

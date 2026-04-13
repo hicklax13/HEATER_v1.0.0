@@ -134,7 +134,7 @@ def fetch_team_batting_stats(season: int | None = None) -> dict[str, dict[str, f
         season = datetime.now(UTC).year
 
     try:
-        teams_data = statsapi.get("teams", {"sportId": 1, "season": season})
+        teams_data = statsapi.get("teams", {"sportId": 1, "season": season}, request_kwargs={"timeout": 30})
         team_list = teams_data.get("teams", [])
 
         result: dict[str, dict[str, float]] = {}
@@ -159,6 +159,7 @@ def fetch_team_batting_stats(season: int | None = None) -> dict[str, dict[str, f
                         "stats": "season",
                         "season": season,
                     },
+                    request_kwargs={"timeout": 30},
                 )
                 splits = stats_resp.get("stats", [{}])[0].get("splits", [{}])[0].get("stat", {})
                 so = float(splits.get("strikeOuts", 0))

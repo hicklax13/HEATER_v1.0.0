@@ -71,6 +71,8 @@ try:
 except ImportError:  # pragma: no cover
     _statsapi = None  # type: ignore[assignment]
 
+_API_TIMEOUT = 30  # seconds — prevents indefinite hangs on MLB Stats API
+
 from src.database import load_team_strength, upsert_opp_pitcher, upsert_team_strength  # noqa: E402
 
 # ── Stadium coordinates for weather lookups (lat, lon) ───────────────
@@ -570,6 +572,7 @@ def _fetch_single_pitcher(
                 "personId": mlb_id,
                 "hydrate": ("stats(group=[pitching],type=[statSplits],sitCodes=[vl,vr])"),
             },
+            request_kwargs={"timeout": _API_TIMEOUT},
         )
         people = splits_data.get("people") or []
         if people:
@@ -643,6 +646,7 @@ def _fetch_team_strength_statsapi(season: int) -> pd.DataFrame:
         teams_data = _statsapi.get(
             "teams",
             {"sportId": 1, "season": season, "fields": "teams,id,abbreviation,name"},
+            request_kwargs={"timeout": _API_TIMEOUT},
         )
         teams_list = teams_data.get("teams", [])
     except Exception:
@@ -666,6 +670,7 @@ def _fetch_team_strength_statsapi(season: int) -> pd.DataFrame:
             bat_data = _statsapi.get(
                 "team_stats",
                 {"teamId": team_id, "season": season, "stats": "season", "group": "hitting"},
+                request_kwargs={"timeout": _API_TIMEOUT},
             )
             bat_splits = bat_data.get("stats", [{}])[0].get("splits", [])
             if bat_splits:
@@ -697,6 +702,7 @@ def _fetch_team_strength_statsapi(season: int) -> pd.DataFrame:
             pit_data = _statsapi.get(
                 "team_stats",
                 {"teamId": team_id, "season": season, "stats": "season", "group": "pitching"},
+                request_kwargs={"timeout": _API_TIMEOUT},
             )
             pit_splits = pit_data.get("stats", [{}])[0].get("splits", [])
             if pit_splits:

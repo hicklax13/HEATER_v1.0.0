@@ -58,7 +58,7 @@ def test_match_player_id_not_found(temp_db):
 def test_fetch_season_stats_structure(mock_statsapi, temp_db):
     from src.live_stats import fetch_season_stats
 
-    def mock_get(endpoint, params=None):
+    def mock_get(endpoint, params=None, **kwargs):
         if endpoint == "teams":
             return {"teams": [{"id": 147}]}
         if endpoint == "team_roster":
