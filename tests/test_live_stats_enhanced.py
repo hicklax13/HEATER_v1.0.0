@@ -137,7 +137,7 @@ def test_mlb_transactions_defaults_dates():
         # Verify API was called with auto-generated dates
         mock_get.assert_called_once()
         call_args = mock_get.call_args
-        params = call_args[1] if call_args[1] else call_args[0][1]
+        params = call_args[0][1]  # positional arg: statsapi.get(endpoint, params, ...)
         assert "startDate" in params
         assert "endDate" in params
 
