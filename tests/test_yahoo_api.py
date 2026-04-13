@@ -736,7 +736,7 @@ def test_get_all_rosters_position_model_objects(client):
 
     result = client.get_all_rosters()
     assert len(result) == 1
-    assert result.iloc[0]["position"] == "SS/2B"
+    assert result.iloc[0]["position"] == "SS,2B"
 
 
 def test_get_team_roster_position_model_objects(client):

@@ -866,8 +866,23 @@ class YahooFantasyClient:
                             raw_full.decode("utf-8", errors="replace") if isinstance(raw_full, bytes) else str(raw_full)
                         )
 
-                    positions = self._safe_attr(player, "eligible_positions", [])
-                    pos_str = "/".join(self._extract_position(p) for p in positions) if positions else ""
+                    # yfpy's eligible_positions attribute drops multi-position data
+                    # (library bug: list parsing only keeps first element).
+                    # Workaround: read raw _extracted_data which preserves the full list,
+                    # then fall back to the model attribute for non-yfpy objects.
+                    _raw_elig = getattr(player, "_extracted_data", {})
+                    _raw_elig = _raw_elig.get("eligible_positions", []) if isinstance(_raw_elig, dict) else []
+                    if isinstance(_raw_elig, dict):
+                        _raw_elig = [_raw_elig]
+                    if not _raw_elig:
+                        # Fallback: use yfpy model attribute (works for mocks/non-yfpy)
+                        _raw_elig = self._safe_attr(player, "eligible_positions", [])
+                    _pos_parts = []
+                    for _ep in _raw_elig if isinstance(_raw_elig, list) else []:
+                        _p = self._extract_position(_ep)
+                        if _p and _p not in _pos_parts:
+                            _pos_parts.append(_p)
+                    pos_str = ",".join(_pos_parts) if _pos_parts else ""
 
                     # Extract injury/ownership fields for news + ownership tables
                     injury_note = self._safe_str(self._safe_attr(player, "injury_note", ""))
@@ -960,8 +975,19 @@ class YahooFantasyClient:
                         raw_full.decode("utf-8", errors="replace") if isinstance(raw_full, bytes) else str(raw_full)
                     )
 
-                positions = self._safe_attr(player, "eligible_positions", [])
-                pos_str = "/".join(self._extract_position(p) for p in positions) if positions else ""
+                # yfpy eligible_positions drops multi-position data — use raw _extracted_data
+                _raw_elig2 = getattr(player, "_extracted_data", {})
+                _raw_elig2 = _raw_elig2.get("eligible_positions", []) if isinstance(_raw_elig2, dict) else []
+                if isinstance(_raw_elig2, dict):
+                    _raw_elig2 = [_raw_elig2]
+                if not _raw_elig2:
+                    _raw_elig2 = self._safe_attr(player, "eligible_positions", [])
+                _pos_parts2 = []
+                for _ep2 in _raw_elig2 if isinstance(_raw_elig2, list) else []:
+                    _p2 = self._extract_position(_ep2)
+                    if _p2 and _p2 not in _pos_parts2:
+                        _pos_parts2.append(_p2)
+                pos_str = ",".join(_pos_parts2) if _pos_parts2 else ""
 
                 # Extract injury/ownership fields
                 injury_note = self._safe_str(self._safe_attr(player, "injury_note", ""))
