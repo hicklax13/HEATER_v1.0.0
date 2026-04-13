@@ -266,6 +266,17 @@ Key thresholds: 1h live stats/news, 30min Yahoo, 2h game-day, 24h projections/AD
 - **Bottleneck:** Live Stats fetch is the largest phase — MLB Stats API returns all 9K+ players' current season stats in one large response.
 - **Rate limits:** Yahoo ~2K-3K API calls/day. Safe to do 10-15 full refreshes/day. Don't spam Force Refresh.
 
+### Player Databank Integration (2026-04-13)
+- **Game logs table** (`game_logs`): Per-game stats (PA, H, HR, RBI, SB, IP, K, ERA per game) for rolling L7/L14/L30 windows.
+- **`compute_rolling_stats()`** in `src/player_databank.py`: Batch SQL query for rolling totals, averages, or standard deviations. Used by Player Compare (L7/L14 display), Free Agents (L14 columns), War Room hot/cold (replaces per-player API calls).
+- **Statcast columns in pool**: `xwoba`, `barrel_pct`, `hard_hit_pct`, `stuff_plus`, `babip`, `ev_mean` flow through `load_player_pool()` to all pages. Regression flags (`regression_flag`, `babip_regression_flag`, `stuff_regression_flag`) computed in `_enrich_pool()`.
+- **`bats`/`throws`** columns now in player pool SQL — enables platoon splits in DCV matchup multiplier.
+- **`ecr_rank_stddev`** now in player pool SQL — enables ECR confidence display.
+- **DCV recent form**: Fixed `"last_14"` → `"l14"` key bug. Now adjusts counting stats (HR/RBI/SB/K/W/SV) in addition to rate stats.
+- **Statcast in Standard mode**: `enable_statcast` now fires in Standard (not just Full) optimizer mode.
+- **Auto-advance date**: `get_target_game_date()` in `src/game_day.py` returns tomorrow's date when all today's games are final. Used by optimizer, game_day, shared_data_layer, war_room_actions, weekly_report.
+- **Design spec**: `docs/superpowers/specs/2026-04-13-databank-integration-design.md`
+
 ## Key API Signatures
 
 ```python
@@ -337,6 +348,17 @@ print(recommend_k_values(roster))     # Human-readable recommendation
 from src.optimizer.scenario_generator import load_cached_empirical_stats, compare_to_defaults
 cached = load_cached_empirical_stats("data/empirical_stats.json")
 divergences = compare_to_defaults(cached)  # Flags >20% divergence
+
+# Player Databank
+from src.player_databank import compute_rolling_stats, load_databank
+rolling = compute_rolling_stats([player_id], days=14, stat_type="total")  # L14 totals
+rolling_avg = compute_rolling_stats([player_id], days=14, stat_type="avg")  # Per-game avg
+rolling_std = compute_rolling_stats([player_id], days=14, stat_type="stddev")  # Consistency
+df = load_databank("S_L14")  # Full databank view for L14
+
+# Auto-advance game date
+from src.game_day import get_target_game_date
+target = get_target_game_date()  # Today, or tomorrow if all games final
 ```
 
 ## Gotchas
