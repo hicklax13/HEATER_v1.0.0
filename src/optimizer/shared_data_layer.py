@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 import math
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pandas as pd
 
@@ -508,17 +508,17 @@ def _build_unified_category_weights(ctx: OptimizerDataContext) -> None:
 
 
 def _load_schedule_data(ctx: OptimizerDataContext) -> None:
-    """Load today's MLB schedule from statsapi."""
+    """Load target date MLB schedule (auto-advances to tomorrow if all games final)."""
     try:
         import statsapi
 
-        # MLB schedule dates are in US Eastern time, not UTC
-        _ET = timezone(timedelta(hours=-4))  # EDT
-        today = datetime.now(_ET).strftime("%Y-%m-%d")
-        games = statsapi.schedule(date=today)
+        from src.game_day import get_target_game_date
+
+        target_date = get_target_game_date()
+        games = statsapi.schedule(date=target_date)
         ctx.todays_schedule = games if games else []
     except Exception:
-        logger.warning("Failed to load today's schedule")
+        logger.warning("Failed to load schedule")
 
 
 def _load_confirmed_lineups(ctx: OptimizerDataContext) -> None:

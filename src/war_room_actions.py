@@ -139,8 +139,13 @@ def _build_schedule_context() -> tuple[dict[str, str], set[str]]:
             "Toronto Blue Jays": "TOR",
             "Washington Nationals": "WSH",
         }
-        today = datetime.now(_ET).strftime("%Y-%m-%d")
-        sched = statsapi.schedule(date=today)
+        try:
+            from src.game_day import get_target_game_date
+
+            _target = get_target_game_date()
+        except Exception:
+            _target = datetime.now(_ET).strftime("%Y-%m-%d")
+        sched = statsapi.schedule(date=_target)
         for game in sched:
             home = _FULL_TO_ABBR.get(game.get("home_name", ""), "")
             away = _FULL_TO_ABBR.get(game.get("away_name", ""), "")

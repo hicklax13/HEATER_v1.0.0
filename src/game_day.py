@@ -14,6 +14,44 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
+# Game-completion statuses that indicate a game is over
+_FINAL_STATUSES = frozenset({"final", "game over", "completed early"})
+
+
+def get_target_game_date() -> str:
+    """Return the MLB game date to target for lineup decisions.
+
+    If all of today's games are final (or there are no games today),
+    automatically returns tomorrow's date.  Otherwise returns today.
+
+    Uses US Eastern time since MLB schedules are in ET.
+
+    Returns:
+        Date string in ``YYYY-MM-DD`` format.
+    """
+    _ET = timezone(timedelta(hours=-4))
+    today_str = datetime.now(_ET).strftime("%Y-%m-%d")
+
+    try:
+        import statsapi
+
+        today_sched = statsapi.schedule(date=today_str)
+    except Exception:
+        return today_str  # Can't check — default to today
+
+    if not today_sched:
+        # No games today — target tomorrow
+        tomorrow = datetime.now(_ET) + timedelta(days=1)
+        return tomorrow.strftime("%Y-%m-%d")
+
+    all_final = all(str(g.get("status", "")).lower() in _FINAL_STATUSES for g in today_sched)
+    if all_final:
+        tomorrow = datetime.now(_ET) + timedelta(days=1)
+        return tomorrow.strftime("%Y-%m-%d")
+
+    return today_str
+
+
 try:
     import requests as _requests
 except ImportError:  # pragma: no cover
@@ -237,13 +275,12 @@ def fetch_game_day_intelligence() -> dict:
             "fetched_at": datetime.now(UTC).isoformat(),
         }
 
-    # MLB schedule dates are in US Eastern time, not UTC
-    _ET = timezone(timedelta(hours=-4))  # EDT
-    today_str = datetime.now(_ET).strftime("%Y-%m-%d")
+    # Target date: today, or tomorrow if all today's games are final
+    today_str = get_target_game_date()
     try:
         schedule = _statsapi.schedule(date=today_str)
     except Exception:
-        logger.exception("Failed to fetch today's schedule")
+        logger.exception("Failed to fetch schedule for %s", today_str)
         schedule = []
 
     weather = fetch_game_day_weather(schedule)

@@ -336,9 +336,14 @@ def get_todays_mlb_games() -> list[str]:
     try:
         import statsapi
 
-        # MLB schedule dates are in US Eastern time, not UTC
-        _ET = timezone(timedelta(hours=-4))  # EDT (summer)
-        today = datetime.now(_ET).strftime("%Y-%m-%d")
+        # Target date: today or tomorrow if all games final
+        try:
+            from src.game_day import get_target_game_date
+
+            today = get_target_game_date()
+        except Exception:
+            _ET = timezone(timedelta(hours=-4))
+            today = datetime.now(_ET).strftime("%Y-%m-%d")
         schedule = statsapi.schedule(start_date=today, end_date=today)
         teams_playing = set()
         for game in schedule:

@@ -862,29 +862,12 @@ with main:
                     "Toronto Blue Jays": "TOR",
                     "Washington Nationals": "WSH",
                 }
-                # MLB schedule dates are in US Eastern time
-                _ET = timezone(timedelta(hours=-4))
-                _today_str = datetime.now(_ET).strftime("%Y-%m-%d")
-                _today_sched = statsapi.schedule(date=_today_str)
+                # Target date: today or tomorrow if all games final
+                from src.game_day import get_target_game_date
 
-                # Auto-advance to tomorrow if all today's games are final (or no games)
-                _opt_target_date = _today_str
-                if _today_sched:
-                    _all_final = all(
-                        str(g.get("status", "")).lower() in ("final", "game over", "completed early")
-                        for g in _today_sched
-                    )
-                    if _all_final:
-                        _tomorrow = datetime.now(_ET) + timedelta(days=1)
-                        _opt_target_date = _tomorrow.strftime("%Y-%m-%d")
-                        _today_sched = statsapi.schedule(date=_opt_target_date)
-                else:
-                    # No games today — target tomorrow
-                    _tomorrow = datetime.now(_ET) + timedelta(days=1)
-                    _opt_target_date = _tomorrow.strftime("%Y-%m-%d")
-                    _today_sched = statsapi.schedule(date=_opt_target_date)
-
+                _opt_target_date = get_target_game_date()
                 st.session_state["_optimizer_target_date"] = _opt_target_date
+                _today_sched = statsapi.schedule(date=_opt_target_date)
 
                 for _g in _today_sched:
                     for _side in ("home_name", "away_name"):
