@@ -866,6 +866,26 @@ with main:
                 _ET = timezone(timedelta(hours=-4))
                 _today_str = datetime.now(_ET).strftime("%Y-%m-%d")
                 _today_sched = statsapi.schedule(date=_today_str)
+
+                # Auto-advance to tomorrow if all today's games are final (or no games)
+                _opt_target_date = _today_str
+                if _today_sched:
+                    _all_final = all(
+                        str(g.get("status", "")).lower() in ("final", "game over", "completed early")
+                        for g in _today_sched
+                    )
+                    if _all_final:
+                        _tomorrow = datetime.now(_ET) + timedelta(days=1)
+                        _opt_target_date = _tomorrow.strftime("%Y-%m-%d")
+                        _today_sched = statsapi.schedule(date=_opt_target_date)
+                else:
+                    # No games today — target tomorrow
+                    _tomorrow = datetime.now(_ET) + timedelta(days=1)
+                    _opt_target_date = _tomorrow.strftime("%Y-%m-%d")
+                    _today_sched = statsapi.schedule(date=_opt_target_date)
+
+                st.session_state["_optimizer_target_date"] = _opt_target_date
+
                 for _g in _today_sched:
                     for _side in ("home_name", "away_name"):
                         _raw = str(_g.get(_side, ""))
@@ -886,12 +906,16 @@ with main:
 
                     _dcv_sched = None
                     try:
-                        from datetime import datetime, timedelta, timezone
-
                         import statsapi
 
-                        _ET2 = timezone(timedelta(hours=-4))
-                        _dcv_sched = statsapi.schedule(date=datetime.now(_ET2).strftime("%Y-%m-%d"))
+                        # Use the same target date (auto-advanced if today's games are final)
+                        _dcv_target = st.session_state.get("_optimizer_target_date", "")
+                        if not _dcv_target:
+                            from datetime import datetime, timedelta, timezone
+
+                            _ET2 = timezone(timedelta(hours=-4))
+                            _dcv_target = datetime.now(_ET2).strftime("%Y-%m-%d")
+                        _dcv_sched = statsapi.schedule(date=_dcv_target)
                     except Exception:
                         _dcv_sched = []
 
@@ -1088,7 +1112,18 @@ with main:
             if dcv.empty:
                 st.info("Could not compute Daily Category Values. Check that roster data is loaded.")
             else:
-                st.success("Daily lineup optimized (DCV engine, matchup-adjusted)")
+                _target_date_display = st.session_state.get("_optimizer_target_date", "")
+                if _target_date_display:
+                    try:
+                        from datetime import datetime as _dt_disp
+
+                        _td_parsed = _dt_disp.strptime(_target_date_display, "%Y-%m-%d")
+                        _target_label = _td_parsed.strftime("%A %m/%d")
+                    except Exception:
+                        _target_label = _target_date_display
+                else:
+                    _target_label = "Today"
+                st.success(f"Lineup optimized for {_target_label} (DCV engine, matchup-adjusted)")
 
                 # Show W-L-T summary from actual Yahoo matchup results
                 _ctx_disp = st.session_state.get("optimizer_context")
