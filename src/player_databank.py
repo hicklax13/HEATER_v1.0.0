@@ -469,6 +469,141 @@ def _parse_game_log_row(
     return base
 
 
+# ── Databank enrichment helpers ──────────────────────────────────────────────
+
+# Timeout for statsapi calls (seconds)
+_API_TIMEOUT = 30
+
+# MLB team full name → abbreviation map (for schedule parsing)
+_TEAM_ABBR: dict[str, str] = {
+    "Arizona Diamondbacks": "ARI",
+    "Atlanta Braves": "ATL",
+    "Baltimore Orioles": "BAL",
+    "Boston Red Sox": "BOS",
+    "Chicago Cubs": "CHC",
+    "Chicago White Sox": "CHW",
+    "Cincinnati Reds": "CIN",
+    "Cleveland Guardians": "CLE",
+    "Colorado Rockies": "COL",
+    "Detroit Tigers": "DET",
+    "Houston Astros": "HOU",
+    "Kansas City Royals": "KC",
+    "Los Angeles Angels": "LAA",
+    "Los Angeles Dodgers": "LAD",
+    "Miami Marlins": "MIA",
+    "Milwaukee Brewers": "MIL",
+    "Minnesota Twins": "MIN",
+    "New York Mets": "NYM",
+    "New York Yankees": "NYY",
+    "Athletics": "OAK",
+    "Oakland Athletics": "OAK",
+    "Philadelphia Phillies": "PHI",
+    "Pittsburgh Pirates": "PIT",
+    "San Diego Padres": "SD",
+    "San Francisco Giants": "SF",
+    "Seattle Mariners": "SEA",
+    "St. Louis Cardinals": "STL",
+    "Tampa Bay Rays": "TB",
+    "Texas Rangers": "TEX",
+    "Toronto Blue Jays": "TOR",
+    "Washington Nationals": "WSH",
+}
+
+
+def get_todays_opponent_map() -> dict[str, str]:
+    """Build MLB team abbreviation → today's opponent mapping.
+
+    Returns dict like ``{"NYY": "@ BOS", "BOS": "vs NYY"}``.
+    Uses ``get_target_game_date()`` which auto-advances to tomorrow when
+    all of today's games are final.  Returns empty dict on error.
+    """
+    if statsapi is None:
+        return {}
+    try:
+        from src.game_day import get_target_game_date
+
+        target = get_target_game_date()
+        date_str = target.strftime("%Y-%m-%d") if hasattr(target, "strftime") else str(target)
+        schedule = statsapi.schedule(date=date_str)
+    except Exception:
+        logger.debug("get_todays_opponent_map: schedule fetch failed", exc_info=True)
+        return {}
+
+    opp_map: dict[str, str] = {}
+    for game in schedule:
+        home = _TEAM_ABBR.get(game.get("home_name", ""), "")
+        away = _TEAM_ABBR.get(game.get("away_name", ""), "")
+        if home and away:
+            opp_map[home] = f"vs {away}"
+            opp_map[away] = f"@ {home}"
+    return opp_map
+
+
+def get_adds_drops_map() -> tuple[dict[str, int], dict[str, int]]:
+    """Aggregate add/drop counts per player from Yahoo transactions.
+
+    Returns ``(adds_by_name, drops_by_name)`` dicts.
+    Returns empty dicts if Yahoo is unavailable.
+    """
+    try:
+        from src.yahoo_data_service import get_yahoo_data_service
+
+        yds = get_yahoo_data_service()
+        if not yds.is_connected():
+            return {}, {}
+        txns = yds.get_transactions()
+        if txns is None or txns.empty:
+            return {}, {}
+    except Exception:
+        logger.debug("get_adds_drops_map: Yahoo unavailable", exc_info=True)
+        return {}, {}
+
+    adds: dict[str, int] = {}
+    drops: dict[str, int] = {}
+    name_col = "player_name" if "player_name" in txns.columns else "name"
+    type_col = "type" if "type" in txns.columns else "transaction_type"
+    if name_col not in txns.columns or type_col not in txns.columns:
+        return {}, {}
+
+    for _, row in txns.iterrows():
+        pname = str(row.get(name_col, ""))
+        ttype = str(row.get(type_col, "")).lower()
+        if not pname:
+            continue
+        if "add" in ttype:
+            adds[pname] = adds.get(pname, 0) + 1
+        if "drop" in ttype:
+            drops[pname] = drops.get(pname, 0) + 1
+    return adds, drops
+
+
+def _enrich_databank_columns(df: pd.DataFrame) -> None:
+    """Enrich databank DataFrame in-place with opponent, adds, drops columns."""
+    # Opponent
+    try:
+        opp_map = get_todays_opponent_map()
+        if opp_map and "team" in df.columns:
+            df["opponent"] = df["team"].map(opp_map).fillna("-")
+        else:
+            df["opponent"] = "-"
+    except Exception:
+        df["opponent"] = "-"
+
+    # Adds / Drops
+    try:
+        adds_map, drops_map = get_adds_drops_map()
+        name_col = "player_name" if "player_name" in df.columns else "name"
+        if name_col in df.columns:
+            df["adds"] = df[name_col].map(adds_map).fillna(0).astype(int)
+            df["drops"] = df[name_col].map(drops_map).fillna(0).astype(int)
+        else:
+            df["adds"] = 0
+            df["drops"] = 0
+    except Exception:
+        df["adds"] = 0
+        df["drops"] = 0
+
+
 # ── Databank assembly ─────────────────────────────────────────────────────────
 
 
@@ -516,6 +651,9 @@ def load_databank(
     # (which is the preferred/blended projection).
     if "player_id" in pool.columns:
         pool = pool.drop_duplicates(subset=["player_id"], keep="first")
+
+    # Enrich with opponent, adds/drops (uses external APIs — graceful fallback)
+    _enrich_databank_columns(pool)
 
     # For projection / special / advanced views, return pool as-is.
     # The pool already holds the best available projection stats.
@@ -700,6 +838,30 @@ def _format_cell(value: object, col: str) -> str:
         except (TypeError, ValueError):
             return str(value)
 
+    # % Rostered: display as percentage
+    if col_lower == "percent_owned":
+        try:
+            v = float(value)
+            return f"{v:.1f}%" if v > 0 else "-"
+        except (TypeError, ValueError):
+            return "-"
+
+    # ADP (Pre-Season rank): integer, hide if unranked
+    if col_lower == "adp":
+        try:
+            v = float(value)
+            return str(int(v)) if 0 < v < 999 else "-"
+        except (TypeError, ValueError):
+            return "-"
+
+    # Consensus rank (Current): integer, hide if unranked
+    if col_lower == "consensus_rank":
+        try:
+            v = float(value)
+            return str(int(v)) if 0 < v < 9999 else "-"
+        except (TypeError, ValueError):
+            return "-"
+
     # Integer floats (e.g. 5.0 → "5")
     try:
         fval = float(value)
@@ -753,28 +915,63 @@ def render_databank_table(
 
     stat_cols: list[str] = [_resolve_col(c) for c in stat_cols_raw]
 
-    # Meta columns
+    # Meta columns — core identity
     player_label = "Pitchers" if is_pitcher else "Batters"
-    meta_cols = ["player_name", "team", "positions"]
-    meta_labels = [player_label, "Team", "Pos"]
+    meta_cols: list[str] = ["player_name", "team", "positions"]
+    meta_labels: list[str] = [player_label, "Team", "Pos"]
 
-    # Optional GP column
+    # Roster status column
+    if "roster_team" in df.columns:
+        df = df.copy()
+        df["_roster_status"] = df["roster_team"].fillna("FA").replace("", "FA")
+        meta_cols.append("_roster_status")
+        meta_labels.append("Roster Status")
+
+    # Optional GP column (try multiple names)
     gp_col: str | None = None
-    for candidate in ("games_played", "gp"):
+    for candidate in ("games_played", "gp", "ytd_gp"):
         if candidate in df.columns:
             gp_col = candidate
             break
+    if gp_col is not None:
+        meta_cols.append(gp_col)
+        meta_labels.append("GP*")
+
+    # Opponent column (today's matchup)
+    if "opponent" in df.columns:
+        meta_cols.append("opponent")
+        meta_labels.append("Opp: " + datetime.now(UTC).strftime("%-m/%d"))
+
+    # Pre-Season ranking (ADP)
+    if "adp" in df.columns:
+        meta_cols.append("adp")
+        meta_labels.append("Pre-Season")
+
+    # Current ranking (ECR consensus)
+    if "consensus_rank" in df.columns:
+        meta_cols.append("consensus_rank")
+        meta_labels.append("Current")
+
+    # Adds / Drops
+    if "adds" in df.columns:
+        meta_cols.append("adds")
+        meta_labels.append("Adds")
+    if "drops" in df.columns:
+        meta_cols.append("drops")
+        meta_labels.append("Drops")
+
+    # % Rostered
+    if "percent_owned" in df.columns:
+        meta_cols.append("percent_owned")
+        meta_labels.append("% Ros")
 
     # Build full column / label lists
     all_cols: list[str] = meta_cols.copy()
     all_labels: list[str] = meta_labels.copy()
-    if gp_col is not None:
-        all_cols.append(gp_col)
-        all_labels.append("GP")
     all_cols.extend(stat_cols)
     all_labels.extend(stat_labels)
 
-    n_meta = len(meta_cols) + (1 if gp_col else 0)
+    n_meta = len(meta_cols)
     n_stat = len(stat_cols)
 
     # Stat group label from STAT_VIEW_OPTIONS
@@ -796,7 +993,7 @@ def render_databank_table(
     font-size: 13px;
 }}
 .hdb-table thead th {{
-    background: #1d1d1f;
+    background: linear-gradient(135deg, #16213e, #1a1a2e);
     color: #ffffff;
     padding: 8px 10px;
     position: sticky;
@@ -807,7 +1004,7 @@ def render_databank_table(
     user-select: none;
 }}
 .hdb-table thead th:hover {{
-    background: #333333;
+    background: #1e2a45;
 }}
 .sort-arrow {{
     font-size: 10px;
@@ -819,7 +1016,7 @@ def render_databank_table(
     color: #ff6d00;
 }}
 .hdb-table .stat-group {{
-    background: #2a2a2a;
+    background: linear-gradient(135deg, #1a1a2e, #16213e);
     color: #ff6d00;
     text-align: center;
     font-size: 11px;
@@ -912,7 +1109,9 @@ function sortTable(colIdx, headerEl) {{
     # Stat group header row
     group_row = "<tr>"
     for _ in range(n_meta):
-        group_row += '<th class="stat-group" style="background:#1d1d1f;color:#ffffff;"></th>'
+        group_row += (
+            '<th class="stat-group" style="background:linear-gradient(135deg, #16213e, #1a1a2e);color:#ffffff;"></th>'
+        )
     group_row += f'<th class="stat-group" colspan="{n_stat}">{_html_escape(group_label)}</th>'
     group_row += "</tr>"
 

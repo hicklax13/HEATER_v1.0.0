@@ -1503,6 +1503,10 @@ def _load_player_pool_impl() -> pd.DataFrame:
                     COALESCE(ss.whip, 0) AS ytd_whip,
                     COALESCE(ss.sv, 0) AS ytd_sv,
                     COALESCE(ss.k, 0) AS ytd_k,
+                    COALESCE(ss.games_played, 0) AS ytd_gp,
+                    (SELECT ot.percent_owned FROM ownership_trends ot
+                     WHERE ot.player_id = p.player_id
+                     ORDER BY ot.date DESC LIMIT 1) AS percent_owned,
                     sa.xwoba AS xwoba,
                     sa.xba AS xba,
                     sa.barrel_pct AS barrel_pct,
@@ -1559,6 +1563,10 @@ def _load_player_pool_impl() -> pd.DataFrame:
                 COALESCE(ss.whip, 0) AS ytd_whip,
                 COALESCE(ss.sv, 0) AS ytd_sv,
                 COALESCE(ss.k, 0) AS ytd_k,
+                COALESCE(ss.games_played, 0) AS ytd_gp,
+                (SELECT ot.percent_owned FROM ownership_trends ot
+                 WHERE ot.player_id = p.player_id
+                 ORDER BY ot.date DESC LIMIT 1) AS percent_owned,
                 sa.xwoba AS xwoba,
                 sa.xba AS xba,
                 sa.barrel_pct AS barrel_pct,
@@ -1617,6 +1625,10 @@ def _load_player_pool_impl() -> pd.DataFrame:
                     COALESCE(ss.whip, 0) AS ytd_whip,
                     COALESCE(ss.sv, 0) AS ytd_sv,
                     COALESCE(ss.k, 0) AS ytd_k,
+                    COALESCE(ss.games_played, 0) AS ytd_gp,
+                    (SELECT ot.percent_owned FROM ownership_trends ot
+                     WHERE ot.player_id = p.player_id
+                     ORDER BY ot.date DESC LIMIT 1) AS percent_owned,
                     sa.xwoba AS xwoba,
                     sa.xba AS xba,
                     sa.barrel_pct AS barrel_pct,

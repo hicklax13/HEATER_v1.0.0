@@ -346,7 +346,7 @@ class TestHTMLTableRenderer:
         )
         html = render_databank_table(df, stat_view="S_S_2026", is_pitcher=False)
         # Check HEATER theme colors are present
-        assert "#1d1d1f" in html  # Header background
+        assert "#16213e" in html  # Header background (dark navy gradient)
         assert "#fff7ed" in html  # Hover color
 
 

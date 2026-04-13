@@ -2,6 +2,7 @@
 
 Full MLB player database with 5-axis filtering, 28 stat views,
 custom HTML table with JavaScript sorting, and Excel export.
+Search button defers execution; pagination shows 25 players per page.
 """
 
 import logging
@@ -27,7 +28,10 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-# Page config
+PAGE_SIZE = 25
+
+# ── Page config ──────────────────────────────────────────────────────────────
+
 st.set_page_config(
     page_title="Heater | Player Databank",
     page_icon="",
@@ -44,16 +48,8 @@ render_page_layout(
     banner_icon="databank",
 )
 
-# Search bar
-search = st.text_input(
-    "Search player by name",
-    placeholder="Search player by name",
-    key="db_search",
-    label_visibility="collapsed",
-)
+# ── Filter constants ─────────────────────────────────────────────────────────
 
-# Position filter — pill-style buttons via selectbox
-# (Custom HTML pills are visual only; selectbox drives the logic)
 POSITION_OPTIONS = [
     ("B", "All Batters"),
     ("P", "All Pitchers"),
@@ -68,19 +64,6 @@ POSITION_OPTIONS = [
     ("RP", "RP"),
 ]
 
-pos_col, show_col = st.columns([5, 1])
-with pos_col:
-    position = st.selectbox(
-        "Position",
-        options=[p[0] for p in POSITION_OPTIONS],
-        format_func=lambda x: dict(POSITION_OPTIONS).get(x, x),
-        index=0,
-        key="db_position",
-    )
-with show_col:
-    show_my_team = st.checkbox("Show my team", key="db_show_my_team")
-
-# Filter row — 4 dropdowns + export column
 STATUS_OPTIONS = [
     ("ALL", "All Players"),
     ("A", "All Available Players"),
@@ -123,7 +106,51 @@ MLB_TEAMS = [
     "WSH",
 ]
 
-# Get fantasy teams from Yahoo
+SORT_OPTIONS = [
+    "Pre-Season",
+    "Current",
+    "GP",
+    "% Ros",
+    "Adds",
+    "Drops",
+    "R",
+    "HR",
+    "RBI",
+    "SB",
+    "AVG",
+    "OBP",
+    "IP",
+    "W",
+    "L",
+    "SV",
+    "K",
+    "ERA",
+    "WHIP",
+]
+
+SORT_COL_MAP = {
+    "Pre-Season": "adp",
+    "Current": "consensus_rank",
+    "GP": "ytd_gp",
+    "% Ros": "percent_owned",
+    "Adds": "adds",
+    "Drops": "drops",
+    "R": "r",
+    "HR": "hr",
+    "RBI": "rbi",
+    "SB": "sb",
+    "AVG": "avg",
+    "OBP": "obp",
+    "IP": "ip",
+    "W": "w",
+    "L": "l",
+    "SV": "sv",
+    "K": "k",
+    "ERA": "era",
+    "WHIP": "whip",
+}
+
+# Get fantasy teams from Yahoo (before form so options are ready)
 fantasy_team_options = [("NONE", "No Team Selected")]
 try:
     if get_yahoo_data_service is not None:
@@ -138,40 +165,95 @@ try:
 except Exception:
     pass
 
-fcol1, fcol2, fcol3, fcol4, fcol5 = st.columns([2, 2, 2, 3, 1.5])
+# ── Filter form (deferred execution — table renders only on Search) ──────────
 
-with fcol1:
-    status = st.selectbox(
-        "Status",
-        options=[s[0] for s in STATUS_OPTIONS],
-        format_func=lambda x: dict(STATUS_OPTIONS).get(x, x),
-        index=1,
-        key="db_status",
+with st.form("databank_filters", border=False):
+    # Row 1: Search bar
+    search = st.text_input(
+        "Search player by name",
+        placeholder="Search player by name",
+        key="db_search",
+        label_visibility="collapsed",
     )
 
-with fcol2:
-    mlb_team = st.selectbox("MLB Teams", MLB_TEAMS, index=0, key="db_mlb_team")
+    # Row 2: Position + Show My Team
+    pos_col, show_col = st.columns([5, 1])
+    with pos_col:
+        position = st.selectbox(
+            "Position",
+            options=[p[0] for p in POSITION_OPTIONS],
+            format_func=lambda x: dict(POSITION_OPTIONS).get(x, x),
+            index=0,
+            key="db_position",
+        )
+    with show_col:
+        show_my_team = st.checkbox("Show my team", key="db_show_my_team")
 
-with fcol3:
-    fantasy_team = st.selectbox(
-        "Fantasy Teams",
-        options=[f[0] for f in fantasy_team_options],
-        format_func=lambda x: dict(fantasy_team_options).get(x, x),
-        index=0,
-        key="db_fantasy_team",
-    )
+    # Row 3: Status, MLB Team, Fantasy Team, Stats, Sort, Order
+    fcol1, fcol2, fcol3, fcol4, fcol5, fcol6 = st.columns([2, 2, 2, 3, 2, 1.5])
 
-with fcol4:
-    stat_view_keys = list(STAT_VIEW_OPTIONS.keys())
-    stat_view = st.selectbox(
-        "Stats",
-        options=stat_view_keys,
-        format_func=lambda x: STAT_VIEW_OPTIONS.get(x, x),
-        index=stat_view_keys.index("S_S_2026"),
-        key="db_stat_view",
-    )
+    with fcol1:
+        status = st.selectbox(
+            "Status",
+            options=[s[0] for s in STATUS_OPTIONS],
+            format_func=lambda x: dict(STATUS_OPTIONS).get(x, x),
+            index=1,
+            key="db_status",
+        )
 
-# Load and filter data
+    with fcol2:
+        mlb_team = st.selectbox("MLB Teams", MLB_TEAMS, index=0, key="db_mlb_team")
+
+    with fcol3:
+        fantasy_team = st.selectbox(
+            "Fantasy Teams",
+            options=[f[0] for f in fantasy_team_options],
+            format_func=lambda x: dict(fantasy_team_options).get(x, x),
+            index=0,
+            key="db_fantasy_team",
+        )
+
+    with fcol4:
+        stat_view_keys = list(STAT_VIEW_OPTIONS.keys())
+        stat_view = st.selectbox(
+            "Stats",
+            options=stat_view_keys,
+            format_func=lambda x: STAT_VIEW_OPTIONS.get(x, x),
+            index=stat_view_keys.index("S_S_2026"),
+            key="db_stat_view",
+        )
+
+    with fcol5:
+        sort_col = st.selectbox(
+            "Sort by",
+            options=SORT_OPTIONS,
+            index=0,
+            key="db_sort_col",
+        )
+
+    with fcol6:
+        sort_dir = st.selectbox(
+            "Order",
+            options=["Ascending", "Descending"],
+            index=0,
+            key="db_sort_dir",
+        )
+
+    # Row 4: Search button
+    search_submitted = st.form_submit_button("Search", type="primary", use_container_width=True)
+
+# ── Search trigger guard ─────────────────────────────────────────────────────
+
+if search_submitted:
+    st.session_state["db_page"] = 0  # Reset pagination on new search
+    st.session_state["db_search_triggered"] = True
+
+if not st.session_state.get("db_search_triggered", False):
+    st.info("Select your filters above, then click **Search** to find players.")
+    st.stop()
+
+# ── Load and filter data ─────────────────────────────────────────────────────
+
 is_pitcher = position in ("P", "SP", "RP")
 
 with st.spinner("Loading player data..."):
@@ -191,36 +273,96 @@ filtered = filter_databank(
     show_my_team=show_my_team,
 )
 
-# Export button
-with fcol5:
-    st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
-    if not filtered.empty:
-        today_str = datetime.now(UTC).strftime("%Y-%m-%d")
-        view_label = STAT_VIEW_OPTIONS.get(stat_view, "stats")
-        safe_label = view_label.replace(" ", "_").replace("(", "").replace(")", "")
-        filename = f"HEATER_Player_Databank_{safe_label}_{today_str}.xlsx"
-        excel_bytes = export_to_excel(filtered, view_label)
-        st.download_button(
-            label="Export",
-            data=excel_bytes,
-            file_name=filename,
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            key="db_export",
-        )
+if filtered.empty:
+    st.info("No players match the selected filters.")
+    st.stop()
 
-# Player count + data freshness label
+# ── Server-side sort ─────────────────────────────────────────────────────────
+
+sort_column = SORT_COL_MAP.get(sort_col, "adp")
+ascending = sort_dir == "Ascending"
+
+# Resolve _calc aliases for rate stats
+if sort_column + "_calc" in filtered.columns:
+    sort_column = sort_column + "_calc"
+# Fall back to ytd_ prefix if base column missing
+if sort_column not in filtered.columns and f"ytd_{sort_column}" in filtered.columns:
+    sort_column = f"ytd_{sort_column}"
+
+if sort_column in filtered.columns:
+    filtered = filtered.sort_values(
+        by=sort_column,
+        ascending=ascending,
+        na_position="last",
+    )
+
+# ── Pagination ───────────────────────────────────────────────────────────────
+
+if "db_page" not in st.session_state:
+    st.session_state["db_page"] = 0
+
+total_players = len(filtered)
+total_pages = max(1, -(-total_players // PAGE_SIZE))  # ceiling division
+page = min(st.session_state.get("db_page", 0), total_pages - 1)
+st.session_state["db_page"] = page
+
+start_idx = page * PAGE_SIZE
+end_idx = min(start_idx + PAGE_SIZE, total_players)
+
+page_df = filtered.iloc[start_idx:end_idx]
+
+# ── Player count + data freshness label ──────────────────────────────────────
+
 as_of_label = get_data_as_of_label(stat_view)
 freshness_html = f' &middot; <span style="color:{T["amber"]}">{as_of_label}</span>' if as_of_label else ""
 st.markdown(
     f'<div style="color:{T["tx2"]};font-size:13px;margin:4px 0 8px 0;">'
-    f"Showing {len(filtered):,} players{freshness_html}</div>",
+    f"Showing {start_idx + 1}\u2013{end_idx} of {total_players:,} players{freshness_html}</div>",
     unsafe_allow_html=True,
 )
 
-# Render table
+# ── Render table ─────────────────────────────────────────────────────────────
+
 table_html = render_databank_table(
-    filtered,
+    page_df,
     stat_view=stat_view,
     is_pitcher=is_pitcher,
 )
 st.markdown(table_html, unsafe_allow_html=True)
+
+# ── Pagination controls + Export ─────────────────────────────────────────────
+
+pag_c1, pag_c2, pag_c3, pag_c4 = st.columns([1.5, 2, 1.5, 1.5])
+
+with pag_c1:
+    if page > 0:
+        if st.button("Previous 25", key="db_prev"):
+            st.session_state["db_page"] = page - 1
+            st.rerun()
+
+with pag_c2:
+    st.markdown(
+        f'<div style="text-align:center;color:{T["tx2"]};font-size:13px;padding-top:8px;">'
+        f"Page {page + 1} of {total_pages}</div>",
+        unsafe_allow_html=True,
+    )
+
+with pag_c3:
+    if page < total_pages - 1:
+        if st.button("Next 25", key="db_next"):
+            st.session_state["db_page"] = page + 1
+            st.rerun()
+
+with pag_c4:
+    today_str = datetime.now(UTC).strftime("%Y-%m-%d")
+    view_label = STAT_VIEW_OPTIONS.get(stat_view, "stats")
+    safe_label = view_label.replace(" ", "_").replace("(", "").replace(")", "")
+    filename = f"HEATER_Player_Databank_{safe_label}_{today_str}.xlsx"
+    excel_bytes = export_to_excel(filtered, view_label)
+    st.download_button(
+        label="Export",
+        data=excel_bytes,
+        file_name=filename,
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        key="db_export",
+    )
