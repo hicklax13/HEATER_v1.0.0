@@ -516,14 +516,19 @@ class YahooFantasyClient:
         """Extract a clean position abbreviation from a yfpy position object.
 
         yfpy eligible_positions entries may be model objects with a
-        ``position`` attribute rather than plain strings.  Calling ``str()``
-        on the model object produces its repr, not "SS".  This helper
-        extracts the ``position`` attribute when present, and falls back to
-        ``_safe_str`` otherwise.
+        ``position`` attribute, plain dicts with a ``position`` key,
+        or plain strings.  This helper handles all three formats.
         """
         # If it's already a plain string (or bytes), decode and return
         if isinstance(pos_obj, (str, bytes)):
             return pos_obj.decode("utf-8", errors="replace") if isinstance(pos_obj, bytes) else pos_obj
+        # Plain dicts from _extracted_data (e.g. {"position": "SP"})
+        if isinstance(pos_obj, dict):
+            raw = pos_obj.get("position")
+            if raw is not None:
+                if isinstance(raw, bytes):
+                    return raw.decode("utf-8", errors="replace")
+                return str(raw)
         # yfpy EligiblePosition model objects have a .position attribute
         raw = getattr(pos_obj, "position", None)
         if raw is not None:
