@@ -251,6 +251,21 @@ Write-through: every Yahoo fetch writes to SQLite. Singleton via `get_yahoo_data
 Staleness-based refresh on every app launch. Force Refresh sidebar button overrides all checks.
 Key thresholds: 1h live stats/news, 30min Yahoo, 2h game-day, 24h projections/ADP/ECR, 7d players/prospects.
 
+### Bootstrap Timing (measured 2026-04-12, Python 3.14, Windows)
+- **Cold start (all stale):** ~30 minutes total
+  - Players (MLB Stats API 40-man + spring): ~2-3 min
+  - Projections (FanGraphs 7 systems): ~3-5 min
+  - Live Stats (9K+ player season stats): ~8-12 min (largest phase, network-bound)
+  - Deduplication: <10 seconds (batch SQL via temp table)
+  - Yahoo sync (rosters, standings, FA, transactions): ~3-5 min
+  - News Intelligence (ESPN + RotoWire + MLB): ~2-3 min
+  - Depth Charts + ADP + ECR: ~2-3 min
+  - Remaining phases (prospects, park factors, etc.): ~1-2 min
+- **Warm start (most data cached, <1h old):** ~2-5 minutes (only stale sources refresh)
+- **Hot start (all data fresh):** ~5-10 seconds (staleness checks only, no fetches)
+- **Bottleneck:** Live Stats fetch is the largest phase — MLB Stats API returns all 9K+ players' current season stats in one large response.
+- **Rate limits:** Yahoo ~2K-3K API calls/day. Safe to do 10-15 full refreshes/day. Don't spam Force Refresh.
+
 ## Key API Signatures
 
 ```python
@@ -341,6 +356,7 @@ divergences = compare_to_defaults(cached)  # Flags >20% divergence
 - **yfpy Roster iteration** — `Roster.__iter__()` yields attribute NAMES (strings), NOT players. Use `getattr(roster, "players", None) or []`.
 - **Yahoo game_key** — MLB 2026 = 469. Must set BOTH `self._query.game_id` AND `self._query.league_key`.
 - **429 backoff** — `_request_with_backoff()` retries 3x with exponential delay.
+- **yfpy eligible_positions bug** — yfpy's `Player.eligible_positions` attribute drops multi-position data (e.g., returns `["2B"]` instead of `["2B", "OF"]`). Workaround: read from `player._extracted_data["eligible_positions"]` which preserves the full list. Fixed in both `get_all_rosters()` and `get_team_roster()` methods. Separator is `,` (not `/`).
 
 ### Streamlit UI
 - **No emoji** — All icons are inline SVGs from `PAGE_ICONS`. Injury badges use CSS dots.
