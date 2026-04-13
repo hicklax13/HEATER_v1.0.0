@@ -220,6 +220,16 @@ def _score_fa_candidates(ctx: OptimizerDataContext) -> list[dict]:
 
         composite = base_value * sustainability * ownership_mult * floor_mult + urgency_boost
 
+        # T3-4: ECR stddev consensus adjustment
+        try:
+            _ecr_stddev = float(fa_data.get("ecr_rank_stddev", 0) or 0)
+            if _ecr_stddev > 20:
+                composite *= 0.95  # Polarizing pick — small discount
+            elif 0 < _ecr_stddev < 5:
+                composite *= 1.02  # Consensus pick — small premium
+        except (TypeError, ValueError):
+            pass
+
         # Ownership trend label
         pct_owned = trend.get("pct_owned", 0.0)
         if delta_7d > _OWNERSHIP_BOOST_DELTA:

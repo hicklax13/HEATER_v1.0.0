@@ -490,6 +490,7 @@ class LineupOptimizerPipeline:
             t11 = time.perf_counter()
             try:
                 from src.optimizer.daily_optimizer import (
+                    apply_ip_pace_scaling,
                     build_daily_dcv_table,
                     check_ip_override,
                 )
@@ -506,6 +507,9 @@ class LineupOptimizerPipeline:
                 # Check IP minimum override
                 weekly_ip = kwargs.get("weekly_ip_projected", 20.0)
                 dcv_table = check_ip_override(dcv_table, weekly_ip)
+
+                # T3-6: Per-pitcher IP pace constraint awareness
+                dcv_table = apply_ip_pace_scaling(dcv_table, weekly_ip)
 
                 daily_extras["daily_dcv"] = dcv_table
                 if not dcv_table.empty:

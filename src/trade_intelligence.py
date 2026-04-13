@@ -201,6 +201,63 @@ _AVG_HITTER_STAB = 300  # PA — rough average across batting stats
 _AVG_PITCHER_STAB = 100  # IP — rough average across pitching stats
 
 
+def _get_prior_season_pa_ip(player_id: int, is_hitter: bool) -> float:
+    """Query total PA (hitters) or IP (pitchers) from prior seasons (2024-2025).
+
+    Used by T3-3 to enrich projection confidence with career sample size.
+    Returns 0.0 on any error so callers degrade gracefully.
+    """
+    try:
+        from src.database import get_connection
+
+        conn = get_connection()
+        try:
+            cursor = conn.execute(
+                "SELECT COALESCE(SUM(pa), 0) AS total_pa, COALESCE(SUM(ip), 0) AS total_ip "
+                "FROM season_stats WHERE player_id = ? AND season IN (2024, 2025)",
+                (player_id,),
+            )
+            row = cursor.fetchone()
+            if row:
+                return float(row[0]) if is_hitter else float(row[1])
+        finally:
+            conn.close()
+    except Exception:
+        pass
+    return 0.0
+
+
+def _batch_prior_season_pa_ip(player_ids: list[int]) -> dict[tuple[int, bool], float]:
+    """Batch-query prior season PA/IP for multiple players.
+
+    Returns dict mapping (player_id, is_hitter_bool) -> total PA or IP.
+    """
+    result: dict[tuple[int, bool], float] = {}
+    if not player_ids:
+        return result
+    try:
+        from src.database import get_connection
+
+        conn = get_connection()
+        try:
+            placeholders = ",".join("?" for _ in player_ids)
+            cursor = conn.execute(
+                f"SELECT player_id, COALESCE(SUM(pa), 0), COALESCE(SUM(ip), 0) "
+                f"FROM season_stats WHERE player_id IN ({placeholders}) "
+                f"AND season IN (2024, 2025) GROUP BY player_id",
+                player_ids,
+            )
+            for row in cursor.fetchall():
+                pid = int(row[0])
+                result[(pid, True)] = float(row[1])  # PA for hitters
+                result[(pid, False)] = float(row[2])  # IP for pitchers
+        finally:
+            conn.close()
+    except Exception:
+        pass
+    return result
+
+
 # ---------------------------------------------------------------------------
 # Health-adjusted projections
 # ---------------------------------------------------------------------------
@@ -613,10 +670,15 @@ def compute_trade_readiness(
     is_hitter = bool(p.get("is_hitter", 1))
     if is_hitter:
         pa = float(p.get("pa", 0) or 0)
-        proj_quality = min(pa / _AVG_HITTER_STAB, 1.0) * 100
+        # T3-3: Enrich with career PA from prior seasons for confidence
+        prior_pa = _get_prior_season_pa_ip(player_id, is_hitter=True)
+        effective_pa = pa + 0.3 * prior_pa
+        proj_quality = min(effective_pa / _AVG_HITTER_STAB, 1.0) * 100
     else:
         ip = float(p.get("ip", 0) or 0)
-        proj_quality = min(ip / _AVG_PITCHER_STAB, 1.0) * 100
+        prior_ip = _get_prior_season_pa_ip(player_id, is_hitter=False)
+        effective_ip = ip + 0.3 * prior_ip
+        proj_quality = min(effective_ip / _AVG_PITCHER_STAB, 1.0) * 100
 
     # --- 3. Health score (15%) ---
     health = float(p.get("health_score", 0.85)) * 100
@@ -696,6 +758,9 @@ def compute_trade_readiness_batch(
     cat_weights = get_category_weights(user_team_name, all_team_totals, config)
     fa_comps = compute_fa_comparisons(candidates["player_id"].tolist(), user_roster_ids, fa_pool, player_pool, config)
 
+    # T3-3: Batch-load prior season PA/IP for projection confidence
+    prior_pa_ip_cache = _batch_prior_season_pa_ip(candidates["player_id"].tolist())
+
     rows = []
     for _, p in candidates.iterrows():
         pid = int(p["player_id"])
@@ -714,14 +779,18 @@ def compute_trade_readiness_batch(
                 weighted_sgp += sgp * w
         cat_fit = max(0, min(100, (weighted_sgp + 5) * (100 / 20)))
 
-        # Projection quality
+        # Projection quality (T3-3: enriched with career PA/IP)
         is_hitter = bool(p.get("is_hitter", 1))
         if is_hitter:
             pa = float(p.get("pa", 0) or 0)
-            proj_quality = min(pa / _AVG_HITTER_STAB, 1.0) * 100
+            prior_pa = prior_pa_ip_cache.get((pid, True), 0.0)
+            effective_pa = pa + 0.3 * prior_pa
+            proj_quality = min(effective_pa / _AVG_HITTER_STAB, 1.0) * 100
         else:
             ip = float(p.get("ip", 0) or 0)
-            proj_quality = min(ip / _AVG_PITCHER_STAB, 1.0) * 100
+            prior_ip = prior_pa_ip_cache.get((pid, False), 0.0)
+            effective_ip = ip + 0.3 * prior_ip
+            proj_quality = min(effective_ip / _AVG_PITCHER_STAB, 1.0) * 100
 
         # Health
         health = float(p.get("health_score", 0.85)) * 100

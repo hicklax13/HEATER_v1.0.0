@@ -2693,44 +2693,42 @@ with main:
     # ================================================================
 
     with tab_streaming:
-        # S3: Consolidated streaming view — quick summary here, full rankings on Free Agents page
-        st.markdown(
-            f'<p style="font-size:12px;font-weight:700;letter-spacing:1px;'
-            f"color:{T['tx2']};text-transform:uppercase;"
-            f'margin:0 0 6px;">Streaming Quick View</p>',
-            unsafe_allow_html=True,
-        )
+        # ── Shared data: fetch weekly schedule + FA pitchers ──────────
+        _STREAM_TEAM_ABBREVS: dict[str, str] = {
+            "Arizona Diamondbacks": "ARI",
+            "Atlanta Braves": "ATL",
+            "Baltimore Orioles": "BAL",
+            "Boston Red Sox": "BOS",
+            "Chicago Cubs": "CHC",
+            "Chicago White Sox": "CWS",
+            "Cincinnati Reds": "CIN",
+            "Cleveland Guardians": "CLE",
+            "Colorado Rockies": "COL",
+            "Detroit Tigers": "DET",
+            "Houston Astros": "HOU",
+            "Kansas City Royals": "KC",
+            "Los Angeles Angels": "LAA",
+            "Los Angeles Dodgers": "LAD",
+            "Miami Marlins": "MIA",
+            "Milwaukee Brewers": "MIL",
+            "Minnesota Twins": "MIN",
+            "New York Mets": "NYM",
+            "New York Yankees": "NYY",
+            "Oakland Athletics": "OAK",
+            "Philadelphia Phillies": "PHI",
+            "Pittsburgh Pirates": "PIT",
+            "San Diego Padres": "SD",
+            "San Francisco Giants": "SF",
+            "Seattle Mariners": "SEA",
+            "St. Louis Cardinals": "STL",
+            "Tampa Bay Rays": "TB",
+            "Texas Rangers": "TEX",
+            "Toronto Blue Jays": "TOR",
+            "Washington Nationals": "WSH",
+        }
+        _STREAM_ABBREV_TO_FULL = {v: k for k, v in _STREAM_TEAM_ABBREVS.items()}
 
-        result = st.session_state.get("lineup_optimizer_result")
-        streaming = result.get("streaming_suggestions") if result else None
-
-        if streaming:
-            # Show top 5 only (compact view)
-            stream_data = []
-            for s in streaming[:5]:
-                stream_data.append(
-                    {
-                        "Pitcher": s.get("player_name", "Unknown"),
-                        "Team": s.get("team", ""),
-                        "Net Value": f"{s.get('net_value', 0):+.2f}",
-                        "Games": s.get("n_games", 0),
-                    }
-                )
-            render_styled_table(pd.DataFrame(stream_data))
-        st.info("Full streaming rankings with schedule-aware scoring available on the **Free Agents** page.")
-
-        # Two-start SP detection
-        st.divider()
-        st.markdown(
-            f'<p style="font-size:12px;font-weight:700;letter-spacing:1px;'
-            f"color:{T['tx2']};text-transform:uppercase;"
-            f'margin:0 0 6px;">Two-Start Starting Pitchers</p>',
-            unsafe_allow_html=True,
-        )
-
-        # Use shared context for two-start detection when available
-        two_start_sps = []
-        # IL/DTD/NA statuses to exclude from two-start candidates
+        # IL/DTD/NA statuses to exclude
         _IL_EXCLUDE = {
             "il10",
             "il15",
@@ -2745,6 +2743,326 @@ with main:
             "out",
             "suspended",
         }
+
+        # Fetch the weekly schedule (shared across all sections)
+        _stream_schedule: list[dict] = []
+        _stream_team_game_counts: dict[str, int] = {}
+        _stream_team_games_by_date: dict[str, dict[str, list[str]]] = {}
+        _stream_target_date = ""
+        try:
+            from datetime import datetime as _dt
+            from datetime import timedelta as _td
+            from datetime import timezone as _tz
+
+            import statsapi
+
+            _ET_STREAM = _tz(_td(hours=-4))
+            _stream_today = _dt.now(_ET_STREAM)
+            _stream_end = _stream_today + _td(days=7)
+            _stream_target_date = _stream_today.strftime("%Y-%m-%d")
+
+            # Try using get_target_game_date for smarter date targeting
+            try:
+                from src.game_day import get_target_game_date
+
+                _stream_target_date = get_target_game_date()
+            except Exception:
+                pass
+
+            _raw_sched = statsapi.schedule(
+                start_date=_stream_today.strftime("%Y-%m-%d"),
+                end_date=_stream_end.strftime("%Y-%m-%d"),
+            )
+            for _g in _raw_sched:
+                _gd = _g.get("game_date", "")
+                _home_full = _g.get("home_name", "")
+                _away_full = _g.get("away_name", "")
+                _home_abbr = _STREAM_TEAM_ABBREVS.get(_home_full, "")
+                _away_abbr = _STREAM_TEAM_ABBREVS.get(_away_full, "")
+
+                _stream_schedule.append(
+                    {
+                        "game_date": _gd,
+                        "home_name": _home_full,
+                        "away_name": _away_full,
+                        "home_abbr": _home_abbr,
+                        "away_abbr": _away_abbr,
+                        "home_probable_pitcher": _g.get("home_probable_pitcher", ""),
+                        "away_probable_pitcher": _g.get("away_probable_pitcher", ""),
+                    }
+                )
+                for _abbr in [_home_abbr, _away_abbr]:
+                    if _abbr:
+                        _stream_team_game_counts[_abbr] = _stream_team_game_counts.get(_abbr, 0) + 1
+                        _stream_team_games_by_date.setdefault(_abbr, {}).setdefault(_gd, [])
+                        # Store opponent for this date
+                        _opp = _away_abbr if _abbr == _home_abbr else _home_abbr
+                        _stream_team_games_by_date[_abbr][_gd].append(_opp)
+        except Exception as _sched_exc:
+            logger.debug("Streaming schedule fetch failed: %s", _sched_exc)
+
+        # Build probable pitcher schedule: pitcher_name -> [{date, opponent, is_home}]
+        _pitcher_schedule: dict[str, list[dict]] = {}
+        _pitcher_teams: dict[str, str] = {}
+        for _g in _stream_schedule:
+            _gd = _g["game_date"]
+            for _side, _opp_side, _is_home in [
+                ("home_abbr", "away_abbr", True),
+                ("away_abbr", "home_abbr", False),
+            ]:
+                _pp_name = _g.get(
+                    "home_probable_pitcher" if _is_home else "away_probable_pitcher",
+                    "",
+                )
+                if _pp_name:
+                    _pitcher_schedule.setdefault(_pp_name, []).append(
+                        {
+                            "date": _gd,
+                            "opponent": _g[_opp_side],
+                            "is_home": _is_home,
+                        }
+                    )
+                    _pitcher_teams[_pp_name] = _g[_side]
+
+        # Load FA pitcher pool
+        _fa_sp_pool = pd.DataFrame()
+        try:
+            _fa_raw = yds.get_free_agents(max_players=500)
+            if not _fa_raw.empty:
+                if "name" in _fa_raw.columns and "player_name" not in _fa_raw.columns:
+                    _fa_raw = _fa_raw.rename(columns={"name": "player_name"})
+                # Filter to pitchers only (SP or RP in positions)
+                _has_pos = "positions" in _fa_raw.columns
+                if _has_pos:
+                    _fa_sp_pool = _fa_raw[_fa_raw["positions"].str.contains("SP|RP", case=False, na=False)].copy()
+                else:
+                    # Fallback: use is_hitter flag
+                    _fa_sp_pool = _fa_raw[_fa_raw.get("is_hitter", 1) == 0].copy()
+        except Exception as _fa_exc:
+            logger.debug("FA pool fetch for streaming failed: %s", _fa_exc)
+
+        # If Yahoo FA pool is empty, fall back to player pool unrostered pitchers
+        if _fa_sp_pool.empty and not pool.empty:
+            try:
+                _rostered_ids = set(roster["player_id"].tolist()) if "player_id" in roster.columns else set()
+                _pool_pitchers = pool[pool.get("is_hitter", 1) == 0].copy()
+                if not _pool_pitchers.empty and "player_id" in _pool_pitchers.columns:
+                    _fa_sp_pool = _pool_pitchers[~_pool_pitchers["player_id"].isin(_rostered_ids)].copy()
+            except Exception:
+                pass
+
+        # Merge projection stats from player pool onto FA pool
+        if not _fa_sp_pool.empty and not pool.empty:
+            try:
+                _proj_cols = ["player_id", "era", "whip", "k", "w", "ip", "sv", "k_bb_pct", "xfip"]
+                _avail_proj = [c for c in _proj_cols if c in pool.columns]
+                if "player_id" in _avail_proj:
+                    _proj_merge = pool[_avail_proj].copy()
+                    # Drop existing stat columns in FA pool before merge to prefer projections
+                    _drop_cols = [c for c in _avail_proj if c != "player_id" and c in _fa_sp_pool.columns]
+                    if _drop_cols:
+                        _fa_sp_pool = _fa_sp_pool.drop(columns=_drop_cols, errors="ignore")
+                    _fa_sp_pool = _fa_sp_pool.merge(_proj_merge, on="player_id", how="left")
+            except Exception:
+                pass
+
+        # Coerce numeric stat columns
+        for _sc in ["era", "whip", "k", "w", "ip", "sv", "k_bb_pct", "xfip"]:
+            if _sc in _fa_sp_pool.columns:
+                _fa_sp_pool[_sc] = pd.to_numeric(_fa_sp_pool[_sc], errors="coerce").fillna(0)
+
+        # ──────────────────────────────────────────────────────────────
+        # SECTION 1: Daily Streaming Picks
+        # ──────────────────────────────────────────────────────────────
+        st.markdown(
+            f'<p style="font-size:12px;font-weight:700;letter-spacing:1px;'
+            f"color:{T['tx2']};text-transform:uppercase;"
+            f'margin:0 0 6px;">Streaming Pitcher Picks</p>',
+            unsafe_allow_html=True,
+        )
+
+        if _stream_target_date:
+            st.caption(f"Target date: **{_stream_target_date}** | Schedule window: next 7 days")
+
+        _stream_picks: list[dict] = []
+        if not _fa_sp_pool.empty and _stream_schedule:
+            # Build name->player_id lookup from FA pool
+            _fa_name_col = "player_name" if "player_name" in _fa_sp_pool.columns else "name"
+            _fa_name_set = (
+                set(_fa_sp_pool[_fa_name_col].str.strip().tolist()) if _fa_name_col in _fa_sp_pool.columns else set()
+            )
+
+            # Score each FA pitcher based on: schedule, projections, matchup quality
+            for _, _fp in _fa_sp_pool.iterrows():
+                _fp_name = str(_fp.get("player_name", _fp.get("name", ""))).strip()
+                _fp_team = str(_fp.get("team", "")).strip()
+                _fp_positions = str(_fp.get("positions", ""))
+                _is_sp = "SP" in _fp_positions
+
+                # Projected stats
+                _fp_k = float(_fp.get("k", 0) or 0)
+                _fp_era = float(_fp.get("era", 0) or 0)
+                _fp_whip = float(_fp.get("whip", 0) or 0)
+                _fp_ip = float(_fp.get("ip", 0) or 0)
+                _fp_w = float(_fp.get("w", 0) or 0)
+                _fp_sv = float(_fp.get("sv", 0) or 0)
+
+                # Skip pitchers with no meaningful projections
+                if _fp_ip <= 0 and _fp_k <= 0 and _fp_sv <= 0:
+                    continue
+
+                # Per-IP rates for scoring
+                _k_per_ip = (_fp_k / _fp_ip) if _fp_ip > 0 else 0
+                _k_per_start = _k_per_ip * 6.0  # approximate per-start K
+
+                # Check if this pitcher is a probable starter in the schedule
+                _starts_this_week: list[dict] = []
+                _next_start_date = ""
+                _next_opp = ""
+                if _fp_name in _pitcher_schedule:
+                    _starts_this_week = _pitcher_schedule[_fp_name]
+                    if _starts_this_week:
+                        _starts_this_week.sort(key=lambda x: x["date"])
+                        _next_start_date = _starts_this_week[0]["date"]
+                        _next_opp = _starts_this_week[0]["opponent"]
+
+                # Calculate team games this week
+                _team_games = _stream_team_game_counts.get(_fp_team, 0)
+
+                # ── Streaming score ──
+                # Base: K rate (higher = better)
+                _score = _k_per_start * 1.5
+
+                # Win upside
+                _score += _fp_w * 0.3
+
+                # ERA/WHIP penalty (lower is better; penalize bad ratios)
+                if _fp_era > 0:
+                    _era_penalty = max(0, (_fp_era - 3.50)) * 1.2
+                    _score -= _era_penalty
+                if _fp_whip > 0:
+                    _whip_penalty = max(0, (_fp_whip - 1.15)) * 3.0
+                    _score -= _whip_penalty
+
+                # Two-start bonus for SP
+                _num_starts = len(_starts_this_week)
+                if _is_sp and _num_starts >= 2:
+                    _score += 3.0
+                elif _is_sp and _num_starts == 1:
+                    _score += 1.0
+
+                # Known start bonus (probable pitcher listed)
+                if _next_start_date:
+                    _score += 1.5
+
+                # Schedule volume bonus (team has many games)
+                if _team_games >= 7:
+                    _score += 0.5
+
+                # Saves bonus for RP closers
+                if _fp_sv > 0 and "RP" in _fp_positions:
+                    _score += _fp_sv * 0.4
+
+                # Matchup quality: check opponent batting strength
+                if _next_opp:
+                    try:
+                        from src.game_day import get_team_strength
+
+                        _opp_strength = get_team_strength(_next_opp)
+                        _opp_wrc = float(_opp_strength.get("wrc_plus", 100) or 100)
+                        # Lower wRC+ = weaker opponent = better matchup
+                        if _opp_wrc < 95:
+                            _score += 1.5  # favorable
+                            _matchup_label = "Easy"
+                        elif _opp_wrc > 108:
+                            _score -= 1.0  # tough
+                            _matchup_label = "Tough"
+                        else:
+                            _matchup_label = "Avg"
+                    except Exception:
+                        _matchup_label = "--"
+                else:
+                    _matchup_label = "--"
+
+                # Stream type label
+                if _is_sp and _num_starts >= 2:
+                    _stream_type = "2-Start SP"
+                elif _is_sp:
+                    _stream_type = "SP Stream"
+                elif _fp_sv > 0:
+                    _stream_type = "Closer"
+                else:
+                    _stream_type = "RP Stream"
+
+                _stream_picks.append(
+                    {
+                        "player_name": _fp_name,
+                        "team": _fp_team,
+                        "type": _stream_type,
+                        "next_start": _next_start_date if _next_start_date else "--",
+                        "opponent": _next_opp if _next_opp else "--",
+                        "num_starts": _num_starts,
+                        "proj_k": _fp_k,
+                        "proj_era": _fp_era,
+                        "proj_whip": _fp_whip,
+                        "proj_ip": _fp_ip,
+                        "proj_sv": _fp_sv,
+                        "matchup": _matchup_label,
+                        "score": round(_score, 2),
+                    }
+                )
+
+            # Sort by score descending, take top 15
+            _stream_picks.sort(key=lambda x: x["score"], reverse=True)
+            _stream_picks = _stream_picks[:15]
+
+        if _stream_picks:
+            _picks_display = []
+            for _sp in _stream_picks:
+                _row_data: dict = {
+                    "Pitcher": _sp["player_name"],
+                    "Team": _sp["team"],
+                    "Type": _sp["type"],
+                    "Next Start": _sp["next_start"],
+                    "vs": _sp["opponent"],
+                    "Matchup": _sp["matchup"],
+                    "Starts": _sp["num_starts"] if _sp["num_starts"] > 0 else "--",
+                }
+                # Show relevant stat based on type
+                if "Closer" in _sp["type"]:
+                    _row_data["Proj SV"] = f"{_sp['proj_sv']:.0f}"
+                    _row_data["ERA"] = format_stat(_sp["proj_era"], "era") if _sp["proj_era"] > 0 else "--"
+                else:
+                    _row_data["Proj K"] = f"{_sp['proj_k']:.0f}"
+                    _row_data["ERA"] = format_stat(_sp["proj_era"], "era") if _sp["proj_era"] > 0 else "--"
+                    _row_data["WHIP"] = format_stat(_sp["proj_whip"], "whip") if _sp["proj_whip"] > 0 else "--"
+                _row_data["Score"] = f"{_sp['score']:.1f}"
+                _picks_display.append(_row_data)
+
+            render_styled_table(pd.DataFrame(_picks_display))
+            st.caption(
+                "Score combines projected K rate, ERA/WHIP quality, two-start bonus, "
+                "and opponent strength (wRC+). Higher is better."
+            )
+        elif not _stream_schedule:
+            st.info("Unable to load MLB schedule. Check your internet connection.")
+        elif _fa_sp_pool.empty:
+            st.info("No free agent pitchers available. Connect to Yahoo or ensure projection data is loaded.")
+        else:
+            st.info("No streaming candidates found for this week.")
+
+        # ──────────────────────────────────────────────────────────────
+        # SECTION 2: Two-Start Starting Pitchers (your roster)
+        # ──────────────────────────────────────────────────────────────
+        st.divider()
+        st.markdown(
+            f'<p style="font-size:12px;font-weight:700;letter-spacing:1px;'
+            f"color:{T['tx2']};text-transform:uppercase;"
+            f'margin:0 0 6px;">Two-Start Pitchers (Your Roster)</p>',
+            unsafe_allow_html=True,
+        )
+
+        two_start_sps: list[dict] = []
         _stream_ctx = st.session_state.get("optimizer_context")
         if _stream_ctx and _stream_ctx.two_start_pitchers:
             # Build display from shared context (pre-computed, consistent with optimizer)
@@ -2764,87 +3082,98 @@ with main:
             )
             _remaining = _stream_ctx.remaining_games_this_week or {}
             for _ts_pid in _stream_ctx.two_start_pitchers:
-                # Skip IL/DTD/NA players (e.g. IL stash pitchers like Strider)
                 _ts_status = str(_pid_status.get(_ts_pid, "")).strip().lower()
                 if _ts_status in _IL_EXCLUDE:
                     continue
                 _ts_name = _pid_name.get(_ts_pid, f"Player {_ts_pid}")
                 _ts_team = str(_pid_team.get(_ts_pid, ""))
                 _ts_games = _remaining.get(_ts_team, 0)
-                two_start_sps.append({"Pitcher": _ts_name, "Team": _ts_team, "Team Games": _ts_games})
-        else:
-            # Fallback: compute inline when optimizer hasn't run
-            try:
-                from datetime import datetime, timedelta, timezone
 
-                import statsapi
+                # Look up projected stats from player pool
+                _ts_era = "--"
+                _ts_k = "--"
+                _ts_whip = "--"
+                if not pool.empty:
+                    _ts_match = pool[pool["player_id"] == _ts_pid]
+                    if not _ts_match.empty:
+                        _ts_row = _ts_match.iloc[0]
+                        _era_val = float(_ts_row.get("era", 0) or 0)
+                        _k_val = float(_ts_row.get("k", 0) or 0)
+                        _whip_val = float(_ts_row.get("whip", 0) or 0)
+                        _ts_era = format_stat(_era_val, "era") if _era_val > 0 else "--"
+                        _ts_k = f"{_k_val:.0f}" if _k_val > 0 else "--"
+                        _ts_whip = format_stat(_whip_val, "whip") if _whip_val > 0 else "--"
 
-                _MLB_TEAM_ABBREVS: dict[str, str] = {
-                    "Arizona Diamondbacks": "ARI",
-                    "Atlanta Braves": "ATL",
-                    "Baltimore Orioles": "BAL",
-                    "Boston Red Sox": "BOS",
-                    "Chicago Cubs": "CHC",
-                    "Chicago White Sox": "CWS",
-                    "Cincinnati Reds": "CIN",
-                    "Cleveland Guardians": "CLE",
-                    "Colorado Rockies": "COL",
-                    "Detroit Tigers": "DET",
-                    "Houston Astros": "HOU",
-                    "Kansas City Royals": "KC",
-                    "Los Angeles Angels": "LAA",
-                    "Los Angeles Dodgers": "LAD",
-                    "Miami Marlins": "MIA",
-                    "Milwaukee Brewers": "MIL",
-                    "Minnesota Twins": "MIN",
-                    "New York Mets": "NYM",
-                    "New York Yankees": "NYY",
-                    "Oakland Athletics": "OAK",
-                    "Philadelphia Phillies": "PHI",
-                    "Pittsburgh Pirates": "PIT",
-                    "San Diego Padres": "SD",
-                    "San Francisco Giants": "SF",
-                    "Seattle Mariners": "SEA",
-                    "St. Louis Cardinals": "STL",
-                    "Tampa Bay Rays": "TB",
-                    "Texas Rangers": "TEX",
-                    "Toronto Blue Jays": "TOR",
-                    "Washington Nationals": "WSH",
-                }
-                _ET3 = timezone(timedelta(hours=-4))
-                today = datetime.now(_ET3)
-                end = today + timedelta(days=7)
-                schedule = statsapi.schedule(
-                    start_date=today.strftime("%Y-%m-%d"),
-                    end_date=end.strftime("%Y-%m-%d"),
+                # Get scheduled opponents
+                _ts_opps = ""
+                if _ts_name in _pitcher_schedule:
+                    _ts_starts = _pitcher_schedule[_ts_name]
+                    _opp_parts = []
+                    for _s in sorted(_ts_starts, key=lambda x: x["date"]):
+                        _loc = "vs" if _s["is_home"] else "@"
+                        _opp_parts.append(f"{_s['date'][-5:]} {_loc} {_s['opponent']}")
+                    _ts_opps = ", ".join(_opp_parts)
+
+                two_start_sps.append(
+                    {
+                        "Pitcher": _ts_name,
+                        "Team": _ts_team,
+                        "Games": _ts_games,
+                        "Proj ERA": _ts_era,
+                        "Proj K": _ts_k,
+                        "WHIP": _ts_whip,
+                        "Matchups": _ts_opps if _ts_opps else "--",
+                    }
                 )
-                team_game_counts: dict[str, int] = {}
-                for game in schedule:
-                    for team_key in ["home_name", "away_name"]:
-                        full_name = game.get(team_key, "")
-                        abbrev = _MLB_TEAM_ABBREVS.get(full_name, "")
-                        if abbrev:
-                            team_game_counts[abbrev] = team_game_counts.get(abbrev, 0) + 1
+        else:
+            # Fallback: compute inline from schedule
+            TWO_START_THRESHOLD = 7
+            for _, _r in roster.iterrows():
+                if not _r.get("is_hitter", True) and "SP" in str(_r.get("positions", "")):
+                    _row_status = str(_r.get("status", "")).strip().lower()
+                    if _row_status in _IL_EXCLUDE:
+                        continue
+                    _r_team = str(_r.get("team", "")).strip()
+                    _r_games = _stream_team_game_counts.get(_r_team, 0)
+                    _r_name = str(_r.get("player_name", _r.get("name", ""))).strip()
+                    if _r_games >= TWO_START_THRESHOLD:
+                        # Look up projected stats
+                        _r_era = "--"
+                        _r_k = "--"
+                        _r_whip = "--"
+                        _r_pid = _r.get("player_id")
+                        if not pool.empty and _r_pid is not None:
+                            _r_match = pool[pool["player_id"] == _r_pid]
+                            if not _r_match.empty:
+                                _r_row = _r_match.iloc[0]
+                                _era_v = float(_r_row.get("era", 0) or 0)
+                                _k_v = float(_r_row.get("k", 0) or 0)
+                                _whip_v = float(_r_row.get("whip", 0) or 0)
+                                _r_era = format_stat(_era_v, "era") if _era_v > 0 else "--"
+                                _r_k = f"{_k_v:.0f}" if _k_v > 0 else "--"
+                                _r_whip = format_stat(_whip_v, "whip") if _whip_v > 0 else "--"
 
-                TWO_START_THRESHOLD = 7
-                for _, row in roster.iterrows():
-                    if not row.get("is_hitter", True) and "SP" in str(row.get("positions", "")):
-                        # Skip IL/DTD/NA players
-                        _row_status = str(row.get("status", "")).strip().lower()
-                        if _row_status in _IL_EXCLUDE:
-                            continue
-                        team = str(row.get("team", "")).strip()
-                        games = team_game_counts.get(team, 0)
-                        if games >= TWO_START_THRESHOLD:
-                            two_start_sps.append(
-                                {
-                                    "Pitcher": row.get("player_name", row.get("name", "")),
-                                    "Team": team,
-                                    "Team Games": games,
-                                }
-                            )
-            except Exception:
-                pass
+                        # Get scheduled matchups
+                        _r_opps = ""
+                        if _r_name in _pitcher_schedule:
+                            _r_starts = _pitcher_schedule[_r_name]
+                            _opp_parts = []
+                            for _s in sorted(_r_starts, key=lambda x: x["date"]):
+                                _loc = "vs" if _s["is_home"] else "@"
+                                _opp_parts.append(f"{_s['date'][-5:]} {_loc} {_s['opponent']}")
+                            _r_opps = ", ".join(_opp_parts)
+
+                        two_start_sps.append(
+                            {
+                                "Pitcher": _r_name,
+                                "Team": _r_team,
+                                "Games": _r_games,
+                                "Proj ERA": _r_era,
+                                "Proj K": _r_k,
+                                "WHIP": _r_whip,
+                                "Matchups": _r_opps if _r_opps else "--",
+                            }
+                        )
 
         if two_start_sps:
             st.markdown(
@@ -2859,5 +3188,57 @@ with main:
             )
         else:
             st.info("No two-start starting pitchers detected for your roster this week.")
+
+        # ──────────────────────────────────────────────────────────────
+        # SECTION 3: Weekly Streaming Calendar
+        # ──────────────────────────────────────────────────────────────
+        if _stream_picks and _stream_schedule:
+            st.divider()
+            st.markdown(
+                f'<p style="font-size:12px;font-weight:700;letter-spacing:1px;'
+                f"color:{T['tx2']};text-transform:uppercase;"
+                f'margin:0 0 6px;">Weekly Streaming Calendar</p>',
+                unsafe_allow_html=True,
+            )
+
+            # Collect all unique dates in the schedule window
+            _all_dates = sorted({g["game_date"] for g in _stream_schedule if g["game_date"]})
+            _all_dates = _all_dates[:7]  # Cap at 7 days
+
+            if _all_dates:
+                # Build calendar: top streaming picks with their start dates
+                _cal_pitchers = [p for p in _stream_picks if p["num_starts"] > 0 and "SP" in p.get("type", "")][:10]
+
+                if _cal_pitchers:
+                    _cal_rows = []
+                    for _cp in _cal_pitchers:
+                        _cp_name = _cp["player_name"]
+                        _cp_row: dict = {"Pitcher": _cp_name, "Team": _cp["team"]}
+
+                        # Map this pitcher's starts to dates
+                        _cp_starts = _pitcher_schedule.get(_cp_name, [])
+                        _cp_start_map: dict[str, str] = {}
+                        for _s in _cp_starts:
+                            _loc = "vs" if _s["is_home"] else "@"
+                            _cp_start_map[_s["date"]] = f"{_loc} {_s['opponent']}"
+
+                        for _d in _all_dates:
+                            _day_label = _d[-5:]  # MM-DD
+                            if _d in _cp_start_map:
+                                _cp_row[_day_label] = _cp_start_map[_d]
+                            else:
+                                _cp_row[_day_label] = ""
+
+                        _cal_rows.append(_cp_row)
+
+                    if _cal_rows:
+                        render_styled_table(pd.DataFrame(_cal_rows))
+                        st.caption(
+                            "Shows scheduled starts for top streaming SP candidates. "
+                            "Blank cells = no start that day. "
+                            "'vs' = home, '@' = away."
+                        )
+                else:
+                    st.caption("No probable starters identified in schedule for streaming candidates.")
 
 page_timer_footer("Lineup")

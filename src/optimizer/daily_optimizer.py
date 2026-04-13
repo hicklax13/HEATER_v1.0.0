@@ -658,6 +658,28 @@ def build_daily_dcv_table(
             else:
                 sgp_dcv = 0.0
 
+            # T3-5a: Stuff+ boost for pitcher K DCV
+            if col == "k" and not is_hitter:
+                try:
+                    _stuff = float(player.get("stuff_plus", 0) or 0)
+                    if _stuff > 120:
+                        sgp_dcv *= 1.10
+                    elif _stuff > 110:
+                        sgp_dcv *= 1.05
+                except (TypeError, ValueError):
+                    pass
+
+            # T3-5b: Sprint speed boost for hitter SB DCV
+            if col == "sb" and is_hitter:
+                try:
+                    _speed = float(player.get("sprint_speed", 0) or 0)
+                    if _speed > 29.0:
+                        sgp_dcv *= 1.10
+                    elif _speed > 28.0:
+                        sgp_dcv *= 1.05
+                except (TypeError, ValueError):
+                    pass
+
             row_data[f"dcv_{col}"] = round(sgp_dcv, 4)
             total_dcv += sgp_dcv
 
@@ -738,6 +760,74 @@ def check_ip_override(
         best_pitcher_idx,
         weekly_ip_projected,
         ip_minimum,
+    )
+
+    return dcv_table
+
+
+# ---------------------------------------------------------------------------
+# T3-6: Per-pitcher IP pace constraint awareness
+# ---------------------------------------------------------------------------
+
+
+def apply_ip_pace_scaling(
+    dcv_table: pd.DataFrame,
+    weekly_ip_projected: float,
+    weekly_ip_target: float = 55.0,
+) -> pd.DataFrame:
+    """Scale pitcher counting-stat DCV by remaining IP budget fraction.
+
+    When a team has already used most of its weekly IP budget, pitcher
+    counting stats (K/W/SV) should be scaled down to reflect reduced
+    remaining innings. This prevents over-valuing pitchers late in the
+    week when IP is tight.
+
+    Args:
+        dcv_table: DCV DataFrame from build_daily_dcv_table().
+        weekly_ip_projected: Total projected IP already used/committed.
+        weekly_ip_target: Season-wide weekly IP target (default 55.0).
+
+    Returns:
+        Updated dcv_table with pitcher DCV scaled by IP budget.
+    """
+    if dcv_table.empty:
+        return dcv_table
+
+    # Compute IP budget usage fraction
+    ip_used_fraction = weekly_ip_projected / max(weekly_ip_target, 1.0)
+    if ip_used_fraction < 0.80:
+        # Plenty of budget remaining — no scaling needed
+        return dcv_table
+
+    if ip_used_fraction >= 0.95:
+        # Near or over budget — heavily scale down pitcher counting stats
+        scale = 0.3
+    else:
+        # 80-95% used — linear interpolation from 1.0 to 0.6
+        scale = 1.0 - (ip_used_fraction - 0.80) * (0.4 / 0.15)
+        scale = max(0.3, min(1.0, scale))
+
+    # Apply scale to pitcher counting-stat DCV columns only (K, W, SV)
+    if "is_hitter" not in dcv_table.columns:
+        return dcv_table
+
+    counting_cols = ["dcv_k", "dcv_w", "dcv_sv"]
+    pitcher_mask = ~dcv_table["is_hitter"]
+    for col in counting_cols:
+        if col in dcv_table.columns:
+            dcv_table.loc[pitcher_mask, col] = dcv_table.loc[pitcher_mask, col] * scale
+
+    # Recompute total_dcv for affected pitchers
+    all_dcv_cols = [c for c in dcv_table.columns if c.startswith("dcv_")]
+    if all_dcv_cols:
+        dcv_table.loc[pitcher_mask, "total_dcv"] = dcv_table.loc[pitcher_mask, all_dcv_cols].sum(axis=1).round(4)
+
+    logger.info(
+        "IP pace scaling: %.1f/%.1f IP used (%.0f%%), pitcher counting DCV scaled by %.2f",
+        weekly_ip_projected,
+        weekly_ip_target,
+        ip_used_fraction * 100,
+        scale,
     )
 
     return dcv_table
