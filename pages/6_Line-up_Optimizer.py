@@ -681,16 +681,62 @@ with ctx:
                     f'margin-top:-1px;">{_detail}</div>'
                 )
     else:
-        # Fallback: show Yahoo freshness when optimizer hasn't run
+        # Before optimizer runs: show Yahoo data freshness with timestamps from refresh_log
         try:
-            from src.ui_shared import render_data_freshness_card
+            from src.database import get_connection as _get_conn_fresh
 
-            render_data_freshness_card()
+            _conn_f = _get_conn_fresh()
+            try:
+                _refresh_rows = _conn_f.execute(
+                    "SELECT source, last_refresh, status FROM refresh_log ORDER BY last_refresh DESC"
+                ).fetchall()
+            finally:
+                _conn_f.close()
+
+            _source_labels = {
+                "players": ("Players", "MLB Stats API", "40-man rosters"),
+                "projections": ("Projections", "Blended (Steamer/ZiPS/DC)", "ROS projections"),
+                "live_stats": ("Live Stats", "MLB Stats API", "2026 season stats"),
+                "depth_charts": ("Depth Charts", "FanGraphs", "Playing time estimates"),
+                "yahoo": ("Yahoo Sync", "Yahoo Fantasy API", "Rosters + standings"),
+                "news": ("News", "ESPN + RotoWire + MLB", "Player news/injuries"),
+                "adp": ("ADP/ECR", "FanGraphs + FantasyPros", "Rankings consensus"),
+                "ecr": ("ECR", "Multi-source", "Expert rankings"),
+                "prospects": ("Prospects", "FanGraphs + MiLB", "Prospect rankings"),
+                "park_factors": ("Park Factors", "pybaseball", "Ballpark adjustments"),
+                "deduplication": ("Deduplication", "Local DB", "Player ID merge"),
+            }
+            for _src, _ts, _status in _refresh_rows:
+                _label_info = _source_labels.get(_src, (_src.replace("_", " ").title(), "", ""))
+                _f_label, _f_source, _f_as_of = _label_info
+                _f_time_str = ""
+                if _ts:
+                    try:
+                        from datetime import datetime as _dt_ref
+
+                        _parsed_ref = _dt_ref.fromisoformat(str(_ts))
+                        _local_ref = _parsed_ref.astimezone()
+                        _f_time_str = _local_ref.strftime("%I:%M %p").lstrip("0")
+                    except Exception:
+                        _f_time_str = str(_ts)[:16]
+                _f_color = "#4CAF50" if _status == "success" else "#FF9800"
+                _freshness_html += (
+                    f'<div style="display:flex;justify-content:space-between;align-items:baseline;'
+                    f'padding:2px 0;border-bottom:1px solid {T["border"]}33;">'
+                    f'<span style="font-size:11px;color:{T["tx2"]};max-width:55%;">{_f_label}</span>'
+                    f'<span style="font-size:11px;font-family:IBM Plex Mono,monospace;color:{_f_color};">'
+                    f"{_f_time_str}</span></div>"
+                )
+                _detail = f"{_f_source}: {_f_as_of}" if _f_source and _f_as_of else _f_source or _f_as_of
+                if _detail:
+                    _freshness_html += (
+                        f'<div style="font-size:9px;color:{T["tx2"]};opacity:0.7;padding:0 0 3px;'
+                        f'margin-top:-1px;">{_detail}</div>'
+                    )
         except Exception:
             pass
 
-    if _opt_timestamps:
-        render_context_card("Data Freshness", _freshness_html)
+    render_context_card("Data Freshness", _freshness_html)
 
 
 # ── Main content panel ───────────────────────────────────────────────
