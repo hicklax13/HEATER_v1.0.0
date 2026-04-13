@@ -1009,6 +1009,8 @@ def scan_1_for_1(
                     "pa": int(_row.get("pa", 0) or 0),
                     "avg": float(_row.get("avg", 0) or 0),
                     "hr": int(_row.get("hr", 0) or 0),
+                    "era": float(_row.get("era", 0) or 0),
+                    "whip": float(_row.get("whip", 0) or 0),
                 }
         finally:
             _conn2.close()
@@ -1226,33 +1228,59 @@ def scan_1_for_1(
             # Bonus 1.1x multiplier during prime trade window (weeks 4-10).
             ytd_modifier = 1.0
             recv_ytd = ytd_stats.get(recv_id, {})
-            if recv_ytd.get("pa", 0) >= 10:
+            is_hitter_ytd = int(recv_player.iloc[0].get("is_hitter", 1))
+
+            # H5: Dynamic clamp by season phase (shared by hitters & pitchers)
+            _season_start = datetime(datetime.now(UTC).year, 3, 25, tzinfo=UTC)
+            _weeks_elapsed = max(1, (datetime.now(UTC) - _season_start).days // 7)
+            if _weeks_elapsed <= 4:
+                _clamp = 0.05  # ±5%
+            elif _weeks_elapsed <= 8:
+                _clamp = 0.10  # ±10%
+            else:
+                _clamp = 0.15  # ±15%
+
+            if is_hitter_ytd and recv_ytd.get("pa", 0) >= 10:
+                # Multi-stat hitter performance: AVG ratio + HR-rate ratio
                 proj_avg = float(recv_player.iloc[0].get("avg", 0.260) or 0.260)
-                ytd_avg = recv_ytd.get("avg", proj_avg)
-                if proj_avg > 0:
-                    perf_ratio = ytd_avg / proj_avg
-                    # H5: Dynamic clamp by season phase
-                    _season_start = datetime(datetime.now(UTC).year, 3, 25, tzinfo=UTC)
-                    _weeks_elapsed = max(1, (datetime.now(UTC) - _season_start).days // 7)
-                    if _weeks_elapsed <= 4:
-                        _clamp = 0.05  # ±5%
-                    elif _weeks_elapsed <= 8:
-                        _clamp = 0.10  # ±10%
-                    else:
-                        _clamp = 0.15  # ±15%
+                ytd_avg = float(recv_ytd.get("avg", 0) or 0)
+
+                ratios = []
+                # AVG component
+                if proj_avg > 0 and ytd_avg > 0:
+                    ratios.append(ytd_avg / proj_avg)
+
+                # HR-rate component (per-600-PA pace vs projection)
+                ytd_pa = int(recv_ytd.get("pa", 0) or 0)
+                ytd_hr = int(recv_ytd.get("hr", 0) or 0)
+                proj_hr = float(recv_player.iloc[0].get("hr", 0) or 0)
+                if ytd_pa >= 30 and proj_hr > 0:
+                    ytd_hr_pace = ytd_hr * (600.0 / ytd_pa)
+                    ratios.append(ytd_hr_pace / proj_hr)
+
+                if ratios:
+                    perf_ratio = sum(ratios) / len(ratios)
+                    ytd_modifier = max(1.0 - _clamp, min(1.0 + _clamp, perf_ratio))
+
+            elif not is_hitter_ytd:
+                # Pitcher performance: use ERA (inverted — lower ERA = better)
+                ytd_era = float(recv_ytd.get("era", 0) or 0)
+                proj_era = float(recv_player.iloc[0].get("era", 0) or 0)
+                if ytd_era > 0 and proj_era > 0:
+                    perf_ratio = proj_era / ytd_era  # inverted: low ERA → ratio > 1
                     ytd_modifier = max(1.0 - _clamp, min(1.0 + _clamp, perf_ratio))
 
             # J1: Scale YTD modifier by per-stat stabilization points.
             # Uses STABILIZATION_POINTS from bayesian.py instead of hardcoded values.
-            if recv_ytd.get("pa", 0) >= 10:
+            # Guard fires for hitters (pa >= 10) OR pitchers (ytd_modifier already set).
+            if ytd_modifier != 1.0:
                 try:
                     from src.bayesian import STABILIZATION_POINTS
 
-                    is_hitter = int(recv_player.iloc[0].get("is_hitter", 1))
-                    if is_hitter:
+                    if is_hitter_ytd:
                         # Use AVG stabilization (slowest to stabilize for hitters)
                         stab_pa = STABILIZATION_POINTS.get("avg", 910)
-                        reliability = min(1.0, recv_ytd["pa"] / stab_pa)
+                        reliability = min(1.0, recv_ytd.get("pa", 0) / stab_pa)
                     else:
                         # Use ERA stabilization for pitchers (IP-based)
                         stab_ip = STABILIZATION_POINTS.get("era", 70) * 2.6  # BF to IP approx
@@ -1260,9 +1288,8 @@ def scan_1_for_1(
                         reliability = min(1.0, ip / stab_ip)
                 except ImportError:
                     # Fallback to hardcoded
-                    is_hitter = int(recv_player.iloc[0].get("is_hitter", 1))
-                    if is_hitter:
-                        reliability = min(1.0, recv_ytd["pa"] / 910.0)
+                    if is_hitter_ytd:
+                        reliability = min(1.0, recv_ytd.get("pa", 0) / 910.0)
                     else:
                         ip = float(recv_player.iloc[0].get("ip", 0) or 0)
                         reliability = min(1.0, ip / 180.0)

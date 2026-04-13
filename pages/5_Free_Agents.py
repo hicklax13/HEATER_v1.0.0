@@ -129,6 +129,13 @@ try:
 except ImportError:
     WAIVER_WIRE_AVAILABLE = False
 
+try:
+    from src.player_databank import compute_rolling_stats
+
+    ROLLING_STATS_AVAILABLE = True
+except ImportError:
+    ROLLING_STATS_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
 
 T = THEME
@@ -631,6 +638,44 @@ with main:
             _display_fas["heat"] = _display_fas["heat"].fillna(0).astype(int)
             _display_fas["percent_owned"] = _display_fas["percent_owned"].fillna(0.0)
 
+        # ── L14 Rolling Stats (recent performance) ────────────────────────────
+        if ROLLING_STATS_AVAILABLE and "player_id" in _display_fas.columns:
+            try:
+                # Limit to top 100 by marginal_value for performance
+                _top_ids = (
+                    _display_fas.nlargest(100, "marginal_value")["player_id"].dropna().astype(int).tolist()
+                    if "marginal_value" in _display_fas.columns
+                    else _display_fas["player_id"].head(100).dropna().astype(int).tolist()
+                )
+                if _top_ids:
+                    _rolling = compute_rolling_stats(_top_ids, days=14, stat_type="total", season=2026)
+                    if not _rolling.empty and "player_id" in _rolling.columns:
+                        # Build per-game rate columns for merge
+                        _rolling["player_id"] = _rolling["player_id"].astype(int)
+                        _gp = _rolling["games_played"] if "games_played" in _rolling.columns else 1
+
+                        # Hitter columns: L14 AVG (from avg_calc), L14 HR/G
+                        _merge_cols = ["player_id"]
+                        if "avg_calc" in _rolling.columns:
+                            _rolling["l14_avg"] = _rolling["avg_calc"]
+                            _merge_cols.append("l14_avg")
+                        if "hr" in _rolling.columns:
+                            _rolling["l14_hr_g"] = _rolling["hr"] / _gp
+                            _merge_cols.append("l14_hr_g")
+
+                        # Pitcher columns: L14 ERA (from era_calc), L14 K/G
+                        if "era_calc" in _rolling.columns:
+                            _rolling["l14_era"] = _rolling["era_calc"]
+                            _merge_cols.append("l14_era")
+                        if "k" in _rolling.columns:
+                            _rolling["l14_k_g"] = _rolling["k"] / _gp
+                            _merge_cols.append("l14_k_g")
+
+                        if len(_merge_cols) > 1:
+                            _display_fas = _display_fas.merge(_rolling[_merge_cols], on="player_id", how="left")
+            except Exception:
+                logger.debug("Rolling stats enrichment failed — continuing without L14 data")
+
         # Apply Breakout Candidates filter (Heat >= 5, Ownership < 30%)
         _breakout_active = st.session_state.get("fa_breakout_filter", False)
         if _breakout_active and "heat" in _display_fas.columns:
@@ -686,6 +731,17 @@ with main:
                 _enriched_cols.append("ytd_era")
             if "ytd_k" in _display_fas.columns and _has_pitchers:
                 _enriched_cols.append("ytd_k")
+
+            # L14 rolling stats — hitter-specific
+            if "l14_avg" in _display_fas.columns and _has_hitters:
+                _enriched_cols.append("l14_avg")
+            if "l14_hr_g" in _display_fas.columns and _has_hitters:
+                _enriched_cols.append("l14_hr_g")
+            # L14 rolling stats — pitcher-specific
+            if "l14_era" in _display_fas.columns and _has_pitchers:
+                _enriched_cols.append("l14_era")
+            if "l14_k_g" in _display_fas.columns and _has_pitchers:
+                _enriched_cols.append("l14_k_g")
 
             show_cols = [
                 "player_name",
@@ -750,6 +806,24 @@ with main:
                     lambda x: f"{int(x)}" if pd.notna(x) and x > 0 else ""
                 )
 
+            # Format L14 rolling stats
+            if "l14_avg" in display_fa_df.columns:
+                display_fa_df["l14_avg"] = display_fa_df["l14_avg"].apply(
+                    lambda x: f".{x:.3f}"[1:] if pd.notna(x) and x > 0 else ""
+                )
+            if "l14_hr_g" in display_fa_df.columns:
+                display_fa_df["l14_hr_g"] = display_fa_df["l14_hr_g"].apply(
+                    lambda x: f"{x:.1f}" if pd.notna(x) and x > 0 else ""
+                )
+            if "l14_era" in display_fa_df.columns:
+                display_fa_df["l14_era"] = display_fa_df["l14_era"].apply(
+                    lambda x: f"{x:.2f}" if pd.notna(x) and x > 0 else ""
+                )
+            if "l14_k_g" in display_fa_df.columns:
+                display_fa_df["l14_k_g"] = display_fa_df["l14_k_g"].apply(
+                    lambda x: f"{x:.1f}" if pd.notna(x) and x > 0 else ""
+                )
+
             display_fa_df = display_fa_df.rename(
                 columns={
                     "player_name": "Player",
@@ -765,6 +839,10 @@ with main:
                     "ytd_hr": "YTD HR",
                     "ytd_era": "YTD ERA",
                     "ytd_k": "YTD K",
+                    "l14_avg": "L14 AVG",
+                    "l14_hr_g": "L14 HR/G",
+                    "l14_era": "L14 ERA",
+                    "l14_k_g": "L14 K/G",
                     "marginal_value": "Marginal Value",
                     "impact": "Impact",
                     "best_category": "Best Category",
