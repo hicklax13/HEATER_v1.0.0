@@ -37,6 +37,13 @@ try:
 except ImportError:
     _HAS_DRAFT_ENGINE = False
 
+try:
+    from src.draft_grader import grade_draft  # noqa: F401
+
+    _HAS_DRAFT_GRADER = True
+except ImportError:
+    _HAS_DRAFT_GRADER = False
+
 st.set_page_config(
     page_title="Heater | Draft Simulator", page_icon="", layout="wide", initial_sidebar_state="collapsed"
 )
