@@ -51,6 +51,38 @@ def compute_hot_cold_report(
     if roster is None or roster.empty:
         return []
 
+    # ── Batch pre-fetch from local game_logs via compute_rolling_stats ──
+    # Collect player_ids for active roster players with valid mlb_id.
+    _active_player_ids: list[int] = []
+    _pid_to_is_hitter: dict[int, bool] = {}
+    for _, _row in roster.iterrows():
+        _st = str(_row.get("status", "") or "").strip().lower()
+        if _st in _INACTIVE_STATUSES:
+            continue
+        _raw = _row.get("mlb_id")
+        if not pd.notna(_raw):
+            continue
+        _pid_raw = _row.get("player_id")
+        if pd.notna(_pid_raw):
+            try:
+                _pid = int(float(_pid_raw))
+                _active_player_ids.append(_pid)
+                _pid_to_is_hitter[_pid] = bool(_row.get("is_hitter", True))
+            except (ValueError, TypeError):
+                pass
+
+    _rolling_l7: pd.DataFrame = pd.DataFrame()
+    try:
+        from src.player_databank import compute_rolling_stats
+
+        if _active_player_ids:
+            _rolling_l7 = compute_rolling_stats(_active_player_ids, days=7, stat_type="total")
+            if not _rolling_l7.empty:
+                _rolling_l7 = _rolling_l7.set_index("player_id")
+    except Exception:
+        logger.debug("Batch rolling stats unavailable; will fall back to API")
+        _rolling_l7 = pd.DataFrame()
+
     entries: list[dict] = []
 
     for _, row in roster.iterrows():
@@ -69,24 +101,74 @@ def compute_hot_cold_report(
         except (ValueError, TypeError):
             continue
 
-        # Fetch recent form
-        try:
-            form = get_player_recent_form_cached(mlb_id)
-        except Exception:
-            logger.debug("Failed to fetch form for mlb_id=%s", mlb_id)
-            continue
+        # Try batch data first, fall back to per-player API call
+        l7: dict = {}
+        player_type: str = ""
+        _pid_raw = row.get("player_id")
+        _pid: int | None = None
+        if pd.notna(_pid_raw):
+            try:
+                _pid = int(float(_pid_raw))
+            except (ValueError, TypeError):
+                _pid = None
 
-        if not form:
-            continue
+        if _pid is not None and not _rolling_l7.empty and _pid in _rolling_l7.index:
+            _r = _rolling_l7.loc[_pid]
+            is_hitter = bool(row.get("is_hitter", True))
+            games_count = int(_r.get("games_played", 0) or 0)
+            if is_hitter:
+                l7 = {
+                    "avg": round(float(_r.get("avg_calc", 0.0) or 0.0), 3),
+                    "obp": round(float(_r.get("obp_calc", 0.0) or 0.0), 3),
+                    "hr": int(_r.get("hr", 0) or 0),
+                    "rbi": int(_r.get("rbi", 0) or 0),
+                    "sb": int(_r.get("sb", 0) or 0),
+                    "r": int(_r.get("r", 0) or 0),
+                    "h": int(_r.get("h", 0) or 0),
+                    "ab": int(_r.get("ab", 0) or 0),
+                    "pa": int(_r.get("pa", 0) or 0),
+                    "games": games_count,
+                }
+                player_type = "hitter"
+            else:
+                l7 = {
+                    "era": round(float(_r.get("era_calc", 0.0) or 0.0), 2),
+                    "whip": round(float(_r.get("whip_calc", 0.0) or 0.0), 2),
+                    "k": int(_r.get("k", 0) or 0),
+                    "w": int(_r.get("w", 0) or 0),
+                    "ip": round(float(_r.get("ip", 0.0) or 0.0), 1),
+                    "h_allowed": int(_r.get("h_allowed", 0) or 0),
+                    "bb_allowed": int(_r.get("bb_allowed", 0) or 0),
+                    "er": int(_r.get("er", 0) or 0),
+                    "games": games_count,
+                }
+                player_type = "pitcher"
 
-        l7 = form.get("l7") or {}
+        # Fall back to per-player API if batch had no data
+        if not l7:
+            try:
+                form = get_player_recent_form_cached(mlb_id)
+            except Exception:
+                logger.debug("Failed to fetch form for mlb_id=%s", mlb_id)
+                continue
+
+            if not form:
+                continue
+
+            l7 = form.get("l7") or {}
+            player_type = form.get(
+                "player_type",
+                "hitter" if bool(row.get("is_hitter", True)) else "pitcher",
+            )
+
         if l7.get("games", 0) < 3:
             continue
 
         player_name = str(row.get("name", "Unknown"))
         team = str(row.get("team", ""))
         is_hitter = bool(row.get("is_hitter", True))
-        player_type = form.get("player_type", "hitter" if is_hitter else "pitcher")
+        if not player_type:
+            player_type = "hitter" if is_hitter else "pitcher"
 
         if player_type == "hitter" or (player_type not in ("hitter", "pitcher") and is_hitter):
             entry = _evaluate_hitter(row, l7, player_name, team)

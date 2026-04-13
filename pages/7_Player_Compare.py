@@ -8,6 +8,13 @@ import streamlit as st
 from src.database import coerce_numeric_df, get_connection, init_db, load_league_rosters, load_player_pool
 from src.in_season import compare_players
 from src.injury_model import get_injury_badge
+
+try:
+    from src.player_databank import compute_rolling_stats
+
+    HAS_ROLLING_STATS = True
+except Exception:
+    HAS_ROLLING_STATS = False
 from src.ui_shared import (
     ALL_CATEGORIES,
     METRIC_TOOLTIPS,
@@ -367,6 +374,160 @@ with main:
                         if _ytd_rows:
                             render_compact_table(pd.DataFrame(_ytd_rows))
                             st.caption("Actual 2026 stats from MLB Stats API. '--' = no data or zero.")
+
+            # ── Recent Performance (L7 / L14 rolling stats) ────────────────
+            if HAS_ROLLING_STATS:
+                try:
+                    _ids = [int(id_a), int(id_b)]
+                    _l14 = compute_rolling_stats(_ids, days=14, stat_type="total")
+                    _l7 = compute_rolling_stats(_ids, days=7, stat_type="total")
+
+                    if not _l14.empty or not _l7.empty:
+                        st.subheader("Recent Performance")
+
+                        # Determine hitter vs pitcher per player
+                        _row_a_pool = pool[pool["player_id"] == id_a]
+                        _row_b_pool = pool[pool["player_id"] == id_b]
+                        _is_hitter_a = (
+                            bool(int(_row_a_pool.iloc[0].get("is_hitter", 1))) if not _row_a_pool.empty else True
+                        )
+                        _is_hitter_b = (
+                            bool(int(_row_b_pool.iloc[0].get("is_hitter", 1))) if not _row_b_pool.empty else True
+                        )
+
+                        for _window_label, _wdf in [("Last 14 Days", _l14), ("Last 7 Days", _l7)]:
+                            if _wdf.empty:
+                                st.caption(f"{_window_label}: No recent game data available.")
+                                continue
+
+                            _wa = _wdf[_wdf["player_id"] == int(id_a)]
+                            _wb = _wdf[_wdf["player_id"] == int(id_b)]
+
+                            _recent_rows = []
+
+                            # Games played
+                            _gp_a = int(_wa.iloc[0].get("games_played", 0)) if not _wa.empty else 0
+                            _gp_b = int(_wb.iloc[0].get("games_played", 0)) if not _wb.empty else 0
+                            _recent_rows.append(
+                                {
+                                    "Stat": "Games Played",
+                                    result["player_a"]: str(_gp_a) if _gp_a > 0 else "--",
+                                    result["player_b"]: str(_gp_b) if _gp_b > 0 else "--",
+                                }
+                            )
+
+                            # Hitter stats
+                            if _is_hitter_a or _is_hitter_b:
+                                for _scol, _slabel, _sfmt in [
+                                    ("r", "Runs", None),
+                                    ("hr", "Home Runs", None),
+                                    ("rbi", "Runs Batted In", None),
+                                    ("sb", "Stolen Bases", None),
+                                    ("avg_calc", "Batting Average", "AVG"),
+                                    ("obp_calc", "On-Base Percentage", "OBP"),
+                                ]:
+                                    _va_r = _wa.iloc[0].get(_scol, 0) if not _wa.empty else 0
+                                    _vb_r = _wb.iloc[0].get(_scol, 0) if not _wb.empty else 0
+                                    _va_r = float(_va_r) if _va_r is not None and _va_r == _va_r else 0
+                                    _vb_r = float(_vb_r) if _vb_r is not None and _vb_r == _vb_r else 0
+                                    if _sfmt:
+                                        _va_s = format_stat(_va_r, _sfmt) if _va_r > 0 else "--"
+                                        _vb_s = format_stat(_vb_r, _sfmt) if _vb_r > 0 else "--"
+                                    else:
+                                        _va_s = str(int(_va_r)) if _va_r > 0 else "--"
+                                        _vb_s = str(int(_vb_r)) if _vb_r > 0 else "--"
+                                    # Only show if at least one player is a hitter
+                                    if _is_hitter_a or _is_hitter_b:
+                                        _recent_rows.append(
+                                            {
+                                                "Stat": _slabel,
+                                                result["player_a"]: _va_s if _is_hitter_a else "--",
+                                                result["player_b"]: _vb_s if _is_hitter_b else "--",
+                                            }
+                                        )
+
+                            # Pitcher stats
+                            if not _is_hitter_a or not _is_hitter_b:
+                                for _scol, _slabel, _sfmt in [
+                                    ("ip", "Innings Pitched", None),
+                                    ("w", "Wins", None),
+                                    ("k", "Strikeouts", None),
+                                    ("sv", "Saves", None),
+                                    ("era_calc", "Earned Run Average", "ERA"),
+                                    ("whip_calc", "WHIP", "WHIP"),
+                                ]:
+                                    _va_r = _wa.iloc[0].get(_scol, 0) if not _wa.empty else 0
+                                    _vb_r = _wb.iloc[0].get(_scol, 0) if not _wb.empty else 0
+                                    _va_r = float(_va_r) if _va_r is not None and _va_r == _va_r else 0
+                                    _vb_r = float(_vb_r) if _vb_r is not None and _vb_r == _vb_r else 0
+                                    if _sfmt:
+                                        _va_s = format_stat(_va_r, _sfmt) if _va_r > 0 else "--"
+                                        _vb_s = format_stat(_vb_r, _sfmt) if _vb_r > 0 else "--"
+                                    elif _scol == "ip":
+                                        _va_s = f"{_va_r:.1f}" if _va_r > 0 else "--"
+                                        _vb_s = f"{_vb_r:.1f}" if _vb_r > 0 else "--"
+                                    else:
+                                        _va_s = str(int(_va_r)) if _va_r > 0 else "--"
+                                        _vb_s = str(int(_vb_r)) if _vb_r > 0 else "--"
+                                    # Only show if at least one player is a pitcher
+                                    if not _is_hitter_a or not _is_hitter_b:
+                                        _recent_rows.append(
+                                            {
+                                                "Stat": _slabel,
+                                                result["player_a"]: _va_s if not _is_hitter_a else "--",
+                                                result["player_b"]: _vb_s if not _is_hitter_b else "--",
+                                            }
+                                        )
+
+                            if _recent_rows:
+                                st.markdown(f"**{_window_label}**")
+                                render_compact_table(pd.DataFrame(_recent_rows))
+
+                        st.caption(
+                            "Rolling totals from game logs. Rate stats (AVG, OBP, ERA, WHIP) "
+                            "computed from weighted sums. '--' = no data or zero."
+                        )
+                except Exception:
+                    pass  # Graceful fallback — don't crash if game logs unavailable
+
+            # ── Statcast Profile Comparison ───────────────────────────────────
+            try:
+                _sc_a_pool = pool[pool["player_id"] == id_a]
+                _sc_b_pool = pool[pool["player_id"] == id_b]
+                if not _sc_a_pool.empty and not _sc_b_pool.empty:
+                    _sc_ra = _sc_a_pool.iloc[0]
+                    _sc_rb = _sc_b_pool.iloc[0]
+                    _statcast_metrics = [
+                        ("xwoba", "xwOBA", ".3f"),
+                        ("barrel_pct", "Barrel %", ".1f"),
+                        ("hard_hit_pct", "Hard Hit %", ".1f"),
+                        ("stuff_plus", "Stuff+", ".0f"),
+                    ]
+                    _sc_rows = []
+                    for _sc_col, _sc_label, _sc_fmt in _statcast_metrics:
+                        if _sc_col in pool.columns:
+                            _sc_va = float(_sc_ra.get(_sc_col, 0) or 0)
+                            _sc_vb = float(_sc_rb.get(_sc_col, 0) or 0)
+                            if _sc_va > 0 or _sc_vb > 0:
+                                _sc_rows.append(
+                                    {
+                                        "Metric": _sc_label,
+                                        result["player_a"]: f"{_sc_va:{_sc_fmt}}" if _sc_va > 0 else "--",
+                                        result["player_b"]: f"{_sc_vb:{_sc_fmt}}" if _sc_vb > 0 else "--",
+                                    }
+                                )
+                    if _sc_rows:
+                        st.subheader("Statcast Profile")
+                        render_compact_table(pd.DataFrame(_sc_rows))
+                        st.caption(
+                            "Statcast metrics from Baseball Savant. "
+                            "xwOBA = expected weighted on-base average, "
+                            "Barrel % = percentage of batted balls with ideal launch angle and exit velocity, "
+                            "Hard Hit % = percentage of balls hit 95+ mph, "
+                            "Stuff+ = pitch quality (100 = average)."
+                        )
+            except Exception:
+                pass  # Graceful fallback — don't crash if Statcast data unavailable
 
             # Player card selector for compared players
             render_player_select(

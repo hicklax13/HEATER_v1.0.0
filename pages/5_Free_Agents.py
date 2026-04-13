@@ -107,6 +107,21 @@ def _heat_label(heat: int) -> str:
     return f'<span style="color:{T["danger"]};font-weight:600;">{heat}</span>'
 
 
+def _regression_badge(flag: str) -> str:
+    """Return a colored badge for regression flag values.
+
+    BUY_LOW = green, SELL_HIGH = red, empty/unknown = blank.
+    """
+    if not flag or not isinstance(flag, str) or pd.isna(flag):
+        return ""
+    flag_upper = str(flag).strip().upper()
+    if flag_upper == "BUY_LOW":
+        return f'<span style="color:{T["green"]};font-weight:700;font-size:11px;">BUY</span>'
+    if flag_upper == "SELL_HIGH":
+        return f'<span style="color:{T["danger"]};font-weight:700;font-size:11px;">SELL</span>'
+    return ""
+
+
 try:
     from src.waiver_wire import compute_add_drop_recommendations
 
@@ -628,7 +643,7 @@ with main:
                 )
 
         if not _display_fas.empty:
-            # Add enriched pool columns if available (health, ECR, YTD)
+            # Add enriched pool columns if available (health, ECR, YTD, Statcast, regression)
             _enriched_cols = []
             if "health_score" in _display_fas.columns:
                 try:
@@ -642,10 +657,35 @@ with main:
                     pass
             if "consensus_rank" in _display_fas.columns:
                 _enriched_cols.append("consensus_rank")
+
+            # Determine hitter/pitcher split for conditional columns
+            _is_hitter_col = "is_hitter" if "is_hitter" in _display_fas.columns else None
+            _has_hitters = _is_hitter_col and (_display_fas[_is_hitter_col] == 1).any()
+            _has_pitchers = _is_hitter_col and (_display_fas[_is_hitter_col] == 0).any()
+
+            # Statcast columns — hitter-specific
+            if "xwoba" in _display_fas.columns and _has_hitters:
+                _enriched_cols.append("xwoba")
+            if "barrel_pct" in _display_fas.columns and _has_hitters:
+                _enriched_cols.append("barrel_pct")
+            # Statcast columns — pitcher-specific
+            if "stuff_plus" in _display_fas.columns and _has_pitchers:
+                _enriched_cols.append("stuff_plus")
+
+            # Regression flag
+            if "regression_flag" in _display_fas.columns:
+                _enriched_cols.append("regression_flag")
+
+            # YTD stats — hitter-specific
             if "ytd_avg" in _display_fas.columns:
                 _enriched_cols.append("ytd_avg")
             if "ytd_hr" in _display_fas.columns:
                 _enriched_cols.append("ytd_hr")
+            # YTD stats — pitcher-specific
+            if "ytd_era" in _display_fas.columns and _has_pitchers:
+                _enriched_cols.append("ytd_era")
+            if "ytd_k" in _display_fas.columns and _has_pitchers:
+                _enriched_cols.append("ytd_k")
 
             show_cols = [
                 "player_name",
@@ -682,6 +722,34 @@ with main:
                     lambda x: f".{x:.3f}"[1:] if pd.notna(x) and x > 0 else ""
                 )
 
+            # Format Statcast columns
+            if "xwoba" in display_fa_df.columns:
+                display_fa_df["xwoba"] = display_fa_df["xwoba"].apply(
+                    lambda x: f"{x:.3f}" if pd.notna(x) and x > 0 else ""
+                )
+            if "barrel_pct" in display_fa_df.columns:
+                display_fa_df["barrel_pct"] = display_fa_df["barrel_pct"].apply(
+                    lambda x: f"{x:.1f}%" if pd.notna(x) and x > 0 else ""
+                )
+            if "stuff_plus" in display_fa_df.columns:
+                display_fa_df["stuff_plus"] = display_fa_df["stuff_plus"].apply(
+                    lambda x: f"{int(x)}" if pd.notna(x) and x > 0 else ""
+                )
+
+            # Format regression flag as colored badge
+            if "regression_flag" in display_fa_df.columns:
+                display_fa_df["regression_flag"] = display_fa_df["regression_flag"].apply(_regression_badge)
+
+            # Format YTD pitching stats
+            if "ytd_era" in display_fa_df.columns:
+                display_fa_df["ytd_era"] = display_fa_df["ytd_era"].apply(
+                    lambda x: f"{x:.2f}" if pd.notna(x) and x > 0 else ""
+                )
+            if "ytd_k" in display_fa_df.columns:
+                display_fa_df["ytd_k"] = display_fa_df["ytd_k"].apply(
+                    lambda x: f"{int(x)}" if pd.notna(x) and x > 0 else ""
+                )
+
             display_fa_df = display_fa_df.rename(
                 columns={
                     "player_name": "Player",
@@ -689,8 +757,14 @@ with main:
                     "heat": "Heat",
                     "health_badge": "Health",
                     "consensus_rank": "ECR",
+                    "xwoba": "xwOBA",
+                    "barrel_pct": "Barrel%",
+                    "stuff_plus": "Stuff+",
+                    "regression_flag": "Signal",
                     "ytd_avg": "YTD AVG",
                     "ytd_hr": "YTD HR",
+                    "ytd_era": "YTD ERA",
+                    "ytd_k": "YTD K",
                     "marginal_value": "Marginal Value",
                     "impact": "Impact",
                     "best_category": "Best Category",
@@ -708,8 +782,9 @@ with main:
                 f" Click column headers to sort.</div>",
                 unsafe_allow_html=True,
             )
-            if "Heat" in display_fa_df.columns:
-                # Use compact table for HTML heat labels
+            _has_html_cols = "Heat" in display_fa_df.columns or "Signal" in display_fa_df.columns
+            if _has_html_cols:
+                # Use compact table for HTML heat/signal labels
                 render_compact_table(display_fa_df, highlight_cols=["Impact"], max_height=450)
             else:
                 render_sortable_table(display_fa_df, height=450, key="fa_merged_all_fas")
