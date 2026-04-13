@@ -715,47 +715,90 @@ class YahooDataService:
         return df
 
     def _fetch_and_sync_schedule(self) -> dict:
-        """Fetch schedule from Yahoo matchup data and sync to SQLite.
+        """Fetch full season schedule from Yahoo scoreboards and sync to SQLite.
 
-        Yahoo doesn't have a direct "schedule" endpoint. We derive
-        the schedule from the scoreboard by querying each week's matchups.
-        This is expensive (1 call per week), so the 24-hour TTL is critical.
+        Iterates every week's scoreboard to build the complete schedule for
+        both the user's team (``league_schedule``) and all matchups
+        (``league_schedule_full``).  Expensive (~24 API calls), so the
+        24-hour TTL on ``get_schedule()`` is critical.
 
-        Falls back to the hardcoded schedule if Yahoo call fails.
+        Falls back to the stored DB schedule, then hardcoded schedule.
         """
         from src.database import upsert_league_schedule
 
-        # Try to get user team name from league_teams table
+        try:
+            from src.database import upsert_league_schedule_full
+        except ImportError:
+            upsert_league_schedule_full = None  # type: ignore[assignment]
+
         user_team_name = self._get_user_team_name()
         if not user_team_name:
             return self._fallback_schedule()
 
         schedule: dict[int, str] = {}
+        total_weeks = 24
 
-        # The matchup data from get_current_matchup() gives us one week.
-        # For the full schedule, we'd need to query each week's scoreboard.
-        # For now, try the current matchup to get this week's opponent,
-        # and fall back to the stored schedule for other weeks.
-        matchup = self._fetch_matchup()
-        if matchup and "opponent" in matchup:
-            week = matchup.get("week", 0)
-            if week:
-                schedule[week] = matchup["opponent"]
-                upsert_league_schedule(week, user_team_name, matchup["opponent"])
+        if self._client and self.is_connected():
+            for week in range(1, total_weeks + 1):
+                try:
+                    scoreboard = self._client._query.get_league_scoreboard_by_week(
+                        chosen_week=week,
+                    )
+                    if not scoreboard or not hasattr(scoreboard, "matchups"):
+                        continue
 
-        # Fill remaining weeks from the stored schedule or fallback
-        from src.database import load_league_schedule
+                    for matchup in scoreboard.matchups:
+                        teams = getattr(matchup, "teams", None)
+                        if not teams or len(teams) < 2:
+                            continue
 
-        stored = load_league_schedule()
-        for week_num, opponent in stored.items():
-            if week_num not in schedule:
-                schedule[week_num] = opponent
+                        names: list[str] = []
+                        for i, team_entry in enumerate(teams):
+                            team_obj = (
+                                team_entry.get("team")
+                                if isinstance(team_entry, dict)
+                                else getattr(team_entry, "team", team_entry)
+                            )
+                            name = getattr(team_obj, "name", None)
+                            if isinstance(name, bytes):
+                                name = name.decode("utf-8", errors="replace")
+                            names.append(str(name) if name else f"Team_{i}")
 
-        # If we still have gaps, use hardcoded fallback
-        fallback = self._fallback_schedule()
-        for week_num, opponent in fallback.items():
-            if week_num not in schedule:
-                schedule[week_num] = opponent
+                        if len(names) >= 2:
+                            team_a, team_b = names[0], names[1]
+
+                            # Persist full-league matchup
+                            if upsert_league_schedule_full is not None:
+                                upsert_league_schedule_full(week, team_a, team_b)
+
+                            # Persist user's opponent
+                            if team_a == user_team_name:
+                                schedule[week] = team_b
+                                upsert_league_schedule(week, user_team_name, team_b)
+                            elif team_b == user_team_name:
+                                schedule[week] = team_a
+                                upsert_league_schedule(week, user_team_name, team_a)
+
+                    time.sleep(0.5)  # Rate limit between week fetches
+                except Exception:
+                    logger.debug("Failed to fetch week %d scoreboard", week, exc_info=True)
+                    continue
+
+        # Fill gaps from stored schedule
+        if len(schedule) < total_weeks:
+            from src.database import load_league_schedule
+
+            stored = load_league_schedule()
+            for week_num, opponent in stored.items():
+                if week_num not in schedule:
+                    schedule[week_num] = opponent
+
+        # Fill remaining gaps from hardcoded fallback
+        if len(schedule) < total_weeks:
+            fallback = self._fallback_schedule()
+            for week_num, opponent in fallback.items():
+                if week_num not in schedule:
+                    schedule[week_num] = opponent
 
         return schedule
 
