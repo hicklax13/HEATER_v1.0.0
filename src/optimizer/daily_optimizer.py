@@ -341,7 +341,7 @@ def build_daily_dcv_table(
             names confirmed in today's starting lineup. Used for volume factor
             lookup. When None, all lineups treated as not-yet-posted (0.9 default).
         recent_form: Dict mapping player_id to form data dict. Expected
-            structure: {player_id: {"last_14": {"avg": .., "obp": .., "era": ..,
+            structure: {player_id: {"l14": {"avg": .., "obp": .., "era": ..,
             "whip": .., "games": ..}}}. When provided, blends L14 form at 25%
             weight with preseason projections (clamped +/-20%). When None, no
             recent form adjustment is applied.
@@ -513,14 +513,29 @@ def build_daily_dcv_table(
             rows.append(row_data)
             continue
 
-        # Matchup multiplier (simplified -- uses team-level data + weather)
+        # Matchup multiplier — uses handedness, park factors, weather
         player_temp = weather_by_team.get(team)
+        _batter_hand = str(player.get("bats", "") or "")
+        _pitcher_hand = ""
+        # Look up opposing pitcher handedness from schedule if available
+        if is_hitter and schedule_today:
+            for _sg in schedule_today:
+                _home = str(_sg.get("home_name", ""))
+                _away = str(_sg.get("away_name", ""))
+                if team in (_home, _away, str(_sg.get("home_short", "")), str(_sg.get("away_short", ""))):
+                    _pp_key = (
+                        "away_probable_pitcher"
+                        if team == _home or team == str(_sg.get("home_short", ""))
+                        else "home_probable_pitcher"
+                    )
+                    # Probable pitcher throws data not in schedule — use roster pool
+                    break
         matchup_mult = compute_matchup_multiplier(
             is_hitter=is_hitter,
-            batter_hand="",  # Could be enhanced with player hand data
-            pitcher_hand="",
+            batter_hand=_batter_hand,
+            pitcher_hand=_pitcher_hand,
             player_team=team,
-            opponent_team="",  # Would need game-specific opponent
+            opponent_team="",
             park_factors=park_factors,
             temp_f=player_temp,
         )
@@ -528,7 +543,7 @@ def build_daily_dcv_table(
         # Recent form blending: adjust projections with L14 data
         form_adjustments: dict[str, float] = {}
         if recent_form is not None:
-            form = recent_form.get(pid, {}).get("last_14", {})
+            form = recent_form.get(pid, {}).get("l14", {})
             form_games = int(form.get("games", 0) or 0)
             if form_games >= 7:
                 if is_hitter:

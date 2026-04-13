@@ -299,4 +299,33 @@ def rank_free_agents(
     result = pd.DataFrame(records)
     if not result.empty:
         result = result.sort_values("marginal_value", ascending=False).reset_index(drop=True)
+        # Preserve enriched columns from the full FA pool (Statcast, regression flags, health)
+        _enrich_cols = [
+            "regression_flag",
+            "babip_regression_flag",
+            "stuff_regression_flag",
+            "velo_regression_flag",
+            "xwoba",
+            "barrel_pct",
+            "hard_hit_pct",
+            "stuff_plus",
+            "health_score",
+            "is_hitter",
+            "team",
+            "ytd_avg",
+            "ytd_hr",
+            "ytd_rbi",
+            "ytd_sb",
+            "ytd_era",
+            "ytd_whip",
+            "ytd_k",
+            "ytd_sv",
+            "ytd_pa",
+            "consensus_rank",
+            "adp",
+        ]
+        _available = [c for c in _enrich_cols if c in fa_pool.columns and c not in result.columns]
+        if _available and "player_id" in result.columns and "player_id" in fa_pool.columns:
+            _merge_src = fa_pool[["player_id"] + _available].drop_duplicates("player_id")
+            result = result.merge(_merge_src, on="player_id", how="left")
     return result
