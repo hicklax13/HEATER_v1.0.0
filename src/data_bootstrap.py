@@ -1938,7 +1938,14 @@ def bootstrap_all_data(
     # Phase 1: Players (must come first — other phases need player_ids)
     _notify(0.0)
     if force or check_staleness("players", staleness.players_hours):
-        results["players"] = _bootstrap_players(progress)
+        try:
+            results["players"] = _run_with_timeout(
+                lambda: _bootstrap_players(progress),
+                timeout=_PHASE_TIMEOUT_SECONDS,
+            )
+        except Exception as exc:
+            logger.warning("Players bootstrap timed out or failed: %s", exc)
+            results["players"] = f"Error: {exc}"
     else:
         results["players"] = "Fresh"
 
@@ -2006,7 +2013,14 @@ def bootstrap_all_data(
     # Phase 7: Yahoo league data (optional)
     _notify(0.90)
     if force or check_staleness("yahoo_data", staleness.yahoo_hours):
-        results["yahoo"] = _bootstrap_yahoo(progress, yahoo_client)
+        try:
+            results["yahoo"] = _run_with_timeout(
+                lambda: _bootstrap_yahoo(progress, yahoo_client),
+                timeout=_PHASE_TIMEOUT_SECONDS,
+            )
+        except Exception as exc:
+            logger.warning("Yahoo bootstrap timed out or failed: %s", exc)
+            results["yahoo"] = f"Error: {exc}"
     else:
         results["yahoo"] = "Fresh"
 
@@ -2072,14 +2086,28 @@ def bootstrap_all_data(
     # Phase 14: News intelligence (multi-source)
     _notify(0.98)
     if force or check_staleness("news_intelligence", staleness.news_hours):
-        results["news_intelligence"] = _bootstrap_news_intel(progress, yahoo_client)
+        try:
+            results["news_intelligence"] = _run_with_timeout(
+                lambda: _bootstrap_news_intel(progress, yahoo_client),
+                timeout=_PHASE_TIMEOUT_SECONDS,
+            )
+        except Exception as exc:
+            logger.warning("News intelligence timed out or failed: %s", exc)
+            results["news_intelligence"] = f"Error: {exc}"
     else:
         results["news_intelligence"] = "Fresh"
 
     # Phase 15: ECR consensus (depends on Phase 3 projections + Phase 9 ADP)
     _notify(0.99)
     if force or check_staleness("ecr_consensus", staleness.ecr_consensus_hours):
-        results["ecr_consensus"] = _bootstrap_ecr_consensus(progress)
+        try:
+            results["ecr_consensus"] = _run_with_timeout(
+                lambda: _bootstrap_ecr_consensus(progress),
+                timeout=_PHASE_TIMEOUT_SECONDS,
+            )
+        except Exception as exc:
+            logger.warning("ECR consensus timed out or failed: %s", exc)
+            results["ecr_consensus"] = f"Error: {exc}"
     else:
         results["ecr_consensus"] = "Fresh"
 
@@ -2227,9 +2255,12 @@ def bootstrap_all_data(
         try:
             from src.bayesian import update_ros_projections
 
-            ros_count = update_ros_projections()
-            results["ros_projections"] = f"Updated {ros_count} ROS projections"
-            logger.info("ROS Bayesian projections: %d updated", ros_count)
+            def _ros_update():
+                count = update_ros_projections()
+                return f"Updated {count} ROS projections"
+
+            results["ros_projections"] = _run_with_timeout(_ros_update, timeout=_PHASE_TIMEOUT_SECONDS)
+            logger.info("ROS Bayesian projections: %s", results["ros_projections"])
         except Exception as exc:
             logger.warning("ROS projection update failed: %s", exc)
             results["ros_projections"] = f"Error: {exc}"
@@ -2329,7 +2360,14 @@ def bootstrap_all_data(
 
     # Phase 31: Game logs for Player Databank (1-hour staleness, non-critical)
     if force or check_staleness("game_logs", 1):
-        results["game_logs"] = _bootstrap_game_logs(progress, force=force)
+        try:
+            results["game_logs"] = _run_with_timeout(
+                lambda: _bootstrap_game_logs(progress, force=force),
+                timeout=_PHASE_TIMEOUT_SECONDS,
+            )
+        except Exception as exc:
+            logger.warning("Game logs timed out or failed: %s", exc)
+            results["game_logs"] = f"Error: {exc}"
     else:
         results["game_logs"] = "Fresh"
 
