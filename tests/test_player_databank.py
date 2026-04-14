@@ -138,12 +138,20 @@ class TestRollingStats:
         conn = get_connection()
         try:
             # Insert 5 games for batter (player 200)
+            # Use relative dates so the 7-day window always includes all 5 games
+            from datetime import UTC, datetime, timedelta
+
+            today = datetime.now(UTC).strftime("%Y-%m-%d")
+            d1 = (datetime.now(UTC) - timedelta(days=1)).strftime("%Y-%m-%d")
+            d2 = (datetime.now(UTC) - timedelta(days=2)).strftime("%Y-%m-%d")
+            d3 = (datetime.now(UTC) - timedelta(days=3)).strftime("%Y-%m-%d")
+            d4 = (datetime.now(UTC) - timedelta(days=4)).strftime("%Y-%m-%d")
             games = [
-                (200, "2026-04-10", 2026, 4, 4, 2, 1, 1, 2, 0, 0, 0, 0, 0.0, 0, 0, 0, 0, 0, 0, 0),
-                (200, "2026-04-09", 2026, 4, 4, 1, 0, 0, 1, 1, 0, 0, 0, 0.0, 0, 0, 0, 0, 0, 0, 0),
-                (200, "2026-04-08", 2026, 3, 3, 0, 1, 0, 0, 0, 0, 0, 0, 0.0, 0, 0, 0, 0, 0, 0, 0),
-                (200, "2026-04-07", 2026, 5, 5, 3, 2, 2, 3, 0, 0, 0, 0, 0.0, 0, 0, 0, 0, 0, 0, 0),
-                (200, "2026-04-06", 2026, 4, 4, 1, 0, 0, 1, 0, 0, 0, 0, 0.0, 0, 0, 0, 0, 0, 0, 0),
+                (200, today, 2026, 4, 4, 2, 1, 1, 2, 0, 0, 0, 0, 0.0, 0, 0, 0, 0, 0, 0, 0),
+                (200, d1, 2026, 4, 4, 1, 0, 0, 1, 1, 0, 0, 0, 0.0, 0, 0, 0, 0, 0, 0, 0),
+                (200, d2, 2026, 3, 3, 0, 1, 0, 0, 0, 0, 0, 0, 0.0, 0, 0, 0, 0, 0, 0, 0),
+                (200, d3, 2026, 5, 5, 3, 2, 2, 3, 0, 0, 0, 0, 0.0, 0, 0, 0, 0, 0, 0, 0),
+                (200, d4, 2026, 4, 4, 1, 0, 0, 1, 0, 0, 0, 0, 0.0, 0, 0, 0, 0, 0, 0, 0),
             ]
             for g in games:
                 conn.execute(
