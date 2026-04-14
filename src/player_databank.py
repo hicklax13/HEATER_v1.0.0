@@ -1186,6 +1186,25 @@ def _html_escape(text: str) -> str:
     )
 
 
+_EST_OFFSET = timedelta(hours=-5)  # EST = UTC-5 (no DST adjustment)
+
+
+def _parse_iso_timestamp(ts_str: str) -> datetime | None:
+    """Parse an ISO-format timestamp string, returning a datetime or None."""
+    for fmt in (
+        "%Y-%m-%dT%H:%M:%S.%f%z",
+        "%Y-%m-%dT%H:%M:%S%z",
+        "%Y-%m-%dT%H:%M:%S.%f",
+        "%Y-%m-%dT%H:%M:%S",
+        "%Y-%m-%d %H:%M:%S",
+    ):
+        try:
+            return datetime.strptime(ts_str, fmt)
+        except ValueError:
+            continue
+    return None
+
+
 def get_data_as_of_label(stat_view: str, season: int = 2026) -> str:
     """Return a human-readable 'as of' label for the current stat view.
 
@@ -1229,26 +1248,21 @@ def get_data_as_of_label(stat_view: str, season: int = 2026) -> str:
                 dt = datetime.strptime(row[0], "%Y-%m-%d")
                 return f"As of {dt.strftime('%m/%d')}'s games"
 
-            # Fallback: use refresh_log timestamp for season_stats
+            # Fallback: use refresh_log timestamp for season_stats.
+            # MLB season stats reflect completed games. The refresh runs
+            # during the day, so stats are through the previous day's
+            # completed games (the refresh date minus 1 day).
             from src.database import get_refresh_status
 
             for src in ("season_stats", "game_logs"):
                 rs = get_refresh_status(src)
                 if rs and rs.get("last_refresh"):
                     ts = str(rs["last_refresh"])
-                    for fmt in (
-                        "%Y-%m-%dT%H:%M:%S.%f%z",
-                        "%Y-%m-%dT%H:%M:%S%z",
-                        "%Y-%m-%dT%H:%M:%S.%f",
-                        "%Y-%m-%dT%H:%M:%S",
-                    ):
-                        try:
-                            dt = datetime.strptime(ts, fmt)
-                            # Stats are through yesterday's games
-                            yesterday = datetime.now(UTC) - timedelta(days=1)
-                            return f"As of {yesterday.month}/{yesterday.day}'s games"
-                        except ValueError:
-                            continue
+                    dt = _parse_iso_timestamp(ts)
+                    if dt is not None:
+                        # Stats are through the day before the refresh
+                        stats_through = dt - timedelta(days=1)
+                        return f"As of {stats_through.month}/{stats_through.day}'s games"
         except Exception:
             logger.debug("Failed to get latest game date for stat view %s", stat_view)
         finally:
@@ -1286,23 +1300,12 @@ def get_data_refreshed_label(stat_view: str) -> str:
     for source in sources:
         status = get_refresh_status(source)
         if status and status.get("last_refresh"):
-            try:
-                ts_str = str(status["last_refresh"])
-                # Parse ISO timestamp with optional timezone/microseconds
-                for fmt in (
-                    "%Y-%m-%dT%H:%M:%S.%f%z",
-                    "%Y-%m-%dT%H:%M:%S%z",
-                    "%Y-%m-%dT%H:%M:%S.%f",
-                    "%Y-%m-%dT%H:%M:%S",
-                    "%Y-%m-%d %H:%M:%S",
-                ):
-                    try:
-                        dt = datetime.strptime(ts_str, fmt)
-                        return f"Refreshed {dt.month}/{dt.day}, {dt.strftime('%I:%M %p').lstrip('0')} EST"
-                    except ValueError:
-                        continue
-            except Exception:
-                continue
+            dt = _parse_iso_timestamp(str(status["last_refresh"]))
+            if dt is not None:
+                # Convert UTC → EST (UTC-5) for display
+                est_dt = dt + _EST_OFFSET
+                time_str = est_dt.strftime("%I:%M %p").lstrip("0")
+                return f"Refreshed {est_dt.month}/{est_dt.day}, {time_str} EST"
     return ""
 
 
