@@ -38,8 +38,16 @@ def compute_category_fit(
     return {"helps": helps, "wastes": wastes, "fit_score": round(fit_score, 1)}
 
 
+_IL_STATUSES = frozenset({"IL10", "IL15", "IL60", "IL-10", "IL-15", "IL-60"})
+
+
 def _roster_category_totals(roster_ids: list, player_pool: pd.DataFrame) -> dict:
-    """Compute aggregate category totals for a set of player IDs."""
+    """Compute aggregate category totals for a set of player IDs.
+
+    Players on the Injured List (IL10/IL15/IL60) are zeroed out — they
+    cannot play and should not contribute projected stats to the team
+    totals used for add/drop evaluation.
+    """
     roster = player_pool[player_pool["player_id"].isin(roster_ids)]
     totals = {
         "R": 0,
@@ -61,6 +69,10 @@ def _roster_category_totals(roster_ids: list, player_pool: pd.DataFrame) -> dict
         "h_allowed": 0,
     }
     for _, p in roster.iterrows():
+        # IL players contribute nothing — they can't play
+        status = str(p.get("status", "") or "").upper().strip()
+        if status in _IL_STATUSES:
+            continue
         totals["R"] += int(p.get("r", 0) or 0)
         totals["HR"] += int(p.get("hr", 0) or 0)
         totals["RBI"] += int(p.get("rbi", 0) or 0)

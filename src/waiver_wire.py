@@ -710,6 +710,20 @@ def compute_add_drop_recommendations(
     top_drops = drop_costs[:max_drop_candidates]
 
     # ── Stage 4: Compute net swap values ──────────────────────────────
+    # Pre-compute roster composition for position-type guard
+    _MIN_PITCHERS = 8  # 2SP + 2RP + 4P slots
+    _MIN_HITTERS = 10  # C + 1B + 2B + 3B + SS + 3OF + 2Util
+
+    def _pool_is_pitcher(pid: int) -> bool:
+        """Check if a player_id is a pitcher in the pool."""
+        match = player_pool[player_pool["player_id"] == pid]
+        if match.empty:
+            return False
+        return int(match.iloc[0].get("is_hitter", 1)) == 0
+
+    roster_pitcher_count = sum(1 for pid in user_roster_ids if _pool_is_pitcher(pid))
+    roster_hitter_count = len(user_roster_ids) - roster_pitcher_count
+
     swap_results = []
     for fa_rank_idx, (_, fa_row) in enumerate(top_fas.iterrows()):
         fa_id = int(fa_row["player_id"])
@@ -720,6 +734,7 @@ def compute_add_drop_recommendations(
         if fa_match.empty:
             continue
         fa_player = fa_match.iloc[0]
+        fa_is_pitcher = int(fa_player.get("is_hitter", 1)) == 0
 
         for drop_info in top_drops:
             drop_id = drop_info["player_id"]
@@ -728,6 +743,17 @@ def compute_add_drop_recommendations(
             # Skip if same player
             if fa_id == drop_id:
                 continue
+
+            # Roster composition guard: enforce minimum pitchers / hitters
+            drop_is_pitcher = _pool_is_pitcher(drop_id)
+            if drop_is_pitcher and not fa_is_pitcher:
+                # Dropping pitcher, adding hitter — check pitcher floor
+                if roster_pitcher_count <= _MIN_PITCHERS:
+                    continue
+            if not drop_is_pitcher and fa_is_pitcher:
+                # Dropping hitter, adding pitcher — check hitter floor
+                if roster_hitter_count <= _MIN_HITTERS:
+                    continue
 
             swap = compute_net_swap_value(fa_id, drop_id, user_roster_ids, player_pool, config)
 
@@ -1139,20 +1165,30 @@ def _generate_reasoning(
     """Generate human-readable reasoning for an add/drop recommendation."""
     reasons = []
 
-    # Best category impact
+    # Best category impact — attribute to the correct side of the swap
+    inverse_cats = config.inverse_stats if config else {"L", "ERA", "WHIP"}
     deltas = swap["category_deltas"]
     if deltas:
         best_cat = max(deltas, key=lambda c: deltas[c])
         best_val = deltas[best_cat]
         if best_val > 0:
-            reasons.append(f"{fa_name} adds +{best_val:.2f} SGP in {best_cat}")
+            if best_cat in inverse_cats:
+                # Inverse stat gain comes from dropping the player (reducing L/ERA/WHIP)
+                reasons.append(f"Dropping {drop_name} saves +{best_val:.2f} SGP in {best_cat}")
+            else:
+                reasons.append(f"{fa_name} adds +{best_val:.2f} SGP in {best_cat}")
 
-    # Worst category impact
+    # Worst category impact — attribute to the correct side
     if deltas:
         worst_cat = min(deltas, key=lambda c: deltas[c])
         worst_val = deltas[worst_cat]
         if worst_val < -0.1:
-            reasons.append(f"Costs {worst_val:.2f} SGP in {worst_cat}")
+            if worst_cat in inverse_cats:
+                # Inverse stat loss means the add player worsens L/ERA/WHIP
+                reasons.append(f"{fa_name} costs {worst_val:.2f} SGP in {worst_cat}")
+            else:
+                # Normal stat loss means the drop player had value here
+                reasons.append(f"Dropping {drop_name} costs {worst_val:.2f} SGP in {worst_cat}")
 
     # Sustainability flag
     if sustainability < 0.4:
