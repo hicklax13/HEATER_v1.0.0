@@ -115,6 +115,28 @@ def temp_db(tmp_path):
         )
     """)
 
+    # Ownership trends table (for percent_owned subquery in pool SQL)
+    c.execute("""
+        CREATE TABLE ownership_trends (
+            player_id INTEGER NOT NULL,
+            date TEXT NOT NULL,
+            percent_owned REAL,
+            delta_7d REAL,
+            PRIMARY KEY (player_id, date)
+        )
+    """)
+
+    # Statcast archive table (for xwoba/barrel_pct/etc. in pool SQL)
+    c.execute("""
+        CREATE TABLE statcast_archive (
+            player_id INTEGER NOT NULL,
+            season INTEGER NOT NULL,
+            xwoba REAL, xba REAL, barrel_pct REAL, hard_hit_pct REAL,
+            ev_mean REAL, stuff_plus REAL, babip REAL,
+            PRIMARY KEY (player_id, season)
+        )
+    """)
+
     # League rosters table
     c.execute("""
         CREATE TABLE league_rosters (

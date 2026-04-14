@@ -55,7 +55,8 @@ def enriched_db(tmp_path):
             player_id INTEGER, season INTEGER, pa INTEGER DEFAULT 0,
             avg REAL DEFAULT 0, hr INTEGER DEFAULT 0, rbi INTEGER DEFAULT 0,
             sb INTEGER DEFAULT 0, era REAL DEFAULT 0, whip REAL DEFAULT 0,
-            sv INTEGER DEFAULT 0, k INTEGER DEFAULT 0
+            sv INTEGER DEFAULT 0, k INTEGER DEFAULT 0,
+            games_played INTEGER DEFAULT 0
         )
     """)
 
@@ -78,6 +79,14 @@ def enriched_db(tmp_path):
 
     c.execute("CREATE TABLE ros_projections (player_id INTEGER)")
 
+    c.execute("""
+        CREATE TABLE ownership_trends (
+            player_id INTEGER NOT NULL, date TEXT NOT NULL,
+            percent_owned REAL, delta_7d REAL,
+            PRIMARY KEY (player_id, date)
+        )
+    """)
+
     c.execute("CREATE TABLE refresh_log (source TEXT, timestamp TEXT, status TEXT)")
 
     # Insert test players
@@ -87,7 +96,7 @@ def enriched_db(tmp_path):
         "INSERT INTO projections VALUES (1, 'blended', 550, 500, 150, 80, 25, 80, 10, .300, .360, 40, 5, 3, 0, 0, 0, 0, 0, NULL, NULL, 0, 0, 0, NULL, NULL, NULL, NULL, NULL, NULL)"
     )
     c.execute("INSERT INTO adp VALUES (1, 50, NULL)")
-    c.execute("INSERT INTO season_stats VALUES (1, 2026, 80, .340, 5, 15, 3, 0, 0, 0, 0)")
+    c.execute("INSERT INTO season_stats VALUES (1, 2026, 80, .340, 5, 15, 3, 0, 0, 0, 0, 15)")
     c.execute("INSERT INTO statcast_archive (player_id, season, xwoba, babip) VALUES (1, 2026, 0.380, 0.370)")
 
     # Hitter 2: Low BABIP (unlucky) — should be BUY_LOW
@@ -96,7 +105,7 @@ def enriched_db(tmp_path):
         "INSERT INTO projections VALUES (2, 'blended', 550, 500, 130, 70, 20, 70, 15, .260, .330, 40, 5, 3, 0, 0, 0, 0, 0, NULL, NULL, 0, 0, 0, NULL, NULL, NULL, NULL, NULL, NULL)"
     )
     c.execute("INSERT INTO adp VALUES (2, 60, NULL)")
-    c.execute("INSERT INTO season_stats VALUES (2, 2026, 70, .220, 3, 10, 5, 0, 0, 0, 0)")
+    c.execute("INSERT INTO season_stats VALUES (2, 2026, 70, .220, 3, 10, 5, 0, 0, 0, 0, 14)")
     c.execute("INSERT INTO statcast_archive (player_id, season, xwoba, babip) VALUES (2, 2026, 0.340, 0.250)")
 
     # Pitcher 3: Elite Stuff+ but bad ERA (unlucky) — should be BUY_LOW
@@ -105,7 +114,7 @@ def enriched_db(tmp_path):
         "INSERT INTO projections VALUES (3, 'blended', 0, 0, 0, 0, 0, 0, 0, NULL, NULL, 0, 0, 0, 180, 12, 8, 0, 200, 3.50, 1.20, 70, 60, 220, 3.20, 3.10, 3.00, NULL, NULL, NULL)"
     )
     c.execute("INSERT INTO adp VALUES (3, 30, NULL)")
-    c.execute("INSERT INTO season_stats VALUES (3, 2026, 0, 0, 0, 0, 0, 4.80, 1.35, 0, 35)")
+    c.execute("INSERT INTO season_stats VALUES (3, 2026, 0, 0, 0, 0, 0, 4.80, 1.35, 0, 35, 10)")
     c.execute("INSERT INTO statcast_archive (player_id, season, stuff_plus) VALUES (3, 2026, 125)")
 
     # Pitcher 4: Low Stuff+ but great ERA (lucky) — should be SELL_HIGH
@@ -114,7 +123,7 @@ def enriched_db(tmp_path):
         "INSERT INTO projections VALUES (4, 'blended', 0, 0, 0, 0, 0, 0, 0, NULL, NULL, 0, 0, 0, 160, 8, 10, 0, 120, 4.20, 1.30, 75, 55, 200, 4.50, 4.60, 4.40, NULL, NULL, NULL)"
     )
     c.execute("INSERT INTO adp VALUES (4, 120, NULL)")
-    c.execute("INSERT INTO season_stats VALUES (4, 2026, 0, 0, 0, 0, 0, 3.10, 1.05, 0, 20)")
+    c.execute("INSERT INTO season_stats VALUES (4, 2026, 0, 0, 0, 0, 0, 3.10, 1.05, 0, 20, 8)")
     c.execute("INSERT INTO statcast_archive (player_id, season, stuff_plus) VALUES (4, 2026, 80)")
 
     # Hitter 5: Normal BABIP (no flag)
@@ -123,7 +132,7 @@ def enriched_db(tmp_path):
         "INSERT INTO projections VALUES (5, 'blended', 500, 450, 120, 60, 18, 65, 5, .267, .340, 35, 4, 3, 0, 0, 0, 0, 0, NULL, NULL, 0, 0, 0, NULL, NULL, NULL, NULL, NULL, NULL)"
     )
     c.execute("INSERT INTO adp VALUES (5, 80, NULL)")
-    c.execute("INSERT INTO season_stats VALUES (5, 2026, 60, .270, 4, 12, 2, 0, 0, 0, 0)")
+    c.execute("INSERT INTO season_stats VALUES (5, 2026, 60, .270, 4, 12, 2, 0, 0, 0, 0, 12)")
     c.execute("INSERT INTO statcast_archive (player_id, season, xwoba, babip) VALUES (5, 2026, 0.330, 0.305)")
 
     conn.commit()
