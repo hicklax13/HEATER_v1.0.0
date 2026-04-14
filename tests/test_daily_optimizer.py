@@ -561,3 +561,177 @@ class TestConstants:
 
     def test_stud_floor_top_n_reasonable(self):
         assert 3 <= STUD_FLOOR_TOP_N <= 100
+
+
+# -----------------------------------------------------------------------
+# Bug 3: Probable pitcher volume factor tests
+# -----------------------------------------------------------------------
+
+
+class TestProbablePitcherVolume:
+    """SPs not on today's probable pitcher list get volume=0.3 (benched)."""
+
+    def _make_pitcher(self, name="Ace Pitcher", team="NYY", pos="SP"):
+        return pd.DataFrame(
+            [
+                {
+                    "player_id": 100,
+                    "name": name,
+                    "positions": pos,
+                    "team": team,
+                    "is_hitter": 0,
+                    "r": 0,
+                    "hr": 0,
+                    "rbi": 0,
+                    "sb": 0,
+                    "avg": 0.0,
+                    "obp": 0.0,
+                    "w": 10,
+                    "l": 5,
+                    "sv": 0,
+                    "k": 180,
+                    "era": 3.50,
+                    "whip": 1.10,
+                    "status": "active",
+                }
+            ]
+        )
+
+    def test_sp_probable_gets_full_volume(self):
+        roster = self._make_pitcher(name="Ace Pitcher", team="NYY")
+        schedule = [
+            {
+                "home_team": "NYY",
+                "away_team": "BOS",
+                "home_probable_pitcher": "Ace Pitcher",
+                "away_probable_pitcher": "Other Guy",
+            }
+        ]
+        dcv = build_daily_dcv_table(roster, None, schedule, {})
+        row = dcv.iloc[0]
+        assert row["volume_factor"] == 1.0
+
+    def test_sp_not_probable_gets_low_volume(self):
+        roster = self._make_pitcher(name="Ace Pitcher", team="NYY")
+        schedule = [
+            {
+                "home_team": "NYY",
+                "away_team": "BOS",
+                "home_probable_pitcher": "Other Starter",
+                "away_probable_pitcher": "Some Guy",
+            }
+        ]
+        dcv = build_daily_dcv_table(roster, None, schedule, {})
+        row = dcv.iloc[0]
+        assert row["volume_factor"] == 0.3
+
+    def test_rp_unaffected_by_probable_starters(self):
+        roster = self._make_pitcher(name="Closer Guy", team="NYY", pos="RP")
+        schedule = [
+            {
+                "home_team": "NYY",
+                "away_team": "BOS",
+                "home_probable_pitcher": "Other Starter",
+                "away_probable_pitcher": "Some Guy",
+            }
+        ]
+        dcv = build_daily_dcv_table(roster, None, schedule, {})
+        row = dcv.iloc[0]
+        assert row["volume_factor"] == 0.9  # RP keeps default
+
+    def test_no_schedule_falls_back_to_default(self):
+        roster = self._make_pitcher(name="Ace Pitcher", team="NYY")
+        dcv = build_daily_dcv_table(roster, None, None, {})
+        row = dcv.iloc[0]
+        assert row["volume_factor"] == 0.9  # Backward compatible
+
+
+# -----------------------------------------------------------------------
+# Bug 2: Abandon rate mode tests
+# -----------------------------------------------------------------------
+
+
+class TestRateModeAbandon:
+    """When rate stats are abandoned, pitcher DCV for those stats is zeroed."""
+
+    def _make_pitcher_roster(self):
+        return pd.DataFrame(
+            [
+                {
+                    "player_id": 200,
+                    "name": "Starter SP",
+                    "positions": "SP",
+                    "team": "NYY",
+                    "is_hitter": 0,
+                    "r": 0,
+                    "hr": 0,
+                    "rbi": 0,
+                    "sb": 0,
+                    "avg": 0.0,
+                    "obp": 0.0,
+                    "w": 12,
+                    "l": 6,
+                    "sv": 0,
+                    "k": 200,
+                    "era": 3.50,
+                    "whip": 1.10,
+                    "status": "active",
+                },
+                {
+                    "player_id": 201,
+                    "name": "Star Hitter",
+                    "positions": "OF",
+                    "team": "NYY",
+                    "is_hitter": 1,
+                    "r": 90,
+                    "hr": 35,
+                    "rbi": 100,
+                    "sb": 10,
+                    "avg": 0.280,
+                    "obp": 0.380,
+                    "w": 0,
+                    "l": 0,
+                    "sv": 0,
+                    "k": 0,
+                    "era": 0.0,
+                    "whip": 0.0,
+                    "status": "active",
+                },
+            ]
+        )
+
+    def test_abandon_era_zeroes_pitcher_dcv(self):
+        roster = self._make_pitcher_roster()
+        rate_modes = {"ERA": "abandon", "WHIP": "abandon"}
+        dcv = build_daily_dcv_table(roster, None, None, {}, rate_modes=rate_modes)
+        pitcher = dcv[dcv["is_hitter"] == 0].iloc[0]
+        assert pitcher["dcv_era"] == 0.0
+        assert pitcher["dcv_whip"] == 0.0
+
+    def test_abandon_makes_pitcher_dcv_less_negative(self):
+        roster = self._make_pitcher_roster()
+        dcv_normal = build_daily_dcv_table(roster, None, None, {}, rate_modes=None)
+        dcv_abandon = build_daily_dcv_table(roster, None, None, {}, rate_modes={"ERA": "abandon", "WHIP": "abandon"})
+        p_normal = dcv_normal[dcv_normal["is_hitter"] == 0].iloc[0]
+        p_abandon = dcv_abandon[dcv_abandon["is_hitter"] == 0].iloc[0]
+        # Abandoning ERA/WHIP removes large negative contributions,
+        # so the pitcher's total DCV should be closer to 0 (less negative)
+        assert p_abandon["total_dcv"] >= p_normal["total_dcv"]
+        assert p_abandon["dcv_era"] == 0.0
+        assert p_abandon["dcv_whip"] == 0.0
+
+    def test_rate_modes_none_backward_compat(self):
+        roster = self._make_pitcher_roster()
+        dcv_without = build_daily_dcv_table(roster, None, None, {}, rate_modes=None)
+        dcv_with = build_daily_dcv_table(roster, None, None, {}, rate_modes=None)
+        pitcher_without = dcv_without[dcv_without["is_hitter"] == 0].iloc[0]
+        pitcher_with = dcv_with[dcv_with["is_hitter"] == 0].iloc[0]
+        assert pitcher_without["dcv_era"] == pitcher_with["dcv_era"]
+
+    def test_hitter_unaffected_by_rate_modes(self):
+        roster = self._make_pitcher_roster()
+        dcv_normal = build_daily_dcv_table(roster, None, None, {}, rate_modes=None)
+        dcv_abandon = build_daily_dcv_table(roster, None, None, {}, rate_modes={"ERA": "abandon", "WHIP": "abandon"})
+        hitter_normal = dcv_normal[dcv_normal["is_hitter"] == 1].iloc[0]
+        hitter_abandon = dcv_abandon[dcv_abandon["is_hitter"] == 1].iloc[0]
+        assert hitter_normal["total_dcv"] == hitter_abandon["total_dcv"]

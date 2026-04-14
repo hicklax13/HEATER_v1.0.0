@@ -906,6 +906,7 @@ with main:
                     _dcv_urgency = _opt_ctx.urgency_weights if _opt_ctx else None
                     _dcv_lineups = _opt_ctx.confirmed_lineups if _opt_ctx else None
                     _dcv_form = _opt_ctx.recent_form if _opt_ctx else None
+                    _dcv_rate_modes = _dcv_urgency.get("rate_modes") if _dcv_urgency else None
 
                     dcv = build_daily_dcv_table(
                         roster=roster if not roster.empty else pool,
@@ -915,6 +916,7 @@ with main:
                         urgency_weights=_dcv_urgency,
                         confirmed_lineups=_dcv_lineups,
                         recent_form=_dcv_form,
+                        rate_modes=_dcv_rate_modes,
                     )
 
                     progress_bar.progress(100, text="Daily optimization complete!")
@@ -1218,6 +1220,23 @@ with main:
                         (dcv["health_factor"] == 0) & (~dcv["Decision"].isin(["IL"])),
                         "Decision",
                     ] = "IL"
+
+                # ── Post-process: bench SPs when rate stats are abandoned ──
+                # When both ERA and WHIP are unrecoverable, pure SPs with
+                # negative DCV only add IP damage. Bench them; keep RPs for saves.
+                if _dcv_rate_modes:
+                    _era_abn = _dcv_rate_modes.get("ERA") == "abandon"
+                    _whip_abn = _dcv_rate_modes.get("WHIP") == "abandon"
+                    if _era_abn and _whip_abn:
+                        for idx, row in dcv.iterrows():
+                            if (
+                                row.get("Decision") == "START"
+                                and not bool(row.get("is_hitter", 1))
+                                and "SP" in str(row.get("positions", "")).upper()
+                                and "RP" not in str(row.get("positions", "")).upper()
+                                and float(row.get("total_dcv", 0)) < 0
+                            ):
+                                dcv.at[idx, "Decision"] = "BENCH"
 
                 # ── Split batters / pitchers ──
                 _is_hitter_col = dcv.get("is_hitter", pd.Series(dtype=float))

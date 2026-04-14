@@ -319,6 +319,7 @@ def build_daily_dcv_table(
     urgency_weights: dict | None = None,
     confirmed_lineups: dict[str, list] | None = None,
     recent_form: dict[int, dict] | None = None,
+    rate_modes: dict[str, str] | None = None,
 ) -> pd.DataFrame:
     """Build the Daily Category Value table for all roster players.
 
@@ -345,6 +346,11 @@ def build_daily_dcv_table(
             "whip": .., "games": ..}}}. When provided, blends L14 form at 25%
             weight with preseason projections (clamped +/-20%). When None, no
             recent form adjustment is applied.
+        rate_modes: Dict mapping rate stat category name to mode string
+            (e.g., {"ERA": "abandon", "WHIP": "abandon"}). When a rate stat
+            is in "abandon" mode, pitcher DCV for that category is zeroed out
+            so the optimizer focuses on flippable categories (W, K, SV).
+            When None, all categories contribute normally (existing behavior).
 
     Returns:
         DataFrame with columns: player_id, name, positions,
@@ -462,6 +468,15 @@ def build_daily_dcv_table(
     except Exception:
         logger.debug("Could not load weather for DCV table", exc_info=True)
 
+    # Build set of today's probable starting pitchers from schedule
+    probable_starters: set[str] = set()
+    if schedule_today:
+        for game in schedule_today:
+            for pp_key in ("home_probable_pitcher", "away_probable_pitcher"):
+                pp_name = str(game.get(pp_key, "") or "").strip()
+                if pp_name and pp_name.upper() not in ("TBD", ""):
+                    probable_starters.add(pp_name)
+
     rows: list[dict] = []
     for _, player in roster.iterrows():
         pid = player.get("player_id")
@@ -490,7 +505,13 @@ def build_daily_dcv_table(
                         lineup_slot = team_lineup.index(name) + 1
                     except ValueError:
                         lineup_slot = 0
-            # Pitchers keep None (0.9 default) — batting lineups don't list SPs
+        # Pitcher probable-starter check (independent of confirmed_lineups —
+        # probable pitcher data comes from schedule_today, not batting lineups)
+        if not is_hitter and probable_starters:
+            pos_upper = positions.upper()
+            if "SP" in pos_upper:
+                in_lineup = name in probable_starters
+            # Pure RP keeps in_lineup=None → volume=0.9 (any reliever can enter)
         volume = compute_volume_factor(team_plays, in_lineup)
 
         # Skip entirely if excluded
@@ -634,6 +655,11 @@ def build_daily_dcv_table(
                 daily_proj = proj_val
             else:
                 daily_proj = proj_val / 162.0
+
+            # Zero out abandoned rate stats for pitchers so DCV focuses
+            # on flippable categories (W, K, SV) instead of unrecoverable ones.
+            if rate_modes and not is_hitter and rate_modes.get(cat) == "abandon":
+                daily_proj = 0.0
 
             # Apply batting order PA adjustment to counting stats only
             if pa_mult != 1.0 and cat in config.counting_stats:

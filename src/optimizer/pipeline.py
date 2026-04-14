@@ -502,6 +502,7 @@ class LineupOptimizerPipeline:
                     schedule_today=schedule_today,
                     park_factors=park_factors,
                     config=self.config,
+                    rate_modes=daily_extras.get("rate_stat_modes"),
                 )
 
                 # Check IP minimum override
