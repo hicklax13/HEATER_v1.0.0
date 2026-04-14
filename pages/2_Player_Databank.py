@@ -150,17 +150,20 @@ SORT_COL_MAP = {
     "WHIP": "whip",
 }
 
-# Get fantasy teams from Yahoo (before form so options are ready)
+# Get fantasy teams from Yahoo / SQLite cache (before form so options are ready)
 fantasy_team_options = [("NONE", "No Team Selected")]
 try:
     if get_yahoo_data_service is not None:
         yds = get_yahoo_data_service()
-        if yds.is_connected():
-            rosters = yds.get_rosters()
-            if rosters is not None and not rosters.empty:
-                team_col = "team_name" if "team_name" in rosters.columns else None
-                if team_col:
-                    for tn in sorted(rosters[team_col].dropna().unique()):
+        # Use get_rosters() directly — it has a 3-tier cache
+        # (session_state → Yahoo API → SQLite) and works even when
+        # the live Yahoo connection is down.
+        rosters = yds.get_rosters()
+        if rosters is not None and not rosters.empty:
+            team_col = "team_name" if "team_name" in rosters.columns else None
+            if team_col:
+                for tn in sorted(rosters[team_col].dropna().unique()):
+                    if tn and str(tn).strip():
                         fantasy_team_options.append((str(tn), str(tn)))
 except Exception:
     pass

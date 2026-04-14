@@ -940,7 +940,8 @@ def render_databank_table(
     # Opponent column (today's matchup)
     if "opponent" in df.columns:
         meta_cols.append("opponent")
-        meta_labels.append("Opp: " + datetime.now(UTC).strftime("%-m/%d"))
+        _now = datetime.now(UTC)
+        meta_labels.append(f"Opp: {_now.month}/{_now.day}")
 
     # Pre-Season ranking (ADP)
     if "adp" in df.columns:
