@@ -1239,6 +1239,46 @@ def get_data_as_of_label(stat_view: str, season: int = 2026) -> str:
     return ""
 
 
+def get_data_refreshed_label(stat_view: str) -> str:
+    """Return a 'Refreshed as of ...' label based on the refresh log.
+
+    Checks the most relevant refresh source for the stat view (live_stats
+    for season/rolling views, projections for projection views) and formats
+    the timestamp in local time.
+
+    Returns empty string if no refresh record found.
+    """
+    from src.database import get_refresh_status
+
+    params = STAT_VIEW_PARAMS.get(stat_view, {})
+    view_type = params.get("type", "total")
+
+    # Pick the most relevant refresh source
+    if view_type == "proj":
+        source = "projections"
+    elif view_type == "advanced":
+        source = "statcast"
+    else:
+        source = "live_stats"
+
+    status = get_refresh_status(source)
+    if not status or not status.get("last_refresh"):
+        return ""
+
+    try:
+        ts_str = str(status["last_refresh"])
+        # Parse ISO timestamp (e.g. "2026-04-13T19:30:00" or "2026-04-13 19:30:00")
+        for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S.%f"):
+            try:
+                dt = datetime.strptime(ts_str, fmt)
+                return f"Refreshed {dt.month}/{dt.day}, {dt.strftime('%I:%M %p').lstrip('0')} EST"
+            except ValueError:
+                continue
+        return ""
+    except Exception:
+        return ""
+
+
 def export_to_excel(df: pd.DataFrame, stat_view_label: str) -> bytes:
     """Export the databank DataFrame to a branded Excel file.
 

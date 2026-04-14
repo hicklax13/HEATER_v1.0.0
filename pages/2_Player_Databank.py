@@ -16,6 +16,7 @@ from src.player_databank import (
     export_to_excel,
     filter_databank,
     get_data_as_of_label,
+    get_data_refreshed_label,
     load_databank,
     render_databank_table,
 )
@@ -317,10 +318,24 @@ page_df = filtered.iloc[start_idx:end_idx]
 # ── Player count + data freshness label ──────────────────────────────────────
 
 as_of_label = get_data_as_of_label(stat_view)
-freshness_html = f' &middot; <span style="color:{T["amber"]}">{as_of_label}</span>' if as_of_label else ""
+refreshed_label = get_data_refreshed_label(stat_view)
+
+# Left: player count | Right: stats-as-of + refreshed timestamps
+info_left = f"Showing {start_idx + 1}\u2013{end_idx} of {total_players:,} players"
+info_right_parts: list[str] = []
+if as_of_label:
+    # Extract date portion: "As of 04/12's games" → "04/12"
+    date_part = as_of_label.replace("As of ", "").replace("'s games", "")
+    info_right_parts.append(f"<b>Stats as of end of {date_part} games</b>")
+if refreshed_label:
+    info_right_parts.append(f"<b>{refreshed_label}</b>")
+info_right = " &middot; ".join(info_right_parts)
+
 st.markdown(
-    f'<div style="color:{T["tx2"]};font-size:13px;margin:4px 0 8px 0;">'
-    f"Showing {start_idx + 1}\u2013{end_idx} of {total_players:,} players{freshness_html}</div>",
+    f'<div style="display:flex;justify-content:space-between;align-items:baseline;'
+    f'margin:4px 0 8px 0;font-size:13px;">'
+    f'<span style="color:{T["tx2"]}">{info_left}</span>'
+    f'<span style="color:{T["tx2"]}">{info_right}</span></div>',
     unsafe_allow_html=True,
 )
 
