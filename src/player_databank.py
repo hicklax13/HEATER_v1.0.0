@@ -1211,6 +1211,7 @@ def get_data_as_of_label(stat_view: str, season: int = 2026) -> str:
     if view_type in ("total", "avg", "stddev"):
         conn = get_connection()
         try:
+            # Try game_logs first for per-game granularity
             clauses: list[str] = []
             sql_params: list = []
             if view_season:
@@ -1227,6 +1228,27 @@ def get_data_as_of_label(stat_view: str, season: int = 2026) -> str:
             if row and row[0]:
                 dt = datetime.strptime(row[0], "%Y-%m-%d")
                 return f"As of {dt.strftime('%m/%d')}'s games"
+
+            # Fallback: use refresh_log timestamp for season_stats
+            from src.database import get_refresh_status
+
+            for src in ("season_stats", "game_logs"):
+                rs = get_refresh_status(src)
+                if rs and rs.get("last_refresh"):
+                    ts = str(rs["last_refresh"])
+                    for fmt in (
+                        "%Y-%m-%dT%H:%M:%S.%f%z",
+                        "%Y-%m-%dT%H:%M:%S%z",
+                        "%Y-%m-%dT%H:%M:%S.%f",
+                        "%Y-%m-%dT%H:%M:%S",
+                    ):
+                        try:
+                            dt = datetime.strptime(ts, fmt)
+                            # Stats are through yesterday's games
+                            yesterday = datetime.now(UTC) - timedelta(days=1)
+                            return f"As of {yesterday.month}/{yesterday.day}'s games"
+                        except ValueError:
+                            continue
         except Exception:
             logger.debug("Failed to get latest game date for stat view %s", stat_view)
         finally:
@@ -1253,30 +1275,35 @@ def get_data_refreshed_label(stat_view: str) -> str:
     params = STAT_VIEW_PARAMS.get(stat_view, {})
     view_type = params.get("type", "total")
 
-    # Pick the most relevant refresh source
+    # Pick the most relevant refresh sources (try in order)
     if view_type == "proj":
-        source = "projections"
+        sources = ["ros_projections", "projections"]
     elif view_type == "advanced":
-        source = "statcast"
+        sources = ["batting_stats", "statcast"]
     else:
-        source = "live_stats"
+        sources = ["season_stats", "game_logs", "live_stats"]
 
-    status = get_refresh_status(source)
-    if not status or not status.get("last_refresh"):
-        return ""
-
-    try:
-        ts_str = str(status["last_refresh"])
-        # Parse ISO timestamp (e.g. "2026-04-13T19:30:00" or "2026-04-13 19:30:00")
-        for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S.%f"):
+    for source in sources:
+        status = get_refresh_status(source)
+        if status and status.get("last_refresh"):
             try:
-                dt = datetime.strptime(ts_str, fmt)
-                return f"Refreshed {dt.month}/{dt.day}, {dt.strftime('%I:%M %p').lstrip('0')} EST"
-            except ValueError:
+                ts_str = str(status["last_refresh"])
+                # Parse ISO timestamp with optional timezone/microseconds
+                for fmt in (
+                    "%Y-%m-%dT%H:%M:%S.%f%z",
+                    "%Y-%m-%dT%H:%M:%S%z",
+                    "%Y-%m-%dT%H:%M:%S.%f",
+                    "%Y-%m-%dT%H:%M:%S",
+                    "%Y-%m-%d %H:%M:%S",
+                ):
+                    try:
+                        dt = datetime.strptime(ts_str, fmt)
+                        return f"Refreshed {dt.month}/{dt.day}, {dt.strftime('%I:%M %p').lstrip('0')} EST"
+                    except ValueError:
+                        continue
+            except Exception:
                 continue
-        return ""
-    except Exception:
-        return ""
+    return ""
 
 
 def export_to_excel(df: pd.DataFrame, stat_view_label: str) -> bytes:
