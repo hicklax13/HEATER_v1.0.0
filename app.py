@@ -232,6 +232,8 @@ def render_splash_screen():
     if st.session_state.get("bootstrap_complete"):
         return True  # Already done this session
 
+    import time as _time
+
     placeholder = st.empty()
     with placeholder.container():
         st.markdown(
@@ -246,9 +248,23 @@ def render_splash_screen():
         progress_bar = st.progress(0.0)
         status_text = st.empty()
 
+        _boot_start = _time.monotonic()
+
         def on_progress(p: BootstrapProgress):
             progress_bar.progress(min(p.pct, 1.0))
-            status_text.text(f"{p.phase}: {p.detail}")
+            elapsed = _time.monotonic() - _boot_start
+            # Estimate remaining time from progress rate
+            if p.pct > 0.01 and elapsed > 1:
+                eta_secs = elapsed * (1.0 - p.pct) / p.pct
+                if eta_secs >= 60:
+                    eta_str = f"~{int(eta_secs // 60)}m {int(eta_secs % 60)}s remaining"
+                else:
+                    eta_str = f"~{int(eta_secs)}s remaining"
+            elif elapsed < 2:
+                eta_str = "Estimating..."
+            else:
+                eta_str = ""
+            status_text.text(f"{p.phase}: {p.detail}  {eta_str}")
 
         yahoo_client = st.session_state.get("yahoo_client")
 
@@ -285,10 +301,9 @@ def render_splash_screen():
             try:
                 from src.yahoo_data_service import get_yahoo_data_service
 
-                status_text.text("Warming Yahoo data caches...")
                 progress_bar.progress(0.95)
                 yds = get_yahoo_data_service()
-                for _fetch_name, _fetch_fn in [
+                _yahoo_items = [
                     ("rosters", yds.get_rosters),
                     ("standings", yds.get_standings),
                     ("matchup", yds.get_matchup),
@@ -296,7 +311,14 @@ def render_splash_screen():
                     ("transactions", yds.get_transactions),
                     ("settings", yds.get_settings),
                     ("schedule", yds.get_schedule),
-                ]:
+                ]
+                for _yi, (_fetch_name, _fetch_fn) in enumerate(_yahoo_items):
+                    _elapsed = _time.monotonic() - _boot_start
+                    _yahoo_pct = 0.95 + 0.05 * (_yi / len(_yahoo_items))
+                    _eta = _elapsed * (1.0 - _yahoo_pct) / _yahoo_pct if _yahoo_pct > 0 else 0
+                    _eta_lbl = f"~{int(_eta)}s remaining" if _eta >= 1 else "Almost done..."
+                    status_text.text(f"Yahoo: Fetching {_fetch_name}...  {_eta_lbl}")
+                    progress_bar.progress(min(_yahoo_pct, 0.99))
                     try:
                         _fetch_fn()
                     except Exception:
