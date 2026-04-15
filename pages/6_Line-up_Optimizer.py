@@ -919,6 +919,25 @@ with main:
                         rate_modes=_dcv_rate_modes,
                     )
 
+                    # Sanity check: warn if DCV produced all zeros
+                    if not dcv.empty and "total_dcv" in dcv.columns:
+                        _active_dcv = dcv.loc[dcv.get("health_factor", pd.Series(1.0, index=dcv.index)) > 0]
+                        if not _active_dcv.empty and _active_dcv["total_dcv"].abs().sum() < 1e-6:
+                            import logging as _dcv_log
+
+                            _dcv_log.getLogger(__name__).error(
+                                "DCV all zeros after computation. roster cols=%s, "
+                                "roster stat sum=%.2f, urgency=%s, rate_modes=%s",
+                                [c for c in roster.columns if c in ["r", "hr", "avg", "era"]],
+                                roster[["r", "hr", "rbi", "avg"]].apply(
+                                    pd.to_numeric, errors="coerce"
+                                ).fillna(0).sum().sum()
+                                if all(c in roster.columns for c in ["r", "hr", "rbi", "avg"])
+                                else -1,
+                                _dcv_urgency,
+                                _dcv_rate_modes,
+                            )
+
                     progress_bar.progress(100, text="Daily optimization complete!")
                     time.sleep(0.3)
                     progress_bar.empty()

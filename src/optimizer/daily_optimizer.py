@@ -426,6 +426,16 @@ def build_daily_dcv_table(
     if urgency_weights is not None:
         urgency = urgency_weights.get("urgency", {})
         _external_urgency = True
+        # Guard: if ALL urgency values are 0 (or missing), post-hoc
+        # multiplication would zero out every DCV score. Fall back to
+        # internal equal-weight urgency instead.
+        if urgency and all(abs(v) < 1e-9 for v in urgency.values()):
+            logger.warning(
+                "All external urgency weights are zero — falling back to "
+                "internal equal-weight urgency (0.5) to prevent all-zero DCV"
+            )
+            urgency = {cat: 0.5 for cat in config.all_categories}
+            _external_urgency = False
     else:
         _external_urgency = False
         try:

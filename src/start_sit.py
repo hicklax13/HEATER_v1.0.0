@@ -120,10 +120,12 @@ def classify_matchup_state(
     if total == 0:
         return "close"
 
-    win_pct = wins / total
-    if win_pct >= 0.58:
+    # Compare wins vs losses directly (ties are neutral).
+    # Previous logic used wins/total which penalised many-tie matchups:
+    # e.g. 5-3-4 ⇒ 5/12=0.42 ⇒ "losing" even though 5 > 3.
+    if wins > losses + 1:
         return "winning"
-    elif win_pct <= 0.42:
+    elif losses > wins + 1:
         return "losing"
     return "close"
 
