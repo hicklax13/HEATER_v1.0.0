@@ -726,6 +726,33 @@ def build_daily_dcv_table(
         if dcv_cols:
             dcv_df["total_dcv"] = dcv_df[dcv_cols].sum(axis=1).round(4)
 
+    # Sanity check: if all active players have DCV=0 but the roster has
+    # real stats, something went wrong in urgency/rate-mode weighting.
+    # Retry without external urgency so results degrade to equal-weight
+    # rather than all-zeros (which causes random START/BENCH decisions).
+    if not dcv_df.empty and "total_dcv" in dcv_df.columns:
+        _active = dcv_df.loc[dcv_df.get("health_factor", pd.Series(1.0, index=dcv_df.index)) > 0]
+        if not _active.empty and _active["total_dcv"].abs().sum() < 1e-6:
+            # Check if the roster actually has stat data
+            _stat_cols = [c for c in ["r", "hr", "rbi", "avg", "w", "k", "era"] if c in roster.columns]
+            _has_stats = roster[_stat_cols].apply(pd.to_numeric, errors="coerce").fillna(0).sum().sum() > 0
+            if _has_stats:
+                logger.warning(
+                    "All DCV scores are zero despite non-zero roster stats — "
+                    "retrying without external urgency weights"
+                )
+                return build_daily_dcv_table(
+                    roster=roster,
+                    matchup=matchup,
+                    schedule_today=schedule_today,
+                    park_factors=park_factors,
+                    config=config,
+                    urgency_weights=None,  # Fall back to internal equal urgency
+                    confirmed_lineups=confirmed_lineups,
+                    recent_form=recent_form,
+                    rate_modes=None,  # Also clear rate_modes in case abandon zeroed it
+                )
+
     # Apply stud floor
     if not dcv_df.empty:
         dcv_df = apply_stud_floor(dcv_df, roster, config)
