@@ -515,10 +515,26 @@ class LineupOptimizer:
 
 
 def _parse_positions(positions_str: str | None) -> list[str]:
-    """Parse comma-separated position string into list."""
+    """Parse position string into list, splitting on both '/' and ','.
+
+    Yahoo stores multi-position eligibility in mixed formats like
+    ``"1B/3B,2B/3B,3B"``.  Splitting only by ``,`` left compound tokens
+    like ``"1B/3B"`` intact, which failed the eligibility check
+    ``pos in eligible`` (e.g. ``"1B/3B"`` never matched ``["1B"]``).
+    Splitting by both delimiters and deduplicating gives the correct
+    individual positions: ``{'1B', '2B', '3B'}``.
+    """
     if not positions_str or pd.isna(positions_str):
         return []
-    return [p.strip() for p in str(positions_str).split(",") if p.strip()]
+    parts = str(positions_str).replace("/", ",").split(",")
+    seen: set[str] = set()
+    result: list[str] = []
+    for p in parts:
+        p = p.strip()
+        if p and p not in seen:
+            seen.add(p)
+            result.append(p)
+    return result
 
 
 def _fix_rate_stats(projected: dict, starter_rows: pd.DataFrame) -> dict:

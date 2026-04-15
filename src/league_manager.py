@@ -120,7 +120,16 @@ def get_team_roster(team_name: str) -> pd.DataFrame:
     conn = get_connection()
     try:
         df = pd.read_sql_query(
-            """SELECT lr.*, p.name, p.team, p.positions, p.is_hitter, p.mlb_id,
+            """SELECT lr.*,
+                  p.name, p.team,
+                  -- Prefer Yahoo roster_slot for position eligibility;
+                  -- fall back to MLB Stats API positions when roster_slot
+                  -- is missing or empty (pre-Yahoo-sync state).
+                  CASE WHEN COALESCE(lr.roster_slot, '') != ''
+                       THEN lr.roster_slot
+                       ELSE p.positions
+                  END AS positions,
+                  p.is_hitter, p.mlb_id,
                   COALESCE(NULLIF(ss.pa, 0), pr.pa, 0) AS pa,
                   COALESCE(NULLIF(ss.ab, 0), pr.ab, 0) AS ab,
                   COALESCE(NULLIF(ss.h, 0), pr.h, 0) AS h,
