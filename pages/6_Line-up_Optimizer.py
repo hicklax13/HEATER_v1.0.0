@@ -1191,7 +1191,7 @@ with main:
                                       "P": (4, ["SP", "RP", "P"])}
 
                     def _run_lp_for_group(group_df, slots_dict):
-                        """Run LP on a player group with its own slot definitions."""
+                        """Run LP on a player group. Returns (started_ids, slot_map)."""
                         lp_r = group_df.copy()
                         if "player_name" not in lp_r.columns and "name" in lp_r.columns:
                             lp_r = lp_r.rename(columns={"name": "player_name"})
@@ -1201,29 +1201,43 @@ with main:
                                     "avg", "obp", "era", "whip"]:
                             lp_r[_c] = 0.0
                         lp_r["r"] = _shifted
-                        # Preserve ip/pa so the LP's zero-production filter
-                        # doesn't treat active pitchers as IL stashes (ip=0
-                        # + pa=0 + !is_hitter → excluded by Constraint 4).
                         if "ip" not in lp_r.columns or lp_r["ip"].sum() == 0:
                             lp_r["ip"] = 1.0
                         if "pa" not in lp_r.columns or lp_r["pa"].sum() == 0:
                             lp_r["pa"] = 1.0
                         _opt = LineupOptimizer(lp_r, slots_dict)
                         _res = _opt.optimize_lineup(category_weights={"r": 1.0})
-                        return {a["player_id"] for a in _res.get("assignments", [])}
+                        _ids = set()
+                        _slots = {}  # player_id → recommended slot
+                        for a in _res.get("assignments", []):
+                            _ids.add(a["player_id"])
+                            _slots[a["player_id"]] = a["slot"]
+                        return _ids, _slots
 
                     # Hitters
                     _is_hitter_mask = eligible.get("is_hitter", pd.Series(True, index=eligible.index)).astype(bool)
                     _hitters = eligible[_is_hitter_mask]
                     _pitchers = eligible[~_is_hitter_mask]
                     _lp_ids: set[int] = set()
+                    _lp_slot_map: dict[int, str] = {}  # pid → recommended slot
                     if not _hitters.empty:
-                        _lp_ids |= _run_lp_for_group(_hitters, _HITTER_SLOTS)
+                        _h_ids, _h_slots = _run_lp_for_group(_hitters, _HITTER_SLOTS)
+                        _lp_ids |= _h_ids
+                        _lp_slot_map.update(_h_slots)
                     if not _pitchers.empty:
-                        _lp_ids |= _run_lp_for_group(_pitchers, _PITCHER_SLOTS)
+                        _p_ids, _p_slots = _run_lp_for_group(_pitchers, _PITCHER_SLOTS)
+                        _lp_ids |= _p_ids
+                        _lp_slot_map.update(_p_slots)
                     _starter_indices = eligible.index[
                         eligible["player_id"].isin(_lp_ids)
                     ].tolist()
+                    # Update selected_position to show LP-recommended slot
+                    # instead of Yahoo's current slot (avoids confusing BN+START)
+                    if _lp_slot_map and "selected_position" in dcv.columns:
+                        for _pid, _slot in _lp_slot_map.items():
+                            _mask = dcv["player_id"] == _pid
+                            if _mask.any():
+                                dcv.loc[_mask, "selected_position"] = _slot
                 except Exception:
                     import logging as _lp_log
 

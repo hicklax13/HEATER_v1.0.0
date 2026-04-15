@@ -72,7 +72,13 @@ def compute_category_urgency(
 
         exponent = -k * gap
         exponent = max(-500, min(500, exponent))
-        urgency[cat] = 1.0 / (1.0 + math.exp(exponent))
+        raw = 1.0 / (1.0 + math.exp(exponent))
+        # Floor at 0.10: even categories being won comfortably should
+        # contribute ~10% of their base DCV.  Without this floor, the
+        # post-hoc multiplication crushes pitcher counting stats (which
+        # are already small after /162 scaling) to values that round to
+        # 0.00, making pitcher START/BENCH look broken.
+        urgency[cat] = max(0.10, raw)
 
     return urgency
 
