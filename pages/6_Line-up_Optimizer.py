@@ -923,19 +923,9 @@ with main:
                     if not dcv.empty and "total_dcv" in dcv.columns:
                         _active_dcv = dcv.loc[dcv.get("health_factor", pd.Series(1.0, index=dcv.index)) > 0]
                         if not _active_dcv.empty and _active_dcv["total_dcv"].abs().sum() < 1e-6:
-                            import logging as _dcv_log
-
-                            _dcv_log.getLogger(__name__).error(
-                                "DCV all zeros after computation. roster cols=%s, "
-                                "roster stat sum=%.2f, urgency=%s, rate_modes=%s",
-                                [c for c in roster.columns if c in ["r", "hr", "avg", "era"]],
-                                roster[["r", "hr", "rbi", "avg"]].apply(
-                                    pd.to_numeric, errors="coerce"
-                                ).fillna(0).sum().sum()
-                                if all(c in roster.columns for c in ["r", "hr", "rbi", "avg"])
-                                else -1,
-                                _dcv_urgency,
-                                _dcv_rate_modes,
+                            st.warning(
+                                "DCV scores are all zero — START/BENCH decisions may be unreliable. "
+                                "Try syncing Yahoo data or refreshing projections."
                             )
 
                     progress_bar.progress(100, text="Daily optimization complete!")
@@ -1166,7 +1156,13 @@ with main:
                     if "roster_slot" in dcv.columns:
                         dcv["roster_slot"] = dcv["roster_slot"].fillna("").astype(str).str.strip()
 
-                # ── Greedy slot assignment for START/BENCH decisions ──
+                # ── LP-based slot assignment for START/BENCH decisions ──
+                # The greedy approach (sort by DCV, fill slots top-down) fails
+                # when multi-eligible players steal slots from position-locked
+                # players (e.g. Giménez 2B/SS/Util takes SS, benching Swanson
+                # who can ONLY play SS).  The LP solver maximises total DCV
+                # subject to position constraints — the same solver used by
+                # the "Rest of Week" tab.
                 eligible = (
                     dcv[
                         (dcv.get("volume_factor", pd.Series(dtype=float)) > 0)
@@ -1176,57 +1172,73 @@ with main:
                     else dcv.copy()
                 )
 
-                _SLOT_ORDER = [
-                    ("C", 1),
-                    ("1B", 1),
-                    ("2B", 1),
-                    ("3B", 1),
-                    ("SS", 1),
-                    ("OF", 3),
-                    ("SP", 2),
-                    ("RP", 2),
-                    ("P", 4),
-                    ("Util", 2),
-                ]
-                _OF_POSITIONS = {"LF", "CF", "RF", "OF"}
-                _PITCHER_POSITIONS = {"SP", "RP", "P"}
-
-                if "total_dcv" in eligible.columns:
-                    _sorted = eligible.sort_values("total_dcv", ascending=False)
-                else:
-                    _sorted = eligible
-
-                _assigned_idx: set[int] = set()
                 _starter_indices: list[int] = []
+                try:
+                    # Use the LP solver separately for hitters and pitchers
+                    # to optimally assign players to slots.  The LP maximises
+                    # total DCV subject to position constraints, preventing
+                    # multi-eligible players from stealing slots.
+                    #
+                    # Split by type because pitchers have negative DCV (inverse
+                    # stats dominate), and the LP's <= 1 slot constraint would
+                    # leave pitcher slots empty if hitters and pitchers compete.
+                    _PITCHER_POS = {"SP", "RP", "P"}
+                    _HITTER_SLOTS = {"C": (1, ["C"]), "1B": (1, ["1B"]), "2B": (1, ["2B"]),
+                                     "3B": (1, ["3B"]), "SS": (1, ["SS"]),
+                                     "OF": (3, ["OF", "LF", "CF", "RF"]),
+                                     "Util": (2, ["C", "1B", "2B", "3B", "SS", "OF", "LF", "CF", "RF", "DH"])}
+                    _PITCHER_SLOTS = {"SP": (2, ["SP", "P"]), "RP": (2, ["RP", "P"]),
+                                      "P": (4, ["SP", "RP", "P"])}
 
-                def _player_fits_slot(row, slot: str) -> bool:
-                    pos_str = str(row.get("positions", "") or "").upper()
-                    pos_set = {p.strip() for p in pos_str.replace("/", ",").split(",") if p.strip()}
-                    if slot == "C":
-                        return "C" in pos_set
-                    if slot == "OF":
-                        return bool(pos_set & _OF_POSITIONS)
-                    if slot == "SP":
-                        return "SP" in pos_set
-                    if slot == "RP":
-                        return "RP" in pos_set
-                    if slot == "P":
-                        return bool(pos_set & _PITCHER_POSITIONS)
-                    if slot == "Util":
-                        return bool(pos_set - _PITCHER_POSITIONS)
-                    return slot in pos_set
+                    def _run_lp_for_group(group_df, slots_dict):
+                        """Run LP on a player group with its own slot definitions."""
+                        lp_r = group_df.copy()
+                        if "player_name" not in lp_r.columns and "name" in lp_r.columns:
+                            lp_r = lp_r.rename(columns={"name": "player_name"})
+                        _raw = lp_r["total_dcv"].fillna(0)
+                        _shifted = _raw - _raw.min() + 1.0
+                        for _c in ["r", "hr", "rbi", "sb", "w", "l", "sv", "k",
+                                    "avg", "obp", "era", "whip"]:
+                            lp_r[_c] = 0.0
+                        lp_r["r"] = _shifted
+                        # Preserve ip/pa so the LP's zero-production filter
+                        # doesn't treat active pitchers as IL stashes (ip=0
+                        # + pa=0 + !is_hitter → excluded by Constraint 4).
+                        if "ip" not in lp_r.columns or lp_r["ip"].sum() == 0:
+                            lp_r["ip"] = 1.0
+                        if "pa" not in lp_r.columns or lp_r["pa"].sum() == 0:
+                            lp_r["pa"] = 1.0
+                        _opt = LineupOptimizer(lp_r, slots_dict)
+                        _res = _opt.optimize_lineup(category_weights={"r": 1.0})
+                        return {a["player_id"] for a in _res.get("assignments", [])}
 
-                for slot, count in _SLOT_ORDER:
-                    filled = 0
-                    for idx, row in _sorted.iterrows():
-                        if filled >= count:
-                            break
-                        if idx in _assigned_idx:
-                            continue
-                        if _player_fits_slot(row, slot):
-                            _assigned_idx.add(idx)
-                            _starter_indices.append(idx)
-                            filled += 1
+                    # Hitters
+                    _is_hitter_mask = eligible.get("is_hitter", pd.Series(True, index=eligible.index)).astype(bool)
+                    _hitters = eligible[_is_hitter_mask]
+                    _pitchers = eligible[~_is_hitter_mask]
+                    _lp_ids: set[int] = set()
+                    if not _hitters.empty:
+                        _lp_ids |= _run_lp_for_group(_hitters, _HITTER_SLOTS)
+                    if not _pitchers.empty:
+                        _lp_ids |= _run_lp_for_group(_pitchers, _PITCHER_SLOTS)
+                    _starter_indices = eligible.index[
+                        eligible["player_id"].isin(_lp_ids)
+                    ].tolist()
+                except Exception:
+                    import logging as _lp_log
+
+                    _lp_log.getLogger(__name__).warning(
+                        "LP slot assignment failed — falling back to DCV sort",
+                        exc_info=True,
+                    )
+                    from src.lineup_optimizer import ROSTER_SLOTS as _RS
+
+                    _total_starter_slots = sum(c for c, _ in _RS.values())
+                    if "total_dcv" in eligible.columns:
+                        _sorted = eligible.sort_values("total_dcv", ascending=False)
+                    else:
+                        _sorted = eligible
+                    _starter_indices = _sorted.index[:_total_starter_slots].tolist()
 
                 # ── Decision column on full DCV table ──
                 dcv["Decision"] = "BENCH"
