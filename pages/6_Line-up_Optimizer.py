@@ -1231,6 +1231,56 @@ with main:
                         _p_ids, _p_slots = _run_lp_for_group(_pitchers, _PITCHER_SLOTS)
                         _lp_ids |= _p_ids
                         _lp_slot_map.update(_p_slots)
+
+                    # ── Strategic LEAVE EMPTY rule ────────────────────
+                    # Drop a slot's LP-assigned player when the value of
+                    # starting them is below a meaningful threshold.
+                    # Aggressive for pitchers (an outing can wreck ERA/WHIP);
+                    # softer for hitters (a single AB/game has small impact).
+                    # Reference: median *positive* DCV in each group.
+                    _hitter_pos_dcv = (
+                        _hitters.loc[_hitters["total_dcv"] > 0, "total_dcv"]
+                        if not _hitters.empty and "total_dcv" in _hitters.columns
+                        else pd.Series(dtype=float)
+                    )
+                    _pitcher_pos_dcv = (
+                        _pitchers.loc[_pitchers["total_dcv"] > 0, "total_dcv"]
+                        if not _pitchers.empty and "total_dcv" in _pitchers.columns
+                        else pd.Series(dtype=float)
+                    )
+                    _hitter_median = float(_hitter_pos_dcv.median()) if not _hitter_pos_dcv.empty else 0.0
+                    _pitcher_median = float(_pitcher_pos_dcv.median()) if not _pitcher_pos_dcv.empty else 0.0
+                    _HITTER_EMPTY_THRESHOLD = _hitter_median * 0.025  # ~midpoint of conservative/aggressive
+                    _PITCHER_EMPTY_THRESHOLD = _pitcher_median * 0.05  # aggressive
+                    _is_hitter_lookup = (
+                        eligible.set_index("player_id")["is_hitter"].astype(bool).to_dict()
+                        if "is_hitter" in eligible.columns
+                        else {}
+                    )
+                    _dcv_lookup = (
+                        eligible.set_index("player_id")["total_dcv"].to_dict()
+                        if "total_dcv" in eligible.columns
+                        else {}
+                    )
+                    _strategic_empty_pids: set[int] = set()
+                    _strategic_empty_slots: dict[str, dict] = {}  # slot → {"reason": "...", ...}
+                    for _pid, _slot in list(_lp_slot_map.items()):
+                        _pid_dcv = float(_dcv_lookup.get(_pid, 0.0) or 0.0)
+                        _is_h = bool(_is_hitter_lookup.get(_pid, True))
+                        _thresh = _HITTER_EMPTY_THRESHOLD if _is_h else _PITCHER_EMPTY_THRESHOLD
+                        if _pid_dcv <= 0 or _pid_dcv < _thresh:
+                            _reason = (
+                                "DCV ≤ 0 (would hurt matchup)"
+                                if _pid_dcv <= 0
+                                else f"DCV {_pid_dcv:.2f} below {_thresh:.2f} threshold"
+                            )
+                            _strategic_empty_pids.add(_pid)
+                            _strategic_empty_slots[_slot] = {"reason": _reason}
+                    # Drop strategically-empty players from started set / slot map
+                    _lp_ids -= _strategic_empty_pids
+                    for _pid in _strategic_empty_pids:
+                        _lp_slot_map.pop(_pid, None)
+
                     _starter_indices = eligible.index[eligible["player_id"].isin(_lp_ids)].tolist()
                     # Update selected_position to show LP-recommended slot
                     # instead of Yahoo's current slot (avoids confusing BN+START)
@@ -1239,6 +1289,9 @@ with main:
                             _mask = dcv["player_id"] == _pid
                             if _mask.any():
                                 dcv.loc[_mask, "selected_position"] = _slot
+                    # Stash empty-slot info for the display step
+                    st.session_state["_lineup_empty_slots"] = _strategic_empty_slots
+                    st.session_state["_lineup_filled_slots"] = set(_lp_slot_map.values())
                 except Exception:
                     import logging as _lp_log
 
@@ -1366,6 +1419,74 @@ with main:
                 batters_display = _build_dcv_display(batters_dcv)
                 pitchers_display = _build_dcv_display(pitchers_dcv)
 
+                # ── Inject LEAVE EMPTY rows for any unfilled starter slot ──
+                # Iterate the full slot skeleton (e.g. C×1, 1B×1 ... OF×3, Util×2)
+                # and add a synthetic row for every slot index not assigned.
+                _filled_slots = st.session_state.get("_lineup_filled_slots", set())
+                _empty_slot_meta = st.session_state.get("_lineup_empty_slots", {})
+
+                def _expand_skeleton(slots_dict):
+                    """{C: (1, [...]), OF: (3, [...]) ...} → ['C','1B','2B','3B','SS','OF','OF','OF','Util','Util']"""
+                    expanded = []
+                    for slot, (count, _eligible_codes) in slots_dict.items():
+                        for _ in range(count):
+                            expanded.append(slot)
+                    return expanded
+
+                def _inject_empty_rows(display_df, slots_dict):
+                    """Append LEAVE EMPTY rows for skeleton slots not present in display."""
+                    if display_df is None or "Slot" not in display_df.columns:
+                        return display_df
+                    skeleton = _expand_skeleton(slots_dict)
+                    # Count how many filled rows per slot are STARTING
+                    started = display_df[display_df["Decision"] == "START"]
+                    filled_counter: dict[str, int] = {}
+                    for s in started["Slot"].astype(str):
+                        filled_counter[s] = filled_counter.get(s, 0) + 1
+                    # Walk skeleton; emit one EMPTY row per unfilled instance
+                    empty_rows = []
+                    skeleton_counter: dict[str, int] = {}
+                    for slot in skeleton:
+                        skeleton_counter[slot] = skeleton_counter.get(slot, 0) + 1
+                    for slot, needed in skeleton_counter.items():
+                        have = filled_counter.get(slot, 0)
+                        missing = needed - have
+                        for _ in range(max(0, missing)):
+                            _meta = _empty_slot_meta.get(slot, {})
+                            _reason = _meta.get("reason", "No eligible player available")
+                            empty_rows.append(
+                                {
+                                    "Slot": slot,
+                                    "Player": "—",
+                                    "Position Eligibility": "—",
+                                    "Team": "—",
+                                    "DCV Score": 0.0,
+                                    "Matchup": 0.0,
+                                    "Decision": "LEAVE EMPTY",
+                                    "_empty_reason": _reason,
+                                }
+                            )
+                    if not empty_rows:
+                        return display_df
+                    _empty_df = pd.DataFrame(empty_rows)
+                    _combined = pd.concat([display_df, _empty_df], ignore_index=True, sort=False)
+                    # Re-sort so empties land near their slot in the START band
+                    _slot_order_local = _BATTER_SLOT_ORDER if slots_dict is _HITTER_SLOTS else _PITCHER_SLOT_ORDER
+                    _dec_order_local = {"START": 0, "LEAVE EMPTY": 0, "BENCH": 1, "IL": 2}
+                    _combined["_dec"] = _combined["Decision"].map(_dec_order_local).fillna(2)
+                    _combined["_slot"] = _combined["Slot"].map(
+                        lambda s: _slot_order_local.get(s, max(_slot_order_local.values()) + 1)
+                    )
+                    _combined = (
+                        _combined.sort_values(["_dec", "_slot", "DCV Score"], ascending=[True, True, False])
+                        .drop(columns=["_dec", "_slot"])
+                        .reset_index(drop=True)
+                    )
+                    return _combined
+
+                batters_display = _inject_empty_rows(batters_display, _HITTER_SLOTS)
+                pitchers_display = _inject_empty_rows(pitchers_display, _PITCHER_SLOTS)
+
                 # ── Row styling by decision ──
                 def _decision_row_classes(df_in):
                     classes = {}
@@ -1375,6 +1496,8 @@ with main:
                             classes[i] = "row-start"
                         elif decision == "IL":
                             classes[i] = "row-il"
+                        elif decision == "LEAVE EMPTY":
+                            classes[i] = "row-empty"
                         else:
                             classes[i] = "row-bench"
                     return classes
@@ -1386,6 +1509,9 @@ with main:
                     f"tr.row-bench td {{ background-color: rgba(230,57,70,0.08) !important; }}"
                     f"tr.row-bench td.col-name {{ color:{T['danger']} !important; }}"
                     f"tr.row-il td {{ background-color: rgba(158,158,158,0.06) !important; opacity:0.5; }}"
+                    f"tr.row-empty td {{ background-color: rgba(158,158,158,0.18) !important; "
+                    f"color:{T['tx2']} !important; font-style:italic; }}"
+                    f"tr.row-empty td.col-name {{ color:{T['tx2']} !important; font-weight:600 !important; }}"
                     f"</style>",
                     unsafe_allow_html=True,
                 )
@@ -1398,7 +1524,9 @@ with main:
                     unsafe_allow_html=True,
                 )
                 if not batters_display.empty:
-                    render_compact_table(batters_display, row_classes=_decision_row_classes(batters_display))
+                    _classes_b = _decision_row_classes(batters_display)
+                    _b_render = batters_display.drop(columns=["_empty_reason"], errors="ignore")
+                    render_compact_table(_b_render, row_classes=_classes_b)
 
                 # ── Pitchers table ──
                 st.markdown(
@@ -1408,12 +1536,33 @@ with main:
                     unsafe_allow_html=True,
                 )
                 if not pitchers_display.empty:
-                    render_compact_table(pitchers_display, row_classes=_decision_row_classes(pitchers_display))
+                    _classes_p = _decision_row_classes(pitchers_display)
+                    _p_render = pitchers_display.drop(columns=["_empty_reason"], errors="ignore")
+                    render_compact_table(_p_render, row_classes=_classes_p)
+
+                # ── LEAVE EMPTY explanations ──
+                _empty_explanations = []
+                for _row_df, _label in ((batters_display, "Batter"), (pitchers_display, "Pitcher")):
+                    if _row_df is None or _row_df.empty or "_empty_reason" not in _row_df.columns:
+                        continue
+                    _empties = _row_df[_row_df["Decision"] == "LEAVE EMPTY"]
+                    for _, _r in _empties.iterrows():
+                        _empty_explanations.append(
+                            f"<b>{_r.get('Slot', '?')}</b> ({_label}): {_r.get('_empty_reason', '')}"
+                        )
+                if _empty_explanations:
+                    st.markdown(
+                        f'<div style="margin-top:8px;padding:8px 12px;border-left:3px solid {T["tx2"]};'
+                        f'background:rgba(158,158,158,0.10);border-radius:4px;font-size:12px;color:{T["tx2"]};">'
+                        f"<b>Why some slots are LEAVE EMPTY:</b><br>" + "<br>".join(_empty_explanations) + "</div>",
+                        unsafe_allow_html=True,
+                    )
 
                 st.caption(
                     "DCV = Daily Category Value. Computed from Bayesian-blended projections "
                     "* matchup factors * H2H category urgency * confirmed lineups. "
-                    "Higher = more valuable today."
+                    "Higher = more valuable today. LEAVE EMPTY = no eligible player, "
+                    "all eligible players idle, or starting would hurt your matchup."
                 )
 
                 # FA recommendations for Today scope
