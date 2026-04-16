@@ -320,6 +320,7 @@ def build_daily_dcv_table(
     confirmed_lineups: dict[str, list] | None = None,
     recent_form: dict[int, dict] | None = None,
     rate_modes: dict[str, str] | None = None,
+    _retry_attempted: bool = False,
 ) -> pd.DataFrame:
     """Build the Daily Category Value table for all roster players.
 
@@ -675,43 +676,44 @@ def build_daily_dcv_table(
             except Exception:
                 pa_mult = 1.0
 
-        # Rate-stat baselines: deviation-from-replacement framing.
-        # A pitcher's contribution to ERA isn't "their ERA" — it's how their
-        # appearance moves your team's *aggregate* ERA relative to a typical
-        # replacement-level pitcher. Without this baseline, every pitcher
-        # with ERA > 0 looks like massive damage and DCV is structurally
-        # negative. Same logic applies to AVG/OBP for hitters.
-        # Baselines reflect 12-team H2H mixed league replacement-level players.
-        _RATE_BASELINES = {
-            "AVG": 0.250,
-            "OBP": 0.315,
-            "ERA": 4.20,
-            "WHIP": 1.30,
-        }
+        # Volume-weighted SGP for rate stats.
+        # Rate stats don't add: team_AVG != sum(player_AVGs). A player's
+        # real contribution to team AVG is (player_hits - player_AB *
+        # team_AVG) / team_AB. We use a replacement-level baseline so that
+        # an average MLB starter scores ~0 and stars/scrubs deviate from
+        # there. This is the only mathematically correct way to do daily
+        # rate-stat DCV; raw-rate-divided-by-SGP-denom (the prior
+        # implementation) gave structurally negative pitcher DCV.
+        #
+        # Replacement levels (12-team H2H mixed league, deep replacement):
+        _REPL_AVG = 0.240
+        _REPL_OBP = 0.305
+        _REPL_ERA = 4.50
+        _REPL_WHIP = 1.35
+        # Raw-unit SGP denominators: how many raw units shift one standings
+        # point. Derived from team-total denominators × team-volume:
+        #   AVG: 0.004 × 5500 AB ≈ 22 hits
+        #   OBP: 0.005 × 6100 PA ≈ 30 on-base events
+        #   ERA: 0.20 × 1400 IP / 9 ≈ 31 ER
+        #   WHIP: 0.020 × 1400 IP ≈ 28 walks+hits
+        _RAW_SGP_DENOM = {"AVG": 22.0, "OBP": 30.0, "ERA": 31.0, "WHIP": 28.0}
+        # Daily volume fraction (today's contribution / annual contribution).
+        # Hitters: ~145 games out of 162 → 1/162. SP: ~30 starts → 1/30.
+        # RP: ~50 appearances → 1/50.
+        _hitter_daily_frac = 1.0 / 162.0
+        _is_starter_pitcher = "SP" in str(player.get("positions", "")).upper()
+        _pitcher_daily_frac = 1.0 / 30.0 if _is_starter_pitcher else 1.0 / 50.0
+
         for cat in config.all_categories:
             col = cat.lower()
             proj_val = form_adjustments.get(col, float(player.get(col, 0) or 0))
 
             # Per-game rate: divide counting stats by ~162 games.
-            # Rate stats (AVG, OBP, ERA, WHIP) are deviation-from-baseline.
+            # Rate stats use volume-weighted SGP (computed below).
             if cat in config.rate_stats:
-                # Skip rate stat for players with no projected playing time
-                # (avoid baseline-vs-zero giving them spurious credit/damage).
-                _ip = float(player.get("ip", 0) or 0)
-                _pa = float(player.get("pa", 0) or 0)
-                _has_volume = (is_hitter and _pa > 0) or (not is_hitter and _ip > 0)
-                if not _has_volume or proj_val <= 0:
-                    daily_proj = 0.0
-                else:
-                    baseline = _RATE_BASELINES.get(cat, 0.0)
-                    if cat in config.inverse_stats:
-                        # Inverse stats (ERA, WHIP): lower is better.
-                        # deviation = baseline - actual (positive when better).
-                        daily_proj = baseline - proj_val
-                    else:
-                        # Forward stats (AVG, OBP): higher is better.
-                        # deviation = actual - baseline (positive when better).
-                        daily_proj = proj_val - baseline
+                # Compute volume-weighted SGP contribution directly,
+                # bypassing the per-game daily_proj path.
+                daily_proj = 0.0  # placeholder; sgp_dcv computed below
             else:
                 daily_proj = proj_val / 162.0
 
@@ -735,11 +737,50 @@ def build_daily_dcv_table(
             # SGP normalization
             weighted_dcv = dcv
             denom = config.sgp_denominators.get(cat, 1.0)
-            if abs(denom) > 1e-9:
-                if cat in config.inverse_stats and cat not in config.rate_stats:
+            if cat in config.rate_stats:
+                # Volume-weighted SGP for rate stats. Compute the player's
+                # annual SGP contribution from raw stat components, then
+                # scale by today's volume fraction.
+                _abandon = bool(rate_modes and not is_hitter and rate_modes.get(cat) == "abandon")
+                if _abandon:
+                    sgp_dcv = 0.0
+                else:
+                    annual_sgp = 0.0
+                    if cat == "AVG" and is_hitter:
+                        ab = float(player.get("ab", 0) or 0)
+                        h = float(player.get("h", 0) or 0)
+                        if ab > 0:
+                            annual_sgp = (h - ab * _REPL_AVG) / _RAW_SGP_DENOM["AVG"]
+                    elif cat == "OBP" and is_hitter:
+                        ab = float(player.get("ab", 0) or 0)
+                        h = float(player.get("h", 0) or 0)
+                        bb = float(player.get("bb", 0) or 0)
+                        hbp = float(player.get("hbp", 0) or 0)
+                        sf = float(player.get("sf", 0) or 0)
+                        denom_pa = ab + bb + hbp + sf
+                        if denom_pa > 0:
+                            annual_sgp = ((h + bb + hbp) - denom_pa * _REPL_OBP) / _RAW_SGP_DENOM["OBP"]
+                    elif cat == "ERA" and not is_hitter:
+                        ip = float(player.get("ip", 0) or 0)
+                        er = float(player.get("er", 0) or 0)
+                        if ip > 0:
+                            repl_er = _REPL_ERA * ip / 9.0
+                            annual_sgp = (repl_er - er) / _RAW_SGP_DENOM["ERA"]
+                    elif cat == "WHIP" and not is_hitter:
+                        ip = float(player.get("ip", 0) or 0)
+                        bb_a = float(player.get("bb_allowed", 0) or 0)
+                        h_a = float(player.get("h_allowed", 0) or 0)
+                        if ip > 0:
+                            repl_wh = _REPL_WHIP * ip
+                            annual_sgp = (repl_wh - (bb_a + h_a)) / _RAW_SGP_DENOM["WHIP"]
+                    # Apply daily fraction, matchup, health, volume, urgency
+                    daily_frac = _hitter_daily_frac if is_hitter else _pitcher_daily_frac
+                    sgp_dcv = annual_sgp * daily_frac * matchup_mult * health * volume
+                    if not _external_urgency:
+                        sgp_dcv *= urgency.get(cat, 0.5)
+            elif abs(denom) > 1e-9:
+                if cat in config.inverse_stats:
                     # Counting inverse stats (L): more is bad, so negate.
-                    # Rate inverse stats (ERA, WHIP) already have correct sign
-                    # from deviation-from-baseline above (positive = good).
                     sgp_dcv = -weighted_dcv / denom
                 else:
                     sgp_dcv = weighted_dcv / denom
@@ -768,10 +809,19 @@ def build_daily_dcv_table(
                 except (TypeError, ValueError):
                     pass
 
-            row_data[f"dcv_{col}"] = round(sgp_dcv, 4)
+            row_data[f"dcv_{col}"] = round(sgp_dcv, 6)
             total_dcv += sgp_dcv
 
-        row_data["total_dcv"] = round(total_dcv, 4)
+        # DCV scale: rate-stat math produces tiny per-category SGP values
+        # (~0.001 per cat per day). Multiply by 1000 to express in
+        # "milli-SGP per day" (mSGP) so display values are readable
+        # integers/single decimals comparable across players. The LP
+        # is scale-invariant, so this only affects presentation.
+        for cat in config.all_categories:
+            _k = f"dcv_{cat.lower()}"
+            if _k in row_data:
+                row_data[_k] = round(row_data[_k] * 1000.0, 4)
+        row_data["total_dcv"] = round(total_dcv * 1000.0, 4)
         rows.append(row_data)
 
     dcv_df = pd.DataFrame(rows) if rows else pd.DataFrame()
@@ -792,15 +842,17 @@ def build_daily_dcv_table(
     # real stats, something went wrong in urgency/rate-mode weighting.
     # Retry without external urgency so results degrade to equal-weight
     # rather than all-zeros (which causes random START/BENCH decisions).
-    if not dcv_df.empty and "total_dcv" in dcv_df.columns:
+    if not _retry_attempted and not dcv_df.empty and "total_dcv" in dcv_df.columns:
         _active = dcv_df.loc[dcv_df.get("health_factor", pd.Series(1.0, index=dcv_df.index)) > 0]
-        if not _active.empty and _active["total_dcv"].abs().sum() < 1e-6:
+        # Threshold: per-player per-day DCV is in mSGP units (~0.1-1.0 typical).
+        # Sum across active players should be > 1.0 mSGP if anything is happening.
+        if not _active.empty and _active["total_dcv"].abs().sum() < 1.0:
             # Check if the roster actually has stat data
             _stat_cols = [c for c in ["r", "hr", "rbi", "avg", "w", "k", "era"] if c in roster.columns]
             _has_stats = roster[_stat_cols].apply(pd.to_numeric, errors="coerce").fillna(0).sum().sum() > 0
             if _has_stats:
                 logger.warning(
-                    "All DCV scores are zero despite non-zero roster stats — retrying without external urgency weights"
+                    "All DCV scores are near-zero despite non-zero roster stats — retrying without external urgency weights"
                 )
                 return build_daily_dcv_table(
                     roster=roster,
@@ -812,6 +864,7 @@ def build_daily_dcv_table(
                     confirmed_lineups=confirmed_lineups,
                     recent_form=recent_form,
                     rate_modes=None,  # Also clear rate_modes in case abandon zeroed it
+                    _retry_attempted=True,  # Bound recursion to one retry
                 )
 
     # Apply stud floor
