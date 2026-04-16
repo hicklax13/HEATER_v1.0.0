@@ -1,12 +1,23 @@
-"""IP Tracker — Weekly innings pitched monitoring for 20 IP minimum.
+"""IP Tracker — Weekly innings pitched monitoring.
 
-Never forfeit pitching categories. Hitting 20 IP is non-negotiable.
+Tracks two thresholds:
+- 20 IP minimum: forfeit threshold (Yahoo H2H rule). Below this you
+  forfeit all pitching categories for the week.
+- ~54 IP weekly target: derived from 1,400 IP season target spread
+  across 26 weeks. This is the "competitive" pace, not the minimum.
 """
 
 import logging
 from datetime import UTC, datetime
 
 logger = logging.getLogger(__name__)
+
+# Forfeit threshold (Yahoo H2H rule)
+MIN_IP = 20.0
+# Competitive weekly target = season_target / weeks
+SEASON_IP_TARGET = 1400.0
+SEASON_WEEKS = 26.0
+WEEKLY_TARGET = SEASON_IP_TARGET / SEASON_WEEKS  # ~53.85
 
 
 def compute_weekly_ip_projection(roster_pitchers: list[dict], days_remaining: int = 7) -> dict:
@@ -18,11 +29,17 @@ def compute_weekly_ip_projection(roster_pitchers: list[dict], days_remaining: in
         days_remaining: Days left in the fantasy week (7 = Monday, 1 = Sunday).
 
     Returns:
-        Dict with: projected_ip, ip_needed (20.0), ip_pace, status ('safe'/'warning'/'danger'),
-        message, streaming_needed (bool).
+        Dict with:
+            projected_ip: weekly IP projection from current rostered pitchers
+            ip_min: forfeit threshold (20.0)
+            ip_target: competitive weekly target (~54.0)
+            ip_needed: kept for backward compat = ip_min
+            ip_pace: % of competitive target reached
+            ip_pace_vs_min: % of forfeit threshold reached
+            status: 'safe' / 'warning' / 'danger'
+            message: human-readable status
+            streaming_needed: bool
     """
-    MIN_IP = 20.0
-
     total_projected = 0.0
     for p in roster_pitchers:
         ip_season = float(p.get("ip", 0) or 0)
@@ -52,26 +69,42 @@ def compute_weekly_ip_projection(roster_pitchers: list[dict], days_remaining: in
 
         total_projected += projected_contribution
 
+    # Status thresholds use the forfeit minimum (20 IP) — that's the
+    # red line that loses categories. The weekly target is the goal,
+    # but missing it isn't catastrophic.
     status = "safe"
-    message = f"On pace for {total_projected:.2f} IP this week."
     streaming_needed = False
+    pct_of_target = total_projected / WEEKLY_TARGET * 100.0 if WEEKLY_TARGET > 0 else 0
+    pct_of_min = total_projected / MIN_IP * 100.0 if MIN_IP > 0 else 0
 
     if total_projected < MIN_IP * 0.5:
         status = "danger"
-        message = f"DANGER: Only {total_projected:.2f} IP projected. Need {MIN_IP:.0f}. Stream SP immediately."
+        message = f"DANGER: Only {total_projected:.1f} IP projected. Need {MIN_IP:.0f} minimum. Stream SP immediately."
         streaming_needed = True
     elif total_projected < MIN_IP:
         status = "warning"
-        message = f"WARNING: {total_projected:.2f} IP projected, need {MIN_IP:.0f}. Consider streaming a SP."
+        message = f"WARNING: {total_projected:.1f} IP projected, need {MIN_IP:.0f} minimum to avoid forfeit."
         streaming_needed = True
-    elif total_projected < MIN_IP * 1.2:
+    elif total_projected < WEEKLY_TARGET * 0.85:
+        status = "warning"
+        message = (
+            f"{total_projected:.1f} IP projected — above {MIN_IP:.0f} minimum but below "
+            f"{WEEKLY_TARGET:.0f} weekly target ({pct_of_target:.0f}%). Consider streaming."
+        )
+    elif total_projected < WEEKLY_TARGET:
         status = "safe"
-        message = f"Projected {total_projected:.2f} IP (just above minimum). Monitor closely."
+        message = f"{total_projected:.1f} IP projected ({pct_of_target:.0f}% of {WEEKLY_TARGET:.0f} weekly target)."
+    else:
+        status = "safe"
+        message = f"{total_projected:.1f} IP projected ({pct_of_target:.0f}% of {WEEKLY_TARGET:.0f} weekly target)."
 
     return {
         "projected_ip": round(total_projected, 2),
-        "ip_needed": MIN_IP,
-        "ip_pace": round(total_projected / MIN_IP * 100, 0) if MIN_IP > 0 else 100,
+        "ip_min": MIN_IP,
+        "ip_target": round(WEEKLY_TARGET, 1),
+        "ip_needed": MIN_IP,  # backward compat for callers
+        "ip_pace": round(pct_of_target, 0),  # % of competitive target
+        "ip_pace_vs_min": round(pct_of_min, 0),
         "status": status,
         "message": message,
         "streaming_needed": streaming_needed,

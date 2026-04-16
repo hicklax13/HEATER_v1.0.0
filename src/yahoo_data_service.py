@@ -296,12 +296,17 @@ class YahooDataService:
         )
 
     def get_matchup(self, force_refresh: bool = False) -> dict | None:
-        """Current week's matchup scorecard for the user's team."""
+        """Current week's matchup scorecard for the user's team.
+
+        Three-tier fetch: session_state → Yahoo API → SQLite cache.
+        Live fetches are written through to ``league_matchup_cache``
+        so the DB fallback can serve them when Yahoo is offline.
+        """
         return self._get_cached(
             key="matchup",
             ttl=self._ttl.matchup,
-            fetch_fn=self._fetch_matchup,
-            db_fallback_fn=lambda: None,
+            fetch_fn=self._fetch_and_sync_matchup,
+            db_fallback_fn=self._db_fallback_matchup,
             force=force_refresh,
         )
 
@@ -688,6 +693,36 @@ class YahooDataService:
     def _fetch_matchup(self) -> dict | None:
         """Fetch current matchup from Yahoo."""
         return self._client.get_current_matchup()
+
+    def _fetch_and_sync_matchup(self) -> dict | None:
+        """Fetch matchup from Yahoo and write-through to SQLite cache."""
+        matchup = self._client.get_current_matchup()
+        if matchup:
+            try:
+                from src.database import save_matchup_cache
+
+                team_name = self._get_user_team_name() or ""
+                week = int(matchup.get("week", 0) or 0)
+                if team_name and week > 0:
+                    save_matchup_cache(team_name, week, matchup)
+            except Exception:
+                logger.debug("matchup write-through failed", exc_info=True)
+        return matchup
+
+    def _db_fallback_matchup(self) -> dict | None:
+        """Read the most recent matchup snapshot from SQLite."""
+        try:
+            from src.database import load_matchup_cache
+
+            team_name = self._get_user_team_name() or ""
+            if team_name:
+                cached = load_matchup_cache(team_name)
+                if cached:
+                    logger.info("Matchup served from SQLite cache (Yahoo offline)")
+                    return cached
+        except Exception:
+            logger.debug("matchup DB fallback failed", exc_info=True)
+        return None
 
     def _fetch_free_agents(self, max_players: int) -> pd.DataFrame:
         """Fetch free agents from Yahoo with pagination."""

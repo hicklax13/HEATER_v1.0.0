@@ -214,6 +214,20 @@ class LineupOptimizer:
             for slot_name, _ in expanded_slots:
                 objective_terms.append(x[(p_idx, slot_name)] * player_value)
 
+        # Slot-tightness tie-breaker: when a player can fill multiple slots
+        # with equal value (e.g. Williams at RP vs P), prefer the more
+        # restrictive slot. RP can only take RPs; P can take SP/RP/P. Filling
+        # RP first leaves P open for SP-only players who have nowhere else.
+        # Magnitude epsilon must be small enough never to change which player
+        # is picked — only which slot, when player_value is equal.
+        # 1e-6 is several orders of magnitude below any realistic player_value.
+        _SLOT_TIGHTNESS_EPSILON = 1e-6
+        for slot_name, eligible_positions in expanded_slots:
+            n_eligible = max(1, len(eligible_positions))
+            tightness_bonus = _SLOT_TIGHTNESS_EPSILON / n_eligible
+            for p_idx in players:
+                objective_terms.append(x[(p_idx, slot_name)] * tightness_bonus)
+
         prob += lpSum(objective_terms)
 
         # Constraint 1: Each player assigned to at most one slot

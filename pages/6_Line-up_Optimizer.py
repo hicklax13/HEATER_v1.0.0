@@ -371,16 +371,26 @@ if IP_TRACKER_AVAILABLE and not roster.empty:
         if _pitcher_data:
             _ip_result = compute_weekly_ip_projection(_pitcher_data, get_days_remaining_in_week())
             _ip_color_map = {"safe": "#2d6a4f", "warning": "#ff9f1c", "danger": "#e63946"}
+            _ip_color = _ip_color_map.get(_ip_result["status"], T["tx2"])
+            _projected = _ip_result["projected_ip"]
+            _target = _ip_result.get("ip_target", 54)
+            _min = _ip_result.get("ip_min", 20)
+            _pct_target = _ip_result.get("ip_pace", 0)
             ip_budget_html = (
+                # Row 1: Projected vs weekly target
                 f'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">'
-                f'<span style="font-size:11px;color:{T["tx2"]};">Pace</span>'
-                f'<span style="font-size:13px;font-weight:bold;font-family:IBM Plex Mono,monospace;color:'
-                f'{_ip_color_map.get(_ip_result["status"], T["tx2"])}">'
-                f"{_ip_result['projected_ip']} / {_ip_result['ip_needed']:.0f} "
-                f"({_ip_result['ip_pace']:.0f}%)</span></div>"
+                f'<span style="font-size:11px;color:{T["tx2"]};">Projected</span>'
+                f'<span style="font-size:13px;font-weight:bold;font-family:IBM Plex Mono,monospace;color:{_ip_color}">'
+                f"{_projected:.1f} / {_target:.0f} IP target ({_pct_target:.0f}%)</span></div>"
+                # Row 2: Forfeit minimum context
+                f'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">'
+                f'<span style="font-size:11px;color:{T["tx2"]};">Forfeit min</span>'
+                f'<span style="font-size:12px;font-family:IBM Plex Mono,monospace;color:{T["tx2"]};">'
+                f"{_min:.0f} IP (Yahoo H2H rule)</span></div>"
+                # Row 3: Status message
                 f'<div style="display:flex;justify-content:space-between;align-items:center;">'
                 f'<span style="font-size:11px;color:{T["tx2"]};">Status</span>'
-                f'<span style="font-size:13px;font-weight:bold;font-family:IBM Plex Mono,monospace;">'
+                f'<span style="font-size:12px;font-family:IBM Plex Mono,monospace;color:{_ip_color}">'
                 f"{_ip_result['message']}</span></div>"
             )
     except Exception:
@@ -629,21 +639,46 @@ with ctx:
         else {}
     )
     # Show Yahoo connection status + optimizer data sources
+    # Three states:
+    #   Live    — client authenticated, fresh data flowing now
+    #   Cached  — no live client, but SQLite cache has recent data
+    #   Offline — no client and no usable cached data
     try:
         from src.yahoo_data_service import get_yahoo_data_service as _get_yds_fresh
 
         _yds_fresh = _get_yds_fresh()
-        _yahoo_connected = _yds_fresh.is_connected()
+        _yahoo_live = _yds_fresh.is_connected()
+        # Probe the cache: if rosters and standings come back non-empty,
+        # SQLite has usable data even when the live client is down.
+        _has_cached_data = False
+        if not _yahoo_live:
+            try:
+                _r = _yds_fresh.get_rosters()
+                _s = _yds_fresh.get_standings()
+                _has_cached_data = (_r is not None and not _r.empty) and (_s is not None and not _s.empty)
+            except Exception:
+                _has_cached_data = False
     except Exception:
-        _yahoo_connected = False
+        _yahoo_live = False
+        _has_cached_data = False
 
     _status_colors = {"fresh": "#4CAF50", "stale": "#FF9800", "unknown": "#9E9E9E"}
+
+    if _yahoo_live:
+        _yahoo_status_label = "Live"
+        _yahoo_status_color = "#4CAF50"
+    elif _has_cached_data:
+        _yahoo_status_label = "Cached"
+        _yahoo_status_color = "#FF9800"
+    else:
+        _yahoo_status_label = "Offline"
+        _yahoo_status_color = "#9E9E9E"
 
     _freshness_html = (
         f'<div class="context-stat-row" style="margin-bottom:6px;">'
         f'<span class="context-stat-label">Yahoo</span>'
-        f'<span class="context-stat-value" style="color:{"#4CAF50" if _yahoo_connected else "#9E9E9E"}">'
-        f"{'Connected' if _yahoo_connected else 'Offline'}</span></div>"
+        f'<span class="context-stat-value" style="color:{_yahoo_status_color}">'
+        f"{_yahoo_status_label}</span></div>"
     )
 
     if _opt_timestamps:

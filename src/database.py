@@ -433,6 +433,18 @@ def _init_db_tables_and_columns(conn):
             updated_at TEXT
         );
 
+        -- Cached snapshot of the user's current matchup. One row per
+        -- (team_name, week). matchup_json stores the full dict from
+        -- yfpy so the SQLite fallback can serve it when Yahoo is offline.
+        CREATE TABLE IF NOT EXISTS league_matchup_cache (
+            team_name TEXT NOT NULL,
+            week INTEGER NOT NULL,
+            opp_name TEXT,
+            matchup_json TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (team_name, week)
+        );
+
         CREATE TABLE IF NOT EXISTS yahoo_free_agents (
             player_key TEXT PRIMARY KEY,
             player_name TEXT NOT NULL,
@@ -1964,6 +1976,73 @@ def check_staleness(source: str, max_age_hours: float) -> bool:
         return age_hours > max_age_hours
     except (ValueError, TypeError):
         return True
+
+
+def save_matchup_cache(team_name: str, week: int, matchup: dict | None) -> None:
+    """Persist a matchup snapshot to SQLite for offline fallback.
+
+    Stores the full matchup dict as JSON so the SQLite fallback can return
+    it verbatim when the live Yahoo client is unavailable. Silently no-ops
+    on bad inputs to avoid breaking the bootstrap path.
+    """
+    if not matchup or not team_name or week <= 0:
+        return
+    import json as _json
+    from datetime import UTC, datetime
+
+    try:
+        opp_name = str(matchup.get("opp_name", "") or "")
+        payload = _json.dumps(matchup, default=str)
+        conn = get_connection()
+        try:
+            conn.execute(
+                """INSERT OR REPLACE INTO league_matchup_cache
+                   (team_name, week, opp_name, matchup_json, updated_at)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (team_name, int(week), opp_name, payload, datetime.now(UTC).isoformat()),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception as exc:  # pragma: no cover - defensive
+        import logging
+
+        logging.getLogger(__name__).debug("save_matchup_cache failed: %s", exc)
+
+
+def load_matchup_cache(team_name: str, week: int | None = None) -> dict | None:
+    """Load a cached matchup snapshot. Returns None if no cache exists.
+
+    If ``week`` is None, returns the most recently updated matchup for
+    the team. Useful as a SQLite fallback when Yahoo is offline.
+    """
+    if not team_name:
+        return None
+    import json as _json
+
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        if week is None:
+            cursor.execute(
+                """SELECT matchup_json FROM league_matchup_cache
+                   WHERE team_name = ? ORDER BY updated_at DESC LIMIT 1""",
+                (team_name,),
+            )
+        else:
+            cursor.execute(
+                """SELECT matchup_json FROM league_matchup_cache
+                   WHERE team_name = ? AND week = ?""",
+                (team_name, int(week)),
+            )
+        row = cursor.fetchone()
+        if not row:
+            return None
+        return _json.loads(row[0])
+    except Exception:
+        return None
+    finally:
+        conn.close()
 
 
 def upsert_league_schedule(week: int, team_name: str, opponent_name: str) -> None:
