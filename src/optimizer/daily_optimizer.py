@@ -410,6 +410,24 @@ def build_daily_dcv_table(
         "WASHINGTON NATIONALS": "WSH",
         "ARIZONA DIAMONDBACKS": "ARI",
     }
+    # Equivalence classes: different data sources use different abbreviations
+    # for the same team. Yahoo, MLB Stats API, and FanGraphs disagree.
+    _TEAM_EQUIVALENCES = {
+        "WSH": {"WSH", "WSN", "WAS"},
+        "SF": {"SF", "SFG"},
+        "SD": {"SD", "SDP"},
+        "TB": {"TB", "TBR"},
+        "KC": {"KC", "KCR"},
+        "CWS": {"CWS", "CHW"},
+        "ATH": {"ATH", "OAK"},
+    }
+
+    def _expand_equivalences(abbr: str) -> set[str]:
+        for canon, variants in _TEAM_EQUIVALENCES.items():
+            if abbr in variants or abbr == canon:
+                return variants | {canon}
+        return {abbr}
+
     teams_playing: set[str] = set()
     if schedule_today:
         for game in schedule_today:
@@ -421,6 +439,8 @@ def build_daily_dcv_table(
                     teams_playing.add(abbr)
                     # Also add the raw value in case it's already an abbreviation
                     teams_playing.add(raw)
+                    # Expand via equivalence map (WSN/WSH/WAS all play if one does)
+                    teams_playing.update(_expand_equivalences(abbr))
 
     # Get urgency weights from matchup (use caller-provided if available)
     if urgency_weights is not None:
