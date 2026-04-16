@@ -481,7 +481,7 @@ with ctx:
     mode = st.radio(
         "Optimization Mode",
         options=["quick", "standard", "full"],
-        index=1,
+        index=2,
         format_func=lambda m: {
             "quick": "Quick (<1s)",
             "standard": "Standard (2-3s)",
