@@ -675,14 +675,43 @@ def build_daily_dcv_table(
             except Exception:
                 pa_mult = 1.0
 
+        # Rate-stat baselines: deviation-from-replacement framing.
+        # A pitcher's contribution to ERA isn't "their ERA" — it's how their
+        # appearance moves your team's *aggregate* ERA relative to a typical
+        # replacement-level pitcher. Without this baseline, every pitcher
+        # with ERA > 0 looks like massive damage and DCV is structurally
+        # negative. Same logic applies to AVG/OBP for hitters.
+        # Baselines reflect 12-team H2H mixed league replacement-level players.
+        _RATE_BASELINES = {
+            "AVG": 0.250,
+            "OBP": 0.315,
+            "ERA": 4.20,
+            "WHIP": 1.30,
+        }
         for cat in config.all_categories:
             col = cat.lower()
             proj_val = form_adjustments.get(col, float(player.get(col, 0) or 0))
 
             # Per-game rate: divide counting stats by ~162 games.
-            # Rate stats (AVG, OBP, ERA, WHIP) are already per-game rates.
+            # Rate stats (AVG, OBP, ERA, WHIP) are deviation-from-baseline.
             if cat in config.rate_stats:
-                daily_proj = proj_val
+                # Skip rate stat for players with no projected playing time
+                # (avoid baseline-vs-zero giving them spurious credit/damage).
+                _ip = float(player.get("ip", 0) or 0)
+                _pa = float(player.get("pa", 0) or 0)
+                _has_volume = (is_hitter and _pa > 0) or (not is_hitter and _ip > 0)
+                if not _has_volume or proj_val <= 0:
+                    daily_proj = 0.0
+                else:
+                    baseline = _RATE_BASELINES.get(cat, 0.0)
+                    if cat in config.inverse_stats:
+                        # Inverse stats (ERA, WHIP): lower is better.
+                        # deviation = baseline - actual (positive when better).
+                        daily_proj = baseline - proj_val
+                    else:
+                        # Forward stats (AVG, OBP): higher is better.
+                        # deviation = actual - baseline (positive when better).
+                        daily_proj = proj_val - baseline
             else:
                 daily_proj = proj_val / 162.0
 
@@ -707,7 +736,10 @@ def build_daily_dcv_table(
             weighted_dcv = dcv
             denom = config.sgp_denominators.get(cat, 1.0)
             if abs(denom) > 1e-9:
-                if cat in config.inverse_stats:
+                if cat in config.inverse_stats and cat not in config.rate_stats:
+                    # Counting inverse stats (L): more is bad, so negate.
+                    # Rate inverse stats (ERA, WHIP) already have correct sign
+                    # from deviation-from-baseline above (positive = good).
                     sgp_dcv = -weighted_dcv / denom
                 else:
                     sgp_dcv = weighted_dcv / denom

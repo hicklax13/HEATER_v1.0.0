@@ -1419,6 +1419,16 @@ with main:
                 batters_display = _build_dcv_display(batters_dcv)
                 pitchers_display = _build_dcv_display(pitchers_dcv)
 
+                # ── Slot dedup: benched players must display as "BN" ──
+                # If a player ended up on BENCH but their selected_position
+                # still says "SP"/"OF"/"1B" etc. (because the LP didn't pick
+                # them but Yahoo's last assignment lingered), force their Slot
+                # to "BN" to avoid two rows fighting for the same starter slot.
+                for _df in (batters_display, pitchers_display):
+                    if _df is not None and not _df.empty and "Slot" in _df.columns:
+                        _bench_mask = _df["Decision"] == "BENCH"
+                        _df.loc[_bench_mask, "Slot"] = "BN"
+
                 # ── Inject LEAVE EMPTY rows for any unfilled starter slot ──
                 # Iterate the full slot skeleton (e.g. C×1, 1B×1 ... OF×3, Util×2)
                 # and add a synthetic row for every slot index not assigned.
