@@ -1183,12 +1183,16 @@ with main:
                     # stats dominate), and the LP's <= 1 slot constraint would
                     # leave pitcher slots empty if hitters and pitchers compete.
                     _PITCHER_POS = {"SP", "RP", "P"}
-                    _HITTER_SLOTS = {"C": (1, ["C"]), "1B": (1, ["1B"]), "2B": (1, ["2B"]),
-                                     "3B": (1, ["3B"]), "SS": (1, ["SS"]),
-                                     "OF": (3, ["OF", "LF", "CF", "RF"]),
-                                     "Util": (2, ["C", "1B", "2B", "3B", "SS", "OF", "LF", "CF", "RF", "DH"])}
-                    _PITCHER_SLOTS = {"SP": (2, ["SP", "P"]), "RP": (2, ["RP", "P"]),
-                                      "P": (4, ["SP", "RP", "P"])}
+                    _HITTER_SLOTS = {
+                        "C": (1, ["C"]),
+                        "1B": (1, ["1B"]),
+                        "2B": (1, ["2B"]),
+                        "3B": (1, ["3B"]),
+                        "SS": (1, ["SS"]),
+                        "OF": (3, ["OF", "LF", "CF", "RF"]),
+                        "Util": (2, ["C", "1B", "2B", "3B", "SS", "OF", "LF", "CF", "RF", "DH"]),
+                    }
+                    _PITCHER_SLOTS = {"SP": (2, ["SP", "P"]), "RP": (2, ["RP", "P"]), "P": (4, ["SP", "RP", "P"])}
 
                     def _run_lp_for_group(group_df, slots_dict):
                         """Run LP on a player group. Returns (started_ids, slot_map)."""
@@ -1197,8 +1201,7 @@ with main:
                             lp_r = lp_r.rename(columns={"name": "player_name"})
                         _raw = lp_r["total_dcv"].fillna(0)
                         _shifted = _raw - _raw.min() + 1.0
-                        for _c in ["r", "hr", "rbi", "sb", "w", "l", "sv", "k",
-                                    "avg", "obp", "era", "whip"]:
+                        for _c in ["r", "hr", "rbi", "sb", "w", "l", "sv", "k", "avg", "obp", "era", "whip"]:
                             lp_r[_c] = 0.0
                         lp_r["r"] = _shifted
                         if "ip" not in lp_r.columns or lp_r["ip"].sum() == 0:
@@ -1228,9 +1231,7 @@ with main:
                         _p_ids, _p_slots = _run_lp_for_group(_pitchers, _PITCHER_SLOTS)
                         _lp_ids |= _p_ids
                         _lp_slot_map.update(_p_slots)
-                    _starter_indices = eligible.index[
-                        eligible["player_id"].isin(_lp_ids)
-                    ].tolist()
+                    _starter_indices = eligible.index[eligible["player_id"].isin(_lp_ids)].tolist()
                     # Update selected_position to show LP-recommended slot
                     # instead of Yahoo's current slot (avoids confusing BN+START)
                     if _lp_slot_map and "selected_position" in dcv.columns:

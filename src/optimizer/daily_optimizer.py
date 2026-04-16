@@ -748,8 +748,7 @@ def build_daily_dcv_table(
             _has_stats = roster[_stat_cols].apply(pd.to_numeric, errors="coerce").fillna(0).sum().sum() > 0
             if _has_stats:
                 logger.warning(
-                    "All DCV scores are zero despite non-zero roster stats — "
-                    "retrying without external urgency weights"
+                    "All DCV scores are zero despite non-zero roster stats — retrying without external urgency weights"
                 )
                 return build_daily_dcv_table(
                     roster=roster,

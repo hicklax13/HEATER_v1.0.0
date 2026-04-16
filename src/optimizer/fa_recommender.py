@@ -165,21 +165,11 @@ def _score_fa_candidates(ctx: OptimizerDataContext) -> list[dict]:
     candidates: list[dict] = []
 
     # Build set of ALL rostered player IDs (user + opponents) for exclusion.
-    # ctx.user_roster_ids covers the user's team; also pull league-wide
-    # rostered IDs from the database so players recently picked up by
-    # other managers are never recommended.
+    # ctx.user_roster_ids covers the user's team; ctx.league_rostered_ids
+    # (populated by build_optimizer_context from league_rosters table)
+    # covers all other teams. Tests pass an empty set to opt out.
     _excluded_ids: set[int] = set(int(pid) for pid in ctx.user_roster_ids)
-    try:
-        from src.database import get_connection
-
-        _conn = get_connection()
-        try:
-            _rows = _conn.execute("SELECT DISTINCT player_id FROM league_rosters").fetchall()
-            _excluded_ids.update(int(r[0]) for r in _rows if r[0] is not None)
-        finally:
-            _conn.close()
-    except Exception:
-        pass  # Graceful: at minimum we still exclude user's own roster
+    _excluded_ids.update(int(pid) for pid in ctx.league_rostered_ids)
 
     for _, fa_row in ctx.free_agents.iterrows():
         fa_id = fa_row.get("player_id")

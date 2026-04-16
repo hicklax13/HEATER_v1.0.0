@@ -131,6 +131,7 @@ class OptimizerDataContext:
     adds_remaining_this_week: int = _MAX_WEEKLY_ADDS
     closer_count: int = 0
     il_stash_ids: set[int] = field(default_factory=set)
+    league_rostered_ids: set[int] = field(default_factory=set)
 
 
 # ---------------------------------------------------------------------------
@@ -241,6 +242,19 @@ def build_optimizer_context(
         tracker.record("free_agents", ttl_hours=1.0, source_label="Yahoo Fantasy API", data_as_of="Current FA pool")
     except Exception:
         logger.warning("Failed to load free agents")
+
+    # ── Step 3b: Load league-wide rostered IDs (for FA exclusion) ─────
+    try:
+        from src.database import get_connection
+
+        _conn = get_connection()
+        try:
+            _rows = _conn.execute("SELECT DISTINCT player_id FROM league_rosters").fetchall()
+            ctx.league_rostered_ids = {int(r[0]) for r in _rows if r[0] is not None}
+        finally:
+            _conn.close()
+    except Exception:
+        logger.warning("Failed to load league_rosters; FA exclusion limited to user roster")
 
     # ── Step 4: Load live matchup ─────────────────────────────────────
     try:
