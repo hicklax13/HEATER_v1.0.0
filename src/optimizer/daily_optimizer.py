@@ -297,7 +297,15 @@ def apply_stud_floor(
             vol = row.get("volume_factor", 0)
             if pid in total_sgp and total_sgp[pid] >= threshold and vol > 0:
                 current = row.get("total_dcv", 0)
-                floor_val = median_dcv * 1.5  # Studs get 1.5x median as floor
+                # Scale floor by matchup_mult so studs with different matchups
+                # (park, platoon, opposing pitcher, weather) don't collapse to
+                # identical DCVs. The floor exists to correct 1/162 daily-fraction
+                # scaling artifacts, not to override legitimate matchup signal.
+                try:
+                    mm = float(row.get("matchup_mult", 1.0) or 1.0)
+                except (TypeError, ValueError):
+                    mm = 1.0
+                floor_val = median_dcv * 1.5 * mm
                 if current < floor_val:
                     dcv_table.at[idx, "total_dcv"] = floor_val
                     dcv_table.at[idx, "stud_floor_applied"] = True

@@ -331,6 +331,34 @@ class TestStudFloor:
         if not star.empty and star.iloc[0]["total_dcv"] > 0.01:
             assert bool(star.iloc[0]["stud_floor_applied"]) is True
 
+    def test_floor_scales_with_matchup(self, sample_roster):
+        config = LeagueConfig()
+        dcv = pd.DataFrame(
+            [
+                {
+                    "player_id": 1,
+                    "total_dcv": 0.1,
+                    "matchup_mult": 1.20,
+                    "volume_factor": 1.0,
+                    "stud_floor_applied": False,
+                },
+                {
+                    "player_id": 3,
+                    "total_dcv": 0.1,
+                    "matchup_mult": 0.80,
+                    "volume_factor": 1.0,
+                    "stud_floor_applied": False,
+                },
+            ]
+        )
+        result = apply_stud_floor(dcv, sample_roster, config)
+        good = result[result["player_id"] == 1].iloc[0]
+        bad = result[result["player_id"] == 3].iloc[0]
+        # Two studs with identical raw DCV but different matchups must not
+        # collapse to the same floored value; the better matchup ranks higher.
+        if bool(good["stud_floor_applied"]) and bool(bad["stud_floor_applied"]):
+            assert good["total_dcv"] > bad["total_dcv"]
+
 
 # -----------------------------------------------------------------------
 # Build DCV Table tests
