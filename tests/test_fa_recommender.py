@@ -712,7 +712,8 @@ class TestStreamingScope:
     def test_non_today_scope_returns_empty(self):
         ctx = _stream_ctx(roster_ids=[1], pool=[_make_player(1)], fas=[], scope="rest_of_week")
         result = recommend_streaming_moves(ctx)
-        assert result == {"pitchers": [], "batters": []}
+        assert result["pitchers"] == []
+        assert result["batters"] == []
 
     def test_no_target_cats_returns_empty(self):
         # No close/winnable categories → nothing to stream

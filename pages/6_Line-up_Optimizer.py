@@ -1627,14 +1627,40 @@ with main:
                         _streams = recommend_streaming_moves(_ctx_fa, max_per_side=3)
                         _p_streams = _streams.get("pitchers", [])
                         _b_streams = _streams.get("batters", [])
-                        if _p_streams or _b_streams:
-                            st.divider()
+                        _diag = _streams.get("diagnostics", {})
+                        # Always render header so users see the section exists
+                        st.divider()
+                        st.markdown(
+                            f'<p style="font-size:12px;font-weight:700;letter-spacing:1px;'
+                            f"color:{T['tx2']};text-transform:uppercase;"
+                            f"margin:0 0 6px;\">Today's Streaming Recommendations</p>",
+                            unsafe_allow_html=True,
+                        )
+                        if not _p_streams and not _b_streams:
+                            _note = _diag.get("note") or "No streaming moves meet the filters."
                             st.markdown(
-                                f'<p style="font-size:12px;font-weight:700;letter-spacing:1px;'
-                                f"color:{T['tx2']};text-transform:uppercase;"
-                                f"margin:0 0 6px;\">Today's Streaming Recommendations</p>",
+                                f'<div style="padding:8px 12px;margin:4px 0;background:{T["bg"]};'
+                                f"border-left:3px solid {T['tx2']};border-radius:4px;"
+                                f'font-size:12px;color:{T["tx2"]};">'
+                                f"<b>No streaming moves today.</b> {_note}"
+                                f"</div>",
                                 unsafe_allow_html=True,
                             )
+                            # Collapsed diagnostic panel for transparency
+                            with st.expander("Why? (diagnostics)", expanded=False):
+                                _inplay = ", ".join(str(c).upper() for c in _diag.get("in_play_cats", []))
+                                st.caption(
+                                    f"Scope: {_diag.get('scope', '?')} • "
+                                    f"In-play cats (≥38% win prob): {_inplay or '—'} • "
+                                    f"Probable SPs today: {_diag.get('n_probable_sps', 0)} • "
+                                    f"Teams playing today: {_diag.get('n_teams_playing_today', 0)} • "
+                                    f"FAs considered: {_diag.get('n_fa_considered', 0)} "
+                                    f"(filtered: no-game={_diag.get('n_fa_filtered_no_game', 0)}, "
+                                    f"low-SGP={_diag.get('n_fa_filtered_net_sgp', 0)}, "
+                                    f"hurts={_diag.get('n_fa_filtered_hurts', 0)}, "
+                                    f"IP-min={_diag.get('n_fa_filtered_ip', 0)}, "
+                                    f"IL={_diag.get('n_fa_filtered_il', 0)})"
+                                )
 
                             def _fmt_deltas(d: dict) -> str:
                                 if not d:

@@ -601,43 +601,121 @@ def _compute_ros_sgp(row: pd.Series, config) -> float:
     return sgp
 
 
-def _get_probable_starter_ids_today(ctx: OptimizerDataContext) -> set[int]:
-    """Extract player IDs of SPs scheduled to start today."""
-    ids: set[int] = set()
-    for game in ctx.todays_schedule or []:
-        for side in ("home_probable_pitcher", "away_probable_pitcher"):
-            info = game.get(side)
-            if not info:
-                continue
-            pid = None
-            if isinstance(info, dict):
-                pid = info.get("id") or info.get("player_id")
-            elif isinstance(info, int):
-                pid = info
-            if pid is not None:
-                try:
-                    ids.add(int(pid))
-                except (TypeError, ValueError):
-                    pass
-    return ids
+# Full team-name → 3-letter abbreviation. MLB Stats API (statsapi) returns
+# schedules with full names (e.g. "Boston Red Sox"), but Yahoo/FanGraphs
+# rows store 3-letter codes (e.g. "BOS"). We normalize both sides.
+_FULL_TO_ABBR: dict[str, str] = {
+    "ATHLETICS": "ATH",
+    "ATLANTA BRAVES": "ATL",
+    "BALTIMORE ORIOLES": "BAL",
+    "BOSTON RED SOX": "BOS",
+    "CHICAGO CUBS": "CHC",
+    "CHICAGO WHITE SOX": "CWS",
+    "CINCINNATI REDS": "CIN",
+    "CLEVELAND GUARDIANS": "CLE",
+    "COLORADO ROCKIES": "COL",
+    "DETROIT TIGERS": "DET",
+    "HOUSTON ASTROS": "HOU",
+    "KANSAS CITY ROYALS": "KC",
+    "LOS ANGELES ANGELS": "LAA",
+    "LOS ANGELES DODGERS": "LAD",
+    "MIAMI MARLINS": "MIA",
+    "MILWAUKEE BREWERS": "MIL",
+    "MINNESOTA TWINS": "MIN",
+    "NEW YORK METS": "NYM",
+    "NEW YORK YANKEES": "NYY",
+    "OAKLAND ATHLETICS": "ATH",
+    "PHILADELPHIA PHILLIES": "PHI",
+    "PITTSBURGH PIRATES": "PIT",
+    "SAN DIEGO PADRES": "SD",
+    "SAN FRANCISCO GIANTS": "SF",
+    "SEATTLE MARINERS": "SEA",
+    "ST. LOUIS CARDINALS": "STL",
+    "TAMPA BAY RAYS": "TB",
+    "TEXAS RANGERS": "TEX",
+    "TORONTO BLUE JAYS": "TOR",
+    "WASHINGTON NATIONALS": "WSH",
+    "ARIZONA DIAMONDBACKS": "ARI",
+}
+# Different data sources disagree on 3-letter codes. Expand each set so a
+# match on any variant satisfies the membership check.
+_TEAM_EQUIVALENCES: dict[str, set[str]] = {
+    "WSH": {"WSH", "WSN", "WAS"},
+    "SF": {"SF", "SFG"},
+    "SD": {"SD", "SDP"},
+    "TB": {"TB", "TBR"},
+    "KC": {"KC", "KCR"},
+    "CWS": {"CWS", "CHW"},
+    "ATH": {"ATH", "OAK"},
+}
+
+
+def _expand_team_equivalences(abbr: str) -> set[str]:
+    for canon, variants in _TEAM_EQUIVALENCES.items():
+        if abbr in variants or abbr == canon:
+            return variants | {canon}
+    return {abbr}
+
+
+def _normalize_team(raw: str) -> set[str]:
+    """Return the set of codes that represent the same MLB team as `raw`.
+    Raw can be a full name ("Boston Red Sox") or any 3-letter variant."""
+    if not raw:
+        return set()
+    up = str(raw).upper().strip()
+    abbr = _FULL_TO_ABBR.get(up, up)
+    return _expand_team_equivalences(abbr) | {abbr, up}
 
 
 def _get_teams_playing_today(ctx: OptimizerDataContext) -> set[str]:
-    """Extract 3-letter team codes (uppercased) playing today."""
+    """All team codes (with equivalence variants) whose team has a game today."""
     teams: set[str] = set()
     for game in ctx.todays_schedule or []:
-        for key in (
-            "home_team",
-            "away_team",
-            "home_name",
-            "away_name",
-            "home_code",
-            "away_code",
-        ):
-            t = game.get(key)
-            if t:
-                teams.add(str(t).upper())
+        for key in ("home_name", "away_name", "home_team", "away_team"):
+            raw = game.get(key)
+            if raw:
+                teams |= _normalize_team(raw)
     return teams
+
+
+def _get_probable_starter_ids_today(ctx: OptimizerDataContext) -> set[int]:
+    """Extract player IDs of SPs scheduled to start today.
+
+    statsapi returns ``home_probable_pitcher`` / ``away_probable_pitcher``
+    as name strings (e.g. "Brandon Pfaadt"), not IDs. We resolve each name
+    against the player_pool to find the corresponding player_id.
+    """
+    names_lower: set[str] = set()
+    for game in ctx.todays_schedule or []:
+        for side in ("home_probable_pitcher", "away_probable_pitcher"):
+            raw = game.get(side)
+            if not raw:
+                continue
+            if isinstance(raw, dict):
+                name = raw.get("fullName") or raw.get("name") or ""
+            else:
+                name = str(raw)
+            name = name.strip()
+            if name and name.upper() not in ("TBD", "TBA", "UNKNOWN", ""):
+                names_lower.add(name.lower())
+    if not names_lower or ctx.player_pool is None or ctx.player_pool.empty:
+        return set()
+
+    name_col = "name" if "name" in ctx.player_pool.columns else "player_name"
+    if name_col not in ctx.player_pool.columns:
+        return set()
+    pool_names = ctx.player_pool[name_col].astype(str).str.strip().str.lower()
+    matches = ctx.player_pool[pool_names.isin(names_lower)]
+    ids: set[int] = set()
+    for _, row in matches.iterrows():
+        pid = row.get("player_id")
+        if pid is None:
+            continue
+        try:
+            ids.add(int(pid))
+        except (TypeError, ValueError):
+            pass
+    return ids
 
 
 def _stream_drop_score(pid: int, ctx: OptimizerDataContext, teams_playing_today: set[str]) -> float:
@@ -653,11 +731,18 @@ def _stream_drop_score(pid: int, ctx: OptimizerDataContext, teams_playing_today:
         return float("inf")  # can't evaluate → not a drop candidate
     row = match.iloc[0]
     ros_sgp = _compute_ros_sgp(row, ctx.config)
-    team = str(row.get("team", "") or "").upper()
-    remaining_games = int(ctx.remaining_games_this_week.get(team, 3) or 3)
+    team_raw = str(row.get("team", "") or "").upper()
+    team_variants = _normalize_team(team_raw)
+    # remaining_games_this_week keys are full names (per shared_data_layer);
+    # look up by any equivalent variant or full name.
+    remaining_games = 3
+    for key in (team_raw, *team_variants):
+        if key in ctx.remaining_games_this_week:
+            remaining_games = int(ctx.remaining_games_this_week[key] or 3)
+            break
     # Scale ROS SGP to remaining-week contribution; 162-game season.
     weekly_sgp = ros_sgp * max(0, remaining_games) / 162.0
-    today_bonus = _STREAM_DROP_TODAY_BONUS if team and team in teams_playing_today else 0.0
+    today_bonus = _STREAM_DROP_TODAY_BONUS if team_variants & teams_playing_today else 0.0
     return weekly_sgp + today_bonus
 
 
@@ -743,8 +828,22 @@ def recommend_streaming_moves(
     - IL FAs are ineligible for streaming (use regular FA engine for
       IL→IL stash upgrades).
     """
-    empty: dict[str, list[dict[str, Any]]] = {"pitchers": [], "batters": []}
+    diagnostics: dict[str, Any] = {
+        "scope": ctx.scope,
+        "in_play_cats": [],
+        "n_probable_sps": 0,
+        "n_teams_playing_today": 0,
+        "n_fa_considered": 0,
+        "n_fa_filtered_no_game": 0,
+        "n_fa_filtered_net_sgp": 0,
+        "n_fa_filtered_hurts": 0,
+        "n_fa_filtered_ip": 0,
+        "n_fa_filtered_il": 0,
+        "note": "",
+    }
+    empty: dict[str, Any] = {"pitchers": [], "batters": [], "diagnostics": diagnostics}
     if ctx.scope != "today":
+        diagnostics["note"] = f"Scope is '{ctx.scope}' (streaming only activates on Today)."
         return empty
 
     # Per-category win probability
@@ -754,14 +853,19 @@ def recommend_streaming_moves(
         wp_result = estimate_h2h_win_probability(ctx.my_totals, ctx.opp_totals)
     except Exception:
         logger.debug("Win-prob computation failed", exc_info=True)
+        diagnostics["note"] = "Win-probability computation failed — no matchup totals available."
         return empty
     wp = {str(k).lower(): float(v) for k, v in wp_result.get("per_category", {}).items()}
     target_cats = {c for c, p in wp.items() if p >= _STREAM_WIN_PROB_MIN}
+    diagnostics["in_play_cats"] = sorted(target_cats)
     if not target_cats:
+        diagnostics["note"] = "No categories with win probability >= 38%. Streaming only fires for in-play cats."
         return empty
 
     probable_sp_ids = _get_probable_starter_ids_today(ctx)
     teams_playing = _get_teams_playing_today(ctx)
+    diagnostics["n_probable_sps"] = len(probable_sp_ids)
+    diagnostics["n_teams_playing_today"] = len(teams_playing)
 
     worst_pitcher_id, worst_pitcher_score = _worst_rostered(ctx, is_hitter=False, teams_playing_today=teams_playing)
     worst_batter_id, worst_batter_score = _worst_rostered(ctx, is_hitter=True, teams_playing_today=teams_playing)
@@ -780,6 +884,7 @@ def recommend_streaming_moves(
     batter_streamers: list[dict[str, Any]] = []
 
     if ctx.free_agents.empty:
+        diagnostics["note"] = "No free agents in context."
         return empty
 
     excluded_ids = set(int(p) for p in ctx.user_roster_ids)
@@ -797,17 +902,22 @@ def recommend_streaming_moves(
         if fa_id in excluded_ids:
             continue
         if _player_is_il(ctx, fa_id):
+            diagnostics["n_fa_filtered_il"] += 1
             continue
 
+        diagnostics["n_fa_considered"] += 1
         fa_is_hitter = bool(int(fa_row.get("is_hitter", 1)))
 
         # Game-today filter
         if not fa_is_hitter:
             if fa_id not in probable_sp_ids:
+                diagnostics["n_fa_filtered_no_game"] += 1
                 continue
         else:
-            team = str(fa_row.get("team", "") or "").upper()
-            if not team or team not in teams_playing:
+            team_raw = str(fa_row.get("team", "") or "").upper()
+            team_variants = _normalize_team(team_raw)
+            if not team_variants or not (team_variants & teams_playing):
+                diagnostics["n_fa_filtered_no_game"] += 1
                 continue
 
         drop_id = _pick_drop(fa_is_hitter)
@@ -819,19 +929,23 @@ def recommend_streaming_moves(
         cat_deltas = {str(k).lower(): float(v) for k, v in swap.get("category_deltas", {}).items()}
 
         if net_sgp < _STREAM_NET_SGP_MIN:
+            diagnostics["n_fa_filtered_net_sgp"] += 1
             continue
 
         # Hurts guard on in-play cats
         if any(cat_deltas.get(c, 0) < _STREAM_HURT_THRESHOLD for c in target_cats):
+            diagnostics["n_fa_filtered_hurts"] += 1
             continue
 
         # Must help at least one in-play target cat
         helpful_targets = [c for c in target_cats if cat_deltas.get(c, 0) > 0.01]
         if not helpful_targets:
+            diagnostics["n_fa_filtered_hurts"] += 1  # no in-play help
             continue
 
         # IP minimum (pitcher streams only)
         if not fa_is_hitter and not _passes_ip_minimum(ctx, fa_id, drop_id):
+            diagnostics["n_fa_filtered_ip"] += 1
             continue
 
         # Build display payload
@@ -865,7 +979,17 @@ def recommend_streaming_moves(
     pitcher_streamers.sort(key=lambda x: x["net_sgp"], reverse=True)
     batter_streamers.sort(key=lambda x: x["net_sgp"], reverse=True)
 
+    if not pitcher_streamers and not batter_streamers and not diagnostics["note"]:
+        diagnostics["note"] = (
+            f"Considered {diagnostics['n_fa_considered']} FAs. Filtered out: "
+            f"{diagnostics['n_fa_filtered_no_game']} not playing today, "
+            f"{diagnostics['n_fa_filtered_net_sgp']} below +0.70 net SGP, "
+            f"{diagnostics['n_fa_filtered_hurts']} hurt an in-play cat or didn't help one, "
+            f"{diagnostics['n_fa_filtered_ip']} failed IP minimum check."
+        )
+
     return {
         "pitchers": pitcher_streamers[:max_per_side],
         "batters": batter_streamers[:max_per_side],
+        "diagnostics": diagnostics,
     }
