@@ -1712,9 +1712,11 @@ with main:
                     )
                     with st.expander("Why? (diagnostics)", expanded=False):
                         _inplay = ", ".join(str(c).upper() for c in _diag.get("in_play_cats", []))
+                        _protected = ", ".join(str(c).upper() for c in _diag.get("protected_cats", []))
                         st.caption(
                             f"Scope: {_diag.get('scope', '?')} • "
-                            f"In-play cats (≥38% win prob): {_inplay or '—'} • "
+                            f"In-play cats (≥27.55% win prob): {_inplay or '—'} • "
+                            f"Hurts-guard protects: {_protected or '—'} • "
                             f"Probable SPs today: {_diag.get('n_probable_sps', 0)} • "
                             f"Teams playing today: {_diag.get('n_teams_playing_today', 0)} • "
                             f"FAs considered: {_diag.get('n_fa_considered', 0)} "
@@ -1729,8 +1731,9 @@ with main:
                     _render_stream_block("Batters (games today)", _b_streams)
                     st.caption(
                         "Streaming fires only for categories that are still in play "
-                        "(38%-100% win probability this week). Moves require +0.70 "
-                        "net SGP and no >0.10 SGP hurt to any in-play category."
+                        "(≥27.55% win probability this week). Moves require +0.70 "
+                        "net SGP and no >0.10 SGP hurt to any in-play cat OR any "
+                        "cat you're currently losing/tied in."
                     )
 
         elif result:

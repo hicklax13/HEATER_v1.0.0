@@ -46,9 +46,9 @@ _FLOOR_IP_MIN = 20
 _IL_EXCLUDE_STATUSES = {"il", "il10", "il15", "il60", "dtd", "day-to-day", "na", "out", "suspended"}
 
 # Streaming knobs (for scope="today" only).
-_STREAM_WIN_PROB_MIN = 0.38  # categories with >=38% win prob are in-play
+_STREAM_WIN_PROB_MIN = 0.2755  # categories with >=27.55% win prob are in-play
 _STREAM_NET_SGP_MIN = 0.70  # minimum net SGP gain to surface a streamer
-_STREAM_HURT_THRESHOLD = -0.10  # max allowed hurt on any in-play category
+_STREAM_HURT_THRESHOLD = -0.10  # max allowed hurt on protected categories
 _STREAM_CROSS_SIDE_RATIO = 0.5  # cross-swap if cross-worst < this * same-worst
 _STREAM_DROP_TODAY_BONUS = 0.15  # protect rostered players with today game
 _STREAM_MAX_PER_SIDE = 3  # cap per-side recommendations
@@ -816,14 +816,17 @@ def recommend_streaming_moves(
 
     Rules:
     - Only fires when ``ctx.scope == "today"``.
-    - Target categories: those with per-category win probability >= 0.38
-      (categories that are still realistically in play this week).
+    - Target categories: those with per-category win probability
+      >= 27.55% (categories still realistically in play this week).
     - FA pitcher candidates must be probable starters today.
     - FA batter candidates must be on a team with a game today.
     - Drop target = worst rostered player on the streamer's side, or on
-      the opposite side if the cross-side worst is < 50% of same-side worst.
+      the opposite side if the cross-side worst is < 50% of same-side
+      worst (cross-swap is pitcher-stream only).
     - Net SGP gain must be >= 0.70.
-    - Any in-play category hurt by more than -0.10 SGP blocks the swap.
+    - Hurts guard blocks any swap that hurts a protected cat by more
+      than 0.10 SGP. Protected cats = in-play (>=27.55% win prob) PLUS
+      any currently-losing or tied cats regardless of win prob.
     - Post-swap weekly IP must stay >= 20 (pitcher streams only).
     - IL FAs are ineligible for streaming (use regular FA engine for
       IL→IL stash upgrades).
@@ -831,6 +834,7 @@ def recommend_streaming_moves(
     diagnostics: dict[str, Any] = {
         "scope": ctx.scope,
         "in_play_cats": [],
+        "protected_cats": [],
         "n_probable_sps": 0,
         "n_teams_playing_today": 0,
         "n_fa_considered": 0,
@@ -858,8 +862,20 @@ def recommend_streaming_moves(
     wp = {str(k).lower(): float(v) for k, v in wp_result.get("per_category", {}).items()}
     target_cats = {c for c, p in wp.items() if p >= _STREAM_WIN_PROB_MIN}
     diagnostics["in_play_cats"] = sorted(target_cats)
+    # Hurts guard protects a superset: target (in-play) cats PLUS any cat
+    # the user is currently losing or tied in, regardless of win prob.
+    # Rationale: a cat with <27.55% win prob this week is usually lost,
+    # but we still refuse to make it worse — a -0.10+ SGP hit to an
+    # already-losing cat risks blowing it open and hurts standings-gained
+    # math over the season.
+    losing_cats = {str(c).lower() for c in _get_losing_categories(ctx)}
+    tied_cats = {str(c).lower() for c in _get_tied_categories(ctx)}
+    protected_cats = target_cats | losing_cats | tied_cats
+    diagnostics["protected_cats"] = sorted(protected_cats)
     if not target_cats:
-        diagnostics["note"] = "No categories with win probability >= 38%. Streaming only fires for in-play cats."
+        diagnostics["note"] = (
+            f"No categories with win probability >= {_STREAM_WIN_PROB_MIN:.0%}. Streaming only fires for in-play cats."
+        )
         return empty
 
     probable_sp_ids = _get_probable_starter_ids_today(ctx)
@@ -939,8 +955,10 @@ def recommend_streaming_moves(
             diagnostics["n_fa_filtered_net_sgp"] += 1
             continue
 
-        # Hurts guard on in-play cats
-        if any(cat_deltas.get(c, 0) < _STREAM_HURT_THRESHOLD for c in target_cats):
+        # Hurts guard: protected cats are target (in-play) cats PLUS any
+        # currently-losing or tied cats regardless of win prob. Blocks
+        # the swap if any protected cat would drop by more than 0.10 SGP.
+        if any(cat_deltas.get(c, 0) < _STREAM_HURT_THRESHOLD for c in protected_cats):
             diagnostics["n_fa_filtered_hurts"] += 1
             continue
 
