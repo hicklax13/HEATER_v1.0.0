@@ -592,6 +592,7 @@ def evaluate_trade(
     n_sims: int = 10_000,
     enable_context: bool = True,
     enable_game_theory: bool = True,
+    apply_ytd_blend: bool = True,
 ) -> dict[str, Any]:
     """Full trade evaluation using Phase 1-5 engine pipeline.
 
@@ -673,6 +674,15 @@ def evaluate_trade(
         config = LeagueConfig()
 
     sgp_calc = SGPCalculator(config)
+
+    # Blend pre-season projections with YTD actuals. Without this, a player's
+    # role change (e.g., Suarez moving from closer to setup man) or hot/cold
+    # start (Crochet's 7.58 ERA, Cruz's .345 hot start) is ignored when
+    # computing SGP — trade evaluation uses stale pre-season numbers.
+    if apply_ytd_blend:
+        from src.projection_blending import apply_ytd_corrections
+
+        player_pool = apply_ytd_corrections(player_pool)
 
     # --- AnalyticsContext: transparency spine for this evaluation ---
     ctx = AnalyticsContext(pipeline="trade_engine")
