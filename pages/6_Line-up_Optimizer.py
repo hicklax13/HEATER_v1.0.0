@@ -1619,100 +1619,119 @@ with main:
                 # scopes. Streaming fires only when there are in-play
                 # categories to chase and a FA probable-starter / today-game
                 # candidate meets the net-SGP and hurts thresholds.
+                # Render the header unconditionally so the user always sees
+                # the section (with reasons when empty) regardless of ctx
+                # state or exceptions downstream.
+                st.divider()
+                st.markdown(
+                    f'<p style="font-size:12px;font-weight:700;letter-spacing:1px;'
+                    f"color:{T['tx2']};text-transform:uppercase;"
+                    f"margin:0 0 6px;\">Today's Streaming Recommendations</p>",
+                    unsafe_allow_html=True,
+                )
+
+                def _fmt_deltas(d: dict) -> str:
+                    if not d:
+                        return "\u2014"
+                    return ", ".join(f"{k.upper()} {v:+.2f}" for k, v in sorted(d.items(), key=lambda kv: -abs(kv[1])))
+
+                def _render_stream_block(label: str, entries: list) -> None:
+                    if not entries:
+                        return
+                    st.markdown(
+                        f'<p style="font-size:11px;font-weight:600;color:{T["tx2"]};margin:8px 0 2px;">{label}</p>',
+                        unsafe_allow_html=True,
+                    )
+                    for _s in entries:
+                        _add = _s.get("add_name", "?")
+                        _pos = _s.get("add_positions", "")
+                        _team = _s.get("add_team", "")
+                        _drop = _s.get("drop_name", "?")
+                        _net = float(_s.get("net_sgp", 0))
+                        _helps = _fmt_deltas(_s.get("helps", {}))
+                        _hurts = _fmt_deltas(_s.get("hurts", {}))
+                        _add_line = f"{_add}"
+                        if _pos:
+                            _add_line += f" ({_pos}"
+                            if _team:
+                                _add_line += f", {_team}"
+                            _add_line += ")"
+                        elif _team:
+                            _add_line += f" ({_team})"
+                        st.markdown(
+                            f'<div style="border-left:3px solid {T["green"]};padding:6px 10px;'
+                            f'margin:4px 0;background:{T["bg"]};border-radius:4px;font-size:12px;">'
+                            f"<b>Stream</b> {_add_line} / <b>Drop</b> {_drop}"
+                            f'<br><span style="color:{T["tx2"]};">Helps:</span> {_helps}'
+                            f' &nbsp;&nbsp;<span style="color:{T["tx2"]};">Hurts:</span> {_hurts}'
+                            f'<br><span style="color:{T["green"]};font-weight:700;">Net: {_net:+.2f} SGP</span>'
+                            f"</div>",
+                            unsafe_allow_html=True,
+                        )
+
                 _ctx_fa = st.session_state.get("optimizer_context")
-                if _ctx_fa:
+                _stream_err: str | None = None
+                _streams: dict = {"pitchers": [], "batters": [], "diagnostics": {}}
+                if _ctx_fa is None:
+                    _stream_err = (
+                        "Optimizer context not built yet. Run the optimizer first (the "
+                        "context is created by build_optimizer_context and stored in "
+                        "st.session_state['optimizer_context'])."
+                    )
+                else:
                     try:
                         from src.optimizer.fa_recommender import recommend_streaming_moves
 
                         _streams = recommend_streaming_moves(_ctx_fa, max_per_side=3)
-                        _p_streams = _streams.get("pitchers", [])
-                        _b_streams = _streams.get("batters", [])
-                        _diag = _streams.get("diagnostics", {})
-                        # Always render header so users see the section exists
-                        st.divider()
-                        st.markdown(
-                            f'<p style="font-size:12px;font-weight:700;letter-spacing:1px;'
-                            f"color:{T['tx2']};text-transform:uppercase;"
-                            f"margin:0 0 6px;\">Today's Streaming Recommendations</p>",
-                            unsafe_allow_html=True,
+                    except Exception as _ex:
+                        logger.warning("Streaming recommendations crashed", exc_info=True)
+                        _stream_err = f"{type(_ex).__name__}: {_ex}"
+
+                _p_streams = _streams.get("pitchers", [])
+                _b_streams = _streams.get("batters", [])
+                _diag = _streams.get("diagnostics", {})
+
+                if _stream_err:
+                    st.markdown(
+                        f'<div style="padding:8px 12px;margin:4px 0;background:{T["bg"]};'
+                        f"border-left:3px solid {T['danger']};border-radius:4px;"
+                        f'font-size:12px;color:{T["tx2"]};">'
+                        f"<b>Streaming unavailable:</b> {_stream_err}"
+                        f"</div>",
+                        unsafe_allow_html=True,
+                    )
+                elif not _p_streams and not _b_streams:
+                    _note = _diag.get("note") or "No streaming moves meet the filters."
+                    st.markdown(
+                        f'<div style="padding:8px 12px;margin:4px 0;background:{T["bg"]};'
+                        f"border-left:3px solid {T['tx2']};border-radius:4px;"
+                        f'font-size:12px;color:{T["tx2"]};">'
+                        f"<b>No streaming moves today.</b> {_note}"
+                        f"</div>",
+                        unsafe_allow_html=True,
+                    )
+                    with st.expander("Why? (diagnostics)", expanded=False):
+                        _inplay = ", ".join(str(c).upper() for c in _diag.get("in_play_cats", []))
+                        st.caption(
+                            f"Scope: {_diag.get('scope', '?')} • "
+                            f"In-play cats (≥38% win prob): {_inplay or '—'} • "
+                            f"Probable SPs today: {_diag.get('n_probable_sps', 0)} • "
+                            f"Teams playing today: {_diag.get('n_teams_playing_today', 0)} • "
+                            f"FAs considered: {_diag.get('n_fa_considered', 0)} "
+                            f"(filtered: no-game={_diag.get('n_fa_filtered_no_game', 0)}, "
+                            f"low-SGP={_diag.get('n_fa_filtered_net_sgp', 0)}, "
+                            f"hurts={_diag.get('n_fa_filtered_hurts', 0)}, "
+                            f"IP-min={_diag.get('n_fa_filtered_ip', 0)}, "
+                            f"IL={_diag.get('n_fa_filtered_il', 0)})"
                         )
-                        if not _p_streams and not _b_streams:
-                            _note = _diag.get("note") or "No streaming moves meet the filters."
-                            st.markdown(
-                                f'<div style="padding:8px 12px;margin:4px 0;background:{T["bg"]};'
-                                f"border-left:3px solid {T['tx2']};border-radius:4px;"
-                                f'font-size:12px;color:{T["tx2"]};">'
-                                f"<b>No streaming moves today.</b> {_note}"
-                                f"</div>",
-                                unsafe_allow_html=True,
-                            )
-                            # Collapsed diagnostic panel for transparency
-                            with st.expander("Why? (diagnostics)", expanded=False):
-                                _inplay = ", ".join(str(c).upper() for c in _diag.get("in_play_cats", []))
-                                st.caption(
-                                    f"Scope: {_diag.get('scope', '?')} • "
-                                    f"In-play cats (≥38% win prob): {_inplay or '—'} • "
-                                    f"Probable SPs today: {_diag.get('n_probable_sps', 0)} • "
-                                    f"Teams playing today: {_diag.get('n_teams_playing_today', 0)} • "
-                                    f"FAs considered: {_diag.get('n_fa_considered', 0)} "
-                                    f"(filtered: no-game={_diag.get('n_fa_filtered_no_game', 0)}, "
-                                    f"low-SGP={_diag.get('n_fa_filtered_net_sgp', 0)}, "
-                                    f"hurts={_diag.get('n_fa_filtered_hurts', 0)}, "
-                                    f"IP-min={_diag.get('n_fa_filtered_ip', 0)}, "
-                                    f"IL={_diag.get('n_fa_filtered_il', 0)})"
-                                )
-
-                            def _fmt_deltas(d: dict) -> str:
-                                if not d:
-                                    return "\u2014"
-                                return ", ".join(
-                                    f"{k.upper()} {v:+.2f}" for k, v in sorted(d.items(), key=lambda kv: -abs(kv[1]))
-                                )
-
-                            def _render_stream_block(label: str, entries: list) -> None:
-                                if not entries:
-                                    return
-                                st.markdown(
-                                    f'<p style="font-size:11px;font-weight:600;color:{T["tx2"]};'
-                                    f'margin:8px 0 2px;">{label}</p>',
-                                    unsafe_allow_html=True,
-                                )
-                                for _s in entries:
-                                    _add = _s.get("add_name", "?")
-                                    _pos = _s.get("add_positions", "")
-                                    _team = _s.get("add_team", "")
-                                    _drop = _s.get("drop_name", "?")
-                                    _net = float(_s.get("net_sgp", 0))
-                                    _helps = _fmt_deltas(_s.get("helps", {}))
-                                    _hurts = _fmt_deltas(_s.get("hurts", {}))
-                                    _add_line = f"{_add}"
-                                    if _pos:
-                                        _add_line += f" ({_pos}"
-                                        if _team:
-                                            _add_line += f", {_team}"
-                                        _add_line += ")"
-                                    elif _team:
-                                        _add_line += f" ({_team})"
-                                    st.markdown(
-                                        f'<div style="border-left:3px solid {T["green"]};padding:6px 10px;'
-                                        f'margin:4px 0;background:{T["bg"]};border-radius:4px;font-size:12px;">'
-                                        f"<b>Stream</b> {_add_line} / <b>Drop</b> {_drop}"
-                                        f'<br><span style="color:{T["tx2"]};">Helps:</span> {_helps}'
-                                        f' &nbsp;&nbsp;<span style="color:{T["tx2"]};">Hurts:</span> {_hurts}'
-                                        f'<br><span style="color:{T["green"]};font-weight:700;">Net: {_net:+.2f} SGP</span>'
-                                        f"</div>",
-                                        unsafe_allow_html=True,
-                                    )
-
-                            _render_stream_block("Pitchers (probable starters today)", _p_streams)
-                            _render_stream_block("Batters (games today)", _b_streams)
-                            st.caption(
-                                "Streaming fires only for categories that are still in play "
-                                "(38%-100% win probability this week). Moves require +0.70 "
-                                "net SGP and no >0.10 SGP hurt to any in-play category."
-                            )
-                    except Exception:
-                        logger.debug("Streaming recommendations failed", exc_info=True)
+                else:
+                    _render_stream_block("Pitchers (probable starters today)", _p_streams)
+                    _render_stream_block("Batters (games today)", _b_streams)
+                    st.caption(
+                        "Streaming fires only for categories that are still in play "
+                        "(38%-100% win probability this week). Moves require +0.70 "
+                        "net SGP and no >0.10 SGP hurt to any in-play category."
+                    )
 
         elif result:
             lineup = result.get("lineup", {})
