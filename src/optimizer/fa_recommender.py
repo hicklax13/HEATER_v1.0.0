@@ -871,13 +871,20 @@ def recommend_streaming_moves(
     worst_batter_id, worst_batter_score = _worst_rostered(ctx, is_hitter=True, teams_playing_today=teams_playing)
 
     def _pick_drop(fa_is_hitter: bool) -> int | None:
+        # Same-side default: drop worst-valued player on the streamer's side.
         same_id = worst_batter_id if fa_is_hitter else worst_pitcher_id
         same_score = worst_batter_score if fa_is_hitter else worst_pitcher_score
-        cross_id = worst_pitcher_id if fa_is_hitter else worst_batter_id
-        cross_score = worst_pitcher_score if fa_is_hitter else worst_batter_score
-        if same_score is not None and cross_score is not None:
-            if cross_score < same_score * _STREAM_CROSS_SIDE_RATIO:
-                return cross_id
+        # Cross-swap policy: ONLY for pitcher streaming (drop worst batter
+        # instead of worst pitcher when the batter is much worse). Batter
+        # streams never drop a pitcher — doing so would silently reduce
+        # the pitcher roster and hurt pitching categories without warning,
+        # even for cats that fell below the 0.38 in-play threshold.
+        if not fa_is_hitter:
+            cross_id = worst_batter_id
+            cross_score = worst_batter_score
+            if same_score is not None and cross_score is not None:
+                if cross_score < same_score * _STREAM_CROSS_SIDE_RATIO:
+                    return cross_id
         return same_id
 
     pitcher_streamers: list[dict[str, Any]] = []

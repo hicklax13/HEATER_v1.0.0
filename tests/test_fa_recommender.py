@@ -1062,3 +1062,65 @@ class TestStreamingILExclusion:
         result = recommend_streaming_moves(ctx)
         assert all(s["add_id"] != 100 for s in result["batters"])
         assert all(s["add_id"] != 100 for s in result["pitchers"])
+
+
+class TestStreamingCrossSideOneWay:
+    """Cross-side drops are allowed ONLY for pitcher streaming (drop a
+    much-worse batter instead of the worst pitcher). Batter streaming
+    must never drop a pitcher — that silently shrinks the pitching pool."""
+
+    def test_batter_stream_never_drops_pitcher(self):
+        # A very low-value pitcher (Montero-like) plus a moderately-
+        # low-value batter. A batter streamer must drop the batter,
+        # NOT the pitcher, even though the pitcher scores lower.
+        worst_pitcher = _make_pitcher(1, "Bench SP", w=2, l=1, k=20, era=5.5, whip=1.50, ip=15)
+        worst_batter = _make_player(
+            2, "Weak Bat", positions="OF", hr=3, r=15, rbi=10, sb=1, avg=0.210, obp=0.270, pa=200, ab=180, h=38
+        )
+        other_sp = _make_pitcher(3, "Good SP", w=15, l=5, k=200, era=3.0, whip=1.10, ip=190)
+        fa_bat = _make_player(100, "Streaming Bat", positions="OF", hr=30, r=100, rbi=90, sb=20, avg=0.310, obp=0.380)
+        fa_bat["team"] = "COL"
+
+        ctx = _stream_ctx(
+            roster_ids=[1, 2, 3],
+            pool=[worst_pitcher, worst_batter, other_sp, fa_bat],
+            fas=[fa_bat],
+            my_totals={
+                "hr": 10,
+                "r": 30,
+                "rbi": 25,
+                "sb": 2,
+                "avg": 0.240,
+                "obp": 0.300,
+                "w": 3,
+                "l": 1,
+                "sv": 2,
+                "k": 40,
+                "era": 3.5,
+                "whip": 1.20,
+            },
+            opp_totals={
+                "hr": 9,
+                "r": 28,
+                "rbi": 24,
+                "sb": 3,
+                "avg": 0.245,
+                "obp": 0.305,
+                "w": 2,
+                "l": 2,
+                "sv": 2,
+                "k": 42,
+                "era": 3.6,
+                "whip": 1.22,
+            },
+            todays_schedule=[{"home_team": "COL", "away_team": "SFG"}],
+        )
+        result = recommend_streaming_moves(ctx)
+        # For every batter stream, the drop must also be a batter
+        pool = ctx.player_pool
+        for s in result["batters"]:
+            drop_match = pool[pool["player_id"] == s["drop_id"]]
+            assert not drop_match.empty
+            assert int(drop_match.iloc[0]["is_hitter"]) == 1, (
+                f"Batter stream dropped a pitcher: add={s['add_name']}, drop={s['drop_name']}"
+            )
