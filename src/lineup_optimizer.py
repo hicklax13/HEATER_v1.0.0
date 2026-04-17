@@ -47,8 +47,13 @@ ROSTER_SLOTS: dict[str, tuple[int, list[str]]] = {
     "SS": (1, ["SS"]),
     "OF": (3, ["OF", "LF", "CF", "RF"]),
     "Util": (2, ["C", "1B", "2B", "3B", "SS", "OF", "LF", "CF", "RF", "DH"]),
-    "SP": (2, ["SP", "P"]),
-    "RP": (2, ["RP", "P"]),
+    # Yahoo pitcher eligibility: SPs are listed as "SP,P" and RPs as "RP,P"
+    # — "P" is a generic flex marker present on every pitcher. Including "P"
+    # in the SP/RP slot eligibility would let relievers fill starter slots
+    # (and vice versa) because every reliever has "P" in their position list.
+    # SP/RP slots must require the specific role; the P flex slot accepts any.
+    "SP": (2, ["SP"]),
+    "RP": (2, ["RP"]),
     "P": (4, ["SP", "RP", "P"]),
 }
 

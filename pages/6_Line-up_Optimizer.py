@@ -1229,7 +1229,9 @@ with main:
                         "OF": (3, ["OF", "LF", "CF", "RF"]),
                         "Util": (2, ["C", "1B", "2B", "3B", "SS", "OF", "LF", "CF", "RF", "DH"]),
                     }
-                    _PITCHER_SLOTS = {"SP": (2, ["SP", "P"]), "RP": (2, ["RP", "P"]), "P": (4, ["SP", "RP", "P"])}
+                    # SP/RP slots must require the specific role, not the
+                    # generic "P" flex marker every pitcher carries in Yahoo.
+                    _PITCHER_SLOTS = {"SP": (2, ["SP"]), "RP": (2, ["RP"]), "P": (4, ["SP", "RP", "P"])}
 
                     def _run_lp_for_group(group_df, slots_dict):
                         """Run LP on a player group. Returns (started_ids, slot_map)."""

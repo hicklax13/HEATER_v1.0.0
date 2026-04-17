@@ -223,6 +223,53 @@ class TestOptimizer:
         # Should assign at least some players
         assert len(result["assignments"]) >= 0  # May be 0 if no matching slots
 
+    @pytest.mark.skipif(not PULP_AVAILABLE, reason="PuLP not installed")
+    def test_yahoo_style_sp_rp_eligibility(self):
+        """Yahoo lists every pitcher as "SP,P" or "RP,P" — the generic "P"
+        must NOT allow relievers to fill SP slots (or vice versa).
+        Regression test for an LP that was happily putting RPs at SP."""
+        # Two SPs and two RPs, all with the realistic "X,P" eligibility strings
+        roster = pd.DataFrame(
+            {
+                "player_id": [1, 2, 3, 4],
+                "player_name": ["TrueSP1", "TrueSP2", "TrueRP1", "TrueRP2"],
+                "positions": ["SP,P", "SP,P", "RP,P", "RP,P"],
+                "is_hitter": [0, 0, 0, 0],
+                "ab": [0, 0, 0, 0],
+                "h": [0, 0, 0, 0],
+                "r": [0, 0, 0, 0],
+                "hr": [0, 0, 0, 0],
+                "rbi": [0, 0, 0, 0],
+                "sb": [0, 0, 0, 0],
+                "avg": [0, 0, 0, 0],
+                "ip": [190, 170, 65, 55],
+                "w": [12, 10, 3, 2],
+                "sv": [0, 0, 25, 20],
+                "k": [180, 150, 70, 60],
+                "era": [3.50, 4.00, 3.20, 3.80],
+                "whip": [1.15, 1.25, 1.10, 1.30],
+                "er": [74, 76, 23, 23],
+                "bb_allowed": [50, 55, 18, 20],
+                "h_allowed": [169, 158, 54, 52],
+            }
+        )
+        opt = LineupOptimizer(roster, roster_slots={"SP": (2, ["SP"]), "RP": (2, ["RP"])})
+        result = opt.optimize_lineup()
+        sp_assignments = [a for a in result["assignments"] if a["slot"].startswith("SP")]
+        rp_assignments = [a for a in result["assignments"] if a["slot"].startswith("RP")]
+        # SP slots must be filled by SP-eligible players only
+        for a in sp_assignments:
+            row = roster[roster["player_id"] == a["player_id"]].iloc[0]
+            assert "SP" in row["positions"].split(","), (
+                f"{a['player_name']} ({row['positions']}) should not be in {a['slot']}"
+            )
+        # RP slots must be filled by RP-eligible players only
+        for a in rp_assignments:
+            row = roster[roster["player_id"] == a["player_id"]].iloc[0]
+            assert "RP" in row["positions"].split(","), (
+                f"{a['player_name']} ({row['positions']}) should not be in {a['slot']}"
+            )
+
     def test_projected_stats_computed(self, sample_roster):
         opt = LineupOptimizer(sample_roster)
         result = opt.optimize_lineup()
