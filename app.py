@@ -250,6 +250,8 @@ def render_splash_screen():
 
     import time as _time
 
+    import streamlit.components.v1 as _components
+
     placeholder = st.empty()
     with placeholder.container():
         st.markdown(
@@ -262,27 +264,49 @@ def render_splash_screen():
             unsafe_allow_html=True,
         )
         progress_bar = st.progress(0.0)
-        timer_display = st.empty()
+        # Self-ticking client-side timer: a JS setInterval updates every
+        # second independent of Streamlit reruns. This is necessary because
+        # Python/Streamlit can only update the UI during on_progress
+        # callbacks (which fire at phase boundaries, not every second).
+        # Without JS, the timer appears frozen between phase transitions.
+        _timer_color = T["tx"]
+        _timer_html = (
+            '<div id="heater-splash-timer" style="'
+            "text-align:center;"
+            "font-family:'IBM Plex Mono','Consolas','Courier New',monospace;"
+            "font-size:22px;font-weight:600;letter-spacing:2px;"
+            f'color:{_timer_color};margin:8px 0;"'
+            ">00:00:00</div>"
+            "<script>"
+            "(function(){"
+            "var el=document.getElementById('heater-splash-timer');"
+            "if(!el)return;"
+            "var start=Date.now();"
+            "function pad(n){return n<10?'0'+n:''+n;}"
+            "function fmt(s){"
+            "var h=Math.floor(s/3600);"
+            "var m=Math.floor((s%3600)/60);"
+            "var sec=s%60;"
+            "return pad(h)+':'+pad(m)+':'+pad(sec);"
+            "}"
+            "function tick(){"
+            "var e=Math.floor((Date.now()-start)/1000);"
+            "el.textContent=fmt(e);"
+            "}"
+            "tick();"
+            "setInterval(tick,1000);"
+            "})();"
+            "</script>"
+        )
+        _components.html(_timer_html, height=48)
         status_text = st.empty()
 
         _boot_start = _time.monotonic()
         st.session_state["bootstrap_start_time"] = _boot_start
 
-        def _render_timer(elapsed: float) -> None:
-            hms = _format_elapsed_hms(elapsed)
-            timer_display.markdown(
-                f"<div style=\"text-align:center; font-family:'IBM Plex Mono',monospace;"
-                f"font-size:22px; font-weight:600; color:{T['tx']};"
-                f'letter-spacing:2px; margin-top:8px;">{hms}</div>',
-                unsafe_allow_html=True,
-            )
-
-        _render_timer(0.0)
-
         def on_progress(p: BootstrapProgress):
             progress_bar.progress(min(p.pct, 1.0))
             elapsed = _time.monotonic() - _boot_start
-            _render_timer(elapsed)
             # Estimate remaining time from progress rate
             if p.pct > 0.01 and elapsed > 1:
                 eta_secs = elapsed * (1.0 - p.pct) / p.pct
@@ -359,9 +383,11 @@ def render_splash_screen():
             except Exception:
                 logger.debug("YDS pre-fetch skipped.", exc_info=True)
 
-        # Record total elapsed load time (HH:MM:SS) for Data Status display
+        # Record total elapsed load time (HH:MM:SS) for Data Status display.
+        # The client-side self-ticking timer stops when the splash is cleared
+        # (placeholder.empty() below). Python-side elapsed is authoritative
+        # for the value persisted to session_state and shown in Data Status.
         _boot_elapsed = _time.monotonic() - _boot_start
-        _render_timer(_boot_elapsed)
         st.session_state["bootstrap_elapsed_secs"] = float(_boot_elapsed)
         st.session_state["bootstrap_elapsed_hms"] = _format_elapsed_hms(_boot_elapsed)
         st.session_state["bootstrap_complete"] = True
