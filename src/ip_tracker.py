@@ -77,29 +77,36 @@ def compute_weekly_ip_projection(roster_pitchers: list[dict], days_remaining: in
     pct_of_target = total_projected / WEEKLY_TARGET * 100.0 if WEEKLY_TARGET > 0 else 0
     pct_of_min = total_projected / MIN_IP * 100.0 if MIN_IP > 0 else 0
 
+    # Single-source display value. Callers formatting projected_ip with :.1f
+    # would otherwise double-round (round(x, 2) then :.1f) and disagree with
+    # the narrative message at boundary values (e.g., 39.55 → header 39.5,
+    # message 39.6). Use ip_display_str everywhere the UI needs a 1-dp number.
+    _ip_disp = f"{total_projected:.1f}"
+
     if total_projected < MIN_IP * 0.5:
         status = "danger"
-        message = f"DANGER: Only {total_projected:.1f} IP projected. Need {MIN_IP:.0f} minimum. Stream SP immediately."
+        message = f"DANGER: Only {_ip_disp} IP projected. Need {MIN_IP:.0f} minimum. Stream SP immediately."
         streaming_needed = True
     elif total_projected < MIN_IP:
         status = "warning"
-        message = f"WARNING: {total_projected:.1f} IP projected, need {MIN_IP:.0f} minimum to avoid forfeit."
+        message = f"WARNING: {_ip_disp} IP projected, need {MIN_IP:.0f} minimum to avoid forfeit."
         streaming_needed = True
     elif total_projected < WEEKLY_TARGET * 0.85:
         status = "warning"
         message = (
-            f"{total_projected:.1f} IP projected — above {MIN_IP:.0f} minimum but below "
+            f"{_ip_disp} IP projected — above {MIN_IP:.0f} minimum but below "
             f"{WEEKLY_TARGET:.0f} weekly target ({pct_of_target:.0f}%). Consider streaming."
         )
     elif total_projected < WEEKLY_TARGET:
         status = "safe"
-        message = f"{total_projected:.1f} IP projected ({pct_of_target:.0f}% of {WEEKLY_TARGET:.0f} weekly target)."
+        message = f"{_ip_disp} IP projected ({pct_of_target:.0f}% of {WEEKLY_TARGET:.0f} weekly target)."
     else:
         status = "safe"
-        message = f"{total_projected:.1f} IP projected ({pct_of_target:.0f}% of {WEEKLY_TARGET:.0f} weekly target)."
+        message = f"{_ip_disp} IP projected ({pct_of_target:.0f}% of {WEEKLY_TARGET:.0f} weekly target)."
 
     return {
         "projected_ip": round(total_projected, 2),
+        "projected_ip_display": _ip_disp,
         "ip_min": MIN_IP,
         "ip_target": round(WEEKLY_TARGET, 1),
         "ip_needed": MIN_IP,  # backward compat for callers

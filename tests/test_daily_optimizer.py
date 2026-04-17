@@ -359,6 +359,35 @@ class TestStudFloor:
         if bool(good["stud_floor_applied"]) and bool(bad["stud_floor_applied"]):
             assert good["total_dcv"] > bad["total_dcv"]
 
+    def test_il_player_not_floored(self, sample_roster):
+        """IL/DTD players (health_factor=0) must keep total_dcv=0 so the LP
+        routes them to the IL slot, even if their team is playing today."""
+        config = LeagueConfig()
+        dcv = pd.DataFrame(
+            [
+                {
+                    "player_id": 1,
+                    "total_dcv": 0.0,
+                    "matchup_mult": 0.0,
+                    "volume_factor": 0.3,  # Team plays, player benched (IL)
+                    "health_factor": 0.0,  # IL — zero health
+                    "stud_floor_applied": False,
+                },
+                {
+                    "player_id": 3,
+                    "total_dcv": 5.0,
+                    "matchup_mult": 1.0,
+                    "volume_factor": 1.0,
+                    "health_factor": 1.0,  # Healthy reference player
+                    "stud_floor_applied": False,
+                },
+            ]
+        )
+        result = apply_stud_floor(dcv, sample_roster, config)
+        injured = result[result["player_id"] == 1].iloc[0]
+        assert injured["total_dcv"] == 0.0
+        assert bool(injured["stud_floor_applied"]) is False
+
 
 # -----------------------------------------------------------------------
 # Build DCV Table tests

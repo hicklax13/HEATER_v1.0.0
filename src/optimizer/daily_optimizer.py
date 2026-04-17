@@ -282,8 +282,10 @@ def apply_stud_floor(
     else:
         threshold = sorted_sgps[-1] if sorted_sgps else 0
 
-    # Apply floor: stud players get minimum DCV that keeps them starting
-    # Only applies when volume_factor > 0 (playing today)
+    # Apply floor: stud players get minimum DCV that keeps them starting.
+    # Only applies when both volume_factor > 0 (team playing today) AND
+    # health_factor > 0 (not IL/DTD/NA). Injured players must stay at 0 so
+    # the LP correctly routes them to the IL slot.
     if "total_dcv" in dcv_table.columns and "player_id" in dcv_table.columns:
         if "volume_factor" in dcv_table.columns:
             active_dcv = dcv_table.loc[dcv_table["volume_factor"] > 0, "total_dcv"]
@@ -295,7 +297,8 @@ def apply_stud_floor(
         for idx, row in dcv_table.iterrows():
             pid = row.get("player_id")
             vol = row.get("volume_factor", 0)
-            if pid in total_sgp and total_sgp[pid] >= threshold and vol > 0:
+            health = row.get("health_factor", 1.0)
+            if pid in total_sgp and total_sgp[pid] >= threshold and vol > 0 and health > 0:
                 current = row.get("total_dcv", 0)
                 # Scale floor by matchup_mult so studs with different matchups
                 # (park, platoon, opposing pitcher, weather) don't collapse to

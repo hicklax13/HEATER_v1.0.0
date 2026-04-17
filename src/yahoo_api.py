@@ -1754,8 +1754,14 @@ class YahooFantasyClient:
             # Determine current week
             from datetime import UTC, datetime
 
-            today = datetime.now(UTC).strftime("%Y-%m-%d")
-            current_week = 1
+            today_dt = datetime.now(UTC)
+            today = today_dt.strftime("%Y-%m-%d")
+            # Fallback: compute week from MLB 2026 fantasy season start (Mar 23).
+            # Yahoo's get_game_weeks API sometimes returns empty/stale data,
+            # which would strand us on Week 1 forever without this fallback.
+            _SEASON_START = datetime(2026, 3, 23, tzinfo=UTC)
+            _days_in = (today_dt - _SEASON_START).days
+            current_week = max(1, min(24, (_days_in // 7) + 1)) if _days_in >= 0 else 1
             try:
                 _rate_limit()
                 weeks = self._query.get_game_weeks_by_game_id(game_id=int(self._query.game_id))
@@ -1767,7 +1773,11 @@ class YahooFantasyClient:
                         current_week = int(wk) if wk else current_week
                         break
             except Exception:
-                logger.debug("Could not determine current week, defaulting to 1.", exc_info=True)
+                logger.debug(
+                    "Could not determine current week from Yahoo API; using date-based fallback (week %d).",
+                    current_week,
+                    exc_info=True,
+                )
 
             # Get scoreboard for the current week
             _rate_limit()

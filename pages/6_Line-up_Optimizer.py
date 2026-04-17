@@ -372,7 +372,9 @@ if IP_TRACKER_AVAILABLE and not roster.empty:
             _ip_result = compute_weekly_ip_projection(_pitcher_data, get_days_remaining_in_week())
             _ip_color_map = {"safe": "#2d6a4f", "warning": "#ff9f1c", "danger": "#e63946"}
             _ip_color = _ip_color_map.get(_ip_result["status"], T["tx2"])
-            _projected = _ip_result["projected_ip"]
+            # Use pre-formatted display string so header and status message
+            # don't disagree at rounding boundaries (e.g. 39.5 vs 39.6).
+            _projected_disp = _ip_result.get("projected_ip_display") or f"{_ip_result['projected_ip']:.1f}"
             _target = _ip_result.get("ip_target", 54)
             _min = _ip_result.get("ip_min", 20)
             _pct_target = _ip_result.get("ip_pace", 0)
@@ -381,7 +383,7 @@ if IP_TRACKER_AVAILABLE and not roster.empty:
                 f'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">'
                 f'<span style="font-size:11px;color:{T["tx2"]};">Projected</span>'
                 f'<span style="font-size:13px;font-weight:bold;font-family:IBM Plex Mono,monospace;color:{_ip_color}">'
-                f"{_projected:.1f} / {_target:.0f} IP target ({_pct_target:.0f}%)</span></div>"
+                f"{_projected_disp} / {_target:.0f} IP target ({_pct_target:.0f}%)</span></div>"
                 # Row 2: Forfeit minimum context
                 f'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">'
                 f'<span style="font-size:11px;color:{T["tx2"]};">Forfeit min</span>'
