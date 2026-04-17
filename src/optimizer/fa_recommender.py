@@ -46,6 +46,31 @@ _FLOOR_IP_MIN = 20
 _IL_EXCLUDE_STATUSES = {"il", "il10", "il15", "il60", "dtd", "day-to-day", "na", "out", "suspended"}
 
 
+def _player_is_il(ctx: OptimizerDataContext, pid: int) -> bool:
+    """Return True if the player is on IL/DTD/NA/suspended per roster or pool.
+
+    Used to enforce slot-matching in swaps: IL drops can only pair with IL
+    adds (both go through the 4-slot IL track), and healthy drops can only
+    pair with healthy adds (both go through the 23-slot active track).
+    Cross-track swaps would either overfill the active roster or leave
+    an unusable IL slot sitting empty.
+    """
+    try:
+        pid_int = int(pid)
+    except (TypeError, ValueError):
+        return False
+    for source in (ctx.roster, ctx.player_pool):
+        if source is None or source.empty or "player_id" not in source.columns:
+            continue
+        match = source[source["player_id"] == pid_int]
+        if match.empty:
+            continue
+        status = str(match.iloc[0].get("status", "") or "").strip().lower()
+        if status in _IL_EXCLUDE_STATUSES:
+            return True
+    return False
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -139,6 +164,7 @@ def _score_drop_candidates(ctx: OptimizerDataContext) -> list[dict]:
                 "positions": str(row.get("positions", "")),
                 "is_hitter": bool(int(row.get("is_hitter", 1))),
                 "drop_cost": cost,
+                "is_il": _player_is_il(ctx, pid),
             }
         )
 
@@ -181,25 +207,21 @@ def _score_fa_candidates(ctx: OptimizerDataContext) -> list[dict]:
         if fa_id in _excluded_ids:
             continue
 
-        # Health filter: exclude injured players
-        health = ctx.health_scores.get(fa_id, 1.0)
-        if health < 0.65:
-            continue
-
-        # Status filter
+        # Identify IL/injured FAs — don't exclude them, just flag. IL FAs
+        # are valid pairs for IL drops (upgrading an IL stash), but must
+        # not be matched with healthy drops. The matching is enforced
+        # downstream in _evaluate_swaps.
         status = str(fa_row.get("status", "")).lower().strip()
-        if status in _IL_EXCLUDE_STATUSES:
-            continue
-
-        # Also check player_pool for status
         pool_match = ctx.player_pool[ctx.player_pool["player_id"] == fa_id]
         if not pool_match.empty:
             pool_status = str(pool_match.iloc[0].get("status", "")).lower().strip()
-            if pool_status in _IL_EXCLUDE_STATUSES:
-                continue
+            if pool_status and pool_status != "active":
+                status = pool_status
             fa_data = pool_match.iloc[0]
         else:
             fa_data = fa_row
+        health = ctx.health_scores.get(fa_id, 1.0)
+        fa_is_il = status in _IL_EXCLUDE_STATUSES or health < 0.65
 
         # Base value
         base_value = _compute_base_value(fa_data, ctx)
@@ -260,6 +282,7 @@ def _score_fa_candidates(ctx: OptimizerDataContext) -> list[dict]:
                 "sustainability": round(sustainability, 3),
                 "ownership_trend": trend_label,
                 "ownership_delta_7d": delta_7d,
+                "is_il": fa_is_il,
             }
         )
 
@@ -291,6 +314,15 @@ def _evaluate_swaps(
         for drop in drop_candidates:
             drop_id = drop["player_id"]
             drop_is_hitter = drop["is_hitter"]
+
+            # IL/active matching: in Yahoo, IL and active slots are separate
+            # pools (4 IL + 23 active). A 1-for-1 swap can only move within
+            # one pool — dropping IL frees an IL slot, dropping active frees
+            # an active slot. Cross-pool swaps would either overfill the
+            # active roster or leave an empty IL slot. IL-only FAs are still
+            # valid targets when paired with an IL drop (upgrade stash).
+            if bool(drop.get("is_il", False)) != bool(fa.get("is_il", False)):
+                continue
 
             # Same-type check (cross-type only when surplus + improves losing/tied cat)
             if fa_is_hitter != drop_is_hitter:

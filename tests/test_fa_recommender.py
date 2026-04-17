@@ -382,9 +382,11 @@ class TestSustainability:
 
 
 class TestHealthFilter:
-    """Unhealthy FAs are excluded."""
+    """IL/injured FAs are flagged with is_il=True (included as candidates
+    so they can be matched with IL drops for stash upgrades), healthy FAs
+    are flagged is_il=False. Cross-health swaps are blocked downstream."""
 
-    def test_low_health_excluded(self):
+    def test_low_health_flagged_as_il(self):
         roster = _make_player(1, "Roster", hr=5, r=20, rbi=20, sb=1, avg=0.230, obp=0.280)
         fa_healthy = _make_player(100, "Healthy FA", marginal_value=5.0, hr=20, r=60, rbi=60, sb=8)
         fa_hurt = _make_player(101, "Hurt FA", marginal_value=5.0, hr=20, r=60, rbi=60, sb=8)
@@ -397,11 +399,11 @@ class TestHealthFilter:
             health_scores={100: 0.90, 101: 0.50},  # 101 below 0.65
         )
         fas = _score_fa_candidates(ctx)
-        fa_ids = {f["player_id"] for f in fas}
-        assert 100 in fa_ids
-        assert 101 not in fa_ids
+        fas_by_id = {f["player_id"]: f for f in fas}
+        assert fas_by_id[100]["is_il"] is False
+        assert fas_by_id[101]["is_il"] is True
 
-    def test_il_status_excluded(self):
+    def test_il_status_flagged_as_il(self):
         roster = _make_player(1, "Roster")
         fa_il = _make_player(100, "IL Guy", marginal_value=5.0, status="IL")
         all_players = [roster, fa_il]
@@ -412,7 +414,78 @@ class TestHealthFilter:
             fa_players=[fa_il],
         )
         fas = _score_fa_candidates(ctx)
-        assert len(fas) == 0
+        assert len(fas) == 1
+        assert fas[0]["is_il"] is True
+
+
+class TestHealthMatchedSwaps:
+    """Drops and adds must come from the same roster pool (both active
+    or both IL). Cross-pool swaps are rejected — they'd either overfill
+    the active roster or leave an unusable IL slot empty."""
+
+    def test_il_drop_with_healthy_add_rejected(self):
+        # IL drop must NOT be paired with a healthy add (the bug that
+        # showed "Add Bryson Stott / Drop Alejandro Kirk" where Kirk is IL).
+        il_drop = _make_player(1, "IL Catcher", hr=0, r=0, rbi=0, sb=0, avg=0, obp=0, status="IL", positions="C,Util")
+        healthy_drop = _make_player(2, "Active OF", hr=5, r=15, rbi=12, sb=1, avg=0.220, obp=0.280, positions="OF")
+        healthy_fa = _make_player(100, "Healthy FA", marginal_value=8.0, hr=25, r=70, rbi=70, sb=10, positions="OF")
+        all_players = [il_drop, healthy_drop, healthy_fa]
+
+        ctx = _build_ctx(
+            roster_ids=[1, 2],
+            pool_players=all_players,
+            fa_players=[healthy_fa],
+        )
+        result = recommend_fa_moves(ctx, max_moves=5)
+        # No move should drop the IL catcher for the healthy FA
+        for move in result:
+            assert not (move["drop_id"] == 1 and move["add_id"] == 100), (
+                f"Invalid cross-health swap suggested: drop IL {move['drop_name']} / add healthy {move['add_name']}"
+            )
+
+    def test_il_drop_with_il_add_allowed(self):
+        # IL-for-IL swap IS valid — upgrading stash within the IL pool.
+        il_drop = _make_player(1, "Weak IL", hr=0, r=0, rbi=0, sb=0, avg=0, obp=0, status="IL", positions="OF")
+        il_fa = _make_player(
+            100,
+            "Better IL",
+            marginal_value=8.0,
+            hr=30,
+            r=90,
+            rbi=100,
+            sb=5,
+            status="IL",
+            positions="OF",
+        )
+        all_players = [il_drop, il_fa]
+
+        ctx = _build_ctx(
+            roster_ids=[1],
+            pool_players=all_players,
+            fa_players=[il_fa],
+            health_scores={1: 0.3, 100: 0.3},
+        )
+        result = recommend_fa_moves(ctx, max_moves=5)
+        # At least one valid IL-for-IL move should be allowed (no assertion
+        # that it's returned — depends on net SGP — but also must not be
+        # BLOCKED by the health matcher).
+        from src.optimizer.fa_recommender import _evaluate_swaps, _score_drop_candidates, _score_fa_candidates
+
+        drops = _score_drop_candidates(ctx)
+        fas = _score_fa_candidates(ctx)
+        swaps = _evaluate_swaps(ctx, drops, fas)
+        # Both drop and FA are IL — matching should let them pair
+        drop_il = next((d for d in drops if d["player_id"] == 1), None)
+        fa_il = next((f for f in fas if f["player_id"] == 100), None)
+        assert drop_il is not None and drop_il["is_il"] is True
+        assert fa_il is not None and fa_il["is_il"] is True
+        # If the swap has positive net SGP it should appear; regardless it
+        # must not be filtered out by the health mismatch check.
+        for s in swaps:
+            # If this is our IL pair it's fine; other pairs just shouldn't
+            # cross health.
+            if s["drop_id"] == 1:
+                assert s["add_id"] == 100
 
 
 class TestMaxMoves:
