@@ -1723,6 +1723,7 @@ with main:
                             f"(filtered: no-game={_diag.get('n_fa_filtered_no_game', 0)}, "
                             f"low-SGP={_diag.get('n_fa_filtered_net_sgp', 0)}, "
                             f"hurts={_diag.get('n_fa_filtered_hurts', 0)}, "
+                            f"no-gap-close={_diag.get('n_fa_filtered_no_gap_close', 0)}, "
                             f"IP-min={_diag.get('n_fa_filtered_ip', 0)}, "
                             f"IL={_diag.get('n_fa_filtered_il', 0)})"
                         )
@@ -1730,10 +1731,11 @@ with main:
                     _render_stream_block("Pitchers (probable starters today)", _p_streams)
                     _render_stream_block("Batters (games today)", _b_streams)
                     st.caption(
-                        "Streaming fires only for categories that are still in play "
-                        "(≥27.55% win probability this week). Moves require +0.70 "
-                        "net SGP and no >0.10 SGP hurt to any in-play cat OR any "
-                        "cat you're currently losing/tied in."
+                        "Streaming fires only for moves that (a) attack a currently "
+                        "losing or tied cat, (b) net ≥+0.70 SGP, (c) don't hurt any "
+                        "protected cat by more than 0.10 SGP (protected = in-play "
+                        "≥27.55% win prob ∪ losing ∪ tied). Pure lead-extension moves "
+                        "are excluded."
                     )
 
         elif result:

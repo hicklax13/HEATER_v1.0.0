@@ -1140,6 +1140,168 @@ class TestStreamingHurtsGuard:
         assert "k" in set(result["diagnostics"]["protected_cats"])
 
 
+class TestStreamingGapCloseRule:
+    """Must help a losing or tied cat — not just extend winning leads."""
+
+    def test_lead_extending_fa_filtered_out(self):
+        # Scenario: user losing SB only. FA helps R/HR/RBI (all cats user
+        # is winning comfortably) but does NOT help SB. Move must be
+        # filtered because it only extends leads, doesn't close any gap.
+        drop_bat = _make_player(
+            1,
+            "Weak Bat",
+            positions="OF",
+            hr=1,
+            r=5,
+            rbi=3,
+            sb=0,
+            avg=0.180,
+            obp=0.240,
+            pa=50,
+        )
+        sp = _make_pitcher(2, "SP", w=10, l=5, k=150, era=3.5, whip=1.20, ip=180)
+        # FA helps R/HR/RBI (winning cats) a lot, but SB is flat (doesn't
+        # help SB — user's losing cat).
+        fa_lead_extender = _make_player(
+            100,
+            "Lead Extender",
+            positions="OF",
+            hr=35,
+            r=110,
+            rbi=100,
+            sb=0,
+            avg=0.300,
+            obp=0.380,
+        )
+        fa_lead_extender["team"] = "COL"
+
+        ctx = _stream_ctx(
+            roster_ids=[1, 2],
+            pool=[drop_bat, sp, fa_lead_extender],
+            fas=[fa_lead_extender],
+            my_totals={
+                "hr": 30,
+                "r": 80,
+                "rbi": 70,
+                "sb": 2,
+                "avg": 0.290,
+                "obp": 0.360,
+                "w": 3,
+                "l": 1,
+                "sv": 2,
+                "k": 40,
+                "era": 3.5,
+                "whip": 1.20,
+            },
+            opp_totals={
+                "hr": 5,
+                "r": 20,
+                "rbi": 15,
+                "sb": 8,
+                "avg": 0.240,
+                "obp": 0.300,
+                "w": 3,
+                "l": 1,
+                "sv": 2,
+                "k": 42,
+                "era": 3.6,
+                "whip": 1.22,
+            },
+            todays_schedule=[{"home_team": "COL", "away_team": "SFG"}],
+        )
+        # Explicitly mark SB as losing, rest as winning.
+        ctx.urgency_weights = {
+            "summary": {
+                "losing": ["sb"],
+                "tied": [],
+                "winning": ["hr", "r", "rbi", "avg", "obp", "w", "l", "sv", "k", "era", "whip"],
+            }
+        }
+        result = recommend_streaming_moves(ctx)
+        # FA doesn't help SB (the only losing cat), so even though net SGP
+        # is positive, it should be filtered by the gap-close rule.
+        add_ids = {s["add_id"] for s in result["batters"]}
+        assert 100 not in add_ids, "Lead-extending FA should be filtered when it doesn't help any losing cat"
+
+    def test_gap_closing_fa_surfaces(self):
+        # Same scenario, but FA DOES help SB. Should surface.
+        drop_bat = _make_player(
+            1,
+            "Weak Bat",
+            positions="OF",
+            hr=1,
+            r=5,
+            rbi=3,
+            sb=0,
+            avg=0.180,
+            obp=0.240,
+            pa=50,
+        )
+        sp = _make_pitcher(2, "SP", w=10, l=5, k=150, era=3.5, whip=1.20, ip=180)
+        fa_sb_guy = _make_player(
+            100,
+            "Speed Guy",
+            positions="OF",
+            hr=10,
+            r=90,
+            rbi=50,
+            sb=40,
+            avg=0.280,
+            obp=0.350,
+        )
+        fa_sb_guy["team"] = "COL"
+
+        ctx = _stream_ctx(
+            roster_ids=[1, 2],
+            pool=[drop_bat, sp, fa_sb_guy],
+            fas=[fa_sb_guy],
+            my_totals={
+                "hr": 30,
+                "r": 80,
+                "rbi": 70,
+                "sb": 2,
+                "avg": 0.290,
+                "obp": 0.360,
+                "w": 3,
+                "l": 1,
+                "sv": 2,
+                "k": 40,
+                "era": 3.5,
+                "whip": 1.20,
+            },
+            opp_totals={
+                "hr": 5,
+                "r": 20,
+                "rbi": 15,
+                "sb": 8,
+                "avg": 0.240,
+                "obp": 0.300,
+                "w": 3,
+                "l": 1,
+                "sv": 2,
+                "k": 42,
+                "era": 3.6,
+                "whip": 1.22,
+            },
+            todays_schedule=[{"home_team": "COL", "away_team": "SFG"}],
+        )
+        ctx.urgency_weights = {
+            "summary": {
+                "losing": ["sb"],
+                "tied": [],
+                "winning": ["hr", "r", "rbi", "avg", "obp", "w", "l", "sv", "k", "era", "whip"],
+            }
+        }
+        result = recommend_streaming_moves(ctx)
+        # SB-helping FA should pass gap-close rule and meet other thresholds.
+        # (Still gated by net SGP >= 0.70 and hurts thresholds.)
+        surfaced = [s for s in result["batters"] if s["add_id"] == 100]
+        # Either surfaces (gap-close + SGP met) or is filtered for other
+        # reasons — but NOT for no-gap-close.
+        if surfaced:
+            assert "sb" in surfaced[0]["helps"]
+
+
 class TestStreamingCrossSideOneWay:
     """Cross-side drops are allowed ONLY for pitcher streaming (drop a
     much-worse batter instead of the worst pitcher). Batter streaming

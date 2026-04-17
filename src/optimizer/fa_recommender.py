@@ -827,6 +827,9 @@ def recommend_streaming_moves(
     - Hurts guard blocks any swap that hurts a protected cat by more
       than 0.10 SGP. Protected cats = in-play (>=27.55% win prob) PLUS
       any currently-losing or tied cats regardless of win prob.
+    - Must help at least one currently-losing or tied cat (gap-close
+      requirement). Pure lead-extension swaps don't justify the FA-loss
+      risk of dropping a rostered player.
     - Post-swap weekly IP must stay >= 20 (pitcher streams only).
     - IL FAs are ineligible for streaming (use regular FA engine for
       IL→IL stash upgrades).
@@ -841,6 +844,7 @@ def recommend_streaming_moves(
         "n_fa_filtered_no_game": 0,
         "n_fa_filtered_net_sgp": 0,
         "n_fa_filtered_hurts": 0,
+        "n_fa_filtered_no_gap_close": 0,
         "n_fa_filtered_ip": 0,
         "n_fa_filtered_il": 0,
         "note": "",
@@ -962,10 +966,21 @@ def recommend_streaming_moves(
             diagnostics["n_fa_filtered_hurts"] += 1
             continue
 
-        # Must help at least one in-play target cat
-        helpful_targets = [c for c in target_cats if cat_deltas.get(c, 0) > 0.01]
+        # Must help at least one LOSING or TIED cat (gap-closing or tie-
+        # breaking, not lead-extending). Swaps that only pad comfortable
+        # leads don't justify the FA-loss risk of dropping a rostered
+        # player. Falls back to in-play target cats only if no losing/tied
+        # cats exist (user winning everything) — in that rare case, any
+        # in-play help is fine since there's nothing to close.
+        gap_close_cats = losing_cats | tied_cats
+        if gap_close_cats:
+            helpful_targets = [c for c in gap_close_cats if cat_deltas.get(c, 0) > 0.01]
+            filter_reason = "n_fa_filtered_no_gap_close"
+        else:
+            helpful_targets = [c for c in target_cats if cat_deltas.get(c, 0) > 0.01]
+            filter_reason = "n_fa_filtered_hurts"
         if not helpful_targets:
-            diagnostics["n_fa_filtered_hurts"] += 1  # no in-play help
+            diagnostics[filter_reason] = diagnostics.get(filter_reason, 0) + 1
             continue
 
         # IP minimum (pitcher streams only)
@@ -1009,7 +1024,8 @@ def recommend_streaming_moves(
             f"Considered {diagnostics['n_fa_considered']} FAs. Filtered out: "
             f"{diagnostics['n_fa_filtered_no_game']} not playing today, "
             f"{diagnostics['n_fa_filtered_net_sgp']} below +0.70 net SGP, "
-            f"{diagnostics['n_fa_filtered_hurts']} hurt an in-play cat or didn't help one, "
+            f"{diagnostics['n_fa_filtered_hurts']} hurt a protected cat, "
+            f"{diagnostics['n_fa_filtered_no_gap_close']} didn't help any losing/tied cat, "
             f"{diagnostics['n_fa_filtered_ip']} failed IP minimum check."
         )
 
