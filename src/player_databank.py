@@ -251,13 +251,31 @@ def fetch_game_logs_from_api(
         logger.warning("statsapi not installed — skipping fetch_game_logs_from_api")
         return 0
 
-    # Load all players with a known MLB ID from the DB
+    # Scope: prefer rostered players (owned in any Yahoo team) first so
+    # the most-used ~240 players complete quickly. Fall back to 40-man /
+    # active roster players if no league_rosters exist yet. Full 9K+ player
+    # iteration was the root cause of the 90-second timeout.
     conn = get_connection()
     try:
         players_df = pd.read_sql_query(
-            "SELECT player_id, mlb_id, is_hitter FROM players WHERE mlb_id IS NOT NULL",
+            """
+            SELECT DISTINCT p.player_id, p.mlb_id, p.is_hitter
+            FROM players p
+            INNER JOIN league_rosters lr ON p.player_id = lr.player_id
+            WHERE p.mlb_id IS NOT NULL
+            """,
             conn,
         )
+        if players_df.empty:
+            # No league_rosters yet — use 40-man / active roster players only
+            players_df = pd.read_sql_query(
+                """
+                SELECT player_id, mlb_id, is_hitter FROM players
+                WHERE mlb_id IS NOT NULL
+                  AND (roster_type IN ('40man', 'active') OR roster_type IS NULL)
+                """,
+                conn,
+            )
     except Exception:
         logger.exception("Failed to read players table for game log fetch")
         return 0

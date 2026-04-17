@@ -668,7 +668,13 @@ class TestProbablePitcherVolume:
         row = dcv.iloc[0]
         assert row["volume_factor"] == 1.0
 
-    def test_sp_not_probable_gets_low_volume(self):
+    def test_sp_not_probable_gets_zero_volume(self):
+        """2026-04-17 trust audit: pure SPs not in today's probable-starters
+        list get volume=0.0 (previously 0.3). A starter who isn't pitching
+        today literally won't contribute — there's no "pinch pitching" slot
+        the way there's pinch-hitting for a benched batter. Setting volume=0
+        prevents non-probable SPs from landing in P slots as START.
+        """
         roster = self._make_pitcher(name="Ace Pitcher", team="NYY")
         schedule = [
             {
@@ -680,7 +686,7 @@ class TestProbablePitcherVolume:
         ]
         dcv = build_daily_dcv_table(roster, None, schedule, {})
         row = dcv.iloc[0]
-        assert row["volume_factor"] == 0.3
+        assert row["volume_factor"] == 0.0
 
     def test_rp_unaffected_by_probable_starters(self):
         roster = self._make_pitcher(name="Closer Guy", team="NYY", pos="RP")

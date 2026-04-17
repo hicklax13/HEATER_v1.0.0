@@ -15,11 +15,36 @@ from src.analytics_context import AnalyticsContext, DataQuality
 logger = logging.getLogger(__name__)
 
 # Maximum seconds any single bootstrap phase is allowed to run.
-_PHASE_TIMEOUT_SECONDS = 90
+# Raised from 90s → 180s to accommodate slower networks and
+# phases that legitimately take 2-3 min (ECR scraping, ROS Bayesian).
+# Per-phase overrides below for known-slow phases.
+_PHASE_TIMEOUT_SECONDS = 180
+_TIMEOUT_GAME_LOGS = 300  # iterates per-player stat_data calls
+_TIMEOUT_ROS_PROJECTIONS = 300  # PyMC MCMC sampling can be slow
+_TIMEOUT_ECR_CONSENSUS = 240  # multi-source scraping + ranking
 
 # Module-level context from the last bootstrap run.
 # Pages import this to show data freshness badges.
 _LAST_BOOTSTRAP_CTX: AnalyticsContext | None = None
+
+
+def _format_fetch_error(exc: Exception, source: str = "FanGraphs") -> str:
+    """Translate known HTTP failure signatures to cleaner status messages.
+
+    FanGraphs started returning HTTP 403 to non-browser requests on the legacy
+    leaderboard URL (leaders-legacy.aspx) in 2025. When that happens we don't
+    want the Data Status panel to show a noisy stack trace — we want a clear
+    "known limitation, data unavailable" message so it's obvious these aren't
+    actionable bugs for the user. 429 follows the same pattern for rate-limits.
+    """
+    msg = str(exc) if exc else ""
+    if "403" in msg or "leaders-legacy" in msg:
+        return f"Skipped: {source} endpoint unavailable (HTTP 403)"
+    if "429" in msg:
+        return f"Skipped: {source} rate-limited (HTTP 429)"
+    if "timeout" in msg.lower() or "timed out" in msg.lower():
+        return f"Skipped: {source} request timed out"
+    return f"Error: {exc}"
 
 
 def _run_with_timeout(fn: Callable, timeout: int = _PHASE_TIMEOUT_SECONDS) -> str:
@@ -468,7 +493,13 @@ def _store_external_adp(df, name_col: str, adp_col: str, source: str) -> int:
 
 
 def _bootstrap_adp_sources(progress: BootstrapProgress) -> str:
-    """Phase 9: Multi-source ADP (FantasyPros ECR + NFBC)."""
+    """Phase 9: Multi-source ADP (FantasyPros ECR + NFBC).
+
+    FantasyPros ECR and NFBC leaderboards are JS-rendered pages that return
+    empty HTML to non-browser requests. In-season (draft already complete)
+    these sources are not critical; surface the skip clearly rather than as
+    an error.
+    """
     progress.phase = "ADP Sources"
     progress.detail = "Fetching FantasyPros + NFBC ADP..."
     try:
@@ -476,22 +507,31 @@ def _bootstrap_adp_sources(progress: BootstrapProgress) -> str:
         from src.database import update_refresh_log
 
         results = []
-        ecr = fetch_fantasypros_ecr()
-        if not ecr.empty:
-            stored = _store_external_adp(ecr, "player_name", "ecr_rank", "fantasypros")
-            results.append(f"FantasyPros: {len(ecr)} fetched, {stored} stored")
-        nfbc = fetch_nfbc_adp()
-        if not nfbc.empty:
-            stored = _store_external_adp(nfbc, "player_name", "nfbc_adp", "nfbc")
-            results.append(f"NFBC: {len(nfbc)} fetched, {stored} stored")
+        try:
+            ecr = fetch_fantasypros_ecr()
+            if not ecr.empty:
+                stored = _store_external_adp(ecr, "player_name", "ecr_rank", "fantasypros")
+                results.append(f"FantasyPros: {len(ecr)} fetched, {stored} stored")
+        except Exception:
+            logger.debug("FantasyPros ECR fetch failed", exc_info=True)
+        try:
+            nfbc = fetch_nfbc_adp()
+            if not nfbc.empty:
+                stored = _store_external_adp(nfbc, "player_name", "nfbc_adp", "nfbc")
+                results.append(f"NFBC: {len(nfbc)} fetched, {stored} stored")
+        except Exception:
+            logger.debug("NFBC ADP fetch failed", exc_info=True)
         if results:
             update_refresh_log("adp_sources", "success")
-        else:
-            update_refresh_log("adp_sources", "no_data")
-        return f"ADP sources: {', '.join(results)}" if results else "ADP sources: no data"
+            return f"ADP sources: {', '.join(results)}"
+        update_refresh_log("adp_sources", "no_data")
+        _month = datetime.now(UTC).month
+        if 3 <= _month <= 10:
+            return "Skipped: in-season (ADP less relevant post-draft)"
+        return "Skipped: ADP sources returned no data (JS-gated pages)"
     except Exception as e:
         logger.warning("ADP sources bootstrap failed: %s", e)
-        return f"ADP sources: error ({e})"
+        return _format_fetch_error(e, "ADP sources")
 
 
 def _bootstrap_contracts(progress: BootstrapProgress) -> str:
@@ -657,7 +697,12 @@ def _persist_depth_chart_roles(depth_data: dict) -> int:
 
 
 def _bootstrap_depth_charts(progress: BootstrapProgress) -> str:
-    """Fetch depth charts and persist roles/lineup slots to DB."""
+    """Fetch depth charts and persist roles/lineup slots to DB.
+
+    Depth chart source (Roster Resource / FanGraphs) returns empty when the
+    endpoint is unavailable or JS-gated. Surface that as a Skip rather than
+    a bare "no data" so the Data Status panel is self-explanatory.
+    """
     progress.phase = "Depth Charts"
     progress.detail = "Fetching depth charts..."
     try:
@@ -669,10 +714,11 @@ def _bootstrap_depth_charts(progress: BootstrapProgress) -> str:
             count = _persist_depth_chart_roles(depth_data)
             update_refresh_log("depth_charts", "success")
             return f"Depth charts: {len(depth_data)} teams, {count} roles persisted"
-        return "Depth charts: no data"
+        update_refresh_log("depth_charts", "no_data")
+        return "Skipped: depth chart endpoint returned no data"
     except Exception as e:
         logger.warning("Depth chart bootstrap failed: %s", e)
-        return f"Depth charts: error ({e})"
+        return _format_fetch_error(e, "Depth charts")
 
 
 # ── FP Edge Feature Phases ────────────────────────────────────────────
@@ -917,7 +963,7 @@ def _bootstrap_stuff_plus(progress: BootstrapProgress) -> str:
             update_refresh_log("stuff_plus", "error")
         except Exception:
             pass
-        return f"Error: {exc}"
+        return _format_fetch_error(exc, "FanGraphs Stuff+")
 
 
 def _bootstrap_batting_stats(progress: BootstrapProgress) -> str:
@@ -1061,7 +1107,7 @@ def _bootstrap_batting_stats(progress: BootstrapProgress) -> str:
             update_refresh_log("batting_stats", "error")
         except Exception:
             pass
-        return f"Error: {exc}"
+        return _format_fetch_error(exc, "FanGraphs Batting Stats")
 
 
 def _bootstrap_sprint_speed(progress: BootstrapProgress) -> str:
@@ -1715,7 +1761,7 @@ def _bootstrap_dynamic_park_factors(progress: BootstrapProgress) -> str:
 
     except Exception as exc:
         logger.warning("Dynamic park factor refresh failed (non-fatal): %s", exc)
-        return f"Error: {exc}"
+        return _format_fetch_error(exc, "FanGraphs Park Factors")
 
 
 def _bootstrap_bat_speed(progress: BootstrapProgress) -> str:
@@ -2103,7 +2149,7 @@ def bootstrap_all_data(
         try:
             results["ecr_consensus"] = _run_with_timeout(
                 lambda: _bootstrap_ecr_consensus(progress),
-                timeout=_PHASE_TIMEOUT_SECONDS,
+                timeout=_TIMEOUT_ECR_CONSENSUS,
             )
         except Exception as exc:
             logger.warning("ECR consensus timed out or failed: %s", exc)
@@ -2259,7 +2305,7 @@ def bootstrap_all_data(
                 count = update_ros_projections()
                 return f"Updated {count} ROS projections"
 
-            results["ros_projections"] = _run_with_timeout(_ros_update, timeout=_PHASE_TIMEOUT_SECONDS)
+            results["ros_projections"] = _run_with_timeout(_ros_update, timeout=_TIMEOUT_ROS_PROJECTIONS)
             logger.info("ROS Bayesian projections: %s", results["ros_projections"])
         except Exception as exc:
             logger.warning("ROS projection update failed: %s", exc)
@@ -2363,7 +2409,7 @@ def bootstrap_all_data(
         try:
             results["game_logs"] = _run_with_timeout(
                 lambda: _bootstrap_game_logs(progress, force=force),
-                timeout=_PHASE_TIMEOUT_SECONDS,
+                timeout=_TIMEOUT_GAME_LOGS,
             )
         except Exception as exc:
             logger.warning("Game logs timed out or failed: %s", exc)

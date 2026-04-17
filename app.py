@@ -227,8 +227,24 @@ def _try_reconnect_yahoo() -> "YahooFantasyClient | None":
     return None
 
 
+def _format_elapsed_hms(secs: float) -> str:
+    """Format elapsed seconds as HH:MM:SS."""
+    try:
+        total = int(max(0.0, float(secs)))
+    except (TypeError, ValueError):
+        total = 0
+    h, rem = divmod(total, 3600)
+    m, s = divmod(rem, 60)
+    return f"{h:02d}:{m:02d}:{s:02d}"
+
+
 def render_splash_screen():
-    """Show loading splash while data bootstraps on every app launch."""
+    """Show loading splash while data bootstraps on every app launch.
+
+    Runs bootstrap with force=True on every new Streamlit session (every
+    browser tab / page refresh) so ALL data sources are re-fetched. Per-session
+    guard prevents re-running on intra-session page navigation.
+    """
     if st.session_state.get("bootstrap_complete"):
         return True  # Already done this session
 
@@ -246,13 +262,27 @@ def render_splash_screen():
             unsafe_allow_html=True,
         )
         progress_bar = st.progress(0.0)
+        timer_display = st.empty()
         status_text = st.empty()
 
         _boot_start = _time.monotonic()
+        st.session_state["bootstrap_start_time"] = _boot_start
+
+        def _render_timer(elapsed: float) -> None:
+            hms = _format_elapsed_hms(elapsed)
+            timer_display.markdown(
+                f"<div style=\"text-align:center; font-family:'IBM Plex Mono',monospace;"
+                f"font-size:22px; font-weight:600; color:{T['tx']};"
+                f'letter-spacing:2px; margin-top:8px;">{hms}</div>',
+                unsafe_allow_html=True,
+            )
+
+        _render_timer(0.0)
 
         def on_progress(p: BootstrapProgress):
             progress_bar.progress(min(p.pct, 1.0))
             elapsed = _time.monotonic() - _boot_start
+            _render_timer(elapsed)
             # Estimate remaining time from progress rate
             if p.pct > 0.01 and elapsed > 1:
                 eta_secs = elapsed * (1.0 - p.pct) / p.pct
@@ -275,9 +305,12 @@ def render_splash_screen():
                 st.session_state.yahoo_client = yahoo_client
                 st.session_state.yahoo_connected = True
 
+        # Always force=True on launch so every browser session starts with
+        # fresh data from all sources (per user requirement — no stale data).
         results = bootstrap_all_data(
             yahoo_client=yahoo_client,
             on_progress=on_progress,
+            force=True,
         )
 
         # Blend projections if we have multi-system data
@@ -326,6 +359,11 @@ def render_splash_screen():
             except Exception:
                 logger.debug("YDS pre-fetch skipped.", exc_info=True)
 
+        # Record total elapsed load time (HH:MM:SS) for Data Status display
+        _boot_elapsed = _time.monotonic() - _boot_start
+        _render_timer(_boot_elapsed)
+        st.session_state["bootstrap_elapsed_secs"] = float(_boot_elapsed)
+        st.session_state["bootstrap_elapsed_hms"] = _format_elapsed_hms(_boot_elapsed)
         st.session_state["bootstrap_complete"] = True
         st.session_state["bootstrap_results"] = results
 
@@ -430,6 +468,21 @@ def render_step_settings():
                     f'<span style="color:{T["tx"]};font-size:13px;font-weight:600;">'
                     f"{source.replace('_', ' ').title()}</span>"
                     f'<span style="color:{T["tx2"]};font-size:12px;">— {result}</span></div>',
+                    unsafe_allow_html=True,
+                )
+            # Total Load Time — last item in the Data Status dropdown.
+            # Shows HH:MM:SS of the most recent bootstrap (launch or manual refresh).
+            _elapsed_hms = st.session_state.get("bootstrap_elapsed_hms")
+            if _elapsed_hms:
+                st.markdown(
+                    f'<div style="display:flex;align-items:center;gap:8px;padding:4px 0;'
+                    f'border-top:1px solid {T["border"]};margin-top:6px;padding-top:8px;">'
+                    f'<span style="font-size:14px;">{PAGE_ICONS["check"]}</span>'
+                    f'<span style="color:{T["tx"]};font-size:13px;font-weight:700;'
+                    f"font-family:'Bebas Neue',sans-serif;letter-spacing:1px;\">"
+                    f"TOTAL LOAD TIME</span>"
+                    f'<span style="color:{T["tx2"]};font-size:12px;'
+                    f"font-family:'IBM Plex Mono',monospace;\">— {_elapsed_hms}</span></div>",
                     unsafe_allow_html=True,
                 )
 
@@ -2382,13 +2435,27 @@ def main():
     render_splash_screen()
 
     # Force Refresh button in sidebar (only after bootstrap is done)
+    # Refreshes ALL data sources (force=True), clears Streamlit cache_data so
+    # stale in-memory player pools don't survive the refresh, preserves the
+    # Data Status panel by assigning the new results (previous bug: set to
+    # None, which blanked the panel), and records the new elapsed load time.
     if st.session_state.get("bootstrap_complete"):
         with st.sidebar:
-            if st.button("Force Refresh Data", key="force_refresh_btn", width="stretch"):
+            if st.button("Refresh All Data", key="force_refresh_btn", width="stretch"):
+                import time as _time
+
                 with st.spinner("Refreshing all data sources..."):
                     yahoo_client = st.session_state.get("yahoo_client")
-                    bootstrap_all_data(yahoo_client=yahoo_client, force=True)
-                    st.session_state["bootstrap_results"] = None
+                    try:
+                        st.cache_data.clear()
+                    except Exception:
+                        pass
+                    _rf_start = _time.monotonic()
+                    results = bootstrap_all_data(yahoo_client=yahoo_client, force=True)
+                    _rf_elapsed = _time.monotonic() - _rf_start
+                    st.session_state["bootstrap_results"] = results
+                    st.session_state["bootstrap_elapsed_secs"] = float(_rf_elapsed)
+                    st.session_state["bootstrap_elapsed_hms"] = _format_elapsed_hms(_rf_elapsed)
                 st.rerun()
 
     if st.session_state.page == "setup":

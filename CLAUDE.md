@@ -21,7 +21,7 @@ python load_sample_data.py             # Load sample data (first time/testing)
 streamlit run app.py                   # Run the app
 python -m ruff check .                 # Lint
 python -m ruff format .                # Format
-python -m pytest                       # Run all tests (~3180 pass, ~14 skipped)
+python -m pytest                       # Run all tests (~3385 pass, ~13 skipped)
 python -m pytest tests/test_foo.py -v  # Run single test file
 
 # Optimizer validation tools
@@ -67,7 +67,7 @@ pages/
   2_Draft_Simulator.py      — Draft simulator with AI opponents, MC recommendations
   3_Trade_Analyzer.py       — Trade proposal builder + 6-phase engine
   4_Free_Agents.py          — Free agent rankings by marginal value + ownership heat
-  5_Line-up_Optimizer.py    — 6-tab optimizer: Start/Sit, Optimize, Manual, Streaming, Daily, Roster
+  6_Line-up_Optimizer.py    — 6-tab optimizer: Start/Sit, Optimize, Manual, Streaming, Daily, Roster
   6_Player_Compare.py       — Head-to-head comparison with category fit + schedule strength
   7_Closer_Monitor.py       — 30-team closer depth chart grid with job security scoring
   8_League_Standings.py     — Current standings + MC season projections + power rankings
@@ -248,8 +248,9 @@ TTLs: Rosters 30m, Standings 30m, Matchup 5m, Free Agents 1h, Transactions 15m, 
 Write-through: every Yahoo fetch writes to SQLite. Singleton via `get_yahoo_data_service()`.
 
 ### Bootstrap Pipeline (21 phases)
-Staleness-based refresh on every app launch. Force Refresh sidebar button overrides all checks.
-Key thresholds: 1h live stats/news, 30min Yahoo, 2h game-day, 24h projections/ADP/ECR, 7d players/prospects.
+**Post-2026-04-17 audit:** bootstrap runs with `force=True` on every new browser session (per-session guard `bootstrap_complete` prevents re-run on intra-session page navigation). The "Refresh All Data" sidebar button also passes `force=True`, clears `st.cache_data`, and preserves `bootstrap_results` for the Data Status panel.
+Key thresholds (still used inside force-refresh to estimate ETA): 1h live stats/news, 30min Yahoo, 2h game-day, 24h projections/ADP/ECR, 7d players/prospects.
+Per-phase timeouts: default 180s, 300s for game_logs + ROS projections (PyMC), 240s for ECR consensus.
 
 ### Bootstrap Timing (measured 2026-04-12, Python 3.14, Windows)
 - **Cold start (all stale):** ~30 minutes total
@@ -371,6 +372,9 @@ target = get_target_game_date()  # Today, or tomorrow if all games final
 - **Park factors schema** — Columns: `team_code`, `factor_hitting`, `factor_pitching`.
 - **FanGraphs API SYSTEM_MAP** — FG API uses `"fangraphsdc"`, DB stores `"depthcharts"`. Always use `SYSTEM_MAP`.
 - **LeagueConfig is the single source of truth** — All category definitions. Do NOT hardcode category lists.
+- **SQLite WAL mode + busy_timeout** (2026-04-17 trust audit) — `get_connection()` in `src/database.py` sets `PRAGMA journal_mode=WAL`, `PRAGMA busy_timeout=30000`, `PRAGMA synchronous=NORMAL` on every connection. Root-cause fix for 6 bootstrap phases that failed with "database is locked" when the `ThreadPoolExecutor` blocks ran concurrent writes to per-team tables. Do NOT call `sqlite3.connect()` directly elsewhere — always use `get_connection()`.
+- **Game logs scoped to rostered/40-man players** — `fetch_game_logs_from_api` in `src/player_databank.py` joins `league_rosters` first (drops from ~9K to ~240), falls back to 40-man / active roster. Prevents the 90-second timeout caused by iterating all players.
+- **FanGraphs 403 handling** — `leaders-legacy.aspx` returns 403 to non-browser scrapers; `_format_fetch_error` in `src/data_bootstrap.py` translates 403/429/timeout signatures to "Skipped: ..." messages so Data Status shows known limitations clearly. Team strength has a built-in `_fetch_team_strength_statsapi` fallback to MLB Stats API.
 
 ### Yahoo API
 - **OAuth uses oob** — `redirect_uri=oob` required. No localhost redirects.
@@ -387,6 +391,8 @@ target = get_target_game_date()  # Today, or tomorrow if all games final
 - **`T["ink"]` for text-on-accent** — Not `T["bg"]` (invisible on amber).
 - **Connection leak** — Always wrap `get_connection()` in `try/finally` with `conn.close()`.
 - **`T["tx"]` not `T["tx1"]`** — There is no `tx1` key.
+- **Splash screen load timer** (2026-04-17) — HH:MM:SS live counter below the progress bar. Start recorded in `st.session_state["bootstrap_start_time"]`. Final elapsed stored in `bootstrap_elapsed_secs` / `bootstrap_elapsed_hms`. Use `_format_elapsed_hms(secs)` helper in `app.py`. Total Load Time is the last item in the Data Status expander on the Connect League page.
+- **Force Refresh button behavior** — Renamed to "Refresh All Data". Calls `st.cache_data.clear()` BEFORE bootstrap, passes `force=True`, assigns the returned results back to `bootstrap_results` (prior bug: set to `None`, wiping the Data Status panel), and records a new elapsed timer.
 
 ### Algorithms & Math
 - **Rate-stat aggregation** — AVG=sum(h)/sum(ab), OBP=sum(h+bb+hbp)/sum(ab+bb+hbp+sf), ERA=sum(er)*9/sum(ip), WHIP=sum(bb+h)/sum(ip). Weighted averages, NOT simple averages.
@@ -409,6 +415,11 @@ target = get_target_game_date()  # Today, or tomorrow if all games final
 - **Sigmoid urgency** — `COUNTING_STAT_K=2.0`, `RATE_STAT_K=3.0`. Calibrate with `python scripts/calibrate_sigmoid.py`.
 - **Data freshness UI** — Colored CSS dots (green=fresh, orange=stale) in optimizer context panel expander.
 - **Constants registry** — 30 constants in `constants_registry.py` with citations, bounds, and sensitivity levels. Run sensitivity analysis to verify declared vs actual sensitivity.
+- **DCV gate — non-probable pure SPs get volume=0.0** (2026-04-17 trust audit). Previously a pure SP whose team played today but who wasn't a probable starter got `volume_factor=0.9` (ghost value), landing in P slots with DCV 1-2 and flagged START. Now `volume=0.0` for pure SPs absent from `probable_starters`. SP/RP hybrids keep `volume=0.9` (can still relieve). Pure RPs still default to 0.9.
+- **Pitcher probable-starter name matching** — uses `_normalize_pitcher_name` (accents, suffixes, punctuation stripped) so "José Ramírez" matches "Jose Ramirez" and "Luis Garcia Jr." matches "Luis Garcia". Prevents silent gate misses from API/roster string drift.
+- **Matchup multiplier resolves opponent + venue from schedule** (2026-04-17 trust audit). Previously the caller passed `opponent_team=""`, which made `park_factor_adjustment` fall back to the player's own team park regardless of home/away — Moniak (COL) always got 1.38. The caller now walks `schedule_today`, determines if the player is home or away, and passes the **home team code** as `opponent_team` (the convention used by `park_factor_adjustment`). Opposing pitcher throws + xFIP are also resolved from the roster pool and passed through.
+- **Pitcher leave-empty threshold** — `_PITCHER_EMPTY_THRESHOLD = _pitcher_median * 0.20` in `pages/6_Line-up_Optimizer.py` (was 0.05). Raised so marginal SP/RP hybrids with weak matchups go BENCH rather than filling open P slots.
+- **FA streaming drop-candidate is slot-aware** — `_pick_drop(fa_is_hitter, fa_positions)` filters roster players by position overlap with the FA's positions. Prior bug: globally-worst player per side, which caused every batter stream to target the same drop candidate regardless of slot. Cross-swap (drop batter for pitcher stream) still uses global worst by design.
 
 ### Dependencies
 - **Pre-commit hook** — `scripts/pre-commit` runs ruff format + lint on staged files. Install with `python scripts/install-hooks.py`.
@@ -448,7 +459,7 @@ target = get_target_game_date()  # Today, or tomorrow if all games final
 
 ## Testing
 
-- **~3180 passing tests** across 150 test files, ~14 skipped (PyMC/XGBoost optional)
+- **~3385 passing tests** across 151 test files, ~13 skipped (PyMC/XGBoost optional)
 - **CI:** GitHub Actions — ruff lint/format, pytest (3.11, 3.12, 3.13), build check
 - **Coverage:** ~65% (60% CI floor)
 - **Pre-commit hook:** Enforces `ruff format` + `ruff check` on every commit

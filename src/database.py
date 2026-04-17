@@ -96,10 +96,24 @@ def coerce_numeric_df(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def get_connection() -> sqlite3.Connection:
+def get_connection(timeout: float = 30.0) -> sqlite3.Connection:
+    """Return a SQLite connection with WAL journal mode + busy timeout.
+
+    WAL allows concurrent readers and a single writer without "database is
+    locked" errors. busy_timeout lets the driver wait up to N ms for the write
+    lock before raising. Both pragmas must be set per-connection.
+    Root-cause fix for bootstrap phases that failed with "database is locked"
+    when the ThreadPoolExecutor blocks ran concurrent writes.
+    """
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(DB_PATH))
+    conn = sqlite3.connect(str(DB_PATH), timeout=timeout)
     conn.row_factory = sqlite3.Row
+    try:
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=30000")
+        conn.execute("PRAGMA synchronous=NORMAL")
+    except sqlite3.Error:
+        pass
     return conn
 
 

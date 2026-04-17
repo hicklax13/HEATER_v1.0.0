@@ -123,12 +123,13 @@ def fetch_depth_charts() -> dict[str, dict[str, Any]]:
 
     # Quick connection test before attempting 30 individual team pages.
     # Roster Resource is sometimes unreachable; fail fast to avoid a
-    # long cascade of per-team timeouts.
+    # long cascade of per-team timeouts. Timeout raised from 5s → 15s
+    # because slower networks were silently returning empty.
     try:
         resp = requests.get(
             ROSTER_RESOURCE_URL,
             headers=_REQUEST_HEADERS,
-            timeout=5,
+            timeout=15,
         )
         if resp.status_code != 200:
             logger.debug(

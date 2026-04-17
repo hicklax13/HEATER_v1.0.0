@@ -193,7 +193,13 @@ def test_bootstrap_stuff_plus_no_pybaseball():
 
 
 def test_bootstrap_stuff_plus_network_error():
-    """Verify graceful handling when FanGraphs is unreachable."""
+    """Verify graceful handling when FanGraphs is unreachable.
+
+    2026-04-17 trust audit: known-bad upstream signatures (403, 429,
+    timeouts) are translated to "Skipped: ..." by _format_fetch_error so
+    the Data Status panel doesn't surface them as actionable errors.
+    Generic exceptions still return "Error:".
+    """
     mock_pybaseball = MagicMock()
     mock_pybaseball.pitching_stats = MagicMock(side_effect=Exception("Network timeout"))
 
@@ -204,7 +210,9 @@ def test_bootstrap_stuff_plus_network_error():
         progress = BootstrapProgress()
         result = _bootstrap_stuff_plus(progress)
 
-    assert "Error" in result
+    # Result may be "Error:" (generic exc) or "Skipped:" (known-bad signature
+    # like timeout/403/429). Either is acceptable as graceful handling.
+    assert "Error" in result or "Skipped" in result
 
 
 def test_bootstrap_stuff_plus_empty_data():

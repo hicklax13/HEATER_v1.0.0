@@ -10,10 +10,33 @@ Part of the Lineup Optimizer V2 (pipeline stages 10-12).
 from __future__ import annotations
 
 import logging
+import re
+import unicodedata
 
 import pandas as pd
 
 logger = logging.getLogger(__name__)
+
+
+def _normalize_pitcher_name(name: str) -> str:
+    """Normalize a player name for robust matching across data sources.
+
+    MLB Stats API probable-pitcher strings and roster names can differ by
+    accents, punctuation, suffixes ("Jr.", "III"), and casing. Two calls that
+    should match ("Chris Sale" vs "Chris Sale "; "José Ramírez" vs "Jose
+    Ramirez") must normalize to the same key. Used by the SP probable-today
+    gate to avoid silently missing legitimate probable starters.
+    """
+    if not name:
+        return ""
+    s = unicodedata.normalize("NFKD", str(name))
+    s = s.encode("ascii", "ignore").decode("ascii").lower().strip()
+    for suffix in (" jr.", " jr", " sr.", " sr", " iii", " iv", " ii"):
+        if s.endswith(suffix):
+            s = s[: -len(suffix)].strip()
+    s = re.sub(r"[^a-z0-9 ]", "", s)
+    return " ".join(s.split())
+
 
 # Stabilization points for Bayesian blend (from FanGraphs research)
 STABILIZATION_POINTS: dict[str, float] = {
@@ -547,14 +570,31 @@ def build_daily_dcv_table(
                         lineup_slot = team_lineup.index(name) + 1
                     except ValueError:
                         lineup_slot = 0
-        # Pitcher probable-starter check (independent of confirmed_lineups —
-        # probable pitcher data comes from schedule_today, not batting lineups)
-        if not is_hitter and probable_starters:
+        # Pitcher probable-starter gating (independent of confirmed_lineups)
+        # Pure SP not in today's probables → volume_factor forced to 0.0 (they
+        # will NOT pitch today). SP/RP hybrids remain uncertain (0.9) because
+        # they can still come out of the bullpen. Pure RPs stay at 0.9 baseline.
+        # Name comparison uses normalization to handle accents/suffixes.
+        _pitcher_volume_override: float | None = None
+        if not is_hitter and team_plays:
             pos_upper = positions.upper()
-            if "SP" in pos_upper:
-                in_lineup = name in probable_starters
-            # Pure RP keeps in_lineup=None → volume=0.9 (any reliever can enter)
+            _has_sp = "SP" in pos_upper
+            _has_rp = "RP" in pos_upper
+            if _has_sp and probable_starters:
+                _norm_name = _normalize_pitcher_name(name)
+                _norm_probable = {_normalize_pitcher_name(p) for p in probable_starters}
+                _is_probable_today = _norm_name in _norm_probable
+                if _is_probable_today:
+                    in_lineup = True
+                elif not _has_rp:
+                    # Pure SP confirmed NOT pitching today — zero out
+                    in_lineup = False
+                    _pitcher_volume_override = 0.0
+                # SP/RP hybrid not probable → can still relieve, leave as None
+            # probable_starters empty (API miss / all TBD) → keep default None
         volume = compute_volume_factor(team_plays, in_lineup)
+        if _pitcher_volume_override is not None:
+            volume = _pitcher_volume_override
 
         # Skip entirely if excluded
         if health == 0.0 or volume == 0.0:
@@ -576,30 +616,62 @@ def build_daily_dcv_table(
             rows.append(row_data)
             continue
 
-        # Matchup multiplier — uses handedness, park factors, weather
+        # Matchup multiplier — resolve opponent team, home/away, opposing
+        # pitcher handedness + xFIP, and pass VENUE (home team code) to
+        # park_factor_adjustment. Previously passed opponent_team="" which
+        # silently fell back to player's home park for every player
+        # (Moniak at COL always got 1.38 regardless of home/away).
         player_temp = weather_by_team.get(team)
         _batter_hand = str(player.get("bats", "") or "")
         _pitcher_hand = ""
-        # Look up opposing pitcher handedness from schedule if available
-        if is_hitter and schedule_today:
+        _opp_pitcher_name = ""
+        _venue_team = ""  # home team code — whose park factor to use
+        if schedule_today and team:
+            _team_variants = _expand_equivalences(team)
             for _sg in schedule_today:
-                _home = str(_sg.get("home_name", ""))
-                _away = str(_sg.get("away_name", ""))
-                if team in (_home, _away, str(_sg.get("home_short", "")), str(_sg.get("away_short", ""))):
-                    _pp_key = (
-                        "away_probable_pitcher"
-                        if team == _home or team == str(_sg.get("home_short", ""))
-                        else "home_probable_pitcher"
-                    )
-                    # Probable pitcher throws data not in schedule — use roster pool
+                _home_raw = str(_sg.get("home_name", "")).upper().strip()
+                _away_raw = str(_sg.get("away_name", "")).upper().strip()
+                _home_short = str(_sg.get("home_short", "")).upper().strip()
+                _away_short = str(_sg.get("away_short", "")).upper().strip()
+                _home_ab = _FULL_TO_ABBR.get(_home_raw, _home_raw) or _home_short
+                _away_ab = _FULL_TO_ABBR.get(_away_raw, _away_raw) or _away_short
+                _home_variants = _expand_equivalences(_home_ab) if _home_ab else set()
+                _away_variants = _expand_equivalences(_away_ab) if _away_ab else set()
+                if _team_variants & _home_variants or team == _home_short:
+                    _venue_team = _home_ab  # player is home → venue is own park
+                    _opp_pitcher_name = str(_sg.get("away_probable_pitcher", "") or "")
                     break
+                if _team_variants & _away_variants or team == _away_short:
+                    _venue_team = _home_ab  # player is away → venue is opponent park
+                    _opp_pitcher_name = str(_sg.get("home_probable_pitcher", "") or "")
+                    break
+
+        _opp_pitcher_xfip: float | None = None
+        if is_hitter and _opp_pitcher_name:
+            _norm_opp = _normalize_pitcher_name(_opp_pitcher_name)
+            _name_col = "player_name" if "player_name" in roster.columns else "name"
+            if _name_col in roster.columns:
+                _opp_match = roster[roster[_name_col].apply(lambda n: _normalize_pitcher_name(str(n)) == _norm_opp)]
+                if not _opp_match.empty:
+                    _opp_row = _opp_match.iloc[0]
+                    _pitcher_hand = str(_opp_row.get("throws", "") or "")
+                    for _xcol in ("xfip", "fip", "era"):
+                        _xval = _opp_row.get(_xcol, None)
+                        try:
+                            if _xval is not None and not pd.isna(_xval):
+                                _opp_pitcher_xfip = float(_xval)
+                                break
+                        except (TypeError, ValueError):
+                            continue
+
         matchup_mult = compute_matchup_multiplier(
             is_hitter=is_hitter,
             batter_hand=_batter_hand,
             pitcher_hand=_pitcher_hand,
             player_team=team,
-            opponent_team="",
-            park_factors=park_factors,
+            opponent_team=_venue_team,  # VENUE (home team) not literal opponent
+            park_factors=park_factors or {},
+            pitcher_xfip=_opp_pitcher_xfip,
             temp_f=player_temp,
         )
 

@@ -746,15 +746,28 @@ def _stream_drop_score(pid: int, ctx: OptimizerDataContext, teams_playing_today:
     return weekly_sgp + today_bonus
 
 
+def _parse_positions(positions: str) -> set[str]:
+    """Split a positions string ("2B,OF,Util" or "2B/OF/Util") into a set."""
+    if not positions:
+        return set()
+    return {p.strip().upper() for p in str(positions).replace("/", ",").split(",") if p.strip()}
+
+
 def _worst_rostered(
     ctx: OptimizerDataContext,
     is_hitter: bool,
     teams_playing_today: set[str],
+    fa_positions: str | None = None,
 ) -> tuple[int | None, float | None]:
     """Find the worst (lowest stream_drop_score) non-IL rostered player on
-    the given side. Returns (pid, score) or (None, None) if no candidate."""
+    the given side. When ``fa_positions`` is provided, only consider roster
+    players whose eligibility overlaps with the FA's positions — this is the
+    "slot-aware" drop candidate selection that avoids e.g. a 3B streamer
+    targeting an OF-only player as the drop.
+    """
     worst_pid: int | None = None
     worst_score: float | None = None
+    fa_pos_set = _parse_positions(fa_positions) if fa_positions else set()
     for pid in ctx.user_roster_ids:
         match = ctx.player_pool[ctx.player_pool["player_id"] == pid]
         if match.empty:
@@ -764,10 +777,15 @@ def _worst_rostered(
             continue
         if _player_is_il(ctx, pid):
             continue
-        # Skip protected IL stashes too (Bieber, Strider, players
-        # returning within 2 weeks) — handled in il_stash_ids.
         if pid in ctx.il_stash_ids:
             continue
+        # Slot-aware filter: only consider roster players whose positions
+        # overlap with the FA's. Util overlaps any hitter, P overlaps any
+        # pitcher, so those rarely filter anything — by design.
+        if fa_pos_set:
+            roster_pos = _parse_positions(str(row.get("positions", "")))
+            if not (fa_pos_set & roster_pos):
+                continue
         score = _stream_drop_score(pid, ctx, teams_playing_today)
         if worst_score is None or score < worst_score:
             worst_score = score
@@ -890,15 +908,33 @@ def recommend_streaming_moves(
     worst_pitcher_id, worst_pitcher_score = _worst_rostered(ctx, is_hitter=False, teams_playing_today=teams_playing)
     worst_batter_id, worst_batter_score = _worst_rostered(ctx, is_hitter=True, teams_playing_today=teams_playing)
 
-    def _pick_drop(fa_is_hitter: bool) -> int | None:
-        # Same-side default: drop worst-valued player on the streamer's side.
-        same_id = worst_batter_id if fa_is_hitter else worst_pitcher_id
-        same_score = worst_batter_score if fa_is_hitter else worst_pitcher_score
+    def _pick_drop(fa_is_hitter: bool, fa_positions: str | None = None) -> int | None:
+        # Slot-aware same-side drop: prefer a rostered player whose
+        # eligibility overlaps the FA's positions so e.g. a 3B streamer
+        # doesn't target an OF-only player. Previously used a single
+        # "globally worst" player per side, which caused every batter
+        # stream to target the same drop candidate regardless of position.
+        same_id: int | None
+        same_score: float | None
+        if fa_positions:
+            same_id, same_score = _worst_rostered(
+                ctx,
+                is_hitter=fa_is_hitter,
+                teams_playing_today=teams_playing,
+                fa_positions=fa_positions,
+            )
+        else:
+            same_id = worst_batter_id if fa_is_hitter else worst_pitcher_id
+            same_score = worst_batter_score if fa_is_hitter else worst_pitcher_score
+        # Fallback: if no slot-compatible roster player exists (unusual),
+        # fall back to the global worst on this side so a valid move still
+        # surfaces rather than being silently dropped.
+        if same_id is None:
+            same_id = worst_batter_id if fa_is_hitter else worst_pitcher_id
+            same_score = worst_batter_score if fa_is_hitter else worst_pitcher_score
         # Cross-swap policy: ONLY for pitcher streaming (drop worst batter
         # instead of worst pitcher when the batter is much worse). Batter
-        # streams never drop a pitcher — doing so would silently reduce
-        # the pitcher roster and hurt pitching categories without warning,
-        # even for cats that fell below the 0.38 in-play threshold.
+        # streams never drop a pitcher.
         if not fa_is_hitter:
             cross_id = worst_batter_id
             cross_score = worst_batter_score
@@ -947,7 +983,7 @@ def recommend_streaming_moves(
                 diagnostics["n_fa_filtered_no_game"] += 1
                 continue
 
-        drop_id = _pick_drop(fa_is_hitter)
+        drop_id = _pick_drop(fa_is_hitter, fa_positions=str(fa_row.get("positions", "") or ""))
         if drop_id is None:
             continue
 

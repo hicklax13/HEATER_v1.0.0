@@ -123,13 +123,16 @@ class TestFetchDepthCharts:
                 assert call_kwargs.kwargs.get("headers", {}).get("User-Agent") == "Fantasy Baseball Draft Tool"
 
     def test_uses_timeout(self):
-        """Verifies timeout is passed to requests."""
+        """Verifies timeout is passed to requests.
+
+        Raised from 5s → 15s as part of the 2026-04-17 trust audit: 5s was
+        too aggressive on slower networks and caused silent empty returns.
+        """
         with patch("src.depth_charts.requests.get", side_effect=Exception("stop")) as mock_get:
             fetch_depth_charts()
             if mock_get.called:
                 call_kwargs = mock_get.call_args
-                # Connection test uses a short 5s timeout for fail-fast
-                assert call_kwargs.kwargs.get("timeout") == 5
+                assert call_kwargs.kwargs.get("timeout") == 15
 
 
 # ── TestClassifyRole ──────────────────────────────────────────────────

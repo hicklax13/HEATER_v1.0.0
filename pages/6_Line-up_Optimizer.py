@@ -1289,8 +1289,14 @@ with main:
                     )
                     _hitter_median = float(_hitter_pos_dcv.median()) if not _hitter_pos_dcv.empty else 0.0
                     _pitcher_median = float(_pitcher_pos_dcv.median()) if not _pitcher_pos_dcv.empty else 0.0
-                    _HITTER_EMPTY_THRESHOLD = _hitter_median * 0.025  # ~midpoint of conservative/aggressive
-                    _PITCHER_EMPTY_THRESHOLD = _pitcher_median * 0.05  # aggressive
+                    # Thresholds tuned so that non-probable SPs (DCV ~ 0 after
+                    # the probable-SP gate in daily_optimizer) and marginal
+                    # SP/RP hybrids with bad matchups are benched rather than
+                    # forced into open P slots. 0.20 * median was validated
+                    # against 2026-04-17 roster (catches Sale 1.44 / Roupp 1.63
+                    # when hybrids with median ~4 keep threshold ~0.8).
+                    _HITTER_EMPTY_THRESHOLD = _hitter_median * 0.025
+                    _PITCHER_EMPTY_THRESHOLD = _pitcher_median * 0.20
                     _is_hitter_lookup = (
                         eligible.set_index("player_id")["is_hitter"].astype(bool).to_dict()
                         if "is_hitter" in eligible.columns
