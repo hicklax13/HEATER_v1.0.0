@@ -45,6 +45,15 @@ _FLOOR_PA_MIN = 50
 _FLOOR_IP_MIN = 20
 _IL_EXCLUDE_STATUSES = {"il", "il10", "il15", "il60", "dtd", "day-to-day", "na", "out", "suspended"}
 
+# Streaming knobs (for scope="today" only).
+_STREAM_WIN_PROB_MIN = 0.38  # categories with >=38% win prob are in-play
+_STREAM_NET_SGP_MIN = 0.70  # minimum net SGP gain to surface a streamer
+_STREAM_HURT_THRESHOLD = -0.10  # max allowed hurt on any in-play category
+_STREAM_CROSS_SIDE_RATIO = 0.5  # cross-swap if cross-worst < this * same-worst
+_STREAM_DROP_TODAY_BONUS = 0.15  # protect rostered players with today game
+_STREAM_MAX_PER_SIDE = 3  # cap per-side recommendations
+_STREAM_IP_MIN = 20  # weekly IP minimum (Yahoo forfeit line)
+
 
 def _player_is_il(ctx: OptimizerDataContext, pid: int) -> bool:
     """Return True if the player is on IL/DTD/NA/suspended per roster or pool.
@@ -570,3 +579,293 @@ def _build_reasoning(
     reasons.append(f"Net team improvement: +{swap['net_sgp']:.2f} SGP")
 
     return reasons
+
+
+# ---------------------------------------------------------------------------
+# Daily streaming recommendations (scope="today" only)
+# ---------------------------------------------------------------------------
+
+
+def _compute_ros_sgp(row: pd.Series, config) -> float:
+    """Approximate ROS SGP from a player's projection row."""
+    sgp = 0.0
+    for cat in config.all_categories:
+        val = float(row.get(cat.lower(), 0) or 0)
+        denom = config.sgp_denominators.get(cat, 1.0)
+        if abs(denom) < 1e-9:
+            continue
+        if cat in config.inverse_stats:
+            sgp -= val / denom
+        else:
+            sgp += val / denom
+    return sgp
+
+
+def _get_probable_starter_ids_today(ctx: OptimizerDataContext) -> set[int]:
+    """Extract player IDs of SPs scheduled to start today."""
+    ids: set[int] = set()
+    for game in ctx.todays_schedule or []:
+        for side in ("home_probable_pitcher", "away_probable_pitcher"):
+            info = game.get(side)
+            if not info:
+                continue
+            pid = None
+            if isinstance(info, dict):
+                pid = info.get("id") or info.get("player_id")
+            elif isinstance(info, int):
+                pid = info
+            if pid is not None:
+                try:
+                    ids.add(int(pid))
+                except (TypeError, ValueError):
+                    pass
+    return ids
+
+
+def _get_teams_playing_today(ctx: OptimizerDataContext) -> set[str]:
+    """Extract 3-letter team codes (uppercased) playing today."""
+    teams: set[str] = set()
+    for game in ctx.todays_schedule or []:
+        for key in (
+            "home_team",
+            "away_team",
+            "home_name",
+            "away_name",
+            "home_code",
+            "away_code",
+        ):
+            t = game.get(key)
+            if t:
+                teams.add(str(t).upper())
+    return teams
+
+
+def _stream_drop_score(pid: int, ctx: OptimizerDataContext, teams_playing_today: set[str]) -> float:
+    """Combined drop score: lower == better drop candidate.
+
+    drop_score = remaining_week_sgp + (today_bonus if team plays today)
+
+    Remaining-week SGP dominates; the today bonus softly protects players
+    whose team is playing today from being dropped on a live game day.
+    """
+    match = ctx.player_pool[ctx.player_pool["player_id"] == pid]
+    if match.empty:
+        return float("inf")  # can't evaluate → not a drop candidate
+    row = match.iloc[0]
+    ros_sgp = _compute_ros_sgp(row, ctx.config)
+    team = str(row.get("team", "") or "").upper()
+    remaining_games = int(ctx.remaining_games_this_week.get(team, 3) or 3)
+    # Scale ROS SGP to remaining-week contribution; 162-game season.
+    weekly_sgp = ros_sgp * max(0, remaining_games) / 162.0
+    today_bonus = _STREAM_DROP_TODAY_BONUS if team and team in teams_playing_today else 0.0
+    return weekly_sgp + today_bonus
+
+
+def _worst_rostered(
+    ctx: OptimizerDataContext,
+    is_hitter: bool,
+    teams_playing_today: set[str],
+) -> tuple[int | None, float | None]:
+    """Find the worst (lowest stream_drop_score) non-IL rostered player on
+    the given side. Returns (pid, score) or (None, None) if no candidate."""
+    worst_pid: int | None = None
+    worst_score: float | None = None
+    for pid in ctx.user_roster_ids:
+        match = ctx.player_pool[ctx.player_pool["player_id"] == pid]
+        if match.empty:
+            continue
+        row = match.iloc[0]
+        if bool(int(row.get("is_hitter", 1))) != is_hitter:
+            continue
+        if _player_is_il(ctx, pid):
+            continue
+        # Skip protected IL stashes too (Bieber, Strider, players
+        # returning within 2 weeks) — handled in il_stash_ids.
+        if pid in ctx.il_stash_ids:
+            continue
+        score = _stream_drop_score(pid, ctx, teams_playing_today)
+        if worst_score is None or score < worst_score:
+            worst_score = score
+            worst_pid = pid
+    return worst_pid, worst_score
+
+
+def _passes_ip_minimum(ctx: OptimizerDataContext, add_id: int, drop_id: int) -> bool:
+    """Check if the post-swap weekly IP projection stays above forfeit minimum."""
+    try:
+        from src.ip_tracker import compute_weekly_ip_projection, get_days_remaining_in_week
+
+        new_ids = [p for p in ctx.user_roster_ids if p != drop_id] + [add_id]
+        pitchers = []
+        for pid in new_ids:
+            m = ctx.player_pool[ctx.player_pool["player_id"] == pid]
+            if m.empty:
+                continue
+            r = m.iloc[0]
+            if bool(int(r.get("is_hitter", 1))):
+                continue
+            pitchers.append(
+                {
+                    "player_id": pid,
+                    "ip": float(r.get("ip", 0) or 0),
+                    "positions": str(r.get("positions", "")),
+                    "status": str(r.get("status", "active")),
+                    "is_starter": "SP" in str(r.get("positions", "")).upper(),
+                }
+            )
+        ip_result = compute_weekly_ip_projection(pitchers, get_days_remaining_in_week())
+        return ip_result.get("projected_ip", 0) >= _STREAM_IP_MIN
+    except Exception:
+        logger.debug("IP check failed; not blocking", exc_info=True)
+        return True
+
+
+def recommend_streaming_moves(
+    ctx: OptimizerDataContext,
+    max_per_side: int = _STREAM_MAX_PER_SIDE,
+) -> dict[str, list[dict[str, Any]]]:
+    """Daily streaming recommendations (scope="today" only).
+
+    Returns a dict ``{"pitchers": [...], "batters": [...]}`` each sorted
+    best-to-worst and capped at ``max_per_side``.
+
+    Rules:
+    - Only fires when ``ctx.scope == "today"``.
+    - Target categories: those with per-category win probability >= 0.38
+      (categories that are still realistically in play this week).
+    - FA pitcher candidates must be probable starters today.
+    - FA batter candidates must be on a team with a game today.
+    - Drop target = worst rostered player on the streamer's side, or on
+      the opposite side if the cross-side worst is < 50% of same-side worst.
+    - Net SGP gain must be >= 0.70.
+    - Any in-play category hurt by more than -0.10 SGP blocks the swap.
+    - Post-swap weekly IP must stay >= 20 (pitcher streams only).
+    - IL FAs are ineligible for streaming (use regular FA engine for
+      IL→IL stash upgrades).
+    """
+    empty: dict[str, list[dict[str, Any]]] = {"pitchers": [], "batters": []}
+    if ctx.scope != "today":
+        return empty
+
+    # Per-category win probability
+    try:
+        from src.optimizer.h2h_engine import estimate_h2h_win_probability
+
+        wp_result = estimate_h2h_win_probability(ctx.my_totals, ctx.opp_totals)
+    except Exception:
+        logger.debug("Win-prob computation failed", exc_info=True)
+        return empty
+    wp = {str(k).lower(): float(v) for k, v in wp_result.get("per_category", {}).items()}
+    target_cats = {c for c, p in wp.items() if p >= _STREAM_WIN_PROB_MIN}
+    if not target_cats:
+        return empty
+
+    probable_sp_ids = _get_probable_starter_ids_today(ctx)
+    teams_playing = _get_teams_playing_today(ctx)
+
+    worst_pitcher_id, worst_pitcher_score = _worst_rostered(ctx, is_hitter=False, teams_playing_today=teams_playing)
+    worst_batter_id, worst_batter_score = _worst_rostered(ctx, is_hitter=True, teams_playing_today=teams_playing)
+
+    def _pick_drop(fa_is_hitter: bool) -> int | None:
+        same_id = worst_batter_id if fa_is_hitter else worst_pitcher_id
+        same_score = worst_batter_score if fa_is_hitter else worst_pitcher_score
+        cross_id = worst_pitcher_id if fa_is_hitter else worst_batter_id
+        cross_score = worst_pitcher_score if fa_is_hitter else worst_batter_score
+        if same_score is not None and cross_score is not None:
+            if cross_score < same_score * _STREAM_CROSS_SIDE_RATIO:
+                return cross_id
+        return same_id
+
+    pitcher_streamers: list[dict[str, Any]] = []
+    batter_streamers: list[dict[str, Any]] = []
+
+    if ctx.free_agents.empty:
+        return empty
+
+    excluded_ids = set(int(p) for p in ctx.user_roster_ids)
+    excluded_ids.update(int(p) for p in ctx.league_rostered_ids)
+
+    for _, fa_row in ctx.free_agents.iterrows():
+        fa_id_raw = fa_row.get("player_id")
+        if fa_id_raw is None:
+            continue
+        try:
+            fa_id = int(fa_id_raw)
+        except (TypeError, ValueError):
+            continue
+
+        if fa_id in excluded_ids:
+            continue
+        if _player_is_il(ctx, fa_id):
+            continue
+
+        fa_is_hitter = bool(int(fa_row.get("is_hitter", 1)))
+
+        # Game-today filter
+        if not fa_is_hitter:
+            if fa_id not in probable_sp_ids:
+                continue
+        else:
+            team = str(fa_row.get("team", "") or "").upper()
+            if not team or team not in teams_playing:
+                continue
+
+        drop_id = _pick_drop(fa_is_hitter)
+        if drop_id is None:
+            continue
+
+        swap = compute_net_swap_value(fa_id, drop_id, ctx.user_roster_ids, ctx.player_pool, ctx.config)
+        net_sgp = float(swap.get("net_sgp", 0))
+        cat_deltas = {str(k).lower(): float(v) for k, v in swap.get("category_deltas", {}).items()}
+
+        if net_sgp < _STREAM_NET_SGP_MIN:
+            continue
+
+        # Hurts guard on in-play cats
+        if any(cat_deltas.get(c, 0) < _STREAM_HURT_THRESHOLD for c in target_cats):
+            continue
+
+        # Must help at least one in-play target cat
+        helpful_targets = [c for c in target_cats if cat_deltas.get(c, 0) > 0.01]
+        if not helpful_targets:
+            continue
+
+        # IP minimum (pitcher streams only)
+        if not fa_is_hitter and not _passes_ip_minimum(ctx, fa_id, drop_id):
+            continue
+
+        # Build display payload
+        helps = {c: round(v, 2) for c, v in cat_deltas.items() if v > 0.01}
+        hurts = {c: round(v, 2) for c, v in cat_deltas.items() if v < -0.01}
+
+        drop_match = ctx.player_pool[ctx.player_pool["player_id"] == drop_id]
+        drop_name = "?"
+        if not drop_match.empty:
+            _dr = drop_match.iloc[0]
+            drop_name = str(_dr.get("name", _dr.get("player_name", "?")))
+
+        streamer = {
+            "add_id": fa_id,
+            "add_name": str(fa_row.get("name", fa_row.get("player_name", "?"))),
+            "add_positions": str(fa_row.get("positions", "")),
+            "add_team": str(fa_row.get("team", "")),
+            "drop_id": drop_id,
+            "drop_name": drop_name,
+            "is_hitter": fa_is_hitter,
+            "helps": helps,
+            "hurts": hurts,
+            "net_sgp": round(net_sgp, 2),
+            "target_cats_helped": sorted(helpful_targets),
+        }
+        if fa_is_hitter:
+            batter_streamers.append(streamer)
+        else:
+            pitcher_streamers.append(streamer)
+
+    pitcher_streamers.sort(key=lambda x: x["net_sgp"], reverse=True)
+    batter_streamers.sort(key=lambda x: x["net_sgp"], reverse=True)
+
+    return {
+        "pitchers": pitcher_streamers[:max_per_side],
+        "batters": batter_streamers[:max_per_side],
+    }

@@ -18,6 +18,7 @@ from src.optimizer.fa_recommender import (
     _score_drop_candidates,
     _score_fa_candidates,
     recommend_fa_moves,
+    recommend_streaming_moves,
 )
 from src.optimizer.shared_data_layer import OptimizerDataContext
 from src.valuation import LeagueConfig
@@ -677,3 +678,386 @@ class TestDeduplication:
         drop_ids = [m["drop_id"] for m in result]
         assert len(add_ids) == len(set(add_ids)), "Duplicate add IDs found"
         assert len(drop_ids) == len(set(drop_ids)), "Duplicate drop IDs found"
+
+
+# ---------------------------------------------------------------------------
+# Streaming recommendations (scope="today")
+# ---------------------------------------------------------------------------
+
+
+def _stream_ctx(
+    *,
+    roster_ids: list[int],
+    pool: list[dict],
+    fas: list[dict],
+    my_totals: dict[str, float] | None = None,
+    opp_totals: dict[str, float] | None = None,
+    todays_schedule: list[dict] | None = None,
+    remaining_games: dict[str, int] | None = None,
+    scope: str = "today",
+) -> OptimizerDataContext:
+    """Build a context configured for streaming tests (scope=today)."""
+    ctx = _build_ctx(roster_ids=roster_ids, pool_players=pool, fa_players=fas)
+    ctx.scope = scope
+    ctx.my_totals = my_totals or {}
+    ctx.opp_totals = opp_totals or {}
+    ctx.todays_schedule = todays_schedule or []
+    ctx.remaining_games_this_week = remaining_games or {}
+    return ctx
+
+
+class TestStreamingScope:
+    """Streaming only fires on scope=today."""
+
+    def test_non_today_scope_returns_empty(self):
+        ctx = _stream_ctx(roster_ids=[1], pool=[_make_player(1)], fas=[], scope="rest_of_week")
+        result = recommend_streaming_moves(ctx)
+        assert result == {"pitchers": [], "batters": []}
+
+    def test_no_target_cats_returns_empty(self):
+        # No close/winnable categories → nothing to stream
+        ctx = _stream_ctx(
+            roster_ids=[1],
+            pool=[_make_player(1)],
+            fas=[],
+            my_totals={
+                "hr": 100,
+                "r": 100,
+                "rbi": 100,
+                "sb": 100,
+                "avg": 0.300,
+                "obp": 0.400,
+                "w": 10,
+                "l": 0,
+                "sv": 10,
+                "k": 100,
+                "era": 2.00,
+                "whip": 1.00,
+            },
+            opp_totals={
+                "hr": 1,
+                "r": 1,
+                "rbi": 1,
+                "sb": 1,
+                "avg": 0.100,
+                "obp": 0.100,
+                "w": 0,
+                "l": 100,
+                "sv": 0,
+                "k": 1,
+                "era": 10.0,
+                "whip": 2.0,
+            },
+        )
+        # User dominates every cat → all win probs ~1.0 (which is >=0.38 so
+        # technically in target), but there are no FAs to stream. Empty lists
+        # for pitchers/batters.
+        result = recommend_streaming_moves(ctx)
+        assert result["pitchers"] == []
+        assert result["batters"] == []
+
+
+class TestStreamingCandidateFiltering:
+    """FA filtering: probable-starter (pitchers), game-today (batters)."""
+
+    def test_pitcher_must_be_probable_starter_today(self):
+        # A rostered SP with bad projection as "worst rostered pitcher" drop,
+        # and two FA pitchers: one probable today, one NOT on the schedule.
+        my_sp_drop = _make_pitcher(1, "Bad SP Roster", w=2, l=8, k=60, era=5.00, whip=1.50, ip=60)
+        my_bat = _make_player(2, "Solid Bat", positions="OF", pa=500, hr=25, r=75, rbi=70, sb=5)
+        fa_probable = _make_pitcher(100, "Elite Probable", w=15, l=5, k=220, era=2.90, whip=1.00, ip=190)
+        fa_not_probable = _make_pitcher(101, "Elite Not Probable", w=15, l=5, k=220, era=2.90, whip=1.00, ip=190)
+
+        ctx = _stream_ctx(
+            roster_ids=[1, 2],
+            pool=[my_sp_drop, my_bat, fa_probable, fa_not_probable],
+            fas=[fa_probable, fa_not_probable],
+            my_totals={
+                "hr": 10,
+                "r": 30,
+                "rbi": 25,
+                "sb": 2,
+                "avg": 0.250,
+                "obp": 0.310,
+                "w": 1,
+                "l": 3,
+                "sv": 1,
+                "k": 25,
+                "era": 5.00,
+                "whip": 1.45,
+            },
+            opp_totals={
+                "hr": 9,
+                "r": 28,
+                "rbi": 24,
+                "sb": 3,
+                "avg": 0.255,
+                "obp": 0.315,
+                "w": 2,
+                "l": 2,
+                "sv": 2,
+                "k": 30,
+                "era": 4.20,
+                "whip": 1.30,
+            },
+            todays_schedule=[{"home_probable_pitcher": {"id": 100}, "away_probable_pitcher": None}],
+        )
+        result = recommend_streaming_moves(ctx)
+        add_ids = {s["add_id"] for s in result["pitchers"]}
+        assert 101 not in add_ids  # not probable → excluded
+        # 100 may or may not surface depending on thresholds; the key
+        # assertion is the non-probable was filtered out.
+
+    def test_batter_must_have_game_today(self):
+        my_bat_drop = _make_player(1, "Weak Bat", positions="OF", hr=3, r=15, rbi=10, sb=0, avg=0.210, obp=0.270)
+        my_sp = _make_pitcher(2, "SP", w=10, l=5, k=150, era=3.5, whip=1.20, ip=180)
+        fa_playing = _make_player(100, "FA Playing", positions="OF", hr=25, r=70, rbi=65, sb=15, avg=0.290, obp=0.360)
+        fa_playing["team"] = "COL"
+        fa_off_day = _make_player(101, "FA Off Day", positions="OF", hr=25, r=70, rbi=65, sb=15, avg=0.290, obp=0.360)
+        fa_off_day["team"] = "DET"
+
+        ctx = _stream_ctx(
+            roster_ids=[1, 2],
+            pool=[my_bat_drop, my_sp, fa_playing, fa_off_day],
+            fas=[fa_playing, fa_off_day],
+            my_totals={
+                "hr": 5,
+                "r": 20,
+                "rbi": 15,
+                "sb": 1,
+                "avg": 0.230,
+                "obp": 0.290,
+                "w": 3,
+                "l": 1,
+                "sv": 2,
+                "k": 40,
+                "era": 3.5,
+                "whip": 1.20,
+            },
+            opp_totals={
+                "hr": 5,
+                "r": 22,
+                "rbi": 17,
+                "sb": 4,
+                "avg": 0.240,
+                "obp": 0.300,
+                "w": 3,
+                "l": 1,
+                "sv": 2,
+                "k": 38,
+                "era": 3.4,
+                "whip": 1.22,
+            },
+            todays_schedule=[{"home_team": "COL", "away_team": "SFG"}],
+        )
+        result = recommend_streaming_moves(ctx)
+        add_ids = {s["add_id"] for s in result["batters"]}
+        assert 101 not in add_ids  # DET has no game today
+
+
+class TestStreamingThresholds:
+    """Net SGP and hurts threshold filters."""
+
+    def test_low_net_sgp_excluded(self):
+        # FA marginally better than drop → net SGP < 0.70 → excluded.
+        my_bat = _make_player(1, "Rostered", hr=15, r=50, rbi=45, sb=5, avg=0.260, obp=0.325)
+        my_sp = _make_pitcher(2, "SP", w=10, l=5, k=150, era=3.5, whip=1.20, ip=180)
+        fa_similar = _make_player(100, "Similar FA", hr=16, r=52, rbi=46, sb=5, avg=0.262, obp=0.326)
+        fa_similar["team"] = "HOU"
+
+        ctx = _stream_ctx(
+            roster_ids=[1, 2],
+            pool=[my_bat, my_sp, fa_similar],
+            fas=[fa_similar],
+            my_totals={
+                "hr": 15,
+                "r": 50,
+                "rbi": 45,
+                "sb": 5,
+                "avg": 0.260,
+                "obp": 0.325,
+                "w": 3,
+                "l": 1,
+                "sv": 2,
+                "k": 50,
+                "era": 3.5,
+                "whip": 1.20,
+            },
+            opp_totals={
+                "hr": 14,
+                "r": 48,
+                "rbi": 44,
+                "sb": 6,
+                "avg": 0.262,
+                "obp": 0.330,
+                "w": 3,
+                "l": 1,
+                "sv": 2,
+                "k": 48,
+                "era": 3.6,
+                "whip": 1.22,
+            },
+            todays_schedule=[{"home_team": "HOU", "away_team": "LAA"}],
+        )
+        result = recommend_streaming_moves(ctx)
+        # Similar player → low net SGP → should not appear
+        for s in result["batters"]:
+            assert s["add_id"] != 100 or s["net_sgp"] >= 0.70
+
+    def test_max_per_side_cap(self):
+        # Build many potentially-valid FA batters, verify cap of 3.
+        my_bad = _make_player(1, "Bad Rostered", hr=1, r=5, rbi=3, sb=0, avg=0.180, obp=0.240, pa=50, ab=45, h=9)
+        my_sp = _make_pitcher(2, "SP", w=10, l=5, k=150, era=3.5, whip=1.20, ip=180)
+        fas = []
+        for i in range(8):
+            fa = _make_player(100 + i, f"Elite FA {i}", hr=35, r=100, rbi=95, sb=20, avg=0.310, obp=0.380)
+            fa["team"] = "COL"
+            fas.append(fa)
+        pool = [my_bad, my_sp] + fas
+
+        ctx = _stream_ctx(
+            roster_ids=[1, 2],
+            pool=pool,
+            fas=fas,
+            my_totals={
+                "hr": 10,
+                "r": 30,
+                "rbi": 25,
+                "sb": 2,
+                "avg": 0.240,
+                "obp": 0.300,
+                "w": 3,
+                "l": 1,
+                "sv": 2,
+                "k": 40,
+                "era": 3.5,
+                "whip": 1.20,
+            },
+            opp_totals={
+                "hr": 9,
+                "r": 28,
+                "rbi": 24,
+                "sb": 3,
+                "avg": 0.245,
+                "obp": 0.305,
+                "w": 2,
+                "l": 2,
+                "sv": 2,
+                "k": 42,
+                "era": 3.6,
+                "whip": 1.22,
+            },
+            todays_schedule=[{"home_team": "COL", "away_team": "SFG"}],
+        )
+        result = recommend_streaming_moves(ctx, max_per_side=3)
+        assert len(result["batters"]) <= 3
+
+
+class TestStreamingSort:
+    """Streaming results are sorted best-to-worst by net SGP."""
+
+    def test_sort_descending_by_net_sgp(self):
+        my_bad = _make_player(1, "Bad Rostered", hr=1, r=5, rbi=3, sb=0, avg=0.180, obp=0.240, pa=50, ab=45, h=9)
+        my_sp = _make_pitcher(2, "SP", w=10, l=5, k=150, era=3.5, whip=1.20, ip=180)
+
+        # Three FAs of decreasing strength.
+        fas = []
+        for i, hr_val in enumerate([35, 30, 25]):
+            fa = _make_player(
+                100 + i,
+                f"FA{i}",
+                hr=hr_val,
+                r=100 - i * 10,
+                rbi=95 - i * 10,
+                sb=20 - i * 2,
+                avg=0.310 - i * 0.01,
+                obp=0.380 - i * 0.01,
+            )
+            fa["team"] = "COL"
+            fas.append(fa)
+
+        ctx = _stream_ctx(
+            roster_ids=[1, 2],
+            pool=[my_bad, my_sp] + fas,
+            fas=fas,
+            my_totals={
+                "hr": 10,
+                "r": 30,
+                "rbi": 25,
+                "sb": 2,
+                "avg": 0.240,
+                "obp": 0.300,
+                "w": 3,
+                "l": 1,
+                "sv": 2,
+                "k": 40,
+                "era": 3.5,
+                "whip": 1.20,
+            },
+            opp_totals={
+                "hr": 9,
+                "r": 28,
+                "rbi": 24,
+                "sb": 3,
+                "avg": 0.245,
+                "obp": 0.305,
+                "w": 2,
+                "l": 2,
+                "sv": 2,
+                "k": 42,
+                "era": 3.6,
+                "whip": 1.22,
+            },
+            todays_schedule=[{"home_team": "COL", "away_team": "SFG"}],
+        )
+        result = recommend_streaming_moves(ctx)
+        nets = [s["net_sgp"] for s in result["batters"]]
+        assert nets == sorted(nets, reverse=True)
+
+
+class TestStreamingILExclusion:
+    """IL FAs are ineligible for streaming (streaming is for healthy adds only)."""
+
+    def test_il_fa_not_streamed(self):
+        my_bad = _make_player(1, "Rostered")
+        my_sp = _make_pitcher(2, "SP")
+        fa_il = _make_player(100, "IL FA", hr=35, r=100, rbi=95, sb=20, avg=0.310, obp=0.380, status="IL15")
+        fa_il["team"] = "COL"
+
+        ctx = _stream_ctx(
+            roster_ids=[1, 2],
+            pool=[my_bad, my_sp, fa_il],
+            fas=[fa_il],
+            my_totals={
+                "hr": 10,
+                "r": 30,
+                "rbi": 25,
+                "sb": 2,
+                "avg": 0.240,
+                "obp": 0.300,
+                "w": 3,
+                "l": 1,
+                "sv": 2,
+                "k": 40,
+                "era": 3.5,
+                "whip": 1.20,
+            },
+            opp_totals={
+                "hr": 9,
+                "r": 28,
+                "rbi": 24,
+                "sb": 3,
+                "avg": 0.245,
+                "obp": 0.305,
+                "w": 2,
+                "l": 2,
+                "sv": 2,
+                "k": 42,
+                "era": 3.6,
+                "whip": 1.22,
+            },
+            todays_schedule=[{"home_team": "COL", "away_team": "SFG"}],
+        )
+        result = recommend_streaming_moves(ctx)
+        assert all(s["add_id"] != 100 for s in result["batters"])
+        assert all(s["add_id"] != 100 for s in result["pitchers"])
