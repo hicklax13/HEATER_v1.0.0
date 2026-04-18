@@ -460,6 +460,151 @@ target = get_target_game_date()  # Today, or tomorrow if all games final
 | Umpire tendencies | Baseball Savant + Retrosheet | 7 days |
 | Catcher framing | Baseball Savant | 7 days |
 
+## Known Data Issues — 2026-04-18 Audit
+
+Four parallel investigation agents (player pool integrity, schedule/date, DCV trace, bootstrap integrity) did a rigorous end-to-end audit after the user reported "these DCV results DO NOT make sense" on Saturday 2026-04-18 evening. Findings: **the DCV=0 values the user was looking at were CORRECT behavior** (games in progress → `locked_teams` → `volume=0`; pitchers not probable today → pure-SP gate → `volume=0`). BUT the audit uncovered **14 distinct silent-fail patterns in the data pipeline**, 4 of them P0 code bugs. Logging here so a future session can pick up any task without re-running the audit.
+
+### Context for next session
+
+- **Audit date/time**: 2026-04-18, user viewing app at ~15:13 ET.
+- **Roster verified correct** via live MLB-StatsAPI: Valdez→DET, Suarez→ATL, Bradley→MIN, Bregman→CHC, Swanson→CHC, etc. are the real 2026 MLB teams in this simulated 2026 world. Do not "fix" team assignments based on pre-2026 real-world knowledge.
+- **locked_teams logic works correctly**: in-progress/final/started games (per `game_datetime <= now_utc`) correctly zero `volume_factor` via the early-return branch at [src/optimizer/daily_optimizer.py:657-679](src/optimizer/daily_optimizer.py). The UI renders this as "Matchup 0.00 / DCV 0.00" which is misleading (see Finding #12).
+- **Pure-SP probable-starter gate**: Agents 2 & 4 say the gate at [src/optimizer/daily_optimizer.py:637-648](src/optimizer/daily_optimizer.py) fires correctly (zeroes non-probable SPs). Agent 3 ran a live reproducer and claims `players.positions='P'` (not `'SP'`/`'RP'`) makes the gate dead code. UI shows `SP,P` in Position Eligibility. **Still unresolved** — trace whether the DCV code reads `players.positions` (MLB, collapses to `P`) vs Yahoo's `eligible_positions` (has full `SP,P`). If the former, the gate is silently disabled; if the latter, it works.
+
+### The 14 findings (SF-1 through SF-14)
+
+#### P0 — Critical code bugs silently corrupting DCV inputs
+
+**SF-1 · `game_logs` table has 0 rows for ALL seasons (2024/2025/2026)**
+- File: [src/player_databank.py:344-381](src/player_databank.py) (function `_fetch_and_store_player_logs`)
+- The 2026-04-17 fix switched from `statsapi.player_stat_data()` to `statsapi.get("person_stats", ...)`. But the `person_stats` endpoint's URL template is `/people/{personId}/stats/game/{gamePk}` — it requires a `gamePk` path parameter. Calling without it raises `ValueError: Missing required path parameter {gamePk}`. Caught silently by line 380 `except Exception: logger.debug(...)`.
+- **Working incantation**: `statsapi.get("person", {"personId": mlb_id, "hydrate": f"stats(group=[{group}],type=[gameLog],season={season})"})` returns `people[0].stats[0].splits[]` with proper `{date, stat, team, opponent, isHome}` per game.
+- Evidence: `SELECT COUNT(*) FROM game_logs → 0`; `refresh_log.game_logs = 'no_data'`.
+- Impact: DCV L14 recent-form blending ([daily_optimizer.py:768-823](src/optimizer/daily_optimizer.py)), War Room hot/cold, Free Agents L14 columns, Player Compare L7/L14 — all dead code. `compute_rolling_stats()` returns empty for every call.
+
+**SF-2 · `season_stats` silently drops 86% of fetched rows**
+- File: [src/live_stats.py:363-474](src/live_stats.py) (function `save_season_stats_to_db`)
+- `fetch_season_stats(2026)` pulls 7407 rows (with `rosterType=fullRoster`), but only 1002 save. Threshold `expected_min=500` lets `update_refresh_log_auto` write "success" despite 86% discard.
+- Root cause: (a) 8302/9364 players have NULL `mlb_id`, so mlb_id join fails; (b) name+team exact match fails for players on teams the `players` table doesn't know about; (c) is_hitter mismatch guard silently skips cross-type rows.
+- Evidence: `refresh_log.season_stats.message = 'saved 1002/7407 rows'`.
+- Impact: Rostered players like Ohtani, Burnes, Snell, Pepiot, Schwellenbach have **no 2026 season stats** at all.
+- Fix pattern: `update_refresh_log_auto("season_stats", count, expected_min=max(500, int(len(df) * 0.80)))` — flag as "partial" when <80%.
+
+**SF-3 · Ohtani and all Two-Way Players completely skipped**
+- File: [src/live_stats.py:311](src/live_stats.py), [src/live_stats.py:337-352](src/live_stats.py)
+- Filter `pos_type = position.get("type", "")` then `is_pitcher = pos_type == "Pitcher"`. Ohtani's `position.type = "Two-Way Player"` → `is_pitcher = False`. MLB API returns only his pitching stats; the code hits `elif group_name == "pitching" and not is_pitcher: pass  # skip`.
+- Evidence: `SELECT ... WHERE name='Shohei Ohtani' AND season=2026 → 0 rows` despite mlb_id 660271 being present.
+- Fix: `is_pitcher = pos_type in ("Pitcher", "Two-Way Player")` OR emit two logical rows per Two-Way Player.
+
+**SF-4 · `team_strength` refresh_log race condition (UI lies about freshness)**
+- File: [src/data_bootstrap.py:915-932](src/data_bootstrap.py) (`_bootstrap_team_strength`)
+- **The data is fresh** — 30 teams written at 15:58-15:59 UTC during today's bootstrap. But `refresh_log.team_strength = '2026-04-18T05:21:02Z'` from a prior 1:21 AM run. UI Data Freshness panel reads refresh_log → shows stale.
+- Root cause: Phase 20+21 parallel ThreadPoolExecutor submits both `_bootstrap_team_strength` AND `_bootstrap_game_day` concurrently. Both call `fetch_team_strength(2026)` internally. 60 concurrent writes to `team_strength` + Phase 22-24 Stuff+/Batting Stats writers → after ~30s of SQLite lock contention, the final `update_refresh_log("team_strength", "success")` at line 925 raises `OperationalError: database is locked`, outer `except` also fails, refresh_log row never rewritten.
+- Corroborating evidence: `refresh_log.stuff_plus` + `refresh_log.batting_stats` both timestamped `15:59:34`, exactly when team_strength would have finished — same write-lock window.
+- Fix options: (a) remove `_bootstrap_team_strength` from parallel block; (b) make `_bootstrap_game_day` skip internal `fetch_team_strength` when the standalone phase is queued; (c) serialize via explicit lock.
+
+#### P1 — Structural silent failures
+
+**SF-5 · `depth_charts` endpoint unavailable → `depth_chart_role` + `lineup_slot` NULL for all 9364 players**
+- File: [src/data_bootstrap.py:812-834](src/data_bootstrap.py) (`_bootstrap_depth_charts`), [src/depth_charts.py](src/depth_charts.py)
+- `fetch_depth_charts()` returned empty dict at 15:36:53 UTC today. `update_refresh_log("depth_charts", "no_data")` logged.
+- Evidence: `SELECT COUNT(*) FROM players WHERE depth_chart_role IS NOT NULL = 0`.
+- Impact: Closer monitor page grid broken, closer-vs-setup distinction in optimizer gone, lineup_slot batting-order proxy missing.
+- Fix: Add MLB Stats API `team_roster` fallback with `depthChartPosition` hydration.
+
+**SF-6 · FanGraphs 403s block Stuff+, batting_stats, statcast refinements**
+- `stuff_plus`, `location_plus`, `pitching_plus` columns NULL on `season_stats` for all pitchers.
+- `statcast_archive` sparse (374 rows only).
+- Stuff+ K-boost path at [daily_optimizer.py:963-971](src/optimizer/daily_optimizer.py) silently does nothing (everyone's `stuff_plus=0`).
+- Per CLAUDE.md: "leaders-legacy.aspx returns 403 to non-browser scrapers". Known limitation but functionally degrades K/rate-stat matchup adjustments.
+
+**SF-7 · `catcher_framing` + `umpire_tendencies` tables empty**
+- File: [src/data_bootstrap.py:1349-1537](src/data_bootstrap.py) (umpire), [src/data_bootstrap.py:1539-1737](src/data_bootstrap.py) (catcher_framing)
+- Umpire: `boxscore_data()` failed to extract `hp_umpire` for all games (MLB boxscore structure changed).
+- Catcher framing: all 3 sources (Savant, FanGraphs, statsapi fallback) failed.
+- Tables have 0 rows. Matchup multipliers use neutral defaults everywhere.
+
+**SF-8 · Stale `ARI` row + missing `AZ`/`ARI` equivalence**
+- File: [src/optimizer/daily_optimizer.py:472-480](src/optimizer/daily_optimizer.py) (`_TEAM_EQUIVALENCES`)
+- `team_strength` table has both `ARI` (stale, 2026-04-06) AND `AZ` (today, 2026-04-18) — upsert keyed on `(team_abbr, season)` treats them as separate teams.
+- `_TEAM_EQUIVALENCES` doesn't include `{"ARI": {"ARI", "AZ"}, "AZ": {"AZ", "ARI"}}`. Any pitcher facing Arizona gets wrong wRC+ adjustment if the lookup hits the `ARI` key.
+- Same pattern likely affects KC/KCR, CWS/CHW, SD/SDP, TB/TBR, SF/SFG, WSN/WSH.
+- Fix: Add missing equivalence classes; also purge stale rows at bootstrap start (`DELETE FROM team_strength WHERE fetched_at < datetime('now','-3 days')`).
+
+**SF-9 · `opp_pitcher_stats` loader has no recency filter**
+- File: [src/optimizer/shared_data_layer.py:617-622](src/optimizer/shared_data_layer.py)
+- `SELECT * FROM opp_pitcher_stats` — no season filter, no fetched_at filter.
+- 167 rows across 30 teams, keyed on team only. ~5 pitchers per team collapse to last-inserted row.
+- "Opposing pitcher" at DCV compute time may be the guy who pitched 13 days ago, not today's probable.
+- Fix: Add `WHERE season = ? AND fetched_at >= datetime('now','-1 day') ORDER BY fetched_at DESC` and dedupe to today's probable per team.
+
+**SF-10 · Players table only 917 rows upserted vs realistic 1200+**
+- File: [src/data_bootstrap.py:221-253](src/data_bootstrap.py) (`_bootstrap_players`)
+- `expected_min=500` → status "success" because 917 > 500.
+- 30 teams × 40-man = 1200 minimum, 1500+ with spring invites.
+- Consequence: 8302/9364 players end up with NULL `mlb_id`, which breaks every downstream name-matching path (SF-2 root cause).
+
+#### P2 — UI/UX accuracy issues
+
+**SF-11 · Weather lookup uses UTC date instead of target game date**
+- File: [src/optimizer/daily_optimizer.py:568](src/optimizer/daily_optimizer.py)
+- `today_date = _dt.now(_utc).strftime('%Y-%m-%d')` fetches yesterday's weather during the UTC 00:00-05:00 overlap (when ET is still today).
+- Low severity; 1 hour/day window. Fix: use `get_target_game_date()` from [src/game_day.py:21](src/game_day.py).
+
+**SF-12 · `matchup_mult=0.0` sentinel displays as "Matchup 0.00"**
+- File: [src/optimizer/daily_optimizer.py:670](src/optimizer/daily_optimizer.py)
+- Early-return excluded branch sets `matchup_mult = 0.0` as a sentinel, not a real computation. The UI renders this as "0.00" which reads to users as "the matchup is terrible."
+- Fix: Set to `None`/`NaN` and render `—` in the UI when `volume==0`. Separates "game locked" from "bad matchup".
+
+**SF-13 · `pvb_splits` writes "success" when 0 new matchups added**
+- File: [src/data_bootstrap.py:1740-1903](src/data_bootstrap.py)
+- By-design aggressive cache (1635 rows from 04-09 and 04-17 runs). Today added 0 new, still writes "success" → UI green.
+- Minor UX issue. Consider "cached" or "skipped-fresh" status to distinguish from actual successful fetch.
+
+**SF-14 · No persistent logging**
+- No `logs/` or `data/logs/` directory. No `bootstrap_results.json`. Python logging writes stderr only, Streamlit may not capture.
+- Post-mortems like the 2026-04-18 audit require database archaeology of `refresh_log`.
+- Fix: Configure rotating file handler at `data/logs/bootstrap.log`; persist `st.session_state["bootstrap_results"]` to disk at end of bootstrap.
+
+### Priority task list — for pickup in any session
+
+**Task 1 (P0) — Fix SF-1: restore `game_logs` fetch** ✅ DONE (see commit log)
+- File: [src/player_databank.py:353-363](src/player_databank.py)
+- Replace `statsapi.get("person_stats", {...})` with `statsapi.get("person", {"personId": mlb_id, "hydrate": f"stats(group=[{group}],type=[gameLog],season={season})"})`.
+- Response shape: `resp["people"][0]["stats"][0]["splits"][]` — each split has `{date, stat: {...}, team, opponent, isHome}`.
+- Verify: after fix, `python -c "from src.player_databank import fetch_game_logs_from_api; fetch_game_logs_from_api(season=2026, limit=5)"` and `SELECT COUNT(*) FROM game_logs`.
+- Test suite: `python -m pytest tests/test_player_databank.py -v`.
+
+**Task 2 (P0) — Fix SF-2 + SF-3: season_stats discard + Two-Way Player handling** — PENDING
+- Files: [src/live_stats.py:311](src/live_stats.py), [src/live_stats.py:363-474](src/live_stats.py)
+- Change: `is_pitcher = pos_type in ("Pitcher", "Two-Way Player")` (line 311).
+- Change: `update_refresh_log_auto("season_stats", count, expected_min=max(500, int(len(df) * 0.80)))`.
+- Also return `(saved, no_match, type_mismatch, backfilled)` tuple from `save_season_stats_to_db` so `refresh_log.message` can surface the drops.
+- Verify: `SELECT COUNT(*) FROM season_stats WHERE name='Shohei Ohtani' AND season=2026` returns >0 after re-run.
+
+**Task 3 (P0) — Fix SF-4: team_strength race condition** — PENDING
+- File: [src/data_bootstrap.py:915-932](src/data_bootstrap.py)
+- Option (a) — simplest: remove `_bootstrap_team_strength` from Phase 20+21 parallel block; call it sequentially AFTER `_bootstrap_game_day`.
+- Option (b): have `_bootstrap_game_day` skip its internal `fetch_team_strength` call when the standalone phase is queued.
+- Add bootstrap-exit validation: any phase in the parallel block without a fresh `refresh_log` row should log an error (would have caught SF-4 immediately).
+- Verify: After bootstrap, `SELECT timestamp FROM refresh_log WHERE phase='team_strength'` should be within ~2 min of bootstrap end.
+
+**Task 4 (P1) — Fix SF-8: AZ/ARI equivalence** — PENDING
+- File: [src/optimizer/daily_optimizer.py:472-480](src/optimizer/daily_optimizer.py)
+- Add: `{"AZ": {"AZ", "ARI"}, "ARI": {"AZ", "ARI"}}` and audit the full set: KC/KCR, CWS/CHW, SD/SDP, TB/TBR, SF/SFG, WSN/WSH.
+- Also purge stale rows: `DELETE FROM team_strength WHERE fetched_at < datetime('now','-3 days')` at bootstrap start.
+- Verify: `_expand_equivalences("ARI")` returns `{"ARI", "AZ"}`.
+
+**Task 5 (P2) — Fix SF-12: render `—` instead of `0.00` for excluded rows** — PENDING
+- File: [src/optimizer/daily_optimizer.py:670](src/optimizer/daily_optimizer.py) (set `matchup_mult = None` when `volume == 0.0`)
+- File: [pages/6_Line-up_Optimizer.py](pages/6_Line-up_Optimizer.py) (table renderer — add `—` formatting when `matchup_mult is None` or `NaN`)
+- Also add a "Reason" column showing LOCKED / IL / OFF_DAY / NOT_PROBABLE so users can distinguish data problems from correct zeroes.
+- Verify in browser: reload optimizer on a day with mixed in-progress + future games; confirm locked rows show `—` not `0.00`.
+
+### Unresolved contradiction (needs trace)
+
+Agents 2 & 4 claim the pure-SP probable gate at [daily_optimizer.py:637-648](src/optimizer/daily_optimizer.py) fires correctly. Agent 3 ran a reproducer and said `players.positions='P'` makes the gate dead code. UI shows `SP,P` in Position Eligibility column. Resolution: trace whether the DCV code reads `players.positions` (MLB, `P`) or Yahoo's `eligible_positions` (`SP,P` or `SP,RP,P`). If it reads the MLB column, the 2026-04-17 trust-audit fix is silently disabled and needs to be rewired to use Yahoo's eligibility column.
+
 ## GitHub
 
 - **Repo:** https://github.com/hicklax13/HEATER_v1.0.0
