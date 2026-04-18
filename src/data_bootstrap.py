@@ -28,6 +28,36 @@ _TIMEOUT_ECR_CONSENSUS = 240  # multi-source scraping + ranking
 _LAST_BOOTSTRAP_CTX: AnalyticsContext | None = None
 
 
+def _live_stats_ttl_hours(default_hours: float = 1.0) -> float:
+    """Return the live_stats TTL in hours, tightened during the MLB game window.
+
+    Between 7 PM and 1 AM US Eastern (when most MLB games are in-progress or
+    just-finished), use a 15-minute TTL so season_stats re-fetches quickly
+    after a game ends. Outside that window the standard 1-hour TTL applies.
+    This only matters for within-session refreshes — force=True on launch
+    bypasses staleness entirely.
+    """
+    try:
+        from datetime import datetime as _dt
+
+        try:
+            from zoneinfo import ZoneInfo as _ZI
+
+            now_et = _dt.now(_ZI("America/New_York"))
+        except Exception:
+            # Fallback: UTC-4 approximation (EDT); not perfect across DST
+            # transitions but better than silently disabling the window.
+            from datetime import timedelta, timezone
+
+            now_et = _dt.now(timezone(timedelta(hours=-4)))
+        hour = now_et.hour
+        if hour >= 19 or hour < 1:
+            return 0.25  # 15 minutes during active game window
+    except Exception:
+        pass
+    return default_hours
+
+
 def _format_fetch_error(exc: Exception, source: str = "FanGraphs") -> str:
     """Translate known HTTP failure signatures to cleaner status messages.
 
@@ -100,7 +130,7 @@ class StalenessConfig:
     """Max age (hours) before each data source is refreshed."""
 
     players_hours: float = 168  # 7 days
-    live_stats_hours: float = 1  # 1 hour
+    live_stats_hours: float = 1  # 1 hour (overridden to 0.25h during game window — see _live_stats_ttl_hours())
     projections_hours: float = 24  # 24 hours
     historical_hours: float = 720  # 30 days
     park_factors_hours: float = 720  # 30 days
@@ -2022,7 +2052,7 @@ def bootstrap_all_data(
 
     # Phases 4+5: Live stats + Historical (parallel — both independent)
     _notify(0.45)
-    live_stale = force or check_staleness("season_stats", staleness.live_stats_hours)
+    live_stale = force or check_staleness("season_stats", _live_stats_ttl_hours(staleness.live_stats_hours))
     hist_stale = force or check_staleness("historical_stats", staleness.historical_hours)
     historical_data = None
 
@@ -2293,7 +2323,7 @@ def bootstrap_all_data(
 
     # Phase 19: ROS Bayesian projections (depends on live stats + projections)
     _notify(0.965)
-    if force or check_staleness("ros_projections", staleness.live_stats_hours):
+    if force or check_staleness("ros_projections", _live_stats_ttl_hours(staleness.live_stats_hours)):
         progress.phase = "ROS Projections"
         progress.detail = "Updating Bayesian rest-of-season projections..."
         if on_progress:

@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 import re
 import unicodedata
+from datetime import UTC
 
 import pandas as pd
 
@@ -464,8 +465,36 @@ def build_daily_dcv_table(
         return {abbr}
 
     teams_playing: set[str] = set()
+    # Teams whose game has already started or finished today — players on
+    # these teams are "locked" by Yahoo (you can't swap them anymore), so
+    # their forward-looking DCV should be 0. This prevents the mid-day
+    # optimizer view from suggesting actions on games already in progress.
+    locked_teams: set[str] = set()
+    _now_utc = None
+    try:
+        from datetime import datetime as _dt
+
+        _now_utc = _dt.now(UTC)
+    except Exception:
+        _now_utc = None
     if schedule_today:
         for game in schedule_today:
+            # Determine if this game is locked (started or finished)
+            _game_locked = False
+            _status_str = str(game.get("status", "")).lower()
+            if any(s in _status_str for s in ("in progress", "final", "game over", "completed")):
+                _game_locked = True
+            elif _now_utc is not None:
+                _ts = game.get("game_datetime") or game.get("game_date")
+                if _ts:
+                    try:
+                        from datetime import datetime as _dt2
+
+                        _game_time = _dt2.fromisoformat(str(_ts).replace("Z", "+00:00"))
+                        if _game_time <= _now_utc:
+                            _game_locked = True
+                    except (ValueError, TypeError):
+                        pass
             for key in ("away_name", "away_team", "home_name", "home_team"):
                 raw = str(game.get(key, "")).upper().strip()
                 if raw:
@@ -476,6 +505,10 @@ def build_daily_dcv_table(
                     teams_playing.add(raw)
                     # Expand via equivalence map (WSN/WSH/WAS all play if one does)
                     teams_playing.update(_expand_equivalences(abbr))
+                    if _game_locked:
+                        locked_teams.add(abbr)
+                        locked_teams.add(raw)
+                        locked_teams.update(_expand_equivalences(abbr))
 
     # Get urgency weights from matchup (use caller-provided if available)
     if urgency_weights is not None:
@@ -595,6 +628,13 @@ def build_daily_dcv_table(
         volume = compute_volume_factor(team_plays, in_lineup)
         if _pitcher_volume_override is not None:
             volume = _pitcher_volume_override
+        # Deduct already-played game contributions: if this player's team
+        # has a game in progress or final today, Yahoo has locked the slot
+        # and the player can no longer be swapped in/out. Forward-looking
+        # DCV must be 0 — the optimizer shouldn't "recommend" someone whose
+        # game is already started/done as if action is still possible.
+        if team in locked_teams:
+            volume = 0.0
 
         # Skip entirely if excluded
         if health == 0.0 or volume == 0.0:
@@ -604,6 +644,7 @@ def build_daily_dcv_table(
                 "positions": positions,
                 "team": team,
                 "is_hitter": is_hitter,
+                "game_locked": team in locked_teams,
                 "health_factor": health,
                 "volume_factor": volume,
                 "matchup_mult": 0.0,
@@ -742,6 +783,7 @@ def build_daily_dcv_table(
             "positions": positions,
             "team": team,
             "is_hitter": is_hitter,
+            "game_locked": False,
             "health_factor": health,
             "volume_factor": volume,
             "matchup_mult": round(matchup_mult, 3),

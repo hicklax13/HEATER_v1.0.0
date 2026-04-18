@@ -53,6 +53,9 @@ _STREAM_CROSS_SIDE_RATIO = 0.5  # cross-swap if cross-worst < this * same-worst
 _STREAM_DROP_TODAY_BONUS = 0.15  # protect rostered players with today game
 _STREAM_MAX_PER_SIDE = 3  # cap per-side recommendations
 _STREAM_IP_MIN = 20  # weekly IP minimum (Yahoo forfeit line)
+_STREAM_IP_TARGET = 54  # weekly IP goal (12 SP starts/team × ~6.5 IP/start)
+_STREAM_NET_SGP_RELAXED = 0.40  # pitcher-stream threshold when IP < 75% of target
+_STREAM_IP_RELAX_RATIO = 0.75  # below this fraction of target, relax pitcher SGP bar
 
 
 def _player_is_il(ctx: OptimizerDataContext, pid: int) -> bool:
@@ -905,6 +908,45 @@ def recommend_streaming_moves(
     diagnostics["n_probable_sps"] = len(probable_sp_ids)
     diagnostics["n_teams_playing_today"] = len(teams_playing)
 
+    # Dynamic SGP threshold for pitcher streams: if weekly IP is below 75%
+    # of the target (54 IP), relax the +0.70 SGP bar to +0.40 so more
+    # marginal-but-helpful pitcher pickups surface. Otherwise the engine can
+    # be over-conservative and miss easy IP-adding streams when the user
+    # has an IP deficit (e.g., 38.5/54 = 71% with zero streams today).
+    _ip_projected = 0.0
+    try:
+        from src.ip_tracker import compute_weekly_ip_projection, get_days_remaining_in_week
+
+        _pitchers_for_ip = []
+        for pid in ctx.user_roster_ids:
+            m = ctx.player_pool[ctx.player_pool["player_id"] == pid]
+            if m.empty:
+                continue
+            r = m.iloc[0]
+            if bool(int(r.get("is_hitter", 1))):
+                continue
+            _pitchers_for_ip.append(
+                {
+                    "player_id": pid,
+                    "ip": float(r.get("ip", 0) or 0),
+                    "positions": str(r.get("positions", "")),
+                    "status": str(r.get("status", "active")),
+                    "is_starter": "SP" in str(r.get("positions", "")).upper(),
+                }
+            )
+        _ip_res = compute_weekly_ip_projection(_pitchers_for_ip, get_days_remaining_in_week())
+        _ip_projected = float(_ip_res.get("projected_ip", 0) or 0)
+    except Exception:
+        logger.debug("IP projection for dynamic SGP threshold failed", exc_info=True)
+        _ip_projected = 0.0
+    _pitcher_sgp_threshold = (
+        _STREAM_NET_SGP_RELAXED
+        if _STREAM_IP_TARGET > 0 and _ip_projected / _STREAM_IP_TARGET < _STREAM_IP_RELAX_RATIO
+        else _STREAM_NET_SGP_MIN
+    )
+    diagnostics["ip_projected_pre_swap"] = round(_ip_projected, 1)
+    diagnostics["pitcher_sgp_threshold"] = _pitcher_sgp_threshold
+
     worst_pitcher_id, worst_pitcher_score = _worst_rostered(ctx, is_hitter=False, teams_playing_today=teams_playing)
     worst_batter_id, worst_batter_score = _worst_rostered(ctx, is_hitter=True, teams_playing_today=teams_playing)
 
@@ -991,7 +1033,12 @@ def recommend_streaming_moves(
         net_sgp = float(swap.get("net_sgp", 0))
         cat_deltas = {str(k).lower(): float(v) for k, v in swap.get("category_deltas", {}).items()}
 
-        if net_sgp < _STREAM_NET_SGP_MIN:
+        # Pitcher streams get the dynamic threshold (relaxed when IP deficit);
+        # batter streams keep the stricter +0.70 SGP bar. This prevents batter
+        # noise when IP is low while still opening up pitcher pickups that
+        # would help close the IP gap.
+        _applicable_min = _pitcher_sgp_threshold if not fa_is_hitter else _STREAM_NET_SGP_MIN
+        if net_sgp < _applicable_min:
             diagnostics["n_fa_filtered_net_sgp"] += 1
             continue
 

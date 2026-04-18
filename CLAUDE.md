@@ -21,7 +21,7 @@ python load_sample_data.py             # Load sample data (first time/testing)
 streamlit run app.py                   # Run the app
 python -m ruff check .                 # Lint
 python -m ruff format .                # Format
-python -m pytest                       # Run all tests (~3385 pass, ~13 skipped)
+python -m pytest                       # Run all tests (~3401 pass, ~13 skipped)
 python -m pytest tests/test_foo.py -v  # Run single test file
 
 # Optimizer validation tools
@@ -375,6 +375,7 @@ target = get_target_game_date()  # Today, or tomorrow if all games final
 - **SQLite WAL mode + busy_timeout** (2026-04-17 trust audit) — `get_connection()` in `src/database.py` sets `PRAGMA journal_mode=WAL`, `PRAGMA busy_timeout=30000`, `PRAGMA synchronous=NORMAL` on every connection. Root-cause fix for 6 bootstrap phases that failed with "database is locked" when the `ThreadPoolExecutor` blocks ran concurrent writes to per-team tables. Do NOT call `sqlite3.connect()` directly elsewhere — always use `get_connection()`.
 - **Game logs scoped to rostered/40-man players** — `fetch_game_logs_from_api` in `src/player_databank.py` joins `league_rosters` first (drops from ~9K to ~240), falls back to 40-man / active roster. Prevents the 90-second timeout caused by iterating all players.
 - **FanGraphs 403 handling** — `leaders-legacy.aspx` returns 403 to non-browser scrapers; `_format_fetch_error` in `src/data_bootstrap.py` translates 403/429/timeout signatures to "Skipped: ..." messages so Data Status shows known limitations clearly. Team strength has a built-in `_fetch_team_strength_statsapi` fallback to MLB Stats API.
+- **Dynamic live_stats TTL during MLB game window** — `_live_stats_ttl_hours()` in `src/data_bootstrap.py` returns 0.25h (15 min) when current US Eastern time is between 19:00-00:59 (most MLB games in progress or just finished), else 1.0h. Used by `season_stats` and `ros_projections` staleness checks. Only matters for within-session refreshes — force=True on launch bypasses staleness anyway.
 
 ### Yahoo API
 - **OAuth uses oob** — `redirect_uri=oob` required. No localhost redirects.
@@ -420,6 +421,10 @@ target = get_target_game_date()  # Today, or tomorrow if all games final
 - **Matchup multiplier resolves opponent + venue from schedule** (2026-04-17 trust audit). Previously the caller passed `opponent_team=""`, which made `park_factor_adjustment` fall back to the player's own team park regardless of home/away — Moniak (COL) always got 1.38. The caller now walks `schedule_today`, determines if the player is home or away, and passes the **home team code** as `opponent_team` (the convention used by `park_factor_adjustment`). Opposing pitcher throws + xFIP are also resolved from the roster pool and passed through.
 - **Pitcher leave-empty threshold** — `_PITCHER_EMPTY_THRESHOLD = _pitcher_median * 0.20` in `pages/6_Line-up_Optimizer.py` (was 0.05). Raised so marginal SP/RP hybrids with weak matchups go BENCH rather than filling open P slots.
 - **FA streaming drop-candidate is slot-aware** — `_pick_drop(fa_is_hitter, fa_positions)` filters roster players by position overlap with the FA's positions. Prior bug: globally-worst player per side, which caused every batter stream to target the same drop candidate regardless of slot. Cross-swap (drop batter for pitcher stream) still uses global worst by design.
+- **Already-played games zero out DCV** — `build_daily_dcv_table` builds a `locked_teams` set (status "in progress"/"final" or game_datetime ≤ now). Players on those teams get `volume_factor=0.0` because Yahoo locked the slot. Prevents mid-day "suggestions" on games already in progress. Rows get a `game_locked: bool` column for UI introspection.
+- **Forced-start flag on lineup output** — `pages/6_Line-up_Optimizer.py` computes a `forced_start` column: `True` when the LP started a player but `matchup_mult < 0.70` OR `total_dcv < median × 0.5`. Those rows render with `"START ⚠"` decision and orange background (`row-start-forced` CSS class). Makes "best available given roster" picks visible vs. truly optimal picks.
+- **Dynamic streaming SGP threshold for pitchers** — `fa_recommender._STREAM_NET_SGP_RELAXED=0.40` replaces `_STREAM_NET_SGP_MIN=0.70` for PITCHER streams when projected weekly IP is below 75% of `_STREAM_IP_TARGET=54`. Surfaces more pitcher pickups when the user has an IP deficit (e.g. 38.5/54 = 71% → 0.40 threshold applies). Batter streams always use 0.70.
+- **Yahoo lineup mismatch banner** — the optimizer captures the user's Yahoo `selected_position` before overwriting with the LP recommendation, into a `yahoo_slot` column. After the LP runs, it compares — any player the LP wants to start who's currently on BN (or in the wrong starter slot) surfaces an orange banner with the divergence list. IL players are excluded from this check.
 
 ### Dependencies
 - **Pre-commit hook** — `scripts/pre-commit` runs ruff format + lint on staged files. Install with `python scripts/install-hooks.py`.
@@ -459,7 +464,7 @@ target = get_target_game_date()  # Today, or tomorrow if all games final
 
 ## Testing
 
-- **~3385 passing tests** across 151 test files, ~13 skipped (PyMC/XGBoost optional)
+- **~3401 passing tests** across 151 test files, ~13 skipped (PyMC/XGBoost optional)
 - **CI:** GitHub Actions — ruff lint/format, pytest (3.11, 3.12, 3.13), build check
 - **Coverage:** ~65% (60% CI floor)
 - **Pre-commit hook:** Enforces `ruff format` + `ruff check` on every commit

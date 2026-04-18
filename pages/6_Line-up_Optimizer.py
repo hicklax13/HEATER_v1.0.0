@@ -1327,6 +1327,12 @@ with main:
                         _lp_slot_map.pop(_pid, None)
 
                     _starter_indices = eligible.index[eligible["player_id"].isin(_lp_ids)].tolist()
+                    # Capture user's CURRENT Yahoo slot before overwriting with the
+                    # LP recommendation. We use this to detect mismatches and warn
+                    # the user that their actual Yahoo lineup doesn't match the
+                    # optimizer's output (e.g., Bregman on BN when LP says 3B).
+                    if "selected_position" in dcv.columns and "yahoo_slot" not in dcv.columns:
+                        dcv["yahoo_slot"] = dcv["selected_position"].astype(str)
                     # Update selected_position to show LP-recommended slot
                     # instead of Yahoo's current slot (avoids confusing BN+START)
                     if _lp_slot_map and "selected_position" in dcv.columns:
@@ -1334,6 +1340,30 @@ with main:
                             _mask = dcv["player_id"] == _pid
                             if _mask.any():
                                 dcv.loc[_mask, "selected_position"] = _slot
+                    # Detect Yahoo/LP divergences: a player the LP wants to START
+                    # whose Yahoo slot is BN (or a DIFFERENT starter slot than the
+                    # one the LP chose). Collect names for a banner.
+                    _lineup_mismatches: list[dict[str, str]] = []
+                    _bench_codes = {"BN", "BEN", ""}
+                    if "yahoo_slot" in dcv.columns:
+                        for _pid, _lp_slot in _lp_slot_map.items():
+                            _mask = dcv["player_id"] == _pid
+                            if not _mask.any():
+                                continue
+                            _row = dcv[_mask].iloc[0]
+                            _yahoo = str(_row.get("yahoo_slot", "")).strip().upper()
+                            _lp = str(_lp_slot).strip().upper()
+                            if _yahoo in _bench_codes or _yahoo != _lp:
+                                # Skip IL status — that's a separate Yahoo action, not a slotting issue
+                                if _yahoo not in {"IL", "IL+", "NA"}:
+                                    _lineup_mismatches.append(
+                                        {
+                                            "name": str(_row.get("name", _row.get("player_name", ""))),
+                                            "yahoo_slot": _yahoo or "BN",
+                                            "lp_slot": _lp,
+                                        }
+                                    )
+                    st.session_state["_lineup_mismatches"] = _lineup_mismatches
                     # Stash empty-slot info for the display step
                     st.session_state["_lineup_empty_slots"] = _strategic_empty_slots
                     st.session_state["_lineup_filled_slots"] = set(_lp_slot_map.values())
@@ -1382,6 +1412,40 @@ with main:
                             ):
                                 dcv.at[idx, "Decision"] = "BENCH"
 
+                # ── Forced-start flag: START but weak matchup or marginal DCV ──
+                # These are "best available given roster constraints" picks.
+                # Surfacing them prevents user confusion like "why is Reynolds
+                # starting with a 0.66 matchup?" — answer: no other OF-eligible
+                # alternative. A ⚠ marker on the Decision + dedicated row color
+                # makes the forced-pick visible without changing LP behavior.
+                _FORCED_MATCHUP_THRESHOLD = 0.70
+                _FORCED_DCV_RATIO = 0.50
+                if "total_dcv" in dcv.columns and "is_hitter" in dcv.columns:
+                    _h_dcv_pos = dcv.loc[(dcv["is_hitter"].astype(bool)) & (dcv["total_dcv"] > 0), "total_dcv"]
+                    _p_dcv_pos = dcv.loc[(~dcv["is_hitter"].astype(bool)) & (dcv["total_dcv"] > 0), "total_dcv"]
+                    _h_median_forced = float(_h_dcv_pos.median()) if not _h_dcv_pos.empty else 0.0
+                    _p_median_forced = float(_p_dcv_pos.median()) if not _p_dcv_pos.empty else 0.0
+
+                    def _is_forced_start(row):
+                        if row.get("Decision") != "START":
+                            return False
+                        try:
+                            mu = float(row.get("matchup_mult", 1.0) or 1.0)
+                        except (TypeError, ValueError):
+                            mu = 1.0
+                        try:
+                            dc = float(row.get("total_dcv", 0) or 0)
+                        except (TypeError, ValueError):
+                            dc = 0.0
+                        is_h = bool(row.get("is_hitter", 1))
+                        ref = _h_median_forced if is_h else _p_median_forced
+                        return mu < _FORCED_MATCHUP_THRESHOLD or (ref > 0 and dc < ref * _FORCED_DCV_RATIO)
+
+                    dcv["forced_start"] = dcv.apply(_is_forced_start, axis=1)
+                    dcv.loc[dcv["forced_start"].fillna(False), "Decision"] = "START ⚠"
+                else:
+                    dcv["forced_start"] = False
+
                 # ── Split batters / pitchers ──
                 _is_hitter_col = dcv.get("is_hitter", pd.Series(dtype=float))
                 batters_dcv = dcv[_is_hitter_col == 1].copy()
@@ -1420,7 +1484,8 @@ with main:
                     return df_in["selected_position"].map(lambda s: order_map.get(s, default))
 
                 # Sort: START on top, then BENCH, then IL — within each group by slot order
-                _DECISION_ORDER = {"START": 0, "BENCH": 1, "IL": 2}
+                # "START ⚠" (forced start) sorts alongside regular START.
+                _DECISION_ORDER = {"START": 0, "START ⚠": 0, "BENCH": 1, "IL": 2}
 
                 if not batters_dcv.empty and "selected_position" in batters_dcv.columns:
                     batters_dcv["_slot_sort"] = _slot_sort_key(batters_dcv, _BATTER_SLOT_ORDER)
@@ -1494,7 +1559,8 @@ with main:
                         return display_df
                     skeleton = _expand_skeleton(slots_dict)
                     # Count how many filled rows per slot are STARTING
-                    started = display_df[display_df["Decision"] == "START"]
+                    # (includes "START ⚠" forced starts — they still fill slots)
+                    started = display_df[display_df["Decision"].astype(str).str.startswith("START")]
                     filled_counter: dict[str, int] = {}
                     for s in started["Slot"].astype(str):
                         filled_counter[s] = filled_counter.get(s, 0) + 1
@@ -1527,7 +1593,7 @@ with main:
                     _combined = pd.concat([display_df, _empty_df], ignore_index=True, sort=False)
                     # Re-sort so empties land near their slot in the START band
                     _slot_order_local = _BATTER_SLOT_ORDER if slots_dict is _HITTER_SLOTS else _PITCHER_SLOT_ORDER
-                    _dec_order_local = {"START": 0, "LEAVE EMPTY": 0, "BENCH": 1, "IL": 2}
+                    _dec_order_local = {"START": 0, "START ⚠": 0, "LEAVE EMPTY": 0, "BENCH": 1, "IL": 2}
                     _combined["_dec"] = _combined["Decision"].map(_dec_order_local).fillna(2)
                     _combined["_slot"] = _combined["Slot"].map(
                         lambda s: _slot_order_local.get(s, max(_slot_order_local.values()) + 1)
@@ -1546,8 +1612,10 @@ with main:
                 def _decision_row_classes(df_in):
                     classes = {}
                     for i in range(len(df_in)):
-                        decision = df_in.iloc[i].get("Decision", "BENCH")
-                        if decision == "START":
+                        decision = str(df_in.iloc[i].get("Decision", "BENCH"))
+                        if decision.startswith("START") and "⚠" in decision:
+                            classes[i] = "row-start-forced"
+                        elif decision.startswith("START"):
                             classes[i] = "row-start"
                         elif decision == "IL":
                             classes[i] = "row-il"
@@ -1561,6 +1629,8 @@ with main:
                     f"<style>"
                     f"tr.row-start td {{ background-color:{T['green']}12 !important; }}"
                     f"tr.row-start td.col-name {{ color:{T['green']} !important; font-weight:700 !important; }}"
+                    f"tr.row-start-forced td {{ background-color: rgba(255,159,28,0.12) !important; }}"
+                    f"tr.row-start-forced td.col-name {{ color:{T['warn']} !important; font-weight:700 !important; }}"
                     f"tr.row-bench td {{ background-color: rgba(230,57,70,0.08) !important; }}"
                     f"tr.row-bench td.col-name {{ color:{T['danger']} !important; }}"
                     f"tr.row-il td {{ background-color: rgba(158,158,158,0.06) !important; opacity:0.5; }}"
@@ -1570,6 +1640,36 @@ with main:
                     f"</style>",
                     unsafe_allow_html=True,
                 )
+
+                # ── Yahoo/LP lineup mismatch banner ──
+                # Warns the user when their actual Yahoo lineup has starters
+                # sitting on BN (or in the wrong slot) relative to this
+                # optimizer output. Prevents the "Bregman on BN but START"
+                # divergence from going unnoticed.
+                _mismatches = st.session_state.get("_lineup_mismatches") or []
+                if _mismatches:
+                    _items = "".join(
+                        f"<li><strong>{m['name']}</strong>: Yahoo has <em>{m['yahoo_slot']}</em>, "
+                        f"optimizer recommends <em>{m['lp_slot']}</em></li>"
+                        for m in _mismatches[:10]
+                    )
+                    _more = ""
+                    if len(_mismatches) > 10:
+                        _more = f"<p style='margin:4px 0 0;font-size:12px;color:{T['tx2']};'>+ {len(_mismatches) - 10} more</p>"
+                    st.markdown(
+                        f'<div style="background:rgba(255,159,28,0.08);'
+                        f"border:1px solid {T['warn']};"
+                        f'border-radius:8px;padding:10px 14px;margin:0 0 12px;">'
+                        f'<div style="font-family:Bebas Neue,sans-serif;font-size:14px;'
+                        f'letter-spacing:1px;color:{T["warn"]};font-weight:700;margin-bottom:6px;">'
+                        f"⚠ YAHOO LINEUP MISMATCH ({len(_mismatches)})</div>"
+                        f'<p style="margin:0 0 6px;font-size:13px;color:{T["tx"]};">'
+                        f"Your current Yahoo lineup differs from this recommendation. "
+                        f"Adjust in Yahoo to capture the full projected value.</p>"
+                        f'<ul style="margin:4px 0 0;padding-left:20px;font-size:13px;color:{T["tx"]};">'
+                        f"{_items}</ul>{_more}</div>",
+                        unsafe_allow_html=True,
+                    )
 
                 # ── Batters table ──
                 st.markdown(
