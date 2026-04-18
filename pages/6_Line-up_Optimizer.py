@@ -378,23 +378,42 @@ if IP_TRACKER_AVAILABLE and not roster.empty:
             _target = _ip_result.get("ip_target", 54)
             _min = _ip_result.get("ip_min", 20)
             _pct_target = _ip_result.get("ip_pace", 0)
-            ip_budget_html = (
-                # Row 1: Projected vs weekly target
+            # Post-LP IP (set by Optimizer tab after LP decisions).
+            # Shown as a second line when available so user sees how
+            # benching non-probable SPs changes the IP outlook.
+            _post_lp_ip_value = st.session_state.get("_post_lp_ip")
+            _post_lp_line = ""
+            if _post_lp_ip_value is not None and _post_lp_ip_value > 0:
+                _post_pct = (100.0 * _post_lp_ip_value / _target) if _target else 0.0
+                _post_color = "#2d6a4f" if _post_pct >= 100 else ("#ff9f1c" if _post_pct >= 75 else "#e63946")
+                _post_lp_line = (
+                    f'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">'
+                    f'<span style="font-size:11px;color:{T["tx2"]};">Post-LP Starters</span>'
+                    f'<span style="font-size:13px;font-weight:bold;font-family:IBM Plex Mono,monospace;color:{_post_color}">'
+                    f"{_post_lp_ip_value:.1f} / {_target:.0f} IP ({_post_pct:.0f}%)</span></div>"
+                )
+            # Row 1: Projected vs weekly target (pre-LP, full roster)
+            _row1 = (
                 f'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">'
-                f'<span style="font-size:11px;color:{T["tx2"]};">Projected</span>'
+                f'<span style="font-size:11px;color:{T["tx2"]};">Projected (roster)</span>'
                 f'<span style="font-size:13px;font-weight:bold;font-family:IBM Plex Mono,monospace;color:{_ip_color}">'
                 f"{_projected_disp} / {_target:.0f} IP target ({_pct_target:.0f}%)</span></div>"
-                # Row 2: Forfeit minimum context
+            )
+            # Row 2: Forfeit minimum context
+            _row2 = (
                 f'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">'
                 f'<span style="font-size:11px;color:{T["tx2"]};">Forfeit min</span>'
                 f'<span style="font-size:12px;font-family:IBM Plex Mono,monospace;color:{T["tx2"]};">'
                 f"{_min:.0f} IP (Yahoo H2H rule)</span></div>"
-                # Row 3: Status message
+            )
+            # Row 3: Status message
+            _row3 = (
                 f'<div style="display:flex;justify-content:space-between;align-items:center;">'
                 f'<span style="font-size:11px;color:{T["tx2"]};">Status</span>'
                 f'<span style="font-size:12px;font-family:IBM Plex Mono,monospace;color:{_ip_color}">'
                 f"{_ip_result['message']}</span></div>"
             )
+            ip_budget_html = _row1 + _post_lp_line + _row2 + _row3
     except Exception:
         pass  # Non-fatal
 
@@ -943,6 +962,7 @@ with main:
                     _dcv_urgency = _opt_ctx.urgency_weights if _opt_ctx else None
                     _dcv_lineups = _opt_ctx.confirmed_lineups if _opt_ctx else None
                     _dcv_form = _opt_ctx.recent_form if _opt_ctx else None
+                    _dcv_team_strength = _opt_ctx.team_strength if _opt_ctx else None
                     _dcv_rate_modes = _dcv_urgency.get("rate_modes") if _dcv_urgency else None
 
                     dcv = build_daily_dcv_table(
@@ -954,6 +974,7 @@ with main:
                         confirmed_lineups=_dcv_lineups,
                         recent_form=_dcv_form,
                         rate_modes=_dcv_rate_modes,
+                        team_strength=_dcv_team_strength,
                     )
 
                     # Sanity check: warn if DCV produced all zeros
@@ -1326,6 +1347,33 @@ with main:
                     for _pid in _strategic_empty_pids:
                         _lp_slot_map.pop(_pid, None)
 
+                    # ── SP slot reordering: highest-DCV SP-eligible → SP1/SP2 ──
+                    # The base LP can land a low-DCV SP in SP1 while a higher-DCV
+                    # SP (e.g. Bibee 11.58) sits in a P slot. That's presentationally
+                    # confusing even though total value is the same. Post-process
+                    # to put the best two SP-eligible starters in SP slots.
+                    try:
+                        _sp_slot_pids = [pid for pid, slot in _lp_slot_map.items() if slot == "SP"]
+                        _p_slot_sp_eligible_pids = [
+                            pid
+                            for pid, slot in _lp_slot_map.items()
+                            if slot == "P"
+                            and "SP" in str(eligible.loc[eligible["player_id"] == pid, "positions"].iloc[0]).upper()
+                        ]
+                        _candidates = _sp_slot_pids + _p_slot_sp_eligible_pids
+                        if len(_candidates) > len(_sp_slot_pids):
+                            # Sort by DCV descending
+                            _candidates.sort(key=lambda p: _dcv_lookup.get(p, 0.0), reverse=True)
+                            _top_sp_slots = _candidates[: len(_sp_slot_pids)]
+                            _remaining_p = _candidates[len(_sp_slot_pids) :]
+                            # Reassign
+                            for _pid in _top_sp_slots:
+                                _lp_slot_map[_pid] = "SP"
+                            for _pid in _remaining_p:
+                                _lp_slot_map[_pid] = "P"
+                    except (IndexError, KeyError, ValueError):
+                        pass  # Non-fatal if eligibility lookup fails
+
                     _starter_indices = eligible.index[eligible["player_id"].isin(_lp_ids)].tolist()
                     # Capture user's CURRENT Yahoo slot before overwriting with the
                     # LP recommendation. We use this to detect mismatches and warn
@@ -1394,6 +1442,36 @@ with main:
                         (dcv["health_factor"] == 0) & (~dcv["Decision"].isin(["IL"])),
                         "Decision",
                     ] = "IL"
+
+                # ── Post-LP IP budget recompute ──
+                # Header IP budget (computed at page-setup time) counts ALL
+                # rostered pitchers. After the LP benches non-probable SPs and
+                # marginal hybrids, the projected IP from actual STARTERS is
+                # meaningfully different. Compute both and expose so the user
+                # sees the optimizer's IP outcome, not just the pre-LP view.
+                _post_lp_ip = 0.0
+                _pre_lp_ip = 0.0
+                if "total_dcv" in dcv.columns and "is_hitter" in dcv.columns and "ip" in dcv.columns:
+                    _pitcher_mask = ~dcv["is_hitter"].astype(bool)
+                    _pre_lp_ip = float(dcv.loc[_pitcher_mask, "ip"].fillna(0).sum() or 0.0)
+                    _starter_mask = _pitcher_mask & dcv.index.isin(set(_starter_indices))
+                    # Proration: an SP contributes ~6.5 IP per start; a RP ~1.0.
+                    # Use projected IP from the pool directly (seasonal IP /
+                    # projected starts) as a first approximation.
+                    for _idx in dcv[_starter_mask].index:
+                        _row = dcv.loc[_idx]
+                        _proj_ip = float(_row.get("ip", 0) or 0)
+                        _positions = str(_row.get("positions", "")).upper()
+                        # Rough per-game share: SPs get ~1 start this week,
+                        # RPs get ~3-4 appearances. Treat projected weekly
+                        # IP as (ip / 26 weeks) for SPs, (ip / 26 * 4) for RPs
+                        # where 4 ≈ RP appearances/week.
+                        if "SP" in _positions and "RP" not in _positions:
+                            _post_lp_ip += _proj_ip / 26.0  # one start scaled
+                        else:
+                            _post_lp_ip += (_proj_ip / 26.0) * 1.0  # rp share
+                st.session_state["_post_lp_ip"] = _post_lp_ip
+                st.session_state["_pre_lp_ip"] = _pre_lp_ip
 
                 # ── Post-process: bench SPs when rate stats are abandoned ──
                 # When both ERA and WHIP are unrecoverable, pure SPs with

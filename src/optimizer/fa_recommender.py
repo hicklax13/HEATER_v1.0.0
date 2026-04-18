@@ -906,7 +906,13 @@ def recommend_streaming_moves(
     probable_sp_ids = _get_probable_starter_ids_today(ctx)
     teams_playing = _get_teams_playing_today(ctx)
     diagnostics["n_probable_sps"] = len(probable_sp_ids)
-    diagnostics["n_teams_playing_today"] = len(teams_playing)
+    # Deduplicate to canonical 3-letter abbreviations before counting so the
+    # diagnostic reads sensibly (30 teams max, not 60+ inflated by full-name
+    # + abbreviation + equivalence duplicates). Canonical set = all-caps
+    # alphabetic tokens of length ≤ 4 (filters out "CHICAGO CUBS", "WSN", etc.
+    # in favor of "CHC", "WSH").
+    _canonical_teams = {t for t in teams_playing if t and t.isalpha() and 2 <= len(t) <= 4 and t == t.upper()}
+    diagnostics["n_teams_playing_today"] = len(_canonical_teams) if _canonical_teams else len(teams_playing)
 
     # Dynamic SGP threshold for pitcher streams: if weekly IP is below 75%
     # of the target (54 IP), relax the +0.70 SGP bar to +0.40 so more

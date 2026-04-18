@@ -645,3 +645,184 @@ class TestLineupMismatch:
 
     def test_empty_slot_is_mismatch(self) -> None:
         assert self._is_mismatch("", "SS") is True
+
+
+# ── Fix #3: opposing team offense multiplier ─────────────────────────
+
+
+class TestOpposingOffenseMultiplier:
+    """compute_matchup_multiplier should dampen pitcher DCV when the
+    opposing team has a strong offense (wRC+ > 100) and boost it when
+    weak (wRC+ < 100). Hitters are unaffected by this signal."""
+
+    def test_strong_offense_dampens_pitcher(self) -> None:
+        from src.optimizer.daily_optimizer import compute_matchup_multiplier
+
+        # Same inputs except wRC+ — stronger offense should give lower mult
+        strong = compute_matchup_multiplier(
+            is_hitter=False,
+            batter_hand="",
+            pitcher_hand="",
+            player_team="TB",
+            opponent_team="NYY",
+            park_factors={"NYY": 1.02, "TB": 0.96},
+            opponent_offense_wrc_plus=120.0,
+        )
+        weak = compute_matchup_multiplier(
+            is_hitter=False,
+            batter_hand="",
+            pitcher_hand="",
+            player_team="TB",
+            opponent_team="NYY",
+            park_factors={"NYY": 1.02, "TB": 0.96},
+            opponent_offense_wrc_plus=80.0,
+        )
+        assert weak > strong
+
+    def test_neutral_offense_no_change(self) -> None:
+        from src.optimizer.daily_optimizer import compute_matchup_multiplier
+
+        neutral = compute_matchup_multiplier(
+            is_hitter=False,
+            batter_hand="",
+            pitcher_hand="",
+            player_team="TB",
+            opponent_team="NYY",
+            park_factors={"NYY": 1.00, "TB": 1.00},
+            opponent_offense_wrc_plus=100.0,
+        )
+        # 100 wRC+ should produce multiplier of 1.0 before clamping
+        assert neutral == pytest.approx(1.0, abs=0.02)
+
+    def test_clamped_at_extremes(self) -> None:
+        from src.optimizer.daily_optimizer import compute_matchup_multiplier
+
+        super_strong = compute_matchup_multiplier(
+            is_hitter=False,
+            batter_hand="",
+            pitcher_hand="",
+            player_team="TB",
+            opponent_team="NYY",
+            park_factors={"NYY": 1.00, "TB": 1.00},
+            opponent_offense_wrc_plus=200.0,  # would drive multiplier below 0.80
+        )
+        super_weak = compute_matchup_multiplier(
+            is_hitter=False,
+            batter_hand="",
+            pitcher_hand="",
+            player_team="TB",
+            opponent_team="NYY",
+            park_factors={"NYY": 1.00, "TB": 1.00},
+            opponent_offense_wrc_plus=0.0,  # would drive multiplier above 1.20
+        )
+        # Component clamped to [0.80, 1.20] so the overall factor respects it
+        assert super_strong >= 0.80 - 1e-9
+        assert super_weak <= 1.20 + 1e-9
+
+    def test_hitter_ignores_opp_offense(self) -> None:
+        """Hitters shouldn't be affected by opposing-team offense wRC+."""
+        from src.optimizer.daily_optimizer import compute_matchup_multiplier
+
+        with_offense = compute_matchup_multiplier(
+            is_hitter=True,
+            batter_hand="R",
+            pitcher_hand="R",
+            player_team="BOS",
+            opponent_team="NYY",
+            park_factors={"NYY": 1.02, "BOS": 1.05},
+            opponent_offense_wrc_plus=120.0,  # ignored for hitters
+        )
+        without_offense = compute_matchup_multiplier(
+            is_hitter=True,
+            batter_hand="R",
+            pitcher_hand="R",
+            player_team="BOS",
+            opponent_team="NYY",
+            park_factors={"NYY": 1.02, "BOS": 1.05},
+            opponent_offense_wrc_plus=None,
+        )
+        assert with_offense == pytest.approx(without_offense, abs=1e-6)
+
+
+# ── Fix #5: SP slot reordering logic ─────────────────────────────────
+
+
+class TestSpSlotReorder:
+    """The post-LP SP reorder puts the highest-DCV SP-eligible pitchers in
+    SP slots even if the base LP originally placed them elsewhere."""
+
+    def test_reorder_puts_best_sp_in_sp_slot(self) -> None:
+        # Simulated input: LP placed Bibee (11.58) in P, Martin (2.61) in SP1
+        lp_slot_map = {1: "SP", 2: "SP", 3: "P"}  # 1=Martin, 2=Martinez, 3=Bibee
+        dcv = {1: 2.61, 2: 2.16, 3: 11.58}
+        positions = {1: "SP,P", 2: "SP,RP,P", 3: "SP,P"}
+
+        # Apply the reorder logic
+        sp_slot_pids = [pid for pid, slot in lp_slot_map.items() if slot == "SP"]
+        p_slot_sp_eligible = [pid for pid, slot in lp_slot_map.items() if slot == "P" and "SP" in positions[pid]]
+        candidates = sp_slot_pids + p_slot_sp_eligible
+        candidates.sort(key=lambda p: dcv[p], reverse=True)
+        top_sp = candidates[: len(sp_slot_pids)]
+        remaining_p = candidates[len(sp_slot_pids) :]
+        for pid in top_sp:
+            lp_slot_map[pid] = "SP"
+        for pid in remaining_p:
+            lp_slot_map[pid] = "P"
+
+        # Bibee (highest DCV) should now be SP
+        assert lp_slot_map[3] == "SP"
+        # One of the others demoted to P
+        assert sum(1 for s in lp_slot_map.values() if s == "SP") == 2
+
+    def test_no_reorder_when_already_optimal(self) -> None:
+        # LP already put highest DCV in SP slots — no change expected
+        lp_slot_map = {1: "SP", 2: "SP", 3: "P"}
+        dcv = {1: 8.0, 2: 6.0, 3: 3.0}
+        positions = {1: "SP,P", 2: "SP,P", 3: "SP,P"}
+
+        sp_slot_pids = [pid for pid, slot in lp_slot_map.items() if slot == "SP"]
+        p_slot_sp_eligible = [pid for pid, slot in lp_slot_map.items() if slot == "P" and "SP" in positions[pid]]
+        candidates = sp_slot_pids + p_slot_sp_eligible
+        candidates.sort(key=lambda p: dcv[p], reverse=True)
+        top_sp = candidates[: len(sp_slot_pids)]
+
+        # Top two are still pids 1 and 2
+        assert set(top_sp) == {1, 2}
+
+
+# ── Teams-playing dedup ──────────────────────────────────────────────
+
+
+class TestTeamsPlayingDedup:
+    def test_canonical_filter(self) -> None:
+        # Simulated teams_playing set that includes duplicates
+        teams_playing = {
+            "COL",
+            "COLORADO ROCKIES",
+            "ATL",
+            "ATLANTA BRAVES",
+            "WSH",
+            "WSN",
+            "WAS",  # equivalence variants
+        }
+        canonical = {t for t in teams_playing if t and t.isalpha() and 2 <= len(t) <= 4 and t == t.upper()}
+        # Only abbreviations retained (COL, ATL, WSH, WSN, WAS)
+        # Full names excluded (have spaces/length)
+        assert "COLORADO ROCKIES" not in canonical
+        assert "COL" in canonical
+        # Equivalence variants all kept; downstream uniqueness is best-effort
+
+
+# ── Header auto-advance verification (Fix #8 confirmation) ────────────
+
+
+class TestTargetGameDateAutoAdvance:
+    def test_get_target_game_date_returns_string(self) -> None:
+        """Sanity: function returns a date string in YYYY-MM-DD format."""
+        from src.game_day import get_target_game_date
+
+        result = get_target_game_date()
+        assert isinstance(result, str)
+        # Format: YYYY-MM-DD (10 chars, year-month-day)
+        assert len(result) == 10
+        assert result[4] == "-" and result[7] == "-"

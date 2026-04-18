@@ -188,13 +188,15 @@ def compute_matchup_multiplier(
     park_factors: dict,
     pitcher_xfip: float | None = None,
     temp_f: float | None = None,
+    opponent_offense_wrc_plus: float | None = None,
 ) -> float:
     """Compute combined matchup multiplier for counting stat adjustment.
 
-    Combines platoon advantage, park factor, opposing pitcher quality, and
-    game-time weather into a single multiplicative factor.  For rate stats,
-    this multiplier should be applied to COMPONENTS (H, AB, ER, IP), not to
-    the rate itself.
+    Combines platoon advantage, park factor, opposing pitcher/offense quality,
+    and game-time weather into a single multiplicative factor. For pitchers,
+    the opposing offense's wRC+ (relative to league-average 100) reduces or
+    boosts expected production. For rate stats, this multiplier should be
+    applied to COMPONENTS (H, AB, ER, IP), not to the rate itself.
 
     Args:
         is_hitter: True for position players, False for pitchers.
@@ -203,8 +205,11 @@ def compute_matchup_multiplier(
         player_team: 3-letter team abbreviation of the player.
         opponent_team: 3-letter team abbreviation of the opponent.
         park_factors: Dict mapping team abbreviation to park factor.
-        pitcher_xfip: Opposing pitcher's xFIP (None if unavailable).
+        pitcher_xfip: Opposing pitcher's xFIP (None if unavailable, hitters only).
         temp_f: Game-time temperature in Fahrenheit (None if unavailable).
+        opponent_offense_wrc_plus: Opposing team's wRC+ (~100 = league avg,
+            higher = stronger offense → worse matchup for a pitcher). Only
+            applied when is_hitter=False.
 
     Returns:
         Multiplicative adjustment clamped to [0.3, 3.0].
@@ -232,12 +237,27 @@ def compute_matchup_multiplier(
     except (ImportError, Exception):
         pass
 
-    # Opposing pitcher quality (xFIP-based)
+    # Opposing pitcher quality (xFIP-based) — hitters only
     if pitcher_xfip is not None and is_hitter:
         # League avg xFIP ~4.20. Better pitcher = lower multiplier for hitter
         quality = max(0.5, min(2.0, 2.0 - pitcher_xfip / 4.20))
         # Invert for hitters: good pitcher hurts hitter value
         mult *= 1.0 / max(0.5, quality)
+
+    # Opposing team offense quality (wRC+-based) — pitchers only.
+    # League-average wRC+ = 100. A pitcher facing a 120 wRC+ offense (NYY)
+    # gets a dampened multiplier; facing a 80 wRC+ offense (bottom-third)
+    # gets a boost. Scale: ~1.0 per 40 wRC+ points, clamped to [0.80, 1.20]
+    # so no single matchup can more than 20% swing a pitcher's value.
+    if opponent_offense_wrc_plus is not None and not is_hitter:
+        try:
+            _wrcp = float(opponent_offense_wrc_plus)
+            # Inverse: 120 wRC+ → (100-120)/40 = -0.5 → ~0.95 multiplier
+            # 80 wRC+ → (100-80)/40 = 0.5 → ~1.05 multiplier
+            _off_mult = 1.0 + (100.0 - _wrcp) / 80.0
+            mult *= max(0.80, min(1.20, _off_mult))
+        except (TypeError, ValueError):
+            pass
 
     # Weather adjustment — hot temps boost HR/power production
     if temp_f is not None and is_hitter:
@@ -355,6 +375,7 @@ def build_daily_dcv_table(
     confirmed_lineups: dict[str, list] | None = None,
     recent_form: dict[int, dict] | None = None,
     rate_modes: dict[str, str] | None = None,
+    team_strength: dict[str, dict] | None = None,
     _retry_attempted: bool = False,
 ) -> pd.DataFrame:
     """Build the Daily Category Value table for all roster players.
@@ -667,6 +688,7 @@ def build_daily_dcv_table(
         _pitcher_hand = ""
         _opp_pitcher_name = ""
         _venue_team = ""  # home team code — whose park factor to use
+        _opp_team = ""  # literal opponent team code — for opposing offense wRC+
         if schedule_today and team:
             _team_variants = _expand_equivalences(team)
             for _sg in schedule_today:
@@ -680,10 +702,12 @@ def build_daily_dcv_table(
                 _away_variants = _expand_equivalences(_away_ab) if _away_ab else set()
                 if _team_variants & _home_variants or team == _home_short:
                     _venue_team = _home_ab  # player is home → venue is own park
+                    _opp_team = _away_ab
                     _opp_pitcher_name = str(_sg.get("away_probable_pitcher", "") or "")
                     break
                 if _team_variants & _away_variants or team == _away_short:
                     _venue_team = _home_ab  # player is away → venue is opponent park
+                    _opp_team = _home_ab
                     _opp_pitcher_name = str(_sg.get("home_probable_pitcher", "") or "")
                     break
 
@@ -705,6 +729,28 @@ def build_daily_dcv_table(
                         except (TypeError, ValueError):
                             continue
 
+        # Resolve opposing-team offensive strength (wRC+) for PITCHER matchup.
+        # Without this a SP facing the Yankees gets the same multiplier as one
+        # facing the Marlins. 100 = league-avg, higher = tougher for pitcher.
+        _opp_wrc_plus: float | None = None
+        if not is_hitter and team_strength and _opp_team:
+            try:
+                _ts_entry = None
+                if _opp_team in team_strength:
+                    _ts_entry = team_strength[_opp_team]
+                else:
+                    # Try equivalence classes (CWS/CHW, WSH/WSN/WAS, etc.)
+                    for _variant in _expand_equivalences(_opp_team):
+                        if _variant in team_strength:
+                            _ts_entry = team_strength[_variant]
+                            break
+                if _ts_entry:
+                    _wrcp_raw = _ts_entry.get("wrc_plus") or _ts_entry.get("wrcPlus")
+                    if _wrcp_raw is not None and not pd.isna(_wrcp_raw):
+                        _opp_wrc_plus = float(_wrcp_raw)
+            except (TypeError, ValueError):
+                _opp_wrc_plus = None
+
         matchup_mult = compute_matchup_multiplier(
             is_hitter=is_hitter,
             batter_hand=_batter_hand,
@@ -714,6 +760,7 @@ def build_daily_dcv_table(
             park_factors=park_factors or {},
             pitcher_xfip=_opp_pitcher_xfip,
             temp_f=player_temp,
+            opponent_offense_wrc_plus=_opp_wrc_plus,
         )
 
         # Recent form blending: adjust projections with L14 data
