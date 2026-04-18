@@ -258,6 +258,7 @@ def fetch_season_stats(season: int = 2026) -> pd.DataFrame:
 
     rows = []
     seen_players: set[tuple[str, int]] = set()  # (name, mlb_id) to handle same-name players
+    seen_names_with_row: set[str] = set()  # O(1) fallback-dedup replacement for the old O(N²) comprehension
 
     try:
         # Get all MLB team IDs for the season
@@ -272,12 +273,18 @@ def fetch_season_stats(season: int = 2026) -> pd.DataFrame:
 
     for team_id in team_ids:
         try:
+            # 2026-04-17 FIX: rosterType was "fullSeason" which only includes
+            # players who have already logged a game this season. Early-season
+            # this drops every late-starter / IL'd / not-yet-called-up player
+            # (Alvarez, Bregman, Raleigh, Trout, Hader, Crochet, Williams,
+            # McLain, Valdez, Bibee, Iglesias, etc.). "fullRoster" returns
+            # Active + IL + Restricted + Reserve, matching our player pool.
             roster = statsapi.get(
                 "team_roster",
                 {
                     "teamId": team_id,
                     "season": season,
-                    "rosterType": "fullSeason",
+                    "rosterType": "fullRoster",
                     "hydrate": hydrate,
                 },
                 request_kwargs={"timeout": _API_TIMEOUT},
@@ -305,6 +312,16 @@ def fetch_season_stats(season: int = 2026) -> pd.DataFrame:
 
                 stats_list = person.get("stats", [])
                 if not stats_list:
+                    # 2026-04-17 FIX: even if MLB API has no stats_list yet
+                    # (e.g. an IL'd star who hasn't logged a game), emit a
+                    # zero-stats row so the downstream Bayesian blend sees
+                    # observed_denom=0 and falls back to pre-season projection
+                    # cleanly — instead of silently dropping the player.
+                    if is_pitcher:
+                        rows.append(_parse_pitching_stat(player_info, {}))
+                    else:
+                        rows.append(_parse_hitting_stat(player_info, {}))
+                    seen_names_with_row.add(full_name)
                     continue
 
                 for stat_group in stats_list:
@@ -319,18 +336,21 @@ def fetch_season_stats(season: int = 2026) -> pd.DataFrame:
 
                     if group_name == "hitting" and not is_pitcher:
                         rows.append(_parse_hitting_stat(player_info, s))
+                        seen_names_with_row.add(full_name)
                     elif group_name == "pitching" and is_pitcher:
                         rows.append(_parse_pitching_stat(player_info, s))
+                        seen_names_with_row.add(full_name)
                     elif group_name == "hitting" and is_pitcher:
                         pass  # Skip pitcher hitting stats
                     elif group_name == "pitching" and not is_pitcher:
                         pass  # Skip position player pitching stats
-                    elif not rows or full_name not in {r["player_name"] for r in rows}:
-                        # Fallback: use position type
+                    elif full_name not in seen_names_with_row:
+                        # Fallback: use position type (O(1) dedup — was O(N²))
                         if is_pitcher:
                             rows.append(_parse_pitching_stat(player_info, s))
                         else:
                             rows.append(_parse_hitting_stat(player_info, s))
+                        seen_names_with_row.add(full_name)
 
         except Exception as e:
             logger.debug("Error fetching team %d roster for %d: %s", team_id, season, e)
@@ -385,17 +405,53 @@ def save_season_stats_to_db(stats_df: pd.DataFrame, season: int = 2026) -> int:
     try:
         cursor = conn.cursor()
         saved = 0
+        skipped_no_match = 0
+        skipped_type_mismatch = 0
+        backfilled_mlb_id = 0
         now = datetime.now(UTC).isoformat()
         for _, row in stats_df.iterrows():
-            # Prefer mlb_id match (unambiguous), fall back to name+team
+            # Resolution priority (2026-04-17 hardened):
+            #   1. mlb_id → players.mlb_id (unambiguous)
+            #   2. exact name + team → players.name/team, then backfill mlb_id
+            #   3. skip (no fuzzy LIKE fallback — that was the Bellinger-IP corruption vector)
             player_id = None
-            row_mlb_id = row.get("mlb_id", 0)
+            row_mlb_id = row.get("mlb_id", 0) or 0
             if row_mlb_id:
                 player_id = _match_by_mlb_id(cursor, int(row_mlb_id))
             if player_id is None:
-                player_id = match_player_id(row["player_name"], row.get("team", ""))
+                team = row.get("team", "") or ""
+                name = row.get("player_name", "") or ""
+                if name and team:
+                    cursor.execute(
+                        "SELECT player_id FROM players WHERE name = ? AND team = ?",
+                        (name, team),
+                    )
+                    match = cursor.fetchone()
+                    if match:
+                        player_id = match[0]
+                        # Backfill mlb_id so the next run skips the slower path.
+                        if row_mlb_id:
+                            cursor.execute(
+                                "UPDATE players SET mlb_id = ? WHERE player_id = ? AND (mlb_id IS NULL OR mlb_id = 0)",
+                                (int(row_mlb_id), player_id),
+                            )
+                            backfilled_mlb_id += 1
             if player_id is None:
+                skipped_no_match += 1
                 continue
+
+            # is_hitter sanity guard (2026-04-17): reject cross-type writes
+            # so a pitcher-stat row can never clobber a hitter row (or vice
+            # versa) — prevented the Bellinger-with-7.2-IP corruption class.
+            cursor.execute("SELECT is_hitter FROM players WHERE player_id = ?", (player_id,))
+            player_row = cursor.fetchone()
+            if player_row is not None:
+                stored_is_hitter = int(player_row[0] or 0)
+                row_is_hitter = 1 if row.get("is_hitter", False) else 0
+                if stored_is_hitter != row_is_hitter:
+                    skipped_type_mismatch += 1
+                    continue
+
             row_dict = row.to_dict()
             values = {c: row_dict.get(c, 0) for c in cols}
             cursor.execute(
@@ -406,6 +462,15 @@ def save_season_stats_to_db(stats_df: pd.DataFrame, season: int = 2026) -> int:
         conn.commit()
     finally:
         conn.close()
+    if skipped_no_match or skipped_type_mismatch or backfilled_mlb_id:
+        logger.info(
+            "season_stats save season=%d: saved=%d, backfilled_mlb_id=%d, no_match=%d, type_mismatch=%d",
+            season,
+            saved,
+            backfilled_mlb_id,
+            skipped_no_match,
+            skipped_type_mismatch,
+        )
     return saved
 
 
@@ -436,10 +501,10 @@ def refresh_all_stats(force: bool = False) -> dict:
                 update_refresh_log("season_stats", "success")
                 results["season_stats"] = f"Saved {saved} player stats"
             else:
-                update_refresh_log("season_stats", "empty")
+                update_refresh_log("season_stats", "no_data", message="fetch_season_stats returned empty")
                 results["season_stats"] = "No data returned"
         except Exception as e:
-            update_refresh_log("season_stats", f"error: {e}")
+            update_refresh_log("season_stats", "error", message=str(e)[:200])
             results["season_stats"] = f"Error: {e}"
     else:
         results["season_stats"] = f"Fresh (updated {age:.1f}h ago)"

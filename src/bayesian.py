@@ -14,6 +14,7 @@ Key concepts:
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -774,9 +775,18 @@ def update_ros_projections() -> int:
 
         ros_df = pd.DataFrame(ros_rows)
 
-        conn.execute("DELETE FROM ros_projections WHERE system = 'ros_bayesian'")
+        # 2026-04-17 FIX: also clear stale 'ros_blended' rows from prior
+        # pipeline versions. The DELETE was previously scoped only to
+        # 'ros_bayesian', so 'ros_blended' entries persisted indefinitely
+        # with NULL updated_at and polluted the LEFT JOIN in
+        # _load_player_pool_impl (no system filter in that join).
+        conn.execute("DELETE FROM ros_projections WHERE system IN ('ros_bayesian', 'ros_blended')")
 
-        # Build INSERT statement matching table columns
+        # Build INSERT statement matching table columns.
+        # 2026-04-17 FIX: include 'updated_at' — the column has no DB-level
+        # DEFAULT, so omitting it from INSERT leaves every row NULL and
+        # downstream freshness gates (check_staleness, Data Status badges)
+        # can't tell when ROS was last refreshed.
         insert_cols = [
             "player_id",
             "system",
@@ -805,26 +815,40 @@ def update_ros_projections() -> int:
             "fip",
             "xfip",
             "siera",
+            "updated_at",
         ]
         for col in insert_cols:
             if col not in ros_df.columns:
                 ros_df[col] = 0
 
+        now_iso = datetime.now(UTC).isoformat()
         placeholders = ", ".join(["?"] * len(insert_cols))
         col_str = ", ".join(insert_cols)
         for _, row in ros_df.iterrows():
-            values = [row.get(c, 0) for c in insert_cols]
+            values = [(now_iso if c == "updated_at" else row.get(c, 0)) for c in insert_cols]
             conn.execute(f"INSERT INTO ros_projections ({col_str}) VALUES ({placeholders})", values)
 
         conn.commit()
-        update_refresh_log("ros_projections", "success")
+        # Expected floor: at least 300 players should get a ROS projection.
+        # Use update_refresh_log_auto so 0-row writes surface as no_data.
+        try:
+            from src.database import update_refresh_log_auto
+
+            update_refresh_log_auto(
+                "ros_projections",
+                len(ros_rows),
+                expected_min=300,
+                message=f"{len(ros_rows)} rows written with updated_at={now_iso}",
+            )
+        except ImportError:
+            update_refresh_log("ros_projections", "success")
         logger.info("Updated %d ROS Bayesian projections.", len(ros_rows))
         return len(ros_rows)
 
-    except Exception:
+    except Exception as e:
         logger.exception("Failed to update ROS projections.")
         try:
-            update_refresh_log("ros_projections", "error")
+            update_refresh_log("ros_projections", "error", message=str(e)[:200])
         except Exception:
             pass
         return 0

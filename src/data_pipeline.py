@@ -714,7 +714,7 @@ def refresh_if_stale(force: bool = False) -> bool:
     projections, raw_data = fetch_all_projections()
     if not projections:
         logger.error("All FanGraphs fetches failed")
-        update_refresh_log("projections", status="failed")
+        update_refresh_log("projections", status="error", message="all FanGraphs fetches failed")
         return False
 
     # Store projections (upserts players automatically)

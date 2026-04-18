@@ -77,6 +77,26 @@ def _format_fetch_error(exc: Exception, source: str = "FanGraphs") -> str:
     return f"Error: {exc}"
 
 
+def _classify_fetch_error(exc: Exception) -> str:
+    """Return the refresh_log ``status`` string for an exception.
+
+    "skipped" for known-unavailable upstreams (403/429/timeout) so the DB
+    agrees with what ``_format_fetch_error`` surfaces in the UI. "error"
+    for anything else. Fixes the 2026-04-17 mismatch where the UI showed
+    "Skipped" but refresh_log said "error".
+    """
+    msg = str(exc) if exc else ""
+    if (
+        "403" in msg
+        or "leaders-legacy" in msg
+        or "429" in msg
+        or "timeout" in msg.lower()
+        or "timed out" in msg.lower()
+    ):
+        return "skipped"
+    return "error"
+
+
 def _run_with_timeout(fn: Callable, timeout: int = _PHASE_TIMEOUT_SECONDS) -> str:
     """Run *fn* in a thread and return its result, or a timeout message.
 
@@ -200,7 +220,11 @@ PARK_FACTORS: dict[str, float] = {
 
 def _bootstrap_players(progress: BootstrapProgress) -> str:
     """Fetch all active MLB players and upsert to DB."""
-    from src.database import update_refresh_log, upsert_player_bulk
+    from src.database import (
+        update_refresh_log,
+        update_refresh_log_auto,
+        upsert_player_bulk,
+    )
     from src.live_stats import fetch_all_mlb_players
 
     progress.phase = "Players"
@@ -208,13 +232,24 @@ def _bootstrap_players(progress: BootstrapProgress) -> str:
     try:
         df = fetch_all_mlb_players()
         if df.empty:
+            update_refresh_log(
+                "players",
+                "no_data",
+                rows_written=0,
+                message="fetch_all_mlb_players returned empty",
+            )
             return "No players returned from API"
         players = df.to_dict("records")
         count = upsert_player_bulk(players)
-        update_refresh_log("players", "success")
-        return f"Saved {count} players"
+        status = update_refresh_log_auto(
+            "players",
+            count,
+            expected_min=500,
+            message=f"{count} players upserted from {len(df)} API rows",
+        )
+        return f"Saved {count} players ({status})"
     except Exception as e:
-        update_refresh_log("players", f"error: {e}")
+        update_refresh_log("players", "error", message=str(e)[:200])
         return f"Error: {e}"
 
 
@@ -233,27 +268,46 @@ def _bootstrap_projections(progress: BootstrapProgress) -> str:
             return "Projections refreshed"
         return "No projection data returned"
     except Exception as e:
-        update_refresh_log("projections", f"error: {e}")
+        update_refresh_log("projections", "error", message=str(e)[:200])
         return f"Error: {e}"
 
 
 def _bootstrap_live_stats(progress: BootstrapProgress) -> str:
-    """Fetch current season stats."""
-    from src.database import update_refresh_log
+    """Fetch current season stats.
+
+    2026-04-17 audit: now validates actual saved row count and reports
+    status='partial' / 'no_data' when below the expected floor instead of
+    writing silent 'success' on a 0-row save.
+    """
+    from src.database import update_refresh_log, update_refresh_log_auto
     from src.live_stats import fetch_season_stats, save_season_stats_to_db
 
     progress.phase = "Live Stats"
     current_year = datetime.now(UTC).year
     progress.detail = f"Fetching {current_year} season stats..."
+    # Expected floor: 30 teams × ~40 (40-man roster) = ~1200. Set conservatively.
+    EXPECTED_MIN = 500
     try:
         df = fetch_season_stats(season=current_year)
-        if not df.empty:
-            count = save_season_stats_to_db(df)
-            update_refresh_log("season_stats", "success")
-            return f"Saved {count} player stats"
-        return "No live stats available yet"
+        if df.empty:
+            update_refresh_log(
+                "season_stats",
+                "no_data",
+                rows_written=0,
+                expected_min=EXPECTED_MIN,
+                message="fetch_season_stats returned empty DataFrame",
+            )
+            return "No live stats available yet"
+        count = save_season_stats_to_db(df)
+        status = update_refresh_log_auto(
+            "season_stats",
+            count,
+            expected_min=EXPECTED_MIN,
+            message=f"saved {count}/{len(df)} rows",
+        )
+        return f"Saved {count} player stats ({status})"
     except Exception as e:
-        update_refresh_log("season_stats", f"error: {e}")
+        update_refresh_log("season_stats", "error", message=str(e)[:200])
         return f"Error: {e}"
 
 
@@ -280,7 +334,7 @@ def _bootstrap_historical(progress: BootstrapProgress) -> tuple[str, dict | None
             update_refresh_log("historical_stats", "success")
         return (f"Saved {total} historical records across {len(historical)} seasons", historical)
     except Exception as e:
-        update_refresh_log("historical_stats", f"error: {e}")
+        update_refresh_log("historical_stats", "error", message=str(e)[:200])
         return (f"Error: {e}", None)
 
 
@@ -317,7 +371,7 @@ def _bootstrap_injury_data(progress: BootstrapProgress, historical: dict | None 
             return f"Saved {count} injury records"
         return "No injury records matched"
     except Exception as e:
-        update_refresh_log("injury_data", f"error: {e}")
+        update_refresh_log("injury_data", "error", message=str(e)[:200])
         return f"Error: {e}"
 
 
@@ -341,7 +395,7 @@ def _bootstrap_park_factors(progress: BootstrapProgress) -> str:
         update_refresh_log("park_factors", "success")
         return f"Saved {count} park factors"
     except Exception as e:
-        update_refresh_log("park_factors", f"error: {e}")
+        update_refresh_log("park_factors", "error", message=str(e)[:200])
         return f"Error: {e}"
 
 
@@ -434,26 +488,55 @@ def _bootstrap_yahoo(progress: BootstrapProgress, yahoo_client=None) -> str:
         update_refresh_log("yahoo_data", "success")
         return "Yahoo league data synced"
     except Exception as e:
-        update_refresh_log("yahoo_data", f"error: {e}")
+        update_refresh_log("yahoo_data", "error", message=str(e)[:200])
         return f"Error: {e}"
 
 
 def _bootstrap_extended_roster(progress: BootstrapProgress) -> str:
-    """Phase 8: Extended roster (40-man + spring training)."""
+    """Extended roster (40-man + spring training).
+
+    2026-04-17 reordered to run BEFORE live_stats so that players.mlb_id is
+    populated when fetch_season_stats' save path matches rows by mlb_id.
+    The previous order (live_stats → extended_roster) meant that the mlb_id
+    column was mostly NULL at season_stats save time, forcing the fuzzy
+    name-match fallback that corrupted hitter rows with pitcher stats
+    (the Bellinger-with-7.2-IP class of bug).
+    """
     progress.phase = "Extended Roster"
     progress.detail = "Fetching 40-man + spring training rosters..."
     try:
-        from src.database import update_refresh_log, upsert_player_bulk
+        from src.database import (
+            update_refresh_log,
+            update_refresh_log_auto,
+            upsert_player_bulk,
+        )
         from src.live_stats import fetch_extended_roster
 
         df = fetch_extended_roster()
         if df.empty:
+            update_refresh_log(
+                "extended_roster",
+                "no_data",
+                rows_written=0,
+                message="fetch_extended_roster returned empty",
+            )
             return "Extended roster: no data"
-        upsert_player_bulk(df.to_dict("records"))
-        update_refresh_log("extended_roster", "success")
-        return f"Extended roster: {len(df)} players"
+        count = upsert_player_bulk(df.to_dict("records"))
+        status = update_refresh_log_auto(
+            "extended_roster",
+            count,
+            expected_min=500,
+            message=f"{count} players upserted from {len(df)} API rows",
+        )
+        return f"Extended roster: {count} players ({status})"
     except Exception as e:
         logger.warning("Extended roster bootstrap failed: %s", e)
+        try:
+            from src.database import update_refresh_log
+
+            update_refresh_log("extended_roster", "error", message=str(e)[:200])
+        except Exception:
+            pass
         return f"Extended roster: error ({e})"
 
 
@@ -990,7 +1073,11 @@ def _bootstrap_stuff_plus(progress: BootstrapProgress) -> str:
         try:
             from src.database import update_refresh_log
 
-            update_refresh_log("stuff_plus", "error")
+            update_refresh_log(
+                "stuff_plus",
+                _classify_fetch_error(exc),
+                message=_format_fetch_error(exc, "FanGraphs Stuff+"),
+            )
         except Exception:
             pass
         return _format_fetch_error(exc, "FanGraphs Stuff+")
@@ -1134,7 +1221,11 @@ def _bootstrap_batting_stats(progress: BootstrapProgress) -> str:
         try:
             from src.database import update_refresh_log
 
-            update_refresh_log("batting_stats", "error")
+            update_refresh_log(
+                "batting_stats",
+                _classify_fetch_error(exc),
+                message=_format_fetch_error(exc, "FanGraphs Batting Stats"),
+            )
         except Exception:
             pass
         return _format_fetch_error(exc, "FanGraphs Batting Stats")
@@ -1282,6 +1373,14 @@ def _bootstrap_umpire_tendencies(progress: BootstrapProgress) -> str:
         )
 
         if not schedule:
+            # 2026-04-17 FIX: previously silently returned with no refresh_log
+            # write, so the phase appeared "never ran" in Data Status.
+            update_refresh_log(
+                "umpire_tendencies",
+                "no_data",
+                rows_written=0,
+                message="MLB schedule fetch returned empty",
+            )
             return "Skipped: no schedule data"
 
         # Aggregate per-umpire stats from game data
@@ -1356,6 +1455,13 @@ def _bootstrap_umpire_tendencies(progress: BootstrapProgress) -> str:
             ump["total_pa"] += total_pa
 
         if not umpire_stats:
+            # 2026-04-17 FIX: previously silently returned with no log write.
+            update_refresh_log(
+                "umpire_tendencies",
+                "no_data",
+                rows_written=0,
+                message="no umpire names extracted from completed-game boxscores",
+            )
             return "Skipped: no umpire data extracted"
 
         # Compute league averages for delta calculation
@@ -1404,16 +1510,27 @@ def _bootstrap_umpire_tendencies(progress: BootstrapProgress) -> str:
         finally:
             conn.close()
 
-        update_refresh_log("umpire_tendencies", "success")
+        try:
+            from src.database import update_refresh_log_auto
+
+            status = update_refresh_log_auto(
+                "umpire_tendencies",
+                updated,
+                expected_min=10,
+                message=f"{updated} umpires from {league_games} games",
+            )
+        except ImportError:
+            update_refresh_log("umpire_tendencies", "success")
+            status = "success"
         logger.info("T7: Umpire tendencies — %d umpires from %d games", updated, league_games)
-        return f"Saved {updated} umpire profiles from {league_games} games"
+        return f"Saved {updated} umpire profiles from {league_games} games ({status})"
 
     except Exception as exc:
         logger.exception("T7 umpire tendencies failed: %s", exc)
         try:
             from src.database import update_refresh_log
 
-            update_refresh_log("umpire_tendencies", "error")
+            update_refresh_log("umpire_tendencies", "error", message=str(exc)[:200])
         except Exception:
             pass
         return f"Error: {exc}"
@@ -1439,20 +1556,36 @@ def _bootstrap_catcher_framing(progress: BootstrapProgress) -> str:
 
         year = datetime.now(UTC).year
 
-        # pybaseball doesn't have a direct catcher framing function,
-        # so we use statcast_catcher_framing or fall back to FanGraphs data.
-        # Try FanGraphs catching stats first (includes framing runs).
+        # 2026-04-17 FIX: swapped primary path to Baseball Savant's
+        # statcast_catcher_framing (pybaseball), which hits a different
+        # endpoint than the 403-blocked FanGraphs leaders-legacy.aspx.
+        # The former FanGraphs primary (batting_stats(pos="c")) is now the
+        # last fallback and is expected to 403 — it's kept only in case
+        # FanGraphs restores the endpoint.
         framing_data = None
         try:
-            from pybaseball import batting_stats
+            from pybaseball import statcast_catcher_framing
 
-            # FanGraphs batting_stats for catchers include framing runs in advanced stats
-            fg_df = batting_stats(year, qual=0, pos="c")
-            if fg_df is not None and not fg_df.empty:
-                framing_data = fg_df
-                logger.info("T8: Got %d catchers from FanGraphs batting_stats", len(fg_df))
+            sv_df = statcast_catcher_framing(year)
+            if sv_df is not None and not sv_df.empty:
+                framing_data = sv_df
+                logger.info(
+                    "T8: Got %d catchers from Baseball Savant statcast_catcher_framing",
+                    len(sv_df),
+                )
         except Exception as e:
-            logger.warning("T8: FanGraphs catcher stats failed: %s", e)
+            logger.warning("T8: Savant catcher framing failed: %s", e)
+
+        if framing_data is None:
+            try:
+                from pybaseball import batting_stats
+
+                fg_df = batting_stats(year, qual=0, pos="c")
+                if fg_df is not None and not fg_df.empty:
+                    framing_data = fg_df
+                    logger.info("T8: Got %d catchers from FanGraphs batting_stats", len(fg_df))
+            except Exception as e:
+                logger.warning("T8: FanGraphs catcher stats failed: %s", e)
 
         if framing_data is None:
             # Fallback: use statsapi catcher stats
@@ -1470,6 +1603,12 @@ def _bootstrap_catcher_framing(progress: BootstrapProgress) -> str:
                     conn_temp.close()
 
                 if catchers.empty:
+                    update_refresh_log(
+                        "catcher_framing",
+                        "no_data",
+                        rows_written=0,
+                        message="no catchers in players table",
+                    )
                     return "Skipped: no catchers in DB"
 
                 rows = []
@@ -1505,6 +1644,12 @@ def _bootstrap_catcher_framing(progress: BootstrapProgress) -> str:
                 logger.warning("T8: statsapi catcher fallback failed: %s", e)
 
         if framing_data is None or framing_data.empty:
+            update_refresh_log(
+                "catcher_framing",
+                "no_data",
+                rows_written=0,
+                message="all framing sources returned empty (Savant + FanGraphs + statsapi)",
+            )
             return "Skipped: no catcher data available"
 
         # Build name→player_id mapping
@@ -1562,16 +1707,31 @@ def _bootstrap_catcher_framing(progress: BootstrapProgress) -> str:
         finally:
             conn.close()
 
-        update_refresh_log("catcher_framing", "success")
+        try:
+            from src.database import update_refresh_log_auto
+
+            status = update_refresh_log_auto(
+                "catcher_framing",
+                updated,
+                expected_min=10,
+                message=f"{updated} catchers from {len(framing_data)} rows",
+            )
+        except ImportError:
+            update_refresh_log("catcher_framing", "success")
+            status = "success"
         logger.info("T8: Catcher framing — %d catchers updated", updated)
-        return f"Saved {updated} catcher framing profiles"
+        return f"Saved {updated} catcher framing profiles ({status})"
 
     except Exception as exc:
         logger.exception("T8 catcher framing failed: %s", exc)
         try:
             from src.database import update_refresh_log
 
-            update_refresh_log("catcher_framing", "error")
+            update_refresh_log(
+                "catcher_framing",
+                _classify_fetch_error(exc),
+                message=str(exc)[:200],
+            )
         except Exception:
             pass
         return f"Error: {exc}"
@@ -1932,11 +2092,23 @@ def _bootstrap_game_logs(progress: BootstrapProgress, force: bool = False) -> st
     Fetches the current season (2026) game logs and, when historical data is
     absent, also back-fills 2025 and 2024.  All work is delegated to
     ``fetch_game_logs_from_api`` which handles INSERT OR REPLACE internally.
+
+    2026-04-17 audit: uses update_refresh_log_auto so a 0-row fetch now
+    writes 'no_data' instead of the silent 'success' that hid the
+    statsapi.player_stat_data() wrapper bug for weeks.
     """
     progress.phase = "Game Logs"
     progress.detail = "Fetching per-game stats from MLB Stats API..."
+    # Expected floor: ~315 rostered players × 10+ games-so-far by mid-April.
+    # Conservative floor of 200 rows accepts early-season sparsity while
+    # still surfacing totally-empty fetches as 'partial' / 'no_data'.
+    EXPECTED_MIN = 200
     try:
-        from src.database import get_connection, update_refresh_log
+        from src.database import (
+            get_connection,
+            update_refresh_log,
+            update_refresh_log_auto,
+        )
         from src.player_databank import fetch_game_logs_from_api
 
         current_year = datetime.now(UTC).year
@@ -1945,7 +2117,10 @@ def _bootstrap_game_logs(progress: BootstrapProgress, force: bool = False) -> st
         progress.detail = f"Fetching {current_year} game logs..."
         count_current = fetch_game_logs_from_api(season=current_year, force=force)
 
-        # Back-fill historical seasons if the game_logs table is sparse
+        # Back-fill historical seasons if the game_logs table is sparse.
+        # Trigger when fewer than 100 rows exist for a season (was: strictly 0)
+        # so a partially-failed prior run doesn't permanently short-circuit
+        # the backfill path.
         hist_counts: dict[int, int] = {}
         for hist_year in (current_year - 1, current_year - 2):
             conn = get_connection()
@@ -1957,23 +2132,29 @@ def _bootstrap_game_logs(progress: BootstrapProgress, force: bool = False) -> st
             finally:
                 conn.close()
 
-            if existing == 0 or force:
+            if existing < 100 or force:
                 progress.detail = f"Back-filling {hist_year} game logs..."
                 hist_counts[hist_year] = fetch_game_logs_from_api(season=hist_year, force=force)
 
-        update_refresh_log("game_logs", "success")
+        total_current_plus_hist = count_current + sum(hist_counts.values())
+        status = update_refresh_log_auto(
+            "game_logs",
+            total_current_plus_hist,
+            expected_min=EXPECTED_MIN,
+            message=(f"{current_year}={count_current}, " + ", ".join(f"{y}={c}" for y, c in hist_counts.items())),
+        )
 
         parts = [f"{current_year}: {count_current} rows"]
         for yr, cnt in hist_counts.items():
             parts.append(f"{yr}: {cnt} rows")
-        return f"Game logs — {', '.join(parts)}"
+        return f"Game logs ({status}) — {', '.join(parts)}"
 
     except Exception as exc:
         logger.warning("Game logs bootstrap failed (non-fatal): %s", exc)
         try:
             from src.database import update_refresh_log
 
-            update_refresh_log("game_logs", f"error: {exc}")
+            update_refresh_log("game_logs", "error", message=str(exc)[:200])
         except Exception:
             pass
         return f"Game logs: error ({exc})"
@@ -2050,6 +2231,24 @@ def bootstrap_all_data(
                 logger.exception("Bootstrap %s failed: %s", key, exc)
                 results[key] = f"Error: {exc}"
 
+    # Phase 3b (2026-04-17): Extended roster (40-man + spring training)
+    # MUST run before live_stats so players.mlb_id is populated when
+    # save_season_stats_to_db matches rows via mlb_id. Previously this ran
+    # at Phase 8 (post-live_stats), which forced fuzzy name-match fallbacks
+    # that corrupted hitter rows with pitcher stats.
+    _notify(0.40)
+    if force or check_staleness("extended_roster", staleness.players_hours):
+        try:
+            results["extended_roster"] = _run_with_timeout(
+                lambda: _bootstrap_extended_roster(progress),
+                timeout=_PHASE_TIMEOUT_SECONDS,
+            )
+        except Exception as exc:
+            logger.warning("Extended roster bootstrap timed out or failed: %s", exc)
+            results["extended_roster"] = f"Error: {exc}"
+    else:
+        results["extended_roster"] = "Fresh"
+
     # Phases 4+5: Live stats + Historical (parallel — both independent)
     _notify(0.45)
     live_stale = force or check_staleness("season_stats", _live_stats_ttl_hours(staleness.live_stats_hours))
@@ -2100,12 +2299,13 @@ def bootstrap_all_data(
     else:
         results["yahoo"] = "Fresh"
 
-    # Phase 8: Extended roster (40-man + spring training)
+    # Phase 8: Extended roster — moved to Phase 3b (pre-live_stats) on
+    # 2026-04-17. Leave the slot here as a no-op so the progress index
+    # stays stable for any downstream tooling that counts phases.
     _notify(0.91)
-    if force or check_staleness("extended_roster", staleness.players_hours):
+    if "extended_roster" not in results:
+        # Safety net: if the earlier call somehow didn't run, fall back.
         results["extended_roster"] = _bootstrap_extended_roster(progress)
-    else:
-        results["extended_roster"] = "Fresh"
 
     # Phase 9: Multi-source ADP
     _notify(0.92)

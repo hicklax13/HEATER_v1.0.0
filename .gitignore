@@ -43,6 +43,7 @@ oauth_token.json
 .claude/settings.local.json
 .claude/projects/
 .claude/scheduled-tasks/
+.claude/scheduled_tasks.lock
 .claude/plugins/
 .claude/worktrees/
 .claude/todos/

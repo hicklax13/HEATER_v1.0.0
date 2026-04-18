@@ -253,7 +253,10 @@ def _init_db_tables_and_columns(conn):
         CREATE TABLE IF NOT EXISTS refresh_log (
             source TEXT PRIMARY KEY,
             last_refresh TEXT,
-            status TEXT DEFAULT 'success'
+            status TEXT DEFAULT 'unknown',
+            rows_written INTEGER,
+            rows_expected_min INTEGER,
+            message TEXT
         );
 
         CREATE TABLE IF NOT EXISTS injury_history (
@@ -702,6 +705,23 @@ def _init_db_tables_and_columns(conn):
     _safe_add_column(conn, "statcast_archive", "hitter_fb_pct", "REAL")
     _safe_add_column(conn, "statcast_archive", "hitter_gb_pct", "REAL")
     _safe_add_column(conn, "statcast_archive", "bat_speed", "REAL")
+
+    # T3 (2026-04-17 data-fetch audit): refresh_log row-count validation columns
+    # Required so "success" can no longer be written for 0-row fetches silently.
+    _safe_add_column(conn, "refresh_log", "rows_written", "INTEGER")
+    _safe_add_column(conn, "refresh_log", "rows_expected_min", "INTEGER")
+    _safe_add_column(conn, "refresh_log", "message", "TEXT")
+
+    # T4: ros_projections.updated_at had no DEFAULT — backfill any legacy NULLs
+    # so downstream freshness gates don't treat all rows as unknown-age.
+    try:
+        conn.execute("UPDATE ros_projections SET updated_at = datetime('now') WHERE updated_at IS NULL")
+    except sqlite3.Error:
+        pass
+
+    # Commit schema migrations + backfill. Without this, the UPDATE above
+    # and any ALTER TABLEs are rolled back when the connection closes.
+    conn.commit()
 
 
 _VALID_TABLE_NAMES = frozenset(
@@ -1943,44 +1963,155 @@ def upsert_league_standing(team_name: str, category: str, total: float, rank: in
         conn.close()
 
 
-def update_refresh_log(source: str, status: str = "success"):
-    """Update the refresh log for a data source."""
+_VALID_REFRESH_STATUSES = frozenset({"success", "partial", "no_data", "skipped", "error", "unknown"})
+
+
+def update_refresh_log(
+    source: str,
+    status: str = "unknown",
+    *,
+    rows_written: int | None = None,
+    expected_min: int | None = None,
+    message: str | None = None,
+) -> None:
+    """Update the refresh log for a data source.
+
+    Callers should prefer ``update_refresh_log_auto`` which derives the status
+    from the actual row count. Direct use of this function is reserved for
+    situations where the caller truly knows the outcome (e.g. ``"skipped"``).
+
+    Default status is ``"unknown"`` (not ``"success"``) — a 2026-04-17 fix to
+    stop silent-success writes from hiding zero-row fetch failures.
+    """
+    if status not in _VALID_REFRESH_STATUSES:
+        status = "unknown"
     conn = get_connection()
     try:
         conn.execute(
-            """INSERT INTO refresh_log (source, last_refresh, status)
-               VALUES (?, ?, ?)
+            """INSERT INTO refresh_log
+                   (source, last_refresh, status, rows_written, rows_expected_min, message)
+               VALUES (?, ?, ?, ?, ?, ?)
                ON CONFLICT(source) DO UPDATE SET
-               last_refresh=excluded.last_refresh, status=excluded.status""",
-            (source, datetime.now(UTC).isoformat(), status),
+                   last_refresh=excluded.last_refresh,
+                   status=excluded.status,
+                   rows_written=excluded.rows_written,
+                   rows_expected_min=excluded.rows_expected_min,
+                   message=excluded.message""",
+            (
+                source,
+                datetime.now(UTC).isoformat(),
+                status,
+                rows_written,
+                expected_min,
+                message,
+            ),
         )
         conn.commit()
     finally:
         conn.close()
 
 
+def update_refresh_log_auto(
+    source: str,
+    rows_written: int,
+    *,
+    expected_min: int = 1,
+    message: str | None = None,
+    error: bool = False,
+) -> str:
+    """Write the refresh log with status derived from the actual row count.
+
+    Returns the status string that was written so callers can surface it in
+    their progress messages.
+
+    Status rules (in priority order):
+        error=True                         → "error"
+        rows_written <= 0                  → "no_data"
+        0 < rows_written < expected_min    → "partial"
+        rows_written >= expected_min       → "success"
+    """
+    if error:
+        status = "error"
+    elif rows_written <= 0:
+        status = "no_data"
+    elif expected_min > 0 and rows_written < expected_min:
+        status = "partial"
+    else:
+        status = "success"
+    update_refresh_log(
+        source,
+        status,
+        rows_written=int(rows_written) if rows_written is not None else None,
+        expected_min=expected_min,
+        message=message,
+    )
+    return status
+
+
 def get_refresh_status(source: str) -> dict | None:
-    """Get the last refresh status for a data source."""
+    """Get the last refresh status for a data source.
+
+    Columns added in T3 migration (rows_written, rows_expected_min, message)
+    may not exist on very old DBs, so we select defensively.
+    """
     conn = get_connection()
     try:
-        cursor = conn.execute(
-            "SELECT source, last_refresh, status FROM refresh_log WHERE source = ?",
-            (source,),
-        )
-        row = cursor.fetchone()
+        try:
+            cursor = conn.execute(
+                "SELECT source, last_refresh, status, rows_written, rows_expected_min, message "
+                "FROM refresh_log WHERE source = ?",
+                (source,),
+            )
+            row = cursor.fetchone()
+            if row is None:
+                return None
+            return {
+                "source": row[0],
+                "last_refresh": row[1],
+                "status": row[2],
+                "rows_written": row[3],
+                "rows_expected_min": row[4],
+                "message": row[5],
+            }
+        except sqlite3.OperationalError:
+            cursor = conn.execute(
+                "SELECT source, last_refresh, status FROM refresh_log WHERE source = ?",
+                (source,),
+            )
+            row = cursor.fetchone()
+            if row is None:
+                return None
+            return {
+                "source": row[0],
+                "last_refresh": row[1],
+                "status": row[2],
+                "rows_written": None,
+                "rows_expected_min": None,
+                "message": None,
+            }
     finally:
         conn.close()
-    if row is None:
-        return None
-    return {"source": row[0], "last_refresh": row[1], "status": row[2]}
 
 
 def check_staleness(source: str, max_age_hours: float) -> bool:
-    """Return True if source needs refresh (no record or older than max_age_hours)."""
+    """Return True if source needs refresh.
+
+    A source is stale if any of the following hold:
+        - no prior refresh record
+        - last_refresh timestamp older than max_age_hours
+        - last recorded status was not a clean "success"
+
+    The status check was added 2026-04-17 so phases that failed ("error",
+    "no_data", "partial", "unknown") retry on the next bootstrap instead of
+    being frozen by a stale successful-looking timestamp.
+    """
     if max_age_hours <= 0:
         return True
     status = get_refresh_status(source)
     if status is None or status["last_refresh"] is None:
+        return True
+    st = (status.get("status") or "").lower()
+    if st in {"error", "no_data", "partial", "unknown"}:
         return True
     try:
         last = datetime.fromisoformat(status["last_refresh"])

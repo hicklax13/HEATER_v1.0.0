@@ -534,6 +534,7 @@ class TestBootstrapAllData:
                 patch("src.data_bootstrap._bootstrap_historical") as mh,
                 patch("src.data_bootstrap._bootstrap_injury_data") as mi,
                 patch("src.data_bootstrap._bootstrap_yahoo") as my,
+                patch("src.data_bootstrap._bootstrap_extended_roster") as mer,
                 patch("src.database.check_staleness", return_value=False),
             ):
                 from src.data_bootstrap import bootstrap_all_data
@@ -542,6 +543,7 @@ class TestBootstrapAllData:
                 # When nothing is stale, bootstrap functions should NOT be called
                 mp.assert_not_called()
                 mpf.assert_not_called()
+                mer.assert_not_called()
                 assert isinstance(results, dict)
                 assert results["players"] == "Fresh"
 
@@ -556,6 +558,7 @@ class TestBootstrapAllData:
                 patch("src.data_bootstrap._bootstrap_historical", return_value="ok") as mh,
                 patch("src.data_bootstrap._bootstrap_injury_data", return_value="ok") as mi,
                 patch("src.data_bootstrap._bootstrap_yahoo", return_value="ok") as my,
+                patch("src.data_bootstrap._bootstrap_extended_roster", return_value="ok") as mer,
             ):
                 from src.data_bootstrap import bootstrap_all_data
 
@@ -564,6 +567,7 @@ class TestBootstrapAllData:
                 mpf.assert_called_once()
                 mpr.assert_called_once()
                 ml.assert_called_once()
+                mer.assert_called_once()  # 2026-04-17 reorder: now runs at Phase 3b
                 assert results["players"] == "ok"
 
     def test_progress_callback(self, temp_db):
@@ -577,6 +581,7 @@ class TestBootstrapAllData:
                 patch("src.data_bootstrap._bootstrap_historical", return_value="ok"),
                 patch("src.data_bootstrap._bootstrap_injury_data", return_value="ok"),
                 patch("src.data_bootstrap._bootstrap_yahoo", return_value="ok"),
+                patch("src.data_bootstrap._bootstrap_extended_roster", return_value="ok"),
             ):
                 from src.data_bootstrap import bootstrap_all_data
 

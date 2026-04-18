@@ -342,27 +342,41 @@ def _fetch_and_store_player_logs(
 
     for group in groups:
         try:
-            result = statsapi.player_stat_data(
-                mlb_id,
-                group=group,
-                type="gameLog",
-                sportId=1,
+            # 2026-04-17 FIX: switched from statsapi.player_stat_data()
+            # (that wrapper flattens the payload and drops the per-game
+            # `date` field — every entry had keys ['type','group','season',
+            # 'stats'] with no date, causing the parser to skip every row
+            # and write 0 rows with refresh_log status='success').
+            # Using statsapi.get("person_stats", ...) returns the raw JSON
+            # with the proper splits[] structure where each split has
+            # {date, stat, team, opponent, isHome}.
+            resp = statsapi.get(
+                "person_stats",
+                {
+                    "personId": mlb_id,
+                    "stats": "gameLog",
+                    "season": season,
+                    "group": group,
+                    "sportId": 1,
+                },
+                request_kwargs={"timeout": _API_TIMEOUT},
             )
-            entries = result.get("stats", [])
-            if not entries:
+            stats_sections = resp.get("stats", []) if isinstance(resp, dict) else []
+            if not stats_sections:
                 continue
 
-            for entry in entries:
-                game_date = entry.get("date", "")
-                if not game_date:
-                    continue
-
-                raw = entry.get("stats", entry)
-                row = _parse_game_log_row(player_id, game_date, season, group, raw)
-                rows.append(row)
+            for section in stats_sections:
+                for split in section.get("splits", []) or []:
+                    game_date = split.get("date", "")
+                    if not game_date:
+                        continue
+                    stat_raw = split.get("stat", {}) or {}
+                    row = _parse_game_log_row(player_id, game_date, season, group, stat_raw)
+                    rows.append(row)
 
             # If we found data in this group, don't try the other
-            break
+            if rows:
+                break
         except Exception:
             logger.debug("No %s gameLog for mlb_id=%d", group, mlb_id, exc_info=False)
 
