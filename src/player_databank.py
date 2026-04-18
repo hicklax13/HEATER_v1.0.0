@@ -342,26 +342,27 @@ def _fetch_and_store_player_logs(
 
     for group in groups:
         try:
-            # 2026-04-17 FIX: switched from statsapi.player_stat_data()
-            # (that wrapper flattens the payload and drops the per-game
-            # `date` field — every entry had keys ['type','group','season',
-            # 'stats'] with no date, causing the parser to skip every row
-            # and write 0 rows with refresh_log status='success').
-            # Using statsapi.get("person_stats", ...) returns the raw JSON
-            # with the proper splits[] structure where each split has
-            # {date, stat, team, opponent, isHome}.
+            # 2026-04-18 FIX (SF-1 from data audit): the prior attempt used
+            # statsapi.get("person_stats", ...) which targets endpoint
+            # `/people/{personId}/stats/game/{gamePk}` and REQUIRES a gamePk
+            # path parameter — calling without it raised ValueError that was
+            # silently swallowed, leaving game_logs empty for ALL seasons.
+            # The working endpoint is `/people/{personId}` with a `hydrate`
+            # query that pulls stats inline. Response shape:
+            #   resp["people"][0]["stats"][0]["splits"][]
+            # Each split contains {date, stat, team, opponent, isHome, game, ...}.
             resp = statsapi.get(
-                "person_stats",
+                "person",
                 {
                     "personId": mlb_id,
-                    "stats": "gameLog",
-                    "season": season,
-                    "group": group,
-                    "sportId": 1,
+                    "hydrate": f"stats(group=[{group}],type=[gameLog],season={season})",
                 },
                 request_kwargs={"timeout": _API_TIMEOUT},
             )
-            stats_sections = resp.get("stats", []) if isinstance(resp, dict) else []
+            people = resp.get("people", []) if isinstance(resp, dict) else []
+            if not people:
+                continue
+            stats_sections = people[0].get("stats", []) or []
             if not stats_sections:
                 continue
 
