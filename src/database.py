@@ -256,7 +256,8 @@ def _init_db_tables_and_columns(conn):
             status TEXT DEFAULT 'unknown',
             rows_written INTEGER,
             rows_expected_min INTEGER,
-            message TEXT
+            message TEXT,
+            tier TEXT DEFAULT 'primary'
         );
 
         CREATE TABLE IF NOT EXISTS injury_history (
@@ -718,6 +719,12 @@ def _init_db_tables_and_columns(conn):
         conn.execute("UPDATE ros_projections SET updated_at = datetime('now') WHERE updated_at IS NULL")
     except sqlite3.Error:
         pass
+
+    # Migration: add tier column to refresh_log (2026-04-19)
+    _safe_add_column(conn, "refresh_log", "tier", "TEXT DEFAULT 'primary'")
+
+    # Migration: add is_undroppable column to league_rosters (2026-04-19)
+    _safe_add_column(conn, "league_rosters", "is_undroppable", "INTEGER DEFAULT 0")
 
     # Commit schema migrations + backfill. Without this, the UPDATE above
     # and any ALTER TABLEs are rolled back when the connection closes.
@@ -1973,6 +1980,7 @@ def update_refresh_log(
     rows_written: int | None = None,
     expected_min: int | None = None,
     message: str | None = None,
+    tier: str | None = None,
 ) -> None:
     """Update the refresh log for a data source.
 
@@ -1982,6 +1990,9 @@ def update_refresh_log(
 
     Default status is ``"unknown"`` (not ``"success"``) — a 2026-04-17 fix to
     stop silent-success writes from hiding zero-row fetch failures.
+
+    ``tier`` tracks which data-fetch tier was used: ``"primary"``,
+    ``"fallback"``, ``"emergency"``, or ``None`` (unknown/not applicable).
     """
     if status not in _VALID_REFRESH_STATUSES:
         status = "unknown"
@@ -1989,14 +2000,15 @@ def update_refresh_log(
     try:
         conn.execute(
             """INSERT INTO refresh_log
-                   (source, last_refresh, status, rows_written, rows_expected_min, message)
-               VALUES (?, ?, ?, ?, ?, ?)
+                   (source, last_refresh, status, rows_written, rows_expected_min, message, tier)
+               VALUES (?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(source) DO UPDATE SET
                    last_refresh=excluded.last_refresh,
                    status=excluded.status,
                    rows_written=excluded.rows_written,
                    rows_expected_min=excluded.rows_expected_min,
-                   message=excluded.message""",
+                   message=excluded.message,
+                   tier=excluded.tier""",
             (
                 source,
                 datetime.now(UTC).isoformat(),
@@ -2004,6 +2016,7 @@ def update_refresh_log(
                 rows_written,
                 expected_min,
                 message,
+                tier,
             ),
         )
         conn.commit()
@@ -2018,6 +2031,7 @@ def update_refresh_log_auto(
     expected_min: int = 1,
     message: str | None = None,
     error: bool = False,
+    tier: str | None = None,
 ) -> str:
     """Write the refresh log with status derived from the actual row count.
 
@@ -2029,6 +2043,9 @@ def update_refresh_log_auto(
         rows_written <= 0                  → "no_data"
         0 < rows_written < expected_min    → "partial"
         rows_written >= expected_min       → "success"
+
+    ``tier`` tracks which data-fetch tier was used: ``"primary"``,
+    ``"fallback"``, ``"emergency"``, or ``None`` (unknown/not applicable).
     """
     if error:
         status = "error"
@@ -2044,6 +2061,7 @@ def update_refresh_log_auto(
         rows_written=int(rows_written) if rows_written is not None else None,
         expected_min=expected_min,
         message=message,
+        tier=tier,
     )
     return status
 
