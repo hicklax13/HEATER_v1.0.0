@@ -5,6 +5,58 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 
+# ── Team Code Normalization ─────────────────────────────────────────
+# Single canonical mapping: every known abbreviation variant → canonical code.
+# Yahoo, MLB Stats API, FanGraphs, and pybaseball all use different abbreviations.
+
+TEAM_CODE_CANONICAL: dict[str, str] = {
+    "ARI": "ARI",
+    "AZ": "ARI",
+    "ATH": "ATH",
+    "OAK": "ATH",
+    "WSH": "WSH",
+    "WSN": "WSH",
+    "WAS": "WSH",
+    "SF": "SF",
+    "SFG": "SF",
+    "SD": "SD",
+    "SDP": "SD",
+    "TB": "TB",
+    "TBR": "TB",
+    "KC": "KC",
+    "KCR": "KC",
+    "CWS": "CWS",
+    "CHW": "CWS",
+    "LAD": "LAD",
+    "LAA": "LAA",
+    "NYY": "NYY",
+    "NYM": "NYM",
+    "BOS": "BOS",
+    "HOU": "HOU",
+    "ATL": "ATL",
+    "PHI": "PHI",
+    "CHC": "CHC",
+    "STL": "STL",
+    "MIL": "MIL",
+    "MIN": "MIN",
+    "DET": "DET",
+    "CLE": "CLE",
+    "CIN": "CIN",
+    "PIT": "PIT",
+    "BAL": "BAL",
+    "TOR": "TOR",
+    "SEA": "SEA",
+    "TEX": "TEX",
+    "COL": "COL",
+    "MIA": "MIA",
+}
+
+
+def canonicalize_team(code: str) -> str:
+    """Normalize a team abbreviation to its canonical form."""
+    return TEAM_CODE_CANONICAL.get(code.upper().strip(), code.upper().strip())
+
+
 # ── League Configuration ─────────────────────────────────────────────
 
 
@@ -25,12 +77,14 @@ class LeagueConfig:
             "SP": 2,
             "RP": 2,
             "P": 4,
-            "BN": 5,
+            "BN": 6,
+            "IL": 4,
         }
     )
     hitting_categories: list = field(default_factory=lambda: ["R", "HR", "RBI", "SB", "AVG", "OBP"])
     pitching_categories: list = field(default_factory=lambda: ["W", "L", "SV", "K", "ERA", "WHIP"])
     scoring_format: str = "h2h_categories"
+    weekly_transaction_limit: int = 10
     # SGP denominators — defaults for 12-team H2H categories
     sgp_denominators: dict = field(
         default_factory=lambda: {
