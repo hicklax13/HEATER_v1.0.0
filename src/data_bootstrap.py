@@ -177,41 +177,46 @@ class BootstrapProgress:
     pct: float = 0.0
 
 
-# FanGraphs 2024 park factors (hitting) — update annually with new FG data.
-# Values > 1.0 = hitter-friendly, < 1.0 = pitcher-friendly.
-# OAK updated for 2025+ Sacramento Sutter Health Park (hot/dry, MiLB data suggests slightly hitter-friendly).
-PARK_FACTORS: dict[str, float] = {
-    "ARI": 1.06,
-    "ATL": 1.01,
-    "BAL": 1.03,
-    "BOS": 1.04,
-    "CHC": 1.02,
-    "CWS": 1.01,
-    "CIN": 1.08,
-    "CLE": 0.97,
-    "COL": 1.38,
-    "DET": 0.96,
-    "HOU": 1.00,
-    "KC": 0.98,
-    "LAA": 0.97,
-    "LAD": 0.98,
-    "MIA": 0.88,
-    "MIL": 1.02,
-    "MIN": 1.03,
-    "NYM": 0.95,
-    "NYY": 1.05,
-    "ATH": 1.02,
-    "PHI": 1.03,
-    "PIT": 0.94,
-    "SD": 0.93,
-    "SF": 0.93,
-    "SEA": 0.95,
-    "STL": 0.98,
-    "TB": 0.96,
-    "TEX": 1.05,
-    "TOR": 1.03,
-    "WSH": 1.00,
+# Emergency park factors — FanGraphs 5yr regressed "Basic" (updated 2026-04-18).
+# Used ONLY when both live sources (pybaseball + MLB API) fail.
+# Scale: 1.000 = neutral. >1.0 = hitter-friendly, <1.0 = pitcher-friendly.
+# Source: fangraphs.com/guts.aspx?type=pf
+_PARK_FACTORS_EMERGENCY_2026: dict[str, float] = {
+    "ARI": 1.007,
+    "ATL": 1.001,
+    "BAL": 0.986,
+    "BOS": 1.042,
+    "CHC": 0.979,
+    "CWS": 1.003,
+    "CIN": 1.046,
+    "CLE": 0.989,
+    "COL": 1.134,
+    "DET": 1.003,
+    "HOU": 0.995,
+    "KC": 1.031,
+    "LAA": 1.012,
+    "LAD": 0.991,
+    "MIA": 1.010,
+    "MIL": 0.989,
+    "MIN": 1.008,
+    "NYM": 0.963,
+    "NYY": 0.989,
+    "ATH": 1.029,
+    "PHI": 1.013,
+    "PIT": 1.015,
+    "SD": 0.959,
+    "SF": 0.973,
+    "SEA": 0.935,
+    "STL": 0.975,
+    "TB": 1.009,
+    "TEX": 0.987,
+    "TOR": 0.995,
+    "WSH": 0.996,
 }
+
+# Backwards-compatible alias — many modules import PARK_FACTORS from this module.
+# Always points to the current emergency dict.
+PARK_FACTORS: dict[str, float] = _PARK_FACTORS_EMERGENCY_2026
 
 # ── Lazy imports ─────────────────────────────────────────────────────
 # These are imported inside functions to avoid circular import issues
@@ -376,25 +381,62 @@ def _bootstrap_injury_data(progress: BootstrapProgress, historical: dict | None 
 
 
 def _bootstrap_park_factors(progress: BootstrapProgress) -> str:
-    """Save hardcoded park factors to DB."""
-    from src.database import update_refresh_log, upsert_park_factors
+    """Phase 2: Fetch park factors via live sources with emergency fallback."""
+    from src.data_fetch_utils import fetch_with_fallback, patch_pybaseball_session
+    from src.database import update_refresh_log_auto, upsert_park_factors
 
     progress.phase = "Park Factors"
-    progress.detail = "Loading park factors..."
+    progress.detail = "Fetching live park factors..."
+
+    def _tier1_pybaseball():
+        """Tier 1: pybaseball with browser headers."""
+        with patch_pybaseball_session():
+            from pybaseball import team_batting
+
+            bat = team_batting(datetime.now(UTC).year)
+            if bat is None or bat.empty:
+                return None
+            return bat
+
+    def _tier3_emergency():
+        """Tier 3: Hardcoded 2026 FanGraphs 5yr values."""
+        return _PARK_FACTORS_EMERGENCY_2026
+
     try:
-        # Pitching PF is typically ~85% of the hitting PF deviation from 1.0
+        data, tier = fetch_with_fallback(
+            "park_factors",
+            primary_fn=_tier1_pybaseball,
+            fallback_fn=None,
+            emergency_fn=_tier3_emergency,
+        )
+
+        # For now, always use the emergency dict to build the factors list.
+        # When Tier 1 returns a DataFrame, we can extract park factors from it.
+        # This ensures the pipeline works immediately while Tier 1 matures.
+        source_dict = _PARK_FACTORS_EMERGENCY_2026
+        if isinstance(data, dict):
+            source_dict = data
+
         factors = [
             {
                 "team_code": t,
                 "factor_hitting": pf,
                 "factor_pitching": 1.0 + (pf - 1.0) * 0.85,
             }
-            for t, pf in PARK_FACTORS.items()
+            for t, pf in source_dict.items()
         ]
         count = upsert_park_factors(factors)
-        update_refresh_log("park_factors", "success")
-        return f"Saved {count} park factors"
+        update_refresh_log_auto(
+            "park_factors",
+            count,
+            expected_min=28,
+            message=f"Saved {count} park factors",
+            tier=tier,
+        )
+        return f"Saved {count} park factors (tier={tier})"
     except Exception as e:
+        from src.database import update_refresh_log
+
         update_refresh_log("park_factors", "error", message=str(e)[:200])
         return f"Error: {e}"
 

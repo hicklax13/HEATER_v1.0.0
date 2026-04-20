@@ -447,16 +447,16 @@ class TestParkFactorsConstant:
         assert len(PARK_FACTORS) == 30
 
     def test_coors_field_hitter_friendly(self):
-        """Coors Field is hitter-friendly."""
+        """Coors Field is hitter-friendly (FanGraphs 5yr regressed value ~1.134)."""
         from src.data_bootstrap import PARK_FACTORS
 
-        assert PARK_FACTORS["COL"] > 1.2
+        assert PARK_FACTORS["COL"] > 1.0
 
-    def test_miami_pitcher_friendly(self):
-        """loanDepot park is pitcher-friendly."""
+    def test_miami_hitter_friendly(self):
+        """loanDepot park is slightly hitter-friendly per FanGraphs 5yr regressed data (1.010)."""
         from src.data_bootstrap import PARK_FACTORS
 
-        assert PARK_FACTORS["MIA"] < 0.95
+        assert PARK_FACTORS["MIA"] > 1.0
 
 
 # ---------------------------------------------------------------------------
