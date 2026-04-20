@@ -915,20 +915,33 @@ def _bootstrap_game_day(progress: BootstrapProgress) -> str:
 def _bootstrap_team_strength(progress: BootstrapProgress) -> str:
     """Phase 21: Fetch team-level batting and pitching strength metrics."""
     progress.phase = "Team Strength"
-    progress.detail = "Fetching team batting/pitching metrics from FanGraphs..."
+    progress.detail = "Fetching team batting/pitching metrics..."
     try:
+        from src.database import get_connection, update_refresh_log, update_refresh_log_auto
         from src.game_day import fetch_team_strength
 
-        df = fetch_team_strength(datetime.now(UTC).year)
-        from src.database import update_refresh_log
+        # Purge stale rows before fetch
+        conn = get_connection()
+        try:
+            conn.execute("DELETE FROM team_strength WHERE fetched_at < datetime('now', '-3 days')")
+            conn.commit()
+        finally:
+            conn.close()
 
-        update_refresh_log("team_strength", "success")
-        return f"Saved team strength for {len(df)} teams"
+        df = fetch_team_strength(datetime.now(UTC).year)
+        count = len(df) if df is not None and not df.empty else 0
+        status = update_refresh_log_auto(
+            "team_strength",
+            count,
+            expected_min=28,
+            message=f"Saved {count} teams",
+        )
+        return f"Saved team strength for {count} teams ({status})"
     except Exception as exc:
         logger.exception("Team strength bootstrap failed: %s", exc)
         from src.database import update_refresh_log
 
-        update_refresh_log("team_strength", "error")
+        update_refresh_log("team_strength", "error", message=str(exc)[:200])
         return f"Error: {exc}"
 
 
@@ -2543,28 +2556,29 @@ def bootstrap_all_data(
     else:
         results["ros_projections"] = "Fresh"
 
-    # Phase 20+21: Game-day intelligence + Team strength (parallel)
-    _notify(0.97)
+    # Phase 20: Game-day intelligence (SOLO — no longer parallel with team_strength)
+    _notify(0.96)
     gd_stale = force or check_staleness("game_day", staleness.game_day_hours)
-    ts_stale = force or check_staleness("team_strength", staleness.team_strength_hours)
+    if gd_stale:
+        try:
+            results["game_day"] = _bootstrap_game_day(progress)
+        except Exception as exc:
+            logger.exception("Bootstrap game_day failed: %s", exc)
+            results["game_day"] = f"Error: {exc}"
+    else:
+        results["game_day"] = "Fresh"
 
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        futures = {}
-        if gd_stale:
-            futures[executor.submit(_bootstrap_game_day, progress)] = "game_day"
-        else:
-            results["game_day"] = "Fresh"
-        if ts_stale:
-            futures[executor.submit(_bootstrap_team_strength, progress)] = "team_strength"
-        else:
-            results["team_strength"] = "Fresh"
-        for future in as_completed(futures):
-            key = futures[future]
-            try:
-                results[key] = future.result()
-            except Exception as exc:
-                logger.exception("Bootstrap %s failed: %s", key, exc)
-                results[key] = f"Error: {exc}"
+    # Phase 21: Team strength (SOLO — after game_day to avoid double fetch + SQLite lock)
+    _notify(0.97)
+    ts_stale = force or check_staleness("team_strength", staleness.team_strength_hours)
+    if ts_stale:
+        try:
+            results["team_strength"] = _bootstrap_team_strength(progress)
+        except Exception as exc:
+            logger.exception("Bootstrap team_strength failed: %s", exc)
+            results["team_strength"] = f"Error: {exc}"
+    else:
+        results["team_strength"] = "Fresh"
 
     # Phase 22-24: Stuff+, Batting stats, Sprint speed (parallel — all independent)
     _notify(0.98)
