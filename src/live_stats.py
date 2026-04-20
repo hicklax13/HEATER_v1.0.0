@@ -14,6 +14,7 @@ from src.database import (
     get_connection,
     get_refresh_status,
     update_refresh_log,
+    update_refresh_log_auto,
 )
 
 logger = logging.getLogger(__name__)
@@ -308,7 +309,7 @@ def fetch_season_stats(season: int = 2026) -> pd.DataFrame:
                 # Determine position type from roster entry
                 position = entry.get("position", {})
                 pos_type = position.get("type", "")
-                is_pitcher = pos_type == "Pitcher"
+                is_pitcher = pos_type in ("Pitcher", "Two-Way Player")
 
                 stats_list = person.get("stats", [])
                 if not stats_list:
@@ -317,7 +318,11 @@ def fetch_season_stats(season: int = 2026) -> pd.DataFrame:
                     # zero-stats row so the downstream Bayesian blend sees
                     # observed_denom=0 and falls back to pre-season projection
                     # cleanly — instead of silently dropping the player.
-                    if is_pitcher:
+                    if pos_type == "Two-Way Player":
+                        # Two-Way Players get BOTH hitting and pitching rows
+                        rows.append(_parse_hitting_stat(player_info, {}))
+                        rows.append(_parse_pitching_stat(player_info, {}))
+                    elif is_pitcher:
                         rows.append(_parse_pitching_stat(player_info, {}))
                     else:
                         rows.append(_parse_hitting_stat(player_info, {}))
@@ -340,8 +345,12 @@ def fetch_season_stats(season: int = 2026) -> pd.DataFrame:
                     elif group_name == "pitching" and is_pitcher:
                         rows.append(_parse_pitching_stat(player_info, s))
                         seen_names_with_row.add(full_name)
+                    elif group_name == "hitting" and is_pitcher and pos_type == "Two-Way Player":
+                        # Two-Way Player: emit BOTH hitting and pitching rows
+                        rows.append(_parse_hitting_stat(player_info, s))
+                        seen_names_with_row.add(full_name)
                     elif group_name == "hitting" and is_pitcher:
-                        pass  # Skip pitcher hitting stats
+                        pass  # Skip regular pitcher hitting stats
                     elif group_name == "pitching" and not is_pitcher:
                         pass  # Skip position player pitching stats
                     elif full_name not in seen_names_with_row:
@@ -498,8 +507,13 @@ def refresh_all_stats(force: bool = False) -> dict:
             df = fetch_season_stats()
             if not df.empty:
                 saved = save_season_stats_to_db(df)
-                update_refresh_log("season_stats", "success")
-                results["season_stats"] = f"Saved {saved} player stats"
+                update_refresh_log_auto(
+                    "season_stats",
+                    saved,
+                    expected_min=max(500, int(len(df) * 0.70)),
+                    message=f"saved {saved}/{len(df)} rows",
+                )
+                results["season_stats"] = f"Saved {saved}/{len(df)} player stats"
             else:
                 update_refresh_log("season_stats", "no_data", message="fetch_season_stats returned empty")
                 results["season_stats"] = "No data returned"
