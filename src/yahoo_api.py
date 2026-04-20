@@ -35,6 +35,8 @@ from pathlib import Path
 import pandas as pd
 import requests as _requests
 
+from src.valuation import LeagueConfig
+
 try:
     from yfpy.query import YahooFantasySportsQuery
 
@@ -1684,8 +1686,8 @@ class YahooFantasyClient:
         "26": "ERA",
         "27": "WHIP",
     }
-    _INVERSE_CATS: set[str] = {"L", "ERA", "WHIP"}
-    _ALL_CATS: list[str] = ["R", "HR", "RBI", "SB", "AVG", "OBP", "W", "L", "SV", "K", "ERA", "WHIP"]
+    _INVERSE_CATS: set[str] = set(LeagueConfig().inverse_stats)
+    _ALL_CATS: list[str] = list(LeagueConfig().all_categories)
 
     def _get_team_week_stats_raw(self, team_key: str, week: int) -> tuple[dict[str, str], float]:
         """Fetch per-category stats for a team/week via Yahoo REST API.

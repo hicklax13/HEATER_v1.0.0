@@ -97,7 +97,9 @@ def import_standings_csv(csv_path: str) -> int:
     """
     df = pd.read_csv(csv_path)
     df.columns = df.columns.str.strip()
-    categories = ["R", "HR", "RBI", "SB", "AVG", "OBP", "W", "L", "SV", "K", "ERA", "WHIP"]
+    from src.valuation import LeagueConfig
+
+    categories = list(LeagueConfig().all_categories)
     imported = 0
 
     for _, row in df.iterrows():

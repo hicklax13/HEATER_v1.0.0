@@ -2215,6 +2215,104 @@ def _bootstrap_game_logs(progress: BootstrapProgress, force: bool = False) -> st
         return f"Game logs: error ({exc})"
 
 
+def _bootstrap_injury_writeback(progress: BootstrapProgress) -> str:
+    """Phase 33: Consolidate Yahoo + ESPN injuries into players.is_injured."""
+    progress.phase = "Injury Writeback"
+    progress.detail = "Updating player injury flags..."
+    try:
+        from src.database import get_connection, update_refresh_log_auto
+
+        conn = get_connection()
+        try:
+            # Step 1: Reset all injury flags
+            conn.execute("UPDATE players SET is_injured = 0, injury_note = NULL")
+
+            # Step 2: Set is_injured from Yahoo roster data (authoritative for league)
+            conn.execute(
+                """UPDATE players SET is_injured = 1, injury_note = lr.status
+                   FROM league_rosters lr
+                   WHERE players.name = lr.name
+                     AND lr.status IN ('IL10', 'IL15', 'IL60', 'DTD')"""
+            )
+
+            conn.commit()
+        finally:
+            conn.close()
+
+        # Step 3: Set is_injured from ESPN injuries
+        from src.espn_injuries import fetch_espn_injuries, update_player_injury_flags
+
+        espn_injuries = fetch_espn_injuries()
+        espn_count = update_player_injury_flags(espn_injuries)
+
+        # Count total injured
+        conn = get_connection()
+        try:
+            injured_count = conn.execute("SELECT COUNT(*) FROM players WHERE is_injured = 1").fetchone()[0]
+        finally:
+            conn.close()
+
+        update_refresh_log_auto(
+            "injury_writeback",
+            injured_count,
+            expected_min=10,
+            message=f"{injured_count} players flagged injured (ESPN: {espn_count})",
+        )
+        return f"Flagged {injured_count} players as injured"
+    except Exception as exc:
+        logger.exception("Injury writeback failed: %s", exc)
+        from src.database import update_refresh_log
+
+        update_refresh_log("injury_writeback", "error", message=str(exc)[:200])
+        return f"Error: {exc}"
+
+
+def _bootstrap_draft_results(progress: BootstrapProgress, yahoo_client=None) -> str:
+    """Phase 32: Fetch draft results from Yahoo, flag rounds 1-3 as undroppable."""
+    progress.phase = "Draft Results"
+    progress.detail = "Fetching draft picks + undroppable flags..."
+    if yahoo_client is None:
+        return "Skipped (no Yahoo client)"
+    try:
+        from src.database import get_connection, save_league_draft_picks, update_refresh_log, update_refresh_log_auto
+
+        df = yahoo_client.get_draft_results()
+        if df.empty:
+            update_refresh_log_auto("draft_results", 0, expected_min=200)
+            return "No draft results available"
+
+        # Save all draft picks (reuse existing db helper)
+        saved = save_league_draft_picks(df)
+
+        # Flag rounds 1-3 as undroppable in league_rosters
+        undroppable_names = df[df["round"] <= 3]["player_name"].tolist()
+        conn = get_connection()
+        try:
+            conn.execute("UPDATE league_rosters SET is_undroppable = 0")
+            for name in undroppable_names:
+                conn.execute(
+                    "UPDATE league_rosters SET is_undroppable = 1 WHERE name = ?",
+                    (name,),
+                )
+            conn.commit()
+        finally:
+            conn.close()
+
+        update_refresh_log_auto(
+            "draft_results",
+            saved,
+            expected_min=200,
+            message=f"{saved} picks, {len(undroppable_names)} undroppable",
+        )
+        return f"Saved {saved} picks, {len(undroppable_names)} undroppable"
+    except Exception as exc:
+        logger.exception("Draft results fetch failed: %s", exc)
+        from src.database import update_refresh_log
+
+        update_refresh_log("draft_results", "error", message=str(exc)[:200])
+        return f"Error: {exc}"
+
+
 # ── Master Orchestrator ──────────────────────────────────────────────
 
 
@@ -2702,6 +2800,22 @@ def bootstrap_all_data(
             results["game_logs"] = f"Error: {exc}"
     else:
         results["game_logs"] = "Fresh"
+
+    # Phase 32: Draft results + undroppable flags (Yahoo-dependent, non-critical)
+    _notify(0.99)
+    try:
+        results["draft_results"] = _bootstrap_draft_results(progress, yahoo_client)
+    except Exception as exc:
+        logger.warning("Draft results bootstrap failed: %s", exc)
+        results["draft_results"] = f"Error: {exc}"
+
+    # Phase 33: Injury writeback (consolidates Yahoo + ESPN → players.is_injured)
+    _notify(0.995)
+    try:
+        results["injury_writeback"] = _bootstrap_injury_writeback(progress)
+    except Exception as exc:
+        logger.exception("Injury writeback failed: %s", exc)
+        results["injury_writeback"] = f"Error: {exc}"
 
     # Post-bootstrap validation (BUG-010 / data quality logging)
     try:

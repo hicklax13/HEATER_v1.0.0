@@ -37,27 +37,17 @@ try:
 except ImportError:
     PULP_AVAILABLE = False
 
+from src.valuation import LeagueConfig as _LC_Class  # noqa: E402
+
 logger = logging.getLogger(__name__)
 
 # ── Category definitions ─────────────────────────────────────────────
 
-ALL_CATEGORIES: list[str] = [
-    "r",
-    "hr",
-    "rbi",
-    "sb",
-    "avg",
-    "obp",
-    "w",
-    "l",
-    "sv",
-    "k",
-    "era",
-    "whip",
-]
-INVERSE_CATS: set[str] = {"l", "era", "whip"}
-HITTER_CATS: list[str] = ["r", "hr", "rbi", "sb", "avg", "obp"]
-PITCHER_CATS: list[str] = ["w", "l", "sv", "k", "era", "whip"]
+_LC = _LC_Class()
+ALL_CATEGORIES: list[str] = [c.lower() for c in _LC.all_categories]
+INVERSE_CATS: set[str] = {c.lower() for c in _LC.inverse_stats}
+HITTER_CATS: list[str] = [c.lower() for c in _LC.hitting_categories]
+PITCHER_CATS: list[str] = [c.lower() for c in _LC.pitching_categories]
 
 # ── Helpers ──────────────────────────────────────────────────────────
 
