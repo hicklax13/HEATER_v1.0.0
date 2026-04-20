@@ -16,6 +16,8 @@ from datetime import UTC
 
 import pandas as pd
 
+from src.valuation import canonicalize_team
+
 logger = logging.getLogger(__name__)
 
 
@@ -467,24 +469,6 @@ def build_daily_dcv_table(
         "WASHINGTON NATIONALS": "WSH",
         "ARIZONA DIAMONDBACKS": "ARI",
     }
-    # Equivalence classes: different data sources use different abbreviations
-    # for the same team. Yahoo, MLB Stats API, and FanGraphs disagree.
-    _TEAM_EQUIVALENCES = {
-        "WSH": {"WSH", "WSN", "WAS"},
-        "SF": {"SF", "SFG"},
-        "SD": {"SD", "SDP"},
-        "TB": {"TB", "TBR"},
-        "KC": {"KC", "KCR"},
-        "CWS": {"CWS", "CHW"},
-        "ATH": {"ATH", "OAK"},
-    }
-
-    def _expand_equivalences(abbr: str) -> set[str]:
-        for canon, variants in _TEAM_EQUIVALENCES.items():
-            if abbr in variants or abbr == canon:
-                return variants | {canon}
-        return {abbr}
-
     teams_playing: set[str] = set()
     # Teams whose game has already started or finished today — players on
     # these teams are "locked" by Yahoo (you can't swap them anymore), so
@@ -519,17 +503,12 @@ def build_daily_dcv_table(
             for key in ("away_name", "away_team", "home_name", "home_team"):
                 raw = str(game.get(key, "")).upper().strip()
                 if raw:
-                    # Try mapping full name to abbreviation
+                    # Try mapping full name to abbreviation, then canonicalize
                     abbr = _FULL_TO_ABBR.get(raw, raw)
-                    teams_playing.add(abbr)
-                    # Also add the raw value in case it's already an abbreviation
-                    teams_playing.add(raw)
-                    # Expand via equivalence map (WSN/WSH/WAS all play if one does)
-                    teams_playing.update(_expand_equivalences(abbr))
+                    canon = canonicalize_team(abbr)
+                    teams_playing.add(canon)
                     if _game_locked:
-                        locked_teams.add(abbr)
-                        locked_teams.add(raw)
-                        locked_teams.update(_expand_equivalences(abbr))
+                        locked_teams.add(canon)
 
     # Get urgency weights from matchup (use caller-provided if available)
     if urgency_weights is not None:
@@ -602,6 +581,7 @@ def build_daily_dcv_table(
         name = str(player.get("name", player.get("player_name", "")))
         positions = str(player.get("positions", ""))
         team = str(player.get("team", "")).upper()
+        team_canon = canonicalize_team(team)
         is_hitter = bool(player.get("is_hitter", 1))
 
         # Health factor
@@ -609,7 +589,7 @@ def build_daily_dcv_table(
         health = compute_health_factor(status)
 
         # Volume factor
-        team_plays = team in teams_playing if teams_playing else True
+        team_plays = team_canon in teams_playing if teams_playing else True
         in_lineup = None  # default: lineup not posted
         lineup_slot = 0  # 0 = unknown batting order slot
         if confirmed_lineups is not None:
@@ -654,24 +634,27 @@ def build_daily_dcv_table(
         # and the player can no longer be swapped in/out. Forward-looking
         # DCV must be 0 — the optimizer shouldn't "recommend" someone whose
         # game is already started/done as if action is still possible.
-        if team in locked_teams:
+        if team_canon in locked_teams:
             volume = 0.0
 
         # Skip entirely if excluded
         if health == 0.0 or volume == 0.0:
+            _is_locked = team_canon in locked_teams
+            _excl_reason = "LOCKED" if _is_locked else ("IL" if health == 0.0 else "OFF_DAY")
             row_data: dict = {
                 "player_id": pid,
                 "name": name,
                 "positions": positions,
                 "team": team,
                 "is_hitter": is_hitter,
-                "game_locked": team in locked_teams,
+                "game_locked": _is_locked,
                 "health_factor": health,
                 "volume_factor": volume,
-                "matchup_mult": 0.0,
+                "matchup_mult": None,
                 "total_dcv": 0.0,
                 "stud_floor_applied": False,
                 "status": status,
+                "reason": _excl_reason,
             }
             for cat in config.all_categories:
                 row_data[f"dcv_{cat.lower()}"] = 0.0
@@ -690,7 +673,6 @@ def build_daily_dcv_table(
         _venue_team = ""  # home team code — whose park factor to use
         _opp_team = ""  # literal opponent team code — for opposing offense wRC+
         if schedule_today and team:
-            _team_variants = _expand_equivalences(team)
             for _sg in schedule_today:
                 _home_raw = str(_sg.get("home_name", "")).upper().strip()
                 _away_raw = str(_sg.get("away_name", "")).upper().strip()
@@ -698,14 +680,16 @@ def build_daily_dcv_table(
                 _away_short = str(_sg.get("away_short", "")).upper().strip()
                 _home_ab = _FULL_TO_ABBR.get(_home_raw, _home_raw) or _home_short
                 _away_ab = _FULL_TO_ABBR.get(_away_raw, _away_raw) or _away_short
-                _home_variants = _expand_equivalences(_home_ab) if _home_ab else set()
-                _away_variants = _expand_equivalences(_away_ab) if _away_ab else set()
-                if _team_variants & _home_variants or team == _home_short:
+                _home_canon = canonicalize_team(_home_ab) if _home_ab else ""
+                _away_canon = canonicalize_team(_away_ab) if _away_ab else ""
+                _home_short_canon = canonicalize_team(_home_short) if _home_short else ""
+                _away_short_canon = canonicalize_team(_away_short) if _away_short else ""
+                if team_canon == _home_canon or team_canon == _home_short_canon:
                     _venue_team = _home_ab  # player is home → venue is own park
                     _opp_team = _away_ab
                     _opp_pitcher_name = str(_sg.get("away_probable_pitcher", "") or "")
                     break
-                if _team_variants & _away_variants or team == _away_short:
+                if team_canon == _away_canon or team_canon == _away_short_canon:
                     _venue_team = _home_ab  # player is away → venue is opponent park
                     _opp_team = _home_ab
                     _opp_pitcher_name = str(_sg.get("home_probable_pitcher", "") or "")
@@ -736,14 +720,12 @@ def build_daily_dcv_table(
         if not is_hitter and team_strength and _opp_team:
             try:
                 _ts_entry = None
+                _opp_canon = canonicalize_team(_opp_team)
                 if _opp_team in team_strength:
                     _ts_entry = team_strength[_opp_team]
-                else:
-                    # Try equivalence classes (CWS/CHW, WSH/WSN/WAS, etc.)
-                    for _variant in _expand_equivalences(_opp_team):
-                        if _variant in team_strength:
-                            _ts_entry = team_strength[_variant]
-                            break
+                elif _opp_canon in team_strength:
+                    # Try canonical form (resolves CWS/CHW, WSH/WSN/WAS, AZ/ARI, etc.)
+                    _ts_entry = team_strength[_opp_canon]
                 if _ts_entry:
                     _wrcp_raw = _ts_entry.get("wrc_plus") or _ts_entry.get("wrcPlus")
                     if _wrcp_raw is not None and not pd.isna(_wrcp_raw):
