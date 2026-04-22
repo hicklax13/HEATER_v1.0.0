@@ -614,7 +614,13 @@ def _load_opposing_pitchers(ctx: OptimizerDataContext) -> None:
 
         conn = get_connection()
         try:
-            df = pd.read_sql("SELECT * FROM opp_pitcher_stats", conn)
+            df = pd.read_sql(
+                "SELECT * FROM opp_pitcher_stats "
+                "WHERE season = ? AND fetched_at >= datetime('now', '-1 day') "
+                "ORDER BY fetched_at DESC",
+                conn,
+                params=(datetime.now(UTC).year,),
+            )
             if not df.empty:
                 for _, row in df.iterrows():
                     team = str(row.get("team", ""))

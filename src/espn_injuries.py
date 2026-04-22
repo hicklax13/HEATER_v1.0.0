@@ -142,6 +142,54 @@ def save_espn_injuries_to_db(injuries: list[dict]) -> int:
     return count
 
 
+def update_player_injury_flags(injuries: list[dict]) -> int:
+    """Write injury status back to the players table.
+
+    Sets ``is_injured=1`` and ``injury_note`` for matched players.
+    Does NOT clear ``is_injured`` for unmatched players — absence from
+    the ESPN list does not mean a player is healthy.
+
+    Returns the number of players updated.
+    """
+    if not injuries:
+        return 0
+
+    from src.database import get_connection
+    from src.live_stats import match_player_id
+
+    conn = get_connection()
+    count = 0
+    try:
+        for inj in injuries:
+            player_name = inj.get("player_name", "")
+            if not player_name:
+                continue
+
+            player_id = match_player_id(player_name, inj.get("team", ""))
+            if player_id is None:
+                continue
+
+            status = inj.get("status", "")
+            injury_type = inj.get("injury_type", "")
+            note = f"{status}: {injury_type}" if injury_type else status
+
+            try:
+                conn.execute(
+                    "UPDATE players SET is_injured = 1, injury_note = ? WHERE player_id = ?",
+                    (note, player_id),
+                )
+                count += 1
+            except Exception:
+                pass
+
+        conn.commit()
+    finally:
+        conn.close()
+
+    logger.info("Updated is_injured flag for %d players", count)
+    return count
+
+
 def refresh_espn_injuries() -> str:
     """Orchestrator: fetch + store ESPN injuries.
 

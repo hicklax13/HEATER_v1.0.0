@@ -30,9 +30,11 @@ import logging
 import numpy as np
 from scipy.stats import norm
 
+from src.valuation import LeagueConfig as _LC_Class
+
 logger = logging.getLogger(__name__)
 
-CATEGORIES: list[str] = ["R", "HR", "RBI", "SB", "AVG", "OBP", "W", "L", "SV", "K", "ERA", "WHIP"]
+CATEGORIES: list[str] = list(_LC_Class().all_categories)
 INVERSE_CATEGORIES: set[str] = {"L", "ERA", "WHIP"}
 
 # Empirical correlation matrix for fantasy stat categories.

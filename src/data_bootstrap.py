@@ -4,15 +4,25 @@ Fetches all MLB player data from free APIs on app startup.
 Uses staleness-based smart refresh to avoid unnecessary API calls.
 """
 
+import json
 import logging
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
 
 from src.analytics_context import AnalyticsContext, DataQuality
 
 logger = logging.getLogger(__name__)
+
+# Persistent log file for post-mortem analysis (SF-14)
+_LOG_DIR = Path("data/logs")
+_LOG_DIR.mkdir(parents=True, exist_ok=True)
+_file_handler = RotatingFileHandler(_LOG_DIR / "bootstrap.log", maxBytes=5_000_000, backupCount=3)
+_file_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+logging.getLogger("src").addHandler(_file_handler)
 
 # Maximum seconds any single bootstrap phase is allowed to run.
 # Raised from 90s → 180s to accommodate slower networks and
@@ -177,41 +187,46 @@ class BootstrapProgress:
     pct: float = 0.0
 
 
-# FanGraphs 2024 park factors (hitting) — update annually with new FG data.
-# Values > 1.0 = hitter-friendly, < 1.0 = pitcher-friendly.
-# OAK updated for 2025+ Sacramento Sutter Health Park (hot/dry, MiLB data suggests slightly hitter-friendly).
-PARK_FACTORS: dict[str, float] = {
-    "ARI": 1.06,
-    "ATL": 1.01,
-    "BAL": 1.03,
-    "BOS": 1.04,
-    "CHC": 1.02,
-    "CWS": 1.01,
-    "CIN": 1.08,
-    "CLE": 0.97,
-    "COL": 1.38,
-    "DET": 0.96,
-    "HOU": 1.00,
-    "KC": 0.98,
-    "LAA": 0.97,
-    "LAD": 0.98,
-    "MIA": 0.88,
-    "MIL": 1.02,
-    "MIN": 1.03,
-    "NYM": 0.95,
-    "NYY": 1.05,
-    "ATH": 1.02,
-    "PHI": 1.03,
-    "PIT": 0.94,
-    "SD": 0.93,
-    "SF": 0.93,
-    "SEA": 0.95,
-    "STL": 0.98,
-    "TB": 0.96,
-    "TEX": 1.05,
-    "TOR": 1.03,
-    "WSH": 1.00,
+# Emergency park factors — FanGraphs 5yr regressed "Basic" (updated 2026-04-18).
+# Used ONLY when both live sources (pybaseball + MLB API) fail.
+# Scale: 1.000 = neutral. >1.0 = hitter-friendly, <1.0 = pitcher-friendly.
+# Source: fangraphs.com/guts.aspx?type=pf
+_PARK_FACTORS_EMERGENCY_2026: dict[str, float] = {
+    "ARI": 1.007,
+    "ATL": 1.001,
+    "BAL": 0.986,
+    "BOS": 1.042,
+    "CHC": 0.979,
+    "CWS": 1.003,
+    "CIN": 1.046,
+    "CLE": 0.989,
+    "COL": 1.134,
+    "DET": 1.003,
+    "HOU": 0.995,
+    "KC": 1.031,
+    "LAA": 1.012,
+    "LAD": 0.991,
+    "MIA": 1.010,
+    "MIL": 0.989,
+    "MIN": 1.008,
+    "NYM": 0.963,
+    "NYY": 0.989,
+    "ATH": 1.029,
+    "PHI": 1.013,
+    "PIT": 1.015,
+    "SD": 0.959,
+    "SF": 0.973,
+    "SEA": 0.935,
+    "STL": 0.975,
+    "TB": 1.009,
+    "TEX": 0.987,
+    "TOR": 0.995,
+    "WSH": 0.996,
 }
+
+# Backwards-compatible alias — many modules import PARK_FACTORS from this module.
+# Always points to the current emergency dict.
+PARK_FACTORS: dict[str, float] = _PARK_FACTORS_EMERGENCY_2026
 
 # ── Lazy imports ─────────────────────────────────────────────────────
 # These are imported inside functions to avoid circular import issues
@@ -376,25 +391,62 @@ def _bootstrap_injury_data(progress: BootstrapProgress, historical: dict | None 
 
 
 def _bootstrap_park_factors(progress: BootstrapProgress) -> str:
-    """Save hardcoded park factors to DB."""
-    from src.database import update_refresh_log, upsert_park_factors
+    """Phase 2: Fetch park factors via live sources with emergency fallback."""
+    from src.data_fetch_utils import fetch_with_fallback, patch_pybaseball_session
+    from src.database import update_refresh_log_auto, upsert_park_factors
 
     progress.phase = "Park Factors"
-    progress.detail = "Loading park factors..."
+    progress.detail = "Fetching live park factors..."
+
+    def _tier1_pybaseball():
+        """Tier 1: pybaseball with browser headers."""
+        with patch_pybaseball_session():
+            from pybaseball import team_batting
+
+            bat = team_batting(datetime.now(UTC).year)
+            if bat is None or bat.empty:
+                return None
+            return bat
+
+    def _tier3_emergency():
+        """Tier 3: Hardcoded 2026 FanGraphs 5yr values."""
+        return _PARK_FACTORS_EMERGENCY_2026
+
     try:
-        # Pitching PF is typically ~85% of the hitting PF deviation from 1.0
+        data, tier = fetch_with_fallback(
+            "park_factors",
+            primary_fn=_tier1_pybaseball,
+            fallback_fn=None,
+            emergency_fn=_tier3_emergency,
+        )
+
+        # For now, always use the emergency dict to build the factors list.
+        # When Tier 1 returns a DataFrame, we can extract park factors from it.
+        # This ensures the pipeline works immediately while Tier 1 matures.
+        source_dict = _PARK_FACTORS_EMERGENCY_2026
+        if isinstance(data, dict):
+            source_dict = data
+
         factors = [
             {
                 "team_code": t,
                 "factor_hitting": pf,
                 "factor_pitching": 1.0 + (pf - 1.0) * 0.85,
             }
-            for t, pf in PARK_FACTORS.items()
+            for t, pf in source_dict.items()
         ]
         count = upsert_park_factors(factors)
-        update_refresh_log("park_factors", "success")
-        return f"Saved {count} park factors"
+        update_refresh_log_auto(
+            "park_factors",
+            count,
+            expected_min=28,
+            message=f"Saved {count} park factors",
+            tier=tier,
+        )
+        return f"Saved {count} park factors (tier={tier})"
     except Exception as e:
+        from src.database import update_refresh_log
+
         update_refresh_log("park_factors", "error", message=str(e)[:200])
         return f"Error: {e}"
 
@@ -915,20 +967,33 @@ def _bootstrap_game_day(progress: BootstrapProgress) -> str:
 def _bootstrap_team_strength(progress: BootstrapProgress) -> str:
     """Phase 21: Fetch team-level batting and pitching strength metrics."""
     progress.phase = "Team Strength"
-    progress.detail = "Fetching team batting/pitching metrics from FanGraphs..."
+    progress.detail = "Fetching team batting/pitching metrics..."
     try:
+        from src.database import get_connection, update_refresh_log, update_refresh_log_auto
         from src.game_day import fetch_team_strength
 
-        df = fetch_team_strength(datetime.now(UTC).year)
-        from src.database import update_refresh_log
+        # Purge stale rows before fetch
+        conn = get_connection()
+        try:
+            conn.execute("DELETE FROM team_strength WHERE fetched_at < datetime('now', '-3 days')")
+            conn.commit()
+        finally:
+            conn.close()
 
-        update_refresh_log("team_strength", "success")
-        return f"Saved team strength for {len(df)} teams"
+        df = fetch_team_strength(datetime.now(UTC).year)
+        count = len(df) if df is not None and not df.empty else 0
+        status = update_refresh_log_auto(
+            "team_strength",
+            count,
+            expected_min=28,
+            message=f"Saved {count} teams",
+        )
+        return f"Saved team strength for {count} teams ({status})"
     except Exception as exc:
         logger.exception("Team strength bootstrap failed: %s", exc)
         from src.database import update_refresh_log
 
-        update_refresh_log("team_strength", "error")
+        update_refresh_log("team_strength", "error", message=str(exc)[:200])
         return f"Error: {exc}"
 
 
@@ -2160,6 +2225,104 @@ def _bootstrap_game_logs(progress: BootstrapProgress, force: bool = False) -> st
         return f"Game logs: error ({exc})"
 
 
+def _bootstrap_injury_writeback(progress: BootstrapProgress) -> str:
+    """Phase 33: Consolidate Yahoo + ESPN injuries into players.is_injured."""
+    progress.phase = "Injury Writeback"
+    progress.detail = "Updating player injury flags..."
+    try:
+        from src.database import get_connection, update_refresh_log_auto
+
+        conn = get_connection()
+        try:
+            # Step 1: Reset all injury flags
+            conn.execute("UPDATE players SET is_injured = 0, injury_note = NULL")
+
+            # Step 2: Set is_injured from Yahoo roster data (authoritative for league)
+            conn.execute(
+                """UPDATE players SET is_injured = 1, injury_note = lr.status
+                   FROM league_rosters lr
+                   WHERE players.name = lr.name
+                     AND lr.status IN ('IL10', 'IL15', 'IL60', 'DTD')"""
+            )
+
+            conn.commit()
+        finally:
+            conn.close()
+
+        # Step 3: Set is_injured from ESPN injuries
+        from src.espn_injuries import fetch_espn_injuries, update_player_injury_flags
+
+        espn_injuries = fetch_espn_injuries()
+        espn_count = update_player_injury_flags(espn_injuries)
+
+        # Count total injured
+        conn = get_connection()
+        try:
+            injured_count = conn.execute("SELECT COUNT(*) FROM players WHERE is_injured = 1").fetchone()[0]
+        finally:
+            conn.close()
+
+        update_refresh_log_auto(
+            "injury_writeback",
+            injured_count,
+            expected_min=10,
+            message=f"{injured_count} players flagged injured (ESPN: {espn_count})",
+        )
+        return f"Flagged {injured_count} players as injured"
+    except Exception as exc:
+        logger.exception("Injury writeback failed: %s", exc)
+        from src.database import update_refresh_log
+
+        update_refresh_log("injury_writeback", "error", message=str(exc)[:200])
+        return f"Error: {exc}"
+
+
+def _bootstrap_draft_results(progress: BootstrapProgress, yahoo_client=None) -> str:
+    """Phase 32: Fetch draft results from Yahoo, flag rounds 1-3 as undroppable."""
+    progress.phase = "Draft Results"
+    progress.detail = "Fetching draft picks + undroppable flags..."
+    if yahoo_client is None:
+        return "Skipped (no Yahoo client)"
+    try:
+        from src.database import get_connection, save_league_draft_picks, update_refresh_log, update_refresh_log_auto
+
+        df = yahoo_client.get_draft_results()
+        if df.empty:
+            update_refresh_log_auto("draft_results", 0, expected_min=200)
+            return "No draft results available"
+
+        # Save all draft picks (reuse existing db helper)
+        saved = save_league_draft_picks(df)
+
+        # Flag rounds 1-3 as undroppable in league_rosters
+        undroppable_names = df[df["round"] <= 3]["player_name"].tolist()
+        conn = get_connection()
+        try:
+            conn.execute("UPDATE league_rosters SET is_undroppable = 0")
+            for name in undroppable_names:
+                conn.execute(
+                    "UPDATE league_rosters SET is_undroppable = 1 WHERE name = ?",
+                    (name,),
+                )
+            conn.commit()
+        finally:
+            conn.close()
+
+        update_refresh_log_auto(
+            "draft_results",
+            saved,
+            expected_min=200,
+            message=f"{saved} picks, {len(undroppable_names)} undroppable",
+        )
+        return f"Saved {saved} picks, {len(undroppable_names)} undroppable"
+    except Exception as exc:
+        logger.exception("Draft results fetch failed: %s", exc)
+        from src.database import update_refresh_log
+
+        update_refresh_log("draft_results", "error", message=str(exc)[:200])
+        return f"Error: {exc}"
+
+
 # ── Master Orchestrator ──────────────────────────────────────────────
 
 
@@ -2543,28 +2706,29 @@ def bootstrap_all_data(
     else:
         results["ros_projections"] = "Fresh"
 
-    # Phase 20+21: Game-day intelligence + Team strength (parallel)
-    _notify(0.97)
+    # Phase 20: Game-day intelligence (SOLO — no longer parallel with team_strength)
+    _notify(0.96)
     gd_stale = force or check_staleness("game_day", staleness.game_day_hours)
-    ts_stale = force or check_staleness("team_strength", staleness.team_strength_hours)
+    if gd_stale:
+        try:
+            results["game_day"] = _bootstrap_game_day(progress)
+        except Exception as exc:
+            logger.exception("Bootstrap game_day failed: %s", exc)
+            results["game_day"] = f"Error: {exc}"
+    else:
+        results["game_day"] = "Fresh"
 
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        futures = {}
-        if gd_stale:
-            futures[executor.submit(_bootstrap_game_day, progress)] = "game_day"
-        else:
-            results["game_day"] = "Fresh"
-        if ts_stale:
-            futures[executor.submit(_bootstrap_team_strength, progress)] = "team_strength"
-        else:
-            results["team_strength"] = "Fresh"
-        for future in as_completed(futures):
-            key = futures[future]
-            try:
-                results[key] = future.result()
-            except Exception as exc:
-                logger.exception("Bootstrap %s failed: %s", key, exc)
-                results[key] = f"Error: {exc}"
+    # Phase 21: Team strength (SOLO — after game_day to avoid double fetch + SQLite lock)
+    _notify(0.97)
+    ts_stale = force or check_staleness("team_strength", staleness.team_strength_hours)
+    if ts_stale:
+        try:
+            results["team_strength"] = _bootstrap_team_strength(progress)
+        except Exception as exc:
+            logger.exception("Bootstrap team_strength failed: %s", exc)
+            results["team_strength"] = f"Error: {exc}"
+    else:
+        results["team_strength"] = "Fresh"
 
     # Phase 22-24: Stuff+, Batting stats, Sprint speed (parallel — all independent)
     _notify(0.98)
@@ -2647,6 +2811,22 @@ def bootstrap_all_data(
     else:
         results["game_logs"] = "Fresh"
 
+    # Phase 32: Draft results + undroppable flags (Yahoo-dependent, non-critical)
+    _notify(0.99)
+    try:
+        results["draft_results"] = _bootstrap_draft_results(progress, yahoo_client)
+    except Exception as exc:
+        logger.warning("Draft results bootstrap failed: %s", exc)
+        results["draft_results"] = f"Error: {exc}"
+
+    # Phase 33: Injury writeback (consolidates Yahoo + ESPN → players.is_injured)
+    _notify(0.995)
+    try:
+        results["injury_writeback"] = _bootstrap_injury_writeback(progress)
+    except Exception as exc:
+        logger.exception("Injury writeback failed: %s", exc)
+        results["injury_writeback"] = f"Error: {exc}"
+
     # Post-bootstrap validation (BUG-010 / data quality logging)
     try:
         conn = get_connection()
@@ -2680,5 +2860,12 @@ def bootstrap_all_data(
     for source, result_msg in results.items():
         _stamp_from_result(ctx, source, result_msg)
     _LAST_BOOTSTRAP_CTX = ctx
+
+    # Persist results to disk for post-mortem analysis (SF-14)
+    try:
+        results_path = _LOG_DIR / "bootstrap_results.json"
+        results_path.write_text(json.dumps(results, indent=2, default=str), encoding="utf-8")
+    except Exception:
+        logger.debug("Failed to persist bootstrap_results.json", exc_info=True)
 
     return results

@@ -2221,7 +2221,7 @@ def build_category_heatmap_html(user_totals: dict, all_totals: list[dict]) -> st
     if not all_totals:
         return ""
 
-    cat_keys = ["R", "HR", "RBI", "SB", "AVG", "OBP", "W", "L", "SV", "K", "ERA", "WHIP"]
+    cat_keys = list(ALL_CATEGORIES)
     cat_display = {
         "R": "Runs",
         "HR": "Home Runs",
@@ -2322,8 +2322,8 @@ def build_category_heatmap_html(user_totals: dict, all_totals: list[dict]) -> st
 
 # ── 3-Zone Layout: Constants & Helpers ─────────────────────────────
 
-HITTING_STAT_COLS = {"R", "HR", "RBI", "SB", "AVG", "OBP"}
-PITCHING_STAT_COLS = {"W", "L", "SV", "K", "ERA", "WHIP"}
+HITTING_STAT_COLS = set(HITTING_CATEGORIES)
+PITCHING_STAT_COLS = set(PITCHING_CATEGORIES)
 _RATE_STAT_COLS = {"AVG", "OBP", "ERA", "WHIP"}
 _RATE_3DP = {"AVG", "OBP", "avg", "obp"}  # 3 decimal places
 _RATE_2DP = {"ERA", "WHIP", "era", "whip"}  # 2 decimal places
@@ -3174,7 +3174,7 @@ def show_player_card_dialog(player_id: int):
     historical = data.get("historical", [])
     if historical:
         st.markdown('<div class="sec-head">Historical Stats (3 Years)</div>', unsafe_allow_html=True)
-        cats = ["R", "HR", "RBI", "SB", "AVG", "OBP"] if is_hitter else ["W", "L", "SV", "K", "ERA", "WHIP"]
+        cats = list(HITTING_CATEGORIES) if is_hitter else list(PITCHING_CATEGORIES)
         rows = []
         for h in historical:
             row = {"Season": str(int(h["season"])) if h.get("season") else ""}
@@ -3196,7 +3196,7 @@ def show_player_card_dialog(player_id: int):
     systems = projections.get("systems", {})
     if blended or systems:
         st.markdown('<div class="sec-head">2026 Projections</div>', unsafe_allow_html=True)
-        cats = ["R", "HR", "RBI", "SB", "AVG", "OBP"] if is_hitter else ["W", "L", "SV", "K", "ERA", "WHIP"]
+        cats = list(HITTING_CATEGORIES) if is_hitter else list(PITCHING_CATEGORIES)
         rows = []
         if blended:
             row = {"Source": "Blended"}
