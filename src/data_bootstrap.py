@@ -4,15 +4,25 @@ Fetches all MLB player data from free APIs on app startup.
 Uses staleness-based smart refresh to avoid unnecessary API calls.
 """
 
+import json
 import logging
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
 
 from src.analytics_context import AnalyticsContext, DataQuality
 
 logger = logging.getLogger(__name__)
+
+# Persistent log file for post-mortem analysis (SF-14)
+_LOG_DIR = Path("data/logs")
+_LOG_DIR.mkdir(parents=True, exist_ok=True)
+_file_handler = RotatingFileHandler(_LOG_DIR / "bootstrap.log", maxBytes=5_000_000, backupCount=3)
+_file_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+logging.getLogger("src").addHandler(_file_handler)
 
 # Maximum seconds any single bootstrap phase is allowed to run.
 # Raised from 90s → 180s to accommodate slower networks and
@@ -2850,5 +2860,12 @@ def bootstrap_all_data(
     for source, result_msg in results.items():
         _stamp_from_result(ctx, source, result_msg)
     _LAST_BOOTSTRAP_CTX = ctx
+
+    # Persist results to disk for post-mortem analysis (SF-14)
+    try:
+        results_path = _LOG_DIR / "bootstrap_results.json"
+        results_path.write_text(json.dumps(results, indent=2, default=str), encoding="utf-8")
+    except Exception:
+        logger.debug("Failed to persist bootstrap_results.json", exc_info=True)
 
     return results
