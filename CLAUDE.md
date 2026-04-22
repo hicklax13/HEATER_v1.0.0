@@ -38,9 +38,11 @@ python scripts/calibrate_sigmoid.py --full      # Grid-search optimal sigmoid k-
 - **Pitching cats (6):** W, L, SV, K, ERA, WHIP
 - **Inverse cats:** L, ERA, WHIP (lower is better)
 - **Rate stats:** AVG, OBP, ERA, WHIP
-- **Roster:** C/1B/2B/3B/SS/3OF/2Util/2SP/2RP/4P/5BN = 23 slots
+- **Roster:** C/1B/2B/3B/SS/3OF/2Util/2SP/2RP/4P/6BN/4IL = 28 slots
 - **Season state:** MLB 2026 season active. Draft completed. App is in in-season mode.
 - **Yahoo game_key:** 469
+- **Transactions:** 10 adds+trades combined per matchup week (FCFS waivers)
+- **Can't-drop:** Players drafted in rounds 1-3 per team (36 league-wide)
 
 ## Tech Stack
 
@@ -79,7 +81,7 @@ src/
   # Core engines
   valuation.py              — SGP calculator, replacement levels, VORP, LeagueConfig (source of truth)
   database.py               — SQLite schema, player pool + in-season queries
-  data_bootstrap.py         — 21-phase bootstrap orchestrator (staleness-based refresh)
+  data_bootstrap.py         — 33-phase bootstrap orchestrator (staleness-based refresh)
   data_pipeline.py          — FanGraphs auto-fetch (Steamer/ZiPS/Depth Charts)
   yahoo_api.py              — Yahoo Fantasy API OAuth integration (429 backoff, ghost filtering)
   yahoo_data_service.py     — 3-tier cache: session_state → Yahoo API → SQLite
@@ -247,7 +249,7 @@ docs/
 TTLs: Rosters 30m, Standings 30m, Matchup 5m, Free Agents 1h, Transactions 15m, Settings/Schedule 24h.
 Write-through: every Yahoo fetch writes to SQLite. Singleton via `get_yahoo_data_service()`.
 
-### Bootstrap Pipeline (21 phases)
+### Bootstrap Pipeline (33 phases)
 **Post-2026-04-17 audit:** bootstrap runs with `force=True` on every new browser session (per-session guard `bootstrap_complete` prevents re-run on intra-session page navigation). The "Refresh All Data" sidebar button also passes `force=True`, clears `st.cache_data`, and preserves `bootstrap_results` for the Data Status panel.
 Key thresholds (still used inside force-refresh to estimate ETA): 1h live stats/news, 30min Yahoo, 2h game-day, 24h projections/ADP/ECR, 7d players/prospects.
 Per-phase timeouts: default 180s, 300s for game_logs + ROS projections (PyMC), 240s for ECR consensus.
@@ -575,27 +577,27 @@ Four parallel investigation agents (player pool integrity, schedule/date, DCV tr
 - Verify: after fix, `python -c "from src.player_databank import fetch_game_logs_from_api; fetch_game_logs_from_api(season=2026, limit=5)"` and `SELECT COUNT(*) FROM game_logs`.
 - Test suite: `python -m pytest tests/test_player_databank.py -v`.
 
-**Task 2 (P0) — Fix SF-2 + SF-3: season_stats discard + Two-Way Player handling** — PENDING
+**Task 2 (P0) — Fix SF-2 + SF-3: season_stats discard + Two-Way Player handling** ✅ DONE
 - Files: [src/live_stats.py:311](src/live_stats.py), [src/live_stats.py:363-474](src/live_stats.py)
 - Change: `is_pitcher = pos_type in ("Pitcher", "Two-Way Player")` (line 311).
 - Change: `update_refresh_log_auto("season_stats", count, expected_min=max(500, int(len(df) * 0.80)))`.
 - Also return `(saved, no_match, type_mismatch, backfilled)` tuple from `save_season_stats_to_db` so `refresh_log.message` can surface the drops.
 - Verify: `SELECT COUNT(*) FROM season_stats WHERE name='Shohei Ohtani' AND season=2026` returns >0 after re-run.
 
-**Task 3 (P0) — Fix SF-4: team_strength race condition** — PENDING
+**Task 3 (P0) — Fix SF-4: team_strength race condition** ✅ DONE
 - File: [src/data_bootstrap.py:915-932](src/data_bootstrap.py)
 - Option (a) — simplest: remove `_bootstrap_team_strength` from Phase 20+21 parallel block; call it sequentially AFTER `_bootstrap_game_day`.
 - Option (b): have `_bootstrap_game_day` skip its internal `fetch_team_strength` call when the standalone phase is queued.
 - Add bootstrap-exit validation: any phase in the parallel block without a fresh `refresh_log` row should log an error (would have caught SF-4 immediately).
 - Verify: After bootstrap, `SELECT timestamp FROM refresh_log WHERE phase='team_strength'` should be within ~2 min of bootstrap end.
 
-**Task 4 (P1) — Fix SF-8: AZ/ARI equivalence** — PENDING
+**Task 4 (P1) — Fix SF-8: AZ/ARI equivalence** ✅ DONE
 - File: [src/optimizer/daily_optimizer.py:472-480](src/optimizer/daily_optimizer.py)
 - Add: `{"AZ": {"AZ", "ARI"}, "ARI": {"AZ", "ARI"}}` and audit the full set: KC/KCR, CWS/CHW, SD/SDP, TB/TBR, SF/SFG, WSN/WSH.
 - Also purge stale rows: `DELETE FROM team_strength WHERE fetched_at < datetime('now','-3 days')` at bootstrap start.
 - Verify: `_expand_equivalences("ARI")` returns `{"ARI", "AZ"}`.
 
-**Task 5 (P2) — Fix SF-12: render `—` instead of `0.00` for excluded rows** — PENDING
+**Task 5 (P2) — Fix SF-12: render `—` instead of `0.00` for excluded rows** ✅ DONE
 - File: [src/optimizer/daily_optimizer.py:670](src/optimizer/daily_optimizer.py) (set `matchup_mult = None` when `volume == 0.0`)
 - File: [pages/6_Line-up_Optimizer.py](pages/6_Line-up_Optimizer.py) (table renderer — add `—` formatting when `matchup_mult is None` or `NaN`)
 - Also add a "Reason" column showing LOCKED / IL / OFF_DAY / NOT_PROBABLE so users can distinguish data problems from correct zeroes.
