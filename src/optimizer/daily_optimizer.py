@@ -16,6 +16,7 @@ from datetime import UTC
 
 import pandas as pd
 
+from src.game_day import get_target_game_date
 from src.valuation import canonicalize_team
 
 logger = logging.getLogger(__name__)
@@ -539,12 +540,9 @@ def build_daily_dcv_table(
     # Both home and away teams at a given venue experience the same weather
     weather_by_team: dict[str, float] = {}
     try:
-        from datetime import UTC as _utc
-        from datetime import datetime as _dt
-
         from src.database import load_game_day_weather
 
-        today_date = _dt.now(_utc).strftime("%Y-%m-%d")
+        today_date = get_target_game_date()
         weather_df = load_game_day_weather(today_date)
         if not weather_df.empty:
             # Build venue_team -> temp_f mapping, then map both home and
