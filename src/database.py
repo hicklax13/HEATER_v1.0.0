@@ -1566,7 +1566,8 @@ def _load_player_pool_impl() -> pd.DataFrame:
                     sa.hard_hit_pct AS hard_hit_pct,
                     sa.ev_mean AS ev_mean,
                     sa.stuff_plus AS stuff_plus,
-                    sa.babip AS babip
+                    sa.babip AS babip,
+                    sa.sprint_speed AS sprint_speed
                 FROM players p
                 LEFT JOIN ros_projections ros ON p.player_id = ros.player_id
                 LEFT JOIN adp a ON p.player_id = a.player_id
@@ -1626,7 +1627,8 @@ def _load_player_pool_impl() -> pd.DataFrame:
                 sa.hard_hit_pct AS hard_hit_pct,
                 sa.ev_mean AS ev_mean,
                 sa.stuff_plus AS stuff_plus,
-                sa.babip AS babip
+                sa.babip AS babip,
+                sa.sprint_speed AS sprint_speed
             FROM players p
             LEFT JOIN projections proj ON p.player_id = proj.player_id
                 AND proj.system = 'blended'
@@ -1686,7 +1688,8 @@ def _load_player_pool_impl() -> pd.DataFrame:
                     sa.xba AS xba,
                     sa.barrel_pct AS barrel_pct,
                     sa.hard_hit_pct AS hard_hit_pct,
-                    sa.ev_mean AS ev_mean
+                    sa.ev_mean AS ev_mean,
+                    sa.sprint_speed AS sprint_speed
                 FROM players p
                 LEFT JOIN projections proj ON p.player_id = proj.player_id
                 LEFT JOIN adp a ON p.player_id = a.player_id
