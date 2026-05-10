@@ -612,20 +612,19 @@ def build_daily_dcv_table(
         _pitcher_volume_override: float | None = None
         if not is_hitter and team_plays:
             pos_upper = positions.upper()
-            _has_sp = "SP" in pos_upper
-            _has_rp = "RP" in pos_upper
-            if _has_sp and probable_starters:
+            _pos_tokens = {p.strip() for p in pos_upper.split(",")}
+            _has_sp = "SP" in _pos_tokens
+            _has_rp = "RP" in _pos_tokens
+            _has_p_only = _pos_tokens == {"P"}
+            if (_has_sp or _has_p_only) and probable_starters:
                 _norm_name = _normalize_pitcher_name(name)
                 _norm_probable = {_normalize_pitcher_name(p) for p in probable_starters}
                 _is_probable_today = _norm_name in _norm_probable
                 if _is_probable_today:
                     in_lineup = True
                 elif not _has_rp:
-                    # Pure SP confirmed NOT pitching today — zero out
                     in_lineup = False
                     _pitcher_volume_override = 0.0
-                # SP/RP hybrid not probable → can still relieve, leave as None
-            # probable_starters empty (API miss / all TBD) → keep default None
         volume = compute_volume_factor(team_plays, in_lineup)
         if _pitcher_volume_override is not None:
             volume = _pitcher_volume_override
