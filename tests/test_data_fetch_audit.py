@@ -338,8 +338,13 @@ class TestSeasonStatsSave:
 
 class TestGameLogsParser:
     def test_parser_reads_splits_structure(self, isolated_db, monkeypatch):
-        """The parser must read stats[0].splits[] with per-split date, not
-        the flattened statsapi.player_stat_data() shape that drops dates.
+        """The parser must read people[0].stats[].splits[] with per-split date.
+
+        SF-1 (2026-04-18): the production parser switched from
+        statsapi.get("person_stats", ...) → statsapi.get("person", ...,
+        hydrate=stats(...)). Response shape changed from
+        {"stats": [{"splits": [...]}]} to
+        {"people": [{"stats": [{"splits": [...]}]}]}.
         """
         from src.database import get_connection
         from src.player_databank import _fetch_and_store_player_logs
@@ -352,43 +357,49 @@ class TestGameLogsParser:
         conn.commit()
         conn.close()
 
-        # Raw MLB API response shape (what statsapi.get returns)
+        # Raw MLB API response shape from person+hydrate endpoint
+        # (what statsapi.get("person", hydrate=...) returns)
         fake_response = {
-            "stats": [
+            "people": [
                 {
-                    "type": {"displayName": "gameLog"},
-                    "group": {"displayName": "hitting"},
-                    "splits": [
+                    "id": 123456,
+                    "stats": [
                         {
-                            "date": "2026-04-01",
-                            "stat": {
-                                "plateAppearances": 4,
-                                "atBats": 4,
-                                "hits": 2,
-                                "homeRuns": 1,
-                                "rbi": 2,
-                                "runs": 1,
-                                "stolenBases": 0,
-                                "baseOnBalls": 0,
-                                "hitByPitch": 0,
-                                "sacFlies": 0,
-                            },
-                        },
-                        {
-                            "date": "2026-04-02",
-                            "stat": {
-                                "plateAppearances": 5,
-                                "atBats": 5,
-                                "hits": 0,
-                                "homeRuns": 0,
-                                "rbi": 0,
-                                "runs": 0,
-                                "stolenBases": 1,
-                                "baseOnBalls": 0,
-                                "hitByPitch": 0,
-                                "sacFlies": 0,
-                            },
-                        },
+                            "type": {"displayName": "gameLog"},
+                            "group": {"displayName": "hitting"},
+                            "splits": [
+                                {
+                                    "date": "2026-04-01",
+                                    "stat": {
+                                        "plateAppearances": 4,
+                                        "atBats": 4,
+                                        "hits": 2,
+                                        "homeRuns": 1,
+                                        "rbi": 2,
+                                        "runs": 1,
+                                        "stolenBases": 0,
+                                        "baseOnBalls": 0,
+                                        "hitByPitch": 0,
+                                        "sacFlies": 0,
+                                    },
+                                },
+                                {
+                                    "date": "2026-04-02",
+                                    "stat": {
+                                        "plateAppearances": 5,
+                                        "atBats": 5,
+                                        "hits": 0,
+                                        "homeRuns": 0,
+                                        "rbi": 0,
+                                        "runs": 0,
+                                        "stolenBases": 1,
+                                        "baseOnBalls": 0,
+                                        "hitByPitch": 0,
+                                        "sacFlies": 0,
+                                    },
+                                },
+                            ],
+                        }
                     ],
                 }
             ]
@@ -413,8 +424,9 @@ class TestGameLogsParser:
     def test_parser_handles_empty_splits(self, isolated_db, monkeypatch):
         from src.player_databank import _fetch_and_store_player_logs
 
+        # SF-1: person+hydrate response shape — empty people list = no data.
         mock_statsapi = MagicMock()
-        mock_statsapi.get = MagicMock(return_value={"stats": []})
+        mock_statsapi.get = MagicMock(return_value={"people": [{"stats": []}]})
         monkeypatch.setattr("src.player_databank.statsapi", mock_statsapi)
 
         count = _fetch_and_store_player_logs(player_id=5101, mlb_id=123457, is_hitter=1, season=2026)
@@ -423,12 +435,17 @@ class TestGameLogsParser:
     def test_parser_skips_splits_missing_date(self, isolated_db, monkeypatch):
         from src.player_databank import _fetch_and_store_player_logs
 
+        # SF-1: person+hydrate response shape with splits missing dates.
         fake_response = {
-            "stats": [
+            "people": [
                 {
-                    "splits": [
-                        {"date": "", "stat": {"hits": 1}},
-                        {"stat": {"hits": 1}},  # no date key at all
+                    "stats": [
+                        {
+                            "splits": [
+                                {"date": "", "stat": {"hits": 1}},
+                                {"stat": {"hits": 1}},  # no date key at all
+                            ]
+                        }
                     ]
                 }
             ]

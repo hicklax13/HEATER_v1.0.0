@@ -573,7 +573,9 @@ class TestIdentifyTwoStartPitchers:
         result = identify_two_start_pitchers()
         assert len(result) == 1
         for start in result[0]["starts"]:
-            assert start["park_factor"] == pytest.approx(1.38)
+            # SF-22 (commit afdaa77): COL park factor updated from 1.38 to 1.134
+            # using FanGraphs 5yr regressed values. See _PARK_FACTORS_EMERGENCY_2026.
+            assert start["park_factor"] == pytest.approx(1.134)
 
     def test_import_failure_returns_empty(self):
         """When required modules are missing, returns empty list."""

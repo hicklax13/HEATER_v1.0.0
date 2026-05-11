@@ -126,13 +126,15 @@ def temp_db(tmp_path):
         )
     """)
 
-    # Statcast archive table (for xwoba/barrel_pct/etc. in pool SQL)
+    # Statcast archive table (for xwoba/barrel_pct/etc. in pool SQL).
+    # Must include sprint_speed (SF-19 _load_player_pool_impl reads it).
     c.execute("""
         CREATE TABLE statcast_archive (
             player_id INTEGER NOT NULL,
             season INTEGER NOT NULL,
             xwoba REAL, xba REAL, barrel_pct REAL, hard_hit_pct REAL,
             ev_mean REAL, stuff_plus REAL, babip REAL,
+            sprint_speed REAL,
             PRIMARY KEY (player_id, season)
         )
     """)

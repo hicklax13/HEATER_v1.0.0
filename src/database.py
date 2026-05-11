@@ -706,6 +706,10 @@ def _init_db_tables_and_columns(conn):
     _safe_add_column(conn, "statcast_archive", "hitter_fb_pct", "REAL")
     _safe_add_column(conn, "statcast_archive", "hitter_gb_pct", "REAL")
     _safe_add_column(conn, "statcast_archive", "bat_speed", "REAL")
+    # SF-19 (2026-05-10): _load_player_pool_impl SELECTs sa.sprint_speed.
+    # CREATE TABLE schema includes the column for fresh DBs, but legacy DBs
+    # created before that column landed need a defensive ALTER TABLE here.
+    _safe_add_column(conn, "statcast_archive", "sprint_speed", "REAL")
 
     # T3 (2026-04-17 data-fetch audit): refresh_log row-count validation columns
     # Required so "success" can no longer be written for 0-row fetches silently.
