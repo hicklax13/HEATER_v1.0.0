@@ -176,6 +176,13 @@ class StalenessConfig:
     umpire_hours: float = 24  # 24 hours (daily assignments)
     catcher_framing_hours: float = 168  # 7 days (stable metric)
     pvb_splits_hours: float = 168  # 7 days (stable with >=60 PA)
+    adp_sources_hours: float = 24  # 24 hours
+    depth_charts_hours: float = 168  # 7 days
+    contracts_hours: float = 720  # 30 days
+    dynamic_park_factors_hours: float = 168  # 7 days
+    bat_speed_hours: float = 168  # 7 days
+    forty_man_hours: float = 168  # 7 days
+    game_logs_hours: float = 1  # 1 hour
 
 
 @dataclass
@@ -300,8 +307,7 @@ def _bootstrap_live_stats(progress: BootstrapProgress) -> str:
     progress.phase = "Live Stats"
     current_year = datetime.now(UTC).year
     progress.detail = f"Fetching {current_year} season stats..."
-    # Expected floor: 30 teams × ~40 (40-man roster) = ~1200. Set conservatively.
-    EXPECTED_MIN = 500
+    EXPECTED_MIN_FLOOR = 500
     try:
         df = fetch_season_stats(season=current_year)
         if df.empty:
@@ -309,15 +315,16 @@ def _bootstrap_live_stats(progress: BootstrapProgress) -> str:
                 "season_stats",
                 "no_data",
                 rows_written=0,
-                expected_min=EXPECTED_MIN,
+                expected_min=EXPECTED_MIN_FLOOR,
                 message="fetch_season_stats returned empty DataFrame",
             )
             return "No live stats available yet"
         count = save_season_stats_to_db(df)
+        expected_min = max(EXPECTED_MIN_FLOOR, int(len(df) * 0.80))
         status = update_refresh_log_auto(
             "season_stats",
             count,
-            expected_min=EXPECTED_MIN,
+            expected_min=expected_min,
             message=f"saved {count}/{len(df)} rows",
         )
         return f"Saved {count} player stats ({status})"
@@ -1104,25 +1111,15 @@ def _bootstrap_stuff_plus(progress: BootstrapProgress) -> str:
                     values_ss,
                 )
 
-                # Update statcast_archive (upsert: insert if missing)
-                existing = conn.execute(
-                    "SELECT 1 FROM statcast_archive WHERE player_id = ? AND season = ?",
-                    (pid, year),
-                ).fetchone()
-                if existing:
-                    values_sa = values + [pid, year]
-                    conn.execute(
-                        f"UPDATE statcast_archive SET {', '.join(set_parts)} WHERE player_id = ? AND season = ?",
-                        values_sa,
-                    )
-                else:
-                    insert_cols = ["player_id", "season"] + found_cols
+                present_cols = [c for c in found_cols if pd.notna(row.get(c))]
+                if present_cols:
+                    insert_cols = ["player_id", "season"] + present_cols
                     placeholders = ", ".join(["?"] * len(insert_cols))
-                    insert_vals = [pid, year] + [
-                        float(row.get(c)) if pd.notna(row.get(c)) else None for c in found_cols
-                    ]
+                    insert_vals = [pid, year] + [float(row.get(c)) for c in present_cols]
+                    update_clause = ", ".join(f"{c} = excluded.{c}" for c in present_cols)
                     conn.execute(
-                        f"INSERT INTO statcast_archive ({', '.join(insert_cols)}) VALUES ({placeholders})",
+                        f"INSERT INTO statcast_archive ({', '.join(insert_cols)}) VALUES ({placeholders}) "
+                        f"ON CONFLICT(player_id, season) DO UPDATE SET {update_clause}",
                         insert_vals,
                     )
 
@@ -1243,37 +1240,19 @@ def _bootstrap_batting_stats(progress: BootstrapProgress) -> str:
                 if pid is None:
                     continue
 
-                set_parts = []
-                values = []
-                for col in target_cols:
-                    val = row.get(col)
-                    if pd.notna(val):
-                        set_parts.append(f"{col} = ?")
-                        values.append(float(val))
-
-                if not set_parts:
+                present_cols = [c for c in target_cols if pd.notna(row.get(c))]
+                if not present_cols:
                     continue
 
-                # Upsert statcast_archive
-                existing = conn.execute(
-                    "SELECT 1 FROM statcast_archive WHERE player_id = ? AND season = ?",
-                    (pid, year),
-                ).fetchone()
-                if existing:
-                    conn.execute(
-                        f"UPDATE statcast_archive SET {', '.join(set_parts)} WHERE player_id = ? AND season = ?",
-                        values + [pid, year],
-                    )
-                else:
-                    insert_cols = ["player_id", "season"] + target_cols
-                    placeholders = ", ".join(["?"] * len(insert_cols))
-                    insert_vals = [pid, year] + [
-                        float(row.get(c)) if pd.notna(row.get(c)) else None for c in target_cols
-                    ]
-                    conn.execute(
-                        f"INSERT INTO statcast_archive ({', '.join(insert_cols)}) VALUES ({placeholders})",
-                        insert_vals,
-                    )
+                insert_cols = ["player_id", "season"] + present_cols
+                placeholders = ", ".join(["?"] * len(insert_cols))
+                insert_vals = [pid, year] + [float(row.get(c)) for c in present_cols]
+                update_clause = ", ".join(f"{c} = excluded.{c}" for c in present_cols)
+                conn.execute(
+                    f"INSERT INTO statcast_archive ({', '.join(insert_cols)}) VALUES ({placeholders}) "
+                    f"ON CONFLICT(player_id, season) DO UPDATE SET {update_clause}",
+                    insert_vals,
+                )
                 updated += 1
 
             conn.commit()
@@ -1379,20 +1358,11 @@ def _bootstrap_sprint_speed(progress: BootstrapProgress) -> str:
                     continue
                 speed = float(speed)
 
-                existing = conn.execute(
-                    "SELECT 1 FROM statcast_archive WHERE player_id = ? AND season = ?",
-                    (pid, year),
-                ).fetchone()
-                if existing:
-                    conn.execute(
-                        "UPDATE statcast_archive SET sprint_speed = ? WHERE player_id = ? AND season = ?",
-                        (speed, pid, year),
-                    )
-                else:
-                    conn.execute(
-                        "INSERT INTO statcast_archive (player_id, season, sprint_speed) VALUES (?, ?, ?)",
-                        (pid, year, speed),
-                    )
+                conn.execute(
+                    "INSERT INTO statcast_archive (player_id, season, sprint_speed) VALUES (?, ?, ?) "
+                    "ON CONFLICT(player_id, season) DO UPDATE SET sprint_speed = excluded.sprint_speed",
+                    (pid, year, speed),
+                )
                 updated += 1
 
             conn.commit()
@@ -2092,20 +2062,11 @@ def _bootstrap_bat_speed(progress: BootstrapProgress) -> str:
                 if pd.isna(speed):
                     continue
 
-                existing = conn.execute(
-                    "SELECT 1 FROM statcast_archive WHERE player_id = ? AND season = ?",
-                    (pid, year),
-                ).fetchone()
-                if existing:
-                    conn.execute(
-                        "UPDATE statcast_archive SET bat_speed = ? WHERE player_id = ? AND season = ?",
-                        (float(speed), pid, year),
-                    )
-                else:
-                    conn.execute(
-                        "INSERT INTO statcast_archive (player_id, season, bat_speed) VALUES (?, ?, ?)",
-                        (pid, year, float(speed)),
-                    )
+                conn.execute(
+                    "INSERT INTO statcast_archive (player_id, season, bat_speed) VALUES (?, ?, ?) "
+                    "ON CONFLICT(player_id, season) DO UPDATE SET bat_speed = excluded.bat_speed",
+                    (pid, year, float(speed)),
+                )
                 updated += 1
             conn.commit()
         finally:
@@ -2490,21 +2451,21 @@ def bootstrap_all_data(
 
     # Phase 9: Multi-source ADP
     _notify(0.92)
-    if force or check_staleness("adp_sources", 24):
+    if force or check_staleness("adp_sources", staleness.adp_sources_hours):
         results["adp_sources"] = _bootstrap_adp_sources(progress)
     else:
         results["adp_sources"] = "Fresh"
 
     # Phase 9b: Depth charts (roles + lineup slots)
     _notify(0.93)
-    if force or check_staleness("depth_charts", 168):
+    if force or check_staleness("depth_charts", staleness.depth_charts_hours):
         results["depth_charts"] = _bootstrap_depth_charts(progress)
     else:
         results["depth_charts"] = "Fresh"
 
     # Phase 10: Contract year data
     _notify(0.94)
-    if force or check_staleness("contracts", 720):
+    if force or check_staleness("contracts", staleness.contracts_hours):
         results["contracts"] = _bootstrap_contracts(progress)
     else:
         results["contracts"] = "Fresh"
@@ -2600,7 +2561,8 @@ def bootstrap_all_data(
         results["player_id_map"] = f"Error: {exc}"
 
     # Phase 17: Yahoo transactions sync (BUG-017 fix)
-    if yahoo_client is not None:
+    # SF-18: gated by check_staleness("yahoo_transactions", 0.25h)
+    if yahoo_client is not None and (force or check_staleness("yahoo_transactions", 0.25)):
         try:
             txn_df = yahoo_client.get_league_transactions()
             if not txn_df.empty:
@@ -2637,9 +2599,12 @@ def bootstrap_all_data(
         except Exception as exc:
             logger.warning("Transaction sync failed: %s", exc)
             results["transactions"] = f"Error: {exc}"
+    elif yahoo_client is not None:
+        results["transactions"] = "Fresh"
 
     # Phase 18: Yahoo free agents (BUG-019 fix)
-    if yahoo_client is not None:
+    # SF-18: gated by check_staleness("yahoo_free_agents", 1.0h) and writes refresh_log on success
+    if yahoo_client is not None and (force or check_staleness("yahoo_free_agents", 1.0)):
         try:
             progress.phase = "Yahoo Free Agents"
             progress.detail = "Fetching league free agents..."
@@ -2647,7 +2612,7 @@ def bootstrap_all_data(
                 on_progress(progress)
             fa_df = yahoo_client.get_free_agents(count=200)
             if not fa_df.empty:
-                from src.database import upsert_player_bulk
+                from src.database import update_refresh_log, upsert_player_bulk
                 from src.live_stats import match_player_id
 
                 new_players = 0
@@ -2668,7 +2633,6 @@ def bootstrap_all_data(
                             ]
                         )
                         new_players += 1
-                # Also populate the yahoo_free_agents table for ownership tracking
                 from src.database import get_connection as _get_conn
 
                 _fa_conn = _get_conn()
@@ -2696,33 +2660,17 @@ def bootstrap_all_data(
                 results["yahoo_free_agents"] = (
                     f"Checked {len(fa_df)} FAs, added {new_players} new, stored {len(fa_df)} to yahoo_free_agents"
                 )
+                update_refresh_log("yahoo_free_agents", "success")
             else:
                 results["yahoo_free_agents"] = "No FA data from Yahoo"
+                from src.database import update_refresh_log
+
+                update_refresh_log("yahoo_free_agents", "no_data")
         except Exception as exc:
             logger.warning("Yahoo FA fetch failed: %s", exc)
             results["yahoo_free_agents"] = f"Error: {exc}"
-
-    # Phase 19: ROS Bayesian projections (depends on live stats + projections)
-    _notify(0.965)
-    if force or check_staleness("ros_projections", _live_stats_ttl_hours(staleness.live_stats_hours)):
-        progress.phase = "ROS Projections"
-        progress.detail = "Updating Bayesian rest-of-season projections..."
-        if on_progress:
-            on_progress(progress)
-        try:
-            from src.bayesian import update_ros_projections
-
-            def _ros_update():
-                count = update_ros_projections()
-                return f"Updated {count} ROS projections"
-
-            results["ros_projections"] = _run_with_timeout(_ros_update, timeout=_TIMEOUT_ROS_PROJECTIONS)
-            logger.info("ROS Bayesian projections: %s", results["ros_projections"])
-        except Exception as exc:
-            logger.warning("ROS projection update failed: %s", exc)
-            results["ros_projections"] = f"Error: {exc}"
-    else:
-        results["ros_projections"] = "Fresh"
+    elif yahoo_client is not None:
+        results["yahoo_free_agents"] = "Fresh"
 
     # Phase 20: Game-day intelligence (SOLO — no longer parallel with team_strength)
     _notify(0.96)
@@ -2747,6 +2695,31 @@ def bootstrap_all_data(
             results["team_strength"] = f"Error: {exc}"
     else:
         results["team_strength"] = "Fresh"
+
+    # Phase 19: ROS Bayesian projections — moved here (post team_strength) per SF-17.
+    # Bayesian update consumes team_strength; running before P21 risks stale inputs.
+    # TTL fixed at 4h (was dynamic 0.25-1.0h) — PyMC MCMC is too expensive for the
+    # short refresh window.
+    _notify(0.975)
+    if force or check_staleness("ros_projections", 4.0):
+        progress.phase = "ROS Projections"
+        progress.detail = "Updating Bayesian rest-of-season projections..."
+        if on_progress:
+            on_progress(progress)
+        try:
+            from src.bayesian import update_ros_projections
+
+            def _ros_update():
+                count = update_ros_projections()
+                return f"Updated {count} ROS projections"
+
+            results["ros_projections"] = _run_with_timeout(_ros_update, timeout=_TIMEOUT_ROS_PROJECTIONS)
+            logger.info("ROS Bayesian projections: %s", results["ros_projections"])
+        except Exception as exc:
+            logger.warning("ROS projection update failed: %s", exc)
+            results["ros_projections"] = f"Error: {exc}"
+    else:
+        results["ros_projections"] = "Fresh"
 
     # Phase 22-24: Stuff+, Batting stats, Sprint speed (parallel — all independent)
     _notify(0.98)
@@ -2779,11 +2752,11 @@ def bootstrap_all_data(
     # Phase 25-27: T4 park factors, T9 bat speed, T10 40-man (parallel, non-critical)
     with ThreadPoolExecutor(max_workers=3) as executor:
         futures = {}
-        if force or check_staleness("park_factors_dynamic", 168):
+        if force or check_staleness("park_factors_dynamic", staleness.dynamic_park_factors_hours):
             futures[executor.submit(_bootstrap_dynamic_park_factors, progress)] = "park_factors_dynamic"
-        if force or check_staleness("bat_speed", 168):
+        if force or check_staleness("bat_speed", staleness.bat_speed_hours):
             futures[executor.submit(_bootstrap_bat_speed, progress)] = "bat_speed"
-        if force or check_staleness("forty_man", 168):
+        if force or check_staleness("forty_man", staleness.forty_man_hours):
             futures[executor.submit(_bootstrap_forty_man, progress)] = "forty_man"
         for future in as_completed(futures):
             key = futures[future]
@@ -2816,8 +2789,8 @@ def bootstrap_all_data(
                 logger.warning("Bootstrap %s failed (non-critical): %s", key, exc)
                 results[key] = f"Error: {exc}"
 
-    # Phase 31: Game logs for Player Databank (1-hour staleness, non-critical)
-    if force or check_staleness("game_logs", 1):
+    # Phase 31: Game logs for Player Databank (non-critical)
+    if force or check_staleness("game_logs", staleness.game_logs_hours):
         try:
             results["game_logs"] = _run_with_timeout(
                 lambda: _bootstrap_game_logs(progress, force=force),
