@@ -197,6 +197,52 @@ class SGPCalculator:
         """Total SGP across all categories."""
         return sum(self.player_sgp(player).values())
 
+    def totals_sgp(
+        self,
+        totals: dict[str, float],
+        weights: dict[str, float] | None = None,
+    ) -> float:
+        """Compute scalar SGP from a roster-level totals dict (single source of truth).
+
+        Per-category contribution is ``(total / denom) * sign * weight`` where
+        ``sign = -1`` for inverse cats (L, ERA, WHIP) and ``+1`` otherwise.
+        Categories absent from ``totals`` contribute 0; categories with denom ~ 0
+        are skipped (matches existing convention from ``_totals_sgp``/``_totals_to_sgp``).
+
+        This method is the SOLE path for converting a totals dict to SGP. All
+        prior local reinventions (``trade_finder._totals_sgp``,
+        ``trade_finder._weighted_totals_sgp``, ``waiver_wire._totals_to_sgp``,
+        ``trade_simulator._simulate_roster_sgp`` post-aggregation block, the
+        inline patterns in ``in_season``, ``daily_optimizer``, and
+        ``trade_evaluator``) delegate here.
+
+        Args:
+            totals: Map of category abbrev to roster total (e.g. ``{"R": 800,
+                "ERA": 3.85}``).  Keys absent from ``self.config.all_categories``
+                are ignored.
+            weights: Optional per-category multiplier (e.g. matchup urgency).
+                Missing keys default to 1.0.
+
+        Returns:
+            Scalar SGP.
+        """
+        weights = weights or {}
+        sgp = 0.0
+        for cat in self.config.all_categories:
+            denom = self._denominators.get(cat, 1.0)
+            if abs(denom) < 1e-9:
+                # Skip pathological denom rather than divide by ~0; matches
+                # the historical "bad denom = no contribution" semantics in
+                # the call sites this method replaces.
+                continue
+            val = totals.get(cat, 0.0)
+            if val is None:
+                val = 0.0
+            sign = -1.0 if cat in self.config.inverse_stats else 1.0
+            weight = weights.get(cat, 1.0)
+            sgp += weight * sign * val / denom
+        return sgp
+
     def marginal_sgp(self, player: pd.Series, roster_totals: dict, category_weights: dict = None) -> dict:
         """Compute marginal SGP contribution given current roster totals.
 
