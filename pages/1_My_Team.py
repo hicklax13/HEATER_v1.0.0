@@ -413,17 +413,19 @@ def _render_news_tab(roster: "pd.DataFrame") -> None:
 
 @st.cache_data(ttl=300)
 def _check_2026_live_stats() -> bool:
-    """Return True if the 2026 season has started (season_stats rows with games_played > 0)."""
-    from src.database import get_connection
+    """Return True if the 2026 season has started.
 
-    conn = get_connection()
+    Uses the enriched player pool's ytd_gp column instead of direct SQL so all
+    consumers see the same staleness window and Statcast/regression-flag enrichments
+    flow through (per Unified Services mandate).
+    """
     try:
-        result = conn.execute("SELECT COUNT(*) FROM season_stats WHERE season = 2026 AND games_played > 0").fetchone()
-        return bool(result and result[0] > 0)
+        pool = load_player_pool()
+        if pool.empty or "ytd_gp" not in pool.columns:
+            return False
+        return bool(pd.to_numeric(pool["ytd_gp"], errors="coerce").fillna(0).gt(0).any())
     except Exception:
         return False
-    finally:
-        conn.close()
 
 
 st.set_page_config(page_title="Heater | My Team", page_icon="", layout="wide", initial_sidebar_state="collapsed")
@@ -641,21 +643,17 @@ else:
                 hit_stats, pitch_stats = _compute_category_totals(roster.copy())
                 _totals_label = "2026 Projected"
             else:
-                # Load historical/live season stats for the selected year
+                # Load historical/live season stats for the selected year via the
+                # canonical loader. The player pool's ytd_* columns lack the raw
+                # counting cols (ab/h/bb/hbp/sf/ip/er/bb_allowed/h_allowed) that
+                # _compute_category_totals needs for weighted AVG/OBP/ERA/WHIP, so
+                # we route through load_season_stats which centralises the SQL
+                # and applies coerce_numeric_df.
+                from src.database import load_season_stats
+
                 _hist_year = 2026 if stat_view == "2026 Live" else int(stat_view)
                 _totals_label = "2026 Live" if stat_view == "2026 Live" else str(_hist_year)
-                from src.database import get_connection as _gc_totals
-
-                _conn_t = _gc_totals()
-                try:
-                    _hist_df = pd.read_sql_query(
-                        "SELECT * FROM season_stats WHERE season = ?",
-                        _conn_t,
-                        params=[_hist_year],
-                    )
-                    _hist_df = coerce_numeric_df(_hist_df)
-                finally:
-                    _conn_t.close()
+                _hist_df = load_season_stats(_hist_year)
 
                 if not _hist_df.empty and "player_id" in _hist_df.columns:
                     # Merge with roster to get is_hitter and filter to roster players
@@ -1833,20 +1831,44 @@ else:
                 }
 
                 if stat_view in ("2026 Live", "2025", "2024", "2023"):
-                    # Load actual stats for the selected season (including live 2026)
-                    season_year = 2026 if stat_view == "2026 Live" else int(stat_view)
-                    from src.database import get_connection as _gc
+                    # Load actual stats for the selected season (including live 2026).
+                    # For 2026 Live: pull the enriched player pool first so Statcast
+                    # signals (xwoba/barrel_pct/hard_hit_pct/stuff_plus) and regression
+                    # flags are available alongside ytd_* totals — those enrichments are
+                    # only computed inside _build_player_pool/_enrich_pool. The pool's
+                    # ytd_* set is missing R/W/L/OBP and the underlying counting cols,
+                    # so we still hit load_season_stats(2026) for the display table.
+                    # For historical years (2023-2025) the pool has no data, so we rely
+                    # entirely on load_season_stats. Both branches route SQL through the
+                    # canonical helper in src.database — no raw read_sql_query here.
+                    from src.database import load_season_stats
 
-                    _conn = _gc()
-                    try:
-                        hist = pd.read_sql_query(
-                            "SELECT * FROM season_stats WHERE season = ?",
-                            _conn,
-                            params=[season_year],
-                        )
-                        hist = coerce_numeric_df(hist)
-                    finally:
-                        _conn.close()
+                    season_year = 2026 if stat_view == "2026 Live" else int(stat_view)
+                    hist = load_season_stats(season_year)
+
+                    # Pool enrichments are only meaningful for 2026 Live (the only
+                    # season the pool tracks via ytd_*); merge them in when possible.
+                    pool_enrich_cols: list[str] = []
+                    if season_year == 2026:
+                        try:
+                            _live_pool = load_player_pool()
+                            _candidate_enrich = [
+                                "xwoba",
+                                "barrel_pct",
+                                "hard_hit_pct",
+                                "stuff_plus",
+                                "regression_flag",
+                                "babip_regression_flag",
+                                "stuff_regression_flag",
+                                "bats",
+                                "throws",
+                            ]
+                            pool_enrich_cols = [c for c in _candidate_enrich if c in _live_pool.columns]
+                            if pool_enrich_cols and "player_id" in _live_pool.columns and not hist.empty:
+                                _slim_pool = _live_pool[["player_id"] + pool_enrich_cols].copy()
+                                hist = hist.merge(_slim_pool, on="player_id", how="left")
+                        except Exception:
+                            pool_enrich_cols = []  # Graceful degradation
 
                     _roster_cols = ["name", "positions", "roster_slot", "player_id"]
                     if "mlb_id" in roster.columns:
@@ -1967,21 +1989,30 @@ else:
                 # Bayesian-adjusted projections
                 if BAYESIAN_AVAILABLE:
                     try:
-                        from src.database import get_connection
+                        from src.database import get_connection, load_season_stats
 
                         conn = get_connection()
                         try:
-                            # Filter to roster players only, latest season
+                            # Marcel needs the most recent season per rostered player.
+                            # The player pool's ytd_* columns only cover 2026, so we
+                            # fan out load_season_stats across the most recent few
+                            # seasons and dedupe to the latest non-empty row per player.
+                            # Routing through the canonical loader keeps SQL out of the
+                            # page and applies coerce_numeric_df consistently.
                             roster_pids = roster["player_id"].tolist() if "player_id" in roster.columns else []
                             if roster_pids:
-                                pids_str = ",".join(str(int(p)) for p in roster_pids)
-                                season_stats = pd.read_sql_query(
-                                    f"SELECT * FROM season_stats WHERE player_id IN ({pids_str}) ORDER BY season DESC",
-                                    conn,
-                                )
+                                _roster_pid_set = {int(p) for p in roster_pids}
+                                _frames: list[pd.DataFrame] = []
+                                for _yr in (2026, 2025, 2024, 2023):
+                                    _yr_df = load_season_stats(_yr)
+                                    if _yr_df.empty or "player_id" not in _yr_df.columns:
+                                        continue
+                                    _yr_df = _yr_df[_yr_df["player_id"].isin(_roster_pid_set)]
+                                    if not _yr_df.empty:
+                                        _frames.append(_yr_df)
+                                season_stats = pd.concat(_frames, ignore_index=True) if _frames else pd.DataFrame()
                             else:
                                 season_stats = pd.DataFrame()
-                            season_stats = coerce_numeric_df(season_stats)
 
                             # Keep only the latest season per player
                             if not season_stats.empty and "season" in season_stats.columns:

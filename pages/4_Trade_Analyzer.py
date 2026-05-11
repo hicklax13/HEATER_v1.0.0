@@ -467,21 +467,17 @@ else:
                                 adp_scores.append(compute_adp_fairness(gid, rid, pool))
                         avg_adp_fairness = sum(adp_scores) / len(adp_scores) if adp_scores else 0.5
 
-                        # ECR fairness
+                        # ECR fairness — use pool (Unified Services: load_player_pool enriches with consensus_rank)
                         ecr_ranks_local = {}
                         try:
-                            from src.database import get_connection as _gc_ecr
-
-                            _ecr_conn = _gc_ecr()
-                            try:
-                                _ecr_df = pd.read_sql_query(
-                                    "SELECT player_id, consensus_rank FROM ecr_consensus", _ecr_conn
-                                )
+                            if "consensus_rank" in pool.columns:
+                                _ecr_pool = pool[["player_id", "consensus_rank"]].dropna(subset=["consensus_rank"])
                                 ecr_ranks_local = dict(
-                                    zip(_ecr_df["player_id"].astype(int), _ecr_df["consensus_rank"].astype(int))
+                                    zip(
+                                        _ecr_pool["player_id"].astype(int),
+                                        _ecr_pool["consensus_rank"].astype(int),
+                                    )
                                 )
-                            finally:
-                                _ecr_conn.close()
                         except Exception:
                             pass
 
@@ -724,22 +720,29 @@ else:
                     if any(pid != 0 for pid in _trade_all_ids):
                         render_player_select(_trade_all_names, _trade_all_ids, key_suffix="trade")
 
-                    # P10/P90 risk assessment for traded players
+                    # P10/P90 risk assessment for traded players.
+                    # Per Unified Services: source player IDs from the pool (load_player_pool).
+                    # Per-system projections must still come from the projections table because
+                    # the pool only carries the blended projection; volatility = std across systems.
                     try:
                         from src.database import get_connection
 
+                        # Scope per-system fetch to traded player IDs (sourced from pool above)
+                        _vol_ids = [pid for pid in _trade_all_ids if pid != 0]
                         conn = get_connection()
                         try:
                             systems = {}
-                            for sys_name in ["steamer", "zips", "depthcharts"]:
-                                df = pd.read_sql_query(
-                                    "SELECT * FROM projections WHERE system = ?",
-                                    conn,
-                                    params=(sys_name,),
-                                )
-                                if not df.empty:
-                                    df = coerce_numeric_df(df)
-                                    systems[sys_name] = df
+                            if _vol_ids:
+                                _placeholders = ",".join("?" * len(_vol_ids))
+                                for sys_name in ["steamer", "zips", "depthcharts"]:
+                                    df = pd.read_sql_query(
+                                        f"SELECT * FROM projections WHERE system = ? AND player_id IN ({_placeholders})",
+                                        conn,
+                                        params=(sys_name, *_vol_ids),
+                                    )
+                                    if not df.empty:
+                                        df = coerce_numeric_df(df)
+                                        systems[sys_name] = df
                         finally:
                             conn.close()
 

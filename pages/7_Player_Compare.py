@@ -50,6 +50,36 @@ page_timer_start()
 
 render_page_layout("PLAYER COMPARE", banner_teaser="Select two players to compare", banner_icon="player_compare")
 
+
+@st.cache_data(ttl=600, show_spinner=False)
+def _load_per_system_projections(player_ids: tuple[int, ...]) -> dict[str, pd.DataFrame]:
+    """Load raw per-system projections for the given players.
+
+    The blended projection is already in ``load_player_pool()``. This helper exists
+    only for cross-system volatility (P10/P90 confidence intervals) which needs the
+    underlying steamer/zips/depthcharts rows the pool collapses into one. ECR rank,
+    season stats, and Statcast all flow through ``load_player_pool()`` and must NOT
+    be fetched directly here.
+    """
+    if not player_ids:
+        return {}
+    conn = get_connection()
+    try:
+        placeholders = ",".join("?" for _ in player_ids)
+        out: dict[str, pd.DataFrame] = {}
+        for sys_name in ("steamer", "zips", "depthcharts"):
+            df = pd.read_sql_query(
+                f"SELECT * FROM projections WHERE system = ? AND player_id IN ({placeholders})",
+                conn,
+                params=(sys_name, *player_ids),
+            )
+            if not df.empty:
+                out[sys_name] = coerce_numeric_df(df)
+        return out
+    finally:
+        conn.close()
+
+
 pool = load_player_pool()
 if pool.empty:
     st.warning("No player data loaded.")
@@ -546,21 +576,11 @@ with main:
                 health_rows.append({"Player": name_col, "Health": f"{icon} {label}", "Score": f"{hs:.2f}"})
 
             # Projection confidence: P10-P90 range width per player using key stat cols
+            # NOTE: per-system projections are NOT in load_player_pool() (which only
+            # carries the blended projection). The cached helper below scopes the
+            # fetch to just the two compared players.
             try:
-                conn = get_connection()
-                try:
-                    systems = {}
-                    for sys_name in ["steamer", "zips", "depthcharts"]:
-                        df = pd.read_sql_query(
-                            "SELECT * FROM projections WHERE system = ?",
-                            conn,
-                            params=(sys_name,),
-                        )
-                        if not df.empty:
-                            df = coerce_numeric_df(df)
-                            systems[sys_name] = df
-                finally:
-                    conn.close()
+                systems = _load_per_system_projections((int(id_a), int(id_b)))
 
                 if len(systems) >= 2:
                     vol = compute_projection_volatility(systems)

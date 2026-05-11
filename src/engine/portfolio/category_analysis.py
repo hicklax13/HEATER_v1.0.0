@@ -21,9 +21,12 @@ from src.validation.constant_optimizer import load_constants
 from src.valuation import LeagueConfig as _LC_Class
 
 _CONSTANTS = load_constants()
-_LC = _LC_Class()
-CATEGORIES: list[str] = _LC.all_categories
-INVERSE_CATEGORIES: set[str] = _LC.inverse_stats
+# C6 (SF-21 cleanup): module-level _LC singleton removed. Module constants
+# below capture immutable category metadata at import time; functions that
+# need denominators construct LeagueConfig() lazily so live-standings updates
+# always propagate when callers don't pass an explicit ``config=``.
+CATEGORIES: list[str] = _LC_Class().all_categories
+INVERSE_CATEGORIES: set[str] = _LC_Class().inverse_stats
 
 # Approximate weekly production rates per roster, used for punt estimation.
 # Based on a competitive 12-team roster in a full season (~22 weeks).
@@ -76,9 +79,11 @@ def compute_marginal_sgp(
     """
     if categories is None:
         categories = CATEGORIES
-    # SF-21: prefer caller-supplied config; fall back to module singleton for
-    # backward compatibility with callers that haven't been updated yet.
-    cfg = config if config is not None else _LC
+    # SF-21 / C6: prefer caller-supplied config. If absent, build a fresh
+    # LeagueConfig() so we never read from a stale, module-level singleton —
+    # constructing per-call is cheap and guarantees defaults reflect the
+    # current LeagueConfig defaults rather than import-time state.
+    cfg = config if config is not None else _LC_Class()
 
     # Exclude user's own team from opponent totals to avoid comparing against self
     opponent_totals = (
@@ -152,7 +157,9 @@ def category_gap_analysis(
     """
     if weekly_rates is None:
         weekly_rates = dict(WEEKLY_RATE_DEFAULTS)
-    cfg = config if config is not None else _LC
+    # SF-21 / C6: same per-call construction pattern as compute_marginal_sgp —
+    # no module-level singleton, no stale denominators.
+    cfg = config if config is not None else _LC_Class()
     categories = cfg.all_categories
     inverse_categories = cfg.inverse_stats
 

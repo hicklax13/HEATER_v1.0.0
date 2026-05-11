@@ -21,6 +21,12 @@ import logging
 import numpy as np
 import pandas as pd
 
+# PULP_AVAILABLE is canonically defined in src.lineup_optimizer — import it
+# from there so we have a single source of truth. The pulp symbols themselves
+# are still imported locally below so the LP solver code paths can use them
+# directly without dotted lookups.
+from src.lineup_optimizer import PULP_AVAILABLE
+
 try:
     from pulp import (
         PULP_CBC_CMD,
@@ -32,10 +38,10 @@ try:
         LpVariable,
         lpSum,
     )
-
-    PULP_AVAILABLE = True
 except ImportError:
-    PULP_AVAILABLE = False
+    # PULP_AVAILABLE is already False from the canonical source; the symbols
+    # below will be unbound but every call site is guarded by PULP_AVAILABLE.
+    pass
 
 from src.valuation import LeagueConfig as _LC_Class  # noqa: E402
 
