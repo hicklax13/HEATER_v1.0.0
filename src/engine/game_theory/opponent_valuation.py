@@ -25,36 +25,14 @@ from src.valuation import LeagueConfig as _LC_Class
 
 logger = logging.getLogger(__name__)
 
-# C6/C7 partial cleanup: module-level _LC singleton removed (was causing stale
-# denominator reads when callers updated their LeagueConfig). Module constants
-# below capture immutable category metadata at import time. The numeric
-# DEFAULT_SGP_DENOMS dict below is intentionally retained as a no-config
-# fallback because:
-#   * its values differ from ``LeagueConfig().sgp_denominators`` (e.g., HR
-#     is 12.0 here vs 13.0 in LeagueConfig — empirically calibrated for the
-#     opponent-valuation Vickrey auction logic),
-#   * existing tests (test_trade_engine_math.py) assert math based on these
-#     specific numbers, and
-#   * trade_evaluator.py:1501 passes ``config.sgp_denominators`` explicitly,
-#     so the live-config path already works for production callers.
-# A future task can migrate the no-config callers and then remove this dict.
+# C6/C7 cleanup: module-level _LC singleton AND DEFAULT_SGP_DENOMS fallback
+# removed (both were causing stale/wrong denominator reads when callers
+# expected live LeagueConfig values). Module constants below capture
+# immutable category metadata at import time. Callers MUST now pass
+# ``sgp_denominators`` (typically from ``config.sgp_denominators``) — there
+# is no silent fallback, so test/production parity is enforced.
 CATEGORIES: list[str] = list(_LC_Class().all_categories)
 INVERSE_CATEGORIES: set[str] = set(_LC_Class().inverse_stats)
-
-DEFAULT_SGP_DENOMS: dict[str, float] = {
-    "R": 30.0,
-    "HR": 12.0,
-    "RBI": 30.0,
-    "SB": 8.0,
-    "AVG": 0.005,
-    "OBP": 0.005,
-    "W": 3.0,
-    "L": 3.0,
-    "K": 25.0,
-    "SV": 5.0,
-    "ERA": 0.20,
-    "WHIP": 0.015,
-}
 
 # Stat column mapping (uppercase category → lowercase pool column)
 STAT_MAP: dict[str, str] = {
@@ -77,7 +55,7 @@ def estimate_opponent_valuations(
     player_projections: dict[str, float],
     all_team_totals: dict[str, dict[str, float]],
     your_team_id: str,
-    sgp_denominators: dict[str, float] | None = None,
+    sgp_denominators: dict[str, float],
 ) -> dict[str, float]:
     """Estimate each opponent's willingness-to-pay for a player.
 
@@ -93,12 +71,19 @@ def estimate_opponent_valuations(
             category name (e.g., {"R": 85, "HR": 30, ...}).
         all_team_totals: Dict of {team_name: {category: total}}.
         your_team_id: Your team name (excluded from valuations).
-        sgp_denominators: SGP conversion denominators. If None, uses defaults.
+        sgp_denominators: SGP conversion denominators (REQUIRED — no
+            fallback). Typically ``config.sgp_denominators`` derived
+            from live league standings.
 
     Returns:
         Dict of {team_name: valuation_sgp} for all opponents.
     """
-    denoms = sgp_denominators or DEFAULT_SGP_DENOMS
+    if not sgp_denominators:
+        raise ValueError(
+            "sgp_denominators is required (no fallback). "
+            "Pass config.sgp_denominators or LeagueConfig().sgp_denominators."
+        )
+    denoms = sgp_denominators
     valuations: dict[str, float] = {}
 
     for team_id, team_totals in all_team_totals.items():
@@ -245,7 +230,7 @@ def player_market_value(
     player_projections: dict[str, float],
     all_team_totals: dict[str, dict[str, float]],
     your_team_id: str,
-    sgp_denominators: dict[str, float] | None = None,
+    sgp_denominators: dict[str, float],
 ) -> dict[str, float | dict]:
     """Full market analysis for a single player.
 
@@ -256,7 +241,8 @@ def player_market_value(
         player_projections: Player's projected stats.
         all_team_totals: All team totals.
         your_team_id: Your team name.
-        sgp_denominators: SGP denominators.
+        sgp_denominators: SGP denominators (REQUIRED — no fallback).
+            Typically ``config.sgp_denominators``.
 
     Returns:
         Dict with:
