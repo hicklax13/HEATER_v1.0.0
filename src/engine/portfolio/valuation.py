@@ -17,6 +17,7 @@ Computes:
 
 from __future__ import annotations
 
+import copy
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -242,9 +243,13 @@ def build_valuation_context(
         # Merge into local copy — do NOT mutate shared config
         denoms = {**denoms, **live_denoms}
 
-    # Build a local config copy with the merged denominators for SGP calc
-    local_config = LeagueConfig()
-    local_config.__dict__.update(config.__dict__)
+    # Build a local config copy with the merged denominators for SGP calc.
+    # Use copy.deepcopy() rather than __dict__.update() so we correctly
+    # duplicate nested mutable state (e.g., dict fields like roster_slots,
+    # sgp_denominators, STAT_MAP) without sharing references with the
+    # caller's config and without breaking on __slots__ or computed
+    # properties that __dict__.update() silently misses.
+    local_config = copy.deepcopy(config)
     local_config.sgp_denominators = denoms
 
     sgp_calc = SGPCalculator(local_config)

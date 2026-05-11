@@ -317,6 +317,13 @@ def build_optimizer_context(
 
     # ── Step 14: Team strength ────────────────────────────────────────
     _load_team_strength(ctx)
+    if ctx.team_strength:
+        tracker.record(
+            "team_strength",
+            ttl_hours=24.0,
+            source_label="pybaseball wRC+/FIP",
+            data_as_of="Today's team offense/pitching strength",
+        )
 
     # ── Step 15: Weather ──────────────────────────────────────────────
     _load_weather(ctx)

@@ -269,6 +269,20 @@ ALL_CONSTANTS: list[CalibratableConstant] = [
         category="optimizer",
     ),
     CalibratableConstant(
+        name="streaming_baseline_whip",
+        description="Baseline WHIP for streaming pitcher evaluation",
+        current_value=1.25, default_value=1.25, bounds=(1.10, 1.40),
+        source_file="src/optimizer/streaming.py", source_line=166,
+        category="optimizer",
+    ),
+    CalibratableConstant(
+        name="team_weekly_ip",
+        description="Default fantasy team weekly IP for rate-stat dilution",
+        current_value=55.0, default_value=55.0, bounds=(45.0, 65.0),
+        source_file="src/optimizer/streaming.py", source_line=43,
+        category="optimizer",
+    ),
+    CalibratableConstant(
         name="hr_temp_coefficient",
         description="HR increase per degree Fahrenheit (Nathan 2012 cite)",
         current_value=0.009, default_value=0.009, bounds=(0.003, 0.020),
