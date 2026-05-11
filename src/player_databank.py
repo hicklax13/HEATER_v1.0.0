@@ -12,6 +12,7 @@ from io import BytesIO
 import pandas as pd
 
 from src.database import get_connection, load_player_pool
+from src.live_stats import _ip_outs_to_decimal
 from src.ui_shared import T
 from src.valuation import LeagueConfig as _LC_Class
 
@@ -440,8 +441,9 @@ def _parse_game_log_row(
     def _float(key: str) -> float:
         try:
             val = raw.get(key, 0) or 0
-            # IP is sometimes stored as "2.1" (outs notation) but statsapi
-            # returns decimal innings directly (e.g. 6.0 for 6 full innings).
+            # NOTE: For IP fields, use _ip_outs_to_decimal() — statsapi returns
+            # IP as outs notation ("10.2" = 10 + 2 outs). This _float helper is
+            # for non-IP numeric fields only.
             return float(val)
         except (ValueError, TypeError):
             return 0.0
@@ -490,7 +492,7 @@ def _parse_game_log_row(
     else:  # pitching
         base.update(
             {
-                "ip": _float("inningsPitched"),
+                "ip": _ip_outs_to_decimal(raw.get("inningsPitched")),
                 "w": _int("wins"),
                 "l": _int("losses"),
                 "sv": _int("saves"),

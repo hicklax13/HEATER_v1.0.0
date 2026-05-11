@@ -182,6 +182,34 @@ def _match_by_mlb_id(cursor, mlb_id: int) -> int | None:
     return result[0] if result else None
 
 
+def _ip_outs_to_decimal(ip_value: object) -> float:
+    """Convert MLB Stats API innings-pitched ("52.2" = 52 + 2 outs) to decimal IP.
+
+    MLB Stats API formats IP as a string where the fractional part is the
+    number of outs in the partial inning (0, 1, or 2), NOT a true decimal.
+    For example "52.2" means 52 innings + 2 outs = 52 + 2/3 ≈ 52.667 IP.
+    `float("52.2")` gives 52.2 (wrong by 0.467 IP), causing every ERA = ER*9/IP
+    and WHIP = (BB+H)/IP to shift by ~1.5%.
+
+    Accepts string or numeric input. Returns 0.0 for empty/garbage inputs.
+    """
+    if ip_value is None or ip_value == "":
+        return 0.0
+    try:
+        s = str(ip_value)
+        if "." in s:
+            int_part_str, frac_str = s.split(".", 1)
+            int_part = int(int_part_str)
+            frac_digit = int(frac_str[0]) if frac_str else 0
+            if frac_digit <= 2:
+                return int_part + frac_digit / 3.0
+            # If frac_digit >= 3, the source already uses true decimals — return as-is
+            return float(s)
+        return float(s)
+    except (ValueError, TypeError):
+        return 0.0
+
+
 def _parse_hitting_stat(player_info: dict, stat: dict) -> dict:
     """Parse a hitting stat split into a row dict."""
     return {
@@ -234,7 +262,7 @@ def _parse_pitching_stat(player_info: dict, stat: dict) -> dict:
         "bb": 0,
         "hbp": 0,
         "sf": 0,
-        "ip": float(stat.get("inningsPitched", "0") or 0),
+        "ip": _ip_outs_to_decimal(stat.get("inningsPitched", "0")),
         "w": int(stat.get("wins", 0)),
         "l": int(stat.get("losses", 0)),
         "sv": int(stat.get("saves", 0)),
