@@ -2582,7 +2582,8 @@ def bootstrap_all_data(
         results["player_id_map"] = f"Error: {exc}"
 
     # Phase 17: Yahoo transactions sync (BUG-017 fix)
-    if yahoo_client is not None:
+    # SF-18: gated by check_staleness("yahoo_transactions", 0.25h)
+    if yahoo_client is not None and (force or check_staleness("yahoo_transactions", 0.25)):
         try:
             txn_df = yahoo_client.get_league_transactions()
             if not txn_df.empty:
@@ -2619,9 +2620,12 @@ def bootstrap_all_data(
         except Exception as exc:
             logger.warning("Transaction sync failed: %s", exc)
             results["transactions"] = f"Error: {exc}"
+    elif yahoo_client is not None:
+        results["transactions"] = "Fresh"
 
     # Phase 18: Yahoo free agents (BUG-019 fix)
-    if yahoo_client is not None:
+    # SF-18: gated by check_staleness("yahoo_free_agents", 1.0h) and writes refresh_log on success
+    if yahoo_client is not None and (force or check_staleness("yahoo_free_agents", 1.0)):
         try:
             progress.phase = "Yahoo Free Agents"
             progress.detail = "Fetching league free agents..."
@@ -2629,7 +2633,7 @@ def bootstrap_all_data(
                 on_progress(progress)
             fa_df = yahoo_client.get_free_agents(count=200)
             if not fa_df.empty:
-                from src.database import upsert_player_bulk
+                from src.database import update_refresh_log, upsert_player_bulk
                 from src.live_stats import match_player_id
 
                 new_players = 0
@@ -2650,7 +2654,6 @@ def bootstrap_all_data(
                             ]
                         )
                         new_players += 1
-                # Also populate the yahoo_free_agents table for ownership tracking
                 from src.database import get_connection as _get_conn
 
                 _fa_conn = _get_conn()
@@ -2678,11 +2681,17 @@ def bootstrap_all_data(
                 results["yahoo_free_agents"] = (
                     f"Checked {len(fa_df)} FAs, added {new_players} new, stored {len(fa_df)} to yahoo_free_agents"
                 )
+                update_refresh_log("yahoo_free_agents", "success")
             else:
                 results["yahoo_free_agents"] = "No FA data from Yahoo"
+                from src.database import update_refresh_log
+
+                update_refresh_log("yahoo_free_agents", "no_data")
         except Exception as exc:
             logger.warning("Yahoo FA fetch failed: %s", exc)
             results["yahoo_free_agents"] = f"Error: {exc}"
+    elif yahoo_client is not None:
+        results["yahoo_free_agents"] = "Fresh"
 
     # Phase 19: ROS Bayesian projections (depends on live stats + projections)
     _notify(0.965)
