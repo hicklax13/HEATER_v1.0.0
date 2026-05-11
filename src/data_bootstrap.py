@@ -1953,7 +1953,22 @@ def _bootstrap_pvb_splits(progress: BootstrapProgress) -> str:
         finally:
             conn.close()
 
-        update_refresh_log("pvb_splits", "success")
+        if updated > 0:
+            update_refresh_log(
+                "pvb_splits",
+                "success",
+                rows_written=updated,
+                message=f"{updated} new, {skipped} cached",
+            )
+        elif skipped > 0:
+            update_refresh_log(
+                "pvb_splits",
+                "cached",
+                rows_written=0,
+                message=f"all {skipped} matchups already cached",
+            )
+        else:
+            update_refresh_log("pvb_splits", "no_data", rows_written=0)
         logger.info("T12: PvB splits — %d matchups saved, %d skipped (cached)", updated, skipped)
         return f"Saved {updated} PvB matchups ({skipped} cached)"
 
