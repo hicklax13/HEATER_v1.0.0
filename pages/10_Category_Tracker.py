@@ -7,13 +7,13 @@ import pandas as pd
 import streamlit as st
 
 from src.database import init_db, load_league_rosters, load_league_standings, load_player_pool
+from src.matchup_context import get_matchup_context
 from src.ui_shared import format_stat, inject_custom_css, render_styled_table
 from src.valuation import LeagueConfig
 
 try:
     from src.engine.portfolio.category_analysis import (
         category_gap_analysis,
-        compute_category_weights_from_analysis,
     )
 
     _HAS_CATEGORY_ANALYSIS = True
@@ -99,7 +99,10 @@ try:
         user_team_name,
         weeks_remaining=weeks_remaining,
     )
-    cat_weights = compute_category_weights_from_analysis(analysis)
+    # Use canonical MatchupContext for category weights — single source of truth
+    # across pages. "standings" mode uses gap-analysis-derived weights, matching
+    # the previous compute_category_weights_from_analysis behavior.
+    cat_weights = get_matchup_context().get_category_weights(mode="standings")
 except Exception as e:
     logger.exception("Category gap analysis failed")
     st.error(f"Analysis failed: {e}")

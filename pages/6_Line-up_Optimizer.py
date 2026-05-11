@@ -71,7 +71,6 @@ except ImportError:
 # Head-to-Head engine
 try:
     from src.optimizer.h2h_engine import (
-        compute_h2h_category_weights,
         estimate_h2h_win_probability,
     )
 
@@ -3198,7 +3197,12 @@ with main:
                 f'margin:16px 0 6px;">Optimal Focus Areas</p>',
                 unsafe_allow_html=True,
             )
-            h2h_weights = compute_h2h_category_weights(_h2h_my, _h2h_opp)
+            # Use canonical MatchupContext for H2H category weights — single
+            # source of truth across pages. "matchup" mode reads from the live
+            # Yahoo matchup, same data that _h2h_my/_h2h_opp were sourced from.
+            from src.matchup_context import get_matchup_context as _get_matchup_context
+
+            h2h_weights = _get_matchup_context().get_category_weights(mode="matchup")
             if h2h_weights:
                 focus_sorted = sorted(h2h_weights.items(), key=lambda x: x[1], reverse=True)
                 for cat, weight in focus_sorted[:5]:
