@@ -1027,7 +1027,14 @@ def _bootstrap_team_strength(progress: BootstrapProgress) -> str:
 
 
 def _bootstrap_stuff_plus(progress: BootstrapProgress) -> str:
-    """Phase 22: Fetch Stuff+/Location+/Pitching+ from FanGraphs via pybaseball."""
+    """Phase 22: Fetch Stuff+/Location+/Pitching+ from FanGraphs via pybaseball.
+
+    SF-6 Option C: attempt with browser headers injected into requests.get
+    (Tier 1) before giving up. FanGraphs' leaders-legacy.aspx is gated by
+    a Cloudflare-style bot check that rejects the bare pybaseball UA, but
+    the browser-headers attempt costs only one extra HTTP round-trip and
+    leaves a clean telemetry trail when it fails.
+    """
     progress.phase = "Stuff+ Metrics"
     progress.detail = "Fetching Stuff+/Location+/Pitching+ from FanGraphs..."
     try:
@@ -1039,11 +1046,20 @@ def _bootstrap_stuff_plus(progress: BootstrapProgress) -> str:
     try:
         import pandas as pd
 
+        from src.data_fetch_utils import fetch_fangraphs_with_browser_headers
         from src.database import get_connection, update_refresh_log
 
         year = datetime.now(UTC).year
-        logger.info("Fetching FanGraphs pitching stats for %d (qual=0)...", year)
-        fg_df = pitching_stats(year, qual=0)
+        logger.info(
+            "Fetching FanGraphs pitching stats for %d (qual=0) with browser headers...",
+            year,
+        )
+        # SF-6 Option C: try browser-headers fetch first.
+        try:
+            fg_df = fetch_fangraphs_with_browser_headers(lambda: pitching_stats(year, qual=0))
+        except Exception as inner_exc:
+            # Re-raise so the outer except chain handles 403 logging cleanly.
+            raise inner_exc
 
         if fg_df is None or fg_df.empty:
             logger.warning("pybaseball pitching_stats returned empty data")
@@ -1148,8 +1164,17 @@ def _bootstrap_stuff_plus(progress: BootstrapProgress) -> str:
         finally:
             conn.close()
 
-        update_refresh_log("stuff_plus", "success")
-        logger.info("Stuff+ metrics: updated %d pitchers from %d FanGraphs rows", updated, len(fg_df))
+        update_refresh_log(
+            "stuff_plus",
+            "success",
+            tier="primary",
+            message=f"browser-headers fetch ok — {updated}/{len(fg_df)} pitchers",
+        )
+        logger.info(
+            "Stuff+ metrics: primary tier ok — updated %d pitchers from %d FanGraphs rows",
+            updated,
+            len(fg_df),
+        )
         return f"Updated {updated} pitchers with Stuff+/Location+/Pitching+"
 
     except Exception as exc:
@@ -1157,27 +1182,36 @@ def _bootstrap_stuff_plus(progress: BootstrapProgress) -> str:
         try:
             from src.database import update_refresh_log
 
+            # SF-6: 403 means FanGraphs rejected even browser headers (Cloudflare-style
+            # bot block). Optimizer K-boost falls back to FIP/xFIP proxy via Wave 4-J
+            # Option B (_stuff_plus_k_multiplier). Honest message so users see the
+            # data is unavailable rather than a stack trace.
+            base_msg = _format_fetch_error(exc, "FanGraphs Stuff+")
+            if "403" in str(exc):
+                base_msg += " — known limitation, see CLAUDE.md SF-6 (browser-headers also blocked); optimizer falls back to FIP/xFIP K-boost proxy"
             update_refresh_log(
                 "stuff_plus",
                 _classify_fetch_error(exc),
-                message=_format_fetch_error(exc, "FanGraphs Stuff+"),
+                message=base_msg,
             )
         except Exception:
             pass
-        # SF-6: FanGraphs leaders-legacy.aspx 403s non-browser scrapers.
-        # Surface this as a known limitation so users don't think the
-        # optimizer is silently broken — K-boost path defaults to neutral 1.0×.
         base = _format_fetch_error(exc, "FanGraphs Stuff+")
-        if base.startswith("Skipped:"):
+        if base.startswith("Skipped:") or "403" in str(exc):
             return (
                 "Skipped: FanGraphs Stuff+ unavailable (HTTP 403 — known limitation, "
-                "see CLAUDE.md SF-6). Optimizer K-boost defaults to neutral 1.0×."
+                "see CLAUDE.md SF-6). Optimizer K-boost falls back to FIP/xFIP proxy "
+                "(neutral 1.0× when both unavailable)."
             )
         return base
 
 
 def _bootstrap_batting_stats(progress: BootstrapProgress) -> str:
-    """Phase 23: Fetch advanced batting stats (BABIP, ISO, K%, BB%, etc.) from FanGraphs."""
+    """Phase 23: Fetch advanced batting stats (BABIP, ISO, K%, BB%, etc.) from FanGraphs.
+
+    SF-6 Option C: same browser-headers Tier 1 attempt as Stuff+. When 403 still
+    blocks, optimizer falls back to neutral defaults for BABIP/ISO/K%/BB%.
+    """
     progress.phase = "Batting Stats"
     progress.detail = "Fetching BABIP/ISO/K%/BB% from FanGraphs..."
     try:
@@ -1189,11 +1223,19 @@ def _bootstrap_batting_stats(progress: BootstrapProgress) -> str:
     try:
         import pandas as pd
 
+        from src.data_fetch_utils import fetch_fangraphs_with_browser_headers
         from src.database import get_connection, update_refresh_log
 
         year = datetime.now(UTC).year
-        logger.info("Fetching FanGraphs batting stats for %d (qual=0)...", year)
-        fg_df = batting_stats(year, qual=0)
+        logger.info(
+            "Fetching FanGraphs batting stats for %d (qual=0) with browser headers...",
+            year,
+        )
+        # SF-6 Option C: try browser-headers fetch first.
+        try:
+            fg_df = fetch_fangraphs_with_browser_headers(lambda: batting_stats(year, qual=0))
+        except Exception as inner_exc:
+            raise inner_exc
 
         if fg_df is None or fg_df.empty:
             logger.warning("pybaseball batting_stats returned empty data")
@@ -1287,8 +1329,17 @@ def _bootstrap_batting_stats(progress: BootstrapProgress) -> str:
         finally:
             conn.close()
 
-        update_refresh_log("batting_stats", "success")
-        logger.info("Batting stats: updated %d hitters from %d FanGraphs rows", updated, len(fg_df))
+        update_refresh_log(
+            "batting_stats",
+            "success",
+            tier="primary",
+            message=f"browser-headers fetch ok — {updated}/{len(fg_df)} hitters",
+        )
+        logger.info(
+            "Batting stats: primary tier ok — updated %d hitters from %d FanGraphs rows",
+            updated,
+            len(fg_df),
+        )
         return f"Updated {updated} hitters with BABIP/ISO/K%%/BB%%"
 
     except Exception as exc:
@@ -1296,18 +1347,20 @@ def _bootstrap_batting_stats(progress: BootstrapProgress) -> str:
         try:
             from src.database import update_refresh_log
 
+            # SF-6: same browser-headers Tier 1 attempt as Stuff+. When 403 still
+            # blocks, optimizer keeps using neutral defaults for BABIP/ISO/K%/BB%.
+            base_msg = _format_fetch_error(exc, "FanGraphs Batting Stats")
+            if "403" in str(exc):
+                base_msg += " — known limitation, see CLAUDE.md SF-6 (browser-headers also blocked); optimizer falls back to default BABIP/ISO/K%/BB%"
             update_refresh_log(
                 "batting_stats",
                 _classify_fetch_error(exc),
-                message=_format_fetch_error(exc, "FanGraphs Batting Stats"),
+                message=base_msg,
             )
         except Exception:
             pass
-        # SF-6: same 403 path as Stuff+. Surface honest known limitation
-        # rather than a noisy stack trace; downstream BABIP/ISO/K%/BB%
-        # adjustments simply use neutral defaults when the column is NULL.
         base = _format_fetch_error(exc, "FanGraphs Batting Stats")
-        if base.startswith("Skipped:"):
+        if base.startswith("Skipped:") or "403" in str(exc):
             return (
                 "Skipped: FanGraphs Batting Stats unavailable (HTTP 403 — known limitation, "
                 "see CLAUDE.md SF-6). Optimizer uses neutral defaults for BABIP/ISO/K%/BB%."
