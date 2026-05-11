@@ -139,9 +139,14 @@ def run_paired_monte_carlo(
         before_sgp_sims[sim_idx * 2] = before_total_sgp
         after_sgp_sims[sim_idx * 2] = after_total_sgp
 
-        # Antithetic simulation — negate the seed offset to create mirror noise.
-        # Using a deterministically different seed that produces anti-correlated noise.
-        anti_seed = (sim_seed ^ 0x7FFFFFFF) & 0x7FFFFFFF  # Flip all bits for anti-correlation
+        # Variance-reduction sample using a bit-flipped seed.
+        # NOTE: this is NOT a strictly antithetic variate — true antithetic
+        # variates require negating the underlying uniform quantiles inside
+        # _simulate_roster_sgp (e.g. u' = 1 - u for each draw).  An XOR'd
+        # seed yields an *independent* second sample that improves coverage
+        # but does not guarantee anti-correlated noise.  Documented as a
+        # known SF deviation pending a deeper refactor of _simulate_roster_sgp.
+        anti_seed = (sim_seed ^ 0x7FFFFFFF) & 0x7FFFFFFF
         before_anti = _simulate_roster_sgp(
             roster_stats=before_roster_stats,
             marginals=before_marginals,
