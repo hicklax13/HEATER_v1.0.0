@@ -7,13 +7,12 @@ import streamlit as st
 
 from src.database import (
     init_db,
-    load_league_rosters,
-    load_league_standings,
     load_player_pool,
 )
 from src.league_manager import get_team_roster
-from src.ui_shared import T, inject_custom_css, render_styled_table
+from src.ui_shared import T, format_stat, inject_custom_css, render_styled_table
 from src.valuation import LeagueConfig, SGPCalculator
+from src.yahoo_data_service import get_yahoo_data_service
 
 logger = logging.getLogger(__name__)
 
@@ -35,9 +34,12 @@ if pool.empty:
 pool = pool.rename(columns={"name": "player_name"})
 config = LeagueConfig()
 
-# Load standings and rosters
-standings = load_league_standings()
-rosters = load_league_rosters()
+# Load standings and rosters via canonical Yahoo data service (3-tier cache:
+# session_state → Yahoo API → SQLite fallback). Same schema as the legacy
+# database loaders, so column accesses below are unchanged.
+_yds = get_yahoo_data_service()
+standings = _yds.get_standings()
+rosters = _yds.get_rosters()
 
 if standings.empty or rosters.empty:
     st.warning("Weekly Recap requires standings and roster data. Connect your Yahoo league in Connect League.")
@@ -116,9 +118,9 @@ for cat in config.all_categories:
 
     # Format values
     if is_rate:
-        my_str = f"{my_val:.3f}"
-        opp_str = f"{opp_val:.3f}"
-        margin = f"{abs(my_val - opp_val):.3f}"
+        my_str = format_stat(my_val, cat)
+        opp_str = format_stat(opp_val, cat)
+        margin = format_stat(abs(my_val - opp_val), cat)
     else:
         my_str = f"{my_val:.0f}"
         opp_str = f"{opp_val:.0f}"

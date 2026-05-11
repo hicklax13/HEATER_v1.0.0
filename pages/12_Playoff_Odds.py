@@ -5,9 +5,10 @@ import time
 import pandas as pd
 import streamlit as st
 
-from src.database import coerce_numeric_df, init_db, load_league_rosters, load_league_standings, load_player_pool
+from src.database import coerce_numeric_df, init_db, load_player_pool
 from src.ui_shared import T, inject_custom_css, render_styled_table
 from src.valuation import LeagueConfig
+from src.yahoo_data_service import get_yahoo_data_service
 
 try:
     from src.playoff_sim import estimate_weeks_remaining, simulate_season
@@ -56,8 +57,9 @@ if pool.empty:
 pool = pool.rename(columns={"name": "player_name"})
 config = LeagueConfig()
 
-# Load standings
-standings = load_league_standings()
+# Load standings via canonical Yahoo data service (3-tier cache)
+_yds = get_yahoo_data_service()
+standings = _yds.get_standings()
 all_team_totals: dict[str, dict[str, float]] = {}
 if not standings.empty and "category" in standings.columns:
     for _, srow in standings.iterrows():
@@ -65,8 +67,8 @@ if not standings.empty and "category" in standings.columns:
         cat = str(srow["category"]).strip()
         all_team_totals.setdefault(team, {})[cat] = float(srow.get("total", 0) or 0)
 
-# Load rosters
-rosters = load_league_rosters()
+# Load rosters via canonical Yahoo data service
+rosters = _yds.get_rosters()
 if rosters.empty:
     if st.session_state.get("yahoo_connected"):
         st.warning("Yahoo is connected but no roster data found in the database. Try syncing:")

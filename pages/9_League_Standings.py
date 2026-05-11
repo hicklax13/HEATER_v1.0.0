@@ -13,8 +13,11 @@ from src.database import (
     get_connection,
     init_db,
     load_league_records,
+    load_league_rosters,
     load_league_schedule_full,
+    load_player_pool,
 )
+from src.standings_utils import get_all_team_totals
 from src.ui_shared import (
     THEME,
     build_compact_table_html,
@@ -108,88 +111,58 @@ def _ordinal(n: int) -> str:
 
 
 def _compute_projected_team_totals() -> dict[str, dict[str, float]]:
-    """Compute projected weekly category averages per team from roster projections."""
-    conn = get_connection()
-    try:
-        df = pd.read_sql_query(
-            """
-            SELECT lr.team_name, p.is_hitter,
-                   COALESCE(proj.pa, 0) as pa, COALESCE(proj.ab, 0) as ab,
-                   COALESCE(proj.h, 0) as h, COALESCE(proj.r, 0) as r,
-                   COALESCE(proj.hr, 0) as hr, COALESCE(proj.rbi, 0) as rbi,
-                   COALESCE(proj.sb, 0) as sb,
-                   COALESCE(proj.bb, 0) as bb, COALESCE(proj.hbp, 0) as hbp,
-                   COALESCE(proj.sf, 0) as sf,
-                   COALESCE(proj.ip, 0) as ip, COALESCE(proj.w, 0) as w,
-                   COALESCE(proj.l, 0) as l, COALESCE(proj.sv, 0) as sv,
-                   COALESCE(proj.k, 0) as k,
-                   COALESCE(proj.er, 0) as er,
-                   COALESCE(proj.bb_allowed, 0) as bb_allowed,
-                   COALESCE(proj.h_allowed, 0) as h_allowed
-            FROM league_rosters lr
-            JOIN players p ON lr.player_id = p.player_id
-            LEFT JOIN projections proj ON p.player_id = proj.player_id
-                AND proj.system = 'blended'
-            """,
-            conn,
-        )
-    finally:
-        conn.close()
+    """Compute projected weekly category averages per team.
 
-    if df.empty:
+    Adapter around the canonical ``standings_utils.get_all_team_totals`` so
+    downstream consumers (``simulate_season_enhanced``, ``compute_team_strength_profiles``)
+    keep their per-week-totals contract. Counting stats are scaled by 1/26 to
+    convert season totals to per-matchup-week averages; rate stats (AVG/OBP/ERA/WHIP)
+    are passed through unchanged.
+
+    When Yahoo standings are connected, season-to-date totals are projected to
+    a 26-week pace using ``current_week / weeks_played`` as a proxy for full-season
+    rate; otherwise the projection-based fallback fires using full-season blended
+    projections from the ``projections`` table.
+    """
+    # Build league_rosters dict {team_name: [player_ids]} for the projection fallback.
+    rosters_df = load_league_rosters()
+    league_rosters_dict: dict[str, list[int]] = {}
+    if not rosters_df.empty and "team_name" in rosters_df.columns and "player_id" in rosters_df.columns:
+        for team, group in rosters_df.groupby("team_name"):
+            pids = [int(pid) for pid in group["player_id"].dropna().tolist()]
+            league_rosters_dict[str(team)] = pids
+
+    pool = load_player_pool()
+    if not pool.empty and "name" in pool.columns:
+        pool = pool.rename(columns={"name": "player_name"})
+
+    season_totals = get_all_team_totals(
+        league_rosters=league_rosters_dict if league_rosters_dict else None,
+        player_pool=pool if not pool.empty else None,
+    )
+
+    if not season_totals:
         return {}
 
     weeks = 26.0
-    team_totals: dict[str, dict[str, float]] = {}
+    counting_cats = {"R", "HR", "RBI", "SB", "W", "L", "SV", "K"}
+    rate_cats = {"AVG", "OBP", "ERA", "WHIP"}
+    weekly_totals: dict[str, dict[str, float]] = {}
+    for team, cat_map in season_totals.items():
+        per_week: dict[str, float] = {}
+        for cat, val in cat_map.items():
+            if cat in counting_cats:
+                per_week[cat] = float(val) / weeks
+            elif cat in rate_cats:
+                per_week[cat] = float(val)
+        # Backfill defaults if a rate stat is missing
+        per_week.setdefault("AVG", 0.250)
+        per_week.setdefault("OBP", 0.330)
+        per_week.setdefault("ERA", 4.00)
+        per_week.setdefault("WHIP", 1.25)
+        weekly_totals[str(team)] = per_week
 
-    for team, group in df.groupby("team_name"):
-        hitters = group[group["is_hitter"] == 1]
-        pitchers = group[group["is_hitter"] == 0]
-
-        total_r = float(hitters["r"].sum()) / weeks
-        total_hr = float(hitters["hr"].sum()) / weeks
-        total_rbi = float(hitters["rbi"].sum()) / weeks
-        total_sb = float(hitters["sb"].sum()) / weeks
-
-        total_ab = float(hitters["ab"].sum())
-        total_h = float(hitters["h"].sum())
-        total_bb_h = float(hitters["bb"].sum())
-        total_hbp = float(hitters["hbp"].sum())
-        total_sf = float(hitters["sf"].sum())
-
-        avg = total_h / total_ab if total_ab > 0 else 0.250
-        obp_denom = total_ab + total_bb_h + total_hbp + total_sf
-        obp = (total_h + total_bb_h + total_hbp) / obp_denom if obp_denom > 0 else 0.330
-
-        total_w = float(pitchers["w"].sum()) / weeks
-        total_l = float(pitchers["l"].sum()) / weeks
-        total_sv = float(pitchers["sv"].sum()) / weeks
-        total_k = float(pitchers["k"].sum()) / weeks
-
-        total_ip = float(pitchers["ip"].sum())
-        total_er = float(pitchers["er"].sum())
-        total_bb_p = float(pitchers["bb_allowed"].sum())
-        total_h_p = float(pitchers["h_allowed"].sum())
-
-        era = (total_er * 9) / total_ip if total_ip > 0 else 4.00
-        whip = (total_bb_p + total_h_p) / total_ip if total_ip > 0 else 1.25
-
-        team_totals[str(team)] = {
-            "R": total_r,
-            "HR": total_hr,
-            "RBI": total_rbi,
-            "SB": total_sb,
-            "AVG": avg,
-            "OBP": obp,
-            "W": total_w,
-            "L": total_l,
-            "SV": total_sv,
-            "K": total_k,
-            "ERA": era,
-            "WHIP": whip,
-        }
-
-    return team_totals
+    return weekly_totals
 
 
 # ── Helper: build reco banner text ────────────────────────────────────

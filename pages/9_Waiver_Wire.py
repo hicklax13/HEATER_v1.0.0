@@ -7,11 +7,12 @@ from datetime import UTC, datetime
 import pandas as pd
 import streamlit as st
 
-from src.database import init_db, load_league_rosters, load_league_standings, load_player_pool
+from src.database import init_db, load_player_pool
 from src.league_manager import get_team_roster
 from src.ui_shared import METRIC_TOOLTIPS, T, inject_custom_css, render_styled_table
 from src.valuation import LeagueConfig
 from src.waiver_wire import classify_category_priority, compute_add_drop_recommendations
+from src.yahoo_data_service import get_yahoo_data_service
 
 logger = logging.getLogger(__name__)
 
@@ -43,8 +44,9 @@ now = datetime.now(UTC)
 weeks_remaining = max(1, int((SEASON_END - now).days / 7))
 
 # ── Load rosters ─────────────────────────────────────────────────────
-
-rosters = load_league_rosters()
+# Use canonical Yahoo data service (3-tier cache: session_state → Yahoo API → SQLite).
+_yds = get_yahoo_data_service()
+rosters = _yds.get_rosters()
 if rosters.empty:
     if st.session_state.get("yahoo_connected"):
         st.warning("Yahoo is connected but no roster data found in the database. Try syncing:")
@@ -108,7 +110,7 @@ if not user_roster_ids:
 
 # ── Load standings for category priority ─────────────────────────────
 
-standings = load_league_standings()
+standings = _yds.get_standings()
 all_team_totals: dict[str, dict[str, float]] = {}
 if not standings.empty and "category" in standings.columns:
     for _, row in standings.iterrows():

@@ -6,14 +6,15 @@ from datetime import UTC, datetime
 import pandas as pd
 import streamlit as st
 
-from src.database import init_db, load_league_rosters, load_league_standings, load_player_pool
-from src.ui_shared import inject_custom_css, render_styled_table
+from src.database import init_db, load_player_pool
+from src.matchup_context import get_matchup_context
+from src.ui_shared import format_stat, inject_custom_css, render_styled_table
 from src.valuation import LeagueConfig
+from src.yahoo_data_service import get_yahoo_data_service
 
 try:
     from src.engine.portfolio.category_analysis import (
         category_gap_analysis,
-        compute_category_weights_from_analysis,
     )
 
     _HAS_CATEGORY_ANALYSIS = True
@@ -46,7 +47,10 @@ config = LeagueConfig()
 
 # ── Load Standings ──────────────────────────────────────────────────────────
 
-standings = load_league_standings()
+# Use canonical Yahoo data service (3-tier cache: session_state → Yahoo API → SQLite).
+# Same schema as load_league_standings, so column accesses below are unchanged.
+_yds = get_yahoo_data_service()
+standings = _yds.get_standings()
 if standings.empty:
     st.warning(
         "No standings data loaded. Connect your Yahoo league in Connect League, "
@@ -69,7 +73,7 @@ if not all_team_totals:
 
 # ── Get User Team ───────────────────────────────────────────────────────────
 
-rosters = load_league_rosters()
+rosters = _yds.get_rosters()
 user_team_name = None
 if not rosters.empty:
     user_teams = rosters[rosters["is_user_team"] == 1]
@@ -99,7 +103,10 @@ try:
         user_team_name,
         weeks_remaining=weeks_remaining,
     )
-    cat_weights = compute_category_weights_from_analysis(analysis)
+    # Use canonical MatchupContext for category weights — single source of truth
+    # across pages. "standings" mode uses gap-analysis-derived weights, matching
+    # the previous compute_category_weights_from_analysis behavior.
+    cat_weights = get_matchup_context().get_category_weights(mode="standings")
 except Exception as e:
     logger.exception("Category gap analysis failed")
     st.error(f"Analysis failed: {e}")
@@ -132,9 +139,16 @@ for cat in config.all_categories:
 
     # Format total
     if cat in config.rate_stats:
-        total_str = f"{total:.3f}"
-        gap_next_str = f"{gap_to_next:+.3f}" if gap_to_next != 0 else "—"
-        gap_behind_str = f"{gap_from_behind:+.3f}" if gap_from_behind != 0 else "—"
+        total_str = format_stat(total, cat)
+        # Gaps need a leading sign for direction (toward/away from rank target)
+        gap_next_str = (
+            f"{'+' if gap_to_next > 0 else '-'}{format_stat(abs(gap_to_next), cat)}" if gap_to_next != 0 else "—"
+        )
+        gap_behind_str = (
+            f"{'+' if gap_from_behind > 0 else '-'}{format_stat(abs(gap_from_behind), cat)}"
+            if gap_from_behind != 0
+            else "—"
+        )
     else:
         total_str = f"{total:.0f}"
         gap_next_str = f"{gap_to_next:+.0f}" if gap_to_next != 0 else "—"
