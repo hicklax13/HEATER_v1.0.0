@@ -18,8 +18,11 @@ from __future__ import annotations
 
 import logging
 
+from src.valuation import LeagueConfig as _LC_Class
+
 logger = logging.getLogger(__name__)
 
+_LC = _LC_Class()
 CATEGORIES: list[str] = [
     "R",
     "HR",
@@ -34,7 +37,7 @@ CATEGORIES: list[str] = [
     "ERA",
     "WHIP",
 ]
-INVERSE_CATEGORIES: set[str] = {"L", "ERA", "WHIP"}
+INVERSE_CATEGORIES: set[str] = set(_LC.inverse_stats)
 
 # Minimum improvement to suggest a swap (SGP)
 MIN_SWAP_IMPROVEMENT: float = 0.2

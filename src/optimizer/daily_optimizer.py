@@ -16,9 +16,70 @@ from datetime import UTC
 
 import pandas as pd
 
+from src.game_day import get_target_game_date
 from src.valuation import canonicalize_team
 
 logger = logging.getLogger(__name__)
+
+
+def _stuff_plus_k_multiplier(
+    stuff_plus: object,
+    fip: object = None,
+    xfip: object = None,
+) -> float:
+    """SF-6 helper: multiplicative K-boost from a pitcher's Stuff+ score.
+
+    Wave 4-J Option A baseline: when Stuff+ is unavailable (FanGraphs 403,
+    NaN, 0, negative, or non-numeric) the helper returns ``1.0`` -- the
+    K-boost path is a provable no-op.
+
+    SF-6 Option B extension: when Stuff+ is missing but the pitcher has
+    a valid FIP or xFIP (loaded from the season_stats / ros_projections
+    pool), derive a proxy multiplier from FIP. Lower FIP -> better stuff:
+
+        proxy = clip(1.0 + (4.0 - fip) / 10.0, 0.85, 1.15)
+
+    Examples (clipped to [0.85, 1.15]):
+        FIP 3.0 -> 1.10x
+        FIP 4.0 -> 1.00x (league average)
+        FIP 5.0 -> 0.90x
+        FIP 1.0 -> 1.15x (clipped)
+        FIP 7.0 -> 0.85x (clipped)
+
+    xFIP is preferred over FIP when both are present (xFIP normalises
+    home-run luck so it's a cleaner stuff proxy). FIP is the fallback.
+
+    Stuff+ ramp (preserves the previous T3-5a tiers, wins over FIP proxy
+    when both are available):
+        stuff_plus > 120  -> 1.10x
+        stuff_plus > 110  -> 1.05x
+        otherwise         -> 1.00x  (or FIP proxy if Stuff+ is invalid)
+    """
+    try:
+        val = float(stuff_plus) if stuff_plus is not None else 0.0
+    except (TypeError, ValueError):
+        val = 0.0
+    stuff_valid = (val == val) and (val > 0.0)
+    if stuff_valid:
+        if val > 120:
+            return 1.10
+        if val > 110:
+            return 1.05
+        return 1.00
+
+    for candidate in (xfip, fip):
+        if candidate is None:
+            continue
+        try:
+            f = float(candidate)
+        except (TypeError, ValueError):
+            continue
+        if f != f or f <= 0.0:
+            continue
+        proxy = 1.0 + (4.0 - f) / 10.0
+        return max(0.85, min(1.15, proxy))
+
+    return 1.0
 
 
 def _normalize_pitcher_name(name: str) -> str:
@@ -422,6 +483,14 @@ def build_daily_dcv_table(
 
         config = LeagueConfig()
 
+    # SF-25: Single SGPCalculator instance reused across all players + cats.
+    # Replaces the inline weighted_dcv/denom + manual sign-flip for counting
+    # stats at the per-category branch below; keeps math centralized in
+    # SGPCalculator.totals_sgp (the V1-V6 unified entry point).
+    from src.valuation import SGPCalculator
+
+    sgp_calc = SGPCalculator(config)
+
     if park_factors is None:
         park_factors = {}
 
@@ -539,12 +608,9 @@ def build_daily_dcv_table(
     # Both home and away teams at a given venue experience the same weather
     weather_by_team: dict[str, float] = {}
     try:
-        from datetime import UTC as _utc
-        from datetime import datetime as _dt
-
         from src.database import load_game_day_weather
 
-        today_date = _dt.now(_utc).strftime("%Y-%m-%d")
+        today_date = get_target_game_date()
         weather_df = load_game_day_weather(today_date)
         if not weather_df.empty:
             # Build venue_team -> temp_f mapping, then map both home and
@@ -612,20 +678,19 @@ def build_daily_dcv_table(
         _pitcher_volume_override: float | None = None
         if not is_hitter and team_plays:
             pos_upper = positions.upper()
-            _has_sp = "SP" in pos_upper
-            _has_rp = "RP" in pos_upper
-            if _has_sp and probable_starters:
+            _pos_tokens = {p.strip() for p in pos_upper.split(",")}
+            _has_sp = "SP" in _pos_tokens
+            _has_rp = "RP" in _pos_tokens
+            _has_p_only = _pos_tokens == {"P"}
+            if (_has_sp or _has_p_only) and probable_starters:
                 _norm_name = _normalize_pitcher_name(name)
                 _norm_probable = {_normalize_pitcher_name(p) for p in probable_starters}
                 _is_probable_today = _norm_name in _norm_probable
                 if _is_probable_today:
                     in_lineup = True
                 elif not _has_rp:
-                    # Pure SP confirmed NOT pitching today — zero out
                     in_lineup = False
                     _pitcher_volume_override = 0.0
-                # SP/RP hybrid not probable → can still relieve, leave as None
-            # probable_starters empty (API miss / all TBD) → keep default None
         volume = compute_volume_factor(team_plays, in_lineup)
         if _pitcher_volume_override is not None:
             volume = _pitcher_volume_override
@@ -932,25 +997,23 @@ def build_daily_dcv_table(
                     sgp_dcv = annual_sgp * daily_frac * matchup_mult * health * volume
                     if not _external_urgency:
                         sgp_dcv *= urgency.get(cat, 0.5)
-            elif abs(denom) > 1e-9:
-                if cat in config.inverse_stats:
-                    # Counting inverse stats (L): more is bad, so negate.
-                    sgp_dcv = -weighted_dcv / denom
-                else:
-                    sgp_dcv = weighted_dcv / denom
             else:
-                sgp_dcv = 0.0
+                # SF-25: counting-stat SGP via canonical SGPCalculator.
+                # Equivalent to (weighted_dcv / denom) * sign — sign is -1
+                # for inverse cats (L), +1 otherwise; pathological
+                # zero-denom cats contribute 0 (matches prior else branch).
+                sgp_dcv = sgp_calc.totals_sgp({cat: weighted_dcv})
 
-            # T3-5a: Stuff+ boost for pitcher K DCV
+            # T3-5a: Stuff+ boost for pitcher K DCV.
+            # SF-6: helper guarantees neutral 1.0x when stuff_plus is
+            # missing/0/NaN (FanGraphs 403 leaves the column NULL). FIP/xFIP
+            # serve as a proxy when Stuff+ is unavailable.
             if col == "k" and not is_hitter:
-                try:
-                    _stuff = float(player.get("stuff_plus", 0) or 0)
-                    if _stuff > 120:
-                        sgp_dcv *= 1.10
-                    elif _stuff > 110:
-                        sgp_dcv *= 1.05
-                except (TypeError, ValueError):
-                    pass
+                sgp_dcv *= _stuff_plus_k_multiplier(
+                    player.get("stuff_plus"),
+                    fip=player.get("fip"),
+                    xfip=player.get("xfip"),
+                )
 
             # T3-5b: Sprint speed boost for hitter SB DCV
             if col == "sb" and is_hitter:

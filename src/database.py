@@ -1566,7 +1566,8 @@ def _load_player_pool_impl() -> pd.DataFrame:
                     sa.hard_hit_pct AS hard_hit_pct,
                     sa.ev_mean AS ev_mean,
                     sa.stuff_plus AS stuff_plus,
-                    sa.babip AS babip
+                    sa.babip AS babip,
+                    sa.sprint_speed AS sprint_speed
                 FROM players p
                 LEFT JOIN ros_projections ros ON p.player_id = ros.player_id
                 LEFT JOIN adp a ON p.player_id = a.player_id
@@ -1626,7 +1627,8 @@ def _load_player_pool_impl() -> pd.DataFrame:
                 sa.hard_hit_pct AS hard_hit_pct,
                 sa.ev_mean AS ev_mean,
                 sa.stuff_plus AS stuff_plus,
-                sa.babip AS babip
+                sa.babip AS babip,
+                sa.sprint_speed AS sprint_speed
             FROM players p
             LEFT JOIN projections proj ON p.player_id = proj.player_id
                 AND proj.system = 'blended'
@@ -1652,14 +1654,19 @@ def _load_player_pool_impl() -> pd.DataFrame:
                     COALESCE(AVG(proj.pa), 0) as pa, COALESCE(AVG(proj.ab), 0) as ab,
                     COALESCE(AVG(proj.h), 0) as h, COALESCE(AVG(proj.r), 0) as r,
                     COALESCE(AVG(proj.hr), 0) as hr, COALESCE(AVG(proj.rbi), 0) as rbi,
-                    COALESCE(AVG(proj.sb), 0) as sb, AVG(proj.avg) as avg,
-                    AVG(proj.obp) as obp,
+                    COALESCE(AVG(proj.sb), 0) as sb,
+                    CAST(SUM(proj.h) AS REAL) / NULLIF(SUM(proj.ab), 0) as avg,
+                    CAST(SUM(proj.h) + SUM(proj.bb) + SUM(proj.hbp) AS REAL) /
+                        NULLIF(SUM(proj.ab) + SUM(proj.bb) + SUM(proj.hbp) + SUM(proj.sf), 0) as obp,
                     COALESCE(AVG(proj.bb), 0) as bb, COALESCE(AVG(proj.hbp), 0) as hbp,
                     COALESCE(AVG(proj.sf), 0) as sf,
                     COALESCE(AVG(proj.ip), 0) as ip, COALESCE(AVG(proj.w), 0) as w,
                     COALESCE(AVG(proj.l), 0) as l, COALESCE(AVG(proj.sv), 0) as sv,
-                    COALESCE(AVG(proj.k), 0) as k, AVG(proj.era) as era,
-                    AVG(proj.whip) as whip, COALESCE(AVG(proj.er), 0) as er,
+                    COALESCE(AVG(proj.k), 0) as k,
+                    CAST(SUM(proj.er) * 9 AS REAL) / NULLIF(SUM(proj.ip), 0) as era,
+                    CAST(SUM(proj.bb_allowed) + SUM(proj.h_allowed) AS REAL) /
+                        NULLIF(SUM(proj.ip), 0) as whip,
+                    COALESCE(AVG(proj.er), 0) as er,
                     COALESCE(AVG(proj.bb_allowed), 0) as bb_allowed,
                     COALESCE(AVG(proj.h_allowed), 0) as h_allowed,
                     AVG(proj.fip) as fip, AVG(proj.xfip) as xfip,
@@ -1686,7 +1693,8 @@ def _load_player_pool_impl() -> pd.DataFrame:
                     sa.xba AS xba,
                     sa.barrel_pct AS barrel_pct,
                     sa.hard_hit_pct AS hard_hit_pct,
-                    sa.ev_mean AS ev_mean
+                    sa.ev_mean AS ev_mean,
+                    sa.sprint_speed AS sprint_speed
                 FROM players p
                 LEFT JOIN projections proj ON p.player_id = proj.player_id
                 LEFT JOIN adp a ON p.player_id = a.player_id
@@ -1970,7 +1978,7 @@ def upsert_league_standing(team_name: str, category: str, total: float, rank: in
         conn.close()
 
 
-_VALID_REFRESH_STATUSES = frozenset({"success", "partial", "no_data", "skipped", "error", "unknown"})
+_VALID_REFRESH_STATUSES = frozenset({"success", "partial", "cached", "skipped", "no_data", "error", "unknown"})
 
 
 def update_refresh_log(
@@ -2043,6 +2051,20 @@ def update_refresh_log_auto(
         rows_written <= 0                  → "no_data"
         0 < rows_written < expected_min    → "partial"
         rows_written >= expected_min       → "success"
+
+    Valid status strings accepted by ``update_refresh_log`` (any other value
+    is downgraded to ``"unknown"``):
+
+        - ``"success"``  — phase completed and wrote >= expected_min rows
+        - ``"partial"``  — phase wrote some rows but < expected_min
+        - ``"cached"``   — phase reused an already-fresh cache (no fetch)
+        - ``"skipped"``  — phase intentionally bypassed (e.g. dependency missing)
+        - ``"no_data"``  — phase ran but the upstream returned 0 rows
+        - ``"error"``    — phase raised or the upstream signalled failure
+
+    ``update_refresh_log_auto`` itself only emits the four count-derived
+    statuses above; ``"cached"`` and ``"skipped"`` are written directly via
+    ``update_refresh_log`` by phases that know they short-circuited.
 
     ``tier`` tracks which data-fetch tier was used: ``"primary"``,
     ``"fallback"``, ``"emergency"``, or ``None`` (unknown/not applicable).

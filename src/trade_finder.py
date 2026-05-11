@@ -52,7 +52,7 @@ def _player_sgp_volume_aware(
 ) -> float:
     """Compute SGP for a single player with proper volume weighting for rate stats.
 
-    Use this instead of ``_totals_sgp(_roster_category_totals([pid], pool), config)``
+    Use this instead of ``SGPCalculator(config).totals_sgp(_roster_category_totals([pid], pool))``
     for individual players. The latter ignores AB/IP volume, inflating the SGP of
     low-PA players (a 200 PA .300 hitter gets the same AVG SGP as a 600 PA .300 hitter).
 
@@ -646,12 +646,13 @@ def scan_2_for_1(
     else:
         user_2for1_baseline = raw_2for1_user_totals
 
-    user_base_sgp = _weighted_totals_sgp(user_2for1_baseline, config, category_weights)
+    sgp_calc = SGPCalculator(config)
+    user_base_sgp = sgp_calc.totals_sgp(user_2for1_baseline, weights=category_weights)
 
     # Bench inflation correction for per-candidate raw totals
     bench_inflation_2for1 = 0.0
     if lp_2for1_user_totals is not None:
-        raw_base_sgp = _weighted_totals_sgp(raw_2for1_user_totals, config, category_weights)
+        raw_base_sgp = sgp_calc.totals_sgp(raw_2for1_user_totals, weights=category_weights)
         bench_inflation_2for1 = raw_base_sgp - user_base_sgp
 
     results: list[dict] = []
@@ -688,7 +689,7 @@ def scan_2_for_1(
             new_user_ids = [pid for pid in user_roster_ids if pid not in new_give] + new_recv
             new_user_totals = _roster_category_totals(new_user_ids, player_pool)
 
-            user_new_sgp = _weighted_totals_sgp(new_user_totals, config, category_weights)
+            user_new_sgp = sgp_calc.totals_sgp(new_user_totals, weights=category_weights)
             # Subtract bench inflation so delta compares starters-only rosters
             user_new_sgp -= bench_inflation_2for1
             user_delta = user_new_sgp - user_base_sgp
@@ -704,7 +705,7 @@ def scan_2_for_1(
             new_opp_ids = [pid for pid in opponent_roster_ids if pid not in new_recv] + list(new_give)
             opp_baseline = _roster_category_totals(opponent_roster_ids, player_pool)
             new_opp_totals = _roster_category_totals(new_opp_ids, player_pool)
-            opp_delta = _totals_sgp(new_opp_totals, config) - _totals_sgp(opp_baseline, config)
+            opp_delta = sgp_calc.totals_sgp(new_opp_totals) - sgp_calc.totals_sgp(opp_baseline)
 
             # Opponent must drop someone (receives 2, gives 1 = +1 roster)
             # Only existing opponent players are drop candidates (not players just received in trade)
@@ -907,6 +908,8 @@ def scan_1_for_1(
     if config is None:
         config = LeagueConfig()
 
+    sgp_calc = SGPCalculator(config)
+
     # Pre-compute baseline totals
     # Try LP-constrained baseline for user (starters only, no bench inflation).
     # The LP solver selects optimal 18 starters; bench production excluded.
@@ -921,7 +924,7 @@ def scan_1_for_1(
 
     opp_totals = _roster_category_totals(opponent_roster_ids, player_pool)
 
-    opp_baseline = _totals_sgp(opp_totals, config)
+    opp_baseline = sgp_calc.totals_sgp(opp_totals)
 
     # --- Cap extreme category weights ---
     # Prevent a single weak category from dominating all trade valuations.
@@ -952,7 +955,7 @@ def scan_1_for_1(
         elite_threshold = 999.0
 
     # Baseline must use the same capped weights as post-trade calculations
-    user_baseline = _weighted_totals_sgp(user_totals, config, capped_weights)
+    user_baseline = sgp_calc.totals_sgp(user_totals, weights=capped_weights)
 
     # Bench inflation correction: the difference between raw totals (all 23 players)
     # and LP-constrained totals (18 starters only). Computed ONCE before the loop.
@@ -960,7 +963,7 @@ def scan_1_for_1(
     # starters-only rosters without calling the expensive LP solver per-candidate.
     bench_inflation_sgp = 0.0
     if lp_user_totals is not None:
-        raw_baseline_sgp = _weighted_totals_sgp(raw_user_totals, config, capped_weights)
+        raw_baseline_sgp = sgp_calc.totals_sgp(raw_user_totals, weights=capped_weights)
         bench_inflation_sgp = raw_baseline_sgp - user_baseline
         logger.debug("Bench inflation correction: %.3f SGP", bench_inflation_sgp)
 
@@ -971,7 +974,8 @@ def scan_1_for_1(
         try:
             from src.opponent_trade_analysis import compute_opponent_needs, get_opponent_archetype
 
-            opp_needs_analysis = compute_opponent_needs(opponent_team_name, all_team_totals)
+            # SF-21: pass config so live-standings denominators propagate.
+            opp_needs_analysis = compute_opponent_needs(opponent_team_name, all_team_totals, config=config)
             arch = get_opponent_archetype(opponent_team_name)
             opp_archetype_willingness = arch.get("trade_willingness", 0.5)
         except Exception:
@@ -1147,7 +1151,7 @@ def scan_1_for_1(
             # User: lose give_id, gain recv_id
             new_user_ids = [pid for pid in user_roster_ids if pid != give_id] + [recv_id]
             new_user_totals = _roster_category_totals(new_user_ids, player_pool)
-            user_new_sgp = _weighted_totals_sgp(new_user_totals, config, capped_weights)
+            user_new_sgp = sgp_calc.totals_sgp(new_user_totals, weights=capped_weights)
             # Subtract bench inflation so the delta compares starters-only rosters.
             # The baseline is already LP-constrained; raw new totals include bench.
             user_new_sgp -= bench_inflation_sgp
@@ -1189,7 +1193,7 @@ def scan_1_for_1(
             # Opponent: lose recv_id, gain give_id
             new_opp_ids = [pid for pid in opponent_roster_ids if pid != recv_id] + [give_id]
             new_opp_totals = _roster_category_totals(new_opp_ids, player_pool)
-            opp_new_sgp = _totals_sgp(new_opp_totals, config)
+            opp_new_sgp = sgp_calc.totals_sgp(new_opp_totals)
             opp_delta = opp_new_sgp - opp_baseline
 
             if opp_delta < max_opp_loss:
@@ -1472,59 +1476,6 @@ def scan_1_for_1(
     return results
 
 
-def _weighted_totals_sgp(
-    totals: dict,
-    config: LeagueConfig,
-    weights: dict[str, float] | None = None,
-) -> float:
-    """Convert roster category totals to weighted SGP.
-
-    When weights are provided, each category's SGP is multiplied by its
-    marginal weight from the category gap analysis. This prioritizes
-    categories where the user can gain standings positions.
-    """
-    if weights is None:
-        return _totals_sgp(totals, config)
-
-    total = 0.0
-    for cat in config.all_categories:
-        denom = config.sgp_denominators.get(cat, 1.0)
-        if abs(denom) < 1e-9:
-            denom = 1.0
-        val = totals.get(cat, 0)
-        w = weights.get(cat, 1.0)
-        if cat in config.inverse_stats:
-            total -= (val / denom) * w
-        else:
-            total += (val / denom) * w
-    return total
-
-
-def _totals_sgp(totals: dict, config: LeagueConfig) -> float:
-    """Convert roster category totals to total SGP.
-
-    WARNING: This function should ONLY be used on full-roster aggregated totals
-    (from _roster_category_totals() with a full team). For rate stats (AVG, OBP,
-    ERA, WHIP), it divides the raw rate value by the SGP denominator, which is
-    correct when the rate is already the volume-weighted team average.
-
-    For INDIVIDUAL player SGP, use _player_sgp_volume_aware() instead, which
-    properly accounts for volume (AB/IP) via SGPCalculator.total_sgp(). A 600 AB
-    .300 hitter moves team AVG 3x more than a 200 AB .300 hitter.
-    """
-    total = 0.0
-    for cat in config.all_categories:
-        denom = config.sgp_denominators.get(cat, 1.0)
-        if abs(denom) < 1e-9:
-            denom = 1.0
-        val = totals.get(cat, 0)
-        if cat in config.inverse_stats:
-            total -= val / denom
-        else:
-            total += val / denom
-    return total
-
-
 # ── Category Strategic Helpers ───────────────────────────────────────
 
 
@@ -1548,7 +1499,14 @@ def _compute_user_category_profile(
         if not user_totals:
             return {}
 
-        gap_analysis = category_gap_analysis(user_totals, all_team_totals, user_team_name, weeks_remaining)
+        # SF-21: pass the caller's config so denominators reflect live standings.
+        gap_analysis = category_gap_analysis(
+            user_totals,
+            all_team_totals,
+            user_team_name,
+            weeks_remaining,
+            config=config,
+        )
 
         profile = {}
         for cat, info in gap_analysis.items():

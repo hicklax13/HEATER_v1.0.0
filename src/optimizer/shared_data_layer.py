@@ -59,6 +59,12 @@ _RECENT_FORM_WEIGHT_TODAY = 0.25
 _RECENT_FORM_WEIGHT_WEEK = 0.30
 _RECENT_FORM_WEIGHT_SEASON = 0.20
 
+# Canonical category sets — module uses lowercase to match column names.
+_LC = LeagueConfig()
+_INVERSE_CATS: set[str] = {c.lower() for c in _LC.inverse_stats}
+_RATE_CATS: set[str] = {c.lower() for c in _LC.rate_stats}
+_COUNTING_CATS: list[str] = [c.lower() for c in _LC.all_categories if c not in _LC.rate_stats]
+
 # Two-start pitcher counting stat multiplier
 _TWO_START_COUNTING_MULT = 2.0
 
@@ -317,6 +323,13 @@ def build_optimizer_context(
 
     # ── Step 14: Team strength ────────────────────────────────────────
     _load_team_strength(ctx)
+    if ctx.team_strength:
+        tracker.record(
+            "team_strength",
+            ttl_hours=24.0,
+            source_label="pybaseball wRC+/FIP",
+            data_as_of="Today's team offense/pitching strength",
+        )
 
     # ── Step 15: Weather ──────────────────────────────────────────────
     _load_weather(ctx)
@@ -430,11 +443,10 @@ def _build_category_gaps(ctx: OptimizerDataContext) -> None:
     """Compute per-category gap values from live matchup."""
     if not ctx.my_totals or not ctx.opp_totals:
         return
-    inverse_cats = {"l", "era", "whip"}
     for cat in ctx.my_totals:
         my_val = ctx.my_totals.get(cat, 0)
         opp_val = ctx.opp_totals.get(cat, 0)
-        if cat in inverse_cats:
+        if cat in _INVERSE_CATS:
             # For inverse stats, positive gap = we're ahead (lower is better)
             ctx.category_gaps[cat] = opp_val - my_val
         else:
@@ -879,8 +891,8 @@ def scale_projections_for_scope(
         Copy of roster with projections scaled for the selected scope.
     """
     df = roster.copy()
-    counting_cats = ["r", "hr", "rbi", "sb", "w", "l", "sv", "k"]
-    rate_cats = ["avg", "obp", "era", "whip"]
+    counting_cats = list(_COUNTING_CATS)
+    rate_cats = list(_RATE_CATS)
 
     if ctx.scope == "today":
         # Per-game scaling: counting stats / season_games, adjusted by volume

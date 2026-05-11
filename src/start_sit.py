@@ -779,29 +779,24 @@ def _compute_start_score(
 
     score = 0.0
     cats = config.hitting_categories if is_hitter else config.pitching_categories
+    sgp_calc = SGPCalculator(config)
 
+    # Rate stats (AVG, OBP, ERA, WHIP) must be scored as DELTA from
+    # league-average baseline, not raw value / denom.  Raw ERA=3.50
+    # divided by denom=0.15 produces -23 SGP which is nonsensical.
+    # Instead: (baseline - ERA) / denom gives meaningful "how much
+    # better than average" in SGP units.  SGPCalculator.totals_sgp
+    # auto-applies the inverse-stat sign, so passing (proj - baseline)
+    # works for both directions: positive cats stay positive, inverse
+    # cats are negated (giving baseline - proj implicitly).
     for cat in cats:
         cat_lower = cat.lower()
         proj_val = weekly_proj.get(cat_lower, 0.0)
         weight = h2h_weights.get(cat_lower, 1.0)
-        denom = config.sgp_denominators.get(cat, 1.0)
 
-        if abs(denom) < 1e-9:
-            denom = 1.0
-
-        # Rate stats (AVG, OBP, ERA, WHIP) must be scored as DELTA from
-        # league-average baseline, not raw value / denom.  Raw ERA=3.50
-        # divided by denom=0.15 produces -23 SGP which is nonsensical.
-        # Instead: (baseline - ERA) / denom gives meaningful "how much
-        # better than average" in SGP units.
         if cat_lower in rate_stats:
             baseline = _RATE_BASELINES.get(cat_lower, 0.0)
-            if cat_lower in inverse:
-                # Lower is better: positive SGP when below baseline
-                sgp_contribution = (baseline - proj_val) / abs(denom)
-            else:
-                # Higher is better: positive SGP when above baseline
-                sgp_contribution = (proj_val - baseline) / abs(denom)
+            delta = proj_val - baseline
 
             # Park factor adjustment for pitcher rate stats
             if not is_hitter and cat_lower in inverse:
@@ -809,18 +804,12 @@ def _compute_start_score(
             else:
                 cat_factor = 1.0
 
-            # Delta already encodes direction — always ADD
-            score += sgp_contribution * weight * cat_factor
+            # Delegate to SGPCalculator: sign + denom handled centrally.
+            score += sgp_calc.totals_sgp({cat: delta}, weights={cat: weight * cat_factor})
         else:
-            # Counting stats: volume scales with matchup quality
-            sgp_contribution = proj_val / denom
-            cat_factor = combined_factor
-
-            if cat_lower in inverse:
-                # Lower is better: negative contribution
-                score -= sgp_contribution * weight * cat_factor
-            else:
-                score += sgp_contribution * weight * cat_factor
+            # Counting stats: volume scales with matchup quality.
+            # totals_sgp auto-negates inverse counting stats (L).
+            score += sgp_calc.totals_sgp({cat: proj_val}, weights={cat: weight * combined_factor})
 
     return score
 

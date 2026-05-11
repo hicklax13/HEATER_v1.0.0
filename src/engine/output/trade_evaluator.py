@@ -885,12 +885,16 @@ def evaluate_trade(
         if all_team_totals and user_team_name and user_team_name in all_team_totals:
             your_totals = all_team_totals[user_team_name]
 
-            # Step 4: Gap analysis with punt detection
+            # Step 4: Gap analysis with punt detection.
+            # SF-21: thread the live config so category_gap_analysis uses
+            # standings-derived sgp_denominators (or whatever the caller
+            # passed in) instead of the stale module-level singleton.
             cat_analysis = category_gap_analysis(
                 your_totals=your_totals,
                 all_team_totals=all_team_totals,
                 your_team_id=user_team_name,
                 weeks_remaining=weeks_remaining,
+                config=config,
             )
 
             # Extract punt categories and compute weights
@@ -902,27 +906,27 @@ def evaluate_trade(
             _mod_cat.fallback_reason = "No standings or team name — using equal weights"
 
     # Step 5: Compute weighted SGP delta per category
+    # SF-25: per-category math routed through SGPCalculator.totals_sgp
+    # (the V1-V6 unified entry point). totals_sgp({cat: val}, weights={cat: w})
+    # is mathematically equivalent to (val/denom)*sign*w with sign=-1 for
+    # inverse cats (L, ERA, WHIP) and pathological zero-denoms contributing 0.
+    # Loop preserved because category_impact[cat] feeds downstream trade
+    # explanation UI (counter-offer suggestions, sensitivity, grade output).
     category_impact: dict[str, float] = {}
     total_surplus = 0.0
 
     for cat in config.all_categories:
-        denom = config.sgp_denominators.get(cat, 1.0)
-        if abs(denom) < 1e-9:
-            denom = 1.0
-
         before_val = before_totals.get(cat, 0)
         after_val = after_totals.get(cat, 0)
         raw_change = after_val - before_val
 
-        # Convert raw stat change to SGP
-        if cat in config.inverse_stats:
-            sgp_change = -raw_change / denom
-        else:
-            sgp_change = raw_change / denom
-
-        # Apply category weight (marginal elasticity + punt zeroing)
-        weight = category_weights.get(cat, 1.0)
-        weighted_sgp = sgp_change * weight
+        # Convert raw stat change to SGP and apply category weight (marginal
+        # elasticity + punt zeroing). totals_sgp handles sign-flip for
+        # inverse cats and zero-denom skip internally.
+        weighted_sgp = sgp_calc.totals_sgp(
+            {cat: raw_change},
+            weights={cat: category_weights.get(cat, 1.0)},
+        )
 
         category_impact[cat] = round(weighted_sgp, 3)
         total_surplus += weighted_sgp

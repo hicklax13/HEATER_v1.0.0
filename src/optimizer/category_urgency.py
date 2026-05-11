@@ -12,15 +12,37 @@ from __future__ import annotations
 import logging
 import math
 
+from src.optimizer.constants_registry import CONSTANTS_REGISTRY
+
 logger = logging.getLogger(__name__)
+
+
+def _get_counting_k() -> float:
+    """Read sigmoid k for counting stats from the registry at call time.
+
+    Reading at call time (rather than caching at module-level) ensures that
+    calibration changes via scripts/calibrate_sigmoid.py take effect on the
+    next urgency computation without requiring a process restart.
+    """
+    return CONSTANTS_REGISTRY["sigmoid_k_counting"].value
+
+
+def _get_rate_k() -> float:
+    """Read sigmoid k for rate stats from the registry at call time."""
+    return CONSTANTS_REGISTRY["sigmoid_k_rate"].value
+
 
 # Sigmoid steepness parameters (validated via ROADMAP B6)
 # Higher k = steeper transition near toss-up
 # k=2.0 for counting stats: moderate sensitivity to gaps
 # k=3.0 for rate stats: higher sensitivity (rate stats are noisier)
 # Calibrate with: python scripts/calibrate_sigmoid.py
-COUNTING_STAT_K = 2.0
-RATE_STAT_K = 3.0
+#
+# These module-level aliases preserve the legacy import surface; production
+# code paths inside this module read from the registry on every call so
+# calibration changes take effect immediately.
+COUNTING_STAT_K = _get_counting_k()
+RATE_STAT_K = _get_rate_k()
 
 
 def compute_category_urgency(
@@ -67,8 +89,10 @@ def compute_category_urgency(
             gap = (opp_val - my_val) / denom  # Positive = I'm losing (their HR > my HR)
 
         # Sigmoid: approaches 1.0 when losing (gap > 0), 0.0 when winning (gap < 0)
-        # k controls steepness: 2.0 for counting stats, 3.0 for rate stats
-        k = RATE_STAT_K if cat in rate_stats else COUNTING_STAT_K
+        # k controls steepness: 2.0 for counting stats, 3.0 for rate stats.
+        # Read from the registry on every call so calibration changes via
+        # scripts/calibrate_sigmoid.py take effect immediately.
+        k = _get_rate_k() if cat in rate_stats else _get_counting_k()
 
         exponent = -k * gap
         exponent = max(-500, min(500, exponent))

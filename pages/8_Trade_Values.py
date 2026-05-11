@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 import pandas as pd
 import streamlit as st
 
-from src.database import init_db, load_league_rosters, load_league_standings, load_player_pool
+from src.database import init_db, load_player_pool
 from src.trade_value import (
     TIER_COLORS,
     compute_contextual_values,
@@ -16,6 +16,7 @@ from src.trade_value import (
 )
 from src.ui_shared import METRIC_TOOLTIPS, inject_custom_css, render_styled_table
 from src.valuation import LeagueConfig
+from src.yahoo_data_service import get_yahoo_data_service
 
 logger = logging.getLogger(__name__)
 
@@ -48,8 +49,9 @@ weeks_remaining = max(1, math.ceil((season_end - now).days / 7))
 weeks_remaining = min(weeks_remaining, 26)
 
 # ── Load Standings (long format) ─────────────────────────────────
-
-standings = load_league_standings()
+# Use canonical Yahoo data service (3-tier cache: session_state → Yahoo API → SQLite).
+_yds = get_yahoo_data_service()
+standings = _yds.get_standings()
 all_team_totals: dict[str, dict[str, float]] = {}
 if not standings.empty and "category" in standings.columns:
     for _, srow in standings.iterrows():
@@ -61,7 +63,7 @@ if not standings.empty and "category" in standings.columns:
 
 user_team_name = None
 user_totals: dict[str, float] = {}
-rosters = load_league_rosters()
+rosters = _yds.get_rosters()
 if not rosters.empty:
     user_teams = rosters[rosters["is_user_team"] == 1]
     if not user_teams.empty:

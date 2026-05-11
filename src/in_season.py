@@ -132,21 +132,15 @@ def analyze_trade(
     before_totals = _roster_category_totals(before_ids, player_pool)
     after_totals = _roster_category_totals(after_ids, player_pool)
 
+    # SF-25: per-category and total SGP changes via SGPCalculator.totals_sgp
+    # (single-source-of-truth replacement for the prior inline raw_change/denom math).
     category_impact = {}
     total_sgp_change = 0.0
     for cat in config.all_categories:
-        denom = config.sgp_denominators.get(cat, 1.0)
-        if abs(denom) < 1e-9:
-            denom = 1.0
-
         before_val = before_totals.get(cat, 0)
         after_val = after_totals.get(cat, 0)
         raw_change = after_val - before_val
-
-        if cat in config.inverse_stats:
-            sgp_change = -raw_change / denom
-        else:
-            sgp_change = raw_change / denom
+        sgp_change = sgp_calc.totals_sgp({cat: raw_change})
 
         category_impact[cat] = round(sgp_change, 3)
         total_sgp_change += sgp_change

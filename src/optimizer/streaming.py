@@ -163,7 +163,7 @@ def compute_streaming_value(
     era_delta = (baseline_era - era_adjusted) * ip_contribution / (team_ip + ip_contribution)
     era_sgp = (era_delta / sgp_era) * w_era
 
-    baseline_whip = 1.25
+    baseline_whip = _CONSTANTS.get("streaming_baseline_whip")
     whip_adjusted = whip * team_park_factor
     whip_delta = (baseline_whip - whip_adjusted) * ip_contribution / (team_ip + ip_contribution)
     whip_sgp = (whip_delta / sgp_whip) * w_whip
@@ -605,7 +605,7 @@ def compute_bayesian_stream_score(
 
     # ERA cost: diluted impact on team ERA (ER -> ERA -> SGP conversion)
     baseline_era = _CONSTANTS.get("streaming_baseline_era")
-    team_weekly_ip = 55.0
+    team_weekly_ip = _CONSTANTS.get("team_weekly_ip")
     implied_era = expected_er * 9.0 / max(expected_ip, 1.0)
     era_diluted = (implied_era - baseline_era) * expected_ip / (team_weekly_ip + expected_ip)
     era_cost_sgp = era_diluted / sgp_era * risk_penalty

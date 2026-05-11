@@ -266,6 +266,15 @@ CONSTANTS_REGISTRY: dict[str, ConstantEntry] = {
         sensitivity="LOW",
         description="Baseline weekly team IP for rate stat dilution calculation",
     ),
+    "streaming_baseline_whip": ConstantEntry(
+        value=1.25,
+        lower_bound=1.10,
+        upper_bound=1.40,
+        citation="MLB league average WHIP (2022-2024): ~1.22-1.28; complement to streaming_baseline_era",
+        module="streaming.py",
+        sensitivity="LOW",
+        description="Baseline WHIP for streaming pitcher rate-stat impact calculation",
+    ),
     "two_start_fatigue_factor": ConstantEntry(
         value=0.93,
         lower_bound=0.85,

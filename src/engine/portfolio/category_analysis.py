@@ -48,6 +48,7 @@ def compute_marginal_sgp(
     all_team_totals: dict[str, dict[str, float]],
     categories: list[str] | None = None,
     your_team_name: str | None = None,
+    config: _LC_Class | None = None,
 ) -> dict[str, float]:
     """Compute marginal SGP: dE[standings_points] / d(SGP invested).
 
@@ -65,17 +66,26 @@ def compute_marginal_sgp(
             Must include your team.
         categories: Which categories to compute. Defaults to all 10.
         your_team_name: If provided, exclude this team from the opponent list.
+        config: Optional LeagueConfig — use its sgp_denominators (live, derived
+            from standings) instead of the module-default singleton. SF-21:
+            without this, callers always saw pre-season defaults even when
+            build_valuation_context built a local_config from live standings.
 
     Returns:
         Dict mapping category -> marginal SGP value (float).
     """
     if categories is None:
         categories = CATEGORIES
+    # SF-21: prefer caller-supplied config; fall back to module singleton for
+    # backward compatibility with callers that haven't been updated yet.
+    cfg = config if config is not None else _LC
 
     # Exclude user's own team from opponent totals to avoid comparing against self
     opponent_totals = (
         {k: v for k, v in all_team_totals.items() if k != your_team_name} if your_team_name else all_team_totals
     )
+
+    inverse_categories = cfg.inverse_stats
 
     marginal: dict[str, float] = {}
 
@@ -84,7 +94,7 @@ def compute_marginal_sgp(
         totals_sorted = sorted([team_totals.get(cat, 0.0) for team_totals in opponent_totals.values()])
         your_val = your_totals.get(cat, 0.0)
 
-        if cat in INVERSE_CATEGORIES:
+        if cat in inverse_categories:
             # Lower is better: find team with next lower total
             better = sorted([t for t in totals_sorted if t < your_val], reverse=True)
         else:
@@ -100,7 +110,7 @@ def compute_marginal_sgp(
             # denom=0.004) and counting stats (R gap=10, denom=32) are
             # on the same scale.  A 2.75-SGP gap in AVG is comparable
             # to a 0.31-SGP gap in R, not 1000x smaller.
-            sgp_denom = _LC.sgp_denominators.get(cat, 1.0)
+            sgp_denom = cfg.sgp_denominators.get(cat, 1.0)
             if abs(sgp_denom) < 1e-9:
                 sgp_denom = 1.0
             sgp_gap = raw_gap / sgp_denom
@@ -116,6 +126,7 @@ def category_gap_analysis(
     your_team_id: str,
     weeks_remaining: int = 16,
     weekly_rates: dict[str, float] | None = None,
+    config: _LC_Class | None = None,
 ) -> dict[str, dict]:
     """Per-category analysis: rank, gaps, achievability, punt flags.
 
@@ -132,6 +143,8 @@ def category_gap_analysis(
         weeks_remaining: Weeks left in the season.
         weekly_rates: Expected weekly production per category.
             Defaults to WEEKLY_RATE_DEFAULTS.
+        config: Optional LeagueConfig — forwarded to compute_marginal_sgp so
+            live-standings denominators propagate. SF-21.
 
     Returns:
         Dict mapping category -> analysis dict with keys:
@@ -139,12 +152,15 @@ def category_gap_analysis(
     """
     if weekly_rates is None:
         weekly_rates = dict(WEEKLY_RATE_DEFAULTS)
+    cfg = config if config is not None else _LC
+    categories = cfg.all_categories
+    inverse_categories = cfg.inverse_stats
 
     analysis: dict[str, dict] = {}
 
-    for cat in CATEGORIES:
+    for cat in categories:
         # Rank teams in this category
-        if cat in INVERSE_CATEGORIES:
+        if cat in inverse_categories:
             # Lower is better: ascending sort puts best first
             ranked = sorted(
                 all_team_totals.items(),
@@ -173,7 +189,7 @@ def category_gap_analysis(
             target_total = ranked[target_rank - 1][1].get(cat, 0)
             gap = abs(target_total - your_totals.get(cat, 0))
 
-            if cat in INVERSE_CATEGORIES:
+            if cat in inverse_categories:
                 # Can't really "produce" lower ERA/WHIP at a fixed weekly rate.
                 # For rate stats, check if the gap is closeable given remaining IP.
                 # Simplified: if gap < 0.5 for ERA, consider it achievable.
@@ -192,9 +208,9 @@ def category_gap_analysis(
         if is_punt:
             marginal_value = 0.0
         else:
-            marginal_value = compute_marginal_sgp(your_totals, all_team_totals, [cat], your_team_name=your_team_id).get(
-                cat, 0.0
-            )
+            marginal_value = compute_marginal_sgp(
+                your_totals, all_team_totals, [cat], your_team_name=your_team_id, config=cfg
+            ).get(cat, 0.0)
 
         # Gap to next rank above
         gap_to_next = 0.0

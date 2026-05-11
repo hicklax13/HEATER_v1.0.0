@@ -6,9 +6,10 @@ import time
 import pandas as pd
 import streamlit as st
 
-from src.database import init_db, load_league_rosters, load_league_standings, load_player_pool
-from src.ui_shared import inject_custom_css, render_styled_table
+from src.database import init_db, load_player_pool
+from src.ui_shared import format_stat, inject_custom_css, render_styled_table
 from src.valuation import LeagueConfig, SGPCalculator
+from src.yahoo_data_service import get_yahoo_data_service
 
 _HAS_CATEGORY_ANALYSIS = True
 try:
@@ -155,8 +156,10 @@ render_styled_table(losers)
 # ── Standings Impact ────────────────────────────────────────────────────────
 
 if _HAS_CATEGORY_ANALYSIS:
-    standings = load_league_standings()
-    rosters = load_league_rosters()
+    # Use canonical Yahoo data service (3-tier cache: session_state → Yahoo API → SQLite).
+    _yds = get_yahoo_data_service()
+    standings = _yds.get_standings()
+    rosters = _yds.get_rosters()
 
     if not standings.empty and not rosters.empty:
         user_teams = rosters[rosters["is_user_team"] == 1]
@@ -197,7 +200,7 @@ if _HAS_CATEGORY_ANALYSIS:
                     impact_rows.append(
                         {
                             "Category": cat,
-                            "Your Total": f"{my_val:.3f}" if cat in config.rate_stats else f"{my_val:.0f}",
+                            "Your Total": format_stat(my_val, cat) if cat in config.rate_stats else f"{my_val:.0f}",
                             "Rank": f"{my_rank}/12",
                             "Status": status,
                         }

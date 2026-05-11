@@ -6,10 +6,11 @@ import time
 import pandas as pd
 import streamlit as st
 
-from src.database import init_db, load_league_rosters, load_league_standings, load_player_pool
+from src.database import init_db, load_player_pool
 from src.league_manager import get_team_roster
-from src.ui_shared import METRIC_TOOLTIPS, T, inject_custom_css, render_styled_table
+from src.ui_shared import METRIC_TOOLTIPS, T, format_stat, inject_custom_css, render_styled_table
 from src.valuation import LeagueConfig
+from src.yahoo_data_service import get_yahoo_data_service
 
 try:
     from src.optimizer.h2h_engine import estimate_h2h_win_probability
@@ -80,8 +81,9 @@ if pool.empty:
 pool = pool.rename(columns={"name": "player_name"})
 config = LeagueConfig()
 
-# Standard roster loading with Yahoo sync fallback
-rosters = load_league_rosters()
+# Standard roster loading via canonical Yahoo data service (3-tier cache)
+_yds = get_yahoo_data_service()
+rosters = _yds.get_rosters()
 if rosters.empty:
     if st.session_state.get("yahoo_connected"):
         st.warning("Yahoo is connected but no roster data found in the database. Try syncing:")
@@ -475,7 +477,7 @@ with tab_projector:
     if not _HAS_H2H:
         st.info("H2H engine not available. Install required dependencies.")
     else:
-        standings = load_league_standings()
+        standings = _yds.get_standings()
         all_team_totals: dict[str, dict[str, float]] = {}
         if not standings.empty and "category" in standings.columns:
             for _, row in standings.iterrows():
@@ -531,8 +533,8 @@ with tab_projector:
                             opp_val = opp_totals.get(cat, 0)
 
                             if cat in config_local.rate_stats:
-                                my_str = f"{my_val:.3f}"
-                                opp_str = f"{opp_val:.3f}"
+                                my_str = format_stat(my_val, cat)
+                                opp_str = format_stat(opp_val, cat)
                             else:
                                 my_str = f"{my_val:.0f}"
                                 opp_str = f"{opp_val:.0f}"

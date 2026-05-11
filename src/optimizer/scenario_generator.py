@@ -26,15 +26,18 @@ import pandas as pd
 from scipy.stats import norm
 
 from src.validation.constant_optimizer import load_constants
+from src.valuation import LeagueConfig as _LC_Class
 
 logger = logging.getLogger(__name__)
 
 _CONSTANTS = load_constants()
+_LC = _LC_Class()
 
 # ── Category definitions ─────────────────────────────────────────────
+# Module uses lowercase category keys to match stat column names.
 
-ALL_CATS: list[str] = ["r", "hr", "rbi", "sb", "avg", "obp", "w", "l", "sv", "k", "era", "whip"]
-INVERSE_CATS: set[str] = {"l", "era", "whip"}
+ALL_CATS: list[str] = [c.lower() for c in _LC.all_categories]
+INVERSE_CATS: set[str] = {c.lower() for c in _LC.inverse_stats}
 
 # Category index lookup for fast access
 _CAT_IDX: dict[str, int] = {cat: i for i, cat in enumerate(ALL_CATS)}
@@ -426,8 +429,8 @@ def estimate_player_variance(
     Returns:
         Total variance estimate (sum of per-category variances).
     """
-    hitting_cats = {"r", "hr", "rbi", "sb", "avg", "obp"}
-    pitching_cats = {"w", "l", "sv", "k", "era", "whip"}
+    hitting_cats = {c.lower() for c in _LC.hitting_categories}
+    pitching_cats = {c.lower() for c in _LC.pitching_categories}
     relevant = hitting_cats if is_hitter else pitching_cats
 
     total_var = 0.0

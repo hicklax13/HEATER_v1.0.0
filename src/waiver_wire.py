@@ -22,7 +22,7 @@ import pandas as pd
 
 from src.in_season import _roster_category_totals, rank_free_agents
 from src.validation.constant_optimizer import load_constants
-from src.valuation import LeagueConfig
+from src.valuation import LeagueConfig, SGPCalculator
 
 logger = logging.getLogger(__name__)
 
@@ -435,14 +435,16 @@ def compute_drop_cost(
     if config is None:
         config = LeagueConfig()
 
+    sgp_calc = SGPCalculator(config)
+
     # Current roster value
     current_totals = _roster_category_totals(roster_ids, player_pool)
-    current_sgp = _totals_to_sgp(current_totals, config)
+    current_sgp = sgp_calc.totals_sgp(current_totals)
 
     # Roster without this player
     reduced_ids = [pid for pid in roster_ids if pid != player_id]
     reduced_totals = _roster_category_totals(reduced_ids, player_pool)
-    reduced_sgp = _totals_to_sgp(reduced_totals, config)
+    reduced_sgp = sgp_calc.totals_sgp(reduced_totals)
 
     base_cost = current_sgp - reduced_sgp
 
@@ -499,21 +501,6 @@ def compute_drop_cost(
     return base_cost + adjustment
 
 
-def _totals_to_sgp(totals: dict, config: LeagueConfig) -> float:
-    """Convert roster category totals to total SGP."""
-    total = 0.0
-    for cat in config.all_categories:
-        denom = config.sgp_denominators.get(cat, 1.0)
-        if abs(denom) < 1e-9:
-            denom = 1.0
-        val = totals.get(cat, 0)
-        if cat in config.inverse_stats:
-            total -= val / denom
-        else:
-            total += val / denom
-    return total
-
-
 def compute_net_swap_value(
     add_id: int,
     drop_id: int,
@@ -528,14 +515,16 @@ def compute_net_swap_value(
     if config is None:
         config = LeagueConfig()
 
+    sgp_calc = SGPCalculator(config)
+
     # Before: current roster
     before_totals = _roster_category_totals(roster_ids, player_pool)
-    before_sgp = _totals_to_sgp(before_totals, config)
+    before_sgp = sgp_calc.totals_sgp(before_totals)
 
     # After: roster - drop + add
     new_ids = [pid for pid in roster_ids if pid != drop_id] + [add_id]
     after_totals = _roster_category_totals(new_ids, player_pool)
-    after_sgp = _totals_to_sgp(after_totals, config)
+    after_sgp = sgp_calc.totals_sgp(after_totals)
 
     # Per-category deltas
     category_deltas = {}

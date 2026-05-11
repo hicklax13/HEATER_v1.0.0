@@ -34,8 +34,9 @@ from src.valuation import LeagueConfig as _LC_Class
 
 logger = logging.getLogger(__name__)
 
-CATEGORIES: list[str] = list(_LC_Class().all_categories)
-INVERSE_CATEGORIES: set[str] = {"L", "ERA", "WHIP"}
+_LC = _LC_Class()
+CATEGORIES: list[str] = list(_LC.all_categories)
+INVERSE_CATEGORIES: set[str] = set(_LC.inverse_stats)
 
 # Empirical correlation matrix for fantasy stat categories.
 # Derived from 5+ years of qualified MLB seasons (min 400 PA hitters, 100 IP pitchers).
@@ -64,7 +65,7 @@ DEFAULT_CORRELATION: np.ndarray = np.array(
 )
 
 
-CAT_ORDER = ["R", "HR", "RBI", "SB", "AVG", "OBP", "W", "L", "SV", "K", "ERA", "WHIP"]
+CAT_ORDER = list(_LC.all_categories)
 
 
 def compute_empirical_correlation(

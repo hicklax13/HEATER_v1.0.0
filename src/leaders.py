@@ -5,7 +5,10 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-INVERSE_CATS = {"ERA", "WHIP", "L"}
+from src.valuation import LeagueConfig as _LC_Class
+
+_LC = _LC_Class()
+INVERSE_CATS = set(_LC.inverse_stats)
 
 
 def compute_category_leaders(
