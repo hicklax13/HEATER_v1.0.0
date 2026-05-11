@@ -41,6 +41,13 @@ try:
 except ImportError:
     BS4_AVAILABLE = False
 
+try:
+    import statsapi as _statsapi  # type: ignore[import-untyped]
+
+    STATSAPI_AVAILABLE = True
+except ImportError:
+    STATSAPI_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
 
 # ── Constants ─────────────────────────────────────────────────────────
@@ -90,6 +97,48 @@ _CODE_TO_SLUG: dict[str, str] = {v: k for k, v in _TEAM_SLUG_TO_CODE.items()}
 
 # Valid bullpen role tags we recognise
 _BULLPEN_ROLES = {"CL", "SU", "MR", "LR", "LHP", "RHP"}
+
+# MLB Stats API team_id → canonical 3-letter team abbreviation.
+# MLB Stats API uses "AZ" for Arizona; we normalise to "ARI" to match the
+# rest of the codebase (per CLAUDE.md SF-8 equivalence note).
+_STATSAPI_TEAM_IDS: dict[str, int] = {
+    "ARI": 109,  # MLB API uses "AZ" but our canonical code is "ARI"
+    "ATL": 144,
+    "BAL": 110,
+    "BOS": 111,
+    "CHC": 112,
+    "CWS": 145,
+    "CIN": 113,
+    "CLE": 114,
+    "COL": 115,
+    "DET": 116,
+    "HOU": 117,
+    "KC": 118,
+    "LAA": 108,
+    "LAD": 119,
+    "MIA": 146,
+    "MIL": 158,
+    "MIN": 142,
+    "NYM": 121,
+    "NYY": 147,
+    "ATH": 133,  # Athletics (formerly Oakland)
+    "PHI": 143,
+    "PIT": 134,
+    "SD": 135,
+    "SF": 137,
+    "SEA": 136,
+    "STL": 138,
+    "TB": 139,
+    "TEX": 140,
+    "TOR": 141,
+    "WSH": 120,
+}
+
+# Per-team starter / closer thresholds for the statsapi fallback.
+# Conservative defaults — Marcel-style minima.
+_MIN_GAMES_STARTED_FOR_ROTATION = 5
+_MIN_SAVES_FOR_CLOSER = 5
+_STATSAPI_REQUEST_DELAY = 0.3  # seconds between team requests (rate-limit politeness)
 
 
 # ── Public API ────────────────────────────────────────────────────────
@@ -558,3 +607,166 @@ def _detect_bullpen_role(text: str) -> str | None:
     if "long" in text_lower or "lr " in text_lower:
         return "LR"
     return None
+
+
+# ── MLB Stats API Fallback (SF-5) ─────────────────────────────────────
+#
+# Roster Resource scrape returns empty when the endpoint is JS-gated or 403'd.
+# This fallback uses the MLB Stats API ``team_roster`` endpoint with a
+# ``person(stats(group=[hitting,pitching],type=[season]))`` hydration to derive:
+#
+#   * lineup    — sequential list of position players (non-pitcher non-DH)
+#   * rotation  — pitchers with gamesStarted >= _MIN_GAMES_STARTED_FOR_ROTATION
+#   * bullpen   — saves >= _MIN_SAVES_FOR_CLOSER → CL, others → MR
+#
+# Output shape MUST match :func:`fetch_depth_charts` so
+# ``_persist_depth_chart_roles`` works unchanged.
+
+
+def fetch_depth_charts_via_statsapi() -> dict[str, dict[str, Any]]:
+    """Fallback depth chart fetch using MLB Stats API team_roster endpoint.
+
+    Iterates the 30 MLB teams, hydrates each with player season stats, and
+    classifies players into lineup / rotation / bullpen based on simple
+    thresholds (see module-level ``_MIN_*`` constants).
+
+    Returns the same shape as :func:`fetch_depth_charts` so the persistence
+    layer can consume either source identically.
+
+    Returns
+    -------
+    dict[str, dict]
+        Mapping of canonical team code → ``{"lineup": [...], "rotation": [...],
+        "bullpen": {...}}``. Empty dict on any failure.
+    """
+    if not STATSAPI_AVAILABLE:
+        logger.warning("statsapi not available — MLB Stats API depth chart fallback skipped")
+        return {}
+
+    result: dict[str, dict[str, Any]] = {}
+    for team_code, team_id in _STATSAPI_TEAM_IDS.items():
+        try:
+            team_data = _fetch_team_via_statsapi(team_id)
+            if team_data and (team_data.get("lineup") or team_data.get("rotation") or team_data.get("bullpen")):
+                result[team_code] = team_data
+        except Exception as exc:
+            logger.debug("Depth chart fallback failed for %s (id=%s): %s", team_code, team_id, exc)
+            continue
+        time.sleep(_STATSAPI_REQUEST_DELAY)
+    return result
+
+
+def _fetch_team_via_statsapi(team_id: int) -> dict[str, Any] | None:
+    """Fetch one team's roster and classify into lineup/rotation/bullpen."""
+    if not STATSAPI_AVAILABLE:
+        return None
+    try:
+        resp = _statsapi.get(
+            "team_roster",
+            {
+                "teamId": team_id,
+                "rosterType": "active",
+                "hydrate": "person(stats(group=[hitting,pitching],type=[season]))",
+            },
+        )
+    except Exception:
+        return None
+    return _classify_team_roster_response(resp)
+
+
+def _classify_team_roster_response(resp: dict[str, Any]) -> dict[str, Any]:
+    """Classify a single team_roster response into lineup/rotation/bullpen.
+
+    Rules
+    -----
+    * ``position.abbreviation in {"P","SP","RP"}`` → pitcher branch
+        - ``stats[group=pitching].splits[0].stat.gamesStarted >= _MIN_GAMES_STARTED_FOR_ROTATION``
+          → ``rotation``
+        - ``stats[group=pitching].splits[0].stat.saves >= _MIN_SAVES_FOR_CLOSER``
+          → ``bullpen.CL`` (closer; inserted at front)
+        - everything else → ``bullpen.MR`` (generic reliever)
+    * ``position.abbreviation in {"DH"}`` → ``bench_dh`` (skip lineup but track)
+    * everything else → ``lineup`` (sequential append)
+
+    Note: this is a heuristic ordering. We don't have batting-order data from
+    ``team_roster``; the lineup is just "all position players who aren't DH"
+    in API response order. This is sufficient to populate ``depth_chart_role``
+    (everyone gets ``"starter"``) and to give ``lineup_slot`` a non-NULL value,
+    which is the SF-5 acceptance criterion.
+    """
+    lineup: list[str] = []
+    rotation: list[str] = []
+    bullpen: dict[str, Any] = {}
+
+    roster = resp.get("roster", []) if isinstance(resp, dict) else []
+    if not isinstance(roster, list):
+        return {"lineup": lineup, "rotation": rotation, "bullpen": bullpen}
+
+    for entry in roster:
+        if not isinstance(entry, dict):
+            continue
+        person = entry.get("person") or {}
+        name = person.get("fullName")
+        if not name or not isinstance(name, str):
+            continue
+        pos = (entry.get("position") or {}).get("abbreviation", "") or ""
+        pos = pos.upper().strip()
+
+        if pos in {"P", "SP", "RP"}:
+            gs, sv = _extract_pitcher_stats(person)
+            if sv >= _MIN_SAVES_FOR_CLOSER:
+                # Closers go to the front (most recent/established closer wins
+                # if multiple; insertion order doesn't matter much for SF-5).
+                cl_list = bullpen.setdefault("CL", [])
+                if isinstance(cl_list, list) and name not in cl_list:
+                    cl_list.insert(0, name)
+            elif gs >= _MIN_GAMES_STARTED_FOR_ROTATION:
+                if name not in rotation and len(rotation) < 5:
+                    rotation.append(name)
+            else:
+                mr_list = bullpen.setdefault("MR", [])
+                if isinstance(mr_list, list) and name not in mr_list:
+                    mr_list.append(name)
+        elif pos == "DH":
+            # DH players are still hitters — include in lineup so they get
+            # depth_chart_role='starter'. The SF-5 fix needs DH to count.
+            if name not in lineup and len(lineup) < 9:
+                lineup.append(name)
+        else:
+            # All other position players (C, 1B, 2B, 3B, SS, OF, LF, CF, RF, etc.)
+            if name not in lineup and len(lineup) < 9:
+                lineup.append(name)
+
+    return {"lineup": lineup, "rotation": rotation, "bullpen": bullpen}
+
+
+def _extract_pitcher_stats(person: dict[str, Any]) -> tuple[int, int]:
+    """Pull (gamesStarted, saves) out of a person's pitching stats hydration.
+
+    Returns ``(0, 0)`` if the stats block is missing or malformed.
+    """
+    stats_blocks = person.get("stats") or []
+    if not isinstance(stats_blocks, list):
+        return 0, 0
+    for block in stats_blocks:
+        if not isinstance(block, dict):
+            continue
+        group = block.get("group") or {}
+        # MLB API uses both displayName and abbreviation; check both
+        group_label = (group.get("displayName") or group.get("name") or "").lower()
+        if group_label != "pitching":
+            continue
+        splits = block.get("splits") or []
+        if not splits or not isinstance(splits, list):
+            continue
+        stat = (splits[0] or {}).get("stat") or {}
+        try:
+            gs = int(stat.get("gamesStarted", 0) or 0)
+        except (TypeError, ValueError):
+            gs = 0
+        try:
+            sv = int(stat.get("saves", 0) or 0)
+        except (TypeError, ValueError):
+            sv = 0
+        return gs, sv
+    return 0, 0

@@ -874,23 +874,42 @@ def _persist_depth_chart_roles(depth_data: dict) -> int:
 def _bootstrap_depth_charts(progress: BootstrapProgress) -> str:
     """Fetch depth charts and persist roles/lineup slots to DB.
 
-    Depth chart source (Roster Resource / FanGraphs) returns empty when the
-    endpoint is unavailable or JS-gated. Surface that as a Skip rather than
-    a bare "no data" so the Data Status panel is self-explanatory.
+    Two-tier fetch (SF-5 fix, 2026-05-10):
+
+    1. **Primary** — Roster Resource scrape (``fetch_depth_charts``).
+       Often returns empty: the endpoint is JS-gated or 403's non-browser UAs.
+    2. **Fallback** — MLB Stats API ``team_roster`` hydration
+       (``fetch_depth_charts_via_statsapi``). Classifies pitchers by
+       ``gamesStarted`` / ``saves`` and treats all position players as lineup
+       starters. Less precise than Roster Resource (no batting order, no SU/MR
+       distinction), but sufficient to populate ``depth_chart_role`` and
+       ``lineup_slot`` so the closer monitor + lineup protection are not
+       silently degraded.
+
+    The ``tier`` column on ``refresh_log`` records which source actually
+    succeeded so the Data Status panel can show "fallback" honestly.
     """
     progress.phase = "Depth Charts"
     progress.detail = "Fetching depth charts..."
     try:
         from src.database import update_refresh_log
-        from src.depth_charts import fetch_depth_charts
+        from src.depth_charts import fetch_depth_charts, fetch_depth_charts_via_statsapi
 
+        # Tier 1: Roster Resource scrape (primary, more accurate)
         depth_data = fetch_depth_charts()
+        tier = "primary"
+        if not depth_data:
+            # Tier 2: MLB Stats API fallback (rotation/closer detection)
+            progress.detail = "Roster Resource empty — falling back to MLB Stats API..."
+            depth_data = fetch_depth_charts_via_statsapi()
+            tier = "fallback" if depth_data else None
+
         if depth_data:
             count = _persist_depth_chart_roles(depth_data)
-            update_refresh_log("depth_charts", "success")
-            return f"Depth charts: {len(depth_data)} teams, {count} roles persisted"
+            update_refresh_log("depth_charts", "success", tier=tier)
+            return f"Depth charts: {len(depth_data)} teams, {count} roles persisted ({tier})"
         update_refresh_log("depth_charts", "no_data")
-        return "Skipped: depth chart endpoint returned no data"
+        return "Skipped: depth chart endpoints returned no data (Roster Resource + MLB Stats API both empty)"
     except Exception as e:
         logger.warning("Depth chart bootstrap failed: %s", e)
         return _format_fetch_error(e, "Depth charts")
@@ -1145,7 +1164,16 @@ def _bootstrap_stuff_plus(progress: BootstrapProgress) -> str:
             )
         except Exception:
             pass
-        return _format_fetch_error(exc, "FanGraphs Stuff+")
+        # SF-6: FanGraphs leaders-legacy.aspx 403s non-browser scrapers.
+        # Surface this as a known limitation so users don't think the
+        # optimizer is silently broken — K-boost path defaults to neutral 1.0×.
+        base = _format_fetch_error(exc, "FanGraphs Stuff+")
+        if base.startswith("Skipped:"):
+            return (
+                "Skipped: FanGraphs Stuff+ unavailable (HTTP 403 — known limitation, "
+                "see CLAUDE.md SF-6). Optimizer K-boost defaults to neutral 1.0×."
+            )
+        return base
 
 
 def _bootstrap_batting_stats(progress: BootstrapProgress) -> str:
@@ -1275,7 +1303,16 @@ def _bootstrap_batting_stats(progress: BootstrapProgress) -> str:
             )
         except Exception:
             pass
-        return _format_fetch_error(exc, "FanGraphs Batting Stats")
+        # SF-6: same 403 path as Stuff+. Surface honest known limitation
+        # rather than a noisy stack trace; downstream BABIP/ISO/K%/BB%
+        # adjustments simply use neutral defaults when the column is NULL.
+        base = _format_fetch_error(exc, "FanGraphs Batting Stats")
+        if base.startswith("Skipped:"):
+            return (
+                "Skipped: FanGraphs Batting Stats unavailable (HTTP 403 — known limitation, "
+                "see CLAUDE.md SF-6). Optimizer uses neutral defaults for BABIP/ISO/K%/BB%."
+            )
+        return base
 
 
 def _bootstrap_sprint_speed(progress: BootstrapProgress) -> str:
@@ -1419,7 +1456,10 @@ def _bootstrap_umpire_tendencies(progress: BootstrapProgress) -> str:
                 rows_written=0,
                 message="MLB schedule fetch returned empty",
             )
-            return "Skipped: no schedule data"
+            return (
+                "Skipped: no schedule data (MLB Stats API returned empty). "
+                "Optimizer uses neutral 1.0× umpire multiplier — see CLAUDE.md SF-7."
+            )
 
         # Aggregate per-umpire stats from game data
         umpire_stats: dict[str, dict] = {}  # name -> {games, total_k, total_bb, total_runs, total_pa}
@@ -1500,7 +1540,10 @@ def _bootstrap_umpire_tendencies(progress: BootstrapProgress) -> str:
                 rows_written=0,
                 message="no umpire names extracted from completed-game boxscores",
             )
-            return "Skipped: no umpire data extracted"
+            return (
+                "Skipped: no umpire data (boxscore HP-umpire extraction failed). "
+                "Optimizer uses neutral 1.0× umpire multiplier — see CLAUDE.md SF-7."
+            )
 
         # Compute league averages for delta calculation
         league_k = sum(u["total_k"] for u in umpire_stats.values())
@@ -1647,7 +1690,10 @@ def _bootstrap_catcher_framing(progress: BootstrapProgress) -> str:
                         rows_written=0,
                         message="no catchers in players table",
                     )
-                    return "Skipped: no catchers in DB"
+                    return (
+                        "Skipped: no catchers in DB. "
+                        "Optimizer uses neutral 1.0× framing multiplier — see CLAUDE.md SF-7."
+                    )
 
                 rows = []
                 for _, c in catchers.iterrows():
@@ -1688,7 +1734,10 @@ def _bootstrap_catcher_framing(progress: BootstrapProgress) -> str:
                 rows_written=0,
                 message="all framing sources returned empty (Savant + FanGraphs + statsapi)",
             )
-            return "Skipped: no catcher data available"
+            return (
+                "Skipped: all framing sources failed (Savant + FanGraphs + statsapi). "
+                "Optimizer uses neutral 1.0× framing multiplier — see CLAUDE.md SF-7."
+            )
 
         # Build name→player_id mapping
         conn = get_connection()
