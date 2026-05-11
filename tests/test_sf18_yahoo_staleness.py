@@ -47,7 +47,6 @@ _MOCKED_PHASES = (
     "_bootstrap_stuff_plus",
     "_bootstrap_batting_stats",
     "_bootstrap_sprint_speed",
-    "_bootstrap_dynamic_park_factors",
     "_bootstrap_bat_speed",
     "_bootstrap_forty_man",
     "_bootstrap_umpire_tendencies",

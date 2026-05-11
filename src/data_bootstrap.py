@@ -179,7 +179,6 @@ class StalenessConfig:
     adp_sources_hours: float = 24  # 24 hours
     depth_charts_hours: float = 168  # 7 days
     contracts_hours: float = 720  # 30 days
-    dynamic_park_factors_hours: float = 168  # 7 days
     bat_speed_hours: float = 168  # 7 days
     forty_man_hours: float = 168  # 7 days
     game_logs_hours: float = 1  # 1 hour
@@ -2261,57 +2260,6 @@ def _bootstrap_pvb_splits(progress: BootstrapProgress) -> str:
         return f"Error: {exc}"
 
 
-def _bootstrap_dynamic_park_factors(progress: BootstrapProgress) -> str:
-    """T4: Refresh park factors mid-season from pybaseball team stats."""
-    progress.phase = "Park Factors"
-    progress.detail = "Refreshing park factors from pybaseball..."
-    try:
-        from pybaseball import team_batting
-    except ImportError:
-        return "Skipped: pybaseball not installed"
-
-    try:
-        from src.database import get_connection, update_refresh_log
-
-        year = datetime.now(UTC).year
-        logger.info("Fetching team batting stats for %d park factor refresh...", year)
-        tb = team_batting(year)
-        if tb is None or tb.empty:
-            return "Skipped: no team batting data"
-
-        # Park factor derivation: compare home/away OPS splits
-        # FanGraphs team_batting includes team abbreviation
-        conn = get_connection()
-        try:
-            updated = 0
-            for _, row in tb.iterrows():
-                team = str(row.get("Team", row.get("Tm", ""))).strip()
-                if not team:
-                    continue
-                # Use OPS+ as park factor proxy (100 = neutral)
-                ops_plus = float(row.get("OPS+", row.get("wRC+", 100)))
-                if ops_plus <= 0:
-                    continue
-                pf = ops_plus / 100.0
-                # Clamp to reasonable range
-                pf = max(0.80, min(1.40, pf))
-                conn.execute(
-                    "UPDATE park_factors SET factor_hitting = ? WHERE team_code = ?",
-                    (round(pf, 3), team),
-                )
-                updated += 1
-            conn.commit()
-        finally:
-            conn.close()
-
-        update_refresh_log("park_factors_dynamic", "success")
-        return f"Updated {updated} park factors from {year} team stats"
-
-    except Exception as exc:
-        logger.warning("Dynamic park factor refresh failed (non-fatal): %s", exc)
-        return _format_fetch_error(exc, "FanGraphs Park Factors")
-
-
 def _bootstrap_bat_speed(progress: BootstrapProgress) -> str:
     """T9: Fetch bat speed data from Baseball Savant."""
     progress.phase = "Bat Speed"
@@ -3076,11 +3024,13 @@ def bootstrap_all_data(
                 logger.exception("Bootstrap %s failed: %s", key, exc)
                 results[key] = f"Error: {exc}"
 
-    # Phase 25-27: T4 park factors, T9 bat speed, T10 40-man (parallel, non-critical)
+    # Phase 25-26: T9 bat speed, T10 40-man (parallel, non-critical)
+    # NOTE: BUG-008 — removed _bootstrap_dynamic_park_factors phase. It used
+    # team OPS+/wRC+ (park-ADJUSTED metrics) as a park factor proxy, silently
+    # overwriting correct Tier 1 / emergency park factors every 7 days. The
+    # _bootstrap_park_factors phase already populates park_factors correctly.
     with ThreadPoolExecutor(max_workers=3) as executor:
         futures = {}
-        if force or check_staleness("park_factors_dynamic", staleness.dynamic_park_factors_hours):
-            futures[executor.submit(_bootstrap_dynamic_park_factors, progress)] = "park_factors_dynamic"
         if force or check_staleness("bat_speed", staleness.bat_speed_hours):
             futures[executor.submit(_bootstrap_bat_speed, progress)] = "bat_speed"
         if force or check_staleness("forty_man", staleness.forty_man_hours):
