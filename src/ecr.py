@@ -1071,7 +1071,12 @@ def refresh_ecr_consensus(force: bool = False) -> pd.DataFrame:
         consensus_maxs = []
         consensus_n = []
         for _, row in result_df.iterrows():
-            sources = {c: row[c] for c in rank_cols if pd.notna(row[c])}
+            # Strip "_rank" suffix so keys match _SOURCE_WEIGHTS_INSEASON
+            # (which uses "espn", "fantasypros", etc. — not "*_rank"). The
+            # earlier `{c: row[c] for c in rank_cols}` left the suffix on the
+            # key, so weights.get(src, 1.0) always returned the 1.0 default,
+            # silently disabling in-season source weighting. (BUG-014 fix.)
+            sources = {c.removesuffix("_rank"): row[c] for c in rank_cols if pd.notna(row[c])}
             result_dict = _compute_player_consensus(sources)
             consensus_avgs.append(result_dict["consensus_avg"])
             consensus_stddevs.append(result_dict["rank_stddev"])
