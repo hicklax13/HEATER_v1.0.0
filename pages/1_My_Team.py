@@ -23,7 +23,10 @@ from src.ui_shared import (
     render_player_select,
     sort_roster_for_display,
 )
+from src.valuation import LeagueConfig
 from src.yahoo_data_service import get_yahoo_data_service
+
+_LC = LeagueConfig()
 
 try:
     from src.bayesian import BayesianUpdater
@@ -820,7 +823,9 @@ else:
                             _fl_icon_color = T["sky"]
                             _fl_label = "AT RISK"
                         _fl_gap = fl["gap"]
-                        # Format gap based on category type
+                        # Format gap based on category type.
+                        # Only ERA/WHIP get 2-decimal float here — L (also inverse) is a
+                        # counting stat and formats as integer in the else branch.
                         if _fl_cat in ("AVG", "OBP"):
                             _fl_gap_str = f".{int(abs(_fl_gap) * 1000):03d}"
                         elif _fl_cat in ("ERA", "WHIP"):
@@ -1401,7 +1406,9 @@ else:
 
                 # Category Gaps card — compare user vs opponent in weekly H2H matchup
                 if hit_stats or pitch_stats:
-                    _INVERSE_CATS: set[str] = {"ERA", "WHIP"}
+                    # Inverse stats (lower = winning): {"L", "ERA", "WHIP"} from LeagueConfig.
+                    # Hardcoding {"ERA", "WHIP"} here would silently treat MORE losses as winning.
+                    _INVERSE_CATS: set[str] = set(_LC.inverse_stats)
 
                     # Try to get live H2H matchup data from Yahoo
                     _matchup_for_gaps = yds.get_matchup()
@@ -1509,7 +1516,9 @@ else:
                                     _color = T["green"]
                                 else:
                                     _color = T["danger"]
-                                # Format values
+                                # Format values. Only ERA/WHIP get 2-decimal float — L
+                                # (also inverse per LeagueConfig.inverse_stats) is a counting
+                                # stat and formats as integer in the else branch.
                                 if _cat in ("AVG", "OBP"):
                                     _uv_str = format_stat(_user_val, _cat)
                                     _ov_str = format_stat(_opp_val, _cat)
@@ -1660,6 +1669,8 @@ else:
                             _yv = _ov = None
 
                         if _yv is not None and _ov is not None:
+                            # Only ERA/WHIP get 2-decimal float — L (also inverse) is
+                            # a counting stat and falls to .0f in the else branch.
                             if _cat in ("AVG", "OBP"):
                                 _fmt = ".3f"
                             elif _cat in ("ERA", "WHIP"):
@@ -1802,7 +1813,7 @@ else:
                 )
 
                 base_cols = ["name", "positions", "roster_slot"]
-                stat_cols_ordered = ["R", "HR", "RBI", "SB", "AVG", "OBP", "W", "L", "SV", "K", "ERA", "WHIP"]
+                stat_cols_ordered = list(_LC.all_categories)
                 rename_map = {
                     "name": "Player",
                     "positions": "Pos",
