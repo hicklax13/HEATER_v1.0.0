@@ -603,9 +603,57 @@ Four parallel investigation agents (player pool integrity, schedule/date, DCV tr
 - Also add a "Reason" column showing LOCKED / IL / OFF_DAY / NOT_PROBABLE so users can distinguish data problems from correct zeroes.
 - Verify in browser: reload optimizer on a day with mixed in-progress + future games; confirm locked rows show `—` not `0.00`.
 
-### Unresolved contradiction (needs trace)
+### Unresolved contradiction (needs trace) — ✅ RESOLVED 2026-05-10
 
-Agents 2 & 4 claim the pure-SP probable gate at [daily_optimizer.py:637-648](src/optimizer/daily_optimizer.py) fires correctly. Agent 3 ran a reproducer and said `players.positions='P'` makes the gate dead code. UI shows `SP,P` in Position Eligibility column. Resolution: trace whether the DCV code reads `players.positions` (MLB, `P`) or Yahoo's `eligible_positions` (`SP,P` or `SP,RP,P`). If it reads the MLB column, the 2026-04-17 trust-audit fix is silently disabled and needs to be rewired to use Yahoo's eligibility column.
+The audit was right: with `positions == "P"` (raw MLB marker, no SP/RP qualifier), the existing substring check `"SP" in pos_upper` failed and the gate was dead code. Reproducer at [tests/test_sp_gate_trace.py](tests/test_sp_gate_trace.py) confirmed via 4 hand-built rosters (`SP`, `P`, `SP,RP`, named-probable). Patched [src/optimizer/daily_optimizer.py:614-628](src/optimizer/daily_optimizer.py) to use TOKEN-SET membership (`pos_tokens = {p.strip() for p in pos_upper.split(",")}`) and added a `_has_p_only` branch that fires when positions is solely `"P"`. Commit: token-set fix lands in the SP gate trace + fix merge (Wave 1 Agent B).
+
+---
+
+## Follow-up Audit — 2026-05-10 (SF-15 through SF-28)
+
+After landing all 14 SF-1..SF-14 fixes plus the SP gate trace, a 5-agent parallel audit (Bootstrap completeness, Optimizer formulas, Engine formulas, Page-level data flow, Cross-codebase consistency) catalogued **14 NEW silent-fail patterns** across the codebase. All 14 were fixed in 6 dispatched waves of parallel implementation agents (~38 commits). Each fix has a TDD test pinning the behavior.
+
+### The 14 new findings
+
+| ID | Severity | Issue | Fix |
+|----|----------|-------|-----|
+| **SF-15** | MEDIUM | `_bootstrap_batting_stats` + `_bootstrap_sprint_speed` race on `statcast_archive` writes (UNIQUE constraint risk) | UPSERT pattern (`INSERT ... ON CONFLICT(player_id, season) DO UPDATE`) — commit `ecb9a69` |
+| **SF-16** | MEDIUM | 7 phases use hardcoded TTL literals, bypassing `StalenessConfig` | Added 7 fields to `StalenessConfig` (adp_sources_hours, depth_charts_hours, contracts_hours, dynamic_park_factors_hours, bat_speed_hours, forty_man_hours, game_logs_hours) — commit `0c37167` |
+| **SF-17** | MEDIUM | ROS projections used 15-60min dynamic TTL for expensive PyMC MCMC, also ran BEFORE team_strength dependency | Fixed 4h TTL + moved Phase 19 to AFTER P21 — commit `599eb95` |
+| **SF-18** | MEDIUM | Phase 17/18 (Yahoo transactions/FA) had no staleness gate, P18 had no refresh_log entry | Added `check_staleness("yahoo_transactions", 0.25)` + `check_staleness("yahoo_free_agents", 1.0)` + `update_refresh_log("yahoo_free_agents", "success")` — commit `cba0d03` |
+| **SF-19** | HIGH | `optimizer/daily_optimizer.py:958` + `streaming.py:268` read `sprint_speed` but column not in pool — silently 0 | Added `sa.sprint_speed AS sprint_speed` to all 3 pool SELECT lists — commit `d836ca9` |
+| **SF-20** | HIGH | `database.py:1655-1661` fallback uses `AVG(proj.avg)` simple-mean, not weighted | Replaced with component-weighted formulas: `SUM(h)/SUM(ab)`, `SUM(er)*9/SUM(ip)`, etc. — commit `3966dee` |
+| **SF-21** | HIGH | `_LC = _LC_Class()` import-time singleton in `engine/portfolio/category_analysis.py` → stale denominators | Added optional `config` param to `compute_marginal_sgp` and `category_gap_analysis` (commit `1b19b27`); threaded through 5 caller sites (commit `f178fd0`) |
+| **SF-22** | HIGH | `_bootstrap_park_factors` set `source_dict = _PARK_FACTORS_EMERGENCY_2026` UNCONDITIONALLY — Tier 1 pybaseball data ignored | Reordered to set source_dict AFTER Tier 1 check; tier='primary'/'emergency' in refresh_log — commit `afdaa77` |
+| **SF-23** | HIGH | 7 pages bypass `yahoo_data_service` for live league data (no TTL, no refresh trigger) | All 7 pages routed through `get_yahoo_data_service().get_rosters()/.get_standings()` — commit `a514573` |
+| **SF-24** | MEDIUM | 5+ pages format ERA/WHIP at `.3f` (renders `3.850`) instead of `.2f` (`3.85`) via inline f-strings | Replaced with `format_stat(value, stat_type)` — commit `5ab8ce6` |
+| **SF-25** | HIGH | 7 SGP local reinventions across prod (trade_finder, waiver_wire, daily_optimizer, trade_evaluator, trade_simulator, in_season, start_sit) | Added `SGPCalculator.totals_sgp(totals, weights)` (commit `7096d52`); migrated all 7 sites — commits `67eb8b9`, `2c78332`, `1e3d521`, `ce0f7b9`, `40c1cd7`, `c0c7b01`, `a539d78` |
+| **SF-26** | MEDIUM | 12+ hardcoded category lists, 9 hardcoded inverse-cat sets, 4 hardcoded rate-cat sets across `src/` | All 13 affected source files now derive from `LeagueConfig.all_categories`/`.inverse_stats`/`.rate_stats` — commit `49e44ab` |
+| **SF-27** | MEDIUM | 2 pages bypass `MatchupContextService` and compute weights locally (divergent from canonical service) | Routed through `get_matchup_context().get_category_weights(mode=...)` — commit `ba97a51` |
+| **SF-28** | MEDIUM | 3 scripts use `sqlite3.connect()` directly (bypasses WAL + busy_timeout, can cause SF-4 lock contention) | Replaced with `from src.database import get_connection; conn = get_connection()` — commit `a341039` |
+
+### Bonus fixes (cross-cutting findings)
+
+- **`streaming.py:608`** — hardcoded `team_weekly_ip = 55.0` now reads from `_CONSTANTS.get("team_weekly_ip", 55.0)` (commit `b4c4498`)
+- **`streaming.py:166`** — added `streaming_baseline_whip` to constants_registry, replaced inline `1.25` (commit `b4c4498`)
+- **`category_urgency.py:22-23`** — `COUNTING_STAT_K`/`RATE_STAT_K` now read from `CONSTANTS_REGISTRY` (calibration tool was previously dead code) — commit `1cee56a`
+- **`shared_data_layer.py`** — added missing `tracker.record("team_strength", ttl_hours=24.0, ...)` so freshness UI no longer shows UNKNOWN — commit `d166050`
+- **`engine/portfolio/valuation.py:247-248`** — replaced fragile `__dict__.update()` antipattern with `copy.deepcopy(config)` — commit `ac7a1ca`
+- **`engine/monte_carlo/trade_simulator.py:144`** — fixed misleading "antithetic variate" comment (XOR'd seed is independent draw, not strict antithetic) — commit `e7ecb96`
+- **`_bootstrap_contracts`** — now uses `update_refresh_log_auto` so 0-rows-updated → `'no_data'` not `'success'` — commit `0052150`
+- **`_bootstrap_pvb_splits`** — distinguishes `'cached'` (all hits) vs `'success'` (new fetched) vs `'no_data'` — commit `57f46fc`
+- **`update_refresh_log` validator** — now accepts `'cached'` and `'skipped'` (was downgrading to `'unknown'`) — commit `a3928c5`
+
+### Verification
+
+- **131 new tests across SF-15..SF-28 + bonus fixes** — all passing
+- **151/151 regression tests pass** in `test_database_queries`, `test_database_schema`, `test_daily_optimizer`, `test_data_bootstrap`, `test_optimizer_integration` (45-min full sweep)
+- **SF-5 live result:** Depth chart fallback persists 657 roles via MLB Stats API (was 0 with Roster Resource alone)
+- **All 6 waves of parallel agents** worked in isolated worktrees with zero meaningful merge conflicts (only minor docstring diffs in totals_sgp method)
+
+### Plan reference
+
+Full audit + fix plan: [docs/superpowers/plans/2026-05-10-finish-data-audit-cleanup.md](docs/superpowers/plans/2026-05-10-finish-data-audit-cleanup.md)
 
 ## GitHub
 
