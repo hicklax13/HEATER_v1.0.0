@@ -1411,166 +1411,251 @@ def _bootstrap_sprint_speed(progress: BootstrapProgress) -> str:
         return f"Error: {exc}"
 
 
+def _load_umpire_tendencies_seed():
+    """Tier 3: load 2024 seed data from data/seed/umpire_tendencies_2024.json.
+
+    Returns a list of dicts in the bootstrap's INSERT shape (name, games,
+    k_pct, bb_pct, rpg + deltas), or ``None`` if the file is missing/malformed.
+    """
+    seed_path = Path("data/seed/umpire_tendencies_2024.json")
+    if not seed_path.exists():
+        return None
+    try:
+        payload = json.loads(seed_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        logger.warning("T7: failed to parse seed file %s: %s", seed_path, exc)
+        return None
+
+    league_k = float(payload.get("league_avg_k_pct", 0.226) or 0.226)
+    league_bb = float(payload.get("league_avg_bb_pct", 0.084) or 0.084)
+    league_rpg = float(payload.get("league_avg_runs_per_game", 4.39) or 4.39)
+
+    umpires = payload.get("umpires") or []
+    rows = []
+    for u in umpires:
+        # Reconstruct absolute values from the diff stored in the seed.
+        k_pct_diff = float(u.get("k_pct_diff", 0.0) or 0.0)
+        bb_pct_diff = float(u.get("bb_pct_diff", 0.0) or 0.0)
+        rpg_diff = float(u.get("runs_per_game_diff", 0.0) or 0.0)
+        rows.append(
+            {
+                "name": u.get("name", ""),
+                "games": int(u.get("games", 0) or 0),
+                "k_pct": league_k + k_pct_diff,
+                "bb_pct": league_bb + bb_pct_diff,
+                "rpg": league_rpg + rpg_diff,
+                "k_pct_delta": k_pct_diff,
+                "bb_pct_delta": bb_pct_diff,
+                "run_env_delta": rpg_diff,
+            }
+        )
+    return rows or None
+
+
 def _bootstrap_umpire_tendencies(progress: BootstrapProgress) -> str:
     """T7: Fetch umpire assignments and build per-umpire tendency table.
 
-    Uses MLB Stats API schedule to find today's umpire assignments,
-    then computes per-umpire K%/BB%/run environment from historical game data.
+    3-tier waterfall (SF-7):
+      Tier 1: MLB Stats API schedule → boxscore_data → HP umpire extraction (existing)
+      Tier 2: Savant umpire leaderboard scrape — NOT VIABLE (Savant 404s; documented)
+      Tier 3: shipped 2024 seed file at data/seed/umpire_tendencies_2024.json (NEW)
     """
     progress.phase = "Umpire Data"
     progress.detail = "Fetching umpire assignments..."
 
     try:
-        import statsapi as _statsapi
-    except ImportError:
-        return "Skipped: statsapi not installed"
-
-    try:
         from src.database import get_connection, update_refresh_log
 
         year = datetime.now(UTC).year
+        tier_used = None
+        umpire_stats: dict[str, dict] = {}
+        league_games = 0
 
-        # Fetch all games for the season to build umpire tendency profiles
-        logger.info("Fetching MLB schedule for %d to build umpire profiles...", year)
-        schedule = _statsapi.schedule(
-            start_date=f"{year}-03-20",
-            end_date=datetime.now(UTC).strftime("%Y-%m-%d"),
-        )
+        # ── Tier 1: existing MLB Stats API schedule + boxscore extraction ──
+        try:
+            import statsapi as _statsapi
 
-        if not schedule:
-            # 2026-04-17 FIX: previously silently returned with no refresh_log
-            # write, so the phase appeared "never ran" in Data Status.
-            update_refresh_log(
-                "umpire_tendencies",
-                "no_data",
-                rows_written=0,
-                message="MLB schedule fetch returned empty",
+            logger.info("T7 [primary]: Fetching MLB schedule for %d to build umpire profiles...", year)
+            schedule = _statsapi.schedule(
+                start_date=f"{year}-03-20",
+                end_date=datetime.now(UTC).strftime("%Y-%m-%d"),
             )
-            return "Skipped: no schedule data"
 
-        # Aggregate per-umpire stats from game data
-        umpire_stats: dict[str, dict] = {}  # name -> {games, total_k, total_bb, total_runs, total_pa}
-        for game in schedule:
-            game_pk = game.get("game_id")
-            if not game_pk:
-                continue
-            # Only completed games
-            status = game.get("status", "")
-            if "Final" not in status and "Completed" not in status:
-                continue
+            if schedule:
+                for game in schedule:
+                    game_pk = game.get("game_id")
+                    if not game_pk:
+                        continue
+                    status = game.get("status", "")
+                    if "Final" not in status and "Completed" not in status:
+                        continue
 
-            try:
-                boxscore = _statsapi.boxscore_data(game_pk)
-            except Exception:
-                continue
+                    try:
+                        boxscore = _statsapi.boxscore_data(game_pk)
+                    except Exception:
+                        continue
 
-            if not boxscore:
-                continue
+                    if not boxscore:
+                        continue
 
-            # Extract home plate umpire from game info
-            game_info = boxscore.get("gameBoxInfo", [])
-            hp_umpire = None
-            for info_item in game_info:
-                label = str(info_item.get("label", ""))
-                value = str(info_item.get("value", ""))
-                if "HP" in label or "Home Plate" in label:
-                    hp_umpire = value.strip()
-                    break
+                    game_info = boxscore.get("gameBoxInfo", [])
+                    hp_umpire = None
+                    for info_item in game_info:
+                        label = str(info_item.get("label", ""))
+                        value = str(info_item.get("value", ""))
+                        if "HP" in label or "Home Plate" in label:
+                            hp_umpire = value.strip()
+                            break
 
-            if not hp_umpire:
-                continue
+                    if not hp_umpire:
+                        continue
 
-            # Extract game scoring/strikeout data from team stats
-            away_stats = boxscore.get("awayBatting", {})
-            home_stats = boxscore.get("homeBatting", {})
+                    away_stats = boxscore.get("awayBatting", {})
+                    home_stats = boxscore.get("homeBatting", {})
 
-            total_k = 0
-            total_bb = 0
-            total_runs = 0
-            total_pa = 0
+                    total_k = 0
+                    total_bb = 0
+                    total_runs = 0
+                    total_pa = 0
 
-            for team_stats in [away_stats, home_stats]:
-                if isinstance(team_stats, dict):
-                    # Team totals row
-                    totals = team_stats.get("teamStats", {})
-                    if isinstance(totals, dict):
-                        batting = totals.get("batting", {})
-                        total_k += int(batting.get("strikeOuts", 0))
-                        total_bb += int(batting.get("baseOnBalls", 0))
-                        total_runs += int(batting.get("runs", 0))
-                        total_pa += int(batting.get("plateAppearances", batting.get("atBats", 0)))
+                    for team_stats in [away_stats, home_stats]:
+                        if isinstance(team_stats, dict):
+                            totals = team_stats.get("teamStats", {})
+                            if isinstance(totals, dict):
+                                batting = totals.get("batting", {})
+                                total_k += int(batting.get("strikeOuts", 0))
+                                total_bb += int(batting.get("baseOnBalls", 0))
+                                total_runs += int(batting.get("runs", 0))
+                                total_pa += int(batting.get("plateAppearances", batting.get("atBats", 0)))
 
-            if total_pa < 30:
-                continue
+                    if total_pa < 30:
+                        continue
 
-            if hp_umpire not in umpire_stats:
-                umpire_stats[hp_umpire] = {
-                    "games": 0,
-                    "total_k": 0,
-                    "total_bb": 0,
-                    "total_runs": 0,
-                    "total_pa": 0,
-                }
+                    if hp_umpire not in umpire_stats:
+                        umpire_stats[hp_umpire] = {
+                            "games": 0,
+                            "total_k": 0,
+                            "total_bb": 0,
+                            "total_runs": 0,
+                            "total_pa": 0,
+                        }
 
-            ump = umpire_stats[hp_umpire]
-            ump["games"] += 1
-            ump["total_k"] += total_k
-            ump["total_bb"] += total_bb
-            ump["total_runs"] += total_runs
-            ump["total_pa"] += total_pa
+                    ump = umpire_stats[hp_umpire]
+                    ump["games"] += 1
+                    ump["total_k"] += total_k
+                    ump["total_bb"] += total_bb
+                    ump["total_runs"] += total_runs
+                    ump["total_pa"] += total_pa
 
+                if umpire_stats:
+                    tier_used = "primary"
+                    league_games = sum(u["games"] for u in umpire_stats.values())
+                    logger.info(
+                        "T7 [primary]: extracted %d umpires from %d games",
+                        len(umpire_stats),
+                        league_games,
+                    )
+        except ImportError:
+            logger.warning("T7 [primary]: statsapi not installed; skipping Tier 1")
+        except Exception as exc:
+            logger.warning("T7 [primary]: extraction failed: %s", exc)
+
+        # ── Tier 2: Savant umpire scrape (NOT VIABLE — Savant 404s on /umpire) ──
+        # Documented as known limitation; we skip cleanly to Tier 3.
+        # If Savant ever publishes an umpire leaderboard, wire it here.
+
+        # ── Tier 3: shipped 2024 seed file (NEW) ───────────────────────────
+        seed_used = False
         if not umpire_stats:
-            # 2026-04-17 FIX: previously silently returned with no log write.
+            seed = _load_umpire_tendencies_seed()
+            if seed:
+                tier_used = "emergency"
+                seed_used = True
+                logger.warning(
+                    "T7 [emergency]: All live sources failed — using 2024 seed file (%d umpires)",
+                    len(seed),
+                )
+                # Convert seed rows into the same `umpire_stats` shape so the
+                # downstream INSERT loop is shared.
+                # The seed already has computed deltas + absolute values, so
+                # we mark a separate code path below.
+
+        if not umpire_stats and not seed_used:
             update_refresh_log(
                 "umpire_tendencies",
                 "no_data",
                 rows_written=0,
-                message="no umpire names extracted from completed-game boxscores",
+                message="all sources failed: schedule empty + no seed file",
             )
             return "Skipped: no umpire data extracted"
 
-        # Compute league averages for delta calculation
-        league_k = sum(u["total_k"] for u in umpire_stats.values())
-        league_bb = sum(u["total_bb"] for u in umpire_stats.values())
-        league_runs = sum(u["total_runs"] for u in umpire_stats.values())
-        league_pa = sum(u["total_pa"] for u in umpire_stats.values())
-        league_games = sum(u["games"] for u in umpire_stats.values())
-
-        avg_k_pct = league_k / max(1, league_pa)
-        avg_bb_pct = league_bb / max(1, league_pa)
-        avg_rpg = league_runs / max(1, league_games)
-
-        # Write to DB
         conn = get_connection()
         try:
             now = datetime.now(UTC).isoformat()
             updated = 0
-            for name, stats in umpire_stats.items():
-                if stats["games"] < 3:
-                    continue  # Need min sample size
-                k_pct = stats["total_k"] / max(1, stats["total_pa"])
-                bb_pct = stats["total_bb"] / max(1, stats["total_pa"])
-                rpg = stats["total_runs"] / max(1, stats["games"])
 
-                conn.execute(
-                    """INSERT OR REPLACE INTO umpire_tendencies
-                       (umpire_name, games_umped, k_pct, bb_pct, runs_per_game,
-                        k_pct_delta, bb_pct_delta, run_env_delta, season, fetched_at)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                    (
-                        name,
-                        stats["games"],
-                        round(k_pct, 4),
-                        round(bb_pct, 4),
-                        round(rpg, 2),
-                        round(k_pct - avg_k_pct, 4),
-                        round(bb_pct - avg_bb_pct, 4),
-                        round(rpg - avg_rpg, 2),
-                        year,
-                        now,
-                    ),
-                )
-                updated += 1
+            if seed_used:
+                # Seed path: write directly with stored deltas; season tagged 2024.
+                seed_rows = _load_umpire_tendencies_seed() or []
+                for row in seed_rows:
+                    if not row.get("name"):
+                        continue
+                    conn.execute(
+                        """INSERT OR REPLACE INTO umpire_tendencies
+                           (umpire_name, games_umped, k_pct, bb_pct, runs_per_game,
+                            k_pct_delta, bb_pct_delta, run_env_delta, season, fetched_at)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (
+                            row["name"],
+                            row["games"],
+                            round(row["k_pct"], 4),
+                            round(row["bb_pct"], 4),
+                            round(row["rpg"], 2),
+                            round(row["k_pct_delta"], 4),
+                            round(row["bb_pct_delta"], 4),
+                            round(row["run_env_delta"], 2),
+                            2024,
+                            now,
+                        ),
+                    )
+                    updated += 1
+            else:
+                # Live path: compute league averages + deltas and write.
+                league_k = sum(u["total_k"] for u in umpire_stats.values())
+                league_bb = sum(u["total_bb"] for u in umpire_stats.values())
+                league_runs = sum(u["total_runs"] for u in umpire_stats.values())
+                league_pa = sum(u["total_pa"] for u in umpire_stats.values())
+
+                avg_k_pct = league_k / max(1, league_pa)
+                avg_bb_pct = league_bb / max(1, league_pa)
+                avg_rpg = league_runs / max(1, league_games)
+
+                for name, stats in umpire_stats.items():
+                    if stats["games"] < 3:
+                        continue
+                    k_pct = stats["total_k"] / max(1, stats["total_pa"])
+                    bb_pct = stats["total_bb"] / max(1, stats["total_pa"])
+                    rpg = stats["total_runs"] / max(1, stats["games"])
+
+                    conn.execute(
+                        """INSERT OR REPLACE INTO umpire_tendencies
+                           (umpire_name, games_umped, k_pct, bb_pct, runs_per_game,
+                            k_pct_delta, bb_pct_delta, run_env_delta, season, fetched_at)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (
+                            name,
+                            stats["games"],
+                            round(k_pct, 4),
+                            round(bb_pct, 4),
+                            round(rpg, 2),
+                            round(k_pct - avg_k_pct, 4),
+                            round(bb_pct - avg_bb_pct, 4),
+                            round(rpg - avg_rpg, 2),
+                            year,
+                            now,
+                        ),
+                    )
+                    updated += 1
             conn.commit()
         finally:
             conn.close()
@@ -1578,17 +1663,25 @@ def _bootstrap_umpire_tendencies(progress: BootstrapProgress) -> str:
         try:
             from src.database import update_refresh_log_auto
 
+            tier_label = tier_used or "primary"
+            msg = (
+                f"{updated} umpires from 2024 seed [SEED]"
+                if seed_used
+                else f"{updated} umpires from {league_games} games (tier={tier_label})"
+            )
             status = update_refresh_log_auto(
                 "umpire_tendencies",
                 updated,
                 expected_min=10,
-                message=f"{updated} umpires from {league_games} games",
+                message=msg,
+                tier=tier_label,
             )
         except ImportError:
-            update_refresh_log("umpire_tendencies", "success")
+            update_refresh_log("umpire_tendencies", "success", tier=tier_used)
             status = "success"
-        logger.info("T7: Umpire tendencies — %d umpires from %d games", updated, league_games)
-        return f"Saved {updated} umpire profiles from {league_games} games ({status})"
+        logger.info("T7: Umpire tendencies — %d umpires updated (tier=%s)", updated, tier_used)
+        suffix = "from 2024 seed" if seed_used else f"from {league_games} games"
+        return f"Saved {updated} umpire profiles {suffix} via tier={tier_used} ({status})"
 
     except Exception as exc:
         logger.exception("T7 umpire tendencies failed: %s", exc)
@@ -1601,18 +1694,100 @@ def _bootstrap_umpire_tendencies(progress: BootstrapProgress) -> str:
         return f"Error: {exc}"
 
 
-def _bootstrap_catcher_framing(progress: BootstrapProgress) -> str:
-    """T8: Fetch catcher framing runs and pop time from pybaseball.
+def _fetch_catcher_framing_savant_scrape(year: int):
+    """Tier 2: scrape Savant's catcher-framing leaderboard via embedded JSON.
 
-    Uses Baseball Savant catcher framing leaderboards via pybaseball.
+    Uses browser headers to bypass Savant's 403-on-raw-requests behavior, then
+    extracts ``const data = [...]`` from the HTML. Returns a list of dicts in
+    a normalized shape (``framing_runs``, ``pop_time``, etc.) so the caller
+    can reuse the same row-mapping loop as the pybaseball path.
+    """
+    try:
+        from src.data_fetch_utils import fetch_savant_leaderboard_json
+    except ImportError:
+        return None
+
+    url = f"https://baseballsavant.mlb.com/leaderboard/catcher-framing?year={year}&team=&min=300&type=Pitcher&sort=4,1"
+    raw = fetch_savant_leaderboard_json(url)
+    if not raw:
+        return None
+
+    rows = []
+    for r in raw:
+        # Savant aggregates by (catcher, team) — we want the per-team rows
+        # but skip the 'zMLB' multi-team aggregate to avoid double-counting.
+        team = str(r.get("team_name", "")).strip()
+        if team == "zMLB":
+            continue
+        name_lf = r.get("f2_name_display_first_last", "")
+        if not name_lf:
+            continue
+        # Convert "Bailey, Patrick" → "Patrick Bailey" to match player table.
+        if "," in name_lf:
+            last, first = [p.strip() for p in name_lf.split(",", 1)]
+            name = f"{first} {last}"
+        else:
+            name = name_lf
+        rv_tot = float(r.get("rv_tot", 0.0) or 0.0)
+        pitches = int(r.get("pitches", 0) or 0)
+        # Savant exposes run value (rv_tot); framing_runs ≈ rv_tot here.
+        # Approximate games as pitches // 90 (typical 90 catcher pitches/game).
+        games = max(1, pitches // 90)
+        rows.append(
+            {
+                "name": name,
+                "framing_runs": rv_tot,
+                "games": games,
+                "pop_time": 0.0,
+                "cs_pct": 0.0,
+            }
+        )
+    return rows or None
+
+
+def _load_catcher_framing_seed():
+    """Tier 3: load 2024 seed data from data/seed/catcher_framing_2024.json.
+
+    Returns a list of dicts in the same normalized shape as the Tier 2 scraper
+    so the caller can apply one INSERT loop. ``None`` if the seed file is
+    missing or malformed.
+    """
+    seed_path = Path("data/seed/catcher_framing_2024.json")
+    if not seed_path.exists():
+        return None
+    try:
+        payload = json.loads(seed_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        logger.warning("T8: failed to parse seed file %s: %s", seed_path, exc)
+        return None
+
+    catchers = payload.get("catchers") or []
+    rows = []
+    for c in catchers:
+        rows.append(
+            {
+                "name": c.get("player_name", ""),
+                "framing_runs": float(c.get("framing_runs", 0.0) or 0.0),
+                "games": int(c.get("games", 0) or 0),
+                "pop_time": float(c.get("pop_time", 0.0) or 0.0),
+                "cs_pct": float(c.get("cs_pct", 0.0) or 0.0),
+            }
+        )
+    return rows or None
+
+
+def _bootstrap_catcher_framing(progress: BootstrapProgress) -> str:
+    """T8: Fetch catcher framing runs and pop time.
+
+    3-tier waterfall (SF-7):
+      Tier 1: pybaseball Savant + FanGraphs + statsapi (existing primary path)
+      Tier 2: direct Savant scrape with browser headers (NEW)
+      Tier 3: shipped 2024 seed file at data/seed/catcher_framing_2024.json (NEW)
+
+    refresh_log records which tier succeeded via update_refresh_log_auto(tier=...).
     """
     progress.phase = "Catcher Framing"
     progress.detail = "Fetching catcher framing + pop time..."
-
-    try:
-        import pybaseball  # noqa: F401
-    except ImportError:
-        return "Skipped: pybaseball not installed"
 
     try:
         import pandas as pd
@@ -1621,43 +1796,48 @@ def _bootstrap_catcher_framing(progress: BootstrapProgress) -> str:
 
         year = datetime.now(UTC).year
 
-        # 2026-04-17 FIX: swapped primary path to Baseball Savant's
-        # statcast_catcher_framing (pybaseball), which hits a different
-        # endpoint than the 403-blocked FanGraphs leaders-legacy.aspx.
-        # The former FanGraphs primary (batting_stats(pos="c")) is now the
-        # last fallback and is expected to 403 — it's kept only in case
-        # FanGraphs restores the endpoint.
+        # ── Tier 1: existing pybaseball path ──────────────────────────────
         framing_data = None
+        tier_used = None
         try:
-            from pybaseball import statcast_catcher_framing
+            import pybaseball  # noqa: F401
 
-            sv_df = statcast_catcher_framing(year)
-            if sv_df is not None and not sv_df.empty:
-                framing_data = sv_df
-                logger.info(
-                    "T8: Got %d catchers from Baseball Savant statcast_catcher_framing",
-                    len(sv_df),
-                )
-        except Exception as e:
-            logger.warning("T8: Savant catcher framing failed: %s", e)
-
-        if framing_data is None:
             try:
-                from pybaseball import batting_stats
+                from pybaseball import statcast_catcher_framing
 
-                fg_df = batting_stats(year, qual=0, pos="c")
-                if fg_df is not None and not fg_df.empty:
-                    framing_data = fg_df
-                    logger.info("T8: Got %d catchers from FanGraphs batting_stats", len(fg_df))
+                sv_df = statcast_catcher_framing(year)
+                if sv_df is not None and not sv_df.empty:
+                    framing_data = sv_df
+                    tier_used = "primary"
+                    logger.info(
+                        "T8 [primary]: Got %d catchers from pybaseball statcast_catcher_framing",
+                        len(sv_df),
+                    )
             except Exception as e:
-                logger.warning("T8: FanGraphs catcher stats failed: %s", e)
+                logger.warning("T8 [primary]: pybaseball Savant failed: %s", e)
+
+            if framing_data is None:
+                try:
+                    from pybaseball import batting_stats
+
+                    fg_df = batting_stats(year, qual=0, pos="c")
+                    if fg_df is not None and not fg_df.empty:
+                        framing_data = fg_df
+                        tier_used = "primary"
+                        logger.info(
+                            "T8 [primary]: Got %d catchers from FanGraphs batting_stats",
+                            len(fg_df),
+                        )
+                except Exception as e:
+                    logger.warning("T8 [primary]: FanGraphs catcher stats failed: %s", e)
+        except ImportError:
+            logger.warning("T8 [primary]: pybaseball not installed; skipping Tier 1")
 
         if framing_data is None:
-            # Fallback: use statsapi catcher stats
+            # statsapi-fielding sub-fallback (still Tier 1 conceptually)
             try:
                 import statsapi as _statsapi
 
-                # Get catchers from our DB and fetch their fielding stats
                 conn_temp = get_connection()
                 try:
                     catchers = pd.read_sql(
@@ -1666,15 +1846,6 @@ def _bootstrap_catcher_framing(progress: BootstrapProgress) -> str:
                     )
                 finally:
                     conn_temp.close()
-
-                if catchers.empty:
-                    update_refresh_log(
-                        "catcher_framing",
-                        "no_data",
-                        rows_written=0,
-                        message="no catchers in players table",
-                    )
-                    return "Skipped: no catchers in DB"
 
                 rows = []
                 for _, c in catchers.iterrows():
@@ -1695,25 +1866,54 @@ def _bootstrap_catcher_framing(progress: BootstrapProgress) -> str:
                                                 "cs_pct": float(split.get("caughtStealingPct", 0)) / 100.0
                                                 if split.get("caughtStealingPct")
                                                 else 0.0,
-                                                "pop_time": 0.0,  # Not available from statsapi
+                                                "pop_time": 0.0,
                                                 "framing_runs": 0.0,
                                             }
                                         )
                     except Exception:
                         continue
 
-                framing_data = pd.DataFrame(rows) if rows else None
-                if framing_data is not None:
-                    logger.info("T8: Got %d catchers from statsapi fielding", len(framing_data))
+                if rows:
+                    framing_data = pd.DataFrame(rows)
+                    tier_used = "primary"
+                    logger.info("T8 [primary]: Got %d catchers from statsapi fielding", len(rows))
             except Exception as e:
-                logger.warning("T8: statsapi catcher fallback failed: %s", e)
+                logger.warning("T8 [primary]: statsapi catcher fallback failed: %s", e)
+
+        # ── Tier 2: direct Savant scrape with browser headers (NEW) ───────
+        if framing_data is None or (hasattr(framing_data, "empty") and framing_data.empty):
+            try:
+                logger.info("T8 [fallback]: Attempting direct Savant scrape with browser headers")
+                scraped = _fetch_catcher_framing_savant_scrape(year)
+                if scraped:
+                    framing_data = pd.DataFrame(scraped)
+                    tier_used = "fallback"
+                    logger.info(
+                        "T8 [fallback]: Got %d catchers from Savant browser-header scrape",
+                        len(scraped),
+                    )
+            except Exception as e:
+                logger.warning("T8 [fallback]: Savant scrape failed: %s", e)
+
+        # ── Tier 3: shipped 2024 seed file (NEW) ──────────────────────────
+        seed_used = False
+        if framing_data is None or (hasattr(framing_data, "empty") and framing_data.empty):
+            seed = _load_catcher_framing_seed()
+            if seed:
+                framing_data = pd.DataFrame(seed)
+                tier_used = "emergency"
+                seed_used = True
+                logger.warning(
+                    "T8 [emergency]: All live sources failed — using 2024 seed file (%d catchers)",
+                    len(seed),
+                )
 
         if framing_data is None or framing_data.empty:
             update_refresh_log(
                 "catcher_framing",
                 "no_data",
                 rows_written=0,
-                message="all framing sources returned empty (Savant + FanGraphs + statsapi)",
+                message="all framing sources returned empty (primary + Savant scrape + seed)",
             )
             return "Skipped: no catcher data available"
 
@@ -1757,7 +1957,9 @@ def _bootstrap_catcher_framing(progress: BootstrapProgress) -> str:
                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
                         pid,
-                        year,
+                        # 2024 seed values stored under year=2024 to flag origin;
+                        # live data uses current year.
+                        2024 if seed_used else year,
                         round(framing_runs, 2),
                         round(framing_rpg, 4),
                         round(pop_time_val, 3),
@@ -1775,17 +1977,24 @@ def _bootstrap_catcher_framing(progress: BootstrapProgress) -> str:
         try:
             from src.database import update_refresh_log_auto
 
+            tier_label = tier_used or "primary"
+            msg_suffix = " [SEED]" if seed_used else ""
             status = update_refresh_log_auto(
                 "catcher_framing",
                 updated,
                 expected_min=10,
-                message=f"{updated} catchers from {len(framing_data)} rows",
+                message=f"{updated} catchers from {len(framing_data)} rows (tier={tier_label}){msg_suffix}",
+                tier=tier_label,
             )
         except ImportError:
-            update_refresh_log("catcher_framing", "success")
+            update_refresh_log("catcher_framing", "success", tier=tier_used)
             status = "success"
-        logger.info("T8: Catcher framing — %d catchers updated", updated)
-        return f"Saved {updated} catcher framing profiles ({status})"
+        logger.info(
+            "T8: Catcher framing — %d catchers updated (tier=%s)",
+            updated,
+            tier_used,
+        )
+        return f"Saved {updated} catcher framing profiles via tier={tier_used} ({status})"
 
     except Exception as exc:
         logger.exception("T8 catcher framing failed: %s", exc)
