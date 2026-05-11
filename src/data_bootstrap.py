@@ -420,12 +420,11 @@ def _bootstrap_park_factors(progress: BootstrapProgress) -> str:
             emergency_fn=_tier3_emergency,
         )
 
-        # For now, always use the emergency dict to build the factors list.
-        # When Tier 1 returns a DataFrame, we can extract park factors from it.
-        # This ensures the pipeline works immediately while Tier 1 matures.
-        source_dict = _PARK_FACTORS_EMERGENCY_2026
-        if isinstance(data, dict):
+        if isinstance(data, dict) and len(data) > 0:
             source_dict = data
+        else:
+            source_dict = _PARK_FACTORS_EMERGENCY_2026
+            tier = "emergency"
 
         factors = [
             {
