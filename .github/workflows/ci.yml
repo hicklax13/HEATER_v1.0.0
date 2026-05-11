@@ -57,6 +57,18 @@ jobs:
       - name: Run sample data generation
         run: python load_sample_data.py
 
+      # Structural-invariant tests (added 2026-05-10/11 during SF-15..SF-28 cleanup):
+      #   test_no_hardcoded_categories_in_src.py — LeagueConfig is sole source of category lists
+      #   test_pages_yahoo_compliance.py — pages use yahoo_data_service, not raw SQL
+      #   test_pages_format_compliance.py — pages use format_stat for ERA/WHIP precision
+      #   test_no_direct_sqlite_connect_in_scripts.py — scripts use get_connection
+      #   test_refresh_log_status_validity.py — bootstrap-emitted statuses must round-trip
+      #   test_app_no_hardcoded_categories.py / test_my_team_no_hardcoded_categories.py / test_sensitivity_categories_canonical.py
+      #   test_my_team_uses_pool.py / test_player_compare_uses_pool.py / test_trade_analyzer_uses_pool.py
+      #   test_pulp_availability_consolidation.py — single PULP_AVAILABLE source of truth
+      #   test_engine_no_fallback_singletons.py — engine modules don't ship _LC singleton fallbacks
+      # The pytest invocation below collects ALL tests under tests/ — these guards run automatically.
+      # Do NOT replace `tests/` with explicit -k filters or test paths without re-listing these files.
       - name: Run tests with coverage
         run: pytest tests/ -v --tb=short --cov=src --cov-report=term-missing --cov-fail-under=60
 
