@@ -104,7 +104,16 @@ def test_daily_optimizer_inverse_l_sign_flip():
 
 
 def test_trade_evaluator_zero_denom_skip():
-    """Pathological zero denoms must contribute zero, not divide-by-zero."""
+    """Pathological zero denoms must contribute zero, not divide-by-zero.
+
+    Note: this is a deliberate behavioural change vs the inline patterns in
+    daily_optimizer + trade_evaluator (which silently used denom=1.0 as
+    fallback and contributed the raw value). The unified
+    SGPCalculator.totals_sgp skips the cat — matches the V1-V6 mandate that
+    SGPCalculator is the SOLE entry point and should have unambiguous
+    pathological-denom semantics. Production LeagueConfig denoms are all
+    non-zero so this only affects test/configuration edge cases.
+    """
     cfg = LeagueConfig()
     cfg.sgp_denominators["R"] = 0.0  # pathological
     calc = SGPCalculator(cfg)
