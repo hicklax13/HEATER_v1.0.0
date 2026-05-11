@@ -462,11 +462,14 @@ def get_category_weights(
             compute_category_weights_from_analysis,
         )
 
+        # SF-21: thread the caller's config so live-standings denominators
+        # reach compute_marginal_sgp via category_gap_analysis.
         analysis = category_gap_analysis(
             your_totals=user_totals,
             all_team_totals=all_team_totals,
             your_team_id=user_team_name,
             weeks_remaining=weeks_remaining,
+            config=config,
         )
         return compute_category_weights_from_analysis(analysis)
     except Exception:
@@ -1033,7 +1036,8 @@ def generate_targeted_proposals(
     target_positions = str(target.get("positions", ""))
 
     # --- User category needs ---
-    gap_analysis = _get_user_gap_analysis(user_team_name, all_team_totals, weeks_remaining)
+    # SF-21: pass config so live-standings denominators propagate.
+    gap_analysis = _get_user_gap_analysis(user_team_name, all_team_totals, weeks_remaining, config=config)
     category_needs = compute_category_need_scores(gap_analysis, config)
 
     # --- Opponent needs (best-effort) ---
@@ -1042,7 +1046,9 @@ def generate_targeted_proposals(
         try:
             from src.opponent_trade_analysis import compute_opponent_needs
 
-            opp_needs_analysis = compute_opponent_needs(opponent_team_name, all_team_totals, weeks_remaining)
+            opp_needs_analysis = compute_opponent_needs(
+                opponent_team_name, all_team_totals, weeks_remaining, config=config
+            )
         except Exception:
             logger.debug("Could not compute opponent needs", exc_info=True)
 
@@ -1152,8 +1158,14 @@ def _get_user_gap_analysis(
     user_team_name: str | None,
     all_team_totals: dict[str, dict[str, float]] | None,
     weeks_remaining: int,
+    config: LeagueConfig | None = None,
 ) -> dict[str, dict]:
-    """Run category gap analysis for the user, returning empty on failure."""
+    """Run category gap analysis for the user, returning empty on failure.
+
+    SF-21: ``config`` (when provided) is forwarded to category_gap_analysis
+    so live-standings sgp_denominators propagate. Without it the call falls
+    back to category_analysis's stale module singleton.
+    """
     if not user_team_name or not all_team_totals:
         return {}
     user_totals = all_team_totals.get(user_team_name, {})
@@ -1167,6 +1179,7 @@ def _get_user_gap_analysis(
             all_team_totals=all_team_totals,
             your_team_id=user_team_name,
             weeks_remaining=weeks_remaining,
+            config=config,
         )
     except Exception:
         logger.debug("Could not compute user gap analysis", exc_info=True)
@@ -1553,7 +1566,8 @@ def recommend_trades_by_need(
     il_stash_names = _load_il_stash_names()
 
     # ── 1. User category needs ──────────────────────────────────────────
-    gap_analysis = _get_user_gap_analysis(user_team_name, all_team_totals, weeks_remaining)
+    # SF-21: pass config so live-standings denominators propagate.
+    gap_analysis = _get_user_gap_analysis(user_team_name, all_team_totals, weeks_remaining, config=config)
     category_needs = compute_category_need_scores(gap_analysis, config)
 
     # ── 2. Build user give-candidates (reuse existing helper) ───────────

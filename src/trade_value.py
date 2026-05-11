@@ -391,8 +391,9 @@ def compute_contextual_values(
                 how="left",
             )
 
-    # Get category weights from gap analysis
-    analysis = category_gap_analysis(user_totals, all_team_totals, user_team_name)
+    # Get category weights from gap analysis.
+    # SF-21: pass config so live-standings sgp_denominators propagate.
+    analysis = category_gap_analysis(user_totals, all_team_totals, user_team_name, config=config)
     weights = compute_category_weights_from_analysis(analysis)
 
     sgp_calc = SGPCalculator(config)

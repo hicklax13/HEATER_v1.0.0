@@ -971,7 +971,8 @@ def scan_1_for_1(
         try:
             from src.opponent_trade_analysis import compute_opponent_needs, get_opponent_archetype
 
-            opp_needs_analysis = compute_opponent_needs(opponent_team_name, all_team_totals)
+            # SF-21: pass config so live-standings denominators propagate.
+            opp_needs_analysis = compute_opponent_needs(opponent_team_name, all_team_totals, config=config)
             arch = get_opponent_archetype(opponent_team_name)
             opp_archetype_willingness = arch.get("trade_willingness", 0.5)
         except Exception:
@@ -1548,7 +1549,14 @@ def _compute_user_category_profile(
         if not user_totals:
             return {}
 
-        gap_analysis = category_gap_analysis(user_totals, all_team_totals, user_team_name, weeks_remaining)
+        # SF-21: pass the caller's config so denominators reflect live standings.
+        gap_analysis = category_gap_analysis(
+            user_totals,
+            all_team_totals,
+            user_team_name,
+            weeks_remaining,
+            config=config,
+        )
 
         profile = {}
         for cat, info in gap_analysis.items():
