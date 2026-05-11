@@ -707,13 +707,17 @@ def _bootstrap_contracts(progress: BootstrapProgress) -> str:
     progress.detail = "Fetching free agent list..."
     try:
         from src.contract_data import fetch_contract_year_players
-        from src.database import update_refresh_log
+        from src.database import update_refresh_log_auto
 
         names = fetch_contract_year_players()
-        if names:
-            _persist_contract_years(names)
-        update_refresh_log("contracts", "success")
-        return f"Contracts: {len(names)} players in contract year"
+        matched = _persist_contract_years(names) if names else 0
+        update_refresh_log_auto(
+            "contracts",
+            matched,
+            expected_min=1,
+            message=f"{matched} players flagged contract_year=1 (from {len(names)} fetched)",
+        )
+        return f"Contracts: {matched} players flagged (from {len(names)} fetched)"
     except Exception as e:
         logger.warning("Contract data bootstrap failed: %s", e)
         return f"Contracts: error ({e})"
