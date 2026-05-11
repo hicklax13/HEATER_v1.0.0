@@ -30,6 +30,7 @@ from typing import Any
 import numpy as np
 
 from src.engine.portfolio.category_analysis import CATEGORIES, INVERSE_CATEGORIES
+from src.valuation import LeagueConfig, SGPCalculator
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +101,11 @@ def run_paired_monte_carlo(
     if sgp_denominators is None:
         sgp_denominators = _default_sgp_denoms()
 
+    # Hoist SGPCalculator instantiation out of the hot loop.
+    # _simulate_roster_sgp is called 4x per paired iteration; with n_sims=10_000
+    # that's 40_000 instantiations otherwise.
+    sgp_calc = SGPCalculator(LeagueConfig(), denominators=sgp_denominators)
+
     rng_master = np.random.RandomState(seed)
 
     # Pre-compute team totals array for standings comparison
@@ -125,6 +131,7 @@ def run_paired_monte_carlo(
             sgp_denominators=sgp_denominators,
             seed=sim_seed,
             weeks_remaining=weeks_remaining,
+            sgp_calc=sgp_calc,
         )
         after_total_sgp = _simulate_roster_sgp(
             roster_stats=after_roster_stats,
@@ -133,6 +140,7 @@ def run_paired_monte_carlo(
             sgp_denominators=sgp_denominators,
             seed=sim_seed,
             weeks_remaining=weeks_remaining,
+            sgp_calc=sgp_calc,
         )
 
         surpluses[sim_idx * 2] = after_total_sgp - before_total_sgp
@@ -149,6 +157,7 @@ def run_paired_monte_carlo(
             sgp_denominators=sgp_denominators,
             seed=anti_seed,
             weeks_remaining=weeks_remaining,
+            sgp_calc=sgp_calc,
         )
         after_anti = _simulate_roster_sgp(
             roster_stats=after_roster_stats,
@@ -157,6 +166,7 @@ def run_paired_monte_carlo(
             sgp_denominators=sgp_denominators,
             seed=anti_seed,
             weeks_remaining=weeks_remaining,
+            sgp_calc=sgp_calc,
         )
 
         surpluses[sim_idx * 2 + 1] = after_anti - before_anti
@@ -225,6 +235,7 @@ def _simulate_roster_sgp(
     sgp_denominators: dict[str, float],
     seed: int,
     weeks_remaining: int,
+    sgp_calc: SGPCalculator | None = None,
 ) -> float:
     """Simulate one season and compute total SGP for a roster.
 
@@ -383,20 +394,10 @@ def _simulate_roster_sgp(
     # WHIP = sum(BB + H_allowed) / sum(IP)
     roster_totals["WHIP"] = total_bb_h_allowed / total_ip if total_ip > 0 else 0.0
 
-    # Convert totals to SGP
-    total_sgp = 0.0
-    for cat in CATEGORIES:
-        denom = sgp_denominators.get(cat, 1.0)
-        if abs(denom) < 1e-9:
-            denom = 1.0
-
-        if cat in INVERSE_CATEGORIES:
-            # Lower is better: negative SGP contribution for high ERA/WHIP
-            total_sgp -= roster_totals[cat] / denom
-        else:
-            total_sgp += roster_totals[cat] / denom
-
-    return total_sgp
+    # Convert totals to SGP via SGPCalculator (single source of truth)
+    if sgp_calc is None:
+        sgp_calc = SGPCalculator(LeagueConfig(), denominators=sgp_denominators)
+    return sgp_calc.totals_sgp(roster_totals)
 
 
 def _compute_other_teams_sgp(

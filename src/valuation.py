@@ -197,6 +197,33 @@ class SGPCalculator:
         """Total SGP across all categories."""
         return sum(self.player_sgp(player).values())
 
+    def totals_sgp(self, totals: dict, weights: dict | None = None) -> float:
+        """Convert pre-aggregated roster category totals to total SGP.
+
+        Single source of truth for the (value / denom) * sign summation across
+        categories. Use this instead of inline ``(val/denom)*sign`` loops.
+
+        Args:
+            totals: Dict mapping category (e.g. "R", "ERA") to aggregated value.
+                For rate stats (AVG/OBP/ERA/WHIP) the value should already be the
+                volume-weighted team rate.
+            weights: Optional per-category weight multiplier. None = unweighted.
+
+        Returns:
+            Sum of ``(totals[cat] / denominator) * sign * weight`` across all
+            categories, with sign = -1 for inverse stats (L, ERA, WHIP).
+        """
+        total = 0.0
+        for cat in self.config.all_categories:
+            denom = self._denominators.get(cat, 1.0)
+            if abs(denom) < 1e-9:
+                denom = 1.0
+            val = totals.get(cat, 0.0)
+            w = (weights or {}).get(cat, 1.0)
+            sign = -1.0 if cat in self.config.inverse_stats else 1.0
+            total += sign * (val / denom) * w
+        return total
+
     def marginal_sgp(self, player: pd.Series, roster_totals: dict, category_weights: dict = None) -> dict:
         """Compute marginal SGP contribution given current roster totals.
 
