@@ -422,6 +422,14 @@ def build_daily_dcv_table(
 
         config = LeagueConfig()
 
+    # SF-25: Single SGPCalculator instance reused across all players + cats.
+    # Replaces the inline weighted_dcv/denom + manual sign-flip for counting
+    # stats at the per-category branch below; keeps math centralized in
+    # SGPCalculator.totals_sgp (the V1-V6 unified entry point).
+    from src.valuation import SGPCalculator
+
+    sgp_calc = SGPCalculator(config)
+
     if park_factors is None:
         park_factors = {}
 
@@ -932,14 +940,12 @@ def build_daily_dcv_table(
                     sgp_dcv = annual_sgp * daily_frac * matchup_mult * health * volume
                     if not _external_urgency:
                         sgp_dcv *= urgency.get(cat, 0.5)
-            elif abs(denom) > 1e-9:
-                if cat in config.inverse_stats:
-                    # Counting inverse stats (L): more is bad, so negate.
-                    sgp_dcv = -weighted_dcv / denom
-                else:
-                    sgp_dcv = weighted_dcv / denom
             else:
-                sgp_dcv = 0.0
+                # SF-25: counting-stat SGP via canonical SGPCalculator.
+                # Equivalent to (weighted_dcv / denom) * sign — sign is -1
+                # for inverse cats (L), +1 otherwise; pathological
+                # zero-denom cats contribute 0 (matches prior else branch).
+                sgp_dcv = sgp_calc.totals_sgp({cat: weighted_dcv})
 
             # T3-5a: Stuff+ boost for pitcher K DCV
             if col == "k" and not is_hitter:
