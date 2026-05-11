@@ -82,6 +82,10 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+# Module-level LeagueConfig — single source of truth for category lists.
+# Replaces hardcoded ["R","HR",...] literals across the file (SF-26 follow-up).
+_LC = LeagueConfig()
+
 st.set_page_config(
     page_title="Heater",
     page_icon="",
@@ -2053,22 +2057,24 @@ def _render_radar_chart(ds, pool):
     user_totals = ds.get_user_roster_totals(pool)
     all_totals = ds.get_all_team_roster_totals(pool)
 
-    cat_keys = ["R", "HR", "RBI", "SB", "AVG", "OBP", "W", "L", "SV", "K", "ERA", "WHIP"]
-    cat_display = [
-        "Runs",
-        "Home Runs",
-        "Runs Batted In",
-        "Stolen Bases",
-        "Batting Average",
-        "On-Base Percentage",
-        "Wins",
-        "Losses",
-        "Saves",
-        "Strikeouts",
-        "Earned Run Average",
-        "Walks + Hits per Inning Pitched",
-    ]
-    invert = {"ERA", "WHIP", "L"}  # lower is better
+    cat_keys = list(_LC.all_categories)
+    # Display labels keyed by category code; mapping covers the full 12-cat slate.
+    _CAT_DISPLAY = {
+        "R": "Runs",
+        "HR": "Home Runs",
+        "RBI": "Runs Batted In",
+        "SB": "Stolen Bases",
+        "AVG": "Batting Average",
+        "OBP": "On-Base Percentage",
+        "W": "Wins",
+        "L": "Losses",
+        "SV": "Saves",
+        "K": "Strikeouts",
+        "ERA": "Earned Run Average",
+        "WHIP": "Walks + Hits per Inning Pitched",
+    }
+    cat_display = [_CAT_DISPLAY.get(c, c) for c in cat_keys]
+    invert = set(_LC.inverse_stats)  # lower is better (L, ERA, WHIP)
 
     user_vals = []
     avg_vals = []
@@ -2133,7 +2139,11 @@ def _render_balance_bars(ds, pool):
     totals = ds.get_user_roster_totals(pool)
     all_totals = ds.get_all_team_roster_totals(pool)
 
-    cat_keys = ["R", "HR", "RBI", "SB", "AVG", "W", "SV", "K", "ERA", "WHIP"]
+    # Fallback bar chart historically shows 10 of 12 cats (OBP and L omitted to keep the
+    # progress-bar list compact when plotly is unavailable). Derive from LeagueConfig
+    # then drop the same two so we still surface a roster slate without hardcoding.
+    _BALANCE_BAR_OMIT = {"OBP", "L"}
+    cat_keys = [c for c in _LC.all_categories if c not in _BALANCE_BAR_OMIT]
     cat_names = {
         "R": "Runs",
         "HR": "Home Runs",
@@ -2152,7 +2162,7 @@ def _render_balance_bars(ds, pool):
         max_val = max(avgs) if avgs else 1
         if max_val == 0:
             max_val = 1
-        pct = min(uv / max_val, 1.0) if cat not in {"ERA", "WHIP"} else min(1 - (uv / max(max_val, 0.01)), 1.0)
+        pct = min(uv / max_val, 1.0) if cat not in _LC.inverse_stats else min(1 - (uv / max(max_val, 0.01)), 1.0)
         pct = max(pct, 0)
         display = cat_names[cat]
         st.markdown(f"**{display}**: {uv:.2f}")
