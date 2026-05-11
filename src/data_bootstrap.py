@@ -1108,25 +1108,15 @@ def _bootstrap_stuff_plus(progress: BootstrapProgress) -> str:
                     values_ss,
                 )
 
-                # Update statcast_archive (upsert: insert if missing)
-                existing = conn.execute(
-                    "SELECT 1 FROM statcast_archive WHERE player_id = ? AND season = ?",
-                    (pid, year),
-                ).fetchone()
-                if existing:
-                    values_sa = values + [pid, year]
-                    conn.execute(
-                        f"UPDATE statcast_archive SET {', '.join(set_parts)} WHERE player_id = ? AND season = ?",
-                        values_sa,
-                    )
-                else:
-                    insert_cols = ["player_id", "season"] + found_cols
+                present_cols = [c for c in found_cols if pd.notna(row.get(c))]
+                if present_cols:
+                    insert_cols = ["player_id", "season"] + present_cols
                     placeholders = ", ".join(["?"] * len(insert_cols))
-                    insert_vals = [pid, year] + [
-                        float(row.get(c)) if pd.notna(row.get(c)) else None for c in found_cols
-                    ]
+                    insert_vals = [pid, year] + [float(row.get(c)) for c in present_cols]
+                    update_clause = ", ".join(f"{c} = excluded.{c}" for c in present_cols)
                     conn.execute(
-                        f"INSERT INTO statcast_archive ({', '.join(insert_cols)}) VALUES ({placeholders})",
+                        f"INSERT INTO statcast_archive ({', '.join(insert_cols)}) VALUES ({placeholders}) "
+                        f"ON CONFLICT(player_id, season) DO UPDATE SET {update_clause}",
                         insert_vals,
                     )
 
@@ -1247,37 +1237,19 @@ def _bootstrap_batting_stats(progress: BootstrapProgress) -> str:
                 if pid is None:
                     continue
 
-                set_parts = []
-                values = []
-                for col in target_cols:
-                    val = row.get(col)
-                    if pd.notna(val):
-                        set_parts.append(f"{col} = ?")
-                        values.append(float(val))
-
-                if not set_parts:
+                present_cols = [c for c in target_cols if pd.notna(row.get(c))]
+                if not present_cols:
                     continue
 
-                # Upsert statcast_archive
-                existing = conn.execute(
-                    "SELECT 1 FROM statcast_archive WHERE player_id = ? AND season = ?",
-                    (pid, year),
-                ).fetchone()
-                if existing:
-                    conn.execute(
-                        f"UPDATE statcast_archive SET {', '.join(set_parts)} WHERE player_id = ? AND season = ?",
-                        values + [pid, year],
-                    )
-                else:
-                    insert_cols = ["player_id", "season"] + target_cols
-                    placeholders = ", ".join(["?"] * len(insert_cols))
-                    insert_vals = [pid, year] + [
-                        float(row.get(c)) if pd.notna(row.get(c)) else None for c in target_cols
-                    ]
-                    conn.execute(
-                        f"INSERT INTO statcast_archive ({', '.join(insert_cols)}) VALUES ({placeholders})",
-                        insert_vals,
-                    )
+                insert_cols = ["player_id", "season"] + present_cols
+                placeholders = ", ".join(["?"] * len(insert_cols))
+                insert_vals = [pid, year] + [float(row.get(c)) for c in present_cols]
+                update_clause = ", ".join(f"{c} = excluded.{c}" for c in present_cols)
+                conn.execute(
+                    f"INSERT INTO statcast_archive ({', '.join(insert_cols)}) VALUES ({placeholders}) "
+                    f"ON CONFLICT(player_id, season) DO UPDATE SET {update_clause}",
+                    insert_vals,
+                )
                 updated += 1
 
             conn.commit()
@@ -1383,20 +1355,11 @@ def _bootstrap_sprint_speed(progress: BootstrapProgress) -> str:
                     continue
                 speed = float(speed)
 
-                existing = conn.execute(
-                    "SELECT 1 FROM statcast_archive WHERE player_id = ? AND season = ?",
-                    (pid, year),
-                ).fetchone()
-                if existing:
-                    conn.execute(
-                        "UPDATE statcast_archive SET sprint_speed = ? WHERE player_id = ? AND season = ?",
-                        (speed, pid, year),
-                    )
-                else:
-                    conn.execute(
-                        "INSERT INTO statcast_archive (player_id, season, sprint_speed) VALUES (?, ?, ?)",
-                        (pid, year, speed),
-                    )
+                conn.execute(
+                    "INSERT INTO statcast_archive (player_id, season, sprint_speed) VALUES (?, ?, ?) "
+                    "ON CONFLICT(player_id, season) DO UPDATE SET sprint_speed = excluded.sprint_speed",
+                    (pid, year, speed),
+                )
                 updated += 1
 
             conn.commit()
@@ -2081,20 +2044,11 @@ def _bootstrap_bat_speed(progress: BootstrapProgress) -> str:
                 if pd.isna(speed):
                     continue
 
-                existing = conn.execute(
-                    "SELECT 1 FROM statcast_archive WHERE player_id = ? AND season = ?",
-                    (pid, year),
-                ).fetchone()
-                if existing:
-                    conn.execute(
-                        "UPDATE statcast_archive SET bat_speed = ? WHERE player_id = ? AND season = ?",
-                        (float(speed), pid, year),
-                    )
-                else:
-                    conn.execute(
-                        "INSERT INTO statcast_archive (player_id, season, bat_speed) VALUES (?, ?, ?)",
-                        (pid, year, float(speed)),
-                    )
+                conn.execute(
+                    "INSERT INTO statcast_archive (player_id, season, bat_speed) VALUES (?, ?, ?) "
+                    "ON CONFLICT(player_id, season) DO UPDATE SET bat_speed = excluded.bat_speed",
+                    (pid, year, float(speed)),
+                )
                 updated += 1
             conn.commit()
         finally:
