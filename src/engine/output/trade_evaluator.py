@@ -885,12 +885,16 @@ def evaluate_trade(
         if all_team_totals and user_team_name and user_team_name in all_team_totals:
             your_totals = all_team_totals[user_team_name]
 
-            # Step 4: Gap analysis with punt detection
+            # Step 4: Gap analysis with punt detection.
+            # SF-21: thread the live config so category_gap_analysis uses
+            # standings-derived sgp_denominators (or whatever the caller
+            # passed in) instead of the stale module-level singleton.
             cat_analysis = category_gap_analysis(
                 your_totals=your_totals,
                 all_team_totals=all_team_totals,
                 your_team_id=user_team_name,
                 weeks_remaining=weeks_remaining,
+                config=config,
             )
 
             # Extract punt categories and compute weights

@@ -13,6 +13,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     import pandas as pd
 
+    from src.valuation import LeagueConfig
+
 logger = logging.getLogger(__name__)
 
 
@@ -20,14 +22,17 @@ def compute_opponent_needs(
     opponent_team_name: str,
     all_team_totals: dict[str, dict[str, float]],
     weeks_remaining: int = 16,
+    config: LeagueConfig | None = None,
 ) -> dict[str, dict]:
     """Run category_gap_analysis from the opponent's perspective.
 
     Returns same structure as category_gap_analysis(): per-category
     rank, is_punt, marginal_value, gap_to_next, gainable_positions.
 
-    Note: config is not accepted here because category_gap_analysis()
-    uses its own module-level LeagueConfig internally.
+    SF-21: ``config`` (when provided) is forwarded to category_gap_analysis
+    so the live-standings sgp_denominators propagate. Without it the call
+    falls back to category_analysis.py's stale module-level LeagueConfig
+    singleton, which only has pre-season defaults.
     """
 
     opp_totals = all_team_totals.get(opponent_team_name, {})
@@ -42,6 +47,7 @@ def compute_opponent_needs(
             all_team_totals=all_team_totals,
             your_team_id=opponent_team_name,
             weeks_remaining=weeks_remaining,
+            config=config,
         )
     except Exception:
         logger.debug(
@@ -75,8 +81,10 @@ def analyze_from_opponent_view(
 
     from src.in_season import _roster_category_totals
 
-    # Get opponent's current needs
-    opp_needs = compute_opponent_needs(opponent_team_name, all_team_totals)
+    # Get opponent's current needs.
+    # SF-21: forward config so live-standings denominators reach
+    # category_gap_analysis via compute_opponent_needs.
+    opp_needs = compute_opponent_needs(opponent_team_name, all_team_totals, config=config)
     if not opp_needs:
         return {
             "opp_category_deltas": {},
