@@ -1970,7 +1970,7 @@ def upsert_league_standing(team_name: str, category: str, total: float, rank: in
         conn.close()
 
 
-_VALID_REFRESH_STATUSES = frozenset({"success", "partial", "no_data", "skipped", "error", "unknown"})
+_VALID_REFRESH_STATUSES = frozenset({"success", "partial", "cached", "skipped", "no_data", "error", "unknown"})
 
 
 def update_refresh_log(
@@ -2043,6 +2043,20 @@ def update_refresh_log_auto(
         rows_written <= 0                  → "no_data"
         0 < rows_written < expected_min    → "partial"
         rows_written >= expected_min       → "success"
+
+    Valid status strings accepted by ``update_refresh_log`` (any other value
+    is downgraded to ``"unknown"``):
+
+        - ``"success"``  — phase completed and wrote >= expected_min rows
+        - ``"partial"``  — phase wrote some rows but < expected_min
+        - ``"cached"``   — phase reused an already-fresh cache (no fetch)
+        - ``"skipped"``  — phase intentionally bypassed (e.g. dependency missing)
+        - ``"no_data"``  — phase ran but the upstream returned 0 rows
+        - ``"error"``    — phase raised or the upstream signalled failure
+
+    ``update_refresh_log_auto`` itself only emits the four count-derived
+    statuses above; ``"cached"`` and ``"skipped"`` are written directly via
+    ``update_refresh_log`` by phases that know they short-circuited.
 
     ``tier`` tracks which data-fetch tier was used: ``"primary"``,
     ``"fallback"``, ``"emergency"``, or ``None`` (unknown/not applicable).
