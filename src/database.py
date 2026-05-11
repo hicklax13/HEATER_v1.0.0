@@ -1581,6 +1581,18 @@ def _load_player_pool_impl() -> pd.DataFrame:
             if not df.empty:
                 return _enrich_pool(coerce_numeric_df(df))
 
+        # Check whether blended projections actually exist in the projections table.
+        # C9 (SF-2 fallback gate fix): Previously the gate was `if df.empty:` after the
+        # blended query, but the blended SELECT does `FROM players p LEFT JOIN projections`,
+        # so it returns one row per player regardless of whether any blended projection
+        # rows exist. That made the AVG-across-systems fallback dead code in production
+        # (it could only fire when the players table itself was empty, in which case the
+        # fallback also returned empty). Probe the projections table directly so the
+        # fallback fires when blended is missing but other systems (steamer/zips/etc.)
+        # are present — the actual scenario it was designed to handle.
+        cursor.execute("SELECT COUNT(*) FROM projections WHERE system = 'blended'")
+        blended_count = cursor.fetchone()[0]
+
         # Fallback: static blended projections (pre-season Steamer/ZiPS/DepthCharts)
         # Note: Do NOT use CAST on numeric columns — Python 3.14 SQLite returns raw bytes
         # for NumPy integers, and CAST corrupts them. Fix bytes in Python after loading.
@@ -1641,8 +1653,13 @@ def _load_player_pool_impl() -> pd.DataFrame:
             conn,
         )
 
-        # If no blended projections exist, try averaging any available system
-        if df.empty:
+        # If no blended projections exist, try averaging any available system.
+        # Use blended_count probe (above) rather than `df.empty`, since the blended
+        # SELECT uses `FROM players p LEFT JOIN projections` and returns a row per
+        # player regardless of whether any blended rows exist. df.empty would only
+        # be True when the players table itself is empty, which makes the fallback
+        # dead code in that case.
+        if blended_count == 0:
             df = pd.read_sql_query(
                 """
                 SELECT
