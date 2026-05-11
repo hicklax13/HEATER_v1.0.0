@@ -864,23 +864,42 @@ def _persist_depth_chart_roles(depth_data: dict) -> int:
 def _bootstrap_depth_charts(progress: BootstrapProgress) -> str:
     """Fetch depth charts and persist roles/lineup slots to DB.
 
-    Depth chart source (Roster Resource / FanGraphs) returns empty when the
-    endpoint is unavailable or JS-gated. Surface that as a Skip rather than
-    a bare "no data" so the Data Status panel is self-explanatory.
+    Two-tier fetch (SF-5 fix, 2026-05-10):
+
+    1. **Primary** — Roster Resource scrape (``fetch_depth_charts``).
+       Often returns empty: the endpoint is JS-gated or 403's non-browser UAs.
+    2. **Fallback** — MLB Stats API ``team_roster`` hydration
+       (``fetch_depth_charts_via_statsapi``). Classifies pitchers by
+       ``gamesStarted`` / ``saves`` and treats all position players as lineup
+       starters. Less precise than Roster Resource (no batting order, no SU/MR
+       distinction), but sufficient to populate ``depth_chart_role`` and
+       ``lineup_slot`` so the closer monitor + lineup protection are not
+       silently degraded.
+
+    The ``tier`` column on ``refresh_log`` records which source actually
+    succeeded so the Data Status panel can show "fallback" honestly.
     """
     progress.phase = "Depth Charts"
     progress.detail = "Fetching depth charts..."
     try:
         from src.database import update_refresh_log
-        from src.depth_charts import fetch_depth_charts
+        from src.depth_charts import fetch_depth_charts, fetch_depth_charts_via_statsapi
 
+        # Tier 1: Roster Resource scrape (primary, more accurate)
         depth_data = fetch_depth_charts()
+        tier = "primary"
+        if not depth_data:
+            # Tier 2: MLB Stats API fallback (rotation/closer detection)
+            progress.detail = "Roster Resource empty — falling back to MLB Stats API..."
+            depth_data = fetch_depth_charts_via_statsapi()
+            tier = "fallback" if depth_data else None
+
         if depth_data:
             count = _persist_depth_chart_roles(depth_data)
-            update_refresh_log("depth_charts", "success")
-            return f"Depth charts: {len(depth_data)} teams, {count} roles persisted"
+            update_refresh_log("depth_charts", "success", tier=tier)
+            return f"Depth charts: {len(depth_data)} teams, {count} roles persisted ({tier})"
         update_refresh_log("depth_charts", "no_data")
-        return "Skipped: depth chart endpoint returned no data"
+        return "Skipped: depth chart endpoints returned no data (Roster Resource + MLB Stats API both empty)"
     except Exception as e:
         logger.warning("Depth chart bootstrap failed: %s", e)
         return _format_fetch_error(e, "Depth charts")
