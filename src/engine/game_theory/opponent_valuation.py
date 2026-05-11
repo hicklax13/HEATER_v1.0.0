@@ -25,13 +25,22 @@ from src.valuation import LeagueConfig as _LC_Class
 
 logger = logging.getLogger(__name__)
 
-_LC = _LC_Class()
-CATEGORIES: list[str] = list(_LC.all_categories)
-INVERSE_CATEGORIES: set[str] = set(_LC.inverse_stats)
+# C6/C7 partial cleanup: module-level _LC singleton removed (was causing stale
+# denominator reads when callers updated their LeagueConfig). Module constants
+# below capture immutable category metadata at import time. The numeric
+# DEFAULT_SGP_DENOMS dict below is intentionally retained as a no-config
+# fallback because:
+#   * its values differ from ``LeagueConfig().sgp_denominators`` (e.g., HR
+#     is 12.0 here vs 13.0 in LeagueConfig — empirically calibrated for the
+#     opponent-valuation Vickrey auction logic),
+#   * existing tests (test_trade_engine_math.py) assert math based on these
+#     specific numbers, and
+#   * trade_evaluator.py:1501 passes ``config.sgp_denominators`` explicitly,
+#     so the live-config path already works for production callers.
+# A future task can migrate the no-config callers and then remove this dict.
+CATEGORIES: list[str] = list(_LC_Class().all_categories)
+INVERSE_CATEGORIES: set[str] = set(_LC_Class().inverse_stats)
 
-# Default SGP denominators for when standings unavailable.
-# Kept as a module-level fallback for backward compatibility — callers should
-# prefer passing a ``LeagueConfig`` and using ``config.sgp_denominators``.
 DEFAULT_SGP_DENOMS: dict[str, float] = {
     "R": 30.0,
     "HR": 12.0,
