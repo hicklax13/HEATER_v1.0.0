@@ -2578,15 +2578,37 @@ def _bootstrap_draft_results(progress: BootstrapProgress, yahoo_client=None) -> 
         # Save all draft picks (reuse existing db helper)
         saved = save_league_draft_picks(df)
 
-        # Flag rounds 1-3 as undroppable in league_rosters
-        undroppable_names = df[df["round"] <= 3]["player_name"].tolist()
+        # Flag rounds 1-3 as undroppable in league_rosters (by player_id, not name)
+        undroppable_pick_rows = df[df["round"] <= 3]
+        # Prefer existing player_id from draft DF; fall back to name resolution
+        undroppable_player_ids: list[int] = []
         conn = get_connection()
         try:
             conn.execute("UPDATE league_rosters SET is_undroppable = 0")
-            for name in undroppable_names:
+            for _, pick_row in undroppable_pick_rows.iterrows():
+                pid_raw = pick_row.get("player_id")
+                if pid_raw is not None and not (isinstance(pid_raw, float) and pid_raw != pid_raw):  # NaN check
+                    try:
+                        pid = int(pid_raw)
+                    except (TypeError, ValueError):
+                        pid = None
+                else:
+                    pid = None
+                if pid is None:
+                    # Resolve by name as last resort
+                    name = pick_row.get("player_name", "")
+                    row = conn.execute("SELECT player_id FROM players WHERE name = ? LIMIT 1", (name,)).fetchone()
+                    pid = row[0] if row else None
+                if pid is None:
+                    logger.warning(
+                        "Could not resolve player_id for draft pick: %s",
+                        pick_row.to_dict(),
+                    )
+                    continue
+                undroppable_player_ids.append(pid)
                 conn.execute(
-                    "UPDATE league_rosters SET is_undroppable = 1 WHERE name = ?",
-                    (name,),
+                    "UPDATE league_rosters SET is_undroppable = 1 WHERE player_id = ?",
+                    (pid,),
                 )
             conn.commit()
         finally:
@@ -2596,9 +2618,9 @@ def _bootstrap_draft_results(progress: BootstrapProgress, yahoo_client=None) -> 
             "draft_results",
             saved,
             expected_min=200,
-            message=f"{saved} picks, {len(undroppable_names)} undroppable",
+            message=f"{saved} picks, {len(undroppable_player_ids)} undroppable",
         )
-        return f"Saved {saved} picks, {len(undroppable_names)} undroppable"
+        return f"Saved {saved} picks, {len(undroppable_player_ids)} undroppable"
     except Exception as exc:
         logger.exception("Draft results fetch failed: %s", exc)
         from src.database import update_refresh_log
