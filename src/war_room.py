@@ -14,13 +14,16 @@ from typing import Any
 
 import pandas as pd
 
+from src.valuation import LeagueConfig as _LC_Class
+
 logger = logging.getLogger(__name__)
 
+_LC = _LC_Class()
 # Categories where lower is better
-INVERSE_CATS = {"L", "ERA", "WHIP"}
+INVERSE_CATS = set(_LC.inverse_stats)
 
 # Rate stats (non-counting)
-RATE_CATS = {"AVG", "OBP", "ERA", "WHIP"}
+RATE_CATS = set(_LC.rate_stats)
 
 # U3: Per-category weekly SD thresholds (from FanGraphs 48-league empirical study).
 # Flippable = gap within 1.5x weekly SD. Replaces flat _COUNTING_THRESHOLD=3.

@@ -2236,9 +2236,10 @@ def build_category_heatmap_html(user_totals: dict, all_totals: list[dict]) -> st
         "ERA": "Earned Run Average",
         "WHIP": "Walks + Hits per Inning Pitched",
     }
-    rate_fmt = {"AVG", "OBP", "ERA", "WHIP"}
+    _lc = _LC_Class()
+    rate_fmt = set(_lc.rate_stats)
     # Inverse stats: lower is better
-    inverse_cats = {"L", "ERA", "WHIP"}
+    inverse_cats = set(_lc.inverse_stats)
 
     num_teams = len(all_totals)
 

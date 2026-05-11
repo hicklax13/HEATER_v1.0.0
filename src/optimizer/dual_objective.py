@@ -22,29 +22,19 @@ from __future__ import annotations
 import logging
 
 from src.validation.constant_optimizer import load_constants
+from src.valuation import LeagueConfig as _LC_Class
 
 logger = logging.getLogger(__name__)
 
 _CONSTANTS = load_constants()
+_LC = _LC_Class()
 
 # ── Constants ────────────────────────────────────────────────────────
+# Module uses lowercase category keys to match downstream column names.
 
-ALL_CATEGORIES: list[str] = [
-    "r",
-    "hr",
-    "rbi",
-    "sb",
-    "avg",
-    "obp",
-    "w",
-    "l",
-    "sv",
-    "k",
-    "era",
-    "whip",
-]
+ALL_CATEGORIES: list[str] = [c.lower() for c in _LC.all_categories]
 
-INVERSE_CATS: set[str] = {"l", "era", "whip"}
+INVERSE_CATS: set[str] = {c.lower() for c in _LC.inverse_stats}
 
 # Small epsilon to avoid division by zero.
 _EPSILON: float = 1e-12

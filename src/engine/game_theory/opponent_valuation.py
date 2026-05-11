@@ -21,25 +21,17 @@ from __future__ import annotations
 
 import logging
 
+from src.valuation import LeagueConfig as _LC_Class
+
 logger = logging.getLogger(__name__)
 
-CATEGORIES: list[str] = [
-    "R",
-    "HR",
-    "RBI",
-    "SB",
-    "AVG",
-    "OBP",
-    "W",
-    "L",
-    "K",
-    "SV",
-    "ERA",
-    "WHIP",
-]
-INVERSE_CATEGORIES: set[str] = {"L", "ERA", "WHIP"}
+_LC = _LC_Class()
+CATEGORIES: list[str] = list(_LC.all_categories)
+INVERSE_CATEGORIES: set[str] = set(_LC.inverse_stats)
 
-# Default SGP denominators for when standings unavailable
+# Default SGP denominators for when standings unavailable.
+# Kept as a module-level fallback for backward compatibility — callers should
+# prefer passing a ``LeagueConfig`` and using ``config.sgp_denominators``.
 DEFAULT_SGP_DENOMS: dict[str, float] = {
     "R": 30.0,
     "HR": 12.0,

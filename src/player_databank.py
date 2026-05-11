@@ -13,6 +13,7 @@ import pandas as pd
 
 from src.database import get_connection, load_player_pool
 from src.ui_shared import T
+from src.valuation import LeagueConfig as _LC_Class
 
 logger = logging.getLogger(__name__)
 
@@ -23,8 +24,9 @@ except ImportError:
 
 # ── Fantasy category column groups ───────────────────────────────────────────
 
-HITTING_CATS = ["R", "HR", "RBI", "SB", "AVG", "OBP"]
-PITCHING_CATS = ["W", "L", "SV", "K", "ERA", "WHIP"]
+_LC = _LC_Class()
+HITTING_CATS = list(_LC.hitting_categories)
+PITCHING_CATS = list(_LC.pitching_categories)
 
 HITTING_COLS_TOTAL = ["h", "ab", "r", "hr", "rbi", "sb", "pa", "bb", "hbp", "sf"]
 PITCHING_COLS_TOTAL = ["ip", "w", "l", "sv", "k", "er", "bb_allowed", "h_allowed"]
