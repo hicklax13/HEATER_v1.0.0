@@ -294,6 +294,11 @@ def fetch_milb_stats(mlb_ids: list[int]) -> pd.DataFrame:
             league = latest.get("league", {})
             level_name = league.get("name", "")
             # Determine if hitter or pitcher stats
+            # MLB Stats API returns IP in outs notation ("52.2" = 52⅔ IP, not 52.2).
+            # Use _ip_outs_to_decimal helper to avoid BUG-004 regression.
+            from src.live_stats import _ip_outs_to_decimal
+
+            ip_raw = stat.get("inningsPitched")
             row = {
                 "mlb_id": mlb_id,
                 "milb_level": _normalize_level(level_name),
@@ -304,7 +309,7 @@ def fetch_milb_stats(mlb_ids: list[int]) -> pd.DataFrame:
                 "milb_sb": _safe_int(stat.get("stolenBases")),
                 "milb_k_pct": _compute_k_pct(stat),
                 "milb_bb_pct": _compute_bb_pct(stat),
-                "milb_ip": _safe_float(stat.get("inningsPitched")),
+                "milb_ip": _ip_outs_to_decimal(ip_raw) if ip_raw is not None else None,
                 "milb_era": _safe_float(stat.get("era")),
                 "milb_whip": _safe_float(stat.get("whip")),
                 "milb_k9": _safe_float(stat.get("strikeoutsPer9Inn")),

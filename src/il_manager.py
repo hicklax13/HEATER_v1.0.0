@@ -108,10 +108,27 @@ def detect_il_changes(
     current_roster: pd.DataFrame,
     last_known_status: dict[int, str] | None = None,
 ) -> list[dict]:
-    """Detect new IL changes by comparing current roster status to last known."""
+    """Detect new IL changes by comparing current roster status to last known.
+
+    Contract:
+    - `last_known_status=None` (cold start, no prior baseline): returns
+      empty list. Callers cannot distinguish "new IL transition" from
+      "pre-existing IL" without history — emitting alerts for every
+      existing IL player would spam every cold session. Persist the
+      current roster's status and pass it on the next call.
+    - `last_known_status={}` (explicit empty): every current IL player IS
+      a new transition relative to the empty baseline.
+    - `last_known_status={pid: status, ...}`: emits only players whose
+      current status differs from the prior recorded value AND classifies
+      to a known IL type.
+
+    (BUG-022 fix: cold-start path no longer emits a flood of false-positive
+    "new IL change" alerts for the entire pre-existing IL list.)
+    """
     if last_known_status is None:
-        last_known_status = {}
-    changes = []
+        # Cold start: no baseline → cannot detect transitions → emit nothing.
+        return []
+    changes: list[dict] = []
     status_col = "status" if "status" in current_roster.columns else "injury_note"
     if status_col not in current_roster.columns:
         return changes

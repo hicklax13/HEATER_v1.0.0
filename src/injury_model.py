@@ -361,11 +361,16 @@ def load_injury_history_from_api(
 
         for season in seasons:
             games_played = 0
+            # Take MAX across stat groups: two-way players (e.g. Ohtani) have
+            # separate hitting + pitching splits; the smaller value would
+            # silently overwrite the larger one if we naively assigned.
+            # (BUG-013 fix.)
             for stat_group in stats.get("stats", []):
                 for split in stat_group.get("splits", []):
                     if split.get("season") == str(season):
-                        games_played = int(split.get("stat", {}).get("gamesPlayed", 0))
-                        break
+                        gp = int(split.get("stat", {}).get("gamesPlayed", 0))
+                        games_played = max(games_played, gp)
+                        break  # done with this stat group's splits
 
             rows.append(
                 {

@@ -404,12 +404,13 @@ class BayesianUpdater:
                     updated[stat] = int(obs_val + blended_rate * remaining_pa)
 
                 updated["pa"] = int(pre_pa)
-                obs_ab = int(_safe_val(row, "ab_obs"))
+                # ab = full-season projected at-bats (carried from preseason);
+                # h = avg * ab to keep h/ab consistent with the blended avg.
+                # (Earlier code computed h = obs_h + avg*remaining_ab which made
+                # h/ab != avg whenever observed performance diverged from the
+                # blended rate — fixed for BUG-012.)
                 updated["ab"] = int(_safe_val(row, "ab_pre"))
-                # Recalculate h: observed hits + blended avg * remaining AB
-                obs_h = int(_safe_val(row, "h_obs"))
-                remaining_ab = max(0, updated["ab"] - obs_ab)
-                updated["h"] = int(obs_h + updated["avg"] * remaining_ab)
+                updated["h"] = int(round(updated["avg"] * updated["ab"]))
 
             if is_pitcher and (obs_ip > 0 or pre_ip > 0):
                 # Update pitching rate stats
@@ -450,11 +451,24 @@ class BayesianUpdater:
                 else:
                     updated["er"] = 0
 
-                # Derive bb_allowed and h_allowed from WHIP
+                # Derive bb_allowed and h_allowed from WHIP using observed BB:H
+                # ratio (regressed toward 0.35 with stabilization). The earlier
+                # hardcoded 0.35/0.65 split silently overwrote a control pitcher's
+                # actual BB rate — fixed for BUG-012.
                 if updated["ip"] > 0:
                     total_baserunners = updated["whip"] * updated["ip"]
-                    updated["bb_allowed"] = int(total_baserunners * 0.35)
-                    updated["h_allowed"] = int(total_baserunners * 0.65)
+                    obs_bb = _safe_val(row, "bb_allowed_obs")
+                    obs_h_allowed = _safe_val(row, "h_allowed_obs")
+                    obs_br = obs_bb + obs_h_allowed
+                    if obs_br > 0:
+                        # Regress toward league-average 0.35 with stabilization
+                        # at ~50 observed baserunners (~12-15 IP)
+                        stab = 50.0
+                        bb_share = (obs_bb + 0.35 * stab) / (obs_br + stab)
+                    else:
+                        bb_share = 0.35
+                    updated["bb_allowed"] = int(total_baserunners * bb_share)
+                    updated["h_allowed"] = int(total_baserunners * (1.0 - bb_share))
                 else:
                     updated["bb_allowed"] = 0
                     updated["h_allowed"] = 0
@@ -755,8 +769,20 @@ def update_ros_projections() -> int:
                 if remaining_ip > 0:
                     row_out["er"] = int(row_out.get("era", 0) * remaining_ip / 9)
                     total_br = row_out.get("whip", 0) * remaining_ip
-                    row_out["bb_allowed"] = int(total_br * 0.35)
-                    row_out["h_allowed"] = int(total_br * 0.65)
+                    # BUG-012 ROS-path fix: split BB:H using observed ratio
+                    # (regressed toward 0.35 with stabilization=50 baserunners),
+                    # not a hardcoded 35/65. See batch_update_projections for
+                    # the matching fix in the in-season path.
+                    obs_bb = int(float(obs.get("bb_allowed", 0) or 0)) if obs is not None else 0
+                    obs_h_allowed = int(float(obs.get("h_allowed", 0) or 0)) if obs is not None else 0
+                    obs_br = obs_bb + obs_h_allowed
+                    if obs_br > 0:
+                        stab = 50.0
+                        bb_share = (obs_bb + 0.35 * stab) / (obs_br + stab)
+                    else:
+                        bb_share = 0.35
+                    row_out["bb_allowed"] = int(total_br * bb_share)
+                    row_out["h_allowed"] = int(total_br * (1.0 - bb_share))
                 else:
                     row_out["er"] = 0
                     row_out["bb_allowed"] = 0
