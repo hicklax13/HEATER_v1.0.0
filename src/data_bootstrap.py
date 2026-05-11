@@ -300,8 +300,7 @@ def _bootstrap_live_stats(progress: BootstrapProgress) -> str:
     progress.phase = "Live Stats"
     current_year = datetime.now(UTC).year
     progress.detail = f"Fetching {current_year} season stats..."
-    # Expected floor: 30 teams × ~40 (40-man roster) = ~1200. Set conservatively.
-    EXPECTED_MIN = 500
+    EXPECTED_MIN_FLOOR = 500
     try:
         df = fetch_season_stats(season=current_year)
         if df.empty:
@@ -309,15 +308,16 @@ def _bootstrap_live_stats(progress: BootstrapProgress) -> str:
                 "season_stats",
                 "no_data",
                 rows_written=0,
-                expected_min=EXPECTED_MIN,
+                expected_min=EXPECTED_MIN_FLOOR,
                 message="fetch_season_stats returned empty DataFrame",
             )
             return "No live stats available yet"
         count = save_season_stats_to_db(df)
+        expected_min = max(EXPECTED_MIN_FLOOR, int(len(df) * 0.80))
         status = update_refresh_log_auto(
             "season_stats",
             count,
-            expected_min=EXPECTED_MIN,
+            expected_min=expected_min,
             message=f"saved {count}/{len(df)} rows",
         )
         return f"Saved {count} player stats ({status})"
