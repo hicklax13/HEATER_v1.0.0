@@ -6,10 +6,11 @@ from datetime import UTC, datetime
 import pandas as pd
 import streamlit as st
 
-from src.database import init_db, load_league_rosters, load_league_standings, load_player_pool
+from src.database import init_db, load_player_pool
 from src.matchup_context import get_matchup_context
 from src.ui_shared import format_stat, inject_custom_css, render_styled_table
 from src.valuation import LeagueConfig
+from src.yahoo_data_service import get_yahoo_data_service
 
 try:
     from src.engine.portfolio.category_analysis import (
@@ -46,7 +47,10 @@ config = LeagueConfig()
 
 # ── Load Standings ──────────────────────────────────────────────────────────
 
-standings = load_league_standings()
+# Use canonical Yahoo data service (3-tier cache: session_state → Yahoo API → SQLite).
+# Same schema as load_league_standings, so column accesses below are unchanged.
+_yds = get_yahoo_data_service()
+standings = _yds.get_standings()
 if standings.empty:
     st.warning(
         "No standings data loaded. Connect your Yahoo league in Connect League, "
@@ -69,7 +73,7 @@ if not all_team_totals:
 
 # ── Get User Team ───────────────────────────────────────────────────────────
 
-rosters = load_league_rosters()
+rosters = _yds.get_rosters()
 user_team_name = None
 if not rosters.empty:
     user_teams = rosters[rosters["is_user_team"] == 1]
