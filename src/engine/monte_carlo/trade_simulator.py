@@ -113,8 +113,12 @@ def run_paired_monte_carlo(
     if all_team_totals:
         other_teams_sgp = _compute_other_teams_sgp(all_team_totals, sgp_denominators)
 
-    # P2: Antithetic variate MC — run n_sims/2 paired simulations, each with
-    # original AND negated z-scores. Produces n_sims results with ~30% lower SE.
+    # C8: True antithetic variate MC — run n_sims/2 paired simulations.
+    # Each pair uses the SAME random seed but the antithetic arm negates the
+    # underlying uniform quantiles (u → 1-u, equivalently z → -z for normals).
+    # This guarantees perfect negative correlation between the two arms'
+    # noise, which reduces the variance of their average by ~20-40% vs.
+    # independent draws.  Produces n_sims results total.
     half_sims = max(1, n_sims // 2)
     surpluses = np.zeros(n_sims)
     before_sgp_sims = np.zeros(n_sims)
@@ -123,7 +127,7 @@ def run_paired_monte_carlo(
     for sim_idx in range(half_sims):
         sim_seed = rng_master.randint(0, 2**31)
 
-        # Original simulation (same seed for before/after)
+        # Original simulation (same seed for before/after — paired-MC discipline)
         before_total_sgp = _simulate_roster_sgp(
             roster_stats=before_roster_stats,
             marginals=before_marginals,
@@ -132,6 +136,7 @@ def run_paired_monte_carlo(
             seed=sim_seed,
             weeks_remaining=weeks_remaining,
             sgp_calc=sgp_calc,
+            negate_noise=False,
         )
         after_total_sgp = _simulate_roster_sgp(
             roster_stats=after_roster_stats,
@@ -141,37 +146,36 @@ def run_paired_monte_carlo(
             seed=sim_seed,
             weeks_remaining=weeks_remaining,
             sgp_calc=sgp_calc,
+            negate_noise=False,
         )
 
         surpluses[sim_idx * 2] = after_total_sgp - before_total_sgp
         before_sgp_sims[sim_idx * 2] = before_total_sgp
         after_sgp_sims[sim_idx * 2] = after_total_sgp
 
-        # Variance-reduction sample using a bit-flipped seed.
-        # NOTE: this is NOT a strictly antithetic variate — true antithetic
-        # variates require negating the underlying uniform quantiles inside
-        # _simulate_roster_sgp (e.g. u' = 1 - u for each draw).  An XOR'd
-        # seed yields an *independent* second sample that improves coverage
-        # but does not guarantee anti-correlated noise.  Documented as a
-        # known SF deviation pending a deeper refactor of _simulate_roster_sgp.
-        anti_seed = (sim_seed ^ 0x7FFFFFFF) & 0x7FFFFFFF
+        # True antithetic arm: SAME seed, but negate every noise draw.
+        # For Gaussian noise the negation is exact (z → -z).
+        # For copula uniforms, u → 1 - u is applied inside _simulate_roster_sgp.
+        # Preserves paired-MC discipline (before/after still share noise).
         before_anti = _simulate_roster_sgp(
             roster_stats=before_roster_stats,
             marginals=before_marginals,
             copula=copula,
             sgp_denominators=sgp_denominators,
-            seed=anti_seed,
+            seed=sim_seed,
             weeks_remaining=weeks_remaining,
             sgp_calc=sgp_calc,
+            negate_noise=True,
         )
         after_anti = _simulate_roster_sgp(
             roster_stats=after_roster_stats,
             marginals=after_marginals,
             copula=copula,
             sgp_denominators=sgp_denominators,
-            seed=anti_seed,
+            seed=sim_seed,
             weeks_remaining=weeks_remaining,
             sgp_calc=sgp_calc,
+            negate_noise=True,
         )
 
         surpluses[sim_idx * 2 + 1] = after_anti - before_anti
@@ -241,6 +245,7 @@ def _simulate_roster_sgp(
     seed: int,
     weeks_remaining: int,
     sgp_calc: SGPCalculator | None = None,
+    negate_noise: bool = False,
 ) -> float:
     """Simulate one season and compute total SGP for a roster.
 
@@ -249,11 +254,25 @@ def _simulate_roster_sgp(
     2. Independent Gaussian noise (fallback)
 
     Then sum up all category totals and convert to SGP.
+
+    Args:
+        negate_noise: If True, applies the antithetic transform — every
+            Gaussian noise draw is negated (z → -z) and copula uniforms
+            are reflected (u → 1 - u). Combined with paired-MC seed
+            discipline this gives true antithetic variates with perfectly
+            anti-correlated noise across the two arms.
     """
     rng = np.random.RandomState(seed)
 
     # Noise scale: more weeks remaining = more uncertainty
     noise_scale = min(1.0, np.sqrt(weeks_remaining / 26.0))
+
+    # Antithetic sign multiplier — flips every Gaussian noise draw.
+    # Note: noise multipliers below are of the form (1 + rng.normal(0, sigma)),
+    # so the negation must be applied to the *normal draw*, not the (1 + ...)
+    # term, otherwise the multiplier would invert (e.g. 1.05 → 0.95) instead
+    # of being negated (1.05 → -1.05). We instead use a small helper.
+    noise_sign = -1.0 if negate_noise else 1.0
 
     # Aggregate roster totals with noise
     roster_totals: dict[str, float] = {cat: 0.0 for cat in CATEGORIES}
@@ -320,6 +339,10 @@ def _simulate_roster_sgp(
             # Use copula + marginals for correlated sampling
             player_marg = marginals[player_id]
             u = copula.sample(1, rng)[0]
+            # Antithetic in uniform space: u → 1 - u. Combined with the
+            # 1e-6 clip inside copula.sample, 1-u remains in (1e-6, 1-1e-6).
+            if negate_noise:
+                u = 1.0 - u
 
             for i, cat in enumerate(CATEGORIES):
                 cat_lower = cat.lower()
@@ -340,9 +363,9 @@ def _simulate_roster_sgp(
             # Accumulate components with separate noise for numerator and
             # denominator so rate-stat uncertainty is not cancelled out.
             # Hitting: H gets higher noise than AB (AVG = H/AB)
-            noise_h = 1.0 + rng.normal(0, 0.05 * noise_scale)
-            noise_ab = 1.0 + rng.normal(0, 0.02 * noise_scale)
-            noise_bb = 1.0 + rng.normal(0, 0.05 * noise_scale)
+            noise_h = 1.0 + noise_sign * rng.normal(0, 0.05 * noise_scale)
+            noise_ab = 1.0 + noise_sign * rng.normal(0, 0.02 * noise_scale)
+            noise_bb = 1.0 + noise_sign * rng.normal(0, 0.05 * noise_scale)
             total_h += p_h * max(noise_h, 0.5)
             total_ab += p_ab * max(noise_ab, 0.5)
             total_pa += p_pa * max(noise_ab, 0.5)
@@ -350,9 +373,9 @@ def _simulate_roster_sgp(
             total_hbp += p_hbp * max(noise_h, 0.5)
             total_sf += p_sf * max(noise_ab, 0.5)
             # Pitching: ER/BB/H_allowed get higher noise than IP
-            noise_er = 1.0 + rng.normal(0, 0.05 * noise_scale)
-            noise_ip = 1.0 + rng.normal(0, 0.02 * noise_scale)
-            noise_bb_h_allowed = 1.0 + rng.normal(0, 0.05 * noise_scale)
+            noise_er = 1.0 + noise_sign * rng.normal(0, 0.05 * noise_scale)
+            noise_ip = 1.0 + noise_sign * rng.normal(0, 0.02 * noise_scale)
+            noise_bb_h_allowed = 1.0 + noise_sign * rng.normal(0, 0.05 * noise_scale)
             total_ip += p_ip * max(noise_ip, 0.5)
             total_er += p_er * max(noise_er, 0.5)
             total_bb_h_allowed += (p_bb_allowed + p_h_allowed) * max(noise_bb_h_allowed, 0.5)
@@ -367,23 +390,23 @@ def _simulate_roster_sgp(
                     base_val = stats[cat_lower]
                     # Noise proportional to the stat value (coefficient of variation ~15%)
                     noise_sigma = abs(base_val) * 0.15 * noise_scale
-                    noisy_val = base_val + rng.normal(0, max(noise_sigma, 0.01))
+                    noisy_val = base_val + noise_sign * rng.normal(0, max(noise_sigma, 0.01))
                     roster_totals[cat] += noisy_val
 
             # Accumulate components with separate noise for numerator and
             # denominator so rate-stat uncertainty is not cancelled out.
-            noise_h = 1.0 + rng.normal(0, 0.05 * noise_scale)
-            noise_ab = 1.0 + rng.normal(0, 0.02 * noise_scale)
-            noise_bb = 1.0 + rng.normal(0, 0.05 * noise_scale)
+            noise_h = 1.0 + noise_sign * rng.normal(0, 0.05 * noise_scale)
+            noise_ab = 1.0 + noise_sign * rng.normal(0, 0.02 * noise_scale)
+            noise_bb = 1.0 + noise_sign * rng.normal(0, 0.05 * noise_scale)
             total_h += p_h * max(noise_h, 0.5)
             total_ab += p_ab * max(noise_ab, 0.5)
             total_pa += p_pa * max(noise_ab, 0.5)
             total_bb += p_bb * max(noise_bb, 0.5)
             total_hbp += p_hbp * max(noise_h, 0.5)
             total_sf += p_sf * max(noise_ab, 0.5)
-            noise_er = 1.0 + rng.normal(0, 0.05 * noise_scale)
-            noise_ip = 1.0 + rng.normal(0, 0.02 * noise_scale)
-            noise_bb_h_allowed = 1.0 + rng.normal(0, 0.05 * noise_scale)
+            noise_er = 1.0 + noise_sign * rng.normal(0, 0.05 * noise_scale)
+            noise_ip = 1.0 + noise_sign * rng.normal(0, 0.02 * noise_scale)
+            noise_bb_h_allowed = 1.0 + noise_sign * rng.normal(0, 0.05 * noise_scale)
             total_ip += p_ip * max(noise_ip, 0.5)
             total_er += p_er * max(noise_er, 0.5)
             total_bb_h_allowed += (p_bb_allowed + p_h_allowed) * max(noise_bb_h_allowed, 0.5)
