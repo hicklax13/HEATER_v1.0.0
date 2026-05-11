@@ -448,6 +448,8 @@ These tests guard against regression of the cleanup work. Adding new code that v
 | `test_no_shadow_player_rows.py` | No shadow rows in `players` (team='MLB' + fake mlb_id range); no rostered NULL mlb_ids |
 | `test_no_lr_name_column_refs.py` | No `lr.name` joins; no `UPDATE league_rosters WHERE name = ?` patterns |
 | `test_dynamic_park_factors_removed.py` | `_bootstrap_dynamic_park_factors` does not exist; orchestrator does not dispatch this source |
+| `test_no_ip_decimal_parse.py` | No direct `float(...inningsPitched...)` parses in src/ or scripts/ — must use `_ip_outs_to_decimal()` |
+| `test_no_ecr_rank_suffix_in_consensus_keys.py` | `refresh_ecr_consensus` strips `_rank` suffix from `sources` dict keys before calling `_compute_player_consensus` |
 
 ## Data Audit History (compressed)
 
@@ -458,6 +460,8 @@ The data pipeline has been audited twice with all findings resolved.
 **2026-05-10 follow-up audit (SF-15 → SF-28)** — Proactive 5-agent sweep across bootstrap completeness, optimizer formulas, engine formulas, page-level data flow, cross-codebase consistency. Found 14 NEW silent-fail patterns. Headlines: SF-19 sprint_speed read but not in pool, SF-20 simple-mean rate-stat fallback, SF-21 stale `_LC` singleton, SF-22 park_factors Tier 1 ignored, SF-23 7 pages bypass Yahoo service, SF-25 7 SGP local reinventions consolidated to `SGPCalculator.totals_sgp`, SF-26 12+ hardcoded category lists, SF-27 MatchupContextService bypasses, SF-28 scripts using direct sqlite3.connect. All resolved across PRs #7-#11 (2026-05-10/11). Plan: [docs/superpowers/plans/2026-05-10-finish-data-audit-cleanup.md](docs/superpowers/plans/2026-05-10-finish-data-audit-cleanup.md).
 
 **2026-05-11 whole-repo audit (SF-29 → SF-32)** — Triggered by a 24-agent parallel bug audit (22 code reviewers + Stream B player verification + Stream C refresh infrastructure). Found ~569 actionable findings; first wave (4 HIGH-severity data-correction bugs) resolved here. Headlines: SF-29 `league_rosters.name` SQL bugs in `injury_writeback` + `draft_results` (0 IL flagged, 0 R1-3 picks flagged undroppable for 8+ days), SF-30 `_bootstrap_dynamic_park_factors` used team OPS+ as park proxy (silent corruption every 7 days), SF-31 33 shadow rows with fake mlb_ids in [600000, 601999] (4 rostered IL players resolved to DSL prospects), SF-32 3 rostered players with NULL mlb_id (invisible to live-stats). All resolved in Wave 1 (PR #13).
+
+**2026-05-11 Wave 2 (SF-33 → SF-37)** — Silent-failure elimination wave. SF-33 IP outs notation parsed as decimal (every ERA/WHIP off by ~1.5%; live DB confirmed all 536 pitcher IP values ended in .0/.1/.2 only). SF-34 Bayesian batch_update produced h/ab ≠ avg + hardcoded 35/65 BB:H split ignoring observed ratio. SF-35 Two-way player injury history overwritten by pitching gamesPlayed (Ohtani health_score 0.06 instead of 0.98). SF-36 ECR consensus source-weight lookups silently no-op due to `_rank`-suffix key mismatch. SF-37 IL-change detector flagged every existing IL player as "new" on cold start. All resolved in Wave 2 (PR will be filled in below).
 
 **Session totals (2026-05-10/11):** ~50+ commits across 5 sequential PRs (#7-#11), 264+ new tests, 22 pre-existing tests rescued via `tests/conftest.py` `league_standings` fixture, 18 dispatched parallel-agent worktrees (all merged then cleaned up), zero regressions.
 

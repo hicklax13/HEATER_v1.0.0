@@ -553,7 +553,12 @@ def _fetch_single_pitcher(
         s = stats_list[0].get("stats", {})
         era = _safe_float(s.get("era"))
         whip = _safe_float(s.get("whip"))
-        ip = _safe_float(s.get("inningsPitched"))
+        # MLB Stats API returns IP in outs notation ("52.2" = 52⅔ IP, not 52.2).
+        # Use _ip_outs_to_decimal helper to avoid BUG-004 regression.
+        from src.live_stats import _ip_outs_to_decimal
+
+        ip_raw = s.get("inningsPitched")
+        ip = _ip_outs_to_decimal(ip_raw) if ip_raw is not None else None
         k_per_9 = _safe_float(s.get("strikeoutsPer9Inn"))
         bb_per_9 = _safe_float(s.get("walksPer9Inn"))
 
