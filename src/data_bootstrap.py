@@ -176,6 +176,13 @@ class StalenessConfig:
     umpire_hours: float = 24  # 24 hours (daily assignments)
     catcher_framing_hours: float = 168  # 7 days (stable metric)
     pvb_splits_hours: float = 168  # 7 days (stable with >=60 PA)
+    adp_sources_hours: float = 24  # 24 hours
+    depth_charts_hours: float = 168  # 7 days
+    contracts_hours: float = 720  # 30 days
+    dynamic_park_factors_hours: float = 168  # 7 days
+    bat_speed_hours: float = 168  # 7 days
+    forty_man_hours: float = 168  # 7 days
+    game_logs_hours: float = 1  # 1 hour
 
 
 @dataclass
@@ -2472,21 +2479,21 @@ def bootstrap_all_data(
 
     # Phase 9: Multi-source ADP
     _notify(0.92)
-    if force or check_staleness("adp_sources", 24):
+    if force or check_staleness("adp_sources", staleness.adp_sources_hours):
         results["adp_sources"] = _bootstrap_adp_sources(progress)
     else:
         results["adp_sources"] = "Fresh"
 
     # Phase 9b: Depth charts (roles + lineup slots)
     _notify(0.93)
-    if force or check_staleness("depth_charts", 168):
+    if force or check_staleness("depth_charts", staleness.depth_charts_hours):
         results["depth_charts"] = _bootstrap_depth_charts(progress)
     else:
         results["depth_charts"] = "Fresh"
 
     # Phase 10: Contract year data
     _notify(0.94)
-    if force or check_staleness("contracts", 720):
+    if force or check_staleness("contracts", staleness.contracts_hours):
         results["contracts"] = _bootstrap_contracts(progress)
     else:
         results["contracts"] = "Fresh"
@@ -2773,11 +2780,11 @@ def bootstrap_all_data(
     # Phase 25-27: T4 park factors, T9 bat speed, T10 40-man (parallel, non-critical)
     with ThreadPoolExecutor(max_workers=3) as executor:
         futures = {}
-        if force or check_staleness("park_factors_dynamic", 168):
+        if force or check_staleness("park_factors_dynamic", staleness.dynamic_park_factors_hours):
             futures[executor.submit(_bootstrap_dynamic_park_factors, progress)] = "park_factors_dynamic"
-        if force or check_staleness("bat_speed", 168):
+        if force or check_staleness("bat_speed", staleness.bat_speed_hours):
             futures[executor.submit(_bootstrap_bat_speed, progress)] = "bat_speed"
-        if force or check_staleness("forty_man", 168):
+        if force or check_staleness("forty_man", staleness.forty_man_hours):
             futures[executor.submit(_bootstrap_forty_man, progress)] = "forty_man"
         for future in as_completed(futures):
             key = futures[future]
@@ -2810,8 +2817,8 @@ def bootstrap_all_data(
                 logger.warning("Bootstrap %s failed (non-critical): %s", key, exc)
                 results[key] = f"Error: {exc}"
 
-    # Phase 31: Game logs for Player Databank (1-hour staleness, non-critical)
-    if force or check_staleness("game_logs", 1):
+    # Phase 31: Game logs for Player Databank (non-critical)
+    if force or check_staleness("game_logs", staleness.game_logs_hours):
         try:
             results["game_logs"] = _run_with_timeout(
                 lambda: _bootstrap_game_logs(progress, force=force),
