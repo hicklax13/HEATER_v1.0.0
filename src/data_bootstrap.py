@@ -2693,28 +2693,6 @@ def bootstrap_all_data(
     elif yahoo_client is not None:
         results["yahoo_free_agents"] = "Fresh"
 
-    # Phase 19: ROS Bayesian projections (depends on live stats + projections)
-    _notify(0.965)
-    if force or check_staleness("ros_projections", _live_stats_ttl_hours(staleness.live_stats_hours)):
-        progress.phase = "ROS Projections"
-        progress.detail = "Updating Bayesian rest-of-season projections..."
-        if on_progress:
-            on_progress(progress)
-        try:
-            from src.bayesian import update_ros_projections
-
-            def _ros_update():
-                count = update_ros_projections()
-                return f"Updated {count} ROS projections"
-
-            results["ros_projections"] = _run_with_timeout(_ros_update, timeout=_TIMEOUT_ROS_PROJECTIONS)
-            logger.info("ROS Bayesian projections: %s", results["ros_projections"])
-        except Exception as exc:
-            logger.warning("ROS projection update failed: %s", exc)
-            results["ros_projections"] = f"Error: {exc}"
-    else:
-        results["ros_projections"] = "Fresh"
-
     # Phase 20: Game-day intelligence (SOLO — no longer parallel with team_strength)
     _notify(0.96)
     gd_stale = force or check_staleness("game_day", staleness.game_day_hours)
@@ -2738,6 +2716,31 @@ def bootstrap_all_data(
             results["team_strength"] = f"Error: {exc}"
     else:
         results["team_strength"] = "Fresh"
+
+    # Phase 19: ROS Bayesian projections — moved here (post team_strength) per SF-17.
+    # Bayesian update consumes team_strength; running before P21 risks stale inputs.
+    # TTL fixed at 4h (was dynamic 0.25-1.0h) — PyMC MCMC is too expensive for the
+    # short refresh window.
+    _notify(0.975)
+    if force or check_staleness("ros_projections", 4.0):
+        progress.phase = "ROS Projections"
+        progress.detail = "Updating Bayesian rest-of-season projections..."
+        if on_progress:
+            on_progress(progress)
+        try:
+            from src.bayesian import update_ros_projections
+
+            def _ros_update():
+                count = update_ros_projections()
+                return f"Updated {count} ROS projections"
+
+            results["ros_projections"] = _run_with_timeout(_ros_update, timeout=_TIMEOUT_ROS_PROJECTIONS)
+            logger.info("ROS Bayesian projections: %s", results["ros_projections"])
+        except Exception as exc:
+            logger.warning("ROS projection update failed: %s", exc)
+            results["ros_projections"] = f"Error: {exc}"
+    else:
+        results["ros_projections"] = "Fresh"
 
     # Phase 22-24: Stuff+, Batting stats, Sprint speed (parallel — all independent)
     _notify(0.98)
