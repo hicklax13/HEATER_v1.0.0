@@ -1,15 +1,24 @@
 """Tests for volume-aware SGP computation in trade finder.
 
 Verifies that _player_sgp_volume_aware() properly accounts for AB/IP volume
-in rate stats, unlike _totals_sgp() which treats rates as raw values.
+in rate stats, unlike SGPCalculator.totals_sgp() which treats rates as raw values.
 """
 
 import pandas as pd
 import pytest
 
 from src.in_season import _roster_category_totals
-from src.trade_finder import _player_sgp_volume_aware, _totals_sgp
+from src.trade_finder import _player_sgp_volume_aware
 from src.valuation import LeagueConfig, SGPCalculator
+
+
+def _totals_sgp(totals, config):
+    """SF-25 shim: kept for test backwards-compat after the local helper was
+    deleted. Production code now uses ``SGPCalculator(config).totals_sgp(...)``
+    directly. This wrapper exists ONLY so the legacy bug-demonstration tests
+    below keep their original call signature.
+    """
+    return SGPCalculator(config).totals_sgp(totals)
 
 
 @pytest.fixture
