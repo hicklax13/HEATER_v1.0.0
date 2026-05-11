@@ -34,9 +34,11 @@ from src.valuation import LeagueConfig as _LC_Class
 
 logger = logging.getLogger(__name__)
 
-_LC = _LC_Class()
-CATEGORIES: list[str] = list(_LC.all_categories)
-INVERSE_CATEGORIES: set[str] = set(_LC.inverse_stats)
+# C6 (SF-21 cleanup): module-level _LC singleton removed. The constants below
+# capture immutable category metadata at import time; any future need for live
+# denominators should construct LeagueConfig() lazily inside the function body.
+CATEGORIES: list[str] = list(_LC_Class().all_categories)
+INVERSE_CATEGORIES: set[str] = set(_LC_Class().inverse_stats)
 
 # Empirical correlation matrix for fantasy stat categories.
 # Derived from 5+ years of qualified MLB seasons (min 400 PA hitters, 100 IP pitchers).
@@ -65,7 +67,7 @@ DEFAULT_CORRELATION: np.ndarray = np.array(
 )
 
 
-CAT_ORDER = list(_LC.all_categories)
+CAT_ORDER = list(_LC_Class().all_categories)
 
 
 def compute_empirical_correlation(
