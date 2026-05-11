@@ -1,15 +1,17 @@
 """SF-16: Hardcoded TTL literals must be configurable via StalenessConfig.
 
-Bug: Seven phases pass integer literals to check_staleness():
+Bug: Six phases pass integer literals to check_staleness():
 - adp_sources: 24
 - depth_charts: 168
 - contracts: 720
-- park_factors_dynamic: 168
 - bat_speed: 168
 - forty_man: 168
 - game_logs: 1
 
 Fix: Add fields to StalenessConfig and read TTLs from config.
+
+(BUG-008 removed the seventh phase — `_bootstrap_dynamic_park_factors` —
+because it used team OPS+/wRC+ (park-ADJUSTED metrics) as a park factor proxy.)
 """
 
 from contextlib import ExitStack
@@ -49,7 +51,6 @@ _MOCKED_PHASES = (
     "_bootstrap_stuff_plus",
     "_bootstrap_batting_stats",
     "_bootstrap_sprint_speed",
-    "_bootstrap_dynamic_park_factors",
     "_bootstrap_bat_speed",
     "_bootstrap_forty_man",
     "_bootstrap_umpire_tendencies",
@@ -68,14 +69,17 @@ def _mock_all_phases(stack: ExitStack) -> None:
 
 class TestSF16StalenessConfigFields:
     def test_has_new_fields_with_defaults(self):
-        """StalenessConfig must expose all 7 new TTL fields with the documented defaults."""
+        """StalenessConfig must expose the new TTL fields with the documented defaults.
+
+        (BUG-008 removed `dynamic_park_factors_hours` — the underlying phase was deleted
+        because it used park-ADJUSTED team metrics as a park factor proxy.)
+        """
         from src.data_bootstrap import StalenessConfig
 
         cfg = StalenessConfig()
         assert cfg.adp_sources_hours == 24
         assert cfg.depth_charts_hours == 168
         assert cfg.contracts_hours == 720
-        assert cfg.dynamic_park_factors_hours == 168
         assert cfg.bat_speed_hours == 168
         assert cfg.forty_man_hours == 168
         assert cfg.game_logs_hours == 1
@@ -88,7 +92,6 @@ class TestSF16ConfigPlumbedThrough:
             ("adp_sources_hours", "adp_sources"),
             ("depth_charts_hours", "depth_charts"),
             ("contracts_hours", "contracts"),
-            ("dynamic_park_factors_hours", "park_factors_dynamic"),
             ("bat_speed_hours", "bat_speed"),
             ("forty_man_hours", "forty_man"),
             ("game_logs_hours", "game_logs"),

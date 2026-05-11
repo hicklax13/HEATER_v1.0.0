@@ -179,7 +179,6 @@ class StalenessConfig:
     adp_sources_hours: float = 24  # 24 hours
     depth_charts_hours: float = 168  # 7 days
     contracts_hours: float = 720  # 30 days
-    dynamic_park_factors_hours: float = 168  # 7 days
     bat_speed_hours: float = 168  # 7 days
     forty_man_hours: float = 168  # 7 days
     game_logs_hours: float = 1  # 1 hour
@@ -2261,57 +2260,6 @@ def _bootstrap_pvb_splits(progress: BootstrapProgress) -> str:
         return f"Error: {exc}"
 
 
-def _bootstrap_dynamic_park_factors(progress: BootstrapProgress) -> str:
-    """T4: Refresh park factors mid-season from pybaseball team stats."""
-    progress.phase = "Park Factors"
-    progress.detail = "Refreshing park factors from pybaseball..."
-    try:
-        from pybaseball import team_batting
-    except ImportError:
-        return "Skipped: pybaseball not installed"
-
-    try:
-        from src.database import get_connection, update_refresh_log
-
-        year = datetime.now(UTC).year
-        logger.info("Fetching team batting stats for %d park factor refresh...", year)
-        tb = team_batting(year)
-        if tb is None or tb.empty:
-            return "Skipped: no team batting data"
-
-        # Park factor derivation: compare home/away OPS splits
-        # FanGraphs team_batting includes team abbreviation
-        conn = get_connection()
-        try:
-            updated = 0
-            for _, row in tb.iterrows():
-                team = str(row.get("Team", row.get("Tm", ""))).strip()
-                if not team:
-                    continue
-                # Use OPS+ as park factor proxy (100 = neutral)
-                ops_plus = float(row.get("OPS+", row.get("wRC+", 100)))
-                if ops_plus <= 0:
-                    continue
-                pf = ops_plus / 100.0
-                # Clamp to reasonable range
-                pf = max(0.80, min(1.40, pf))
-                conn.execute(
-                    "UPDATE park_factors SET factor_hitting = ? WHERE team_code = ?",
-                    (round(pf, 3), team),
-                )
-                updated += 1
-            conn.commit()
-        finally:
-            conn.close()
-
-        update_refresh_log("park_factors_dynamic", "success")
-        return f"Updated {updated} park factors from {year} team stats"
-
-    except Exception as exc:
-        logger.warning("Dynamic park factor refresh failed (non-fatal): %s", exc)
-        return _format_fetch_error(exc, "FanGraphs Park Factors")
-
-
 def _bootstrap_bat_speed(progress: BootstrapProgress) -> str:
     """T9: Fetch bat speed data from Baseball Savant."""
     progress.phase = "Bat Speed"
@@ -2525,7 +2473,7 @@ def _bootstrap_injury_writeback(progress: BootstrapProgress) -> str:
             conn.execute(
                 """UPDATE players SET is_injured = 1, injury_note = lr.status
                    FROM league_rosters lr
-                   WHERE players.name = lr.name
+                   WHERE players.player_id = lr.player_id
                      AND lr.status IN ('IL10', 'IL15', 'IL60', 'DTD')"""
             )
 
@@ -2578,15 +2526,37 @@ def _bootstrap_draft_results(progress: BootstrapProgress, yahoo_client=None) -> 
         # Save all draft picks (reuse existing db helper)
         saved = save_league_draft_picks(df)
 
-        # Flag rounds 1-3 as undroppable in league_rosters
-        undroppable_names = df[df["round"] <= 3]["player_name"].tolist()
+        # Flag rounds 1-3 as undroppable in league_rosters (by player_id, not name)
+        undroppable_pick_rows = df[df["round"] <= 3]
+        # Prefer existing player_id from draft DF; fall back to name resolution
+        undroppable_player_ids: list[int] = []
         conn = get_connection()
         try:
             conn.execute("UPDATE league_rosters SET is_undroppable = 0")
-            for name in undroppable_names:
+            for _, pick_row in undroppable_pick_rows.iterrows():
+                pid_raw = pick_row.get("player_id")
+                if pid_raw is not None and not (isinstance(pid_raw, float) and pid_raw != pid_raw):  # NaN check
+                    try:
+                        pid = int(pid_raw)
+                    except (TypeError, ValueError):
+                        pid = None
+                else:
+                    pid = None
+                if pid is None:
+                    # Resolve by name as last resort
+                    name = pick_row.get("player_name", "")
+                    row = conn.execute("SELECT player_id FROM players WHERE name = ? LIMIT 1", (name,)).fetchone()
+                    pid = row[0] if row else None
+                if pid is None:
+                    logger.warning(
+                        "Could not resolve player_id for draft pick: %s",
+                        pick_row.to_dict(),
+                    )
+                    continue
+                undroppable_player_ids.append(pid)
                 conn.execute(
-                    "UPDATE league_rosters SET is_undroppable = 1 WHERE name = ?",
-                    (name,),
+                    "UPDATE league_rosters SET is_undroppable = 1 WHERE player_id = ?",
+                    (pid,),
                 )
             conn.commit()
         finally:
@@ -2596,9 +2566,9 @@ def _bootstrap_draft_results(progress: BootstrapProgress, yahoo_client=None) -> 
             "draft_results",
             saved,
             expected_min=200,
-            message=f"{saved} picks, {len(undroppable_names)} undroppable",
+            message=f"{saved} picks, {len(undroppable_player_ids)} undroppable",
         )
-        return f"Saved {saved} picks, {len(undroppable_names)} undroppable"
+        return f"Saved {saved} picks, {len(undroppable_player_ids)} undroppable"
     except Exception as exc:
         logger.exception("Draft results fetch failed: %s", exc)
         from src.database import update_refresh_log
@@ -3054,11 +3024,13 @@ def bootstrap_all_data(
                 logger.exception("Bootstrap %s failed: %s", key, exc)
                 results[key] = f"Error: {exc}"
 
-    # Phase 25-27: T4 park factors, T9 bat speed, T10 40-man (parallel, non-critical)
+    # Phase 25-26: T9 bat speed, T10 40-man (parallel, non-critical)
+    # NOTE: BUG-008 — removed _bootstrap_dynamic_park_factors phase. It used
+    # team OPS+/wRC+ (park-ADJUSTED metrics) as a park factor proxy, silently
+    # overwriting correct Tier 1 / emergency park factors every 7 days. The
+    # _bootstrap_park_factors phase already populates park_factors correctly.
     with ThreadPoolExecutor(max_workers=3) as executor:
         futures = {}
-        if force or check_staleness("park_factors_dynamic", staleness.dynamic_park_factors_hours):
-            futures[executor.submit(_bootstrap_dynamic_park_factors, progress)] = "park_factors_dynamic"
         if force or check_staleness("bat_speed", staleness.bat_speed_hours):
             futures[executor.submit(_bootstrap_bat_speed, progress)] = "bat_speed"
         if force or check_staleness("forty_man", staleness.forty_man_hours):
