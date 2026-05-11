@@ -49,8 +49,9 @@ STAT_MAP: dict[str, str] = {
     "WHIP": "whip",
 }
 
-CATEGORIES: list[str] = ["R", "HR", "RBI", "SB", "AVG", "OBP", "W", "L", "SV", "K", "ERA", "WHIP"]
-INVERSE_CATEGORIES: set[str] = {"L", "ERA", "WHIP"}
+_LC = LeagueConfig()
+CATEGORIES: list[str] = list(_LC.all_categories)
+INVERSE_CATEGORIES: set[str] = set(_LC.inverse_stats)
 
 
 def compute_player_zscores(

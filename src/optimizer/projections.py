@@ -24,6 +24,10 @@ import pandas as pd
 if TYPE_CHECKING:
     from src.valuation import LeagueConfig
 
+from src.valuation import LeagueConfig as _LC_Class
+
+_LC = _LC_Class()
+
 logger = logging.getLogger(__name__)
 
 # ── Optional dependency: Playing Time Model ─────────────────────────
@@ -36,8 +40,8 @@ except ImportError:
 
 # ── Constants ────────────────────────────────────────────────────────
 
-COUNTING_CATS: list[str] = ["r", "hr", "rbi", "sb", "w", "l", "sv", "k"]
-RATE_CATS: list[str] = ["avg", "obp", "era", "whip"]
+COUNTING_CATS: list[str] = [c.lower() for c in _LC.all_categories if c not in _LC.rate_stats]
+RATE_CATS: list[str] = [c.lower() for c in _LC.all_categories if c in _LC.rate_stats]
 ALL_CATS: list[str] = COUNTING_CATS + RATE_CATS
 
 # Minimum sample size (PA or IP) to trust in-season observed stats
