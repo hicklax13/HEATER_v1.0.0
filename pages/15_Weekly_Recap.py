@@ -12,7 +12,7 @@ from src.database import (
     load_player_pool,
 )
 from src.league_manager import get_team_roster
-from src.ui_shared import T, inject_custom_css, render_styled_table
+from src.ui_shared import T, format_stat, inject_custom_css, render_styled_table
 from src.valuation import LeagueConfig, SGPCalculator
 
 logger = logging.getLogger(__name__)
@@ -116,9 +116,9 @@ for cat in config.all_categories:
 
     # Format values
     if is_rate:
-        my_str = f"{my_val:.3f}"
-        opp_str = f"{opp_val:.3f}"
-        margin = f"{abs(my_val - opp_val):.3f}"
+        my_str = format_stat(my_val, cat)
+        opp_str = format_stat(opp_val, cat)
+        margin = format_stat(abs(my_val - opp_val), cat)
     else:
         my_str = f"{my_val:.0f}"
         opp_str = f"{opp_val:.0f}"

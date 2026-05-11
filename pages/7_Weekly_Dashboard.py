@@ -8,7 +8,7 @@ import streamlit as st
 
 from src.database import init_db, load_league_rosters, load_league_standings, load_player_pool
 from src.league_manager import get_team_roster
-from src.ui_shared import METRIC_TOOLTIPS, T, inject_custom_css, render_styled_table
+from src.ui_shared import METRIC_TOOLTIPS, T, format_stat, inject_custom_css, render_styled_table
 from src.valuation import LeagueConfig
 
 try:
@@ -531,8 +531,8 @@ with tab_projector:
                             opp_val = opp_totals.get(cat, 0)
 
                             if cat in config_local.rate_stats:
-                                my_str = f"{my_val:.3f}"
-                                opp_str = f"{opp_val:.3f}"
+                                my_str = format_stat(my_val, cat)
+                                opp_str = format_stat(opp_val, cat)
                             else:
                                 my_str = f"{my_val:.0f}"
                                 opp_str = f"{opp_val:.0f}"

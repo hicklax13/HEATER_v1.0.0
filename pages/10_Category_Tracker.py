@@ -7,7 +7,7 @@ import pandas as pd
 import streamlit as st
 
 from src.database import init_db, load_league_rosters, load_league_standings, load_player_pool
-from src.ui_shared import inject_custom_css, render_styled_table
+from src.ui_shared import format_stat, inject_custom_css, render_styled_table
 from src.valuation import LeagueConfig
 
 try:
@@ -132,9 +132,16 @@ for cat in config.all_categories:
 
     # Format total
     if cat in config.rate_stats:
-        total_str = f"{total:.3f}"
-        gap_next_str = f"{gap_to_next:+.3f}" if gap_to_next != 0 else "—"
-        gap_behind_str = f"{gap_from_behind:+.3f}" if gap_from_behind != 0 else "—"
+        total_str = format_stat(total, cat)
+        # Gaps need a leading sign for direction (toward/away from rank target)
+        gap_next_str = (
+            f"{'+' if gap_to_next > 0 else '-'}{format_stat(abs(gap_to_next), cat)}" if gap_to_next != 0 else "—"
+        )
+        gap_behind_str = (
+            f"{'+' if gap_from_behind > 0 else '-'}{format_stat(abs(gap_from_behind), cat)}"
+            if gap_from_behind != 0
+            else "—"
+        )
     else:
         total_str = f"{total:.0f}"
         gap_next_str = f"{gap_to_next:+.0f}" if gap_to_next != 0 else "—"

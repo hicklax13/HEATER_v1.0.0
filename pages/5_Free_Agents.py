@@ -799,7 +799,7 @@ with main:
             # Format YTD pitching stats
             if "ytd_era" in display_fa_df.columns:
                 display_fa_df["ytd_era"] = display_fa_df["ytd_era"].apply(
-                    lambda x: f"{x:.2f}" if pd.notna(x) and x > 0 else ""
+                    lambda x: format_stat(x, "ERA") if pd.notna(x) and x > 0 else ""
                 )
             if "ytd_k" in display_fa_df.columns:
                 display_fa_df["ytd_k"] = display_fa_df["ytd_k"].apply(
@@ -817,7 +817,7 @@ with main:
                 )
             if "l14_era" in display_fa_df.columns:
                 display_fa_df["l14_era"] = display_fa_df["l14_era"].apply(
-                    lambda x: f"{x:.2f}" if pd.notna(x) and x > 0 else ""
+                    lambda x: format_stat(x, "ERA") if pd.notna(x) and x > 0 else ""
                 )
             if "l14_k_g" in display_fa_df.columns:
                 display_fa_df["l14_k_g"] = display_fa_df["l14_k_g"].apply(

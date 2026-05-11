@@ -7,7 +7,7 @@ import pandas as pd
 import streamlit as st
 
 from src.database import init_db, load_league_rosters, load_league_standings, load_player_pool
-from src.ui_shared import inject_custom_css, render_styled_table
+from src.ui_shared import format_stat, inject_custom_css, render_styled_table
 from src.valuation import LeagueConfig, SGPCalculator
 
 _HAS_CATEGORY_ANALYSIS = True
@@ -197,7 +197,7 @@ if _HAS_CATEGORY_ANALYSIS:
                     impact_rows.append(
                         {
                             "Category": cat,
-                            "Your Total": f"{my_val:.3f}" if cat in config.rate_stats else f"{my_val:.0f}",
+                            "Your Total": format_stat(my_val, cat) if cat in config.rate_stats else f"{my_val:.0f}",
                             "Rank": f"{my_rank}/12",
                             "Status": status,
                         }
