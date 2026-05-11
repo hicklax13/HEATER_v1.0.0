@@ -11,6 +11,12 @@ import unittest
 import numpy as np
 import pandas as pd
 
+from src.valuation import LeagueConfig
+
+# C7: opponent_valuation no longer ships a DEFAULT_SGP_DENOMS fallback —
+# tests pass live LeagueConfig denoms (HR=13.0, ERA=0.2, etc.).
+_LC_DENOMS = LeagueConfig().sgp_denominators
+
 
 class TestOpponentValuation(unittest.TestCase):
     """Test opponent valuation and market clearing price (L8A)."""
@@ -75,7 +81,7 @@ class TestOpponentValuation(unittest.TestCase):
         totals = self._make_team_totals()
         proj = {"R": 85, "HR": 30, "RBI": 80, "SB": 10, "AVG": 0.280, "W": 0, "K": 0, "SV": 0, "ERA": 0, "WHIP": 0}
 
-        vals = estimate_opponent_valuations(proj, totals, "My Team")
+        vals = estimate_opponent_valuations(proj, totals, "My Team", sgp_denominators=_LC_DENOMS)
         assert "My Team" not in vals
         assert len(vals) == 3  # A, B, C
 
@@ -86,7 +92,7 @@ class TestOpponentValuation(unittest.TestCase):
         totals = self._make_team_totals()
         proj = {"R": 85, "HR": 35, "RBI": 90, "SB": 5, "AVG": 0.270, "W": 0, "K": 0, "SV": 0, "ERA": 0, "WHIP": 0}
 
-        vals = estimate_opponent_valuations(proj, totals, "My Team")
+        vals = estimate_opponent_valuations(proj, totals, "My Team", sgp_denominators=_LC_DENOMS)
         # Team B has fewest HR (150), should value the HR hitter most
         assert all(v > 0 for v in vals.values())
 
@@ -118,7 +124,7 @@ class TestOpponentValuation(unittest.TestCase):
         totals = self._make_team_totals()
         proj = {"R": 85, "HR": 30, "RBI": 80, "SB": 10, "AVG": 0.270, "W": 0, "K": 0, "SV": 0, "ERA": 0, "WHIP": 0}
 
-        mv = player_market_value(proj, totals, "My Team")
+        mv = player_market_value(proj, totals, "My Team", sgp_denominators=_LC_DENOMS)
         assert "valuations" in mv
         assert "market_price" in mv
         assert "max_bidder" in mv
@@ -181,7 +187,7 @@ class TestOpponentValuation(unittest.TestCase):
         # Elite player — most teams should want them
         proj = {"R": 100, "HR": 40, "RBI": 100, "SB": 20, "AVG": 0.300, "W": 0, "K": 0, "SV": 0, "ERA": 0, "WHIP": 0}
 
-        mv = player_market_value(proj, totals, "My Team")
+        mv = player_market_value(proj, totals, "My Team", sgp_denominators=_LC_DENOMS)
         assert mv["demand"] >= 1
 
 

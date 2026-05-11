@@ -92,8 +92,10 @@ def temp_db(tmp_path):
             season INTEGER NOT NULL DEFAULT 2026,
             pa INTEGER DEFAULT 0, ab INTEGER DEFAULT 0, h INTEGER DEFAULT 0,
             r INTEGER DEFAULT 0, hr INTEGER DEFAULT 0, rbi INTEGER DEFAULT 0,
-            sb INTEGER DEFAULT 0, avg REAL DEFAULT 0, ip REAL DEFAULT 0,
-            w INTEGER DEFAULT 0, sv INTEGER DEFAULT 0, k INTEGER DEFAULT 0,
+            sb INTEGER DEFAULT 0, avg REAL DEFAULT 0,
+            obp REAL DEFAULT 0, bb INTEGER DEFAULT 0, hbp INTEGER DEFAULT 0, sf INTEGER DEFAULT 0,
+            ip REAL DEFAULT 0,
+            w INTEGER DEFAULT 0, l INTEGER DEFAULT 0, sv INTEGER DEFAULT 0, k INTEGER DEFAULT 0,
             era REAL DEFAULT 0, whip REAL DEFAULT 0,
             er INTEGER DEFAULT 0, bb_allowed INTEGER DEFAULT 0, h_allowed INTEGER DEFAULT 0,
             games_played INTEGER DEFAULT 0, last_updated TEXT,
@@ -126,13 +128,15 @@ def temp_db(tmp_path):
         )
     """)
 
-    # Statcast archive table (for xwoba/barrel_pct/etc. in pool SQL)
+    # Statcast archive table (for xwoba/barrel_pct/etc. in pool SQL).
+    # Must include sprint_speed (SF-19 _load_player_pool_impl reads it).
     c.execute("""
         CREATE TABLE statcast_archive (
             player_id INTEGER NOT NULL,
             season INTEGER NOT NULL,
             xwoba REAL, xba REAL, barrel_pct REAL, hard_hit_pct REAL,
             ev_mean REAL, stuff_plus REAL, babip REAL,
+            sprint_speed REAL,
             PRIMARY KEY (player_id, season)
         )
     """)

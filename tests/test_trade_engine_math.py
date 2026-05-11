@@ -22,6 +22,12 @@ import unittest
 import numpy as np
 from scipy.stats import norm
 
+from src.valuation import LeagueConfig
+
+# C7: opponent_valuation no longer ships a DEFAULT_SGP_DENOMS fallback —
+# tests pass live LeagueConfig denoms (HR=13.0, ERA=0.2, etc.).
+_LC_DENOMS = LeagueConfig().sgp_denominators
+
 # ── Phase 1: Deterministic SGP Pipeline ─────────────────────────────
 
 
@@ -718,7 +724,10 @@ class TestPhase5OpponentValuationMath(unittest.TestCase):
         For Team B: others = [200, 100], better = [200], closest = 200,
         gap = 200 - 150 = 50.
 
-        contribution = min(30, 50) / 12.0 = 30/12.0 = 2.5
+        contribution = min(30, 50) / 13.0 = 30/13.0 ≈ 2.308
+
+        C7 update: HR denom is now LeagueConfig().sgp_denominators["HR"] = 13.0
+        (was 12.0 in the now-deleted DEFAULT_SGP_DENOMS fallback).
         """
         from src.engine.game_theory.opponent_valuation import estimate_opponent_valuations
 
@@ -729,11 +738,12 @@ class TestPhase5OpponentValuationMath(unittest.TestCase):
         }
         proj = {"HR": 30, "R": 0, "RBI": 0, "SB": 0, "AVG": 0, "W": 0, "K": 0, "SV": 0, "ERA": 0, "WHIP": 0}
 
-        vals = estimate_opponent_valuations(proj, totals, "Me")
+        vals = estimate_opponent_valuations(proj, totals, "Me", sgp_denominators=_LC_DENOMS)
 
         # Team B: gap to next (Team C at 200) = 50
-        # contribution = min(30, 50) / 12.0 = 2.5
-        assert abs(vals["Team B"] - 2.5) < 0.01
+        # contribution = min(30, 50) / 13.0 ≈ 2.308 (LeagueConfig HR denom)
+        expected = 30.0 / _LC_DENOMS["HR"]  # 30 / 13.0 ≈ 2.308
+        assert abs(vals["Team B"] - expected) < 0.01
 
     def test_inverse_stat_valuation_correct_direction(self):
         """For ERA: benefit = team_ERA_blended - pitcher_ERA_blended (unclamped).
@@ -755,11 +765,11 @@ class TestPhase5OpponentValuationMath(unittest.TestCase):
 
         # Good pitcher (ERA 3.50) should have positive value for Team B
         good_pitcher = {"ERA": 3.50, "R": 0, "HR": 0, "RBI": 0, "SB": 0, "AVG": 0, "W": 0, "K": 0, "SV": 0, "WHIP": 0}
-        vals_good = estimate_opponent_valuations(good_pitcher, totals, "Me")
+        vals_good = estimate_opponent_valuations(good_pitcher, totals, "Me", sgp_denominators=_LC_DENOMS)
 
         # Bad pitcher (ERA 4.50) should have zero value (can't help)
         bad_pitcher = {"ERA": 4.50, "R": 0, "HR": 0, "RBI": 0, "SB": 0, "AVG": 0, "W": 0, "K": 0, "SV": 0, "WHIP": 0}
-        vals_bad = estimate_opponent_valuations(bad_pitcher, totals, "Me")
+        vals_bad = estimate_opponent_valuations(bad_pitcher, totals, "Me", sgp_denominators=_LC_DENOMS)
 
         # Good pitcher is MORE valuable than bad pitcher
         assert vals_good["Team B"] > vals_bad["Team B"]
@@ -806,8 +816,8 @@ class TestPhase5OpponentValuationMath(unittest.TestCase):
         ace = {"ERA": 2.50, "WHIP": 1.05, **zero_stats}
         junk = {"ERA": 5.00, "WHIP": 1.50, **zero_stats}
 
-        vals_ace = estimate_opponent_valuations(ace, totals, "Me")
-        vals_junk = estimate_opponent_valuations(junk, totals, "Me")
+        vals_ace = estimate_opponent_valuations(ace, totals, "Me", sgp_denominators=_LC_DENOMS)
+        vals_junk = estimate_opponent_valuations(junk, totals, "Me", sgp_denominators=_LC_DENOMS)
 
         # Ace MUST be valued more than junk pitcher
         assert vals_ace["Team B"] > vals_junk["Team B"]

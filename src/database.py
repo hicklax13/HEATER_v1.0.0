@@ -706,6 +706,10 @@ def _init_db_tables_and_columns(conn):
     _safe_add_column(conn, "statcast_archive", "hitter_fb_pct", "REAL")
     _safe_add_column(conn, "statcast_archive", "hitter_gb_pct", "REAL")
     _safe_add_column(conn, "statcast_archive", "bat_speed", "REAL")
+    # SF-19 (2026-05-10): _load_player_pool_impl SELECTs sa.sprint_speed.
+    # CREATE TABLE schema includes the column for fresh DBs, but legacy DBs
+    # created before that column landed need a defensive ALTER TABLE here.
+    _safe_add_column(conn, "statcast_archive", "sprint_speed", "REAL")
 
     # T3 (2026-04-17 data-fetch audit): refresh_log row-count validation columns
     # Required so "success" can no longer be written for 0-row fetches silently.
@@ -1549,13 +1553,26 @@ def _load_player_pool_impl() -> pd.DataFrame:
                     ecr.rank_stddev AS ecr_rank_stddev,
                     COALESCE(ss.pa, 0) AS ytd_pa,
                     COALESCE(ss.avg, 0) AS ytd_avg,
+                    COALESCE(ss.obp, 0) AS ytd_obp,
+                    COALESCE(ss.r, 0) AS ytd_r,
                     COALESCE(ss.hr, 0) AS ytd_hr,
                     COALESCE(ss.rbi, 0) AS ytd_rbi,
                     COALESCE(ss.sb, 0) AS ytd_sb,
+                    COALESCE(ss.ab, 0) AS ytd_ab,
+                    COALESCE(ss.h, 0) AS ytd_h,
+                    COALESCE(ss.bb, 0) AS ytd_bb,
+                    COALESCE(ss.hbp, 0) AS ytd_hbp,
+                    COALESCE(ss.sf, 0) AS ytd_sf,
                     COALESCE(ss.era, 0) AS ytd_era,
                     COALESCE(ss.whip, 0) AS ytd_whip,
+                    COALESCE(ss.w, 0) AS ytd_w,
+                    COALESCE(ss.l, 0) AS ytd_l,
                     COALESCE(ss.sv, 0) AS ytd_sv,
                     COALESCE(ss.k, 0) AS ytd_k,
+                    COALESCE(ss.ip, 0) AS ytd_ip,
+                    COALESCE(ss.er, 0) AS ytd_er,
+                    COALESCE(ss.bb_allowed, 0) AS ytd_bb_allowed,
+                    COALESCE(ss.h_allowed, 0) AS ytd_h_allowed,
                     COALESCE(ss.games_played, 0) AS ytd_gp,
                     (SELECT ot.percent_owned FROM ownership_trends ot
                      WHERE ot.player_id = p.player_id
@@ -1622,13 +1639,26 @@ def _load_player_pool_impl() -> pd.DataFrame:
                 ecr.n_sources AS ecr_sources,
                 COALESCE(ss.pa, 0) AS ytd_pa,
                 COALESCE(ss.avg, 0) AS ytd_avg,
+                COALESCE(ss.obp, 0) AS ytd_obp,
+                COALESCE(ss.r, 0) AS ytd_r,
                 COALESCE(ss.hr, 0) AS ytd_hr,
                 COALESCE(ss.rbi, 0) AS ytd_rbi,
                 COALESCE(ss.sb, 0) AS ytd_sb,
+                COALESCE(ss.ab, 0) AS ytd_ab,
+                COALESCE(ss.h, 0) AS ytd_h,
+                COALESCE(ss.bb, 0) AS ytd_bb,
+                COALESCE(ss.hbp, 0) AS ytd_hbp,
+                COALESCE(ss.sf, 0) AS ytd_sf,
                 COALESCE(ss.era, 0) AS ytd_era,
                 COALESCE(ss.whip, 0) AS ytd_whip,
+                COALESCE(ss.w, 0) AS ytd_w,
+                COALESCE(ss.l, 0) AS ytd_l,
                 COALESCE(ss.sv, 0) AS ytd_sv,
                 COALESCE(ss.k, 0) AS ytd_k,
+                COALESCE(ss.ip, 0) AS ytd_ip,
+                COALESCE(ss.er, 0) AS ytd_er,
+                COALESCE(ss.bb_allowed, 0) AS ytd_bb_allowed,
+                COALESCE(ss.h_allowed, 0) AS ytd_h_allowed,
                 COALESCE(ss.games_played, 0) AS ytd_gp,
                 (SELECT ot.percent_owned FROM ownership_trends ot
                  WHERE ot.player_id = p.player_id
@@ -1695,13 +1725,26 @@ def _load_player_pool_impl() -> pd.DataFrame:
                     ecr.rank_stddev AS ecr_rank_stddev,
                     COALESCE(ss.pa, 0) AS ytd_pa,
                     COALESCE(ss.avg, 0) AS ytd_avg,
+                    COALESCE(ss.obp, 0) AS ytd_obp,
+                    COALESCE(ss.r, 0) AS ytd_r,
                     COALESCE(ss.hr, 0) AS ytd_hr,
                     COALESCE(ss.rbi, 0) AS ytd_rbi,
                     COALESCE(ss.sb, 0) AS ytd_sb,
+                    COALESCE(ss.ab, 0) AS ytd_ab,
+                    COALESCE(ss.h, 0) AS ytd_h,
+                    COALESCE(ss.bb, 0) AS ytd_bb,
+                    COALESCE(ss.hbp, 0) AS ytd_hbp,
+                    COALESCE(ss.sf, 0) AS ytd_sf,
                     COALESCE(ss.era, 0) AS ytd_era,
                     COALESCE(ss.whip, 0) AS ytd_whip,
+                    COALESCE(ss.w, 0) AS ytd_w,
+                    COALESCE(ss.l, 0) AS ytd_l,
                     COALESCE(ss.sv, 0) AS ytd_sv,
                     COALESCE(ss.k, 0) AS ytd_k,
+                    COALESCE(ss.ip, 0) AS ytd_ip,
+                    COALESCE(ss.er, 0) AS ytd_er,
+                    COALESCE(ss.bb_allowed, 0) AS ytd_bb_allowed,
+                    COALESCE(ss.h_allowed, 0) AS ytd_h_allowed,
                     COALESCE(ss.games_played, 0) AS ytd_gp,
                     (SELECT ot.percent_owned FROM ownership_trends ot
                      WHERE ot.player_id = p.player_id
