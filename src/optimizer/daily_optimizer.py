@@ -21,6 +21,72 @@ from src.valuation import canonicalize_team
 logger = logging.getLogger(__name__)
 
 
+def _stuff_plus_k_multiplier(
+    stuff_plus: object,
+    fip: object = None,
+    xfip: object = None,
+) -> float:
+    """SF-6 helper: multiplicative K-boost from a pitcher's Stuff+ score.
+
+    Wave 4-J Option A baseline: when Stuff+ is unavailable (FanGraphs 403,
+    NaN, 0, negative, or non-numeric) the helper returns ``1.0`` -- the
+    K-boost path is a provable no-op.
+
+    Wave 4-J Option B extension: when Stuff+ is missing but the pitcher has
+    a valid FIP or xFIP (loaded from the season_stats / ros_projections
+    pool), derive a proxy multiplier from FIP. Lower FIP -> better stuff:
+
+        proxy = clip(1.0 + (4.0 - fip) / 10.0, 0.85, 1.15)
+
+    Examples (clipped to [0.85, 1.15]):
+        FIP 3.0 -> 1.10x
+        FIP 4.0 -> 1.00x (league average)
+        FIP 5.0 -> 0.90x
+        FIP 1.0 -> 1.15x (clipped)
+        FIP 7.0 -> 0.85x (clipped)
+
+    xFIP is preferred over FIP when both are present (xFIP normalises
+    home-run luck so it's a cleaner stuff proxy). FIP is the fallback.
+
+    Stuff+ ramp (preserves the previous T3-5a tiers, wins over FIP proxy
+    when both are available):
+        stuff_plus > 120  -> 1.10x
+        stuff_plus > 110  -> 1.05x
+        otherwise         -> 1.00x  (or FIP proxy if Stuff+ is invalid)
+    """
+    # Tier 1: real Stuff+ value if present and valid
+    try:
+        val = float(stuff_plus) if stuff_plus is not None else 0.0
+    except (TypeError, ValueError):
+        val = 0.0
+    # NaN is the only float that compares False to itself
+    stuff_valid = (val == val) and (val > 0.0)
+    if stuff_valid:
+        if val > 120:
+            return 1.10
+        if val > 110:
+            return 1.05
+        return 1.00
+
+    # Tier 2: FIP / xFIP proxy. xFIP preferred (HR-luck-normalised).
+    for candidate in (xfip, fip):
+        if candidate is None:
+            continue
+        try:
+            f = float(candidate)
+        except (TypeError, ValueError):
+            continue
+        if f != f or f <= 0.0:  # NaN or non-positive sentinel
+            continue
+        proxy = 1.0 + (4.0 - f) / 10.0
+        # Clip to [0.85, 1.15] -- proxy is much weaker signal than real Stuff+
+        # so we cap the magnitude of its effect.
+        return max(0.85, min(1.15, proxy))
+
+    # Tier 3: nothing usable -> neutral.
+    return 1.0
+
+
 def _normalize_pitcher_name(name: str) -> str:
     """Normalize a player name for robust matching across data sources.
 
@@ -941,16 +1007,18 @@ def build_daily_dcv_table(
             else:
                 sgp_dcv = 0.0
 
-            # T3-5a: Stuff+ boost for pitcher K DCV
+            # T3-5a: Stuff+ boost for pitcher K DCV.
+            # Helper guarantees neutral 1.0x when stuff_plus is missing/0/NaN
+            # (CLAUDE.md SF-6: FanGraphs 403 leaves the column NULL). With
+            # Wave 4-J Option B, FIP/xFIP serve as a proxy when Stuff+ is
+            # unavailable -- pitchers with FIP < 4.0 (better than league avg)
+            # get a small K bump even without Stuff+ data.
             if col == "k" and not is_hitter:
-                try:
-                    _stuff = float(player.get("stuff_plus", 0) or 0)
-                    if _stuff > 120:
-                        sgp_dcv *= 1.10
-                    elif _stuff > 110:
-                        sgp_dcv *= 1.05
-                except (TypeError, ValueError):
-                    pass
+                sgp_dcv *= _stuff_plus_k_multiplier(
+                    player.get("stuff_plus"),
+                    fip=player.get("fip"),
+                    xfip=player.get("xfip"),
+                )
 
             # T3-5b: Sprint speed boost for hitter SB DCV
             if col == "sb" and is_hitter:
