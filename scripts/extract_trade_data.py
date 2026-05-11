@@ -8,15 +8,15 @@ from __future__ import annotations
 
 import json
 import os
-import sqlite3
 import statistics
 import sys
 from collections import defaultdict
 
+from src.database import get_connection
+
 sys.stdout.reconfigure(encoding="utf-8")
 
-conn = sqlite3.connect("data/draft_tool.db")
-conn.row_factory = sqlite3.Row
+conn = get_connection()
 cur = conn.cursor()
 
 # Step 1: rostered players per team

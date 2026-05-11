@@ -1,11 +1,12 @@
 """Compare draft roster vs current roster matchup results."""
 
 import io
-import sqlite3
 import sys
 
+from src.database import get_connection
+
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
-conn = sqlite3.connect("data/draft_tool.db")
+conn = get_connection()
 
 scoring_cats = ["R", "HR", "RBI", "SB", "AVG", "OBP", "W", "L", "SV", "K", "ERA", "WHIP"]
 inverse_cats = {"L", "ERA", "WHIP"}
