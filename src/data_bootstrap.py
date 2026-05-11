@@ -1483,7 +1483,10 @@ def _bootstrap_umpire_tendencies(progress: BootstrapProgress) -> str:
                 rows_written=0,
                 message="MLB schedule fetch returned empty",
             )
-            return "Skipped: no schedule data"
+            return (
+                "Skipped: no schedule data (MLB Stats API returned empty). "
+                "Optimizer uses neutral 1.0× umpire multiplier — see CLAUDE.md SF-7."
+            )
 
         # Aggregate per-umpire stats from game data
         umpire_stats: dict[str, dict] = {}  # name -> {games, total_k, total_bb, total_runs, total_pa}
@@ -1564,7 +1567,10 @@ def _bootstrap_umpire_tendencies(progress: BootstrapProgress) -> str:
                 rows_written=0,
                 message="no umpire names extracted from completed-game boxscores",
             )
-            return "Skipped: no umpire data extracted"
+            return (
+                "Skipped: no umpire data (boxscore HP-umpire extraction failed). "
+                "Optimizer uses neutral 1.0× umpire multiplier — see CLAUDE.md SF-7."
+            )
 
         # Compute league averages for delta calculation
         league_k = sum(u["total_k"] for u in umpire_stats.values())
@@ -1711,7 +1717,10 @@ def _bootstrap_catcher_framing(progress: BootstrapProgress) -> str:
                         rows_written=0,
                         message="no catchers in players table",
                     )
-                    return "Skipped: no catchers in DB"
+                    return (
+                        "Skipped: no catchers in DB. "
+                        "Optimizer uses neutral 1.0× framing multiplier — see CLAUDE.md SF-7."
+                    )
 
                 rows = []
                 for _, c in catchers.iterrows():
@@ -1752,7 +1761,10 @@ def _bootstrap_catcher_framing(progress: BootstrapProgress) -> str:
                 rows_written=0,
                 message="all framing sources returned empty (Savant + FanGraphs + statsapi)",
             )
-            return "Skipped: no catcher data available"
+            return (
+                "Skipped: all framing sources failed (Savant + FanGraphs + statsapi). "
+                "Optimizer uses neutral 1.0× framing multiplier — see CLAUDE.md SF-7."
+            )
 
         # Build name→player_id mapping
         conn = get_connection()
