@@ -2150,6 +2150,70 @@ def get_refresh_status(source: str) -> dict | None:
         conn.close()
 
 
+def get_refresh_log_snapshot() -> list[dict]:
+    """Return a snapshot of every row in refresh_log, ordered by source.
+
+    Each entry has keys: source, last_refresh, status, rows_written,
+    rows_expected_min, message, tier. Useful for operations / debugging /
+    Data Status panel rendering.
+
+    Defensive — on very old DBs missing the T3 (rows_written/rows_expected_min/
+    message) or 2026-04-19 (tier) migration columns, the function falls back
+    to selecting only the legacy columns and fills the rest with None. NEVER
+    raises (catches DB errors and returns []).
+
+    Returns:
+        List of dicts, one per refreshed source. Empty list if no refresh
+        history exists or the table itself is missing.
+    """
+    conn = get_connection()
+    try:
+        try:
+            cursor = conn.execute(
+                "SELECT source, last_refresh, status, rows_written, "
+                "rows_expected_min, message, tier "
+                "FROM refresh_log ORDER BY source"
+            )
+            rows = cursor.fetchall()
+            return [
+                {
+                    "source": r[0],
+                    "last_refresh": r[1],
+                    "status": r[2],
+                    "rows_written": r[3],
+                    "rows_expected_min": r[4],
+                    "message": r[5],
+                    "tier": r[6],
+                }
+                for r in rows
+            ]
+        except sqlite3.OperationalError:
+            # Old DB missing T3 / tier columns — fall back to legacy schema.
+            try:
+                cursor = conn.execute("SELECT source, last_refresh, status FROM refresh_log ORDER BY source")
+                rows = cursor.fetchall()
+                return [
+                    {
+                        "source": r[0],
+                        "last_refresh": r[1],
+                        "status": r[2],
+                        "rows_written": None,
+                        "rows_expected_min": None,
+                        "message": None,
+                        "tier": None,
+                    }
+                    for r in rows
+                ]
+            except sqlite3.OperationalError as exc:
+                logger.warning("get_refresh_log_snapshot legacy fallback failed: %s", exc)
+                return []
+    except Exception as exc:
+        logger.warning("get_refresh_log_snapshot failed: %s", exc)
+        return []
+    finally:
+        conn.close()
+
+
 def check_staleness(source: str, max_age_hours: float) -> bool:
     """Return True if source needs refresh.
 
