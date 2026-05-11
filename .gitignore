@@ -31,8 +31,13 @@ desktop.ini
 # Streamlit
 .streamlit/secrets.toml
 
-# Project data (generated at runtime)
-data/
+# Project data (generated at runtime).
+# Use file globs (data/*) instead of `data/` so we can re-include
+# specific subdirectories like data/seed/ that ship in the repo.
+data/*
+# Allow shipped seed/baseline data (used as Tier 3 emergency fallback)
+!data/seed/
+!data/seed/**
 
 # Yahoo API credentials
 yahoo_credentials.json
