@@ -2525,7 +2525,7 @@ def _bootstrap_injury_writeback(progress: BootstrapProgress) -> str:
             conn.execute(
                 """UPDATE players SET is_injured = 1, injury_note = lr.status
                    FROM league_rosters lr
-                   WHERE players.name = lr.name
+                   WHERE players.player_id = lr.player_id
                      AND lr.status IN ('IL10', 'IL15', 'IL60', 'DTD')"""
             )
 
