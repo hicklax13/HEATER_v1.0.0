@@ -150,12 +150,13 @@ class TestBootstrapEmptySourceMessages:
             neutral_referenced = "neutral" in msg_lower or "1.0" in msg_lower
             known_limitation = "known limitation" in msg_lower
             empty_referenced = "no schedule" in msg_lower or "no" in msg_lower
-            assert sf7_referenced or known_limitation or neutral_referenced or empty_referenced, (
-                f"SF-7 message must reference SF-7 or neutral fallback. Got: {msg!r}"
+            seed_loaded = "seed" in msg_lower or "emergency" in msg_lower
+            assert sf7_referenced or known_limitation or neutral_referenced or empty_referenced or seed_loaded, (
+                f"SF-7 message must reference SF-7, neutral fallback, or seed/emergency tier. Got: {msg!r}"
             )
 
     def test_umpire_no_extraction_cites_sf7(self, temp_db):
-        """When schedule has games but boxscores fail HP extraction → SF-7 msg."""
+        """When schedule has games but boxscores fail HP extraction → SF-7 msg or seed fallback."""
         with patch("src.database.DB_PATH", temp_db):
             from src.data_bootstrap import (
                 BootstrapProgress,
@@ -174,6 +175,7 @@ class TestBootstrapEmptySourceMessages:
             neutral_referenced = "neutral" in msg_lower or "1.0" in msg_lower
             known_limitation = "known limitation" in msg_lower
             empty_referenced = "no umpire" in msg_lower or "extracted" in msg_lower or "skipped" in msg_lower
-            assert sf7_referenced or known_limitation or neutral_referenced or empty_referenced, (
-                f"SF-7 message must reference SF-7 or neutral fallback. Got: {msg!r}"
+            seed_loaded = "seed" in msg_lower or "emergency" in msg_lower
+            assert sf7_referenced or known_limitation or neutral_referenced or empty_referenced or seed_loaded, (
+                f"SF-7 message must reference SF-7, neutral fallback, or seed/emergency tier. Got: {msg!r}"
             )
