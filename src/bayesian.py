@@ -769,8 +769,20 @@ def update_ros_projections() -> int:
                 if remaining_ip > 0:
                     row_out["er"] = int(row_out.get("era", 0) * remaining_ip / 9)
                     total_br = row_out.get("whip", 0) * remaining_ip
-                    row_out["bb_allowed"] = int(total_br * 0.35)
-                    row_out["h_allowed"] = int(total_br * 0.65)
+                    # BUG-012 ROS-path fix: split BB:H using observed ratio
+                    # (regressed toward 0.35 with stabilization=50 baserunners),
+                    # not a hardcoded 35/65. See batch_update_projections for
+                    # the matching fix in the in-season path.
+                    obs_bb = int(float(obs.get("bb_allowed", 0) or 0)) if obs is not None else 0
+                    obs_h_allowed = int(float(obs.get("h_allowed", 0) or 0)) if obs is not None else 0
+                    obs_br = obs_bb + obs_h_allowed
+                    if obs_br > 0:
+                        stab = 50.0
+                        bb_share = (obs_bb + 0.35 * stab) / (obs_br + stab)
+                    else:
+                        bb_share = 0.35
+                    row_out["bb_allowed"] = int(total_br * bb_share)
+                    row_out["h_allowed"] = int(total_br * (1.0 - bb_share))
                 else:
                     row_out["er"] = 0
                     row_out["bb_allowed"] = 0
