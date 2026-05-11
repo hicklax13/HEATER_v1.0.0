@@ -21,6 +21,36 @@ from src.valuation import canonicalize_team
 logger = logging.getLogger(__name__)
 
 
+def _stuff_plus_k_multiplier(stuff_plus: object) -> float:
+    """SF-6 helper: multiplicative K-boost from a pitcher's Stuff+ score.
+
+    The CLAUDE.md SF-6 known limitation: FanGraphs blocks the Stuff+ scrape
+    with HTTP 403, so ``stuff_plus`` is ``NULL`` / 0 / NaN for every pitcher
+    in production. This helper guarantees the K-boost path is a **provable
+    no-op** in that case (returns ``1.0``) — preventing silent inflation of
+    the K column when bad data slips through.
+
+    Ramp (preserves the previous T3-5a tiers):
+        stuff_plus > 120  → 1.10×
+        stuff_plus > 110  → 1.05×
+        otherwise         → 1.00×
+
+    None / 0 / NaN / negative / non-numeric inputs all return 1.0.
+    """
+    try:
+        val = float(stuff_plus) if stuff_plus is not None else 0.0
+    except (TypeError, ValueError):
+        return 1.0
+    # NaN is the only float that compares False to itself
+    if val != val or val <= 0.0:
+        return 1.0
+    if val > 120:
+        return 1.10
+    if val > 110:
+        return 1.05
+    return 1.0
+
+
 def _normalize_pitcher_name(name: str) -> str:
     """Normalize a player name for robust matching across data sources.
 
@@ -941,16 +971,11 @@ def build_daily_dcv_table(
             else:
                 sgp_dcv = 0.0
 
-            # T3-5a: Stuff+ boost for pitcher K DCV
+            # T3-5a: Stuff+ boost for pitcher K DCV.
+            # Helper guarantees neutral 1.0× when stuff_plus is missing/0/NaN
+            # (CLAUDE.md SF-6: FanGraphs 403 leaves the column NULL).
             if col == "k" and not is_hitter:
-                try:
-                    _stuff = float(player.get("stuff_plus", 0) or 0)
-                    if _stuff > 120:
-                        sgp_dcv *= 1.10
-                    elif _stuff > 110:
-                        sgp_dcv *= 1.05
-                except (TypeError, ValueError):
-                    pass
+                sgp_dcv *= _stuff_plus_k_multiplier(player.get("stuff_plus"))
 
             # T3-5b: Sprint speed boost for hitter SB DCV
             if col == "sb" and is_hitter:

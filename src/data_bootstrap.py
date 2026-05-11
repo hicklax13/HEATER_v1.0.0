@@ -1164,7 +1164,16 @@ def _bootstrap_stuff_plus(progress: BootstrapProgress) -> str:
             )
         except Exception:
             pass
-        return _format_fetch_error(exc, "FanGraphs Stuff+")
+        # SF-6: FanGraphs leaders-legacy.aspx 403s non-browser scrapers.
+        # Surface this as a known limitation so users don't think the
+        # optimizer is silently broken — K-boost path defaults to neutral 1.0×.
+        base = _format_fetch_error(exc, "FanGraphs Stuff+")
+        if base.startswith("Skipped:"):
+            return (
+                "Skipped: FanGraphs Stuff+ unavailable (HTTP 403 — known limitation, "
+                "see CLAUDE.md SF-6). Optimizer K-boost defaults to neutral 1.0×."
+            )
+        return base
 
 
 def _bootstrap_batting_stats(progress: BootstrapProgress) -> str:
@@ -1312,7 +1321,16 @@ def _bootstrap_batting_stats(progress: BootstrapProgress) -> str:
             )
         except Exception:
             pass
-        return _format_fetch_error(exc, "FanGraphs Batting Stats")
+        # SF-6: same 403 path as Stuff+. Surface honest known limitation
+        # rather than a noisy stack trace; downstream BABIP/ISO/K%/BB%
+        # adjustments simply use neutral defaults when the column is NULL.
+        base = _format_fetch_error(exc, "FanGraphs Batting Stats")
+        if base.startswith("Skipped:"):
+            return (
+                "Skipped: FanGraphs Batting Stats unavailable (HTTP 403 — known limitation, "
+                "see CLAUDE.md SF-6). Optimizer uses neutral defaults for BABIP/ISO/K%/BB%."
+            )
+        return base
 
 
 def _bootstrap_sprint_speed(progress: BootstrapProgress) -> str:
