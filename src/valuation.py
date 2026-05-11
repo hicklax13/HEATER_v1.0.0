@@ -231,9 +231,6 @@ class SGPCalculator:
         for cat in self.config.all_categories:
             denom = self._denominators.get(cat, 1.0)
             if abs(denom) < 1e-9:
-                # Skip pathological denom rather than divide by ~0; matches
-                # the historical "bad denom = no contribution" semantics in
-                # the call sites this method replaces.
                 continue
             val = totals.get(cat, 0.0)
             if val is None:
