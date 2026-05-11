@@ -420,12 +420,11 @@ def _bootstrap_park_factors(progress: BootstrapProgress) -> str:
             emergency_fn=_tier3_emergency,
         )
 
-        # For now, always use the emergency dict to build the factors list.
-        # When Tier 1 returns a DataFrame, we can extract park factors from it.
-        # This ensures the pipeline works immediately while Tier 1 matures.
-        source_dict = _PARK_FACTORS_EMERGENCY_2026
-        if isinstance(data, dict):
+        if isinstance(data, dict) and len(data) > 0:
             source_dict = data
+        else:
+            source_dict = _PARK_FACTORS_EMERGENCY_2026
+            tier = "emergency"
 
         factors = [
             {
@@ -708,13 +707,17 @@ def _bootstrap_contracts(progress: BootstrapProgress) -> str:
     progress.detail = "Fetching free agent list..."
     try:
         from src.contract_data import fetch_contract_year_players
-        from src.database import update_refresh_log
+        from src.database import update_refresh_log_auto
 
         names = fetch_contract_year_players()
-        if names:
-            _persist_contract_years(names)
-        update_refresh_log("contracts", "success")
-        return f"Contracts: {len(names)} players in contract year"
+        matched = _persist_contract_years(names) if names else 0
+        update_refresh_log_auto(
+            "contracts",
+            matched,
+            expected_min=1,
+            message=f"{matched} players flagged contract_year=1 (from {len(names)} fetched)",
+        )
+        return f"Contracts: {matched} players flagged (from {len(names)} fetched)"
     except Exception as e:
         logger.warning("Contract data bootstrap failed: %s", e)
         return f"Contracts: error ({e})"
@@ -1953,7 +1956,22 @@ def _bootstrap_pvb_splits(progress: BootstrapProgress) -> str:
         finally:
             conn.close()
 
-        update_refresh_log("pvb_splits", "success")
+        if updated > 0:
+            update_refresh_log(
+                "pvb_splits",
+                "success",
+                rows_written=updated,
+                message=f"{updated} new, {skipped} cached",
+            )
+        elif skipped > 0:
+            update_refresh_log(
+                "pvb_splits",
+                "cached",
+                rows_written=0,
+                message=f"all {skipped} matchups already cached",
+            )
+        else:
+            update_refresh_log("pvb_splits", "no_data", rows_written=0)
         logger.info("T12: PvB splits — %d matchups saved, %d skipped (cached)", updated, skipped)
         return f"Saved {updated} PvB matchups ({skipped} cached)"
 
