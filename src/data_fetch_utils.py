@@ -104,3 +104,77 @@ def patch_pybaseball_session():
             yield None
     except ImportError:
         yield None
+
+
+@contextlib.contextmanager
+def patch_requests_browser_headers(host_filter: str | None = None):
+    """Monkey-patch ``requests.get`` and ``requests.Session.get`` to inject
+    browser headers for the duration of the ``with`` block.
+
+    Used by the SF-6 (Option C) FanGraphs scraper attempt: pybaseball calls
+    ``requests.get`` directly (no session), so we need to intercept the call
+    and merge browser headers into whatever the caller passed.
+
+    Args:
+        host_filter: If provided, only inject headers when the request URL
+            contains this substring (e.g. ``"fangraphs.com"``). Other hosts
+            pass through untouched. Pass ``None`` to inject on every request
+            (use sparingly -- can interfere with other callers).
+
+    Headers merge with caller-supplied headers (caller's win on collision).
+
+    Usage::
+
+        with patch_requests_browser_headers(host_filter="fangraphs.com"):
+            df = pybaseball.pitching_stats(2026)
+    """
+    import requests
+
+    original_get = requests.get
+    original_session_get = requests.Session.get
+
+    def _should_inject(url: object) -> bool:
+        if host_filter is None:
+            return True
+        try:
+            return host_filter in str(url)
+        except Exception:
+            return False
+
+    def _merge_headers(kwargs: dict) -> dict:
+        existing = kwargs.get("headers") or {}
+        merged = dict(_BROWSER_HEADERS)
+        merged.update(existing)  # caller-supplied headers win
+        kwargs["headers"] = merged
+        return kwargs
+
+    def patched_get(url, **kwargs):
+        if _should_inject(url):
+            kwargs = _merge_headers(kwargs)
+        return original_get(url, **kwargs)
+
+    def patched_session_get(self, url, **kwargs):
+        if _should_inject(url):
+            kwargs = _merge_headers(kwargs)
+        return original_session_get(self, url, **kwargs)
+
+    requests.get = patched_get
+    requests.Session.get = patched_session_get
+    try:
+        yield
+    finally:
+        requests.get = original_get
+        requests.Session.get = original_session_get
+
+
+def fetch_fangraphs_with_browser_headers(fetch_fn: Callable[[], Any]) -> Any:
+    """Run a FanGraphs-bound fetcher with browser headers injected into
+    ``requests.get`` calls. Returns the fetcher's result or raises its
+    exception.
+
+    Convenience wrapper for the SF-6 (Option C) Tier 1 attempt -- pairs with
+    a Tier 2 ``fallback_fn`` that doesn't try the browser-headers trick (or
+    surfaces the documented limitation message).
+    """
+    with patch_requests_browser_headers(host_filter="fangraphs.com"):
+        return fetch_fn()
