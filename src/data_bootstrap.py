@@ -988,11 +988,13 @@ def _bootstrap_prospects(progress: BootstrapProgress) -> str:
 
         df = refresh_prospect_rankings(force=True)
         prospect_count = len(df) if df is not None else 0
-        # INFRA-F6: row-count gate (was bare "success").
+        # INFRA-F6: row-count gate. Floor of 20 matches the documented Tier 3
+        # emergency fallback (prospect_engine._STATIC_PROSPECTS, 20 entries);
+        # a higher floor would spuriously downgrade that path to "partial".
         update_refresh_log_auto(
             "prospect_rankings",
             prospect_count,
-            expected_min=50,
+            expected_min=20,
             message=f"{prospect_count} prospects ranked",
         )
         return f"Prospects: {prospect_count} ranked"

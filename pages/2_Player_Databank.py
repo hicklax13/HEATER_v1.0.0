@@ -76,7 +76,7 @@ STATUS_OPTIONS = [
 MLB_TEAMS = [
     "ALL",
     "ARI",
-    "OAK",
+    "ATH",
     "ATL",
     "BAL",
     "BOS",

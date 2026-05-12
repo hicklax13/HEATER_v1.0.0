@@ -20,7 +20,13 @@ def test_success_calls_use_update_refresh_log_auto():
     `update_refresh_log_auto(...)` so silent 0-row writes are caught."""
     assert BOOTSTRAP.exists()
     text = BOOTSTRAP.read_text(encoding="utf-8")
-    pat = re.compile(r'update_refresh_log\(\s*"([a-z_]+)"\s*,\s*"success"', re.MULTILINE)
+    # Match both positional `update_refresh_log("x", "success", ...)` and keyword
+    # `update_refresh_log("x", status="success", ...)` forms. Either pattern
+    # claims success without verifying row count.
+    pat = re.compile(
+        r'update_refresh_log\(\s*"([a-z_]+)"\s*,\s*(?:status\s*=\s*)?"success"',
+        re.MULTILINE,
+    )
     offenders: list[tuple[int, str, str]] = []
     for m in pat.finditer(text):
         phase = m.group(1)
