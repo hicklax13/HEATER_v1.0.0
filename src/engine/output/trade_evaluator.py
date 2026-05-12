@@ -111,17 +111,20 @@ GRADE_THRESHOLDS: list[tuple[float, str]] = [
     (-1.0, "D"),
 ]
 
-_LC = LeagueConfig()
-CATEGORIES: list[str] = _LC.all_categories
-INVERSE_CATEGORIES: set[str] = _LC.inverse_stats
+# Resolve once at import; do not store as a long-lived module singleton.
+# (BUG-010: SF-21 architectural directive.)
+_LC_ONCE = LeagueConfig()
+CATEGORIES: list[str] = _LC_ONCE.all_categories
+INVERSE_CATEGORIES: set[str] = _LC_ONCE.inverse_stats
 
 # Stat column mapping for computing roster totals
-STAT_MAP: dict[str, str] = _LC.STAT_MAP
+STAT_MAP: dict[str, str] = _LC_ONCE.STAT_MAP
 
 # Categories where replacement cost penalty applies (counting stats only).
 # Rate stats (AVG, OBP, ERA, WHIP) are excluded — they are roster-aggregate
 # and "best FA replacement" doesn't map cleanly to a counting-stat gap.
-COUNTING_CATEGORIES: set[str] = _LC.counting_stats
+COUNTING_CATEGORIES: set[str] = _LC_ONCE.counting_stats
+del _LC_ONCE
 
 # Discount factor for FA pool turnover (drops, injuries, call-ups, role changes).
 # 0.5 means we assume half the unrecoverable gap will eventually become

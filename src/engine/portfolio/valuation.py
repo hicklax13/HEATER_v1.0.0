@@ -50,9 +50,12 @@ STAT_MAP: dict[str, str] = {
     "WHIP": "whip",
 }
 
-_LC = LeagueConfig()
-CATEGORIES: list[str] = list(_LC.all_categories)
-INVERSE_CATEGORIES: set[str] = set(_LC.inverse_stats)
+# Resolve once at import; do not store as a long-lived module singleton.
+# (BUG-010: SF-21 architectural directive.)
+_LC_ONCE = LeagueConfig()
+CATEGORIES: list[str] = list(_LC_ONCE.all_categories)
+INVERSE_CATEGORIES: set[str] = set(_LC_ONCE.inverse_stats)
+del _LC_ONCE
 
 
 def compute_player_zscores(
