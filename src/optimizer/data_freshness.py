@@ -17,6 +17,41 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 
+# INFRA-F4: default TTLs for refresh_log hydration. Mirrors CLAUDE.md's
+# Data Sources table; unmapped sources fall back to _DEFAULT_TTL_HOURS.
+_DEFAULT_TTLS = {
+    "players": 168.0,  # 7 days
+    "projections": 24.0,
+    "ros_projections": 4.0,
+    "historical_stats": 720.0,  # 30 days
+    "season_stats": 1.0,
+    "yahoo_data": 0.5,
+    "yahoo_rosters": 0.5,
+    "yahoo_standings": 0.5,
+    "yahoo_free_agents": 1.0,
+    "yahoo_transactions": 0.25,
+    "game_day": 2.0,
+    "team_strength": 24.0,
+    "park_factors": 720.0,
+    "catcher_framing": 168.0,
+    "umpire_tendencies": 24.0,
+    "depth_charts": 168.0,
+    "news": 1.0,
+    "news_intelligence": 1.0,
+    "ecr_consensus": 24.0,
+    "adp_sources": 24.0,
+    "sprint_speed": 24.0,
+    "bat_speed": 24.0,
+    "stuff_plus": 24.0,
+    "forty_man": 168.0,
+    "pvb_splits": 24.0,
+    "batting_stats": 24.0,
+    "injury_data": 1.0,
+    "prospect_rankings": 168.0,
+}
+_DEFAULT_TTL_HOURS = 24.0  # for sources not in _DEFAULT_TTLS
+
+
 class FreshnessStatus(Enum):
     """Staleness status for a data source."""
 
@@ -39,6 +74,60 @@ class DataFreshnessTracker:
 
     def __init__(self) -> None:
         self._sources: dict[str, _SourceRecord] = {}
+        # INFRA-F4: hydrate from refresh_log on init so callers outside the
+        # lineup-optimizer flow (which calls tracker.record() inline) still
+        # see FRESH/STALE rather than UNKNOWN for recently refreshed sources.
+        self._populate_from_refresh_log()
+
+    def _populate_from_refresh_log(self) -> None:
+        """Read refresh_log and seed _sources with timestamps from recent
+        successful refreshes. Failures (non-success status, bad timestamp,
+        missing table, etc.) are logged at DEBUG and do not raise."""
+        try:
+            from src.database import get_connection
+        except Exception as exc:
+            logger.debug("DataFreshnessTracker: could not import get_connection: %s", exc)
+            return
+
+        try:
+            conn = get_connection()
+        except Exception as exc:
+            logger.debug("DataFreshnessTracker: get_connection failed: %s", exc)
+            return
+
+        try:
+            cur = conn.execute("SELECT source, last_refresh, status FROM refresh_log")
+            rows = cur.fetchall()
+        except Exception as exc:
+            logger.debug("DataFreshnessTracker: refresh_log query failed: %s", exc)
+            try:
+                conn.close()
+            except Exception:
+                pass
+            return
+
+        for source, last_refresh_str, status in rows:
+            if status != "success" or not last_refresh_str:
+                continue
+            try:
+                ts = datetime.fromisoformat(last_refresh_str.replace(" ", "T"))
+                if ts.tzinfo is None:
+                    ts = ts.replace(tzinfo=UTC)
+            except (ValueError, TypeError):
+                continue
+            ttl = _DEFAULT_TTLS.get(source, _DEFAULT_TTL_HOURS)
+            self._sources[source] = _SourceRecord(
+                name=source,
+                timestamp=ts,
+                ttl_hours=ttl,
+                data_as_of="",
+                source_label="refresh_log",
+            )
+
+        try:
+            conn.close()
+        except Exception:
+            pass
 
     def record(
         self,
