@@ -38,6 +38,11 @@ RELIEVER_IP_PER_APPEARANCE: float = 1.0
 # Full-season baseline for computing observed rate
 FULL_SEASON_GAMES: int = 162
 
+# Default health score for a player with no injury history.
+# Rationale: 0.85 represents "league-baseline healthy player" — kept in sync
+# with src.draft_engine.DEFAULT_HEALTH_SCORE and trade_intelligence.
+DEFAULT_HEALTH_SCORE: float = 0.85
+
 
 def _compute_blend_weights(observed_pa: float) -> tuple[float, float]:
     """Return (projection_weight, observed_weight) based on sample size.
@@ -232,7 +237,7 @@ def predict_remaining_pa_batch(
     remaining_ip = []
 
     for _, row in result.iterrows():
-        health = float(row.get("health_score", 0.85) or 0.85)
+        health = float(row.get("health_score", DEFAULT_HEALTH_SCORE) or DEFAULT_HEALTH_SCORE)
         is_hitter = bool(row.get("is_hitter", True))
         positions = str(row.get("positions", ""))
 

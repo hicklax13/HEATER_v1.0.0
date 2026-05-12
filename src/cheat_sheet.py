@@ -15,6 +15,12 @@ except ImportError:
     pass
 
 
+# Default health score for a player with no injury history.
+# Rationale: 0.85 represents "league-baseline healthy player" — kept in sync
+# with src.draft_engine.DEFAULT_HEALTH_SCORE.
+DEFAULT_HEALTH_SCORE: float = 0.85
+
+
 @dataclass
 class CheatSheetOptions:
     sort_by: str = "pick_score"
@@ -71,7 +77,7 @@ def _player_row_html(player: dict, show_health: bool = True, show_percentiles: b
         tags_html += f'<span class="tag-badge" style="background:{color};">{tag}</span>'
     health_html = ""
     if show_health:
-        hs = player.get("health_score", 0.85)
+        hs = player.get("health_score", DEFAULT_HEALTH_SCORE)
         color = "#2d6a4f" if hs >= 0.9 else "#ff9f1c" if hs >= 0.7 else "#e63946"
         health_html = f'<span class="health-dot" style="background:{color};"></span>'
     pct_html = ""
@@ -149,7 +155,7 @@ def _rankings_table(
             "pick_score": score_val,
             "adp": int(row.get("adp", 0)) if "adp" in row.index else "",
             "tags": tags.get(pid, []),
-            "health_score": health.get(pid, 0.85),
+            "health_score": health.get(pid, DEFAULT_HEALTH_SCORE),
         }
         # Tier breaks every 20 players
         tier = len(rows) // 20

@@ -120,6 +120,22 @@ _DEFAULT_GAMES_PER_WEEK: int = 6
 _MIN_PLAYERS: int = 2
 _MAX_PLAYERS: int = 4
 
+# Weather thresholds (°F). Hot weather aids HR carry; cold suppresses it.
+# Sources: Statcast HR/ball-flight studies at temperature extremes.
+_TEMP_HOT_F: float = 85.0
+_TEMP_COLD_F: float = 50.0
+
+# HR-rate multipliers at temperature extremes.
+_HEAT_HR_BOOST: float = 1.03
+_COLD_HR_SUPPRESS: float = 0.97
+
+# Trend-based start-score multipliers (hot/cold L7 form on the bat).
+_TREND_HOT_MULT: float = 1.05
+_TREND_COLD_MULT: float = 0.95
+
+# Default outdoor temperature (°F) when weather data is missing.
+_DEFAULT_TEMP_F: float = 72.0
+
 
 # ── Matchup State Classification ────────────────────────────────────
 
@@ -538,19 +554,19 @@ def start_sit_recommendation(
         if recent_form and pid in recent_form:
             trend = recent_form[pid].get("trend", "neutral")
             if trend == "hot":
-                start_score *= 1.05
+                start_score *= _TREND_HOT_MULT
             elif trend == "cold":
-                start_score *= 0.95
+                start_score *= _TREND_COLD_MULT
 
         # Weather adjustment: extreme temps affect HR production for hitters
         if weather and is_hitter:
             team = str(player.get("team", ""))
             w_data = weather.get(team, {})
-            temp = w_data.get("temp_f", 72.0) if w_data else 72.0
-            if isinstance(temp, (int, float)) and temp > 85:
-                start_score *= 1.03  # Heat boosts HR
-            elif isinstance(temp, (int, float)) and temp < 50:
-                start_score *= 0.97  # Cold suppresses HR
+            temp = w_data.get("temp_f", _DEFAULT_TEMP_F) if w_data else _DEFAULT_TEMP_F
+            if isinstance(temp, (int, float)) and temp > _TEMP_HOT_F:
+                start_score *= _HEAT_HR_BOOST  # Heat boosts HR
+            elif isinstance(temp, (int, float)) and temp < _TEMP_COLD_F:
+                start_score *= _COLD_HR_SUPPRESS  # Cold suppresses HR
 
         # Floor/ceiling estimates (P10/P90 approximation)
         # Use additive variance band — multiplicative fails when score is negative

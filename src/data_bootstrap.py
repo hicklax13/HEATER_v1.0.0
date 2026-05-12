@@ -1170,7 +1170,7 @@ def _bootstrap_stuff_plus(progress: BootstrapProgress) -> str:
             elif cl in ("pitching+", "pitchingplus"):
                 col_map[col] = "pitching_plus"
             # T5: gmLI (game-log leverage index) for closer monitor
-            elif cl in ("gmli", "gmli", "leverageindex", "gmleverageindex"):
+            elif cl in ("gmli", "leverageindex", "gmleverageindex"):
                 col_map[col] = "gmli"
 
         if not col_map:

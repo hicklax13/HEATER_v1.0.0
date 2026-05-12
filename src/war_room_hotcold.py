@@ -20,6 +20,12 @@ _INACTIVE_STATUSES = {"il10", "il15", "il60", "il", "na", "dl"}
 _STRONG_THRESHOLD = 1.2
 _MODERATE_THRESHOLD = 1.0
 
+# League-average rate-stat baselines used as fallbacks when a pitcher
+# row has no ERA/WHIP value. ~4.50 ERA / 1.30 WHIP track recent MLB
+# league averages (FanGraphs Guts; updated annually).
+_LEAGUE_AVG_ERA: float = 4.50
+_LEAGUE_AVG_WHIP: float = 1.30
+
 
 def compute_hot_cold_report(
     roster: pd.DataFrame,
@@ -307,8 +313,8 @@ def _evaluate_pitcher(row: pd.Series, l7: dict, player_name: str, team: str) -> 
     if l7_whip is None:
         l7_whip = 0.0
 
-    season_era = float(row.get("era", 4.50) or 4.50)
-    season_whip = float(row.get("whip", 1.30) or 1.30)
+    season_era = float(row.get("era", _LEAGUE_AVG_ERA) or _LEAGUE_AVG_ERA)
+    season_whip = float(row.get("whip", _LEAGUE_AVG_WHIP) or _LEAGUE_AVG_WHIP)
     season_k = float(row.get("k", 0) or 0)
     season_ip = float(row.get("ip", 0.0) or 0.0)
 
