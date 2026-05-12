@@ -485,6 +485,12 @@ class LineupOptimizerPipeline:
                 )
 
                 schedule_today = kwargs.get("schedule_today")
+                # BUG-011 fix: forward confirmed_lineups / recent_form /
+                # team_strength so DCV sees real batting-order positions,
+                # L14 recent form, and opposing-offense wRC+ instead of
+                # the default 0.9 volume multiplier + neutral matchup mult.
+                # (CLAUDE.md gotcha: "Daily Optimizer — Matchup data before
+                # state classification".)
                 dcv_table = build_daily_dcv_table(
                     roster=enhanced_roster,
                     matchup=kwargs.get("matchup"),
@@ -492,6 +498,9 @@ class LineupOptimizerPipeline:
                     park_factors=park_factors,
                     config=self.config,
                     rate_modes=daily_extras.get("rate_stat_modes"),
+                    confirmed_lineups=kwargs.get("confirmed_lineups"),
+                    recent_form=kwargs.get("recent_form"),
+                    team_strength=kwargs.get("team_strength"),
                 )
 
                 # Check IP minimum override
