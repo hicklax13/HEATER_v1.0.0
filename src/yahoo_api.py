@@ -1879,3 +1879,60 @@ class YahooFantasyClient:
         except Exception:
             logger.exception("Failed to get current matchup.")
             return None
+
+
+def try_reconnect_yahoo() -> YahooFantasyClient | None:
+    """Headless Yahoo OAuth reconnect from cached token.
+
+    Reads ``YAHOO_LEAGUE_ID`` from the environment and the OAuth token from
+    ``data/yahoo_token.json``. Returns a connected
+    :class:`YahooFantasyClient` or ``None`` if reconnect fails.
+
+    Callable from any context (CI cron, ops scripts, calibrate_constants.py,
+    Streamlit ``app.py``). The Streamlit app keeps a thin wrapper in
+    ``app.py:_try_reconnect_yahoo`` for backward compat with existing call
+    sites. (BUG-023 fix.)
+
+    Returns:
+        Authenticated :class:`YahooFantasyClient` on success, ``None`` on any
+        failure path (missing token, missing credentials, missing
+        ``YAHOO_LEAGUE_ID``, auth failure, or unexpected exception).
+    """
+    import json
+    import os
+
+    token_file = _AUTH_DIR / "yahoo_token.json"
+    if not token_file.exists():
+        return None
+
+    try:
+        token_data = json.loads(token_file.read_text(encoding="utf-8"))
+    except Exception:
+        logger.debug("Could not read Yahoo token file.", exc_info=True)
+        return None
+
+    consumer_key = token_data.get("consumer_key", os.environ.get("YAHOO_CLIENT_ID", ""))
+    consumer_secret = token_data.get("consumer_secret", os.environ.get("YAHOO_CLIENT_SECRET", ""))
+
+    if not consumer_key or not consumer_secret:
+        logger.debug("Yahoo token file missing consumer_key/secret.")
+        return None
+
+    yahoo_league_id = os.environ.get("YAHOO_LEAGUE_ID", "").strip()
+    if not yahoo_league_id:
+        logger.debug("YAHOO_LEAGUE_ID env var not set; skipping reconnect.")
+        return None
+
+    try:
+        client = YahooFantasyClient(league_id=yahoo_league_id)
+        if client.authenticate(consumer_key, consumer_secret, token_data=token_data):
+            if client.is_authenticated:
+                logger.info("Yahoo Fantasy auto-reconnected from saved token.")
+                return client
+            logger.warning("Yahoo auto-reconnect: client not authenticated after authenticate().")
+            return None
+        logger.warning("Yahoo auto-reconnect: authentication returned False.")
+    except Exception:
+        logger.debug("Yahoo auto-reconnect failed.", exc_info=True)
+
+    return None
