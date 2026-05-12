@@ -634,6 +634,9 @@ def _init_db_tables_and_columns(conn):
     _safe_add_column(conn, "players", "bats", "TEXT")
     _safe_add_column(conn, "players", "throws", "TEXT")
 
+    # Wave 9 INFRA-F5: minor-league universe expansion (Option B)
+    _safe_add_column(conn, "players", "level", "TEXT")  # NULL/"MLB"/"AAA"/"AA"
+
     # Phase 2 data foundation: advanced pitcher metrics
     for table in ("projections", "season_stats", "ros_projections"):
         _safe_add_column(conn, table, "fip", "REAL DEFAULT 0")
