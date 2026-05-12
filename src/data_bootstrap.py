@@ -7,6 +7,7 @@ Uses staleness-based smart refresh to avoid unnecessary API calls.
 import json
 import logging
 import threading
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -1620,6 +1621,12 @@ def _bootstrap_umpire_tendencies(progress: BootstrapProgress) -> str:
     progress.phase = "Umpire Data"
     progress.detail = "Fetching umpire assignments..."
 
+    # INFRA-F3: cap Tier 1 schedule iteration to 60s wall-clock so we fall
+    # through to Tier 3 seed in bounded time. Without this, ~2000 boxscore_data
+    # calls mid-season exceed the orchestrator's 240s per-phase timeout and
+    # the shipped seed never serves.
+    _UMPIRE_TIER1_TIMEOUT_S = 60.0
+
     try:
         from src.database import get_connection, update_refresh_log
 
@@ -1638,8 +1645,26 @@ def _bootstrap_umpire_tendencies(progress: BootstrapProgress) -> str:
                 end_date=datetime.now(UTC).strftime("%Y-%m-%d"),
             )
 
+            tier1_start = time.monotonic()
+            tier1_timed_out = False
+            games_processed = 0
+
             if schedule:
                 for game in schedule:
+                    # INFRA-F3: enforce wall-clock budget on Tier 1.
+                    elapsed = time.monotonic() - tier1_start
+                    if elapsed > _UMPIRE_TIER1_TIMEOUT_S:
+                        logger.warning(
+                            "T7 [primary]: Tier 1 schedule iteration exceeded %.0fs budget "
+                            "after processing %d games (%d umpires collected); breaking out "
+                            "to let Tier 3 seed serve if needed. (INFRA-F3 fix.)",
+                            _UMPIRE_TIER1_TIMEOUT_S,
+                            games_processed,
+                            len(umpire_stats),
+                        )
+                        tier1_timed_out = True
+                        break
+
                     game_pk = game.get("game_id")
                     if not game_pk:
                         continue
@@ -1651,6 +1676,7 @@ def _bootstrap_umpire_tendencies(progress: BootstrapProgress) -> str:
                         boxscore = _statsapi.boxscore_data(game_pk)
                     except Exception:
                         continue
+                    games_processed += 1
 
                     if not boxscore:
                         continue
@@ -1708,9 +1734,10 @@ def _bootstrap_umpire_tendencies(progress: BootstrapProgress) -> str:
                     tier_used = "primary"
                     league_games = sum(u["games"] for u in umpire_stats.values())
                     logger.info(
-                        "T7 [primary]: extracted %d umpires from %d games",
+                        "T7 [primary]: extracted %d umpires from %d games%s",
                         len(umpire_stats),
                         league_games,
+                        " (timed out; partial result)" if tier1_timed_out else "",
                     )
         except ImportError:
             logger.warning("T7 [primary]: statsapi not installed; skipping Tier 1")
