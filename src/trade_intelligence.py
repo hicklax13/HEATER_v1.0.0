@@ -536,15 +536,19 @@ def compute_fa_comparisons(
         target_sgp = _quick_player_sgp(p, config)
 
         best_fa_name = ""
-        best_fa_value = 0.0
+        best_fa_value: float | None = None  # BUG-017: seed from first cand
         for pos in positions:
             pos = pos.strip()
             candidates = fa_by_pos.get(pos, [])
             if candidates:
                 name, val = candidates[0]
-                if val > best_fa_value:
+                # Seed unconditionally on first candidate (handles negative SGP);
+                # subsequent positions only override if their FA has higher SGP.
+                if best_fa_value is None or val > best_fa_value:
                     best_fa_name = name
                     best_fa_value = val
+        if best_fa_value is None:
+            best_fa_value = 0.0
 
         if target_sgp > 0.01:
             fa_pct = best_fa_value / target_sgp
