@@ -13,7 +13,6 @@ from src.database import (
     get_connection,
     init_db,
     load_league_records,
-    load_league_rosters,
     load_league_schedule_full,
     load_player_pool,
 )
@@ -125,7 +124,8 @@ def _compute_projected_team_totals() -> dict[str, dict[str, float]]:
     projections from the ``projections`` table.
     """
     # Build league_rosters dict {team_name: [player_ids]} for the projection fallback.
-    rosters_df = load_league_rosters()
+    _yds = get_yahoo_data_service()
+    rosters_df = _yds.get_rosters()
     league_rosters_dict: dict[str, list[int]] = {}
     if not rosters_df.empty and "team_name" in rosters_df.columns and "player_id" in rosters_df.columns:
         for team, group in rosters_df.groupby("team_name"):
@@ -241,6 +241,7 @@ page_timer_start()
 
 yds = get_yahoo_data_service()
 matchup = yds.get_matchup()
+# DB-only: Yahoo API surface doesn't expose historical league records.
 records_df = load_league_records()
 user_team = _get_user_team_name()
 
@@ -537,6 +538,7 @@ with main:
                     }
 
             # Get full schedule
+            # DB-only: Yahoo API surface doesn't expose the full historical schedule.
             full_schedule = load_league_schedule_full()
             if not full_schedule:
                 # Try fetching from Yahoo
@@ -669,6 +671,7 @@ with main:
                 if ENGINE_AVAILABLE:
                     try:
                         team_totals_for_strength = _compute_projected_team_totals()
+                        # DB-only: Yahoo API surface doesn't expose the full historical schedule.
                         full_schedule = load_league_schedule_full()
                         if not full_schedule:
                             try:
@@ -765,6 +768,7 @@ with main:
                         modified_standings[user_team]["T"] += 1
 
                     team_totals_for_scenario = _compute_projected_team_totals()
+                    # DB-only: Yahoo API surface doesn't expose the full historical schedule.
                     full_schedule_sc = load_league_schedule_full()
                     if not full_schedule_sc:
                         try:

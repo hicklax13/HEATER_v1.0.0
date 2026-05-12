@@ -5,9 +5,10 @@ import time
 import pandas as pd
 import streamlit as st
 
-from src.database import coerce_numeric_df, get_connection, init_db, load_league_rosters, load_player_pool
+from src.database import coerce_numeric_df, get_connection, init_db, load_player_pool
 from src.in_season import compare_players
 from src.injury_model import get_injury_badge
+from src.yahoo_data_service import get_yahoo_data_service
 
 try:
     from src.player_databank import compute_rolling_stats
@@ -91,7 +92,8 @@ pool = pool.rename(columns={"name": "player_name"})
 # Player Compare does NOT need the destructive counting-stat reduction from
 # get_health_adjusted_pool() — it only needs health_score for display badges.
 
-rosters_df = load_league_rosters()
+_yds = get_yahoo_data_service()
+rosters_df = _yds.get_rosters()
 config = LeagueConfig()
 
 
