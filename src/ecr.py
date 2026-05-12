@@ -825,7 +825,7 @@ def fetch_prospect_rankings(top_n: int = 100) -> pd.DataFrame:
         {"rank": 5, "name": "Kristian Campbell", "team": "BOS", "position": "SS", "eta": "2026", "fv": 60},
         {"rank": 6, "name": "Marcelo Mayer", "team": "BOS", "position": "SS", "eta": "2026", "fv": 60},
         {"rank": 7, "name": "JJ Wetherholt", "team": "PIT", "position": "2B", "eta": "2026", "fv": 60},
-        {"rank": 8, "name": "Nick Kurtz", "team": "OAK", "position": "1B", "eta": "2027", "fv": 60},
+        {"rank": 8, "name": "Nick Kurtz", "team": "ATH", "position": "1B", "eta": "2027", "fv": 60},
         {"rank": 9, "name": "Bubba Chandler", "team": "PIT", "position": "SS/SP", "eta": "2026", "fv": 60},
         {"rank": 10, "name": "Chase Burns", "team": "CIN", "position": "SP", "eta": "2026", "fv": 60},
         {"rank": 11, "name": "Tink Hence", "team": "STL", "position": "SP", "eta": "2026", "fv": 55},

@@ -50,7 +50,7 @@ _STATIC_PROSPECTS = [
     {"rank": 8, "name": "Marcelo Mayer", "team": "BOS", "position": "SS", "fg_eta": "2026", "fg_fv": 60},
     {"rank": 9, "name": "JJ Wetherholt", "team": "PIT", "position": "2B", "fg_eta": "2026", "fg_fv": 60},
     {"rank": 10, "name": "Coby Mayo", "team": "BAL", "position": "3B", "fg_eta": "2025", "fg_fv": 55},
-    {"rank": 11, "name": "Nick Kurtz", "team": "OAK", "position": "1B", "fg_eta": "2027", "fg_fv": 60},
+    {"rank": 11, "name": "Nick Kurtz", "team": "ATH", "position": "1B", "fg_eta": "2027", "fg_fv": 60},
     {"rank": 12, "name": "James Wood", "team": "WSH", "position": "OF", "fg_eta": "2025", "fg_fv": 55},
     {"rank": 13, "name": "Bubba Chandler", "team": "PIT", "position": "SS/SP", "fg_eta": "2026", "fg_fv": 60},
     {"rank": 14, "name": "Chase Burns", "team": "CIN", "position": "SP", "fg_eta": "2026", "fg_fv": 60},
