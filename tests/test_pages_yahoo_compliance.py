@@ -11,6 +11,8 @@ PAGES_TO_CHECK = [
     "pages/8_Trade_Values.py",
     "pages/14_Punt_Analyzer.py",
     "pages/12_Playoff_Odds.py",
+    "pages/9_League_Standings.py",
+    "pages/7_Player_Compare.py",
 ]
 
 
