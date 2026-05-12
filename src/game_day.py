@@ -714,18 +714,31 @@ def _fetch_team_strength_statsapi(season: int) -> pd.DataFrame:
                 stat = pit_splits[0].get("stat", {})
                 row["team_era"] = _safe_float(stat.get("era")) or _NEUTRAL_DEFAULTS["team_era"]
                 row["team_whip"] = _safe_float(stat.get("whip")) or _NEUTRAL_DEFAULTS["team_whip"]
-                # Approximate FIP from component stats: FIP ~= ERA for this fallback
-                # True FIP requires HR, BB, HBP, K, IP which are available but
-                # the FIP constant changes yearly. Use ERA as proxy.
+                # D6B-002,003: Approximate FIP from component stats:
+                # FIP ~= ERA for this fallback. True FIP requires HR, BB, HBP,
+                # K, IP which are available but the FIP constant changes
+                # yearly. We persist ERA as a proxy (DB schema lacks a flag
+                # column), but the in-memory row carries fip_is_proxy=True so
+                # downstream consumers can detect the substitution, plus we
+                # emit a warning log so the proxy is visible at bootstrap time.
                 row["fip"] = row["team_era"]
+                row["fip_is_proxy"] = True
+                logger.warning(
+                    "team_strength fallback (statsapi): team=%s fip is a proxy "
+                    "for team_era (%.2f); install pybaseball for true FIP",
+                    abbr,
+                    float(row["team_era"]),
+                )
             else:
                 row["team_era"] = _NEUTRAL_DEFAULTS["team_era"]
                 row["team_whip"] = _NEUTRAL_DEFAULTS["team_whip"]
                 row["fip"] = _NEUTRAL_DEFAULTS["fip"]
+                row["fip_is_proxy"] = True
         except Exception:
             row["team_era"] = _NEUTRAL_DEFAULTS["team_era"]
             row["team_whip"] = _NEUTRAL_DEFAULTS["team_whip"]
             row["fip"] = _NEUTRAL_DEFAULTS["fip"]
+            row["fip_is_proxy"] = True
 
         rows.append(row)
 
@@ -974,12 +987,20 @@ def _aggregate_pitching_games(games: list[dict]) -> dict:
     bb_allowed = sum(g.get("baseOnBalls", 0) for g in games)
     h_allowed = sum(g.get("hits", 0) for g in games)
 
-    era = (er * 9 / total_ip) if total_ip > 0 else 0.0
-    whip = (bb_allowed + h_allowed) / total_ip if total_ip > 0 else 0.0
+    # D6B-001: when total_ip == 0, ERA/WHIP are undefined. Returning 0.0
+    # made the UI display "ELITE" (0.00 ERA / 0.00 WHIP) for pitchers who
+    # didn't pitch a single inning. Return None instead so consumers can
+    # render "—" via format_stat / treat as missing.
+    if total_ip > 0:
+        era: float | None = round(er * 9 / total_ip, 2)
+        whip: float | None = round((bb_allowed + h_allowed) / total_ip, 2)
+    else:
+        era = None
+        whip = None
 
     return {
-        "era": round(era, 2),
-        "whip": round(whip, 2),
+        "era": era,
+        "whip": whip,
         "k": k,
         "w": w,
         "ip": round(total_ip, 1),

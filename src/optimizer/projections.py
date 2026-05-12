@@ -564,9 +564,11 @@ def _blend_pitcher_form(
     form_weight: float = _RECENT_FORM_BLEND,
 ) -> None:
     """Blend L14 pitcher stats into projection at the given form weight."""
-    # Rate stats: direct blend
+    # Rate stats: direct blend.
+    # D6B-001 / SF-companion: l14 era/whip may be None on no-IP — coerce
+    # to 0 so the `> 0` guard skips the blend (no recent form to blend).
     for stat in ("era", "whip"):
-        recent_val = l14.get(stat, 0)
+        recent_val = l14.get(stat) or 0
         proj_val = float(row.get(stat, 0) or 0)
         if recent_val > 0 and proj_val > 0:
             blended = proj_val * (1 - form_weight) + recent_val * form_weight

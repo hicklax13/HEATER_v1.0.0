@@ -118,8 +118,14 @@ def run_paired_monte_carlo(
     # underlying uniform quantiles (u → 1-u, equivalently z → -z for normals).
     # This guarantees perfect negative correlation between the two arms'
     # noise, which reduces the variance of their average by ~20-40% vs.
-    # independent draws.  Produces n_sims results total.
+    # independent draws.  Produces 2*half_sims results total.
+    #
+    # D4B-002: pair count is integer-floor of n_sims/2, so odd n_sims
+    # would leave a trailing zero in surpluses (biasing all aggregates
+    # toward 0). Round n_sims DOWN to 2*half_sims so every slot in the
+    # surpluses array corresponds to an actual simulation.
     half_sims = max(1, n_sims // 2)
+    n_sims = 2 * half_sims
     surpluses = np.zeros(n_sims)
     before_sgp_sims = np.zeros(n_sims)
     after_sgp_sims = np.zeros(n_sims)
@@ -327,10 +333,15 @@ def _simulate_roster_sgp(
             p_ip = 60.0 if sv > 5 else 150.0
             if stats.get("era", 0.0) > 0:
                 p_er = stats["era"] * p_ip / 9.0
+            # D4B-003: when WHIP missing, fall back to league-average (1.30)
+            # × synthetic IP. Previous code set p_bb_h_allowed = 0.0, which
+            # contributed the synthetic IP to total_ip without contributing
+            # baserunners — silently *deflating* team WHIP.
             if stats.get("whip", 0.0) > 0:
                 p_bb_h_allowed = stats["whip"] * p_ip
             else:
-                p_bb_h_allowed = 0.0
+                _LEAGUE_AVG_WHIP = 1.30
+                p_bb_h_allowed = _LEAGUE_AVG_WHIP * p_ip
             p_bb_allowed = p_bb_h_allowed * 0.4  # rough split
             p_h_allowed = p_bb_h_allowed * 0.6
 
