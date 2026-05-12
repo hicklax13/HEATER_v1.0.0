@@ -281,6 +281,49 @@ def _bootstrap_players(progress: BootstrapProgress) -> str:
         return f"Error: {e}"
 
 
+def _bootstrap_minor_league_rosters(progress: BootstrapProgress) -> str:
+    """Wave 9 INFRA-F5: fetch AAA/AA rosters and upsert with level column.
+
+    Adds ~900 minor-league players (top 30 per affiliate x ~60 affiliates,
+    de-duped on mlb_id) to the player universe. These players lack Yahoo
+    ownership data — consumers (UI filters) must handle NULL percent_owned.
+    """
+    from src.database import (
+        update_refresh_log,
+        update_refresh_log_auto,
+        upsert_player_bulk,
+    )
+
+    # Lazy-import inside the function body so test patches of
+    # src.live_stats.fetch_minor_league_players take effect.
+    from src.live_stats import fetch_minor_league_players
+
+    progress.phase = "Minor League Rosters"
+    progress.detail = "Fetching AAA + AA rosters..."
+    try:
+        df = fetch_minor_league_players(season=2026, levels=("AAA", "AA"), top_n_per_team=30)
+        if df.empty:
+            update_refresh_log(
+                "minor_league_rosters",
+                "no_data",
+                rows_written=0,
+                message="fetch_minor_league_players returned empty",
+            )
+            return "Skipped: minor-league API returned no data"
+        players = df.to_dict("records")
+        count = upsert_player_bulk(players)
+        status = update_refresh_log_auto(
+            "minor_league_rosters",
+            count,
+            expected_min=500,  # ~900 expected; 500 floor allows for partial AAA-only success
+            message=f"{count} minor leaguers upserted from {len(df)} API rows",
+        )
+        return f"Saved {count} minor leaguers ({status})"
+    except Exception as e:
+        update_refresh_log("minor_league_rosters", "error", message=str(e)[:200])
+        return f"Error: {e}"
+
+
 def _bootstrap_projections(progress: BootstrapProgress) -> str:
     """Fetch projections from FanGraphs."""
     from src.database import get_connection, update_refresh_log, update_refresh_log_auto
@@ -2816,6 +2859,23 @@ def bootstrap_all_data(
             results["extended_roster"] = f"Error: {exc}"
     else:
         results["extended_roster"] = "Fresh"
+
+    # Phase 3c (Wave 9 INFRA-F5): Minor league rosters (AAA + AA top-30 per team)
+    # Expands the player universe by ~900 rows. Runs after extended_roster so
+    # MLB players are already canonicalized before we add minor-league rows.
+    # 7-day staleness — minor-league rosters don't churn within a week.
+    _notify(0.42)
+    if force or check_staleness("minor_league_rosters", 168.0):
+        try:
+            results["minor_league_rosters"] = _run_with_timeout(
+                lambda: _bootstrap_minor_league_rosters(progress),
+                timeout=_PHASE_TIMEOUT_SECONDS,
+            )
+        except Exception as exc:
+            logger.warning("Minor league rosters bootstrap timed out or failed: %s", exc)
+            results["minor_league_rosters"] = f"Error: {exc}"
+    else:
+        results["minor_league_rosters"] = "Fresh"
 
     # Phases 4+5: Live stats + Historical (parallel — both independent)
     _notify(0.45)

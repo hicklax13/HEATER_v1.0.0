@@ -2767,7 +2767,7 @@ def get_roster_changes(team_name: str, days: int = 7) -> list[dict]:
 def upsert_player_bulk(players: list[dict]) -> int:
     """Bulk upsert players. Each dict needs: name, team, positions, is_hitter.
 
-    Optional: mlb_id, bats, throws, birth_date, roster_type.
+    Optional: mlb_id, bats, throws, birth_date, roster_type, level.
 
     Uses SELECT-first approach since players table has no UNIQUE constraint on name.
     """
@@ -2781,6 +2781,9 @@ def upsert_player_bulk(players: list[dict]) -> int:
             throws = p.get("throws")
             birth_date = p.get("birth_date")
             roster_type = p.get("roster_type", "active")
+            # Wave 9 INFRA-F5: level is NULL/"MLB"/"AAA"/"AA"; COALESCE preserves
+            # existing value when caller doesn't supply one.
+            level = p.get("level")
             if existing:
                 conn.execute(
                     """UPDATE players SET team = ?, positions = ?, is_hitter = ?,
@@ -2788,7 +2791,8 @@ def upsert_player_bulk(players: list[dict]) -> int:
                        bats = COALESCE(?, bats),
                        throws = COALESCE(?, throws),
                        birth_date = COALESCE(?, birth_date),
-                       roster_type = COALESCE(?, roster_type)
+                       roster_type = COALESCE(?, roster_type),
+                       level = COALESCE(?, level)
                        WHERE player_id = ?""",
                     (
                         p["team"],
@@ -2799,14 +2803,15 @@ def upsert_player_bulk(players: list[dict]) -> int:
                         throws,
                         birth_date,
                         roster_type,
+                        level,
                         existing[0],
                     ),
                 )
             else:
                 conn.execute(
                     """INSERT INTO players (name, team, positions, is_hitter, is_injured,
-                       mlb_id, bats, throws, birth_date, roster_type)
-                       VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?, ?)""",
+                       mlb_id, bats, throws, birth_date, roster_type, level)
+                       VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)""",
                     (
                         p["name"],
                         p["team"],
@@ -2817,6 +2822,7 @@ def upsert_player_bulk(players: list[dict]) -> int:
                         throws,
                         birth_date,
                         roster_type,
+                        level,
                     ),
                 )
             saved += 1
