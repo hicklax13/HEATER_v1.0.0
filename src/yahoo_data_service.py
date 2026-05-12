@@ -32,7 +32,7 @@ from typing import TYPE_CHECKING, Any
 import pandas as pd
 
 if TYPE_CHECKING:
-    from src.yahoo_api import MatchupResult
+    from src.yahoo_api import MatchupResult, YahooClientProtocol
 
 logger = logging.getLogger(__name__)
 
@@ -154,7 +154,7 @@ class YahooDataService:
 
     def __init__(
         self,
-        yahoo_client: Any | None = None,
+        yahoo_client: YahooClientProtocol | None = None,
         ttl_config: TTLConfig | None = None,
     ):
         self._client = yahoo_client

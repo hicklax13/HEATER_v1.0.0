@@ -543,3 +543,85 @@ class TestLineupBanditReset:
         assert isinstance(b2, LineupContextualBandit)
         # After reset, a fresh instance is returned (not the same object)
         assert b1 is not b2
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Batch 5: Yahoo client Protocol + misc
+# ─────────────────────────────────────────────────────────────────────────
+
+
+class TestYahooClientProtocol:
+    def test_protocol_defined(self):
+        from src.yahoo_api import YahooClientProtocol
+
+        assert YahooClientProtocol is not None
+
+    def test_real_client_satisfies_protocol(self):
+        """YahooFantasyClient declares all 5 methods the Protocol requires."""
+        from src.yahoo_api import YahooFantasyClient
+
+        needed_methods = [
+            "get_draft_results",
+            "get_league_transactions",
+            "get_league_standings",
+            "get_current_matchup",
+            "get_league_settings",
+        ]
+        for method_name in needed_methods:
+            assert hasattr(YahooFantasyClient, method_name), (
+                f"YahooFantasyClient is missing {method_name} — Protocol mismatch"
+            )
+
+    def test_protocol_is_runtime_checkable(self):
+        """isinstance() works at runtime for structural matching."""
+        from src.yahoo_api import YahooClientProtocol
+
+        # Build a duck-typed fake client satisfying the protocol
+        class FakeClient:
+            def get_draft_results(self):
+                import pandas as pd
+
+                return pd.DataFrame()
+
+            def get_league_transactions(self):
+                import pandas as pd
+
+                return pd.DataFrame()
+
+            def get_league_standings(self):
+                import pandas as pd
+
+                return pd.DataFrame()
+
+            def get_current_matchup(self):
+                return None
+
+            def get_league_settings(self):
+                return {}
+
+        fake = FakeClient()
+        assert isinstance(fake, YahooClientProtocol)
+
+    def test_protocol_rejects_incomplete_client(self):
+        from src.yahoo_api import YahooClientProtocol
+
+        class BrokenClient:
+            # Missing get_league_transactions / get_current_matchup
+            def get_draft_results(self):
+                pass
+
+        broken = BrokenClient()
+        assert not isinstance(broken, YahooClientProtocol)
+
+    def test_calibration_data_uses_protocol(self):
+        """fetch_calibration_data should declare YahooClientProtocol param."""
+        import inspect
+
+        from src.validation.calibration_data import fetch_calibration_data
+
+        sig = inspect.signature(fetch_calibration_data)
+        params = sig.parameters
+        assert "yahoo_client" in params
+        ann_str = str(params["yahoo_client"].annotation)
+        # Should be YahooClientProtocol | None, not Any
+        assert "YahooClientProtocol" in ann_str or "Protocol" in ann_str

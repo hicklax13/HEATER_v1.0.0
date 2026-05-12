@@ -31,7 +31,7 @@ from __future__ import annotations
 import logging
 import time
 from pathlib import Path
-from typing import TypedDict
+from typing import Protocol, TypedDict, runtime_checkable
 
 import pandas as pd
 import requests as _requests
@@ -86,6 +86,48 @@ class MatchupResult(TypedDict, total=False):
     categories: list[MatchupCategoryEntry]
     user_points: float
     opp_points: float
+
+
+@runtime_checkable
+class YahooClientProtocol(Protocol):
+    """Structural type for the subset of YahooFantasyClient that
+    validation/calibration modules call.
+
+    Wave 8c (audit Pattern 5 — Recommendation: "untyped client
+    parameters mask API contract drift"). BUG-016 caught
+    ``calibration_data.py`` calling non-existent methods like
+    ``get_transactions`` / ``get_matchups`` / ``get_standings`` — these
+    don't exist on the real client (real names: ``get_league_transactions``,
+    ``get_current_matchup``, ``get_league_standings``). The mismatches
+    were masked by bare ``except Exception`` blocks, so the calibration
+    harness ran with empty data while reporting "success."
+
+    Annotating ``yahoo_client`` with this Protocol gives type-checkers
+    a structural contract so future method renames or missing methods
+    fail at type-check time, not at runtime inside a swallowed
+    exception. The Protocol is ``@runtime_checkable`` so callers can
+    ``isinstance(client, YahooClientProtocol)`` at runtime when needed.
+    """
+
+    def get_draft_results(self) -> pd.DataFrame:
+        """Return draft picks (player_id, name, pick_number, etc.)."""
+        ...
+
+    def get_league_transactions(self) -> pd.DataFrame:
+        """Return league transaction history (adds/drops/trades)."""
+        ...
+
+    def get_league_standings(self) -> pd.DataFrame:
+        """Return current league standings totals."""
+        ...
+
+    def get_current_matchup(self) -> MatchupResult | None:
+        """Return the current week's H2H matchup details."""
+        ...
+
+    def get_league_settings(self) -> dict:
+        """Return league configuration (categories, slots, etc.)."""
+        ...
 
 
 _AUTH_DIR = Path(__file__).parent.parent / "data"
