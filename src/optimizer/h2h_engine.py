@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import logging
 import math
+from typing import TypedDict
 
 import numpy as np
 from scipy.stats import norm
@@ -31,6 +32,18 @@ from src.validation.constant_optimizer import load_constants
 from src.valuation import LeagueConfig as _LC_Class
 
 logger = logging.getLogger(__name__)
+
+
+class H2HWinProbability(TypedDict):
+    """Return shape of :func:`estimate_h2h_win_probability`.
+
+    Wave 8c (audit D4D-008): the original return was annotated
+    ``dict[str, object]`` — accurate but opaque. Consumers had to cast.
+    """
+
+    per_category: dict[str, float]
+    expected_wins: float
+    overall_win_prob: float
 
 
 # ── Constants ────────────────────────────────────────────────────────
@@ -173,7 +186,7 @@ def estimate_h2h_win_probability(
     my_totals: dict[str, float],
     opp_totals: dict[str, float],
     category_variances: dict[str, float] | None = None,
-) -> dict[str, object]:
+) -> H2HWinProbability:
     """Estimate probability of winning each category and overall matchup.
 
     For each category, uses the Normal CDF to compute P(win):

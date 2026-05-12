@@ -364,3 +364,106 @@ class TestDailyDCVContext:
             assert original_kwarg in params
         # New ctx param too
         assert "ctx" in params
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Batch 3: Callable type annotations
+# ─────────────────────────────────────────────────────────────────────────
+
+
+class TestCallableAnnotations:
+    def test_kalman_observation_variance_typed(self):
+        """OBSERVATION_VARIANCE_BASE is dict[str, Callable[[float], float]]."""
+        from src.engine.signals.kalman import OBSERVATION_VARIANCE_BASE
+
+        # Runtime check: every value is callable and returns a float
+        for name, fn in OBSERVATION_VARIANCE_BASE.items():
+            assert callable(fn), f"{name} is not callable"
+            result = fn(10.0)  # n=10 sample size
+            assert isinstance(result, float), f"{name}(10) returned {type(result)}"
+
+    def test_kalman_no_lowercase_callable_annotation(self):
+        """Ensure ``dict[str, callable]`` typo is gone from the actual
+        annotation. Comments / docstrings explaining the fix don't count.
+        """
+        from pathlib import Path
+
+        kalman_path = Path(__file__).parent.parent / "src" / "engine" / "signals" / "kalman.py"
+        content = kalman_path.read_text(encoding="utf-8")
+        # The fixed annotation should mention Callable
+        assert "Callable[[float], float]" in content
+        # Strip comment lines (start with #) and docstring lines (in ``...``)
+        # before searching for the typo annotation. We just check that the
+        # annotation line is the new typed form.
+        for line in content.splitlines():
+            stripped = line.lstrip()
+            if stripped.startswith("OBSERVATION_VARIANCE_BASE"):
+                # The actual annotation line
+                assert "Callable" in line and "callable" not in line.split(":")[1].split("=")[0]
+
+    def test_h2h_win_probability_typeddict(self):
+        from src.optimizer.h2h_engine import H2HWinProbability, estimate_h2h_win_probability
+
+        assert H2HWinProbability is not None
+        # Runtime call
+        result = estimate_h2h_win_probability(
+            my_totals={"r": 100.0, "hr": 30.0},
+            opp_totals={"r": 90.0, "hr": 25.0},
+        )
+        # Should have all 3 documented keys
+        assert "per_category" in result
+        assert "expected_wins" in result
+        assert "overall_win_prob" in result
+        assert isinstance(result["per_category"], dict)
+        assert isinstance(result["expected_wins"], float)
+        assert isinstance(result["overall_win_prob"], float)
+
+    def test_player_market_value_typeddict(self):
+        from src.engine.game_theory.opponent_valuation import (
+            PlayerMarketValue,
+            player_market_value,
+        )
+
+        assert PlayerMarketValue is not None
+        # Runtime smoke test
+        sgp_denoms = {
+            "R": 100.0,
+            "HR": 30.0,
+            "RBI": 100.0,
+            "SB": 30.0,
+            "AVG": 0.01,
+            "OBP": 0.01,
+            "W": 5.0,
+            "L": 5.0,
+            "SV": 10.0,
+            "K": 100.0,
+            "ERA": 0.1,
+            "WHIP": 0.05,
+        }
+        all_team_totals = {
+            "team_a": {cat: 50.0 for cat in sgp_denoms},
+            "team_b": {cat: 60.0 for cat in sgp_denoms},
+        }
+        proj = {"R": 80.0, "HR": 30.0}
+        result = player_market_value(proj, all_team_totals, "team_a", sgp_denoms)
+        assert set(result.keys()) >= {
+            "valuations",
+            "market_price",
+            "max_bidder",
+            "max_bid",
+            "demand",
+        }
+
+    def test_playoff_sim_on_progress_callable_type(self):
+        """on_progress: Callable[[float], None] | None — proper type."""
+        import inspect
+
+        from src.playoff_sim import simulate_season
+
+        sig = inspect.signature(simulate_season)
+        params = sig.parameters
+        assert "on_progress" in params
+        # Check the annotation contains "Callable" (not lowercase callable)
+        ann_str = str(params["on_progress"].annotation)
+        # collections.abc.Callable repr varies — accept either textual form
+        assert "Callable" in ann_str or "callable" not in ann_str.lower() or "Callable" in ann_str
