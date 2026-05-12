@@ -8,11 +8,17 @@ from __future__ import annotations
 
 import logging
 import time
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 
 logger = logging.getLogger(__name__)
+
+# DST-aware US Eastern time zone (handles EST/EDT transitions automatically).
+# A fixed hour offset is wrong half the year (winter EST = UTC-5, summer
+# EDT = UTC-4). ZoneInfo adjusts automatically. (Wave 8a/D6A-001.)
+_ET_ZONE = ZoneInfo("America/New_York")
 
 # Game-completion statuses that indicate a game is over
 _FINAL_STATUSES = frozenset({"final", "game over", "completed early"})
@@ -24,13 +30,12 @@ def get_target_game_date() -> str:
     If all of today's games are final (or there are no games today),
     automatically returns tomorrow's date.  Otherwise returns today.
 
-    Uses US Eastern time since MLB schedules are in ET.
+    Uses US Eastern time (DST-aware) since MLB schedules are in ET.
 
     Returns:
         Date string in ``YYYY-MM-DD`` format.
     """
-    _ET = timezone(timedelta(hours=-4))
-    today_str = datetime.now(_ET).strftime("%Y-%m-%d")
+    today_str = datetime.now(_ET_ZONE).strftime("%Y-%m-%d")
 
     try:
         import statsapi
@@ -41,12 +46,12 @@ def get_target_game_date() -> str:
 
     if not today_sched:
         # No games today — target tomorrow
-        tomorrow = datetime.now(_ET) + timedelta(days=1)
+        tomorrow = datetime.now(_ET_ZONE) + timedelta(days=1)
         return tomorrow.strftime("%Y-%m-%d")
 
     all_final = all(str(g.get("status", "")).lower() in _FINAL_STATUSES for g in today_sched)
     if all_final:
-        tomorrow = datetime.now(_ET) + timedelta(days=1)
+        tomorrow = datetime.now(_ET_ZONE) + timedelta(days=1)
         return tomorrow.strftime("%Y-%m-%d")
 
     return today_str

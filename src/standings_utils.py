@@ -17,6 +17,10 @@ _MATCH_RECORD_CATS = frozenset({"WINS", "LOSSES", "TIES", "PERCENTAGE", "POINTS_
 
 
 _cached_team_totals: dict[str, dict[str, float]] | None = None
+# Defined here (not below get_fa_pool) so clear_cache cannot NameError on a
+# cold-start invocation, and so static analyzers / readers see both caches
+# declared up-front together. (Wave 8a/D5A-013.)
+_cached_fa_pool: pd.DataFrame | None = None
 
 
 def get_all_team_totals(
@@ -110,9 +114,6 @@ def clear_cache():
     global _cached_team_totals, _cached_fa_pool
     _cached_team_totals = None
     _cached_fa_pool = None
-
-
-_cached_fa_pool: pd.DataFrame | None = None
 
 
 def get_fa_pool(

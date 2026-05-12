@@ -142,8 +142,11 @@ class TestMatchupScoring:
 
     def test_inverse_cat_lower_wins(self):
         """ERA/WHIP/L: lower value wins."""
-        client = YahooFantasyClient.__new__(YahooFantasyClient)
-        inverse = client._INVERSE_CATS
+        # Use real __init__ so instance attrs from LeagueConfig populate
+        # (was previously class-body globals — moved to instance attrs in
+        # Wave 8a/D2A-002).
+        client = YahooFantasyClient(league_id="109662")
+        inverse = client._inverse_cats
         assert "ERA" in inverse
         assert "WHIP" in inverse
         assert "L" in inverse
@@ -152,14 +155,14 @@ class TestMatchupScoring:
 
     def test_all_cats_count(self):
         """12 scoring categories defined."""
-        client = YahooFantasyClient.__new__(YahooFantasyClient)
-        assert len(client._ALL_CATS) == 12
+        client = YahooFantasyClient(league_id="109662")
+        assert len(client._all_cats) == 12
 
     def test_stat_id_map_covers_all_cats(self):
-        """Every category in _ALL_CATS has a stat_id mapping."""
-        client = YahooFantasyClient.__new__(YahooFantasyClient)
+        """Every category in _all_cats has a stat_id mapping."""
+        client = YahooFantasyClient(league_id="109662")
         mapped_cats = set(client._STAT_ID_MAP.values())
-        for cat in client._ALL_CATS:
+        for cat in client._all_cats:
             assert cat in mapped_cats, f"{cat} missing from _STAT_ID_MAP"
 
 
@@ -172,6 +175,13 @@ class TestGetCurrentMatchup:
         client.league_id = "109662"
         client.game_code = "mlb"
         client.season = 2026
+        # __init__ also populates these from LeagueConfig (Wave 8a/D2A-002).
+        # Bypassed __init__ via __new__, so set them manually here.
+        from src.valuation import LeagueConfig
+
+        _lc = LeagueConfig()
+        client._inverse_cats = set(_lc.inverse_stats)
+        client._all_cats = list(_lc.all_categories)
 
         mock_query = MagicMock()
         mock_query._yahoo_access_token_dict = {"access_token": "tok"}
