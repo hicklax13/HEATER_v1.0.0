@@ -183,6 +183,9 @@ def check_daily_lineup(
     alerts = []
 
     if todays_games is None:
+        # D5B-031: was a silent skip. Operators need to see WHY daily
+        # validation was skipped (often a schedule-fetch failure upstream).
+        logger.info("check_daily_lineup: no schedule available for today (todays_games=None) — skipping lineup check")
         return alerts  # Can't check without schedule
 
     playing_teams = set(t.upper() for t in todays_games)

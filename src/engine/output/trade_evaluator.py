@@ -863,8 +863,18 @@ def evaluate_trade(
                     _totals = _roster_category_totals(_pids, player_pool)
                     if _totals:
                         all_team_totals[str(_tn)] = _totals
-        except Exception:
-            logger.error("Failed to compute team totals from league_rosters — no strategic context", exc_info=True)
+        except Exception as exc:
+            # D4B-005: was logger.error; lowered to WARNING because this is
+            # recoverable — evaluate_trade still produces a result with
+            # uniform category weights (see _mod_cat.fallback_reason and the
+            # DataQuality.MISSING stamp below). Operators see WARN; UI gets
+            # the degraded signal via the analytics_context.
+            logger.warning(
+                "Failed to compute team totals from league_rosters (%s) — "
+                "no strategic context, falling back to uniform category weights",
+                exc,
+                exc_info=True,
+            )
             all_team_totals = {}
 
     # Stamp standings data quality

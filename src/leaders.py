@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import logging
+
 import numpy as np
 import pandas as pd
 
 from src.valuation import LeagueConfig as _LC_Class
+
+logger = logging.getLogger(__name__)
 
 _LC_ONCE = _LC_Class()
 INVERSE_CATS = set(_LC_ONCE.inverse_stats)
@@ -531,7 +535,16 @@ def compute_projection_skew(player_pool: pd.DataFrame) -> pd.DataFrame:
         result.loc[result["skew_ratio"] >= 0.70, "projection_skew"] = "Positive"
         result.loc[result["skew_ratio"] <= 0.30, "projection_skew"] = "Negative"
 
-    except Exception:
-        pass
+    except Exception as exc:
+        # D5B-042: was a silent bare-except `pass` — all players got
+        # `projection_skew=""` with zero indication the DB query failed.
+        # Falsy default preserved (UI shows "" / 0.5), but operators now
+        # see the underlying error in logs.
+        logger.warning(
+            "compute_projection_skew: DB projections query failed (%s) — "
+            "returning pool with empty projection_skew column",
+            exc,
+            exc_info=True,
+        )
 
     return result

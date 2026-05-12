@@ -440,7 +440,11 @@ def compute_swap_impacts(
 
         swaps.sort(key=lambda x: x["total_sgp_delta"], reverse=True)
         return swaps[:5]
-    except Exception:
+    except Exception as exc:
+        # D5B-034: was a silent bare-except → []. Surface the failure so
+        # operators see why no swaps were proposed (vs. "no swap
+        # opportunities" — the user-visible outcomes were identical).
+        logger.warning("compute_swap_impacts failed (%s) — returning empty swap list", exc, exc_info=True)
         return []
 
 
