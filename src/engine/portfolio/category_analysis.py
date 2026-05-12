@@ -45,6 +45,16 @@ WEEKLY_RATE_DEFAULTS: dict[str, float] = {
     "WHIP": 0.0,  # Rate stat — handled differently
 }
 
+# Wave 8a / D4B-011: previous code used a flat ``gap < 0.5`` threshold for
+# L (counting, scale 1-20), ERA (rate, scale 2-6), and WHIP (rate, scale
+# 1.0-1.4). WHIP gaps of 0.5 are huge; L gaps of 0.5 are tiny. Use
+# per-category thresholds scaled to typical category-gap magnitudes.
+_INVERSE_GAP_THRESHOLDS: dict[str, float] = {
+    "L": 1.5,  # losses: ~1.5 wins/losses = closeable mid-season
+    "ERA": 0.30,  # ~7 extra ER over remaining season
+    "WHIP": 0.05,  # ~6 extra walks/hits per 9 IP
+}
+
 
 def compute_marginal_sgp(
     your_totals: dict[str, float],
@@ -199,8 +209,11 @@ def category_gap_analysis(
             if cat in inverse_categories:
                 # Can't really "produce" lower ERA/WHIP at a fixed weekly rate.
                 # For rate stats, check if the gap is closeable given remaining IP.
-                # Simplified: if gap < 0.5 for ERA, consider it achievable.
-                if gap < 0.5:
+                # Wave 8a / D4B-011: per-category thresholds — L/ERA/WHIP have
+                # vastly different scales (counting vs rate). Default threshold
+                # 0.5 retained for any unrecognized inverse category.
+                threshold = _INVERSE_GAP_THRESHOLDS.get(cat, 0.5)
+                if gap < threshold:
                     gainable += 1
             elif weekly_rate > 0:
                 weeks_needed = gap / weekly_rate

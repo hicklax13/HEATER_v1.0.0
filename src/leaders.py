@@ -20,7 +20,23 @@ def compute_category_leaders(
     top_n: int = 20,
 ) -> dict[str, pd.DataFrame]:
     """Compute leaders per category. Ascending sort for ERA/WHIP/L."""
-    cats = categories or ["R", "HR", "RBI", "SB", "AVG", "OBP", "W", "SV", "K", "ERA", "WHIP"]
+    # Wave 8a / D5A-018: previous default omitted "L" — `inverse_stats` already
+    # contains L (LeagueConfig), but the default category rotation here did not,
+    # so the L leaderboard was unreachable without an explicit `categories` arg.
+    cats = categories or [
+        "R",
+        "HR",
+        "RBI",
+        "SB",
+        "AVG",
+        "OBP",
+        "W",
+        "L",
+        "SV",
+        "K",
+        "ERA",
+        "WHIP",
+    ]
     stat_map = {
         "R": "r",
         "HR": "hr",

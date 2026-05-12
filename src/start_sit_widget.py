@@ -21,20 +21,17 @@ def compute_fantasy_points_distribution(
     Returns:
         (mean_sgp, std_sgp)
     """
-    sgp = sgp_denominators or {
-        "R": 18.0,
-        "HR": 8.0,
-        "RBI": 22.0,
-        "SB": 5.0,
-        "AVG": 0.004,
-        "OBP": 0.005,
-        "W": 2.5,
-        "SV": 6.0,
-        "K": 28.0,
-        "ERA": 0.27,
-        "WHIP": 0.02,
-        "L": 2.0,
-    }
+    # Wave 8a / D5B-030: hardcoded fallback dict bypassed LeagueConfig.
+    # SF-21/SF-25 pattern — construct LeagueConfig() lazily, copy denoms,
+    # discard the instance so no long-lived singleton lingers.
+    if sgp_denominators is None:
+        from src.valuation import LeagueConfig
+
+        _lc = LeagueConfig()
+        sgp = dict(_lc.sgp_denominators)
+        del _lc
+    else:
+        sgp = sgp_denominators
     # Per-stat weekly volatility (fraction of season projection)
     vol_fracs = {
         "r": 0.35,
