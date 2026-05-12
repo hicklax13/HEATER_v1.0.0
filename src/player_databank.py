@@ -25,9 +25,10 @@ except ImportError:
 
 # ── Fantasy category column groups ───────────────────────────────────────────
 
-_LC = _LC_Class()
-HITTING_CATS = list(_LC.hitting_categories)
-PITCHING_CATS = list(_LC.pitching_categories)
+_LC_ONCE = _LC_Class()
+HITTING_CATS = list(_LC_ONCE.hitting_categories)
+PITCHING_CATS = list(_LC_ONCE.pitching_categories)
+del _LC_ONCE
 
 HITTING_COLS_TOTAL = ["h", "ab", "r", "hr", "rbi", "sb", "pa", "bb", "hbp", "sf"]
 PITCHING_COLS_TOTAL = ["ip", "w", "l", "sv", "k", "er", "bb_allowed", "h_allowed"]
