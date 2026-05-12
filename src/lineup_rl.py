@@ -202,7 +202,9 @@ class LineupContextualBandit:
         return {cat: cat_wins[cat] / max(1, cat_total[cat]) for cat in self.categories}
 
 
-# Module-level singleton for the bandit (persists within session)
+# Module-level singleton for the bandit (persists within session).
+# Wave 8c (audit D3D-043..048): kept as a module global but properly
+# typed and given a public reset() API for test isolation.
 _bandit: LineupContextualBandit | None = None
 
 
@@ -212,3 +214,13 @@ def get_lineup_bandit(categories: list[str] | None = None) -> LineupContextualBa
     if _bandit is None:
         _bandit = LineupContextualBandit(categories)
     return _bandit
+
+
+def reset_lineup_bandit() -> None:
+    """Discard the cached bandit so the next ``get_lineup_bandit`` rebuilds.
+
+    Intended for tests that need a fresh, untrained bandit. Not used in
+    production code paths.
+    """
+    global _bandit  # noqa: PLW0603
+    _bandit = None

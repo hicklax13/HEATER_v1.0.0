@@ -27,9 +27,12 @@ import logging
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pandas as pd
+
+if TYPE_CHECKING:
+    from src.yahoo_api import MatchupResult, YahooClientProtocol
 
 logger = logging.getLogger(__name__)
 
@@ -151,7 +154,7 @@ class YahooDataService:
 
     def __init__(
         self,
-        yahoo_client: Any | None = None,
+        yahoo_client: YahooClientProtocol | None = None,
         ttl_config: TTLConfig | None = None,
     ):
         self._client = yahoo_client
@@ -295,12 +298,15 @@ class YahooDataService:
             force=force_refresh,
         )
 
-    def get_matchup(self, force_refresh: bool = False) -> dict | None:
+    def get_matchup(self, force_refresh: bool = False) -> MatchupResult | None:
         """Current week's matchup scorecard for the user's team.
 
         Three-tier fetch: session_state → Yahoo API → SQLite cache.
         Live fetches are written through to ``league_matchup_cache``
         so the DB fallback can serve them when Yahoo is offline.
+
+        Returns :class:`MatchupResult` (TypedDict) on success, ``None``
+        when neither Yahoo nor the SQLite fallback yield data.
         """
         return self._get_cached(
             key="matchup",
@@ -702,11 +708,11 @@ class YahooDataService:
         # Return long-format from DB so all consumers get consistent schema
         return load_league_standings()
 
-    def _fetch_matchup(self) -> dict | None:
+    def _fetch_matchup(self) -> MatchupResult | None:
         """Fetch current matchup from Yahoo."""
         return self._client.get_current_matchup()
 
-    def _fetch_and_sync_matchup(self) -> dict | None:
+    def _fetch_and_sync_matchup(self) -> MatchupResult | None:
         """Fetch matchup from Yahoo and write-through to SQLite cache."""
         matchup = self._client.get_current_matchup()
         if matchup:
@@ -721,7 +727,7 @@ class YahooDataService:
                 logger.debug("matchup write-through failed", exc_info=True)
         return matchup
 
-    def _db_fallback_matchup(self) -> dict | None:
+    def _db_fallback_matchup(self) -> MatchupResult | None:
         """Read the most recent matchup snapshot from SQLite."""
         try:
             from src.database import load_matchup_cache

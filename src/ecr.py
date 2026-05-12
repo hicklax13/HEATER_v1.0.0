@@ -11,6 +11,7 @@ import difflib
 import logging
 import statistics
 import unicodedata
+from collections.abc import Callable
 from datetime import UTC, datetime
 
 import pandas as pd
@@ -911,7 +912,11 @@ def refresh_ecr_consensus(force: bool = False) -> pd.DataFrame:
     # FantasyPros ECR stub (fetch_ecr_extended) is replaced in-season
     # by the real fetch_fantasypros_ros() scraper.
 
-    source_fetchers: list[tuple[str, callable]] = [
+    # Wave 8c (audit D4D-009): typed list of (source_name, fetcher) where
+    # each fetcher returns a pd.DataFrame. The original ``callable`` here
+    # was the builtin function, not a type; pyright/mypy silently accepted
+    # it as Any.
+    source_fetchers: list[tuple[str, Callable[..., pd.DataFrame]]] = [
         ("espn", fetch_espn_rankings),
         ("cbs", fetch_cbs_rankings),
     ]

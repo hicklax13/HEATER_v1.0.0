@@ -72,6 +72,7 @@ from src.engine.monte_carlo.trade_simulator import (
     build_roster_stats,
     run_paired_monte_carlo,
 )
+from src.engine.output.types import GradeRange, MCOverlayResult, TradeResult
 from src.engine.portfolio.category_analysis import (
     build_standings_totals,
     category_gap_analysis,
@@ -551,7 +552,7 @@ def grade_trade(surplus_sgp: float) -> str:
     return "F"
 
 
-def _compute_grade_range(surplus_sgp: float, uncertainty_sd: float = 0.8) -> dict:
+def _compute_grade_range(surplus_sgp: float, uncertainty_sd: float = 0.8) -> GradeRange:
     """Compute grade range based on projection uncertainty.
 
     A surplus of 1.5 SGP with SD 0.8 means the true surplus could be
@@ -562,7 +563,8 @@ def _compute_grade_range(surplus_sgp: float, uncertainty_sd: float = 0.8) -> dic
         uncertainty_sd: Standard deviation of projection uncertainty.
 
     Returns:
-        dict with grade, grade_low, grade_high, confidence.
+        :class:`GradeRange` TypedDict with grade, grade_low, grade_high,
+        confidence keys.
     """
     grade_center = grade_trade(surplus_sgp)
     grade_low = grade_trade(surplus_sgp - uncertainty_sd)
@@ -576,12 +578,12 @@ def _compute_grade_range(surplus_sgp: float, uncertainty_sd: float = 0.8) -> dic
     else:
         confidence = "low"
 
-    return {
-        "grade": grade_center,
-        "grade_low": grade_low,
-        "grade_high": grade_high,
-        "confidence": confidence,
-    }
+    return GradeRange(
+        grade=grade_center,
+        grade_low=grade_low,
+        grade_high=grade_high,
+        confidence=confidence,
+    )
 
 
 def evaluate_trade(
@@ -597,7 +599,7 @@ def evaluate_trade(
     enable_context: bool = True,
     enable_game_theory: bool = True,
     apply_ytd_blend: bool = True,
-) -> dict[str, Any]:
+) -> TradeResult:
     """Full trade evaluation using Phase 1-5 engine pipeline.
 
     Spec ref: Section 17 Phase 1 — MVP trade evaluation.
@@ -1083,7 +1085,7 @@ def evaluate_trade(
                     f"Lineup reshuffle accounts for {reshuffle_pct:.0%} of surplus — benching {demoted_names}"
                 )
 
-    result = {
+    result: TradeResult = {
         "grade": trade_grade,
         "grade_range": grade_range,
         "surplus_sgp": round(total_surplus, 3),
@@ -1182,7 +1184,7 @@ def _run_mc_overlay(
     all_team_totals: dict[str, dict[str, float]],
     weeks_remaining: int,
     n_sims: int,
-) -> dict[str, Any]:
+) -> MCOverlayResult:
     """Run Phase 2 Monte Carlo simulation and return overlay metrics.
 
     Spec ref: Section 17 Phase 2 — 10K paired MC sims.

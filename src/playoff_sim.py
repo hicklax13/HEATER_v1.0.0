@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import itertools
 import logging
+from collections.abc import Callable
 from datetime import UTC, datetime
 
 import numpy as np
@@ -280,7 +281,7 @@ def simulate_season(
     n_sims: int = 500,
     config: LeagueConfig | None = None,
     seed: int = 42,
-    on_progress: callable | None = None,
+    on_progress: Callable[[float], None] | None = None,
 ) -> dict[str, dict]:
     """Run Monte Carlo simulation of the remaining H2H season.
 

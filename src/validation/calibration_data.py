@@ -18,9 +18,12 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING
 
 import pandas as pd
+
+if TYPE_CHECKING:
+    from src.yahoo_api import YahooClientProtocol
 
 logger = logging.getLogger(__name__)
 
@@ -133,7 +136,7 @@ class CalibrationDataset:
 
 
 def fetch_calibration_data(
-    yahoo_client: Any,
+    yahoo_client: YahooClientProtocol | None,
     season: int = 2025,
 ) -> CalibrationDataset | None:
     """
@@ -194,7 +197,7 @@ def fetch_calibration_data(
 # ---------------------------------------------------------------------------
 
 
-def _resolve_league_key(yahoo_client: Any, season: int) -> str | None:
+def _resolve_league_key(yahoo_client: YahooClientProtocol, season: int) -> str | None:
     """Resolve the league key for a given season."""
     # Yahoo game keys: 2025 = 458, 2026 = 469
     # This mapping should be extended as needed
@@ -221,7 +224,7 @@ def _resolve_league_key(yahoo_client: Any, season: int) -> str | None:
     return None
 
 
-def _fetch_draft_picks(yahoo_client: Any, league_key: str) -> list[DraftPick]:
+def _fetch_draft_picks(yahoo_client: YahooClientProtocol, league_key: str) -> list[DraftPick]:
     """Fetch all draft picks for a league."""
     picks: list[DraftPick] = []
     try:
@@ -272,7 +275,7 @@ def _fetch_draft_picks(yahoo_client: Any, league_key: str) -> list[DraftPick]:
     return picks
 
 
-def _fetch_trades(yahoo_client: Any, league_key: str) -> list[HistoricalTrade]:
+def _fetch_trades(yahoo_client: YahooClientProtocol, league_key: str) -> list[HistoricalTrade]:
     """Fetch all trades for a league season.
 
     (BUG-016 fix: was calling non-existent ``yahoo_client.get_transactions``.
@@ -344,7 +347,7 @@ def _fetch_trades(yahoo_client: Any, league_key: str) -> list[HistoricalTrade]:
     return trades
 
 
-def _fetch_matchups(yahoo_client: Any, league_key: str) -> list[WeeklyMatchup]:
+def _fetch_matchups(yahoo_client: YahooClientProtocol, league_key: str) -> list[WeeklyMatchup]:
     """Fetch all weekly matchup pairings via the league schedule.
 
     NOTE: yahoo_api.YahooFantasyClient does NOT expose a per-week
@@ -408,7 +411,7 @@ def _fetch_matchups(yahoo_client: Any, league_key: str) -> list[WeeklyMatchup]:
     return matchups
 
 
-def _fetch_final_standings(yahoo_client: Any, league_key: str) -> dict[str, dict[str, float]]:
+def _fetch_final_standings(yahoo_client: YahooClientProtocol, league_key: str) -> dict[str, dict[str, float]]:
     """Fetch end-of-season category totals for all teams.
 
     (BUG-016 fix: was calling non-existent ``yahoo_client.get_standings``.

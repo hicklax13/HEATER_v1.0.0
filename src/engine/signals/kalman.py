@@ -26,12 +26,20 @@ Wires into:
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import numpy as np
 
 # Base variance parameters by stat type
 # These define how noisy an observation is given the sample size.
 # Spec ref: Section 4 L1D — observation_variance function
-OBSERVATION_VARIANCE_BASE: dict[str, callable] = {
+#
+# Wave 8c (audit D4D-009/D3D-019): the original annotation was
+# ``dict[str, callable]`` — the lowercase ``callable`` here is the
+# built-in function, not a type. Pyright/mypy silently accepted it as
+# Any. Replaced with ``Callable[[float], float]`` so callers know each
+# lambda takes a sample count n and returns a variance.
+OBSERVATION_VARIANCE_BASE: dict[str, Callable[[float], float]] = {
     "ba": lambda n: 0.25 / max(n, 1),  # binomial variance of batting average
     "hr_rate": lambda n: 0.03 / max(n, 1),
     "sb_rate": lambda n: 0.05 / max(n, 1),

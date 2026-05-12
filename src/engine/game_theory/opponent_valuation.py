@@ -20,10 +20,27 @@ Wires into:
 from __future__ import annotations
 
 import logging
+from typing import TypedDict
 
 from src.valuation import LeagueConfig as _LC_Class
 
 logger = logging.getLogger(__name__)
+
+
+class PlayerMarketValue(TypedDict):
+    """Return shape of :func:`player_market_value`.
+
+    Wave 8c (audit D4D-008): the original return was
+    ``dict[str, float | dict]`` — accurate union but consumers had to
+    type-narrow before keying. This TypedDict documents the contract.
+    """
+
+    valuations: dict[str, float]
+    market_price: float
+    max_bidder: str
+    max_bid: float
+    demand: int
+
 
 # C6/C7 cleanup: module-level _LC singleton AND DEFAULT_SGP_DENOMS fallback
 # removed (both were causing stale/wrong denominator reads when callers
@@ -231,7 +248,7 @@ def player_market_value(
     all_team_totals: dict[str, dict[str, float]],
     your_team_id: str,
     sgp_denominators: dict[str, float],
-) -> dict[str, float | dict]:
+) -> PlayerMarketValue:
     """Full market analysis for a single player.
 
     Combines opponent valuations with market clearing price and

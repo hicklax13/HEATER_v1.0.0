@@ -81,12 +81,14 @@ class TestCatcherFramingAdjustmentNeutral:
             from src.database import init_db
 
             init_db()
-            # Reset the module cache so the test sees the empty DB
-            matchup_adjustments._catcher_framing_cache = None
+            # Reset the module cache so the test sees the empty DB.
+            # Wave 8c: cache moved into _CatcherFramingCache class; use the
+            # supported reset() API for clean isolation.
+            matchup_adjustments._CatcherFramingCache.reset()
             try:
                 out = matchup_adjustments._get_catcher_framing_for_team("NYY")
             finally:
-                matchup_adjustments._catcher_framing_cache = None
+                matchup_adjustments._CatcherFramingCache.reset()
 
         assert out is None
 

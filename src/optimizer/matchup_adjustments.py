@@ -1080,27 +1080,37 @@ def catcher_framing_pitcher_adjustment(
     return adjusted_era, adjusted_k9
 
 
-# Cache catcher framing data to avoid repeated DB reads per optimizer run
-_catcher_framing_cache: dict[str, dict[str, float] | None] | None = None
+# Wave 8c (audit D3D-024..028): replace mutable module-level cache with an
+# encapsulating class. The behavior — load once, serve from RAM thereafter —
+# is preserved; the module-level ``global`` statement and the ``= None``
+# sentinel-vs-dict polymorphism are gone. Tests can reset via
+# ``_CatcherFramingCache.reset()`` for clean isolation.
+class _CatcherFramingCache:
+    """Session-lifetime cache of {team_abbr -> framing_data} per catcher."""
 
+    _cache: dict[str, dict[str, float]] | None = None
 
-def _get_catcher_framing_for_team(team_abbr: str) -> dict[str, float] | None:
-    """Look up the primary catcher's framing data for a team.
+    @classmethod
+    def get(cls, team_abbr: str) -> dict[str, float] | None:
+        if cls._cache is None:
+            cls._build()
+        # _build always assigns at minimum {} so this is safe.
+        return cls._cache.get(team_abbr) if cls._cache else None
 
-    Uses get_catcher_framing_data() and matches by team via player pool.
-    Returns the framing data dict for the catcher with most games caught,
-    or None if no data available.
-    """
-    global _catcher_framing_cache
-    if _catcher_framing_cache is None:
-        # Build the cache once per session
+    @classmethod
+    def reset(cls) -> None:
+        """Force a rebuild on next access. Mainly for tests."""
+        cls._cache = None
+
+    @classmethod
+    def _build(cls) -> None:
         try:
             from src.database import get_connection
 
             framing_data = get_catcher_framing_data()
             if not framing_data:
-                _catcher_framing_cache = {}
-                return None
+                cls._cache = {}
+                return
 
             conn = get_connection()
             try:
@@ -1111,7 +1121,7 @@ def _get_catcher_framing_for_team(team_abbr: str) -> dict[str, float] | None:
             finally:
                 conn.close()
 
-            cache: dict[str, dict[str, float] | None] = {}
+            cache: dict[str, dict[str, float]] = {}
             for _, row in catcher_df.iterrows():
                 pid = int(row["player_id"])
                 team = str(row.get("team", "")).upper().strip()
@@ -1119,11 +1129,20 @@ def _get_catcher_framing_for_team(team_abbr: str) -> dict[str, float] | None:
                     existing = cache.get(team)
                     if existing is None or framing_data[pid].get("games_caught", 0) > existing.get("games_caught", 0):
                         cache[team] = framing_data[pid]
-            _catcher_framing_cache = cache
+            cls._cache = cache
         except Exception:
-            _catcher_framing_cache = {}
+            cls._cache = {}
 
-    return _catcher_framing_cache.get(team_abbr)
+
+def _get_catcher_framing_for_team(team_abbr: str) -> dict[str, float] | None:
+    """Look up the primary catcher's framing data for a team.
+
+    Uses get_catcher_framing_data() and matches by team via player pool.
+    Returns the framing data dict for the catcher with most games caught,
+    or None if no data available. Session-cached after first lookup via
+    :class:`_CatcherFramingCache`.
+    """
+    return _CatcherFramingCache.get(team_abbr)
 
 
 # ── E7: Pitcher-Batter Matchup History ─────────────────────────────

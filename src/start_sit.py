@@ -19,6 +19,7 @@ Wires into:
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
@@ -27,6 +28,66 @@ import pandas as pd
 from src.valuation import LeagueConfig, SGPCalculator
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class StartSitInputs:
+    """Optional context bundle for :func:`start_sit_recommendation`.
+
+    Wave 8c (audit D5D-012/YV-022): the function accepted 11 positional /
+    keyword args. Callers that wanted to pass only ``recent_form`` and
+    ``weather`` had to remember the kwarg names exactly. Bundling the
+    optional context into a frozen dataclass lets callers construct one
+    once and pass it as a single argument.
+
+    Backwards compat is preserved — every kwarg on the original function
+    still works as before; passing ``inputs=StartSitInputs(...)`` is an
+    alternate, less error-prone calling style.
+
+    Example:
+        ctx = StartSitInputs(
+            weekly_schedule=schedule,
+            park_factors=parks,
+            recent_form=form,
+        )
+        result = start_sit_recommendation([1, 2], pool, config, inputs=ctx)
+    """
+
+    weekly_schedule: list[dict[str, Any]] | None = None
+    park_factors: dict[str, float] | None = None
+    my_weekly_totals: dict[str, float] | None = None
+    opp_weekly_totals: dict[str, float] | None = None
+    standings: pd.DataFrame | None = None
+    team_name: str | None = None
+    recent_form: dict[int, dict] | None = None
+    weather: dict[str, dict] | None = None
+
+    def as_kwargs(self) -> dict[str, Any]:
+        """Return only the non-None inputs as kwargs.
+
+        Used to bridge the dataclass form to the legacy kwarg signature
+        without overwriting kwargs the caller already passed explicitly.
+        """
+        out: dict[str, Any] = {}
+        for fld in (
+            "weekly_schedule",
+            "park_factors",
+            "my_weekly_totals",
+            "opp_weekly_totals",
+            "standings",
+            "team_name",
+            "recent_form",
+            "weather",
+        ):
+            val = getattr(self, fld)
+            # DataFrames don't tolerate `is not None` truthiness checks,
+            # so use is-not-None explicitly.
+            if val is not None:
+                out[fld] = val
+        return out
+
+
+del field  # not used; keep dataclass import clean
 
 # ── Constants ────────────────────────────────────────────────────────
 
@@ -309,6 +370,8 @@ def start_sit_recommendation(
     team_name: str | None = None,
     recent_form: dict[int, dict] | None = None,
     weather: dict[str, dict] | None = None,
+    *,
+    inputs: StartSitInputs | None = None,
 ) -> dict[str, Any]:
     """Compare 2-4 players competing for the same roster slot.
 
@@ -333,6 +396,11 @@ def start_sit_recommendation(
         weather: Dict mapping team_abbr to weather data. Extreme heat
             (>85F) gives hitters +3% HR boost, extreme cold (<50F)
             gives -3% penalty.
+        inputs: Optional :class:`StartSitInputs` dataclass bundling all
+            the context kwargs. When provided, its non-None fields fill
+            in unset kwargs (explicit kwargs still take precedence). This
+            is the recommended calling style for code that has the
+            context grouped together.
 
     Returns:
         Dict with:
@@ -341,6 +409,26 @@ def start_sit_recommendation(
           - confidence_label: 'Clear Start', 'Lean Start', or 'Toss-up'
           - players: list of per-player detail dicts
     """
+    # Merge inputs dataclass into kwargs (explicit kwargs win).
+    if inputs is not None:
+        bundle = inputs.as_kwargs()
+        if weekly_schedule is None:
+            weekly_schedule = bundle.get("weekly_schedule")
+        if park_factors is None:
+            park_factors = bundle.get("park_factors")
+        if my_weekly_totals is None:
+            my_weekly_totals = bundle.get("my_weekly_totals")
+        if opp_weekly_totals is None:
+            opp_weekly_totals = bundle.get("opp_weekly_totals")
+        if standings is None:
+            standings = bundle.get("standings")
+        if team_name is None:
+            team_name = bundle.get("team_name")
+        if recent_form is None:
+            recent_form = bundle.get("recent_form")
+        if weather is None:
+            weather = bundle.get("weather")
+
     if config is None:
         config = LeagueConfig()
 

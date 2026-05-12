@@ -397,12 +397,16 @@ class DraftSimulator:
             pick_schedule.append((pick, team_idx))
 
         # Q2: Track recent pick positions per simulation for run detection
-        if not hasattr(self, "_recent_pick_positions"):
-            self._recent_pick_positions = {}
+        # Wave 8c (audit D6A-005, D6D-013): use a LOCAL dict here. The
+        # previous instance-state ``self._recent_pick_positions`` leaked
+        # across simulate_draft() calls, contaminating later calls with
+        # earlier sims' position histories. A local dict scopes correctly
+        # to one simulate_draft invocation.
+        recent_pick_positions: dict[int, list[str]] = {}
 
         for sim in range(n_simulations):
             is_available = np.ones(n_players, dtype=bool)
-            self._recent_pick_positions[sim] = []
+            recent_pick_positions[sim] = []
             # Track simulated opponent rosters (copy from actual state)
             sim_team_pos = {}
             if team_positions:
@@ -480,8 +484,8 @@ class DraftSimulator:
 
                     # Q2: Position run detection — if 2+ recent picks at same position,
                     # boost remaining players at that position by 1.3x for 3 picks.
-                    if pick > 3 and hasattr(self, "_recent_pick_positions"):
-                        _recent = self._recent_pick_positions.get(sim, [])[-8:]
+                    if pick > 3:
+                        _recent = recent_pick_positions.get(sim, [])[-8:]
                         _pos_counts: dict[str, int] = {}
                         for _rp in _recent:
                             _pos_counts[_rp] = _pos_counts.get(_rp, 0) + 1
@@ -508,7 +512,7 @@ class DraftSimulator:
                         if pos:
                             sim_team_pos.setdefault(team_idx, []).append(pos)
                             # Q2: Track for position run detection
-                            self._recent_pick_positions[sim].append(pos)
+                            recent_pick_positions[sim].append(pos)
                             break
 
             results[sim] = user_sgp_total

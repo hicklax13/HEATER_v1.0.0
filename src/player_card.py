@@ -4,13 +4,51 @@ Pure functions only — no Streamlit dependency. All data is fetched from
 the SQLite database and returned as plain dicts for rendering.
 """
 
+from __future__ import annotations
+
 from datetime import UTC, datetime
+from typing import Any, TypedDict
 
 import pandas as pd
 
 from src.database import get_connection
 from src.injury_model import compute_health_score, get_injury_badge
 from src.valuation import LeagueConfig
+
+
+class PlayerCardData(TypedDict):
+    """Return shape of :func:`build_player_card_data`.
+
+    Wave 8c (audit D7D-003/D7D-010): the 10-section player-card payload
+    was passed through ``render_player_card_dialog`` in ``ui_shared.py``
+    with no schema. Consumers fished via ``data.get("section", {})`` and
+    typos silently degraded the rendered card. This TypedDict makes the
+    contract explicit.
+
+    Sections (all keys always present, even on missing-player fallback):
+      - profile: identity, position, team, age, headshot
+      - projections: ``{blended: {...}, systems: {...}}``
+      - historical: per-season totals
+      - advanced: Statcast/sabermetric metrics
+      - injury_history: per-injury timeline rows
+      - rankings: ECR + ADP from multiple sources
+      - radar: ``{player, league_avg, mlb_avg}`` per-cat z-scores
+      - trends: rolling 7/14/30-game splits
+      - news: recent player-news rows
+      - prospect: prospect profile (None if veteran)
+    """
+
+    profile: dict[str, Any]
+    projections: dict[str, Any]
+    historical: list[dict[str, Any]]
+    advanced: dict[str, Any]
+    injury_history: list[dict[str, Any]]
+    rankings: dict[str, Any]
+    radar: dict[str, Any]
+    trends: dict[str, Any]
+    news: list[dict[str, Any]]
+    prospect: dict[str, Any] | None
+
 
 _LC_ONCE = LeagueConfig()
 _HITTING_CATS = _LC_ONCE.hitting_categories  # ["R", "HR", "RBI", "SB", "AVG", "OBP"]
@@ -196,14 +234,16 @@ def _build_sparkline_data(historical: list[dict]) -> dict:
     return trends
 
 
-def build_player_card_data(player_id: int) -> dict:
+def build_player_card_data(player_id: int) -> PlayerCardData:
     """Assemble all data for a player card dialog.
 
-    Pure function — no Streamlit dependency. Returns a dict with sections:
-    profile, projections, historical, advanced, injury_history, rankings,
-    radar, trends, news, prospect.
+    Pure function — no Streamlit dependency. Returns a :class:`PlayerCardData`
+    TypedDict with the 10 sections (profile, projections, historical,
+    advanced, injury_history, rankings, radar, trends, news, prospect).
 
-    Returns a safe empty-ish dict if the player is not found.
+    Returns a safe empty-shape :class:`PlayerCardData` if the player is
+    not found — keys still match the schema so consumers don't need a
+    None-check before keying into sub-sections.
     """
     conn = get_connection()
     try:
