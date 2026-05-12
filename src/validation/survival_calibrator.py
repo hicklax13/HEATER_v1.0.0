@@ -173,17 +173,49 @@ def _build_prediction_pairs(datasets: list[CalibrationDataset], num_teams: int) 
         # Sort by pick number to get draft order
         draft_df = draft_df.sort_values("pick_number").reset_index(drop=True)
 
+        # BUG-015 fix: previously used `adp = actual_pick` as a stand-in,
+        # creating trivial data leakage (predicted == actual → bogus Brier
+        # score; survival_sigma calibrated to ~any value). Real fix needs
+        # pre-draft ADP from adp_sources or ecr_consensus table. Until
+        # that plumbing exists, look for an explicit `adp` or
+        # `pre_draft_adp` column on the draft df; if absent, skip this
+        # draft entirely with a clear warning.
+        adp_col = None
+        if "pre_draft_adp" in draft_df.columns:
+            adp_col = "pre_draft_adp"
+        elif "adp" in draft_df.columns:
+            adp_col = "adp"
+
+        if adp_col is None:
+            logger.warning(
+                "Skipping survival calibration for season %s: draft DataFrame "
+                "has no pre-draft ADP column ('adp' or 'pre_draft_adp'). "
+                "Plumb adp_sources or ecr_consensus output into the draft "
+                "df to enable real calibration. (BUG-015: previously used "
+                "actual_pick as adp, which leaked the target and produced "
+                "meaningless survival_sigma calibration.)",
+                getattr(ds, "season", "unknown"),
+            )
+            continue  # skip this season entirely
+
         # For each player, create survival observations
+        total_picks = len(draft_df)
         for _, row in draft_df.iterrows():
             actual_pick = int(row["pick_number"])
             player_name = row["player_name"]
 
-            # Use actual draft position as a proxy for ADP
-            # (In a real calibration, we'd use pre-draft ADP consensus)
-            adp = actual_pick  # Simplification — improve with real ADP data
+            adp_raw = row.get(adp_col)
+            # Skip rows where ADP is NaN/None rather than data-leaking
+            if adp_raw is None:
+                continue
+            try:
+                adp = float(adp_raw)
+            except (TypeError, ValueError):
+                continue
+            if pd.isna(adp):
+                continue
 
             # Sample query picks: every 3rd pick from 1 to total_picks
-            total_picks = len(draft_df)
             for query_pick in range(1, total_picks + 1, 3):
                 survived = 1 if query_pick < actual_pick else 0
                 picks_between = max(1, abs(query_pick - actual_pick))
