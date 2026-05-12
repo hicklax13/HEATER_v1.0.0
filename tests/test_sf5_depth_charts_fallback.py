@@ -217,7 +217,10 @@ class TestBootstrapDepthChartsFallback:
             finally:
                 conn.close()
             assert row is not None
-            assert row[0] == "success"
+            # Wave 7 INFRA-F6: row-count gate downgrades to "partial" when
+            # < expected_min rows; the mock fixture has only 5 players, so
+            # accept either "success" or "partial" (both mean data exists).
+            assert row[0] in ("success", "partial"), f"Expected success or partial, got {row[0]!r}"
             assert row[1] == "fallback"
 
             # Players got their depth_chart_role / lineup_slot populated
