@@ -7,8 +7,9 @@ import pandas as pd
 
 from src.valuation import LeagueConfig as _LC_Class
 
-_LC = _LC_Class()
-INVERSE_CATS = set(_LC.inverse_stats)
+_LC_ONCE = _LC_Class()
+INVERSE_CATS = set(_LC_ONCE.inverse_stats)
+del _LC_ONCE
 
 
 def compute_category_leaders(

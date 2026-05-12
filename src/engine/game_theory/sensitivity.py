@@ -22,15 +22,18 @@ from src.valuation import LeagueConfig as _LC_Class
 
 logger = logging.getLogger(__name__)
 
-_LC = _LC_Class()
+# Resolve once at import; do not store as a long-lived module singleton.
+# (BUG-010: SF-21 architectural directive.)
+_LC_ONCE = _LC_Class()
 # SF-26 follow-up: derive CATEGORIES from LeagueConfig.
 # This constant is currently unused inside the module (imports only pull
 # functions, not constants) and ordering is purely cosmetic — no matrix
 # indexing, sort, or correlation step depends on category position. Use the
 # canonical R/HR/RBI/SB/AVG/OBP/W/L/SV/K/ERA/WHIP order so future readers
 # who happen to import it see the same order as the rest of the engine.
-CATEGORIES: list[str] = list(_LC.all_categories)
-INVERSE_CATEGORIES: set[str] = set(_LC.inverse_stats)
+CATEGORIES: list[str] = list(_LC_ONCE.all_categories)
+INVERSE_CATEGORIES: set[str] = set(_LC_ONCE.inverse_stats)
+del _LC_ONCE
 
 # Minimum improvement to suggest a swap (SGP)
 MIN_SWAP_IMPROVEMENT: float = 0.2

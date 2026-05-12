@@ -12,9 +12,10 @@ from src.database import get_connection
 from src.injury_model import compute_health_score, get_injury_badge
 from src.valuation import LeagueConfig
 
-_LC = LeagueConfig()
-_HITTING_CATS = _LC.hitting_categories  # ["R", "HR", "RBI", "SB", "AVG", "OBP"]
-_PITCHING_CATS = _LC.pitching_categories  # ["W", "L", "SV", "K", "ERA", "WHIP"]
+_LC_ONCE = LeagueConfig()
+_HITTING_CATS = _LC_ONCE.hitting_categories  # ["R", "HR", "RBI", "SB", "AVG", "OBP"]
+_PITCHING_CATS = _LC_ONCE.pitching_categories  # ["W", "L", "SV", "K", "ERA", "WHIP"]
+del _LC_ONCE
 _RATE_STATS = {"AVG", "OBP", "ERA", "WHIP"}
 
 _MLB_HEADSHOT_TEMPLATE = (

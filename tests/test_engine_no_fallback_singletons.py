@@ -43,3 +43,24 @@ def test_no_lc_singleton_in_opponent_valuation():
     text_no_comments = re.sub(r"#.*$", "", text, flags=re.MULTILINE)
     bad = re.findall(r"^_LC\s*=\s*", text_no_comments, re.MULTILINE)
     assert bad == [], f"Found _LC singleton in opponent_valuation.py: {bad}"
+
+
+def test_no_lc_singleton_in_trade_evaluator():
+    text = Path("src/engine/output/trade_evaluator.py").read_text(encoding="utf-8")
+    text_no_comments = re.sub(r"#.*$", "", text, flags=re.MULTILINE)
+    bad = re.findall(r"^_LC\s*=\s*", text_no_comments, re.MULTILINE)
+    assert bad == [], f"Found _LC singleton in trade_evaluator.py: {bad}"
+
+
+def test_no_lc_singleton_in_engine_portfolio_valuation():
+    text = Path("src/engine/portfolio/valuation.py").read_text(encoding="utf-8")
+    text_no_comments = re.sub(r"#.*$", "", text, flags=re.MULTILINE)
+    bad = re.findall(r"^_LC\s*=\s*", text_no_comments, re.MULTILINE)
+    assert bad == [], f"Found _LC singleton in engine/portfolio/valuation.py: {bad}"
+
+
+def test_no_lc_singleton_in_engine_game_theory_sensitivity():
+    text = Path("src/engine/game_theory/sensitivity.py").read_text(encoding="utf-8")
+    text_no_comments = re.sub(r"#.*$", "", text, flags=re.MULTILINE)
+    bad = re.findall(r"^_LC\s*=\s*", text_no_comments, re.MULTILINE)
+    assert bad == [], f"Found _LC singleton in engine/game_theory/sensitivity.py: {bad}"

@@ -27,14 +27,15 @@ from src.valuation import LeagueConfig as _LC_Class
 logger = logging.getLogger(__name__)
 
 _CONSTANTS = load_constants()
-_LC = _LC_Class()
+_LC_ONCE = _LC_Class()
 
 # ── Constants ────────────────────────────────────────────────────────
 # Module uses lowercase category keys to match downstream column names.
 
-ALL_CATEGORIES: list[str] = [c.lower() for c in _LC.all_categories]
+ALL_CATEGORIES: list[str] = [c.lower() for c in _LC_ONCE.all_categories]
 
-INVERSE_CATS: set[str] = {c.lower() for c in _LC.inverse_stats}
+INVERSE_CATS: set[str] = {c.lower() for c in _LC_ONCE.inverse_stats}
+del _LC_ONCE
 
 # Small epsilon to avoid division by zero.
 _EPSILON: float = 1e-12

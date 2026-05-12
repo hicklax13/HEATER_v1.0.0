@@ -58,13 +58,14 @@ ROSTER_SLOTS: dict[str, tuple[int, list[str]]] = {
 }
 
 # Hitting/pitching categories derived from LeagueConfig (lowercase for LP solver)
-_LC = _LC_Class()
-HITTING_CATS = [c.lower() for c in _LC.hitting_categories]
-PITCHING_CATS = [c.lower() for c in _LC.pitching_categories]
+_LC_ONCE = _LC_Class()
+HITTING_CATS = [c.lower() for c in _LC_ONCE.hitting_categories]
+PITCHING_CATS = [c.lower() for c in _LC_ONCE.pitching_categories]
 ALL_CATS = HITTING_CATS + PITCHING_CATS
 
 # Categories where lower is better
-INVERSE_CATS = {c.lower() for c in _LC.inverse_stats}
+INVERSE_CATS = {c.lower() for c in _LC_ONCE.inverse_stats}
+del _LC_ONCE
 
 
 class LineupOptimizer:

@@ -362,11 +362,12 @@ THEME = {
 # All existing T["key"] call sites continue to work.
 T = THEME
 
-_LC = _LC_Class()
-ROSTER_CONFIG = _LC.roster_slots
-HITTING_CATEGORIES = _LC.hitting_categories
-PITCHING_CATEGORIES = _LC.pitching_categories
-ALL_CATEGORIES = _LC.all_categories
+_LC_ONCE = _LC_Class()
+ROSTER_CONFIG = _LC_ONCE.roster_slots
+HITTING_CATEGORIES = _LC_ONCE.hitting_categories
+PITCHING_CATEGORIES = _LC_ONCE.pitching_categories
+ALL_CATEGORIES = _LC_ONCE.all_categories
+del _LC_ONCE
 
 # ── Metric Tooltips ─────────────────────────────────────────────────
 

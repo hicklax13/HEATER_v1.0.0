@@ -149,8 +149,9 @@ CATEGORY_CORRELATIONS: dict[tuple[str, str], float] = {
     ("SV", "W"): -0.10,
 }
 
-_LC = LeagueConfig()
-ALL_CATEGORIES: list[str] = list(_LC.all_categories)
+_LC_ONCE = LeagueConfig()
+ALL_CATEGORIES: list[str] = list(_LC_ONCE.all_categories)
+del _LC_ONCE
 
 
 def _build_correlation_matrix(categories: list[str]) -> np.ndarray:

@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 
 from src.valuation import LeagueConfig as _LC_Class
 
-_LC = _LC_Class()
+_LC_ONCE = _LC_Class()
 
 logger = logging.getLogger(__name__)
 
@@ -40,9 +40,10 @@ except ImportError:
 
 # ── Constants ────────────────────────────────────────────────────────
 
-COUNTING_CATS: list[str] = [c.lower() for c in _LC.all_categories if c not in _LC.rate_stats]
-RATE_CATS: list[str] = [c.lower() for c in _LC.all_categories if c in _LC.rate_stats]
+COUNTING_CATS: list[str] = [c.lower() for c in _LC_ONCE.all_categories if c not in _LC_ONCE.rate_stats]
+RATE_CATS: list[str] = [c.lower() for c in _LC_ONCE.all_categories if c in _LC_ONCE.rate_stats]
 ALL_CATS: list[str] = COUNTING_CATS + RATE_CATS
+del _LC_ONCE
 
 # Minimum sample size (PA or IP) to trust in-season observed stats
 _MIN_SAMPLE_BAYESIAN: int = 30
