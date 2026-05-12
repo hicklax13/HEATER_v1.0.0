@@ -253,7 +253,7 @@ def get_hitter_projections() -> list[dict]:
         _make_hitter("Wilyer Abreu", "BOS", "OF", 540, 18, 12, 0.265, 75, 68, 134, 0.18, 0.10),
         _make_hitter("Eloy Jimenez", "BAL", "OF,DH", 450, 22, 2, 0.260, 60, 72, 136, 0.18, 0.30),
         _make_hitter("Josh Lowe", "TB", "OF", 520, 18, 22, 0.252, 75, 65, 138, 0.18, 0.12),
-        _make_hitter("Zack Gelof", "OAK", "2B,3B", 540, 20, 18, 0.248, 75, 68, 140, 0.25, 0.12),
+        _make_hitter("Zack Gelof", "ATH", "2B,3B", 540, 20, 18, 0.248, 75, 68, 140, 0.25, 0.12),
         _make_hitter("Jake Cronenworth", "SD", "1B,2B", 560, 18, 5, 0.262, 72, 72, 142, 0.10, 0.08),
         _make_hitter("Royce Lewis", "MIN", "SS,3B", 400, 22, 8, 0.268, 60, 62, 144, 0.30, 0.45),
         _make_hitter("Evan Carter", "TEX", "OF", 480, 16, 15, 0.258, 70, 60, 146, 0.30, 0.18),
@@ -354,7 +354,7 @@ def get_hitter_projections() -> list[dict]:
         _make_hitter("Josh Smith", "TEX", "3B,OF", 420, 10, 10, 0.252, 55, 45, 332, 0.22, 0.12),
         _make_hitter("Matt Chapman", "SF", "3B", 520, 22, 3, 0.242, 72, 78, 334, 0.10, 0.10),
         _make_hitter("Jose Caballero", "TB", "SS,2B", 400, 8, 22, 0.242, 55, 35, 336, 0.25, 0.12),
-        _make_hitter("Shea Langeliers", "OAK", "C", 430, 18, 2, 0.232, 48, 58, 338, 0.18, 0.12),
+        _make_hitter("Shea Langeliers", "ATH", "C", 430, 18, 2, 0.232, 48, 58, 338, 0.18, 0.12),
         _make_hitter("Dylan Crews", "WSH", "OF", 400, 12, 10, 0.258, 52, 48, 340, 0.38, 0.12),
         _make_hitter("Robert Hassell III", "WSH", "OF", 380, 10, 8, 0.260, 48, 42, 342, 0.40, 0.15),
         _make_hitter("Coby Mayo", "BAL", "3B,1B", 400, 18, 3, 0.248, 52, 58, 344, 0.38, 0.15),
@@ -375,14 +375,14 @@ def get_hitter_projections() -> list[dict]:
         _make_hitter("Lenyn Sosa", "CHW", "2B,SS", 400, 12, 5, 0.255, 45, 48, 374, 0.28, 0.12),
         _make_hitter("Heston Kjerstad", "BAL", "OF,DH", 380, 15, 3, 0.258, 45, 50, 376, 0.35, 0.18),
         _make_hitter("Jasson Dominguez", "NYY", "OF", 360, 14, 12, 0.252, 48, 42, 378, 0.40, 0.25),
-        _make_hitter("Tyler Soderstrom", "OAK", "C,1B", 420, 18, 2, 0.242, 48, 55, 380, 0.30, 0.12),
+        _make_hitter("Tyler Soderstrom", "ATH", "C,1B", 420, 18, 2, 0.242, 48, 55, 380, 0.30, 0.12),
         _make_hitter("Joey Ortiz", "MIL", "3B,SS", 450, 12, 5, 0.258, 52, 52, 382, 0.22, 0.10),
         _make_hitter("Masyn Winn", "STL", "SS", 480, 12, 15, 0.255, 58, 48, 384, 0.28, 0.10),
         _make_hitter("Brooks Lee", "MIN", "SS,3B", 400, 12, 5, 0.262, 48, 50, 386, 0.35, 0.12),
         _make_hitter("Davis Schneider", "TOR", "2B,OF", 380, 15, 3, 0.242, 48, 48, 388, 0.30, 0.15),
         _make_hitter("Nolan Schanuel", "LAA", "1B", 450, 10, 3, 0.265, 52, 48, 390, 0.22, 0.10),
         _make_hitter("Yonny Hernandez", "ARI", "2B,SS", 360, 2, 18, 0.258, 42, 25, 392, 0.22, 0.10),
-        _make_hitter("Ryan Noda", "OAK", "1B,OF", 400, 18, 2, 0.232, 48, 55, 394, 0.18, 0.12),
+        _make_hitter("Ryan Noda", "ATH", "1B,OF", 400, 18, 2, 0.232, 48, 55, 394, 0.18, 0.12),
     ]
 
 
@@ -459,7 +459,7 @@ def get_pitcher_projections() -> list[dict]:
         _make_pitcher("Devin Williams", "NYY", "RP", 62, 3, 35, 85, 2.30, 0.95, 129, 0.15, 0.22, gs=0),
         _make_pitcher("Edwin Diaz", "NYM", "RP", 60, 3, 32, 80, 2.80, 1.05, 133, 0.18, 0.28, gs=0),
         _make_pitcher("Raisel Iglesias", "ATL", "RP", 65, 3, 35, 72, 2.60, 1.00, 137, 0.10, 0.10, gs=0),
-        _make_pitcher("Mason Miller", "OAK", "RP", 62, 3, 32, 88, 2.50, 0.98, 141, 0.25, 0.18, gs=0),
+        _make_pitcher("Mason Miller", "ATH", "RP", 62, 3, 32, 88, 2.50, 0.98, 141, 0.25, 0.18, gs=0),
         _make_pitcher("Robert Suarez", "SD", "RP", 65, 3, 35, 72, 2.70, 1.02, 145, 0.12, 0.12, gs=0),
         _make_pitcher("Andres Munoz", "SEA", "RP", 62, 3, 30, 82, 2.55, 1.00, 149, 0.15, 0.15, gs=0),
         # ==================================================================

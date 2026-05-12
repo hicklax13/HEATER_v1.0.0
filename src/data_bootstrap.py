@@ -7,6 +7,7 @@ Uses staleness-based smart refresh to avoid unnecessary API calls.
 import json
 import logging
 import threading
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -276,7 +277,7 @@ def _bootstrap_players(progress: BootstrapProgress) -> str:
 
 def _bootstrap_projections(progress: BootstrapProgress) -> str:
     """Fetch projections from FanGraphs."""
-    from src.database import update_refresh_log
+    from src.database import get_connection, update_refresh_log, update_refresh_log_auto
 
     progress.phase = "Projections"
     progress.detail = "Fetching FanGraphs projections..."
@@ -285,8 +286,21 @@ def _bootstrap_projections(progress: BootstrapProgress) -> str:
 
         success = refresh_if_stale(force=True)
         if success:
-            update_refresh_log("projections", "success")
-            return "Projections refreshed"
+            # INFRA-F6: verify row count after refresh — a True return with 0
+            # rows would otherwise silently log 'success'.
+            conn = get_connection()
+            try:
+                row = conn.execute("SELECT COUNT(*) FROM projections").fetchone()
+                count = int(row[0]) if row else 0
+            finally:
+                conn.close()
+            status = update_refresh_log_auto(
+                "projections",
+                count,
+                expected_min=1000,
+                message=f"{count} projection rows in db",
+            )
+            return f"Projections refreshed ({count} rows, {status})"
         return "No projection data returned"
     except Exception as e:
         update_refresh_log("projections", "error", message=str(e)[:200])
@@ -338,7 +352,7 @@ def _bootstrap_historical(progress: BootstrapProgress) -> tuple[str, dict | None
     Returns:
         Tuple of (result_string, historical_data_dict_or_None).
     """
-    from src.database import update_refresh_log
+    from src.database import update_refresh_log, update_refresh_log_auto
     from src.live_stats import fetch_historical_stats, save_season_stats_to_db
 
     current_year = datetime.now(UTC).year
@@ -352,7 +366,13 @@ def _bootstrap_historical(progress: BootstrapProgress) -> tuple[str, dict | None
             count = save_season_stats_to_db(df, season=year)
             total += count
         if total > 0:
-            update_refresh_log("historical_stats", "success")
+            # INFRA-F6: row-count gate (was bare "success"); any history is fine.
+            update_refresh_log_auto(
+                "historical_stats",
+                total,
+                expected_min=1,
+                message=f"{total} historical records across {len(historical)} seasons",
+            )
         return (f"Saved {total} historical records across {len(historical)} seasons", historical)
     except Exception as e:
         update_refresh_log("historical_stats", "error", message=str(e)[:200])
@@ -361,7 +381,7 @@ def _bootstrap_historical(progress: BootstrapProgress) -> tuple[str, dict | None
 
 def _bootstrap_injury_data(progress: BootstrapProgress, historical: dict | None = None) -> str:
     """Extract injury history from historical stats and save."""
-    from src.database import update_refresh_log, upsert_injury_history_bulk
+    from src.database import update_refresh_log, update_refresh_log_auto, upsert_injury_history_bulk
     from src.live_stats import fetch_historical_stats, fetch_injury_data_bulk, match_player_id
 
     current_year = datetime.now(UTC).year
@@ -388,7 +408,13 @@ def _bootstrap_injury_data(progress: BootstrapProgress, historical: dict | None 
 
         if db_records:
             count = upsert_injury_history_bulk(db_records)
-            update_refresh_log("injury_data", "success")
+            # INFRA-F6: row-count gate (was bare "success").
+            update_refresh_log_auto(
+                "injury_data",
+                count,
+                expected_min=1,
+                message=f"{count} injury records upserted from {len(raw_records)} raw rows",
+            )
             return f"Saved {count} injury records"
         return "No injury records matched"
     except Exception as e:
@@ -522,7 +548,7 @@ def _store_yahoo_adp(adp_records: list[dict]) -> int:
 
 def _bootstrap_yahoo(progress: BootstrapProgress, yahoo_client=None) -> str:
     """Sync Yahoo league data if client is available."""
-    from src.database import update_refresh_log
+    from src.database import get_connection, update_refresh_log, update_refresh_log_auto
 
     progress.phase = "Yahoo Sync"
     if yahoo_client is None:
@@ -542,8 +568,21 @@ def _bootstrap_yahoo(progress: BootstrapProgress, yahoo_client=None) -> str:
             # ADP may not be available pre-draft — non-fatal
             logger.warning("Yahoo ADP fetch failed (non-fatal): %s", adp_exc)
 
-        update_refresh_log("yahoo_data", "success")
-        return "Yahoo league data synced"
+        # INFRA-F6: gate "success" on actual roster row count to catch silent
+        # 0-row syncs (was bare "success").
+        conn = get_connection()
+        try:
+            row = conn.execute("SELECT COUNT(*) FROM league_rosters").fetchone()
+            roster_count = int(row[0]) if row else 0
+        finally:
+            conn.close()
+        status = update_refresh_log_auto(
+            "yahoo_data",
+            roster_count,
+            expected_min=1,
+            message=f"{roster_count} roster rows in league_rosters",
+        )
+        return f"Yahoo league data synced ({roster_count} rosters, {status})"
     except Exception as e:
         update_refresh_log("yahoo_data", "error", message=str(e)[:200])
         return f"Error: {e}"
@@ -674,13 +713,15 @@ def _bootstrap_adp_sources(progress: BootstrapProgress) -> str:
     progress.detail = "Fetching FantasyPros + NFBC ADP..."
     try:
         from src.adp_sources import fetch_fantasypros_ecr, fetch_nfbc_adp
-        from src.database import update_refresh_log
+        from src.database import update_refresh_log, update_refresh_log_auto
 
         results = []
+        total_stored = 0
         try:
             ecr = fetch_fantasypros_ecr()
             if not ecr.empty:
                 stored = _store_external_adp(ecr, "player_name", "ecr_rank", "fantasypros")
+                total_stored += stored
                 results.append(f"FantasyPros: {len(ecr)} fetched, {stored} stored")
         except Exception:
             logger.debug("FantasyPros ECR fetch failed", exc_info=True)
@@ -688,11 +729,18 @@ def _bootstrap_adp_sources(progress: BootstrapProgress) -> str:
             nfbc = fetch_nfbc_adp()
             if not nfbc.empty:
                 stored = _store_external_adp(nfbc, "player_name", "nfbc_adp", "nfbc")
+                total_stored += stored
                 results.append(f"NFBC: {len(nfbc)} fetched, {stored} stored")
         except Exception:
             logger.debug("NFBC ADP fetch failed", exc_info=True)
         if results:
-            update_refresh_log("adp_sources", "success")
+            # INFRA-F6: row-count gate (was bare "success").
+            update_refresh_log_auto(
+                "adp_sources",
+                total_stored,
+                expected_min=100,
+                message=f"{total_stored} ADP rows stored from {len(results)} sources",
+            )
             return f"ADP sources: {', '.join(results)}"
         update_refresh_log("adp_sources", "no_data")
         _month = datetime.now(UTC).month
@@ -737,13 +785,19 @@ def _bootstrap_news(progress: BootstrapProgress) -> str:
     progress.phase = "News"
     progress.detail = "Fetching recent transactions..."
     try:
-        from src.database import update_refresh_log
+        from src.database import update_refresh_log_auto
         from src.news_fetcher import fetch_recent_transactions
 
         items = fetch_recent_transactions(days_back=7)
         if items:
             _persist_news_sentiment(items)
-        update_refresh_log("news", "success")
+        # INFRA-F6: row-count gate (was bare "success"); any news is fine.
+        update_refresh_log_auto(
+            "news",
+            len(items),
+            expected_min=1,
+            message=f"{len(items)} recent transactions",
+        )
         return f"News: {len(items)} transactions"
     except Exception as e:
         logger.warning("News bootstrap failed: %s", e)
@@ -891,7 +945,7 @@ def _bootstrap_depth_charts(progress: BootstrapProgress) -> str:
     progress.phase = "Depth Charts"
     progress.detail = "Fetching depth charts..."
     try:
-        from src.database import update_refresh_log
+        from src.database import update_refresh_log, update_refresh_log_auto
         from src.depth_charts import fetch_depth_charts, fetch_depth_charts_via_statsapi
 
         # Tier 1: Roster Resource scrape (primary, more accurate)
@@ -905,7 +959,14 @@ def _bootstrap_depth_charts(progress: BootstrapProgress) -> str:
 
         if depth_data:
             count = _persist_depth_chart_roles(depth_data)
-            update_refresh_log("depth_charts", "success", tier=tier)
+            # INFRA-F6: row-count gate (was bare "success", tier=tier).
+            update_refresh_log_auto(
+                "depth_charts",
+                count,
+                expected_min=100,
+                message=f"{len(depth_data)} teams, {count} roles persisted",
+                tier=tier,
+            )
             return f"Depth charts: {len(depth_data)} teams, {count} roles persisted ({tier})"
         update_refresh_log("depth_charts", "no_data")
         return "Skipped: depth chart endpoints returned no data (Roster Resource + MLB Stats API both empty)"
@@ -922,12 +983,21 @@ def _bootstrap_prospects(progress: BootstrapProgress) -> str:
     progress.phase = "Prospects"
     progress.detail = "Refreshing prospect rankings..."
     try:
-        from src.database import update_refresh_log
+        from src.database import update_refresh_log_auto
         from src.prospect_engine import refresh_prospect_rankings
 
         df = refresh_prospect_rankings(force=True)
-        update_refresh_log("prospect_rankings", "success")
-        return f"Prospects: {len(df)} ranked"
+        prospect_count = len(df) if df is not None else 0
+        # INFRA-F6: row-count gate. Floor of 20 matches the documented Tier 3
+        # emergency fallback (prospect_engine._STATIC_PROSPECTS, 20 entries);
+        # a higher floor would spuriously downgrade that path to "partial".
+        update_refresh_log_auto(
+            "prospect_rankings",
+            prospect_count,
+            expected_min=20,
+            message=f"{prospect_count} prospects ranked",
+        )
+        return f"Prospects: {prospect_count} ranked"
     except Exception as e:
         logger.warning("Prospect bootstrap failed: %s", e)
         return f"Prospects: error ({e})"
@@ -938,11 +1008,17 @@ def _bootstrap_news_intel(progress: BootstrapProgress, yahoo_client=None) -> str
     progress.phase = "News Intelligence"
     progress.detail = "Fetching news from ESPN, RotoWire, MLB API..."
     try:
-        from src.database import update_refresh_log
+        from src.database import update_refresh_log_auto
         from src.player_news import refresh_all_news
 
         count = refresh_all_news(yahoo_client=yahoo_client, force=True)
-        update_refresh_log("news_intelligence", "success")
+        # INFRA-F6: row-count gate (was bare "success"); any item is fine.
+        update_refresh_log_auto(
+            "news_intelligence",
+            count,
+            expected_min=1,
+            message=f"{count} news items from multi-source",
+        )
         return f"News: {count} items from multi-source"
     except Exception as e:
         logger.warning("News intelligence bootstrap failed: %s", e)
@@ -954,7 +1030,7 @@ def _bootstrap_ecr_consensus(progress: BootstrapProgress) -> str:
     progress.phase = "ECR Consensus"
     progress.detail = "Building multi-platform ranking consensus..."
     try:
-        from src.database import update_refresh_log
+        from src.database import update_refresh_log, update_refresh_log_auto
         from src.ecr import refresh_ecr_consensus
 
         df = refresh_ecr_consensus(force=True)
@@ -963,7 +1039,13 @@ def _bootstrap_ecr_consensus(progress: BootstrapProgress) -> str:
             logger.warning("ECR consensus returned cached data — all sources failed")
             update_refresh_log("ecr_consensus", "cached")
             return f"ECR Consensus: {len(df)} players (cached — sources unavailable)"
-        update_refresh_log("ecr_consensus", "success")
+        # INFRA-F6: row-count gate (was bare "success").
+        update_refresh_log_auto(
+            "ecr_consensus",
+            len(df),
+            expected_min=100,
+            message=f"{len(df)} players ranked",
+        )
         return f"ECR Consensus: {len(df)} players ranked"
     except Exception as e:
         logger.warning("ECR consensus bootstrap failed: %s", e)
@@ -978,11 +1060,17 @@ def _bootstrap_game_day(progress: BootstrapProgress) -> str:
         from src.game_day import fetch_game_day_intelligence
 
         result = fetch_game_day_intelligence()
-        from src.database import update_refresh_log
+        from src.database import update_refresh_log_auto
 
-        update_refresh_log("game_day", "success")
         games = result.get("games_count", 0)
         pitchers = result.get("pitcher_count", 0)
+        # INFRA-F6: row-count gate (was bare "success"); any game-day intel is fine.
+        update_refresh_log_auto(
+            "game_day",
+            games + pitchers,
+            expected_min=1,
+            message=f"{games} games, {pitchers} pitchers",
+        )
         return f"Saved game-day intel for {games} games, {pitchers} pitchers"
     except Exception as exc:
         logger.exception("Game-day bootstrap failed: %s", exc)
@@ -1046,7 +1134,7 @@ def _bootstrap_stuff_plus(progress: BootstrapProgress) -> str:
         import pandas as pd
 
         from src.data_fetch_utils import fetch_fangraphs_with_browser_headers
-        from src.database import get_connection, update_refresh_log
+        from src.database import get_connection, update_refresh_log, update_refresh_log_auto
 
         year = datetime.now(UTC).year
         logger.info(
@@ -1163,11 +1251,13 @@ def _bootstrap_stuff_plus(progress: BootstrapProgress) -> str:
         finally:
             conn.close()
 
-        update_refresh_log(
+        # INFRA-F6: row-count gate (was bare "success", tier="primary").
+        update_refresh_log_auto(
             "stuff_plus",
-            "success",
-            tier="primary",
+            updated,
+            expected_min=50,
             message=f"browser-headers fetch ok — {updated}/{len(fg_df)} pitchers",
+            tier="primary",
         )
         logger.info(
             "Stuff+ metrics: primary tier ok — updated %d pitchers from %d FanGraphs rows",
@@ -1223,7 +1313,7 @@ def _bootstrap_batting_stats(progress: BootstrapProgress) -> str:
         import pandas as pd
 
         from src.data_fetch_utils import fetch_fangraphs_with_browser_headers
-        from src.database import get_connection, update_refresh_log
+        from src.database import get_connection, update_refresh_log, update_refresh_log_auto
 
         year = datetime.now(UTC).year
         logger.info(
@@ -1328,11 +1418,13 @@ def _bootstrap_batting_stats(progress: BootstrapProgress) -> str:
         finally:
             conn.close()
 
-        update_refresh_log(
+        # INFRA-F6: row-count gate (was bare "success", tier="primary").
+        update_refresh_log_auto(
             "batting_stats",
-            "success",
-            tier="primary",
+            updated,
+            expected_min=100,
             message=f"browser-headers fetch ok — {updated}/{len(fg_df)} hitters",
+            tier="primary",
         )
         logger.info(
             "Batting stats: primary tier ok — updated %d hitters from %d FanGraphs rows",
@@ -1380,7 +1472,7 @@ def _bootstrap_sprint_speed(progress: BootstrapProgress) -> str:
     try:
         import pandas as pd
 
-        from src.database import get_connection, update_refresh_log
+        from src.database import get_connection, update_refresh_log, update_refresh_log_auto
 
         year = datetime.now(UTC).year
         logger.info("Fetching Statcast sprint speed for %d...", year)
@@ -1458,7 +1550,13 @@ def _bootstrap_sprint_speed(progress: BootstrapProgress) -> str:
         finally:
             conn.close()
 
-        update_refresh_log("sprint_speed", "success")
+        # INFRA-F6: row-count gate (was bare "success").
+        update_refresh_log_auto(
+            "sprint_speed",
+            updated,
+            expected_min=100,
+            message=f"{updated} players from {len(ss_df)} Statcast rows",
+        )
         logger.info("Sprint speed: updated %d players from %d Statcast rows", updated, len(ss_df))
         return f"Updated {updated} players with sprint speed"
 
@@ -1525,6 +1623,12 @@ def _bootstrap_umpire_tendencies(progress: BootstrapProgress) -> str:
     progress.phase = "Umpire Data"
     progress.detail = "Fetching umpire assignments..."
 
+    # INFRA-F3: cap Tier 1 schedule iteration to 60s wall-clock so we fall
+    # through to Tier 3 seed in bounded time. Without this, ~2000 boxscore_data
+    # calls mid-season exceed the orchestrator's 240s per-phase timeout and
+    # the shipped seed never serves.
+    _UMPIRE_TIER1_TIMEOUT_S = 60.0
+
     try:
         from src.database import get_connection, update_refresh_log
 
@@ -1543,8 +1647,26 @@ def _bootstrap_umpire_tendencies(progress: BootstrapProgress) -> str:
                 end_date=datetime.now(UTC).strftime("%Y-%m-%d"),
             )
 
+            tier1_start = time.monotonic()
+            tier1_timed_out = False
+            games_processed = 0
+
             if schedule:
                 for game in schedule:
+                    # INFRA-F3: enforce wall-clock budget on Tier 1.
+                    elapsed = time.monotonic() - tier1_start
+                    if elapsed > _UMPIRE_TIER1_TIMEOUT_S:
+                        logger.warning(
+                            "T7 [primary]: Tier 1 schedule iteration exceeded %.0fs budget "
+                            "after processing %d games (%d umpires collected); breaking out "
+                            "to let Tier 3 seed serve if needed. (INFRA-F3 fix.)",
+                            _UMPIRE_TIER1_TIMEOUT_S,
+                            games_processed,
+                            len(umpire_stats),
+                        )
+                        tier1_timed_out = True
+                        break
+
                     game_pk = game.get("game_id")
                     if not game_pk:
                         continue
@@ -1556,6 +1678,7 @@ def _bootstrap_umpire_tendencies(progress: BootstrapProgress) -> str:
                         boxscore = _statsapi.boxscore_data(game_pk)
                     except Exception:
                         continue
+                    games_processed += 1
 
                     if not boxscore:
                         continue
@@ -1613,9 +1736,10 @@ def _bootstrap_umpire_tendencies(progress: BootstrapProgress) -> str:
                     tier_used = "primary"
                     league_games = sum(u["games"] for u in umpire_stats.values())
                     logger.info(
-                        "T7 [primary]: extracted %d umpires from %d games",
+                        "T7 [primary]: extracted %d umpires from %d games%s",
                         len(umpire_stats),
                         league_games,
+                        " (timed out; partial result)" if tier1_timed_out else "",
                     )
         except ImportError:
             logger.warning("T7 [primary]: statsapi not installed; skipping Tier 1")
@@ -1725,25 +1849,24 @@ def _bootstrap_umpire_tendencies(progress: BootstrapProgress) -> str:
         finally:
             conn.close()
 
-        try:
-            from src.database import update_refresh_log_auto
+        from src.database import update_refresh_log_auto
 
-            tier_label = tier_used or "primary"
-            msg = (
-                f"{updated} umpires from 2024 seed [SEED]"
-                if seed_used
-                else f"{updated} umpires from {league_games} games (tier={tier_label})"
-            )
-            status = update_refresh_log_auto(
-                "umpire_tendencies",
-                updated,
-                expected_min=10,
-                message=msg,
-                tier=tier_label,
-            )
-        except ImportError:
-            update_refresh_log("umpire_tendencies", "success", tier=tier_used)
-            status = "success"
+        tier_label = tier_used or "primary"
+        msg = (
+            f"{updated} umpires from 2024 seed [SEED]"
+            if seed_used
+            else f"{updated} umpires from {league_games} games (tier={tier_label})"
+        )
+        # INFRA-F6: ImportError fallback that called update_refresh_log("...", "success", tier=...)
+        # has been removed — update_refresh_log_auto is in src/database.py alongside
+        # update_refresh_log and is always importable.
+        status = update_refresh_log_auto(
+            "umpire_tendencies",
+            updated,
+            expected_min=1,
+            message=msg,
+            tier=tier_label,
+        )
         logger.info("T7: Umpire tendencies — %d umpires updated (tier=%s)", updated, tier_used)
         suffix = "from 2024 seed" if seed_used else f"from {league_games} games"
         return f"Saved {updated} umpire profiles {suffix} via tier={tier_used} ({status})"
@@ -2042,21 +2165,20 @@ def _bootstrap_catcher_framing(progress: BootstrapProgress) -> str:
         finally:
             conn.close()
 
-        try:
-            from src.database import update_refresh_log_auto
+        from src.database import update_refresh_log_auto
 
-            tier_label = tier_used or "primary"
-            msg_suffix = " [SEED]" if seed_used else ""
-            status = update_refresh_log_auto(
-                "catcher_framing",
-                updated,
-                expected_min=10,
-                message=f"{updated} catchers from {len(framing_data)} rows (tier={tier_label}){msg_suffix}",
-                tier=tier_label,
-            )
-        except ImportError:
-            update_refresh_log("catcher_framing", "success", tier=tier_used)
-            status = "success"
+        tier_label = tier_used or "primary"
+        msg_suffix = " [SEED]" if seed_used else ""
+        # INFRA-F6: ImportError fallback that called update_refresh_log("...", "success", tier=...)
+        # has been removed — update_refresh_log_auto is in src/database.py alongside
+        # update_refresh_log and is always importable.
+        status = update_refresh_log_auto(
+            "catcher_framing",
+            updated,
+            expected_min=1,
+            message=f"{updated} catchers from {len(framing_data)} rows (tier={tier_label}){msg_suffix}",
+            tier=tier_label,
+        )
         logger.info(
             "T8: Catcher framing — %d catchers updated (tier=%s)",
             updated,
@@ -2097,7 +2219,7 @@ def _bootstrap_pvb_splits(progress: BootstrapProgress) -> str:
     try:
         import pandas as pd
 
-        from src.database import get_connection, update_refresh_log
+        from src.database import get_connection, update_refresh_log, update_refresh_log_auto
 
         year = datetime.now(UTC).year
 
@@ -2231,10 +2353,11 @@ def _bootstrap_pvb_splits(progress: BootstrapProgress) -> str:
             conn.close()
 
         if updated > 0:
-            update_refresh_log(
+            # INFRA-F6: row-count gate via update_refresh_log_auto (was bare "success").
+            update_refresh_log_auto(
                 "pvb_splits",
-                "success",
-                rows_written=updated,
+                updated,
+                expected_min=1,
                 message=f"{updated} new, {skipped} cached",
             )
         elif skipped > 0:
@@ -2272,7 +2395,7 @@ def _bootstrap_bat_speed(progress: BootstrapProgress) -> str:
     try:
         import pandas as pd
 
-        from src.database import get_connection, update_refresh_log
+        from src.database import get_connection, update_refresh_log_auto
 
         year = datetime.now(UTC).year
         logger.info("Fetching Statcast bat speed for %d...", year)
@@ -2325,7 +2448,13 @@ def _bootstrap_bat_speed(progress: BootstrapProgress) -> str:
         finally:
             conn.close()
 
-        update_refresh_log("bat_speed", "success")
+        # INFRA-F6: row-count gate (was bare "success").
+        update_refresh_log_auto(
+            "bat_speed",
+            updated,
+            expected_min=100,
+            message=f"{updated} players with bat speed",
+        )
         return f"Updated {updated} players with bat speed"
 
     except Exception as exc:
@@ -2343,7 +2472,7 @@ def _bootstrap_forty_man(progress: BootstrapProgress) -> str:
         return "Skipped: statsapi not installed"
 
     try:
-        from src.database import get_connection, update_refresh_log
+        from src.database import get_connection, update_refresh_log_auto
 
         conn = get_connection()
         try:
@@ -2375,7 +2504,13 @@ def _bootstrap_forty_man(progress: BootstrapProgress) -> str:
         finally:
             conn.close()
 
-        update_refresh_log("forty_man", "success")
+        # INFRA-F6: row-count gate (was bare "success"); ~30 teams × ~40 players.
+        update_refresh_log_auto(
+            "forty_man",
+            updated,
+            expected_min=800,
+            message=f"{updated} 40-man roster entries",
+        )
         return f"Updated {updated} 40-man roster entries"
 
     except Exception as exc:
@@ -2841,7 +2976,7 @@ def bootstrap_all_data(
         try:
             txn_df = yahoo_client.get_league_transactions()
             if not txn_df.empty:
-                from src.database import update_refresh_log
+                from src.database import update_refresh_log_auto
                 from src.live_stats import match_player_id
 
                 txn_stored = 0
@@ -2868,7 +3003,15 @@ def bootstrap_all_data(
                 finally:
                     conn.close()
                 results["transactions"] = f"Stored {txn_stored} transactions"
-                update_refresh_log("yahoo_transactions", "success")
+                # INFRA-F6: row-count gate (was bare "success"). Quiet periods may
+                # have 0 txns matched by player_id — let the auto-status downgrade
+                # those to "no_data" so the operator sees the empty write.
+                update_refresh_log_auto(
+                    "yahoo_transactions",
+                    txn_stored,
+                    expected_min=1,
+                    message=f"{txn_stored} transactions stored from {len(txn_df)} fetched",
+                )
             else:
                 results["transactions"] = "No transactions"
         except Exception as exc:
@@ -2887,7 +3030,7 @@ def bootstrap_all_data(
                 on_progress(progress)
             fa_df = yahoo_client.get_free_agents(count=200)
             if not fa_df.empty:
-                from src.database import update_refresh_log, upsert_player_bulk
+                from src.database import update_refresh_log_auto, upsert_player_bulk
                 from src.live_stats import match_player_id
 
                 new_players = 0
@@ -2935,7 +3078,13 @@ def bootstrap_all_data(
                 results["yahoo_free_agents"] = (
                     f"Checked {len(fa_df)} FAs, added {new_players} new, stored {len(fa_df)} to yahoo_free_agents"
                 )
-                update_refresh_log("yahoo_free_agents", "success")
+                # INFRA-F6: row-count gate (was bare "success").
+                update_refresh_log_auto(
+                    "yahoo_free_agents",
+                    len(fa_df),
+                    expected_min=100,
+                    message=f"{len(fa_df)} FAs stored, {new_players} new players added",
+                )
             else:
                 results["yahoo_free_agents"] = "No FA data from Yahoo"
                 from src.database import update_refresh_log

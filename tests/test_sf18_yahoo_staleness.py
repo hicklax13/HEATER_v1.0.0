@@ -140,4 +140,9 @@ class TestSF18YahooFreeAgentsGate:
                 bootstrap_all_data(yahoo_client=yahoo, force=False)
                 status = get_refresh_status("yahoo_free_agents")
                 assert status is not None, "Phase 18 must write refresh_log entry for yahoo_free_agents"
-                assert status["status"] == "success"
+                # Wave 7 INFRA-F6: row-count gate downgrades to "partial" when
+                # < expected_min rows; the mock fixture writes few FAs, so
+                # accept either "success" or "partial" (both mean data exists).
+                assert status["status"] in ("success", "partial"), (
+                    f"Expected success or partial, got {status['status']!r}"
+                )

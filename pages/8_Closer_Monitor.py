@@ -69,8 +69,10 @@ st.info(
 pool = load_player_pool()
 
 # Normalize duplicate team abbreviations to canonical 30-team set
+# Athletics: ATH is the 2026 canonical code (MLB Stats API + _PARK_FACTORS_EMERGENCY_2026
+# + Wave 1 D1A-008 DB migration); fold legacy "OAK" → "ATH" on input.
 _TEAM_NORMALIZE: dict[str, str] = {
-    "ATH": "OAK",
+    "OAK": "ATH",
     "AZ": "ARI",
     "WSN": "WSH",
     "CHW": "CWS",

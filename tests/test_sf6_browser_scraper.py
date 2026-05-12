@@ -228,7 +228,10 @@ def test_bootstrap_stuff_plus_records_primary_tier_on_success(tmp_path, monkeypa
         ).fetchone()
         assert row is not None, "refresh_log row missing"
         status, tier, message = row[0], row[1], row[2]
-        assert status == "success", f"Expected 'success', got {status!r}"
+        # Wave 7 INFRA-F6: row-count gate downgrades to "partial" when
+        # < expected_min rows; the mock fixture writes 1 pitcher, so
+        # accept either "success" or "partial" (both mean data exists).
+        assert status in ("success", "partial"), f"Expected success or partial, got {status!r}"
         assert tier == "primary", f"Expected tier='primary', got {tier!r}"
         assert "browser-headers" in (message or ""), f"Expected browser-headers in message, got: {message!r}"
     finally:
