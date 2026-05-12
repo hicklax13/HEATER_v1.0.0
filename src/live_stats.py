@@ -1051,6 +1051,15 @@ def save_statcast_leaderboards_to_db(df: pd.DataFrame, season: int = 2026) -> in
 
     conn = get_connection()
     count = 0
+    # Loop-flood guards (Wave 8b CodeRabbit follow-up): a Statcast batch can
+    # be 200-600 rows. If lookups or INSERTs systematically fail (schema
+    # regression, mass mlb_id misalignment), log the FIRST failure of each
+    # kind with traceback + one-line summary at loop exit instead of
+    # flooding dashboards with one warning per row.
+    _lookup_failures = 0
+    _lookup_first_logged = False
+    _insert_failures = 0
+    _insert_first_logged = False
     try:
         for _, row in df.iterrows():
             mlb_id = row.get("mlb_id")
@@ -1069,13 +1078,17 @@ def save_statcast_leaderboards_to_db(df: pd.DataFrame, season: int = 2026) -> in
                 if result:
                     player_id = result[0]
             except Exception as exc:
-                logger.warning(
-                    "live_stats: mlb_id→player_id lookup failed for mlb_id=%s; "
-                    "Statcast row for this player will not be stored: %s",
-                    mlb_id,
-                    exc,
-                    exc_info=True,
-                )
+                _lookup_failures += 1
+                if not _lookup_first_logged:
+                    logger.warning(
+                        "live_stats: first per-row mlb_id→player_id lookup failure "
+                        "(further failures suppressed) for mlb_id=%s; Statcast row "
+                        "for this player will not be stored: %s",
+                        mlb_id,
+                        exc,
+                        exc_info=True,
+                    )
+                    _lookup_first_logged = True
 
             if player_id is None:
                 continue
@@ -1099,18 +1112,33 @@ def save_statcast_leaderboards_to_db(df: pd.DataFrame, season: int = 2026) -> in
                 )
                 count += 1
             except Exception as exc:
-                logger.warning(
-                    "live_stats: statcast_archive INSERT failed for player_id=%s "
-                    "season=%s; this player's xStats will be missing: %s",
-                    player_id,
-                    season,
-                    exc,
-                    exc_info=True,
-                )
+                _insert_failures += 1
+                if not _insert_first_logged:
+                    logger.warning(
+                        "live_stats: first per-row statcast_archive INSERT failure "
+                        "(further failures suppressed) for player_id=%s season=%s; "
+                        "this player's xStats will be missing: %s",
+                        player_id,
+                        season,
+                        exc,
+                        exc_info=True,
+                    )
+                    _insert_first_logged = True
 
         conn.commit()
     finally:
         conn.close()
+
+    if _lookup_failures > 1:
+        logger.warning(
+            "live_stats: %d additional mlb_id→player_id lookup failures suppressed (first logged above)",
+            _lookup_failures - 1,
+        )
+    if _insert_failures > 1:
+        logger.warning(
+            "live_stats: %d additional statcast_archive INSERT failures suppressed (first logged above)",
+            _insert_failures - 1,
+        )
 
     logger.info("Stored %d Statcast leaderboard entries for %d", count, season)
     return count

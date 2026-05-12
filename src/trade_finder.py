@@ -1094,6 +1094,14 @@ def scan_1_for_1(
 
     results = []
 
+    # Loop-flood guard (Wave 8b CodeRabbit follow-up): the nested
+    # for-give × for-recv loop below can iterate ~7500 times per call. If
+    # `closer_monitor.compute_job_security` systematically fails (e.g.
+    # import error), log only the FIRST failure with a traceback and a
+    # one-line summary at function exit instead of flooding dashboards.
+    _closer_monitor_failures = 0
+    _closer_monitor_first_logged = False
+
     for give_id in user_roster_ids:
         give_player = player_pool[player_pool["player_id"] == give_id]
         if give_player.empty:
@@ -1228,14 +1236,21 @@ def scan_1_for_1(
                 except Exception as exc:
                     # Keep original SV bonus if closer_monitor unavailable, but
                     # surface that the shaky-closer discount is silently inactive.
-                    logger.warning(
-                        "trade_finder.scan_1_for_1: closer_monitor.compute_job_security "
-                        "failed for recv_id=%s; SV bonus will NOT be discounted for "
-                        "shaky-closer risk: %s",
-                        recv_id,
-                        exc,
-                        exc_info=True,
-                    )
+                    # Loop-flood guard: log only the FIRST failure inside the
+                    # nested for-give × for-recv loop; subsequent failures are
+                    # counted and summarized at function exit.
+                    _closer_monitor_failures += 1
+                    if not _closer_monitor_first_logged:
+                        logger.warning(
+                            "trade_finder.scan_1_for_1: first per-iteration "
+                            "closer_monitor.compute_job_security failure (further "
+                            "failures suppressed) for recv_id=%s; SV bonus will NOT "
+                            "be discounted for shaky-closer risk: %s",
+                            recv_id,
+                            exc,
+                            exc_info=True,
+                        )
+                        _closer_monitor_first_logged = True
 
             if user_delta < MIN_SGP_GAIN:
                 continue
@@ -1521,6 +1536,17 @@ def scan_1_for_1(
                 trade_result["recv_status"] = roster_statuses[recv_id]
 
             results.append(trade_result)
+
+    # Loop-flood guard summary: one-line summary if multiple closer_monitor
+    # failures occurred inside the nested scan loop. The first failure was
+    # already logged at WARNING with exc_info; this avoids per-iteration
+    # flooding while keeping operators aware of the failure scale.
+    if _closer_monitor_failures > 1:
+        logger.warning(
+            "trade_finder.scan_1_for_1: %d additional closer_monitor.compute_job_security "
+            "failures suppressed (first logged above)",
+            _closer_monitor_failures - 1,
+        )
 
     results.sort(key=lambda x: x["composite_score"], reverse=True)
     return results

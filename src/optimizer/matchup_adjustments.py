@@ -712,6 +712,15 @@ def compute_weekly_matchup_adjustments(
     result = roster.copy()
     result["matchup_adjusted"] = False
 
+    # Loop-flood guards (Wave 8b CodeRabbit follow-up): if catcher_framing
+    # or umpire-tendency data is broken (e.g. SF-7 seed regression), the
+    # per-row try/except below would emit N warnings per roster — log only
+    # the FIRST of each kind with traceback + a summary at loop exit.
+    _framing_failures = 0
+    _framing_first_logged = False
+    _umpire_failures = 0
+    _umpire_first_logged = False
+
     for idx, row in result.iterrows():
         team = str(row.get("team", "")).upper().strip()
         is_hitter = bool(row.get("is_hitter", True))
@@ -812,14 +821,18 @@ def compute_weekly_matchup_adjustments(
             except Exception as exc:
                 # Catcher framing is a nice-to-have, but a silent failure here
                 # masks regressions in the framing pipeline (SF-7).
-                logger.warning(
-                    "optimizer.matchup_adjustments.apply_matchup_adjustments: catcher-framing "
-                    "adjustment failed for team=%r idx=%s; pitcher ERA/K stay at projection: %s",
-                    team,
-                    idx,
-                    exc,
-                    exc_info=True,
-                )
+                _framing_failures += 1
+                if not _framing_first_logged:
+                    logger.warning(
+                        "optimizer.matchup_adjustments.compute_weekly_matchup_adjustments: "
+                        "first per-row catcher-framing failure (further failures suppressed) "
+                        "for team=%r idx=%s; pitcher ERA/K stay at projection: %s",
+                        team,
+                        idx,
+                        exc,
+                        exc_info=True,
+                    )
+                    _framing_first_logged = True
 
         # Umpire tendency adjustment (pitchers: K/BB; hitters: runs)
         if umpire_data and games:
@@ -847,16 +860,33 @@ def compute_weekly_matchup_adjustments(
             except Exception as exc:
                 # Umpire adjustment is a nice-to-have, but a silent failure means
                 # the per-player ump K/BB/R adjustment was dropped without trace.
-                logger.warning(
-                    "optimizer.matchup_adjustments.apply_matchup_adjustments: umpire "
-                    "adjustment failed for venue idx=%s; player stays at base projection: %s",
-                    idx,
-                    exc,
-                    exc_info=True,
-                )
+                _umpire_failures += 1
+                if not _umpire_first_logged:
+                    logger.warning(
+                        "optimizer.matchup_adjustments.compute_weekly_matchup_adjustments: "
+                        "first per-row umpire failure (further failures suppressed) for "
+                        "idx=%s; player stays at base projection: %s",
+                        idx,
+                        exc,
+                        exc_info=True,
+                    )
+                    _umpire_first_logged = True
 
         if any_adjusted:
             result.at[idx, "matchup_adjusted"] = True
+
+    if _framing_failures > 1:
+        logger.warning(
+            "optimizer.matchup_adjustments.compute_weekly_matchup_adjustments: %d additional "
+            "catcher-framing failures suppressed (first logged above)",
+            _framing_failures - 1,
+        )
+    if _umpire_failures > 1:
+        logger.warning(
+            "optimizer.matchup_adjustments.compute_weekly_matchup_adjustments: %d additional "
+            "umpire failures suppressed (first logged above)",
+            _umpire_failures - 1,
+        )
 
     return result
 

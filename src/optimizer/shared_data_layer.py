@@ -574,6 +574,10 @@ def _compute_remaining_games(ctx: OptimizerDataContext) -> None:
             days_until_sunday = 0
 
         remaining: dict[str, int] = {}
+        # Loop-flood guard: if statsapi is down, log only the FIRST per-day
+        # failure with traceback and a single summary at loop exit.
+        _day_failures = 0
+        _day_first_logged = False
         for day_offset in range(days_until_sunday + 1):
             check_date = today + timedelta(days=day_offset)
             date_str = check_date.strftime("%Y-%m-%d")
@@ -585,13 +589,24 @@ def _compute_remaining_games(ctx: OptimizerDataContext) -> None:
                         if team:
                             remaining[team] = remaining.get(team, 0) + 1
             except Exception as exc:
-                logger.warning(
-                    "optimizer.shared_data_layer._compute_remaining_games: statsapi.schedule "
-                    "failed for date=%s; remaining-games count will undercount for that day: %s",
-                    date_str,
-                    exc,
-                    exc_info=True,
-                )
+                _day_failures += 1
+                if not _day_first_logged:
+                    logger.warning(
+                        "optimizer.shared_data_layer._compute_remaining_games: first "
+                        "per-day statsapi.schedule failure (further failures suppressed) "
+                        "for date=%s; remaining-games count will undercount for that "
+                        "day: %s",
+                        date_str,
+                        exc,
+                        exc_info=True,
+                    )
+                    _day_first_logged = True
+        if _day_failures > 1:
+            logger.warning(
+                "optimizer.shared_data_layer._compute_remaining_games: %d additional "
+                "per-day statsapi.schedule failures suppressed (first logged above)",
+                _day_failures - 1,
+            )
         ctx.remaining_games_this_week = remaining
     except Exception:
         logger.warning("Failed to compute remaining games")
@@ -661,18 +676,32 @@ def _load_team_strength(ctx: OptimizerDataContext) -> None:
         teams_seen = set()
         if not ctx.roster.empty and "team" in ctx.roster.columns:
             teams_seen.update(ctx.roster["team"].dropna().unique())
+        # Loop-flood guard: if MatchupContextService is degraded, log only
+        # the FIRST per-team failure + summary at loop exit.
+        _team_failures = 0
+        _team_first_logged = False
         for team in teams_seen:
             try:
                 ctx.team_strength[str(team)] = mcs.get_team_strength(str(team))
             except Exception as exc:
-                logger.warning(
-                    "optimizer.shared_data_layer._load_team_strength: get_team_strength failed "
-                    "for team=%r; pitcher matchup multipliers for this team will miss the wRC+ "
-                    "adjustment: %s",
-                    team,
-                    exc,
-                    exc_info=True,
-                )
+                _team_failures += 1
+                if not _team_first_logged:
+                    logger.warning(
+                        "optimizer.shared_data_layer._load_team_strength: first "
+                        "per-team get_team_strength failure (further failures "
+                        "suppressed) for team=%r; pitcher matchup multipliers for "
+                        "this team will miss the wRC+ adjustment: %s",
+                        team,
+                        exc,
+                        exc_info=True,
+                    )
+                    _team_first_logged = True
+        if _team_failures > 1:
+            logger.warning(
+                "optimizer.shared_data_layer._load_team_strength: %d additional "
+                "per-team get_team_strength failures suppressed (first logged above)",
+                _team_failures - 1,
+            )
     except Exception:
         logger.warning("Failed to load team strength")
 
@@ -688,17 +717,32 @@ def _load_weather(ctx: OptimizerDataContext) -> None:
         teams_seen = set()
         if not ctx.roster.empty and "team" in ctx.roster.columns:
             teams_seen.update(ctx.roster["team"].dropna().unique())
+        # Loop-flood guard: if Open-Meteo is down, log only the FIRST
+        # per-team failure + summary at loop exit.
+        _team_failures = 0
+        _team_first_logged = False
         for team in teams_seen:
             try:
                 ctx.weather[str(team)] = mcs.get_weather(str(team))
             except Exception as exc:
-                logger.warning(
-                    "optimizer.shared_data_layer._load_weather: get_weather failed for team=%r; "
-                    "weather-aware HR/K adjustments will be disabled for this team's games: %s",
-                    team,
-                    exc,
-                    exc_info=True,
-                )
+                _team_failures += 1
+                if not _team_first_logged:
+                    logger.warning(
+                        "optimizer.shared_data_layer._load_weather: first per-team "
+                        "get_weather failure (further failures suppressed) for "
+                        "team=%r; weather-aware HR/K adjustments will be disabled "
+                        "for this team's games: %s",
+                        team,
+                        exc,
+                        exc_info=True,
+                    )
+                    _team_first_logged = True
+        if _team_failures > 1:
+            logger.warning(
+                "optimizer.shared_data_layer._load_weather: %d additional per-team "
+                "get_weather failures suppressed (first logged above)",
+                _team_failures - 1,
+            )
     except Exception:
         logger.warning("Failed to load weather")
 
@@ -710,6 +754,10 @@ def _load_recent_form(ctx: OptimizerDataContext) -> None:
 
         if ctx.roster.empty or "mlb_id" not in ctx.roster.columns:
             return
+        # Loop-flood guard: if MLB Stats API is degraded, log only the
+        # FIRST per-pid failure + summary at loop exit.
+        _form_failures = 0
+        _form_first_logged = False
         for _, row in ctx.roster.iterrows():
             mlb_id = row.get("mlb_id")
             pid = row.get("player_id")
@@ -726,15 +774,25 @@ def _load_recent_form(ctx: OptimizerDataContext) -> None:
                 if form:
                     ctx.recent_form[int(pid)] = form
             except Exception as exc:
-                logger.warning(
-                    "optimizer.shared_data_layer._load_recent_form: get_player_recent_form_cached "
-                    "failed for mlb_id=%s player_id=%s; recent-form blend will fall back to "
-                    "preseason projection: %s",
-                    mlb_id_int,
-                    pid,
-                    exc,
-                    exc_info=True,
-                )
+                _form_failures += 1
+                if not _form_first_logged:
+                    logger.warning(
+                        "optimizer.shared_data_layer._load_recent_form: first per-pid "
+                        "get_player_recent_form_cached failure (further failures "
+                        "suppressed) for mlb_id=%s player_id=%s; recent-form blend "
+                        "will fall back to preseason projection: %s",
+                        mlb_id_int,
+                        pid,
+                        exc,
+                        exc_info=True,
+                    )
+                    _form_first_logged = True
+        if _form_failures > 1:
+            logger.warning(
+                "optimizer.shared_data_layer._load_recent_form: %d additional per-pid "
+                "get_player_recent_form_cached failures suppressed (first logged above)",
+                _form_failures - 1,
+            )
     except Exception:
         logger.warning("Failed to load recent form data")
 
