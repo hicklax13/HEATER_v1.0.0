@@ -181,54 +181,29 @@ def render_setup_page():
 
 
 def _try_reconnect_yahoo() -> "YahooFantasyClient | None":
-    """Attempt to reconnect to Yahoo Fantasy using a saved token on disk.
+    """Streamlit-side wrapper: delegates to ``src.yahoo_api.try_reconnect_yahoo``.
 
-    When Streamlit restarts, session state is cleared — but the token file
-    persists at ``data/yahoo_token.json``. This function loads it, recreates
-    the ``YahooFantasyClient``, and authenticates, so that bootstrap and
-    subsequent pages have an active Yahoo connection without re-OAuth.
-
-    Returns:
-        An authenticated ``YahooFantasyClient`` or ``None`` on failure.
+    Kept for backward compat with existing call sites in ``app.py``.
+    (BUG-023 fix: hoisted to ``yahoo_api`` for headless reusability — CI
+    cron, ops scripts, and ``calibrate_constants.py`` can now reconnect too.)
     """
-    import json
+    from src.yahoo_api import try_reconnect_yahoo
 
-    from src.yahoo_api import _AUTH_DIR
+    client = try_reconnect_yahoo()
+    if client is not None:
+        # Mirror legacy behavior: stash raw token data in session_state so
+        # downstream Streamlit pages can still see it if they want.
+        try:
+            import json
 
-    token_file = _AUTH_DIR / "yahoo_token.json"
-    if not token_file.exists():
-        return None
+            from src.yahoo_api import _AUTH_DIR
 
-    try:
-        token_data = json.loads(token_file.read_text(encoding="utf-8"))
-    except Exception:
-        logger.debug("Could not read Yahoo token file.", exc_info=True)
-        return None
-
-    consumer_key = token_data.get("consumer_key", os.environ.get("YAHOO_CLIENT_ID", ""))
-    consumer_secret = token_data.get("consumer_secret", os.environ.get("YAHOO_CLIENT_SECRET", ""))
-
-    if not consumer_key or not consumer_secret:
-        logger.debug("Yahoo token file missing consumer_key/secret.")
-        return None
-
-    yahoo_league_id = os.environ.get("YAHOO_LEAGUE_ID", "").strip()
-    if not yahoo_league_id:
-        logger.debug("YAHOO_LEAGUE_ID env var not set; skipping reconnect.")
-        return None
-
-    try:
-        client = YahooFantasyClient(league_id=yahoo_league_id)
-        if client.authenticate(consumer_key, consumer_secret, token_data=token_data):
-            logger.info("Yahoo Fantasy auto-reconnected from saved token.")
-            # Persist token data in session for other pages that need it
-            st.session_state.yahoo_token_data = token_data
-            return client
-        logger.warning("Yahoo auto-reconnect: authentication returned False.")
-    except Exception:
-        logger.debug("Yahoo auto-reconnect failed.", exc_info=True)
-
-    return None
+            token_file = _AUTH_DIR / "yahoo_token.json"
+            if token_file.exists():
+                st.session_state.yahoo_token_data = json.loads(token_file.read_text(encoding="utf-8"))
+        except Exception:
+            logger.debug("Failed to mirror token into session_state.", exc_info=True)
+    return client
 
 
 def _format_elapsed_hms(secs: float) -> str:

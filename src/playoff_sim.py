@@ -47,8 +47,9 @@ _RATE_CLIP: dict[str, tuple[float, float]] = {
     "WHIP": (0.50, 2.50),
 }
 
-# Number of playoff spots (top half of league)
-_PLAYOFF_SPOTS = 6
+# Number of playoff spots
+# BUG-021: was 6; FourzynBurn league has top-4 playoff per CLAUDE.md.
+_PLAYOFF_SPOTS = 4
 
 
 def _build_weekly_sigmas(config: LeagueConfig | None = None) -> dict[str, float]:
@@ -159,9 +160,11 @@ def project_weekly_totals(
     if roster.empty:
         return {cat: 0.0 for cat in cfg.all_categories}
 
-    # Approximate remaining game-weeks for per-week rates
-    # Full season ~ 26 weeks; default to 22 for partway through
-    season_weeks = 22.0
+    # Approximate remaining game-weeks for per-week rates.
+    # BUG-021: was 22.0; use the canonical 26-week MLB regular season
+    # per CLAUDE.md "Counting stats divided by 26 weeks". Counting-stat
+    # weekly projections were off by ~18% under the old constant.
+    season_weeks = 26.0
 
     hitters = roster[roster["is_hitter"] == 1]
     pitchers = roster[roster["is_hitter"] == 0]

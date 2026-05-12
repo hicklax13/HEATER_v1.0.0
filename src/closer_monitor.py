@@ -208,7 +208,14 @@ def build_closer_grid(
 
         mlb_id = None
         if player_pool is not None and not player_pool.empty:
-            match = player_pool[(player_pool["name"] == closer_name) & (player_pool["team"] == team)]
+            # BUG-020: normalize names to handle accents (e.g. "Edwin Díaz" vs
+            # "Edwin Diaz"), suffixes ("Jr.", "III"), and punctuation. Reuses
+            # the canonical helper from src.optimizer.daily_optimizer.
+            from src.optimizer.daily_optimizer import _normalize_pitcher_name
+
+            norm_closer = _normalize_pitcher_name(closer_name)
+            pool_names_norm = player_pool["name"].apply(_normalize_pitcher_name)
+            match = player_pool[(pool_names_norm == norm_closer) & (player_pool["team"] == team)]
             if not match.empty:
                 row = match.iloc[0]
                 _sv = row.get("sv", 0)
