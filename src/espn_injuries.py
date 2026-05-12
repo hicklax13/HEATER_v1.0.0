@@ -131,8 +131,14 @@ def save_espn_injuries_to_db(injuries: list[dict]) -> int:
                     ),
                 )
                 count += 1
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning(
+                    "espn_injuries.store_injuries: per-row INSERT failed for player=%r; "
+                    "this injury entry will be missing from player_news: %s",
+                    inj.get("player_name", ""),
+                    exc,
+                    exc_info=True,
+                )
 
         conn.commit()
     finally:
@@ -179,8 +185,15 @@ def update_player_injury_flags(injuries: list[dict]) -> int:
                     (note, player_id),
                 )
                 count += 1
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning(
+                    "espn_injuries.update_player_injury_flags: UPDATE failed for "
+                    "player_id=%s name=%r; is_injured flag not set: %s",
+                    player_id,
+                    player_name,
+                    exc,
+                    exc_info=True,
+                )
 
         conn.commit()
     finally:

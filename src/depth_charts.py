@@ -426,13 +426,26 @@ def _fetch_team_depth_chart(url: str) -> dict[str, Any] | None:
             timeout=_REQUEST_TIMEOUT,
         )
         resp.raise_for_status()
-    except Exception:
+    except Exception as exc:
+        logger.warning(
+            "depth_charts._fetch_team_depth_chart: HTTP fetch failed for %s; "
+            "depth-chart enrichment for this team will fall back to MLB Stats API: %s",
+            url,
+            exc,
+            exc_info=True,
+        )
         return None
 
     try:
         soup = BeautifulSoup(resp.text, "html.parser")
         return _parse_team_page(soup)
-    except Exception:
+    except Exception as exc:
+        logger.warning(
+            "depth_charts._fetch_team_depth_chart: HTML parse failed for %s; page layout may have changed: %s",
+            url,
+            exc,
+            exc_info=True,
+        )
         return None
 
 
@@ -669,7 +682,14 @@ def _fetch_team_via_statsapi(team_id: int) -> dict[str, Any] | None:
                 "hydrate": "person(stats(group=[hitting,pitching],type=[season]))",
             },
         )
-    except Exception:
+    except Exception as exc:
+        logger.warning(
+            "depth_charts._fetch_team_via_statsapi: MLB statsapi team_roster call failed "
+            "for team_id=%s; no fallback (depth chart for this team will be empty): %s",
+            team_id,
+            exc,
+            exc_info=True,
+        )
         return None
     return _classify_team_roster_response(resp)
 

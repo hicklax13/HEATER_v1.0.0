@@ -485,7 +485,12 @@ class YahooDataService:
             return False
         try:
             return self._client.is_authenticated
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "yahoo_data_service.is_connected: client.is_authenticated probe failed; treating as disconnected: %s",
+                exc,
+                exc_info=True,
+            )
             return False
 
     def force_refresh_all(self) -> dict[str, str]:
@@ -593,8 +598,15 @@ class YahooDataService:
             from src.database import snapshot_league_rosters
 
             snapshot_league_rosters()
-        except Exception:
-            pass  # Non-fatal
+        except Exception as exc:
+            # Non-fatal — snapshot is for diff/change tracking only. Log so
+            # operators see why the change-detection feed went stale.
+            logger.warning(
+                "yahoo_data_service._fetch_and_sync_rosters: snapshot_league_rosters failed; "
+                "roster-change tracking will be stale: %s",
+                exc,
+                exc_info=True,
+            )
 
         return load_league_rosters()
 
@@ -903,8 +915,14 @@ class YahooDataService:
                     manager = result[0] or ""
             finally:
                 conn.close()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning(
+                "yahoo_data_service.get_opponent_profile: failed to load manager_name for "
+                "%r from league_teams; opponent profile will lack manager attribution: %s",
+                team_name,
+                exc,
+                exc_info=True,
+            )
 
         return {
             "tier": tier,
@@ -965,7 +983,13 @@ class YahooDataService:
                 return result[0] if result else None
             finally:
                 conn.close()
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "yahoo_data_service._get_user_team_name: DB lookup for user team failed; "
+                "downstream personalization will be disabled: %s",
+                exc,
+                exc_info=True,
+            )
             return None
 
 

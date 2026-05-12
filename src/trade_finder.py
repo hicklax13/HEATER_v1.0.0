@@ -392,8 +392,15 @@ def compute_adp_fairness(
             round_gap = abs(give_round - recv_round)
             max_gap = 23  # max rounds in league draft
             return max(0.0, 1.0 - (round_gap / max_gap))
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning(
+            "trade_finder.compute_adp_fairness: league draft-round lookup failed for "
+            "give_id=%s recv_id=%s; falling back to generic ADP fairness: %s",
+            give_id,
+            recv_id,
+            exc,
+            exc_info=True,
+        )
 
     # Fallback to generic ADP
     give_p = player_pool[player_pool["player_id"] == give_id]
@@ -986,8 +993,14 @@ def scan_1_for_1(
             opp_needs_analysis = compute_opponent_needs(opponent_team_name, all_team_totals, config=config)
             arch = get_opponent_archetype(opponent_team_name)
             opp_archetype_willingness = arch.get("trade_willingness", 0.5)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning(
+                "trade_finder.scan_1_for_1: opponent-needs/archetype lookup failed for %r; "
+                "acceptance probability will use neutral 0.5 trade_willingness: %s",
+                opponent_team_name,
+                exc,
+                exc_info=True,
+            )
 
     # --- Load ECR consensus rankings for ranking fairness ---
     ecr_ranks: dict[int, int] = {}
@@ -1002,8 +1015,13 @@ def scan_1_for_1(
             ecr_ranks = dict(zip(_ecr["player_id"].astype(int), _ecr["consensus_rank"].astype(int)))
         finally:
             _conn.close()
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning(
+            "trade_finder.scan_1_for_1: ecr_consensus load failed; ECR fairness will "
+            "default to 0.5 neutral for all trades: %s",
+            exc,
+            exc_info=True,
+        )
 
     # --- Load YTD 2026 stats for recent performance modifier ---
     ytd_stats: dict[int, dict] = {}
@@ -1026,8 +1044,13 @@ def scan_1_for_1(
                 }
         finally:
             _conn2.close()
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning(
+            "trade_finder.scan_1_for_1: YTD season_stats load failed; recent-performance "
+            "ytd_modifier will be neutral 1.0 for all trades: %s",
+            exc,
+            exc_info=True,
+        )
 
     # F4: Load recent transactions to detect recently-acquired players
     _transactions_df = None
@@ -1042,8 +1065,13 @@ def scan_1_for_1(
             )
         finally:
             _conn3.close()
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning(
+            "trade_finder.scan_1_for_1: transactions table load failed; "
+            "recently-acquired-player penalty will be inactive: %s",
+            exc,
+            exc_info=True,
+        )
 
     # B1: League-specific acceptance calibration from trade history
     _all_txns = None
@@ -1055,8 +1083,13 @@ def scan_1_for_1(
             _all_txns = pd.read_sql_query("SELECT type FROM transactions", _conn4)
         finally:
             _conn4.close()
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning(
+            "trade_finder.scan_1_for_1: transactions-type aggregate load failed; "
+            "league-specific acceptance calibration will use prior defaults: %s",
+            exc,
+            exc_info=True,
+        )
     _acceptance_calibration = calibrate_acceptance_from_history(_all_txns)
 
     results = []
@@ -1192,8 +1225,17 @@ def scan_1_for_1(
                         # Shaky closer: discount the SV bonus by (1 - job_security)
                         sv_discount = sv_bonus * (1.0 - job_sec)
                         user_delta -= sv_discount
-                except Exception:
-                    pass  # Keep original SV bonus if closer_monitor unavailable
+                except Exception as exc:
+                    # Keep original SV bonus if closer_monitor unavailable, but
+                    # surface that the shaky-closer discount is silently inactive.
+                    logger.warning(
+                        "trade_finder.scan_1_for_1: closer_monitor.compute_job_security "
+                        "failed for recv_id=%s; SV bonus will NOT be discounted for "
+                        "shaky-closer risk: %s",
+                        recv_id,
+                        exc,
+                        exc_info=True,
+                    )
 
             if user_delta < MIN_SGP_GAIN:
                 continue
@@ -1719,8 +1761,13 @@ def find_trade_opportunities(
                 from src.trade_intelligence import _load_roster_statuses
 
                 roster_statuses = _load_roster_statuses()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning(
+                    "trade_finder.find_trade_opportunities: _load_roster_statuses failed; "
+                    "IL/DTD status penalties on trade candidates will be disabled: %s",
+                    exc,
+                    exc_info=True,
+                )
 
             # Compute FA comparisons for all opponent players
             try:
@@ -1732,11 +1779,23 @@ def find_trade_opportunities(
                     if tn != user_team_name:
                         all_opp_ids.extend(pids)
                 fa_comparisons = compute_fa_comparisons(all_opp_ids, user_roster_ids, fa_pool, player_pool, config)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning(
+                    "trade_finder.find_trade_opportunities: FA comparison computation failed; "
+                    "trade candidates will not be filtered against available FA alternatives: %s",
+                    exc,
+                    exc_info=True,
+                )
 
-        except ImportError:
-            pass  # trade_intelligence not available — run without enhancements
+        except ImportError as exc:
+            # trade_intelligence not available — run without enhancements. Surface
+            # so operators know advanced trade scoring is offline.
+            logger.warning(
+                "trade_finder.find_trade_opportunities: trade_intelligence import failed; "
+                "advanced scoring (health/scarcity/FA-gating) is disabled for this run: %s",
+                exc,
+                exc_info=True,
+            )
 
     # ── Tier 1: Find complementary teams ──────────────────────────────
     if user_team_name and all_team_totals:

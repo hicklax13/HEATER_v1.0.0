@@ -1068,8 +1068,14 @@ def save_statcast_leaderboards_to_db(df: pd.DataFrame, season: int = 2026) -> in
                 result = cursor.fetchone()
                 if result:
                     player_id = result[0]
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning(
+                    "live_stats: mlb_id→player_id lookup failed for mlb_id=%s; "
+                    "Statcast row for this player will not be stored: %s",
+                    mlb_id,
+                    exc,
+                    exc_info=True,
+                )
 
             if player_id is None:
                 continue
@@ -1092,8 +1098,15 @@ def save_statcast_leaderboards_to_db(df: pd.DataFrame, season: int = 2026) -> in
                     ),
                 )
                 count += 1
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning(
+                    "live_stats: statcast_archive INSERT failed for player_id=%s "
+                    "season=%s; this player's xStats will be missing: %s",
+                    player_id,
+                    season,
+                    exc,
+                    exc_info=True,
+                )
 
         conn.commit()
     finally:

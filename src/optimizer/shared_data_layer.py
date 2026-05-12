@@ -584,8 +584,14 @@ def _compute_remaining_games(ctx: OptimizerDataContext) -> None:
                         team = str(g.get(team_key, ""))
                         if team:
                             remaining[team] = remaining.get(team, 0) + 1
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning(
+                    "optimizer.shared_data_layer._compute_remaining_games: statsapi.schedule "
+                    "failed for date=%s; remaining-games count will undercount for that day: %s",
+                    date_str,
+                    exc,
+                    exc_info=True,
+                )
         ctx.remaining_games_this_week = remaining
     except Exception:
         logger.warning("Failed to compute remaining games")
@@ -658,8 +664,15 @@ def _load_team_strength(ctx: OptimizerDataContext) -> None:
         for team in teams_seen:
             try:
                 ctx.team_strength[str(team)] = mcs.get_team_strength(str(team))
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning(
+                    "optimizer.shared_data_layer._load_team_strength: get_team_strength failed "
+                    "for team=%r; pitcher matchup multipliers for this team will miss the wRC+ "
+                    "adjustment: %s",
+                    team,
+                    exc,
+                    exc_info=True,
+                )
     except Exception:
         logger.warning("Failed to load team strength")
 
@@ -678,8 +691,14 @@ def _load_weather(ctx: OptimizerDataContext) -> None:
         for team in teams_seen:
             try:
                 ctx.weather[str(team)] = mcs.get_weather(str(team))
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning(
+                    "optimizer.shared_data_layer._load_weather: get_weather failed for team=%r; "
+                    "weather-aware HR/K adjustments will be disabled for this team's games: %s",
+                    team,
+                    exc,
+                    exc_info=True,
+                )
     except Exception:
         logger.warning("Failed to load weather")
 
@@ -706,8 +725,16 @@ def _load_recent_form(ctx: OptimizerDataContext) -> None:
                 form = get_player_recent_form_cached(mlb_id_int)
                 if form:
                     ctx.recent_form[int(pid)] = form
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning(
+                    "optimizer.shared_data_layer._load_recent_form: get_player_recent_form_cached "
+                    "failed for mlb_id=%s player_id=%s; recent-form blend will fall back to "
+                    "preseason projection: %s",
+                    mlb_id_int,
+                    pid,
+                    exc,
+                    exc_info=True,
+                )
     except Exception:
         logger.warning("Failed to load recent form data")
 

@@ -515,8 +515,13 @@ class YahooFantasyClient:
             try:
                 saved = json.loads(token_file.read_text(encoding="utf-8"))
                 return saved.get("access_token", "")
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning(
+                    "yahoo_api.get_access_token: failed to parse yahoo_token.json fallback; "
+                    "OAuth-protected calls will likely 401: %s",
+                    exc,
+                    exc_info=True,
+                )
         return ""
 
     @staticmethod

@@ -699,8 +699,15 @@ def compute_weekly_matchup_adjustments(
     umpire_data: dict[str, dict[str, float]] = {}
     try:
         umpire_data = get_umpire_adjustment()
-    except Exception:
-        pass  # Umpire data is a nice-to-have enhancement
+    except Exception as exc:
+        # Umpire data is a nice-to-have enhancement, but operators should
+        # see that the umpire adjustments are being skipped.
+        logger.warning(
+            "optimizer.matchup_adjustments.apply_matchup_adjustments: get_umpire_adjustment "
+            "failed; umpire-tendency K/BB/run-env adjustments will be skipped for this run: %s",
+            exc,
+            exc_info=True,
+        )
 
     result = roster.copy()
     result["matchup_adjusted"] = False
@@ -802,8 +809,17 @@ def compute_weekly_matchup_adjustments(
                             result.at[idx, "era"] = adj_era
                             result.at[idx, "k"] = adj_k
                             any_adjusted = True
-            except Exception:
-                pass  # Catcher framing is a nice-to-have, not critical
+            except Exception as exc:
+                # Catcher framing is a nice-to-have, but a silent failure here
+                # masks regressions in the framing pipeline (SF-7).
+                logger.warning(
+                    "optimizer.matchup_adjustments.apply_matchup_adjustments: catcher-framing "
+                    "adjustment failed for team=%r idx=%s; pitcher ERA/K stay at projection: %s",
+                    team,
+                    idx,
+                    exc,
+                    exc_info=True,
+                )
 
         # Umpire tendency adjustment (pitchers: K/BB; hitters: runs)
         if umpire_data and games:
@@ -828,8 +844,16 @@ def compute_weekly_matchup_adjustments(
                         _, _, adj_r = apply_umpire_adjustment(0, 0, r_val, ump)
                         result.at[idx, "r"] = adj_r
                         any_adjusted = True
-            except Exception:
-                pass  # Umpire adjustment is a nice-to-have
+            except Exception as exc:
+                # Umpire adjustment is a nice-to-have, but a silent failure means
+                # the per-player ump K/BB/R adjustment was dropped without trace.
+                logger.warning(
+                    "optimizer.matchup_adjustments.apply_matchup_adjustments: umpire "
+                    "adjustment failed for venue idx=%s; player stays at base projection: %s",
+                    idx,
+                    exc,
+                    exc_info=True,
+                )
 
         if any_adjusted:
             result.at[idx, "matchup_adjusted"] = True
@@ -984,7 +1008,13 @@ def get_catcher_framing_data() -> dict[int, dict[str, float]]:
                 "games_caught": int(row.get("games_caught", 0)),
             }
         return result
-    except Exception:
+    except Exception as exc:
+        logger.warning(
+            "optimizer.matchup_adjustments.get_catcher_framing_data: DB read of "
+            "catcher_framing failed; pitcher framing adjustments will be disabled: %s",
+            exc,
+            exc_info=True,
+        )
         return {}
 
 
@@ -1120,7 +1150,13 @@ def get_pvb_matchup_data(
                 "woba": float(row.get("woba", 0)),
             }
         return result
-    except Exception:
+    except Exception as exc:
+        logger.warning(
+            "optimizer.matchup_adjustments.get_pvb_matchup_data: pvb_splits DB read failed; "
+            "pitcher-vs-batter history adjustments will be disabled: %s",
+            exc,
+            exc_info=True,
+        )
         return {}
 
 

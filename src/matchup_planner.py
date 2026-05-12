@@ -306,8 +306,13 @@ def compute_weekly_matchup_ratings(
                     park_factors = {str(r[0]): float(r[1]) for r in _pf_rows if r[0] and r[1]}
             finally:
                 _pf_conn.close()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning(
+                "matchup_planner: park_factors DB load failed; falling back to hardcoded "
+                "PARK_FACTORS emergency dict (Tier 1 dynamic refresh ignored): %s",
+                exc,
+                exc_info=True,
+            )
         if not park_factors:
             park_factors = PARK_FACTORS
 

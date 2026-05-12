@@ -491,8 +491,13 @@ def compute_drop_cost(
                 _all_obps = [t.get("OBP", 0) for t in _cached.values() if t.get("OBP", 0) > 0]
                 if _all_obps:
                     _lg_obp = sum(_all_obps) / len(_all_obps)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning(
+                "waiver_wire: failed to read cached league AVG/OBP from session_state; "
+                "drop-cost adjustment will use prior season defaults (.250/.320): %s",
+                exc,
+                exc_info=True,
+            )
         if 0 < avg < _lg_avg:
             adjustment -= 1.0
         if 0 < obp < _lg_obp:
