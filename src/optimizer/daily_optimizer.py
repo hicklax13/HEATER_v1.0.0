@@ -12,7 +12,9 @@ from __future__ import annotations
 import logging
 import re
 import unicodedata
+from dataclasses import dataclass
 from datetime import UTC
+from typing import Any
 
 import pandas as pd
 
@@ -20,6 +22,51 @@ from src.game_day import get_target_game_date
 from src.valuation import canonicalize_team
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class DailyDCVContext:
+    """Optional context bundle for :func:`build_daily_dcv_table`.
+
+    Wave 8c (audit D3D-001/D3D-006): the function took 11 keyword args of
+    optional context (urgency_weights, confirmed_lineups, recent_form,
+    rate_modes, team_strength, etc.). Callers had to pass all 5-6 by
+    name; CLAUDE.md flagged "DCV pipeline drops confirmed_lineups /
+    recent_form / team_strength before DCV" (BUG-011) as a direct
+    consequence — the pipeline forwarded only a subset.
+
+    Bundling lets callers pass a single ``ctx=DailyDCVContext(...)``
+    argument; the legacy kwargs continue to work for backwards compat.
+
+    Example:
+        ctx = DailyDCVContext(
+            urgency_weights=ur,
+            confirmed_lineups=lineups,
+            recent_form=form,
+            team_strength=strength,
+        )
+        df = build_daily_dcv_table(roster, matchup, sched, parks, ctx=ctx)
+    """
+
+    urgency_weights: dict | None = None
+    confirmed_lineups: dict[str, list] | None = None
+    recent_form: dict[int, dict] | None = None
+    rate_modes: dict[str, str] | None = None
+    team_strength: dict[str, dict] | None = None
+
+    def merge_into_kwargs(self, **explicit: Any) -> dict[str, Any]:
+        """Merge dataclass fields into kwargs, with explicit kwargs winning."""
+        merged = {
+            "urgency_weights": self.urgency_weights,
+            "confirmed_lineups": self.confirmed_lineups,
+            "recent_form": self.recent_form,
+            "rate_modes": self.rate_modes,
+            "team_strength": self.team_strength,
+        }
+        for k, v in explicit.items():
+            if v is not None:
+                merged[k] = v
+        return merged
 
 
 def _stuff_plus_k_multiplier(
@@ -440,6 +487,8 @@ def build_daily_dcv_table(
     rate_modes: dict[str, str] | None = None,
     team_strength: dict[str, dict] | None = None,
     _retry_attempted: bool = False,
+    *,
+    ctx: DailyDCVContext | None = None,
 ) -> pd.DataFrame:
     """Build the Daily Category Value table for all roster players.
 
@@ -478,6 +527,19 @@ def build_daily_dcv_table(
         dcv_{category} for each scoring category, total_dcv,
         stud_floor_applied.
     """
+    # Merge ctx dataclass into kwargs (explicit kwargs win).
+    if ctx is not None:
+        if urgency_weights is None:
+            urgency_weights = ctx.urgency_weights
+        if confirmed_lineups is None:
+            confirmed_lineups = ctx.confirmed_lineups
+        if recent_form is None:
+            recent_form = ctx.recent_form
+        if rate_modes is None:
+            rate_modes = ctx.rate_modes
+        if team_strength is None:
+            team_strength = ctx.team_strength
+
     if config is None:
         from src.valuation import LeagueConfig
 

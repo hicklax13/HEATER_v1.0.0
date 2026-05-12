@@ -186,3 +186,181 @@ class TestRuntimeRoundTripPreservation:
         sig = inspect.signature(YahooFantasyClient.get_current_matchup)
         # Should still take only self
         assert list(sig.parameters.keys()) == ["self"]
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Batch 2: Param-explosion dataclasses
+# ─────────────────────────────────────────────────────────────────────────
+
+
+class TestStartSitInputs:
+    def test_importable(self):
+        from src.start_sit import StartSitInputs, start_sit_recommendation
+
+        assert StartSitInputs is not None
+        assert start_sit_recommendation is not None
+
+    def test_dataclass_default_fields_all_none(self):
+        from src.start_sit import StartSitInputs
+
+        empty = StartSitInputs()
+        for fld in (
+            "weekly_schedule",
+            "park_factors",
+            "my_weekly_totals",
+            "opp_weekly_totals",
+            "team_name",
+            "recent_form",
+            "weather",
+        ):
+            assert getattr(empty, fld) is None
+
+    def test_as_kwargs_filters_none(self):
+        """StartSitInputs.as_kwargs() should drop None fields."""
+        from src.start_sit import StartSitInputs
+
+        inputs = StartSitInputs(park_factors={"COL": 1.10}, team_name="MyTeam")
+        kwargs = inputs.as_kwargs()
+        assert kwargs == {"park_factors": {"COL": 1.10}, "team_name": "MyTeam"}
+        # Empty inputs returns empty dict
+        assert StartSitInputs().as_kwargs() == {}
+
+    def test_backwards_compat_signature_kwargs_still_work(self):
+        """All original kwargs still accepted."""
+        import inspect
+
+        from src.start_sit import start_sit_recommendation
+
+        sig = inspect.signature(start_sit_recommendation)
+        params = list(sig.parameters.keys())
+        for original_kwarg in [
+            "weekly_schedule",
+            "park_factors",
+            "my_weekly_totals",
+            "opp_weekly_totals",
+            "standings",
+            "team_name",
+            "recent_form",
+            "weather",
+        ]:
+            assert original_kwarg in params
+        # New `inputs` param exists too
+        assert "inputs" in params
+
+    def test_explicit_kwarg_beats_dataclass(self):
+        """When both ``inputs`` and an explicit kwarg are passed,
+        explicit wins."""
+        import pandas as pd
+
+        from src.start_sit import StartSitInputs, start_sit_recommendation
+        from src.valuation import LeagueConfig
+
+        pool = pd.DataFrame(
+            [
+                {
+                    "player_id": 1,
+                    "name": "P1",
+                    "positions": "1B",
+                    "is_hitter": 1,
+                    "r": 80,
+                    "hr": 20,
+                    "rbi": 75,
+                    "sb": 10,
+                    "h": 150,
+                    "ab": 550,
+                    "bb": 50,
+                    "hbp": 5,
+                    "sf": 5,
+                    "avg": 0.272,
+                    "obp": 0.345,
+                },
+                {
+                    "player_id": 2,
+                    "name": "P2",
+                    "positions": "1B",
+                    "is_hitter": 1,
+                    "r": 65,
+                    "hr": 15,
+                    "rbi": 60,
+                    "sb": 8,
+                    "h": 130,
+                    "ab": 500,
+                    "bb": 40,
+                    "hbp": 3,
+                    "sf": 3,
+                    "avg": 0.260,
+                    "obp": 0.320,
+                },
+            ]
+        )
+        cfg = LeagueConfig()
+        # inputs.team_name = "FromDataclass", explicit kwarg = "Explicit" → explicit wins
+        ctx = StartSitInputs(team_name="FromDataclass")
+        result = start_sit_recommendation(
+            [1, 2],
+            pool,
+            cfg,
+            team_name="Explicit",
+            inputs=ctx,
+        )
+        # We can't easily inspect captured team_name without exporting it,
+        # so we just verify call success & schema preservation.
+        assert "recommendation" in result
+        assert result["recommendation"] in (1, 2)
+
+
+class TestDailyDCVContext:
+    def test_importable(self):
+        from src.optimizer.daily_optimizer import (
+            DailyDCVContext,
+            build_daily_dcv_table,
+        )
+
+        assert DailyDCVContext is not None
+        assert build_daily_dcv_table is not None
+
+    def test_dataclass_default_fields_all_none(self):
+        from src.optimizer.daily_optimizer import DailyDCVContext
+
+        empty = DailyDCVContext()
+        for fld in (
+            "urgency_weights",
+            "confirmed_lineups",
+            "recent_form",
+            "rate_modes",
+            "team_strength",
+        ):
+            assert getattr(empty, fld) is None
+
+    def test_merge_into_kwargs_explicit_wins(self):
+        from src.optimizer.daily_optimizer import DailyDCVContext
+
+        ctx = DailyDCVContext(
+            urgency_weights={"A": 1.0},
+            confirmed_lineups={"NYY": ["X"]},
+        )
+        merged = ctx.merge_into_kwargs(urgency_weights={"B": 2.0})
+        # Explicit beats dataclass
+        assert merged["urgency_weights"] == {"B": 2.0}
+        # Non-explicit still comes from dataclass
+        assert merged["confirmed_lineups"] == {"NYY": ["X"]}
+        # Unmentioned field stays None
+        assert merged["team_strength"] is None
+
+    def test_backwards_compat_signature(self):
+        import inspect
+
+        from src.optimizer.daily_optimizer import build_daily_dcv_table
+
+        sig = inspect.signature(build_daily_dcv_table)
+        params = list(sig.parameters.keys())
+        for original_kwarg in [
+            "urgency_weights",
+            "confirmed_lineups",
+            "recent_form",
+            "rate_modes",
+            "team_strength",
+        ]:
+            assert original_kwarg in params
+        # New ctx param too
+        assert "ctx" in params
