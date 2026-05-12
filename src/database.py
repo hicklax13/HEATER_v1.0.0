@@ -1542,7 +1542,7 @@ def _load_player_pool_impl() -> pd.DataFrame:
                 """
                 SELECT
                     p.player_id, p.name, p.team, p.positions, p.is_hitter, p.is_injured,
-                    p.mlb_id, p.bats, p.throws,
+                    p.mlb_id, p.bats, p.throws, p.level,
                     CASE WHEN p.birth_date IS NOT NULL AND p.birth_date != ''
                          THEN CAST((julianday('now') - julianday(p.birth_date)) / 365.25 AS INTEGER)
                          ELSE NULL END AS age,
@@ -1629,7 +1629,7 @@ def _load_player_pool_impl() -> pd.DataFrame:
             """
             SELECT
                 p.player_id, p.name, p.team, p.positions, p.is_hitter, p.is_injured,
-                p.mlb_id,
+                p.mlb_id, p.level,
                 CASE WHEN p.birth_date IS NOT NULL AND p.birth_date != ''
                      THEN CAST((julianday('now') - julianday(p.birth_date)) / 365.25 AS INTEGER)
                      ELSE NULL END AS age,
@@ -1706,7 +1706,7 @@ def _load_player_pool_impl() -> pd.DataFrame:
                 """
                 SELECT
                     p.player_id, p.name, p.team, p.positions, p.is_hitter, p.is_injured,
-                    p.mlb_id, p.bats, p.throws,
+                    p.mlb_id, p.bats, p.throws, p.level,
                     CASE WHEN p.birth_date IS NOT NULL AND p.birth_date != ''
                          THEN CAST((julianday('now') - julianday(p.birth_date)) / 365.25 AS INTEGER)
                          ELSE NULL END AS age,
