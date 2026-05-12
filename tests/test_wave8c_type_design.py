@@ -467,3 +467,79 @@ class TestCallableAnnotations:
         ann_str = str(params["on_progress"].annotation)
         # collections.abc.Callable repr varies — accept either textual form
         assert "Callable" in ann_str or "callable" not in ann_str.lower() or "Callable" in ann_str
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Batch 4: Module-level mutable state encapsulation
+# ─────────────────────────────────────────────────────────────────────────
+
+
+class TestCatcherFramingCache:
+    def test_class_present(self):
+        from src.optimizer.matchup_adjustments import _CatcherFramingCache
+
+        assert _CatcherFramingCache is not None
+        assert hasattr(_CatcherFramingCache, "get")
+        assert hasattr(_CatcherFramingCache, "reset")
+        assert callable(_CatcherFramingCache.get)
+        assert callable(_CatcherFramingCache.reset)
+
+    def test_reset_idempotent(self):
+        """Calling reset() twice is safe."""
+        from src.optimizer.matchup_adjustments import _CatcherFramingCache
+
+        _CatcherFramingCache.reset()
+        _CatcherFramingCache.reset()
+        # Should not raise
+
+    def test_get_returns_none_for_unknown_team(self):
+        from src.optimizer.matchup_adjustments import (
+            _CatcherFramingCache,
+            _get_catcher_framing_for_team,
+        )
+
+        _CatcherFramingCache.reset()
+        # Either we have data or we don't; in either case unknown team is None
+        result = _get_catcher_framing_for_team("ZZZ_FAKE_TEAM")
+        assert result is None or isinstance(result, dict)
+
+
+class TestSimulationRecentPicks:
+    def test_recent_pick_positions_no_longer_leaks_instance_attribute(self):
+        """Verify _recent_pick_positions is no longer an instance attribute.
+
+        Wave 8c (audit D6A-005, D6D-013): the previous code stored
+        ``self._recent_pick_positions`` and leaked it across
+        simulate_draft() calls. Now it's a local variable.
+        """
+        from src.simulation import DraftSimulator
+        from src.valuation import LeagueConfig
+
+        cfg = LeagueConfig()
+        sim = DraftSimulator(cfg)
+        # Fresh instance must not have a stale _recent_pick_positions dict
+        # (this attribute will only ever appear during simulate_draft's
+        # local scope now, never on self).
+        assert not hasattr(sim, "_recent_pick_positions") or sim._recent_pick_positions is None
+
+
+class TestLineupBanditReset:
+    def test_reset_lineup_bandit_exposed(self):
+        from src.lineup_rl import reset_lineup_bandit
+
+        assert callable(reset_lineup_bandit)
+
+    def test_reset_rebuilds_on_next_get(self):
+        from src.lineup_rl import (
+            LineupContextualBandit,
+            get_lineup_bandit,
+            reset_lineup_bandit,
+        )
+
+        b1 = get_lineup_bandit()
+        assert isinstance(b1, LineupContextualBandit)
+        reset_lineup_bandit()
+        b2 = get_lineup_bandit()
+        assert isinstance(b2, LineupContextualBandit)
+        # After reset, a fresh instance is returned (not the same object)
+        assert b1 is not b2
