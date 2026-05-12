@@ -308,11 +308,20 @@ class MatchupContextService:
         self,
         roster: pd.DataFrame,
         week_schedule: list[dict] | None = None,
-    ) -> pd.DataFrame:
+    ) -> tuple[pd.DataFrame, bool]:
         """Get park/platoon/weather-adjusted projections for a roster.
 
         Returns:
-            DataFrame with matchup_adjusted column added.
+            ``(adjusted_roster, applied)`` where ``applied`` is ``True``
+            when the adjustments were successfully computed and ``False``
+            when the underlying call failed (in which case the original
+            roster is returned unchanged).
+
+            Previously this returned the un-adjusted roster on failure
+            with no signal — callers couldn't distinguish "no adjustment
+            needed" from "adjustment failed silently" (D5B-014). The
+            failure path now also logs at WARNING so operators see the
+            silent-failure case.
         """
         # No caching for this — roster input varies per call
         try:
@@ -334,14 +343,18 @@ class MatchupContextService:
                 except Exception:
                     week_schedule = []
 
-            return compute_weekly_matchup_adjustments(
+            adjusted = compute_weekly_matchup_adjustments(
                 roster=roster,
                 week_schedule=week_schedule,
                 park_factors=park_factors,
             )
+            return adjusted, True
         except Exception as e:
-            logger.debug("get_matchup_adjustments failed: %s", e)
-            return roster
+            logger.warning(
+                "get_matchup_adjustments failed (%s); returning un-adjusted roster",
+                e,
+            )
+            return roster, False
 
     # ── Category Urgency ─────────────────────────────────────────────
 

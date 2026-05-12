@@ -19,6 +19,13 @@ SEASON_IP_TARGET = 1400.0
 SEASON_WEEKS = 26.0
 WEEKLY_TARGET = SEASON_IP_TARGET / SEASON_WEEKS  # ~53.85
 
+# League-average SP starts for pitchers with >=10 GS over a full 162-game
+# season (MLB 2024 sample). Used as a fallback when a pitcher's projection
+# doesn't carry a `gs` (games_started) value — previously a bare /30 was
+# used, which undercounts IP/start for partial-season SP and SP/RP hybrids
+# (D5B-037).
+_LEAGUE_AVG_SP_STARTS = 27.0
+
 
 def compute_weekly_ip_projection(roster_pitchers: list[dict], days_remaining: int = 7) -> dict:
     """Project total IP for the current week based on rostered pitchers.
@@ -57,8 +64,18 @@ def compute_weekly_ip_projection(roster_pitchers: list[dict], days_remaining: in
             is_starter = "SP" in positions
 
         if is_starter:
-            # SP: ~6 IP per start, starts every 5 days
-            ip_per_start = min(ip_season / 30.0, 7.0)  # Cap at 7 IP per start
+            # SP: ~6 IP per start, starts every 5 days.
+            # Honor the player's actual `gs` (games_started) projection
+            # when available; fall back to MLB league average for SPs.
+            # The bare /30 fallback (D5B-037) was wrong for partial-
+            # season SP, mid-season call-ups, and SP/RP hybrids.
+            try:
+                gs_raw = p.get("gs", 0) or 0
+                gs_val = float(gs_raw)
+            except (TypeError, ValueError):
+                gs_val = 0.0
+            divisor = gs_val if gs_val > 0 else _LEAGUE_AVG_SP_STARTS
+            ip_per_start = min(ip_season / divisor, 7.0)  # Cap at 7 IP per start
             expected_starts = max(1.0, days_remaining / 5.0)
             projected_contribution = ip_per_start * expected_starts
         else:
