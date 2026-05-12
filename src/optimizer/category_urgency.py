@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import math
+from contextlib import contextmanager
 
 from src.optimizer.constants_registry import CONSTANTS_REGISTRY
 
@@ -43,6 +44,41 @@ def _get_rate_k() -> float:
 # calibration changes take effect immediately.
 COUNTING_STAT_K = _get_counting_k()
 RATE_STAT_K = _get_rate_k()
+
+
+@contextmanager
+def patch_sigmoid_k(counting_k: float | None = None, rate_k: float | None = None):
+    """Test/calibration helper: temporarily override sigmoid k values in
+    CONSTANTS_REGISTRY (the production read-path) for the duration of a
+    ``with`` block. Restores original values on exit.
+
+    Used by sigmoid_calibrator.py and sensitivity_analysis.py to perturb
+    these constants in production-equivalent fashion. The earlier approach
+    of ``unittest.mock.patch("...COUNTING_STAT_K", value)`` patched module-
+    level aliases that the runtime read-path no longer consults — every
+    grid point produced identical urgency (BUG-006).
+
+    ConstantEntry is a frozen dataclass, so mutation goes through
+    ``object.__setattr__`` to bypass the frozen check.
+
+    Args:
+        counting_k: override for sigmoid_k_counting; None = leave unchanged
+        rate_k: override for sigmoid_k_rate; None = leave unchanged
+    """
+    saved: dict[str, float] = {}
+    try:
+        if counting_k is not None:
+            entry = CONSTANTS_REGISTRY["sigmoid_k_counting"]
+            saved["sigmoid_k_counting"] = entry.value
+            object.__setattr__(entry, "value", float(counting_k))
+        if rate_k is not None:
+            entry = CONSTANTS_REGISTRY["sigmoid_k_rate"]
+            saved["sigmoid_k_rate"] = entry.value
+            object.__setattr__(entry, "value", float(rate_k))
+        yield
+    finally:
+        for name, val in saved.items():
+            object.__setattr__(CONSTANTS_REGISTRY[name], "value", val)
 
 
 def compute_category_urgency(

@@ -832,12 +832,16 @@ class TestGetPatchableConstants:
         assert len(result) > 0
 
     def test_all_results_in_both_dicts(self):
-        """Every returned name must exist in registry AND patch targets."""
+        """Every returned name must exist in CONSTANTS_REGISTRY AND be
+        patchable via either CONSTANT_PATCH_TARGETS (module alias) or
+        _SIGMOID_K_CONSTANTS (registry-aware patch_sigmoid_k path).
+        See BUG-006."""
         from src.optimizer.constants_registry import CONSTANTS_REGISTRY
+        from src.optimizer.sensitivity_analysis import _SIGMOID_K_CONSTANTS
 
         for name in _get_patchable_constants():
             assert name in CONSTANTS_REGISTRY
-            assert name in CONSTANT_PATCH_TARGETS
+            assert name in CONSTANT_PATCH_TARGETS or name in _SIGMOID_K_CONSTANTS
 
     def test_filter_by_name(self):
         result = _get_patchable_constants(["platoon_lhb_vs_rhp", "nonexistent"])

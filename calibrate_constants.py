@@ -47,19 +47,60 @@ def cmd_save_defaults() -> None:
 
 def cmd_calibrate(season: int) -> None:
     """Run calibration against historical Yahoo data."""
+    import json
+    import os
+
     from src.validation.calibration_data import fetch_calibration_data
     from src.validation.constant_optimizer import ConstantRegistry
 
-    # Try to load Yahoo client from session
+    # Try to load Yahoo client. (BUG-016 fix: previously called
+    # YahooFantasyClient() with no args which raises TypeError on the
+    # required league_id positional arg, and `.is_connected()` doesn't
+    # exist on the client — the bare except swallowed both errors
+    # leaving the user with an opaque "No Yahoo client available".)
     yahoo_client = None
     try:
-        from src.yahoo_api import YahooFantasyClient
+        from src.yahoo_api import _AUTH_DIR, YahooFantasyClient
 
-        client = YahooFantasyClient()
-        if client.is_connected():
-            yahoo_client = client
-    except Exception:
-        pass
+        league_id = os.environ.get("YAHOO_LEAGUE_ID", "").strip()
+        if not league_id:
+            logger.error(
+                "YAHOO_LEAGUE_ID env var not set. Connect your Yahoo league and re-run with YAHOO_LEAGUE_ID exported."
+            )
+            sys.exit(1)
+
+        token_file = _AUTH_DIR / "yahoo_token.json"
+        if not token_file.exists():
+            logger.error(
+                "Yahoo token file not found at %s. Authenticate via the app "
+                "(streamlit run app.py) first to seed credentials.",
+                token_file,
+            )
+            sys.exit(1)
+
+        try:
+            token_data = json.loads(token_file.read_text(encoding="utf-8"))
+        except Exception as exc:
+            logger.error("Could not read Yahoo token file %s: %s", token_file, exc)
+            sys.exit(1)
+
+        consumer_key = token_data.get("consumer_key", os.environ.get("YAHOO_CLIENT_ID", ""))
+        consumer_secret = token_data.get("consumer_secret", os.environ.get("YAHOO_CLIENT_SECRET", ""))
+        if not consumer_key or not consumer_secret:
+            logger.error(
+                "Yahoo token file missing consumer_key/secret and env vars "
+                "YAHOO_CLIENT_ID/YAHOO_CLIENT_SECRET are unset."
+            )
+            sys.exit(1)
+
+        client = YahooFantasyClient(league_id=league_id)
+        if client.authenticate(consumer_key, consumer_secret, token_data=token_data):
+            if client.is_authenticated:
+                yahoo_client = client
+    except SystemExit:
+        raise
+    except Exception as exc:
+        logger.error("Could not initialize YahooFantasyClient: %s", exc, exc_info=True)
 
     if yahoo_client is None:
         logger.error("No Yahoo client available. Connect your Yahoo league first, then re-run calibration.")

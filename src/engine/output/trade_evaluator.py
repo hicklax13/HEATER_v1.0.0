@@ -78,6 +78,7 @@ from src.engine.portfolio.category_analysis import (
     compute_category_weights_from_analysis,
 )
 from src.engine.portfolio.copula import GaussianCopula
+from src.engine.production import convergence as _convergence_diagnostics
 from src.in_season import _roster_category_totals
 from src.league_manager import get_free_agents
 from src.valuation import LeagueConfig, SGPCalculator
@@ -1206,6 +1207,37 @@ def _run_mc_overlay(
         n_sims=n_sims,
         weeks_remaining=weeks_remaining,
     )
+
+    # BUG-007 fix: assess MC convergence quality and attach to result.
+    # check_convergence returns a dict with effective sample size, R-hat,
+    # running-mean stability, and a categorical `quality` field.  Without
+    # this, a 10K-sim run with effective sample size 50 (highly
+    # autocorrelated paired antithetic) would still appear "sharp" via
+    # mc_std alone, and the trade UI would have no way to flag it.
+    try:
+        import numpy as np
+
+        surplus_dist = mc_result.get("surplus_distribution")
+        if surplus_dist is not None and len(surplus_dist) > 0:
+            conv = _convergence_diagnostics.check_convergence(np.asarray(surplus_dist))
+            mc_result["convergence_quality"] = conv.get("quality", "not_assessed")
+            mc_result["convergence_ess"] = float(conv.get("ess", float("nan")))
+            mc_result["convergence_rhat"] = float(conv.get("rhat", float("nan")))
+            if mc_result["convergence_quality"] in ("marginal", "poor"):
+                mc_result.setdefault("risk_flags", []).append(
+                    f"MC convergence: {mc_result['convergence_quality']} "
+                    f"(ESS={mc_result['convergence_ess']:.0f}, "
+                    f"R-hat={mc_result['convergence_rhat']:.3f})"
+                )
+        else:
+            mc_result["convergence_quality"] = "not_assessed"
+            mc_result["convergence_ess"] = float("nan")
+            mc_result["convergence_rhat"] = float("nan")
+    except Exception:
+        logger.warning("MC convergence check failed", exc_info=True)
+        mc_result["convergence_quality"] = "not_assessed"
+        mc_result["convergence_ess"] = float("nan")
+        mc_result["convergence_rhat"] = float("nan")
 
     return mc_result
 

@@ -30,14 +30,22 @@ CONSTANT_PATCH_TARGETS: dict[str, str] = {
     "platoon_rhb_vs_lhp": "src.optimizer.matchup_adjustments._RHB_VS_LHP_ADVANTAGE",
     "platoon_stab_lhb": "src.optimizer.matchup_adjustments._LHB_STABILIZATION_PA",
     "platoon_stab_rhb": "src.optimizer.matchup_adjustments._RHB_STABILIZATION_PA",
-    "sigmoid_k_counting": "src.optimizer.category_urgency.COUNTING_STAT_K",
-    "sigmoid_k_rate": "src.optimizer.category_urgency.RATE_STAT_K",
+    # NOTE: sigmoid_k_counting and sigmoid_k_rate are NOT module-level
+    # patchable — compute_category_urgency reads them from
+    # CONSTANTS_REGISTRY at call time (so calibrate_sigmoid.py changes
+    # take effect without restart). They are perturbed via
+    # category_urgency.patch_sigmoid_k in run_sensitivity_analysis below.
+    # See BUG-006.
     "two_start_fatigue_factor": "src.optimizer.streaming._TWO_START_FATIGUE_FACTOR",
     "default_ip_per_start": "src.optimizer.streaming._DEFAULT_IP_PER_START",
     "default_team_weekly_ip": "src.optimizer.streaming._DEFAULT_TEAM_WEEKLY_IP",
     "recent_form_blend": "src.optimizer.projections._RECENT_FORM_BLEND",
     "min_recent_games": "src.optimizer.projections._MIN_RECENT_GAMES",
 }
+
+# Constants that go through patch_sigmoid_k() instead of unittest.mock.patch()
+# because their production read-path is CONSTANTS_REGISTRY, not a module alias.
+_SIGMOID_K_CONSTANTS = frozenset({"sigmoid_k_counting", "sigmoid_k_rate"})
 
 
 @dataclass
@@ -117,11 +125,15 @@ def _get_patchable_constants(
 ) -> list[str]:
     """Return the list of constant names that can be patched.
 
-    If *constants_to_test* is provided, filters to those that exist in
-    both CONSTANTS_REGISTRY and CONSTANT_PATCH_TARGETS.  Otherwise
-    returns all patchable constants.
+    A constant is patchable if it is in CONSTANTS_REGISTRY and either:
+    - it has an entry in CONSTANT_PATCH_TARGETS (module-level alias), or
+    - it is a sigmoid_k_* constant (perturbed via patch_sigmoid_k).
+
+    If *constants_to_test* is provided, filters to that subset.
     """
-    patchable = set(CONSTANTS_REGISTRY) & set(CONSTANT_PATCH_TARGETS)
+    patchable = (set(CONSTANTS_REGISTRY) & set(CONSTANT_PATCH_TARGETS)) | (
+        set(CONSTANTS_REGISTRY) & _SIGMOID_K_CONSTANTS
+    )
     if constants_to_test is not None:
         patchable = patchable & set(constants_to_test)
     return sorted(patchable)
@@ -170,7 +182,8 @@ def run_sensitivity_analysis(
     # ── Perturb each constant ───────────────────────────────────
     for name in names:
         entry: ConstantEntry = CONSTANTS_REGISTRY[name]
-        patch_target = CONSTANT_PATCH_TARGETS[name]
+        is_sigmoid_k = name in _SIGMOID_K_CONSTANTS
+        patch_target = None if is_sigmoid_k else CONSTANT_PATCH_TARGETS[name]
 
         for pct in perturbation_pcts:
             perturbed_value = entry.value * (1.0 + pct)
@@ -184,9 +197,22 @@ def run_sensitivity_analysis(
             )
 
             try:
-                with patch(patch_target, perturbed_value):
-                    pipe = LineupOptimizerPipeline(roster, mode=mode)
-                    perturbed_result = pipe.optimize()
+                if is_sigmoid_k:
+                    # BUG-006 fix: sigmoid_k_* lives in CONSTANTS_REGISTRY,
+                    # not a module alias; perturb via the registry-aware
+                    # context manager so the runtime read-path sees it.
+                    from src.optimizer.category_urgency import patch_sigmoid_k
+
+                    kw = (
+                        {"counting_k": perturbed_value} if name == "sigmoid_k_counting" else {"rate_k": perturbed_value}
+                    )
+                    with patch_sigmoid_k(**kw):
+                        pipe = LineupOptimizerPipeline(roster, mode=mode)
+                        perturbed_result = pipe.optimize()
+                else:
+                    with patch(patch_target, perturbed_value):
+                        pipe = LineupOptimizerPipeline(roster, mode=mode)
+                        perturbed_result = pipe.optimize()
             except Exception:
                 logger.warning("Failed to run with perturbed %s", name, exc_info=True)
                 continue

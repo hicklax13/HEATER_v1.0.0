@@ -1,13 +1,15 @@
 """Sigmoid K-value calibration for category urgency scoring.
 
-Grid-searches over COUNTING_STAT_K and RATE_STAT_K to find the values
-that best identify actionable H2H categories.  Uses synthetic matchup
-scenarios so no network calls or database access are required.
+Grid-searches over sigmoid_k_counting and sigmoid_k_rate to find the
+values that best identify actionable H2H categories.  Uses synthetic
+matchup scenarios so no network calls or database access are required.
 
-The calibration loop patches the module-level constants in
-``category_urgency`` via ``unittest.mock.patch``, computes urgency
-weights for each scenario, and scores how well the urgency correctly
-identifies categories the team is losing (and should target).
+The calibration loop patches the registry values via
+``category_urgency.patch_sigmoid_k`` — the runtime read-path that
+``compute_category_urgency`` consults on every call.  Previously this
+loop used ``unittest.mock.patch`` on the module-level aliases
+(``COUNTING_STAT_K``/``RATE_STAT_K``), which were no-ops because the
+function reads from CONSTANTS_REGISTRY at call time (BUG-006).
 """
 
 from __future__ import annotations
@@ -15,7 +17,8 @@ from __future__ import annotations
 import logging
 import math
 from dataclasses import dataclass
-from unittest.mock import patch
+
+from src.optimizer.category_urgency import patch_sigmoid_k
 
 logger = logging.getLogger(__name__)
 
@@ -375,10 +378,11 @@ def calibrate_sigmoid_k(
             total_win_rate = 0.0
             total_rmse = 0.0
 
-            with (
-                patch("src.optimizer.category_urgency.COUNTING_STAT_K", ck),
-                patch("src.optimizer.category_urgency.RATE_STAT_K", rk),
-            ):
+            # BUG-006 fix: patch the CONSTANTS_REGISTRY value (the runtime
+            # read-path), not the legacy module aliases. The earlier
+            # `patch(...COUNTING_STAT_K, ck)` was a no-op because
+            # category_urgency now reads from CONSTANTS_REGISTRY at call time.
+            with patch_sigmoid_k(counting_k=ck, rate_k=rk):
                 for my_totals, opp_totals, _label in scenarios:
                     # Compute urgency with patched k-values
                     urgency = compute_category_urgency(my_totals, opp_totals)
