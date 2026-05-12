@@ -31,6 +31,7 @@ from __future__ import annotations
 import logging
 import time
 from pathlib import Path
+from typing import TypedDict
 
 import pandas as pd
 import requests as _requests
@@ -45,6 +46,47 @@ except ImportError:
     YFPY_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
+
+
+class MatchupCategoryEntry(TypedDict):
+    """One per-category row in :class:`MatchupResult.categories`.
+
+    ``cat``: category code (R/HR/RBI/SB/AVG/OBP/W/L/SV/K/ERA/WHIP).
+    ``you`` and ``opp``: stat values as Yahoo-returned strings (e.g.
+    ``"0.275"`` or ``"-"`` for not-yet-played). ``result``: per-cat
+    outcome — ``"WIN"`` | ``"LOSS"`` | ``"TIE"`` | ``"-"``.
+    """
+
+    cat: str
+    you: str
+    opp: str
+    result: str  # "WIN" | "LOSS" | "TIE" | "-"
+
+
+class MatchupResult(TypedDict, total=False):
+    """Return shape of :meth:`YahooFantasyClient.get_current_matchup`.
+
+    Wave 8c (audit YV-006/D2A-002): the 10-key matchup dict was
+    documented only in a docstring. Consumers fished via
+    ``matchup.get("wins", 0)`` — a typo silently returned 0. This
+    TypedDict makes the shape machine-checkable.
+
+    All keys present on success; ``get_current_matchup`` returns
+    ``None`` (not an empty dict) on failure, so consumers that null-
+    check first see the complete schema.
+    """
+
+    week: int
+    status: str
+    user_name: str
+    opp_name: str
+    wins: int
+    losses: int
+    ties: int
+    categories: list[MatchupCategoryEntry]
+    user_points: float
+    opp_points: float
+
 
 _AUTH_DIR = Path(__file__).parent.parent / "data"
 _RATE_LIMIT_SECONDS = 0.5
@@ -1753,10 +1795,10 @@ class YahooFantasyClient:
 
         return stats, points
 
-    def get_current_matchup(self) -> dict | None:
+    def get_current_matchup(self) -> MatchupResult | None:
         """Fetch the user's current (or most recent) weekly matchup with scores.
 
-        Returns a dict with keys:
+        Returns a :class:`MatchupResult` TypedDict with keys:
             week, status, user_name, opp_name, wins, losses, ties,
             categories (list of dicts), user_points, opp_points.
         Returns None on error or if not authenticated.

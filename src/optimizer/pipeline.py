@@ -17,7 +17,7 @@ from __future__ import annotations
 import logging
 import time
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, TypedDict
 
 import numpy as np
 import pandas as pd
@@ -30,6 +30,47 @@ _CONSTANTS = load_constants()
 _LC_ONCE = _LC_Class()
 
 logger = logging.getLogger(__name__)
+
+
+class OptimizerResult(TypedDict, total=False):
+    """Return shape of :meth:`LineupOptimizerPipeline.optimize`.
+
+    Wave 8c (audit D3D-001..016): the pipeline returned an untyped
+    ``dict[str, Any]`` with ~15 documented keys. Consumers fished via
+    ``result.get("lineup", {})`` — schema drift across modes was silent.
+
+    Always-present keys (every mode):
+      lineup, category_weights, recommendations, timing, mode
+
+    Conditional keys (mode-dependent — ``total=False``):
+      h2h_analysis (when standings present, H2H mode/blend)
+      streaming_suggestions (when streaming module enabled)
+      risk_metrics (when scenarios enabled)
+      maximin_comparison (when advanced_lp enabled)
+      urgency_weights (daily mode only)
+      rate_stat_modes (daily mode only)
+      matchup_summary (daily mode only)
+      daily_dcv (daily mode only — DataFrame)
+      daily_lineup (daily mode only)
+      analytics_context (transparency spine)
+    """
+
+    lineup: dict[str, Any]
+    category_weights: dict[str, float]
+    h2h_analysis: dict[str, Any] | None
+    streaming_suggestions: list[dict[str, Any]] | None
+    risk_metrics: dict[str, Any] | None
+    maximin_comparison: dict[str, Any] | None
+    recommendations: list[str]
+    timing: dict[str, float]
+    mode: str
+    urgency_weights: dict[str, float]
+    rate_stat_modes: dict[str, str]
+    matchup_summary: dict[str, Any]
+    daily_dcv: Any  # pd.DataFrame
+    daily_lineup: dict[str, Any]
+    analytics_context: Any  # AnalyticsContext
+
 
 # ── Module imports (all optional) ─────────────────────────────────────
 
@@ -236,7 +277,7 @@ class LineupOptimizerPipeline:
         h2h_wins: int | None = None,
         h2h_losses: int | None = None,
         **kwargs: Any,
-    ) -> dict[str, Any]:
+    ) -> OptimizerResult:
         """Run the full optimization pipeline.
 
         All parameters are optional — the pipeline degrades gracefully
