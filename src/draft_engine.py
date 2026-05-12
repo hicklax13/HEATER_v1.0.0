@@ -127,6 +127,38 @@ ALL_CATEGORIES_UPPER: list[str] = [
 INVERSE_CATS_UPPER: set[str] = {"L", "ERA", "WHIP"}
 
 
+# ── Pool-mask helpers ──────────────────────────────────────────────
+
+
+def _build_is_hitter_mask(pool: pd.DataFrame) -> pd.Series:
+    """Return a per-row boolean Series marking hitters.
+
+    When ``is_hitter`` column is missing, logs a WARNING and falls back to
+    a Series of False (treat unknown rows as non-hitter to avoid the
+    silent "everyone is a hitter" bug that flips pitcher-targeted logic
+    onto hitter rows). NaN values in the column also map to False.
+
+    Use this everywhere is_hitter is consumed for masking — never call
+    ``pool.get("is_hitter", True)`` on a DataFrame, which returns the
+    scalar default ``True`` when the column is missing, then collapses
+    to a scalar boolean that broadcasts wrong.
+    """
+    if "is_hitter" not in pool.columns:
+        logger.warning(
+            "draft_engine: pool is missing 'is_hitter' column; "
+            "treating all rows as non-hitter for masking. This usually "
+            "indicates the player pool was built without _build_player_pool's "
+            "is_hitter derivation — check the upstream loader.",
+        )
+        return pd.Series(False, index=pool.index)
+    return pool["is_hitter"].fillna(False).astype(bool)
+
+
+def _build_is_pitcher_mask(pool: pd.DataFrame) -> pd.Series:
+    """Per-row Series marking pitchers (inverse of is_hitter, NaN-safe)."""
+    return ~_build_is_hitter_mask(pool)
+
+
 class DraftRecommendationEngine:
     """Orchestrator for enhanced draft recommendations.
 
@@ -737,7 +769,7 @@ class DraftRecommendationEngine:
         if "fip" not in pool.columns:
             return pool
 
-        is_pitcher = pool.get("is_hitter", True) == False  # noqa: E712
+        is_pitcher = _build_is_pitcher_mask(pool)
         has_fip = pool["fip"].notna() & (pool["fip"] > 0)
         mask = is_pitcher & has_fip
 
@@ -776,7 +808,7 @@ class DraftRecommendationEngine:
 
         # Streaming penalty: pitchers with low IP but rostered
         if "ip" in pool.columns:
-            is_pitcher = pool.get("is_hitter", True) == False  # noqa: E712
+            is_pitcher = _build_is_pitcher_mask(pool)
             low_ip = pool["ip"].fillna(0) < 80
             # Pitchers with <80 IP projected are streaming candidates — slight penalty
             pool.loc[is_pitcher & low_ip, "streaming_penalty"] = -0.3
@@ -803,25 +835,29 @@ class DraftRecommendationEngine:
         # Proxy: players on teams with multiple drafted hitters on user's roster
         if "team" in pool.columns:
             # Get user's drafted player IDs from draft_state.teams[user_team_index]
+            # Build the hitter mask once (logs a warning if is_hitter column missing).
+            is_hitter_pool = _build_is_hitter_mask(pool)
             try:
                 user_roster = draft_state.teams[draft_state.user_team_index]
                 user_ids = {pid for _, pid, _ in user_roster.picks if pid is not None}
                 if user_ids:
                     drafted_pool = pool[pool["player_id"].isin(list(user_ids))]
-                    is_hitter_drafted = drafted_pool.get("is_hitter", True) == True  # noqa: E712
+                    # Reuse the same hitter mask, aligned to drafted_pool's index.
+                    is_hitter_drafted = is_hitter_pool.loc[drafted_pool.index]
                     team_hitter_counts = drafted_pool.loc[is_hitter_drafted].groupby("team").size().to_dict()
                 else:
                     team_hitter_counts = {}
-            except (AttributeError, TypeError, IndexError):
+            except (AttributeError, KeyError, TypeError, IndexError):
                 team_hitter_counts = {}
-            pool["lineup_protection_bonus"] = pool.apply(
-                lambda row: (
-                    min(0.3, team_hitter_counts.get(row.get("team", ""), 0) * 0.05)
-                    if row.get("is_hitter", True)
-                    else 0.0
-                ),
-                axis=1,
-            )
+            # Apply bonus only to hitters — pitchers get 0.0.
+            pool["lineup_protection_bonus"] = [
+                min(0.3, team_hitter_counts.get(team_val, 0) * 0.05) if is_h else 0.0
+                for is_h, team_val in zip(
+                    is_hitter_pool.tolist(),
+                    pool["team"].fillna("").tolist(),
+                    strict=False,
+                )
+            ]
 
         # Multi-position flexibility bonus: removed — VORP in valuation.py already
         # includes +0.12/extra position and +0.08/scarce position. Adding flex_bonus
@@ -951,7 +987,7 @@ class DraftRecommendationEngine:
             # ST data sentinel exists but no K-rate derivable — no signal
             return pool
 
-        is_pitcher = pool.get("is_hitter", True) == False  # noqa: E712
+        is_pitcher = _build_is_pitcher_mask(pool)
 
         # Compute projected K-rate from projected K and IP (approximate BF)
         proj_ip = pool["ip"].fillna(0).replace(0, np.nan)

@@ -255,6 +255,12 @@ class YahooFantasyClient:
         self.game_code = game_code
         self.season = season
         self._query: YahooFantasySportsQuery | None = None
+        # Resolve category lists from LeagueConfig at instance-construction
+        # time (was class-body, which froze them at module-import and ignored
+        # any subsequent config changes). Wave 8a/D2A-002.
+        _lc = LeagueConfig()
+        self._inverse_cats: set[str] = set(_lc.inverse_stats)
+        self._all_cats: list[str] = list(_lc.all_categories)
 
     # ------------------------------------------------------------------
     # Authentication
@@ -1686,8 +1692,9 @@ class YahooFantasyClient:
         "26": "ERA",
         "27": "WHIP",
     }
-    _INVERSE_CATS: set[str] = set(LeagueConfig().inverse_stats)
-    _ALL_CATS: list[str] = list(LeagueConfig().all_categories)
+    # NOTE: _inverse_cats and _all_cats are populated as instance attributes
+    # in __init__ from LeagueConfig (Wave 8a/D2A-002). Do not re-add them
+    # at class-body level — that snapshots config at module import time.
 
     def _get_team_week_stats_raw(self, team_key: str, week: int) -> tuple[dict[str, str], float]:
         """Fetch per-category stats for a team/week via Yahoo REST API.
@@ -1828,7 +1835,7 @@ class YahooFantasyClient:
                 # Compute category wins/losses/ties
                 wins = losses = ties = 0
                 categories = []
-                for cat in self._ALL_CATS:
+                for cat in self._all_cats:
                     yv_str = user_stats.get(cat, "-")
                     ov_str = opp_stats.get(cat, "-")
                     result = "-"
@@ -1836,7 +1843,7 @@ class YahooFantasyClient:
                         yv = float(yv_str) if yv_str not in ("-", "") else None
                         ov = float(ov_str) if ov_str not in ("-", "") else None
                         if yv is not None and ov is not None:
-                            if cat in self._INVERSE_CATS:
+                            if cat in self._inverse_cats:
                                 if yv < ov:
                                     result = "WIN"
                                     wins += 1

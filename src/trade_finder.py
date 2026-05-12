@@ -61,6 +61,14 @@ def _player_sgp_volume_aware(
     """
     p = player_pool[player_pool["player_id"] == pid]
     if p.empty:
+        # D4B-020: was a silent `return 0.0`. Callers iterate over many ids
+        # (often hundreds in trade_finder), so we WARN but don't raise — a
+        # single missing id shouldn't crash the whole run.
+        logger.warning(
+            "_player_sgp_volume_aware: player_id=%s missing from player_pool — "
+            "returning 0.0 SGP (this may indicate stale roster or pool data)",
+            pid,
+        )
         return 0.0
     if sgp_calc is None:
         sgp_calc = SGPCalculator(config)

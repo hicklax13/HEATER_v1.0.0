@@ -15,6 +15,31 @@ except ImportError:
 _CONSTANTS = load_constants()
 
 
+def _signed_magnitude_clip(values: np.ndarray, min_mag: float = 0.01) -> np.ndarray:
+    """Clip the magnitude of *values* to at least *min_mag* while preserving sign.
+
+    D6B-022: previously the codebase used ``np.maximum(sgp_values, 0.01)`` to
+    avoid zero-division in downstream weight normalization. For SGP, which
+    can be **negative** (inverse-stat-heavy pitchers, bad picks), that
+    silently flipped the sign — making bad players indistinguishable from
+    marginal-positive ones in AI-opponent pick weighting.
+
+    This helper preserves sign:
+      |x| >= min_mag  →  x
+      0 < x < min_mag →  +min_mag
+      -min_mag < x < 0 → -min_mag
+      x == 0          →  +min_mag  (sign convention for zero is positive,
+                                    since 0 isn't a "negative SGP" signal)
+
+    Note: callers using the output as sampling probability weights should
+    clamp negative values to 0 themselves; this helper purposefully does
+    not, so the signed information is preserved for the caller.
+    """
+    arr = np.asarray(values, dtype=float)
+    sign = np.where(arr >= 0, 1.0, -1.0)
+    return np.where(np.abs(arr) < min_mag, sign * min_mag, arr)
+
+
 class DraftSimulator:
     """Monte Carlo draft simulation for evaluating pick candidates."""
 
@@ -425,8 +450,19 @@ class DraftSimulator:
                     # Q1: SGP-based AI picks — 70% marginal SGP, 30% ADP-random.
                     # AI teams pick for roster need, not just BPA by ADP.
                     if sgp_values is not None and len(sgp_values) > 0:
-                        sgp_weights = np.maximum(sgp_values[avail_indices], 0.01)
-                        sgp_weights = sgp_weights / sgp_weights.max()  # normalize to [0,1]
+                        # D6B-022: signed magnitude clip preserves sign for
+                        # inverse-stat-heavy pitchers (negative SGP). Old code
+                        # used np.maximum which flipped -0.001 to +0.01, making
+                        # negative-SGP players indistinguishable from marginal-
+                        # positive picks.
+                        signed_sgp = _signed_magnitude_clip(sgp_values[avail_indices], min_mag=0.01)
+                        # For use as sampling weights (non-negative): clamp
+                        # negative SGPs to 0 (truly bad picks should have zero
+                        # weight in AI selection).
+                        sgp_weights = np.maximum(signed_sgp, 0.0)
+                        sgp_max = sgp_weights.max()
+                        if sgp_max > 0:
+                            sgp_weights = sgp_weights / sgp_max  # normalize to [0,1]
                         weights = 0.30 * weights + 0.70 * sgp_weights * weights.max()
 
                     # Apply positional need boost for this opponent

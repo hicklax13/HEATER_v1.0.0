@@ -218,12 +218,15 @@ class TestOpponentContext:
 class TestMatchupAdjustments:
     """Verify matchup adjustment passthrough."""
 
-    def test_returns_roster_on_failure(self):
+    def test_returns_tuple_of_dataframe_and_applied(self):
+        """D5B-014: Returns (DataFrame, applied: bool) tuple."""
         svc = MatchupContextService()
         roster = pd.DataFrame({"player_id": [1, 2], "name": ["A", "B"]})
-        result = svc.get_matchup_adjustments(roster)
-        # On failure, should return original roster
-        assert len(result) == 2
+        df, applied = svc.get_matchup_adjustments(roster)
+        # Either way, the underlying call shouldn't crash on this input
+        assert isinstance(df, pd.DataFrame)
+        assert isinstance(applied, bool)
+        assert len(df) == 2
 
 
 # ── Data Freshness ───────────────────────────────────────────────────

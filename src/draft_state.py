@@ -239,29 +239,45 @@ class DraftState:
             "h_allowed": 0.0,
         }
 
+        # D6B-017 fix: skip NaN values rather than coercing to 0 via
+        # `int(p.get("ab", 0) or 0)`. NaN is truthy in Python, so the
+        # `or 0` fallback never fires, then int(NaN) raises ValueError.
+        # Also, faking "0 PA" for a missing-data row biases the OBP
+        # denominator (counts the player as having batted 0 times when
+        # really we have no data).
+        def _add_int(key: str, src_col: str) -> None:
+            val = p.get(src_col, 0)
+            if pd.notna(val):
+                totals[key] += int(val)
+
+        def _add_float(key: str, src_col: str) -> None:
+            val = p.get(src_col, 0)
+            if pd.notna(val):
+                totals[key] += float(val)
+
         for _, pid, _ in self.user_team.picks:
             player = player_pool[player_pool["player_id"] == pid]
             if player.empty:
                 continue
             p = player.iloc[0]
 
-            totals["R"] += int(p.get("r", 0) or 0)
-            totals["HR"] += int(p.get("hr", 0) or 0)
-            totals["RBI"] += int(p.get("rbi", 0) or 0)
-            totals["SB"] += int(p.get("sb", 0) or 0)
-            totals["W"] += int(p.get("w", 0) or 0)
-            totals["L"] += int(p.get("l", 0) or 0)
-            totals["SV"] += int(p.get("sv", 0) or 0)
-            totals["K"] += int(p.get("k", 0) or 0)
-            totals["ab"] += int(p.get("ab", 0) or 0)
-            totals["h"] += int(p.get("h", 0) or 0)
-            totals["bb"] += int(p.get("bb", 0) or 0)
-            totals["hbp"] += int(p.get("hbp", 0) or 0)
-            totals["sf"] += int(p.get("sf", 0) or 0)
-            totals["ip"] += float(p.get("ip", 0) or 0)
-            totals["er"] += float(p.get("er", 0) or 0)
-            totals["bb_allowed"] += float(p.get("bb_allowed", 0) or 0)
-            totals["h_allowed"] += float(p.get("h_allowed", 0) or 0)
+            _add_int("R", "r")
+            _add_int("HR", "hr")
+            _add_int("RBI", "rbi")
+            _add_int("SB", "sb")
+            _add_int("W", "w")
+            _add_int("L", "l")
+            _add_int("SV", "sv")
+            _add_int("K", "k")
+            _add_int("ab", "ab")
+            _add_int("h", "h")
+            _add_int("bb", "bb")
+            _add_int("hbp", "hbp")
+            _add_int("sf", "sf")
+            _add_float("ip", "ip")
+            _add_float("er", "er")
+            _add_float("bb_allowed", "bb_allowed")
+            _add_float("h_allowed", "h_allowed")
 
         # Compute rate stats
         if totals["ab"] > 0:
