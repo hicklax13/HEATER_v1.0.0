@@ -49,11 +49,12 @@ logger = logging.getLogger(__name__)
 
 # ── Category definitions ─────────────────────────────────────────────
 
-_LC = _LC_Class()
-ALL_CATEGORIES: list[str] = [c.lower() for c in _LC.all_categories]
-INVERSE_CATS: set[str] = {c.lower() for c in _LC.inverse_stats}
-HITTER_CATS: list[str] = [c.lower() for c in _LC.hitting_categories]
-PITCHER_CATS: list[str] = [c.lower() for c in _LC.pitching_categories]
+_LC_ONCE = _LC_Class()
+ALL_CATEGORIES: list[str] = [c.lower() for c in _LC_ONCE.all_categories]
+INVERSE_CATS: set[str] = {c.lower() for c in _LC_ONCE.inverse_stats}
+HITTER_CATS: list[str] = [c.lower() for c in _LC_ONCE.hitting_categories]
+PITCHER_CATS: list[str] = [c.lower() for c in _LC_ONCE.pitching_categories]
+del _LC_ONCE
 
 # ── Helpers ──────────────────────────────────────────────────────────
 

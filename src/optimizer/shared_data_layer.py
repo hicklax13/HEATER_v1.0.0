@@ -60,10 +60,11 @@ _RECENT_FORM_WEIGHT_WEEK = 0.30
 _RECENT_FORM_WEIGHT_SEASON = 0.20
 
 # Canonical category sets — module uses lowercase to match column names.
-_LC = LeagueConfig()
-_INVERSE_CATS: set[str] = {c.lower() for c in _LC.inverse_stats}
-_RATE_CATS: set[str] = {c.lower() for c in _LC.rate_stats}
-_COUNTING_CATS: list[str] = [c.lower() for c in _LC.all_categories if c not in _LC.rate_stats]
+_LC_ONCE = LeagueConfig()
+_INVERSE_CATS: set[str] = {c.lower() for c in _LC_ONCE.inverse_stats}
+_RATE_CATS: set[str] = {c.lower() for c in _LC_ONCE.rate_stats}
+_COUNTING_CATS: list[str] = [c.lower() for c in _LC_ONCE.all_categories if c not in _LC_ONCE.rate_stats]
+del _LC_ONCE
 
 # Two-start pitcher counting stat multiplier
 _TWO_START_COUNTING_MULT = 2.0

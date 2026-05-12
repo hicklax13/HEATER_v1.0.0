@@ -27,7 +27,7 @@ from src.validation.constant_optimizer import load_constants
 from src.valuation import LeagueConfig as _LC_Class
 
 _CONSTANTS = load_constants()
-_LC = _LC_Class()
+_LC_ONCE = _LC_Class()
 
 logger = logging.getLogger(__name__)
 
@@ -106,8 +106,9 @@ except ImportError:
 
 # ── Constants ─────────────────────────────────────────────────────────
 
-ALL_CATEGORIES: list[str] = [c.lower() for c in _LC.all_categories]
-INVERSE_CATS: set[str] = {c.lower() for c in _LC.inverse_stats}
+ALL_CATEGORIES: list[str] = [c.lower() for c in _LC_ONCE.all_categories]
+INVERSE_CATS: set[str] = {c.lower() for c in _LC_ONCE.inverse_stats}
+del _LC_ONCE
 
 # Default SGP denominators for weight normalization
 _DEFAULT_SCALE: dict[str, float] = {

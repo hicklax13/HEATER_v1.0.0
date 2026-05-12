@@ -35,12 +35,13 @@ logger = logging.getLogger(__name__)
 
 # ── Constants ────────────────────────────────────────────────────────
 
-_LC = _LC_Class()
+_LC_ONCE = _LC_Class()
 # Categories where lower is better
-INVERSE_CATS: set[str] = {c.lower() for c in _LC.inverse_stats}
+INVERSE_CATS: set[str] = {c.lower() for c in _LC_ONCE.inverse_stats}
 
 # All 12 H2H categories
-ALL_CATEGORIES: list[str] = [c.lower() for c in _LC.all_categories]
+ALL_CATEGORIES: list[str] = [c.lower() for c in _LC_ONCE.all_categories]
+del _LC_ONCE
 
 # Small epsilon to avoid division by zero
 _EPSILON: float = 1e-12

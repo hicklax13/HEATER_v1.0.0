@@ -24,12 +24,13 @@ logger = logging.getLogger(__name__)
 
 # ── Constants ────────────────────────────────────────────────────────
 
-_LC = _LC_Class()
-ALL_CATS: list[str] = [c.lower() for c in _LC.all_categories]
-INVERSE_CATS: set[str] = {c.lower() for c in _LC.inverse_stats}
+_LC_ONCE = _LC_Class()
+ALL_CATS: list[str] = [c.lower() for c in _LC_ONCE.all_categories]
+INVERSE_CATS: set[str] = {c.lower() for c in _LC_ONCE.inverse_stats}
 
 # Fallback SGP denominators when regression is infeasible.
-_DEFAULT_SGP_DENOMS: dict[str, float] = {c.lower(): v for c, v in _LC.sgp_denominators.items()}
+_DEFAULT_SGP_DENOMS: dict[str, float] = {c.lower(): v for c, v in _LC_ONCE.sgp_denominators.items()}
+del _LC_ONCE
 
 _CONSTANTS = load_constants()
 
