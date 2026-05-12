@@ -31,6 +31,10 @@ MLB_SEASON_END: dict[int, date] = {
 # Fantasy playoff weeks (typically last 3-4 weeks of regular season)
 FANTASY_REGULAR_SEASON_WEEKS = 22  # Typical Yahoo H2H
 
+# Default health score for a player with no injury history.
+# Rationale: kept in sync with src.draft_engine.DEFAULT_HEALTH_SCORE.
+DEFAULT_HEALTH_SCORE: float = 0.85
+
 
 def compute_weeks_remaining(
     as_of: date | None = None,
@@ -132,7 +136,7 @@ def compute_injury_exposure(
     if injury_data:
         risks = []
         for pid in roster_player_ids:
-            health_score = injury_data.get(pid, 0.85)  # default = low risk
+            health_score = injury_data.get(pid, DEFAULT_HEALTH_SCORE)  # default = low risk
             risks.append(1.0 - health_score)  # Invert: high health = low risk
         if risks:
             avg_risk = sum(risks) / len(risks)

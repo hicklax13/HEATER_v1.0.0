@@ -53,6 +53,11 @@ RATE_STATS = {"AVG", "OBP", "ERA", "WHIP"}
 DEFAULT_WEEKLY_ADDS = 10
 STREAMING_ADDS_BUDGET = 5
 
+# League-average pitcher WHIP — fallback when a roster row lacks a value.
+_LEAGUE_AVG_WHIP: float = 1.30
+# WHIP > this value = "ratio-destruction risk" — gates pitcher streams.
+_WHIP_SAFETY_CEILING: float = 1.40
+
 
 # ── Streaming Recommendations ────────────────────────────────────────
 
@@ -225,10 +230,10 @@ def compute_schedule_aware_streams(
                 rate_damage = ts.get("rate_damage_weekly", {})
                 era_risk = rate_damage.get("era_change", 0)
                 whip_risk = rate_damage.get("whip_change", 0)
-                # WHIP safety: career WHIP > 1.40 = risky for ratios
+                # WHIP safety: career WHIP > _WHIP_SAFETY_CEILING = risky for ratios
                 p_row = fa_pool[fa_pool["player_id"] == pid]
-                whip = float(p_row.iloc[0].get("whip", 1.30)) if not p_row.empty else 1.30
-                whip_safe = whip <= 1.40
+                whip = float(p_row.iloc[0].get("whip", _LEAGUE_AVG_WHIP)) if not p_row.empty else _LEAGUE_AVG_WHIP
+                whip_safe = whip <= _WHIP_SAFETY_CEILING
 
                 stream_value = ts.get("two_start_value", 0)
                 results.append(

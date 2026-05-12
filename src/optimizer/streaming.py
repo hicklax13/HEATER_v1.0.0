@@ -45,6 +45,14 @@ _DEFAULT_TEAM_WEEKLY_IP = 55.0
 # 2nd start rate stat quality factor (7% ERA/WHIP decay from fatigue).
 _TWO_START_FATIGUE_FACTOR = 0.93
 
+# League-average rate-stat baselines used as fallbacks when a pitcher
+# row has no ERA/WHIP value. ~4.50 ERA / 1.30 WHIP track recent MLB
+# league averages (FanGraphs Guts; updated annually).
+_LEAGUE_AVG_ERA: float = 4.50
+_LEAGUE_AVG_WHIP: float = 1.30
+# League-average opponent wOBA — neutral matchup baseline.
+_LEAGUE_AVG_WOBA: float = 0.320
+
 
 # ── Helpers ──────────────────────────────────────────────────────────
 
@@ -110,8 +118,8 @@ def compute_streaming_value(
     ip = _get(pitcher, "ip", _DEFAULT_IP_PER_START)
     total_k = _get(pitcher, "k", 0.0)
     total_w = _get(pitcher, "w", 0.0)
-    era = _get(pitcher, "era", 4.50)
-    whip = _get(pitcher, "whip", 1.30)
+    era = _get(pitcher, "era", _LEAGUE_AVG_ERA)
+    whip = _get(pitcher, "whip", _LEAGUE_AVG_WHIP)
 
     # Normalise to per-start if season totals are large
     if ip > 15:
@@ -183,7 +191,7 @@ def compute_streaming_value(
 
 def compute_streaming_composite(
     pitcher: Any,
-    opp_woba: float = 0.320,
+    opp_woba: float = _LEAGUE_AVG_WOBA,
     park_factor: float = 1.0,
     recent_form_era: float | None = None,
     career_whip: float | None = None,
@@ -217,11 +225,11 @@ def compute_streaming_composite(
 
     # Opponent quality multiplier: weaker opponents = better streaming target
     # League avg wOBA ~0.320. Inverse scaling: 0.280 opp → 1.14x, 0.360 → 0.89x
-    opp_mult = min(1.3, max(0.7, 0.320 / max(opp_woba, 0.200)))
+    opp_mult = min(1.3, max(0.7, _LEAGUE_AVG_WOBA / max(opp_woba, 0.200)))
 
     # Recent form multiplier: L3 starts ERA relative to season projection
     form_mult = 1.0
-    proj_era = _get(pitcher, "era", 4.50)
+    proj_era = _get(pitcher, "era", _LEAGUE_AVG_ERA)
     if recent_form_era is not None and proj_era > 0:
         # Good recent form (lower ERA than projected) = bonus
         form_ratio = proj_era / max(recent_form_era, 1.0)
@@ -428,8 +436,8 @@ def quantify_two_start_value(
     ip = _get(pitcher_stats, "ip", _DEFAULT_IP_PER_START)
     total_k = _get(pitcher_stats, "k", 0.0)
     total_w = _get(pitcher_stats, "w", 0.0)
-    era = _get(pitcher_stats, "era", 4.50)
-    whip = _get(pitcher_stats, "whip", 1.30)
+    era = _get(pitcher_stats, "era", _LEAGUE_AVG_ERA)
+    whip = _get(pitcher_stats, "whip", _LEAGUE_AVG_WHIP)
 
     # Normalise to per-start
     if ip > 30:
@@ -565,7 +573,7 @@ def compute_bayesian_stream_score(
     pitcher_k9: float,
     pitcher_fip: float,
     opp_k_pct: float = 0.225,
-    opp_woba: float = 0.320,
+    opp_woba: float = _LEAGUE_AVG_WOBA,
     is_home: bool = False,
     sgp_denominators: dict[str, float] | None = None,
 ) -> dict:
@@ -584,17 +592,17 @@ def compute_bayesian_stream_score(
     expected_k = (pitcher_k9 / 9.0) * expected_ip * (opp_k_pct / 0.225)
 
     # Expected ER
-    expected_er = (pitcher_era / 9.0) * expected_ip * (opp_woba / 0.320)
+    expected_er = (pitcher_era / 9.0) * expected_ip * (opp_woba / _LEAGUE_AVG_WOBA)
 
     # Win probability
     home_adj = 1.04 if is_home else 1.0
-    era_factor = min(1.0, (4.50 - pitcher_era) / 4.50)  # Allow negative for ERA > 4.50
+    era_factor = min(1.0, (_LEAGUE_AVG_ERA - pitcher_era) / _LEAGUE_AVG_ERA)  # negative for ERA > league avg
     win_prob = min(0.95, max(0.05, 0.5 * (1.0 + era_factor) * home_adj))
 
     # Risk penalty
     if expected_ip > 0:
         era_implied = (expected_er / expected_ip) * 9.0
-        risk_penalty = max(1.0, era_implied / 4.50)
+        risk_penalty = max(1.0, era_implied / _LEAGUE_AVG_ERA)
     else:
         risk_penalty = 2.0
 

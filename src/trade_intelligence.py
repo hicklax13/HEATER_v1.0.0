@@ -31,6 +31,26 @@ SV_SCARCITY_MULT = 1.3
 SCARCE_POS_MULT = 1.15
 SCARCE_POSITIONS = {"C", "SS", "2B"}
 
+# Default health score for a player with no injury history.
+# Rationale: 0.85 represents "league-baseline healthy player" — the same
+# value used in draft_engine.DEFAULT_HEALTH_SCORE, cheat_sheet, and
+# playing_time_model. Centralizing here avoids drift across callers.
+DEFAULT_HEALTH_SCORE: float = 0.85
+
+# Health-score thresholds used when adjusting for current IL/DTD status.
+# A player above the "near healthy" threshold gets pushed down by IL10/15;
+# above the "moderately healthy" threshold gets pushed down by IL60/out;
+# the same near-healthy bar applies to DTD.
+_HEALTH_NEAR_HEALTHY: float = 0.80
+_HEALTH_MODERATELY_HEALTHY: float = 0.60
+
+# Adjusted health values applied to currently-injured players. Bounds set
+# from historical injury-recovery data — see roadmap "STATUS_MULTIPLIERS"
+# tuning notes.
+_HEALTH_AFTER_IL10_15: float = 0.65
+_HEALTH_AFTER_IL60_OUT: float = 0.40
+_HEALTH_AFTER_DTD: float = 0.75
+
 # IL/DTD production multipliers (fraction of remaining season retained)
 # Based on 22 weeks remaining as of early April
 STATUS_MULTIPLIERS: dict[str, float] = {
@@ -306,19 +326,20 @@ def get_health_adjusted_pool(
     else:
         health_scores = _load_health_scores()
         roster_statuses = _load_roster_statuses()
-        pool["health_score"] = pool["player_id"].map(health_scores).fillna(0.85)
+        pool["health_score"] = pool["player_id"].map(health_scores).fillna(DEFAULT_HEALTH_SCORE)
         pool["_orig_health"] = pool["health_score"].copy()
         pool["status"] = pool["player_id"].map(roster_statuses).fillna("active")
 
         # Adjust health scores based on current IL/DTD status
         for idx, row in pool.iterrows():
             status = str(row.get("status", "active")).lower().strip()
-            if status in ("il10", "il15", "dl") and row.get("health_score", 0.85) >= 0.80:
-                pool.at[idx, "health_score"] = 0.65
-            elif status in ("il60", "out") and row.get("health_score", 0.85) >= 0.60:
-                pool.at[idx, "health_score"] = 0.40
-            elif status == "dtd" and row.get("health_score", 0.85) >= 0.80:
-                pool.at[idx, "health_score"] = 0.75
+            hs = row.get("health_score", DEFAULT_HEALTH_SCORE)
+            if status in ("il10", "il15", "dl") and hs >= _HEALTH_NEAR_HEALTHY:
+                pool.at[idx, "health_score"] = _HEALTH_AFTER_IL10_15
+            elif status in ("il60", "out") and hs >= _HEALTH_MODERATELY_HEALTHY:
+                pool.at[idx, "health_score"] = _HEALTH_AFTER_IL60_OUT
+            elif status == "dtd" and hs >= _HEALTH_NEAR_HEALTHY:
+                pool.at[idx, "health_score"] = _HEALTH_AFTER_DTD
 
     # --- Exclude NA/minors players ---
     na_mask = pool["status"].str.lower().isin(["na", "not active", "minors"])
@@ -357,9 +378,9 @@ def get_health_adjusted_pool(
         mult = STATUS_MULTIPLIERS.get(status, 1.0)
         if mult < 1.0:
             idx = row.name
-            health = row.get("_orig_health", 0.85)
+            health = row.get("_orig_health", DEFAULT_HEALTH_SCORE)
             # Combined multiplier: IL status * historical health
-            combined = mult * min(health / 0.85, 1.0)
+            combined = mult * min(health / DEFAULT_HEALTH_SCORE, 1.0)
             for col in counting_cols:
                 if col in pool.columns:
                     pool.at[idx, col] = pool.at[idx, col] * combined
@@ -700,7 +721,7 @@ def compute_trade_readiness(
         proj_quality = min(effective_ip / _AVG_PITCHER_STAB, 1.0) * 100
 
     # --- 3. Health score (15%) ---
-    health = float(p.get("health_score", 0.85)) * 100
+    health = float(p.get("health_score", DEFAULT_HEALTH_SCORE)) * 100
 
     # --- 4. Scarcity premium (10%) ---
     scarcity_mult = float(p.get("scarcity_mult", 1.0))
@@ -812,7 +833,7 @@ def compute_trade_readiness_batch(
             proj_quality = min(effective_ip / _AVG_PITCHER_STAB, 1.0) * 100
 
         # Health
-        health = float(p.get("health_score", 0.85)) * 100
+        health = float(p.get("health_score", DEFAULT_HEALTH_SCORE)) * 100
 
         # Scarcity
         scarcity_mult = float(p.get("scarcity_mult", 1.0))
