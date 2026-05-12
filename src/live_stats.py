@@ -711,6 +711,107 @@ def fetch_all_mlb_players(season: int = 2026) -> pd.DataFrame:
     return pd.DataFrame(rows) if rows else pd.DataFrame()
 
 
+# Wave 9: MLB Stats API sportId codes for minor leagues
+_MINOR_LEAGUE_SPORT_IDS: dict[str, int] = {
+    "AAA": 11,
+    "AA": 12,
+}
+
+
+def fetch_minor_league_players(
+    season: int = 2026,
+    levels: tuple[str, ...] = ("AAA", "AA"),
+    top_n_per_team: int = 30,
+) -> pd.DataFrame:
+    """Fetch AAA/AA active players, capped at top-N per affiliate.
+
+    Wave 9 INFRA-F5 (Option B): expands the player universe beyond the
+    40-man MLB roster + spring training pool to include the top
+    minor-league prospects/depth-chart candidates.
+
+    Returns a DataFrame with the same columns as fetch_all_mlb_players()
+    plus a `level` column set to "AAA" or "AA" per the source sportId.
+    Yahoo ownership data is NOT available for minor leaguers — consumers
+    must handle NULL percent_owned appropriately.
+
+    Args:
+        season: Season year (default 2026).
+        levels: Minor-league levels to fetch (default both AAA and AA).
+        top_n_per_team: Cap per affiliate to control universe size.
+
+    Returns:
+        DataFrame indexed 0..N with columns matching fetch_all_mlb_players()
+        plus `level`. Empty DataFrame on any failure.
+    """
+    if statsapi is None:
+        logger.warning(
+            "fetch_minor_league_players: MLB-StatsAPI unavailable; returning empty (no minor-league universe expansion)"
+        )
+        return pd.DataFrame()
+
+    team_map = _build_team_id_map(season)
+
+    all_rows: list[dict] = []
+    for level in levels:
+        sport_id = _MINOR_LEAGUE_SPORT_IDS.get(level)
+        if sport_id is None:
+            logger.warning(
+                "fetch_minor_league_players: unknown level %r; skipping",
+                level,
+            )
+            continue
+
+        try:
+            data = statsapi.get(
+                "sports_players",
+                {"season": season, "sportId": sport_id, "gameType": "R"},
+                request_kwargs={"timeout": _API_TIMEOUT},
+            )
+        except Exception as exc:
+            logger.warning(
+                "fetch_minor_league_players: %s fetch failed (sportId=%d): %s",
+                level,
+                sport_id,
+                exc,
+                exc_info=True,
+            )
+            continue
+
+        # Group raw rows by team_id so we can cap per affiliate.
+        by_team: dict[int, list[dict]] = {}
+        for p in data.get("people", []):
+            if not p.get("active", False):
+                continue
+            team_id = p.get("currentTeam", {}).get("id")
+            if team_id is None:
+                continue
+            by_team.setdefault(team_id, []).append(p)
+
+        for team_id, players in by_team.items():
+            # Cap at top_n_per_team — preserve API order (MLB sorts by
+            # roster position, which approximates depth-chart prominence).
+            for p in players[:top_n_per_team]:
+                pos_info = p.get("primaryPosition", {})
+                pos_abbr = pos_info.get("abbreviation", "Util")
+                pos_type = pos_info.get("type", "")
+                is_hitter = pos_type != "Pitcher" and pos_abbr != "P"
+                all_rows.append(
+                    {
+                        "mlb_id": p.get("id"),
+                        "name": p.get("fullName", ""),
+                        "team": team_map.get(team_id, ""),
+                        "positions": pos_abbr if pos_abbr not in ("0", "-", "") else "Util",
+                        "is_hitter": is_hitter,
+                        "bats": p.get("batSide", {}).get("code", ""),
+                        "throws": p.get("pitchHand", {}).get("code", ""),
+                        "birth_date": p.get("birthDate", ""),
+                        "level": level,
+                    }
+                )
+
+    return pd.DataFrame(all_rows) if all_rows else pd.DataFrame()
+
+
 def fetch_extended_roster(season: int = 2026) -> pd.DataFrame:
     """Fetch extended player pool: active roster + spring training.
 
