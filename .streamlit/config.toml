@@ -7,8 +7,14 @@ font = "sans serif"
 
 [server]
 headless = true
-enableXsrfProtection = false
-enableCORS = false
+# BUG-025: XSRF + CORS protections enabled. The app is "in-season
+# production-active" per CLAUDE.md; if hosted beyond localhost, disabling
+# either is exploitable (especially via Yahoo OAuth form submits). For
+# local-dev quirks that genuinely need either off, override via the
+# STREAMLIT_SERVER_ENABLE_XSRF_PROTECTION / STREAMLIT_SERVER_ENABLE_CORS
+# env vars at run time rather than disabling in committed config.
+enableXsrfProtection = true
+enableCORS = true
 
 [browser]
 # Silence the "running on localhost" banner on cloud deployments
