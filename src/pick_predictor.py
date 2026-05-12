@@ -26,11 +26,15 @@ _SIGMA = 10.0  # ADP standard deviation (matches simulation.py default)
 
 def weibull_survival(
     picks_remaining: float,
-    adp_distance: float,  # unused, kept for API compat
     shape: float,
     scale: float,
 ) -> float:
-    """Weibull survival S(t) = exp(-(t/lambda)^k), clamped [0,1]."""
+    """Weibull survival S(t) = exp(-(t/lambda)^k), clamped [0,1].
+
+    Audit D6D dead-param cleanup (Wave 8d): the legacy ``adp_distance``
+    parameter was unused; its information is already encoded in
+    ``scale`` by the caller (scale = adp_distance * 1.5).
+    """
     if scale <= 0 or picks_remaining <= 0:
         return 1.0
     return max(0.0, min(1.0, math.exp(-((picks_remaining / scale) ** shape))))
@@ -95,7 +99,7 @@ def compute_survival_curve(
         # Weibull component
         adp_dist = max(1.0, player_adp - current_pick)
         scale = adp_dist * 1.5
-        p_weibull = weibull_survival(picks_between, adp_dist, shape, scale)
+        p_weibull = weibull_survival(picks_between, shape, scale)
         # Blend
         p_blended = 0.6 * p_normal + 0.4 * p_weibull
         results.append(

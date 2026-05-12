@@ -13,24 +13,24 @@ from src.pick_predictor import (
 
 
 def test_weibull_survival_decreases():
-    s1 = weibull_survival(5, 20.0, 1.0, 30.0)
-    s2 = weibull_survival(15, 20.0, 1.0, 30.0)
+    s1 = weibull_survival(5, 1.0, 30.0)
+    s2 = weibull_survival(15, 1.0, 30.0)
     assert s1 > s2
 
 
 def test_weibull_survival_bounds():
-    s = weibull_survival(1, 50.0, 1.0, 75.0)
+    s = weibull_survival(1, 1.0, 75.0)
     assert 0.0 <= s <= 1.0
 
 
 def test_weibull_shape_above_one():
-    s_early = weibull_survival(5, 20.0, 1.4, 30.0)
-    s_late = weibull_survival(20, 20.0, 1.4, 30.0)
+    s_early = weibull_survival(5, 1.4, 30.0)
+    s_late = weibull_survival(20, 1.4, 30.0)
     assert s_late < s_early
 
 
 def test_weibull_zero_scale():
-    s = weibull_survival(10, 20.0, 1.0, 0.0)
+    s = weibull_survival(10, 1.0, 0.0)
     assert s == 1.0
 
 
