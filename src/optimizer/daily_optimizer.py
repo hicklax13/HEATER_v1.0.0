@@ -23,6 +23,28 @@ from src.valuation import canonicalize_team
 
 logger = logging.getLogger(__name__)
 
+# Bounds for the recent-form (L14) adjustment multiplier on per-stat
+# projections. Per spec, a player's L14-vs-projected ratio is clamped to
+# [_FORM_CLIP_LO, _FORM_CLIP_HI] to prevent a hot/cold streak from
+# swinging a single-game DCV by more than ±20%.
+_FORM_CLIP_LO: float = 0.80
+_FORM_CLIP_HI: float = 1.20
+
+# Bounds for the matchup multiplier from opposing-offense wRC+ (pitchers
+# only). League-average wRC+ = 100; ~1.0 per 40 wRC+ points, capped at
+# ±20% so no single matchup dominates a pitcher's value.
+_OFFENSE_MULT_LO: float = 0.80
+_OFFENSE_MULT_HI: float = 1.20
+
+# Bounds for the platoon multiplier from batter-vs-pitcher handedness.
+# Clamped tighter than other matchup factors because platoon splits are
+# already conservative (~7.5% L-vs-R wOBA edge).
+_PLATOON_MULT_LO: float = 0.80
+_PLATOON_MULT_HI: float = 1.20
+
+# Full-season game count used for per-game rate computation.
+_FULL_SEASON_GAMES: float = 162.0
+
 
 @dataclass
 class DailyDCVContext:
@@ -333,7 +355,7 @@ def compute_matchup_multiplier(
         plat = platoon_adjustment(batter_hand, pitcher_hand, None, None, 0)
         # platoon_adjustment returns a multiplicative factor
         if plat and abs(plat) > 0:
-            mult *= max(0.8, min(1.2, plat))
+            mult *= max(_PLATOON_MULT_LO, min(_PLATOON_MULT_HI, plat))
     except (ImportError, Exception):
         pass
 
@@ -365,7 +387,7 @@ def compute_matchup_multiplier(
             # Inverse: 120 wRC+ → (100-120)/40 = -0.5 → ~0.95 multiplier
             # 80 wRC+ → (100-80)/40 = 0.5 → ~1.05 multiplier
             _off_mult = 1.0 + (100.0 - _wrcp) / 80.0
-            mult *= max(0.80, min(1.20, _off_mult))
+            mult *= max(_OFFENSE_MULT_LO, min(_OFFENSE_MULT_HI, _off_mult))
         except (TypeError, ValueError):
             pass
 
@@ -889,8 +911,8 @@ def build_daily_dcv_table(
                             orig = float(player.get(stat_key, 0) or 0)
                             if orig > 0:
                                 blended = _base_weight * orig + _form_weight * float(form_val)
-                                lo = orig * 0.80
-                                hi = orig * 1.20
+                                lo = orig * _FORM_CLIP_LO
+                                hi = orig * _FORM_CLIP_HI
                                 form_adjustments[stat_key] = max(lo, min(hi, blended))
                     # Counting stats: use rate-ratio from L14 per-game vs projected per-game
                     for stat_key in ("r", "hr", "rbi", "sb"):
@@ -900,11 +922,11 @@ def build_daily_dcv_table(
                             if orig > 0:
                                 # L14 per-game rate vs projected per-162 per-game rate
                                 form_per_game = float(form_val) / form_games
-                                proj_per_game = orig / 162.0
+                                proj_per_game = orig / _FULL_SEASON_GAMES
                                 if proj_per_game > 0:
                                     ratio = form_per_game / proj_per_game
                                     adj = _base_weight * 1.0 + _form_weight * ratio
-                                    adj = max(0.80, min(1.20, adj))
+                                    adj = max(_FORM_CLIP_LO, min(_FORM_CLIP_HI, adj))
                                     form_adjustments[stat_key] = orig * adj
                 else:
                     # Pitcher rate stats: blend directly
@@ -914,8 +936,8 @@ def build_daily_dcv_table(
                             orig = float(player.get(stat_key, 0) or 0)
                             if orig > 0:
                                 blended = _base_weight * orig + _form_weight * float(form_val)
-                                lo = orig * 0.80
-                                hi = orig * 1.20
+                                lo = orig * _FORM_CLIP_LO
+                                hi = orig * _FORM_CLIP_HI
                                 form_adjustments[stat_key] = max(lo, min(hi, blended))
                     # Pitcher counting stats: K, W, SV
                     for stat_key in ("k", "w", "sv"):
@@ -924,11 +946,11 @@ def build_daily_dcv_table(
                             orig = float(player.get(stat_key, 0) or 0)
                             if orig > 0:
                                 form_per_game = float(form_val) / form_games
-                                proj_per_game = orig / 162.0
+                                proj_per_game = orig / _FULL_SEASON_GAMES
                                 if proj_per_game > 0:
                                     ratio = form_per_game / proj_per_game
                                     adj = _base_weight * 1.0 + _form_weight * ratio
-                                    adj = max(0.80, min(1.20, adj))
+                                    adj = max(_FORM_CLIP_LO, min(_FORM_CLIP_HI, adj))
                                     form_adjustments[stat_key] = orig * adj
 
         # Compute DCV per category
