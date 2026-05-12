@@ -2073,9 +2073,10 @@ with main:
                         unsafe_allow_html=True,
                     )
                     proj = lineup["projected_stats"]
-                    # Scale counting stats to weekly (24-week fantasy season).
+                    # Scale counting stats to weekly. Canonical per CLAUDE.md
+                    # "Counting stats divided by 26 weeks" — was 24.0 (BUG-018).
                     # Rate stats (AVG, OBP, ERA, WHIP) don't scale.
-                    WEEKS_IN_SEASON = 24.0
+                    WEEKS_IN_SEASON = 26.0
                     _rate_stats = {"avg", "obp", "era", "whip"}
                     weekly_proj: dict[str, float] = {}
                     for cat, val in proj.items():
