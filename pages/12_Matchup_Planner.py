@@ -551,7 +551,15 @@ with main:
             st.error(f"Could not load roster for {team_name}: {exc}")
             roster_df = pd.DataFrame()
     else:
-        # Fallback: use the top 23 players from the pool as a demo roster
+        # Fallback: use the top 23 players from the pool as a demo roster.
+        # (BUG-024) Surface a banner so the user knows the displayed
+        # matchup ratings are against demo data, not their real team.
+        st.warning(
+            "No team selected or roster not yet loaded — showing **demo data** "
+            "based on the top 23 players from the pool. Matchup ratings below "
+            "are illustrative only. Connect to Yahoo or pick a team to see "
+            "your real roster."
+        )
         roster_df = pool.head(23).rename(columns={"player_name": "name"})
 
     if roster_df is None or roster_df.empty:
