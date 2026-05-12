@@ -232,8 +232,13 @@ def learn_opponent_trade_behavior(
                 dates = pd.to_datetime(transactions["timestamp"], errors="coerce").dropna()
                 if len(dates) >= 2:
                     weeks_active = max(1, (dates.max() - dates.min()).days / 7)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning(
+                    "opponent_trade_analysis.get_opponent_archetype: timestamp parsing failed "
+                    "for transactions; weeks_active will default to 1 (trade_frequency inflated): %s",
+                    exc,
+                    exc_info=True,
+                )
 
     result["trade_frequency"] = trade_count / max(1, weeks_active)
 

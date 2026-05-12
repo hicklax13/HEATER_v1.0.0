@@ -688,8 +688,12 @@ def _init_db_tables_and_columns(conn):
             )
         """)
         conn.commit()
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning(
+            "database.init: CREATE TABLE league_draft_picks failed; draft-history features may be unavailable: %s",
+            exc,
+            exc_info=True,
+        )
 
     # Gap 8: Team details (FAAB, waiver priority, activity counts)
     _safe_add_column(conn, "league_teams", "faab_balance", "REAL")
@@ -1484,8 +1488,13 @@ def _enrich_pool(df: pd.DataFrame) -> pd.DataFrame:
                 df.loc[mask_gain, "velo_regression_flag"] = "BUY_LOW"
         finally:
             _conn_velo.close()
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning(
+            "database._build_player_pool: velocity-delta regression flag computation failed; "
+            "pitcher SELL_HIGH/BUY_LOW velo flags will be blank: %s",
+            exc,
+            exc_info=True,
+        )
 
     # G2: Stuff+ pitcher regression flags
     # Stuff+ >100 = above-average stuff. If actual ERA >> expected (high Stuff+ but bad ERA),
@@ -2348,7 +2357,15 @@ def load_matchup_cache(team_name: str, week: int | None = None) -> dict | None:
         if not row:
             return None
         return _json.loads(row[0])
-    except Exception:
+    except Exception as exc:
+        logger.warning(
+            "database.load_matchup_cache: matchup_cache read failed for team_name=%r week=%r; "
+            "callers will see no cached matchup (forcing a live Yahoo refetch): %s",
+            team_name,
+            week,
+            exc,
+            exc_info=True,
+        )
         return None
     finally:
         conn.close()

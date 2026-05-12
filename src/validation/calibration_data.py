@@ -210,8 +210,14 @@ def _resolve_league_key(yahoo_client: Any, season: int) -> str | None:
         league_id = getattr(yahoo_client, "league_id", None)
         if league_id:
             return f"{game_key}.l.{league_id}"
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning(
+            "calibration_data._build_league_key: failed to read league_id from "
+            "yahoo_client; calibration run will skip the season=%s lookup: %s",
+            season,
+            exc,
+            exc_info=True,
+        )
     return None
 
 

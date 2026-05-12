@@ -11,6 +11,8 @@ from datetime import UTC, datetime, timedelta, timezone
 
 import pandas as pd
 
+logger = logging.getLogger(__name__)
+
 ET = timezone(timedelta(hours=-4))
 
 
@@ -21,8 +23,6 @@ def _fmt_et(dt_obj: datetime) -> str:
     ampm = "AM" if dt_et.hour < 12 else "PM"
     return f"{dt_et.strftime('%b %d')}, {hour}:{dt_et.strftime('%M')} {ampm} ET"
 
-
-logger = logging.getLogger(__name__)
 
 # IL stash players — do NOT drop or trade within 2 weeks of return
 IL_STASH_NAMES: set[str] = {"Shane Bieber", "Spencer Strider"}
@@ -76,8 +76,13 @@ def generate_roster_alerts(
                     top3 = ranked.head(3)
                     names = [str(r.get("player_name", r.get("name", "?"))) for _, r in top3.iterrows()]
                     top_fills_str = f" Top fills: {', '.join(names)}."
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning(
+                    "alerts.generate_roster_alerts: empty-roster FA fill recommendation "
+                    "computation failed; alert will lack Top-3 fill names: %s",
+                    exc,
+                    exc_info=True,
+                )
         alerts.append(
             {
                 "type": "empty_roster",
@@ -162,8 +167,13 @@ def generate_roster_alerts(
                 proj_sv_map = dict(zip(proj_df["player_id"], proj_df["sv"]))
         finally:
             conn.close()
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning(
+            "alerts.generate_roster_alerts: projected-SV DB load failed; closer-count "
+            "computation will rely on YTD SV only (may miss projected closers): %s",
+            exc,
+            exc_info=True,
+        )
 
     for _, p in roster.iterrows():
         actual_sv = float(p.get("sv", 0) or 0)
@@ -296,8 +306,13 @@ def generate_roster_alerts(
                         "timestamp": datetime.now(UTC).isoformat(),
                     }
                 )
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning(
+            "alerts.generate_roster_alerts: IL-stash candidate computation failed; "
+            "empty IL-slot alert will be missing recommended names: %s",
+            exc,
+            exc_info=True,
+        )
 
     return alerts
 
@@ -487,8 +502,14 @@ def _get_il_return_dates(roster: pd.DataFrame) -> dict:
                 pid = match_player_id(pname, inj.get("team", ""))
                 if pid is not None:
                     result[pid] = dt
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning(
+                    "alerts._get_il_return_dates: match_player_id failed for name=%r; "
+                    "IL-return-date will only be keyed by name (player_id lookup missed): %s",
+                    pname,
+                    exc,
+                    exc_info=True,
+                )
     except Exception:
         logger.debug("Could not fetch ESPN injury return dates", exc_info=True)
 

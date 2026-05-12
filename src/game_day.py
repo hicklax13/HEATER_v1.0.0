@@ -1183,8 +1183,14 @@ def fetch_pitcher_pitch_mix(mlb_id: int, season: int = 2026) -> dict[str, float]
     try:
         if st is not None:
             st.session_state[cache_key] = {"data": result, "ts": time.time()}
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning(
+            "game_day: failed to cache pitch-mix result in session_state for mlb_id=%s; "
+            "next call will re-fetch from statsapi (slower): %s",
+            mlb_id,
+            exc,
+            exc_info=True,
+        )
 
     logger.debug("Pitch mix for mlb_id=%d: %s", mlb_id, result)
     return result

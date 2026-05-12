@@ -358,8 +358,14 @@ def compute_todays_actions(
                     wrc = strength.get("wrc_plus")
                     if wrc is not None:
                         opp_wrc = float(wrc)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning(
+                    "war_room_actions: get_team_strength failed for opp=%r; "
+                    "pitcher protect-vs-tough-matchup logic will assume league-avg wRC+: %s",
+                    opp_label,
+                    exc,
+                    exc_info=True,
+                )
 
         if opp_wrc is not None and opp_wrc > 110:
             # Tough matchup

@@ -386,7 +386,12 @@ def _get_yahoo_client():
         import streamlit as st
 
         return st.session_state.get("yahoo_client")
-    except Exception:
+    except Exception as exc:
+        logger.warning(
+            "ecr._get_yahoo_client: failed to access streamlit session_state; Yahoo ADP enrichment will be skipped: %s",
+            exc,
+            exc_info=True,
+        )
         return None
 
 
@@ -789,8 +794,13 @@ def fetch_ecr_extended(position: str = "overall") -> pd.DataFrame:
             df["worst_rank"] = (df.get("ecr_rank", df.index + 1) * 1.2).astype(int)
             df["avg_rank"] = df.get("ecr_rank", df.index + 1).astype(float)
             return df
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning(
+            "ecr.fetch_ecr_extended: FantasyPros ECR fetch failed; "
+            "returning empty rankings (downstream consensus will lose this source): %s",
+            exc,
+            exc_info=True,
+        )
     return pd.DataFrame(columns=["player_name", "ecr_rank", "best_rank", "worst_rank", "avg_rank", "position"])
 
 

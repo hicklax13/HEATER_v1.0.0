@@ -64,8 +64,14 @@ def _live_stats_ttl_hours(default_hours: float = 1.0) -> float:
         hour = now_et.hour
         if hour >= 19 or hour < 1:
             return 0.25  # 15 minutes during active game window
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning(
+            "data_bootstrap._live_stats_ttl_hours: ET clock probe failed; "
+            "falling back to default_hours=%.2f (no game-window acceleration): %s",
+            default_hours,
+            exc,
+            exc_info=True,
+        )
     return default_hours
 
 
@@ -1283,8 +1289,13 @@ def _bootstrap_stuff_plus(progress: BootstrapProgress) -> str:
                 _classify_fetch_error(exc),
                 message=base_msg,
             )
-        except Exception:
-            pass
+        except Exception as log_exc:
+            logger.warning(
+                "data_bootstrap._bootstrap_stuff_plus: refresh_log update failed during "
+                "error-handling path; bootstrap status panel will be missing this phase: %s",
+                log_exc,
+                exc_info=True,
+            )
         base = _format_fetch_error(exc, "FanGraphs Stuff+")
         if base.startswith("Skipped:") or "403" in str(exc):
             return (
@@ -1448,8 +1459,13 @@ def _bootstrap_batting_stats(progress: BootstrapProgress) -> str:
                 _classify_fetch_error(exc),
                 message=base_msg,
             )
-        except Exception:
-            pass
+        except Exception as log_exc:
+            logger.warning(
+                "data_bootstrap._bootstrap_batting_stats: refresh_log update failed during "
+                "error-handling path; bootstrap status panel will be missing this phase: %s",
+                log_exc,
+                exc_info=True,
+            )
         base = _format_fetch_error(exc, "FanGraphs Batting Stats")
         if base.startswith("Skipped:") or "403" in str(exc):
             return (

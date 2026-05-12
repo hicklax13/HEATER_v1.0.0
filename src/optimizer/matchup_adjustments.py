@@ -699,11 +699,27 @@ def compute_weekly_matchup_adjustments(
     umpire_data: dict[str, dict[str, float]] = {}
     try:
         umpire_data = get_umpire_adjustment()
-    except Exception:
-        pass  # Umpire data is a nice-to-have enhancement
+    except Exception as exc:
+        # Umpire data is a nice-to-have enhancement, but operators should
+        # see that the umpire adjustments are being skipped.
+        logger.warning(
+            "optimizer.matchup_adjustments.apply_matchup_adjustments: get_umpire_adjustment "
+            "failed; umpire-tendency K/BB/run-env adjustments will be skipped for this run: %s",
+            exc,
+            exc_info=True,
+        )
 
     result = roster.copy()
     result["matchup_adjusted"] = False
+
+    # Loop-flood guards (Wave 8b CodeRabbit follow-up): if catcher_framing
+    # or umpire-tendency data is broken (e.g. SF-7 seed regression), the
+    # per-row try/except below would emit N warnings per roster — log only
+    # the FIRST of each kind with traceback + a summary at loop exit.
+    _framing_failures = 0
+    _framing_first_logged = False
+    _umpire_failures = 0
+    _umpire_first_logged = False
 
     for idx, row in result.iterrows():
         team = str(row.get("team", "")).upper().strip()
@@ -802,8 +818,21 @@ def compute_weekly_matchup_adjustments(
                             result.at[idx, "era"] = adj_era
                             result.at[idx, "k"] = adj_k
                             any_adjusted = True
-            except Exception:
-                pass  # Catcher framing is a nice-to-have, not critical
+            except Exception as exc:
+                # Catcher framing is a nice-to-have, but a silent failure here
+                # masks regressions in the framing pipeline (SF-7).
+                _framing_failures += 1
+                if not _framing_first_logged:
+                    logger.warning(
+                        "optimizer.matchup_adjustments.compute_weekly_matchup_adjustments: "
+                        "first per-row catcher-framing failure (further failures suppressed) "
+                        "for team=%r idx=%s; pitcher ERA/K stay at projection: %s",
+                        team,
+                        idx,
+                        exc,
+                        exc_info=True,
+                    )
+                    _framing_first_logged = True
 
         # Umpire tendency adjustment (pitchers: K/BB; hitters: runs)
         if umpire_data and games:
@@ -828,11 +857,36 @@ def compute_weekly_matchup_adjustments(
                         _, _, adj_r = apply_umpire_adjustment(0, 0, r_val, ump)
                         result.at[idx, "r"] = adj_r
                         any_adjusted = True
-            except Exception:
-                pass  # Umpire adjustment is a nice-to-have
+            except Exception as exc:
+                # Umpire adjustment is a nice-to-have, but a silent failure means
+                # the per-player ump K/BB/R adjustment was dropped without trace.
+                _umpire_failures += 1
+                if not _umpire_first_logged:
+                    logger.warning(
+                        "optimizer.matchup_adjustments.compute_weekly_matchup_adjustments: "
+                        "first per-row umpire failure (further failures suppressed) for "
+                        "idx=%s; player stays at base projection: %s",
+                        idx,
+                        exc,
+                        exc_info=True,
+                    )
+                    _umpire_first_logged = True
 
         if any_adjusted:
             result.at[idx, "matchup_adjusted"] = True
+
+    if _framing_failures > 1:
+        logger.warning(
+            "optimizer.matchup_adjustments.compute_weekly_matchup_adjustments: %d additional "
+            "catcher-framing failures suppressed (first logged above)",
+            _framing_failures - 1,
+        )
+    if _umpire_failures > 1:
+        logger.warning(
+            "optimizer.matchup_adjustments.compute_weekly_matchup_adjustments: %d additional "
+            "umpire failures suppressed (first logged above)",
+            _umpire_failures - 1,
+        )
 
     return result
 
@@ -984,7 +1038,13 @@ def get_catcher_framing_data() -> dict[int, dict[str, float]]:
                 "games_caught": int(row.get("games_caught", 0)),
             }
         return result
-    except Exception:
+    except Exception as exc:
+        logger.warning(
+            "optimizer.matchup_adjustments.get_catcher_framing_data: DB read of "
+            "catcher_framing failed; pitcher framing adjustments will be disabled: %s",
+            exc,
+            exc_info=True,
+        )
         return {}
 
 
@@ -1120,7 +1180,13 @@ def get_pvb_matchup_data(
                 "woba": float(row.get("woba", 0)),
             }
         return result
-    except Exception:
+    except Exception as exc:
+        logger.warning(
+            "optimizer.matchup_adjustments.get_pvb_matchup_data: pvb_splits DB read failed; "
+            "pitcher-vs-batter history adjustments will be disabled: %s",
+            exc,
+            exc_info=True,
+        )
         return {}
 
 

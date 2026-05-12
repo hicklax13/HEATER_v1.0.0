@@ -256,7 +256,13 @@ class DraftMLEnsemble:
             return {}
         try:
             return dict(model.get_score(importance_type="gain"))
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "ml_ensemble.compute_feature_importance: XGBoost model.get_score failed; "
+                "returning empty importance map (UI will lack feature-attribution): %s",
+                exc,
+                exc_info=True,
+            )
             return {}
 
     @property

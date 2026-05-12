@@ -94,6 +94,11 @@ def save_espn_injuries_to_db(injuries: list[dict]) -> int:
 
     conn = get_connection()
     count = 0
+    # Loop-flood guard: track per-row INSERT failures so a persistent
+    # failure (e.g. schema regression) logs once with traceback + a
+    # single summary line at loop exit, instead of N warnings.
+    _row_failures = 0
+    _row_first_logged = False
     try:
         from datetime import UTC, datetime
 
@@ -131,12 +136,28 @@ def save_espn_injuries_to_db(injuries: list[dict]) -> int:
                     ),
                 )
                 count += 1
-            except Exception:
-                pass
+            except Exception as exc:
+                _row_failures += 1
+                if not _row_first_logged:
+                    logger.warning(
+                        "espn_injuries.store_injuries: first per-row INSERT failure "
+                        "(further failures suppressed) for player=%r; this injury "
+                        "entry will be missing from player_news: %s",
+                        inj.get("player_name", ""),
+                        exc,
+                        exc_info=True,
+                    )
+                    _row_first_logged = True
 
         conn.commit()
     finally:
         conn.close()
+
+    if _row_failures > 1:
+        logger.warning(
+            "espn_injuries.store_injuries: %d additional per-row INSERT failures suppressed (first logged above)",
+            _row_failures - 1,
+        )
 
     logger.info("Stored %d ESPN injury entries", count)
     return count
@@ -159,6 +180,11 @@ def update_player_injury_flags(injuries: list[dict]) -> int:
 
     conn = get_connection()
     count = 0
+    # Loop-flood guard: track per-row UPDATE failures so a persistent
+    # failure (e.g. schema regression) logs once with traceback + a
+    # single summary line at loop exit, instead of N warnings.
+    _row_failures = 0
+    _row_first_logged = False
     try:
         for inj in injuries:
             player_name = inj.get("player_name", "")
@@ -179,12 +205,30 @@ def update_player_injury_flags(injuries: list[dict]) -> int:
                     (note, player_id),
                 )
                 count += 1
-            except Exception:
-                pass
+            except Exception as exc:
+                _row_failures += 1
+                if not _row_first_logged:
+                    logger.warning(
+                        "espn_injuries.update_player_injury_flags: first per-row "
+                        "UPDATE failure (further failures suppressed) for "
+                        "player_id=%s name=%r; is_injured flag not set: %s",
+                        player_id,
+                        player_name,
+                        exc,
+                        exc_info=True,
+                    )
+                    _row_first_logged = True
 
         conn.commit()
     finally:
         conn.close()
+
+    if _row_failures > 1:
+        logger.warning(
+            "espn_injuries.update_player_injury_flags: %d additional per-row UPDATE "
+            "failures suppressed (first logged above)",
+            _row_failures - 1,
+        )
 
     logger.info("Updated is_injured flag for %d players", count)
     return count

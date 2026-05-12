@@ -222,8 +222,14 @@ def _get_prior_season_pa_ip(player_id: int, is_hitter: bool) -> float:
                 return float(row[0]) if is_hitter else float(row[1])
         finally:
             conn.close()
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning(
+            "trade_intelligence._get_prior_season_pa_ip: DB query failed for player_id=%s; "
+            "returning 0.0 (Bayesian stabilization will assume no prior-season volume): %s",
+            player_id,
+            exc,
+            exc_info=True,
+        )
     return 0.0
 
 
@@ -253,8 +259,14 @@ def _batch_prior_season_pa_ip(player_ids: list[int]) -> dict[tuple[int, bool], f
                 result[(pid, False)] = float(row[2])  # IP for pitchers
         finally:
             conn.close()
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning(
+            "trade_intelligence._batch_prior_season_pa_ip: batched DB query failed for "
+            "%d player_ids; returning partial/empty result (stabilization defaults will apply): %s",
+            len(player_ids),
+            exc,
+            exc_info=True,
+        )
     return result
 
 
@@ -1402,8 +1414,14 @@ def _evaluate_proposal(
 
                 archetype = get_opponent_archetype(opponent_team_name)
                 opp_willingness = archetype.get("trade_willingness", 0.5)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning(
+                    "trade_intelligence.assess_trade_target: opponent_archetype lookup failed "
+                    "for %r; acceptance probability will use neutral 0.5 willingness: %s",
+                    opponent_team_name,
+                    exc,
+                    exc_info=True,
+                )
 
         acceptance = estimate_acceptance_probability(
             user_gain_sgp=surplus_sgp,
@@ -1426,8 +1444,15 @@ def _evaluate_proposal(
             import math
 
             ecr_fair = math.sqrt(min(give_ecr, recv_ecr) / max(give_ecr, recv_ecr))
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning(
+            "trade_intelligence.assess_trade_target: ECR fairness computation failed for "
+            "giving_ids=%s target=%s; defaulting to ecr_fair=0.5 neutral: %s",
+            giving_ids,
+            target_player_id,
+            exc,
+            exc_info=True,
+        )
 
     # --- Need efficiency ---
     efficiency = score_trade_by_need_efficiency(category_impact, category_needs, config)

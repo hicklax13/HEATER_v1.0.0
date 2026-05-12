@@ -216,8 +216,14 @@ def get_opponent_for_week(week: int, yds=None) -> dict:
             schedule = yds.get_schedule()
             if schedule:
                 opponent_name = schedule.get(week)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning(
+                "opponent_intel.get_opponent_for_week: yds.get_schedule failed for week=%s; "
+                "falling back to hardcoded TEAM_HICKEY_SCHEDULE: %s",
+                week,
+                exc,
+                exc_info=True,
+            )
 
     if not opponent_name:
         opponent_name = TEAM_HICKEY_SCHEDULE.get(week)
@@ -230,8 +236,14 @@ def get_opponent_for_week(week: int, yds=None) -> dict:
             live_profile = yds.get_opponent_profile(opponent_name)
             if live_profile and live_profile.get("threat") != "Unknown":
                 return {"name": opponent_name, "week": week, **live_profile}
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning(
+                "opponent_intel.get_opponent_for_week: yds.get_opponent_profile failed for "
+                "opponent=%r; falling back to hardcoded OPPONENT_PROFILES: %s",
+                opponent_name,
+                exc,
+                exc_info=True,
+            )
 
     profile = OPPONENT_PROFILES.get(opponent_name, {})
     return {
