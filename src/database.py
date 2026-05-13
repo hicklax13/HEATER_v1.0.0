@@ -1536,13 +1536,18 @@ def _load_player_pool_impl() -> pd.DataFrame:
         cursor.execute("SELECT COUNT(*) FROM ros_projections")
         ros_count = cursor.fetchone()[0]
 
+        # Wave 9 INFRA-F5: `level` column added by migration. Be defensive
+        # so legacy DBs / test fixtures without the migration still load.
+        _players_cols = {row[1] for row in conn.execute("PRAGMA table_info(players)").fetchall()}
+        _level_select = "p.level" if "level" in _players_cols else "NULL AS level"
+
         if ros_count > 0:
             # Prefer Bayesian ROS projections — blended with actual 2026 performance
             df = pd.read_sql_query(
-                """
+                f"""
                 SELECT
                     p.player_id, p.name, p.team, p.positions, p.is_hitter, p.is_injured,
-                    p.mlb_id, p.bats, p.throws, p.level,
+                    p.mlb_id, p.bats, p.throws, {_level_select},
                     CASE WHEN p.birth_date IS NOT NULL AND p.birth_date != ''
                          THEN CAST((julianday('now') - julianday(p.birth_date)) / 365.25 AS INTEGER)
                          ELSE NULL END AS age,
@@ -1626,10 +1631,10 @@ def _load_player_pool_impl() -> pd.DataFrame:
         # Note: Do NOT use CAST on numeric columns — Python 3.14 SQLite returns raw bytes
         # for NumPy integers, and CAST corrupts them. Fix bytes in Python after loading.
         df = pd.read_sql_query(
-            """
+            f"""
             SELECT
                 p.player_id, p.name, p.team, p.positions, p.is_hitter, p.is_injured,
-                p.mlb_id, p.level,
+                p.mlb_id, {_level_select},
                 CASE WHEN p.birth_date IS NOT NULL AND p.birth_date != ''
                      THEN CAST((julianday('now') - julianday(p.birth_date)) / 365.25 AS INTEGER)
                      ELSE NULL END AS age,
@@ -1703,10 +1708,10 @@ def _load_player_pool_impl() -> pd.DataFrame:
         # dead code in that case.
         if blended_count == 0:
             df = pd.read_sql_query(
-                """
+                f"""
                 SELECT
                     p.player_id, p.name, p.team, p.positions, p.is_hitter, p.is_injured,
-                    p.mlb_id, p.bats, p.throws, p.level,
+                    p.mlb_id, p.bats, p.throws, {_level_select},
                     CASE WHEN p.birth_date IS NOT NULL AND p.birth_date != ''
                          THEN CAST((julianday('now') - julianday(p.birth_date)) / 365.25 AS INTEGER)
                          ELSE NULL END AS age,
