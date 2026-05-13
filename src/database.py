@@ -634,6 +634,9 @@ def _init_db_tables_and_columns(conn):
     _safe_add_column(conn, "players", "bats", "TEXT")
     _safe_add_column(conn, "players", "throws", "TEXT")
 
+    # Wave 9 INFRA-F5: minor-league universe expansion (Option B)
+    _safe_add_column(conn, "players", "level", "TEXT")  # NULL/"MLB"/"AAA"/"AA"
+
     # Phase 2 data foundation: advanced pitcher metrics
     for table in ("projections", "season_stats", "ros_projections"):
         _safe_add_column(conn, table, "fip", "REAL DEFAULT 0")
@@ -1533,13 +1536,18 @@ def _load_player_pool_impl() -> pd.DataFrame:
         cursor.execute("SELECT COUNT(*) FROM ros_projections")
         ros_count = cursor.fetchone()[0]
 
+        # Wave 9 INFRA-F5: `level` column added by migration. Be defensive
+        # so legacy DBs / test fixtures without the migration still load.
+        _players_cols = {row[1] for row in conn.execute("PRAGMA table_info(players)").fetchall()}
+        _level_select = "p.level" if "level" in _players_cols else "NULL AS level"
+
         if ros_count > 0:
             # Prefer Bayesian ROS projections — blended with actual 2026 performance
             df = pd.read_sql_query(
-                """
+                f"""
                 SELECT
                     p.player_id, p.name, p.team, p.positions, p.is_hitter, p.is_injured,
-                    p.mlb_id, p.bats, p.throws,
+                    p.mlb_id, p.bats, p.throws, {_level_select},
                     CASE WHEN p.birth_date IS NOT NULL AND p.birth_date != ''
                          THEN CAST((julianday('now') - julianday(p.birth_date)) / 365.25 AS INTEGER)
                          ELSE NULL END AS age,
@@ -1623,10 +1631,10 @@ def _load_player_pool_impl() -> pd.DataFrame:
         # Note: Do NOT use CAST on numeric columns — Python 3.14 SQLite returns raw bytes
         # for NumPy integers, and CAST corrupts them. Fix bytes in Python after loading.
         df = pd.read_sql_query(
-            """
+            f"""
             SELECT
                 p.player_id, p.name, p.team, p.positions, p.is_hitter, p.is_injured,
-                p.mlb_id,
+                p.mlb_id, {_level_select},
                 CASE WHEN p.birth_date IS NOT NULL AND p.birth_date != ''
                      THEN CAST((julianday('now') - julianday(p.birth_date)) / 365.25 AS INTEGER)
                      ELSE NULL END AS age,
@@ -1700,10 +1708,10 @@ def _load_player_pool_impl() -> pd.DataFrame:
         # dead code in that case.
         if blended_count == 0:
             df = pd.read_sql_query(
-                """
+                f"""
                 SELECT
                     p.player_id, p.name, p.team, p.positions, p.is_hitter, p.is_injured,
-                    p.mlb_id, p.bats, p.throws,
+                    p.mlb_id, p.bats, p.throws, {_level_select},
                     CASE WHEN p.birth_date IS NOT NULL AND p.birth_date != ''
                          THEN CAST((julianday('now') - julianday(p.birth_date)) / 365.25 AS INTEGER)
                          ELSE NULL END AS age,
@@ -2764,7 +2772,7 @@ def get_roster_changes(team_name: str, days: int = 7) -> list[dict]:
 def upsert_player_bulk(players: list[dict]) -> int:
     """Bulk upsert players. Each dict needs: name, team, positions, is_hitter.
 
-    Optional: mlb_id, bats, throws, birth_date, roster_type.
+    Optional: mlb_id, bats, throws, birth_date, roster_type, level.
 
     Uses SELECT-first approach since players table has no UNIQUE constraint on name.
     """
@@ -2778,6 +2786,9 @@ def upsert_player_bulk(players: list[dict]) -> int:
             throws = p.get("throws")
             birth_date = p.get("birth_date")
             roster_type = p.get("roster_type", "active")
+            # Wave 9 INFRA-F5: level is NULL/"MLB"/"AAA"/"AA"; COALESCE preserves
+            # existing value when caller doesn't supply one.
+            level = p.get("level")
             if existing:
                 conn.execute(
                     """UPDATE players SET team = ?, positions = ?, is_hitter = ?,
@@ -2785,7 +2796,8 @@ def upsert_player_bulk(players: list[dict]) -> int:
                        bats = COALESCE(?, bats),
                        throws = COALESCE(?, throws),
                        birth_date = COALESCE(?, birth_date),
-                       roster_type = COALESCE(?, roster_type)
+                       roster_type = COALESCE(?, roster_type),
+                       level = COALESCE(?, level)
                        WHERE player_id = ?""",
                     (
                         p["team"],
@@ -2796,14 +2808,15 @@ def upsert_player_bulk(players: list[dict]) -> int:
                         throws,
                         birth_date,
                         roster_type,
+                        level,
                         existing[0],
                     ),
                 )
             else:
                 conn.execute(
                     """INSERT INTO players (name, team, positions, is_hitter, is_injured,
-                       mlb_id, bats, throws, birth_date, roster_type)
-                       VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?, ?)""",
+                       mlb_id, bats, throws, birth_date, roster_type, level)
+                       VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)""",
                     (
                         p["name"],
                         p["team"],
@@ -2814,6 +2827,7 @@ def upsert_player_bulk(players: list[dict]) -> int:
                         throws,
                         birth_date,
                         roster_type,
+                        level,
                     ),
                 )
             saved += 1

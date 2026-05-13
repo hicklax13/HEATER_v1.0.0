@@ -165,6 +165,31 @@ pool = pool.rename(columns={"name": "player_name"})
 pool["name"] = pool["player_name"]
 config = LeagueConfig()
 
+# ── Player universe filter (Wave 9 INFRA-F5) ─────────────────────────────────
+# Filter by player level (MLB / AAA / AA / All). Minor leaguers lack Yahoo
+# ownership data, so default to MLB-only to match historical behavior.
+_LEVEL_OPTIONS = ["MLB only", "MLB + AAA", "MLB + AAA + AA", "All"]
+_level_filter = st.selectbox(
+    "Player universe",
+    _LEVEL_OPTIONS,
+    index=0,
+    help="MLB-only is the default. Expanding to AAA/AA shows minor-league "
+    "depth-chart candidates but they lack Yahoo ownership data.",
+)
+
+# Apply filter. Use pool["level"] (Series) — NOT pool.get("level") (would
+# return a scalar default if column missing, breaking .isna()).
+if "level" not in pool.columns:
+    # Legacy DB without Wave 9 migration — show everything (no-op).
+    pass
+elif _level_filter == "MLB only":
+    pool = pool[pool["level"].isna() | (pool["level"] == "MLB")]
+elif _level_filter == "MLB + AAA":
+    pool = pool[pool["level"].isna() | pool["level"].isin(["MLB", "AAA"])]
+elif _level_filter == "MLB + AAA + AA":
+    pool = pool[pool["level"].isna() | pool["level"].isin(["MLB", "AAA", "AA"])]
+# else "All" → no filter
+
 # ── Roster check ──────────────────────────────────────────────────────────────
 
 yds = get_yahoo_data_service()
