@@ -331,4 +331,90 @@ CONSTANTS_REGISTRY: dict[str, ConstantEntry] = {
         sensitivity="MEDIUM",
         description="Slope for opposing pitcher quality -> hitter stat multiplier",
     ),
+    # -- Replacement Levels (rate-stat marginal SGP) -----------------------
+    # Used by daily_optimizer's rate-stat SGP computation:
+    # annual_sgp = (component - opportunity * replacement) / raw_denom.
+    # Per DCV-A1-001 audit: original baselines (0.240/0.305/4.50/1.35) were
+    # calibrated by inspection without explicit research citation. Bounds
+    # below are conservative; OQ-1 in the audit findings asks for the
+    # specific source / FourzynBurn-validated values.
+    "repl_avg": ConstantEntry(
+        value=0.240,
+        lower_bound=0.225,
+        upper_bound=0.255,
+        citation="12-team H2H mixed league baseline; DCV-A1-001 OQ-1 pending validation",
+        module="daily_optimizer.py",
+        sensitivity="HIGH",
+        description="Replacement-level AVG for hitter rate-stat marginal SGP",
+    ),
+    "repl_obp": ConstantEntry(
+        value=0.305,
+        lower_bound=0.290,
+        upper_bound=0.320,
+        citation="12-team H2H mixed league baseline; DCV-A1-001 OQ-1 pending validation",
+        module="daily_optimizer.py",
+        sensitivity="HIGH",
+        description="Replacement-level OBP for hitter rate-stat marginal SGP",
+    ),
+    "repl_era": ConstantEntry(
+        value=4.50,
+        lower_bound=4.20,
+        upper_bound=4.80,
+        citation="12-team H2H mixed league baseline; DCV-A1-001 OQ-1 pending validation",
+        module="daily_optimizer.py",
+        sensitivity="HIGH",
+        description="Replacement-level ERA for pitcher rate-stat marginal SGP",
+    ),
+    "repl_whip": ConstantEntry(
+        value=1.35,
+        lower_bound=1.27,
+        upper_bound=1.42,
+        citation="12-team H2H mixed league baseline; DCV-A1-001 OQ-1 pending validation",
+        module="daily_optimizer.py",
+        sensitivity="HIGH",
+        description="Replacement-level WHIP for pitcher rate-stat marginal SGP",
+    ),
+    # -- Raw-Unit SGP Denominators (team-volume × per-stand-point denom) --
+    # Used alongside replacement levels in rate-stat marginal SGP:
+    # annual_sgp = (component - opportunity * replacement) / raw_denom.
+    # Derived from team-volume assumptions (5500 AB, 6100 PA, 1400 IP)
+    # multiplied by league-config sgp_denominators. See DCV-A1-005 (MED)
+    # for the audit finding that these should be derived from actual league
+    # data rather than hardcoded.
+    "raw_sgp_denom_avg": ConstantEntry(
+        value=22.0,
+        lower_bound=18.0,
+        upper_bound=26.0,
+        citation="0.004 AVG/SP × ~5500 team AB; see DCV-A1-005",
+        module="daily_optimizer.py",
+        sensitivity="MEDIUM",
+        description="Raw hits per standings point for AVG (team-volume × per-SP denom)",
+    ),
+    "raw_sgp_denom_obp": ConstantEntry(
+        value=30.0,
+        lower_bound=24.0,
+        upper_bound=36.0,
+        citation="0.005 OBP/SP × ~6100 team PA; see DCV-A1-005",
+        module="daily_optimizer.py",
+        sensitivity="MEDIUM",
+        description="Raw on-base events per standings point for OBP",
+    ),
+    "raw_sgp_denom_era": ConstantEntry(
+        value=31.0,
+        lower_bound=25.0,
+        upper_bound=37.0,
+        citation="0.20 ERA/SP × ~1400 team IP / 9; see DCV-A1-005",
+        module="daily_optimizer.py",
+        sensitivity="MEDIUM",
+        description="Raw earned runs per standings point for ERA",
+    ),
+    "raw_sgp_denom_whip": ConstantEntry(
+        value=28.0,
+        lower_bound=23.0,
+        upper_bound=33.0,
+        citation="0.020 WHIP/SP × ~1400 team IP; see DCV-A1-005",
+        module="daily_optimizer.py",
+        sensitivity="MEDIUM",
+        description="Raw walks+hits per standings point for WHIP",
+    ),
 }

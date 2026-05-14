@@ -19,6 +19,7 @@ from typing import Any
 import pandas as pd
 
 from src.game_day import get_target_game_date
+from src.optimizer.constants_registry import CONSTANTS_REGISTRY as _CR
 from src.valuation import canonicalize_team
 
 logger = logging.getLogger(__name__)
@@ -44,6 +45,29 @@ _PLATOON_MULT_HI: float = 1.20
 
 # Full-season game count used for per-game rate computation.
 _FULL_SEASON_GAMES: float = 162.0
+
+# Replacement-level baselines for rate-stat marginal-contribution SGP.
+# Used by build_daily_dcv_table's rate-stat path AND by apply_stud_floor
+# for stud ranking. A player's contribution is computed as
+# ``(component - opportunity × replacement) / raw_sgp_denom`` so that an
+# average MLB starter scores ~0 and stars/scrubs deviate from there.
+#
+# Per DCV-A1-001 fix (Wave 11A): values now sourced from CONSTANTS_REGISTRY
+# (imported as _CR at the top of the module) so sensitivity_analysis can
+# perturb them. Loaded at module import; the canonical entry's value field
+# is the single source of truth.
+_REPL_AVG: float = _CR["repl_avg"].value
+_REPL_OBP: float = _CR["repl_obp"].value
+_REPL_ERA: float = _CR["repl_era"].value
+_REPL_WHIP: float = _CR["repl_whip"].value
+
+_RAW_SGP_DENOM: dict[str, float] = {
+    "AVG": _CR["raw_sgp_denom_avg"].value,
+    "OBP": _CR["raw_sgp_denom_obp"].value,
+    "ERA": _CR["raw_sgp_denom_era"].value,
+    "WHIP": _CR["raw_sgp_denom_whip"].value,
+}
+del _CR
 
 
 @dataclass
@@ -436,19 +460,61 @@ def apply_stud_floor(
 
         config = LeagueConfig()
 
-    # Compute total SGP per player from ROS projections
+    # Compute total SGP per player from ROS projections.
+    #
+    # Counting stats use ``val / denom`` (the standing-point contribution).
+    # Rate stats MUST use marginal contribution from raw components
+    # (h, ab, bb, hbp, sf, ip, er, bb_allowed, h_allowed) and the
+    # replacement-level baselines (_REPL_AVG/OBP/ERA/WHIP). The previous
+    # implementation summed ``raw_rate / denom`` for rate stats too, which
+    # produced contributions ~45× larger than counting stats and biased
+    # the stud ranking toward high-AVG hitters (DCV-A1-002 fix).
     total_sgp: dict[int, float] = {}
     for _, row in roster.iterrows():
         pid = row.get("player_id")
         sgp = 0.0
+        is_hitter = bool(row.get("is_hitter", 1))
+
         for cat in config.all_categories:
-            val = float(row.get(cat.lower(), 0) or 0)
-            denom = config.sgp_denominators.get(cat, 1.0)
-            if abs(denom) > 1e-9:
-                if cat in config.inverse_stats:
-                    sgp -= val / denom
-                else:
-                    sgp += val / denom
+            if cat in config.rate_stats:
+                # Rate stats: marginal contribution from raw components.
+                # Mirrors build_daily_dcv_table's annual_sgp formula.
+                if cat == "AVG" and is_hitter:
+                    ab = float(row.get("ab", 0) or 0)
+                    h = float(row.get("h", 0) or 0)
+                    if ab > 0:
+                        sgp += (h - ab * _REPL_AVG) / _RAW_SGP_DENOM["AVG"]
+                elif cat == "OBP" and is_hitter:
+                    ab = float(row.get("ab", 0) or 0)
+                    h = float(row.get("h", 0) or 0)
+                    bb = float(row.get("bb", 0) or 0)
+                    hbp = float(row.get("hbp", 0) or 0)
+                    sf = float(row.get("sf", 0) or 0)
+                    denom_pa = ab + bb + hbp + sf
+                    if denom_pa > 0:
+                        sgp += ((h + bb + hbp) - denom_pa * _REPL_OBP) / _RAW_SGP_DENOM["OBP"]
+                elif cat == "ERA" and not is_hitter:
+                    ip = float(row.get("ip", 0) or 0)
+                    er = float(row.get("er", 0) or 0)
+                    if ip > 0:
+                        repl_er = _REPL_ERA * ip / 9.0
+                        sgp += (repl_er - er) / _RAW_SGP_DENOM["ERA"]
+                elif cat == "WHIP" and not is_hitter:
+                    ip = float(row.get("ip", 0) or 0)
+                    bb_a = float(row.get("bb_allowed", 0) or 0)
+                    h_a = float(row.get("h_allowed", 0) or 0)
+                    if ip > 0:
+                        repl_wh = _REPL_WHIP * ip
+                        sgp += (repl_wh - (bb_a + h_a)) / _RAW_SGP_DENOM["WHIP"]
+            else:
+                # Counting stats: standard val/denom standing-point contribution.
+                val = float(row.get(cat.lower(), 0) or 0)
+                denom = config.sgp_denominators.get(cat, 1.0)
+                if abs(denom) > 1e-9:
+                    if cat in config.inverse_stats:
+                        sgp -= val / denom
+                    else:
+                        sgp += val / denom
         total_sgp[pid] = sgp
 
     # Find the threshold for top N (use fraction of roster when roster is small)
@@ -989,18 +1055,9 @@ def build_daily_dcv_table(
         # rate-stat DCV; raw-rate-divided-by-SGP-denom (the prior
         # implementation) gave structurally negative pitcher DCV.
         #
-        # Replacement levels (12-team H2H mixed league, deep replacement):
-        _REPL_AVG = 0.240
-        _REPL_OBP = 0.305
-        _REPL_ERA = 4.50
-        _REPL_WHIP = 1.35
-        # Raw-unit SGP denominators: how many raw units shift one standings
-        # point. Derived from team-total denominators × team-volume:
-        #   AVG: 0.004 × 5500 AB ≈ 22 hits
-        #   OBP: 0.005 × 6100 PA ≈ 30 on-base events
-        #   ERA: 0.20 × 1400 IP / 9 ≈ 31 ER
-        #   WHIP: 0.020 × 1400 IP ≈ 28 walks+hits
-        _RAW_SGP_DENOM = {"AVG": 22.0, "OBP": 30.0, "ERA": 31.0, "WHIP": 28.0}
+        # Replacement levels + raw-unit SGP denominators are module-level
+        # constants (_REPL_*, _RAW_SGP_DENOM) so apply_stud_floor can share
+        # the same calibration. See module-level definitions above.
         # Daily volume fraction (today's contribution / annual contribution).
         # Hitters: ~145 games out of 162 → 1/162. SP: ~30 starts → 1/30.
         # RP: ~50 appearances → 1/50.
