@@ -259,6 +259,7 @@ def compute_health_factor(status: str) -> float:
         "not active",
         "minors",
         "out",
+        "susp",
         "suspended",
     ):
         return 0.0

@@ -371,6 +371,139 @@ def get_player_role(
     return "bench"
 
 
+# ── Pitcher position resolution (Wave 10 / SF-84) ─────────────────────
+#
+# Many pitcher rows in the players table carry only the generic 'P' tag
+# (e.g. ``positions='P'``). The lineup optimizer's SP gate keys off the
+# 'SP' / 'RP' tokens to decide whether a pitcher counts as a real starter
+# on a given day. Without enrichment the gate either zeroes-out volume
+# for legitimate pitchers or treats relievers as starters.
+#
+# The helper below derives the missing qualifier from two sources, in
+# priority order:
+#
+# 1. ``depth_chart_role`` — set by ``_persist_depth_chart_roles`` from
+#    the Roster Resource scrape or MLB Stats API fallback.
+# 2. ``season_stats`` — saves >= 5 → RP, GS >= 5 → SP, otherwise the
+#    ``ip / games_played`` ratio (≥4.0 → SP, else RP).
+#
+# It is **idempotent**: any ``positions`` string already containing an
+# 'SP' or 'RP' token is returned unchanged. It also passes through any
+# non-pitcher position string (no 'P' token) untouched.
+
+# Threshold for SP detection from ip-per-game ratio.
+# Real MLB data: SP avg = 5.0–6.5 IP/game, RP avg = 0.8–1.5 IP/game.
+_SP_IP_PER_GAME_THRESHOLD = 4.0
+# Saves threshold for closer detection (mirrors _MIN_SAVES_FOR_CLOSER).
+_RP_SAVES_THRESHOLD = 5
+# Games-started threshold for SP detection when GS is available directly.
+_SP_GS_THRESHOLD = 5
+
+
+def _split_position_tokens(positions: str) -> list[str]:
+    """Split a positions string on `,` and `/` separators.
+
+    Examples
+    --------
+    >>> _split_position_tokens("SP,P")
+    ['SP', 'P']
+    >>> _split_position_tokens("C/1B,RP")
+    ['C', '1B', 'RP']
+    """
+    tokens: list[str] = []
+    for chunk in positions.split(","):
+        for sub in chunk.split("/"):
+            tok = sub.strip().upper()
+            if tok:
+                tokens.append(tok)
+    return tokens
+
+
+def resolve_pitcher_positions(
+    positions: str | None,
+    *,
+    depth_chart_role: str | None = None,
+    games_started: int | None = None,
+    saves: int | None = None,
+    innings_pitched: float | None = None,
+    games_played: int | None = None,
+) -> str | None:
+    """Add SP/RP qualifier to a pitcher's positions string when missing.
+
+    Idempotent: if ``positions`` already contains an 'SP' or 'RP' token,
+    the original string is returned unchanged. Non-pitcher positions
+    (no 'P' token) are also returned unchanged. Returns the original
+    string when no signal can determine SP vs RP — the caller should
+    skip updating the row in that case.
+
+    Parameters
+    ----------
+    positions : str or None
+        Current ``players.positions`` value (e.g. ``"P"``, ``"SP,P"``,
+        ``"OF"``, ``""``). ``None`` is returned as-is.
+    depth_chart_role : str or None
+        Value from ``players.depth_chart_role`` (one of ``"starter"``,
+        ``"rotation"``, ``"closer"``, ``"setup"``, ``"bullpen"``,
+        ``"bench"``). ``"starter"`` is treated as rotation only when
+        ``positions`` is already known to be a pitcher.
+    games_started, saves, innings_pitched, games_played : optional
+        ``season_stats`` fallback signals. ``saves`` takes priority
+        (closer); then ``games_started`` if provided directly; then
+        ``ip / games_played`` ratio.
+
+    Returns
+    -------
+    str or None
+        Enriched positions string, or the original input unchanged.
+    """
+    if positions is None:
+        return None
+    if not positions or not positions.strip():
+        return positions
+
+    tokens = _split_position_tokens(positions)
+
+    # Idempotent: don't touch already-enriched strings.
+    if "SP" in tokens or "RP" in tokens:
+        return positions
+
+    # Non-pitcher: no 'P' token means we never enrich.
+    if "P" not in tokens:
+        return positions
+
+    # ── Resolution logic ──
+    qualifier: str | None = None
+
+    # 1. depth_chart_role
+    if isinstance(depth_chart_role, str):
+        role = depth_chart_role.strip().lower()
+        if role in ("rotation", "starter"):
+            qualifier = "SP"
+        elif role in ("closer", "setup", "bullpen"):
+            qualifier = "RP"
+
+    # 2. season_stats fallback (closer-saves takes priority)
+    if qualifier is None and saves is not None and saves >= _RP_SAVES_THRESHOLD:
+        qualifier = "RP"
+    if qualifier is None and games_started is not None and games_started >= _SP_GS_THRESHOLD:
+        qualifier = "SP"
+    if (
+        qualifier is None
+        and innings_pitched is not None
+        and games_played is not None
+        and games_played > 0
+        and innings_pitched > 0
+    ):
+        ratio = innings_pitched / games_played
+        qualifier = "SP" if ratio >= _SP_IP_PER_GAME_THRESHOLD else "RP"
+
+    if qualifier is None:
+        return positions  # No signal → leave as-is (caller skips DB update)
+
+    # Prepend qualifier; preserve original string shape (P stays at end).
+    return f"{qualifier},{positions}"
+
+
 # ── Internal parsing helpers ──────────────────────────────────────────
 
 
