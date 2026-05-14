@@ -8,6 +8,14 @@ Currently provides:
     ``load_league_standings`` at the two import sites that consume it
     (``src.engine.output.trade_evaluator`` and ``src.engine.portfolio.valuation``)
     so trade engine tests do not need a live SQLite ``league_standings`` table.
+  - _ensure_db_schema: session-scoped autouse fixture that calls
+    ``init_db()`` once at session start. This guarantees every CREATE
+    TABLE IF NOT EXISTS in the schema runs before any test queries
+    (e.g. ``SELECT * FROM season_stats``) — without it, tests that hit
+    the schema cold fail with ``no such table: season_stats`` while
+    the same tests pass after a sibling test happens to call init_db
+    first. Idempotent (``IF NOT EXISTS`` everywhere) so this never
+    clobbers a real seeded DB.
 
 The autouse patch only takes effect when the underlying SQLite table is missing;
 this keeps it safe for any future test that wants to seed the real table itself.
@@ -153,6 +161,30 @@ def _table_missing() -> bool:
             conn.close()
         except Exception:
             pass
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _ensure_db_schema():
+    """Run ``init_db()`` once per session so all CREATE TABLE IF NOT EXISTS
+    statements have fired before any test queries.
+
+    Without this, ``test_optimizer_pipeline.py::test_h2h_analysis_with_opponent``
+    (and any other test that walks the projection pipeline) fails cold with
+    ``no such table: season_stats``, because nothing in pytest's import phase
+    creates the SQLite schema. The fix is idempotent: every table in
+    ``src.database._init_db_tables_and_columns`` uses ``IF NOT EXISTS``, and
+    the autouse fixture in this conftest already shields against missing
+    standings data, so a real seeded DB is not touched in any meaningful way.
+    """
+    try:
+        from src.database import init_db
+
+        init_db()
+    except Exception:
+        # Don't gate the whole suite on DB init — a failure here is logged via
+        # the per-test failure when a test actually depends on the schema.
+        pass
+    yield
 
 
 @pytest.fixture(autouse=True)

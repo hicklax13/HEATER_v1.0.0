@@ -18,6 +18,7 @@ from typing import Any
 import pandas as pd
 
 from src.optimizer.shared_data_layer import OptimizerDataContext
+from src.valuation import TEAM_NAME_TO_ABBR as _FULL_TO_ABBR
 from src.waiver_wire import (
     compute_drop_cost,
     compute_net_swap_value,
@@ -604,42 +605,10 @@ def _compute_ros_sgp(row: pd.Series, config) -> float:
     return sgp
 
 
-# Full team-name → 3-letter abbreviation. MLB Stats API (statsapi) returns
-# schedules with full names (e.g. "Boston Red Sox"), but Yahoo/FanGraphs
-# rows store 3-letter codes (e.g. "BOS"). We normalize both sides.
-_FULL_TO_ABBR: dict[str, str] = {
-    "ATHLETICS": "ATH",
-    "ATLANTA BRAVES": "ATL",
-    "BALTIMORE ORIOLES": "BAL",
-    "BOSTON RED SOX": "BOS",
-    "CHICAGO CUBS": "CHC",
-    "CHICAGO WHITE SOX": "CWS",
-    "CINCINNATI REDS": "CIN",
-    "CLEVELAND GUARDIANS": "CLE",
-    "COLORADO ROCKIES": "COL",
-    "DETROIT TIGERS": "DET",
-    "HOUSTON ASTROS": "HOU",
-    "KANSAS CITY ROYALS": "KC",
-    "LOS ANGELES ANGELS": "LAA",
-    "LOS ANGELES DODGERS": "LAD",
-    "MIAMI MARLINS": "MIA",
-    "MILWAUKEE BREWERS": "MIL",
-    "MINNESOTA TWINS": "MIN",
-    "NEW YORK METS": "NYM",
-    "NEW YORK YANKEES": "NYY",
-    "OAKLAND ATHLETICS": "ATH",
-    "PHILADELPHIA PHILLIES": "PHI",
-    "PITTSBURGH PIRATES": "PIT",
-    "SAN DIEGO PADRES": "SD",
-    "SAN FRANCISCO GIANTS": "SF",
-    "SEATTLE MARINERS": "SEA",
-    "ST. LOUIS CARDINALS": "STL",
-    "TAMPA BAY RAYS": "TB",
-    "TEXAS RANGERS": "TEX",
-    "TORONTO BLUE JAYS": "TOR",
-    "WASHINGTON NATIONALS": "WSH",
-    "ARIZONA DIAMONDBACKS": "ARI",
-}
+# Full team-name → 3-letter abbreviation is shared across modules; imported
+# from src.valuation above as `_FULL_TO_ABBR`. The original alias is kept
+# so the rest of this file's call sites stay readable.
+#
 # Different data sources disagree on 3-letter codes. Expand each set so a
 # match on any variant satisfies the membership check.
 _TEAM_EQUIVALENCES: dict[str, set[str]] = {

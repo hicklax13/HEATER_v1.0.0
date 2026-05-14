@@ -57,6 +57,70 @@ def canonicalize_team(code: str) -> str:
     return TEAM_CODE_CANONICAL.get(code.upper().strip(), code.upper().strip())
 
 
+# Full team name → 3-letter abbreviation. MLB Stats API (statsapi) returns
+# schedules with full names (e.g. "Boston Red Sox"); Yahoo / FanGraphs / our
+# DB store 3-letter codes. Keys are uppercased to make matching
+# case-insensitive — callers should pass through ``team_name_to_abbr`` rather
+# than indexing this dict directly.
+TEAM_NAME_TO_ABBR: dict[str, str] = {
+    "ATHLETICS": "ATH",
+    "ATLANTA BRAVES": "ATL",
+    "BALTIMORE ORIOLES": "BAL",
+    "BOSTON RED SOX": "BOS",
+    "CHICAGO CUBS": "CHC",
+    "CHICAGO WHITE SOX": "CWS",
+    "CINCINNATI REDS": "CIN",
+    "CLEVELAND GUARDIANS": "CLE",
+    "COLORADO ROCKIES": "COL",
+    "DETROIT TIGERS": "DET",
+    "HOUSTON ASTROS": "HOU",
+    "KANSAS CITY ROYALS": "KC",
+    "LOS ANGELES ANGELS": "LAA",
+    "LOS ANGELES DODGERS": "LAD",
+    "MIAMI MARLINS": "MIA",
+    "MILWAUKEE BREWERS": "MIL",
+    "MINNESOTA TWINS": "MIN",
+    "NEW YORK METS": "NYM",
+    "NEW YORK YANKEES": "NYY",
+    "OAKLAND ATHLETICS": "ATH",
+    "PHILADELPHIA PHILLIES": "PHI",
+    "PITTSBURGH PIRATES": "PIT",
+    "SAN DIEGO PADRES": "SD",
+    "SAN FRANCISCO GIANTS": "SF",
+    "SEATTLE MARINERS": "SEA",
+    "ST. LOUIS CARDINALS": "STL",
+    "TAMPA BAY RAYS": "TB",
+    "TEXAS RANGERS": "TEX",
+    "TORONTO BLUE JAYS": "TOR",
+    "WASHINGTON NATIONALS": "WSH",
+    "ARIZONA DIAMONDBACKS": "ARI",
+}
+
+
+def team_name_to_abbr(name: str, default: str | None = None) -> str:
+    """Map an MLB team name (any case) to its 3-letter abbreviation.
+
+    Args:
+        name: Full team name (e.g. ``"Boston Red Sox"``) or anything that
+            ``str()`` accepts; case-insensitive. Empty / falsy returns
+            ``default`` (or ``""`` when default is None).
+        default: What to return when ``name`` doesn't match the table.
+            ``None`` returns the upper-cased raw input (mirroring the legacy
+            ``.get(raw, raw)`` pattern); pass ``""`` for a sentinel-style
+            fail-quiet behavior.
+
+    Returns:
+        Canonical 3-letter abbreviation, or ``default`` / upper-cased raw
+        when unmatched.
+    """
+    if not name:
+        return "" if default is None else default
+    up = str(name).upper().strip()
+    if default is None:
+        return TEAM_NAME_TO_ABBR.get(up, up)
+    return TEAM_NAME_TO_ABBR.get(up, default)
+
+
 # ── League Configuration ─────────────────────────────────────────────
 
 

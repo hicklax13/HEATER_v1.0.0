@@ -887,41 +887,9 @@ with main:
 
                 import statsapi
 
-                _FULL_TO_ABBR: dict[str, str] = {
-                    "Arizona Diamondbacks": "ARI",
-                    "Atlanta Braves": "ATL",
-                    "Baltimore Orioles": "BAL",
-                    "Boston Red Sox": "BOS",
-                    "Chicago Cubs": "CHC",
-                    "Chicago White Sox": "CWS",
-                    "Cincinnati Reds": "CIN",
-                    "Cleveland Guardians": "CLE",
-                    "Colorado Rockies": "COL",
-                    "Detroit Tigers": "DET",
-                    "Houston Astros": "HOU",
-                    "Kansas City Royals": "KC",
-                    "Los Angeles Angels": "LAA",
-                    "Los Angeles Dodgers": "LAD",
-                    "Miami Marlins": "MIA",
-                    "Milwaukee Brewers": "MIL",
-                    "Minnesota Twins": "MIN",
-                    "New York Mets": "NYM",
-                    "New York Yankees": "NYY",
-                    "Athletics": "ATH",
-                    "Oakland Athletics": "ATH",
-                    "Philadelphia Phillies": "PHI",
-                    "Pittsburgh Pirates": "PIT",
-                    "San Diego Padres": "SD",
-                    "San Francisco Giants": "SF",
-                    "Seattle Mariners": "SEA",
-                    "St. Louis Cardinals": "STL",
-                    "Tampa Bay Rays": "TB",
-                    "Texas Rangers": "TEX",
-                    "Toronto Blue Jays": "TOR",
-                    "Washington Nationals": "WSH",
-                }
                 # Target date: today or tomorrow if all games final
                 from src.game_day import get_target_game_date
+                from src.valuation import team_name_to_abbr as _tn_to_abbr
 
                 _opt_target_date = get_target_game_date()
                 st.session_state["_optimizer_target_date"] = _opt_target_date
@@ -930,7 +898,8 @@ with main:
                 for _g in _today_sched:
                     for _side in ("home_name", "away_name"):
                         _raw = str(_g.get(_side, ""))
-                        _abbr = _FULL_TO_ABBR.get(_raw, "")
+                        # default="" so unmatched names fail-quiet (legacy behavior)
+                        _abbr = _tn_to_abbr(_raw, default="")
                         if _abbr:
                             _today_teams_playing.add(_abbr)
                         if _raw:
