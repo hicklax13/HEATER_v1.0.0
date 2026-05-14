@@ -20,7 +20,7 @@ import pandas as pd
 
 from src.game_day import get_target_game_date
 from src.optimizer.constants_registry import CONSTANTS_REGISTRY as _CR
-from src.valuation import canonicalize_team
+from src.valuation import canonicalize_team, team_name_to_abbr
 
 logger = logging.getLogger(__name__)
 
@@ -653,42 +653,9 @@ def build_daily_dcv_table(
     except Exception:
         statuses = {}
 
-    # Determine which teams play today
-    # Schedule may use full names ("CHICAGO CUBS") or abbreviations ("CHC")
-    # Normalize both to abbreviations for matching against roster team column
-    _FULL_TO_ABBR: dict[str, str] = {
-        "ATHLETICS": "ATH",
-        "ATLANTA BRAVES": "ATL",
-        "BALTIMORE ORIOLES": "BAL",
-        "BOSTON RED SOX": "BOS",
-        "CHICAGO CUBS": "CHC",
-        "CHICAGO WHITE SOX": "CWS",
-        "CINCINNATI REDS": "CIN",
-        "CLEVELAND GUARDIANS": "CLE",
-        "COLORADO ROCKIES": "COL",
-        "DETROIT TIGERS": "DET",
-        "HOUSTON ASTROS": "HOU",
-        "KANSAS CITY ROYALS": "KC",
-        "LOS ANGELES ANGELS": "LAA",
-        "LOS ANGELES DODGERS": "LAD",
-        "MIAMI MARLINS": "MIA",
-        "MILWAUKEE BREWERS": "MIL",
-        "MINNESOTA TWINS": "MIN",
-        "NEW YORK METS": "NYM",
-        "NEW YORK YANKEES": "NYY",
-        "OAKLAND ATHLETICS": "ATH",
-        "PHILADELPHIA PHILLIES": "PHI",
-        "PITTSBURGH PIRATES": "PIT",
-        "SAN DIEGO PADRES": "SD",
-        "SAN FRANCISCO GIANTS": "SF",
-        "SEATTLE MARINERS": "SEA",
-        "ST. LOUIS CARDINALS": "STL",
-        "TAMPA BAY RAYS": "TB",
-        "TEXAS RANGERS": "TEX",
-        "TORONTO BLUE JAYS": "TOR",
-        "WASHINGTON NATIONALS": "WSH",
-        "ARIZONA DIAMONDBACKS": "ARI",
-    }
+    # Determine which teams play today. Schedule may use full names
+    # ("CHICAGO CUBS") or abbreviations ("CHC"); normalize both to
+    # abbreviations via the canonical `team_name_to_abbr` helper.
     teams_playing: set[str] = set()
     # Teams whose game has already started or finished today — players on
     # these teams are "locked" by Yahoo (you can't swap them anymore), so
@@ -723,8 +690,10 @@ def build_daily_dcv_table(
             for key in ("away_name", "away_team", "home_name", "home_team"):
                 raw = str(game.get(key, "")).upper().strip()
                 if raw:
-                    # Try mapping full name to abbreviation, then canonicalize
-                    abbr = _FULL_TO_ABBR.get(raw, raw)
+                    # team_name_to_abbr returns the raw input on miss, so 3-letter
+                    # codes pass through unchanged; canonicalize_team then resolves
+                    # legacy variants (OAK→ATH, WSN→WSH, etc.).
+                    abbr = team_name_to_abbr(raw)
                     canon = canonicalize_team(abbr)
                     teams_playing.add(canon)
                     if _game_locked:
@@ -774,10 +743,8 @@ def build_daily_dcv_table(
             # Also map away teams to the home venue's weather
             if schedule_today:
                 for game in schedule_today:
-                    home_raw = str(game.get("home_name", "")).upper().strip()
-                    away_raw = str(game.get("away_name", "")).upper().strip()
-                    home_abbr = _FULL_TO_ABBR.get(home_raw, home_raw)
-                    away_abbr = _FULL_TO_ABBR.get(away_raw, away_raw)
+                    home_abbr = team_name_to_abbr(game.get("home_name", ""))
+                    away_abbr = team_name_to_abbr(game.get("away_name", ""))
                     if home_abbr in weather_by_team and away_abbr:
                         weather_by_team[away_abbr] = weather_by_team[home_abbr]
     except Exception:
@@ -811,9 +778,18 @@ def build_daily_dcv_table(
         lineup_slot = 0  # 0 = unknown batting order slot
         if confirmed_lineups is not None:
             is_hitter = bool(int(player.get("is_hitter", 1)))
-            if is_hitter and team in confirmed_lineups:
+            # Try canonical code first (handles OAK→ATH, WSN→WSH, CHW→CWS,
+            # AZ→ARI drift), fall back to raw team string for legacy
+            # callers that key by whatever was in the players.team column.
+            _lineup_key: str | None = None
+            if is_hitter:
+                if team_canon in confirmed_lineups:
+                    _lineup_key = team_canon
+                elif team in confirmed_lineups:
+                    _lineup_key = team
+            if _lineup_key is not None:
                 # Batting lineups only meaningful for hitters
-                team_lineup = confirmed_lineups[team]
+                team_lineup = confirmed_lineups[_lineup_key]
                 in_lineup = name in team_lineup
                 if in_lineup:
                     # Batting order slot is 1-based index in the lineup list
@@ -882,7 +858,9 @@ def build_daily_dcv_table(
         # park_factor_adjustment. Previously passed opponent_team="" which
         # silently fell back to player's home park for every player
         # (Moniak at COL always got 1.38 regardless of home/away).
-        player_temp = weather_by_team.get(team)
+        # Try canonical team code first (handles OAK→ATH etc. drift) so a
+        # player whose DB row still says "OAK" still gets ATH's weather.
+        player_temp = weather_by_team.get(team_canon) or weather_by_team.get(team)
         _batter_hand = str(player.get("bats", "") or "")
         _pitcher_hand = ""
         _opp_pitcher_name = ""
@@ -890,12 +868,10 @@ def build_daily_dcv_table(
         _opp_team = ""  # literal opponent team code — for opposing offense wRC+
         if schedule_today and team:
             for _sg in schedule_today:
-                _home_raw = str(_sg.get("home_name", "")).upper().strip()
-                _away_raw = str(_sg.get("away_name", "")).upper().strip()
                 _home_short = str(_sg.get("home_short", "")).upper().strip()
                 _away_short = str(_sg.get("away_short", "")).upper().strip()
-                _home_ab = _FULL_TO_ABBR.get(_home_raw, _home_raw) or _home_short
-                _away_ab = _FULL_TO_ABBR.get(_away_raw, _away_raw) or _away_short
+                _home_ab = team_name_to_abbr(_sg.get("home_name", "")) or _home_short
+                _away_ab = team_name_to_abbr(_sg.get("away_name", "")) or _away_short
                 _home_canon = canonicalize_team(_home_ab) if _home_ab else ""
                 _away_canon = canonicalize_team(_away_ab) if _away_ab else ""
                 _home_short_canon = canonicalize_team(_home_short) if _home_short else ""
@@ -1062,7 +1038,13 @@ def build_daily_dcv_table(
         # Hitters: ~145 games out of 162 → 1/162. SP: ~30 starts → 1/30.
         # RP: ~50 appearances → 1/50.
         _hitter_daily_frac = 1.0 / 162.0
-        _is_starter_pitcher = "SP" in str(player.get("positions", "")).upper()
+        # Token-set match (mirrors the SP gate above): a starter must have
+        # "SP" as a literal token in `positions` (e.g. "SP" / "SP,RP"); a
+        # substring check would also fire on a hypothetical "RSP" or any
+        # future code that contains "SP" as a substring. Reuse the same
+        # tokenisation used at line ~764 so the two paths can't diverge.
+        _pitcher_pos_tokens = {p.strip() for p in str(player.get("positions", "")).upper().split(",")}
+        _is_starter_pitcher = "SP" in _pitcher_pos_tokens
         _pitcher_daily_frac = 1.0 / 30.0 if _is_starter_pitcher else 1.0 / 50.0
 
         for cat in config.all_categories:
@@ -1223,6 +1205,7 @@ def build_daily_dcv_table(
                     confirmed_lineups=confirmed_lineups,
                     recent_form=recent_form,
                     rate_modes=None,  # Also clear rate_modes in case abandon zeroed it
+                    team_strength=team_strength,  # Preserve opp-offense wRC+ on retry
                     _retry_attempted=True,  # Bound recursion to one retry
                 )
 

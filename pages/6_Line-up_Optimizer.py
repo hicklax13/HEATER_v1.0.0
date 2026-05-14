@@ -524,14 +524,17 @@ with ctx:
         ),
         key="lineup_mode",
     )
-    # Auto-compute weeks remaining from current date (season is 24 weeks)
+    # Auto-compute weeks remaining from current date.
+    # FourzynBurn is a 26-week season (CLAUDE.md canonical; matches
+    # backtest_runner.WEEKS_IN_SEASON, playoff_sim.season_weeks, and the
+    # weekly-projection scaler farther down this page at line ~2079).
     try:
         from datetime import UTC as _utc
         from datetime import datetime as _dt
 
         # MLB 2026 fantasy Week 1 started March 23, 2026
         _SEASON_START = _dt(2026, 3, 23, tzinfo=_utc)
-        _TOTAL_WEEKS = 24
+        _TOTAL_WEEKS = 26
         _weeks_elapsed = max(0, (_dt.now(_utc) - _SEASON_START).days // 7)
         _auto_weeks = max(1, _TOTAL_WEEKS - _weeks_elapsed)
     except Exception:
@@ -839,7 +842,7 @@ with main:
             if _scope_key == "rest_of_week":
                 alpha = 1.0  # Pure H2H for weekly matchup
             elif _scope_key == "rest_of_season":
-                alpha = max(0.0, 1.0 - (weeks_remaining / 24.0))
+                alpha = max(0.0, 1.0 - (weeks_remaining / 26.0))
             # "today" scope: alpha unused by DCV engine
 
             progress_bar = st.progress(0, text="Syncing roster and building shared data context...")
@@ -884,41 +887,9 @@ with main:
 
                 import statsapi
 
-                _FULL_TO_ABBR: dict[str, str] = {
-                    "Arizona Diamondbacks": "ARI",
-                    "Atlanta Braves": "ATL",
-                    "Baltimore Orioles": "BAL",
-                    "Boston Red Sox": "BOS",
-                    "Chicago Cubs": "CHC",
-                    "Chicago White Sox": "CWS",
-                    "Cincinnati Reds": "CIN",
-                    "Cleveland Guardians": "CLE",
-                    "Colorado Rockies": "COL",
-                    "Detroit Tigers": "DET",
-                    "Houston Astros": "HOU",
-                    "Kansas City Royals": "KC",
-                    "Los Angeles Angels": "LAA",
-                    "Los Angeles Dodgers": "LAD",
-                    "Miami Marlins": "MIA",
-                    "Milwaukee Brewers": "MIL",
-                    "Minnesota Twins": "MIN",
-                    "New York Mets": "NYM",
-                    "New York Yankees": "NYY",
-                    "Athletics": "ATH",
-                    "Oakland Athletics": "ATH",
-                    "Philadelphia Phillies": "PHI",
-                    "Pittsburgh Pirates": "PIT",
-                    "San Diego Padres": "SD",
-                    "San Francisco Giants": "SF",
-                    "Seattle Mariners": "SEA",
-                    "St. Louis Cardinals": "STL",
-                    "Tampa Bay Rays": "TB",
-                    "Texas Rangers": "TEX",
-                    "Toronto Blue Jays": "TOR",
-                    "Washington Nationals": "WSH",
-                }
                 # Target date: today or tomorrow if all games final
                 from src.game_day import get_target_game_date
+                from src.valuation import team_name_to_abbr as _tn_to_abbr
 
                 _opt_target_date = get_target_game_date()
                 st.session_state["_optimizer_target_date"] = _opt_target_date
@@ -927,7 +898,8 @@ with main:
                 for _g in _today_sched:
                     for _side in ("home_name", "away_name"):
                         _raw = str(_g.get(_side, ""))
-                        _abbr = _FULL_TO_ABBR.get(_raw, "")
+                        # default="" so unmatched names fail-quiet (legacy behavior)
+                        _abbr = _tn_to_abbr(_raw, default="")
                         if _abbr:
                             _today_teams_playing.add(_abbr)
                         if _raw:

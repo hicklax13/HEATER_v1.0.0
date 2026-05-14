@@ -11,6 +11,8 @@ from typing import Any
 
 import pandas as pd
 
+from src.valuation import team_name_to_abbr
+
 logger = logging.getLogger(__name__)
 
 # Category-to-stat mapping for losig category analysis
@@ -106,39 +108,6 @@ def _build_schedule_context() -> tuple[dict[str, str], set[str]]:
         # MLB schedule dates are in US Eastern time, not UTC.
         # Using UTC after ~8pm ET would pull tomorrow's schedule.
         _ET = timezone(timedelta(hours=-4))  # EDT (summer)
-        _FULL_TO_ABBR: dict[str, str] = {
-            "Arizona Diamondbacks": "ARI",
-            "Atlanta Braves": "ATL",
-            "Baltimore Orioles": "BAL",
-            "Boston Red Sox": "BOS",
-            "Chicago Cubs": "CHC",
-            "Chicago White Sox": "CWS",
-            "Cincinnati Reds": "CIN",
-            "Cleveland Guardians": "CLE",
-            "Colorado Rockies": "COL",
-            "Detroit Tigers": "DET",
-            "Houston Astros": "HOU",
-            "Kansas City Royals": "KC",
-            "Los Angeles Angels": "LAA",
-            "Los Angeles Dodgers": "LAD",
-            "Miami Marlins": "MIA",
-            "Milwaukee Brewers": "MIL",
-            "Minnesota Twins": "MIN",
-            "New York Mets": "NYM",
-            "New York Yankees": "NYY",
-            "Athletics": "ATH",
-            "Oakland Athletics": "ATH",
-            "Philadelphia Phillies": "PHI",
-            "Pittsburgh Pirates": "PIT",
-            "San Diego Padres": "SD",
-            "San Francisco Giants": "SF",
-            "Seattle Mariners": "SEA",
-            "St. Louis Cardinals": "STL",
-            "Tampa Bay Rays": "TB",
-            "Texas Rangers": "TEX",
-            "Toronto Blue Jays": "TOR",
-            "Washington Nationals": "WSH",
-        }
         try:
             from src.game_day import get_target_game_date
 
@@ -147,8 +116,9 @@ def _build_schedule_context() -> tuple[dict[str, str], set[str]]:
             _target = datetime.now(_ET).strftime("%Y-%m-%d")
         sched = statsapi.schedule(date=_target)
         for game in sched:
-            home = _FULL_TO_ABBR.get(game.get("home_name", ""), "")
-            away = _FULL_TO_ABBR.get(game.get("away_name", ""), "")
+            # Pass default="" so unmatched names fail-quiet (legacy behavior).
+            home = team_name_to_abbr(game.get("home_name", ""), default="")
+            away = team_name_to_abbr(game.get("away_name", ""), default="")
             if home and away:
                 pairings[home] = away
                 pairings[away] = home
