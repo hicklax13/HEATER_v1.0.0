@@ -744,9 +744,18 @@ def build_daily_dcv_table(
         lineup_slot = 0  # 0 = unknown batting order slot
         if confirmed_lineups is not None:
             is_hitter = bool(int(player.get("is_hitter", 1)))
-            if is_hitter and team in confirmed_lineups:
+            # Try canonical code first (handles OAK→ATH, WSN→WSH, CHW→CWS,
+            # AZ→ARI drift), fall back to raw team string for legacy
+            # callers that key by whatever was in the players.team column.
+            _lineup_key: str | None = None
+            if is_hitter:
+                if team_canon in confirmed_lineups:
+                    _lineup_key = team_canon
+                elif team in confirmed_lineups:
+                    _lineup_key = team
+            if _lineup_key is not None:
                 # Batting lineups only meaningful for hitters
-                team_lineup = confirmed_lineups[team]
+                team_lineup = confirmed_lineups[_lineup_key]
                 in_lineup = name in team_lineup
                 if in_lineup:
                     # Batting order slot is 1-based index in the lineup list
@@ -815,7 +824,9 @@ def build_daily_dcv_table(
         # park_factor_adjustment. Previously passed opponent_team="" which
         # silently fell back to player's home park for every player
         # (Moniak at COL always got 1.38 regardless of home/away).
-        player_temp = weather_by_team.get(team)
+        # Try canonical team code first (handles OAK→ATH etc. drift) so a
+        # player whose DB row still says "OAK" still gets ATH's weather.
+        player_temp = weather_by_team.get(team_canon) or weather_by_team.get(team)
         _batter_hand = str(player.get("bats", "") or "")
         _pitcher_hand = ""
         _opp_pitcher_name = ""
@@ -1165,6 +1176,7 @@ def build_daily_dcv_table(
                     confirmed_lineups=confirmed_lineups,
                     recent_form=recent_form,
                     rate_modes=None,  # Also clear rate_modes in case abandon zeroed it
+                    team_strength=team_strength,  # Preserve opp-offense wRC+ on retry
                     _retry_attempted=True,  # Bound recursion to one retry
                 )
 

@@ -524,14 +524,17 @@ with ctx:
         ),
         key="lineup_mode",
     )
-    # Auto-compute weeks remaining from current date (season is 24 weeks)
+    # Auto-compute weeks remaining from current date.
+    # FourzynBurn is a 26-week season (CLAUDE.md canonical; matches
+    # backtest_runner.WEEKS_IN_SEASON, playoff_sim.season_weeks, and the
+    # weekly-projection scaler farther down this page at line ~2079).
     try:
         from datetime import UTC as _utc
         from datetime import datetime as _dt
 
         # MLB 2026 fantasy Week 1 started March 23, 2026
         _SEASON_START = _dt(2026, 3, 23, tzinfo=_utc)
-        _TOTAL_WEEKS = 24
+        _TOTAL_WEEKS = 26
         _weeks_elapsed = max(0, (_dt.now(_utc) - _SEASON_START).days // 7)
         _auto_weeks = max(1, _TOTAL_WEEKS - _weeks_elapsed)
     except Exception:
@@ -839,7 +842,7 @@ with main:
             if _scope_key == "rest_of_week":
                 alpha = 1.0  # Pure H2H for weekly matchup
             elif _scope_key == "rest_of_season":
-                alpha = max(0.0, 1.0 - (weeks_remaining / 24.0))
+                alpha = max(0.0, 1.0 - (weeks_remaining / 26.0))
             # "today" scope: alpha unused by DCV engine
 
             progress_bar = st.progress(0, text="Syncing roster and building shared data context...")

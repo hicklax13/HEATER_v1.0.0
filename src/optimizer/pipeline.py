@@ -252,7 +252,9 @@ class LineupOptimizerPipeline:
             _season_start = datetime(2026, 3, 25, tzinfo=_ET)
             _now = datetime.now(_ET)
             _weeks_elapsed = max(0, (_now - _season_start).days // 7)
-            weeks_remaining = max(1, 24 - _weeks_elapsed)
+            # FourzynBurn is a 26-week season (CLAUDE.md canonical;
+            # matches src/optimizer/backtest_runner.py + playoff_sim).
+            weeks_remaining = max(1, 26 - _weeks_elapsed)
         self.roster = roster.copy()
         self.mode = mode if mode in MODE_PRESETS else "standard"
         self.alpha = alpha
@@ -568,29 +570,12 @@ class LineupOptimizerPipeline:
             try:
                 dcv = daily_extras["daily_dcv"]
                 if not dcv.empty:
-                    # Build daily recommended lineup from DCV table
-                    # Top players by total_dcv, respecting position slots
-                    starters = dcv[dcv["volume_factor"] > 0].head(18)  # Max 18 starters
-                    name_col = "name" if "name" in dcv.columns else "player_name"
-                    pos_col = "positions" if "positions" in dcv.columns else "pos"
-                    starter_cols = [name_col, pos_col, "total_dcv"]
-                    if "stud_floor_applied" in dcv.columns:
-                        starter_cols.append("stud_floor_applied")
-                    bench_cols = [name_col, pos_col, "total_dcv"]
-
-                    daily_extras["daily_lineup"] = {
-                        "starters": starters[[c for c in starter_cols if c in starters.columns]].to_dict("records")
-                        if not starters.empty
-                        else [],
-                        "bench": dcv[~dcv.index.isin(starters.index)][
-                            [c for c in bench_cols if c in dcv.columns]
-                        ].to_dict("records")
-                        if not dcv.empty
-                        else [],
-                    }
+                    daily_extras["daily_lineup"] = _build_daily_lineup_slot_aware(
+                        dcv, self.config
+                    )
                     logger.info(
                         "Stage 12 (Daily Lineup): %d starters recommended",
-                        len(starters),
+                        len(daily_extras["daily_lineup"].get("starters", [])),
                     )
             except Exception:
                 logger.warning("Stage 12 (Daily Lineup) failed", exc_info=True)
@@ -799,6 +784,102 @@ def _extract_assignments_map(
             assignments_map[pos] = 1.0
 
     return assignments_map
+
+
+def _build_daily_lineup_slot_aware(
+    dcv: pd.DataFrame,
+    config: Any | None,
+) -> dict[str, list[dict[str, Any]]]:
+    """Pick starters from the DCV table under Yahoo slot constraints.
+
+    Mirrors the page's LP-on-DCV path (pages/6_Line-up_Optimizer.py
+    `_run_lp_for_group`): zero out raw stats, copy ``total_dcv``
+    (shifted positive) into the ``r`` column, and run the LP twice
+    (hitters / pitchers) so pitchers' negative DCVs don't leave open
+    slots. Without this, top-18-by-DCV could return 7 OFs and 0 Cs,
+    violating success criterion #1.
+    """
+    name_col = "name" if "name" in dcv.columns else "player_name"
+    pos_col = "positions" if "positions" in dcv.columns else "pos"
+
+    if not _OPTIMIZER_AVAILABLE:
+        # Fall back to top-by-DCV when PuLP is unavailable
+        starters = dcv[dcv.get("volume_factor", pd.Series(1.0, index=dcv.index)) > 0].head(18)
+        starter_cols = [c for c in [name_col, pos_col, "total_dcv", "stud_floor_applied"] if c in starters.columns]
+        bench_cols = [c for c in [name_col, pos_col, "total_dcv"] if c in dcv.columns]
+        return {
+            "starters": starters[starter_cols].to_dict("records") if not starters.empty else [],
+            "bench": dcv[~dcv.index.isin(starters.index)][bench_cols].to_dict("records"),
+        }
+
+    eligible = dcv.copy()
+    if "volume_factor" in eligible.columns:
+        eligible = eligible[eligible["volume_factor"] > 0]
+    if "health_factor" in eligible.columns:
+        eligible = eligible[eligible["health_factor"] > 0]
+
+    if eligible.empty:
+        return {"starters": [], "bench": dcv[[c for c in [name_col, pos_col, "total_dcv"] if c in dcv.columns]].to_dict("records")}
+
+    _HITTER_SLOTS = {
+        "C": (1, ["C"]),
+        "1B": (1, ["1B"]),
+        "2B": (1, ["2B"]),
+        "3B": (1, ["3B"]),
+        "SS": (1, ["SS"]),
+        "OF": (3, ["OF", "LF", "CF", "RF"]),
+        "Util": (2, ["C", "1B", "2B", "3B", "SS", "OF", "LF", "CF", "RF", "DH"]),
+    }
+    _PITCHER_SLOTS = {"SP": (2, ["SP"]), "RP": (2, ["RP"]), "P": (4, ["SP", "RP", "P"])}
+
+    def _solve(group: pd.DataFrame, slots: dict) -> tuple[set, dict[int, str]]:
+        if group.empty:
+            return set(), {}
+        lp_r = group.copy()
+        if "player_name" not in lp_r.columns and "name" in lp_r.columns:
+            lp_r = lp_r.rename(columns={"name": "player_name"})
+        raw = lp_r["total_dcv"].fillna(0)
+        shifted = raw - raw.min() + 1.0
+        for c in ("r", "hr", "rbi", "sb", "w", "l", "sv", "k", "avg", "obp", "era", "whip"):
+            lp_r[c] = 0.0
+        lp_r["r"] = shifted
+        if "ip" not in lp_r.columns or lp_r["ip"].sum() == 0:
+            lp_r["ip"] = 1.0
+        if "pa" not in lp_r.columns or lp_r["pa"].sum() == 0:
+            lp_r["pa"] = 1.0
+        opt = LineupOptimizer(lp_r, config, roster_slots=slots)
+        res = opt.optimize_lineup(category_weights={"r": 1.0})
+        ids: set = set()
+        slot_map: dict[int, str] = {}
+        for a in res.get("assignments", []):
+            ids.add(a["player_id"])
+            slot_map[a["player_id"]] = a["slot"]
+        return ids, slot_map
+
+    is_hitter_mask = eligible.get("is_hitter", pd.Series(True, index=eligible.index)).astype(bool)
+    hitters = eligible[is_hitter_mask]
+    pitchers = eligible[~is_hitter_mask]
+
+    starter_ids: set = set()
+    slot_map: dict[int, str] = {}
+    h_ids, h_slots = _solve(hitters, _HITTER_SLOTS)
+    starter_ids |= h_ids
+    slot_map.update(h_slots)
+    p_ids, p_slots = _solve(pitchers, _PITCHER_SLOTS)
+    starter_ids |= p_ids
+    slot_map.update(p_slots)
+
+    starter_mask = dcv["player_id"].isin(starter_ids) if "player_id" in dcv.columns else pd.Series(False, index=dcv.index)
+    starters = dcv[starter_mask].copy()
+    if "player_id" in starters.columns:
+        starters["slot"] = starters["player_id"].map(slot_map)
+    starter_cols = [c for c in [name_col, pos_col, "slot", "total_dcv", "stud_floor_applied"] if c in starters.columns]
+    bench_cols = [c for c in [name_col, pos_col, "total_dcv"] if c in dcv.columns]
+
+    return {
+        "starters": starters[starter_cols].to_dict("records") if not starters.empty else [],
+        "bench": dcv[~starter_mask][bench_cols].to_dict("records"),
+    }
 
 
 def _compute_risk_metrics(values: np.ndarray) -> dict[str, float]:
