@@ -570,9 +570,7 @@ class LineupOptimizerPipeline:
             try:
                 dcv = daily_extras["daily_dcv"]
                 if not dcv.empty:
-                    daily_extras["daily_lineup"] = _build_daily_lineup_slot_aware(
-                        dcv, self.config
-                    )
+                    daily_extras["daily_lineup"] = _build_daily_lineup_slot_aware(dcv, self.config)
                     logger.info(
                         "Stage 12 (Daily Lineup): %d starters recommended",
                         len(daily_extras["daily_lineup"].get("starters", [])),
@@ -819,7 +817,10 @@ def _build_daily_lineup_slot_aware(
         eligible = eligible[eligible["health_factor"] > 0]
 
     if eligible.empty:
-        return {"starters": [], "bench": dcv[[c for c in [name_col, pos_col, "total_dcv"] if c in dcv.columns]].to_dict("records")}
+        return {
+            "starters": [],
+            "bench": dcv[[c for c in [name_col, pos_col, "total_dcv"] if c in dcv.columns]].to_dict("records"),
+        }
 
     _HITTER_SLOTS = {
         "C": (1, ["C"]),
@@ -869,7 +870,9 @@ def _build_daily_lineup_slot_aware(
     starter_ids |= p_ids
     slot_map.update(p_slots)
 
-    starter_mask = dcv["player_id"].isin(starter_ids) if "player_id" in dcv.columns else pd.Series(False, index=dcv.index)
+    starter_mask = (
+        dcv["player_id"].isin(starter_ids) if "player_id" in dcv.columns else pd.Series(False, index=dcv.index)
+    )
     starters = dcv[starter_mask].copy()
     if "player_id" in starters.columns:
         starters["slot"] = starters["player_id"].map(slot_map)
