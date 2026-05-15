@@ -18,6 +18,7 @@ from typing import Any
 
 import pandas as pd
 
+from src.game_day import LOCKED_GAME_STATUSES as _LOCKED_STATUSES
 from src.game_day import get_target_game_date
 from src.optimizer.constants_registry import CONSTANTS_REGISTRY as _CR
 from src.valuation import canonicalize_team, team_name_to_abbr
@@ -32,8 +33,10 @@ _FORM_CLIP_LO: float = 0.80
 _FORM_CLIP_HI: float = 1.20
 
 # Bounds for the matchup multiplier from opposing-offense wRC+ (pitchers
-# only). League-average wRC+ = 100; ~1.0 per 40 wRC+ points, capped at
-# ±20% so no single matchup dominates a pitcher's value.
+# only). League-average wRC+ = 100; divisor is 80 so the multiplier moves
+# by 0.5 per 40 wRC+ points (Wave 11B DCV-A1-016: comment previously said
+# "1.0 per 40" which mismatched the formula). Capped at ±20% so no single
+# matchup dominates a pitcher's value.
 _OFFENSE_MULT_LO: float = 0.80
 _OFFENSE_MULT_HI: float = 1.20
 
@@ -67,7 +70,10 @@ _RAW_SGP_DENOM: dict[str, float] = {
     "ERA": _CR["raw_sgp_denom_era"].value,
     "WHIP": _CR["raw_sgp_denom_whip"].value,
 }
-del _CR
+# Note: `_CR` is intentionally kept as a module-level alias to
+# CONSTANTS_REGISTRY (itself a module-level registry, not a per-import
+# singleton). Wave 11B uses it for r_stabilization_pa, league_avg_xfip,
+# and default_team_weekly_ip lookups at runtime.
 
 
 @dataclass
@@ -195,9 +201,12 @@ def _normalize_pitcher_name(name: str) -> str:
     return " ".join(s.split())
 
 
-# Stabilization points for Bayesian blend (from FanGraphs research)
+# Stabilization points for Bayesian blend (from FanGraphs research).
+# Wave 11B DCV-A1-007: r=460 was a copy-paste from OBP; per FanGraphs runs
+# stabilize much faster (~250 PA). Read from CONSTANTS_REGISTRY so
+# sigmoid_calibrator / sensitivity_analysis can perturb it.
 STABILIZATION_POINTS: dict[str, float] = {
-    "r": 460,
+    "r": int(_CR["r_stabilization_pa"].value),
     "hr": 170,
     "rbi": 300,
     "sb": 200,
@@ -211,7 +220,10 @@ STABILIZATION_POINTS: dict[str, float] = {
     "whip": 540,
 }
 
-# Top N players by ROS projection that get stud floor protection
+# Top N players by ROS projection that get stud floor protection.
+# Wave 11B DCV-A1-014: 8 ≈ top ~28% of a 28-slot Yahoo roster (~23 active +
+# 5 BN). Heuristic ceiling for "obvious starts no matter what the matchup
+# says" — keeps elite players from being benched by single-day DCV noise.
 STUD_FLOOR_TOP_N = 8
 
 
@@ -394,18 +406,22 @@ def compute_matchup_multiplier(
     except (ImportError, Exception):
         pass
 
-    # Opposing pitcher quality (xFIP-based) — hitters only
+    # Opposing pitcher quality (xFIP-based) — hitters only.
+    # Wave 11B DCV-A1-009: league-avg xFIP from CONSTANTS_REGISTRY so the
+    # baseline updates yearly via that registry entry; previously hardcoded 4.20.
     if pitcher_xfip is not None and is_hitter:
-        # League avg xFIP ~4.20. Better pitcher = lower multiplier for hitter
-        quality = max(0.5, min(2.0, 2.0 - pitcher_xfip / 4.20))
+        _xfip_baseline = _CR["league_avg_xfip"].value
+        quality = max(0.5, min(2.0, 2.0 - pitcher_xfip / _xfip_baseline))
         # Invert for hitters: good pitcher hurts hitter value
         mult *= 1.0 / max(0.5, quality)
 
     # Opposing team offense quality (wRC+-based) — pitchers only.
     # League-average wRC+ = 100. A pitcher facing a 120 wRC+ offense (NYY)
     # gets a dampened multiplier; facing a 80 wRC+ offense (bottom-third)
-    # gets a boost. Scale: ~1.0 per 40 wRC+ points, clamped to [0.80, 1.20]
-    # so no single matchup can more than 20% swing a pitcher's value.
+    # gets a boost. Divisor is 80 so the multiplier moves 0.5 per 40 wRC+
+    # (Wave 11B DCV-A1-016: comment previously said "~1.0 per 40 wRC+" which
+    # mismatched the formula). Clamped to [0.80, 1.20] so no single matchup
+    # can more than 20% swing a pitcher's value.
     if opponent_offense_wrc_plus is not None and not is_hitter:
         try:
             _wrcp = float(opponent_offense_wrc_plus)
@@ -551,6 +567,10 @@ def apply_stud_floor(
                     mm = float(row.get("matchup_mult", 1.0) or 1.0)
                 except (TypeError, ValueError):
                     mm = 1.0
+                # Wave 11B DCV-A1-018: 1.5× median is heuristic — meant to
+                # lift a stud from "marginal" to "comfortably above median"
+                # while still tracking matchup quality via `mm`. No formal
+                # calibration; chosen by inspection on 2026-04-17 rosters.
                 floor_val = median_dcv * 1.5 * mm
                 if current < floor_val:
                     dcv_table.at[idx, "total_dcv"] = floor_val
@@ -674,7 +694,12 @@ def build_daily_dcv_table(
             # Determine if this game is locked (started or finished)
             _game_locked = False
             _status_str = str(game.get("status", "")).lower()
-            if any(s in _status_str for s in ("in progress", "final", "game over", "completed")):
+            # Wave 11B DCV-A4-001: consume LOCKED_GAME_STATUSES from
+            # src.game_day (centralized) instead of an inline tuple. We
+            # use substring containment to remain tolerant of statsapi
+            # status drift (e.g. "Completed Early — Rain"). The
+            # constant in game_day uses normalized lowercase forms.
+            if any(s in _status_str for s in _LOCKED_STATUSES):
                 _game_locked = True
             elif _now_utc is not None:
                 _ts = game.get("game_datetime") or game.get("game_date")
@@ -1043,9 +1068,19 @@ def build_daily_dcv_table(
         # substring check would also fire on a hypothetical "RSP" or any
         # future code that contains "SP" as a substring. Reuse the same
         # tokenisation used at line ~764 so the two paths can't diverge.
+        # Wave 11B DCV-A1-006: SP/RP hybrids (e.g. swingmen) get a blended
+        # 1/40 daily fraction — they make ~5-10 starts (~1/30 frac) and
+        # ~20-30 relief appearances (~1/50 frac) per season. Pure-SP uses
+        # 1/30; pure-RP / pure-P uses 1/50.
         _pitcher_pos_tokens = {p.strip() for p in str(player.get("positions", "")).upper().split(",")}
-        _is_starter_pitcher = "SP" in _pitcher_pos_tokens
-        _pitcher_daily_frac = 1.0 / 30.0 if _is_starter_pitcher else 1.0 / 50.0
+        _has_sp_token = "SP" in _pitcher_pos_tokens
+        _has_rp_token = "RP" in _pitcher_pos_tokens
+        if _has_sp_token and _has_rp_token:
+            _pitcher_daily_frac = 1.0 / 40.0
+        elif _has_sp_token:
+            _pitcher_daily_frac = 1.0 / 30.0
+        else:
+            _pitcher_daily_frac = 1.0 / 50.0
 
         for cat in config.all_categories:
             col = cat.lower()
@@ -1139,7 +1174,11 @@ def build_daily_dcv_table(
                     xfip=player.get("xfip"),
                 )
 
-            # T3-5b: Sprint speed boost for hitter SB DCV
+            # T3-5b: Sprint speed boost for hitter SB DCV.
+            # Wave 11B DCV-A1-013: thresholds 28.0/29.0 ft/s reference
+            # Statcast league-avg sprint speed ~27.0; 28 = "fast," 29 = "elite."
+            # Multipliers 1.05/1.10 calibrated to give elite burners a modest
+            # SB-only edge without over-weighting raw speed.
             if col == "sb" and is_hitter:
                 try:
                     _speed = float(player.get("sprint_speed", 0) or 0)
@@ -1282,25 +1321,31 @@ def check_ip_override(
 def apply_ip_pace_scaling(
     dcv_table: pd.DataFrame,
     weekly_ip_projected: float,
-    weekly_ip_target: float = 55.0,
+    weekly_ip_target: float | None = None,
 ) -> pd.DataFrame:
     """Scale pitcher counting-stat DCV by remaining IP budget fraction.
 
     When a team has already used most of its weekly IP budget, pitcher
-    counting stats (K/W/SV) should be scaled down to reflect reduced
+    counting stats (K/W/SV/L) should be scaled down to reflect reduced
     remaining innings. This prevents over-valuing pitchers late in the
     week when IP is tight.
 
     Args:
         dcv_table: DCV DataFrame from build_daily_dcv_table().
         weekly_ip_projected: Total projected IP already used/committed.
-        weekly_ip_target: Season-wide weekly IP target (default 55.0).
+        weekly_ip_target: Season-wide weekly IP target. When None
+            (Wave 11B DCV-A2-003), reads `default_team_weekly_ip` from
+            CONSTANTS_REGISTRY so the value updates as that entry is
+            recalibrated.
 
     Returns:
         Updated dcv_table with pitcher DCV scaled by IP budget.
     """
     if dcv_table.empty:
         return dcv_table
+
+    if weekly_ip_target is None:
+        weekly_ip_target = float(_CR["default_team_weekly_ip"].value)
 
     # Compute IP budget usage fraction
     ip_used_fraction = weekly_ip_projected / max(weekly_ip_target, 1.0)
@@ -1316,11 +1361,15 @@ def apply_ip_pace_scaling(
         scale = 1.0 - (ip_used_fraction - 0.80) * (0.4 / 0.15)
         scale = max(0.3, min(1.0, scale))
 
-    # Apply scale to pitcher counting-stat DCV columns only (K, W, SV)
+    # Apply scale to pitcher counting-stat DCV columns (K, W, SV, L).
+    # Wave 11B DCV-A1-011: L is an inverse counting stat — leaving it
+    # unscaled while shrinking K/W/SV over-penalised pitchers near the
+    # IP cap (a pitcher with no remaining opportunity also can't take
+    # a Loss, so dcv_l should fade proportionally).
     if "is_hitter" not in dcv_table.columns:
         return dcv_table
 
-    counting_cols = ["dcv_k", "dcv_w", "dcv_sv"]
+    counting_cols = ["dcv_k", "dcv_w", "dcv_sv", "dcv_l"]
     pitcher_mask = ~dcv_table["is_hitter"]
     for col in counting_cols:
         if col in dcv_table.columns:

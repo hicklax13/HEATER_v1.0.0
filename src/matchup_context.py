@@ -160,12 +160,16 @@ class MatchupContextService:
             result = get_team_strength(team_abbr)
         except Exception as e:
             logger.debug("get_team_strength(%s) failed: %s", team_abbr, e)
+            # Wave 11B DCV-A6-001: fallback values reflect 2023-2024 MLB
+            # league averages — wRC+ 100 is by definition the league mean;
+            # ERA/WHIP 4.20/1.27 are recent averages (previously 4.00/1.25
+            # were optimistic). team_ops kept at 0.720 (matches 2023 league).
             result = {
                 "wrc_plus": 100.0,
-                "fip": 4.00,
+                "fip": 4.20,
                 "team_ops": 0.720,
-                "team_era": 4.00,
-                "team_whip": 1.25,
+                "team_era": 4.20,
+                "team_whip": 1.27,
                 "k_pct": 22.0,
                 "bb_pct": 8.0,
             }
@@ -184,13 +188,16 @@ class MatchupContextService:
         if cached is not None:
             return cached
 
+        # Wave 11B DCV-A3-001: "CWS" is canonical for the Chicago White Sox
+        # per Wave 1 / SF-57; legacy "CHW" still flows in from some upstream
+        # sources but canonicalize_team handles the alias.
         teams = [
             "ARI",
             "ATL",
             "BAL",
             "BOS",
             "CHC",
-            "CHW",
+            "CWS",
             "CIN",
             "CLE",
             "COL",
@@ -424,6 +431,14 @@ class MatchupContextService:
         equal = {cat: 1.0 for cat in all_cats}
 
         # ── Matchup weights ──────────────────────────────────────────
+        # Wave 11B DCV-A1-017: the 0.5 offset shifts the urgency range
+        # from [0.10, 1.00] (pure sigmoid + floor) to [0.60, 1.50]. The
+        # design intent is to keep already-winning categories from
+        # collapsing to 10% of their base weight — they still contribute
+        # ~60% so the LP doesn't punt them entirely. Categories being lost
+        # close to 1.50 get prioritised. Range [0.60, 1.50] is calibrated
+        # to roughly match the [1.0×, 2.5×] effective spread on per-day
+        # DCV magnitudes after post-hoc urgency multiplication.
         matchup_weights: dict[str, float] | None = None
         try:
             urgency_data = self.get_category_urgency()
@@ -484,6 +499,11 @@ class MatchupContextService:
             logger.warning("standings weights failed: %s", exc)
 
         # ── Assemble result ──────────────────────────────────────────
+        # Wave 11B DCV-A2-005: normalise all 3 modes to mean=1.0 so cross-
+        # mode comparisons and LP objectives operate on the same scale.
+        # Previously only the blended path normalised; "matchup" returned
+        # values in ~[0.60, 1.50] and "standings" in [0, ∞) — A/B-testing
+        # a roster across modes meant comparing different units.
         if mode == "matchup":
             result = matchup_weights if matchup_weights else equal
         elif mode == "standings":
@@ -496,12 +516,7 @@ class MatchupContextService:
                     mw = matchup_weights.get(cat, 1.0)
                     sw = standings_weights.get(cat, 1.0)
                     raw[cat] = alpha * mw + (1.0 - alpha) * sw
-                # Normalize to mean = 1.0
-                mean_val = sum(raw.values()) / max(len(raw), 1)
-                if mean_val > 1e-9:
-                    result = {c: v / mean_val for c, v in raw.items()}
-                else:
-                    result = equal
+                result = raw
             elif matchup_weights:
                 result = matchup_weights
             elif standings_weights:
@@ -509,8 +524,11 @@ class MatchupContextService:
             else:
                 result = equal
 
-        # Ensure non-negative
+        # Ensure non-negative + normalise to mean=1.0 across all modes.
         result = {c: max(0.0, v) for c, v in result.items()}
+        _mean_val = sum(result.values()) / max(len(result), 1)
+        if _mean_val > 1e-9:
+            result = {c: v / _mean_val for c, v in result.items()}
 
         self._set_cached(cache_key, result, TTL_URGENCY)
         return result

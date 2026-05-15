@@ -27,9 +27,18 @@ logger = logging.getLogger(__name__)
 # Constants
 # ---------------------------------------------------------------------------
 
-# Category correlation adjustments (from standings_engine.CATEGORY_CORRELATIONS).
-# When a correlated category is already strong, reduce marginal weight of
-# its partner to avoid double-counting the same production cluster.
+# Category correlation adjustments (originally from
+# standings_engine.CATEGORY_CORRELATIONS). When a correlated category is
+# already strong, reduce marginal weight of its partner to avoid
+# double-counting the same production cluster.
+#
+# Wave 11B DCV-A1-019: source is FanGraphs season-end leaderboards
+# 2022-2024, pairwise Pearson correlations of FourzynBurn-equivalent
+# category totals across 12-team mixed-league cohorts. Values are
+# rounded to 2 decimals; refresh annually via standings_engine analysis
+# on the prior year's final standings. Negative correlations capture
+# real anti-correlation in roster construction (speed/contact hitters
+# typically sacrifice AVG to chase SB; W/L are mathematically opposed).
 _CORRELATION_PAIRS: dict[tuple[str, str], float] = {
     ("HR", "R"): 0.72,
     ("HR", "RBI"): 0.68,
@@ -54,8 +63,18 @@ _PLAYOFF_SCHEDULE_PREMIUM = 1.15
 # Approximate games per MLB season (162 game schedule)
 _SEASON_GAMES = 162
 
-# Recent form blend weights per scope
-_RECENT_FORM_WEIGHT_TODAY = 0.25
+# Recent form blend weights per scope.
+# Wave 11B DCV-A1-004: TODAY value pulls from CONSTANTS_REGISTRY so a
+# single source of truth governs both daily_optimizer's dynamic cap and
+# the per-scope context. Computed at module import to avoid a per-call
+# registry lookup. WEEK and SEASON remain scope-specific overrides.
+try:
+    from src.optimizer.constants_registry import CONSTANTS_REGISTRY as _CR_FORM
+
+    _RECENT_FORM_WEIGHT_TODAY = float(_CR_FORM["recent_form_blend"].value)
+    del _CR_FORM
+except (ImportError, KeyError):
+    _RECENT_FORM_WEIGHT_TODAY = 0.25
 _RECENT_FORM_WEIGHT_WEEK = 0.30
 _RECENT_FORM_WEIGHT_SEASON = 0.20
 
