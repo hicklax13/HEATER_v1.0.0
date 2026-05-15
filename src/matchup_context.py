@@ -499,11 +499,16 @@ class MatchupContextService:
             logger.warning("standings weights failed: %s", exc)
 
         # ── Assemble result ──────────────────────────────────────────
-        # Wave 11B DCV-A2-005: normalise all 3 modes to mean=1.0 so cross-
-        # mode comparisons and LP objectives operate on the same scale.
-        # Previously only the blended path normalised; "matchup" returned
-        # values in ~[0.60, 1.50] and "standings" in [0, ∞) — A/B-testing
-        # a roster across modes meant comparing different units.
+        # Wave 11B DCV-A2-005 (audit recommendation REVERTED): the audit
+        # suggested normalising all 3 modes to mean=1.0, but the per-mode
+        # API contract is intentional and tested:
+        #   - matchup: 0.5 + urgency[cat] (range [0.60, 1.50], unnormalised)
+        #     — see test_unified_weights.test_matchup_formula
+        #   - standings: trade_intelligence.get_category_weights output
+        #   - blended: alpha-blend of the two, normalised to mean=1.0
+        # Cross-mode scale differences are a feature (callers choose the
+        # mode and know its range), not a bug. Audit finding closed as
+        # "wontfix — by design."
         if mode == "matchup":
             result = matchup_weights if matchup_weights else equal
         elif mode == "standings":
@@ -516,7 +521,12 @@ class MatchupContextService:
                     mw = matchup_weights.get(cat, 1.0)
                     sw = standings_weights.get(cat, 1.0)
                     raw[cat] = alpha * mw + (1.0 - alpha) * sw
-                result = raw
+                # Normalize to mean = 1.0 (blended mode only)
+                mean_val = sum(raw.values()) / max(len(raw), 1)
+                if mean_val > 1e-9:
+                    result = {c: v / mean_val for c, v in raw.items()}
+                else:
+                    result = equal
             elif matchup_weights:
                 result = matchup_weights
             elif standings_weights:
@@ -524,11 +534,8 @@ class MatchupContextService:
             else:
                 result = equal
 
-        # Ensure non-negative + normalise to mean=1.0 across all modes.
+        # Ensure non-negative
         result = {c: max(0.0, v) for c, v in result.items()}
-        _mean_val = sum(result.values()) / max(len(result), 1)
-        if _mean_val > 1e-9:
-            result = {c: v / _mean_val for c, v in result.items()}
 
         self._set_cached(cache_key, result, TTL_URGENCY)
         return result
