@@ -149,6 +149,11 @@ class LeagueConfig:
     pitching_categories: list = field(default_factory=lambda: ["W", "L", "SV", "K", "ERA", "WHIP"])
     scoring_format: str = "h2h_categories"
     weekly_transaction_limit: int = 10
+    # Per-matchup minimum innings pitched (SP + RP combined). The
+    # league owner enforces a 20 IP floor; teams below get forfeit-style
+    # penalties on pitching cats. Consumed by daily_optimizer.check_ip_override
+    # (OQ-3 resolution: this is a league rule, not a heuristic).
+    weekly_ip_minimum: float = 20.0
     # SGP denominators — defaults for 12-team H2H categories
     sgp_denominators: dict = field(
         default_factory=lambda: {

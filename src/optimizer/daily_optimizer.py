@@ -205,6 +205,20 @@ def _normalize_pitcher_name(name: str) -> str:
 # Wave 11B DCV-A1-007: r=460 was a copy-paste from OBP; per FanGraphs runs
 # stabilize much faster (~250 PA). Read from CONSTANTS_REGISTRY so
 # sigmoid_calibrator / sensitivity_analysis can perturb it.
+#
+# OQ-4 (2026-05-15): W, L, and SV are NOT canonical rate-stabilization
+# points. Sabermetric research (Carleton; FanGraphs Sample Size library)
+# calibrates stabilization only for rate stats with well-defined per-
+# opportunity denominators (BF, AB, BIP, FB). W/L/SV are discrete-outcome
+# counting stats — wins are dominated by team_win_pct, not pitcher rate
+# stability; saves are role-driven (closer_monitor.job_security is the
+# right signal); losses inherit the same problem as wins. The values
+# below (w=200, l=200, sv=100) are non-canonical and ``_BLENDABLE_KEYS``
+# below excludes them so ``compute_blended_projection`` is a pure
+# pass-through for these three keys. Full refactor (derive W from
+# IP_proj × winpct via team_strength, drive SV from closer_monitor) is
+# tracked as a future-wave item; this minimal change prevents the
+# undefined-behavior blend the audit flagged.
 STABILIZATION_POINTS: dict[str, float] = {
     "r": int(_CR["r_stabilization_pa"].value),
     "hr": 170,
@@ -212,6 +226,9 @@ STABILIZATION_POINTS: dict[str, float] = {
     "sb": 200,
     "avg": 910,
     "obp": 460,
+    # OQ-4 non-canonical entries — included only so callers that iterate
+    # STABILIZATION_POINTS keys don't KeyError, but the blend skips them
+    # via ``_NON_BLENDABLE_KEYS`` below.
     "w": 200,
     "l": 200,
     "sv": 100,
@@ -219,6 +236,13 @@ STABILIZATION_POINTS: dict[str, float] = {
     "era": 630,
     "whip": 540,
 }
+
+# OQ-4 (2026-05-15): these three keys are NOT valid rate-stabilization
+# stats — they're discrete-outcome counting stats. compute_blended_projection
+# treats them as pass-throughs (returns preseason_rate unchanged) so the
+# math is never undefined. Future-wave work: derive W/L/SV from underlying
+# rates (IP_proj × winpct via team_strength; closer_monitor for SV).
+_NON_BLENDABLE_KEYS: frozenset[str] = frozenset({"w", "l", "sv"})
 
 # Top N players by ROS projection that get stud floor protection.
 # Wave 11B DCV-A1-014: 8 ≈ top ~28% of a 28-slot Yahoo roster (~23 active +
@@ -244,6 +268,13 @@ def compute_blended_projection(
     stat-specific stabilization point. Early in the season the prior
     dominates; as denominator grows the blend shifts toward observed.
 
+    OQ-4 (2026-05-15): for ``stat_key in _NON_BLENDABLE_KEYS`` (currently
+    ``{"w", "l", "sv"}``) the function is a pure pass-through — those
+    stats are discrete-outcome counting events, not rates with calibrated
+    stabilization points, so a Bayesian blend on them produces undefined
+    behavior (no canonical denominator). The preseason_rate is returned
+    unchanged.
+
     Args:
         preseason_rate: Preseason projection rate for the stat.
         observed_numerator: Observed stat total so far this season.
@@ -251,8 +282,11 @@ def compute_blended_projection(
         stat_key: Lowercase stat key (e.g. "hr", "era").
 
     Returns:
-        Blended projection rate.
+        Blended projection rate (or preseason_rate unchanged for
+        non-blendable stats).
     """
+    if stat_key in _NON_BLENDABLE_KEYS:
+        return preseason_rate
     stab = STABILIZATION_POINTS.get(stat_key, 200)
     if stab <= 0:
         stab = 200
@@ -724,6 +758,26 @@ def build_daily_dcv_table(
                     if _game_locked:
                         locked_teams.add(canon)
 
+    # Doubleheader detection (OQ-2 resolution, 2026-05-15): when a team
+    # has two scheduled game entries today, both games contribute their
+    # stats to Yahoo H2H — so a confirmed starter gets ~2× the daily
+    # opportunity. Count (canonical-home, canonical-away) pairs from
+    # schedule_today; >1 entry for the same pair = doubleheader for both
+    # teams. We carry the set of doubleheader teams through to the
+    # volume-factor call below.
+    doubleheader_teams: set[str] = set()
+    if schedule_today:
+        _team_game_counts: dict[str, int] = {}
+        for game in schedule_today:
+            _h_raw = str(game.get("home_name", "") or game.get("home_team", "")).upper().strip()
+            _a_raw = str(game.get("away_name", "") or game.get("away_team", "")).upper().strip()
+            _h_canon = canonicalize_team(team_name_to_abbr(_h_raw)) if _h_raw else ""
+            _a_canon = canonicalize_team(team_name_to_abbr(_a_raw)) if _a_raw else ""
+            for tc in (_h_canon, _a_canon):
+                if tc:
+                    _team_game_counts[tc] = _team_game_counts.get(tc, 0) + 1
+        doubleheader_teams = {tc for tc, n in _team_game_counts.items() if n >= 2}
+
     # Get urgency weights from matchup (use caller-provided if available)
     if urgency_weights is not None:
         urgency = urgency_weights.get("urgency", {})
@@ -843,7 +897,12 @@ def build_daily_dcv_table(
                 elif not _has_rp:
                     in_lineup = False
                     _pitcher_volume_override = 0.0
-        volume = compute_volume_factor(team_plays, in_lineup)
+        # OQ-2 (2026-05-15): doubleheader teams get the 2.0× boost for
+        # confirmed starters / 1.8× for not-yet-posted lineups. Only hitters
+        # benefit — a single SP doesn't pitch both legs, so the pitcher
+        # gate above already keeps `_pitcher_volume_override` authoritative.
+        _is_dh = is_hitter and team_canon in doubleheader_teams
+        volume = compute_volume_factor(team_plays, in_lineup, is_doubleheader=_is_dh)
         if _pitcher_volume_override is not None:
             volume = _pitcher_volume_override
         # Deduct already-played game contributions: if this player's team
@@ -1267,22 +1326,37 @@ def build_daily_dcv_table(
 def check_ip_override(
     dcv_table: pd.DataFrame,
     weekly_ip_projected: float,
-    ip_minimum: float = 20.0,
+    ip_minimum: float | None = None,
+    config: object | None = None,
 ) -> pd.DataFrame:
-    """Force-start a pitcher if weekly IP is below minimum threshold.
+    """Force-start a pitcher if weekly IP is below the league IP minimum.
 
-    If projected IP is below the minimum, find the best available pitcher
-    and boost their DCV to ensure they start. This enforces the
-    requirement for minimum weekly innings pitched.
+    FourzynBurn (OQ-3 resolution, 2026-05-15): the league enforces a 20 IP
+    floor combining SPs + RPs per matchup week — teams below the floor
+    incur forfeit-style penalties on pitching categories. When the
+    projected IP for the week falls below this floor, this routine boosts
+    the best available pitcher's DCV so the LP starts them even on a
+    bad-matchup day, recovering toward the floor.
 
     Args:
         dcv_table: DCV DataFrame from build_daily_dcv_table().
         weekly_ip_projected: Current projected IP for the week.
-        ip_minimum: Minimum IP threshold (default 20.0).
+        ip_minimum: Minimum IP threshold. When None, reads
+            ``LeagueConfig.weekly_ip_minimum`` from the supplied ``config``;
+            falls back to ``20.0`` if no config is provided.
+        config: Optional LeagueConfig — for tests / future leagues that
+            change the IP minimum without re-deploying.
 
     Returns:
         Updated dcv_table with pitcher boost applied if needed.
     """
+    if ip_minimum is None:
+        if config is not None:
+            ip_minimum = float(getattr(config, "weekly_ip_minimum", 20.0))
+        else:
+            from src.valuation import LeagueConfig
+
+            ip_minimum = float(LeagueConfig().weekly_ip_minimum)
     if weekly_ip_projected >= ip_minimum:
         return dcv_table
 

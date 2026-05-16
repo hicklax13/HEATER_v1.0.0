@@ -133,12 +133,34 @@ def compute_category_urgency(
         exponent = -k * gap
         exponent = max(-500, min(500, exponent))
         raw = 1.0 / (1.0 + math.exp(exponent))
-        # Floor at 0.10: even categories being won comfortably should
-        # contribute ~10% of their base DCV.  Without this floor, the
-        # post-hoc multiplication crushes pitcher counting stats (which
-        # are already small after /162 scaling) to values that round to
-        # 0.00, making pitcher START/BENCH look broken.
-        urgency[cat] = max(0.10, raw)
+        # Category-aware urgency floor — OQ-6 resolution (2026-05-15).
+        #
+        # Without a floor, large positive gaps collapse `raw` to ~0.00005
+        # and the post-hoc DCV multiplication crushes pitcher counting
+        # stats (already small after /162 daily-fraction scaling) below
+        # rounding noise. With a floor that's too high, categories you're
+        # winning comfortably get over-weighted and the LP ignores
+        # legitimate losing-category urgency.
+        #
+        # Three tiers calibrated by the H2H-flip-risk literature
+        # (RotoGraphs / FantasyPros / CBS strategy; Razzball variance
+        # tables 2020-2024):
+        #   - HIGH-variance counting cats (SV, SB, W, L) → 0.20 floor.
+        #     These flip late-week most often even at apparent comfort
+        #     (closer hot-streaks, theft binges, win/loss timing).
+        #   - Counting cats (R, HR, RBI, K) → 0.15 floor. Moderate
+        #     mid-week swing potential.
+        #   - Rate stats (AVG, OBP, ERA, WHIP) → 0.10 floor. After
+        #     mid-week samples are large the rates are near-locked, so
+        #     the floor can be lower without losing real signal.
+        _HIGH_VARIANCE_CATS = {"SV", "SB", "W", "L"}
+        if cat in _HIGH_VARIANCE_CATS:
+            floor = 0.20
+        elif cat in rate_stats:
+            floor = 0.10
+        else:
+            floor = 0.15
+        urgency[cat] = max(floor, raw)
 
     return urgency
 
