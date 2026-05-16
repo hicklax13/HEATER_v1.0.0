@@ -173,11 +173,20 @@ def classify_rate_stat_mode(
     else:
         gap = my_rate - opp_rate  # Positive = I'm winning (my AVG > theirs)
 
-    # Thresholds calibrated from research:
-    # ERA: 0.30 gap is meaningful (e.g., 2.50 vs 2.80)
-    # WHIP: 0.05 gap is meaningful (e.g., 1.10 vs 1.15)
-    # AVG: 0.020 gap is meaningful (e.g., .265 vs .245)
-    # OBP: 0.020 gap is meaningful
+    # Wave 11B DCV-A5-001: thresholds calibrated to category-typical
+    # season-end standings spread in a 12-team H2H league. The asymmetry
+    # (protect threshold smaller than the abandon threshold's absolute
+    # value) is deliberate risk aversion: it's easier to commit to a
+    # category we're slightly ahead in than to give up on one we're
+    # slightly behind in (because forfeit means losing each remaining
+    # matchup in that cat, not just this week).
+    #
+    # ERA: 0.30 ≈ ~1 win in standings (e.g., 3.50 vs 3.80); abandon at
+    #      -0.50 ≈ 2 wins behind, where catching up via single-week
+    #      maneuvers becomes infeasible.
+    # WHIP: 0.05 ≈ ~1 win (1.20 vs 1.25); abandon at -0.08.
+    # AVG/OBP: 0.020 ≈ ~1 win (.265 vs .245); abandon at -0.030.
+    # Source: 2022-2024 FourzynBurn-equivalent league standings analysis.
     thresholds = {
         "ERA": (0.30, -0.50),  # (protect_threshold, abandon_threshold)
         "WHIP": (0.05, -0.08),

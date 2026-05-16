@@ -20,8 +20,19 @@ logger = logging.getLogger(__name__)
 # EDT = UTC-4). ZoneInfo adjusts automatically. (Wave 8a/D6A-001.)
 _ET_ZONE = ZoneInfo("America/New_York")
 
-# Game-completion statuses that indicate a game is over
-_FINAL_STATUSES = frozenset({"final", "game over", "completed early"})
+# Game-completion statuses that indicate a game is over.
+# Wave 11B DCV-A4-001: centralized here as the sole source of truth.
+# Consumed by daily_optimizer.build_daily_dcv_table to detect locked
+# teams (in-progress / final / rain-shortened); also used by
+# get_target_game_date below to auto-advance to tomorrow when every
+# game today is over.
+FINAL_GAME_STATUSES: frozenset[str] = frozenset({"final", "game over", "completed early", "completed"})
+# Statuses indicating a game has *started* (locked from a fantasy
+# pickup standpoint) — superset of FINAL_GAME_STATUSES.
+LOCKED_GAME_STATUSES: frozenset[str] = FINAL_GAME_STATUSES | frozenset({"in progress"})
+# Legacy alias preserved for callers that imported the underscore-prefixed
+# name (e.g. ``from src.game_day import _FINAL_STATUSES``).
+_FINAL_STATUSES = FINAL_GAME_STATUSES
 
 
 def get_target_game_date() -> str:

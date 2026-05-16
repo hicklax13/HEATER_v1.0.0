@@ -160,12 +160,16 @@ class MatchupContextService:
             result = get_team_strength(team_abbr)
         except Exception as e:
             logger.debug("get_team_strength(%s) failed: %s", team_abbr, e)
+            # Wave 11B DCV-A6-001: fallback values reflect 2023-2024 MLB
+            # league averages — wRC+ 100 is by definition the league mean;
+            # ERA/WHIP 4.20/1.27 are recent averages (previously 4.00/1.25
+            # were optimistic). team_ops kept at 0.720 (matches 2023 league).
             result = {
                 "wrc_plus": 100.0,
-                "fip": 4.00,
+                "fip": 4.20,
                 "team_ops": 0.720,
-                "team_era": 4.00,
-                "team_whip": 1.25,
+                "team_era": 4.20,
+                "team_whip": 1.27,
                 "k_pct": 22.0,
                 "bb_pct": 8.0,
             }
@@ -184,13 +188,16 @@ class MatchupContextService:
         if cached is not None:
             return cached
 
+        # Wave 11B DCV-A3-001: "CWS" is canonical for the Chicago White Sox
+        # per Wave 1 / SF-57; legacy "CHW" still flows in from some upstream
+        # sources but canonicalize_team handles the alias.
         teams = [
             "ARI",
             "ATL",
             "BAL",
             "BOS",
             "CHC",
-            "CHW",
+            "CWS",
             "CIN",
             "CLE",
             "COL",
@@ -424,6 +431,14 @@ class MatchupContextService:
         equal = {cat: 1.0 for cat in all_cats}
 
         # ── Matchup weights ──────────────────────────────────────────
+        # Wave 11B DCV-A1-017: the 0.5 offset shifts the urgency range
+        # from [0.10, 1.00] (pure sigmoid + floor) to [0.60, 1.50]. The
+        # design intent is to keep already-winning categories from
+        # collapsing to 10% of their base weight — they still contribute
+        # ~60% so the LP doesn't punt them entirely. Categories being lost
+        # close to 1.50 get prioritised. Range [0.60, 1.50] is calibrated
+        # to roughly match the [1.0×, 2.5×] effective spread on per-day
+        # DCV magnitudes after post-hoc urgency multiplication.
         matchup_weights: dict[str, float] | None = None
         try:
             urgency_data = self.get_category_urgency()
@@ -484,6 +499,16 @@ class MatchupContextService:
             logger.warning("standings weights failed: %s", exc)
 
         # ── Assemble result ──────────────────────────────────────────
+        # Wave 11B DCV-A2-005 (audit recommendation REVERTED): the audit
+        # suggested normalising all 3 modes to mean=1.0, but the per-mode
+        # API contract is intentional and tested:
+        #   - matchup: 0.5 + urgency[cat] (range [0.60, 1.50], unnormalised)
+        #     — see test_unified_weights.test_matchup_formula
+        #   - standings: trade_intelligence.get_category_weights output
+        #   - blended: alpha-blend of the two, normalised to mean=1.0
+        # Cross-mode scale differences are a feature (callers choose the
+        # mode and know its range), not a bug. Audit finding closed as
+        # "wontfix — by design."
         if mode == "matchup":
             result = matchup_weights if matchup_weights else equal
         elif mode == "standings":
@@ -496,7 +521,7 @@ class MatchupContextService:
                     mw = matchup_weights.get(cat, 1.0)
                     sw = standings_weights.get(cat, 1.0)
                     raw[cat] = alpha * mw + (1.0 - alpha) * sw
-                # Normalize to mean = 1.0
+                # Normalize to mean = 1.0 (blended mode only)
                 mean_val = sum(raw.values()) / max(len(raw), 1)
                 if mean_val > 1e-9:
                     result = {c: v / mean_val for c, v in raw.items()}

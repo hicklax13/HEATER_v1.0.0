@@ -1024,6 +1024,74 @@ def _bootstrap_depth_charts(progress: BootstrapProgress) -> str:
         return _format_fetch_error(e, "Depth charts")
 
 
+def _enrich_pitcher_positions(progress: BootstrapProgress) -> str:
+    """Phase 9c: Add SP/RP qualifier to pitcher rows that only have 'P'.
+
+    Walks every player row whose ``positions`` contains a 'P' token but
+    no 'SP' or 'RP', then resolves the qualifier using
+    :func:`resolve_pitcher_positions` against ``depth_chart_role`` (just
+    persisted by :func:`_bootstrap_depth_charts`) and aggregated
+    ``season_stats`` (saves, ip, games_played).
+
+    Idempotent — pre-enriched rows are left alone.
+    """
+    progress.phase = "Pitcher Positions"
+    progress.detail = "Enriching pitcher SP/RP qualifiers..."
+
+    from src.database import get_connection, update_refresh_log_auto
+    from src.depth_charts import resolve_pitcher_positions
+
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            """
+            SELECT p.player_id,
+                   p.positions,
+                   p.depth_chart_role,
+                   COALESCE(SUM(ss.sv), 0)            AS total_sv,
+                   COALESCE(SUM(ss.ip), 0.0)          AS total_ip,
+                   COALESCE(SUM(ss.games_played), 0)  AS total_gp
+            FROM players p
+            LEFT JOIN season_stats ss ON p.player_id = ss.player_id
+            WHERE p.positions IS NOT NULL
+              AND p.positions LIKE '%P%'
+            GROUP BY p.player_id
+            """
+        ).fetchall()
+
+        updated = 0
+        for player_id, positions, role, sv, ip, gp in rows:
+            new_pos = resolve_pitcher_positions(
+                positions,
+                depth_chart_role=role,
+                saves=int(sv) if sv is not None else None,
+                innings_pitched=float(ip) if ip is not None else None,
+                games_played=int(gp) if gp is not None else None,
+            )
+            if new_pos and new_pos != positions:
+                conn.execute(
+                    "UPDATE players SET positions = ? WHERE player_id = ?",
+                    (new_pos, player_id),
+                )
+                updated += 1
+        conn.commit()
+        # INFRA-F6: row-count gate. Most refreshes won't change anything
+        # (pitchers stay enriched once set), so a low floor is correct.
+        update_refresh_log_auto(
+            "pitcher_positions",
+            updated,
+            expected_min=0,
+            message=f"{updated} pitchers enriched with SP/RP",
+        )
+        logger.info("Enriched SP/RP qualifier on %d pitcher rows", updated)
+        return f"Pitcher positions: {updated} rows enriched"
+    except Exception as e:
+        logger.exception("Pitcher position enrichment failed")
+        return f"Pitcher positions: error ({e})"
+    finally:
+        conn.close()
+
+
 # ── FP Edge Feature Phases ────────────────────────────────────────────
 
 
@@ -2948,6 +3016,13 @@ def bootstrap_all_data(
         results["depth_charts"] = _bootstrap_depth_charts(progress)
     else:
         results["depth_charts"] = "Fresh"
+
+    # Phase 9c (Wave 10 / SF-84): Enrich generic 'P' pitcher rows with
+    # SP/RP qualifiers using the depth_chart_role we just persisted plus
+    # season_stats fallback. Always runs (cheap; idempotent) so freshly
+    # imported players from earlier phases also get enriched.
+    _notify(0.935)
+    results["pitcher_positions"] = _enrich_pitcher_positions(progress)
 
     # Phase 10: Contract year data
     _notify(0.94)
