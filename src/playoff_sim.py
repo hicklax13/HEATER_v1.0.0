@@ -162,10 +162,8 @@ def project_weekly_totals(
         return {cat: 0.0 for cat in cfg.all_categories}
 
     # Approximate remaining game-weeks for per-week rates.
-    # BUG-021: was 22.0; use the canonical 26-week MLB regular season
-    # per CLAUDE.md "Counting stats divided by 26 weeks". Counting-stat
-    # weekly projections were off by ~18% under the old constant.
-    season_weeks = 26.0
+    # 2026-05-17 Section 3 D5: sourced from LeagueConfig (canonical 26).
+    season_weeks = float(cfg.season_weeks)
 
     hitters = roster[roster["is_hitter"] == 1]
     pitchers = roster[roster["is_hitter"] == 0]

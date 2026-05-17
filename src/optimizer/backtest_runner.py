@@ -338,7 +338,10 @@ def _build_projected_stats(
     Returns:
         DataFrame with projected stats, filtered to players with actuals.
     """
-    WEEKS_IN_SEASON = 26
+    # 2026-05-17 Section 3 D5: source from LeagueConfig.season_weeks.
+    from src.valuation import LeagueConfig
+
+    WEEKS_IN_SEASON = LeagueConfig().season_weeks
 
     proj = roster.copy()
 

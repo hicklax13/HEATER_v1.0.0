@@ -673,12 +673,12 @@ def evaluate_trade(
         # 2026-05-17 Section 2 L1 fix: was 24 weeks. FourzynBurn = 26 weeks
         # (SF-42 fix missed this site). Every trade evaluation that doesn't
         # pass weeks_remaining explicitly was understating remaining-season
-        # value by ~8%.
+        # value by ~8%. 2026-05-17 Section 3 D5: source from LeagueConfig.
         _ET = timezone(timedelta(hours=-4))
         _season_start = datetime(2026, 3, 25, tzinfo=_ET)
         _now = datetime.now(_ET)
         _weeks_elapsed = max(0, (_now - _season_start).days // 7)
-        weeks_remaining = max(1, 26 - _weeks_elapsed)
+        weeks_remaining = max(1, (config or LeagueConfig()).season_weeks - _weeks_elapsed)
 
     if config is None:
         config = LeagueConfig()

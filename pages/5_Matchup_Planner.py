@@ -166,9 +166,9 @@ def _compute_win_probs(week: int) -> dict | None:
 
     config = LeagueConfig()
     weeks_played = max(0, week - 1)
-    # 2026-05-17 Section 2 L10 fix: was 24, but FourzynBurn season is 26 weeks
-    # (SF-49 fix in playoff_sim missed this page).
-    weeks_remaining = max(1, 26 - week + 1)
+    # 2026-05-17 Section 3 D5: source from LeagueConfig.season_weeks
+    # (was hardcoded 26 in Section 2 L10 fix; now derived from config).
+    weeks_remaining = max(1, config.season_weeks - week + 1)
 
     try:
         result = compute_category_win_probabilities(

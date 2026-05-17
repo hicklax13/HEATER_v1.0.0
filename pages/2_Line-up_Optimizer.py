@@ -533,8 +533,11 @@ with ctx:
         from datetime import datetime as _dt
 
         # MLB 2026 fantasy Week 1 started March 23, 2026
+        # 2026-05-17 Section 3 D5: total weeks sourced from LeagueConfig.
+        from src.valuation import LeagueConfig as _LC_W
+
         _SEASON_START = _dt(2026, 3, 23, tzinfo=_utc)
-        _TOTAL_WEEKS = 26
+        _TOTAL_WEEKS = _LC_W().season_weeks
         _weeks_elapsed = max(0, (_dt.now(_utc) - _SEASON_START).days // 7)
         _auto_weeks = max(1, _TOTAL_WEEKS - _weeks_elapsed)
     except Exception:
@@ -2045,10 +2048,11 @@ with main:
                         unsafe_allow_html=True,
                     )
                     proj = lineup["projected_stats"]
-                    # Scale counting stats to weekly. Canonical per CLAUDE.md
-                    # "Counting stats divided by 26 weeks" — was 24.0 (BUG-018).
-                    # Rate stats (AVG, OBP, ERA, WHIP) don't scale.
-                    WEEKS_IN_SEASON = 26.0
+                    # Scale counting stats to weekly. 2026-05-17 Section 3 D5:
+                    # source from LeagueConfig.season_weeks. Rate stats don't scale.
+                    from src.valuation import LeagueConfig as _LC_W2
+
+                    WEEKS_IN_SEASON = float(_LC_W2().season_weeks)
                     _rate_stats = {"avg", "obp", "era", "whip"}
                     weekly_proj: dict[str, float] = {}
                     for cat, val in proj.items():

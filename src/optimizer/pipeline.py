@@ -252,9 +252,8 @@ class LineupOptimizerPipeline:
             _season_start = datetime(2026, 3, 25, tzinfo=_ET)
             _now = datetime.now(_ET)
             _weeks_elapsed = max(0, (_now - _season_start).days // 7)
-            # FourzynBurn is a 26-week season (CLAUDE.md canonical;
-            # matches src/optimizer/backtest_runner.py + playoff_sim).
-            weeks_remaining = max(1, 26 - _weeks_elapsed)
+            # 2026-05-17 Section 3 D5: source from LeagueConfig.season_weeks.
+            weeks_remaining = max(1, (config or _LC_Class()).season_weeks - _weeks_elapsed)
         self.roster = roster.copy()
         self.mode = mode if mode in MODE_PRESETS else "standard"
         self.alpha = alpha
