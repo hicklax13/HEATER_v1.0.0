@@ -53,7 +53,7 @@ def compute_fantasy_points_distribution(
             val = float(player.get(col, 0) or 0)
             denom = sgp.get(cat, 1.0)
             if denom > 0:
-                weekly = val / 22.0  # ~22 weeks in season
+                weekly = val / 26.0  # 26-week FourzynBurn season (was 22)
                 mean_sgp += weekly / denom
                 vol = vol_fracs.get(col, 0.35) * weekly
                 var_sgp += (vol / denom) ** 2
@@ -64,11 +64,11 @@ def compute_fantasy_points_distribution(
         obp_denom = sgp.get("OBP", 0.005)
         if avg_denom > 0 and avg > 0:
             avg_delta = (avg - 0.260) / avg_denom  # Deviation from league avg
-            mean_sgp += avg_delta / 22.0
+            mean_sgp += avg_delta / 26.0
             var_sgp += (0.015 / avg_denom) ** 2  # Weekly AVG volatility
         if obp_denom > 0 and obp > 0:
             obp_delta = (obp - 0.320) / obp_denom
-            mean_sgp += obp_delta / 22.0
+            mean_sgp += obp_delta / 26.0
             var_sgp += (0.020 / obp_denom) ** 2
     else:
         stat_map = {"W": "w", "SV": "sv", "K": "k", "L": "l"}
@@ -77,7 +77,7 @@ def compute_fantasy_points_distribution(
             val = float(player.get(col, 0) or 0)
             denom = sgp.get(cat, 1.0)
             if denom > 0:
-                weekly = val / 22.0
+                weekly = val / 26.0
                 if cat in inverse_counting:
                     mean_sgp -= weekly / denom  # L is inverse: fewer is better
                 else:
@@ -91,11 +91,11 @@ def compute_fantasy_points_distribution(
         whip_denom = sgp.get("WHIP", 0.02)
         if era_denom > 0 and era > 0:
             era_delta = (4.00 - era) / era_denom  # Inverse: lower ERA is better
-            mean_sgp += era_delta / 22.0
+            mean_sgp += era_delta / 26.0
             var_sgp += (0.80 / era_denom) ** 2  # Weekly ERA volatility
         if whip_denom > 0 and whip_val > 0:
             whip_delta = (1.25 - whip_val) / whip_denom  # Inverse: lower WHIP better
-            mean_sgp += whip_delta / 22.0
+            mean_sgp += whip_delta / 26.0
             var_sgp += (0.10 / whip_denom) ** 2
 
     std_sgp = max(0.01, math.sqrt(var_sgp))

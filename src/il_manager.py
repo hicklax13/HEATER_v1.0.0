@@ -61,7 +61,7 @@ def estimate_il_duration(il_type: str, position: str = "") -> float:
 def compute_lost_sgp(
     player_sgp: float,
     duration_weeks: float,
-    weeks_remaining: float = 22.0,
+    weeks_remaining: float = 26.0,
 ) -> float:
     """Compute SGP lost due to IL stint."""
     if weeks_remaining <= 0:
@@ -74,7 +74,7 @@ def find_best_replacement(
     vacated_positions: list[str],
     bench_players: pd.DataFrame,
     il_duration_weeks: float = 2.0,
-    weeks_remaining: float = 22.0,
+    weeks_remaining: float = 26.0,
 ) -> dict | None:
     """Find best bench replacement eligible at vacated position.
 
@@ -155,7 +155,7 @@ def generate_il_alert(
     il_player: dict,
     bench_players: pd.DataFrame,
     player_sgp: float = 0.0,
-    weeks_remaining: float = 22.0,
+    weeks_remaining: float = 26.0,
 ) -> ILAlert:
     """Generate a full IL alert with replacement recommendation."""
     il_type = il_player.get("il_type", "IL15")

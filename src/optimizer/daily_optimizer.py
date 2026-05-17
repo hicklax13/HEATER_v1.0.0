@@ -443,7 +443,10 @@ def compute_matchup_multiplier(
     # Opposing pitcher quality (xFIP-based) — hitters only.
     # Wave 11B DCV-A1-009: league-avg xFIP from CONSTANTS_REGISTRY so the
     # baseline updates yearly via that registry entry; previously hardcoded 4.20.
-    if pitcher_xfip is not None and is_hitter:
+    # 2026-05-17 Section 2 L6 fix: pitcher_xfip=0 (missing-data default) passed
+    # the `is not None` check and set quality=2.0 (elite), halving hitter DCV.
+    # Require xfip > 0 to skip the adjustment when xFIP is missing/zero.
+    if pitcher_xfip is not None and pitcher_xfip > 0 and is_hitter:
         _xfip_baseline = _CR["league_avg_xfip"].value
         quality = max(0.5, min(2.0, 2.0 - pitcher_xfip / _xfip_baseline))
         # Invert for hitters: good pitcher hurts hitter value

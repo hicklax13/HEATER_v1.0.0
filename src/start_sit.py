@@ -902,9 +902,14 @@ def _compute_start_score(
             baseline = _RATE_BASELINES.get(cat_lower, 0.0)
             delta = proj_val - baseline
 
-            # Park factor adjustment for pitcher rate stats
+            # 2026-05-17 Section 2 L5 fix: matchup_factors["park"] for pitchers
+            # has ALREADY been inverted (2-pf) in _average_park_factor (~line
+            # 758). Applying `2.0 - matchup_factors["park"]` here re-inverts
+            # back to the raw hitter-friendly value, so pitcher rate-stat
+            # adjustments got the wrong sign at extreme parks (Coors gave a
+            # bonus instead of a penalty).
             if not is_hitter and cat_lower in inverse:
-                cat_factor = 2.0 - matchup_factors.get("park", 1.0)
+                cat_factor = matchup_factors.get("park", 1.0)
             else:
                 cat_factor = 1.0
 
