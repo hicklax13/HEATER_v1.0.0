@@ -352,15 +352,19 @@ CONSTANTS_REGISTRY: dict[str, ConstantEntry] = {
     # -- Replacement Levels (rate-stat marginal SGP) -----------------------
     # Used by daily_optimizer's rate-stat SGP computation:
     # annual_sgp = (component - opportunity * replacement) / raw_denom.
-    # Per DCV-A1-001 audit: original baselines (0.240/0.305/4.50/1.35) were
-    # calibrated by inspection without explicit research citation. Bounds
-    # below are conservative; OQ-1 in the audit findings asks for the
-    # specific source / FourzynBurn-validated values.
+    #
+    # OQ-1 resolution (2026-05-15): values are calibrated from FourzynBurn
+    # end-of-season standings — they represent the rate-stat performance of
+    # the 12th-ranked team (last/replacement tier) per category. Refresh
+    # annually after the championship via
+    #   `python scripts/calibrate_repl_baselines.py`
+    # which reads `league_standings` and writes the new bottom-team values
+    # back into this registry.
     "repl_avg": ConstantEntry(
         value=0.240,
         lower_bound=0.225,
         upper_bound=0.255,
-        citation="12-team H2H mixed league baseline; DCV-A1-001 OQ-1 pending validation",
+        citation="Calibrated from FourzynBurn standings (12th-team AVG); refresh annually via scripts/calibrate_repl_baselines.py (OQ-1)",
         module="daily_optimizer.py",
         sensitivity="HIGH",
         description="Replacement-level AVG for hitter rate-stat marginal SGP",
@@ -369,7 +373,7 @@ CONSTANTS_REGISTRY: dict[str, ConstantEntry] = {
         value=0.305,
         lower_bound=0.290,
         upper_bound=0.320,
-        citation="12-team H2H mixed league baseline; DCV-A1-001 OQ-1 pending validation",
+        citation="Calibrated from FourzynBurn standings (12th-team OBP); refresh annually via scripts/calibrate_repl_baselines.py (OQ-1)",
         module="daily_optimizer.py",
         sensitivity="HIGH",
         description="Replacement-level OBP for hitter rate-stat marginal SGP",
@@ -378,7 +382,7 @@ CONSTANTS_REGISTRY: dict[str, ConstantEntry] = {
         value=4.50,
         lower_bound=4.20,
         upper_bound=4.80,
-        citation="12-team H2H mixed league baseline; DCV-A1-001 OQ-1 pending validation",
+        citation="Calibrated from FourzynBurn standings (12th-team ERA); refresh annually via scripts/calibrate_repl_baselines.py (OQ-1)",
         module="daily_optimizer.py",
         sensitivity="HIGH",
         description="Replacement-level ERA for pitcher rate-stat marginal SGP",
@@ -387,7 +391,7 @@ CONSTANTS_REGISTRY: dict[str, ConstantEntry] = {
         value=1.35,
         lower_bound=1.27,
         upper_bound=1.42,
-        citation="12-team H2H mixed league baseline; DCV-A1-001 OQ-1 pending validation",
+        citation="Calibrated from FourzynBurn standings (12th-team WHIP); refresh annually via scripts/calibrate_repl_baselines.py (OQ-1)",
         module="daily_optimizer.py",
         sensitivity="HIGH",
         description="Replacement-level WHIP for pitcher rate-stat marginal SGP",

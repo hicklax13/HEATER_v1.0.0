@@ -56,8 +56,14 @@ _CORRELATION_PAIRS: dict[tuple[str, str], float] = {
 _CORR_DAMPEN_STRONG = 0.85
 _CORR_BOOST_WEAK = 1.10
 
-# Playoff premium for weeks 21-24 schedule
-_PLAYOFF_WEEKS = {21, 22, 23, 24}
+# Playoff weeks for the FourzynBurn 26-week schedule:
+# weeks 1-24 are regular season, week 25 is the semi-finals,
+# week 26 is the championship. Schedule premium boosts forward-looking
+# stat weights during these 2 weeks so playoff-eligible studs get
+# extra weight against marginal mid-season holds. (Audit OQ-5
+# resolution: previously `{21, 22, 23, 24}` — those were regular-season
+# weeks, the playoff premium fired during the wrong stretch.)
+_PLAYOFF_WEEKS = {25, 26}
 _PLAYOFF_SCHEDULE_PREMIUM = 1.15
 
 # Approximate games per MLB season (162 game schedule)
