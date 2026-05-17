@@ -163,13 +163,20 @@ class TestRosterTotals:
         assert totals["AVG"] == pytest.approx(expected, rel=1e-6)
 
     def test_empty_roster_zeros(self, pool):
-        """Empty roster returns zero for counting stats, neutral sentinels for rate stats."""
+        """Empty roster returns zero for counting stats, neutral sentinels for rate stats.
+
+        2026-05-17 Section 3 D1/D8: ERA/WHIP/wOBA sentinels read from
+        CONSTANTS_REGISTRY (was hardcoded 4.50/1.30/0.320; canonical is
+        4.20/1.30/0.320 per 2025 MLB actuals).
+        """
+        from src.optimizer.constants_registry import CONSTANTS_REGISTRY
+
         totals = _roster_category_totals([], pool)
         assert totals["R"] == 0
         assert totals["AVG"] == 0.250  # League-average neutral sentinel
-        assert totals["OBP"] == 0.320  # League-average neutral sentinel
-        assert totals["ERA"] == 4.50  # League-average neutral sentinel
-        assert totals["WHIP"] == 1.30  # League-average neutral sentinel
+        assert totals["OBP"] == CONSTANTS_REGISTRY["league_avg_woba"].value
+        assert totals["ERA"] == CONSTANTS_REGISTRY["league_avg_era"].value
+        assert totals["WHIP"] == CONSTANTS_REGISTRY["league_avg_whip"].value
 
     def test_nonexistent_ids_ignored(self, pool):
         """IDs not in pool are silently ignored (no crash)."""
