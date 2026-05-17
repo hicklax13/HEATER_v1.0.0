@@ -61,7 +61,7 @@ python scripts/calibrate_repl_baselines.py      # Refresh _REPL_* from FourzynBu
 - **Yahoo API:** yfpy + streamlit-oauth (optional OAuth)
 - **Linter:** ruff (lint + format), pre-commit + pre-push hooks enforced
 - **CI:** GitHub Actions — ruff lint/format + pytest sharded (4 groups × 2 xdist workers, Python 3.12) + 60% coverage floor; uv-based dep install; concurrency cancels in-flight PR runs; expected ~5-7 min total wall time
-- **Python:** Local dev uses 3.14; CI tests 3.11-3.13
+- **Python:** Local dev uses 3.14; CI tests on 3.12 (sharded 4 ways via pytest-split)
 
 ## File Structure
 
@@ -193,10 +193,14 @@ data/
   backups/                  — Draft state JSON backups
   logs/bootstrap.log        — Persistent bootstrap log (SF-14)
 docs/
-  ROADMAP.md                — Improvement history
-  superpowers/plans/        — Implementation plans (e.g. 2026-05-10-finish-data-audit-cleanup.md)
+  architecture.md           — Layered system architecture reference
+  Research.md               — Competitive gap analysis vs FantasyPros
+  VERIFICATION_LOG.md       — V-001..V-017 browser-verified validation sessions
+  2026-04-08-heater-postmortem.md  — Early-season recommendation-failure RCA
+  legal/                    — LLC formation, ToS, privacy policy, data sources, etc.
+  archive/                  — Stale historical docs (ROADMAP, AUDIT_REPORT, BETA_*)
 .github/
-  workflows/ci.yml          — CI pipeline (lint + 3.11/3.12/3.13 test + coverage floor)
+  workflows/ci.yml          — CI pipeline (lint + sharded pytest 4×2 workers on 3.12 + coverage floor + build check)
   workflows/refresh.yml     — Scheduled daily data refresh
 ```
 
@@ -490,7 +494,7 @@ The data pipeline has been audited twice with all findings resolved.
 
 **2026-04-18 audit (SF-1 → SF-14)** — Triggered by user-reported confusing DCV results. 4 parallel investigation agents found 14 silent-fail patterns. Headlines: SF-1 game_logs dead, SF-2 season_stats discarding 86%, SF-3 Two-Way Players skipped, SF-4 team_strength race condition, SF-5 depth_charts empty, SF-7 catcher_framing/umpire_tendencies empty, SF-13 pvb_splits status, SF-14 no persistent logging. All resolved in `feat/resilient-data-pipeline` (PR merged 2026-04-22) plus follow-on commits.
 
-**2026-05-10 follow-up audit (SF-15 → SF-28)** — Proactive 5-agent sweep across bootstrap completeness, optimizer formulas, engine formulas, page-level data flow, cross-codebase consistency. Found 14 NEW silent-fail patterns. Headlines: SF-19 sprint_speed read but not in pool, SF-20 simple-mean rate-stat fallback, SF-21 stale `_LC` singleton, SF-22 park_factors Tier 1 ignored, SF-23 7 pages bypass Yahoo service, SF-25 7 SGP local reinventions consolidated to `SGPCalculator.totals_sgp`, SF-26 12+ hardcoded category lists, SF-27 MatchupContextService bypasses, SF-28 scripts using direct sqlite3.connect. All resolved across PRs #7-#11 (2026-05-10/11). Plan: [docs/superpowers/plans/2026-05-10-finish-data-audit-cleanup.md](docs/superpowers/plans/2026-05-10-finish-data-audit-cleanup.md).
+**2026-05-10 follow-up audit (SF-15 → SF-28)** — Proactive 5-agent sweep across bootstrap completeness, optimizer formulas, engine formulas, page-level data flow, cross-codebase consistency. Found 14 NEW silent-fail patterns. Headlines: SF-19 sprint_speed read but not in pool, SF-20 simple-mean rate-stat fallback, SF-21 stale `_LC` singleton, SF-22 park_factors Tier 1 ignored, SF-23 7 pages bypass Yahoo service, SF-25 7 SGP local reinventions consolidated to `SGPCalculator.totals_sgp`, SF-26 12+ hardcoded category lists, SF-27 MatchupContextService bypasses, SF-28 scripts using direct sqlite3.connect. All resolved across PRs #7-#11 (2026-05-10/11).
 
 **2026-05-11 whole-repo audit (SF-29 → SF-32)** — Triggered by a 24-agent parallel bug audit (22 code reviewers + Stream B player verification + Stream C refresh infrastructure). Found ~569 actionable findings; first wave (4 HIGH-severity data-correction bugs) resolved here. Headlines: SF-29 `league_rosters.name` SQL bugs in `injury_writeback` + `draft_results` (0 IL flagged, 0 R1-3 picks flagged undroppable for 8+ days), SF-30 `_bootstrap_dynamic_park_factors` used team OPS+ as park proxy (silent corruption every 7 days), SF-31 33 shadow rows with fake mlb_ids in [600000, 601999] (4 rostered IL players resolved to DSL prospects), SF-32 3 rostered players with NULL mlb_id (invisible to live-stats). All resolved in Wave 1 (PR #13).
 
@@ -557,13 +561,13 @@ The data pipeline has been audited twice with all findings resolved.
 ## GitHub
 
 - **Repo:** https://github.com/hicklax13/HEATER_v1.0.0
-- **CI:** GitHub Actions — ruff lint/format + pytest (Python 3.11/3.12/3.13) + 60% coverage floor + structural-invariant guards
+- **CI:** GitHub Actions — ruff lint/format + sharded pytest (4 shards × 2 xdist workers, Python 3.12, ~5-7min wall time via PR #29) + 60% coverage floor + structural-invariant guards
 - **Recent PRs:** #7-#11 (2026-05-10/11) all merged to master
 
 ## Testing
 
 - **~3700 passing tests** across 165+ test files, 13 skipped (PyMC/XGBoost/WeasyPrint optional)
-- **CI:** GitHub Actions (3.11/3.12/3.13)
+- **CI:** GitHub Actions (Python 3.12, sharded 4 ways)
 - **Coverage:** ~65% (60% CI floor)
 - **Pre-commit hook:** Enforces `ruff format` + `ruff check` on every commit
 - **Backtesting framework:** Historical replay validates engine recommendations vs actual outcomes
@@ -575,4 +579,3 @@ The data pipeline has been audited twice with all findings resolved.
 3. Run `python -m pytest --ignore=tests/test_cheat_sheet.py -x -q` to verify tests pass
 4. Run `streamlit run app.py` and verify Yahoo auto-reconnect
 5. Inspect refresh_log: `python -c "from src.database import get_refresh_log_snapshot; import json; print(json.dumps(get_refresh_log_snapshot(), indent=2))"`
-6. Latest implementation plan: `docs/superpowers/plans/`

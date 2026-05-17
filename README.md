@@ -102,7 +102,7 @@ python -m ruff format .                # Format
 - **Format:** 12-team snake draft, 23 rounds, Head-to-Head Categories
 - **Hitting (6):** R, HR, RBI, SB, AVG, OBP
 - **Pitching (6):** W, L, SV, K, ERA, WHIP
-- **Roster:** C/1B/2B/3B/SS/3OF/2Util/2SP/2RP/4P/5BN = 23 slots
+- **Roster:** C/1B/2B/3B/SS/3OF/2Util/2SP/2RP/4P/6BN/4IL = 28 slots
 
 ## License
 

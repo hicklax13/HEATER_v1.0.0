@@ -1,13 +1,13 @@
 # HEATER Architecture
 
 > System architecture for the HEATER Fantasy Baseball Draft Tool & In-Season Manager.
-> Last updated: 2026-03-20
+> Last updated: 2026-05-17 (post-audit Waves 1-11, post-PR #29 CI sharding)
 
 ---
 
 ## System Overview
 
-HEATER is a Streamlit-based fantasy baseball application with two pillars: a draft assistant and an in-season manager. The codebase is organized into 9 architectural layers, 60+ source modules, 83 test files (1956+ tests), and integrates with 12 external APIs — all with graceful degradation.
+HEATER is a Streamlit-based fantasy baseball application with two pillars: a draft assistant and an in-season manager. The codebase is organized into 9 architectural layers, 120+ source modules across `src/`, ~21 Streamlit pages, ~165+ test files (~3900 tests), and integrates with 12 external APIs — all with graceful degradation. See `CLAUDE.md` for the canonical, regularly-updated module-by-module breakdown; this document focuses on the high-level layered architecture and request flows.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -41,8 +41,9 @@ HEATER is a Streamlit-based fantasy baseball application with two pillars: a dra
 │  trade_value · two_start · start_sit · matchup_planner          │
 │  waiver_wire · trade_finder · draft_grader                      │
 ├─────────────────────────────────────────────────────────────────┤
-│                    Layer 9: Feature Modules                     │
-│  FP Parity (15 modules) + FP Edge Intelligence (3 modules)     │
+│                    Layer 9: War Room + Backtesting              │
+│  war_room · weekly_h2h_strategy · alerts · backtesting           │
+│  optimizer/backtest_runner · validation/calibration_data         │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
