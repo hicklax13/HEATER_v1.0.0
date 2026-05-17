@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "_comment": "Optimized for Opus 4.7 + 1M context: PostToolUse fires per file edit, runs ruff (format + check) on ONLY the file just edited, surfaces output back into the AI session within ~200ms. The shell command is defensive: if CLAUDE_FILE_PATHS isn't populated (older Claude Code versions or non-file tool calls), it exits 0 without running ruff so the hook never blocks tool use. The `|| true` suffix ensures a non-zero ruff exit (lint errors) is surfaced as context but does not abort the in-flight tool use.",
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [ -n \"$CLAUDE_FILE_PATHS\" ]; then echo \"$CLAUDE_FILE_PATHS\" | tr ' ' '\\n' | grep -E '\\.py$' | xargs -r python -m ruff format 2>/dev/null; echo \"$CLAUDE_FILE_PATHS\" | tr ' ' '\\n' | grep -E '\\.py$' | xargs -r python -m ruff check 2>&1 | tail -20 || true; fi"
+          }
+        ]
+      }
+    ]
+  }
+}

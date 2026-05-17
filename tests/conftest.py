@@ -23,12 +23,27 @@ this keeps it safe for any future test that wants to seed the real table itself.
 
 from __future__ import annotations
 
+import os  # noqa: I001 - must precede the xdist worker block below
 import sqlite3
 from pathlib import Path
 
-import numpy as np
-import pandas as pd
-import pytest
+# ─── Per-worker DB (pytest-xdist) ────────────────────────────────────────
+# When pytest-xdist runs tests in parallel workers, each writes to the
+# shared `data/draft_tool.db` and they collide on WAL+busy_timeout. The
+# fix: redirect every worker to its own DB file via the ``HEATER_DB_PATH``
+# env var that `src.database._resolve_db_path` honors. We do this at
+# *import time* in conftest so it's set before any test or fixture imports
+# ``src.database``.
+_xdist_worker = os.environ.get("PYTEST_XDIST_WORKER")
+if _xdist_worker and _xdist_worker != "master":
+    _repo_root = Path(__file__).resolve().parent.parent
+    _worker_db_dir = _repo_root / "data" / "_xdist"
+    _worker_db_dir.mkdir(parents=True, exist_ok=True)
+    os.environ["HEATER_DB_PATH"] = str(_worker_db_dir / f"draft_tool_{_xdist_worker}.db")
+
+import numpy as np  # noqa: E402 - delayed import is intentional (must come after HEATER_DB_PATH set)
+import pandas as pd  # noqa: E402
+import pytest  # noqa: E402
 
 # 12 H2H Categories: 6 hitting (R, HR, RBI, SB, AVG, OBP) + 6 pitching
 # (W, L, SV, K, ERA, WHIP). ERA/WHIP/L are inverse (lower better).

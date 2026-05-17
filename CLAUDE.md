@@ -17,19 +17,25 @@ The codebase is organized around 7 feature surfaces:
 ## Commands
 
 ```bash
-pip install -r requirements.txt        # Install deps
-python scripts/install-hooks.py        # Install pre-commit hook (first time)
+pip install -r requirements.txt        # Install deps (or `uv pip install --system -r requirements.txt` for ~10× faster)
+python scripts/install-hooks.py        # Install pre-commit + pre-push hooks (first time, per machine)
 python load_sample_data.py             # Load sample data (first time/testing)
 streamlit run app.py                   # Run the app
 python -m ruff check .                 # Lint
 python -m ruff format .                # Format
-python -m pytest --ignore=tests/test_cheat_sheet.py  # Full suite (~3700 pass; cheat_sheet skipped on Windows)
+python -m pytest --ignore=tests/test_cheat_sheet.py  # Full suite (~3900 pass; cheat_sheet skipped on Windows)
 python -m pytest tests/test_foo.py -v  # Single test file
+
+# Parallel test execution (matches CI's sharded layout)
+python -m pytest tests/ -n auto --dist loadfile      # Run all in parallel locally (~4× faster)
+python -m pytest tests/ --splits 4 --group 1 -n 2 --dist loadfile  # Run shard 1 of 4
+python -m pytest tests/ --store-durations             # Regenerate .test_durations (weekly cadence)
 
 # Optimizer validation tools
 python scripts/run_backtest.py --quick          # Replay historical MLB weeks, score accuracy
 python scripts/compute_empirical_stats.py       # Compare correlation/CV defaults vs real MLB data
 python scripts/calibrate_sigmoid.py --full      # Grid-search optimal sigmoid k-values
+python scripts/calibrate_repl_baselines.py      # Refresh _REPL_* from FourzynBurn standings (annual)
 ```
 
 ## League Context
@@ -53,8 +59,8 @@ python scripts/calibrate_sigmoid.py --full      # Grid-search optimal sigmoid k-
 - **Analytics:** PyMC 5 (Bayesian, optional), PuLP (LP optimizer), arviz
 - **Live data:** MLB-StatsAPI, pybaseball (FanGraphs/Statcast), Open-Meteo (weather), Baseball Savant (catcher framing)
 - **Yahoo API:** yfpy + streamlit-oauth (optional OAuth)
-- **Linter:** ruff (lint + format), pre-commit hook enforced
-- **CI:** GitHub Actions — ruff lint/format + pytest (Python 3.11/3.12/3.13) + 60% coverage floor
+- **Linter:** ruff (lint + format), pre-commit + pre-push hooks enforced
+- **CI:** GitHub Actions — ruff lint/format + pytest sharded (4 groups × 2 xdist workers, Python 3.12) + 60% coverage floor; uv-based dep install; concurrency cancels in-flight PR runs; expected ~5-7 min total wall time
 - **Python:** Local dev uses 3.14; CI tests 3.11-3.13
 
 ## File Structure
