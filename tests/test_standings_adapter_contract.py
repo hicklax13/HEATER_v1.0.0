@@ -1,4 +1,4 @@
-"""D5: Verify pages/9_League_Standings.py adapter contract holds end-to-end.
+"""D5: Verify pages/6_League_Standings.py adapter contract holds end-to-end.
 
 PR #8 (Wave 2-G) replaced a custom 70-line ``_compute_projected_team_totals``
 with a thin adapter wrapping ``standings_utils.get_all_team_totals``. The
@@ -47,7 +47,7 @@ from src.standings_engine import (
 )
 from src.valuation import LeagueConfig
 
-# ── Adapter scaling contract (mirrors pages/9_League_Standings.py:147-163) ──
+# ── Adapter scaling contract (mirrors pages/6_League_Standings.py:147-163) ──
 _WEEKS = 26.0
 _COUNTING = {"R", "HR", "RBI", "SB", "W", "L", "SV", "K"}
 _RATE = {"AVG", "OBP", "ERA", "WHIP"}
@@ -55,7 +55,7 @@ _RATE_DEFAULTS = {"AVG": 0.250, "OBP": 0.330, "ERA": 4.00, "WHIP": 1.25}
 
 
 def _adapter_scale(season_totals: dict[str, dict[str, float]]) -> dict[str, dict[str, float]]:
-    """Reproduce the adapter scaling step from pages/9_League_Standings.py.
+    """Reproduce the adapter scaling step from pages/6_League_Standings.py.
 
     Kept in sync with ``_compute_projected_team_totals`` (lines 147-163). If
     that scaling logic ever changes (e.g. switching to elapsed-week pacing),

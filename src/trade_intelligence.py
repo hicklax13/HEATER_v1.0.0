@@ -6,7 +6,7 @@ pipeline. No new algorithms — this module connects existing infrastructure.
 
 Used by:
     - ``src/trade_finder.py``: enhanced ``find_trade_opportunities()``
-    - ``pages/10_Trade_Finder.py``: Trade Readiness tab
+    - ``pages/12_Trade_Finder.py``: Trade Readiness tab
 """
 
 from __future__ import annotations

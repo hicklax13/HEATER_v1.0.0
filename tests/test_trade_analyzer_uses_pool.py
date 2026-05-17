@@ -1,11 +1,11 @@
-"""pages/4_Trade_Analyzer.py must use player pool, not raw ECR/stats SQL."""
+"""pages/11_Trade_Analyzer.py must use player pool, not raw ECR/stats SQL."""
 
 import re
 from pathlib import Path
 
 
 def test_no_direct_pool_table_sql():
-    text = Path("pages/4_Trade_Analyzer.py").read_text(encoding="utf-8")
+    text = Path("pages/11_Trade_Analyzer.py").read_text(encoding="utf-8")
     text_no_comments = re.sub(r"#.*$", "", text, flags=re.MULTILINE)
     text_no_strings = re.sub(r'"""[\s\S]*?"""', "", text_no_comments)
     bad = []

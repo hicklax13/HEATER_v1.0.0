@@ -8,7 +8,7 @@ its rules consistently.
 
 ### In scope (the "Today" branch of the lineup optimizer)
 
-- `pages/6_Line-up_Optimizer.py` lines 939-1011 (the `_scope_key == "today"` branch — input wiring + display contract)
+- `pages/2_Line-up_Optimizer.py` lines 939-1011 (the `_scope_key == "today"` branch — input wiring + display contract)
 - `src/optimizer/daily_optimizer.py` (1302 LOC) — `build_daily_dcv_table` and every helper: `compute_health_factor`, `compute_volume_factor`, `compute_matchup_multiplier`, weighted DCV math, stud floor, SP gate, forced-start, locked-teams, `DailyDCVContext`
 - `src/optimizer/shared_data_layer.py` — `build_optimizer_context` (urgency_weights, confirmed_lineups, recent_form, team_strength)
 - `src/matchup_context.py` — `MatchupContextService` (3 modes: matchup / standings / blended)

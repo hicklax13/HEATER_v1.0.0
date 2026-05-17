@@ -1,11 +1,11 @@
-"""pages/7_Player_Compare.py must use player pool (ECR + Statcast already in pool)."""
+"""pages/16_Player_Compare.py must use player pool (ECR + Statcast already in pool)."""
 
 import re
 from pathlib import Path
 
 
 def test_no_direct_ecr_or_stats_sql():
-    text = Path("pages/7_Player_Compare.py").read_text(encoding="utf-8")
+    text = Path("pages/16_Player_Compare.py").read_text(encoding="utf-8")
     text_no_comments = re.sub(r"#.*$", "", text, flags=re.MULTILINE)
     text_no_strings = re.sub(r'"""[\s\S]*?"""', "", text_no_comments)
     bad = []

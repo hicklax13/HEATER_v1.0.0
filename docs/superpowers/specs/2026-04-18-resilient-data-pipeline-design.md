@@ -473,7 +473,7 @@ matchup_mult = 0.0
 matchup_mult = None  # Sentinel for "excluded, not computed"
 ```
 
-**File:** `pages/6_Line-up_Optimizer.py`
+**File:** `pages/2_Line-up_Optimizer.py`
 
 Table renderer: when `matchup_mult is None` or `NaN`, display `—` instead of `0.00`.
 
@@ -532,7 +532,7 @@ Refactor these 7 files to import from `LeagueConfig` instead of hardcoding categ
 | `src/engine/portfolio/valuation.py` | Category centralization |
 | `src/waiver_wire.py` | Undroppable filter |
 | `src/trade_finder.py` | Undroppable awareness (allow trade, prevent drop) |
-| `pages/6_Line-up_Optimizer.py` | SF-12 display fix, transaction counter, tier badges |
+| `pages/2_Line-up_Optimizer.py` | SF-12 display fix, transaction counter, tier badges |
 | `pages/4_Free_Agents.py` | Transaction counter display |
 | `CLAUDE.md` | Correct roster slots (28 total), phase count, new phases |
 

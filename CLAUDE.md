@@ -7,7 +7,7 @@ A fantasy-baseball draft assistant + in-season manager for a 12-team Yahoo Sport
 The codebase is organized around 7 feature surfaces:
 
 1. **Draft Tool** (`app.py`) — Heater-themed splash + bootstrap + setup wizard + 3-column draft page with Monte Carlo recommendations.
-2. **In-Season Pages** (`pages/`) — 11 pages: My Team / War Room, Draft Simulator, Trade Analyzer, Free Agents, Lineup Optimizer, Player Compare, Closer Monitor, League Standings, Leaders/Prospects, Trade Finder, Matchup Planner.
+2. **In-Season Pages** (`pages/`) — 20 pages, renumbered 2026-05-17 into workflow order (status → daily action → strategy → trades → wire → research → preseason): My Team, Lineup Optimizer, Closer Monitor, Bullpen, Matchup Planner, League Standings, Playoff Odds, Weekly Dashboard, Weekly Recap, Punt Analyzer, Trade Analyzer, Trade Finder, Trade Values, Free Agents, Waiver Wire, Player Compare, Leaders, Trends, Player Databank, Draft Simulator.
 3. **Trade Analyzer Engine** (`src/engine/`) — 6-phase pipeline: deterministic SGP → stochastic MC (paired, true antithetic) → signal intelligence → contextual adjustments → game theory → production convergence/caching.
 4. **Lineup Optimizer** (`src/optimizer/`) — 21-module pipeline with PuLP LP, daily category value (DCV) scoring, sigmoid urgency, FA recommender, sensitivity analysis, backtest framework.
 5. **Draft Recommendation Engine** (`src/draft_engine.py`) — 8-stage enhancement chain with 3 execution modes (Quick/Standard/Full).
@@ -71,18 +71,32 @@ requirements.txt            — pip dependencies
 load_sample_data.py         — Sample data generator for testing
 .streamlit/config.toml      — Light theme (Heater palette)
 
-pages/
+pages/ — 20 in-season pages, ordered for daily workflow (status → daily action → strategy → trades → wire → research → preseason):
+  # Status & this-week context
   1_My_Team.py              — War Room, roster, category standings, alerts, Yahoo sync
-  2_Draft_Simulator.py      — Draft simulator with AI opponents, MC recommendations
-  3_Trade_Analyzer.py       — Trade proposal builder + 6-phase engine
-  4_Free_Agents.py          — FA rankings by marginal value + ownership heat
-  6_Line-up_Optimizer.py    — 6-tab optimizer: Start/Sit, Optimize, Manual, Streaming, Daily, Roster
-  6_Player_Compare.py       — Head-to-head comparison with category fit
-  7_Closer_Monitor.py       — 30-team closer depth chart grid
-  8_League_Standings.py     — Current standings + MC season projections + power rankings
-  9_Leaders.py              — Category leaders, breakout detection, prospects
-  10_Trade_Finder.py        — Smart Recs / Target Player / Browse Partners / Readiness
-  11_Matchup_Planner.py     — Category probabilities, player matchups, per-game detail
+  2_Line-up_Optimizer.py    — 6-tab optimizer: Start/Sit, Optimize, Manual, Streaming, Daily, Roster
+  3_Closer_Monitor.py       — 30-team closer depth chart grid
+  4_Bullpen.py              — Bullpen / reliever workload tracker
+  5_Matchup_Planner.py      — Category probabilities, player matchups, per-game detail
+  6_League_Standings.py     — Current standings + MC season projections + power rankings
+  7_Playoff_Odds.py         — Top-4 playoff probability sim
+  8_Weekly_Dashboard.py     — Weekly category trend summary
+  9_Weekly_Recap.py         — Post-week breakdown / win-loss attribution
+  10_Punt_Analyzer.py       — Punt-category strategy recommender
+  # Trades
+  11_Trade_Analyzer.py      — Trade proposal builder + 6-phase engine
+  12_Trade_Finder.py        — Smart Recs / Target Player / Browse Partners / Readiness
+  13_Trade_Values.py        — Universal trade value chart reference
+  # Wire
+  14_Free_Agents.py         — FA rankings by marginal value + ownership heat
+  15_Waiver_Wire.py         — Add/drop + waiver-priority tool
+  # Research
+  16_Player_Compare.py      — Head-to-head comparison with category fit
+  17_Leaders.py             — Category leaders, breakout detection, prospects
+  18_Trends.py              — Player trend / regression analysis
+  19_Player_Databank.py     — Historical multi-year player lookup
+  # Preseason
+  20_Draft_Simulator.py     — Draft simulator with AI opponents, MC recommendations
 
 src/
   # Core
@@ -256,7 +270,7 @@ The canonical enriched pool returned by `load_player_pool()` includes:
 - `bats`/`throws` (enables platoon splits)
 - `percent_owned` (ownership trends)
 
-Pages should consume the pool — direct SQL is structurally guarded against in `pages/1_My_Team.py`, `pages/4_Trade_Analyzer.py`, `pages/7_Player_Compare.py`.
+Pages should consume the pool — direct SQL is structurally guarded against in `pages/1_My_Team.py`, `pages/11_Trade_Analyzer.py`, `pages/16_Player_Compare.py`.
 
 ## Key API Signatures
 
@@ -464,11 +478,11 @@ These tests guard against regression of the cleanup work. Adding new code that v
 | `test_sigmoid_calibrator_patches_registry.py` | Sigmoid calibrator + sensitivity_analysis patch `CONSTANTS_REGISTRY` (the runtime read-path), not legacy module aliases |
 | `test_mc_convergence_wired.py` | `_run_mc_overlay` calls `check_convergence` and returns `convergence_quality`/`convergence_ess`/`convergence_rhat` |
 | `test_calibration_data_client_methods.py` | Every method called on `yahoo_client` from calibration code exists on `YahooFantasyClient`; calls pass `league_id` |
-| `test_lineup_optimizer_26_weeks.py` | `pages/6_Line-up_Optimizer.py` uses `WEEKS_IN_SEASON = 26.0` (canonical), not 24 |
-| `test_lineup_optimizer_team_map_consistent.py` | Both "Athletics" and "Oakland Athletics" map to "ATH" (canonical 2026 MLB Stats API code) in `pages/6_Line-up_Optimizer.py` |
-| `test_pages_use_yds_for_rosters.py` | `pages/9_League_Standings.py` and `pages/7_Player_Compare.py` do not call `load_league_rosters` directly |
+| `test_lineup_optimizer_26_weeks.py` | `pages/2_Line-up_Optimizer.py` uses `WEEKS_IN_SEASON = 26.0` (canonical), not 24 |
+| `test_lineup_optimizer_team_map_consistent.py` | Both "Athletics" and "Oakland Athletics" map to "ATH" (canonical 2026 MLB Stats API code) in `pages/2_Line-up_Optimizer.py` |
+| `test_pages_use_yds_for_rosters.py` | `pages/6_League_Standings.py` and `pages/16_Player_Compare.py` do not call `load_league_rosters` directly |
 | `test_optimizer_pipeline_forwards_context.py` | `LineupOptimizerPipeline` forwards `confirmed_lineups`/`recent_form`/`team_strength` to `build_daily_dcv_table` (AST-based check) |
-| `test_matchup_planner_demo_banner.py` | `pages/12_Matchup_Planner.py` `pool.head(...)` demo-roster fallback is immediately preceded by `st.warning`/`st.info`/`st.error` (within 3 lines) |
+| `test_matchup_planner_demo_banner.py` | `pages/5_Matchup_Planner.py` `pool.head(...)` demo-roster fallback is immediately preceded by `st.warning`/`st.info`/`st.error` (within 3 lines) |
 | `test_compute_fa_comparisons_negative_sgp.py` | `compute_fa_comparisons` seeds `best_fa_value` from first candidate (handles negative-SGP players) |
 | `test_closer_monitor_name_normalization.py` | `closer_monitor.build_closer_grid` normalizes names (accents, suffixes, punctuation) before matching pool |
 | `test_playoff_sim_uses_league_config.py` | `playoff_sim` uses `season_weeks=26` and `_PLAYOFF_SPOTS=4` (FourzynBurn canonical) |
@@ -485,8 +499,8 @@ These tests guard against regression of the cleanup work. Adding new code that v
 | `test_wave9_minor_league_fetch.py` | `fetch_minor_league_players` caps at `top_n_per_team`, sets `level`, handles failures (SF-79) |
 | `test_wave9_bootstrap_phase.py` | `_bootstrap_minor_league_rosters` writes rows with `level` + updates `refresh_log` (SF-80) |
 | `test_wave9_pool_includes_level.py` | `load_player_pool()` exposes `level` column from all 3 SELECT paths (SF-81) |
-| `test_wave9_free_agents_level_filter.py` | `pages/5_Free_Agents.py` has level selectbox defaulting to "MLB only" (SF-82) |
-| `test_wave9_player_compare_level_filter.py` | `pages/7_Player_Compare.py` has level selectbox (SF-83) |
+| `test_wave9_free_agents_level_filter.py` | `pages/14_Free_Agents.py` has level selectbox defaulting to "MLB only" (SF-82) |
+| `test_wave9_player_compare_level_filter.py` | `pages/16_Player_Compare.py` has level selectbox (SF-83) |
 
 ## Data Audit History (compressed)
 
@@ -518,7 +532,7 @@ The data pipeline has been audited twice with all findings resolved.
 
 **2026-05-12 Wave 8d — CODE-SIMPLIFIER BATCH.** ~25 LOW-severity simplifications across 5 batches targeting magic numbers, dead params, and duplicate literals from the audit's LOW table. **Batch 1: health-score baseline** — duplicate `0.85` health fallback hoisted to `DEFAULT_HEALTH_SCORE` in `trade_intelligence`, `playing_time_model`, `cheat_sheet`, `validation/dynamic_context` (canonical value already in `draft_engine.DEFAULT_HEALTH_SCORE`); IL/DTD adjustment thresholds (0.80 near-healthy, 0.60 moderately-healthy) and post-status values (0.65/0.40/0.75) promoted to named constants in `trade_intelligence`. **Batch 2: dead-param removal** — `pick_predictor.weibull_survival.adp_distance` was unused (D6D-024..037); removed from signature, updated single caller, fixed 4 test cases. **Batch 3: duplicate literals + weather thresholds** — `data_bootstrap` `("gmli", "gmli", ...)` typo deduped (D1A-011); `start_sit` weather adjustment hoisted 7 magic constants (`_TEMP_HOT_F=85`, `_TEMP_COLD_F=50`, `_DEFAULT_TEMP_F=72`, `_HEAT_HR_BOOST=1.03`, `_COLD_HR_SUPPRESS=0.97`, `_TREND_HOT_MULT=1.05`, `_TREND_COLD_MULT=0.95`). **Batch 4: DCV clip bounds** — `daily_optimizer` 4 inline `max(0.80, min(1.20, x))` patterns + 2 `/ 162.0` divisions consolidated into `_FORM_CLIP_LO/HI`, `_OFFENSE_MULT_LO/HI`, `_PLATOON_MULT_LO/HI`, `_FULL_SEASON_GAMES`. **Batch 5: streaming league averages** — `optimizer/streaming` and `war_room_hotcold` magic ERA/WHIP fallbacks (4.50/1.30) and wOBA baseline (0.320) promoted to `_LEAGUE_AVG_ERA/WHIP/WOBA`; SB-streaming `_LEAGUE_AVG_POP_TIME=1.95`, `_LEAGUE_AVG_PITCHER_DELIVERY=1.35`, `_LEAGUE_AVG_SPRINT_SPEED=27.0` + `_SB_MULT_LO/HI=0.85/1.15`; `_WHIP_SAFETY_CEILING=1.40` + `_WHIP_UNSAFE_PENALTY=0.5` named. 15 new structural-invariant tests in `test_wave8d_simplifications.py` pin every constant value + the new `weibull_survival` signature. Pure simplification — zero behavior changes.
 
-**2026-05-12 Wave 9 (SF-78..SF-83) — PLAYER UNIVERSE EXPANSION (INFRA-F5, Option B).** Expanded the player universe from ~1,300 (40-man + spring training MLB) to ~2,200 by adding top-30 per AAA + AA affiliate (~+900 rows). **SF-78** (`players.level` column): added via `_safe_add_column` migration — NULL/"MLB"/"AAA"/"AA". **SF-79** (`fetch_minor_league_players`): MLB Stats API `sports_players` with sportId=11 (AAA) and sportId=12 (AA), capped at top-30 per team via group-by-team-then-slice. **SF-80** (`_bootstrap_minor_league_rosters`): new bootstrap phase wired into `bootstrap_all_data` as Phase 3c (after extended_roster), 7-day staleness, `expected_min=500` floor. `upsert_player_bulk` extended to handle `level` via COALESCE-preserving UPDATE. **SF-81** (player pool): all 3 SELECT paths in `_build_player_pool` (ros_projections, blended, AVG-fallback) updated to include `p.level`. **SF-82** (Free Agents page, `pages/5_Free_Agents.py`): level selectbox defaulting to "MLB only" — minor leaguers visible on demand via "MLB + AAA" / "MLB + AAA + AA" / "All". **SF-83** (Player Compare page, `pages/7_Player_Compare.py`): identical level selectbox for UX consistency. Yahoo ownership data is unavailable for non-MLB players — `percent_owned` stays NULL and consumers handle accordingly. 6 new structural-invariant tests (`test_wave9_*`) cover schema migration, API fetch, bootstrap phase, pool exposure, and both UI filters.
+**2026-05-12 Wave 9 (SF-78..SF-83) — PLAYER UNIVERSE EXPANSION (INFRA-F5, Option B).** Expanded the player universe from ~1,300 (40-man + spring training MLB) to ~2,200 by adding top-30 per AAA + AA affiliate (~+900 rows). **SF-78** (`players.level` column): added via `_safe_add_column` migration — NULL/"MLB"/"AAA"/"AA". **SF-79** (`fetch_minor_league_players`): MLB Stats API `sports_players` with sportId=11 (AAA) and sportId=12 (AA), capped at top-30 per team via group-by-team-then-slice. **SF-80** (`_bootstrap_minor_league_rosters`): new bootstrap phase wired into `bootstrap_all_data` as Phase 3c (after extended_roster), 7-day staleness, `expected_min=500` floor. `upsert_player_bulk` extended to handle `level` via COALESCE-preserving UPDATE. **SF-81** (player pool): all 3 SELECT paths in `_build_player_pool` (ros_projections, blended, AVG-fallback) updated to include `p.level`. **SF-82** (Free Agents page, `pages/14_Free_Agents.py`): level selectbox defaulting to "MLB only" — minor leaguers visible on demand via "MLB + AAA" / "MLB + AAA + AA" / "All". **SF-83** (Player Compare page, `pages/16_Player_Compare.py`): identical level selectbox for UX consistency. Yahoo ownership data is unavailable for non-MLB players — `percent_owned` stays NULL and consumers handle accordingly. 6 new structural-invariant tests (`test_wave9_*`) cover schema migration, API fetch, bootstrap phase, pool exposure, and both UI filters.
 
 **Audit complete.** All 25 top-bucket HIGH-severity bugs (Waves 1-6), 4 INFRA-class follow-ups (Wave 7), 20 behavioral MEDIUM/HIGH fixes (Wave 8a), ~60-site silent-failure logging sweep (Wave 8b), ~20 type-design improvements (Wave 8c), ~25 LOW-severity simplifications (Wave 8d), and INFRA-F5 player universe expansion (Wave 9) from the 2026-05-11 audit are resolved across 12 waves (PRs #13-#23 + this Wave 9 PR). The cumulative structural-invariant guard set now covers ~70 patterns that were silent-failure-prone, duplication-prone, or schema-evolution-prone before audit.
 

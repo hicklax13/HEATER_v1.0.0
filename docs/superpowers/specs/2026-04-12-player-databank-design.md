@@ -7,11 +7,11 @@
 
 ## Overview
 
-A new HEATER page (`pages/2_Player_Databank.py`) that replicates Yahoo Fantasy Baseball's "Player List" tab with HEATER branding. Provides a live, filterable, sortable player database showing all MLB players with stats across every H2H scoring category. Custom HTML table with JavaScript sorting, 28 stat view options, 5-axis filtering, and Excel export.
+A new HEATER page (`pages/19_Player_Databank.py`) that replicates Yahoo Fantasy Baseball's "Player List" tab with HEATER branding. Provides a live, filterable, sortable player database showing all MLB players with stats across every H2H scoring category. Custom HTML table with JavaScript sorting, 28 stat view options, 5-axis filtering, and Excel export.
 
 ## Page Placement
 
-- **File:** `pages/2_Player_Databank.py` (appears after "My Team" in sidebar)
+- **File:** `pages/19_Player_Databank.py` (appears after "My Team" in sidebar)
 - **Support module:** `src/player_databank.py` (data assembly, filtering, rendering, export)
 - **New DB table:** `game_logs` (per-game stats for rolling windows, averages, std dev)
 

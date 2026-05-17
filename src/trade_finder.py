@@ -531,41 +531,6 @@ def _count_contributing_categories(
 
 MIN_CONTRIBUTING_CATEGORIES = 2  # Received player must contribute to at least 2 categories
 
-# Maximum fraction of total weighted SGP from any single category.
-# Prevents AVG-only specialists from dominating when AVG is weighted 2x.
-MAX_SINGLE_CAT_SGP_FRACTION = 0.40
-
-
-def _check_category_dominance(
-    player_row,
-    config: LeagueConfig,
-    weights: dict[str, float] | None = None,
-) -> bool:
-    """Check if a player's value is too concentrated in one category.
-
-    Returns True if the player passes (balanced enough), False if
-    any single category contributes > MAX_SINGLE_CAT_SGP_FRACTION
-    of their total weighted SGP.
-    """
-    per_cat = {}
-    for cat in config.all_categories:
-        col = cat.lower()
-        val = float(player_row.get(col, 0) or 0)
-        denom = config.sgp_denominators.get(cat, 1.0)
-        w = weights.get(cat, 1.0) if weights else 1.0
-        if abs(denom) > 1e-9:
-            sgp = val / denom * w
-            if cat in config.inverse_stats:
-                sgp = -sgp
-            per_cat[cat] = abs(sgp)
-
-    total = sum(per_cat.values())
-    if total <= 0:
-        return True  # No production = pass (will be filtered elsewhere)
-
-    max_frac = max(per_cat.values()) / total
-    return max_frac <= MAX_SINGLE_CAT_SGP_FRACTION
-
 
 def _compute_drop_cost(
     roster_ids: list[int],

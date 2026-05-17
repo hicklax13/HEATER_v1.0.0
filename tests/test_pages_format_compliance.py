@@ -4,10 +4,9 @@ import re
 from pathlib import Path
 
 PAGES = [
-    "pages/15_Weekly_Recap.py",
-    "pages/7_Weekly_Dashboard.py",
-    "pages/10_Category_Tracker.py",
-    "pages/14_Punt_Analyzer.py",
+    "pages/9_Weekly_Recap.py",
+    "pages/8_Weekly_Dashboard.py",
+    "pages/10_Punt_Analyzer.py",
 ]
 
 
