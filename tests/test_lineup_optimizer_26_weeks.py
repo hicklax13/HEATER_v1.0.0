@@ -4,7 +4,7 @@ import re
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-PAGE = REPO_ROOT / "pages" / "6_Line-up_Optimizer.py"
+PAGE = REPO_ROOT / "pages" / "2_Line-up_Optimizer.py"
 
 
 def test_lineup_optimizer_uses_26_weeks_for_weekly_proj():

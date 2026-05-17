@@ -37,7 +37,7 @@ Single-session sequential audit by Claude. Files read in this order:
 4. `src/optimizer/category_urgency.py` (274 LOC) — full read
 5. `src/matchup_context.py` (549 LOC) — focused read on `get_category_weights` and 3-mode logic
 6. `src/game_day.py` — `get_target_game_date` and `_FINAL_STATUSES`
-7. `pages/6_Line-up_Optimizer.py` — Today-scope branch (lines 939-1011)
+7. `pages/2_Line-up_Optimizer.py` — Today-scope branch (lines 939-1011)
 8. `CLAUDE.md` — referenced throughout for citations
 
 All findings reference exact line numbers and quote the relevant code or doc. Indisputability rule applied: HIGH findings carry math derivation or direct citation. Demotion rule was not triggered (both HIGH findings have indisputable proof).

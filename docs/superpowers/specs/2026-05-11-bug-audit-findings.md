@@ -121,7 +121,7 @@
 
 - **Source IDs:** D7A-002, D7B-005, D7B-006
 - **Severity:** HIGH | **Confidence:** HIGH | **Domain:** UI / Pages
-- **Location:** `pages/9_League_Standings.py:128, 244, 540, 672, 768` (direct `load_league_rosters()`, `load_league_schedule_full()`, `load_league_records()`). `pages/7_Player_Compare.py:94` (direct `load_league_rosters()`).
+- **Location:** `pages/6_League_Standings.py:128, 244, 540, 672, 768` (direct `load_league_rosters()`, `load_league_schedule_full()`, `load_league_records()`). `pages/16_Player_Compare.py:94` (direct `load_league_rosters()`).
 - **Why it's a bug:** SF-23 migrated 7 pages to the 3-tier Yahoo cache; these two pages were missed. Both are not in `tests/test_pages_yahoo_compliance.py` `PAGES_TO_CHECK` allowlist, so the structural guard is silent. Standings page is the central league view — most likely to show stale data.
 - **Suggested fix:** Replace `load_league_rosters()` with `_yds.get_rosters()`. For `load_league_schedule_full()`/`load_league_records()` keep DB read (no Yahoo equivalent) but add pages to the structural-test allowlist with documented exemptions.
 
@@ -203,7 +203,7 @@
 
 - **Source IDs:** D7B-001
 - **Severity:** HIGH | **Confidence:** HIGH | **Domain:** UI / Pages
-- **Location:** `pages/6_Line-up_Optimizer.py:2078` (`WEEKS_IN_SEASON = 24.0`) vs `:1469` (`26.0`) and `src/optimizer/backtest_runner.py:341` (`26`)
+- **Location:** `pages/2_Line-up_Optimizer.py:2078` (`WEEKS_IN_SEASON = 24.0`) vs `:1469` (`26.0`) and `src/optimizer/backtest_runner.py:341` (`26`)
 - **Evidence:** Same file uses two different divisors. CLAUDE.md states "Counting stats divided by 26 weeks."
 - **Why it's a bug:** Weekly counting-stat projections (HR/R/RBI/SB/K/W/L/SV) overstated by ~8.3%. User sees inflated projected totals.
 - **Suggested fix:** Use `26.0` (or pull from `compute_weeks_remaining` canonical constant).
@@ -212,7 +212,7 @@
 
 - **Source IDs:** D7B-004
 - **Severity:** HIGH | **Confidence:** HIGH | **Domain:** UI / Pages
-- **Location:** `pages/6_Line-up_Optimizer.py:3097` (Streaming tab map) vs `:887-919` (earlier in same file)
+- **Location:** `pages/2_Line-up_Optimizer.py:3097` (Streaming tab map) vs `:887-919` (earlier in same file)
 - **Evidence:** Earlier map has both `"Athletics"→"ATH"` AND `"Oakland Athletics"→"OAK"`. Streaming-tab dict has only `"Oakland Athletics"→"OAK"`. MLB 2026 API returns "Athletics" (no "Oakland" prefix per the 2025 relocation).
 - **Why it's a bug:** Streaming tab silently misses two-start pitchers facing or pitching for the Athletics. Plus `ATH ↔ OAK` mismatch confirmed in DB by Stream B (D1A-008): bootstrap emergency dict uses "ATH"; player_databank `_TEAM_ABBR` and data_2026 still use "OAK".
 - **Suggested fix:** Canonicalize to "ATH" everywhere (matches MLB Stats API + emergency dict). Update `_TEAM_ABBR` and `data_2026.py`. Single team-mapping constant at module top, referenced from both tabs.
@@ -252,11 +252,11 @@
 - **Why it's a bug:** Any cron-driven refresh, ops script, or CI run can't keep Yahoo data fresh. The `.github/workflows/refresh.yml` job has no path to refresh Yahoo data.
 - **Suggested fix:** Move `_try_reconnect_yahoo` into `src/yahoo_api.py`; have `_bootstrap_yahoo` call it as a fallback when `yahoo_client is None`. Read `YAHOO_LEAGUE_ID` from token file or env as additional fallback.
 
-### BUG-024 — `pages/12_Matchup_Planner.py` silently shows `pool.head(23)` as demo roster
+### BUG-024 — `pages/5_Matchup_Planner.py` silently shows `pool.head(23)` as demo roster
 
 - **Source IDs:** D7B-003
 - **Severity:** HIGH | **Confidence:** HIGH | **Domain:** UI / Pages
-- **Location:** `pages/12_Matchup_Planner.py:553-555`
+- **Location:** `pages/5_Matchup_Planner.py:553-555`
 - **Evidence:** When `team_name` missing or `rosters` empty, silently falls back to `pool.head(23)` with NO info banner. User sees plausible matchup ratings against the top-23-by-pool-order proxy.
 - **Suggested fix:** `st.warning("No team selected — showing demo data based on top players")` and label table accordingly.
 
@@ -348,7 +348,7 @@
 | D6B-024 | Game Day+Draft | backtesting.py:330 | HIGH | `_compute_value_capture` passes actual_stats as `pool` → mixes projection-roster against actual-pool baseline |
 | D6D-001..010 | Game Day+Draft | draft_state.py, game_day.py, simulation.py | HIGH | Optional-mistype `dict = None`; mixed-case schema RosterTotals; 14-arg `simulate_draft` with 6 parallel arrays caller must keep aligned |
 | D6D-013, D6D-021 | Game Day+Draft | simulation.py, contextual_factors.py | HIGH | Implicit shared state `_recent_pick_positions`; module-level `_CONSTANTS = load_constants()` frozen at import (vs optimizer reading at runtime) |
-| D7A-001..002 | UI/Pages/Scripts | pages/9_League_Standings.py | HIGH | Hardcoded category sets; load_league_rosters bypasses YDS (BUG-009) |
+| D7A-001..002 | UI/Pages/Scripts | pages/6_League_Standings.py | HIGH | Hardcoded category sets; load_league_rosters bypasses YDS (BUG-009) |
 | D7B-001..006 | UI/Pages/Scripts | pages/6_Line-up_Optimizer, /9, /7, /12 | HIGH | 24 vs 26 weeks scaler; default rate-stat substitution; silent demo roster fallback; Athletics streaming drop; YDS bypass in 2 pages (BUG-009, BUG-018, BUG-019, BUG-024) |
 | D7D-003..012 | UI/Pages/Scripts | src/ui_shared.py, player_card.py | HIGH | Leaky dict-as-record everywhere (Recommendation, TradeResult, PlayerCardData); magic session-state strings |
 | D7D-021..029 | UI/Pages/Scripts | app.py, pages/4_Trade_Analyzer | HIGH | Untyped render_* fns (100+ magic dict keys); 700+ lines of module-level imperative code in Trade Analyzer page |
@@ -504,7 +504,7 @@ L/ERA/WHIP get inconsistent treatment across the codebase:
 - `engine/portfolio/category_analysis.py:200`: hardcoded `gap < 0.5` threshold for all three (ERA=0.5 is meaningful, WHIP=0.5 is impossible, L=0.5 is trivial)
 - `simulation.py:430`: `np.maximum(sgp_values, 0.01)` loses sign for negative-SGP pitchers (closers with ugly ERA become indistinguishable from average)
 - `start_sit.py:802-803`: pitcher ERA park-factor multiplier is `2.0 - park["park"]`, which sign-flips with `totals_sgp` auto-negation, producing under-penalty
-- `pages/8_Trade_Values.py` and `pages/11_Trade_Finder.py:840-848`: rough-value heuristics omit L/ERA/WHIP entirely from sort keys
+- `pages/13_Trade_Values.py` and `pages/12_Trade_Finder.py:840-848`: rough-value heuristics omit L/ERA/WHIP entirely from sort keys
 - Multiple `{"ERA","WHIP"}` hardcoded sets (without L) found in `src/player_card.py`, several pages — the same anti-pattern that caused the original My_Team L-drop bug
 
 **Recommendation:** Audit every inverse-stat reference for sign-correctness. Add a structural test asserting inverse-stat sets always include L (companion to the existing `_INVERSE_CATS={"L","ERA","WHIP"}` invariant in `src/`).
@@ -513,7 +513,7 @@ L/ERA/WHIP get inconsistent treatment across the codebase:
 
 `src/ui_shared.py` is 3583 lines combining theme + CSS + tables + dialog + session caches + matchup ticker + freshness widget + format_stat. `app.py` is 2504 lines combining splash + bootstrap + setup wizard + draft page + 17 render_* fns. `pages/1_My_Team.py` is 2099 lines with 70+ lines of imperative module-level code (DB queries, Yahoo reconnect, logo fetch).
 
-Only `pages/11_Trade_Finder.py` wraps in `def main()`. Other pages run hundreds of lines of side-effecting module-level code, making unit testing impossible.
+Only `pages/12_Trade_Finder.py` wraps in `def main()`. Other pages run hundreds of lines of side-effecting module-level code, making unit testing impossible.
 
 **Recommendation:** Split `ui_shared.py` into `ui_theme.py` / `ui_tables.py` / `ui_dialog.py` / `ui_session.py`. Wrap each page's body in `def render(): ...` and call from a tiny `__main__` block.
 

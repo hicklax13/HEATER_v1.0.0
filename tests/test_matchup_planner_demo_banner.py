@@ -19,7 +19,7 @@ have reached it, which is exactly the regression we want to catch).
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-PAGE = REPO_ROOT / "pages" / "12_Matchup_Planner.py"
+PAGE = REPO_ROOT / "pages" / "5_Matchup_Planner.py"
 
 # Lines immediately preceding the pool.head(...) call that must contain
 # an alert marker. Tight enough to reject alerts in unrelated nearby
@@ -28,7 +28,7 @@ PRECEDING_WINDOW = 7
 
 
 def test_demo_roster_fallback_preceded_by_user_warning():
-    """For each `pool.head(...)` call in pages/12_Matchup_Planner.py, the
+    """For each `pool.head(...)` call in pages/5_Matchup_Planner.py, the
     7 lines immediately preceding it must include an `st.warning(` /
     `st.info(` / `st.error(` call. This forces the user-visible
     demo-data signal to live directly with the fallback, not in an

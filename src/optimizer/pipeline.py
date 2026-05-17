@@ -790,7 +790,7 @@ def _build_daily_lineup_slot_aware(
 ) -> dict[str, list[dict[str, Any]]]:
     """Pick starters from the DCV table under Yahoo slot constraints.
 
-    Mirrors the page's LP-on-DCV path (pages/6_Line-up_Optimizer.py
+    Mirrors the page's LP-on-DCV path (pages/2_Line-up_Optimizer.py
     `_run_lp_for_group`): zero out raw stats, copy ``total_dcv``
     (shifted positive) into the ``r`` column, and run the LP twice
     (hitters / pitchers) so pitchers' negative DCVs don't leave open

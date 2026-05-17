@@ -29,7 +29,7 @@ One critical bug was discovered: the DCV engine's recent form adjustments have n
 - **Impact:** Unlocks ECR confidence display on FA, Compare, Trade Finder, Optimizer
 
 ### T1-4: Surface Statcast columns already in pool
-- **Files:** `pages/5_Free_Agents.py`, `pages/7_Player_Compare.py`, `pages/1_My_Team.py`
+- **Files:** `pages/14_Free_Agents.py`, `pages/16_Player_Compare.py`, `pages/1_My_Team.py`
 - **Change:** Add xwOBA, barrel%, stuff+ to table renders (columns already in DataFrame)
 
 ### T1-5: Fix rank_free_agents() to preserve enriched columns

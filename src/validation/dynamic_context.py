@@ -77,7 +77,7 @@ def compute_schedule_strength(
     """
     Compute schedule strength based on remaining opponents' quality.
 
-    Replaces the hardcoded `schedule_strength=0.5` in pages/8_Standings.py.
+    Replaces the hardcoded `schedule_strength=0.5` in pages/6_League_Standings.py.
 
     Returns:
         0.0 (easiest remaining schedule) to 1.0 (hardest)
@@ -113,7 +113,7 @@ def compute_injury_exposure(
     """
     Compute injury exposure for a roster.
 
-    Replaces the hardcoded `injury_exposure=0.1` in pages/8_Standings.py.
+    Replaces the hardcoded `injury_exposure=0.1` in pages/6_League_Standings.py.
 
     Returns:
         0.0 (very healthy roster) to 1.0 (high injury risk), or None if no data
@@ -153,7 +153,7 @@ def compute_momentum(
     """
     Compute momentum from recent matchup results.
 
-    Replaces the hardcoded `momentum=1.0` in pages/8_Standings.py.
+    Replaces the hardcoded `momentum=1.0` in pages/6_League_Standings.py.
 
     Args:
         recent_matchup_results: List of (cats_won, cats_lost) for last N weeks

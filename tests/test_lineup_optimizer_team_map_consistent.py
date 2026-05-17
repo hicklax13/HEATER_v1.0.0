@@ -4,7 +4,7 @@ import re
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-PAGE = REPO_ROOT / "pages" / "6_Line-up_Optimizer.py"
+PAGE = REPO_ROOT / "pages" / "2_Line-up_Optimizer.py"
 
 
 def test_athletics_maps_to_ath_everywhere():
@@ -33,5 +33,5 @@ def test_athletics_maps_to_ath_everywhere():
         f"map to 'ATH' (canonical 2026 MLB Stats API). Offenders: {mismatches}"
     )
     assert seen_athletics_keys, (
-        "No Athletics name→abbrev mapping found in pages/6_Line-up_Optimizer.py — did someone remove the team entirely?"
+        "No Athletics name→abbrev mapping found in pages/2_Line-up_Optimizer.py — did someone remove the team entirely?"
     )

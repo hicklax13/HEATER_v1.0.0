@@ -9,7 +9,7 @@ Note: `valuation.py` TEAM_CODE_CANONICAL and `fa_recommender.py`
 _TEAM_EQUIVALENCES intentionally reference "OAK" as the old-code input
 that maps TO canonical "ATH" — those are normalization maps, not
 emissions. They are excluded here. Same pattern is allowed in
-`pages/8_Closer_Monitor.py` (`"OAK": "ATH"` fold-legacy-to-canonical),
+`pages/3_Closer_Monitor.py` (`"OAK": "ATH"` fold-legacy-to-canonical),
 listed in ALLOWED_NORMALIZATION_LINES.
 """
 
@@ -24,8 +24,8 @@ GUARDED_FILES = [
     "src/data_2026.py",
     "src/ecr.py",
     "src/prospect_engine.py",
-    "pages/2_Player_Databank.py",
-    "pages/8_Closer_Monitor.py",
+    "pages/19_Player_Databank.py",
+    "pages/3_Closer_Monitor.py",
 ]
 
 # Lines allowed to mention "OAK" because they FOLD it to canonical "ATH".
