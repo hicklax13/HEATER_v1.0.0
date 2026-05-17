@@ -1,5 +1,12 @@
 # FantasyPros vs. HEATER — Gap Analysis
 
+> **Status (2026-05-17):** Many "Gaps" identified below have shipped — including Closer
+> Depth Chart (page 3), Streaming Pitcher Daily Recommendations (page 2 /
+> `optimizer/streaming.py`), Schedule Grid (`schedule_grid.py`), Power Rankings
+> (`power_rankings.py`), Pick Predictor UI (`pick_predictor.py`), Player Tags
+> (`player_tags.py`), Cheat Sheet Export (`cheat_sheet.py`), and Prospect Rankings
+> (`prospect_engine.py`). Treat the gap list as historical, not active.
+
 > **Date:** 2026-03-19
 > **Purpose:** Identify FantasyPros features NOT currently built into the HEATER app
 > **Scope:** Fantasy Baseball only (MLB)
