@@ -805,57 +805,9 @@ def fetch_ecr_extended(position: str = "overall") -> pd.DataFrame:
     return pd.DataFrame(columns=["player_name", "ecr_rank", "best_rank", "worst_rank", "avg_rank", "position"])
 
 
-def store_ecr_rankings(ecr_df: pd.DataFrame, conn=None) -> int:
-    """Store ECR rankings to DB. Returns count stored. Kept for backward compat."""
-    if ecr_df.empty:
-        return 0
-    return len(ecr_df)
-
-
-def load_ecr_rankings(conn=None) -> pd.DataFrame:
-    """Load ECR rankings from DB (stub). Kept for backward compat."""
-    return pd.DataFrame(columns=["player_name", "ecr_rank", "best_rank", "worst_rank"])
-
-
 # ══════════════════════════════════════════════════════════════════════
 #  Prospect rankings (preserved from original)
 # ══════════════════════════════════════════════════════════════════════
-
-
-def fetch_prospect_rankings(top_n: int = 100) -> pd.DataFrame:
-    """Return a DataFrame of top prospect rankings.
-
-    Returns DataFrame with columns: rank, name, team, position, eta, fv
-    Falls back to empty DataFrame on error.
-    """
-    prospects = [
-        {"rank": 1, "name": "Travis Bazzana", "team": "CLE", "position": "2B", "eta": "2026", "fv": 65},
-        {"rank": 2, "name": "Charlie Condon", "team": "COL", "position": "3B", "eta": "2027", "fv": 65},
-        {"rank": 3, "name": "Jac Caglianone", "team": "KC", "position": "1B/SP", "eta": "2027", "fv": 65},
-        {"rank": 4, "name": "Sebastian Walcott", "team": "TEX", "position": "SS", "eta": "2027", "fv": 65},
-        {"rank": 5, "name": "Kristian Campbell", "team": "BOS", "position": "SS", "eta": "2026", "fv": 60},
-        {"rank": 6, "name": "Marcelo Mayer", "team": "BOS", "position": "SS", "eta": "2026", "fv": 60},
-        {"rank": 7, "name": "JJ Wetherholt", "team": "PIT", "position": "2B", "eta": "2026", "fv": 60},
-        {"rank": 8, "name": "Nick Kurtz", "team": "ATH", "position": "1B", "eta": "2027", "fv": 60},
-        {"rank": 9, "name": "Bubba Chandler", "team": "PIT", "position": "SS/SP", "eta": "2026", "fv": 60},
-        {"rank": 10, "name": "Chase Burns", "team": "CIN", "position": "SP", "eta": "2026", "fv": 60},
-        {"rank": 11, "name": "Tink Hence", "team": "STL", "position": "SP", "eta": "2026", "fv": 55},
-        {"rank": 12, "name": "Samuel Basallo", "team": "BAL", "position": "C", "eta": "2026", "fv": 55},
-        {"rank": 13, "name": "Braden Montgomery", "team": "BOS", "position": "OF", "eta": "2027", "fv": 60},
-        {"rank": 14, "name": "Leodalis De Vries", "team": "TEX", "position": "SS", "eta": "2028", "fv": 60},
-        {"rank": 15, "name": "Colt Emerson", "team": "CLE", "position": "SS", "eta": "2028", "fv": 60},
-        {"rank": 16, "name": "Ethan Salas", "team": "SD", "position": "C", "eta": "2026", "fv": 55},
-    ]
-    df = pd.DataFrame(prospects[: min(top_n, len(prospects))])
-    return df
-
-
-def filter_prospects_by_position(prospects_df: pd.DataFrame, position: str) -> pd.DataFrame:
-    """Filter prospects DataFrame by position (substring match)."""
-    if prospects_df.empty or not position:
-        return prospects_df
-    mask = prospects_df["position"].str.contains(position, case=False, na=False)
-    return prospects_df[mask].reset_index(drop=True)
 
 
 # ══════════════════════════════════════════════════════════════════════

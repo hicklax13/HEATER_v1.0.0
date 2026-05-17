@@ -525,11 +525,6 @@ def get_theme():
     return THEME
 
 
-def render_theme_toggle():
-    """No-op — dark mode removed. Kept for import compatibility."""
-    pass
-
-
 # ── Styled Table Helper ────────────────────────────────────────────
 
 
