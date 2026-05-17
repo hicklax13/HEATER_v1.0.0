@@ -308,6 +308,7 @@ def _init_db_tables_and_columns(conn):
             sprint_speed REAL, ff_avg_speed REAL, ff_spin_rate REAL,
             k_pct REAL, bb_pct REAL, gb_pct REAL,
             stuff_plus REAL, location_plus REAL, pitching_plus REAL,
+            gmli REAL,
             babip REAL, iso REAL,
             hitter_k_pct REAL, hitter_bb_pct REAL,
             ld_pct REAL, hitter_fb_pct REAL, hitter_gb_pct REAL,
@@ -732,6 +733,15 @@ def _init_db_tables_and_columns(conn):
     # CREATE TABLE schema includes the column for fresh DBs, but legacy DBs
     # created before that column landed need a defensive ALTER TABLE here.
     _safe_add_column(conn, "statcast_archive", "sprint_speed", "REAL")
+    # 2026-05-17 broken-pipeline fix: gmLI (game-log leverage index) is written
+    # by the Stuff+ phase but missing from CREATE TABLE — INSERT raised on prod.
+    _safe_add_column(conn, "statcast_archive", "gmli", "REAL")
+    # 2026-05-17 broken-pipeline fix: legacy DBs predate the UNIQUE constraint
+    # in CREATE TABLE; without this index the ON CONFLICT(player_id, season)
+    # in data_bootstrap stuff_plus phase raises.
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_statcast_archive_player_season ON statcast_archive(player_id, season)"
+    )
 
     # T3 (2026-04-17 data-fetch audit): refresh_log row-count validation columns
     # Required so "success" can no longer be written for 0-row fetches silently.
@@ -1551,10 +1561,21 @@ def _load_player_pool_impl() -> pd.DataFrame:
         cursor.execute("SELECT COUNT(*) FROM ros_projections")
         ros_count = cursor.fetchone()[0]
 
-        # Wave 9 INFRA-F5: `level` column added by migration. Be defensive
-        # so legacy DBs / test fixtures without the migration still load.
+        # Wave 9 INFRA-F5 + 2026-05-17 broken-pipeline fix: `level`, `bats`,
+        # `throws` columns are added by migration. Test fixtures that build
+        # a minimal players table don't have them — fall back to NULL so
+        # those callers still load.
         _players_cols = {row[1] for row in conn.execute("PRAGMA table_info(players)").fetchall()}
         _level_select = "p.level" if "level" in _players_cols else "NULL AS level"
+        _bats_select = "p.bats" if "bats" in _players_cols else "NULL AS bats"
+        _throws_select = "p.throws" if "throws" in _players_cols else "NULL AS throws"
+        _ecr_cols = {row[1] for row in conn.execute("PRAGMA table_info(ecr_consensus)").fetchall()}
+        _ecr_rank_stddev_select = (
+            "ecr.rank_stddev AS ecr_rank_stddev" if "rank_stddev" in _ecr_cols else "NULL AS ecr_rank_stddev"
+        )
+        _sa_cols = {row[1] for row in conn.execute("PRAGMA table_info(statcast_archive)").fetchall()}
+        _sa_stuff_plus_select = "sa.stuff_plus AS stuff_plus" if "stuff_plus" in _sa_cols else "NULL AS stuff_plus"
+        _sa_babip_select = "sa.babip AS babip" if "babip" in _sa_cols else "NULL AS babip"
 
         if ros_count > 0:
             # Prefer Bayesian ROS projections — blended with actual 2026 performance
@@ -1562,7 +1583,7 @@ def _load_player_pool_impl() -> pd.DataFrame:
                 f"""
                 SELECT
                     p.player_id, p.name, p.team, p.positions, p.is_hitter, p.is_injured,
-                    p.mlb_id, p.bats, p.throws, {_level_select},
+                    p.mlb_id, {_bats_select}, {_throws_select}, {_level_select},
                     CASE WHEN p.birth_date IS NOT NULL AND p.birth_date != ''
                          THEN CAST((julianday('now') - julianday(p.birth_date)) / 365.25 AS INTEGER)
                          ELSE NULL END AS age,
@@ -1582,7 +1603,7 @@ def _load_player_pool_impl() -> pd.DataFrame:
                     ecr.consensus_rank,
                     ecr.consensus_avg AS ecr_avg,
                     ecr.n_sources AS ecr_sources,
-                    ecr.rank_stddev AS ecr_rank_stddev,
+                    {_ecr_rank_stddev_select},
                     COALESCE(ss.pa, 0) AS ytd_pa,
                     COALESCE(ss.avg, 0) AS ytd_avg,
                     COALESCE(ss.obp, 0) AS ytd_obp,
@@ -1614,8 +1635,8 @@ def _load_player_pool_impl() -> pd.DataFrame:
                     sa.barrel_pct AS barrel_pct,
                     sa.hard_hit_pct AS hard_hit_pct,
                     sa.ev_mean AS ev_mean,
-                    sa.stuff_plus AS stuff_plus,
-                    sa.babip AS babip,
+                    {_sa_stuff_plus_select},
+                    {_sa_babip_select},
                     sa.sprint_speed AS sprint_speed
                 FROM players p
                 LEFT JOIN ros_projections ros ON p.player_id = ros.player_id
@@ -1649,7 +1670,7 @@ def _load_player_pool_impl() -> pd.DataFrame:
             f"""
             SELECT
                 p.player_id, p.name, p.team, p.positions, p.is_hitter, p.is_injured,
-                p.mlb_id, {_level_select},
+                p.mlb_id, {_bats_select}, {_throws_select}, {_level_select},
                 CASE WHEN p.birth_date IS NOT NULL AND p.birth_date != ''
                      THEN CAST((julianday('now') - julianday(p.birth_date)) / 365.25 AS INTEGER)
                      ELSE NULL END AS age,
@@ -1669,6 +1690,7 @@ def _load_player_pool_impl() -> pd.DataFrame:
                 ecr.consensus_rank,
                 ecr.consensus_avg AS ecr_avg,
                 ecr.n_sources AS ecr_sources,
+                {_ecr_rank_stddev_select},
                 COALESCE(ss.pa, 0) AS ytd_pa,
                 COALESCE(ss.avg, 0) AS ytd_avg,
                 COALESCE(ss.obp, 0) AS ytd_obp,
@@ -1700,8 +1722,8 @@ def _load_player_pool_impl() -> pd.DataFrame:
                 sa.barrel_pct AS barrel_pct,
                 sa.hard_hit_pct AS hard_hit_pct,
                 sa.ev_mean AS ev_mean,
-                sa.stuff_plus AS stuff_plus,
-                sa.babip AS babip,
+                {_sa_stuff_plus_select},
+                {_sa_babip_select},
                 sa.sprint_speed AS sprint_speed
             FROM players p
             LEFT JOIN projections proj ON p.player_id = proj.player_id
@@ -1726,7 +1748,7 @@ def _load_player_pool_impl() -> pd.DataFrame:
                 f"""
                 SELECT
                     p.player_id, p.name, p.team, p.positions, p.is_hitter, p.is_injured,
-                    p.mlb_id, p.bats, p.throws, {_level_select},
+                    p.mlb_id, {_bats_select}, {_throws_select}, {_level_select},
                     CASE WHEN p.birth_date IS NOT NULL AND p.birth_date != ''
                          THEN CAST((julianday('now') - julianday(p.birth_date)) / 365.25 AS INTEGER)
                          ELSE NULL END AS age,
@@ -1754,7 +1776,7 @@ def _load_player_pool_impl() -> pd.DataFrame:
                     ecr.consensus_rank,
                     ecr.consensus_avg AS ecr_avg,
                     ecr.n_sources AS ecr_sources,
-                    ecr.rank_stddev AS ecr_rank_stddev,
+                    {_ecr_rank_stddev_select},
                     COALESCE(ss.pa, 0) AS ytd_pa,
                     COALESCE(ss.avg, 0) AS ytd_avg,
                     COALESCE(ss.obp, 0) AS ytd_obp,
@@ -1786,6 +1808,8 @@ def _load_player_pool_impl() -> pd.DataFrame:
                     sa.barrel_pct AS barrel_pct,
                     sa.hard_hit_pct AS hard_hit_pct,
                     sa.ev_mean AS ev_mean,
+                    {_sa_stuff_plus_select},
+                    {_sa_babip_select},
                     sa.sprint_speed AS sprint_speed
                 FROM players p
                 LEFT JOIN projections proj ON p.player_id = proj.player_id
