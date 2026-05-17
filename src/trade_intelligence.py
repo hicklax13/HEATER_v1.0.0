@@ -1066,7 +1066,7 @@ def generate_targeted_proposals(
 
     target = target_rows.iloc[0]
     target_sgp = sgp_calc.total_sgp(target) if sgp_calc else _quick_player_sgp(target, config)
-    target_name = str(target.get("name", target.get("player_name", "Unknown")))
+    str(target.get("name", target.get("player_name", "Unknown")))
     target_positions = str(target.get("positions", ""))
 
     # --- User category needs ---

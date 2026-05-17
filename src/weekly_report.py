@@ -28,7 +28,7 @@ def generate_monday_report(
 
     if config is None:
         config = LeagueConfig()
-    sgp_calc = SGPCalculator(config)
+    SGPCalculator(config)
 
     report = {
         "week": week,
@@ -350,8 +350,8 @@ def get_todays_mlb_games() -> list[str]:
         schedule = statsapi.schedule(start_date=today, end_date=today)
         teams_playing = set()
         for game in schedule:
-            away = game.get("away_name", "")
-            home = game.get("home_name", "")
+            game.get("away_name", "")
+            game.get("home_name", "")
             # statsapi returns full names, we need abbreviations
             # Use the teams endpoint for mapping
             away_id = game.get("away_id")

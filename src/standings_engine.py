@@ -199,7 +199,7 @@ def _estimate_team_weekly_stats(
     if not hitters.empty:
         total_ab = float(hitters["ab"].sum())
         total_h = float(hitters["h"].sum())
-        total_pa = float(hitters["pa"].sum())
+        float(hitters["pa"].sum())
         total_bb = float(hitters["bb"].sum())
         total_hbp = float(hitters.get("hbp", pd.Series([0])).sum())
         total_sf = float(hitters.get("sf", pd.Series([0])).sum())

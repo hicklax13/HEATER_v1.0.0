@@ -466,7 +466,7 @@ class YahooFantasyClient:
                 ):
                     fn = getattr(self._query, method_name, None)
                     if fn is not None:
-                        result = fn()
+                        fn()
                         logger.info("Auth validation via %s succeeded", method_name)
                         break
                 else:

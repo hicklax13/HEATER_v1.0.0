@@ -483,7 +483,7 @@ def start_sit_recommendation(
     if len(player_ids) > _MAX_PLAYERS:
         player_ids = player_ids[:_MAX_PLAYERS]
 
-    sgp_calc = SGPCalculator(config)
+    SGPCalculator(config)
 
     # Compute H2H category weights
     h2h_weights = _get_h2h_weights(my_weekly_totals, opp_weekly_totals, config)
@@ -822,8 +822,15 @@ def _compute_matchup_factors(
                 home = game.get("home_name", "")
                 away = game.get("away_name", "")
                 if team in (home, away) or full_name_plat in (home, away):
-                    # Get probable pitcher hand (simplified: assume unknown -> R)
-                    pitcher_hand = "R"  # Default assumption
+                    # 2026-05-17 Section 2 L12: don't fabricate a pitcher_hand.
+                    # Previously defaulted to "R" when unknown, which gave LHBs
+                    # a fake +7.5% bonus they didn't deserve when the actual
+                    # pitcher turned out to be LHP. Read pitcher_hand from the
+                    # game record when known; skip the platoon adjustment for
+                    # this game otherwise.
+                    pitcher_hand = game.get("pitcher_throws") or game.get("opp_pitcher_throws")
+                    if pitcher_hand not in ("L", "R"):
+                        continue
                     platoon_adjustments.append(platoon_adjustment(batter_hand, pitcher_hand))
 
             if platoon_adjustments:
@@ -1002,7 +1009,7 @@ def _generate_reasoning(
         List of 1-3 reasoning strings.
     """
     reasons = []
-    team = str(player.get("team", "")).upper().strip()
+    str(player.get("team", "")).upper().strip()
 
     # Park factor reasoning
     pf = matchup_factors.get("park", 1.0)

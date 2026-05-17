@@ -836,7 +836,7 @@ def evaluate_pick_standings_impact(
     """
     from src.valuation import SGPCalculator
 
-    sgp_calc = SGPCalculator(config)
+    SGPCalculator(config)
 
     result = {
         "standings_impact": 0.0,

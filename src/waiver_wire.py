@@ -932,7 +932,7 @@ def compute_matchup_targeted_adds(
         for cat_name, cat_info in cat_lookup.items():
             priority = float(cat_info.get("priority", 0.5))
             status = cat_info.get("status", "tied")
-            gap = float(cat_info.get("gap", 0))
+            float(cat_info.get("gap", 0))
             sw = status_weights.get(status, 1.0)
 
             if cat_name not in weekly:

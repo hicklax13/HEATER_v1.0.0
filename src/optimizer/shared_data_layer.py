@@ -1003,7 +1003,7 @@ def scale_projections_for_scope(
     """
     df = roster.copy()
     counting_cats = list(_COUNTING_CATS)
-    rate_cats = list(_RATE_CATS)
+    list(_RATE_CATS)
 
     if ctx.scope == "today":
         # Per-game scaling: counting stats / season_games, adjusted by volume

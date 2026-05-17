@@ -1176,7 +1176,7 @@ def build_daily_dcv_table(
 
             # SGP normalization
             weighted_dcv = dcv
-            denom = config.sgp_denominators.get(cat, 1.0)
+            config.sgp_denominators.get(cat, 1.0)
             if cat in config.rate_stats:
                 # Volume-weighted SGP for rate stats. Compute the player's
                 # annual SGP contribution from raw stat components, then

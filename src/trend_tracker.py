@@ -220,7 +220,6 @@ def compute_player_trends(
         return result
 
     # Identify name column in pool
-    name_col = "player_name" if "player_name" in player_pool.columns else "name"
 
     # Build lookup from season_stats by player_id
     stats_by_id: dict[int, pd.Series] = {}
