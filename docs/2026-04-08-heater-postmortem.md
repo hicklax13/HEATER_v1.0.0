@@ -154,3 +154,22 @@ The problems aren't math bugs. The problem is that the right math is applied to 
 - **Week 2 result:** Loss (record: 0-2-0)
 - **Week 3 (current):** Losing 1-10 vs Jonny Jockstrap after Tuesday games
 - **Postmortem date:** April 8, 2026
+
+---
+
+## Post-Mortem Follow-Up (May 2026)
+
+**Status:** The three core architectural critiques identified above (season-long vs H2H objective, preseason-weight projections, conservative alpha) remain valid as design-level issues — they require redesigning the optimization objective itself, not patching individual modules.
+
+**Interim improvements landed in Audit Waves 1-11 (May 10-12, 2026):**
+
+- **SF-42** — Lineup optimizer weekly-projection scaler corrected from 24 → 26 weeks (counting stats were overstated ~8.3%)
+- **SF-43** — Streaming tab "Athletics" → "ATH" team-code mapping (silently dropped Athletics matchups)
+- **SF-45** — `optimizer/pipeline.py` now forwards `confirmed_lineups`/`recent_form`/`team_strength` to `build_daily_dcv_table` (DCV was treating lineups as not-posted, skipping L14 form blending, skipping opposing-offense wRC+)
+- **SF-49** — `playoff_sim` corrected from 22-week / top-6 to 26-week / top-4 (FourzynBurn canonical; playoff_pct over-counted by 50%)
+- **SF-58 → SF-77** — 20 behavioral mediums incl. SGP/category math, silent fallbacks, pitcher rate-stat edges, cold-start init, pool/mask bugs
+- **PR #29** — CI rebuilt with sharded pytest (4×2 workers), per-worker SQLite DB, ~5-7min wall time (was ~55min)
+
+These are incremental — the core architectural critique above remains valid. A full optimizer redesign moving from season-long SGP to H2H category-win maximization is deferred to mid-season or off-season scope.
+
+**Cumulative audit footprint (May 2026):** ~3900 passing tests, ~70 structural-invariant guards, all 25 top-bucket HIGH-severity bugs from the 2026-05-11 whole-repo audit resolved.
