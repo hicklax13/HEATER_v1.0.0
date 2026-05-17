@@ -9,6 +9,7 @@ from __future__ import annotations
 import contextlib
 import json
 import logging
+import math
 import re
 from collections.abc import Callable
 from typing import Any
@@ -16,6 +17,49 @@ from typing import Any
 import pandas as pd
 
 logger = logging.getLogger(__name__)
+
+
+# 2026-05-17 Section 3 D9: canonical safe-float helpers. Previously four
+# different `_safe_float` impls existed (ecr.py, leaders.py,
+# prospect_engine.py, game_day.py) with subtly different signatures and
+# NaN handling.
+
+
+def safe_float_or_none(val: object) -> float | None:
+    """Coerce *val* to float; return None on failure or NaN.
+
+    Use when downstream tolerates None (e.g. SQL NULL, optional fields).
+    """
+    if val is None:
+        return None
+    try:
+        if isinstance(val, float) and math.isnan(val):
+            return None
+        result = float(val)
+        if math.isnan(result):
+            return None
+        return result
+    except (TypeError, ValueError):
+        return None
+
+
+def safe_float(val: object, default: float = 0.0) -> float:
+    """Coerce *val* to float; return *default* on failure or NaN.
+
+    Use when downstream needs a non-None float (e.g. arithmetic).
+    """
+    if val is None:
+        return default
+    try:
+        if isinstance(val, float) and math.isnan(val):
+            return default
+        result = float(val)
+        if math.isnan(result):
+            return default
+        return result
+    except (TypeError, ValueError):
+        return default
+
 
 # Browser-like headers for FanGraphs / pybaseball calls.
 # FanGraphs returns 403 to non-browser User-Agents on leaders-legacy.aspx.

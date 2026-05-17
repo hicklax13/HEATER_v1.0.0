@@ -369,6 +369,25 @@ PITCHING_CATEGORIES = _LC_ONCE.pitching_categories
 ALL_CATEGORIES = _LC_ONCE.all_categories
 del _LC_ONCE
 
+# 2026-05-17 Section 3 D10: canonical category short→long display-name
+# map. Previously duplicated as `_CAT_DISPLAY` (uppercase) in 12_Trade_Finder
+# + `CAT_DISPLAY_NAMES` (lowercase) in 2_Line-up_Optimizer. Centralized
+# here in UPPERCASE; lowercase callers do `.get(cat.upper(), cat)`.
+CAT_DISPLAY_NAMES: dict[str, str] = {
+    "R": "Runs",
+    "HR": "Home Runs",
+    "RBI": "Runs Batted In",
+    "SB": "Stolen Bases",
+    "AVG": "Batting Average",
+    "OBP": "On-Base Percentage",
+    "W": "Wins",
+    "L": "Losses",
+    "SV": "Saves",
+    "K": "Strikeouts",
+    "ERA": "Earned Run Average",
+    "WHIP": "Walks + Hits per Inning Pitched",
+}
+
 # ── Metric Tooltips ─────────────────────────────────────────────────
 
 METRIC_TOOLTIPS = {

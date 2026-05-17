@@ -827,17 +827,8 @@ def _safe_int(val) -> int | None:
         return None
 
 
-def _safe_float(val) -> float | None:
-    """Convert value to float, returning None for None/NaN."""
-    if val is None:
-        return None
-    try:
-        if isinstance(val, float) and pd.isna(val):
-            return None
-        return float(val)
-    except (ValueError, TypeError):
-        return None
-
+# 2026-05-17 Section 3 D9: re-export from data_fetch_utils (canonical).
+from src.data_fetch_utils import safe_float_or_none as _safe_float  # noqa: E402, F401
 
 # ══════════════════════════════════════════════════════════════════════
 #  Top-level refresh orchestrator
