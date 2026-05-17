@@ -1,5 +1,10 @@
 # HEATER Architecture
 
+> **Note (2026-05-17):** Page numbering and bootstrap phase counts elsewhere in this doc
+> may lag behind the live tree. See `CLAUDE.md` for the canonical 20-page list (renumbered
+> 2026-05-17 into workflow order) and 33-phase bootstrap; this doc remains useful for the
+> high-level architectural model but defer to CLAUDE.md for current file paths and counts.
+
 > System architecture for the HEATER Fantasy Baseball Draft Tool & In-Season Manager.
 > Last updated: 2026-05-17 (post-audit Waves 1-11, post-PR #29 CI sharding)
 
@@ -544,7 +549,7 @@ Daily cron at 9:17 UTC + manual trigger for data refresh.
 
 ## Test Architecture
 
-83 test files, 1956+ passing tests, 4 skipped (PyMC/XGBoost optional deps).
+165+ test files, ~3,900 passing tests, ~14 skipped (PyMC/XGBoost optional deps).
 
 | Category | Files | Tests |
 |----------|-------|-------|
