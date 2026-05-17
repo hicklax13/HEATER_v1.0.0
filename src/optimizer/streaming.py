@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from src.optimizer.constants_registry import CONSTANTS_REGISTRY as _CR
 from src.validation.constant_optimizer import load_constants
 
 logger = logging.getLogger(__name__)
@@ -46,12 +47,12 @@ _DEFAULT_TEAM_WEEKLY_IP = 55.0
 _TWO_START_FATIGUE_FACTOR = 0.93
 
 # League-average rate-stat baselines used as fallbacks when a pitcher
-# row has no ERA/WHIP value. ~4.50 ERA / 1.30 WHIP track recent MLB
-# league averages (FanGraphs Guts; updated annually).
-_LEAGUE_AVG_ERA: float = 4.50
-_LEAGUE_AVG_WHIP: float = 1.30
-# League-average opponent wOBA — neutral matchup baseline.
-_LEAGUE_AVG_WOBA: float = 0.320
+# 2026-05-17 Section 3 D1/D8: read from CONSTANTS_REGISTRY so all callers
+# share one canonical value (was 4 different ERA values + 2 different wOBA
+# values across modules).
+_LEAGUE_AVG_ERA: float = _CR["league_avg_era"].value
+_LEAGUE_AVG_WHIP: float = _CR["league_avg_whip"].value
+_LEAGUE_AVG_WOBA: float = _CR["league_avg_woba"].value
 
 # WHIP > _WHIP_SAFETY_CEILING is treated as "high ratio destruction risk"
 # (see K5 streaming composite). Pitchers above the ceiling get a 0.5

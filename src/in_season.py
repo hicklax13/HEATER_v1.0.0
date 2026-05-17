@@ -7,6 +7,7 @@ from src/valuation.py. MC simulation pattern adapted from src/simulation.py.
 import numpy as np
 import pandas as pd
 
+from src.optimizer.constants_registry import CONSTANTS_REGISTRY as _CR
 from src.valuation import (
     LeagueConfig,
     SGPCalculator,
@@ -100,13 +101,15 @@ def _roster_category_totals(roster_ids: list, player_pool: pd.DataFrame) -> dict
     if obp_denom > 0:
         totals["OBP"] = (totals["h"] + totals["bb"] + totals["hbp"]) / obp_denom
     else:
-        totals["OBP"] = 0.320  # League-average neutral sentinel
+        # 2026-05-17 Section 3 D8: read from registry (was 0.320 inline).
+        totals["OBP"] = _CR["league_avg_woba"].value
     if totals["ip"] > 0:
         totals["ERA"] = totals["er"] * 9 / totals["ip"]
         totals["WHIP"] = (totals["bb_allowed"] + totals["h_allowed"]) / totals["ip"]
     else:
-        totals["ERA"] = 4.50  # League-average neutral sentinel
-        totals["WHIP"] = 1.30  # League-average neutral sentinel
+        # 2026-05-17 Section 3 D1: read from registry (was 4.50/1.30 inline).
+        totals["ERA"] = _CR["league_avg_era"].value
+        totals["WHIP"] = _CR["league_avg_whip"].value
 
     return totals
 

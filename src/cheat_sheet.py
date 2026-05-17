@@ -15,10 +15,8 @@ except ImportError:
     pass
 
 
-# Default health score for a player with no injury history.
-# Rationale: 0.85 represents "league-baseline healthy player" — kept in sync
-# with src.draft_engine.DEFAULT_HEALTH_SCORE.
-DEFAULT_HEALTH_SCORE: float = 0.85
+# 2026-05-17 Section 3 D7: re-export from injury_model (canonical).
+from src.injury_model import DEFAULT_HEALTH_SCORE  # noqa: E402, F401
 
 
 @dataclass

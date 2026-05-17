@@ -87,8 +87,10 @@ except ImportError:
 
 # ── Constants ──────────────────────────────────────────────────────
 
-# Default health score when column is missing
-DEFAULT_HEALTH_SCORE: float = 0.85
+# 2026-05-17 Section 3 D7: re-export from injury_model so all callers share
+# one canonical value (was the same constant in 5 files with "keep in sync"
+# comments — the sync burden was the code smell).
+from src.injury_model import DEFAULT_HEALTH_SCORE  # noqa: E402, F401
 
 # Statcast delta clamp bounds
 STATCAST_DELTA_FLOOR: float = -1.0

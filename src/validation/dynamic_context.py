@@ -31,9 +31,8 @@ MLB_SEASON_END: dict[int, date] = {
 # Fantasy playoff weeks (typically last 3-4 weeks of regular season)
 FANTASY_REGULAR_SEASON_WEEKS = 22  # Typical Yahoo H2H
 
-# Default health score for a player with no injury history.
-# Rationale: kept in sync with src.draft_engine.DEFAULT_HEALTH_SCORE.
-DEFAULT_HEALTH_SCORE: float = 0.85
+# 2026-05-17 Section 3 D7: re-export from injury_model (canonical).
+from src.injury_model import DEFAULT_HEALTH_SCORE  # noqa: E402, F401
 
 
 def compute_weeks_remaining(

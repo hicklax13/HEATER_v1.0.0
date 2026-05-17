@@ -41,7 +41,11 @@ LINEUP_SLOT_PA: dict[int, float] = {
 }
 
 # Default league average rates (2024 MLB)
-DEFAULT_LEAGUE_AVG_WOBA: float = 0.315
+# 2026-05-17 Section 3 D8: was 0.315 here vs 0.320 elsewhere — drift fixed by
+# reading from CONSTANTS_REGISTRY (canonical 0.320 per 2025 MLB actual).
+from src.optimizer.constants_registry import CONSTANTS_REGISTRY as _CR_WOBA  # noqa: E402
+
+DEFAULT_LEAGUE_AVG_WOBA: float = _CR_WOBA["league_avg_woba"].value
 DEFAULT_LEAGUE_AVG_BA: float = 0.248
 DEFAULT_LEAGUE_AVG_HR_RATE: float = 0.033  # HR per PA
 
