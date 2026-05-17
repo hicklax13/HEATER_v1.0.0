@@ -108,14 +108,17 @@ jobs:
           PYTEST_XDIST_AUTO_NUM_WORKERS: "2"
 
   coverage-floor:
-    # Coverage gate runs once (group 1 above gives partial coverage; this
-    # job re-aggregates by running the *entire* suite serially with coverage.
-    # Kept as a separate job so the four sharded test jobs return fast
-    # signal; coverage gate runs in parallel and only blocks merges via
-    # the `needs:` requirement on `build`.
+    # Coverage gate runs once (the four sharded test jobs above give partial
+    # coverage each; this job re-aggregates by running the *entire* suite
+    # in parallel with coverage). Kept as a separate job so the sharded
+    # test jobs return fast signal; coverage gate runs in parallel and
+    # only blocks merges via the `needs:` requirement on `build`.
+    #
+    # Runs on BOTH pull_request and push events so direct merges to
+    # master/main are gated by the 60% floor (matches the pre-sharding
+    # behavior where `--cov-fail-under=60` rode on every test matrix run).
     name: Coverage Floor
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
