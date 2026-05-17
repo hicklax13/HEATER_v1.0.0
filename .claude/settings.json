@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [ -n \"$CLAUDE_FILE_PATHS\" ]; then echo \"$CLAUDE_FILE_PATHS\" | tr ' ' '\\n' | grep -E '\\.py$' | xargs -r python -m ruff format 2>/dev/null; echo \"$CLAUDE_FILE_PATHS\" | tr ' ' '\\n' | grep -E '\\.py$' | xargs -r python -m ruff check 2>&1 | tail -25 | sed '/^$/d' || true; fi"
+          }
+        ]
+      }
+    ]
+  }
+}

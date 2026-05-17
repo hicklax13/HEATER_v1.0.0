@@ -1,0 +1,30 @@
+#!/bin/sh
+# Pre-push hook: runs the structural-invariant test families that guard
+# CLAUDE.md's ~70 architectural rules (categories from LeagueConfig,
+# pages use yahoo_data_service, scripts use get_connection, no _LC
+# singletons in engine/optimizer/strategy modules, page-format precision,
+# etc.). These tests are deterministic, network-free, and complete in
+# ~2-3 seconds — cheap insurance against pushing a CI failure.
+#
+# Installed by `python scripts/install-hooks.py`. Bypass with `--no-verify`
+# if you must, but that defeats the safety net.
+
+echo "pre-push: running structural-invariant suite (~2s)..."
+
+python -m pytest \
+    tests/test_no_*.py \
+    tests/test_pages_*.py \
+    tests/test_wave*.py \
+    -x -q --no-header --tb=short
+
+EXIT_CODE=$?
+
+if [ $EXIT_CODE -ne 0 ]; then
+    echo ""
+    echo "pre-push: structural-invariant tests failed."
+    echo "pre-push: fix the listed failures before pushing, or run with --no-verify to bypass."
+    exit 1
+fi
+
+echo "pre-push: ✅ structural invariants pass"
+exit 0

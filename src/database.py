@@ -1,6 +1,7 @@
 """Database module: SQLite schema, data loading, and projection blending."""
 
 import logging
+import os
 import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
@@ -9,7 +10,21 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
-DB_PATH = Path(__file__).parent.parent / "data" / "draft_tool.db"
+
+def _resolve_db_path() -> Path:
+    """Resolve the SQLite DB path, honoring ``HEATER_DB_PATH`` if set.
+
+    Used by the test suite (set per xdist worker in conftest) and by
+    advanced deployments that want to relocate the DB. Falls back to
+    the canonical ``<repo>/data/draft_tool.db``.
+    """
+    override = os.environ.get("HEATER_DB_PATH")
+    if override:
+        return Path(override).expanduser().resolve()
+    return Path(__file__).parent.parent / "data" / "draft_tool.db"
+
+
+DB_PATH = _resolve_db_path()
 
 # ── Stat column lists for bytes coercion ─────────────────────────
 # Python 3.13+ SQLite returns bytes for some integer columns.

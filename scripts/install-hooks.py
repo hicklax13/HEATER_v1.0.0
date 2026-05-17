@@ -1,16 +1,27 @@
 #!/usr/bin/env python3
-"""Install git pre-commit hooks for the HEATER project.
+"""Install git hooks for the HEATER project.
 
 Run once after cloning:
     python scripts/install-hooks.py
+
+Installs both:
+- ``pre-commit`` — ruff format + lint check on staged Python files (fast)
+- ``pre-push``   — structural-invariant test suite (~2s, runs the
+                   test_no_*, test_pages_*, test_wave* families that
+                   enforce CLAUDE.md's architectural guarantees)
 """
 
 import shutil
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-HOOK_SRC = REPO_ROOT / "scripts" / "pre-commit"
-HOOK_DST = REPO_ROOT / ".git" / "hooks" / "pre-commit"
+HOOKS_DIR = REPO_ROOT / ".git" / "hooks"
+
+# (source_basename, destination_basename) for each hook to install.
+_HOOKS = [
+    ("pre-commit", "pre-commit"),
+    ("pre-push", "pre-push"),
+]
 
 
 def main():
@@ -18,10 +29,17 @@ def main():
         print("Error: not a git repository.")
         return
 
-    shutil.copy2(HOOK_SRC, HOOK_DST)
-    # Make executable on Unix
-    HOOK_DST.chmod(0o755)
-    print(f"✅ Installed pre-commit hook to {HOOK_DST}")
+    for src_name, dst_name in _HOOKS:
+        src = REPO_ROOT / "scripts" / src_name
+        dst = HOOKS_DIR / dst_name
+        if not src.exists():
+            print(f"warn: {src} not found, skipping {dst_name}")
+            continue
+        shutil.copy2(src, dst)
+        # Make executable on Unix (no-op on Windows; Git Bash respects the
+        # script extension)
+        dst.chmod(0o755)
+        print(f"✅ Installed {dst_name} hook to {dst}")
 
 
 if __name__ == "__main__":

@@ -25,3 +25,9 @@ beautifulsoup4>=4.12.0
 # schedule>=1.2.0  # Optional — scheduler uses stdlib threading, no external dep needed
 # Excel export (roster stats, cheat sheet)
 openpyxl>=3.1.0
+# Test acceleration: matrix sharding + per-process parallelism.
+# pytest-split shards by duration via `.test_durations`; pytest-xdist runs
+# multiple workers per shard with `--dist loadfile` to keep per-file
+# fixture state intact. See `.github/workflows/ci.yml` for usage.
+pytest-split>=0.10.0
+pytest-xdist>=3.5.0

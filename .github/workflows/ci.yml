@@ -9,6 +9,13 @@ on:
 permissions:
   contents: read
 
+# Cancel an in-flight CI run when a new commit lands on the SAME PR.
+# Intentionally NOT cancelling on master pushes (that would race
+# deploy/release pipelines that may depend on the build artifact).
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   lint:
     name: Lint & Style
@@ -20,60 +27,110 @@ jobs:
         uses: actions/setup-python@v6
         with:
           python-version: "3.12"
-          cache: "pip"
 
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install ruff==0.14.10
+      - name: Set up uv
+        # Pinned to specific patch (v8.1.0) — Astral introduced "immutable
+        # secure tags" in v8.0.0 and stopped publishing bare-major tags
+        # (`@v8` 404s). Latest as of 2026-05; bump deliberately to absorb
+        # patches including post-CVE-2025-54368 uv binary releases.
+        uses: astral-sh/setup-uv@v8.1.0
+        with:
+          enable-cache: true
 
-      - name: Run Ruff linter
+      - name: Install ruff
+        run: uv pip install --system ruff==0.14.10
+
+      - name: Ruff linter
         run: ruff check . --output-format=github
 
-      - name: Run Ruff formatter check
+      - name: Ruff formatter check
         run: ruff format --check .
 
   test:
-    name: Test (Python ${{ matrix.python-version }})
+    # Matrix sharding via pytest-split. Each group runs a duration-balanced
+    # 1/4 of the suite (~2-3 min each in parallel) using pytest-xdist with
+    # 2 workers per shard and `--dist loadfile` to keep per-file fixture
+    # state intact (HEATER's autouse `league_standings` + `_ensure_db_schema`
+    # are session-scoped; the per-worker SQLite DB redirect lives in
+    # `tests/conftest.py`).
+    name: Test (shard ${{ matrix.group }}/4)
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
-        python-version: ["3.11", "3.12", "3.13"]
+        group: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@v5
 
-      - name: Set up Python ${{ matrix.python-version }}
+      # Set up Python via setup-python (puts python3.12 on PATH so
+      # `uv pip install --system` and the `pytest` binary both resolve
+      # correctly). `uv python install` alone installs to uv's managed
+      # location but does NOT manage PATH — that mismatch was the
+      # failure mode on the prior CI run.
+      - name: Set up Python
         uses: actions/setup-python@v6
         with:
-          python-version: ${{ matrix.python-version }}
-          cache: "pip"
+          python-version: "3.12"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v8.1.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: requirements.txt
 
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pytest pytest-cov
+          uv pip install --system -r requirements.txt
+          uv pip install --system pytest pytest-cov
 
-      - name: Run sample data generation
+      - name: Generate sample data
         run: python load_sample_data.py
 
-      # Structural-invariant tests (added 2026-05-10/11 during SF-15..SF-28 cleanup):
-      #   test_no_hardcoded_categories_in_src.py — LeagueConfig is sole source of category lists
-      #   test_pages_yahoo_compliance.py — pages use yahoo_data_service, not raw SQL
-      #   test_pages_format_compliance.py — pages use format_stat for ERA/WHIP precision
-      #   test_no_direct_sqlite_connect_in_scripts.py — scripts use get_connection
-      #   test_refresh_log_status_validity.py — bootstrap-emitted statuses must round-trip
-      #   test_app_no_hardcoded_categories.py / test_my_team_no_hardcoded_categories.py / test_sensitivity_categories_canonical.py
-      #   test_my_team_uses_pool.py / test_player_compare_uses_pool.py / test_trade_analyzer_uses_pool.py
-      #   test_pulp_availability_consolidation.py — single PULP_AVAILABLE source of truth
-      #   test_engine_no_fallback_singletons.py — engine modules don't ship _LC singleton fallbacks
-      # The pytest invocation below collects ALL tests under tests/ — these guards run automatically.
-      # Do NOT replace `tests/` with explicit -k filters or test paths without re-listing these files.
-      - name: Run tests with coverage
-        run: pytest tests/ -v --tb=short --cov=src --cov-report=term-missing --cov-fail-under=60
+      # Structural-invariant tests (the test_no_*, test_pages_*, test_wave*
+      # families enforce CLAUDE.md's ~70 invariants — categories derived from
+      # LeagueConfig, pages use yahoo_data_service, scripts use get_connection,
+      # PULP_AVAILABLE single-source, no _LC singletons in engine/optimizer
+      # modules, etc.) get collected automatically by the broad tests/ scope.
+      # Do not replace `tests/` with explicit -k filters without re-listing
+      # these guards.
+      - name: Run tests (sharded)
+        run: |
+          pytest tests/ \
+            --splits 4 --group ${{ matrix.group }} \
+            -n 2 --dist loadfile \
+            -v --tb=short \
+            --cov=src --cov-report=term-missing
+        env:
+          # Per-worker SQLite DB to eliminate cross-worker contention on
+          # the shared `data/draft_tool.db`. Honored by
+          # `src.database._resolve_db_path` (see tests/conftest.py for the
+          # per-xdist-worker path scheme).
+          PYTEST_XDIST_AUTO_NUM_WORKERS: "2"
 
-      - name: Verify app imports cleanly
-        run: python -c "import app; print('✅ app.py imports successfully')"
+  coverage-floor:
+    # Coverage gate runs once (the four sharded test jobs above give partial
+    # coverage each; this job re-aggregates by running the *entire* suite
+    # in parallel with coverage). Kept as a separate job so the sharded
+    # test jobs return fast signal; coverage gate runs in parallel and
+    # only blocks merges via the `needs:` requirement on `build`.
+    #
+    # Runs on BOTH pull_request and push events so direct merges to
+    # master/main are gated by the 60% floor (matches the pre-sharding
+    # behavior where `--cov-fail-under=60` rode on every test matrix run).
+    name: Coverage Floor
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v8.1.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: requirements.txt
+      - run: uv pip install --system -r requirements.txt pytest pytest-cov
+      - run: python load_sample_data.py
+      - run: pytest tests/ -n auto --dist loadfile --cov=src --cov-fail-under=60 --tb=short -q
 
   build:
     name: Build Check
@@ -86,12 +143,15 @@ jobs:
         uses: actions/setup-python@v6
         with:
           python-version: "3.12"
-          cache: "pip"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v8.1.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: requirements.txt
 
       - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
+        run: uv pip install --system -r requirements.txt
 
       - name: Verify all modules import
         run: |
