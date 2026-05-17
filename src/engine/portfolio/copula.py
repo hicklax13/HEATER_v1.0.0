@@ -70,52 +70,6 @@ DEFAULT_CORRELATION: np.ndarray = np.array(
 CAT_ORDER = list(_LC_Class().all_categories)
 
 
-def compute_empirical_correlation(
-    team_weekly_totals: dict[str, dict[str, float]],
-) -> np.ndarray | None:
-    """P3: Compute empirical correlation matrix from league weekly totals.
-
-    Uses actual league category totals to build a 12x12 correlation matrix,
-    replacing the hardcoded DEFAULT_CORRELATION. Returns None if insufficient
-    data (need at least 8 team-weeks).
-
-    Args:
-        team_weekly_totals: {team_name: {cat: total}} for all teams.
-
-    Returns:
-        12x12 numpy array or None if insufficient data.
-    """
-    if not team_weekly_totals or len(team_weekly_totals) < 8:
-        return None
-
-    try:
-        # Build data matrix: rows=teams, cols=categories
-        rows = []
-        for _team, totals in team_weekly_totals.items():
-            row = [float(totals.get(cat, 0)) for cat in CAT_ORDER]
-            if any(v != 0 for v in row):
-                rows.append(row)
-
-        if len(rows) < 8:
-            return None
-
-        data = np.array(rows, dtype=float)
-        # Compute Pearson correlation
-        corr = np.corrcoef(data.T)
-
-        # Sanitize: replace NaN with 0 (constant columns)
-        corr = np.nan_to_num(corr, nan=0.0)
-        # Ensure diagonal is 1.0
-        np.fill_diagonal(corr, 1.0)
-        # Clamp to [-1, 1]
-        corr = np.clip(corr, -1.0, 1.0)
-
-        return corr
-    except Exception:
-        logger.error("Correlation matrix estimation failed — MC sim loses correlation structure", exc_info=True)
-        return None
-
-
 class GaussianCopula:
     """Gaussian copula for sampling correlated uniform variates.
 
@@ -231,39 +185,6 @@ def sample_correlated_stats(
             stats[:, i] = marginal.ppf(u[:, i])
 
     return stats
-
-
-def fit_copula_from_data(
-    player_seasons: np.ndarray,
-) -> GaussianCopula:
-    """Fit a Gaussian copula from historical player-season data.
-
-    Args:
-        player_seasons: Array of shape (n_seasons, 12) with columns in
-            CATEGORIES order. For ERA/WHIP, pass raw values (they'll be
-            inverted internally for correlation estimation).
-
-    Returns:
-        Fitted GaussianCopula.
-    """
-    data = player_seasons.copy()
-
-    # Invert L/ERA/WHIP so "better" = higher for correlation estimation
-    for inv_cat in INVERSE_CATEGORIES:
-        idx = CATEGORIES.index(inv_cat)
-        data[:, idx] = -data[:, idx]
-
-    # Compute Spearman rank correlation (more robust than Pearson for non-normal data)
-    from scipy.stats import spearmanr
-
-    corr_matrix, _ = spearmanr(data)
-
-    # Ensure it's a proper correlation matrix
-    if corr_matrix.ndim == 0:
-        # Single column — shouldn't happen but guard
-        corr_matrix = np.array([[1.0]])
-
-    return GaussianCopula(corr_matrix)
 
 
 def _nearest_pd(matrix: np.ndarray) -> np.ndarray:

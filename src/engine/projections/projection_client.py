@@ -20,8 +20,6 @@ from difflib import SequenceMatcher
 
 import pandas as pd
 
-from src.database import load_player_pool
-
 logger = logging.getLogger(__name__)
 
 
@@ -80,89 +78,3 @@ def fuzzy_match_player(
         return best_id
 
     return None
-
-
-def get_ros_projections(
-    player_ids: list[int] | None = None,
-) -> pd.DataFrame:
-    """Load ROS projections from the database.
-
-    Prefers blended projections; falls back to any available system.
-    If player_ids is specified, filters to those players only.
-
-    Args:
-        player_ids: Optional list of player IDs to filter to.
-
-    Returns:
-        DataFrame with projection data (same schema as player_pool).
-    """
-    pool = load_player_pool()
-    if pool.empty:
-        return pool
-
-    pool = pool.rename(columns={"name": "player_name"})
-
-    if player_ids is not None:
-        pool = pool[pool["player_id"].isin(player_ids)]
-
-    return pool
-
-
-def resolve_trade_players(
-    giving_names: list[str],
-    receiving_names: list[str],
-    player_pool: pd.DataFrame,
-) -> tuple[list[int], list[int], list[str]]:
-    """Resolve trade player names to IDs with fuzzy matching.
-
-    Args:
-        giving_names: Names of players being traded away.
-        receiving_names: Names of players being received.
-        player_pool: Full player pool for name resolution.
-
-    Returns:
-        Tuple of (giving_ids, receiving_ids, unmatched_names).
-    """
-    name_col = "player_name" if "player_name" in player_pool.columns else "name"
-    unmatched: list[str] = []
-
-    giving_ids: list[int] = []
-    for name in giving_names:
-        pid = fuzzy_match_player(name, player_pool, name_col)
-        if pid is not None:
-            giving_ids.append(pid)
-        else:
-            unmatched.append(name)
-
-    receiving_ids: list[int] = []
-    for name in receiving_names:
-        pid = fuzzy_match_player(name, player_pool, name_col)
-        if pid is not None:
-            receiving_ids.append(pid)
-        else:
-            unmatched.append(name)
-
-    return giving_ids, receiving_ids, unmatched
-
-
-def refresh_projections_if_needed(force: bool = False) -> bool:
-    """Trigger a FanGraphs projection refresh if data is stale.
-
-    Wires into existing data_pipeline.refresh_if_stale().
-
-    Args:
-        force: Force refresh regardless of staleness.
-
-    Returns:
-        True if a refresh was performed, False otherwise.
-    """
-    try:
-        from src.data_pipeline import refresh_if_stale
-
-        return refresh_if_stale(force=force)
-    except ImportError:
-        logger.warning("data_pipeline not available — skipping projection refresh")
-        return False
-    except Exception as exc:
-        logger.warning("Projection refresh failed: %s", exc)
-        return False
