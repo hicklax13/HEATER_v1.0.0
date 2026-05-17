@@ -152,21 +152,22 @@ def test_d5b030_start_sit_widget_uses_league_config():
     )
     # Call once with default denoms (LeagueConfig: R denom = 32.0):
     mean_default, _ = compute_fantasy_points_distribution(player)
-    # If using hardcoded dict (R denom=18.0): mean_R = 220/22/18 = 0.5555
-    # If using LeagueConfig (R denom=32.0): mean_R = 220/22/32 = 0.3125
-    # The fix should yield the LeagueConfig number.
-    expected_r_contrib = (220.0 / 22.0) / 32.0
+    # 2026-05-17 Section 2 L4 fix: was /22 (FourzynBurn season was wrongly
+    # hardcoded to 22 weeks in this widget); the fix uses canonical 26.
+    # Hardcoded dict (R denom=18.0): mean_R = 220/26/18 = 0.4701
+    # LeagueConfig (R denom=32.0): mean_R = 220/26/32 = 0.2644
+    expected_r_contrib = (220.0 / 26.0) / 32.0
     assert mean_default == pytest.approx(expected_r_contrib, abs=0.01), (
-        f"Expected widget to use LeagueConfig R denom (32.0), but mean={mean_default} "
-        f"which is far from expected {expected_r_contrib}. Hardcoded dict would "
-        f"have produced {(220.0 / 22.0) / 18.0}."
+        f"Expected widget to use LeagueConfig R denom (32.0) with 26-week season, "
+        f"but mean={mean_default} which is far from expected {expected_r_contrib}. "
+        f"Hardcoded dict would have produced {(220.0 / 26.0) / 18.0}."
     )
 
     # Explicit override still wins — sanity check
     mean_override, _ = compute_fantasy_points_distribution(
         player, sgp_denominators={"R": 10.0, "AVG": 0.004, "OBP": 0.005}
     )
-    expected_override = (220.0 / 22.0) / 10.0
+    expected_override = (220.0 / 26.0) / 10.0
     assert mean_override == pytest.approx(expected_override, abs=0.01)
 
 

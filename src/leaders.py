@@ -182,7 +182,10 @@ def detect_breakouts(
     """Detect players significantly outperforming projections.
     z = (observed - projected) / max(std, 0.01), breakout if z > threshold.
     """
-    inverse_stats = {"era", "whip"}
+    # 2026-05-17 Section 2 L13 fix: was {"era","whip"} — dropped L. Derive from
+    # the module-level INVERSE_CATS (sourced from LeagueConfig) and lowercase
+    # for the column-name comparison the loop below does.
+    inverse_stats = {c.lower() for c in INVERSE_CATS}
     check_stats = stats or ["hr", "rbi", "sb", "k", "avg"]
     results = []
     name_col = "name" if "name" in season_stats_df.columns else "player_name"

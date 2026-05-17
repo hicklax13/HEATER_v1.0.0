@@ -54,7 +54,7 @@ def compute_category_win_probability(
     return float(norm.cdf(z))
 
 
-def generate_round_robin_schedule(team_names: list[str], n_weeks: int = 22) -> list[list[tuple[str, str]]]:
+def generate_round_robin_schedule(team_names: list[str], n_weeks: int = 26) -> list[list[tuple[str, str]]]:
     """Generate a round-robin schedule for N teams over n_weeks.
 
     Each week has N/2 matchups. Repeats pairings cyclically.

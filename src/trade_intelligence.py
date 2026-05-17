@@ -1020,7 +1020,7 @@ def generate_targeted_proposals(
     all_team_totals: dict[str, dict[str, float]] | None = None,
     user_team_name: str | None = None,
     opponent_team_name: str | None = None,
-    weeks_remaining: int = 22,
+    weeks_remaining: int = 26,
 ) -> dict[str, Any]:
     """Generate lowball and fair value trade proposals for a target player.
 
@@ -1581,7 +1581,7 @@ def recommend_trades_by_need(
     all_team_totals: dict[str, dict[str, float]] | None = None,
     user_team_name: str | None = None,
     league_rosters: pd.DataFrame | None = None,
-    weeks_remaining: int = 22,
+    weeks_remaining: int = 26,
     max_results: int = 20,
 ) -> list[dict[str, Any]]:
     """Auto-scan all opponents and produce ranked trade recommendations.
