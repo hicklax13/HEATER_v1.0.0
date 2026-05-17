@@ -2728,18 +2728,31 @@ def _bootstrap_injury_writeback(progress: BootstrapProgress) -> str:
 
         conn = get_connection()
         try:
-            # Step 1: Reset all injury flags
-            conn.execute("UPDATE players SET is_injured = 0, injury_note = NULL")
+            # 2026-05-17 broken-pipeline fix: if league_rosters is empty (Yahoo
+            # disconnected on cold start), the old code would clear every
+            # is_injured flag and never re-set them — losing days of IL data.
+            # Skip the reset if the source-of-truth table is empty.
+            lr_count = conn.execute(
+                "SELECT COUNT(*) FROM league_rosters WHERE status IN ('IL10','IL15','IL60','DTD')"
+            ).fetchone()[0]
+            if lr_count == 0:
+                logger.warning(
+                    "Injury writeback: league_rosters has 0 IL-status rows; skipping reset to preserve existing flags"
+                )
+                conn.commit()
+            else:
+                # Step 1: Reset all injury flags
+                conn.execute("UPDATE players SET is_injured = 0, injury_note = NULL")
 
-            # Step 2: Set is_injured from Yahoo roster data (authoritative for league)
-            conn.execute(
-                """UPDATE players SET is_injured = 1, injury_note = lr.status
-                   FROM league_rosters lr
-                   WHERE players.player_id = lr.player_id
-                     AND lr.status IN ('IL10', 'IL15', 'IL60', 'DTD')"""
-            )
+                # Step 2: Set is_injured from Yahoo roster data (authoritative for league)
+                conn.execute(
+                    """UPDATE players SET is_injured = 1, injury_note = lr.status
+                       FROM league_rosters lr
+                       WHERE players.player_id = lr.player_id
+                         AND lr.status IN ('IL10', 'IL15', 'IL60', 'DTD')"""
+                )
 
-            conn.commit()
+                conn.commit()
         finally:
             conn.close()
 
@@ -3209,6 +3222,8 @@ def bootstrap_all_data(
                     from datetime import UTC, datetime
 
                     _now = datetime.now(UTC).isoformat()
+                    _today = datetime.now(UTC).strftime("%Y-%m-%d")
+                    _ownership_writes = 0
                     for _, row in fa_df.iterrows():
                         _fa_conn.execute(
                             """INSERT OR REPLACE INTO yahoo_free_agents
@@ -3223,6 +3238,21 @@ def bootstrap_all_data(
                                 _now,
                             ),
                         )
+                        # 2026-05-17 broken-pipeline fix: previously only rostered
+                        # players wrote to ownership_trends, so FAs always read
+                        # percent_owned=NULL in the player pool. Mirror the rostered
+                        # write-through here so pool's percent_owned column populates
+                        # for FAs too.
+                        _fa_pname = row.get("player_name", "")
+                        if _fa_pname:
+                            _fa_pid = match_player_id(_fa_pname, "")
+                            if _fa_pid is not None:
+                                _fa_conn.execute(
+                                    "INSERT OR REPLACE INTO ownership_trends "
+                                    "(player_id, date, percent_owned) VALUES (?, ?, ?)",
+                                    (_fa_pid, _today, float(row.get("percent_owned", 0) or 0)),
+                                )
+                                _ownership_writes += 1
                     _fa_conn.commit()
                 finally:
                     _fa_conn.close()

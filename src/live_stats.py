@@ -402,6 +402,10 @@ def save_season_stats_to_db(stats_df: pd.DataFrame, season: int = 2026) -> int:
 
     Uses a single DB connection for all rows to avoid per-row connection overhead.
     """
+    # NOTE: fip/xfip/siera intentionally excluded — _parse_pitching_stat does
+    # not populate them, so including them in this UPSERT would write 0 every
+    # hour and erase the Stuff+ phase's nightly FIP/xFIP/SIERA writes. Those
+    # three columns are owned exclusively by _bootstrap_stuff_plus.
     cols = [
         "pa",
         "ab",
@@ -425,9 +429,6 @@ def save_season_stats_to_db(stats_df: pd.DataFrame, season: int = 2026) -> int:
         "er",
         "bb_allowed",
         "h_allowed",
-        "fip",
-        "xfip",
-        "siera",
         "games_played",
     ]
     sql = (
