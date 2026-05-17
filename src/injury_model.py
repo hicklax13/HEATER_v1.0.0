@@ -23,8 +23,15 @@ logger = logging.getLogger(__name__)
 # Module-level constants
 # ---------------------------------------------------------------------------
 
-LEAGUE_AVG_HEALTH: float = 0.85
+# 2026-05-17 Section 3 D7: canonical health-score constant. 5 other modules
+# previously held their own `DEFAULT_HEALTH_SCORE = 0.85` annotated "kept
+# in sync with draft_engine" — sync burden was the smell. Importers use:
+#   from src.injury_model import DEFAULT_HEALTH_SCORE
+DEFAULT_HEALTH_SCORE: float = 0.85
 """Default health score when season data is missing."""
+
+LEAGUE_AVG_HEALTH: float = DEFAULT_HEALTH_SCORE
+"""Legacy alias; new callers should use DEFAULT_HEALTH_SCORE."""
 
 # B2: Position-specific age thresholds and risk rates.
 # Catchers age faster (squatting wears knees/back), DHs age slowest.

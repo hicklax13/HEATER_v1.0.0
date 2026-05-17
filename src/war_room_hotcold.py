@@ -21,10 +21,12 @@ _STRONG_THRESHOLD = 1.2
 _MODERATE_THRESHOLD = 1.0
 
 # League-average rate-stat baselines used as fallbacks when a pitcher
-# row has no ERA/WHIP value. ~4.50 ERA / 1.30 WHIP track recent MLB
-# league averages (FanGraphs Guts; updated annually).
-_LEAGUE_AVG_ERA: float = 4.50
-_LEAGUE_AVG_WHIP: float = 1.30
+# 2026-05-17 Section 3 D1: read from CONSTANTS_REGISTRY so all callers share
+# one canonical value (was 4 different ERA values across modules).
+from src.optimizer.constants_registry import CONSTANTS_REGISTRY as _CR  # noqa: E402
+
+_LEAGUE_AVG_ERA: float = _CR["league_avg_era"].value
+_LEAGUE_AVG_WHIP: float = _CR["league_avg_whip"].value
 
 
 def compute_hot_cold_report(

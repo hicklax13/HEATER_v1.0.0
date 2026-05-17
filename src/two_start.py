@@ -58,10 +58,15 @@ else:
 # League-average defaults for fallback when API data is unavailable.
 _LEAGUE_AVG_K_PCT: float = 0.225
 _LEAGUE_AVG_WRC_PLUS: float = 100.0
-_LEAGUE_AVG_ERA: float = 4.00
-_LEAGUE_AVG_WHIP: float = 1.25
+# 2026-05-17 Section 3 D1: read from CONSTANTS_REGISTRY for ERA/WHIP/xFIP
+# so all callers share one canonical value (was 4.00 here vs 4.50 elsewhere
+# for ERA; 1.25 here vs 1.30 elsewhere for WHIP).
+from src.optimizer.constants_registry import CONSTANTS_REGISTRY as _CR  # noqa: E402
+
+_LEAGUE_AVG_ERA: float = _CR["league_avg_era"].value
+_LEAGUE_AVG_WHIP: float = _CR["league_avg_whip"].value
 _LEAGUE_AVG_CSW_PCT: float = 0.295
-_LEAGUE_AVG_XFIP: float = 4.10
+_LEAGUE_AVG_XFIP: float = _CR["league_avg_xfip"].value
 
 # Home/away adjustment: home pitchers historically perform ~3% better.
 _HOME_ADVANTAGE: float = 1.03

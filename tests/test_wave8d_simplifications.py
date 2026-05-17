@@ -81,22 +81,27 @@ def test_trade_intelligence_health_adjustment_thresholds():
 
 
 def test_streaming_league_avg_constants():
+    from src.optimizer.constants_registry import CONSTANTS_REGISTRY
     from src.optimizer.streaming import (
         _LEAGUE_AVG_ERA,
         _LEAGUE_AVG_WHIP,
         _LEAGUE_AVG_WOBA,
     )
 
-    assert _LEAGUE_AVG_ERA == 4.50
-    assert _LEAGUE_AVG_WHIP == 1.30
-    assert _LEAGUE_AVG_WOBA == 0.320
+    # 2026-05-17 Section 3 D1/D8: constants now read from CONSTANTS_REGISTRY.
+    # Canonical values: league_avg_era=4.20 (2025 MLB actual), whip=1.30, woba=0.320.
+    assert _LEAGUE_AVG_ERA == CONSTANTS_REGISTRY["league_avg_era"].value
+    assert _LEAGUE_AVG_WHIP == CONSTANTS_REGISTRY["league_avg_whip"].value
+    assert _LEAGUE_AVG_WOBA == CONSTANTS_REGISTRY["league_avg_woba"].value
 
 
 def test_war_room_hotcold_league_avg_constants():
+    from src.optimizer.constants_registry import CONSTANTS_REGISTRY
     from src.war_room_hotcold import _LEAGUE_AVG_ERA, _LEAGUE_AVG_WHIP
 
-    assert _LEAGUE_AVG_ERA == 4.50
-    assert _LEAGUE_AVG_WHIP == 1.30
+    # 2026-05-17 Section 3 D1: reads from CONSTANTS_REGISTRY.
+    assert _LEAGUE_AVG_ERA == CONSTANTS_REGISTRY["league_avg_era"].value
+    assert _LEAGUE_AVG_WHIP == CONSTANTS_REGISTRY["league_avg_whip"].value
 
 
 def test_waiver_wire_whip_constants():

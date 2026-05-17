@@ -215,11 +215,18 @@ def _estimate_team_weekly_stats(
         total_er = float(pitchers["er"].sum())
         total_bb_p = float(pitchers["bb_allowed"].sum())
         total_h_p = float(pitchers["h_allowed"].sum())
-        stats["ERA"] = (total_er * 9 / total_ip) if total_ip > 0 else 4.50
-        stats["WHIP"] = (total_bb_p + total_h_p) / total_ip if total_ip > 0 else 1.30
+        # 2026-05-17 Section 3 D1: read from registry (was 4.50/1.30 inline).
+        from src.optimizer.constants_registry import CONSTANTS_REGISTRY as _CR
+
+        _avg_era = _CR["league_avg_era"].value
+        _avg_whip = _CR["league_avg_whip"].value
+        stats["ERA"] = (total_er * 9 / total_ip) if total_ip > 0 else _avg_era
+        stats["WHIP"] = (total_bb_p + total_h_p) / total_ip if total_ip > 0 else _avg_whip
     else:
-        stats["ERA"] = 4.50
-        stats["WHIP"] = 1.30
+        from src.optimizer.constants_registry import CONSTANTS_REGISTRY as _CR
+
+        stats["ERA"] = _CR["league_avg_era"].value
+        stats["WHIP"] = _CR["league_avg_whip"].value
 
     return stats
 

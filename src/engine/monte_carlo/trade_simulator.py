@@ -340,8 +340,10 @@ def _simulate_roster_sgp(
             if stats.get("whip", 0.0) > 0:
                 p_bb_h_allowed = stats["whip"] * p_ip
             else:
-                _LEAGUE_AVG_WHIP = 1.30
-                p_bb_h_allowed = _LEAGUE_AVG_WHIP * p_ip
+                # 2026-05-17 Section 3 D1: read from CONSTANTS_REGISTRY.
+                from src.optimizer.constants_registry import CONSTANTS_REGISTRY as _CR
+
+                p_bb_h_allowed = _CR["league_avg_whip"].value * p_ip
             p_bb_allowed = p_bb_h_allowed * 0.4  # rough split
             p_h_allowed = p_bb_h_allowed * 0.6
 

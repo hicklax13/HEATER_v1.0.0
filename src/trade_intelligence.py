@@ -31,11 +31,8 @@ SV_SCARCITY_MULT = 1.3
 SCARCE_POS_MULT = 1.15
 SCARCE_POSITIONS = {"C", "SS", "2B"}
 
-# Default health score for a player with no injury history.
-# Rationale: 0.85 represents "league-baseline healthy player" — the same
-# value used in draft_engine.DEFAULT_HEALTH_SCORE, cheat_sheet, and
-# playing_time_model. Centralizing here avoids drift across callers.
-DEFAULT_HEALTH_SCORE: float = 0.85
+# 2026-05-17 Section 3 D7: re-export from injury_model (canonical).
+from src.injury_model import DEFAULT_HEALTH_SCORE  # noqa: E402, F401
 
 # Health-score thresholds used when adjusting for current IL/DTD status.
 # A player above the "near healthy" threshold gets pushed down by IL10/15;
