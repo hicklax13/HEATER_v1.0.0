@@ -23,6 +23,11 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
       - name: Set up uv
         # Pinned to specific patch (v8.1.0) — Astral introduced "immutable
         # secure tags" in v8.0.0 and stopped publishing bare-major tags
@@ -32,16 +37,14 @@ jobs:
         with:
           enable-cache: true
 
-      - name: Install Python + ruff
-        run: |
-          uv python install 3.12
-          uv tool install ruff==0.14.10
+      - name: Install ruff
+        run: uv pip install --system ruff==0.14.10
 
       - name: Ruff linter
-        run: uv tool run ruff check . --output-format=github
+        run: ruff check . --output-format=github
 
       - name: Ruff formatter check
-        run: uv tool run ruff format --check .
+        run: ruff format --check .
 
   test:
     # Matrix sharding via pytest-split. Each group runs a duration-balanced
@@ -59,15 +62,24 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # Set up Python via setup-python (puts python3.12 on PATH so
+      # `uv pip install --system` and the `pytest` binary both resolve
+      # correctly). `uv python install` alone installs to uv's managed
+      # location but does NOT manage PATH — that mismatch was the
+      # failure mode on the prior CI run.
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
       - name: Set up uv
         uses: astral-sh/setup-uv@v8.1.0
         with:
           enable-cache: true
           cache-dependency-glob: requirements.txt
 
-      - name: Install Python + dependencies
+      - name: Install dependencies
         run: |
-          uv python install 3.12
           uv pip install --system -r requirements.txt
           uv pip install --system pytest pytest-cov
 
@@ -106,13 +118,14 @@ jobs:
     if: github.event_name == 'pull_request'
     steps:
       - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
       - uses: astral-sh/setup-uv@v8.1.0
         with:
           enable-cache: true
           cache-dependency-glob: requirements.txt
-      - run: |
-          uv python install 3.12
-          uv pip install --system -r requirements.txt pytest pytest-cov
+      - run: uv pip install --system -r requirements.txt pytest pytest-cov
       - run: python load_sample_data.py
       - run: pytest tests/ -n auto --dist loadfile --cov=src --cov-fail-under=60 --tb=short -q
 
@@ -123,16 +136,19 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
       - name: Set up uv
         uses: astral-sh/setup-uv@v8.1.0
         with:
           enable-cache: true
           cache-dependency-glob: requirements.txt
 
-      - name: Install Python + dependencies
-        run: |
-          uv python install 3.12
-          uv pip install --system -r requirements.txt
+      - name: Install dependencies
+        run: uv pip install --system -r requirements.txt
 
       - name: Verify all modules import
         run: |
