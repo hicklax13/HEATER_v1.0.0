@@ -149,6 +149,11 @@ class LeagueConfig:
     pitching_categories: list = field(default_factory=lambda: ["W", "L", "SV", "K", "ERA", "WHIP"])
     scoring_format: str = "h2h_categories"
     weekly_transaction_limit: int = 10
+    # Total regular-season matchup weeks. FourzynBurn canonical = 26.
+    # 2026-05-17 Section 3 D5: was hardcoded in ~15 sites across src/ +
+    # pages/ + tests/. Now sourced from LeagueConfig so a league with
+    # different scheduling (e.g. 24-week format) only changes one place.
+    season_weeks: int = 26
     # Per-matchup minimum innings pitched (SP + RP combined). The
     # league owner enforces a 20 IP floor; teams below get forfeit-style
     # penalties on pitching cats. Consumed by daily_optimizer.check_ip_override
