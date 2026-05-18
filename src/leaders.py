@@ -250,13 +250,10 @@ def _percentile_rank(series: pd.Series, value: float) -> float:
     return float((clean < value).sum()) / len(clean) * 100.0
 
 
-def _safe_float(val, default: float = 0.0) -> float:
-    """Coerce *val* to float, returning *default* on failure."""
-    try:
-        v = float(val)
-        return default if np.isnan(v) else v
-    except (TypeError, ValueError):
-        return default
+# 2026-05-17 Section 3 D9: re-export from data_fetch_utils (canonical).
+# Different from other 3 sites because this one returns a *default* on
+# failure (not None). Use the `safe_float` flavor in data_fetch_utils.
+from src.data_fetch_utils import safe_float as _safe_float  # noqa: E402, F401
 
 
 def compute_breakout_score(player_row, pool: pd.DataFrame | None = None, config=None) -> float:

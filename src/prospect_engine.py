@@ -335,13 +335,8 @@ def _normalize_level(level_name: str) -> str:
     return level_name
 
 
-def _safe_float(val) -> float | None:
-    if val is None:
-        return None
-    try:
-        return float(val)
-    except (ValueError, TypeError):
-        return None
+# 2026-05-17 Section 3 D9: re-export from data_fetch_utils (canonical).
+from src.data_fetch_utils import safe_float_or_none as _safe_float  # noqa: E402, F401
 
 
 def _safe_int(val) -> int | None:

@@ -241,17 +241,8 @@ _NEUTRAL_DEFAULTS: dict[str, float] = {
 }
 
 
-def _safe_float(val: object) -> float | None:
-    """Convert a value to float, returning None on failure."""
-    if val is None:
-        return None
-    try:
-        result = float(val)
-        if pd.isna(result):
-            return None
-        return result
-    except (ValueError, TypeError):
-        return None
+# 2026-05-17 Section 3 D9: re-export from data_fetch_utils (canonical).
+from src.data_fetch_utils import safe_float_or_none as _safe_float  # noqa: E402, F401
 
 
 def _parse_pct(val: object) -> float | None:

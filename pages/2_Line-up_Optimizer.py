@@ -142,20 +142,11 @@ render_page_layout(
 
 # ── Category display names ───────────────────────────────────────────
 
-CAT_DISPLAY_NAMES: dict[str, str] = {
-    "r": "Runs",
-    "hr": "Home Runs",
-    "rbi": "Runs Batted In",
-    "sb": "Stolen Bases",
-    "avg": "Batting Average",
-    "obp": "On-Base Percentage",
-    "w": "Wins",
-    "l": "Losses",
-    "sv": "Saves",
-    "k": "Strikeouts",
-    "era": "Earned Run Average",
-    "whip": "Walks + Hits per Inning Pitched",
-}
+# 2026-05-17 Section 3 D10: derive lowercase map from canonical UPPERCASE
+# map in ui_shared (this page consumes lowercase keys throughout).
+from src.ui_shared import CAT_DISPLAY_NAMES as _UPPER_CAT_DISPLAY  # noqa: E402
+
+CAT_DISPLAY_NAMES: dict[str, str] = {k.lower(): v for k, v in _UPPER_CAT_DISPLAY.items()}
 
 ALL_CATS = list(CAT_DISPLAY_NAMES.keys())
 

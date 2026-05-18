@@ -20,6 +20,10 @@ from src.trade_finder import (
     find_complementary_teams,
     find_trade_opportunities,
 )
+
+# 2026-05-17 Section 3 D10: use canonical map from ui_shared (was a local
+# copy of the same dict with UPPERCASE keys).
+from src.ui_shared import CAT_DISPLAY_NAMES as _CAT_DISPLAY  # noqa: E402
 from src.ui_shared import (
     T,
     format_stat,
@@ -33,22 +37,6 @@ from src.ui_shared import (
 )
 from src.valuation import LeagueConfig
 from src.yahoo_data_service import get_yahoo_data_service
-
-# Full display names for stat categories (no abbreviations per CLAUDE.md)
-_CAT_DISPLAY = {
-    "R": "Runs",
-    "HR": "Home Runs",
-    "RBI": "Runs Batted In",
-    "SB": "Stolen Bases",
-    "AVG": "Batting Average",
-    "OBP": "On-Base Percentage",
-    "W": "Wins",
-    "L": "Losses",
-    "SV": "Saves",
-    "K": "Strikeouts",
-    "ERA": "Earned Run Average",
-    "WHIP": "Walks + Hits per Inning Pitched",
-}
 
 st.set_page_config(
     page_title="Heater | Trade Finder",
