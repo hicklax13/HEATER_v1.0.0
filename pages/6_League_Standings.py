@@ -373,8 +373,224 @@ with ctx:
 # Main Content — Tabs
 # ══════════════════════════════════════════════════════════════════════
 
+
+def _ordinal_suffix(n: int) -> str:
+    """Return ordinal suffix for a number (1st, 2nd, 3rd, etc.)."""
+    if 11 <= (n % 100) <= 13:
+        return "th"
+    last = n % 10
+    if last == 1:
+        return "st"
+    if last == 2:
+        return "nd"
+    if last == 3:
+        return "rd"
+    return "th"
+
+
+def _render_playoff_odds_tab() -> None:
+    """Render the playoff-odds Monte Carlo simulator (was Playoff_Odds page).
+
+    2026-05-18 Section 5: merged from the standalone Playoff_Odds page.
+    Self-contained — loads its own data via cached helpers.
+    """
+    import time as _time
+
+    from src.database import coerce_numeric_df as _coerce
+
+    try:
+        from src.playoff_sim import (
+            estimate_weeks_remaining,
+        )
+        from src.playoff_sim import (
+            simulate_season as _simulate_season_playoffs,
+        )
+    except ImportError:
+        st.error("Playoff simulation module not available (src/playoff_sim.py missing).")
+        return
+
+    _po_pool = load_player_pool()
+    if _po_pool.empty:
+        st.warning("No player pool loaded.")
+        return
+    _po_pool = _po_pool.rename(columns={"name": "player_name"})
+    _po_config = LeagueConfig()
+    _po_yds = get_yahoo_data_service()
+
+    _po_standings = _po_yds.get_standings()
+    _po_all_team_totals: dict[str, dict[str, float]] = {}
+    if not _po_standings.empty and "category" in _po_standings.columns:
+        for _, srow in _po_standings.iterrows():
+            tname = str(srow["team_name"])
+            cat = str(srow["category"]).strip()
+            _po_all_team_totals.setdefault(tname, {})[cat] = float(srow.get("total", 0) or 0)
+
+    _po_rosters = _po_yds.get_rosters()
+    if _po_rosters.empty:
+        st.info("No league rosters loaded. Connect your Yahoo league first.")
+        return
+    _po_user_teams = _po_rosters[_po_rosters["is_user_team"] == 1]
+    if _po_user_teams.empty:
+        st.info("No user team identified in roster data.")
+        return
+    user_team_name = str(_po_user_teams.iloc[0]["team_name"])
+
+    _po_rosters = _coerce(_po_rosters)
+    league_rosters_dict: dict[str, list[int]] = {}
+    for _, row in _po_rosters.iterrows():
+        team = str(row["team_name"])
+        pid = int(row["player_id"])
+        league_rosters_dict.setdefault(team, []).append(pid)
+
+    all_team_totals = _po_all_team_totals
+    pool = _po_pool
+    config = _po_config
+
+    if not all_team_totals:
+        st.info("Connect your Yahoo league or load standings data to run playoff odds.")
+        return
+
+    team_names_p = sorted(league_rosters_dict.keys())
+    if len(team_names_p) < 2:
+        st.warning("Need at least 2 teams with roster data.")
+        return
+
+    weeks_default = estimate_weeks_remaining()
+    ctrl1, ctrl2, _ctrl3 = st.columns([1, 1, 2])
+    with ctrl1:
+        weeks_remaining_p = st.number_input(
+            "Weeks remaining",
+            min_value=1,
+            max_value=config.season_weeks,
+            value=weeks_default,
+            step=1,
+            key="playoff_weeks_remaining",
+        )
+    with ctrl2:
+        n_sims_p = st.selectbox(
+            "Simulations",
+            options=[200, 500, 1000, 2000],
+            index=1,
+            format_func=lambda x: f"{x:,}",
+            key="playoff_n_sims",
+        )
+
+    if st.button("Simulate Season", type="primary", key="playoff_simulate_btn"):
+        progress_bar = st.progress(0, text="Running playoff simulations...")
+
+        def _update_progress(frac: float) -> None:
+            pct = int(frac * 100)
+            progress_bar.progress(frac, text=f"Simulating season... {pct}%")
+
+        start_time = _time.time()
+        try:
+            results_p = _simulate_season_playoffs(
+                all_team_totals=all_team_totals,
+                league_rosters=league_rosters_dict,
+                player_pool=pool,
+                weeks_remaining=int(weeks_remaining_p),
+                n_sims=int(n_sims_p),
+                config=config,
+                on_progress=_update_progress,
+            )
+            elapsed = _time.time() - start_time
+            progress_bar.progress(1.0, text=f"Complete in {elapsed:.1f}s")
+            _time.sleep(0.3)
+            progress_bar.empty()
+            st.session_state["playoff_sim_results"] = results_p
+        except Exception as exc:
+            progress_bar.empty()
+            st.error(f"Simulation failed: {exc}")
+
+    results_p = st.session_state.get("playoff_sim_results")
+    if results_p is None:
+        st.info("Press Simulate Season to run the playoff odds simulator.")
+        return
+    if not results_p:
+        st.warning("Simulation returned no results. Check that roster data is available for all teams.")
+        return
+
+    user_result = results_p.get(user_team_name)
+    if user_result:
+        prob_pct = user_result["playoff_prob"] * 100.0
+        prob_color = (
+            T["green"]
+            if prob_pct >= 60
+            else T.get("hot", T["accent"])
+            if prob_pct >= 40
+            else T.get("primary", T["accent"])
+        )
+        prob_label = "Strong" if prob_pct >= 60 else "Moderate" if prob_pct >= 40 else "At Risk"
+        st.markdown(
+            f'<div style="background:#ffffff;border-radius:14px;padding:24px 32px;margin-bottom:24px;'
+            f'box-shadow:0 2px 12px rgba(0,0,0,0.06);display:flex;align-items:center;gap:28px;">'
+            f"<div>"
+            f'<div style="font-family:Figtree,sans-serif;font-size:14px;font-weight:600;'
+            f'color:#666;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">'
+            f"Your Playoff Probability</div>"
+            f'<div style="font-family:Bebas Neue,sans-serif;font-size:56px;font-weight:700;'
+            f'color:{prob_color};line-height:1;">{prob_pct:.1f}%</div>'
+            f'<div style="font-family:Figtree,sans-serif;font-size:14px;color:#888;margin-top:4px;">'
+            f"{prob_label} -- {user_team_name}</div></div>"
+            f'<div style="margin-left:auto;text-align:right;">'
+            f'<div style="font-size:13px;color:#888;">Projected Record</div>'
+            f'<div style="font-family:Bebas Neue,sans-serif;font-size:28px;color:#1d1d1f;">'
+            f"{user_result['avg_wins']:.1f} - {user_result['avg_losses']:.1f}</div></div></div>",
+            unsafe_allow_html=True,
+        )
+
+    # Projected standings table
+    rows = []
+    for team in team_names_p:
+        r = results_p.get(team)
+        if r is None:
+            continue
+        rank_dist = r["rank_distribution"]
+        most_likely_rank = rank_dist.index(max(rank_dist)) + 1
+        rows.append(
+            {
+                "Team": team,
+                "Avg Wins": r["avg_wins"],
+                "Avg Losses": r["avg_losses"],
+                "Playoff %": round(r["playoff_prob"] * 100, 1),
+                "Most Likely Finish": most_likely_rank,
+            }
+        )
+    if rows:
+        standings_p = pd.DataFrame(rows).sort_values("Playoff %", ascending=False).reset_index(drop=True)
+        standings_p.index = standings_p.index + 1
+        standings_p.index.name = "Rank"
+
+        def _highlight_user(row: pd.Series) -> list[str]:
+            if row["Team"] == user_team_name:
+                return ["background-color: rgba(230, 92, 0, 0.08); font-weight: 700;"] * len(row)
+            return [""] * len(row)
+
+        styled = standings_p.style.apply(_highlight_user, axis=1).format(
+            {"Playoff %": "{:.1f}%", "Avg Wins": "{:.1f}", "Avg Losses": "{:.1f}"}
+        )
+        st.dataframe(styled, width="stretch", height=min(460, 38 + 35 * len(standings_p)))
+
+    # Finish distribution for user
+    if user_result:
+        rank_dist = user_result["rank_distribution"]
+        total_sims = sum(rank_dist) or 1
+        dist_rows = []
+        for idx, count in enumerate(rank_dist):
+            rank = idx + 1
+            pct = count / total_sims * 100
+            if pct < 0.5:
+                continue
+            suffix = _ordinal_suffix(rank)
+            dist_rows.append({"Finish": f"{rank}{suffix}", "Probability": f"{pct:.1f}%", "Simulations": count})
+        if dist_rows:
+            st.markdown("**Your Finish Distribution**")
+            render_compact_table(pd.DataFrame(dist_rows))
+
+
 with main:
-    tab1, tab2 = st.tabs(["Current Standings", "Season Projections"])
+    # 2026-05-18 Section 5: Playoff Odds page folded in as 3rd tab.
+    tab1, tab2, tab_playoffs = st.tabs(["Current Standings", "Season Projections", "Playoff Odds"])
 
     # ── Tab 1: Current Standings ──────────────────────────────────────
     with tab1:
@@ -831,5 +1047,10 @@ with main:
 
         else:
             st.info("No roster data available for projections. Connect your Yahoo league and run bootstrap.")
+
+    # ── Tab 3: Playoff Odds (was pages/7_Playoff_Odds.py) ────────────
+    with tab_playoffs:
+        _render_playoff_odds_tab()
+
 
 page_timer_footer("League Standings")
