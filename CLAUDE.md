@@ -7,7 +7,7 @@ A fantasy-baseball draft assistant + in-season manager for a 12-team Yahoo Sport
 The codebase is organized around 7 feature surfaces:
 
 1. **Draft Tool** (`app.py`) — Heater-themed splash + bootstrap + setup wizard + 3-column draft page with Monte Carlo recommendations.
-2. **In-Season Pages** (`pages/`) — 20 pages, renumbered 2026-05-17 into workflow order (status → daily action → strategy → trades → wire → research → preseason): My Team, Lineup Optimizer, Closer Monitor, Bullpen, Matchup Planner, League Standings, Playoff Odds, Weekly Dashboard, Weekly Recap, Punt Analyzer, Trade Analyzer, Trade Finder, Trade Values, Free Agents, Waiver Wire, Player Compare, Leaders, Trends, Player Databank, Draft Simulator.
+2. **In-Season Pages** (`pages/`) — 18 pages, ordered for daily workflow (status → daily action → strategy → trades → wire → research → preseason): My Team, Lineup Optimizer, Closer Monitor, Bullpen, Matchup Planner, League Standings, Playoff Odds, Weekly Dashboard, Weekly Recap, Punt Analyzer, Trade Analyzer, Trade Finder (+ Value Chart tab), Free Agents, Waiver Wire, Player Compare, Leaders (+ Hot/Cold/Sell-High tabs), Player Databank, Draft Simulator.
 3. **Trade Analyzer Engine** (`src/engine/`) — 6-phase pipeline: deterministic SGP → stochastic MC (paired, true antithetic) → signal intelligence → contextual adjustments → game theory → production convergence/caching.
 4. **Lineup Optimizer** (`src/optimizer/`) — 21-module pipeline with PuLP LP, daily category value (DCV) scoring, sigmoid urgency, FA recommender, sensitivity analysis, backtest framework.
 5. **Draft Recommendation Engine** (`src/draft_engine.py`) — 8-stage enhancement chain with 3 execution modes (Quick/Standard/Full).
@@ -92,8 +92,7 @@ pages/ — 20 in-season pages, ordered for daily workflow (status → daily acti
   15_Waiver_Wire.py         — Add/drop + waiver-priority tool
   # Research
   16_Player_Compare.py      — Head-to-head comparison with category fit
-  17_Leaders.py             — Category leaders, breakout detection, prospects
-  18_Trends.py              — Player trend / regression analysis
+  17_Leaders.py             — 7 tabs: Category Leaders / Value / Breakouts / Prospects / Hot / Cold / Sell-High
   19_Player_Databank.py     — Historical multi-year player lookup
   # Preseason
   20_Draft_Simulator.py     — Draft simulator with AI opponents, MC recommendations
