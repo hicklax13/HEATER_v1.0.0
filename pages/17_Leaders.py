@@ -19,6 +19,7 @@ from src.ui_shared import (
     render_context_columns,
     render_page_layout,
     render_player_select,
+    render_styled_table,
 )
 
 T = THEME
@@ -373,7 +374,18 @@ with ctx:
 # -- Main content (right): tabs + data tables -----------------------------
 
 with main:
-    tab1, tab2, tab4, tab3 = st.tabs(["Category Leaders", "Category Value", "Breakout Candidates", "Prospects"])
+    # 2026-05-18 Section 5: Trends page folded in as 3 additional tabs.
+    tab1, tab2, tab4, tab3, tab_hot, tab_cold, tab_sell = st.tabs(
+        [
+            "Category Leaders",
+            "Category Value",
+            "Breakout Candidates",
+            "Prospects",
+            "Hot List",
+            "Cold List",
+            "Sell-High",
+        ]
+    )
 
     with tab1:
         if not LEADERS_AVAILABLE:
@@ -811,5 +823,137 @@ with main:
 
             except Exception as e:
                 st.error(f"Failed to load prospect rankings: {e}")
+
+    # ── Tabs 5-7: folded from former Trends page ─────────────────
+    # 2026-05-18 Section 5: Trends page (Hot/Cold/Sell-High) folded into
+    # Leaders. Reuses Leaders' player_pool / config / season_stats.
+    from src.database import load_season_stats as _load_season_stats
+    from src.trend_tracker import (
+        _HAS_SUSTAINABILITY,
+    )
+    from src.trend_tracker import (
+        compute_player_trends as _compute_player_trends,
+    )
+    from src.trend_tracker import (
+        detect_sell_high_candidates as _detect_sell_high_candidates,
+    )
+    from src.valuation import LeagueConfig as _LC_T
+
+    _trend_pool = load_player_pool()
+    _trend_pool = _trend_pool.rename(columns={"name": "player_name"})
+    _trend_season = _load_season_stats()
+    _trend_cfg = _LC_T()
+    _trended = (
+        _compute_player_trends(_trend_pool, _trend_season, _trend_cfg)
+        if not _trend_pool.empty and not _trend_season.empty
+        else pd.DataFrame()
+    )
+
+    _TREND_GREEN = T["green"]
+    _TREND_DANGER = T["danger"]
+    _TREND_NEUTRAL = T["tx2"]
+
+    def _trend_color_label(label: str) -> str:
+        color = {"HOT": _TREND_GREEN, "COLD": _TREND_DANGER}.get(label, _TREND_NEUTRAL)
+        return f'<span style="color:{color};font-weight:700;">{label}</span>'
+
+    def _trend_color_delta(delta: float) -> str:
+        if delta > 0.10:
+            color = _TREND_GREEN
+        elif delta < -0.10:
+            color = _TREND_DANGER
+        else:
+            color = _TREND_NEUTRAL
+        sign = "+" if delta > 0 else ""
+        return f'<span style="color:{color};font-weight:600;">{sign}{delta:.3f}</span>'
+
+    def _trend_key_stats(rows) -> list[str]:
+        out = []
+        for _, row in rows.iterrows():
+            is_h = int(row.get("is_hitter", 1) or 1)
+            if is_h:
+                avg_val = float(row.get("avg", 0) or 0)
+                hr_val = int(row.get("hr", 0) or 0)
+                out.append(f".{int(avg_val * 1000):03d} AVG / {hr_val} HR")
+            else:
+                era_val = float(row.get("era", 0) or 0)
+                k_val = int(row.get("k", 0) or 0)
+                out.append(f"{era_val:.2f} ERA / {k_val} K")
+        return out
+
+    _trend_name_col = "player_name" if "player_name" in _trended.columns else "name"
+
+    with tab_hot:
+        if _trended.empty:
+            st.info("Trend data unavailable. Season stats may not be loaded yet.")
+        else:
+            hot = _trended[_trended["trend_label"] == "HOT"].copy().sort_values("trend_delta", ascending=False).head(15)
+            if hot.empty:
+                st.info("No players are currently trending hot.")
+            else:
+                st.caption("Players performing significantly above their pre-season projections.")
+                disp = pd.DataFrame(
+                    {
+                        "Player": hot[_trend_name_col].values,
+                        "Position": hot["positions"].values,
+                        "Team": hot["team"].values,
+                        "Trend Delta": [_trend_color_delta(d) for d in hot["trend_delta"]],
+                        "Trend": [_trend_color_label(t) for t in hot["trend_label"]],
+                        "Key Stats": _trend_key_stats(hot),
+                    }
+                )
+                render_styled_table(disp, max_height=500)
+
+    with tab_cold:
+        if _trended.empty:
+            st.info("Trend data unavailable.")
+        else:
+            cold = (
+                _trended[_trended["trend_label"] == "COLD"].copy().sort_values("trend_delta", ascending=True).head(15)
+            )
+            if cold.empty:
+                st.info("No players are currently trending cold.")
+            else:
+                st.caption("Players performing significantly below their pre-season projections.")
+                disp = pd.DataFrame(
+                    {
+                        "Player": cold[_trend_name_col].values,
+                        "Position": cold["positions"].values,
+                        "Team": cold["team"].values,
+                        "Trend Delta": [_trend_color_delta(d) for d in cold["trend_delta"]],
+                        "Trend": [_trend_color_label(t) for t in cold["trend_label"]],
+                        "Key Stats": _trend_key_stats(cold),
+                    }
+                )
+                render_styled_table(disp, max_height=500)
+
+    with tab_sell:
+        if _trend_pool.empty or _trend_season.empty:
+            st.info("Sell-high detection requires pool + season stats.")
+        else:
+            sell_high = _detect_sell_high_candidates(_trend_pool, _trend_season, _trend_cfg)
+            if sell_high.empty:
+                if not _HAS_SUSTAINABILITY:
+                    st.info("Sell-high detection requires the sustainability module.")
+                else:
+                    st.info("No sell-high candidates identified. Hot players appear to have sustainable performance.")
+            else:
+                st.caption("Players trending hot with low sustainability scores — regression likely.")
+                top = sell_high.head(15)
+                disp = pd.DataFrame(
+                    {
+                        "Player": top[_trend_name_col].values,
+                        "Position": top["positions"].values,
+                        "Team": top["team"].values,
+                        "Trend Delta": [_trend_color_delta(d) for d in top["trend_delta"]],
+                        "Trend": [_trend_color_label(t) for t in top["trend_label"]],
+                        "Sustainability": [
+                            f'<span style="color:{_TREND_DANGER};font-weight:600;">{s:.2f}</span>'
+                            for s in top["sustainability_score"]
+                        ],
+                        "Key Stats": _trend_key_stats(top),
+                    }
+                )
+                render_styled_table(disp, max_height=500)
 
 page_timer_footer("Leaders")
