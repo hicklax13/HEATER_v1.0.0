@@ -512,40 +512,24 @@ def _parse_game_log_row(
 # Timeout for statsapi calls (seconds)
 _API_TIMEOUT = 30
 
-# MLB team full name → abbreviation map (for schedule parsing)
-_TEAM_ABBR: dict[str, str] = {
-    "Arizona Diamondbacks": "ARI",
-    "Atlanta Braves": "ATL",
-    "Baltimore Orioles": "BAL",
-    "Boston Red Sox": "BOS",
-    "Chicago Cubs": "CHC",
-    "Chicago White Sox": "CHW",
-    "Cincinnati Reds": "CIN",
-    "Cleveland Guardians": "CLE",
-    "Colorado Rockies": "COL",
-    "Detroit Tigers": "DET",
-    "Houston Astros": "HOU",
-    "Kansas City Royals": "KC",
-    "Los Angeles Angels": "LAA",
-    "Los Angeles Dodgers": "LAD",
-    "Miami Marlins": "MIA",
-    "Milwaukee Brewers": "MIL",
-    "Minnesota Twins": "MIN",
-    "New York Mets": "NYM",
-    "New York Yankees": "NYY",
-    "Athletics": "ATH",
-    "Oakland Athletics": "ATH",
-    "Philadelphia Phillies": "PHI",
-    "Pittsburgh Pirates": "PIT",
-    "San Diego Padres": "SD",
-    "San Francisco Giants": "SF",
-    "Seattle Mariners": "SEA",
-    "St. Louis Cardinals": "STL",
-    "Tampa Bay Rays": "TB",
-    "Texas Rangers": "TEX",
-    "Toronto Blue Jays": "TOR",
-    "Washington Nationals": "WSH",
-}
+# 2026-05-17 Section 3 D3: route through canonical valuation.team_name_to_abbr.
+# Kept as a thin module-level shim for back-compat with internal call sites.
+from src.valuation import team_name_to_abbr as _team_name_to_abbr  # noqa: E402
+
+
+def _TEAM_ABBR_get(name: str, default: str = "") -> str:  # noqa: N802 — back-compat shim
+    return _team_name_to_abbr(name, default=default)
+
+
+# Legacy attribute access (`_TEAM_ABBR.get(x, "")`) — preserved as a tiny
+# class so existing call sites don't change.
+class _TeamAbbrShim:
+    @staticmethod
+    def get(name: str, default: str = "") -> str:
+        return _team_name_to_abbr(name, default=default)
+
+
+_TEAM_ABBR = _TeamAbbrShim()
 
 
 def get_todays_opponent_map() -> dict[str, str]:
