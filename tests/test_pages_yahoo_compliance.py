@@ -4,10 +4,6 @@ import re
 from pathlib import Path
 
 PAGES_TO_CHECK = [
-    "pages/9_Weekly_Recap.py",
-    "pages/8_Weekly_Dashboard.py",
-    "pages/15_Waiver_Wire.py",
-    "pages/13_Trade_Values.py",
     "pages/10_Punt_Analyzer.py",
     "pages/6_League_Standings.py",
     "pages/16_Player_Compare.py",

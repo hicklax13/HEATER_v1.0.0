@@ -7,7 +7,7 @@ A fantasy-baseball draft assistant + in-season manager for a 12-team Yahoo Sport
 The codebase is organized around 7 feature surfaces:
 
 1. **Draft Tool** (`app.py`) — Heater-themed splash + bootstrap + setup wizard + 3-column draft page with Monte Carlo recommendations.
-2. **In-Season Pages** (`pages/`) — 18 pages, ordered for daily workflow (status → daily action → strategy → trades → wire → research → preseason): My Team, Lineup Optimizer, Closer Monitor, Bullpen, Matchup Planner, League Standings, Playoff Odds, Weekly Dashboard, Weekly Recap, Punt Analyzer, Trade Analyzer, Trade Finder (+ Value Chart tab), Free Agents, Waiver Wire, Player Compare, Leaders (+ Hot/Cold/Sell-High tabs), Player Databank, Draft Simulator.
+2. **In-Season Pages** (`pages/`) — 13 pages, consolidated 2026-05-18 via Section 5 audit: My Team, Lineup Optimizer, Closer Monitor, Matchup Planner, League Standings (+ Playoff Odds tab), Punt Analyzer, Trade Analyzer, Trade Finder (+ Value Chart tab), Free Agents, Player Compare, Leaders (+ Hot/Cold/Sell-High tabs), Player Databank, Draft Simulator. Bullpen, Weekly_Dashboard, Weekly_Recap, Waiver_Wire pages removed — their underlying engine modules (`src/contextual_factors.py`, `src/weekly_report.py`, `src/waiver_wire.py`) remain callable.
 3. **Trade Analyzer Engine** (`src/engine/`) — 6-phase pipeline: deterministic SGP → stochastic MC (paired, true antithetic) → signal intelligence → contextual adjustments → game theory → production convergence/caching.
 4. **Lineup Optimizer** (`src/optimizer/`) — 21-module pipeline with PuLP LP, daily category value (DCV) scoring, sigmoid urgency, FA recommender, sensitivity analysis, backtest framework.
 5. **Draft Recommendation Engine** (`src/draft_engine.py`) — 8-stage enhancement chain with 3 execution modes (Quick/Standard/Full).
@@ -71,30 +71,30 @@ requirements.txt            — pip dependencies
 load_sample_data.py         — Sample data generator for testing
 .streamlit/config.toml      — Light theme (Heater palette)
 
-pages/ — 20 in-season pages, ordered for daily workflow (status → daily action → strategy → trades → wire → research → preseason):
+pages/ — 13 in-season pages, ordered for daily workflow (status → daily action → strategy → trades → wire → research → preseason):
   # Status & this-week context
   1_My_Team.py              — War Room, roster, category standings, alerts, Yahoo sync
   2_Line-up_Optimizer.py    — 6-tab optimizer: Start/Sit, Optimize, Manual, Streaming, Daily, Roster
   3_Closer_Monitor.py       — 30-team closer depth chart grid
-  4_Bullpen.py              — Bullpen / reliever workload tracker
   5_Matchup_Planner.py      — Category probabilities, player matchups, per-game detail
   6_League_Standings.py     — 3 tabs: Current Standings / Season Projections / Playoff Odds
-  8_Weekly_Dashboard.py     — Weekly category trend summary
-  9_Weekly_Recap.py         — Post-week breakdown / win-loss attribution
   10_Punt_Analyzer.py       — Punt-category strategy recommender
   # Trades
   11_Trade_Analyzer.py      — Trade proposal builder + 6-phase engine
-  12_Trade_Finder.py        — Smart Recs / Target Player / Browse Partners / Readiness
-  13_Trade_Values.py        — Universal trade value chart reference
+  12_Trade_Finder.py        — 5 tabs: Recs / Target / Browse Partners / Readiness / Value Chart
   # Wire
   14_Free_Agents.py         — FA rankings by marginal value + ownership heat
-  15_Waiver_Wire.py         — Add/drop + waiver-priority tool
   # Research
   16_Player_Compare.py      — Head-to-head comparison with category fit
-  17_Leaders.py             — 7 tabs: Category Leaders / Value / Breakouts / Prospects / Hot / Cold / Sell-High
+  17_Leaders.py             — 7 tabs: Leaders / Value / Breakouts / Prospects / Hot / Cold / Sell-High
   19_Player_Databank.py     — Historical multi-year player lookup
   # Preseason
   20_Draft_Simulator.py     — Draft simulator with AI opponents, MC recommendations
+
+# Section 5 (2026-05-18) consolidated 20 → 13 pages.
+# Removed pages: 4_Bullpen, 7_Playoff_Odds, 8_Weekly_Dashboard,
+# 9_Weekly_Recap, 13_Trade_Values, 15_Waiver_Wire, 18_Trends.
+# Their core engine logic lives in src/ and remains importable.
 
 src/
   # Core
