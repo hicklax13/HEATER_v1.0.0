@@ -382,7 +382,6 @@ class YahooDataService:
 
         store = _get_state_store()
         cache_key = f"{self._PREFIX}full_league_schedule"
-        ts_key = f"{self._PREFIX}full_league_schedule_ts"
 
         # Check session cache (24h TTL)
         if not force_refresh:

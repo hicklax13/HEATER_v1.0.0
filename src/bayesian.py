@@ -222,7 +222,7 @@ class BayesianUpdater:
         successes = np.round(obs * ns).astype(int)
 
         try:
-            with pm.Model() as model:
+            with pm.Model():
                 # Hyperpriors for group-level beta distribution
                 kappa = pm.HalfNormal("kappa", sigma=50)
                 mu = pm.Beta("mu", alpha=2, beta=2)
@@ -736,14 +736,26 @@ def update_ros_projections() -> int:
                 row_out["ab"] = int(remaining_ab)
                 row_out["h"] = int(row_out["avg"] * remaining_ab) if remaining_ab > 0 else 0
 
-                # Derive BB/HBP/SF from blended projection per-PA rates.
-                # These are needed for proper OBP computation in
-                # _roster_category_totals().  Without them OBP = H/AB = AVG.
+                # Derive BB/HBP/SF from a Bayesian blend of observed and
+                # projected per-PA rates. These are needed for proper OBP
+                # computation in _roster_category_totals(); without them
+                # OBP = H/AB = AVG. 2026-05-17 Section 2 L9: previously
+                # used only the projection rate (observed component
+                # discarded); now blends with stabilization weight from
+                # the existing _BB_STAB / _HBP_STAB / _SF_STAB priors so
+                # mid-season role changes (e.g. higher walk rate) flow
+                # through to projected ROS BB/HBP/SF counts.
                 for component in ("bb", "hbp", "sf"):
                     proj_component = int(float(proj_row.get(component, 0) or 0))
                     obs_component = int(float(obs.get(component, 0) or 0)) if obs is not None else 0
                     if proj_pa > 0 and remaining_pa > 0:
-                        rate = proj_component / proj_pa
+                        proj_rate = proj_component / proj_pa
+                        if obs_pa > 0:
+                            obs_rate = obs_component / obs_pa
+                            stab = {"bb": 120.0, "hbp": 250.0, "sf": 250.0}[component]
+                            rate = updater.regressed_rate_with_prior(obs_rate, int(obs_pa), proj_rate, stab)
+                        else:
+                            rate = proj_rate
                         row_out[component] = max(0, int(rate * remaining_pa))
                     else:
                         row_out[component] = 0

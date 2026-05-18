@@ -406,7 +406,7 @@ def get_matchup_aware_fa_criteria(
     Returns:
         List of dicts with: category, stat_threshold, priority, reason.
     """
-    config = LeagueConfig()
+    LeagueConfig()
     criteria: list[dict] = []
     categories = {c["name"]: c for c in matchup_state.get("categories", [])}
     winnable = set(matchup_state.get("winnable_cats", []))
@@ -455,7 +455,7 @@ def get_matchup_aware_fa_criteria(
             abs_gap = abs(gap)
             per_game = PER_GAME_RATES.get(cat_name, 0.1)
             needed_per_day = abs_gap / max(1, days_remaining) if abs_gap > 0 else 0
-            threshold = needed_per_day / max(0.01, per_game)
+            needed_per_day / max(0.01, per_game)
 
             priority = _closeable_priority(cat_name, gap, is_rate=False)
             user_val = cat_info.get("user_val", 0)
@@ -740,7 +740,7 @@ def _build_lineup_priorities(
 ) -> list[str]:
     """Build human-readable lineup priority strings."""
     priorities: list[str] = []
-    config = LeagueConfig()
+    LeagueConfig()
 
     # Must-win categories -> positive actions
     for entry in category_targets.get("must_win", []):

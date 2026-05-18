@@ -193,10 +193,10 @@ def compute_category_projections(
     # Estimate league-average team totals from the full player pool
     # Approximate: average player stat × roster-size fraction
     # Using median across the pool × (roster_size / pool_size) as rough team estimate
-    n_roster = len(roster_ids) if roster_ids else 23
-    n_pool = max(len(player_pool), 1)
+    len(roster_ids) if roster_ids else 23
+    max(len(player_pool), 1)
     # Approximate number of teams sharing the pool
-    n_teams = max(config.num_teams, 1)
+    max(config.num_teams, 1)
 
     projections = {}
     for cat in config.all_categories:

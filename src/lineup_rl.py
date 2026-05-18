@@ -75,7 +75,7 @@ class LineupContextualBandit:
         """
         wins = matchup_state.get("wins", 0)
         losses = matchup_state.get("losses", 0)
-        ties = matchup_state.get("ties", 0)
+        matchup_state.get("ties", 0)
 
         if wins > losses + 2:
             return "winning_big"

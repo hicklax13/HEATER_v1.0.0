@@ -353,7 +353,7 @@ def _evaluate_swaps(
                 continue
 
             # Category worsening check (informational — log but don't block)
-            worsened = sum(1 for v in cat_deltas.values() if v < _CATEGORY_WORSEN_THRESHOLD)
+            sum(1 for v in cat_deltas.values() if v < _CATEGORY_WORSEN_THRESHOLD)
             # Note: previously auto-rejected when worsened >= 3; now uses net SGP only
 
             # Build reasoning

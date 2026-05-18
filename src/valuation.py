@@ -443,7 +443,7 @@ class SGPCalculator:
             h = player.get("h", 0) or 0
             bb = player.get("bb", 0) or 0
             hbp = player.get("hbp", 0) or 0
-            sf = player.get("sf", 0) or 0
+            player.get("sf", 0) or 0
             if pa == 0:
                 return 0
             # Use configurable league-average roster baseline
@@ -528,7 +528,7 @@ class SGPCalculator:
         h = player.get("h", 0) or 0
         bb = player.get("bb", 0) or 0
         hbp = player.get("hbp", 0) or 0
-        sf = player.get("sf", 0) or 0
+        player.get("sf", 0) or 0
         pa = player.get("pa", 0) or 0
         if pa == 0:
             return 0

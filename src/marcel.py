@@ -329,7 +329,6 @@ def project_player_marcel(
 
     # Project PA/IP as well (useful for downstream consumers)
     pa_hist = [season.get(pa_key) if season else None for season in _pad_hist(hist)]
-    full_season = FULL_SEASON_PA if is_hitter else FULL_SEASON_IP
     pa_projection = compute_marcel_projection(
         historical_stats=pa_hist,
         stat=pa_key,

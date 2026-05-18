@@ -109,9 +109,8 @@ def run_paired_monte_carlo(
     rng_master = np.random.RandomState(seed)
 
     # Pre-compute team totals array for standings comparison
-    other_teams_sgp = None
     if all_team_totals:
-        other_teams_sgp = _compute_other_teams_sgp(all_team_totals, sgp_denominators)
+        _compute_other_teams_sgp(all_team_totals, sgp_denominators)
 
     # C8: True antithetic variate MC — run n_sims/2 paired simulations.
     # Each pair uses the SAME random seed but the antithetic arm negates the

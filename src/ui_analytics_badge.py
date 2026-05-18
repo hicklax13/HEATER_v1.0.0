@@ -57,7 +57,7 @@ def build_analytics_badge_html(ctx: AnalyticsContext) -> str:
 
     color = tier_colors.get(tier, T.get("tx", "#2b2d42"))
     label = tier_labels.get(tier, "Unknown")
-    score_pct = int(score * 100)
+    int(score * 100)
 
     # Module breakdown
     module_html = ""

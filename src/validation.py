@@ -32,7 +32,7 @@ def simulate_full_draft(
     """
     ds = DraftState(num_teams=config.num_teams, num_rounds=23, user_team_index=user_team_index)
     sgp_calc = SGPCalculator(config)
-    simulator = DraftSimulator(config, sigma=sigma)
+    DraftSimulator(config, sigma=sigma)
     rng = np.random.default_rng()
 
     pool = player_pool.copy()

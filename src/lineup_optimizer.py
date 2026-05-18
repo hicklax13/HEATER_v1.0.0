@@ -354,7 +354,7 @@ class LineupOptimizer:
                 continue
 
             user_total = float(user_row.iloc[0]["total"])
-            user_rank = int(user_row.iloc[0].get("rank", 6))
+            int(user_row.iloc[0].get("rank", 6))
 
             # Find gap to next rank up
             if cat in INVERSE_CATS:

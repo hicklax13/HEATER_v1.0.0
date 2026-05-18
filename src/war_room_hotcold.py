@@ -316,7 +316,7 @@ def _evaluate_pitcher(row: pd.Series, l7: dict, player_name: str, team: str) -> 
         l7_whip = 0.0
 
     season_era = float(row.get("era", _LEAGUE_AVG_ERA) or _LEAGUE_AVG_ERA)
-    season_whip = float(row.get("whip", _LEAGUE_AVG_WHIP) or _LEAGUE_AVG_WHIP)
+    float(row.get("whip", _LEAGUE_AVG_WHIP) or _LEAGUE_AVG_WHIP)
     season_k = float(row.get("k", 0) or 0)
     season_ip = float(row.get("ip", 0.0) or 0.0)
 
