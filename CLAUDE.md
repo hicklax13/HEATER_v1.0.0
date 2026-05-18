@@ -78,8 +78,7 @@ pages/ — 20 in-season pages, ordered for daily workflow (status → daily acti
   3_Closer_Monitor.py       — 30-team closer depth chart grid
   4_Bullpen.py              — Bullpen / reliever workload tracker
   5_Matchup_Planner.py      — Category probabilities, player matchups, per-game detail
-  6_League_Standings.py     — Current standings + MC season projections + power rankings
-  7_Playoff_Odds.py         — Top-4 playoff probability sim
+  6_League_Standings.py     — 3 tabs: Current Standings / Season Projections / Playoff Odds
   8_Weekly_Dashboard.py     — Weekly category trend summary
   9_Weekly_Recap.py         — Post-week breakdown / win-loss attribution
   10_Punt_Analyzer.py       — Punt-category strategy recommender

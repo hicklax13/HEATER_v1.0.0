@@ -9,7 +9,6 @@ PAGES_TO_CHECK = [
     "pages/15_Waiver_Wire.py",
     "pages/13_Trade_Values.py",
     "pages/10_Punt_Analyzer.py",
-    "pages/7_Playoff_Odds.py",
     "pages/6_League_Standings.py",
     "pages/16_Player_Compare.py",
 ]
