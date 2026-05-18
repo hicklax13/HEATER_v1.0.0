@@ -330,39 +330,8 @@ def fetch_game_day_weather(schedule: list[dict]) -> list[dict]:
     from src.database import upsert_game_day_weather
 
     # Map full team names to abbreviations for STADIUM_COORDS lookup
-    _NAME_TO_ABBR: dict[str, str] = {
-        "Arizona Diamondbacks": "ARI",
-        "Atlanta Braves": "ATL",
-        "Baltimore Orioles": "BAL",
-        "Boston Red Sox": "BOS",
-        "Chicago Cubs": "CHC",
-        "Chicago White Sox": "CWS",
-        "Cincinnati Reds": "CIN",
-        "Cleveland Guardians": "CLE",
-        "Colorado Rockies": "COL",
-        "Detroit Tigers": "DET",
-        "Houston Astros": "HOU",
-        "Kansas City Royals": "KC",
-        "Los Angeles Angels": "LAA",
-        "Los Angeles Dodgers": "LAD",
-        "Miami Marlins": "MIA",
-        "Milwaukee Brewers": "MIL",
-        "Minnesota Twins": "MIN",
-        "New York Mets": "NYM",
-        "New York Yankees": "NYY",
-        "Oakland Athletics": "ATH",
-        "Athletics": "ATH",
-        "Philadelphia Phillies": "PHI",
-        "Pittsburgh Pirates": "PIT",
-        "San Diego Padres": "SD",
-        "San Francisco Giants": "SF",
-        "Seattle Mariners": "SEA",
-        "St. Louis Cardinals": "STL",
-        "Tampa Bay Rays": "TB",
-        "Texas Rangers": "TEX",
-        "Toronto Blue Jays": "TOR",
-        "Washington Nationals": "WSH",
-    }
+    # 2026-05-17 Section 3 D3: canonical team_name_to_abbr from valuation.
+    from src.valuation import team_name_to_abbr
 
     _NEUTRAL = {
         "temp_f": 72.0,
@@ -378,7 +347,7 @@ def fetch_game_day_weather(schedule: list[dict]) -> list[dict]:
     for game in schedule:
         game_pk = game.get("game_id") or game.get("game_pk") or game.get("gamePk", 0)
         home_name = game.get("home_name", "")
-        venue_abbr = _NAME_TO_ABBR.get(home_name, "")
+        venue_abbr = team_name_to_abbr(home_name, default="")
 
         if not venue_abbr or venue_abbr not in STADIUM_COORDS:
             logger.debug("Unknown venue team: %s", home_name)
@@ -1133,40 +1102,8 @@ def get_todays_lineups(schedule: list[dict]) -> dict:
         logger.warning("statsapi not available; cannot fetch lineups")
         return {}
 
-    # Full-name to abbreviation mapping (reused from weather)
-    _NAME_TO_ABBR: dict[str, str] = {
-        "Arizona Diamondbacks": "ARI",
-        "Atlanta Braves": "ATL",
-        "Baltimore Orioles": "BAL",
-        "Boston Red Sox": "BOS",
-        "Chicago Cubs": "CHC",
-        "Chicago White Sox": "CWS",
-        "Cincinnati Reds": "CIN",
-        "Cleveland Guardians": "CLE",
-        "Colorado Rockies": "COL",
-        "Detroit Tigers": "DET",
-        "Houston Astros": "HOU",
-        "Kansas City Royals": "KC",
-        "Los Angeles Angels": "LAA",
-        "Los Angeles Dodgers": "LAD",
-        "Miami Marlins": "MIA",
-        "Milwaukee Brewers": "MIL",
-        "Minnesota Twins": "MIN",
-        "New York Mets": "NYM",
-        "New York Yankees": "NYY",
-        "Oakland Athletics": "ATH",
-        "Athletics": "ATH",
-        "Philadelphia Phillies": "PHI",
-        "Pittsburgh Pirates": "PIT",
-        "San Diego Padres": "SD",
-        "San Francisco Giants": "SF",
-        "Seattle Mariners": "SEA",
-        "St. Louis Cardinals": "STL",
-        "Tampa Bay Rays": "TB",
-        "Texas Rangers": "TEX",
-        "Toronto Blue Jays": "TOR",
-        "Washington Nationals": "WSH",
-    }
+    # 2026-05-17 Section 3 D3: canonical team_name_to_abbr from valuation.
+    from src.valuation import team_name_to_abbr
 
     result: dict[str, list[str]] = {}
 
@@ -1184,7 +1121,7 @@ def get_todays_lineups(schedule: list[dict]) -> dict:
         for side in ("home", "away"):
             side_data = box.get(side, {}) if isinstance(box, dict) else {}
             team_name = game.get(f"{side}_name", "")
-            abbr = _NAME_TO_ABBR.get(team_name, "")
+            abbr = team_name_to_abbr(team_name, default="")
 
             # Extract batting order — boxscore_data returns battingOrder as list
             # of player ID integers, and playerInfo with player details

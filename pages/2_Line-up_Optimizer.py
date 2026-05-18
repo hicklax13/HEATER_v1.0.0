@@ -3042,39 +3042,15 @@ with main:
 
     with tab_streaming:
         # ── Shared data: fetch weekly schedule + FA pitchers ──────────
-        _STREAM_TEAM_ABBREVS: dict[str, str] = {
-            "Arizona Diamondbacks": "ARI",
-            "Atlanta Braves": "ATL",
-            "Baltimore Orioles": "BAL",
-            "Boston Red Sox": "BOS",
-            "Chicago Cubs": "CHC",
-            "Chicago White Sox": "CWS",
-            "Cincinnati Reds": "CIN",
-            "Cleveland Guardians": "CLE",
-            "Colorado Rockies": "COL",
-            "Detroit Tigers": "DET",
-            "Houston Astros": "HOU",
-            "Kansas City Royals": "KC",
-            "Los Angeles Angels": "LAA",
-            "Los Angeles Dodgers": "LAD",
-            "Miami Marlins": "MIA",
-            "Milwaukee Brewers": "MIL",
-            "Minnesota Twins": "MIN",
-            "New York Mets": "NYM",
-            "New York Yankees": "NYY",
-            "Athletics": "ATH",
-            "Oakland Athletics": "ATH",
-            "Philadelphia Phillies": "PHI",
-            "Pittsburgh Pirates": "PIT",
-            "San Diego Padres": "SD",
-            "San Francisco Giants": "SF",
-            "Seattle Mariners": "SEA",
-            "St. Louis Cardinals": "STL",
-            "Tampa Bay Rays": "TB",
-            "Texas Rangers": "TEX",
-            "Toronto Blue Jays": "TOR",
-            "Washington Nationals": "WSH",
-        }
+        # 2026-05-17 Section 3 D3: derive from canonical valuation.TEAM_NAME_TO_ABBR
+        # (was a 30-team inline dict). Athletics name forms include both
+        # "Athletics" and "Oakland Athletics" → "ATH" (SF-43 invariant).
+        from src.valuation import TEAM_NAME_TO_ABBR
+
+        _STREAM_TEAM_ABBREVS: dict[str, str] = {name.title(): abbr for name, abbr in TEAM_NAME_TO_ABBR.items()}
+        # Athletics canonical entry: register both name forms
+        _STREAM_TEAM_ABBREVS["Athletics"] = "ATH"
+        _STREAM_TEAM_ABBREVS["Oakland Athletics"] = "ATH"
         _STREAM_ABBREV_TO_FULL = {v: k for k, v in _STREAM_TEAM_ABBREVS.items()}
 
         # IL/DTD/NA statuses to exclude
