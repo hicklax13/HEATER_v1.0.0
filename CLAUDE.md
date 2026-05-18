@@ -14,6 +14,14 @@ The codebase is organized around 7 feature surfaces:
 6. **War Room** (`src/war_room*.py`) — Mid-week pivot analysis, category flip probability, hot/cold detection.
 7. **Backtesting** (`src/backtesting*.py` + `src/optimizer/backtest_runner.py`) — Historical replay framework validating recommendations against actual outcomes.
 
+## Local Environment
+
+- **Project root (local):** `C:\Users\conno\Code\HEATER_v1.0.0`
+- **Relocated 2026-05-17** from `C:\Users\conno\OneDrive\Desktop\HEATER_v1.0.0`. OneDrive's Cloud Files API conflicts with Cowork's FUSE/virtiofs mount layer (anthropics/claude-code issues #25293 and #40973), corrupts SQLite WAL files when streamlit runs locally, locks `.venv` operations, and conflicts with `.git` writes. Never store this project under OneDrive, Dropbox, iCloud, or any cloud-sync directory.
+- **Local Python:** 3.14 preferred, 3.12 acceptable. Recreate venv with `py -3.14 -m venv .venv` (or `py -3.12 -m venv .venv`).
+- **Yahoo OAuth deps:** `yfpy` and `streamlit-oauth` must be installed with `--no-deps` after `pip install -r requirements.txt`, per the comment in `requirements.txt` (python-dotenv pin conflict on 3.14).
+- **Hooks:** Reinstall after any fresh venv via `python scripts/install-hooks.py`.
+
 ## Commands
 
 ```bash
@@ -513,8 +521,9 @@ The data + analytics pipeline has been audited across 12 waves (April–May 2026
 
 ## Resume Checklist (New Session)
 
-1. Read `CLAUDE.md` (this file)
-2. Check git status: `git status`, `git log --oneline -10`
-3. Run `python -m pytest --ignore=tests/test_cheat_sheet.py -x -q` to verify tests pass
-4. Run `streamlit run app.py` and verify Yahoo auto-reconnect
-5. Inspect refresh_log: `python -c "from src.database import get_refresh_log_snapshot; import json; print(json.dumps(get_refresh_log_snapshot(), indent=2))"`
+1. Confirm shell is in `C:\Users\conno\Code\HEATER_v1.0.0` (NOT the deprecated `OneDrive\Desktop` path).
+2. Read `CLAUDE.md` (this file)
+3. Check git status: `git status`, `git log --oneline -10`
+4. Run `python -m pytest --ignore=tests/test_cheat_sheet.py -x -q` to verify tests pass
+5. Run `streamlit run app.py` and verify Yahoo auto-reconnect
+6. Inspect refresh_log: `python -c "from src.database import get_refresh_log_snapshot; import json; print(json.dumps(get_refresh_log_snapshot(), indent=2))"`
