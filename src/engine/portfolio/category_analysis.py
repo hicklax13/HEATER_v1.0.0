@@ -29,7 +29,8 @@ CATEGORIES: list[str] = _LC_Class().all_categories
 INVERSE_CATEGORIES: set[str] = _LC_Class().inverse_stats
 
 # Approximate weekly production rates per roster, used for punt estimation.
-# Based on a competitive 12-team roster in a full season (~22 weeks).
+# Calibrated for FourzynBurn 26-week regular season (LeagueConfig.season_weeks).
+# Sanity check: 35 R/wk × 26 wk = 910 R/season (realistic upper-bound team).
 WEEKLY_RATE_DEFAULTS: dict[str, float] = {
     "R": 35.0,
     "HR": 9.0,
