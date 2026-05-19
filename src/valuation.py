@@ -448,7 +448,6 @@ class SGPCalculator:
             h = player.get("h", 0) or 0
             bb = player.get("bb", 0) or 0
             hbp = player.get("hbp", 0) or 0
-            player.get("sf", 0) or 0
             if pa == 0:
                 return 0
             # Use configurable league-average roster baseline
@@ -530,10 +529,10 @@ class SGPCalculator:
         return -(new_whip - old_whip) / denom
 
     def _marginal_obp_sgp(self, player: pd.Series, roster: dict, denom: float) -> float:
+        # OBP denominator ≈ pa (covers ab+bb+hbp+sf); sf not separately needed.
         h = player.get("h", 0) or 0
         bb = player.get("bb", 0) or 0
         hbp = player.get("hbp", 0) or 0
-        player.get("sf", 0) or 0
         pa = player.get("pa", 0) or 0
         if pa == 0:
             return 0
