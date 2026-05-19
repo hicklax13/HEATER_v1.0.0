@@ -190,7 +190,8 @@ def compute_pitcher_game_rating(
     opp_wrc_plus = max(opp_wrc_plus, _MIN_OPP_WRC_PLUS)
 
     pf = float(park_factor) if park_factor else 1.0
-    inverse_park = max(2.0 - pf, 0.5)  # floor to avoid negative/extreme values
+    # 2026-05-19 L7 fix: standardize on reciprocal inversion (canonical, see L7).
+    inverse_park = 1.0 / pf if pf > 0 else 1.0
 
     # Per-game rating: always use starts=1 since this function rates a single game
     starts = 1

@@ -238,7 +238,8 @@ class TestPitcherGameRating:
             park_factor=1.38,  # Coors
             is_home=False,
         )
-        assert result["inverse_park"] == pytest.approx(0.62, abs=1e-6)
+        # 2026-05-19 L7: reciprocal inversion (1/1.38 ≈ 0.7246), was 2-1.38=0.62.
+        assert result["inverse_park"] == pytest.approx(1.0 / 1.38, abs=1e-6)
         assert result["raw_score"] < 6.5  # Worse than neutral
 
     def test_pitcher_friendly_park(self) -> None:
@@ -249,7 +250,8 @@ class TestPitcherGameRating:
             park_factor=0.88,  # Miami
             is_home=False,
         )
-        assert result["inverse_park"] == pytest.approx(1.12, abs=1e-6)
+        # 2026-05-19 L7: reciprocal inversion (1/0.88 ≈ 1.1364), was 2-0.88=1.12.
+        assert result["inverse_park"] == pytest.approx(1.0 / 0.88, abs=1e-6)
         assert result["raw_score"] > 6.5  # Better than neutral
 
     def test_pitcher_weak_opponent(self) -> None:
