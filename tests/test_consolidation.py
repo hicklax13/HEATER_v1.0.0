@@ -4,14 +4,17 @@ from __future__ import annotations
 
 import pandas as pd
 
-# ── S1: Trade Finder has 4 tabs, not 5 ──────────────────────────────
+# ── S1: Trade Finder tab structure ──────────────────────────────────
+# After Section 5 (PR #41), Trade_Values was folded into Trade Finder as a
+# 5th "Value Chart" tab. Original S1 consolidation reduced 5 → 4 tabs;
+# Section 5 re-grew it to 5 by absorbing the Trade_Values page.
 
 
 class TestTradeFinderTabStructure:
-    """Verify the Trade Finder page defines exactly 4 tabs."""
+    """Verify the Trade Finder page defines exactly 5 tabs (post-Section-5)."""
 
-    def test_trade_finder_has_four_tabs(self):
-        """The st.tabs call should list exactly 4 tab labels."""
+    def test_trade_finder_has_five_tabs(self):
+        """The st.tabs call should list exactly 5 tab labels."""
         import ast
         from pathlib import Path
 
@@ -34,10 +37,10 @@ class TestTradeFinderTabStructure:
                             if isinstance(elt, ast.Constant) and isinstance(elt.value, str):
                                 tab_labels.append(elt.value)
 
-        assert len(tab_labels) == 4, f"Expected 4 tabs, got {len(tab_labels)}: {tab_labels}"
+        assert len(tab_labels) == 5, f"Expected 5 tabs, got {len(tab_labels)}: {tab_labels}"
 
     def test_tab_names(self):
-        """Verify the exact tab names after merge."""
+        """Verify the exact tab names after Section 5 merge."""
         import ast
         from pathlib import Path
 
@@ -59,7 +62,13 @@ class TestTradeFinderTabStructure:
                             if isinstance(elt, ast.Constant) and isinstance(elt.value, str):
                                 tab_labels.append(elt.value)
 
-        expected = ["Trade Recommendations", "Target a Player", "Browse Partners", "Trade Readiness"]
+        expected = [
+            "Trade Recommendations",
+            "Target a Player",
+            "Browse Partners",
+            "Trade Readiness",
+            "Value Chart",
+        ]
         assert tab_labels == expected, f"Tab labels mismatch: {tab_labels}"
 
     def test_no_smart_recommendations_tab(self):
