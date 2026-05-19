@@ -15,7 +15,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import src.database as db_mod
 from src.database import init_db
 from src.league_manager import (
-    _normalize_name,
     add_player_to_roster,
     get_free_agents,
     get_team_roster,
@@ -23,6 +22,7 @@ from src.league_manager import (
     import_standings_csv,
     remove_player_from_roster,
 )
+from src.valuation import normalize_player_name as _normalize_name
 
 
 @pytest.fixture(autouse=True)

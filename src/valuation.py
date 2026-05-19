@@ -1,5 +1,7 @@
 """Valuation engine: SGP, replacement level, VORP, marginal category value."""
 
+import re
+import unicodedata
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -119,6 +121,46 @@ def team_name_to_abbr(name: str, default: str | None = None) -> str:
     if default is None:
         return TEAM_NAME_TO_ABBR.get(up, up)
     return TEAM_NAME_TO_ABBR.get(up, default)
+
+
+# ── Player Name Normalization (Section 3 D2 — single canonical) ────────
+
+
+_YAHOO_ROLE_SUFFIX_RE = re.compile(r"\s*\((?:Pitcher|Batter|P|B)\)\s*$")
+_NON_ALNUM_RE = re.compile(r"[^a-z0-9 ]")
+_GENERATIONAL_SUFFIXES: tuple[str, ...] = (
+    " jr.", " jr", " sr.", " sr", " iii", " iv", " ii",
+)
+
+
+def normalize_player_name(name: object) -> str:
+    """Normalize a player name for robust cross-source matching.
+
+    Single canonical implementation (Section 3 D2 consolidation, 2026-05-19).
+    Handles every dimension on which player names diverge between data sources:
+
+      * Yahoo parenthetical role suffixes: "Shohei Ohtani (Pitcher)" → "shohei ohtani"
+      * Unicode accents via NFKD: "José Ramírez" → "jose ramirez"
+      * Generational suffixes: "Vladimir Guerrero Jr." → "vladimir guerrero"
+      * Casing: always returns lowercase
+      * Punctuation: stripped except internal whitespace
+      * Whitespace: collapsed to single spaces
+      * Type safety: non-string / None / empty → "" (caller-safe)
+
+    All consumers must import from here — duplicate ``_normalize_name`` /
+    ``_normalize_pitcher_name`` impls are blocked by
+    ``tests/test_normalize_player_name_canonical.py``.
+    """
+    if not name or not isinstance(name, str):
+        return ""
+    cleaned = _YAHOO_ROLE_SUFFIX_RE.sub("", name).strip()
+    decomposed = unicodedata.normalize("NFKD", cleaned)
+    ascii_str = decomposed.encode("ascii", "ignore").decode("ascii").lower().strip()
+    for suffix in _GENERATIONAL_SUFFIXES:
+        if ascii_str.endswith(suffix):
+            ascii_str = ascii_str[: -len(suffix)].strip()
+    ascii_str = _NON_ALNUM_RE.sub("", ascii_str)
+    return " ".join(ascii_str.split())
 
 
 # ── League Configuration ─────────────────────────────────────────────

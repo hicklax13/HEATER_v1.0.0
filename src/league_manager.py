@@ -1,7 +1,6 @@
 """League management: roster imports, standings, free agents."""
 
 import logging
-import unicodedata
 
 import pandas as pd
 
@@ -12,6 +11,7 @@ from src.database import (
     upsert_league_roster_entry,
     upsert_league_standing,
 )
+from src.valuation import normalize_player_name
 
 logger = logging.getLogger(__name__)
 
@@ -203,20 +203,6 @@ def get_team_roster(team_name: str) -> pd.DataFrame:
     return df
 
 
-def _normalize_name(name: str) -> str:
-    """Normalize player name for matching: strip accents, lowercase, strip whitespace."""
-    if not name or not isinstance(name, str):
-        return ""
-    # Strip accents (NFD decompose then encode to ASCII)
-    normalized = unicodedata.normalize("NFD", name).encode("ascii", "ignore").decode("ascii")
-    # Lowercase, strip extra whitespace, remove Jr./Sr./III/II suffixes
-    normalized = normalized.lower().strip()
-    for suffix in [" jr.", " sr.", " jr", " sr", " iii", " ii", " iv"]:
-        if normalized.endswith(suffix):
-            normalized = normalized[: -len(suffix)].strip()
-    return normalized
-
-
 def get_free_agents(player_pool: pd.DataFrame) -> pd.DataFrame:
     """Return all players NOT on any league_rosters team.
 
@@ -245,14 +231,14 @@ def get_free_agents(player_pool: pd.DataFrame) -> pd.DataFrame:
             conn.close()
 
     # Build normalized name set for fuzzy matching (accents, Jr./Sr. suffixes)
-    rostered_names_normalized = {_normalize_name(n) for n in rostered_names if n}
+    rostered_names_normalized = {normalize_player_name(n) for n in rostered_names if n}
 
     # Exclude players matched by EITHER id or name (exact or normalized)
     name_col = (
         "name" if "name" in player_pool.columns else ("player_name" if "player_name" in player_pool.columns else None)
     )
     if name_col and rostered_names:
-        pool_names_normalized = player_pool[name_col].apply(_normalize_name)
+        pool_names_normalized = player_pool[name_col].apply(normalize_player_name)
         mask = (
             player_pool["player_id"].isin(rostered_ids)
             | player_pool[name_col].isin(rostered_names)

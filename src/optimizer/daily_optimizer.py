@@ -10,8 +10,6 @@ Part of the Lineup Optimizer V2 (pipeline stages 10-12).
 from __future__ import annotations
 
 import logging
-import re
-import unicodedata
 from dataclasses import dataclass
 from datetime import UTC
 from typing import Any
@@ -21,7 +19,7 @@ import pandas as pd
 from src.game_day import LOCKED_GAME_STATUSES as _LOCKED_STATUSES
 from src.game_day import get_target_game_date
 from src.optimizer.constants_registry import CONSTANTS_REGISTRY as _CR
-from src.valuation import canonicalize_team, team_name_to_abbr
+from src.valuation import canonicalize_team, normalize_player_name, team_name_to_abbr
 
 logger = logging.getLogger(__name__)
 
@@ -181,24 +179,11 @@ def _stuff_plus_k_multiplier(
     return 1.0
 
 
-def _normalize_pitcher_name(name: str) -> str:
-    """Normalize a player name for robust matching across data sources.
-
-    MLB Stats API probable-pitcher strings and roster names can differ by
-    accents, punctuation, suffixes ("Jr.", "III"), and casing. Two calls that
-    should match ("Chris Sale" vs "Chris Sale "; "José Ramírez" vs "Jose
-    Ramirez") must normalize to the same key. Used by the SP probable-today
-    gate to avoid silently missing legitimate probable starters.
-    """
-    if not name:
-        return ""
-    s = unicodedata.normalize("NFKD", str(name))
-    s = s.encode("ascii", "ignore").decode("ascii").lower().strip()
-    for suffix in (" jr.", " jr", " sr.", " sr", " iii", " iv", " ii"):
-        if s.endswith(suffix):
-            s = s[: -len(suffix)].strip()
-    s = re.sub(r"[^a-z0-9 ]", "", s)
-    return " ".join(s.split())
+# 2026-05-19 Section 3 D2: backward-compat alias for tests + closer_monitor
+# transition. New code MUST import normalize_player_name from src.valuation;
+# this alias allows existing call sites (test_optimizer_audit_fixes.py, others)
+# to continue working without mass-editing imports across the test suite.
+_normalize_pitcher_name = normalize_player_name
 
 
 # Stabilization points for Bayesian blend (from FanGraphs research).
@@ -892,8 +877,8 @@ def build_daily_dcv_table(
             _has_rp = "RP" in _pos_tokens
             _has_p_only = _pos_tokens == {"P"}
             if (_has_sp or _has_p_only) and probable_starters:
-                _norm_name = _normalize_pitcher_name(name)
-                _norm_probable = {_normalize_pitcher_name(p) for p in probable_starters}
+                _norm_name = normalize_player_name(name)
+                _norm_probable = {normalize_player_name(p) for p in probable_starters}
                 _is_probable_today = _norm_name in _norm_probable
                 if _is_probable_today:
                     in_lineup = True
@@ -976,10 +961,10 @@ def build_daily_dcv_table(
 
         _opp_pitcher_xfip: float | None = None
         if is_hitter and _opp_pitcher_name:
-            _norm_opp = _normalize_pitcher_name(_opp_pitcher_name)
+            _norm_opp = normalize_player_name(_opp_pitcher_name)
             _name_col = "player_name" if "player_name" in roster.columns else "name"
             if _name_col in roster.columns:
-                _opp_match = roster[roster[_name_col].apply(lambda n: _normalize_pitcher_name(str(n)) == _norm_opp)]
+                _opp_match = roster[roster[_name_col].apply(lambda n: normalize_player_name(str(n)) == _norm_opp)]
                 if not _opp_match.empty:
                     _opp_row = _opp_match.iloc[0]
                     _pitcher_hand = str(_opp_row.get("throws", "") or "")
