@@ -3205,6 +3205,11 @@ def bootstrap_all_data(
 
             _result = _run_with_timeout(_fetch_fa, timeout=120)
             if _result.startswith("Timeout"):
+                # 2026-05-20 SFH H-1: when the fetch times out, mark
+                # refresh_log "skipped" and STOP — do NOT fall through to
+                # the FA-storage block below, because fa_df would be empty
+                # and the empty-branch would clobber "skipped" → "no_data",
+                # losing the rate-limit signal operators need.
                 logger.warning(
                     "Yahoo FA fetch hit 120s timeout — Yahoo likely rate-limiting. "
                     "Using cached yahoo_free_agents SQLite data from prior run."
@@ -3213,87 +3218,89 @@ def bootstrap_all_data(
                 from src.database import update_refresh_log
 
                 update_refresh_log("yahoo_free_agents", "skipped")
-                fa_df = _pd.DataFrame()  # empty — downstream will use cache
             else:
                 fa_df = _fa_holder.get("df", _pd.DataFrame())
-            if not fa_df.empty:
-                from src.database import update_refresh_log_auto, upsert_player_bulk
-                from src.live_stats import match_player_id
+                if not fa_df.empty:
+                    from src.database import update_refresh_log_auto, upsert_player_bulk
+                    from src.live_stats import match_player_id
 
-                new_players = 0
-                for _, row in fa_df.iterrows():
-                    pname = row.get("player_name", "")
-                    if not pname:
-                        continue
-                    existing = match_player_id(pname, "")
-                    if existing is None:
-                        upsert_player_bulk(
-                            [
-                                {
-                                    "name": pname,
-                                    "team": "",
-                                    "positions": row.get("positions", "Util"),
-                                    "is_hitter": 1 if row.get("positions", "") not in ("P", "SP", "RP") else 0,
-                                }
-                            ]
-                        )
-                        new_players += 1
-                from src.database import get_connection as _get_conn
-
-                _fa_conn = _get_conn()
-                try:
-                    from datetime import UTC, datetime
-
-                    _now = datetime.now(UTC).isoformat()
-                    _today = datetime.now(UTC).strftime("%Y-%m-%d")
-                    _ownership_writes = 0
+                    new_players = 0
                     for _, row in fa_df.iterrows():
-                        _fa_conn.execute(
-                            """INSERT OR REPLACE INTO yahoo_free_agents
-                               (player_key, player_name, positions, team, percent_owned, fetched_at)
-                               VALUES (?, ?, ?, ?, ?, ?)""",
-                            (
-                                row.get("player_key", ""),
-                                row.get("player_name", ""),
-                                row.get("positions", ""),
-                                row.get("team", ""),
-                                float(row.get("percent_owned", 0) or 0),
-                                _now,
-                            ),
-                        )
-                        # 2026-05-17 broken-pipeline fix: previously only rostered
-                        # players wrote to ownership_trends, so FAs always read
-                        # percent_owned=NULL in the player pool. Mirror the rostered
-                        # write-through here so pool's percent_owned column populates
-                        # for FAs too.
-                        _fa_pname = row.get("player_name", "")
-                        if _fa_pname:
-                            _fa_pid = match_player_id(_fa_pname, "")
-                            if _fa_pid is not None:
-                                _fa_conn.execute(
-                                    "INSERT OR REPLACE INTO ownership_trends "
-                                    "(player_id, date, percent_owned) VALUES (?, ?, ?)",
-                                    (_fa_pid, _today, float(row.get("percent_owned", 0) or 0)),
-                                )
-                                _ownership_writes += 1
-                    _fa_conn.commit()
-                finally:
-                    _fa_conn.close()
-                results["yahoo_free_agents"] = (
-                    f"Checked {len(fa_df)} FAs, added {new_players} new, stored {len(fa_df)} to yahoo_free_agents"
-                )
-                # INFRA-F6: row-count gate (was bare "success").
-                update_refresh_log_auto(
-                    "yahoo_free_agents",
-                    len(fa_df),
-                    expected_min=100,
-                    message=f"{len(fa_df)} FAs stored, {new_players} new players added",
-                )
-            else:
-                results["yahoo_free_agents"] = "No FA data from Yahoo"
-                from src.database import update_refresh_log
+                        pname = row.get("player_name", "")
+                        if not pname:
+                            continue
+                        existing = match_player_id(pname, "")
+                        if existing is None:
+                            upsert_player_bulk(
+                                [
+                                    {
+                                        "name": pname,
+                                        "team": "",
+                                        "positions": row.get("positions", "Util"),
+                                        "is_hitter": 1 if row.get("positions", "") not in ("P", "SP", "RP") else 0,
+                                    }
+                                ]
+                            )
+                            new_players += 1
+                    from src.database import get_connection as _get_conn
 
-                update_refresh_log("yahoo_free_agents", "no_data")
+                    _fa_conn = _get_conn()
+                    try:
+                        from datetime import UTC, datetime
+
+                        _now = datetime.now(UTC).isoformat()
+                        _today = datetime.now(UTC).strftime("%Y-%m-%d")
+                        _ownership_writes = 0
+                        for _, row in fa_df.iterrows():
+                            _fa_conn.execute(
+                                """INSERT OR REPLACE INTO yahoo_free_agents
+                                   (player_key, player_name, positions, team, percent_owned, fetched_at)
+                                   VALUES (?, ?, ?, ?, ?, ?)""",
+                                (
+                                    row.get("player_key", ""),
+                                    row.get("player_name", ""),
+                                    row.get("positions", ""),
+                                    row.get("team", ""),
+                                    float(row.get("percent_owned", 0) or 0),
+                                    _now,
+                                ),
+                            )
+                            # 2026-05-17 broken-pipeline fix: previously only rostered
+                            # players wrote to ownership_trends, so FAs always read
+                            # percent_owned=NULL in the player pool. Mirror the rostered
+                            # write-through here so pool's percent_owned column populates
+                            # for FAs too.
+                            _fa_pname = row.get("player_name", "")
+                            if _fa_pname:
+                                _fa_pid = match_player_id(_fa_pname, "")
+                                if _fa_pid is not None:
+                                    _fa_conn.execute(
+                                        "INSERT OR REPLACE INTO ownership_trends "
+                                        "(player_id, date, percent_owned) VALUES (?, ?, ?)",
+                                        (_fa_pid, _today, float(row.get("percent_owned", 0) or 0)),
+                                    )
+                                    _ownership_writes += 1
+                        _fa_conn.commit()
+                    finally:
+                        _fa_conn.close()
+                    results["yahoo_free_agents"] = (
+                        f"Checked {len(fa_df)} FAs, added {new_players} new, stored {len(fa_df)} to yahoo_free_agents"
+                    )
+                    # INFRA-F6: row-count gate (was bare "success").
+                    update_refresh_log_auto(
+                        "yahoo_free_agents",
+                        len(fa_df),
+                        expected_min=100,
+                        message=f"{len(fa_df)} FAs stored, {new_players} new players added",
+                    )
+                else:
+                    # Fetch succeeded but Yahoo returned an empty list — distinct
+                    # from the timeout path above (different remediation: API quirk
+                    # vs rate-limit). Keep status="no_data" for this real signal.
+                    results["yahoo_free_agents"] = "No FA data from Yahoo"
+                    from src.database import update_refresh_log
+
+                    update_refresh_log("yahoo_free_agents", "no_data")
         except Exception as exc:
             logger.warning("Yahoo FA fetch failed: %s", exc)
             results["yahoo_free_agents"] = f"Error: {exc}"

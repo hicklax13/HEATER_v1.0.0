@@ -661,3 +661,50 @@ class TestIntegration:
             )
             # Verify the orchestrator invoked the player ingest phase.
             assert boot._bootstrap_players.called
+
+
+# ---------------------------------------------------------------------------
+# SFH H-1 regression: Yahoo FA timeout must not be clobbered by else branch
+# ---------------------------------------------------------------------------
+
+
+class TestYahooFreeAgentsTimeoutDoesNotClobber:
+    """SFH H-1 (2026-05-20): PR #59 added a 120s timeout to the Yahoo FA
+    fetch and writes refresh_log status="skipped" on timeout. The
+    immediately-following ``if not fa_df.empty:`` block — which exists for
+    the success path — has an ``else`` branch that overwrites refresh_log
+    to "no_data" because fa_df is empty after timeout. Operator loses the
+    rate-limit signal.
+
+    After fix: the FA-storage block must live inside the timeout-check's
+    else, so a timed-out fetch leaves refresh_log status="skipped".
+    """
+
+    def test_timeout_preserves_skipped_status(self, temp_db, mock_all_bootstrap_phases):
+        mock_yahoo = MagicMock()
+        # Yahoo client must look connected enough that bootstrap enters the FA block.
+        mock_yahoo.get_free_agents = MagicMock(return_value=pd.DataFrame())
+
+        with (
+            patch("src.database.DB_PATH", temp_db),
+            patch(
+                "src.data_bootstrap._run_with_timeout",
+                return_value="Timeout: 120s exceeded",
+            ),
+        ):
+            from src.data_bootstrap import bootstrap_all_data
+            from src.database import get_connection
+
+            bootstrap_all_data(yahoo_client=mock_yahoo, force=True)
+
+            conn = get_connection()
+            try:
+                row = conn.execute("SELECT status FROM refresh_log WHERE source = 'yahoo_free_agents'").fetchone()
+            finally:
+                conn.close()
+
+        assert row is not None, "yahoo_free_agents should have a refresh_log row"
+        assert row[0] == "skipped", (
+            f"FA fetch timed out — refresh_log status must be 'skipped', got '{row[0]}'. "
+            f"The else branch is still clobbering the timeout signal."
+        )
