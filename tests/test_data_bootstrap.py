@@ -9,6 +9,12 @@ import pandas as pd
 import pytest
 
 
+# 2026-05-19 SFH M-1: sentinel count protects against silent coverage
+# regression if a phase is renamed off the `_bootstrap_*` prefix.
+# Update this constant deliberately when phases are added/removed.
+_EXPECTED_BOOTSTRAP_PHASE_COUNT = 29
+
+
 @pytest.fixture
 def mock_all_bootstrap_phases():
     """Auto-mock every `_bootstrap_*` function on src.data_bootstrap.
@@ -21,6 +27,11 @@ def mock_all_bootstrap_phases():
     — including any future phases added — so the orchestrator can be
     exercised without external dependencies.
 
+    The fixture asserts a minimum phase count (_EXPECTED_BOOTSTRAP_PHASE_COUNT)
+    to catch the case where a phase is renamed off the prefix (silent
+    coverage degradation — tests would still "pass" because the renamed
+    phase would make real network calls and may succeed unpredictably).
+
     Returns the ExitStack so tests can assert against individual mocks if
     needed (each mock is also accessible as a module attribute during the
     fixture's lifetime).
@@ -28,14 +39,21 @@ def mock_all_bootstrap_phases():
     import src.data_bootstrap as boot
 
     phase_fns = [name for name in dir(boot) if name.startswith("_bootstrap_") and callable(getattr(boot, name))]
+    assert len(phase_fns) >= _EXPECTED_BOOTSTRAP_PHASE_COUNT, (
+        f"Auto-mock fixture found {len(phase_fns)} `_bootstrap_*` phases; "
+        f"expected >= {_EXPECTED_BOOTSTRAP_PHASE_COUNT}. Either a phase was "
+        f"renamed off the prefix (silent coverage gap — fix the fixture or "
+        f"rename back) or the expected count is stale (bump the constant)."
+    )
 
     with ExitStack() as stack:
         for fn_name in phase_fns:
             stack.enter_context(patch.object(boot, fn_name, return_value="ok"))
-        # Deduplication (Phase 12) reaches into src.database directly, not
-        # through a _bootstrap_* function — mock it explicitly.
+        # Non-_bootstrap_* dispatches the orchestrator makes directly — kept
+        # as an explicit allowlist. If a future phase bypasses the prefix,
+        # add the mock here and bump _EXPECTED_BOOTSTRAP_PHASE_COUNT to the
+        # new prefix count so coverage stays visible.
         stack.enter_context(patch("src.database.deduplicate_players", return_value={"players_merged": 0}))
-        # _enrich_pitcher_positions (Phase 9c) is also called directly.
         stack.enter_context(patch.object(boot, "_enrich_pitcher_positions", return_value="ok"))
         yield stack
 

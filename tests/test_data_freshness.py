@@ -1,6 +1,7 @@
 """Tests for data freshness tracking."""
 
 from datetime import UTC, datetime, timedelta
+from unittest.mock import patch
 
 import pandas as pd
 import pytest
@@ -16,11 +17,16 @@ class TestDataFreshnessTracker:
         # 2026-05-19: DataFreshnessTracker.__init__ hydrates _sources from the
         # local refresh_log SQLite table — that's correct production behavior
         # (warmstart cached freshness from prior session) but it leaks state
-        # into unit tests. Clear the auto-hydrated dict so the test sees only
-        # the records IT explicitly adds.
-        tracker = DataFreshnessTracker()
-        tracker._sources.clear()
-        return tracker
+        # into unit tests.
+        # 2026-05-19 SFH L-1: patch _populate_from_refresh_log directly so
+        # NO state from local SQLite ever enters the tracker — matches the
+        # pattern test_sf_team_strength_freshness.py uses and is robust
+        # against future __init__ adding more auto-hydrated attributes.
+        with patch(
+            "src.optimizer.data_freshness.DataFreshnessTracker._populate_from_refresh_log",
+            return_value=None,
+        ):
+            yield DataFreshnessTracker()
 
     def test_record_and_check_fresh(self, _tracker):
         """Data recorded just now should be fresh."""

@@ -18,10 +18,33 @@ query.
 
 from __future__ import annotations
 
+import logging
 import time
+from contextlib import contextmanager
 
 from src.news_fetcher import _fuzzy_match_name, aggregate_player_news
 from src.valuation import normalize_player_name
+
+
+@contextmanager
+def _capture_logs(logger_name: str, level: int = logging.DEBUG):
+    """Capture log messages emitted by ``logger_name`` at or above ``level``."""
+    captured: list[str] = []
+
+    class _Handler(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            captured.append(record.getMessage())
+
+    logger = logging.getLogger(logger_name)
+    handler = _Handler(level=level)
+    old_level = logger.level
+    logger.addHandler(handler)
+    logger.setLevel(level)
+    try:
+        yield captured
+    finally:
+        logger.removeHandler(handler)
+        logger.setLevel(old_level)
 
 
 def _lower(pairs: list[tuple[str, int]]) -> dict[str, int]:
@@ -133,6 +156,42 @@ def test_aggregate_player_news_handles_empty():
     assert aggregate_player_news([], {}) == {}
     assert aggregate_player_news([{"player_name": "X", "description": "Y"}], {}) == {}
     assert aggregate_player_news([], {"X": 1}) == {}
+
+
+def test_accented_query_typo_finds_unaccented_candidate():
+    """SFH H-1 regression: accented query with a typo should still match
+    via canonical-prefix prune in Pass 3.
+
+    Pre-fix: prune by `name_lower[:2]` meant `"Étiene"` (typo of Étienne)
+    prefix was "ét" while candidate "Etienne"[:2] was "et" — silently
+    skipped. Post-fix: prune by canonical prefix so both become "et".
+    """
+    cands = _lower([("Etienne Bernier", 77)])
+    cands_canonical = _canonical([("Etienne Bernier", 77)])
+    # "Étiene" is a 1-letter typo of "Etienne" with an accent — canonical
+    # normalize won't make them identical, so this MUST exercise Pass 3.
+    result = _fuzzy_match_name("Étiene Bernier", cands, canonical_candidates=cands_canonical)
+    assert result == 77, "Accented typo should fuzzy-match via canonical prune"
+
+
+def test_no_kwarg_path_logs_debug():
+    """SFH H-2 regression: when canonical_candidates kwarg is None and we
+    have to rebuild on the fly, emit a debug log so hot-loop misuse is
+    visible to ops.
+
+    Query must MISS Pass 1 (exact case-insensitive) but HIT Pass 2 — that's
+    the only path where the rebuild happens. "Iván Rodríguez" → exact match
+    in lower lookup; "Ivan Rodriguez" (no accent) misses lower (because lower
+    has accent) and only resolves via canonical.
+    """
+    # Lower lookup has accented form; query is unaccented → forces Pass 2.
+    cands = {"iván rodríguez": 42}
+    with _capture_logs("src.news_fetcher", logging.DEBUG) as captured:
+        result = _fuzzy_match_name("Ivan Rodriguez", cands)
+    assert result == 42
+    assert any("rebuilding canonical_candidates" in msg for msg in captured), (
+        f"Expected debug log about rebuilding; got: {captured}"
+    )
 
 
 def test_aggregate_at_scale_completes_under_5s():
