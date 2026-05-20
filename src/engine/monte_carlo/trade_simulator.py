@@ -32,6 +32,12 @@ import numpy as np
 from src.engine.portfolio.category_analysis import CATEGORIES, INVERSE_CATEGORIES
 from src.valuation import LeagueConfig, SGPCalculator
 
+# 2026-05-19 L1 fix: hoist rate-stat set from inside the hot MC loop
+# (was called 4× per paired iteration × ~10k sims = 40k LeagueConfig()
+# instantiations per run). LeagueConfig.rate_stats is a hardcoded property
+# returning a fresh literal set each call, so a one-time snapshot is safe.
+_RATE_CATS_SNAPSHOT: set[str] = set(LeagueConfig().rate_stats)
+
 logger = logging.getLogger(__name__)
 
 # Default simulation count for Phase 2 (spec says 100K for full prod,
@@ -296,10 +302,10 @@ def _simulate_roster_sgp(
     total_bb_h_allowed = 0.0  # bb_allowed + h_allowed
 
     # Categories that are rate stats and need special aggregation.
-    # 2026-05-19 D6: snapshot from LeagueConfig (was literal).
-    from src.valuation import LeagueConfig
-
-    _RATE_CATS = set(LeagueConfig().rate_stats)
+    # 2026-05-19 D6: snapshot from LeagueConfig.
+    # 2026-05-19 L1 follow-up: read from module-level snapshot to avoid
+    # 40k LeagueConfig instantiations across the paired-MC loop.
+    _RATE_CATS = _RATE_CATS_SNAPSHOT
 
     for player_id, stats in roster_stats.items():
         # Collect component stats for rate-stat aggregation.

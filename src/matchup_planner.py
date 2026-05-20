@@ -167,8 +167,10 @@ def compute_pitcher_game_rating(
                     * inverse_park * starts * home_away
 
     Higher raw scores mean better pitcher matchups. The ``inverse_park``
-    factor is ``2.0 - park_factor`` so that hitter-friendly parks
-    penalise pitchers.
+    factor is ``1.0 / park_factor`` (reciprocal inversion, canonical with
+    ``optimizer/matchup_adjustments.park_factor_adjustment`` — see PR #47 L7),
+    so that hitter-friendly parks penalise pitchers. Capped to [0.5, 2.0]
+    for defense-in-depth against placeholder park-factor values.
 
     Args:
         pitcher_stats: Dict with ``xfip`` (or ``era`` as fallback)
@@ -191,7 +193,9 @@ def compute_pitcher_game_rating(
 
     pf = float(park_factor) if park_factor else 1.0
     # 2026-05-19 L7 fix: standardize on reciprocal inversion (canonical, see L7).
-    inverse_park = 1.0 / pf if pf > 0 else 1.0
+    # 2026-05-19 M1 follow-up: cap to [0.5, 2.0] for defense-in-depth.
+    inverse_park_raw = 1.0 / pf if pf > 0 else 1.0
+    inverse_park = max(min(inverse_park_raw, 2.0), 0.5)
 
     # Per-game rating: always use starts=1 since this function rates a single game
     starts = 1

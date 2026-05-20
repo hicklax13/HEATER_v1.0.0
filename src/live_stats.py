@@ -87,9 +87,16 @@ def match_player_id(player_name: str, team_abbr: str) -> int | None:
         # Fallback: exact name match without team (for callers that don't pass team)
         cursor.execute("SELECT player_id FROM players WHERE name = ?", (player_name,))
         results = cursor.fetchall()
-        # If exact match fails, try accent-stripped name
+        # If exact match fails, try accent-stripped name.
+        # 2026-05-19 H1 fix: D2 consolidation changed normalize_player_name to lowercase
+        # its output ("Ivan" → "ivan"). DB rows store proper case. Use COLLATE NOCASE so
+        # the accent-rescue path actually matches (was silently dead, falling through to
+        # the noisier LIKE-based fallback below).
         if not results and clean_name != player_name:
-            cursor.execute("SELECT player_id FROM players WHERE name = ?", (clean_name,))
+            cursor.execute(
+                "SELECT player_id FROM players WHERE name = ? COLLATE NOCASE",
+                (clean_name,),
+            )
             results = cursor.fetchall()
         # If still no match, try LIKE with first/last name (handles Iván vs Ivan in DB)
         if not results:
