@@ -194,6 +194,53 @@ def test_no_kwarg_path_logs_debug():
     )
 
 
+def test_pass3_uses_prebuilt_canonical_candidates():
+    """SFH M/H regression: Pass 3 iterates over canonical_candidates (not
+    candidates), so a typo-heavy query with 9000 candidates does NOT
+    recompute normalize_player_name on every candidate.
+
+    Pre-PR #58: Pass 3 looped over `candidates.items()` and called
+    `normalize_player_name(cand_name)` inside the loop — pre-built
+    canonical_candidates only helped Pass 2 (exact lookup).
+    Post-PR #58: Pass 3 iterates `canonical_candidates.items()` directly,
+    eliminating the per-candidate normalize() call.
+
+    This test counts normalize_player_name invocations during a Pass 3
+    lookup; expects ZERO calls per candidate (only the 1 call to canonicalize
+    the query itself + 0 for candidates).
+    """
+    from unittest.mock import patch
+
+    import src.news_fetcher as news_fetcher
+
+    pairs = [(f"Player{i:04d} Name{i:04d}", i) for i in range(100)]
+    cands_lower = _lower(pairs)
+    cands_canonical = _canonical(pairs)
+
+    call_count = {"n": 0}
+    real_normalize = news_fetcher.normalize_player_name
+
+    def _counting_normalize(name):
+        call_count["n"] += 1
+        return real_normalize(name)
+
+    with patch.object(news_fetcher, "normalize_player_name", side_effect=_counting_normalize):
+        # Query that misses Pass 1 + 2 (forces Pass 3): drop a letter to make a typo.
+        result = _fuzzy_match_name(
+            "Player0050 Nme0050",
+            cands_lower,
+            canonical_candidates=cands_canonical,
+        )
+
+    # 1 normalize for the query itself; Pass 3 should NOT recompute for any of 100 candidates.
+    assert call_count["n"] <= 3, (
+        f"Pass 3 should not recompute normalize per candidate when canonical_candidates "
+        f"is pre-built. Got {call_count['n']} normalize calls for 100 candidates "
+        f"(expected ≤3: query canonical + maybe canonical-rebuild branches)."
+    )
+    assert result == 50, "Pass 3 should still find the typo'd candidate"
+
+
 def test_aggregate_at_scale_completes_under_5s():
     """50 transactions × 9000 candidates: must complete in <5s.
 
