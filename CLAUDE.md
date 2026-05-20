@@ -501,10 +501,13 @@ These tests guard against regression of the cleanup work. Adding new code that v
 | `test_wave9_pool_includes_level.py` | `load_player_pool()` exposes `level` column from all 3 SELECT paths (SF-81) |
 | `test_wave9_free_agents_level_filter.py` | `pages/14_Free_Agents.py` has level selectbox defaulting to "MLB only" (SF-82) |
 | `test_wave9_player_compare_level_filter.py` | `pages/16_Player_Compare.py` has level selectbox (SF-83) |
+| `test_bootstrap_log_isolation.py` | `src/data_bootstrap.py` skips the RotatingFileHandler when running under pytest — prevents test mocks (e.g. `RuntimeError("DB out")`) from polluting `data/logs/bootstrap.log` (SFH L) |
+| `test_bootstrap_refresh_log_on_error.py` | Every outermost `except` in `_bootstrap_*` functions in `src/data_bootstrap.py` either calls `update_refresh_log[_auto]`, re-raises, or catches ImportError-only. AST-checked; ≥25-phase sentinel (SFH D companion to `test_no_unguarded_update_refresh_log.py`) |
+| `test_sfh_m3_partial_cached_reads.py` | `check_staleness` force-refreshes only `error`/`unknown`; `partial`/`no_data`/`cached`/`skipped` honor TTL. `DataFreshnessTracker` hydrates from `partial`/`cached`/`skipped` rows (SFH M-3) |
 
 ## Audit History
 
-The data + analytics pipeline has been audited across 12 waves (April–May 2026) covering ~85 silent-failure / drift / dead-code / type-design / migration bugs. All HIGH-severity findings are resolved across PRs #7–#23 + the 2026-05-17 deep-audit cleanup (PRs #29–#46) + 2026-05-19 deep-audit completion + 2026-05-19 follow-up cleanups (PRs #47–#52).
+The data + analytics pipeline has been audited across 13 waves (April–May 2026) covering ~105 silent-failure / drift / dead-code / type-design / migration bugs. All HIGH-severity findings are resolved across PRs #7–#23 + the 2026-05-17 deep-audit cleanup (PRs #29–#46) + 2026-05-19 deep-audit completion + 2026-05-19 follow-up cleanups (PRs #47–#52) + 2026-05-20 silent-failure sweep (PRs #59–#72).
 
 The cumulative structural-invariant guard set in `tests/test_no_*.py`, `test_pages_*.py`, `test_wave*.py`, and `test_sf*.py` covers ~75 patterns that were silent-failure-prone, duplication-prone, or schema-evolution-prone before audit. See `docs/archive/2026-05-17-deep-audit-punchlist.md` for the historical deep-audit punchlist (now fully shipped) and `docs/archive/specs/` for shipped design docs from earlier waves.
 
@@ -521,6 +524,26 @@ The cumulative structural-invariant guard set in `tests/test_no_*.py`, `test_pag
 
 Milestone tag `milestone/2026-05-19-deep-audit-complete` marks SHA after PR #49.
 
+**2026-05-20 silent-failure sweep (PRs #59–#72):**
+
+| PR | Title | Highlights |
+|----|-------|------------|
+| #59 | fix(bootstrap) add 120s timeout to Yahoo FA phase | Prevent indefinite hang on Yahoo rate-limit (480-FA pagination × backoff) |
+| #60 | fix(app) session-start bootstrap uses staleness check not force=True | Stops every new tab from re-running the full 33-phase bootstrap |
+| #61 | fix SFH HIGH findings (M-1 + H-1 + H-2) | M-1: news_fetcher canonical-name collisions (Muncy DNA — "Will Smith" + "Will Smith Jr." silently overwrote). H-1: PR #59 FA-timeout signal clobbered by empty-fa_df else branch. H-2: standings_engine.py:206 dead `float(hitters["pa"].sum())` |
+| #62 | fix SFH MED/LOW polish | M-2 news_fetcher prefix fallback, M-4 lineup_optimizer SIM114 parens, L-1 dual_objective dead branch, L-2 live_stats COLLATE NOCASE on remaining 2 sites, K CLAUDE.md "7" → "6" |
+| #63 | fix(logging) isolate bootstrap.log from pytest test runs | RotatingFileHandler gated on `pytest not in sys.modules`. Test mock noise (e.g. `RuntimeError("DB out")`) no longer leaks into production log file |
+| #64 | fix(refresh_log) honor partial/cached/skipped statuses on read (M-3) | `check_staleness` force-refreshes only {error, unknown}; partial/no_data/cached/skipped honor TTL. `data_freshness` hydrates from {success, partial, cached, skipped} |
+| #65 | fix(refresh_log) record error status on exception path (D) | 9 phases (ecr_consensus, adp_sources, contracts, news, depth_charts, prospects, news_intel, bat_speed, forty_man) silently swallowed exceptions. AST-checked guard prevents regression |
+| #66 | fix(bootstrap) surface Yahoo-skipped state in injury_writeback (B) | `lr_count == 0` skip path now appends `[yahoo skipped: rosters empty]` to refresh_log message instead of looking identical to a full run |
+| #67 | fix(refresh_log) treat 0 >= 0 as success (idempotent no-op phases) (F) | `update_refresh_log_auto` was labeling `_enrich_pitcher_positions` (writes 0 rows when already enriched) as "no_data" instead of "success" |
+| #68 | fix(season_stats) lower expected_min threshold 70% → 25% (G) | Realistic match rate — MLB API returns stats for all players (incl. minor-league callups) but `players` table covers ~1100 |
+| #69 | fix(db) bump SQLite busy_timeout 30s → 60s (A) | 7 "database is locked" errors on 2026-05-20 across parallel ThreadPoolExecutor group (umpire + catcher_framing + pvb_splits) |
+| #70 | test(perf) relax test_prefix_pruning_speed thresholds (J) | CI "Coverage Floor" was actually a flaky timing test (1.2s > 1s on GitHub Actions); coverage was 70.57% all along |
+| #71, #72 | Follow-ups | Updated `test_check_staleness_treats_non_success_as_stale` for M-3's new contract; ruff format on the renamed test |
+
+Milestone tag `milestone/2026-05-20-silent-failure-sweep-complete` marks SHA after PR #72.
+
 ## GitHub
 
 - **Repo:** https://github.com/hicklax13/HEATER_v1.0.0
@@ -528,9 +551,9 @@ Milestone tag `milestone/2026-05-19-deep-audit-complete` marks SHA after PR #49.
 
 ## Testing
 
-- **~3700 passing tests** across 165+ test files, 13 skipped (PyMC/XGBoost/WeasyPrint optional)
+- **~4027 passing tests** across 170+ test files, 15 skipped (PyMC/XGBoost/WeasyPrint optional)
 - **CI:** GitHub Actions (Python 3.12, sharded 4 ways)
-- **Coverage:** ~65% (60% CI floor)
+- **Coverage:** ~71% (60% CI floor — the 5-week "Coverage Floor red" was actually a flaky timing test, fixed 2026-05-20 by PR #70)
 - **Pre-commit hook:** Enforces `ruff format` + `ruff check` on every commit
 - **Backtesting framework:** Historical replay validates engine recommendations vs actual outcomes
 
