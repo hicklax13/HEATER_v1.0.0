@@ -2535,7 +2535,15 @@ def _bootstrap_pvb_splits(progress: BootstrapProgress) -> str:
                     )
                     updated += 1
 
-            conn.commit()
+                # SFH M1 (2026-05-20): commit per-batter so the write lock
+                # releases between batters. Without this, the entire 50-batter
+                # loop ran inside one transaction — holding the lock for the
+                # duration of every Statcast fetch (1-3s each, network-bound)
+                # and blowing through the 60s busy_timeout on parallel writers
+                # (umpire_tendencies + catcher_framing). PR #69 bumping
+                # busy_timeout 30s→60s was a band-aid; this is the root cause.
+                conn.commit()
+
         finally:
             conn.close()
 
