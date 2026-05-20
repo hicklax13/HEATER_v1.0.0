@@ -2026,7 +2026,9 @@ def upsert_league_standing(team_name: str, category: str, total: float, rank: in
         conn.close()
 
 
-_VALID_REFRESH_STATUSES = frozenset({"success", "partial", "cached", "skipped", "no_data", "error", "unknown"})
+_VALID_REFRESH_STATUSES = frozenset(
+    {"success", "partial", "cached", "skipped", "no_data", "error", "timeout", "unknown"}
+)
 
 
 def update_refresh_log(

@@ -20,7 +20,8 @@ from src.database import get_refresh_status, update_refresh_log
 # - success / partial / no_data / error: standard outcomes
 # - cached: written by ecr_consensus when the cache is reused (data_bootstrap.py:936)
 # - skipped: written by pvb_splits / depth_charts when a phase short-circuits
-EXPECTED_VALID = ["success", "partial", "cached", "skipped", "no_data", "error"]
+# - timeout: written by _run_with_timeout when a phase exceeds its budget (SFH H3, 2026-05-20)
+EXPECTED_VALID = ["success", "partial", "cached", "skipped", "no_data", "error", "timeout"]
 
 
 @pytest.mark.parametrize("status", EXPECTED_VALID)
