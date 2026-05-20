@@ -3283,7 +3283,14 @@ def bootstrap_all_data(
             _fa_holder: dict[str, _pd.DataFrame] = {}
 
             def _fetch_fa():
-                _fa_holder["df"] = yahoo_client.get_free_agents(count=200)
+                # SFH L6 (2026-05-20): use the paginated method. Yahoo's API
+                # caps single get_free_agents() calls at 25 results per page
+                # regardless of the `count` parameter — so the previous
+                # `count=200` returned only 25 FAs (every bootstrap stored
+                # 25 to yahoo_free_agents instead of the intended ~500).
+                # get_all_free_agents iterates start=0,25,50,... until the
+                # API returns an empty page or max_players is reached.
+                _fa_holder["df"] = yahoo_client.get_all_free_agents(max_players=500)
                 return "ok"
 
             _result = _run_with_timeout(_fetch_fa, timeout=120)
