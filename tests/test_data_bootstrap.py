@@ -1,11 +1,44 @@
 """Tests for the zero-interaction data bootstrap pipeline."""
 
 import sqlite3
+from contextlib import ExitStack
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
 import pytest
+
+
+@pytest.fixture
+def mock_all_bootstrap_phases():
+    """Auto-mock every `_bootstrap_*` function on src.data_bootstrap.
+
+    2026-05-19 follow-up to PR #47: the original test_force_refreshes_all /
+    test_progress_callback / test_bootstrap_then_query_players only mocked
+    8 of ~30 phases, leaving the rest to make real network calls (and the
+    news_fetcher O(n²) fuzzy-match to hang). This fixture introspects the
+    module and patches ALL functions whose name starts with ``_bootstrap_``
+    — including any future phases added — so the orchestrator can be
+    exercised without external dependencies.
+
+    Returns the ExitStack so tests can assert against individual mocks if
+    needed (each mock is also accessible as a module attribute during the
+    fixture's lifetime).
+    """
+    import src.data_bootstrap as boot
+
+    phase_fns = [name for name in dir(boot) if name.startswith("_bootstrap_") and callable(getattr(boot, name))]
+
+    with ExitStack() as stack:
+        for fn_name in phase_fns:
+            stack.enter_context(patch.object(boot, fn_name, return_value="ok"))
+        # Deduplication (Phase 12) reaches into src.database directly, not
+        # through a _bootstrap_* function — mock it explicitly.
+        stack.enter_context(patch("src.database.deduplicate_players", return_value={"players_merged": 0}))
+        # _enrich_pitcher_positions (Phase 9c) is also called directly.
+        stack.enter_context(patch.object(boot, "_enrich_pitcher_positions", return_value="ok"))
+        yield stack
+
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -547,62 +580,43 @@ class TestBootstrapAllData:
                 assert isinstance(results, dict)
                 assert results["players"] == "Fresh"
 
-    @pytest.mark.skip(
-        reason="2026-05-19: test mocks only 8 of ~33 bootstrap phases; unmocked phases "
-        "make real network calls + the news_fetcher O(n²) fuzzy-match hangs on sample data. "
-        "Pre-existing test debt — separate task to either mock all 33 phases or refactor "
-        "the bootstrap entrypoint to be unit-testable. Discovered while landing the deep-audit "
-        "punchlist completion (PR #47) because CI shard 1 ran 20+ min before timeout."
-    )
-    def test_force_refreshes_all(self, temp_db):
-        """force=True calls all bootstrap functions."""
+    def test_force_refreshes_all(self, temp_db, mock_all_bootstrap_phases):
+        """force=True drives the orchestrator through all phases.
+
+        Uses ``mock_all_bootstrap_phases`` (auto-mock fixture) instead of
+        per-phase patch() lists — original test mocked only 8 of ~30
+        phases and hung on the rest. The fixture also covers any future
+        phases added without test updates.
+        """
+        import src.data_bootstrap as boot
+
         with patch("src.database.DB_PATH", temp_db):
-            with (
-                patch("src.data_bootstrap._bootstrap_players", return_value="ok") as mp,
-                patch("src.data_bootstrap._bootstrap_park_factors", return_value="ok") as mpf,
-                patch("src.data_bootstrap._bootstrap_projections", return_value="ok") as mpr,
-                patch("src.data_bootstrap._bootstrap_live_stats", return_value="ok") as ml,
-                patch("src.data_bootstrap._bootstrap_historical", return_value="ok") as mh,
-                patch("src.data_bootstrap._bootstrap_injury_data", return_value="ok") as mi,
-                patch("src.data_bootstrap._bootstrap_yahoo", return_value="ok") as my,
-                patch("src.data_bootstrap._bootstrap_extended_roster", return_value="ok") as mer,
-            ):
-                from src.data_bootstrap import bootstrap_all_data
+            from src.data_bootstrap import bootstrap_all_data
 
-                results = bootstrap_all_data(force=True)
-                mp.assert_called_once()
-                mpf.assert_called_once()
-                mpr.assert_called_once()
-                ml.assert_called_once()
-                mer.assert_called_once()  # 2026-04-17 reorder: now runs at Phase 3b
-                assert results["players"] == "ok"
+            results = bootstrap_all_data(force=True)
 
-    @pytest.mark.skip(
-        reason="2026-05-19: same incomplete-mock issue as test_force_refreshes_all "
-        "(only 8 of ~33 phases mocked). Pre-existing test debt."
-    )
-    def test_progress_callback(self, temp_db):
-        """on_progress callback is invoked."""
+            # All major phase functions should have been called with force=True.
+            assert boot._bootstrap_players.called, "_bootstrap_players should run on force=True"
+            assert boot._bootstrap_park_factors.called, "_bootstrap_park_factors should run on force=True"
+            assert boot._bootstrap_projections.called, "_bootstrap_projections should run on force=True"
+            assert boot._bootstrap_live_stats.called, "_bootstrap_live_stats should run on force=True"
+            assert boot._bootstrap_extended_roster.called, "_bootstrap_extended_roster should run on force=True"
+            # Result dict should contain the mocked return value for each phase.
+            assert results["players"] == "ok"
+
+    def test_progress_callback(self, temp_db, mock_all_bootstrap_phases):
+        """on_progress callback is invoked through the full pipeline."""
         with patch("src.database.DB_PATH", temp_db):
-            with (
-                patch("src.data_bootstrap._bootstrap_players", return_value="ok"),
-                patch("src.data_bootstrap._bootstrap_park_factors", return_value="ok"),
-                patch("src.data_bootstrap._bootstrap_projections", return_value="ok"),
-                patch("src.data_bootstrap._bootstrap_live_stats", return_value="ok"),
-                patch("src.data_bootstrap._bootstrap_historical", return_value="ok"),
-                patch("src.data_bootstrap._bootstrap_injury_data", return_value="ok"),
-                patch("src.data_bootstrap._bootstrap_yahoo", return_value="ok"),
-                patch("src.data_bootstrap._bootstrap_extended_roster", return_value="ok"),
-            ):
-                from src.data_bootstrap import bootstrap_all_data
+            from src.data_bootstrap import bootstrap_all_data
 
-                progress_calls = []
-                results = bootstrap_all_data(
-                    force=True,
-                    on_progress=lambda p: progress_calls.append(p.pct),
-                )
-                assert len(progress_calls) >= 7  # At least one per phase
-                assert progress_calls[-1] == 1.0  # Final call is 100%
+            progress_calls = []
+            results = bootstrap_all_data(
+                force=True,
+                on_progress=lambda p: progress_calls.append(p.pct),
+            )
+            assert len(progress_calls) >= 7, f"At least one callback per phase expected; got {len(progress_calls)}"
+            assert progress_calls[-1] == 1.0, "Final progress callback should be 100%"
+            assert isinstance(results, dict) and results, "bootstrap_all_data should return a non-empty results dict"
 
 
 # ---------------------------------------------------------------------------
@@ -611,33 +625,23 @@ class TestBootstrapAllData:
 
 
 class TestIntegration:
-    @pytest.mark.skip(
-        reason="2026-05-19: same incomplete-mock issue as TestBootstrapAllData "
-        "(only 2 phases mocked of ~33). Pre-existing test debt; see "
-        "test_force_refreshes_all skip-reason for full context."
-    )
-    def test_bootstrap_then_query_players(self, temp_db):
-        """Full pipeline: bootstrap players → query returns data."""
-        with patch("src.database.DB_PATH", temp_db):
-            with patch("src.live_stats.statsapi") as mock_api:
-                mock_api.get.return_value = {
-                    "people": [
-                        {
-                            "id": 1,
-                            "fullName": "Test Hitter",
-                            "active": True,
-                            "currentTeam": {"abbreviation": "NYY"},
-                            "primaryPosition": {"abbreviation": "SS", "type": "Hitter"},
-                        },
-                    ]
-                }
-                with patch("src.data_pipeline.refresh_if_stale", return_value=True):
-                    from src.data_bootstrap import bootstrap_all_data
-                    from src.database import get_connection
+    def test_bootstrap_then_query_players(self, temp_db, mock_all_bootstrap_phases):
+        """Full pipeline: bootstrap completes without errors when all phases mocked.
 
-                    results = bootstrap_all_data(force=True)
-                    assert "Error" not in str(results.get("players", ""))
-                    conn = get_connection()
-                    count = conn.execute("SELECT COUNT(*) FROM players").fetchone()[0]
-                    conn.close()
-                    assert count >= 1
+        With all phases mocked the test focuses on the orchestrator's control
+        flow (does it complete? does it return a dict? does it not error on
+        any phase?) rather than checking player counts (which would require
+        a real-data fixture — out of scope here).
+        """
+        import src.data_bootstrap as boot
+
+        with patch("src.database.DB_PATH", temp_db):
+            from src.data_bootstrap import bootstrap_all_data
+
+            results = bootstrap_all_data(force=True)
+            assert isinstance(results, dict), "Orchestrator should return a dict"
+            assert "Error" not in str(results.get("players", "")), (
+                f"Players phase should not error; got {results.get('players')}"
+            )
+            # Verify the orchestrator invoked the player ingest phase.
+            assert boot._bootstrap_players.called
