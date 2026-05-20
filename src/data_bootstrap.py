@@ -6,6 +6,8 @@ Uses staleness-based smart refresh to avoid unnecessary API calls.
 
 import json
 import logging
+import os
+import sys
 import threading
 import time
 from collections.abc import Callable
@@ -18,12 +20,22 @@ from src.analytics_context import AnalyticsContext, DataQuality
 
 logger = logging.getLogger(__name__)
 
-# Persistent log file for post-mortem analysis (SF-14)
-_LOG_DIR = Path("data/logs")
-_LOG_DIR.mkdir(parents=True, exist_ok=True)
-_file_handler = RotatingFileHandler(_LOG_DIR / "bootstrap.log", maxBytes=5_000_000, backupCount=3)
-_file_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
-logging.getLogger("src").addHandler(_file_handler)
+# Persistent log file for post-mortem analysis (SF-14).
+# 2026-05-20 SFH L: do NOT attach when running under pytest. The handler
+# is on the "src" logger which catches every src.* module, so unit tests
+# that exercise fallback paths (e.g. test_wave8b_silent_failures with
+# patched DB connections raising RuntimeError("DB out")) used to write
+# their mock noise into data/logs/bootstrap.log, making post-mortem
+# analysis confusing — fake "DB out" errors looked like real production
+# failures. HEATER_DISABLE_FILE_LOG=1 gives an explicit override.
+_UNDER_PYTEST = "pytest" in sys.modules or os.environ.get("HEATER_DISABLE_FILE_LOG") == "1"
+
+if not _UNDER_PYTEST:
+    _LOG_DIR = Path("data/logs")
+    _LOG_DIR.mkdir(parents=True, exist_ok=True)
+    _file_handler = RotatingFileHandler(_LOG_DIR / "bootstrap.log", maxBytes=5_000_000, backupCount=3)
+    _file_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+    logging.getLogger("src").addHandler(_file_handler)
 
 # Maximum seconds any single bootstrap phase is allowed to run.
 # Raised from 90s → 180s to accommodate slower networks and
