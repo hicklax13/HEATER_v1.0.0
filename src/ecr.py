@@ -920,14 +920,26 @@ def refresh_ecr_consensus(force: bool = False) -> pd.DataFrame:
     # self-referential / circular-confirmation bias. Removed; trimmed Borda
     # still requires >=4 of the 6 remaining sources to produce consensus.
 
-    for name, fetch_fn in source_fetchers:
-        try:
-            df = fetch_fn()
-            if df is not None and not df.empty:
-                sources[name] = df
-                logger.info("ECR source %s: %d players", name, len(df))
-        except Exception:
-            logger.warning("ECR source %s failed", name, exc_info=True)
+    # SFH L1 (2026-05-20): fetch sources in parallel. Each source is an
+    # independent HTTP scrape of a different domain (ESPN, CBS, FantasyPros,
+    # FanGraphs, etc.) — no shared mutable state, no rate-limit cross-talk.
+    # Sequential fetching frequently hit the 240s budget on slow sources
+    # (FantasyPros ~60s, CBS ~45s); parallel reduces total to max(individuals).
+    # ThreadPoolExecutor (not Process) because fetchers are I/O-bound and we
+    # want pandas DataFrames returnable across workers without pickling cost.
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    with ThreadPoolExecutor(max_workers=min(len(source_fetchers), 6)) as executor:
+        future_to_name = {executor.submit(fetch_fn): name for name, fetch_fn in source_fetchers}
+        for future in as_completed(future_to_name):
+            name = future_to_name[future]
+            try:
+                df = future.result()
+                if df is not None and not df.empty:
+                    sources[name] = df
+                    logger.info("ECR source %s: %d players", name, len(df))
+            except Exception:
+                logger.warning("ECR source %s failed", name, exc_info=True)
 
     if not sources:
         logger.warning("No ECR sources available, returning cached data")
