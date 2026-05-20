@@ -462,7 +462,7 @@ def save_season_stats_to_db(stats_df: pd.DataFrame, season: int = 2026) -> int:
                 name = row.get("player_name", "") or ""
                 if name and team:
                     cursor.execute(
-                        "SELECT player_id FROM players WHERE name = ? AND team = ?",
+                        "SELECT player_id FROM players WHERE name = ? COLLATE NOCASE AND team = ? COLLATE NOCASE",
                         (name, team),
                     )
                     match = cursor.fetchone()

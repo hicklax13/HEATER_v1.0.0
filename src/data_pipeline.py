@@ -327,9 +327,11 @@ def _upsert_player(cursor, name: str, team: str, positions: str, is_hitter: bool
     then falls back to name-only to prevent duplicates from team mismatches
     between MLB Stats API and FanGraphs.
     """
-    # Try exact match: name + team
+    # Try exact match: name + team (SFH LOW-2: case-insensitive to handle
+    # source-of-truth casing variance — see CLAUDE.md "players table no UNIQUE
+    # constraint on name" gotcha).
     cursor.execute(
-        "SELECT player_id, positions FROM players WHERE name = ? AND team = ?",
+        "SELECT player_id, positions FROM players WHERE name = ? COLLATE NOCASE AND team = ? COLLATE NOCASE",
         (name, team),
     )
     result = cursor.fetchone()
@@ -337,7 +339,7 @@ def _upsert_player(cursor, name: str, team: str, positions: str, is_hitter: bool
     # Fallback: name-only match (prevents duplicates from team mismatches)
     if result is None and name:
         cursor.execute(
-            "SELECT player_id, positions FROM players WHERE name = ?",
+            "SELECT player_id, positions FROM players WHERE name = ? COLLATE NOCASE",
             (name,),
         )
         result = cursor.fetchone()
@@ -546,9 +548,9 @@ def _update_fangraphs_ids(raw_data: dict[str, list[dict]]) -> int:
         cursor = conn.cursor()
         updated = 0
         for name, fg_id in fg_ids.items():
-            # Exact name match first
+            # Exact name match first (SFH LOW-2: case-insensitive)
             cursor.execute(
-                "SELECT player_id FROM players WHERE name = ?",
+                "SELECT player_id FROM players WHERE name = ? COLLATE NOCASE",
                 (name,),
             )
             result = cursor.fetchone()
@@ -590,7 +592,7 @@ def _store_adp(adp_df: pd.DataFrame) -> int:
             name = str(row["name"])
             adp_val = float(row["adp"])
 
-            cursor.execute("SELECT player_id FROM players WHERE name = ?", (name,))
+            cursor.execute("SELECT player_id FROM players WHERE name = ? COLLATE NOCASE", (name,))
             result = cursor.fetchone()
             if result is None:
                 parts = name.split()

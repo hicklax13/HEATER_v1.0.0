@@ -566,7 +566,7 @@ def _store_yahoo_adp(adp_records: list[dict]) -> int:
                 continue
 
             # Exact name match
-            cursor.execute("SELECT player_id FROM players WHERE name = ?", (name,))
+            cursor.execute("SELECT player_id FROM players WHERE name = ? COLLATE NOCASE", (name,))
             result = cursor.fetchone()
 
             # Fuzzy fallback: first + last name LIKE match
@@ -727,7 +727,7 @@ def _store_external_adp(df, name_col: str, adp_col: str, source: str) -> int:
                 continue
 
             # Exact name match
-            cursor.execute("SELECT player_id FROM players WHERE name = ?", (name,))
+            cursor.execute("SELECT player_id FROM players WHERE name = ? COLLATE NOCASE", (name,))
             result = cursor.fetchone()
 
             # Fuzzy fallback: first + last name LIKE match
@@ -2899,7 +2899,9 @@ def _bootstrap_draft_results(progress: BootstrapProgress, yahoo_client=None) -> 
                 if pid is None:
                     # Resolve by name as last resort
                     name = pick_row.get("player_name", "")
-                    row = conn.execute("SELECT player_id FROM players WHERE name = ? LIMIT 1", (name,)).fetchone()
+                    row = conn.execute(
+                        "SELECT player_id FROM players WHERE name = ? COLLATE NOCASE LIMIT 1", (name,)
+                    ).fetchone()
                     pid = row[0] if row else None
                 if pid is None:
                     logger.warning(

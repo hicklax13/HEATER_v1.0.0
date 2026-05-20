@@ -2770,7 +2770,9 @@ def upsert_player_bulk(players: list[dict]) -> int:
     try:
         saved = 0
         for p in players:
-            existing = conn.execute("SELECT player_id FROM players WHERE name = ?", (p["name"],)).fetchone()
+            existing = conn.execute(
+                "SELECT player_id FROM players WHERE name = ? COLLATE NOCASE", (p["name"],)
+            ).fetchone()
             mlb_id = p.get("mlb_id")
             bats = p.get("bats")
             throws = p.get("throws")
@@ -3382,13 +3384,16 @@ def _upsert_player(cursor, name: str, team: str, positions: str, is_hitter: bool
     to prevent creating duplicate entries when the same player appears
     with different team values from different data sources.
     """
-    # Try exact match: name + team
-    cursor.execute("SELECT player_id, positions FROM players WHERE name = ? AND team = ?", (name, team))
+    # Try exact match: name + team (SFH LOW-2: case-insensitive).
+    cursor.execute(
+        "SELECT player_id, positions FROM players WHERE name = ? COLLATE NOCASE AND team = ? COLLATE NOCASE",
+        (name, team),
+    )
     result = cursor.fetchone()
 
     # Fallback: name-only match (prevents duplicates from team mismatches)
     if result is None and name:
-        cursor.execute("SELECT player_id, positions FROM players WHERE name = ?", (name,))
+        cursor.execute("SELECT player_id, positions FROM players WHERE name = ? COLLATE NOCASE", (name,))
         result = cursor.fetchone()
 
     if result:
