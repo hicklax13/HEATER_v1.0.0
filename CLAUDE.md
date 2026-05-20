@@ -62,7 +62,7 @@ python scripts/calibrate_repl_baselines.py      # Refresh _REPL_* from FourzynBu
 ## Tech Stack
 
 - **Framework:** Streamlit (multi-page)
-- **Database:** SQLite (`data/draft_tool.db`) with WAL + 30s busy_timeout via `get_connection()`
+- **Database:** SQLite (`data/draft_tool.db`) with WAL + 60s busy_timeout via `get_connection()`
 - **Core libs:** pandas, NumPy, SciPy, Plotly
 - **Analytics:** PyMC 5 (Bayesian, optional), PuLP (LP optimizer), arviz
 - **Live data:** MLB-StatsAPI, pybaseball (FanGraphs/Statcast), Open-Meteo (weather), Baseball Savant (catcher framing)
@@ -239,7 +239,7 @@ docs/
 - **`standings_utils.get_team_totals()`** — Session-cached roster totals.
 - **`get_yahoo_data_service()`** — Singleton; 3-tier cache: session_state → Yahoo API → SQLite. All 11+ pages route through it (no raw `load_league_rosters/standings` in pages).
 - **`format_stat(value, stat_type)`** (`src/ui_shared.py`) — Enforced display: AVG/OBP=`.3f`, ERA/WHIP=`.2f`, SGP=`+.2f`.
-- **`get_connection()`** (`src/database.py`) — Only sanctioned SQLite access. Sets `PRAGMA journal_mode=WAL`, `busy_timeout=30000`, `synchronous=NORMAL`. Direct `sqlite3.connect` is structurally guarded against.
+- **`get_connection()`** (`src/database.py`) — Only sanctioned SQLite access. Sets `PRAGMA journal_mode=WAL`, `busy_timeout=60000`, `synchronous=NORMAL`. Direct `sqlite3.connect` is structurally guarded against.
 - **`PULP_AVAILABLE`** — Defined ONCE in `src/lineup_optimizer.py`. `src/optimizer/advanced_lp.py` imports it (no duplicate flag).
 
 ### Yahoo Data Service (Live-First Architecture)
@@ -359,7 +359,7 @@ from src.optimizer.sigmoid_calibrator import calibrate_sigmoid_k
 - **Players table has no UNIQUE constraint on name** — Uses SELECT-first pattern. Do NOT use `ON CONFLICT(name)`.
 - **Park factors schema** — Columns: `team_code`, `factor_hitting`, `factor_pitching`. Tier 1 (pybaseball) honored when available; emergency dict when not (SF-22).
 - **FanGraphs API SYSTEM_MAP** — FG API uses `"fangraphsdc"`, DB stores `"depthcharts"`. Always use `SYSTEM_MAP`.
-- **SQLite WAL mode + busy_timeout** — `get_connection()` sets `PRAGMA journal_mode=WAL`, `busy_timeout=30000`, `synchronous=NORMAL`. Direct `sqlite3.connect()` is structurally guarded against (`tests/test_no_direct_sqlite_connect_in_scripts.py`).
+- **SQLite WAL mode + busy_timeout** — `get_connection()` sets `PRAGMA journal_mode=WAL`, `busy_timeout=60000`, `synchronous=NORMAL`. Direct `sqlite3.connect()` is structurally guarded against (`tests/test_no_direct_sqlite_connect_in_scripts.py`). Bumped from 30s → 60s in PR #69 after parallel-write contention hit the lower ceiling.
 - **FanGraphs 403 handling** — `leaders-legacy.aspx` returns 403 to non-browser scrapers. SF-6 wired browser-headers scraper as Tier 2 (probe still 403). FIP/xFIP proxy serves as K-boost fallback when Stuff+ unavailable.
 - **`statcast_archive.sprint_speed` column** — Required for SF-19 player pool SELECT. `init_db` creates it; legacy DBs get it via `_safe_add_column` migration.
 - **Player pool ytd_* columns are complete** — Includes all hitting + pitching counting + rate components needed for weighted aggregation. Consumers no longer need separate `load_season_stats(year)` calls.
