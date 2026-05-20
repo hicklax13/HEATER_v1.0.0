@@ -504,7 +504,22 @@ These tests guard against regression of the cleanup work. Adding new code that v
 
 ## Audit History
 
-The data + analytics pipeline has been audited across 12 waves (April–May 2026) covering ~85 silent-failure / drift / dead-code / type-design / migration bugs. All HIGH-severity findings are resolved across PRs #7–#23 + the 2026-05-17 deep-audit cleanup (PRs #29–#46) + 2026-05-19 deep-audit completion. The cumulative structural-invariant guard set in `tests/test_no_*.py`, `test_pages_*.py`, `test_wave*.py`, and `test_sf*.py` covers ~75 patterns that were silent-failure-prone, duplication-prone, or schema-evolution-prone before audit. See `docs/archive/2026-05-17-deep-audit-punchlist.md` for the historical deep-audit punchlist (now fully shipped) and `docs/archive/specs/` for shipped design docs from earlier waves.
+The data + analytics pipeline has been audited across 12 waves (April–May 2026) covering ~85 silent-failure / drift / dead-code / type-design / migration bugs. All HIGH-severity findings are resolved across PRs #7–#23 + the 2026-05-17 deep-audit cleanup (PRs #29–#46) + 2026-05-19 deep-audit completion + 2026-05-19 follow-up cleanups (PRs #47–#52).
+
+The cumulative structural-invariant guard set in `tests/test_no_*.py`, `test_pages_*.py`, `test_wave*.py`, and `test_sf*.py` covers ~75 patterns that were silent-failure-prone, duplication-prone, or schema-evolution-prone before audit. See `docs/archive/2026-05-17-deep-audit-punchlist.md` for the historical deep-audit punchlist (now fully shipped) and `docs/archive/specs/` for shipped design docs from earlier waves.
+
+**2026-05-19 follow-up PRs (post deep-audit completion):**
+
+| PR | Title | Highlights |
+|----|-------|------------|
+| #47 | Deep-audit punchlist completion + repo hygiene + preflight tooling | 17 commits squashed; Sections 2-8 shipped; 7 new structural-invariant guard tests; preflight env+access verification script |
+| #48 | Research.md gap-status reconciliation against PRs #18-#47 | 20 numbered gaps reclassified: 13 shipped, 3 partial, 4 still gap |
+| #49 | silent-failure-hunter follow-up: H1 + M1/M2/M3/L1 + H2 regression lock | Found 2 HIGH + 3 MED + 1 LOW post-merge; H1 case-insensitive SQL was a real bug; H2 was a false positive locked with regression test |
+| #50 | News_fetcher O(N*M) → 3-tier lookup | Caused CI shard 1 hang in PR #47; now <50ms exact / <5s at-scale |
+| #51 | Un-skip 3 bootstrap integration tests via auto-mock fixture | Replaces 8-of-30-phases mock list with introspection-based fixture |
+| #52 | Test isolation fixes for 4 local-only failures | DataFreshnessTracker hydration + YahooDataService singleton mocked; tests pass locally and on CI |
+
+Milestone tag `milestone/2026-05-19-deep-audit-complete` marks SHA after PR #49.
 
 ## GitHub
 
