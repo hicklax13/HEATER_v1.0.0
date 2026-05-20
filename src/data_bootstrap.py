@@ -2183,14 +2183,26 @@ def _bootstrap_catcher_framing(progress: BootstrapProgress) -> str:
                 try:
                     from pybaseball import batting_stats
 
-                    fg_df = batting_stats(year, qual=0, pos="c")
+                    # SFH M2 (2026-05-20): pybaseball 2.2.7's batting_stats no
+                    # longer accepts pos=. The kwarg is passed through to
+                    # FangraphsDataTable.fetch() which raises
+                    # `TypeError: unexpected keyword argument 'pos'` — silently
+                    # dropping this entire fallback path. Drop the kwarg and
+                    # filter by position post-hoc instead.
+                    fg_df = batting_stats(year, qual=0)
                     if fg_df is not None and not fg_df.empty:
-                        framing_data = fg_df
-                        tier_used = "primary"
-                        logger.info(
-                            "T8 [primary]: Got %d catchers from FanGraphs batting_stats",
-                            len(fg_df),
-                        )
+                        # FanGraphs returns position column as "Pos" or
+                        # "Positions" depending on pybaseball version.
+                        pos_col = next((c for c in ("Pos", "Positions") if c in fg_df.columns), None)
+                        if pos_col is not None:
+                            fg_df = fg_df[fg_df[pos_col].astype(str).str.contains("C", na=False)]
+                        if not fg_df.empty:
+                            framing_data = fg_df
+                            tier_used = "primary"
+                            logger.info(
+                                "T8 [primary]: Got %d catchers from FanGraphs batting_stats",
+                                len(fg_df),
+                            )
                 except Exception as e:
                     logger.warning("T8 [primary]: FanGraphs catcher stats failed: %s", e)
         except ImportError:
