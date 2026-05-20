@@ -106,8 +106,16 @@ class DataFreshnessTracker:
                 pass
             return
 
+        # 2026-05-20 SFH M-3: load partial / cached / skipped rows in addition
+        # to success. Each indicates data was written (or a deliberate fallback
+        # was used) — the freshness tracker should reflect the last touch so
+        # the UI can show "data is 4h old (partial)" instead of "no data".
+        # Skip only error / unknown (no data) and no_data (source returned
+        # nothing — tracking the empty-fetch timestamp wastes UI space).
+        _LOADABLE_STATUSES = {"success", "partial", "cached", "skipped"}
+
         for source, last_refresh_str, status in rows:
-            if status != "success" or not last_refresh_str:
+            if status not in _LOADABLE_STATUSES or not last_refresh_str:
                 continue
             try:
                 ts = datetime.fromisoformat(last_refresh_str.replace(" ", "T"))
