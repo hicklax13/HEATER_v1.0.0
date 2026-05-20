@@ -807,7 +807,11 @@ def _bootstrap_adp_sources(progress: BootstrapProgress) -> str:
             return "Skipped: in-season (ADP less relevant post-draft)"
         return "Skipped: ADP sources returned no data (JS-gated pages)"
     except Exception as e:
+        # SFH D: surface error in refresh_log so operator sees the failure.
         logger.warning("ADP sources bootstrap failed: %s", e)
+        from src.database import update_refresh_log
+
+        update_refresh_log("adp_sources", "error", message=str(e)[:200])
         return _format_fetch_error(e, "ADP sources")
 
 
@@ -832,7 +836,11 @@ def _bootstrap_contracts(progress: BootstrapProgress) -> str:
         )
         return f"Contracts: {matched} players flagged (from {len(names)} fetched)"
     except Exception as e:
+        # SFH D: surface error in refresh_log so operator sees the failure.
         logger.warning("Contract data bootstrap failed: %s", e)
+        from src.database import update_refresh_log
+
+        update_refresh_log("contracts", "error", message=str(e)[:200])
         return f"Contracts: error ({e})"
 
 
@@ -859,7 +867,11 @@ def _bootstrap_news(progress: BootstrapProgress) -> str:
         )
         return f"News: {len(items)} transactions"
     except Exception as e:
+        # SFH D: surface error in refresh_log so operator sees the failure.
         logger.warning("News bootstrap failed: %s", e)
+        from src.database import update_refresh_log
+
+        update_refresh_log("news", "error", message=str(e)[:200])
         return f"News: error ({e})"
 
 
@@ -1030,7 +1042,11 @@ def _bootstrap_depth_charts(progress: BootstrapProgress) -> str:
         update_refresh_log("depth_charts", "no_data")
         return "Skipped: depth chart endpoints returned no data (Roster Resource + MLB Stats API both empty)"
     except Exception as e:
+        # SFH D: surface error in refresh_log so operator sees the failure.
         logger.warning("Depth chart bootstrap failed: %s", e)
+        from src.database import update_refresh_log
+
+        update_refresh_log("depth_charts", "error", message=str(e)[:200])
         return _format_fetch_error(e, "Depth charts")
 
 
@@ -1126,7 +1142,11 @@ def _bootstrap_prospects(progress: BootstrapProgress) -> str:
         )
         return f"Prospects: {prospect_count} ranked"
     except Exception as e:
+        # SFH D: surface error in refresh_log so operator sees the failure.
         logger.warning("Prospect bootstrap failed: %s", e)
+        from src.database import update_refresh_log
+
+        update_refresh_log("prospect_rankings", "error", message=str(e)[:200])
         return f"Prospects: error ({e})"
 
 
@@ -1148,7 +1168,11 @@ def _bootstrap_news_intel(progress: BootstrapProgress, yahoo_client=None) -> str
         )
         return f"News: {count} items from multi-source"
     except Exception as e:
+        # SFH D: surface error in refresh_log so operator sees the failure.
         logger.warning("News intelligence bootstrap failed: %s", e)
+        from src.database import update_refresh_log
+
+        update_refresh_log("news_intelligence", "error", message=str(e)[:200])
         return f"News intel: error ({e})"
 
 
@@ -1175,7 +1199,13 @@ def _bootstrap_ecr_consensus(progress: BootstrapProgress) -> str:
         )
         return f"ECR Consensus: {len(df)} players ranked"
     except Exception as e:
+        # 2026-05-20 SFH D: write refresh_log on the error path so the
+        # next bootstrap can see the failure and retry (was silently
+        # frozen at last successful timestamp — phase looked healthy).
         logger.warning("ECR consensus bootstrap failed: %s", e)
+        from src.database import update_refresh_log
+
+        update_refresh_log("ecr_consensus", "error", message=str(e)[:200])
         return f"ECR consensus: error ({e})"
 
 
@@ -2595,7 +2625,11 @@ def _bootstrap_bat_speed(progress: BootstrapProgress) -> str:
         return f"Updated {updated} players with bat speed"
 
     except Exception as exc:
+        # SFH D: surface error in refresh_log so operator sees the failure.
         logger.warning("Bat speed fetch failed (non-fatal): %s", exc)
+        from src.database import update_refresh_log
+
+        update_refresh_log("bat_speed", "error", message=str(exc)[:200])
         return f"Error: {exc}"
 
 
@@ -2651,7 +2685,11 @@ def _bootstrap_forty_man(progress: BootstrapProgress) -> str:
         return f"Updated {updated} 40-man roster entries"
 
     except Exception as exc:
+        # SFH D: surface error in refresh_log so operator sees the failure.
         logger.warning("40-man roster fetch failed (non-fatal): %s", exc)
+        from src.database import update_refresh_log
+
+        update_refresh_log("forty_man", "error", message=str(exc)[:200])
         return f"Error: {exc}"
 
 
