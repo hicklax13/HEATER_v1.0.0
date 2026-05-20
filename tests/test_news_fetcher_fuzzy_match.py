@@ -277,3 +277,69 @@ def test_aggregate_at_scale_completes_under_5s():
 
     assert len(result) == 50, f"Expected 50 matches; got {len(result)}"
     assert elapsed < 5.0, f"Aggregate-at-scale should be <5s; got {elapsed:.2f}s"
+
+
+# ── M-1 regression: canonical-name collisions (Muncy DNA) ────────────
+
+
+def test_canonical_collision_logs_warning():
+    """SFH M-1 regression: two players whose canonical names collide must
+    log a warning so the Muncy-bug pattern (name-only dedup) is visible.
+
+    Real MLB collisions confirmed by normalize_player_name:
+      "Will Smith" + "Will Smith Jr." → both "will smith"
+      "Cal Ripken Sr." + "Cal Ripken Jr." → both "cal ripken"
+      "José Hernández" + "Jose Hernandez" → both "jose hernandez"
+
+    Pre-fix: dict comprehension silently overwrote; ONE player_id won
+    arbitrarily (last-iteration), the other's news was misattributed
+    with no operator signal.
+    Post-fix: collision detected at lookup-build time, warning logged
+    naming both player_ids; behavior is deterministic (first wins).
+    """
+    name_to_id = {"Will Smith": 1, "Will Smith Jr.": 2}
+
+    with _capture_logs("src.news_fetcher", logging.WARNING) as logs:
+        result = aggregate_player_news(
+            [{"player_name": "Will Smith", "description": "Roster move"}],
+            name_to_id,
+        )
+
+    assert any("collision" in m.lower() for m in logs), f"Expected canonical-collision warning; got: {logs}"
+    # Deterministic: keep first-inserted (player_id=1)
+    assert 1 in result or 2 in result, "Should resolve to one of the colliding ids"
+
+
+def test_canonical_collision_deterministic_first_wins():
+    """SFH M-1 regression: collision resolution must be deterministic across
+    runs (first inserted wins) — not insertion-order-dependent."""
+    # Insert Sr. first, then Jr. — first should win.
+    name_to_id_a = {"Cal Ripken Sr.": 100, "Cal Ripken Jr.": 200}
+    with _capture_logs("src.news_fetcher", logging.WARNING):
+        result_a = aggregate_player_news(
+            [{"player_name": "Cal Ripken", "description": "X"}],
+            name_to_id_a,
+        )
+    # Same names, opposite insertion order — Jr. first
+    name_to_id_b = {"Cal Ripken Jr.": 200, "Cal Ripken Sr.": 100}
+    with _capture_logs("src.news_fetcher", logging.WARNING):
+        result_b = aggregate_player_news(
+            [{"player_name": "Cal Ripken", "description": "X"}],
+            name_to_id_b,
+        )
+
+    assert 100 in result_a, f"First-inserted (Sr.=100) should win; got {result_a}"
+    assert 200 in result_b, f"First-inserted (Jr.=200) should win; got {result_b}"
+
+
+def test_no_collision_no_warning():
+    """SFH M-1 regression: when there are NO collisions, no warning is
+    emitted (avoids log spam for the normal case)."""
+    name_to_id = {"Aaron Judge": 1, "Mike Trout": 2, "Shohei Ohtani": 3}
+    with _capture_logs("src.news_fetcher", logging.WARNING) as logs:
+        aggregate_player_news(
+            [{"player_name": "Aaron Judge", "description": "X"}],
+            name_to_id,
+        )
+    collision_logs = [m for m in logs if "collision" in m.lower()]
+    assert collision_logs == [], f"No collision warning expected for unique names; got: {collision_logs}"
