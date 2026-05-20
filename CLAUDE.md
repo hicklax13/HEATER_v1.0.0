@@ -504,6 +504,7 @@ These tests guard against regression of the cleanup work. Adding new code that v
 | `test_bootstrap_log_isolation.py` | `src/data_bootstrap.py` skips the RotatingFileHandler when running under pytest — prevents test mocks (e.g. `RuntimeError("DB out")`) from polluting `data/logs/bootstrap.log` (SFH L) |
 | `test_bootstrap_refresh_log_on_error.py` | Every outermost `except` in `_bootstrap_*` functions in `src/data_bootstrap.py` either calls `update_refresh_log[_auto]`, re-raises, or catches ImportError-only. AST-checked; ≥25-phase sentinel (SFH D companion to `test_no_unguarded_update_refresh_log.py`) |
 | `test_sfh_m3_partial_cached_reads.py` | `check_staleness` force-refreshes only `error`/`unknown`; `partial`/`no_data`/`cached`/`skipped` honor TTL. `DataFreshnessTracker` hydrates from `partial`/`cached`/`skipped` rows (SFH M-3) |
+| `test_players_name_lookup_case_insensitive.py` | Every `WHERE name = ?` query against the `players` table in `src/` uses `COLLATE NOCASE`. Prevents Muncy-DNA dedup misses from case-variant duplicates (SFH LOW-2) |
 
 ## Audit History
 
@@ -541,8 +542,10 @@ Milestone tag `milestone/2026-05-19-deep-audit-complete` marks SHA after PR #49.
 | #69 | fix(db) bump SQLite busy_timeout 30s → 60s (A) | 7 "database is locked" errors on 2026-05-20 across parallel ThreadPoolExecutor group (umpire + catcher_framing + pvb_splits) |
 | #70 | test(perf) relax test_prefix_pruning_speed thresholds (J) | CI "Coverage Floor" was actually a flaky timing test (1.2s > 1s on GitHub Actions); coverage was 70.57% all along |
 | #71, #72 | Follow-ups | Updated `test_check_staleness_treats_non_success_as_stale` for M-3's new contract; ruff format on the renamed test |
+| #74 | fix SFH MED-1 + LOW-1 + LOW-3 follow-ups | MED-1: `_enrich_pitcher_positions` error path silent-skip (same DNA as #65, missed by the `_bootstrap_*`-prefixed structural guard). LOW-1: CLAUDE.md busy_timeout doc drift after #69. LOW-3: split injured_count into fresh-ESPN vs stale-yahoo when skipped path taken |
+| #75 | fix case-insensitive `WHERE name = ?` cleanup (LOW-2) | 12 case-sensitive `WHERE name = ?` queries against `players` across data_bootstrap, data_pipeline, database, league_manager, live_stats. Pre-existing Muncy-DNA gap. Added structural guard `test_players_name_lookup_case_insensitive.py` (no allowlist) |
 
-Milestone tag `milestone/2026-05-20-silent-failure-sweep-complete` marks SHA after PR #72.
+Milestone tag `milestone/2026-05-20-silent-failure-sweep-complete` marks SHA after PR #75 (re-tagged 3x as the docs/follow-ups landed).
 
 ## GitHub
 
