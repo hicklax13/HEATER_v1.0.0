@@ -49,7 +49,7 @@ def import_league_rosters_csv(csv_path: str, user_team_name: str) -> int:
             roster_slot = str(row.get("roster_slot", "")).strip() if "roster_slot" in row.index else None
 
             cursor = conn.cursor()
-            cursor.execute("SELECT player_id FROM players WHERE name = ?", (player_name,))
+            cursor.execute("SELECT player_id FROM players WHERE name = ? COLLATE NOCASE", (player_name,))
             result = cursor.fetchone()
             if not result:
                 parts = player_name.split()
