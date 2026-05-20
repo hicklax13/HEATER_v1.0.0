@@ -2242,11 +2242,23 @@ def check_staleness(source: str, max_age_hours: float) -> bool:
     A source is stale if any of the following hold:
         - no prior refresh record
         - last_refresh timestamp older than max_age_hours
-        - last recorded status was not a clean "success"
+        - last recorded status was a hard failure ("error" or "unknown")
 
-    The status check was added 2026-04-17 so phases that failed ("error",
-    "no_data", "partial", "unknown") retry on the next bootstrap instead of
-    being frozen by a stale successful-looking timestamp.
+    The status check was added 2026-04-17 so phases that failed retry on the
+    next bootstrap instead of being frozen by a stale successful-looking
+    timestamp.
+
+    2026-05-20 SFH M-3: narrowed the force-refresh status set from
+    {error, no_data, partial, unknown} to {error, unknown}. Rationale:
+      - "partial" means SOME data was written (e.g. Yahoo returned 25/100
+        FAs after a 120s timeout). Force-refreshing within the TTL just
+        burns the same rate-limit budget that caused the partial in the
+        first place. Honor the TTL — the next scheduled refresh will retry.
+      - "no_data" means the source legitimately returned nothing (e.g.
+        adp_sources). Retrying within the TTL won't change the answer.
+      - "error" and "unknown" remain force-retry because they indicate a
+        recoverable failure (transient network, missing dep) that might
+        succeed on the next attempt.
     """
     if max_age_hours <= 0:
         return True
@@ -2254,7 +2266,7 @@ def check_staleness(source: str, max_age_hours: float) -> bool:
     if status is None or status["last_refresh"] is None:
         return True
     st = (status.get("status") or "").lower()
-    if st in {"error", "no_data", "partial", "unknown"}:
+    if st in {"error", "unknown"}:
         return True
     try:
         last = datetime.fromisoformat(status["last_refresh"])
