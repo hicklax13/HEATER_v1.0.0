@@ -253,3 +253,191 @@ def test_two_way_player_zero_stats_emits_both(mock_statsapi, temp_db):
     assert isinstance(df, pd.DataFrame)
     ohtani_rows = df[df["player_name"] == "Shohei Ohtani"]
     assert len(ohtani_rows) == 2, f"Expected 2 zero-stat rows for Ohtani, got {len(ohtani_rows)}"
+
+
+# ── H1 (PR A): TWP routing in save_season_stats_to_db ───────────
+
+
+def _insert_ohtani(temp_db, stored_is_hitter: int = 1) -> None:
+    """Insert Ohtani with TWP positions for use by save-side tests."""
+    conn = sqlite3.connect(temp_db)
+    try:
+        conn.execute(
+            "INSERT INTO players (player_id, mlb_id, name, team, positions, is_hitter) "
+            "VALUES (3, 660271, 'Shohei Ohtani', 'LAD', 'DH,SP,TWP', ?)",
+            (stored_is_hitter,),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _row(**overrides):
+    """Build a stats_df row dict with sensible zero defaults for unused fields."""
+    base = {
+        "player_name": "",
+        "team": "",
+        "mlb_id": 0,
+        "is_hitter": False,
+        "pa": 0,
+        "ab": 0,
+        "h": 0,
+        "r": 0,
+        "hr": 0,
+        "rbi": 0,
+        "sb": 0,
+        "avg": 0.0,
+        "obp": 0.0,
+        "bb": 0,
+        "hbp": 0,
+        "sf": 0,
+        "ip": 0.0,
+        "w": 0,
+        "l": 0,
+        "sv": 0,
+        "k": 0,
+        "era": 0.0,
+        "whip": 0.0,
+        "er": 0,
+        "bb_allowed": 0,
+        "h_allowed": 0,
+        "games_played": 0,
+    }
+    base.update(overrides)
+    return base
+
+
+def test_twp_pitcher_row_routed_not_skipped(temp_db):
+    """H1: A TWP player's pitcher-stats row must NOT be rejected by the type guard."""
+    from src.live_stats import save_season_stats_to_db
+
+    _insert_ohtani(temp_db, stored_is_hitter=1)
+    pitching_row = _row(
+        player_name="Shohei Ohtani",
+        team="LAD",
+        mlb_id=660271,
+        is_hitter=False,
+        ip=44.0,
+        w=4,
+        l=2,
+        k=55,
+        era=3.20,
+        whip=1.05,
+        er=16,
+        games_played=8,
+    )
+    saved = save_season_stats_to_db(pd.DataFrame([pitching_row]), season=2026)
+    assert saved == 1, "TWP pitcher row should be saved, not skipped by type guard"
+
+    conn = sqlite3.connect(temp_db)
+    try:
+        cur = conn.execute(
+            "SELECT ip, w, l, k, era, whip, er, ab, h, hr FROM season_stats WHERE player_id=3 AND season=2026"
+        )
+        row = cur.fetchone()
+    finally:
+        conn.close()
+    assert row is not None
+    ip, w, l, k, era, whip, er, ab, h, hr = row
+    assert ip == 44.0 and w == 4 and l == 2 and k == 55 and round(era, 2) == 3.20 and er == 16
+    # Hitting cols should be untouched (no prior hitter row written), which is 0.
+    assert ab == 0 and h == 0 and hr == 0
+
+
+def test_twp_hitter_row_preserves_pitching_cols(temp_db):
+    """H1: A TWP player's hitting-stats row must NOT zero out previously-written pitching cols."""
+    from src.live_stats import save_season_stats_to_db
+
+    _insert_ohtani(temp_db, stored_is_hitter=1)
+    # First: write the pitching half.
+    save_season_stats_to_db(
+        pd.DataFrame(
+            [
+                _row(
+                    player_name="Shohei Ohtani",
+                    team="LAD",
+                    mlb_id=660271,
+                    is_hitter=False,
+                    ip=90.0,
+                    w=8,
+                    k=100,
+                    era=2.50,
+                    er=25,
+                    games_played=15,
+                )
+            ]
+        ),
+        season=2026,
+    )
+    # Then: write the hitting half.
+    save_season_stats_to_db(
+        pd.DataFrame(
+            [
+                _row(
+                    player_name="Shohei Ohtani",
+                    team="LAD",
+                    mlb_id=660271,
+                    is_hitter=True,
+                    pa=300,
+                    ab=270,
+                    h=85,
+                    hr=20,
+                    rbi=55,
+                    avg=0.315,
+                    games_played=70,
+                )
+            ]
+        ),
+        season=2026,
+    )
+
+    conn = sqlite3.connect(temp_db)
+    try:
+        cur = conn.execute(
+            "SELECT ab, h, hr, rbi, ip, w, k, era, er FROM season_stats WHERE player_id=3 AND season=2026"
+        )
+        row = cur.fetchone()
+    finally:
+        conn.close()
+    assert row is not None
+    ab, h, hr, rbi, ip, w, k, era, er = row
+    # Hitting cols set by the second call:
+    assert ab == 270 and h == 85 and hr == 20 and rbi == 55
+    # Pitching cols preserved from the first call (the bug being fixed would zero these):
+    assert ip == 90.0 and w == 8 and k == 100 and round(era, 2) == 2.50 and er == 25
+
+
+def test_non_twp_type_mismatch_still_rejected(temp_db):
+    """H1 regression guard: Bellinger-style type guard must remain intact for non-TWP players."""
+    from src.live_stats import save_season_stats_to_db
+
+    # Cole is a regular pitcher (player_id=2, positions='SP'). A hitter-stats
+    # row claiming to be his should still be rejected.
+    bad_row = _row(
+        player_name="Gerrit Cole",
+        team="NYY",
+        is_hitter=True,
+        pa=400,
+        ab=350,
+        h=100,
+        hr=15,
+        rbi=60,
+        avg=0.286,
+        games_played=100,
+    )
+    saved = save_season_stats_to_db(pd.DataFrame([bad_row]), season=2026)
+    assert saved == 0, "Non-TWP type-mismatch row must still be rejected"
+
+
+def test_is_twp_helper():
+    """H1 helper: _is_twp recognizes both the explicit TWP token and the multi-eligibility pattern."""
+    from src.live_stats import _is_twp
+
+    assert _is_twp("DH,SP,TWP") is True  # Ohtani
+    assert _is_twp("TWP") is True  # explicit only
+    assert _is_twp("SP,1B") is True  # pitcher + hitter eligibility
+    assert _is_twp("OF") is False
+    assert _is_twp("SP") is False
+    assert _is_twp("SP,RP") is False  # both pitcher tokens, no hitter eligibility
+    assert _is_twp("") is False
+    assert _is_twp(None) is False

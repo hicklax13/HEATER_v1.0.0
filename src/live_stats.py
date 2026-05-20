@@ -398,47 +398,66 @@ def fetch_season_stats(season: int = 2026) -> pd.DataFrame:
     return pd.DataFrame(rows) if rows else pd.DataFrame()
 
 
+# Stat-type column sets used by save_season_stats_to_db for TWP-aware routing.
+# Hitting and pitching are written via separate UPSERTs for two-way players so a
+# pitcher-stats row never zeroes the hitter cols (or vice versa). Non-TWP players
+# still write all columns via the full UPSERT (their off-type cols are always 0).
+# NOTE: fip/xfip/siera intentionally excluded — _parse_pitching_stat does
+# not populate them, so including them in this UPSERT would write 0 every
+# hour and erase the Stuff+ phase's nightly FIP/xFIP/SIERA writes. Those
+# three columns are owned exclusively by _bootstrap_stuff_plus.
+_HITTING_COLS = ["pa", "ab", "h", "r", "hr", "rbi", "sb", "avg", "obp", "bb", "hbp", "sf"]
+_PITCHING_COLS = ["ip", "w", "l", "sv", "k", "era", "whip", "er", "bb_allowed", "h_allowed"]
+_SHARED_COLS = ["games_played"]
+_ALL_STAT_COLS = _HITTING_COLS + _PITCHING_COLS + _SHARED_COLS
+
+
+def _build_season_stats_upsert(stat_cols: list[str]) -> str:
+    """Build INSERT...ON CONFLICT UPDATE that touches only `stat_cols` + last_updated.
+
+    Used by save_season_stats_to_db so TWP players route hitting rows to a
+    hitting-only UPSERT and pitching rows to a pitching-only UPSERT — preserving
+    the off-type columns instead of zeroing them.
+    """
+    return (
+        f"INSERT INTO season_stats (player_id, season, {', '.join(stat_cols)}, last_updated) "
+        f"VALUES (?, ?, {', '.join('?' for _ in stat_cols)}, ?) "
+        f"ON CONFLICT(player_id, season) DO UPDATE SET "
+        f"{', '.join(f'{c}=excluded.{c}' for c in stat_cols)}, "
+        f"last_updated=excluded.last_updated"
+    )
+
+
+def _is_twp(positions: str) -> bool:
+    """Detect two-way players from the positions string.
+
+    True when positions contains the explicit 'TWP' token, OR when positions
+    contains BOTH a pitcher position (SP/RP/P) and a hitter position
+    (DH/OF/C/1B/2B/3B/SS/Util). Ohtani is 'DH,SP,TWP'.
+    """
+    if not positions:
+        return False
+    tokens = {t.strip().upper() for t in positions.split(",")}
+    if "TWP" in tokens:
+        return True
+    has_pitcher = bool(tokens & {"SP", "RP", "P"})
+    has_hitter = bool(tokens & {"DH", "OF", "C", "1B", "2B", "3B", "SS", "UTIL"})
+    return has_pitcher and has_hitter
+
+
 def save_season_stats_to_db(stats_df: pd.DataFrame, season: int = 2026) -> int:
     """Match fetched stats to players table and save to season_stats.
 
     Uses a single DB connection for all rows to avoid per-row connection overhead.
+
+    TWP (two-way player) handling: when the stored player has BOTH pitcher and
+    hitter eligibility (Ohtani is the canonical case), the type guard is relaxed
+    and the row is written via a stat-type-specific UPSERT so a pitcher-stats
+    row does not zero the hitter columns (and vice versa).
     """
-    # NOTE: fip/xfip/siera intentionally excluded — _parse_pitching_stat does
-    # not populate them, so including them in this UPSERT would write 0 every
-    # hour and erase the Stuff+ phase's nightly FIP/xFIP/SIERA writes. Those
-    # three columns are owned exclusively by _bootstrap_stuff_plus.
-    cols = [
-        "pa",
-        "ab",
-        "h",
-        "r",
-        "hr",
-        "rbi",
-        "sb",
-        "avg",
-        "obp",
-        "bb",
-        "hbp",
-        "sf",
-        "ip",
-        "w",
-        "l",
-        "sv",
-        "k",
-        "era",
-        "whip",
-        "er",
-        "bb_allowed",
-        "h_allowed",
-        "games_played",
-    ]
-    sql = (
-        f"INSERT INTO season_stats (player_id, season, {', '.join(cols)}, last_updated) "
-        f"VALUES (?, ?, {', '.join('?' for _ in cols)}, ?) "
-        f"ON CONFLICT(player_id, season) DO UPDATE SET "
-        f"{', '.join(f'{c}=excluded.{c}' for c in cols)}, "
-        f"last_updated=excluded.last_updated"
-    )
+    sql_all = _build_season_stats_upsert(_ALL_STAT_COLS)
+    sql_hitting = _build_season_stats_upsert(_HITTING_COLS + _SHARED_COLS)
+    sql_pitching = _build_season_stats_upsert(_PITCHING_COLS + _SHARED_COLS)
 
     conn = get_connection()
     try:
@@ -446,6 +465,7 @@ def save_season_stats_to_db(stats_df: pd.DataFrame, season: int = 2026) -> int:
         saved = 0
         skipped_no_match = 0
         skipped_type_mismatch = 0
+        twp_routed = 0
         backfilled_mlb_id = 0
         now = datetime.now(UTC).isoformat()
         for _, row in stats_df.iterrows():
@@ -482,16 +502,41 @@ def save_season_stats_to_db(stats_df: pd.DataFrame, season: int = 2026) -> int:
             # is_hitter sanity guard (2026-04-17): reject cross-type writes
             # so a pitcher-stat row can never clobber a hitter row (or vice
             # versa) — prevented the Bellinger-with-7.2-IP corruption class.
-            cursor.execute("SELECT is_hitter FROM players WHERE player_id = ?", (player_id,))
+            #
+            # TWP relaxation (2026-05-20): two-way players (Ohtani) get routed
+            # through stat-type-specific UPSERTs instead of being rejected.
+            cursor.execute(
+                "SELECT is_hitter, positions FROM players WHERE player_id = ?",
+                (player_id,),
+            )
             player_row = cursor.fetchone()
+            row_dict = row.to_dict()
+            row_is_hitter = 1 if row.get("is_hitter", False) else 0
+
             if player_row is not None:
                 stored_is_hitter = int(player_row[0] or 0)
-                row_is_hitter = 1 if row.get("is_hitter", False) else 0
-                if stored_is_hitter != row_is_hitter:
+                positions = player_row[1] or ""
+
+                if _is_twp(positions):
+                    # Route to the matching stat-type UPSERT — preserves the
+                    # off-type columns from the prior write.
+                    if row_is_hitter:
+                        cols = _HITTING_COLS + _SHARED_COLS
+                        sql = sql_hitting
+                    else:
+                        cols = _PITCHING_COLS + _SHARED_COLS
+                        sql = sql_pitching
+                    twp_routed += 1
+                elif stored_is_hitter != row_is_hitter:
                     skipped_type_mismatch += 1
                     continue
+                else:
+                    cols = _ALL_STAT_COLS
+                    sql = sql_all
+            else:
+                cols = _ALL_STAT_COLS
+                sql = sql_all
 
-            row_dict = row.to_dict()
             values = {c: row_dict.get(c, 0) for c in cols}
             cursor.execute(
                 sql,
@@ -501,11 +546,12 @@ def save_season_stats_to_db(stats_df: pd.DataFrame, season: int = 2026) -> int:
         conn.commit()
     finally:
         conn.close()
-    if skipped_no_match or skipped_type_mismatch or backfilled_mlb_id:
+    if skipped_no_match or skipped_type_mismatch or backfilled_mlb_id or twp_routed:
         logger.info(
-            "season_stats save season=%d: saved=%d, backfilled_mlb_id=%d, no_match=%d, type_mismatch=%d",
+            "season_stats save season=%d: saved=%d, twp_routed=%d, backfilled_mlb_id=%d, no_match=%d, type_mismatch=%d",
             season,
             saved,
+            twp_routed,
             backfilled_mlb_id,
             skipped_no_match,
             skipped_type_mismatch,
