@@ -62,6 +62,23 @@ class TestRefreshLogValidation:
         update_refresh_log_auto("t", 500, expected_min=100, error=True)
         assert get_refresh_status("t")["status"] == "error"
 
+    def test_auto_idempotent_zero_with_zero_expected_is_success(self, isolated_db):
+        """SFH F (2026-05-20): idempotent no-op phases (expected_min=0,
+        rows_written=0) must be labeled "success", not "no_data".
+
+        ``_enrich_pitcher_positions`` runs every bootstrap and writes 0 rows
+        once every pitcher is correctly SP/RP-tagged — that's the steady
+        state, not a failure. Before this fix, refresh_log showed
+        "no_data" + 0 rows, misleading the operator into thinking the
+        upstream returned empty.
+        """
+        from src.database import get_refresh_status, update_refresh_log_auto
+
+        update_refresh_log_auto("t", 0, expected_min=0)
+        assert get_refresh_status("t")["status"] == "success", (
+            "rows_written=0 with expected_min=0 is an idempotent no-op — should be 'success' (0 >= 0), not 'no_data'"
+        )
+
     def test_check_staleness_treats_non_success_as_stale(self, isolated_db):
         from src.database import check_staleness, update_refresh_log
 
