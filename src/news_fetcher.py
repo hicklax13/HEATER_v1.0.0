@@ -78,22 +78,37 @@ def _fuzzy_match_name(
     name_canonical = normalize_player_name(name)
     if name_canonical:
         if canonical_candidates is None:
+            # 2026-05-19 SFH H-2: log when caller forces the slow rebuild
+            # (each call is O(N) over candidates; pre-build for hot loops).
+            logger.debug(
+                "_fuzzy_match_name: rebuilding canonical_candidates for %d entries "
+                "— pass canonical_candidates kwarg for hot loops",
+                len(candidates),
+            )
             canonical_candidates = {
                 normalize_player_name(n): pid for n, pid in candidates.items() if normalize_player_name(n)
             }
         if name_canonical in canonical_candidates:
             return canonical_candidates[name_canonical]
 
-    # Pass 3: SequenceMatcher fallback with prefix pruning (bounded inner loop)
-    if len(name_lower) < 2:
+    # Pass 3: SequenceMatcher fallback with canonical-prefix pruning.
+    # 2026-05-19 SFH H-1: prune by CANONICAL prefix (accent-stripped), not raw
+    # lowercase. raw-lower of "Étienne" is "étienne" (bytes ≠ "etienne"), so
+    # the candidate "Etienne Bernier" would be silently skipped on a typo of
+    # "Étene Bernier" even though Pass 3 should catch it. Use the canonical
+    # prefix so accent/punctuation variants land in the same bucket.
+    canonical_for_prune = name_canonical or name_lower
+    if len(canonical_for_prune) < 2:
+        logger.debug("_fuzzy_match_name: name too short for fuzzy fallback (%r)", name)
         return None
-    prefix = name_lower[:2]
+    prefix = canonical_for_prune[:2]
     best_ratio = 0.0
     best_id: int | None = None
     for cand_name, pid in candidates.items():
-        if not cand_name.startswith(prefix):
+        cand_canonical = normalize_player_name(cand_name) or cand_name
+        if not cand_canonical.startswith(prefix):
             continue
-        ratio = SequenceMatcher(None, name_lower, cand_name).ratio()
+        ratio = SequenceMatcher(None, canonical_for_prune, cand_canonical).ratio()
         if ratio > best_ratio:
             best_ratio = ratio
             best_id = pid
