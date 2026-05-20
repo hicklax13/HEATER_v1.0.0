@@ -405,9 +405,6 @@ def _render_playoff_odds_tab() -> None:
 
     try:
         from src.playoff_sim import (
-            estimate_weeks_remaining,
-        )
-        from src.playoff_sim import (
             simulate_season as _simulate_season_playoffs,
         )
     except ImportError:
@@ -460,7 +457,11 @@ def _render_playoff_odds_tab() -> None:
         st.warning("Need at least 2 teams with roster data.")
         return
 
-    weeks_default = estimate_weeks_remaining()
+    # 2026-05-19 Section 5: use canonical weeks_remaining (replaces
+    # estimate_weeks_remaining from playoff_sim — same semantic, single source).
+    from src.league_rules import weeks_remaining as _weeks_remaining
+
+    weeks_default = _weeks_remaining()
     ctrl1, ctrl2, _ctrl3 = st.columns([1, 1, 2])
     with ctrl1:
         weeks_remaining_p = st.number_input(

@@ -924,9 +924,10 @@ def _render_value_chart_tab(pool, config, all_team_totals, user_team_name) -> No
 
     2026-05-17 Section 5: merged from the standalone Trade_Values page.
     """
-    import math
-    from datetime import UTC, datetime
 
+    # 2026-05-19 Section 5: use canonical weeks_remaining (replaces inline
+    # season_end / now arithmetic + LeagueConfig.season_weeks clamp).
+    from src.league_rules import weeks_remaining as _weeks_remaining
     from src.trade_value import (
         TIER_COLORS,
         compute_contextual_values,
@@ -935,11 +936,7 @@ def _render_value_chart_tab(pool, config, all_team_totals, user_team_name) -> No
     )
     from src.ui_shared import METRIC_TOOLTIPS, render_styled_table
 
-    # Weeks remaining (canonical 26-week season).
-    season_end = datetime(2026, 10, 1, tzinfo=UTC)
-    now = datetime.now(UTC)
-    weeks_remaining = max(1, math.ceil((season_end - now).days / 7))
-    weeks_remaining = min(weeks_remaining, config.season_weeks)
+    weeks_remaining = _weeks_remaining()
 
     user_totals = all_team_totals.get(user_team_name, {}) if user_team_name else {}
     yds_local = get_yahoo_data_service()
