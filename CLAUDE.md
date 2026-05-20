@@ -16,7 +16,7 @@ The codebase is organized around 7 feature surfaces:
 
 ## Local Environment
 
-- **Project root (local):** `C:\Users\conno\Code\HEATER_v1.0.0`
+- **Project root (local):** `C:\Users\conno\Code\HEATER_v1.0.1` (note: local folder is `v1.0.1`; GitHub repo NAME remains `HEATER_v1.0.0`).
 - **Relocated 2026-05-17** from `C:\Users\conno\OneDrive\Desktop\HEATER_v1.0.0`. OneDrive's Cloud Files API conflicts with Cowork's FUSE/virtiofs mount layer (anthropics/claude-code issues #25293 and #40973), corrupts SQLite WAL files when streamlit runs locally, locks `.venv` operations, and conflicts with `.git` writes. Never store this project under OneDrive, Dropbox, iCloud, or any cloud-sync directory.
 - **Local Python:** 3.14 preferred, 3.12 acceptable. Recreate venv with `py -3.14 -m venv .venv` (or `py -3.12 -m venv .venv`).
 - **Yahoo OAuth deps:** `yfpy` and `streamlit-oauth` must be installed with `--no-deps` after `pip install -r requirements.txt`, per the comment in `requirements.txt` (python-dotenv pin conflict on 3.14).
@@ -521,7 +521,7 @@ The data + analytics pipeline has been audited across 12 waves (April–May 2026
 
 ## Resume Checklist (New Session)
 
-1. Confirm shell is in `C:\Users\conno\Code\HEATER_v1.0.0` (NOT the deprecated `OneDrive\Desktop` path).
+1. Confirm shell is in `C:\Users\conno\Code\HEATER_v1.0.1` (NOT the deprecated `OneDrive\Desktop` path; note the local folder is `v1.0.1` while GitHub repo NAME remains `HEATER_v1.0.0`).
 2. Read `CLAUDE.md` (this file)
 3. Check git status: `git status`, `git log --oneline -10`
 4. Run `python -m pytest --ignore=tests/test_cheat_sheet.py -x -q` to verify tests pass
