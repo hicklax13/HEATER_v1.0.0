@@ -2721,6 +2721,7 @@ def _bootstrap_injury_writeback(progress: BootstrapProgress) -> str:
     """Phase 33: Consolidate Yahoo + ESPN injuries into players.is_injured."""
     progress.phase = "Injury Writeback"
     progress.detail = "Updating player injury flags..."
+    yahoo_skipped = False
     try:
         from src.database import get_connection, update_refresh_log_auto
 
@@ -2734,10 +2735,15 @@ def _bootstrap_injury_writeback(progress: BootstrapProgress) -> str:
                 "SELECT COUNT(*) FROM league_rosters WHERE status IN ('IL10','IL15','IL60','DTD')"
             ).fetchone()[0]
             if lr_count == 0:
+                # 2026-05-20 SFH B: mark the Yahoo-half as skipped so the
+                # message reflects what actually happened. ESPN section
+                # below still runs and provides the injured_count basis.
                 logger.warning(
-                    "Injury writeback: league_rosters has 0 IL-status rows; skipping reset to preserve existing flags"
+                    "Injury writeback: league_rosters has 0 IL-status rows; "
+                    "skipping Yahoo reset to preserve existing flags"
                 )
                 conn.commit()
+                yahoo_skipped = True
             else:
                 # Step 1: Reset all injury flags
                 conn.execute("UPDATE players SET is_injured = 0, injury_note = NULL")
@@ -2767,13 +2773,17 @@ def _bootstrap_injury_writeback(progress: BootstrapProgress) -> str:
         finally:
             conn.close()
 
+        # 2026-05-20 SFH B: surface Yahoo-skipped state in the message so the
+        # operator can tell "Yahoo had no IL rows" (preserved-flags path) from
+        # "full reset + Yahoo+ESPN ran".
+        yahoo_note = " [yahoo skipped: rosters empty]" if yahoo_skipped else ""
         update_refresh_log_auto(
             "injury_writeback",
             injured_count,
             expected_min=10,
-            message=f"{injured_count} players flagged injured (ESPN: {espn_count})",
+            message=f"{injured_count} players flagged injured (ESPN: {espn_count}){yahoo_note}",
         )
-        return f"Flagged {injured_count} players as injured"
+        return f"Flagged {injured_count} players as injured{yahoo_note}"
     except Exception as exc:
         logger.exception("Injury writeback failed: %s", exc)
         from src.database import update_refresh_log
