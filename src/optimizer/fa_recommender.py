@@ -191,15 +191,74 @@ def _score_drop_candidates(ctx: OptimizerDataContext) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 
+_POSITIONAL_SCARCITY_MAX_BOOST = 0.25  # cap at +25% (very scarce position)
+
+
+def _positional_scarcity_factor(positions: str, replacement_levels: dict) -> float:
+    """Compute a multiplier reflecting how scarce a player's position is.
+
+    FA-engine overhaul P1 PR3 (2026-05-20): industry consensus (Razzball
+    Player Rater FAQ, FanGraphs auction calculator methodology) values
+    players partially by replacement-level scarcity at their position.
+    A top-2 catcher is worth more than a top-10 OF with equivalent raw
+    SGP because the FA pool of replaceable catchers is much thinner.
+
+    Computation: for each eligible position, derive a per-position
+    scarcity score from the dynamic replacement-level pool. Use the
+    SCARCEST position the player qualifies at (best for the user) and
+    return ``1.0 + max(0, (median_repl - position_repl) / median_repl)``
+    bounded by ``_POSITIONAL_SCARCITY_MAX_BOOST``.
+
+    Returns 1.0 (neutral) when no replacement-level data is available,
+    or when the player has no usable positions — fail-safe default.
+    """
+    if not positions or not replacement_levels:
+        return 1.0
+    pos_list = [p.strip() for p in str(positions).split(",") if p.strip()]
+    if not pos_list:
+        return 1.0
+    valid = [p for p in pos_list if p in replacement_levels]
+    if not valid:
+        return 1.0
+    # Replacement level (lower = scarcer position). Pick the scarcest
+    # position the player qualifies at — best-case scarcity for them.
+    best_repl = min(replacement_levels.get(p, 0.0) for p in valid)
+    repl_values = [v for v in replacement_levels.values() if v is not None]
+    if not repl_values:
+        return 1.0
+    median_repl = sorted(repl_values)[len(repl_values) // 2]
+    if median_repl <= 0:
+        return 1.0
+    # Positive ratio when this position has LOWER replacement (more scarce)
+    # than the league median. Capped at the max boost.
+    scarcity_ratio = (median_repl - best_repl) / median_repl
+    return 1.0 + max(0.0, min(_POSITIONAL_SCARCITY_MAX_BOOST, scarcity_ratio))
+
+
 def _score_fa_candidates(ctx: OptimizerDataContext) -> list[dict]:
     """Score free agents by composite value.
 
     Filters out unhealthy players (health_score < 0.65 or IL/DTD/NA status).
-    Scores by: base value, urgency boost, ownership trend, sustainability,
-    and floor preference.
+    Scores by: base value × positional_scarcity_factor, urgency boost,
+    ownership trend, sustainability, and floor preference.
     """
     if ctx.free_agents.empty:
         return []
+
+    # FA-engine overhaul P1 PR3 (2026-05-20): compute replacement levels
+    # ONCE for the FA pool. Positional scarcity factor multiplies each
+    # FA's base_value below. Cached per recommendation call rather than
+    # added to OptimizerDataContext to keep the surface area minimal —
+    # this can be hoisted into ctx in a follow-up PR if other callers
+    # need it.
+    _replacement_levels: dict[str, float] = {}
+    try:
+        from src.valuation import SGPCalculator, compute_replacement_levels
+
+        _sgp_calc_for_repl = SGPCalculator(ctx.config)
+        _replacement_levels = compute_replacement_levels(ctx.player_pool, ctx.config, _sgp_calc_for_repl)
+    except Exception:
+        logger.debug("Could not compute replacement_levels — positional scarcity factor disabled this call")
 
     candidates: list[dict] = []
 
@@ -236,8 +295,12 @@ def _score_fa_candidates(ctx: OptimizerDataContext) -> list[dict]:
         health = ctx.health_scores.get(fa_id, 1.0)
         fa_is_il = status in _IL_EXCLUDE_STATUSES or health < 0.65
 
-        # Base value
+        # Base value × positional scarcity (FA-engine overhaul P1 PR3).
+        # Top-2 catcher with raw SGP X is more valuable to the team than
+        # the 25th-best OF with raw SGP X — the catcher pool is shallow.
         base_value = _compute_base_value(fa_data, ctx)
+        _scarcity_mult = _positional_scarcity_factor(str(fa_data.get("positions", "")), _replacement_levels)
+        base_value *= _scarcity_mult
 
         # Urgency boost: sum category weights for categories this FA contributes to
         urgency_boost = _compute_urgency_boost(fa_data, ctx)

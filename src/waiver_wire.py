@@ -524,7 +524,25 @@ def compute_add_drop_recommendations(
 ) -> list[dict]:
     """Compute recommended add/drop pairs sorted by net swap value.
 
-    Pipeline:
+    .. deprecated:: 2026-05-20
+        This function has been superseded by
+        :func:`src.optimizer.fa_recommender.recommend_fa_moves`. The newer
+        engine has opponent context (urgency weights from current matchup),
+        IL stash protection wired into the scoring (not just UI), news-warning
+        surfacing, and slot-aware drop selection — none of which exist here.
+
+        Today's Crochet/Kirk bad-recommendation bug traced to this engine
+        zeroing out IL players in ``_roster_category_totals`` (fixed in PR #90
+        at the engine layer) and not factoring opponent category needs. The
+        Free Agents page (``pages/14_Free_Agents.py``) now calls
+        ``recommend_fa_moves`` first and falls back to this function only on
+        exception.
+
+        This function will be removed in the next audit sweep cycle. New
+        callers should use ``recommend_fa_moves(ctx)`` with an
+        ``OptimizerDataContext`` built via ``build_optimizer_context``.
+
+    Pipeline (legacy):
       1. Get FA pool and compute raw marginal SGP rankings
       2. Pre-filter to top N FAs by marginal value
       3. Score drop candidates by removal cost
@@ -538,6 +556,16 @@ def compute_add_drop_recommendations(
       net_sgp_delta, category_impact, sustainability_score,
       reasoning (list of strings)
     """
+    import warnings
+
+    warnings.warn(
+        "compute_add_drop_recommendations is deprecated and will be removed in the next sweep. "
+        "Use src.optimizer.fa_recommender.recommend_fa_moves(ctx) instead — see "
+        "docs/2026-05-20-fa-engine-overhaul-plan.md.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+
     if weeks_remaining is None:
         from datetime import datetime, timedelta, timezone
 
