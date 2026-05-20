@@ -474,6 +474,84 @@ with main:
 
     filtered_recs = _apply_pos_filter_recs(recommendations, pos_filter)
 
+    # SFH FA-IL (2026-05-20): unified IL-stash protection applied BEFORE both
+    # the top "Recommended Adds/Drops" table and the bottom "Recommended Drops"
+    # table. The previous behavior only filtered in the bottom section's render
+    # loop, leaving the top headline ("Top pickup: Add X / drop Y") and the
+    # adds/drops table free to recommend dropping IL players the user shouldn't
+    # actually lose to waivers — most damagingly, top-30 SPs on IL15 like
+    # Garrett Crochet were appearing as drop candidates in the top table.
+    #
+    # Protection covers three categories of player:
+    #   1. Hardcoded IL_STASH_NAMES (Bieber, Strider — manually curated)
+    #   2. Any player whose injury news mentions "10-day", "day-to-day",
+    #      "15-day", or "60-day" IL — the previous code only matched
+    #      "10-day" / "day-to-day", silently letting IL15 / IL60 players
+    #      through.
+    #   3. Any rostered player whose league_rosters.status is in the
+    #      IL family (IL10 / IL15 / IL60 / DTD / IL) — direct authoritative
+    #      Yahoo status, bypassing the news-string match entirely.
+    #
+    # NOTE: This is a UI-layer filter. The deeper bug — that
+    # _roster_category_totals zeros out IL players in src/in_season.py:42-76,
+    # making dropping an IL ace look "free" in the SGP math — is a separate
+    # engine-level fix tracked in a follow-up PR.
+    protected_drop_names: set[str] = set(IL_STASH_NAMES)
+
+    # (2) Dynamic IL news-string match: expand the substring set.
+    try:
+        _il_conn = get_connection()
+        try:
+            _il_news = pd.read_sql_query(
+                "SELECT player_name, il_status FROM player_news WHERE news_type = 'injury' ORDER BY fetched_at DESC",
+                _il_conn,
+            )
+        finally:
+            _il_conn.close()
+        if not _il_news.empty:
+            _IL_PROTECT_SUBSTRINGS = ("10-day", "15-day", "60-day", "day-to-day")
+            for _, _inj in _il_news.iterrows():
+                _il_st = str(_inj.get("il_status", "") or "").lower()
+                if any(sub in _il_st for sub in _IL_PROTECT_SUBSTRINGS):
+                    _pname = str(_inj.get("player_name", ""))
+                    if _pname:
+                        protected_drop_names.add(_pname)
+    except Exception:
+        pass  # Non-fatal: fall back to the hardcoded + roster-status checks.
+
+    # (3) Authoritative Yahoo roster status check: anyone whose
+    # league_rosters.status is in the IL family gets protected by name.
+    try:
+        _lr_conn = get_connection()
+        try:
+            _IL_STATUSES_SQL = ("IL10", "IL15", "IL60", "IL", "DTD")
+            _ph = ",".join("?" * len(_IL_STATUSES_SQL))
+            _il_rostered = pd.read_sql_query(
+                f"SELECT p.name FROM league_rosters lr "
+                f"JOIN players p ON p.player_id = lr.player_id "
+                f"WHERE UPPER(lr.status) IN ({_ph})",
+                _lr_conn,
+                params=_IL_STATUSES_SQL,
+            )
+        finally:
+            _lr_conn.close()
+        for _n in _il_rostered.get("name", []):
+            if _n:
+                protected_drop_names.add(str(_n))
+    except Exception:
+        pass
+
+    # Apply the unified filter to filtered_recs so BOTH the top and bottom
+    # sections see the same protected-drops list.
+    _pre_il_filter_count = len(filtered_recs)
+    filtered_recs = [r for r in filtered_recs if r.get("drop_name", "") not in protected_drop_names]
+    _il_filtered_count = _pre_il_filter_count - len(filtered_recs)
+    if _il_filtered_count > 0:
+        st.caption(
+            f"{_il_filtered_count} swap recommendation(s) hidden — drop candidate was "
+            f"on IL (10-day / 15-day / 60-day / DTD) and protected from being dropped."
+        )
+
     if not filtered_recs:
         if not WAIVER_WIRE_AVAILABLE:
             st.error("The waiver wire module could not be loaded. Ensure all required dependencies are installed.")
