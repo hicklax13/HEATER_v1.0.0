@@ -916,28 +916,9 @@ def refresh_ecr_consensus(force: bool = False) -> pd.DataFrame:
         source_fetchers.append(("fangraphs", _fetch_fg_adp))
     except ImportError:
         logger.debug("FanGraphs ADP source unavailable")
-    # REMOVED: Self-referential input creates circular confirmation bias (ROADMAP A4)
-    # HEATER's own SGP rank was source #7 — the model's output fed back into its
-    # own valuation. Trimmed Borda still works fine with 6 sources (requires >=4).
-    # try:
-    #     from src.database import load_player_pool
-    #     from src.valuation import LeagueConfig, SGPCalculator
-    #
-    #     def _fetch_heater_sgp():
-    #         pp = load_player_pool()
-    #         if pp.empty:
-    #             return pd.DataFrame()
-    #         lc = LeagueConfig()
-    #         sgp = SGPCalculator(lc)
-    #         pp["sgp"] = pp.apply(lambda r: sgp.total_sgp(r), axis=1)
-    #         ranked = pp.nlargest(300, "sgp")[["player_id", "name", "sgp"]].reset_index(drop=True)
-    #         ranked["rank"] = range(1, len(ranked) + 1)
-    #         ranked["heater_sgp_rank"] = ranked["rank"]
-    #         return ranked
-    #
-    #     source_fetchers.append(("heater", _fetch_heater_sgp))
-    # except ImportError:
-    #     logger.debug("HEATER SGP source unavailable")
+    # ROADMAP A4: HEATER's own SGP rank was previously source #7, creating
+    # self-referential / circular-confirmation bias. Removed; trimmed Borda
+    # still requires >=4 of the 6 remaining sources to produce consensus.
 
     for name, fetch_fn in source_fetchers:
         try:
