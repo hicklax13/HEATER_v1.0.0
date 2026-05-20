@@ -141,6 +141,13 @@ class TestRollingStats:
             # Use relative dates so the 7-day window always includes all 5 games
             from datetime import UTC, datetime, timedelta
 
+            # Clean any pre-existing rows for player_id=200 so this test owns its
+            # own data. The previous INSERT OR IGNORE pattern silently skipped
+            # when the production game_logs table already had rows at the test's
+            # relative-today dates — making test_compute_total fail with the
+            # actual production stats instead of the test fixture's values.
+            conn.execute("DELETE FROM game_logs WHERE player_id = 200")
+
             today = datetime.now(UTC).strftime("%Y-%m-%d")
             d1 = (datetime.now(UTC) - timedelta(days=1)).strftime("%Y-%m-%d")
             d2 = (datetime.now(UTC) - timedelta(days=2)).strftime("%Y-%m-%d")
@@ -153,14 +160,25 @@ class TestRollingStats:
                 (200, d3, 2026, 5, 5, 3, 2, 2, 3, 0, 0, 0, 0, 0.0, 0, 0, 0, 0, 0, 0, 0),
                 (200, d4, 2026, 4, 4, 1, 0, 0, 1, 0, 0, 0, 0, 0.0, 0, 0, 0, 0, 0, 0, 0),
             ]
+            # INSERT OR REPLACE (not IGNORE) so the test's data wins if a
+            # later production row at the same (player_id, game_date) exists.
             for g in games:
                 conn.execute(
-                    "INSERT OR IGNORE INTO game_logs "
+                    "INSERT OR REPLACE INTO game_logs "
                     "(player_id, game_date, season, pa, ab, h, r, hr, rbi, sb, bb, hbp, sf, "
                     "ip, w, l, sv, k, er, bb_allowed, h_allowed) "
                     "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     g,
                 )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def teardown_method(self):
+        """Clean up so subsequent test runs aren't polluted."""
+        conn = get_connection()
+        try:
+            conn.execute("DELETE FROM game_logs WHERE player_id = 200")
             conn.commit()
         finally:
             conn.close()

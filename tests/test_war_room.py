@@ -451,9 +451,16 @@ class TestComputeHotColdReport:
         assert len(cold) >= 1
         assert cold[0]["deviation_score"] < 0
 
+    @patch("src.player_databank.compute_rolling_stats", return_value=pd.DataFrame())
     @patch("src.game_day.get_player_recent_form_cached")
-    def test_hot_pitcher_detected(self, mock_form):
-        """A pitcher with L7 ERA much lower than season should be marked hot."""
+    def test_hot_pitcher_detected(self, mock_form, _mock_rolling):
+        """A pitcher with L7 ERA much lower than season should be marked hot.
+
+        Patches `compute_rolling_stats` to return empty so the function falls
+        through to the mocked `get_player_recent_form_cached` instead of
+        reading whatever happens to be in the production game_logs table
+        for Cole's player_id.
+        """
 
         def _form_side_effect(mlb_id):
             if mlb_id == 543037:  # Cole
@@ -469,9 +476,14 @@ class TestComputeHotColdReport:
         hot_pitchers = [e for e in result if e["status"] == "hot" and e["player_type"] == "pitcher"]
         assert len(hot_pitchers) >= 1
 
+    @patch("src.player_databank.compute_rolling_stats", return_value=pd.DataFrame())
     @patch("src.game_day.get_player_recent_form_cached")
-    def test_cold_pitcher_detected(self, mock_form):
-        """A pitcher with L7 ERA much higher than season should be marked cold."""
+    def test_cold_pitcher_detected(self, mock_form, _mock_rolling):
+        """A pitcher with L7 ERA much higher than season should be marked cold.
+
+        Same isolation strategy as test_hot_pitcher_detected — patch the DB
+        batch path so the explicit mock data drives the result.
+        """
 
         def _form_side_effect(mlb_id):
             if mlb_id == 543037:  # Cole
@@ -500,9 +512,15 @@ class TestComputeHotColdReport:
         il_entries = [e for e in result if e["player"] == "IL Player"]
         assert len(il_entries) == 0
 
+    @patch("src.player_databank.compute_rolling_stats", return_value=pd.DataFrame())
     @patch("src.game_day.get_player_recent_form_cached")
-    def test_too_few_games_skipped(self, mock_form):
-        """Players with fewer than 3 L7 games should be skipped."""
+    def test_too_few_games_skipped(self, mock_form, _mock_rolling):
+        """Players with fewer than 3 L7 games should be skipped.
+
+        Patches the DB batch path so the mocked L7 with games=2 is the only
+        signal (otherwise production game_logs may return players with >3
+        games, defeating the test's intent).
+        """
         mock_form.return_value = {
             "player_type": "hitter",
             "l7": {"games": 2, "avg": 0.500, "hr": 3, "rbi": 8, "sb": 2, "r": 4},
