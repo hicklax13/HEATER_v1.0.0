@@ -1341,6 +1341,91 @@ class YahooFantasyClient:
     # Draft
     # ------------------------------------------------------------------
 
+    def resolve_player_names_by_keys(self, player_keys: list[str]) -> dict[str, str]:
+        """Batch-resolve Yahoo player_keys to player full names.
+
+        SFH L8 (2026-05-20): yfpy's get_league_draft_results() returns
+        pick entries with a player_key but does NOT expand the player
+        resource — so player_name comes back empty and the get_draft_results
+        loop falls back to "Player {player_key}" placeholders for ~70% of
+        rounds 1-3 picks. Those placeholders defeat downstream player_id
+        resolution (no MLB player is named "Player 469.p.10480").
+
+        This helper makes ONE Yahoo Players API call covering up to 25
+        player_keys at a time (Yahoo's per-batch cap) and returns
+        {player_key: name} for resolved entries. Unresolved keys are
+        simply absent from the dict.
+
+        Args:
+            player_keys: list of Yahoo keys like "469.p.10480".
+
+        Returns:
+            dict[str, str] mapping player_key → full name. Empty on
+            auth failure or all-batches-failed.
+        """
+        if not player_keys:
+            return {}
+        if not self._ensure_auth():
+            return {}
+
+        token_dict = getattr(self._query, "_yahoo_access_token_dict", None)
+        if not token_dict:
+            try:
+                import json as _json
+
+                token_dict = _json.loads((_AUTH_DIR / "yahoo_token.json").read_text())
+            except Exception:
+                logger.warning("Could not get access token for player-key resolution.")
+                return {}
+
+        access_token = token_dict.get("access_token", "")
+        if not access_token:
+            return {}
+
+        headers = {"Authorization": f"Bearer {access_token}"}
+        resolved: dict[str, str] = {}
+
+        # Yahoo's player_keys filter accepts up to 25 keys per call.
+        batch_size = 25
+        for i in range(0, len(player_keys), batch_size):
+            batch = player_keys[i : i + batch_size]
+            keys_str = ",".join(batch)
+            url = f"https://fantasysports.yahooapis.com/fantasy/v2/players;player_keys={keys_str}?format=json"
+            try:
+                _rate_limit()
+                resp = _request_with_backoff(url, headers=headers, timeout=15)
+                data = resp.json()
+
+                # Yahoo's response shape: fantasy_content.players is a dict
+                # keyed by stringified index ("0", "1", ...) plus a "count" key.
+                players_obj = data.get("fantasy_content", {}).get("players", {})
+                count = players_obj.get("count", 0) if isinstance(players_obj, dict) else 0
+                for j in range(count):
+                    entry = players_obj.get(str(j), {}).get("player", [])
+                    if not entry or not isinstance(entry, list):
+                        continue
+                    # entry[0] is a list of {key: value} dicts for player attrs.
+                    info = entry[0] if isinstance(entry[0], list) else []
+                    pkey = ""
+                    name = ""
+                    for item in info:
+                        if not isinstance(item, dict):
+                            continue
+                        if "player_key" in item:
+                            pkey = str(item["player_key"])
+                        elif "name" in item and isinstance(item["name"], dict):
+                            name = str(item["name"].get("full", "")).strip()
+                    if pkey and name:
+                        resolved[pkey] = name
+            except Exception:
+                logger.warning(
+                    "Yahoo player-key batch resolution failed for batch starting at %d",
+                    i,
+                    exc_info=True,
+                )
+
+        return resolved
+
     def get_draft_results(self) -> pd.DataFrame:
         """Get draft results for opponent modeling.
 
@@ -1371,8 +1456,10 @@ class YahooFantasyClient:
                         player_name = self._safe_str(player)
 
                 player_key = str(self._safe_attr(pick_data, "player_key", ""))
-                if not player_name:
-                    player_name = f"Player {player_key}"
+                # SFH L8 (2026-05-20): leave player_name EMPTY when extraction
+                # failed (was: f"Player {player_key}" placeholder that defeated
+                # downstream name-based player_id resolution). The empty value
+                # is the signal for the post-loop batch-resolve step below.
 
                 rows.append(
                     {
@@ -1386,8 +1473,35 @@ class YahooFantasyClient:
                 )
 
             df = pd.DataFrame(rows)
-            if not df.empty:
-                df = df.sort_values("pick_number").reset_index(drop=True)
+            if df.empty:
+                return df
+
+            # SFH L8 (2026-05-20): batch-resolve names for picks where yfpy
+            # didn't expand the player resource. Without this, ~70% of rounds
+            # 1-3 picks come back as "Player 469.p.10480" placeholders and
+            # _bootstrap_draft_results fails to flag them as undroppable.
+            unresolved_keys = [
+                str(r["player_id"]) for _, r in df.iterrows() if (not r["player_name"]) and r["player_id"]
+            ]
+            if unresolved_keys:
+                resolved = self.resolve_player_names_by_keys(unresolved_keys)
+                if resolved:
+                    df["player_name"] = df.apply(
+                        lambda r: resolved.get(str(r["player_id"]), r["player_name"]) or r["player_name"],
+                        axis=1,
+                    )
+                    logger.info(
+                        "Resolved %d/%d previously-placeholder draft-pick names via Yahoo batch lookup",
+                        sum(1 for k in unresolved_keys if k in resolved),
+                        len(unresolved_keys),
+                    )
+
+            # For any STILL-unresolved entries, restore the legacy placeholder
+            # string so downstream consumers (e.g., league_draft_picks INSERT
+            # which requires NOT NULL player_name) don't crash on empty.
+            df["player_name"] = df.apply(lambda r: r["player_name"] or f"Player {r['player_id']}", axis=1)
+
+            df = df.sort_values("pick_number").reset_index(drop=True)
             return df
         except Exception:
             logger.exception("Failed to fetch draft results.")
