@@ -79,12 +79,20 @@ class TestRefreshLogValidation:
             "rows_written=0 with expected_min=0 is an idempotent no-op — should be 'success' (0 >= 0), not 'no_data'"
         )
 
-    def test_check_staleness_treats_non_success_as_stale(self, isolated_db):
+    def test_check_staleness_treats_hard_failures_as_stale(self, isolated_db):
+        """SFH M-3 (2026-05-20): only hard failures (error / unknown) force
+        re-fetch. partial / no_data / cached / skipped honor TTL —
+        force-refreshing them on every bootstrap burned rate-limit budget
+        for no benefit (see test_sfh_m3_partial_cached_reads.py for the
+        full TTL-respecting behavior).
+        """
         from src.database import check_staleness, update_refresh_log
 
-        for stale_status in ("no_data", "partial", "error", "unknown"):
+        for stale_status in ("error", "unknown"):
             update_refresh_log("t", stale_status)
-            assert check_staleness("t", max_age_hours=24) is True, f"status={stale_status} should be treated as stale"
+            assert check_staleness("t", max_age_hours=24) is True, (
+                f"status={stale_status} should be treated as stale"
+            )
 
     def test_check_staleness_fresh_success_not_stale(self, isolated_db):
         from src.database import check_staleness, update_refresh_log
