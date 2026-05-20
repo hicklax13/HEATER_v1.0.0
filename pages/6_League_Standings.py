@@ -73,8 +73,12 @@ _PLAYOFF_SPOTS = 4
 
 _HIT_CATS = {"R", "HR", "RBI", "SB", "AVG", "OBP"}
 _PIT_CATS = {"W", "L", "SV", "K", "ERA", "WHIP"}
-_RATE_STATS = {"AVG", "OBP", "ERA", "WHIP"}
-_INVERSE_CATS = {"L", "ERA", "WHIP"}
+# 2026-05-19 D6: snapshot rate_stats from LeagueConfig.
+# 2026-05-19 D4: snapshot inverse_stats from LeagueConfig.
+from src.valuation import LeagueConfig as _LC_FOR_CATS  # noqa: E402
+
+_RATE_STATS = set(_LC_FOR_CATS().rate_stats)
+_INVERSE_CATS = set(_LC_FOR_CATS().inverse_stats)
 _CAT_ORDER = ["R", "HR", "RBI", "SB", "AVG", "OBP", "W", "L", "SV", "K", "ERA", "WHIP"]
 
 

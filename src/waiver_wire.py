@@ -1063,8 +1063,11 @@ def _generate_reasoning(
     """Generate human-readable reasoning for an add/drop recommendation."""
     reasons = []
 
-    # Best category impact — attribute to the correct side of the swap
-    inverse_cats = config.inverse_stats if config else {"L", "ERA", "WHIP"}
+    # Best category impact — attribute to the correct side of the swap.
+    # 2026-05-19 D4: LeagueConfig is always constructible; fallback simplified.
+    from src.valuation import LeagueConfig
+
+    inverse_cats = (config or LeagueConfig()).inverse_stats
     deltas = swap["category_deltas"]
     if deltas:
         best_cat = max(deltas, key=lambda c: deltas[c])

@@ -126,7 +126,11 @@ ALL_CATEGORIES_UPPER: list[str] = [
     "ERA",
     "WHIP",
 ]
-INVERSE_CATS_UPPER: set[str] = {"L", "ERA", "WHIP"}
+# 2026-05-19 D4: snapshot from LeagueConfig at import (value-only — not a
+# _LC singleton). LeagueConfig.inverse_stats is a hardcoded property; this
+# captures its value once so structural-invariant tests against literal
+# {L, ERA, WHIP} sets stay green.
+INVERSE_CATS_UPPER: set[str] = set(LeagueConfig().inverse_stats)
 
 
 # ── Pool-mask helpers ──────────────────────────────────────────────

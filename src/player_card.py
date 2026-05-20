@@ -176,8 +176,11 @@ def _compute_radar_percentiles(
         except (ValueError, TypeError):
             player_val = 0.0
 
-        # For inverse stats (ERA, WHIP, L), lower is better
-        inverse = cat in {"ERA", "WHIP", "L"}
+        # For inverse stats (LeagueConfig.inverse_stats), lower is better.
+        # 2026-05-19 D4: use LeagueConfig snapshot — was {"ERA", "WHIP", "L"}.
+        from src.valuation import LeagueConfig
+
+        inverse = cat in LeagueConfig().inverse_stats
 
         # Player percentile vs MLB
         if len(mlb_vals) > 0:

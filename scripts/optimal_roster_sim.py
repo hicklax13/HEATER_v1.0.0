@@ -4,12 +4,14 @@ import io
 import sys
 
 from src.database import get_connection
+from src.valuation import LeagueConfig
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 conn = get_connection()
 
 scoring_cats = ["R", "HR", "RBI", "SB", "AVG", "OBP", "W", "L", "SV", "K", "ERA", "WHIP"]
-inverse_cats = {"L", "ERA", "WHIP"}
+# 2026-05-19 D4: snapshot from LeagueConfig — was {"L", "ERA", "WHIP"} literal.
+inverse_cats = set(LeagueConfig().inverse_stats)
 
 # 1. Get EVERY player that was ever on Team Hickey's roster
 # Original draft picks (17 still + 6 dropped = 23)

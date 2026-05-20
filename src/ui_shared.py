@@ -2265,9 +2265,12 @@ def build_category_heatmap_html(user_totals: dict, all_totals: list[dict]) -> st
         # Compute rank (1 = best)
         if cat in inverse_cats:
             # Lower is better — count teams with strictly lower value
-            # But if user has 0 IP, pitching inverse stats (ERA, WHIP, L) are
-            # meaningless — treat as worst rank instead of best.
-            pitching_inverse = {"ERA", "WHIP", "L"}
+            # But if user has 0 IP, pitching inverse stats are meaningless
+            # — treat as worst rank instead of best.
+            # 2026-05-19 D4: use LeagueConfig.inverse_stats — was {"ERA", "WHIP", "L"}.
+            from src.valuation import LeagueConfig
+
+            pitching_inverse = LeagueConfig().inverse_stats
             if cat in pitching_inverse and user_totals.get("IP", user_totals.get("ip", None)) == 0:
                 rank = num_teams  # worst rank
             else:
