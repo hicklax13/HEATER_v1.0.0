@@ -174,15 +174,6 @@ class TestRollingStats:
         finally:
             conn.close()
 
-    def teardown_method(self):
-        """Clean up so subsequent test runs aren't polluted."""
-        conn = get_connection()
-        try:
-            conn.execute("DELETE FROM game_logs WHERE player_id = 200")
-            conn.commit()
-        finally:
-            conn.close()
-
     def test_compute_total(self):
         df = compute_rolling_stats([200], days=7, stat_type="total")
         assert len(df) == 1
