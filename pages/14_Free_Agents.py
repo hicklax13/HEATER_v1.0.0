@@ -245,23 +245,64 @@ if fa_pool.empty:
 # ── Compute add/drop recommendations ─────────────────────────────────────────
 
 recommendations: list[dict] = []
-if WAIVER_WIRE_AVAILABLE:
-    try:
-        from src.validation.dynamic_context import compute_weeks_remaining
+# FA-engine overhaul P1 PR1 (2026-05-20): switched from the old
+# `waiver_wire.compute_add_drop_recommendations` to the newer
+# matchup-aware `fa_recommender.recommend_fa_moves`. The newer engine
+# has opponent context (urgency weights from the current matchup), proper
+# IL filtering (il_stash_ids built from authoritative roster status),
+# news-warning surfacing, and slot-aware drop selection — all missing
+# from the older engine. See docs/2026-05-20-fa-engine-overhaul-plan.md.
+#
+# Output-shape translation: recommend_fa_moves returns dicts with
+# add_id / drop_id / sustainability keys. The FA page's rendering code
+# and the IL-stash filter (PR #89) expect add_player_id / drop_player_id
+# / sustainability_score, so we rename via a small adapter.
+try:
+    from src.optimizer.fa_recommender import recommend_fa_moves
+    from src.optimizer.shared_data_layer import build_optimizer_context
+    from src.validation.dynamic_context import compute_weeks_remaining
 
-        recommendations = compute_add_drop_recommendations(
-            user_roster_ids=user_roster_ids,
-            player_pool=pool,
-            config=config,
-            weeks_remaining=compute_weeks_remaining(),
-            max_moves=5,
-            max_fa_candidates=100,
-            max_drop_candidates=8,
-            user_team_name=user_team_name,
-        )
-    except Exception as e:
-        logger.exception("Failed to compute waiver wire recommendations")
-        recommendations = []
+    _ctx_fa = build_optimizer_context(
+        scope="rest_of_season",
+        yds=yds,
+        config=config,
+        weeks_remaining=compute_weeks_remaining(),
+        user_team_name=user_team_name,
+        roster=rosters,
+    )
+    _raw_moves = recommend_fa_moves(_ctx_fa, max_moves=5)
+    recommendations = [
+        {
+            **m,
+            "add_player_id": m.get("add_id"),
+            "drop_player_id": m.get("drop_id"),
+            "sustainability_score": m.get("sustainability", 0.5),
+        }
+        for m in _raw_moves
+    ]
+except Exception:
+    logger.exception("Failed to compute FA recommendations via fa_recommender")
+    # Fallback to the legacy waiver_wire engine so the page degrades
+    # gracefully if the newer engine throws (missing deps, malformed
+    # context, etc.). User-visible result is the same UI, just without
+    # the newer engine's improvements until the next page load.
+    if WAIVER_WIRE_AVAILABLE:
+        try:
+            from src.validation.dynamic_context import compute_weeks_remaining
+
+            recommendations = compute_add_drop_recommendations(
+                user_roster_ids=user_roster_ids,
+                player_pool=pool,
+                config=config,
+                weeks_remaining=compute_weeks_remaining(),
+                max_moves=5,
+                max_fa_candidates=100,
+                max_drop_candidates=8,
+                user_team_name=user_team_name,
+            )
+        except Exception:
+            logger.exception("Legacy waiver_wire engine also failed; recommendations empty")
+            recommendations = []
 
 # ── Compute FA rankings ───────────────────────────────────────────────────────
 
