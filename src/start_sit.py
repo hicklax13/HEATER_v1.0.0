@@ -756,9 +756,12 @@ def _average_park_factor(
             if not is_hitter:
                 # 2026-05-19 L7 fix: standardize on reciprocal inversion (canonical).
                 # Coors pf=1.38 → 0.725 for pitchers; reciprocal is multiplicative
-                # inverse — symmetric with how pf is applied to hitters. No floor
-                # needed (reciprocal of any positive pf is positive and bounded).
-                pf = 1.0 / pf if pf > 0 else 1.0
+                # inverse — symmetric with how pf is applied to hitters.
+                # 2026-05-19 M1 follow-up: cap to [0.5, 2.0] for defense-in-depth
+                # against future tier-fallback that emits placeholder pf <= 0.5 or
+                # >= 2.0 (real park factors live in [0.85, 1.4]).
+                pf_raw = 1.0 / pf if pf > 0 else 1.0
+                pf = max(min(pf_raw, 2.0), 0.5)
             factors.append(pf)
 
     if not factors:

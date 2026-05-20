@@ -33,6 +33,11 @@ MLB_SEASON_END: dict[int, date] = {
 # Old value 22 was a generic Yahoo H2H default that didn't match this league;
 # all callers of compute_weeks_remaining() without explicit total_weeks silently
 # inherited the wrong horizon. PR #33's L11 fix did not catch this site.
+#
+# **FourzynBurn-specific.** If reusing this module in another league, pass
+# `total_weeks=` explicitly OR import `LeagueConfig().season_weeks` directly
+# rather than relying on this default. Canonical caller: src.league_rules.weeks_remaining()
+# which sources `total_weeks` from `LeagueConfig().season_weeks` to stay in sync.
 FANTASY_REGULAR_SEASON_WEEKS = 26  # FourzynBurn — matches LeagueConfig.season_weeks
 
 # 2026-05-17 Section 3 D7: re-export from injury_model (canonical).

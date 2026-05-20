@@ -320,8 +320,10 @@ def compute_pitcher_matchup_score(
 
     # Park factor adjustment (for pitchers, lower park factor = better).
     # 2026-05-19 L7 fix: standardize on reciprocal inversion (canonical, see L7).
-    # Coors pf=1.38 → 0.725 for pitchers; reciprocal needs no floor.
-    park_adj = 1.0 / park_factor if park_factor > 0 else 1.0
+    # Coors pf=1.38 → 0.725 for pitchers.
+    # 2026-05-19 M1 follow-up: cap to [0.5, 2.0] for defense-in-depth.
+    park_adj_raw = 1.0 / park_factor if park_factor > 0 else 1.0
+    park_adj = max(min(park_adj_raw, 2.0), 0.5)
 
     # Home/away adjustment.
     home_away_adj = _HOME_ADVANTAGE if is_home else _AWAY_DISADVANTAGE
