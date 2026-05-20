@@ -35,3 +35,8 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_functions = ["test_*"]
 pythonpath = ["."]
+# 2026-05-19: per-test timeout via pytest-timeout. Bounds the cost of any
+# single hung test (was: CI shard 1 ran 20+ min before we cancelled).
+# Tests that need longer (e.g. backtest replay) can override with the
+# `@pytest.mark.timeout(N)` decorator.
+timeout = 120
