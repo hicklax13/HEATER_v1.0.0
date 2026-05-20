@@ -1616,6 +1616,11 @@ class YahooFantasyClient:
                         status=row.get("status", "active"),
                         selected_position=row.get("selected_position", ""),
                         editorial_team_abbr=row.get("editorial_team_abbr", ""),
+                        # SFH M4 (2026-05-20): pass Yahoo's numeric player_id
+                        # as yahoo_player_key so TWP entities (Ohtani-Pitcher
+                        # vs Ohtani-Batter) are distinguishable even when
+                        # both map to the same HEATER player_id.
+                        yahoo_player_key=str(row.get("player_id", "")),
                     )
                     counts["rosters"] += 1
 
