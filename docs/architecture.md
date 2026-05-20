@@ -1,23 +1,22 @@
 # HEATER Architecture
 
-> **Note (2026-05-17):** Page numbering and bootstrap phase counts elsewhere in this doc
-> may lag behind the live tree. See `CLAUDE.md` for the canonical 20-page list (renumbered
-> 2026-05-17 into workflow order) and 33-phase bootstrap; this doc remains useful for the
-> high-level architectural model but defer to CLAUDE.md for current file paths and counts.
+> **Note (2026-05-19):** Page counts + bootstrap phase counts refreshed.
+> CLAUDE.md remains the canonical source for module-by-module file paths;
+> this doc focuses on the high-level layered architecture.
 
 > System architecture for the HEATER Fantasy Baseball Draft Tool & In-Season Manager.
-> Last updated: 2026-05-17 (post-audit Waves 1-11, post-PR #29 CI sharding)
+> Last updated: 2026-05-19 (post-Section 5 page consolidation 20→13, post-deep-audit-punchlist completion)
 
 ---
 
 ## System Overview
 
-HEATER is a Streamlit-based fantasy baseball application with two pillars: a draft assistant and an in-season manager. The codebase is organized into 9 architectural layers, 120+ source modules across `src/`, ~21 Streamlit pages, ~165+ test files (~3900 tests), and integrates with 12 external APIs — all with graceful degradation. See `CLAUDE.md` for the canonical, regularly-updated module-by-module breakdown; this document focuses on the high-level layered architecture and request flows.
+HEATER is a Streamlit-based fantasy baseball application with two pillars: a draft assistant and an in-season manager. The codebase is organized into 9 architectural layers, 120+ source modules across `src/`, **13 in-season Streamlit pages** (consolidated from 20 via Section 5 audit on 2026-05-18), **165+ test files (~3,947 tests, 60% CI coverage floor)**, and integrates with 12 external APIs — all with graceful degradation. The trade engine uses the V4 HCV-Hybrid 6-phase pipeline; the lineup optimizer is a 21-module enhanced LP pipeline. See `CLAUDE.md` for the canonical, regularly-updated module-by-module breakdown.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                    Layer 1: Entry Points                        │
-│  app.py (draft tool) + 12 Streamlit pages                      │
+│  app.py (draft tool) + 13 in-season Streamlit pages            │
 ├─────────────────────────────────────────────────────────────────┤
 │                    Layer 2: Database                            │
 │  src/database.py — 21 SQLite tables, bulk upserts              │
@@ -27,8 +26,9 @@ HEATER is a Streamlit-based fantasy baseball application with two pillars: a dra
 │  in_season · lineup_optimizer · ui_shared                       │
 ├─────────────────────────────────────────────────────────────────┤
 │                    Layer 4: Data Ingestion                      │
-│  data_bootstrap (9 phases) · data_pipeline · live_stats         │
-│  yahoo_api · adp_sources · depth_charts · news_fetcher          │
+│  data_bootstrap (33 phases, 3-tier waterfall) · data_pipeline   │
+│  live_stats · yahoo_api · adp_sources · depth_charts            │
+│  news_fetcher                                                   │
 ├─────────────────────────────────────────────────────────────────┤
 │                    Layer 5: Trade Engine                        │
 │  6-phase pipeline: SGP → MC → Signals → Context → Game Theory  │

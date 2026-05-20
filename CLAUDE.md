@@ -504,7 +504,7 @@ These tests guard against regression of the cleanup work. Adding new code that v
 
 ## Audit History
 
-The data + analytics pipeline has been audited across 12 waves (April–May 2026) covering ~85 silent-failure / drift / dead-code / type-design / migration bugs. All HIGH-severity findings are resolved across PRs #7–#23 + the 2026-05-17 deep-audit cleanup (PRs #29–#36). The cumulative structural-invariant guard set in `tests/test_no_*.py`, `test_pages_*.py`, `test_wave*.py`, and `test_sf*.py` covers ~70 patterns that were silent-failure-prone, duplication-prone, or schema-evolution-prone before audit. See `docs/2026-05-17-deep-audit-punchlist.md` for the active deep-audit punchlist (sections 1–7) and `docs/archive/specs/` for shipped design docs from earlier waves.
+The data + analytics pipeline has been audited across 12 waves (April–May 2026) covering ~85 silent-failure / drift / dead-code / type-design / migration bugs. All HIGH-severity findings are resolved across PRs #7–#23 + the 2026-05-17 deep-audit cleanup (PRs #29–#46) + 2026-05-19 deep-audit completion. The cumulative structural-invariant guard set in `tests/test_no_*.py`, `test_pages_*.py`, `test_wave*.py`, and `test_sf*.py` covers ~75 patterns that were silent-failure-prone, duplication-prone, or schema-evolution-prone before audit. See `docs/archive/2026-05-17-deep-audit-punchlist.md` for the historical deep-audit punchlist (now fully shipped) and `docs/archive/specs/` for shipped design docs from earlier waves.
 
 ## GitHub
 
