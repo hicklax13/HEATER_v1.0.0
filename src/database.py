@@ -703,6 +703,16 @@ def _init_db_tables_and_columns(conn):
     _safe_add_column(conn, "league_rosters", "selected_position", "TEXT DEFAULT ''")
     _safe_add_column(conn, "league_rosters", "editorial_team_abbr", "TEXT DEFAULT ''")
 
+    # SFH M4 (2026-05-20): Two-way players (Ohtani) appear in Yahoo as TWO
+    # separate player entities (one Pitcher, one Batter) with DIFFERENT
+    # Yahoo player_ids/keys, both mapping to the same HEATER player_id via
+    # match_player_id. Without recording which Yahoo entity each roster
+    # slot points at, downstream queries can't tell whether a team has
+    # the hitter or pitcher version — and stats aggregation routes the
+    # wrong half of the player's production to a team. The column is
+    # nullable so legacy roster rows (without this signal) still load.
+    _safe_add_column(conn, "league_rosters", "yahoo_player_key", "TEXT DEFAULT ''")
+
     # Gap 8a: League draft picks table (stores your league's actual draft, not generic ADP)
     try:
         conn.execute("""
@@ -1922,6 +1932,7 @@ def upsert_league_roster_entry(
     status: str = "active",
     selected_position: str = "",
     editorial_team_abbr: str = "",
+    yahoo_player_key: str = "",
 ):
     """Add a player to a league roster.
 
@@ -1931,19 +1942,27 @@ def upsert_league_roster_entry(
         selected_position: The lineup slot the manager assigned (e.g. ``C``,
             ``1B``, ``BN``, ``IL``).
         editorial_team_abbr: MLB team abbreviation from Yahoo (e.g. ``NYY``).
+        yahoo_player_key: SFH M4 (2026-05-20) — the Yahoo numeric
+            player_id (e.g. ``"10480"``). Distinguishes the two TWP
+            entities Yahoo creates for two-way players like Ohtani:
+            Ohtani-Pitcher (one key) and Ohtani-Batter (different key)
+            both match to the same HEATER ``player_id`` via
+            ``match_player_id``. Without this, queries can't tell which
+            Yahoo entity a roster slot points at.
     """
     conn = get_connection()
     try:
         conn.execute(
             """INSERT INTO league_rosters
                (team_name, team_index, player_id, roster_slot, is_user_team, status,
-                selected_position, editorial_team_abbr)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                selected_position, editorial_team_abbr, yahoo_player_key)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(team_name, player_id) DO UPDATE SET
                team_index=excluded.team_index, roster_slot=excluded.roster_slot,
                is_user_team=excluded.is_user_team, status=excluded.status,
                selected_position=excluded.selected_position,
-               editorial_team_abbr=excluded.editorial_team_abbr""",
+               editorial_team_abbr=excluded.editorial_team_abbr,
+               yahoo_player_key=excluded.yahoo_player_key""",
             (
                 team_name,
                 team_index,
@@ -1953,6 +1972,7 @@ def upsert_league_roster_entry(
                 status or "active",
                 selected_position or "",
                 editorial_team_abbr or "",
+                yahoo_player_key or "",
             ),
         )
         conn.commit()
