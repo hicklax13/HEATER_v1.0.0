@@ -524,15 +524,10 @@ def render_tabs(pool: pd.DataFrame, ds: DraftState) -> None:
         if available.empty:
             st.info("No available players.")
         else:
-            mock_positions = ["All", "C", "1B", "2B", "3B", "SS", "OF", "SP", "RP"]
-            mock_pill_cols = st.columns(len(mock_positions))
-            pos_filter = st.session_state.get("mock_pos_filter", "All")
-            for pi, mpos in enumerate(mock_positions):
-                with mock_pill_cols[pi]:
-                    mtype = "primary" if pos_filter == mpos else "secondary"
-                    if st.button(mpos, key=f"mock_pill_{mpos}", type=mtype, width="stretch"):
-                        st.session_state.mock_pos_filter = mpos
-                        st.rerun()
+            # 2026-05-19 Section 5: use canonical pill-button helper.
+            from src.ui_shared import render_position_pills
+
+            pos_filter = render_position_pills(key_prefix="mock_pill", session_key="mock_pos_filter")
 
             disp = available.copy()
             if pos_filter != "All":

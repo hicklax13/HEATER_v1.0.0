@@ -975,15 +975,10 @@ def _render_value_chart_tab(pool, config, all_team_totals, user_team_name) -> No
         elif not has_context:
             st.caption("Connect Yahoo for team-need values")
 
-    positions = ["All", "C", "1B", "2B", "3B", "SS", "OF", "SP", "RP"]
-    pill_cols = st.columns(len(positions))
-    pos_filter = st.session_state.get("tv_pos_filter", "All")
-    for i, pos in enumerate(positions):
-        with pill_cols[i]:
-            btn_type = "primary" if pos_filter == pos else "secondary"
-            if st.button(pos, key=f"tv_pill_{pos}", type=btn_type, width="stretch"):
-                st.session_state.tv_pos_filter = pos
-                st.rerun()
+    # 2026-05-19 Section 5: use canonical pill-button helper.
+    from src.ui_shared import render_position_pills
+
+    pos_filter = render_position_pills(key_prefix="tv_pill", session_key="tv_pos_filter")
 
     active_df = contextual_df if show_contextual and contextual_df is not None else trade_values
     filtered = filter_by_position(active_df, pos_filter)

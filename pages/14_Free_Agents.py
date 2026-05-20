@@ -12,6 +12,7 @@ from src.league_manager import get_team_roster
 from src.standings_utils import get_fa_pool
 from src.ui_shared import (
     METRIC_TOOLTIPS,
+    POSITIONS,
     THEME,
     format_stat,
     inject_custom_css,
@@ -327,8 +328,7 @@ if recommendations:
 render_page_layout("FREE AGENTS", banner_teaser=_banner_teaser, banner_icon="free_agents")
 
 # ── Position filter (shared across all sections) ─────────────────────────────
-
-POSITIONS = ["All", "C", "1B", "2B", "3B", "SS", "OF", "SP", "RP"]
+# 2026-05-19 Section 5: POSITIONS now imported from src.ui_shared (top of file).
 
 ctx, main = render_context_columns()
 
