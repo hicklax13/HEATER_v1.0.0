@@ -458,54 +458,103 @@ def compute_net_swap_value(
 
 
 def compute_sustainability_score(player: pd.Series) -> float:
-    """Compute sustainability score based on underlying quality metrics.
+    """Compute sustainability of current performance — 0.0 to 1.0 calibrated.
 
-    Returns float 0.0-1.0. Higher = more sustainable current performance.
-    Uses BABIP regression signals as primary indicator.
+    FA-engine overhaul P2 PR5 (2026-05-20): rewritten to use the canonical
+    industry regression signals (xwOBA-wOBA gap for hitters, xFIP/SIERA-ERA
+    gap for pitchers) via a sigmoid combination, replacing the previous
+    5-bucket step function that:
+
+      * Used only BABIP for hitters (one signal, easy to misread)
+      * INVERTED the pitcher logic (high ERA → high "sustainability" —
+        the comment said "likely to improve" but the UI text "Strong
+        underlying metrics support continued production" read as a buy
+        signal, not a regression-favorable flag)
+      * Returned only ~5 discrete bucket values, which displayed as
+        percentages and read as calibrated probabilities to the user
+
+    New design:
+
+    Hitters: anchor on xwOBA-wOBA delta (positive = overperforming =
+    unsustainable). Secondary signal from BABIP vs career baseline.
+    Combine via sigmoid → 0-1 calibrated.
+
+    Pitchers: anchor on ERA-xFIP delta (positive = unlucky = expected
+    to improve = HIGH sustainability for buy-low intent). Secondary
+    signal from Stuff+ relative to league average. Combine via sigmoid.
+
+    Returns 0.5 (neutral) when sample size insufficient — small samples
+    are too noisy for either regression signal. Threshold raised from
+    AB > 50 / IP > 20 to AB > 80 / IP > 30 (closer to BABIP/xwOBA
+    stabilization point per Pizza Cutter / Russell Carleton research).
     """
-    h = float(player.get("h", 0) or 0)
-    hr = float(player.get("hr", 0) or 0)
-    ab = float(player.get("ab", 0) or 0)
-    sf = float(player.get("sf", 0) or 0)
     val = player.get("is_hitter")
     is_hitter = int(val) if val is not None else 1
-    # For hitters, 'k' is strikeouts (used in BABIP denominator).
-    # For pitchers, 'k' is strikeouts thrown (not relevant to BABIP).
-    hitter_k = float(player.get("k", 0) or 0) if is_hitter else 0
 
-    if is_hitter and ab > 50:
+    def _sigmoid(x: float) -> float:
+        """Standard logistic. Output in (0, 1)."""
+        import math
+
+        # Clamp to avoid overflow on extreme inputs.
+        if x > 12:
+            return 0.999
+        if x < -12:
+            return 0.001
+        return 1.0 / (1.0 + math.exp(-x))
+
+    if is_hitter:
+        ab = float(player.get("ab", 0) or 0)
+        if ab < 80:
+            return 0.5  # Insufficient sample (was AB > 50 — too lax)
+
+        # Primary signal: xwOBA - wOBA gap (canonical regression signal per
+        # FanGraphs, Pitcher List, The Athletic). Pool's xwoba_delta column
+        # is already woba - xwoba (per src/database.py convention) — so a
+        # POSITIVE delta means wOBA > xwOBA = OVERPERFORMING = regression
+        # DOWN = unsustainable. The sustainability score should DECREASE.
+        xwoba_delta = float(player.get("xwoba_delta", 0) or 0)
+        # Industry threshold: |gap| > 0.030 wOBA points is meaningful signal.
+        # Sigmoid scaled so delta=+0.030 → ~0.30 sustainability (sell-high)
+        # and delta=-0.030 → ~0.80 (buy-low). Coefficient: 0.7 / 0.030 ≈ 23.
+        primary_logit = -23.0 * xwoba_delta
+
+        # Secondary signal: BABIP vs career-typical .300. Lighter weight.
+        h = float(player.get("h", 0) or 0)
+        hr = float(player.get("hr", 0) or 0)
+        sf = float(player.get("sf", 0) or 0)
+        hitter_k = float(player.get("k", 0) or 0)
         babip = compute_babip(h, hr, ab, hitter_k, sf)
-        # BABIP regression: .300 is league average
-        # > .370 = likely regressing down (unsustainable)
-        # < .240 = likely regressing up (buy low)
-        if babip > 0.370:
-            sustainability = 0.3  # Overperforming, likely to regress
-        elif babip < 0.240:
-            sustainability = 0.8  # Underperforming, likely to improve
-        elif 0.280 <= babip <= 0.320:
-            sustainability = 0.7  # Near league average, sustainable
-        else:
-            # Linear interpolation
-            if babip > 0.320:
-                # Map 0.320 → 0.7, 0.370 → 0.3
-                sustainability = 0.7 - (babip - 0.320) * 8.0  # (0.7-0.3)/(0.370-0.320)=8
-            else:
-                # Map 0.280 → 0.7, 0.240 → 0.8
-                sustainability = 0.7 + (0.280 - babip) * 2.5  # (0.8-0.7)/(0.280-0.240)=2.5
-        return max(0.0, min(1.0, sustainability))
-    else:
-        # Pitchers or insufficient sample: use ERA vs xFIP proxy
-        era = float(player.get("era", 4.0) or 4.0)
-        ip = float(player.get("ip", 0) or 0)
-        if ip > 20:
-            # Simple sustainability: ERA near 4.0 is sustainable
-            if era < 2.5:
-                return 0.4  # Likely unsustainably low
-            elif era > 5.5:
-                return 0.7  # Likely to improve
-            else:
-                return 0.6  # Reasonable range
-        return 0.5  # Insufficient data
+        # BABIP delta from league average .300 — positive = overperforming.
+        babip_logit = -8.0 * (babip - 0.300)
+
+        # Combine — primary signal weighted 2x relative to secondary.
+        logit = 2.0 * primary_logit + babip_logit
+        # Center at sigmoid(0) = 0.5 (neutral when no signal).
+        return _sigmoid(logit)
+
+    # Pitchers
+    ip = float(player.get("ip", 0) or 0)
+    if ip < 30:
+        return 0.5  # Insufficient sample (was IP > 20)
+
+    era = float(player.get("era", 4.0) or 4.0)
+    # Primary signal: xFIP-ERA delta. Pool has xfip column. Sign:
+    # xFIP > ERA → ERA was LUCKY (lower than skill warrants) → regression
+    # UP coming → unsustainable. Sustainability LOW.
+    # ERA > xFIP → ERA was UNLUCKY → regression DOWN coming → BUY LOW.
+    # Sustainability HIGH.
+    xfip = float(player.get("xfip", era) or era)
+    era_minus_xfip = era - xfip
+    # |gap| > 0.50 ERA points is meaningful. Coefficient: 0.7 / 0.50 = 1.4.
+    primary_logit = 1.4 * era_minus_xfip
+
+    # Secondary: Stuff+ vs league average 100. Higher Stuff+ → underlying
+    # skill is real → higher sustainability.
+    stuff_plus = float(player.get("stuff_plus", 100.0) or 100.0)
+    stuff_logit = (stuff_plus - 100.0) / 20.0  # ±10 Stuff+ ≈ ±0.5 logit shift
+
+    logit = 2.0 * primary_logit + stuff_logit
+    return _sigmoid(logit)
 
 
 # ── Main Recommendation Engine ────────────────────────────────────────
