@@ -754,9 +754,11 @@ def _average_park_factor(
 
             pf = park_factors.get(venue_team, 1.0)
             if not is_hitter:
-                # Invert for pitchers: hitter-friendly parks hurt pitchers
-                pf = 2.0 - pf
-                pf = max(pf, 0.5)  # floor to avoid extreme values
+                # 2026-05-19 L7 fix: standardize on reciprocal inversion (canonical).
+                # Coors pf=1.38 → 0.725 for pitchers; reciprocal is multiplicative
+                # inverse — symmetric with how pf is applied to hitters. No floor
+                # needed (reciprocal of any positive pf is positive and bounded).
+                pf = 1.0 / pf if pf > 0 else 1.0
             factors.append(pf)
 
     if not factors:

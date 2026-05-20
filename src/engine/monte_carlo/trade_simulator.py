@@ -295,8 +295,11 @@ def _simulate_roster_sgp(
     total_er = 0.0
     total_bb_h_allowed = 0.0  # bb_allowed + h_allowed
 
-    # Categories that are rate stats and need special aggregation
-    _RATE_CATS = {"AVG", "OBP", "ERA", "WHIP"}
+    # Categories that are rate stats and need special aggregation.
+    # 2026-05-19 D6: snapshot from LeagueConfig (was literal).
+    from src.valuation import LeagueConfig
+
+    _RATE_CATS = set(LeagueConfig().rate_stats)
 
     for player_id, stats in roster_stats.items():
         # Collect component stats for rate-stat aggregation.

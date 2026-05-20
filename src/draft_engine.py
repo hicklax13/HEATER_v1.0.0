@@ -126,7 +126,11 @@ ALL_CATEGORIES_UPPER: list[str] = [
     "ERA",
     "WHIP",
 ]
-INVERSE_CATS_UPPER: set[str] = {"L", "ERA", "WHIP"}
+# 2026-05-19 D4: snapshot from LeagueConfig at import (value-only — not a
+# _LC singleton). LeagueConfig.inverse_stats is a hardcoded property; this
+# captures its value once so structural-invariant tests against literal
+# {L, ERA, WHIP} sets stay green.
+INVERSE_CATS_UPPER: set[str] = set(LeagueConfig().inverse_stats)
 
 
 # ── Pool-mask helpers ──────────────────────────────────────────────
@@ -615,12 +619,14 @@ class DraftRecommendationEngine:
 
         pool["park_factor_adj"] = pool["team"].apply(_get_factor)
 
-        # Invert park factor for pitchers: a hitter-friendly park hurts pitchers
-        # Consistent with two_start.py and matchup_planner.py: pf_pitcher = 2.0 - pf
+        # 2026-05-19 L7 fix: reciprocal inversion (canonical).
+        # Coors pf=1.38 → 0.725 for pitchers. Vectorized via np.where to guard
+        # against pf<=0 placeholders (fall back to neutral 1.0).
         if "is_hitter" in pool.columns:
             is_pitcher = pool["is_hitter"] == False  # noqa: E712
             if is_pitcher.any():
-                pool.loc[is_pitcher, "park_factor_adj"] = 2.0 - pool.loc[is_pitcher, "park_factor_adj"]
+                _pf = pool.loc[is_pitcher, "park_factor_adj"]
+                pool.loc[is_pitcher, "park_factor_adj"] = np.where(_pf > 0, 1.0 / _pf, 1.0)
 
         return pool
 

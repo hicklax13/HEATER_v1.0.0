@@ -28,8 +28,12 @@ MLB_SEASON_END: dict[int, date] = {
     2026: date(2026, 9, 27),
 }
 
-# Fantasy playoff weeks (typically last 3-4 weeks of regular season)
-FANTASY_REGULAR_SEASON_WEEKS = 22  # Typical Yahoo H2H
+# Fantasy regular-season week count.
+# 2026-05-19 Section 5 bonus fix: FourzynBurn uses 26 weeks (LeagueConfig.season_weeks).
+# Old value 22 was a generic Yahoo H2H default that didn't match this league;
+# all callers of compute_weeks_remaining() without explicit total_weeks silently
+# inherited the wrong horizon. PR #33's L11 fix did not catch this site.
+FANTASY_REGULAR_SEASON_WEEKS = 26  # FourzynBurn — matches LeagueConfig.season_weeks
 
 # 2026-05-17 Section 3 D7: re-export from injury_model (canonical).
 from src.injury_model import DEFAULT_HEALTH_SCORE  # noqa: E402, F401

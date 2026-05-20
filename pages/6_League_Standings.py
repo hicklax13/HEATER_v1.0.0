@@ -73,8 +73,12 @@ _PLAYOFF_SPOTS = 4
 
 _HIT_CATS = {"R", "HR", "RBI", "SB", "AVG", "OBP"}
 _PIT_CATS = {"W", "L", "SV", "K", "ERA", "WHIP"}
-_RATE_STATS = {"AVG", "OBP", "ERA", "WHIP"}
-_INVERSE_CATS = {"L", "ERA", "WHIP"}
+# 2026-05-19 D6: snapshot rate_stats from LeagueConfig.
+# 2026-05-19 D4: snapshot inverse_stats from LeagueConfig.
+from src.valuation import LeagueConfig as _LC_FOR_CATS  # noqa: E402
+
+_RATE_STATS = set(_LC_FOR_CATS().rate_stats)
+_INVERSE_CATS = set(_LC_FOR_CATS().inverse_stats)
 _CAT_ORDER = ["R", "HR", "RBI", "SB", "AVG", "OBP", "W", "L", "SV", "K", "ERA", "WHIP"]
 
 
@@ -146,7 +150,8 @@ def _compute_projected_team_totals() -> dict[str, dict[str, float]]:
 
     weeks = 26.0
     counting_cats = {"R", "HR", "RBI", "SB", "W", "L", "SV", "K"}
-    rate_cats = {"AVG", "OBP", "ERA", "WHIP"}
+    # 2026-05-19 D6: reuse module-level _RATE_STATS (already snapshot from LeagueConfig).
+    rate_cats = _RATE_STATS
     weekly_totals: dict[str, dict[str, float]] = {}
     for team, cat_map in season_totals.items():
         per_week: dict[str, float] = {}
@@ -400,9 +405,6 @@ def _render_playoff_odds_tab() -> None:
 
     try:
         from src.playoff_sim import (
-            estimate_weeks_remaining,
-        )
-        from src.playoff_sim import (
             simulate_season as _simulate_season_playoffs,
         )
     except ImportError:
@@ -455,7 +457,11 @@ def _render_playoff_odds_tab() -> None:
         st.warning("Need at least 2 teams with roster data.")
         return
 
-    weeks_default = estimate_weeks_remaining()
+    # 2026-05-19 Section 5: use canonical weeks_remaining (replaces
+    # estimate_weeks_remaining from playoff_sim — same semantic, single source).
+    from src.league_rules import weeks_remaining as _weeks_remaining
+
+    weeks_default = _weeks_remaining()
     ctrl1, ctrl2, _ctrl3 = st.columns([1, 1, 2])
     with ctrl1:
         weeks_remaining_p = st.number_input(

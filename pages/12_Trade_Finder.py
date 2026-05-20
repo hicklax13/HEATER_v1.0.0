@@ -924,9 +924,10 @@ def _render_value_chart_tab(pool, config, all_team_totals, user_team_name) -> No
 
     2026-05-17 Section 5: merged from the standalone Trade_Values page.
     """
-    import math
-    from datetime import UTC, datetime
 
+    # 2026-05-19 Section 5: use canonical weeks_remaining (replaces inline
+    # season_end / now arithmetic + LeagueConfig.season_weeks clamp).
+    from src.league_rules import weeks_remaining as _weeks_remaining
     from src.trade_value import (
         TIER_COLORS,
         compute_contextual_values,
@@ -935,11 +936,7 @@ def _render_value_chart_tab(pool, config, all_team_totals, user_team_name) -> No
     )
     from src.ui_shared import METRIC_TOOLTIPS, render_styled_table
 
-    # Weeks remaining (canonical 26-week season).
-    season_end = datetime(2026, 10, 1, tzinfo=UTC)
-    now = datetime.now(UTC)
-    weeks_remaining = max(1, math.ceil((season_end - now).days / 7))
-    weeks_remaining = min(weeks_remaining, config.season_weeks)
+    weeks_remaining = _weeks_remaining()
 
     user_totals = all_team_totals.get(user_team_name, {}) if user_team_name else {}
     yds_local = get_yahoo_data_service()
@@ -975,15 +972,10 @@ def _render_value_chart_tab(pool, config, all_team_totals, user_team_name) -> No
         elif not has_context:
             st.caption("Connect Yahoo for team-need values")
 
-    positions = ["All", "C", "1B", "2B", "3B", "SS", "OF", "SP", "RP"]
-    pill_cols = st.columns(len(positions))
-    pos_filter = st.session_state.get("tv_pos_filter", "All")
-    for i, pos in enumerate(positions):
-        with pill_cols[i]:
-            btn_type = "primary" if pos_filter == pos else "secondary"
-            if st.button(pos, key=f"tv_pill_{pos}", type=btn_type, width="stretch"):
-                st.session_state.tv_pos_filter = pos
-                st.rerun()
+    # 2026-05-19 Section 5: use canonical pill-button helper.
+    from src.ui_shared import render_position_pills
+
+    pos_filter = render_position_pills(key_prefix="tv_pill", session_key="tv_pos_filter")
 
     active_df = contextual_df if show_contextual and contextual_df is not None else trade_values
     filtered = filter_by_position(active_df, pos_filter)

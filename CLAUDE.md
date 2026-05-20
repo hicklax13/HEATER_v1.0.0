@@ -16,7 +16,7 @@ The codebase is organized around 7 feature surfaces:
 
 ## Local Environment
 
-- **Project root (local):** `C:\Users\conno\Code\HEATER_v1.0.0`
+- **Project root (local):** `C:\Users\conno\Code\HEATER_v1.0.1` (note: local folder is `v1.0.1`; GitHub repo NAME remains `HEATER_v1.0.0`).
 - **Relocated 2026-05-17** from `C:\Users\conno\OneDrive\Desktop\HEATER_v1.0.0`. OneDrive's Cloud Files API conflicts with Cowork's FUSE/virtiofs mount layer (anthropics/claude-code issues #25293 and #40973), corrupts SQLite WAL files when streamlit runs locally, locks `.venv` operations, and conflicts with `.git` writes. Never store this project under OneDrive, Dropbox, iCloud, or any cloud-sync directory.
 - **Local Python:** 3.14 preferred, 3.12 acceptable. Recreate venv with `py -3.14 -m venv .venv` (or `py -3.12 -m venv .venv`).
 - **Yahoo OAuth deps:** `yfpy` and `streamlit-oauth` must be installed with `--no-deps` after `pip install -r requirements.txt`, per the comment in `requirements.txt` (python-dotenv pin conflict on 3.14).
@@ -504,7 +504,7 @@ These tests guard against regression of the cleanup work. Adding new code that v
 
 ## Audit History
 
-The data + analytics pipeline has been audited across 12 waves (April–May 2026) covering ~85 silent-failure / drift / dead-code / type-design / migration bugs. All HIGH-severity findings are resolved across PRs #7–#23 + the 2026-05-17 deep-audit cleanup (PRs #29–#36). The cumulative structural-invariant guard set in `tests/test_no_*.py`, `test_pages_*.py`, `test_wave*.py`, and `test_sf*.py` covers ~70 patterns that were silent-failure-prone, duplication-prone, or schema-evolution-prone before audit. See `docs/2026-05-17-deep-audit-punchlist.md` for the active deep-audit punchlist (sections 1–7) and `docs/archive/specs/` for shipped design docs from earlier waves.
+The data + analytics pipeline has been audited across 12 waves (April–May 2026) covering ~85 silent-failure / drift / dead-code / type-design / migration bugs. All HIGH-severity findings are resolved across PRs #7–#23 + the 2026-05-17 deep-audit cleanup (PRs #29–#46) + 2026-05-19 deep-audit completion. The cumulative structural-invariant guard set in `tests/test_no_*.py`, `test_pages_*.py`, `test_wave*.py`, and `test_sf*.py` covers ~75 patterns that were silent-failure-prone, duplication-prone, or schema-evolution-prone before audit. See `docs/archive/2026-05-17-deep-audit-punchlist.md` for the historical deep-audit punchlist (now fully shipped) and `docs/archive/specs/` for shipped design docs from earlier waves.
 
 ## GitHub
 
@@ -521,7 +521,7 @@ The data + analytics pipeline has been audited across 12 waves (April–May 2026
 
 ## Resume Checklist (New Session)
 
-1. Confirm shell is in `C:\Users\conno\Code\HEATER_v1.0.0` (NOT the deprecated `OneDrive\Desktop` path).
+1. Confirm shell is in `C:\Users\conno\Code\HEATER_v1.0.1` (NOT the deprecated `OneDrive\Desktop` path; note the local folder is `v1.0.1` while GitHub repo NAME remains `HEATER_v1.0.0`).
 2. Read `CLAUDE.md` (this file)
 3. Check git status: `git status`, `git log --oneline -10`
 4. Run `python -m pytest --ignore=tests/test_cheat_sheet.py -x -q` to verify tests pass

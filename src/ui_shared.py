@@ -2265,9 +2265,12 @@ def build_category_heatmap_html(user_totals: dict, all_totals: list[dict]) -> st
         # Compute rank (1 = best)
         if cat in inverse_cats:
             # Lower is better — count teams with strictly lower value
-            # But if user has 0 IP, pitching inverse stats (ERA, WHIP, L) are
-            # meaningless — treat as worst rank instead of best.
-            pitching_inverse = {"ERA", "WHIP", "L"}
+            # But if user has 0 IP, pitching inverse stats are meaningless
+            # — treat as worst rank instead of best.
+            # 2026-05-19 D4: use LeagueConfig.inverse_stats — was {"ERA", "WHIP", "L"}.
+            from src.valuation import LeagueConfig
+
+            pitching_inverse = LeagueConfig().inverse_stats
             if cat in pitching_inverse and user_totals.get("IP", user_totals.get("ip", None)) == 0:
                 rank = num_teams  # worst rank
             else:
@@ -2340,9 +2343,58 @@ def build_category_heatmap_html(user_totals: dict, all_totals: list[dict]) -> st
 
 HITTING_STAT_COLS = set(HITTING_CATEGORIES)
 PITCHING_STAT_COLS = set(PITCHING_CATEGORIES)
-_RATE_STAT_COLS = {"AVG", "OBP", "ERA", "WHIP"}
+# 2026-05-19 D6: snapshot from LeagueConfig (was {"AVG", "OBP", "ERA", "WHIP"} literal).
+from src.valuation import LeagueConfig as _LC_FOR_RATES  # noqa: E402
+
+_RATE_STAT_COLS = set(_LC_FOR_RATES().rate_stats)
 _RATE_3DP = {"AVG", "OBP", "avg", "obp"}  # 3 decimal places
 _RATE_2DP = {"ERA", "WHIP", "era", "whip"}  # 2 decimal places
+
+
+# ── Position Filter (Section 5 helper extract — 2026-05-19) ─────────
+
+# Canonical roster-order positions list, with "All" prepended. Used by the
+# pill-button filter on Trade_Finder, Draft_Simulator, Free_Agents.
+# (Leaders.py uses a different prospect-rank order intentionally.)
+POSITIONS: list[str] = ["All", "C", "1B", "2B", "3B", "SS", "OF", "SP", "RP"]
+
+
+def render_position_pills(
+    key_prefix: str,
+    session_key: str,
+    default: str = "All",
+    positions: list[str] | None = None,
+) -> str:
+    """Render a row of position-filter pill buttons; return the active filter.
+
+    Identical pill-button widget previously duplicated in Trade_Finder.py:978
+    and Draft_Simulator.py:527. Clicking a pill stores its value in
+    ``st.session_state[session_key]`` and triggers ``st.rerun()``.
+
+    Args:
+        key_prefix: Per-page prefix for button keys (e.g. ``"tv_pill"`` →
+            keys ``"tv_pill_All"``, ``"tv_pill_C"``, ...).
+        session_key: Session-state slot for the active filter
+            (e.g. ``"tv_pos_filter"``).
+        default: Default filter when ``session_key`` is unset.
+        positions: Optional override (default: module-level POSITIONS).
+
+    Returns:
+        The currently-active position filter string.
+    """
+    import streamlit as st
+
+    pos_list = positions if positions is not None else POSITIONS
+    cols = st.columns(len(pos_list))
+    current = st.session_state.get(session_key, default)
+    for i, pos in enumerate(pos_list):
+        with cols[i]:
+            btn_type = "primary" if current == pos else "secondary"
+            if st.button(pos, key=f"{key_prefix}_{pos}", type=btn_type, width="stretch"):
+                st.session_state[session_key] = pos
+                st.rerun()
+    return current
+
 
 _HEALTH_DOT_COLORS = {
     "Healthy": THEME["green"],

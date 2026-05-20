@@ -185,7 +185,11 @@ def _estimate_team_weekly_stats(
     roster = player_pool[player_pool["player_id"].isin(roster_ids)].copy()
     hitters = roster[roster["is_hitter"] == 1]
     pitchers = roster[roster["is_hitter"] == 0]
-    weeks = max(weeks_remaining, 1)
+    # 2026-05-19 L3 fix: pool has FULL-SEASON projections; divide by season_weeks
+    # (26 for FourzynBurn) to produce interpretable weekly means. Relative win-prob
+    # comparison is divisor-invariant (both teams use same divisor); only absolute
+    # weekly-mean changes. weeks_remaining param retained for backward-compat.
+    weeks = max(config.season_weeks, 1)
 
     stats: dict[str, float] = {}
 

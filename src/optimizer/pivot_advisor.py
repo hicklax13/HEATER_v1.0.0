@@ -100,8 +100,9 @@ def compute_category_flip_probabilities(
 
         config = LeagueConfig()
 
-    inverse_stats = config.inverse_stats  # {"L", "ERA", "WHIP"}
-    rate_stats = getattr(config, "rate_stats", {"AVG", "OBP", "ERA", "WHIP"})
+    inverse_stats = config.inverse_stats  # via LeagueConfig
+    # 2026-05-19 D6: config is always a LeagueConfig; getattr fallback was defensive.
+    rate_stats = config.rate_stats
     results: dict[str, dict] = {}
 
     for cat in config.all_categories:

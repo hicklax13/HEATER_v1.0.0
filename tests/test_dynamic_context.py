@@ -16,18 +16,19 @@ class TestWeeksRemaining:
     """Replaces hardcoded weeks_remaining=16."""
 
     def test_preseason_returns_full_season(self):
-        """Before Opening Day, full season ahead."""
+        """Before Opening Day, full season ahead (2026-05-19: 22 → 26 fix)."""
         result = compute_weeks_remaining(as_of=date(2026, 3, 1), season=2026)
-        assert result == 22
+        assert result == 26
 
     def test_opening_day_returns_full_season(self):
+        """2026-05-19: was 22; FourzynBurn uses 26-week season."""
         result = compute_weeks_remaining(as_of=date(2026, 3, 26), season=2026)
-        assert result == 22
+        assert result == 26
 
     def test_mid_season(self):
-        """Roughly mid-June, ~13 weeks in, ~9 remaining."""
+        """Roughly mid-June, ~13 weeks in, ~13 remaining (was ~9 with 22-week default)."""
         result = compute_weeks_remaining(as_of=date(2026, 6, 25), season=2026)
-        assert 8 <= result <= 10
+        assert 12 <= result <= 14
 
     def test_late_season(self):
         """Early September, ~2 weeks left."""
@@ -44,9 +45,9 @@ class TestWeeksRemaining:
         assert result >= 1
 
     def test_today_is_reasonable(self):
-        """Current date (2026-03-24) is pre-season."""
+        """Current date (2026-03-24) is pre-season (2026-05-19: 22 → 26 fix)."""
         result = compute_weeks_remaining(as_of=date(2026, 3, 24), season=2026)
-        assert result == 22  # Full season ahead
+        assert result == 26  # Full FourzynBurn season ahead
 
 
 class TestScheduleStrength:

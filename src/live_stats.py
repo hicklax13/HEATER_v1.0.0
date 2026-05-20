@@ -16,6 +16,7 @@ from src.database import (
     update_refresh_log,
     update_refresh_log_auto,
 )
+from src.valuation import normalize_player_name
 
 logger = logging.getLogger(__name__)
 
@@ -54,18 +55,6 @@ def _build_team_id_map(season: int = 2026) -> dict[int, str]:
         return {}
 
 
-def _normalize_name(name: str) -> str:
-    """Strip Unicode accents and parenthetical suffixes for fuzzy matching."""
-    import re
-    import unicodedata
-
-    # Strip (Pitcher), (Batter) suffixes from Yahoo
-    name = re.sub(r"\s*\((?:Pitcher|Batter|P|B)\)\s*$", "", name).strip()
-    # Normalize Unicode accents: Iván → Ivan, José → Jose
-    nfkd = unicodedata.normalize("NFKD", name)
-    return "".join(c for c in nfkd if not unicodedata.combining(c))
-
-
 def match_player_id(player_name: str, team_abbr: str) -> int | None:
     """Match an external player name to our players table.
 
@@ -81,7 +70,7 @@ def match_player_id(player_name: str, team_abbr: str) -> int | None:
         cursor = conn.cursor()
 
         # Clean the input name
-        clean_name = _normalize_name(player_name)
+        clean_name = normalize_player_name(player_name)
 
         # Primary: exact name + team match (prevents same-name collisions)
         if team_abbr:

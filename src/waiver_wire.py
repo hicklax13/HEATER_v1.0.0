@@ -47,7 +47,10 @@ WEEKLY_RATE_DEFAULTS: dict[str, float] = {
     "WHIP": 0.0,
 }
 
-RATE_STATS = {"AVG", "OBP", "ERA", "WHIP"}
+# 2026-05-19 D6: snapshot from LeagueConfig (was {"AVG", "OBP", "ERA", "WHIP"} literal).
+from src.valuation import LeagueConfig as _LC_FOR_RATES  # noqa: E402
+
+RATE_STATS = set(_LC_FOR_RATES().rate_stats)
 
 # Default weekly adds budget: 5 streaming + 3 injury + 2 reserve = 10
 DEFAULT_WEEKLY_ADDS = 10
@@ -1063,8 +1066,11 @@ def _generate_reasoning(
     """Generate human-readable reasoning for an add/drop recommendation."""
     reasons = []
 
-    # Best category impact — attribute to the correct side of the swap
-    inverse_cats = config.inverse_stats if config else {"L", "ERA", "WHIP"}
+    # Best category impact — attribute to the correct side of the swap.
+    # 2026-05-19 D4: LeagueConfig is always constructible; fallback simplified.
+    from src.valuation import LeagueConfig
+
+    inverse_cats = (config or LeagueConfig()).inverse_stats
     deltas = swap["category_deltas"]
     if deltas:
         best_cat = max(deltas, key=lambda c: deltas[c])
