@@ -1112,7 +1112,15 @@ def _enrich_pitcher_positions(progress: BootstrapProgress) -> str:
         logger.info("Enriched SP/RP qualifier on %d pitcher rows", updated)
         return f"Pitcher positions: {updated} rows enriched"
     except Exception as e:
+        # 2026-05-20 SFH MED-1 follow-up: same DNA as PR #65 D-fix — write
+        # refresh_log on the error path so the next bootstrap retries and
+        # the Data Status panel doesn't show stale-but-healthy. The PR #65
+        # structural guard filtered on `_bootstrap_*` prefix and missed
+        # this function which uses `_enrich_*` — guard widened in this PR.
         logger.exception("Pitcher position enrichment failed")
+        from src.database import update_refresh_log
+
+        update_refresh_log("pitcher_positions", "error", message=str(e)[:200])
         return f"Pitcher positions: error ({e})"
     finally:
         conn.close()
@@ -2826,12 +2834,25 @@ def _bootstrap_injury_writeback(progress: BootstrapProgress) -> str:
         # 2026-05-20 SFH B: surface Yahoo-skipped state in the message so the
         # operator can tell "Yahoo had no IL rows" (preserved-flags path) from
         # "full reset + Yahoo+ESPN ran".
-        yahoo_note = " [yahoo skipped: rosters empty]" if yahoo_skipped else ""
+        # 2026-05-20 SFH B follow-up (LOW-3): when Yahoo is skipped,
+        # injured_count mixes fresh ESPN flags with stale Yahoo flags from
+        # a prior bootstrap. Split the count so the operator can tell
+        # what's fresh from what's preserved.
+        if yahoo_skipped:
+            stale_yahoo_count = max(injured_count - espn_count, 0)
+            message = (
+                f"{injured_count} flagged ({espn_count} fresh ESPN + "
+                f"{stale_yahoo_count} stale yahoo) [yahoo skipped: rosters empty]"
+            )
+            yahoo_note = " [yahoo skipped: rosters empty]"
+        else:
+            message = f"{injured_count} players flagged injured (ESPN: {espn_count})"
+            yahoo_note = ""
         update_refresh_log_auto(
             "injury_writeback",
             injured_count,
             expected_min=10,
-            message=f"{injured_count} players flagged injured (ESPN: {espn_count}){yahoo_note}",
+            message=message,
         )
         return f"Flagged {injured_count} players as injured{yahoo_note}"
     except Exception as exc:
