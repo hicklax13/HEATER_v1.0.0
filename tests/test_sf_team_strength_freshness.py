@@ -38,7 +38,10 @@ def fake_yds():
 
 
 def test_team_strength_freshness_recorded_when_data_present(fake_yds):
-    """When _load_team_strength populates ctx.team_strength, tracker.record fires."""
+    """When _load_team_strength populates ctx.team_strength, tracker.record fires.
+
+    2026-05-19: patch _populate_from_refresh_log for isolation (see sibling test).
+    """
 
     def _fake_loader(ctx):
         ctx.team_strength = {
@@ -46,7 +49,13 @@ def test_team_strength_freshness_recorded_when_data_present(fake_yds):
             "BOS": {"wrc_plus": 102, "fip": 4.12},
         }
 
-    with patch("src.optimizer.shared_data_layer._load_team_strength", side_effect=_fake_loader):
+    with (
+        patch(
+            "src.optimizer.data_freshness.DataFreshnessTracker._populate_from_refresh_log",
+            return_value=None,
+        ),
+        patch("src.optimizer.shared_data_layer._load_team_strength", side_effect=_fake_loader),
+    ):
         ctx = build_optimizer_context(scope="today", yds=fake_yds)
 
     assert "team_strength" in ctx.data_timestamps, (
@@ -62,12 +71,23 @@ def test_team_strength_freshness_recorded_when_data_present(fake_yds):
 
 
 def test_team_strength_freshness_NOT_recorded_when_empty(fake_yds):
-    """When _load_team_strength leaves ctx.team_strength empty, tracker should skip recording."""
+    """When _load_team_strength leaves ctx.team_strength empty, tracker should skip recording.
+
+    2026-05-19: patch DataFreshnessTracker._populate_from_refresh_log to no-op
+    so the tracker starts clean. Without this, the local SQLite's refresh_log
+    pre-seeds team_strength + ~28 other sources, leaking into the assertion.
+    """
 
     def _empty_loader(ctx):
         ctx.team_strength = {}
 
-    with patch("src.optimizer.shared_data_layer._load_team_strength", side_effect=_empty_loader):
+    with (
+        patch(
+            "src.optimizer.data_freshness.DataFreshnessTracker._populate_from_refresh_log",
+            return_value=None,
+        ),
+        patch("src.optimizer.shared_data_layer._load_team_strength", side_effect=_empty_loader),
+    ):
         ctx = build_optimizer_context(scope="today", yds=fake_yds)
 
     if "team_strength" in ctx.data_timestamps:

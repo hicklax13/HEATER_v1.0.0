@@ -13,7 +13,14 @@ class TestDataFreshnessTracker:
 
     @pytest.fixture()
     def _tracker(self):
-        return DataFreshnessTracker()
+        # 2026-05-19: DataFreshnessTracker.__init__ hydrates _sources from the
+        # local refresh_log SQLite table — that's correct production behavior
+        # (warmstart cached freshness from prior session) but it leaks state
+        # into unit tests. Clear the auto-hydrated dict so the test sees only
+        # the records IT explicitly adds.
+        tracker = DataFreshnessTracker()
+        tracker._sources.clear()
+        return tracker
 
     def test_record_and_check_fresh(self, _tracker):
         """Data recorded just now should be fresh."""

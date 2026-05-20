@@ -21,6 +21,25 @@ def _make_service() -> MatchupContextService:
     return MatchupContextService()
 
 
+@pytest.fixture
+def isolated_yahoo_data():
+    """Mock YahooDataService.get_matchup + get_standings to return None/empty.
+
+    2026-05-19: without this, MatchupContextService calls into the global
+    YahooDataService singleton which reads SQLite cached matchup data,
+    leaking real-data into "no data available" assertions. CI gets fresh
+    DBs (tests pass); local dev has months of cached data (tests fail).
+    """
+    fake_yds = MagicMock()
+    fake_yds.get_matchup.return_value = None
+    fake_yds.get_standings.return_value = MagicMock(empty=True)
+    fake_yds.get_rosters.return_value = MagicMock(empty=True)
+    # MatchupContextService imports get_yahoo_data_service inside functions —
+    # patch at the source module.
+    with patch("src.yahoo_data_service.get_yahoo_data_service", return_value=fake_yds):
+        yield fake_yds
+
+
 def _mock_urgency(urgency_map: dict[str, float] | None = None):
     """Return a plausible urgency dict."""
     if urgency_map is None:
@@ -70,20 +89,20 @@ class TestUnifiedWeightsContract:
 class TestGracefulFallback:
     """When data sources are unavailable, return equal weights."""
 
-    def test_no_data_returns_equal_weights(self):
+    def test_no_data_returns_equal_weights(self, isolated_yahoo_data):
         svc = _make_service()
         weights = svc.get_category_weights(mode="blended")
         # Without Yahoo or matchup data, all weights should be 1.0
         for cat in ALL_CATS:
             assert weights[cat] == pytest.approx(1.0)
 
-    def test_matchup_mode_no_urgency_returns_equal(self):
+    def test_matchup_mode_no_urgency_returns_equal(self, isolated_yahoo_data):
         svc = _make_service()
         weights = svc.get_category_weights(mode="matchup")
         for cat in ALL_CATS:
             assert weights[cat] == pytest.approx(1.0)
 
-    def test_standings_mode_no_yahoo_returns_equal(self):
+    def test_standings_mode_no_yahoo_returns_equal(self, isolated_yahoo_data):
         svc = _make_service()
         weights = svc.get_category_weights(mode="standings")
         for cat in ALL_CATS:
