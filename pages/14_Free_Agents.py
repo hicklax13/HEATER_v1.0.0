@@ -529,11 +529,13 @@ with main:
         from src.waiver_wire import recommend_streams
 
         # V4: Use MatchupContextService for opponent intel (unified)
+        # 2026-05-20: same rename as in pages/1_My_Team.py —
+        # get_matchup_context_service() was removed. Use get_matchup_context().
         _opp_profile = None
         try:
-            from src.matchup_context import get_matchup_context_service
+            from src.matchup_context import get_matchup_context
 
-            _opp_profile = get_matchup_context_service().get_opponent_context()
+            _opp_profile = get_matchup_context().get_opponent_context()
         except Exception:
             pass
 
