@@ -90,9 +90,7 @@ class TestRefreshLogValidation:
 
         for stale_status in ("error", "unknown"):
             update_refresh_log("t", stale_status)
-            assert check_staleness("t", max_age_hours=24) is True, (
-                f"status={stale_status} should be treated as stale"
-            )
+            assert check_staleness("t", max_age_hours=24) is True, f"status={stale_status} should be treated as stale"
 
     def test_check_staleness_fresh_success_not_stale(self, isolated_db):
         from src.database import check_staleness, update_refresh_log
