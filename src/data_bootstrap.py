@@ -126,11 +126,85 @@ def _classify_fetch_error(exc: Exception) -> str:
     return "error"
 
 
-def _run_with_timeout(fn: Callable, timeout: int = _PHASE_TIMEOUT_SECONDS) -> str:
+def _try_write_refresh_log(source: str, status: str, message: str = "") -> bool:
+    """Best-effort refresh_log write with retry-on-lock backoff.
+
+    SFH H2 (2026-05-20): the per-phase ``except`` handlers attempt to write
+    refresh_log via ``update_refresh_log(...)`` — but during a parallel
+    long-held write lock (e.g. pvb_splits 50-batter Statcast loop), that
+    write hits the 60s busy_timeout and the inner ``except Exception: pass``
+    swallows it. refresh_log silently stays at the prior run's "success"
+    and DataFreshnessTracker shows stale-but-healthy.
+
+    This helper retries 3× with 0.5s/1s backoff, then logs a warning if
+    still failing. Returns True/False so callers can chain fallback writes.
+    """
+    import sqlite3
+    import time
+
+    for attempt in range(3):
+        try:
+            from src.database import update_refresh_log
+
+            update_refresh_log(source, status, message=(message[:200] if message else ""))
+            return True
+        except sqlite3.OperationalError as exc:
+            if "locked" in str(exc).lower() and attempt < 2:
+                time.sleep(0.5 * (2**attempt))  # 0.5s, 1s
+                continue
+            logger.warning(
+                "refresh_log write failed for %s/%s after %d attempts: %s",
+                source,
+                status,
+                attempt + 1,
+                exc,
+            )
+            return False
+        except Exception as exc:
+            logger.warning("refresh_log write error for %s/%s: %s", source, status, exc)
+            return False
+    return False
+
+
+def _reconcile_results_to_refresh_log(results: dict) -> int:
+    """SFH H2 (2026-05-20): post-bootstrap reconciliation pass.
+
+    Walks the results dict and forces refresh_log entries for any phase
+    whose return string indicates failure ("Error:" or "Timeout"). The
+    per-phase error handlers attempt this directly, but can themselves
+    fail during a long parallel write (umpire+catcher_framing vs
+    pvb_splits) — leaving refresh_log stale at the prior run's "success".
+    Running this pass at the END of bootstrap (after parallel groups
+    complete and write locks release) ensures DataFreshnessTracker sees
+    the true status.
+
+    Returns the number of refresh_log rows reconciled.
+    """
+    reconciled = 0
+    for source, result in results.items():
+        if not isinstance(result, str):
+            continue
+        if result.startswith("Error:"):
+            if _try_write_refresh_log(source, "error", result):
+                reconciled += 1
+        elif result.startswith("Timeout"):
+            if _try_write_refresh_log(source, "timeout", result):
+                reconciled += 1
+    if reconciled > 0:
+        logger.info("Reconciled %d failed-phase rows to refresh_log post-bootstrap", reconciled)
+    return reconciled
+
+
+def _run_with_timeout(fn: Callable, timeout: int = _PHASE_TIMEOUT_SECONDS, source: str | None = None) -> str:
     """Run *fn* in a thread and return its result, or a timeout message.
 
     This prevents any single bootstrap phase from hanging the entire app.
     The worker thread is daemonized so it won't block process exit.
+
+    SFH H3 (2026-05-20): when ``source`` is provided and the phase times
+    out, this records refresh_log(source, "timeout") so the operator
+    dashboard reflects the real state. Without ``source``, behavior is
+    unchanged (caller is responsible for recording).
     """
     result_box: list[str] = []
     error_box: list[Exception] = []
@@ -145,7 +219,9 @@ def _run_with_timeout(fn: Callable, timeout: int = _PHASE_TIMEOUT_SECONDS) -> st
     t.start()
     t.join(timeout=timeout)
     if t.is_alive():
-        logger.warning("Bootstrap phase timed out after %ds", timeout)
+        logger.warning("Bootstrap phase timed out after %ds (source=%s)", timeout, source or "unknown")
+        if source:
+            _try_write_refresh_log(source, "timeout", f"phase timed out after {timeout}s")
         return f"Timeout after {timeout}s"
     if error_box:
         raise error_box[0]
@@ -2972,6 +3048,7 @@ def bootstrap_all_data(
             results["players"] = _run_with_timeout(
                 lambda: _bootstrap_players(progress),
                 timeout=_PHASE_TIMEOUT_SECONDS,
+                source="players",
             )
         except Exception as exc:
             logger.warning("Players bootstrap timed out or failed: %s", exc)
@@ -3015,6 +3092,7 @@ def bootstrap_all_data(
             results["extended_roster"] = _run_with_timeout(
                 lambda: _bootstrap_extended_roster(progress),
                 timeout=_PHASE_TIMEOUT_SECONDS,
+                source="extended_roster",
             )
         except Exception as exc:
             logger.warning("Extended roster bootstrap timed out or failed: %s", exc)
@@ -3032,6 +3110,7 @@ def bootstrap_all_data(
             results["minor_league_rosters"] = _run_with_timeout(
                 lambda: _bootstrap_minor_league_rosters(progress),
                 timeout=_PHASE_TIMEOUT_SECONDS,
+                source="minor_league_rosters",
             )
         except Exception as exc:
             logger.warning("Minor league rosters bootstrap timed out or failed: %s", exc)
@@ -3082,6 +3161,7 @@ def bootstrap_all_data(
             results["yahoo"] = _run_with_timeout(
                 lambda: _bootstrap_yahoo(progress, yahoo_client),
                 timeout=_PHASE_TIMEOUT_SECONDS,
+                source="yahoo_data",
             )
         except Exception as exc:
             logger.warning("Yahoo bootstrap timed out or failed: %s", exc)
@@ -3163,6 +3243,7 @@ def bootstrap_all_data(
             results["news_intelligence"] = _run_with_timeout(
                 lambda: _bootstrap_news_intel(progress, yahoo_client),
                 timeout=_PHASE_TIMEOUT_SECONDS,
+                source="news_intelligence",
             )
         except Exception as exc:
             logger.warning("News intelligence timed out or failed: %s", exc)
@@ -3177,6 +3258,7 @@ def bootstrap_all_data(
             results["ecr_consensus"] = _run_with_timeout(
                 lambda: _bootstrap_ecr_consensus(progress),
                 timeout=_TIMEOUT_ECR_CONSENSUS,
+                source="ecr_consensus",
             )
         except Exception as exc:
             logger.warning("ECR consensus timed out or failed: %s", exc)
@@ -3286,7 +3368,7 @@ def bootstrap_all_data(
                 _fa_holder["df"] = yahoo_client.get_free_agents(count=200)
                 return "ok"
 
-            _result = _run_with_timeout(_fetch_fa, timeout=120)
+            _result = _run_with_timeout(_fetch_fa, timeout=120, source="yahoo_free_agents")
             if _result.startswith("Timeout"):
                 # 2026-05-20 SFH H-1: when the fetch times out, mark
                 # refresh_log "skipped" and STOP — do NOT fall through to
@@ -3297,7 +3379,12 @@ def bootstrap_all_data(
                     "Yahoo FA fetch hit 120s timeout — Yahoo likely rate-limiting. "
                     "Using cached yahoo_free_agents SQLite data from prior run."
                 )
-                results["yahoo_free_agents"] = "Timeout — using cached"
+                # SFH H2 (2026-05-20): results string must NOT start with
+                # "Timeout" — otherwise the end-of-bootstrap reconciliation
+                # would overwrite our deliberate "skipped" status with
+                # "timeout" (treating the cached-data fallback as a hard
+                # failure). Use "Skipped:" prefix to signal "we handled it".
+                results["yahoo_free_agents"] = "Skipped: Yahoo FA fetch hit 120s timeout — using cached SQLite data"
                 from src.database import update_refresh_log
 
                 update_refresh_log("yahoo_free_agents", "skipped")
@@ -3431,7 +3518,9 @@ def bootstrap_all_data(
                 count = update_ros_projections()
                 return f"Updated {count} ROS projections"
 
-            results["ros_projections"] = _run_with_timeout(_ros_update, timeout=_TIMEOUT_ROS_PROJECTIONS)
+            results["ros_projections"] = _run_with_timeout(
+                _ros_update, timeout=_TIMEOUT_ROS_PROJECTIONS, source="ros_projections"
+            )
             logger.info("ROS Bayesian projections: %s", results["ros_projections"])
         except Exception as exc:
             logger.warning("ROS projection update failed: %s", exc)
@@ -3515,6 +3604,7 @@ def bootstrap_all_data(
             results["game_logs"] = _run_with_timeout(
                 lambda: _bootstrap_game_logs(progress, force=force),
                 timeout=_TIMEOUT_GAME_LOGS,
+                source="game_logs",
             )
         except Exception as exc:
             logger.warning("Game logs timed out or failed: %s", exc)
@@ -3564,6 +3654,14 @@ def bootstrap_all_data(
     progress.phase = "Complete"
     progress.detail = "All data loaded!"
     logger.info("Bootstrap results: %s", results)
+
+    # SFH H2 (2026-05-20): post-bootstrap reconciliation pass. Catches phase
+    # failures whose per-phase error-write was itself blocked by a parallel
+    # DB lock (umpire+catcher_framing vs pvb_splits) or by a timeout that
+    # the orchestrator caught in results but never wrote to refresh_log.
+    # Running here — AFTER all phases complete and write locks release —
+    # ensures DataFreshnessTracker reflects the true status of this run.
+    _reconcile_results_to_refresh_log(results)
 
     # Stamp all results into AnalyticsContext for data quality badges
     global _LAST_BOOTSTRAP_CTX  # noqa: PLW0603
