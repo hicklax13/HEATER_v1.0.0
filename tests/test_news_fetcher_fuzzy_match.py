@@ -114,24 +114,36 @@ def test_pre_built_canonical_candidates_kwarg():
 
 
 def test_prefix_pruning_speed():
-    """With 9000 candidates, fallback should still complete <1s on typo."""
+    """With 9000 candidates, fallback should still complete <2.5s on typo.
+
+    2026-05-20 SFH J: bumped fuzzy threshold from 1s → 2.5s and exact from
+    50ms → 200ms. GitHub Actions free-tier runners are noticeably slower
+    than local dev machines (observed 1.2s for fuzzy on CI vs ~0.3s
+    locally). The original tight thresholds were what flagged Coverage
+    Floor red on every PR since #54 — the failure was misattributed to
+    coverage because both run in the same job. The asserts still serve
+    the original purpose (catch a hung-loop regression that brought back
+    the 20+ min CI shard 1 hang) just with more CI headroom.
+    """
     pairs = [(f"Player{i:04d} LastName{i:04d}", i) for i in range(9000)]
     cands_lower = _lower(pairs)
     cands_canonical = _canonical(pairs)
 
-    # Exact match — instant
+    # Exact match — should be near-instant (dict lookup) even on slow CI.
     t0 = time.monotonic()
     result = _fuzzy_match_name("Player0500 LastName0500", cands_lower, canonical_candidates=cands_canonical)
     elapsed_exact = time.monotonic() - t0
     assert result == 500
-    assert elapsed_exact < 0.05, f"Exact match should be <50ms; got {elapsed_exact * 1000:.1f}ms"
+    assert elapsed_exact < 0.20, f"Exact match should be <200ms; got {elapsed_exact * 1000:.1f}ms"
 
-    # Typo match — must use SequenceMatcher fallback but with prefix pruning
-    # "Player0500 LastNme0500" drops a letter mid-word; canonical normalize can't fix it
+    # Typo match — must use SequenceMatcher fallback but with prefix pruning.
+    # "Player0500 LastNme0500" drops a letter mid-word; canonical normalize
+    # can't fix it. The 2.5s cap is well below the 20-minute hang we're
+    # guarding against, while still tolerating CI variability.
     t0 = time.monotonic()
     _fuzzy_match_name("Player0500 LastNme0500", cands_lower, canonical_candidates=cands_canonical)
     elapsed_fuzzy = time.monotonic() - t0
-    assert elapsed_fuzzy < 1.0, f"Fuzzy fallback should be <1s with prefix pruning; got {elapsed_fuzzy * 1000:.1f}ms"
+    assert elapsed_fuzzy < 2.5, f"Fuzzy fallback should be <2.5s with prefix pruning; got {elapsed_fuzzy * 1000:.1f}ms"
 
 
 # ── aggregate_player_news end-to-end ──────────────────────────────────
