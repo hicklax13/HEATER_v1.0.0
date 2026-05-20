@@ -2087,9 +2087,15 @@ def update_refresh_log_auto(
 
     Status rules (in priority order):
         error=True                         → "error"
-        rows_written <= 0                  → "no_data"
-        0 < rows_written < expected_min    → "partial"
-        rows_written >= expected_min       → "success"
+        rows_written >= expected_min       → "success"  (incl. 0 >= 0)
+        rows_written > 0                   → "partial"
+        rows_written == 0                  → "no_data"
+
+    2026-05-20 SFH F: the 0 >= 0 case covers idempotent no-op phases
+    (e.g. _enrich_pitcher_positions with expected_min=0) that wrote
+    nothing because nothing needed changing. Before this fix, such
+    phases were labeled "no_data" — misleading the operator into
+    thinking the upstream returned empty.
 
     Valid status strings accepted by ``update_refresh_log`` (any other value
     is downgraded to ``"unknown"``):
@@ -2110,12 +2116,13 @@ def update_refresh_log_auto(
     """
     if error:
         status = "error"
-    elif rows_written <= 0:
-        status = "no_data"
-    elif expected_min > 0 and rows_written < expected_min:
+    elif rows_written >= expected_min:
+        # Met threshold — handles the idempotent 0 >= 0 case (SFH F).
+        status = "success"
+    elif rows_written > 0:
         status = "partial"
     else:
-        status = "success"
+        status = "no_data"
     update_refresh_log(
         source,
         status,
