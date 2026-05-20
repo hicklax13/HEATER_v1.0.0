@@ -97,8 +97,8 @@ def test_module_level_aliases_still_exposed():
     """The legacy COUNTING_STAT_K / RATE_STAT_K module-level aliases should still exist."""
     assert hasattr(category_urgency, "COUNTING_STAT_K")
     assert hasattr(category_urgency, "RATE_STAT_K")
-    assert category_urgency.COUNTING_STAT_K == CONSTANTS_REGISTRY["sigmoid_k_counting"].value
-    assert category_urgency.RATE_STAT_K == CONSTANTS_REGISTRY["sigmoid_k_rate"].value
+    assert CONSTANTS_REGISTRY["sigmoid_k_counting"].value == category_urgency.COUNTING_STAT_K
+    assert CONSTANTS_REGISTRY["sigmoid_k_rate"].value == category_urgency.RATE_STAT_K
 
 
 def test_get_counting_k_helper_reads_registry(restore_registry):

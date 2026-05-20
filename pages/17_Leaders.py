@@ -178,7 +178,7 @@ def _parse_eta_year(val) -> int | None:
 def _prospect_is_pitcher(row) -> bool:
     """Determine if prospect is a pitcher based on position."""
     pos = str(row.get("position", "")).upper()
-    return "SP" in pos or "RP" in pos or "P" == pos
+    return "SP" in pos or "RP" in pos or pos == "P"
 
 
 def _build_scouting_grades(row, is_pitcher: bool) -> list[dict]:

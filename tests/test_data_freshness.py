@@ -107,4 +107,4 @@ class TestDataFreshnessTracker:
             timestamp=datetime.now(UTC) - timedelta(minutes=5),
         )
         age_str = _tracker.get_age_str("recent")
-        assert "5m ago" == age_str
+        assert age_str == "5m ago"

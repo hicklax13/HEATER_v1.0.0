@@ -145,7 +145,7 @@ class TestCompositeWeightConstants:
             COMPOSITE_W_CAT_FIT,
             COMPOSITE_W_OPP_NEED,
         ]
-        assert all(COMPOSITE_W_ACCEPT > w for w in others)
+        assert all(w < COMPOSITE_W_ACCEPT for w in others)
 
 
 # ── C2: Dual Objective Alpha with Playoff Probability ───────────────────

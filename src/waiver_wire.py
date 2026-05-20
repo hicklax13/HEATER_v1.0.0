@@ -953,33 +953,23 @@ def compute_matchup_targeted_adds(
                     # Good ERA/WHIP (low) helps; bad hurts
                     if status == "winning":
                         # Protect: penalize bad rate stats
-                        if contribution > 4.0 and cat_name == "ERA":
-                            raw_score -= priority * sw * 5.0
-                        elif contribution > 1.30 and cat_name == "WHIP":
+                        if contribution > 4.0 and cat_name == "ERA" or contribution > 1.30 and cat_name == "WHIP":
                             raw_score -= priority * sw * 5.0
                         else:
                             raw_score += priority * sw * 2.0
                             helped_cats.append(cat_name)
                     else:
                         # Losing/tied: reward low ERA/WHIP
-                        if cat_name == "ERA" and contribution < 3.50:
-                            raw_score += priority * sw * 3.0
-                            helped_cats.append(cat_name)
-                        elif cat_name == "WHIP" and contribution < 1.15:
+                        if cat_name == "ERA" and contribution < 3.50 or cat_name == "WHIP" and contribution < 1.15:
                             raw_score += priority * sw * 3.0
                             helped_cats.append(cat_name)
                 else:
                     # AVG/OBP: higher is better
                     if status == "winning":
-                        if contribution < 0.240 and cat_name == "AVG":
-                            raw_score -= priority * sw * 3.0
-                        elif contribution < 0.300 and cat_name == "OBP":
+                        if contribution < 0.240 and cat_name == "AVG" or contribution < 0.300 and cat_name == "OBP":
                             raw_score -= priority * sw * 3.0
                     else:
-                        if cat_name == "AVG" and contribution > 0.270:
-                            raw_score += priority * sw * 3.0
-                            helped_cats.append(cat_name)
-                        elif cat_name == "OBP" and contribution > 0.340:
+                        if cat_name == "AVG" and contribution > 0.270 or cat_name == "OBP" and contribution > 0.340:
                             raw_score += priority * sw * 3.0
                             helped_cats.append(cat_name)
             else:

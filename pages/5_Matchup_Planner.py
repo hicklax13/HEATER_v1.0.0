@@ -317,10 +317,7 @@ def _build_category_prob_html(cat_data: list[dict]) -> str:
         conf_opacity = "1.0" if confidence == "high" else "0.7" if confidence == "medium" else "0.5"
 
         # Format projection values
-        if name in ("AVG", "OBP"):
-            user_str = format_stat(user_proj, name)
-            opp_str = format_stat(opp_proj, name)
-        elif name in ("ERA", "WHIP"):
+        if name in ("AVG", "OBP") or name in ("ERA", "WHIP"):
             user_str = format_stat(user_proj, name)
             opp_str = format_stat(opp_proj, name)
         else:
@@ -632,9 +629,12 @@ with main:
 
     # Check if we have valid ratings data for player-matchup tabs
     has_player_ratings = True
-    if ratings_df is None or ratings_df.empty:
-        has_player_ratings = False
-    elif "games_count" in ratings_df.columns and ratings_df["games_count"].sum() == 0:
+    if (
+        ratings_df is None
+        or ratings_df.empty
+        or "games_count" in ratings_df.columns
+        and ratings_df["games_count"].sum() == 0
+    ):
         has_player_ratings = False
 
     if has_player_ratings:

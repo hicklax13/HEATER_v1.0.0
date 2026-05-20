@@ -47,11 +47,10 @@ def test_patch_injects_browser_headers_for_matching_host():
         resp.content = b"<html></html>"
         return resp
 
-    with patch("requests.get", side_effect=fake_get):
-        with patch_requests_browser_headers(host_filter="fangraphs.com"):
-            import requests
+    with patch("requests.get", side_effect=fake_get), patch_requests_browser_headers(host_filter="fangraphs.com"):
+        import requests
 
-            requests.get("https://www.fangraphs.com/leaders-legacy.aspx")
+        requests.get("https://www.fangraphs.com/leaders-legacy.aspx")
 
     headers = captured.get("headers") or {}
     # Must contain a browser-like User-Agent (not the bare pybaseball/python-requests)
@@ -75,11 +74,10 @@ def test_patch_does_not_inject_for_non_matching_host():
 
     # Caller passes no headers; with host_filter="fangraphs.com",
     # an mlb.com URL should NOT get browser headers injected.
-    with patch("requests.get", side_effect=fake_get):
-        with patch_requests_browser_headers(host_filter="fangraphs.com"):
-            import requests
+    with patch("requests.get", side_effect=fake_get), patch_requests_browser_headers(host_filter="fangraphs.com"):
+        import requests
 
-            requests.get("https://statsapi.mlb.com/api/v1/people")
+        requests.get("https://statsapi.mlb.com/api/v1/people")
 
     headers = captured.get("headers") or {}
     # Either None or empty dict — the patch should NOT have added a UA.
@@ -121,14 +119,13 @@ def test_caller_supplied_headers_win_on_collision():
         resp.status_code = 200
         return resp
 
-    with patch("requests.get", side_effect=fake_get):
-        with patch_requests_browser_headers(host_filter="fangraphs.com"):
-            import requests
+    with patch("requests.get", side_effect=fake_get), patch_requests_browser_headers(host_filter="fangraphs.com"):
+        import requests
 
-            requests.get(
-                "https://www.fangraphs.com/leaders-legacy.aspx",
-                headers={"User-Agent": "MyCustomAgent/1.0"},
-            )
+        requests.get(
+            "https://www.fangraphs.com/leaders-legacy.aspx",
+            headers={"User-Agent": "MyCustomAgent/1.0"},
+        )
 
     headers = captured.get("headers") or {}
     # Caller's UA wins on collision

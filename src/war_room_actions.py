@@ -276,9 +276,7 @@ def compute_todays_actions(
                     val = 0.0
 
                 # For rate stats, any pitcher on the roster is potentially helpful
-                if cat in ("ERA", "WHIP"):
-                    relevant_cats.append(cat)
-                elif val > 0:
+                if cat in ("ERA", "WHIP") or val > 0:
                     relevant_cats.append(cat)
 
             if relevant_cats:

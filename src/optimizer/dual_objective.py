@@ -189,9 +189,7 @@ def recommend_alpha(
 
     # ── Legacy time-based path ────────────────────────────────────────
     # Base alpha from time remaining — H2H floor of 0.55
-    if weeks_remaining < 3:
-        alpha = 0.85
-    elif weeks_remaining < 8:
+    if weeks_remaining < 3 or weeks_remaining < 8:
         alpha = 0.85
     elif weeks_remaining <= 16:
         alpha = 0.65

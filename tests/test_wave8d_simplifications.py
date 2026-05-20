@@ -90,9 +90,9 @@ def test_streaming_league_avg_constants():
 
     # 2026-05-17 Section 3 D1/D8: constants now read from CONSTANTS_REGISTRY.
     # Canonical values: league_avg_era=4.20 (2025 MLB actual), whip=1.30, woba=0.320.
-    assert _LEAGUE_AVG_ERA == CONSTANTS_REGISTRY["league_avg_era"].value
-    assert _LEAGUE_AVG_WHIP == CONSTANTS_REGISTRY["league_avg_whip"].value
-    assert _LEAGUE_AVG_WOBA == CONSTANTS_REGISTRY["league_avg_woba"].value
+    assert CONSTANTS_REGISTRY["league_avg_era"].value == _LEAGUE_AVG_ERA
+    assert CONSTANTS_REGISTRY["league_avg_whip"].value == _LEAGUE_AVG_WHIP
+    assert CONSTANTS_REGISTRY["league_avg_woba"].value == _LEAGUE_AVG_WOBA
 
 
 def test_war_room_hotcold_league_avg_constants():
@@ -100,8 +100,8 @@ def test_war_room_hotcold_league_avg_constants():
     from src.war_room_hotcold import _LEAGUE_AVG_ERA, _LEAGUE_AVG_WHIP
 
     # 2026-05-17 Section 3 D1: reads from CONSTANTS_REGISTRY.
-    assert _LEAGUE_AVG_ERA == CONSTANTS_REGISTRY["league_avg_era"].value
-    assert _LEAGUE_AVG_WHIP == CONSTANTS_REGISTRY["league_avg_whip"].value
+    assert CONSTANTS_REGISTRY["league_avg_era"].value == _LEAGUE_AVG_ERA
+    assert CONSTANTS_REGISTRY["league_avg_whip"].value == _LEAGUE_AVG_WHIP
 
 
 def test_waiver_wire_whip_constants():

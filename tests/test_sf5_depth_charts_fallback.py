@@ -199,12 +199,14 @@ class TestBootstrapDepthChartsFallback:
                 }
             }
 
-            with patch("src.depth_charts.fetch_depth_charts", return_value={}):
-                with patch(
+            with (
+                patch("src.depth_charts.fetch_depth_charts", return_value={}),
+                patch(
                     "src.depth_charts.fetch_depth_charts_via_statsapi",
                     return_value=mock_depth_data,
-                ):
-                    msg = _bootstrap_depth_charts(BootstrapProgress())
+                ),
+            ):
+                msg = _bootstrap_depth_charts(BootstrapProgress())
 
             assert "fallback" in msg.lower()
 

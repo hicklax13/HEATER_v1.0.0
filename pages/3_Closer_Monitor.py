@@ -93,9 +93,7 @@ _raw_depth_data: dict = st.session_state.get("closer_depth_data", {})
 depth_data: dict = {}
 for _k, _v in _raw_depth_data.items():
     _canon = _normalize_team(_k)
-    if _canon not in depth_data:
-        depth_data[_canon] = _v
-    elif _v.get("closer_confidence", 0) > depth_data[_canon].get("closer_confidence", 0):
+    if _canon not in depth_data or _v.get("closer_confidence", 0) > depth_data[_canon].get("closer_confidence", 0):
         depth_data[_canon] = _v
 
 if not depth_data:

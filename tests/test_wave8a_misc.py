@@ -191,12 +191,14 @@ class TestMatchupAdjustmentsSignalsFailure:
         silent-failure is visible to operators."""
         svc = MatchupContextService()
         roster = pd.DataFrame({"player_id": [1, 2], "name": ["A", "B"]})
-        with patch(
-            "src.optimizer.matchup_adjustments.compute_weekly_matchup_adjustments",
-            side_effect=RuntimeError("boom"),
+        with (
+            patch(
+                "src.optimizer.matchup_adjustments.compute_weekly_matchup_adjustments",
+                side_effect=RuntimeError("boom"),
+            ),
+            caplog.at_level(logging.WARNING, logger="src.matchup_context"),
         ):
-            with caplog.at_level(logging.WARNING, logger="src.matchup_context"):
-                svc.get_matchup_adjustments(roster)
+            svc.get_matchup_adjustments(roster)
         warnings = [r for r in caplog.records if r.levelno >= logging.WARNING and r.name == "src.matchup_context"]
         assert warnings, "Expected at least one WARNING-level log on adjustment failure"
         assert any("matchup" in r.message.lower() for r in warnings), "Expected the warning to mention 'matchup'"
