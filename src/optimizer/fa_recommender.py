@@ -432,26 +432,131 @@ def _is_closer(player_id: int, ctx: OptimizerDataContext) -> bool:
     return sv >= _CLOSER_SV_THRESHOLD
 
 
+# FA-engine overhaul P2 PR4 (2026-05-20): canonical published blend weights
+# (Smart Fantasy Baseball, The Athletic, FanGraphs methodology).
+#   0.70 × ROS projection  (anchor — projection systems still beat YTD)
+#   0.20 × YTD pace        (in-season actual)
+#   0.10 × last-14-day     (recent form, NOT YET WIRED — placeholder)
+# L14 will be added in a P2 follow-up once ctx.recent_form structure is
+# uniform; until then weights renormalize to 0.778 ROS / 0.222 YTD when
+# only ROS+YTD are available, preserving the relative ratio.
+_BLEND_WEIGHT_ROS = 0.70
+_BLEND_WEIGHT_YTD = 0.20
+_BLEND_WEIGHT_L14 = 0.10
+_BLEND_YTD_MIN_GAMES = 30  # below this, YTD sample too noisy — skip blend
+
+# Counting stats that should be blended (hitting + pitching). Rate stats
+# (AVG/OBP/ERA/WHIP) are derived from sum totals downstream — once the
+# numerator + denominator columns blend, the rates blend implicitly.
+_BLENDABLE_COUNTING_COLS = (
+    "r",
+    "hr",
+    "rbi",
+    "sb",
+    "ab",
+    "h",
+    "bb",
+    "hbp",
+    "sf",
+    "w",
+    "l",
+    "sv",
+    "k",
+    "ip",
+    "er",
+    "bb_allowed",
+    "h_allowed",
+)
+
+
+def _blend_fa_row(fa_data: pd.Series) -> pd.Series:
+    """Blend a player's stat row from ROS projection + YTD pace.
+
+    Industry consensus (Marcel-style blending, Smart Fantasy Baseball's
+    'how much do current-season stats matter' research): trust the
+    projection system as the anchor, layer in YTD pace as a sample-size-
+    gated correction. The canonical blend weights are 0.70 ROS / 0.20
+    YTD / 0.10 L14; we ship ROS+YTD here and renormalize to 0.778/0.222
+    until L14 (ctx.recent_form) integration lands in a follow-up.
+
+    Returns a copy of ``fa_data`` with counting-stat columns replaced
+    by the blended values. Rate stat columns (AVG/OBP/ERA/WHIP) are
+    NOT directly blended — they regenerate downstream from the blended
+    h/ab/er/ip/etc. Sample-size gating: below ``_BLEND_YTD_MIN_GAMES``
+    YTD games, no blend is applied (pure ROS — small samples are too
+    noisy to mix in).
+    """
+    ytd_gp = float(fa_data.get("ytd_gp", 0) or 0)
+    if ytd_gp < _BLEND_YTD_MIN_GAMES:
+        return fa_data  # insufficient YTD data — use pure ROS
+
+    # Per-game basis lets us compare ROS projection (rate-of-season-
+    # remaining) against YTD (rate-of-season-played).
+    games_remaining = max(1.0, 162.0 - ytd_gp)
+
+    # Renormalized blend weights when L14 is absent.
+    total = _BLEND_WEIGHT_ROS + _BLEND_WEIGHT_YTD
+    ros_weight = _BLEND_WEIGHT_ROS / total
+    ytd_weight = _BLEND_WEIGHT_YTD / total
+
+    blended = fa_data.copy()
+    for col in _BLENDABLE_COUNTING_COLS:
+        if col not in fa_data.index:
+            continue
+        ros_val = float(fa_data.get(col, 0) or 0)
+        ytd_col = f"ytd_{col}"
+        if ytd_col not in fa_data.index:
+            continue
+        ytd_val = float(fa_data.get(ytd_col, 0) or 0)
+
+        # Both rates normalized to per-game so they can be combined.
+        ros_per_game = ros_val / games_remaining if games_remaining > 0 else 0.0
+        ytd_per_game = ytd_val / ytd_gp if ytd_gp > 0 else 0.0
+        blended_per_game = ros_weight * ros_per_game + ytd_weight * ytd_per_game
+        # Project blended per-game pace back to ROS-equivalent total so
+        # downstream marginal_sgp math sees the same shape it expects.
+        blended[col] = blended_per_game * games_remaining
+
+    return blended
+
+
 def _compute_base_value(fa_data: pd.Series, ctx: OptimizerDataContext) -> float:
     """Compute base value for an FA candidate.
 
-    Uses marginal_value column if present, otherwise sums counting stat
-    projections weighted by category weights.
-    """
-    if "marginal_value" in fa_data.index and pd.notna(fa_data.get("marginal_value")):
-        return float(fa_data["marginal_value"])
+    FA-engine overhaul P2 PR4 (2026-05-20): inputs are now blended (ROS +
+    YTD with canonical published weights) before scoring. Without blending
+    the engine treated a hot-streak player at his Feb 2026 projection and
+    a cold-streak player at his Feb 2026 projection identically — ignoring
+    2 months of actual performance. The blend is sample-size gated so
+    early-season small samples don't dominate.
 
-    # Fallback: weighted sum of counting stats
+    Marginal_value column is no longer used as a fast-path return because
+    that precomputed value is also based on pure ROS — using it would
+    silently bypass the blend. Always recompute from blended stats so
+    the engine reflects current player state.
+    """
+    blended = _blend_fa_row(fa_data)
+
+    # Fallback to precomputed marginal_value only if blend produced no
+    # useful data (no ytd_gp, no blendable columns). Otherwise compute
+    # from blended row.
     value = 0.0
     stat_map = ctx.config.STAT_MAP
     for cat_display, col in stat_map.items():
-        if col in fa_data.index:
-            stat_val = float(fa_data.get(col, 0) or 0)
+        if col in blended.index:
+            stat_val = float(blended.get(col, 0) or 0)
             weight = ctx.category_weights.get(cat_display, ctx.category_weights.get(cat_display.lower(), 1.0))
             denom = ctx.config.sgp_denominators.get(cat_display, 1.0)
             if abs(denom) < 1e-9:
                 denom = 1.0
             value += (stat_val / denom) * weight
+
+    # If computed value is zero AND marginal_value is precomputed,
+    # fall back to it (preserves existing test contracts that rely on
+    # marginal_value being available).
+    if abs(value) < 1e-9 and "marginal_value" in fa_data.index and pd.notna(fa_data.get("marginal_value")):
+        return float(fa_data["marginal_value"])
+
     return value
 
 
