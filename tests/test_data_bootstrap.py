@@ -8,7 +8,6 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 
-
 # 2026-05-19 SFH M-1: sentinel count protects against silent coverage
 # regression if a phase is renamed off the `_bootstrap_*` prefix.
 # Update this constant deliberately when phases are added/removed.
