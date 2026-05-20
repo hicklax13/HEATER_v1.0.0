@@ -53,8 +53,9 @@ class PlayerCardData(TypedDict):
 _LC_ONCE = LeagueConfig()
 _HITTING_CATS = _LC_ONCE.hitting_categories  # ["R", "HR", "RBI", "SB", "AVG", "OBP"]
 _PITCHING_CATS = _LC_ONCE.pitching_categories  # ["W", "L", "SV", "K", "ERA", "WHIP"]
+# 2026-05-19 D6: snapshot from LeagueConfig (was {"AVG", "OBP", "ERA", "WHIP"} literal).
+_RATE_STATS = set(_LC_ONCE.rate_stats)
 del _LC_ONCE
-_RATE_STATS = {"AVG", "OBP", "ERA", "WHIP"}
 
 _MLB_HEADSHOT_TEMPLATE = (
     "https://img.mlbstatic.com/mlb-photos/image/upload/"

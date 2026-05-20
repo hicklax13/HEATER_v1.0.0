@@ -108,7 +108,8 @@ def compute_category_urgency(
     inverse_stats = config.inverse_stats  # L, ERA, WHIP — lower is better
     sgp_denoms = config.sgp_denominators
 
-    rate_stats = getattr(config, "rate_stats", {"AVG", "OBP", "ERA", "WHIP"})
+    # 2026-05-19 D6: config is always a LeagueConfig; getattr fallback was defensive.
+    rate_stats = config.rate_stats
 
     for cat in config.all_categories:
         my_val = float(my_totals.get(cat, my_totals.get(cat.lower(), 0)) or 0)
@@ -276,7 +277,8 @@ def compute_urgency_weights(
     urgency = compute_category_urgency(my_totals, opp_totals, config)
 
     # Classify rate stat modes
-    rate_stats = getattr(config, "rate_stats", {"AVG", "OBP", "ERA", "WHIP"})
+    # 2026-05-19 D6: config is always a LeagueConfig; getattr fallback was defensive.
+    rate_stats = config.rate_stats
     rate_modes: dict[str, str] = {}
     for cat in rate_stats:
         my_val = my_totals.get(cat, 0.0)

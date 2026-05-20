@@ -2343,7 +2343,10 @@ def build_category_heatmap_html(user_totals: dict, all_totals: list[dict]) -> st
 
 HITTING_STAT_COLS = set(HITTING_CATEGORIES)
 PITCHING_STAT_COLS = set(PITCHING_CATEGORIES)
-_RATE_STAT_COLS = {"AVG", "OBP", "ERA", "WHIP"}
+# 2026-05-19 D6: snapshot from LeagueConfig (was {"AVG", "OBP", "ERA", "WHIP"} literal).
+from src.valuation import LeagueConfig as _LC_FOR_RATES  # noqa: E402
+
+_RATE_STAT_COLS = set(_LC_FOR_RATES().rate_stats)
 _RATE_3DP = {"AVG", "OBP", "avg", "obp"}  # 3 decimal places
 _RATE_2DP = {"ERA", "WHIP", "era", "whip"}  # 2 decimal places
 

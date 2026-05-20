@@ -150,7 +150,8 @@ def _compute_projected_team_totals() -> dict[str, dict[str, float]]:
 
     weeks = 26.0
     counting_cats = {"R", "HR", "RBI", "SB", "W", "L", "SV", "K"}
-    rate_cats = {"AVG", "OBP", "ERA", "WHIP"}
+    # 2026-05-19 D6: reuse module-level _RATE_STATS (already snapshot from LeagueConfig).
+    rate_cats = _RATE_STATS
     weekly_totals: dict[str, dict[str, float]] = {}
     for team, cat_map in season_totals.items():
         per_week: dict[str, float] = {}
