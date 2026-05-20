@@ -27,6 +27,7 @@ import logging
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 import pandas as pd
@@ -539,14 +540,48 @@ class YahooDataService:
         cache_key = f"{self._PREFIX}{data_type}"
         store.pop(cache_key, None)
 
+    # 2026-05-20: refresh_log source names that correspond to each YDS cache
+    # key. When the session-state cache is cold (e.g. user just landed on a
+    # page that hasn't called the yds.get_* method yet) but the bootstrap
+    # recently wrote refresh_log, surface the bootstrap's timestamp instead
+    # of misleadingly showing "Stale (will refresh)" — the data IS fresh in
+    # SQLite, the YDS session cache just hasn't pulled it yet. Keys without a
+    # refresh_log analogue (matchup, settings, schedule) fall through to the
+    # old behavior.
+    _REFRESH_LOG_SOURCE_BY_KEY: dict[str, str] = {
+        "rosters": "yahoo_data",
+        "standings": "yahoo_standings",
+        "free_agents": "yahoo_free_agents",
+        "transactions": "yahoo_transactions",
+    }
+
     def get_data_freshness(self) -> dict[str, str]:
         """Return human-readable freshness labels per data type.
 
         Returns:
-            Dict like ``{"rosters": "Live (2m ago)", "standings": "Offline (DB)"}``
+            Dict like ``{"rosters": "Live (2m ago)", "standings": "Cached (1h ago)"}``
+
+        Resolution order per source:
+            1. YDS session-state cache (hot — pulled by a prior get_* call this session)
+            2. refresh_log (warm — last bootstrap or YDS write touched it)
+            3. ``"Stale (will refresh)"`` / ``"Offline (DB)"`` (cold)
         """
         store = _get_state_store()
         freshness: dict[str, str] = {}
+
+        # Hydrate refresh_log timestamps once for the cold-cache fallback.
+        # Failing this lookup is non-fatal — we just fall back to the legacy
+        # "Stale (will refresh)" / "Offline (DB)" labels.
+        refresh_log_by_source: dict[str, dict] = {}
+        try:
+            from src.database import get_refresh_log_snapshot
+
+            for entry in get_refresh_log_snapshot():
+                src = entry.get("source")
+                if src:
+                    refresh_log_by_source[src] = entry
+        except Exception:
+            pass
 
         for key in [
             "rosters",
@@ -565,12 +600,62 @@ class YahooDataService:
                     freshness[key] = "Live (just now)"
                 else:
                     freshness[key] = f"Cached ({age_min}m ago)"
-            elif self.is_connected():
+                continue
+
+            # Session-state cache miss / stale — fall back to refresh_log so
+            # the label reflects when the data was last actually written.
+            rl_source = self._REFRESH_LOG_SOURCE_BY_KEY.get(key)
+            rl_label = self._refresh_log_freshness_label(refresh_log_by_source, rl_source)
+            if rl_label:
+                freshness[key] = rl_label
+                continue
+
+            if self.is_connected():
                 freshness[key] = "Stale (will refresh)"
             else:
                 freshness[key] = "Offline (DB)"
 
         return freshness
+
+    @staticmethod
+    def _refresh_log_freshness_label(rl_by_source: dict[str, dict], source: str | None) -> str | None:
+        """Translate a refresh_log row into a Cached label.
+
+        Returns ``None`` when there's no usable refresh_log row for the given
+        source (which keeps the legacy fallback path active). A row with a
+        non-data-writing status (``error``, ``unknown``, ``no_data``,
+        ``timeout``) is treated the same as missing — those statuses do not
+        indicate the SQLite cache has data to show.
+        """
+        if not source or source not in rl_by_source:
+            return None
+        entry = rl_by_source[source]
+        status = entry.get("status")
+        # Statuses that mean "data was successfully written or cached for this
+        # source". Anything else (error/unknown/no_data/timeout) is not a
+        # freshness signal we want to surface.
+        if status not in ("success", "partial", "cached", "skipped"):
+            return None
+        last_refresh = entry.get("last_refresh")
+        if not last_refresh:
+            return None
+        try:
+            ts = datetime.fromisoformat(str(last_refresh).replace(" ", "T"))
+        except (ValueError, TypeError):
+            return None
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=UTC)
+        age = datetime.now(UTC) - ts
+        age_min = int(age.total_seconds() / 60)
+        if age_min < 1:
+            return "Cached (<1m ago)"
+        if age_min < 60:
+            return f"Cached ({age_min}m ago)"
+        age_hr = int(age_min / 60)
+        if age_hr < 24:
+            return f"Cached ({age_hr}h ago)"
+        age_days = int(age_hr / 24)
+        return f"Cached ({age_days}d ago)"
 
     def get_cache_stats(self) -> dict:
         """Return observability data: hits, misses, ages, errors."""

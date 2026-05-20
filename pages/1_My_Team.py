@@ -1110,9 +1110,15 @@ else:
                 _report_week = 1
                 try:
                     # V4: Use MatchupContextService for opponent intel (unified)
-                    from src.matchup_context import get_matchup_context_service
+                    # 2026-05-20: function is `get_matchup_context()` (returns
+                    # the service singleton), not `get_matchup_context_service`
+                    # which was renamed in an earlier sweep. The stale import
+                    # was silently dying in the bare except below and
+                    # `_report_week` was stuck at its initialized value of 1,
+                    # rendering "Weekly Report — Week 1" even in Week 9.
+                    from src.matchup_context import get_matchup_context
 
-                    _mcs = get_matchup_context_service()
+                    _mcs = get_matchup_context()
                     _report_opp = _mcs.get_opponent_context()
                     from src.opponent_intel import get_week_number
 

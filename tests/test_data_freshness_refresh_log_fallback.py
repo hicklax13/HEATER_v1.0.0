@@ -1,0 +1,202 @@
+"""2026-05-20 follow-up: YDS get_data_freshness must consult refresh_log
+when the session-state cache is cold.
+
+Background:
+  After a fresh bootstrap (which writes SQLite + refresh_log but NOT the
+  YDS session-state cache), the user landed on a page that doesn't call
+  every yds.get_*() method. The Data Freshness widget showed misleading
+  "Stale (will refresh)" labels for standings/transactions and similar —
+  because those keys had no _CacheEntry in session_state yet. The data
+  was genuinely fresh in SQLite (bootstrap wrote it minutes ago); only
+  the YDS session-state was cold.
+
+This file pins the fallback behavior:
+  1. _refresh_log_freshness_label translates a refresh_log row into a
+     "Cached (Xm ago)" / "Cached (Xh ago)" / "Cached (Xd ago)" string.
+  2. Returns None for missing source, missing timestamp, or non-data
+     statuses (error / unknown / no_data / timeout).
+  3. get_data_freshness uses the fallback when session cache is cold
+     but refresh_log has a recent success row, so the UI surfaces the
+     real freshness instead of "Stale (will refresh)".
+"""
+
+from __future__ import annotations
+
+import sys
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from src.yahoo_data_service import YahooDataService
+
+
+def _row(source: str, status: str, age_minutes: float = 1.0) -> dict:
+    """Build a refresh_log row dict with an ISO timestamp `age_minutes` old."""
+    ts = datetime.now(UTC) - timedelta(minutes=age_minutes)
+    return {
+        "source": source,
+        "status": status,
+        "last_refresh": ts.isoformat(),
+    }
+
+
+def test_refresh_log_freshness_label_returns_minutes_for_recent():
+    """Under an hour → returns 'Cached (Xm ago)'."""
+    rl = {"yahoo_standings": _row("yahoo_standings", "success", age_minutes=15)}
+    label = YahooDataService._refresh_log_freshness_label(rl, "yahoo_standings")
+    assert label == "Cached (15m ago)"
+
+
+def test_refresh_log_freshness_label_under_one_minute():
+    """<1 minute → returns 'Cached (<1m ago)'."""
+    rl = {"yahoo_data": _row("yahoo_data", "success", age_minutes=0.3)}
+    label = YahooDataService._refresh_log_freshness_label(rl, "yahoo_data")
+    assert label == "Cached (<1m ago)"
+
+
+def test_refresh_log_freshness_label_hours():
+    """1-23 hours → returns 'Cached (Xh ago)'."""
+    rl = {"yahoo_transactions": _row("yahoo_transactions", "success", age_minutes=180)}
+    label = YahooDataService._refresh_log_freshness_label(rl, "yahoo_transactions")
+    assert label == "Cached (3h ago)"
+
+
+def test_refresh_log_freshness_label_days():
+    """>=24 hours → returns 'Cached (Xd ago)'."""
+    rl = {"yahoo_free_agents": _row("yahoo_free_agents", "success", age_minutes=60 * 50)}
+    label = YahooDataService._refresh_log_freshness_label(rl, "yahoo_free_agents")
+    assert label == "Cached (2d ago)"
+
+
+def test_refresh_log_freshness_label_partial_status_accepted():
+    """'partial' is a successful write status — accept it."""
+    rl = {"yahoo_free_agents": _row("yahoo_free_agents", "partial", age_minutes=5)}
+    label = YahooDataService._refresh_log_freshness_label(rl, "yahoo_free_agents")
+    assert label == "Cached (5m ago)"
+
+
+def test_refresh_log_freshness_label_cached_status_accepted():
+    """'cached' (e.g. ECR cache hit, no fresh fetch) — accept it."""
+    rl = {"yahoo_data": _row("yahoo_data", "cached", age_minutes=10)}
+    label = YahooDataService._refresh_log_freshness_label(rl, "yahoo_data")
+    assert label == "Cached (10m ago)"
+
+
+def test_refresh_log_freshness_label_skipped_status_accepted():
+    """'skipped' (e.g. FA fetch hit 120s timeout but cached data is used) —
+    still indicates DATA exists in SQLite, so it's a usable freshness signal."""
+    rl = {"yahoo_free_agents": _row("yahoo_free_agents", "skipped", age_minutes=3)}
+    label = YahooDataService._refresh_log_freshness_label(rl, "yahoo_free_agents")
+    assert label == "Cached (3m ago)"
+
+
+@pytest.mark.parametrize("bad_status", ["error", "unknown", "no_data", "timeout"])
+def test_refresh_log_freshness_label_non_data_status_returns_none(bad_status):
+    """Statuses that mean 'no data was written' should NOT surface as Cached —
+    return None so the caller falls back to 'Stale' / 'Offline' label."""
+    rl = {"yahoo_data": _row("yahoo_data", bad_status, age_minutes=5)}
+    label = YahooDataService._refresh_log_freshness_label(rl, "yahoo_data")
+    assert label is None
+
+
+def test_refresh_log_freshness_label_missing_source():
+    """Source not in dict → None."""
+    label = YahooDataService._refresh_log_freshness_label({}, "yahoo_data")
+    assert label is None
+
+
+def test_refresh_log_freshness_label_none_source():
+    """Source=None (e.g. matchup/settings/schedule which we don't track) → None."""
+    rl = {"yahoo_data": _row("yahoo_data", "success", age_minutes=5)}
+    label = YahooDataService._refresh_log_freshness_label(rl, None)
+    assert label is None
+
+
+def test_refresh_log_freshness_label_invalid_timestamp():
+    """Malformed last_refresh → None (gracefully)."""
+    rl = {"yahoo_data": {"source": "yahoo_data", "status": "success", "last_refresh": "garbage"}}
+    label = YahooDataService._refresh_log_freshness_label(rl, "yahoo_data")
+    assert label is None
+
+
+def test_get_data_freshness_uses_refresh_log_when_session_cache_cold(monkeypatch):
+    """End-to-end: session cache empty, but refresh_log has a recent
+    yahoo_data success row → standings/rosters/etc. show 'Cached (Xm ago)'
+    instead of the misleading 'Stale (will refresh)'."""
+    fake_snapshot = [
+        _row("yahoo_data", "success", age_minutes=8),
+        _row("yahoo_standings", "success", age_minutes=8),
+        _row("yahoo_free_agents", "partial", age_minutes=8),
+        _row("yahoo_transactions", "success", age_minutes=8),
+    ]
+    monkeypatch.setattr(
+        "src.database.get_refresh_log_snapshot",
+        MagicMock(return_value=fake_snapshot),
+    )
+
+    yds = YahooDataService.__new__(YahooDataService)
+    yds._client = MagicMock()  # connected
+    yds._client.is_connected = lambda: True
+
+    with patch("src.yahoo_data_service._get_state_store", return_value={}):
+        freshness = yds.get_data_freshness()
+
+    # Tracked sources fall back to refresh_log → "Cached (8m ago)".
+    assert freshness["rosters"] == "Cached (8m ago)"
+    assert freshness["standings"] == "Cached (8m ago)"
+    assert freshness["free_agents"] == "Cached (8m ago)"
+    assert freshness["transactions"] == "Cached (8m ago)"
+    # Untracked sources (no refresh_log analogue) keep legacy fallback.
+    assert freshness["matchup"] == "Stale (will refresh)"
+    assert freshness["settings"] == "Stale (will refresh)"
+    assert freshness["schedule"] == "Stale (will refresh)"
+
+
+def test_get_data_freshness_session_cache_wins_over_refresh_log(monkeypatch):
+    """Regression guard: when session cache has fresh data, the refresh_log
+    fallback is NOT consulted — session is authoritative for the live tier."""
+    from src.yahoo_data_service import _CacheEntry, _get_state_store
+
+    # refresh_log says 8m old — would be "Cached (8m ago)" via fallback.
+    monkeypatch.setattr(
+        "src.database.get_refresh_log_snapshot",
+        MagicMock(return_value=[_row("yahoo_data", "success", age_minutes=8)]),
+    )
+
+    yds = YahooDataService.__new__(YahooDataService)
+    yds._client = MagicMock()
+    yds._client.is_connected = lambda: True
+
+    # Pre-populate a hot session cache entry (~0 seconds old).
+    fake_store = {f"{yds._PREFIX}rosters": _CacheEntry(value="x", ttl=300)}
+    with patch("src.yahoo_data_service._get_state_store", return_value=fake_store):
+        freshness = yds.get_data_freshness()
+
+    # Hot session cache → "Live (just now)", NOT "Cached (8m ago)".
+    assert freshness["rosters"] == "Live (just now)"
+
+
+def test_get_data_freshness_offline_falls_back_to_offline_label(monkeypatch):
+    """When refresh_log is empty AND client is offline → 'Offline (DB)'."""
+    monkeypatch.setattr(
+        "src.database.get_refresh_log_snapshot",
+        MagicMock(return_value=[]),
+    )
+
+    yds = YahooDataService.__new__(YahooDataService)
+    yds._client = None  # offline
+
+    with patch("src.yahoo_data_service._get_state_store", return_value={}):
+        freshness = yds.get_data_freshness()
+
+    for key in ("rosters", "standings", "matchup", "free_agents", "transactions"):
+        assert freshness[key] == "Offline (DB)"
+
+
+# Imported here for the session-cache-wins test (kept at bottom to avoid
+# polluting other tests with the import-time side effect on time).
+import time  # noqa: E402
