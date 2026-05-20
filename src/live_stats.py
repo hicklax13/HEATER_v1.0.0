@@ -532,10 +532,18 @@ def refresh_all_stats(force: bool = False) -> dict:
             df = fetch_season_stats()
             if not df.empty:
                 saved = save_season_stats_to_db(df)
+                # 2026-05-20 SFH G: lowered threshold from 70% to 25% to
+                # reflect the real match rate. MLB Stats API returns stats
+                # for the universe of players who appeared (incl. minor-
+                # league callups, 1-PA cup-of-coffee prospects, players we
+                # don't track in `players`). Of ~7500 fetched rows, ~2500
+                # match our ~1100-player roster — that's the steady state,
+                # not a partial failure. A drop below 25% signals a real
+                # regression (API change, name-matching bug).
                 update_refresh_log_auto(
                     "season_stats",
                     saved,
-                    expected_min=max(500, int(len(df) * 0.70)),
+                    expected_min=max(1000, int(len(df) * 0.25)),
                     message=f"saved {saved}/{len(df)} rows",
                 )
                 results["season_stats"] = f"Saved {saved}/{len(df)} player stats"
