@@ -512,7 +512,7 @@ The cumulative structural-invariant guard set in `tests/test_no_*.py`, `test_pag
 
 | PR | Title | Highlights |
 |----|-------|------------|
-| #47 | Deep-audit punchlist completion + repo hygiene + preflight tooling | 17 commits squashed; Sections 2-8 shipped; 7 new structural-invariant guard tests; preflight env+access verification script |
+| #47 | Deep-audit punchlist completion + repo hygiene + preflight tooling | 17 commits squashed; Sections 2-8 shipped; 6 new structural-invariant guard tests; preflight env+access verification script |
 | #48 | Research.md gap-status reconciliation against PRs #18-#47 | 20 numbered gaps reclassified: 13 shipped, 3 partial, 4 still gap |
 | #49 | silent-failure-hunter follow-up: H1 + M1/M2/M3/L1 + H2 regression lock | Found 2 HIGH + 3 MED + 1 LOW post-merge; H1 case-insensitive SQL was a real bug; H2 was a false positive locked with regression test |
 | #50 | News_fetcher O(N*M) → 3-tier lookup | Caused CI shard 1 hang in PR #47; now <50ms exact / <5s at-scale |

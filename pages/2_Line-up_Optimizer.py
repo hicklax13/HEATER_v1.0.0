@@ -2306,12 +2306,12 @@ with main:
                         for _, bp in bench_roster.iterrows():
                             bp_positions = str(bp.get("positions", ""))
                             if slot_pos is None:
-                                # Util/P — any player of matching type
-                                if (
-                                    slot_name == "Util"
-                                    and bp.get("is_hitter", 1)
-                                    or slot_name == "P"
-                                    and not bp.get("is_hitter", 1)
+                                # Util/P — any player of matching type.
+                                # 2026-05-20 SFH M-4: explicit parens to defend against
+                                # future SIM114 collapse / precedence regressions on
+                                # this load-bearing LP bench-slot-eligibility branch.
+                                if (slot_name == "Util" and bp.get("is_hitter", 1)) or (
+                                    slot_name == "P" and not bp.get("is_hitter", 1)
                                 ):
                                     bench_at_pos.append(int(bp["player_id"]))
                             elif slot_pos in bp_positions:

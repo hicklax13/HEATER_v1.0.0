@@ -343,3 +343,19 @@ def test_no_collision_no_warning():
         )
     collision_logs = [m for m in logs if "collision" in m.lower()]
     assert collision_logs == [], f"No collision warning expected for unique names; got: {collision_logs}"
+
+
+def test_pure_punctuation_query_returns_none():
+    """SFH M-2 regression: a query that canonicalizes to an empty string
+    (pure punctuation like "---") must return None.
+
+    Pre-fix: ``canonical_for_prune = name_canonical or name_lower`` fell
+    back to "---" with length 3, ran a doomed prefix prune of "--" against
+    canonical candidates (which strip punctuation), wasted cycles, returned
+    None anyway. Post-fix: drop the name_lower fallback so empty-canonical
+    queries return immediately.
+    """
+    cands = _lower([("Aaron Judge", 1), ("Mike Trout", 2)])
+    cands_canonical = _canonical([("Aaron Judge", 1), ("Mike Trout", 2)])
+    assert _fuzzy_match_name("---", cands, canonical_candidates=cands_canonical) is None
+    assert _fuzzy_match_name(".X.", cands, canonical_candidates=cands_canonical) is None

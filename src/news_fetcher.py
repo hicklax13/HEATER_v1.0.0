@@ -135,9 +135,14 @@ def _fuzzy_match_name(
     # `aggregate_player_news` does), this eliminates ~9k normalize() calls
     # per query. Bonus: drops the silent `or cand_name` fallback (which used
     # to mask empty-canonical candidates without a log).
-    canonical_for_prune = name_canonical or name_lower
-    if len(canonical_for_prune) < 2:
-        logger.debug("_fuzzy_match_name: name too short for fuzzy fallback (%r)", name)
+    # 2026-05-20 SFH M-2: removed `or name_lower` fallback. Candidates are
+    # stored canonicalized (punctuation stripped); a name_lower prefix like
+    # "x-" or "--" can never match a canonical candidate, so the fallback
+    # only burned cycles iterating doomed candidates. Pure-punctuation
+    # inputs (e.g. "---") now return None immediately.
+    canonical_for_prune = name_canonical
+    if not canonical_for_prune or len(canonical_for_prune) < 2:
+        logger.debug("_fuzzy_match_name: no canonical form for fuzzy fallback (%r)", name)
         return None
     if canonical_candidates is None:
         # No Pass-2 hit AND no pre-built dict → build now so Pass 3 can use it.
