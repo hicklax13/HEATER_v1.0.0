@@ -41,56 +41,117 @@ def compute_category_fit(
 
 _IL_STATUSES = frozenset({"IL10", "IL15", "IL60", "IL-10", "IL-15", "IL-60"})
 
+# 2026-05-20 FA-engine overhaul P1 / PR2: per-status weighting factor.
+#
+# OLD behavior: IL players (any status) had their projection zeroed out
+# entirely. This made dropping an IL ace appear "free" in the SGP math
+# because before/after roster totals were identical regardless of whether
+# the IL player was on the roster — the upstream cause of the Crochet/Kirk
+# bad recommendation (top-30 SP on IL15 valued as costless to drop).
+#
+# NEW behavior: IL players retain a fraction of their projection scaled
+# by expected return window. Defaults below are research-defensible per
+# the RotoWire IL Stash Guide + FantasyPros injury rankings, and are
+# registered in constants_registry.py for citation + sensitivity tracking.
+#
+# Suspended / Restricted / NA players ARE zeroed — they're not coming
+# back this season at all.
+_IL_WEIGHT_DEFAULTS: dict[str, float] = {
+    # Active player — full projection.
+    "ACTIVE": 1.0,
+    "": 1.0,
+    # Day-to-day / probably-back-this-week.
+    "DTD": 0.95,
+    "DAY-TO-DAY": 0.95,
+    # IL10 — short-term, returns inside ~2 weeks. Most of ROS still valid.
+    "IL10": 0.85,
+    "IL-10": 0.85,
+    # IL15 — 15-day, returns inside ~3 weeks. Still a significant stash asset.
+    "IL15": 0.70,
+    "IL-15": 0.70,
+    "IL": 0.70,  # bare "IL" — Yahoo's generic IL slot, conservatively treated as IL15
+    # IL60 — long-term stash. Industry consensus: still worth ~20% of ROS
+    # value if the player is top-100 ROS (per RotoWire stash strategy).
+    "IL60": 0.20,
+    "IL-60": 0.20,
+    # Unavailable for the rest of the season.
+    "NA": 0.0,
+    "SUSPENDED": 0.0,
+    "RESTRICTED": 0.0,
+    "OUT": 0.0,
+}
+
+
+def _il_weight_from_status(status: str) -> float:
+    """Return projection weight for a roster status string.
+
+    Lower bound 0.0 (fully unavailable — Suspended / Restricted), upper
+    bound 1.0 (active). IL statuses scale by expected return window. See
+    _IL_WEIGHT_DEFAULTS for citations.
+
+    Unknown statuses default to 1.0 (active assumption — fail open,
+    not closed; the previous zeroing was the upstream bug).
+    """
+    if not status:
+        return 1.0
+    key = str(status).upper().strip()
+    return _IL_WEIGHT_DEFAULTS.get(key, 1.0)
+
 
 def _roster_category_totals(roster_ids: list, player_pool: pd.DataFrame) -> dict:
     """Compute aggregate category totals for a set of player IDs.
 
-    Players on the Injured List (IL10/IL15/IL60) are zeroed out — they
-    cannot play and should not contribute projected stats to the team
-    totals used for add/drop evaluation.
+    Players on the Injured List contribute a WEIGHTED fraction of their
+    projection (per ``_il_weight_from_status``) rather than zero. This
+    prevents the Crochet/Kirk bad-recommendation class — an IL ace whose
+    full ROS projection is worth +30 SGP cannot evaluate as a "free drop"
+    because his weighted contribution to the roster total is nonzero.
+
+    Suspended / Restricted / NA players keep the previous zero-weight
+    behavior — they're not coming back.
     """
     roster = player_pool[player_pool["player_id"].isin(roster_ids)]
     totals = {
-        "R": 0,
-        "HR": 0,
-        "RBI": 0,
-        "SB": 0,
-        "W": 0,
-        "L": 0,
-        "SV": 0,
-        "K": 0,
-        "ab": 0,
-        "h": 0,
-        "bb": 0,
-        "hbp": 0,
-        "sf": 0,
-        "ip": 0,
-        "er": 0,
-        "bb_allowed": 0,
-        "h_allowed": 0,
+        "R": 0.0,
+        "HR": 0.0,
+        "RBI": 0.0,
+        "SB": 0.0,
+        "W": 0.0,
+        "L": 0.0,
+        "SV": 0.0,
+        "K": 0.0,
+        "ab": 0.0,
+        "h": 0.0,
+        "bb": 0.0,
+        "hbp": 0.0,
+        "sf": 0.0,
+        "ip": 0.0,
+        "er": 0.0,
+        "bb_allowed": 0.0,
+        "h_allowed": 0.0,
     }
     for _, p in roster.iterrows():
-        # IL players contribute nothing — they can't play
         status = str(p.get("status", "") or "").upper().strip()
-        if status in _IL_STATUSES:
-            continue
-        totals["R"] += int(p.get("r", 0) or 0)
-        totals["HR"] += int(p.get("hr", 0) or 0)
-        totals["RBI"] += int(p.get("rbi", 0) or 0)
-        totals["SB"] += int(p.get("sb", 0) or 0)
-        totals["W"] += int(p.get("w", 0) or 0)
-        totals["L"] += int(p.get("l", 0) or 0)
-        totals["SV"] += int(p.get("sv", 0) or 0)
-        totals["K"] += int(p.get("k", 0) or 0)
-        totals["ab"] += int(p.get("ab", 0) or 0)
-        totals["h"] += int(p.get("h", 0) or 0)
-        totals["bb"] += int(p.get("bb", 0) or 0)
-        totals["hbp"] += int(p.get("hbp", 0) or 0)
-        totals["sf"] += int(p.get("sf", 0) or 0)
-        totals["ip"] += float(p.get("ip", 0) or 0)
-        totals["er"] += float(p.get("er", 0) or 0)
-        totals["bb_allowed"] += int(p.get("bb_allowed", 0) or 0)
-        totals["h_allowed"] += int(p.get("h_allowed", 0) or 0)
+        weight = _il_weight_from_status(status)
+        if weight == 0.0:
+            continue  # Suspended / Restricted / NA — keep legacy zero
+        totals["R"] += int(p.get("r", 0) or 0) * weight
+        totals["HR"] += int(p.get("hr", 0) or 0) * weight
+        totals["RBI"] += int(p.get("rbi", 0) or 0) * weight
+        totals["SB"] += int(p.get("sb", 0) or 0) * weight
+        totals["W"] += int(p.get("w", 0) or 0) * weight
+        totals["L"] += int(p.get("l", 0) or 0) * weight
+        totals["SV"] += int(p.get("sv", 0) or 0) * weight
+        totals["K"] += int(p.get("k", 0) or 0) * weight
+        totals["ab"] += int(p.get("ab", 0) or 0) * weight
+        totals["h"] += int(p.get("h", 0) or 0) * weight
+        totals["bb"] += int(p.get("bb", 0) or 0) * weight
+        totals["hbp"] += int(p.get("hbp", 0) or 0) * weight
+        totals["sf"] += int(p.get("sf", 0) or 0) * weight
+        totals["ip"] += float(p.get("ip", 0) or 0) * weight
+        totals["er"] += float(p.get("er", 0) or 0) * weight
+        totals["bb_allowed"] += int(p.get("bb_allowed", 0) or 0) * weight
+        totals["h_allowed"] += int(p.get("h_allowed", 0) or 0) * weight
 
     if totals["ab"] > 0:
         totals["AVG"] = totals["h"] / totals["ab"]
