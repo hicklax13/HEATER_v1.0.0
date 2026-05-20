@@ -30,6 +30,40 @@ except ImportError:
 # ── Fuzzy matching ───────────────────────────────────────────────────
 
 
+def _build_canonical_lookup(candidates: dict[str, int]) -> dict[str, int]:
+    """Build canonical-name → player_id lookup with collision detection.
+
+    SFH M-1 (2026-05-20): two real MLB cases collide under
+    ``normalize_player_name`` (e.g. "Will Smith" + "Will Smith Jr." both
+    canonicalize to "will smith"). A dict comprehension silently kept
+    whichever side was iterated last — the same name-only-dedup pattern
+    that caused the Muncy stat-attribution bug. This helper detects
+    collisions, keeps the *first* inserted player_id (deterministic), and
+    logs a warning naming all colliding ids so the operator can
+    disambiguate upstream (e.g. by team).
+    """
+    lookup: dict[str, int] = {}
+    collisions: dict[str, list[int]] = {}
+    for raw, pid in candidates.items():
+        cnorm = normalize_player_name(raw)
+        if not cnorm:
+            continue
+        if cnorm in lookup:
+            collisions.setdefault(cnorm, [lookup[cnorm]]).append(pid)
+            continue
+        lookup[cnorm] = pid
+    for cnorm, pids in collisions.items():
+        logger.warning(
+            "news_fetcher: canonical-name collision %r maps to player_ids %s — "
+            "keeping first (%d); news for the others will be silently misattributed "
+            "unless caller disambiguates by team upstream.",
+            cnorm,
+            pids,
+            lookup[cnorm],
+        )
+    return lookup
+
+
 def _fuzzy_match_name(
     name: str,
     candidates: dict[str, int],
@@ -85,9 +119,7 @@ def _fuzzy_match_name(
                 "— pass canonical_candidates kwarg for hot loops",
                 len(candidates),
             )
-            canonical_candidates = {
-                normalize_player_name(n): pid for n, pid in candidates.items() if normalize_player_name(n)
-            }
+            canonical_candidates = _build_canonical_lookup(candidates)
         if name_canonical in canonical_candidates:
             return canonical_candidates[name_canonical]
 
@@ -114,9 +146,7 @@ def _fuzzy_match_name(
         return None
     if canonical_candidates is None:
         # No Pass-2 hit AND no pre-built dict → build now so Pass 3 can use it.
-        canonical_candidates = {
-            normalize_player_name(n): pid for n, pid in candidates.items() if normalize_player_name(n)
-        }
+        canonical_candidates = _build_canonical_lookup(candidates)
     prefix = canonical_for_prune[:2]
     best_ratio = 0.0
     best_id: int | None = None
@@ -215,13 +245,11 @@ def aggregate_player_news(
         return {}
 
     # Build both index views once before the loop — avoids O(N) per-query
-    # rebuilds inside _fuzzy_match_name.
+    # rebuilds inside _fuzzy_match_name. SFH M-1 (2026-05-20): the canonical
+    # lookup uses the shared helper so collisions are surfaced once, here,
+    # instead of being silently dropped (Muncy DNA).
     lower_lookup: dict[str, int] = {name.lower().strip(): pid for name, pid in player_name_to_id.items()}
-    canonical_lookup: dict[str, int] = {}
-    for name, pid in player_name_to_id.items():
-        cnorm = normalize_player_name(name)
-        if cnorm and cnorm not in canonical_lookup:
-            canonical_lookup[cnorm] = pid
+    canonical_lookup = _build_canonical_lookup(player_name_to_id)
 
     result: dict[int, list[str]] = {}
 
