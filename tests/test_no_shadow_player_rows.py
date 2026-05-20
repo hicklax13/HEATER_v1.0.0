@@ -12,7 +12,7 @@ import pytest
 
 DB_PATH = os.environ.get(
     "HEATER_DB_PATH",
-    "C:/Users/conno/Code/HEATER_v1.0.0/data/draft_tool.db",
+    "C:/Users/conno/Code/HEATER_v1.0.1/data/draft_tool.db",
 )
 SHADOW_RANGE = (600000, 601999)
 
