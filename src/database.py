@@ -111,7 +111,7 @@ def coerce_numeric_df(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def get_connection(timeout: float = 30.0) -> sqlite3.Connection:
+def get_connection(timeout: float = 60.0) -> sqlite3.Connection:
     """Return a SQLite connection with WAL journal mode + busy timeout.
 
     WAL allows concurrent readers and a single writer without "database is
@@ -119,13 +119,22 @@ def get_connection(timeout: float = 30.0) -> sqlite3.Connection:
     lock before raising. Both pragmas must be set per-connection.
     Root-cause fix for bootstrap phases that failed with "database is locked"
     when the ThreadPoolExecutor blocks ran concurrent writes.
+
+    2026-05-20 SFH A: bumped both Python timeout (30s → 60s) and PRAGMA
+    busy_timeout (30000ms → 60000ms) after seeing 7 "database is locked"
+    failures in a single day across umpire_tendencies + catcher_framing +
+    pvb_splits (ThreadPoolExecutor max_workers=3). Doubling the wait window
+    catches the legitimately-slow concurrent writes without sacrificing
+    parallelism. If lock errors recur even at 60s, the root cause is a
+    write transaction held longer than that and the phase needs its
+    writes batched into fewer transactions.
     """
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(DB_PATH), timeout=timeout)
     conn.row_factory = sqlite3.Row
     try:
         conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA busy_timeout=30000")
+        conn.execute("PRAGMA busy_timeout=60000")
         conn.execute("PRAGMA synchronous=NORMAL")
     except sqlite3.Error:
         pass
