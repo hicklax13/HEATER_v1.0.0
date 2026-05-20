@@ -265,3 +265,19 @@ def test_aggregate_at_scale_completes_under_5s():
 
     assert len(result) == 50, f"Expected 50 matches; got {len(result)}"
     assert elapsed < 5.0, f"Aggregate-at-scale should be <5s; got {elapsed:.2f}s"
+
+
+def test_pure_punctuation_query_returns_none():
+    """SFH M-2 regression: a query that canonicalizes to an empty string
+    (pure punctuation like "---") must return None.
+
+    Pre-fix: ``canonical_for_prune = name_canonical or name_lower`` fell
+    back to "---" with length 3, ran a doomed prefix prune of "--" against
+    canonical candidates (which strip punctuation), wasted cycles, returned
+    None anyway. Post-fix: drop the name_lower fallback so empty-canonical
+    queries return immediately.
+    """
+    cands = _lower([("Aaron Judge", 1), ("Mike Trout", 2)])
+    cands_canonical = _canonical([("Aaron Judge", 1), ("Mike Trout", 2)])
+    assert _fuzzy_match_name("---", cands, canonical_candidates=cands_canonical) is None
+    assert _fuzzy_match_name(".X.", cands, canonical_candidates=cands_canonical) is None

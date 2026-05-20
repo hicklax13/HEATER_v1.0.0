@@ -72,10 +72,14 @@ def match_player_id(player_name: str, team_abbr: str) -> int | None:
         # Clean the input name
         clean_name = normalize_player_name(player_name)
 
-        # Primary: exact name + team match (prevents same-name collisions)
+        # Primary: exact name + team match (prevents same-name collisions).
+        # 2026-05-20 SFH L-2: COLLATE NOCASE here too (PR #49's H1 fix only
+        # patched the accent-rescue branch at line 97). Lowercase callers
+        # bypass the accent-rescue path because `clean_name == player_name`
+        # already and silently fall into the noisy LIKE fallback.
         if team_abbr:
             cursor.execute(
-                "SELECT player_id FROM players WHERE name = ? AND team = ?",
+                "SELECT player_id FROM players WHERE name = ? COLLATE NOCASE AND team = ? COLLATE NOCASE",
                 (player_name, team_abbr),
             )
             results = cursor.fetchall()
@@ -84,8 +88,9 @@ def match_player_id(player_name: str, team_abbr: str) -> int | None:
                     return results[0][0]
                 return _pick_canonical_id(cursor, [r[0] for r in results])
 
-        # Fallback: exact name match without team (for callers that don't pass team)
-        cursor.execute("SELECT player_id FROM players WHERE name = ?", (player_name,))
+        # Fallback: exact name match without team (for callers that don't pass team).
+        # SFH L-2: case-insensitive (see above).
+        cursor.execute("SELECT player_id FROM players WHERE name = ? COLLATE NOCASE", (player_name,))
         results = cursor.fetchall()
         # If exact match fails, try accent-stripped name.
         # 2026-05-19 H1 fix: D2 consolidation changed normalize_player_name to lowercase

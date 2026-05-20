@@ -189,7 +189,11 @@ def recommend_alpha(
 
     # ── Legacy time-based path ────────────────────────────────────────
     # Base alpha from time remaining — H2H floor of 0.55
-    if weeks_remaining < 3 or weeks_remaining < 8:
+    # 2026-05-20 SFH L-1: `weeks_remaining < 3 or weeks_remaining < 8` had a
+    # redundant first arm (subsumed by the second) — PR #57's SIM114 collapse
+    # erased the historical 3-branch intent without changing behavior. Keep
+    # the simpler form since both branches produced the same alpha=0.85.
+    if weeks_remaining < 8:
         alpha = 0.85
     elif weeks_remaining <= 16:
         alpha = 0.65
