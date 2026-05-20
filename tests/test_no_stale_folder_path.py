@@ -115,6 +115,5 @@ def test_no_stale_local_folder_path():
 
     assert not offenders, (
         "Stale `HEATER_v1.0.0` LOCAL folder-path reference(s) found. The local "
-        "folder is `HEATER_v1.0.1`; only the GitHub repo NAME stays at v1.0.0.\n  "
-        + "\n  ".join(offenders)
+        "folder is `HEATER_v1.0.1`; only the GitHub repo NAME stays at v1.0.0.\n  " + "\n  ".join(offenders)
     )

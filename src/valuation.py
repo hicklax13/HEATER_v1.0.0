@@ -129,7 +129,13 @@ def team_name_to_abbr(name: str, default: str | None = None) -> str:
 _YAHOO_ROLE_SUFFIX_RE = re.compile(r"\s*\((?:Pitcher|Batter|P|B)\)\s*$")
 _NON_ALNUM_RE = re.compile(r"[^a-z0-9 ]")
 _GENERATIONAL_SUFFIXES: tuple[str, ...] = (
-    " jr.", " jr", " sr.", " sr", " iii", " iv", " ii",
+    " jr.",
+    " jr",
+    " sr.",
+    " sr",
+    " iii",
+    " iv",
+    " ii",
 )
 
 

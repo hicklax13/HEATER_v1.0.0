@@ -2395,6 +2395,7 @@ def render_position_pills(
                 st.rerun()
     return current
 
+
 _HEALTH_DOT_COLORS = {
     "Healthy": THEME["green"],
     "Day-to-Day": THEME["warn"],
