@@ -97,15 +97,25 @@ def _fuzzy_match_name(
     # the candidate "Etienne Bernier" would be silently skipped on a typo of
     # "Étene Bernier" even though Pass 3 should catch it. Use the canonical
     # prefix so accent/punctuation variants land in the same bucket.
+    # 2026-05-19 SFH M/H follow-up (PR #58): iterate `canonical_candidates`
+    # directly in Pass 3 instead of recomputing `normalize_player_name` per
+    # candidate. When the caller pre-builds `canonical_candidates` (as
+    # `aggregate_player_news` does), this eliminates ~9k normalize() calls
+    # per query. Bonus: drops the silent `or cand_name` fallback (which used
+    # to mask empty-canonical candidates without a log).
     canonical_for_prune = name_canonical or name_lower
     if len(canonical_for_prune) < 2:
         logger.debug("_fuzzy_match_name: name too short for fuzzy fallback (%r)", name)
         return None
+    if canonical_candidates is None:
+        # No Pass-2 hit AND no pre-built dict → build now so Pass 3 can use it.
+        canonical_candidates = {
+            normalize_player_name(n): pid for n, pid in candidates.items() if normalize_player_name(n)
+        }
     prefix = canonical_for_prune[:2]
     best_ratio = 0.0
     best_id: int | None = None
-    for cand_name, pid in candidates.items():
-        cand_canonical = normalize_player_name(cand_name) or cand_name
+    for cand_canonical, pid in canonical_candidates.items():
         if not cand_canonical.startswith(prefix):
             continue
         ratio = SequenceMatcher(None, canonical_for_prune, cand_canonical).ratio()
