@@ -302,8 +302,20 @@ def _score_fa_candidates(ctx: OptimizerDataContext) -> list[dict]:
         _scarcity_mult = _positional_scarcity_factor(str(fa_data.get("positions", "")), _replacement_levels)
         base_value *= _scarcity_mult
 
-        # Urgency boost: sum category weights for categories this FA contributes to
-        urgency_boost = _compute_urgency_boost(fa_data, ctx)
+        # FA-engine overhaul P2 PR6 (2026-05-20): urgency is now applied
+        # MULTIPLICATIVELY inside _compute_base_value via per-category weights
+        # (ctx.category_weights) rather than additively here. The old
+        # `composite = base_value * ... + urgency_boost` mixed scales — the
+        # additive boost summed ctx.category_weights across all relevant
+        # categories (4-6 cats × ~0.5-1.8 per cat = boost 2-12), which
+        # dwarfed base_value for marginal FAs (often 0.5-2 SGP) and rewarded
+        # FAs touching MANY categories over ones with concentrated value.
+        # Keeping the additive term turned at zero preserves backward
+        # compatibility of the variable name in the composite line below;
+        # the multiplicative weighting in _compute_base_value is the
+        # authoritative urgency signal now. _compute_urgency_boost stays
+        # callable for legacy paths but is no longer added to composite.
+        urgency_boost = 0.0
 
         # Ownership trend boost
         ownership_mult = 1.0
