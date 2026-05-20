@@ -3190,7 +3190,32 @@ def bootstrap_all_data(
             progress.detail = "Fetching league free agents..."
             if on_progress:
                 on_progress(progress)
-            fa_df = yahoo_client.get_free_agents(count=200)
+            # 2026-05-20: wrap the FA fetch in a timeout to prevent indefinite
+            # hangs when Yahoo aggressively rate-limits (429s with exponential
+            # backoff × 500-FA pagination can exceed 10 minutes). On timeout,
+            # fall back to whatever's in the yahoo_free_agents SQLite table from
+            # a prior successful run — page 14 Free Agents will still load.
+            import pandas as _pd
+
+            _fa_holder: dict[str, _pd.DataFrame] = {}
+
+            def _fetch_fa():
+                _fa_holder["df"] = yahoo_client.get_free_agents(count=200)
+                return "ok"
+
+            _result = _run_with_timeout(_fetch_fa, timeout=120)
+            if _result.startswith("Timeout"):
+                logger.warning(
+                    "Yahoo FA fetch hit 120s timeout — Yahoo likely rate-limiting. "
+                    "Using cached yahoo_free_agents SQLite data from prior run."
+                )
+                results["yahoo_free_agents"] = "Timeout — using cached"
+                from src.database import update_refresh_log
+
+                update_refresh_log("yahoo_free_agents", "skipped")
+                fa_df = _pd.DataFrame()  # empty — downstream will use cache
+            else:
+                fa_df = _fa_holder.get("df", _pd.DataFrame())
             if not fa_df.empty:
                 from src.database import update_refresh_log_auto, upsert_player_bulk
                 from src.live_stats import match_player_id
