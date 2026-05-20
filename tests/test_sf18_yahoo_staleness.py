@@ -68,7 +68,7 @@ def _make_yahoo_client_with_data():
     yahoo.get_league_transactions.return_value = pd.DataFrame(
         [{"player_name": "Mike Trout", "type": "add", "team_from": "", "team_to": "Team A", "timestamp": "1234"}]
     )
-    yahoo.get_free_agents.return_value = pd.DataFrame(
+    _fa_df = pd.DataFrame(
         [
             {
                 "player_key": "k1",
@@ -79,6 +79,12 @@ def _make_yahoo_client_with_data():
             }
         ]
     )
+    # PR #84 (L6) switched the bootstrap from a single-page get_free_agents
+    # call to the paginated get_all_free_agents helper. Mock both so the
+    # old (skipped-when-fresh) assertion still passes AND the new code path
+    # returns the expected DataFrame.
+    yahoo.get_free_agents.return_value = _fa_df
+    yahoo.get_all_free_agents.return_value = _fa_df
     return yahoo
 
 
