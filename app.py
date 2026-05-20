@@ -308,12 +308,21 @@ def render_splash_screen():
                 st.session_state.yahoo_client = yahoo_client
                 st.session_state.yahoo_connected = True
 
-        # Always force=True on launch so every browser session starts with
-        # fresh data from all sources (per user requirement — no stale data).
+        # 2026-05-20 UX fix: session-start bootstrap now respects TTLs via
+        # the per-phase staleness check instead of force-refetching everything.
+        # The previous force=True approach made every browser refresh take
+        # 15-20+ min because all 30+ phases re-ran from scratch even when
+        # data was 5 min old.
+        #
+        # Phases with reasonable TTLs (Yahoo 30min, news 1h, projections 24h,
+        # ECR 24h, weather 2h, etc.) will SKIP when fresh and re-fetch when
+        # stale — same freshness guarantees, dramatically faster sessions.
+        # The "Refresh All Data" sidebar button still calls bootstrap_all_data
+        # with force=True for explicit manual refresh when user wants it.
         results = bootstrap_all_data(
             yahoo_client=yahoo_client,
             on_progress=on_progress,
-            force=True,
+            force=False,
         )
 
         # Blend projections if we have multi-system data
