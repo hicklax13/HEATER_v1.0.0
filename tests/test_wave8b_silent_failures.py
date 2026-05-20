@@ -181,13 +181,15 @@ def test_ecr_get_yahoo_client_logs_on_streamlit_failure(caplog):
 def test_ecr_fetch_ecr_rankings_logs_on_fetch_failure(caplog):
     from src import ecr
 
-    with patch.object(
-        importlib.import_module("src.adp_sources"),
-        "fetch_fantasypros_ecr",
-        side_effect=RuntimeError("FantasyPros down"),
+    with (
+        patch.object(
+            importlib.import_module("src.adp_sources"),
+            "fetch_fantasypros_ecr",
+            side_effect=RuntimeError("FantasyPros down"),
+        ),
+        caplog.at_level(logging.WARNING, logger="src.ecr"),
     ):
-        with caplog.at_level(logging.WARNING, logger="src.ecr"):
-            result = ecr.fetch_ecr_extended()
+        result = ecr.fetch_ecr_extended()
 
     # Returns empty DataFrame with the expected columns
     assert isinstance(result, pd.DataFrame)

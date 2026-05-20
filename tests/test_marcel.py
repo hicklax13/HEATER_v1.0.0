@@ -369,4 +369,4 @@ class TestMarcelConstants:
 
     def test_rate_stats_set(self):
         """RATE_STATS should contain avg, obp, era, whip."""
-        assert RATE_STATS == {"avg", "obp", "era", "whip"}
+        assert {"avg", "obp", "era", "whip"} == RATE_STATS

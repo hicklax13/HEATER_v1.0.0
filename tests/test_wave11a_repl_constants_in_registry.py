@@ -100,10 +100,10 @@ class TestDailyOptimizerLoadsFromRegistry:
         from src.optimizer.constants_registry import CONSTANTS_REGISTRY
         from src.optimizer.daily_optimizer import _REPL_AVG, _REPL_ERA, _REPL_OBP, _REPL_WHIP
 
-        assert _REPL_AVG == CONSTANTS_REGISTRY["repl_avg"].value
-        assert _REPL_OBP == CONSTANTS_REGISTRY["repl_obp"].value
-        assert _REPL_ERA == CONSTANTS_REGISTRY["repl_era"].value
-        assert _REPL_WHIP == CONSTANTS_REGISTRY["repl_whip"].value
+        assert CONSTANTS_REGISTRY["repl_avg"].value == _REPL_AVG
+        assert CONSTANTS_REGISTRY["repl_obp"].value == _REPL_OBP
+        assert CONSTANTS_REGISTRY["repl_era"].value == _REPL_ERA
+        assert CONSTANTS_REGISTRY["repl_whip"].value == _REPL_WHIP
 
     def test_raw_sgp_denom_matches_registry(self):
         from src.optimizer.constants_registry import CONSTANTS_REGISTRY

@@ -517,31 +517,30 @@ class TestParkFactorsConstant:
 class TestBootstrapPlayers:
     def test_populates_players_table(self, temp_db):
         """_bootstrap_players populates players table."""
-        with patch("src.database.DB_PATH", temp_db):
-            with patch("src.live_stats.statsapi") as mock_api:
-                mock_api.get.return_value = {
-                    "people": [
-                        {
-                            "id": 1,
-                            "fullName": "Test Hitter",
-                            "active": True,
-                            "currentTeam": {"abbreviation": "NYY"},
-                            "primaryPosition": {"abbreviation": "SS", "type": "Hitter"},
-                        },
-                        {
-                            "id": 2,
-                            "fullName": "Test Pitcher",
-                            "active": True,
-                            "currentTeam": {"abbreviation": "BOS"},
-                            "primaryPosition": {"abbreviation": "P", "type": "Pitcher"},
-                        },
-                    ]
-                }
-                from src.data_bootstrap import BootstrapProgress, _bootstrap_players
+        with patch("src.database.DB_PATH", temp_db), patch("src.live_stats.statsapi") as mock_api:
+            mock_api.get.return_value = {
+                "people": [
+                    {
+                        "id": 1,
+                        "fullName": "Test Hitter",
+                        "active": True,
+                        "currentTeam": {"abbreviation": "NYY"},
+                        "primaryPosition": {"abbreviation": "SS", "type": "Hitter"},
+                    },
+                    {
+                        "id": 2,
+                        "fullName": "Test Pitcher",
+                        "active": True,
+                        "currentTeam": {"abbreviation": "BOS"},
+                        "primaryPosition": {"abbreviation": "P", "type": "Pitcher"},
+                    },
+                ]
+            }
+            from src.data_bootstrap import BootstrapProgress, _bootstrap_players
 
-                progress = BootstrapProgress()
-                result = _bootstrap_players(progress)
-                assert "2" in result or "Saved" in result
+            progress = BootstrapProgress()
+            result = _bootstrap_players(progress)
+            assert "2" in result or "Saved" in result
 
 
 class TestBootstrapParkFactors:
@@ -575,27 +574,27 @@ class TestBootstrapProjections:
 class TestBootstrapAllData:
     def test_skips_fresh_sources(self, temp_db):
         """bootstrap_all_data skips fresh sources."""
-        with patch("src.database.DB_PATH", temp_db):
-            with (
-                patch("src.data_bootstrap._bootstrap_players") as mp,
-                patch("src.data_bootstrap._bootstrap_park_factors") as mpf,
-                patch("src.data_bootstrap._bootstrap_projections") as mpr,
-                patch("src.data_bootstrap._bootstrap_live_stats") as ml,
-                patch("src.data_bootstrap._bootstrap_historical") as mh,
-                patch("src.data_bootstrap._bootstrap_injury_data") as mi,
-                patch("src.data_bootstrap._bootstrap_yahoo") as my,
-                patch("src.data_bootstrap._bootstrap_extended_roster") as mer,
-                patch("src.database.check_staleness", return_value=False),
-            ):
-                from src.data_bootstrap import bootstrap_all_data
+        with (
+            patch("src.database.DB_PATH", temp_db),
+            patch("src.data_bootstrap._bootstrap_players") as mp,
+            patch("src.data_bootstrap._bootstrap_park_factors") as mpf,
+            patch("src.data_bootstrap._bootstrap_projections") as mpr,
+            patch("src.data_bootstrap._bootstrap_live_stats") as ml,
+            patch("src.data_bootstrap._bootstrap_historical") as mh,
+            patch("src.data_bootstrap._bootstrap_injury_data") as mi,
+            patch("src.data_bootstrap._bootstrap_yahoo") as my,
+            patch("src.data_bootstrap._bootstrap_extended_roster") as mer,
+            patch("src.database.check_staleness", return_value=False),
+        ):
+            from src.data_bootstrap import bootstrap_all_data
 
-                results = bootstrap_all_data()
-                # When nothing is stale, bootstrap functions should NOT be called
-                mp.assert_not_called()
-                mpf.assert_not_called()
-                mer.assert_not_called()
-                assert isinstance(results, dict)
-                assert results["players"] == "Fresh"
+            results = bootstrap_all_data()
+            # When nothing is stale, bootstrap functions should NOT be called
+            mp.assert_not_called()
+            mpf.assert_not_called()
+            mer.assert_not_called()
+            assert isinstance(results, dict)
+            assert results["players"] == "Fresh"
 
     def test_force_refreshes_all(self, temp_db, mock_all_bootstrap_phases):
         """force=True drives the orchestrator through all phases.

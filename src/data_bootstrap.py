@@ -152,9 +152,7 @@ def _stamp_from_result(ctx: AnalyticsContext, source: str, result: str) -> None:
         ctx.stamp_data(source, DataQuality.LIVE, notes="Within staleness threshold")
     elif r.startswith("saved") or "refreshed" in r or r.startswith("merged"):
         ctx.stamp_data(source, DataQuality.LIVE, notes=result)
-    elif r.startswith("error"):
-        ctx.stamp_data(source, DataQuality.MISSING, notes=result)
-    elif r.startswith("no "):
+    elif r.startswith("error") or r.startswith("no "):
         ctx.stamp_data(source, DataQuality.MISSING, notes=result)
     elif r.startswith("skipped"):
         ctx.stamp_data(source, DataQuality.STALE, notes=result)

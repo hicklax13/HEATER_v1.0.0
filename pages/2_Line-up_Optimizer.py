@@ -2055,9 +2055,7 @@ with main:
                     display_proj = {}
                     for cat in ALL_CATS:
                         if cat in weekly_proj:
-                            if cat in ("avg", "obp"):
-                                display_proj[CAT_DISPLAY_NAMES[cat]] = format_stat(weekly_proj[cat], cat.upper())
-                            elif cat in ("era", "whip"):
+                            if cat in ("avg", "obp") or cat in ("era", "whip"):
                                 display_proj[CAT_DISPLAY_NAMES[cat]] = format_stat(weekly_proj[cat], cat.upper())
                             else:
                                 display_proj[CAT_DISPLAY_NAMES[cat]] = f"{weekly_proj[cat]:.1f}"
@@ -2309,9 +2307,12 @@ with main:
                             bp_positions = str(bp.get("positions", ""))
                             if slot_pos is None:
                                 # Util/P — any player of matching type
-                                if slot_name == "Util" and bp.get("is_hitter", 1):
-                                    bench_at_pos.append(int(bp["player_id"]))
-                                elif slot_name == "P" and not bp.get("is_hitter", 1):
+                                if (
+                                    slot_name == "Util"
+                                    and bp.get("is_hitter", 1)
+                                    or slot_name == "P"
+                                    and not bp.get("is_hitter", 1)
+                                ):
                                     bench_at_pos.append(int(bp["player_id"]))
                             elif slot_pos in bp_positions:
                                 bench_at_pos.append(int(bp["player_id"]))
@@ -3015,9 +3016,7 @@ with main:
                         if opp_val > my_val:
                             rank += 1
 
-                if cat in ("avg", "obp"):
-                    val_fmt = format_stat(my_val, cat.upper())
-                elif cat in ("era", "whip"):
+                if cat in ("avg", "obp") or cat in ("era", "whip"):
                     val_fmt = format_stat(my_val, cat.upper())
                 else:
                     val_fmt = f"{my_val:.0f}"

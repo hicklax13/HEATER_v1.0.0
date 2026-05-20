@@ -2271,7 +2271,7 @@ def build_category_heatmap_html(user_totals: dict, all_totals: list[dict]) -> st
             from src.valuation import LeagueConfig
 
             pitching_inverse = LeagueConfig().inverse_stats
-            if cat in pitching_inverse and user_totals.get("IP", user_totals.get("ip", None)) == 0:
+            if cat in pitching_inverse and user_totals.get("IP", user_totals.get("ip")) == 0:
                 rank = num_teams  # worst rank
             else:
                 rank = sum(1 for t in all_totals if t.get(cat, 0) < my_val) + 1
