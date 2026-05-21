@@ -10,10 +10,10 @@ import sys
 from src.database import init_db
 from src.league_manager import get_team_roster
 from src.optimizer.fa_recommender import (
+    _deduplicate_and_limit,
     _evaluate_swaps,
     _score_drop_candidates,
     _score_fa_candidates,
-    _deduplicate_and_limit,
     recommend_fa_moves,
 )
 from src.optimizer.shared_data_layer import build_optimizer_context

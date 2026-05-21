@@ -54,11 +54,13 @@ def main() -> int:
         p = match.iloc[0]
         print(f"=== {name} ===")
         print(f"  positions: {p.get('positions')}, is_hitter: {p.get('is_hitter')}, ECR: {p.get('consensus_rank')}")
-        print(f"  ROS-projection columns (used by _roster_category_totals):")
+        print("  ROS-projection columns (used by _roster_category_totals):")
         print(f"    r={p.get('r')}, hr={p.get('hr')}, rbi={p.get('rbi')}, sb={p.get('sb')}")
         print(f"    avg={p.get('avg')}, obp={p.get('obp')}, ab={p.get('ab')}, h={p.get('h')}")
-        print(f"  YTD columns (used by _blend_fa_row in fa_recommender):")
-        print(f"    ytd_r={p.get('ytd_r')}, ytd_hr={p.get('ytd_hr')}, ytd_rbi={p.get('ytd_rbi')}, ytd_sb={p.get('ytd_sb')}")
+        print("  YTD columns (used by _blend_fa_row in fa_recommender):")
+        print(
+            f"    ytd_r={p.get('ytd_r')}, ytd_hr={p.get('ytd_hr')}, ytd_rbi={p.get('ytd_rbi')}, ytd_sb={p.get('ytd_sb')}"
+        )
         print(f"    ytd_avg={p.get('ytd_avg')}, ytd_obp={p.get('ytd_obp')}, ytd_gp={p.get('ytd_gp')}")
         print(f"    ytd_pa={p.get('ytd_pa')}, ytd_h={p.get('ytd_h')}, ytd_ab={p.get('ytd_ab')}")
         print()

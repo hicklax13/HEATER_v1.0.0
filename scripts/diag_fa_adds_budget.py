@@ -53,10 +53,12 @@ def main() -> int:
         adds = txns[txns["type"].str.lower() == "add"] if "type" in txns.columns else txns
         print(f"Total 'add' transactions across ALL teams: {len(adds)}")
         if "team_name" in adds.columns:
-            user_adds = adds[adds["team_name"].astype(str).str.contains(user_team_name.replace("🏆 ", ""), na=False, regex=False)]
+            user_adds = adds[
+                adds["team_name"].astype(str).str.contains(user_team_name.replace("🏆 ", ""), na=False, regex=False)
+            ]
             print(f"User's add transactions: {len(user_adds)}")
         else:
-            print(f"team_name column not present — can't filter to user")
+            print("team_name column not present — can't filter to user")
             print(f"Sample rows: {adds.head(3).to_dict('records')}")
 
     return 0
