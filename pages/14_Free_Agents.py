@@ -929,6 +929,13 @@ with main:
                 if col in display_fa_df.columns:
                     display_fa_df[col] = display_fa_df[col].apply(lambda x: f"{x:.2f}" if pd.notna(x) else "0.00")
 
+            # PR11 (FA P3.10): ECR (consensus_rank) shown as integer — these are
+            # whole-number consensus ranks; the trailing ".00" is noise.
+            if "consensus_rank" in display_fa_df.columns:
+                display_fa_df["consensus_rank"] = display_fa_df["consensus_rank"].apply(
+                    lambda x: f"{int(x)}" if pd.notna(x) and x > 0 else ""
+                )
+
             # Format Heat column with color coding for compact table
             if "heat" in display_fa_df.columns:
                 display_fa_df["heat"] = display_fa_df["heat"].apply(_heat_label)
