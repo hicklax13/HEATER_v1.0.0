@@ -21,6 +21,7 @@ import logging
 import pandas as pd
 
 from src.in_season import _roster_category_totals, rank_free_agents
+from src.optimizer.constants_registry import CONSTANTS_REGISTRY
 from src.validation.constant_optimizer import load_constants
 from src.valuation import LeagueConfig, SGPCalculator
 
@@ -57,7 +58,8 @@ DEFAULT_WEEKLY_ADDS = 10
 STREAMING_ADDS_BUDGET = 5
 
 # League-average pitcher WHIP — fallback when a roster row lacks a value.
-_LEAGUE_AVG_WHIP: float = 1.30
+# FA-engine overhaul P3 PR9 (2026-05-21): sourced from CONSTANTS_REGISTRY.
+_LEAGUE_AVG_WHIP: float = CONSTANTS_REGISTRY["league_avg_whip"].value
 # WHIP > this value = "ratio-destruction risk" — gates pitcher streams.
 _WHIP_SAFETY_CEILING: float = 1.40
 
