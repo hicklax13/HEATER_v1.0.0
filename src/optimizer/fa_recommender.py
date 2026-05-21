@@ -827,18 +827,24 @@ def _is_closer(player_id: int, ctx: OptimizerDataContext) -> bool:
     return sv >= _CLOSER_SV_THRESHOLD
 
 
-# FA-engine overhaul P2 PR4 (2026-05-20): canonical published blend weights
-# (Smart Fantasy Baseball, The Athletic, FanGraphs methodology).
+# FA-engine overhaul P2 PR4 (2026-05-20) + FA P5b PR (2026-05-20): canonical
+# published blend weights (Smart Fantasy Baseball, The Athletic, FanGraphs
+# methodology).
 #   0.70 × ROS projection  (anchor — projection systems still beat YTD)
 #   0.20 × YTD pace        (in-season actual)
-#   0.10 × last-14-day     (recent form, NOT YET WIRED — placeholder)
-# L14 will be added in a P2 follow-up once ctx.recent_form structure is
-# uniform; until then weights renormalize to 0.778 ROS / 0.222 YTD when
-# only ROS+YTD are available, preserving the relative ratio.
+#   0.10 × last-14-day     (recent form, wired from l14_* row columns)
+# When L14 data is absent or below the per-side volume gate (hitter l14_pa
+# >= 20, pitcher l14_ip >= 5), the weights renormalize so the remaining
+# components still sum to 1.0 (preserves relative ROS/YTD ratio). PR21 P5b
+# replaced the previous "L14 NOT YET WIRED" placeholder with the active
+# blend below.
 _BLEND_WEIGHT_ROS = 0.70
 _BLEND_WEIGHT_YTD = 0.20
 _BLEND_WEIGHT_L14 = 0.10
 _BLEND_YTD_MIN_GAMES = 30  # below this, YTD sample too noisy — skip blend
+_BLEND_L14_MIN_PA = 20  # hitter L14 volume gate
+_BLEND_L14_MIN_IP = 5.0  # pitcher L14 volume gate
+_BLEND_L14_DEFAULT_GAMES = 14  # used when l14_games column is absent
 
 # Counting stats that should be blended (hitting + pitching). Rate stats
 # (AVG/OBP/ERA/WHIP) are derived from sum totals downstream — once the
@@ -865,14 +871,20 @@ _BLENDABLE_COUNTING_COLS = (
 
 
 def _blend_fa_row(fa_data: pd.Series) -> pd.Series:
-    """Blend a player's stat row from ROS projection + YTD pace.
+    """Blend a player's stat row from ROS projection + YTD pace + L14 recent form.
 
     Industry consensus (Marcel-style blending, Smart Fantasy Baseball's
     'how much do current-season stats matter' research): trust the
     projection system as the anchor, layer in YTD pace as a sample-size-
-    gated correction. The canonical blend weights are 0.70 ROS / 0.20
-    YTD / 0.10 L14; we ship ROS+YTD here and renormalize to 0.778/0.222
-    until L14 (ctx.recent_form) integration lands in a follow-up.
+    gated correction, mix in L14 for short-term form. Canonical weights
+    are 0.70 ROS / 0.20 YTD / 0.10 L14.
+
+    L14 wiring (FA P5b, 2026-05-20): L14 is read from ``l14_*`` row columns
+    when present (l14_hr, l14_r, l14_k, l14_ip, l14_pa, etc.). Per-side
+    volume gate: hitters need ``l14_pa >= _BLEND_L14_MIN_PA`` (20),
+    pitchers need ``l14_ip >= _BLEND_L14_MIN_IP`` (5). Below the gate
+    L14 is skipped and the remaining weights renormalize so the blend
+    still sums to 1.0.
 
     Returns a copy of ``fa_data`` with counting-stat columns replaced
     by the blended values. Rate stat columns (AVG/OBP/ERA/WHIP) are
@@ -889,12 +901,55 @@ def _blend_fa_row(fa_data: pd.Series) -> pd.Series:
     # remaining) against YTD (rate-of-season-played).
     games_remaining = max(1.0, 162.0 - ytd_gp)
 
-    # Renormalized blend weights when L14 is absent.
-    total = _BLEND_WEIGHT_ROS + _BLEND_WEIGHT_YTD
-    ros_weight = _BLEND_WEIGHT_ROS / total
-    ytd_weight = _BLEND_WEIGHT_YTD / total
+    # ── L14 volume gate (FA P5b, 2026-05-20) ────────────────────────────
+    # Determine whether L14 has enough volume to contribute. Use is_hitter
+    # to pick the right gate: hitters → l14_pa, pitchers → l14_ip.
+    is_hitter_raw = fa_data.get("is_hitter", 1)
+    if is_hitter_raw is None or (isinstance(is_hitter_raw, float) and pd.isna(is_hitter_raw)):
+        is_hitter_raw = 1
+    try:
+        is_hitter = bool(int(is_hitter_raw))
+    except (TypeError, ValueError):
+        is_hitter = True
 
-    blended = fa_data.copy()
+    if is_hitter:
+        try:
+            l14_volume = float(fa_data.get("l14_pa", 0) or 0)
+        except (TypeError, ValueError):
+            l14_volume = 0.0
+        l14_active = l14_volume >= _BLEND_L14_MIN_PA
+    else:
+        try:
+            l14_volume = float(fa_data.get("l14_ip", 0) or 0)
+        except (TypeError, ValueError):
+            l14_volume = 0.0
+        l14_active = l14_volume >= _BLEND_L14_MIN_IP
+
+    # L14 sample size in games (for per-game projection). Use l14_games
+    # if surfaced, else default to 14 (the canonical window length).
+    try:
+        l14_games = float(fa_data.get("l14_games", 0) or 0)
+    except (TypeError, ValueError):
+        l14_games = 0.0
+    if l14_games <= 0:
+        l14_games = float(_BLEND_L14_DEFAULT_GAMES)
+
+    # Renormalize weights based on which components are active. ROS+YTD
+    # are always active here (we passed the ytd_gp gate); L14 is gated.
+    if l14_active:
+        total = _BLEND_WEIGHT_ROS + _BLEND_WEIGHT_YTD + _BLEND_WEIGHT_L14
+        ros_weight = _BLEND_WEIGHT_ROS / total
+        ytd_weight = _BLEND_WEIGHT_YTD / total
+        l14_weight = _BLEND_WEIGHT_L14 / total
+    else:
+        total = _BLEND_WEIGHT_ROS + _BLEND_WEIGHT_YTD
+        ros_weight = _BLEND_WEIGHT_ROS / total
+        ytd_weight = _BLEND_WEIGHT_YTD / total
+        l14_weight = 0.0
+
+    # Cast blended series to float-friendly dtype to avoid pandas FutureWarning
+    # when assigning fractional values back into int64-typed columns.
+    blended = fa_data.astype(object).copy()
     for col in _BLENDABLE_COUNTING_COLS:
         if col not in fa_data.index:
             continue
@@ -907,7 +962,26 @@ def _blend_fa_row(fa_data: pd.Series) -> pd.Series:
         # Both rates normalized to per-game so they can be combined.
         ros_per_game = ros_val / games_remaining if games_remaining > 0 else 0.0
         ytd_per_game = ytd_val / ytd_gp if ytd_gp > 0 else 0.0
-        blended_per_game = ros_weight * ros_per_game + ytd_weight * ytd_per_game
+
+        # L14 contribution — only when l14_active AND this specific l14_*
+        # column is present on the row. A missing per-stat l14 column
+        # means we have no signal for that stat; redistribute its weight
+        # to ROS+YTD proportionally so the per-row blend still sums to 1.
+        l14_col = f"l14_{col}"
+        if l14_active and l14_col in fa_data.index:
+            try:
+                l14_val = float(fa_data.get(l14_col, 0) or 0)
+            except (TypeError, ValueError):
+                l14_val = 0.0
+            l14_per_game = l14_val / l14_games if l14_games > 0 else 0.0
+            blended_per_game = ros_weight * ros_per_game + ytd_weight * ytd_per_game + l14_weight * l14_per_game
+        else:
+            # No L14 for this column — renormalize ROS/YTD only for this stat.
+            local_total = _BLEND_WEIGHT_ROS + _BLEND_WEIGHT_YTD
+            local_ros = _BLEND_WEIGHT_ROS / local_total
+            local_ytd = _BLEND_WEIGHT_YTD / local_total
+            blended_per_game = local_ros * ros_per_game + local_ytd * ytd_per_game
+
         # Project blended per-game pace back to ROS-equivalent total so
         # downstream marginal_sgp math sees the same shape it expects.
         blended[col] = blended_per_game * games_remaining
