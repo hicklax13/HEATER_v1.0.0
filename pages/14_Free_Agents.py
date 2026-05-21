@@ -342,9 +342,15 @@ except Exception as _fa_engine_err:
 
 # ── Compute FA rankings ───────────────────────────────────────────────────────
 
+# PR14 (FA P3.10): rank the full filtered FA pool so the "Show all" toggle
+# below can simply slice the cached ranked table without re-running the
+# expensive marginal-SGP computation. ``rank_free_agents`` uses a default
+# ADP pre-filter cap of 200; we lift it here by passing
+# ``max_candidates=len(fa_pool)``.
 ranked_fas = pd.DataFrame()
 try:
-    ranked_fas = rank_free_agents(user_roster_ids, fa_pool, pool, config)
+    _rank_cap = max(200, len(fa_pool))
+    ranked_fas = rank_free_agents(user_roster_ids, fa_pool, pool, config, max_candidates=_rank_cap)
 except Exception as e:
     logger.exception("Failed to rank free agents")
 
@@ -1047,10 +1053,25 @@ with main:
             _filter_label = (
                 " (breakout candidates only)" if _breakout_active and "Heat" in display_fa_df.columns else ""
             )
+
+            # PR14 (FA P3.10): pagination toggle. The default view shows the
+            # top 200 by marginal value; checking "Show all" reveals the
+            # full ranked pool.
+            _total_ranked = len(display_fa_df)
+            _show_all = False
+            if _total_ranked > 200:
+                _show_all = st.checkbox(
+                    f"Show all {_total_ranked} free agents (currently showing top 200)",
+                    value=False,
+                    key="fa_show_all",
+                )
+                if not _show_all:
+                    display_fa_df = display_fa_df.head(200)
+
             st.markdown(
                 f'<div style="font-size:11px;color:{T["tx2"]};margin-bottom:4px;'
                 f'font-family:Figtree,sans-serif;">'
-                f"Showing {len(display_fa_df)} free agents{_filter_label}."
+                f"Showing {len(display_fa_df)} of {_total_ranked} free agents{_filter_label}."
                 f" Click column headers to sort.</div>",
                 unsafe_allow_html=True,
             )
