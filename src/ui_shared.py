@@ -2349,6 +2349,7 @@ from src.valuation import LeagueConfig as _LC_FOR_RATES  # noqa: E402
 _RATE_STAT_COLS = set(_LC_FOR_RATES().rate_stats)
 _RATE_3DP = {"AVG", "OBP", "avg", "obp"}  # 3 decimal places
 _RATE_2DP = {"ERA", "WHIP", "era", "whip"}  # 2 decimal places
+_INT_COLS = {"ECR", "ecr", "consensus_rank", "GP", "gp", "ytd_gp"}  # integer display (no decimals)
 
 
 # ── Position Filter (Section 5 helper extract — 2026-05-19) ─────────
@@ -2570,6 +2571,8 @@ def build_compact_table_html(
                         cell_html += f"{fv:.3f}"
                     elif str(col) in _RATE_2DP or str(col).upper() in {"ERA", "WHIP"}:
                         cell_html += f"{fv:.2f}"
+                    elif str(col) in _INT_COLS:
+                        cell_html += f"{int(fv)}"
                     else:
                         cell_html += f"{fv:.2f}"
                 except (ValueError, TypeError):

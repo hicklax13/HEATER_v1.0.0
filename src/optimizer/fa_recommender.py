@@ -42,6 +42,28 @@ from src.waiver_wire import (
 
 logger = logging.getLogger(__name__)
 
+
+def _is_hitter_safe(val) -> bool:
+    """Convert an is_hitter field to bool, defaulting to True (hitter) for NaN/None.
+
+    pandas Series.get(key, default) returns NaN when the key exists but holds
+    NaN — not the default.  Plain int(NaN) raises ValueError.  This helper
+    centralises the guard so every bool(int(*.get("is_hitter",...))) call-site
+    is protected without repetitive try/except noise.
+    """
+    if val is None:
+        return True
+    try:
+        if pd.isna(val):
+            return True
+    except (TypeError, ValueError):
+        pass
+    try:
+        return bool(int(val))
+    except (TypeError, ValueError):
+        return True
+
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -371,7 +393,7 @@ def _count_active_by_side(
         if match.empty:
             continue
         row = match.iloc[0]
-        if bool(int(row.get("is_hitter", 1))) != is_hitter:
+        if _is_hitter_safe(row.get("is_hitter")) != is_hitter:
             continue
         status = str(row.get("status", "") or "").strip().lower()
         if status in _IL_EXCLUDE_STATUSES:
@@ -584,7 +606,7 @@ def _score_drop_candidates(
                 "player_id": pid,
                 "name": str(row.get("name", row.get("player_name", "?"))),
                 "positions": str(row.get("positions", "")),
-                "is_hitter": bool(int(row.get("is_hitter", 1))),
+                "is_hitter": _is_hitter_safe(row.get("is_hitter")),
                 "drop_cost": cost,
                 "is_il": _player_is_il(ctx, pid),
             }
@@ -708,7 +730,7 @@ def _score_fa_candidates(
     try:
         for _, fa_row in ctx.free_agents.iterrows():
             fa_id = fa_row.get("player_id")
-            if fa_id is None:
+            if fa_id is None or pd.isna(fa_id):
                 continue
             fa_id = int(fa_id)
 
@@ -766,7 +788,7 @@ def _score_fa_candidates(
 
             # Floor preference penalty
             floor_mult = 1.0
-            is_hitter = bool(int(fa_data.get("is_hitter", 1)))
+            is_hitter = _is_hitter_safe(fa_data.get("is_hitter"))
             if is_hitter:
                 pa = float(fa_data.get("pa", 0) or 0)
                 if pa < _FLOOR_PA_MIN:
@@ -1209,7 +1231,7 @@ def _compute_base_value(fa_data: pd.Series, ctx: OptimizerDataContext) -> float:
 def _compute_urgency_boost(fa_data: pd.Series, ctx: OptimizerDataContext) -> float:
     """Sum category weights for categories this FA contributes to."""
     boost = 0.0
-    is_hitter = bool(int(fa_data.get("is_hitter", 1)))
+    is_hitter = _is_hitter_safe(fa_data.get("is_hitter"))
     stat_map = ctx.config.STAT_MAP
 
     if is_hitter:
@@ -1253,7 +1275,7 @@ def _allow_cross_type(
     hitter_count = 0
     for pid in ctx.user_roster_ids:
         match = ctx.player_pool[ctx.player_pool["player_id"] == pid]
-        if not match.empty and bool(int(match.iloc[0].get("is_hitter", 1))):
+        if not match.empty and _is_hitter_safe(match.iloc[0].get("is_hitter")):
             hitter_count += 1
 
     fa_is_hitter = fa["is_hitter"]
@@ -1513,7 +1535,7 @@ def _worst_rostered(
         if match.empty:
             continue
         row = match.iloc[0]
-        if bool(int(row.get("is_hitter", 1))) != is_hitter:
+        if _is_hitter_safe(row.get("is_hitter")) != is_hitter:
             continue
         if _player_is_il(ctx, pid):
             continue

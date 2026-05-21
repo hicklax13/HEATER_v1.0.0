@@ -514,7 +514,7 @@ def compute_sustainability_score(player: pd.Series) -> float:
     Carleton research).
     """
     val = player.get("is_hitter")
-    is_hitter = int(val) if val is not None else 1
+    is_hitter = int(val) if (val is not None and pd.notna(val)) else 1
 
     def _sigmoid(x: float) -> float:
         """Standard logistic. Output in (0, 1)."""
