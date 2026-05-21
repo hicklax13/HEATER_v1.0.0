@@ -123,6 +123,27 @@ def _regression_badge(flag: str) -> str:
     return ""
 
 
+def _dedupe_positions(positions: str) -> str:
+    """PR12 (FA P3.10): collapse redundant position string for display.
+
+    Some upstream sources produce strings like ``"2B/3B,3B"`` (Jordan
+    Westburg) or ``"1B/3B,2B/3B,3B"`` (Max Muncy). The user-visible
+    string should dedupe to ``"2B,3B"`` or ``"1B,2B,3B"``. Splits on both
+    ``,`` and ``/`` to recover atomic tokens, preserves first-seen order,
+    and uppercases each token.
+    """
+    if not positions or (isinstance(positions, float) and pd.isna(positions)):
+        return ""
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for raw in str(positions).replace("/", ",").split(","):
+        t = raw.strip().upper()
+        if t and t not in seen:
+            seen.add(t)
+            ordered.append(t)
+    return ",".join(ordered)
+
+
 try:
     from src.waiver_wire import compute_add_drop_recommendations
 
@@ -623,7 +644,7 @@ with main:
             sustainability_pct = int(rec.get("sustainability_score", 0.5) * 100)
             entry = {
                 "Add": rec.get("add_name", ""),
-                "Position": rec.get("add_positions", ""),
+                "Position": _dedupe_positions(rec.get("add_positions", "")),
                 "Net Standings Gained Points Delta": format_stat(rec.get("net_sgp_delta", 0), "SGP"),
                 "Sustainability": f"{sustainability_pct}%",
                 "Drop": rec.get("drop_name", ""),
@@ -704,7 +725,7 @@ with main:
                 _stream_rows.append(
                     {
                         "Player": sr["player_name"],
-                        "Position": sr["positions"],
+                        "Position": _dedupe_positions(sr["positions"]),
                         "Type": sr["stream_type"],
                         "Reasoning": sr["reasoning"],
                     }
@@ -936,6 +957,11 @@ with main:
                     lambda x: f"{int(x)}" if pd.notna(x) and x > 0 else ""
                 )
 
+            # PR12 (FA P3.10): dedupe redundant position tokens (e.g.
+            # "2B/3B,3B" -> "2B,3B"; "1B/3B,2B/3B,3B" -> "1B,2B,3B").
+            if "positions" in display_fa_df.columns:
+                display_fa_df["positions"] = display_fa_df["positions"].apply(_dedupe_positions)
+
             # Format Heat column with color coding for compact table
             if "heat" in display_fa_df.columns:
                 display_fa_df["heat"] = display_fa_df["heat"].apply(_heat_label)
@@ -1107,7 +1133,7 @@ with main:
 
             entry = {
                 "Drop": rec.get("drop_name", ""),
-                "Position": rec.get("drop_positions", ""),
+                "Position": _dedupe_positions(rec.get("drop_positions", "")),
                 "Replaced By": rec.get("add_name", ""),
                 "Top Category Impact": impact_str,
             }
