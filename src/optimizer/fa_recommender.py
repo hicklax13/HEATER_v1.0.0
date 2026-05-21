@@ -791,16 +791,17 @@ def _score_fa_candidates(
             # signals from xwOBA-wOBA gap and similar metrics are 5-10% accurate
             # over a single matchup, so a 5% multiplier is the right order of
             # magnitude — neither dominates nor disappears.
-            regression_mult = 1.0
             _reg_flag = str(fa_data.get("regression_flag", "") or "").strip().upper()
-            if _reg_flag == "BUY_LOW":
-                regression_mult = 1.05
-            elif _reg_flag == "SELL_HIGH":
-                regression_mult = 0.95
 
-            composite = (
-                base_value * sustainability * ownership_mult * floor_mult * pt_mult * regression_mult + urgency_boost
-            )
+            composite = base_value * sustainability * ownership_mult * floor_mult * pt_mult + urgency_boost
+
+            # Sign-aware regression nudge: BUY_LOW always moves composite toward
+            # positive (better ranking), SELL_HIGH always moves toward negative.
+            # Naïve ×1.05 inverts direction when composite < 0 — use reciprocal.
+            if _reg_flag == "BUY_LOW":
+                composite *= 1.05 if composite >= 0 else (1.0 / 1.05)
+            elif _reg_flag == "SELL_HIGH":
+                composite *= 0.95 if composite >= 0 else (1.0 / 0.95)
 
             # T3-4: ECR stddev consensus adjustment
             try:

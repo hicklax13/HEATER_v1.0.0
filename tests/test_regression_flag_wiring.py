@@ -102,8 +102,12 @@ def test_buy_low_boosts_composite():
     assert buy_score > neutral_score, (
         f"BUY_LOW should boost composite. Got buy={buy_score:.2f} vs neutral={neutral_score:.2f}"
     )
-    # Approximate 5% boost
-    assert 1.03 < (buy_score / neutral_score) < 1.07
+    # For positive composites ratio ≈ 1.05; for negative, buy is less-negative so
+    # ratio < 1 (approximately 0.95). Test both cases symmetrically.
+    if neutral_score >= 0:
+        assert 1.03 < (buy_score / neutral_score) < 1.07
+    else:
+        assert 0.93 < (buy_score / neutral_score) < 0.97
 
 
 def test_sell_high_discounts_composite():
@@ -117,7 +121,12 @@ def test_sell_high_discounts_composite():
     sell_score = candidates_sell[0]["composite_score"]
     neutral_score = candidates_neutral[0]["composite_score"]
     assert sell_score < neutral_score
-    assert 0.93 < (sell_score / neutral_score) < 0.97
+    # For positive composites ratio ≈ 0.95; for negative, sell is more-negative so
+    # ratio > 1 (approximately 1.05). Test both cases symmetrically.
+    if neutral_score >= 0:
+        assert 0.93 < (sell_score / neutral_score) < 0.97
+    else:
+        assert 1.03 < (sell_score / neutral_score) < 1.07
 
 
 def test_no_flag_no_change():

@@ -219,6 +219,7 @@ elif _level_filter == "MLB + AAA + AA":
 
 yds = get_yahoo_data_service()
 rosters = yds.get_rosters()
+
 if rosters.empty:
     st.warning(
         "No league data loaded. Connect your Yahoo league in Connect League, "
