@@ -53,6 +53,9 @@ def _make_player(
     is_closer: bool = False,
     status: str = "",
     marginal_value: float | None = None,
+    ytd_gp: float = 60.0,  # FA P5c (2026-05-20): default to healthy-player
+    ytd_ip: float = 70.0,  # playing time so _scale_ros_by_playing_time doesn't
+    # treat fixtures as IL phantoms (Day 70 expected ~60 GP / 70 IP).
 ) -> dict:
     d = {
         "player_id": player_id,
@@ -78,6 +81,8 @@ def _make_player(
         "sf": sf,
         "is_closer": is_closer,
         "status": status,
+        "ytd_gp": ytd_gp,
+        "ytd_ip": ytd_ip,
     }
     if marginal_value is not None:
         d["marginal_value"] = marginal_value

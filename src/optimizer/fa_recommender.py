@@ -179,6 +179,102 @@ def _playing_time_multiplier(fa_data: pd.Series, ctx: OptimizerDataContext) -> f
     return _PT_MULT_LOW
 
 
+def _scale_ros_by_playing_time(fa_data: pd.Series, ctx: OptimizerDataContext) -> pd.Series:
+    """Scale a player's ROS projection by their actual playing-time ratio.
+
+    Motivation (FA P5c, 2026-05-20): a player with 0 YTD GP at Day 50 has
+    the same ROS projection as a healthy starter — that's wrong because
+    their projection assumes regular playing time they aren't getting (IL
+    stash, demotion, platoon split, etc.). The PR21 ``_playing_time_multiplier``
+    de-weights the composite score, but the ROS COLUMNS themselves still
+    feed into ``_blend_fa_row`` and ``marginal_sgp`` at full preseason
+    magnitude, so a Westburg-class 0-GP phantom keeps ROS=57R/16HR going
+    into the blend. This function discounts those columns at the source.
+
+    Calibration matches the existing playing-time gate philosophy:
+      * Grace period: first ``_PT_GATE_GRACE_DAYS`` (30) days — no scaling
+        (call-ups have no season yet).
+      * Hitter signal: ``ytd_gp`` vs ``days_elapsed * _PT_HITTER_GP_PER_DAY``
+        (typical starter pace).
+      * Pitcher signal: ``ytd_ip`` vs ``days_elapsed * _PT_PITCHER_IP_PER_DAY``
+        (blended SP+RP).
+      * If ratio >= ``_PT_RATIO_FULL_CREDIT`` (0.6), return unchanged.
+      * Below the threshold, multiply counting columns by ``max(0.2, ratio)``
+        so an IL stash with 0 GP still gets a 20% floor (matches PR21's
+        ``_PT_MULT_LOW`` magnitude philosophy — phantoms aren't worth zero,
+        but they aren't worth full projection either).
+
+    Returns a copy of ``fa_data`` with counting columns scaled. Rate
+    stat columns (AVG/OBP/ERA/WHIP) are left untouched — they regenerate
+    downstream from numerator/denominator counting columns.
+    """
+    weeks_remaining = float(getattr(ctx, "weeks_remaining", 16) or 16)
+    days_elapsed = max(1.0, (_PT_TOTAL_SEASON_WEEKS - weeks_remaining) * 7.0)
+    if days_elapsed < _PT_GATE_GRACE_DAYS:
+        return fa_data  # grace period: no scaling
+
+    # NOTE: same is_hitter handling as _playing_time_multiplier — pitchers
+    # have is_hitter=0 which is falsy; default only when key is missing.
+    is_hitter_raw = fa_data.get("is_hitter", 1)
+    if is_hitter_raw is None or (isinstance(is_hitter_raw, float) and pd.isna(is_hitter_raw)):
+        is_hitter_raw = 1
+    try:
+        is_hitter = bool(int(is_hitter_raw))
+    except (TypeError, ValueError):
+        is_hitter = True
+
+    if is_hitter:
+        try:
+            ytd_volume = float(fa_data.get("ytd_gp", 0) or 0)
+        except (TypeError, ValueError):
+            ytd_volume = 0.0
+        expected_volume = days_elapsed * _PT_HITTER_GP_PER_DAY
+    else:
+        try:
+            ytd_volume = float(fa_data.get("ytd_ip", 0) or 0)
+        except (TypeError, ValueError):
+            ytd_volume = 0.0
+        expected_volume = days_elapsed * _PT_PITCHER_IP_PER_DAY
+
+    ratio = ytd_volume / max(1.0, expected_volume)
+    if ratio >= _PT_RATIO_FULL_CREDIT:
+        return fa_data  # full credit
+
+    scale = max(0.2, ratio)
+
+    # Cast to object dtype to avoid pandas FutureWarning when assigning
+    # fractional results into int64 counting columns.
+    scaled = fa_data.astype(object).copy()
+    counting_cols = (
+        "r",
+        "hr",
+        "rbi",
+        "sb",
+        "ab",
+        "h",
+        "bb",
+        "hbp",
+        "sf",
+        "w",
+        "l",
+        "sv",
+        "k",
+        "ip",
+        "er",
+        "bb_allowed",
+        "h_allowed",
+    )
+    for col in counting_cols:
+        if col not in scaled.index:
+            continue
+        try:
+            v = float(scaled[col] or 0)
+            scaled[col] = v * scale
+        except (TypeError, ValueError):
+            pass
+    return scaled
+
+
 def _player_is_il(ctx: OptimizerDataContext, pid: int) -> bool:
     """Return True if the player is on IL/DTD/NA/suspended per roster or pool.
 
@@ -1006,6 +1102,14 @@ def _compute_base_value(fa_data: pd.Series, ctx: OptimizerDataContext) -> float:
     """
     from src.in_season import _roster_category_totals
     from src.valuation import SGPCalculator
+
+    # FA P5c (2026-05-20): scale ROS by playing-time ratio BEFORE blending.
+    # An IL stash phantom (0 YTD GP) still has the same ROS projection as a
+    # healthy starter — the projection assumes regular playing time the
+    # player isn't getting. Discounting at the source means downstream
+    # marginal_sgp sees the deflated ROS columns. The PR21 multiplier on
+    # the composite score still applies downstream (stacked penalty).
+    fa_data = _scale_ros_by_playing_time(fa_data, ctx)
 
     blended = _blend_fa_row(fa_data)
 
