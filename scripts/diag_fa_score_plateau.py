@@ -11,10 +11,6 @@ import io
 import logging
 import sys
 
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
-sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
-logging.basicConfig(level=logging.WARNING)
-
 import pandas as pd
 
 from src.database import init_db
@@ -28,6 +24,10 @@ from src.optimizer.shared_data_layer import build_optimizer_context
 from src.validation.dynamic_context import compute_weeks_remaining
 from src.valuation import LeagueConfig
 from src.yahoo_data_service import get_yahoo_data_service
+
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
+logging.basicConfig(level=logging.WARNING)
 
 
 def main() -> int:
@@ -60,14 +60,14 @@ def main() -> int:
 
     # Check specific players
     targets = [
-        "Brandon Marsh",   # should score well — actual MLB stats
+        "Brandon Marsh",  # should score well — actual MLB stats
         "Michael De La Cruz",  # minor leaguer
         "Cristian Hernandez",  # minor leaguer
         "Alejandro Kirk",  # backup MLB catcher
-        "Jordan Westburg", # MLB 2B/3B
-        "Bryson Stott",    # MLB 2B
-        "Cade Horton",     # MLB SP
-        "Kyle Teel",       # MLB catcher (prospect)
+        "Jordan Westburg",  # MLB 2B/3B
+        "Bryson Stott",  # MLB 2B
+        "Cade Horton",  # MLB SP
+        "Kyle Teel",  # MLB catcher (prospect)
     ]
 
     pool = ctx.player_pool

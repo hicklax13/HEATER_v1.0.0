@@ -821,9 +821,7 @@ def _compute_base_value(fa_data: pd.Series, ctx: OptimizerDataContext) -> float:
     # totals for AVG/OBP/ERA/WHIP volume-weighting).
     if not hasattr(ctx, "_fa_roster_totals"):
         try:
-            ctx._fa_roster_totals = _roster_category_totals(
-                ctx.user_roster_ids, ctx.player_pool
-            )
+            ctx._fa_roster_totals = _roster_category_totals(ctx.user_roster_ids, ctx.player_pool)
         except Exception:
             logger.debug("Could not compute roster_totals for FA scoring", exc_info=True)
             ctx._fa_roster_totals = {}
@@ -831,9 +829,7 @@ def _compute_base_value(fa_data: pd.Series, ctx: OptimizerDataContext) -> float:
         ctx._fa_sgp_calc = SGPCalculator(ctx.config)
 
     try:
-        sgp_dict = ctx._fa_sgp_calc.marginal_sgp(
-            blended, ctx._fa_roster_totals, ctx.category_weights
-        )
+        sgp_dict = ctx._fa_sgp_calc.marginal_sgp(blended, ctx._fa_roster_totals, ctx.category_weights)
         value = sum(sgp_dict.values())
     except Exception:
         logger.debug("marginal_sgp failed for FA scoring — falling back to 0", exc_info=True)
