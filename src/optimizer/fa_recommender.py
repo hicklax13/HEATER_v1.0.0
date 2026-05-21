@@ -627,7 +627,24 @@ def _score_fa_candidates(
         # for full calibration rationale.
         pt_mult = _playing_time_multiplier(fa_data, ctx)
 
-        composite = base_value * sustainability * ownership_mult * floor_mult * pt_mult + urgency_boost
+        # PR10 Part A (2026-05-20): regression flag adjustment.
+        # The pool's regression_flag column (BUY_LOW / SELL_HIGH / empty) was
+        # being loaded but never consumed. Wire it as a final ranking nudge:
+        # BUY_LOW = 1.05x (engine slightly favors regression-favorable players);
+        # SELL_HIGH = 0.95x (slight discount). Industry consensus: regression
+        # signals from xwOBA-wOBA gap and similar metrics are 5-10% accurate
+        # over a single matchup, so a 5% multiplier is the right order of
+        # magnitude — neither dominates nor disappears.
+        regression_mult = 1.0
+        _reg_flag = str(fa_data.get("regression_flag", "") or "").strip().upper()
+        if _reg_flag == "BUY_LOW":
+            regression_mult = 1.05
+        elif _reg_flag == "SELL_HIGH":
+            regression_mult = 0.95
+
+        composite = (
+            base_value * sustainability * ownership_mult * floor_mult * pt_mult * regression_mult + urgency_boost
+        )
 
         # T3-4: ECR stddev consensus adjustment
         try:
