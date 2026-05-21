@@ -17,6 +17,7 @@ from typing import Any
 
 import pandas as pd
 
+from src.optimizer.constants_registry import CONSTANTS_REGISTRY
 from src.optimizer.shared_data_layer import OptimizerDataContext
 
 # FA-engine overhaul P3.5 PR15 (2026-05-20): re-export the scarcity helpers
@@ -44,19 +45,25 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
+# FA-engine overhaul P3 PR9 (2026-05-21): magic-constant centralization.
+# Knobs that materially affect FA recommendations (thresholds, ratios,
+# multipliers, IP goals) now read from CONSTANTS_REGISTRY at import time
+# so calibration tools (sensitivity_analysis, sigmoid_calibrator) treat
+# them as first-class inputs. Module-level names are preserved as aliases
+# to keep the legacy call sites untouched.
 
 _MIN_CLOSERS = 2
 _CLOSER_SV_THRESHOLD = 5
 _MAX_DROP_CANDIDATES = 5
 _MAX_FA_CANDIDATES = 10
-_CATEGORY_WORSEN_THRESHOLD = -0.1
+_CATEGORY_WORSEN_THRESHOLD = CONSTANTS_REGISTRY["category_worsen_threshold"].value
 _MAX_WORSENED_CATEGORIES = 3
 _HITTER_SLOTS = 10  # C/1B/2B/3B/SS/3OF/2Util = 10 starting hitter slots
-_CROSS_TYPE_SGP_MIN = 0.3
-_OWNERSHIP_BOOST_DELTA = 5.0
-_OWNERSHIP_BOOST_MULT = 1.10
-_FLOOR_PENALTY_MULT = 0.85
-_FLOOR_PA_MIN = 50
+_CROSS_TYPE_SGP_MIN = CONSTANTS_REGISTRY["cross_type_sgp_min"].value
+_OWNERSHIP_BOOST_DELTA = CONSTANTS_REGISTRY["ownership_boost_delta"].value
+_OWNERSHIP_BOOST_MULT = CONSTANTS_REGISTRY["ownership_boost_mult"].value
+_FLOOR_PENALTY_MULT = CONSTANTS_REGISTRY["floor_penalty_mult"].value
+_FLOOR_PA_MIN = CONSTANTS_REGISTRY["floor_pa_min"].value
 
 # FA-engine overhaul P3.9 PR21 (2026-05-20): playing-time gate calibration.
 # A player with 0 GP halfway into the season is almost always an IL stash
@@ -64,29 +71,29 @@ _FLOOR_PA_MIN = 50
 # expectations of a full season) inflates their FA score above real
 # performers. Apply a multiplicative penalty based on YTD playing time
 # relative to season progress. Calibration locked by user 2026-05-20.
-_PT_GATE_GRACE_DAYS = 30  # gate inactive first 30 days (early-season call-ups OK)
-_PT_RATIO_FULL_CREDIT = 0.60  # >=60% of expected playing time = 1.0x
-_PT_RATIO_MILD = 0.30  # 30-59% of expected = 0.85x
-# Below 30% of expected but > 0: 0.60x
-_PT_MULT_ZERO_VOLUME = 0.30  # 0 GP / 0 IP exactly: 0.30x
-_PT_MULT_LOW = 0.60
-_PT_MULT_MILD = 0.85
-_PT_HITTER_GP_PER_DAY = 0.85  # typical hitter starter plays ~0.85 GP/day
-_PT_PITCHER_IP_PER_DAY = 1.0  # typical blended SP+RP yields ~1 IP/day
-_PT_TOTAL_SEASON_WEEKS = 26.0  # FourzynBurn season length
-_FLOOR_IP_MIN = 20
+_PT_GATE_GRACE_DAYS = CONSTANTS_REGISTRY["pt_gate_grace_days"].value
+_PT_RATIO_FULL_CREDIT = CONSTANTS_REGISTRY["pt_ratio_full_credit"].value
+_PT_RATIO_MILD = CONSTANTS_REGISTRY["pt_ratio_mild"].value
+# Below pt_ratio_mild of expected but > 0: 0.60x
+_PT_MULT_ZERO_VOLUME = CONSTANTS_REGISTRY["pt_mult_zero_volume"].value
+_PT_MULT_LOW = CONSTANTS_REGISTRY["pt_mult_low"].value
+_PT_MULT_MILD = CONSTANTS_REGISTRY["pt_mult_mild"].value
+_PT_HITTER_GP_PER_DAY = CONSTANTS_REGISTRY["pt_hitter_gp_per_day"].value
+_PT_PITCHER_IP_PER_DAY = CONSTANTS_REGISTRY["pt_pitcher_ip_per_day"].value
+_PT_TOTAL_SEASON_WEEKS = 26.0  # FourzynBurn season length (matches WEEKS_IN_SEASON; structural-invariant'd elsewhere)
+_FLOOR_IP_MIN = CONSTANTS_REGISTRY["floor_ip_min"].value
 _IL_EXCLUDE_STATUSES = {"il", "il10", "il15", "il60", "dtd", "day-to-day", "na", "out", "suspended"}
 
 # Streaming knobs (for scope="today" only).
-_STREAM_WIN_PROB_MIN = 0.2755  # categories with >=27.55% win prob are in-play
-_STREAM_NET_SGP_MIN = 0.70  # minimum net SGP gain to surface a streamer
-_STREAM_HURT_THRESHOLD = -0.10  # max allowed hurt on protected categories
+_STREAM_WIN_PROB_MIN = CONSTANTS_REGISTRY["stream_win_prob_min"].value
+_STREAM_NET_SGP_MIN = CONSTANTS_REGISTRY["stream_net_sgp_min"].value
+_STREAM_HURT_THRESHOLD = CONSTANTS_REGISTRY["stream_hurt_threshold"].value
 _STREAM_CROSS_SIDE_RATIO = 0.5  # cross-swap if cross-worst < this * same-worst
 _STREAM_DROP_TODAY_BONUS = 0.15  # protect rostered players with today game
 _STREAM_MAX_PER_SIDE = 3  # cap per-side recommendations
-_STREAM_IP_MIN = 20  # weekly IP minimum (Yahoo forfeit line)
-_STREAM_IP_TARGET = 54  # weekly IP goal (12 SP starts/team × ~6.5 IP/start)
-_STREAM_NET_SGP_RELAXED = 0.40  # pitcher-stream threshold when IP < 75% of target
+_STREAM_IP_MIN = CONSTANTS_REGISTRY["stream_ip_min"].value
+_STREAM_IP_TARGET = CONSTANTS_REGISTRY["stream_ip_target"].value
+_STREAM_NET_SGP_RELAXED = CONSTANTS_REGISTRY["stream_net_sgp_relaxed"].value
 _STREAM_IP_RELAX_RATIO = 0.75  # below this fraction of target, relax pitcher SGP bar
 
 # FA-engine overhaul P3.5 PR16 (2026-05-20): roster-construction guard.
@@ -107,8 +114,8 @@ _POSITION_CAPS: dict[str, int] = {
     "SP": 3,
     "RP": 3,
 }
-_MIN_ACTIVE_HITTERS = 10  # 1C+1·1B+1·2B+1·3B+1SS+3OF+2Util starting hitters
-_MIN_ACTIVE_PITCHERS = 8  # 2SP+2RP+4P starting pitchers
+_MIN_ACTIVE_HITTERS = CONSTANTS_REGISTRY["min_active_hitters"].value
+_MIN_ACTIVE_PITCHERS = CONSTANTS_REGISTRY["min_active_pitchers"].value
 
 
 def _playing_time_multiplier(fa_data: pd.Series, ctx: OptimizerDataContext) -> float:
