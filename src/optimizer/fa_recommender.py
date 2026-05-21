@@ -18,7 +18,21 @@ from typing import Any
 import pandas as pd
 
 from src.optimizer.shared_data_layer import OptimizerDataContext
+
+# FA-engine overhaul P3.5 PR15 (2026-05-20): re-export the scarcity helpers
+# from src.valuation under the old underscore-prefixed names so existing
+# imports (`from src.optimizer.fa_recommender import _positional_scarcity_factor,
+# _POSITIONAL_SCARCITY_MAX_BOOST`) — including the structural-invariant
+# test in tests/test_fa_recommender_positional_scarcity.py — keep working
+# without churn. The boost constant is unused inside this module but
+# re-exported as a deliberate public alias.
+from src.valuation import (
+    POSITIONAL_SCARCITY_MAX_BOOST as _POSITIONAL_SCARCITY_MAX_BOOST,  # noqa: F401
+)
 from src.valuation import TEAM_NAME_TO_ABBR as _FULL_TO_ABBR
+from src.valuation import (
+    compute_positional_scarcity_factor as _positional_scarcity_factor,
+)
 from src.waiver_wire import (
     compute_drop_cost,
     compute_net_swap_value,
@@ -118,14 +132,30 @@ def recommend_fa_moves(
 
     effective_max = min(max_moves, ctx.adds_remaining_this_week)
 
+    # FA-engine overhaul P3.5 PR15 (2026-05-20): compute replacement levels
+    # ONCE up here and pass to BOTH scorers so add-side and drop-side
+    # scarcity use the same dict (previously only the add-side computed
+    # it inside `_score_fa_candidates`, so `compute_drop_cost` was
+    # scarcity-blind — backup catchers looked free to drop). Defensive
+    # try/except: a failure leaves replacement_levels=={} and both scorers
+    # fall through to neutral 1.0× scarcity (pre-PR15 behavior).
+    replacement_levels: dict[str, float] = {}
+    try:
+        from src.valuation import SGPCalculator, compute_replacement_levels
+
+        _sgp_calc_for_repl = SGPCalculator(ctx.config)
+        replacement_levels = compute_replacement_levels(ctx.player_pool, ctx.config, _sgp_calc_for_repl)
+    except Exception:
+        logger.debug("Could not compute replacement_levels — positional scarcity disabled this call")
+
     # ── Step 1: Score drop candidates ────────────────────────────────
-    drop_candidates = _score_drop_candidates(ctx)
+    drop_candidates = _score_drop_candidates(ctx, replacement_levels)
     if not drop_candidates:
         logger.info("No viable drop candidates found")
         return []
 
     # ── Step 2: Score FA candidates ──────────────────────────────────
-    fa_candidates = _score_fa_candidates(ctx)
+    fa_candidates = _score_fa_candidates(ctx, replacement_levels)
     if not fa_candidates:
         logger.info("No viable FA candidates found")
         return []
@@ -144,12 +174,21 @@ def recommend_fa_moves(
 # ---------------------------------------------------------------------------
 
 
-def _score_drop_candidates(ctx: OptimizerDataContext) -> list[dict]:
+def _score_drop_candidates(
+    ctx: OptimizerDataContext,
+    replacement_levels: dict[str, float] | None = None,
+) -> list[dict]:
     """Score rostered players as drop candidates.
 
     Hard filters:
     - Never drop IL stash players.
     - Never drop a closer if it would reduce closer count below minimum.
+
+    FA-engine overhaul P3.5 PR15 (2026-05-20): ``replacement_levels`` is
+    passed through to ``compute_drop_cost`` so dropping a scarce-position
+    player (catcher, SS) costs MORE than dropping a deep-position player
+    (OF, 1B) with equivalent raw SGP. Default ``None`` preserves the
+    pre-PR15 backward-compat path (no scarcity multiplier on cost).
     """
     candidates: list[dict] = []
 
@@ -162,7 +201,13 @@ def _score_drop_candidates(ctx: OptimizerDataContext) -> list[dict]:
         if _is_closer(pid, ctx) and ctx.closer_count <= _MIN_CLOSERS:
             continue
 
-        cost = compute_drop_cost(pid, ctx.user_roster_ids, ctx.player_pool, ctx.config)
+        cost = compute_drop_cost(
+            pid,
+            ctx.user_roster_ids,
+            ctx.player_pool,
+            ctx.config,
+            replacement_levels=replacement_levels,
+        )
 
         # Look up player info
         match = ctx.player_pool[ctx.player_pool["player_id"] == pid]
@@ -191,74 +236,51 @@ def _score_drop_candidates(ctx: OptimizerDataContext) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 
-_POSITIONAL_SCARCITY_MAX_BOOST = 0.25  # cap at +25% (very scarce position)
+# FA-engine overhaul P3.5 PR15 (2026-05-20): _positional_scarcity_factor
+# and _POSITIONAL_SCARCITY_MAX_BOOST were hoisted to src.valuation so
+# src.waiver_wire can also import them (waiver_wire is imported BY
+# fa_recommender, so it can't import from fa_recommender — putting the
+# function in valuation breaks the import cycle). The aliases at the top
+# of this module preserve existing import paths so external callers and
+# tests don't need to change.
 
 
-def _positional_scarcity_factor(positions: str, replacement_levels: dict) -> float:
-    """Compute a multiplier reflecting how scarce a player's position is.
-
-    FA-engine overhaul P1 PR3 (2026-05-20): industry consensus (Razzball
-    Player Rater FAQ, FanGraphs auction calculator methodology) values
-    players partially by replacement-level scarcity at their position.
-    A top-2 catcher is worth more than a top-10 OF with equivalent raw
-    SGP because the FA pool of replaceable catchers is much thinner.
-
-    Computation: for each eligible position, derive a per-position
-    scarcity score from the dynamic replacement-level pool. Use the
-    SCARCEST position the player qualifies at (best for the user) and
-    return ``1.0 + max(0, (median_repl - position_repl) / median_repl)``
-    bounded by ``_POSITIONAL_SCARCITY_MAX_BOOST``.
-
-    Returns 1.0 (neutral) when no replacement-level data is available,
-    or when the player has no usable positions — fail-safe default.
-    """
-    if not positions or not replacement_levels:
-        return 1.0
-    pos_list = [p.strip() for p in str(positions).split(",") if p.strip()]
-    if not pos_list:
-        return 1.0
-    valid = [p for p in pos_list if p in replacement_levels]
-    if not valid:
-        return 1.0
-    # Replacement level (lower = scarcer position). Pick the scarcest
-    # position the player qualifies at — best-case scarcity for them.
-    best_repl = min(replacement_levels.get(p, 0.0) for p in valid)
-    repl_values = [v for v in replacement_levels.values() if v is not None]
-    if not repl_values:
-        return 1.0
-    median_repl = sorted(repl_values)[len(repl_values) // 2]
-    if median_repl <= 0:
-        return 1.0
-    # Positive ratio when this position has LOWER replacement (more scarce)
-    # than the league median. Capped at the max boost.
-    scarcity_ratio = (median_repl - best_repl) / median_repl
-    return 1.0 + max(0.0, min(_POSITIONAL_SCARCITY_MAX_BOOST, scarcity_ratio))
-
-
-def _score_fa_candidates(ctx: OptimizerDataContext) -> list[dict]:
+def _score_fa_candidates(
+    ctx: OptimizerDataContext,
+    replacement_levels: dict[str, float] | None = None,
+) -> list[dict]:
     """Score free agents by composite value.
 
     Filters out unhealthy players (health_score < 0.65 or IL/DTD/NA status).
     Scores by: base value × positional_scarcity_factor, urgency boost,
     ownership trend, sustainability, and floor preference.
+
+    FA-engine overhaul P3.5 PR15 (2026-05-20): ``replacement_levels`` is
+    now passed in from ``recommend_fa_moves`` (was previously computed
+    locally inside this function). The hoist enables the SAME dict to
+    feed the drop-side ``compute_drop_cost`` for symmetric scarcity
+    treatment. If ``None``, falls back to a fresh local computation so
+    standalone callers / tests still work; on any failure the dict stays
+    empty and scarcity is disabled (1.0× neutral fallback).
     """
     if ctx.free_agents.empty:
         return []
 
-    # FA-engine overhaul P1 PR3 (2026-05-20): compute replacement levels
-    # ONCE for the FA pool. Positional scarcity factor multiplies each
-    # FA's base_value below. Cached per recommendation call rather than
-    # added to OptimizerDataContext to keep the surface area minimal —
-    # this can be hoisted into ctx in a follow-up PR if other callers
-    # need it.
-    _replacement_levels: dict[str, float] = {}
-    try:
-        from src.valuation import SGPCalculator, compute_replacement_levels
+    # FA-engine overhaul P1 PR3 / P3.5 PR15: replacement levels now passed
+    # in by caller (recommend_fa_moves) so both add-side and drop-side
+    # scarcity see the same dict. For standalone callers that pass None,
+    # compute locally as a defensive fallback.
+    if replacement_levels is None:
+        _replacement_levels: dict[str, float] = {}
+        try:
+            from src.valuation import SGPCalculator, compute_replacement_levels
 
-        _sgp_calc_for_repl = SGPCalculator(ctx.config)
-        _replacement_levels = compute_replacement_levels(ctx.player_pool, ctx.config, _sgp_calc_for_repl)
-    except Exception:
-        logger.debug("Could not compute replacement_levels — positional scarcity factor disabled this call")
+            _sgp_calc_for_repl = SGPCalculator(ctx.config)
+            _replacement_levels = compute_replacement_levels(ctx.player_pool, ctx.config, _sgp_calc_for_repl)
+        except Exception:
+            logger.debug("Could not compute replacement_levels — positional scarcity factor disabled this call")
+    else:
+        _replacement_levels = replacement_levels
 
     candidates: list[dict] = []
 
