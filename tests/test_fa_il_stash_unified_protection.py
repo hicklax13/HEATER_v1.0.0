@@ -37,11 +37,28 @@ def _page_source() -> str:
 
 
 def test_il_stash_names_imported_on_fa_page():
-    """Hardcoded IL stash names (Bieber, Strider) must be available."""
-    src = _page_source()
-    assert "from src.alerts import IL_STASH_NAMES" in src, (
-        "Free Agents page must import IL_STASH_NAMES from src.alerts. "
-        "Without it, the hardcoded stash protection layer is missing."
+    """IL stash names symbol must be imported from src.alerts.
+
+    Use AST instead of substring matching so the test is robust against
+    ruff's import-formatting choices (single-line vs multi-line). After
+    FA PR7 the import line was widened to include `get_il_stash_names`
+    alongside `IL_STASH_NAMES`, which ruff format may split across
+    multiple lines — both forms are valid.
+    """
+    import ast
+    import pathlib
+
+    tree = ast.parse(pathlib.Path(_PAGE_PATH).read_text(encoding="utf-8"))
+    found = False
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module == "src.alerts":
+            names = {alias.name for alias in node.names}
+            if "IL_STASH_NAMES" in names:
+                found = True
+                break
+    assert found, (
+        "Free Agents page must import IL_STASH_NAMES from src.alerts (any form). "
+        "Without it, the IL stash protection layer is missing."
     )
 
 

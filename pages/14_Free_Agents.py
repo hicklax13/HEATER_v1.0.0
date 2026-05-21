@@ -5,7 +5,10 @@ import logging
 import pandas as pd
 import streamlit as st
 
-from src.alerts import IL_STASH_NAMES
+from src.alerts import (  # noqa: F401  IL_STASH_NAMES re-export kept for backward compat + structural guard test_fa_il_stash_unified_protection
+    IL_STASH_NAMES,
+    get_il_stash_names,
+)
 from src.database import get_connection, init_db, load_player_pool
 from src.in_season import rank_free_agents
 from src.league_manager import get_team_roster
@@ -539,7 +542,11 @@ with main:
     # Garrett Crochet were appearing as drop candidates in the top table.
     #
     # Protection covers three categories of player:
-    #   1. Hardcoded IL_STASH_NAMES (Bieber, Strider — manually curated)
+    #   1. IL_STASH_NAMES — was a hardcoded {Bieber, Strider} set; FA PR7
+    #      replaced that with a live league_rosters.status-derived set via
+    #      get_il_stash_names(). Called per-page-load so the protection
+    #      refreshes after each Yahoo sync rather than going stale at the
+    #      import-time snapshot.
     #   2. Any player whose injury news mentions "10-day", "day-to-day",
     #      "15-day", or "60-day" IL — the previous code only matched
     #      "10-day" / "day-to-day", silently letting IL15 / IL60 players
@@ -552,7 +559,7 @@ with main:
     # _roster_category_totals zeros out IL players in src/in_season.py:42-76,
     # making dropping an IL ace look "free" in the SGP math — is a separate
     # engine-level fix tracked in a follow-up PR.
-    protected_drop_names: set[str] = set(IL_STASH_NAMES)
+    protected_drop_names: set[str] = set(get_il_stash_names())
 
     # (2) Dynamic IL news-string match: expand the substring set.
     try:
@@ -1054,8 +1061,9 @@ with main:
     if not filtered_recs:
         st.info("No drop recommendations available.")
     else:
-        # Protect IL stashes (Bieber, Strider, AND players returning within 2 weeks)
-        protected_names = set(IL_STASH_NAMES)
+        # Protect IL stashes (live league_rosters.status set, refreshed per page
+        # load via get_il_stash_names(), AND players returning within 2 weeks)
+        protected_names = set(get_il_stash_names())
 
         # Dynamic IL return-date check: protect players returning within 14 days
         try:
