@@ -57,6 +57,23 @@ _OWNERSHIP_BOOST_DELTA = 5.0
 _OWNERSHIP_BOOST_MULT = 1.10
 _FLOOR_PENALTY_MULT = 0.85
 _FLOOR_PA_MIN = 50
+
+# FA-engine overhaul P3.9 PR21 (2026-05-20): playing-time gate calibration.
+# A player with 0 GP halfway into the season is almost always an IL stash
+# phantom or inactive — their ROS projection (often built off preseason
+# expectations of a full season) inflates their FA score above real
+# performers. Apply a multiplicative penalty based on YTD playing time
+# relative to season progress. Calibration locked by user 2026-05-20.
+_PT_GATE_GRACE_DAYS = 30  # gate inactive first 30 days (early-season call-ups OK)
+_PT_RATIO_FULL_CREDIT = 0.60  # >=60% of expected playing time = 1.0x
+_PT_RATIO_MILD = 0.30  # 30-59% of expected = 0.85x
+# Below 30% of expected but > 0: 0.60x
+_PT_MULT_ZERO_VOLUME = 0.30  # 0 GP / 0 IP exactly: 0.30x
+_PT_MULT_LOW = 0.60
+_PT_MULT_MILD = 0.85
+_PT_HITTER_GP_PER_DAY = 0.85  # typical hitter starter plays ~0.85 GP/day
+_PT_PITCHER_IP_PER_DAY = 1.0  # typical blended SP+RP yields ~1 IP/day
+_PT_TOTAL_SEASON_WEEKS = 26.0  # FourzynBurn season length
 _FLOOR_IP_MIN = 20
 _IL_EXCLUDE_STATUSES = {"il", "il10", "il15", "il60", "dtd", "day-to-day", "na", "out", "suspended"}
 
@@ -92,6 +109,67 @@ _POSITION_CAPS: dict[str, int] = {
 }
 _MIN_ACTIVE_HITTERS = 10  # 1C+1·1B+1·2B+1·3B+1SS+3OF+2Util starting hitters
 _MIN_ACTIVE_PITCHERS = 8  # 2SP+2RP+4P starting pitchers
+
+
+def _playing_time_multiplier(fa_data: pd.Series, ctx: OptimizerDataContext) -> float:
+    """De-weight FAs whose YTD playing time is low vs season progress.
+
+    Motivation (FA-engine overhaul P3.9 PR21, 2026-05-20): live diagnostic
+    surfaced Jordan Westburg (0 YTD GP, post-wrist-surgery IL stash) ranked
+    as top FA pickup because his ROS projection (~57 R / 16 HR for rest of
+    season) was built off preseason expectations that ignore his IL status.
+    Brandon Marsh (46 GP, .325 AVG — actually producing) was outranked by
+    multiple 0-GP phantoms. This gate corrects the asymmetry.
+
+    Calibration locked by user 2026-05-20:
+      * Grace period: first ``_PT_GATE_GRACE_DAYS`` (30) of season inactive
+      * 0 GP / 0 IP exactly: 0.30x multiplier
+      * 1-29% of expected playing time: 0.60x (heavy)
+      * 30-59% of expected: 0.85x (mild)
+      * >=60% of expected: 1.0x (no penalty)
+
+    Hitter signal: ``ytd_gp`` vs ``days_elapsed × 0.85`` (typical starter pace).
+    Pitcher signal: ``ytd_ip`` vs ``days_elapsed × 1.0`` (blended SP+RP).
+
+    Season progress derived from ``ctx.weeks_remaining`` against the
+    FourzynBurn 26-week season length. A missing or non-numeric playing-
+    time field is treated as 0 (matches industry: no data = IL/inactive).
+    """
+    weeks_remaining = float(getattr(ctx, "weeks_remaining", 16) or 16)
+    days_elapsed = max(1.0, (_PT_TOTAL_SEASON_WEEKS - weeks_remaining) * 7.0)
+
+    if days_elapsed < _PT_GATE_GRACE_DAYS:
+        return 1.0  # First 30 days: no penalty (call-ups have no season yet)
+
+    # NOTE: must not use `or 1` fallback here — pitchers have is_hitter=0
+    # which is falsy in Python; `0 or 1 == 1` would mis-classify pitchers
+    # as hitters. Default only when the key is missing.
+    is_hitter_raw = fa_data.get("is_hitter", 1)
+    if is_hitter_raw is None or (isinstance(is_hitter_raw, float) and pd.isna(is_hitter_raw)):
+        is_hitter_raw = 1
+    is_hitter = bool(int(is_hitter_raw))
+    if is_hitter:
+        try:
+            ytd_volume = float(fa_data.get("ytd_gp", 0) or 0)
+        except (TypeError, ValueError):
+            ytd_volume = 0.0
+        expected_volume = days_elapsed * _PT_HITTER_GP_PER_DAY
+    else:
+        try:
+            ytd_volume = float(fa_data.get("ytd_ip", 0) or 0)
+        except (TypeError, ValueError):
+            ytd_volume = 0.0
+        expected_volume = days_elapsed * _PT_PITCHER_IP_PER_DAY
+
+    if ytd_volume <= 0:
+        return _PT_MULT_ZERO_VOLUME
+
+    ratio = ytd_volume / max(1.0, expected_volume)
+    if ratio >= _PT_RATIO_FULL_CREDIT:
+        return 1.0
+    if ratio >= _PT_RATIO_MILD:
+        return _PT_MULT_MILD
+    return _PT_MULT_LOW
 
 
 def _player_is_il(ctx: OptimizerDataContext, pid: int) -> bool:
@@ -535,7 +613,14 @@ def _score_fa_candidates(
             if ip < _FLOOR_IP_MIN:
                 floor_mult = _FLOOR_PENALTY_MULT
 
-        composite = base_value * sustainability * ownership_mult * floor_mult + urgency_boost
+        # FA-engine overhaul P3.9 PR21 (2026-05-20): playing-time gate.
+        # De-weight FAs whose YTD playing time is well below season-progress
+        # expectations (IL stash phantoms with inflated preseason ROS but
+        # near-zero actual games). See `_playing_time_multiplier` docstring
+        # for full calibration rationale.
+        pt_mult = _playing_time_multiplier(fa_data, ctx)
+
+        composite = base_value * sustainability * ownership_mult * floor_mult * pt_mult + urgency_boost
 
         # T3-4: ECR stddev consensus adjustment
         try:
