@@ -82,12 +82,73 @@ _IL_WEIGHT_DEFAULTS: dict[str, float] = {
 }
 
 
-def _il_weight_from_status(status: str) -> float:
+# 2026-05-20 FA-engine overhaul P3.5 / PR17: statuses for which a
+# concrete return date (from ESPN injuries or Yahoo news) should override
+# the string-based default. Short suspensions and DTD often resolve in
+# days, so a known return date is more accurate than the generic 0.0/0.95.
+_RETURN_DATE_OVERRIDE_STATUSES = frozenset({"SUSPENDED", "NA", "RESTRICTED", "OUT", "DTD", "DAY-TO-DAY"})
+
+
+def _return_date_weight(expected_return_days: float | None) -> float | None:
+    """Map days-until-return to projection weight via piecewise-linear interp.
+
+    Returns None when expected_return_days is None or above the 60d ceiling —
+    caller falls through to status-based string lookup. Returns a float
+    weight in [0.0, 1.0] when a return date is known.
+
+    Anchors:
+       < 0 days (already back per ESPN): 1.0
+       1 day:                            0.95
+       7 days:                           0.85
+      14 days:                           0.70  (matches IL10 default)
+      21 days:                           0.55
+      45 days:                           0.30
+      60 days:                           0.20  (matches IL60 default)
+      > 60 days OR None:                 None  (fall through)
+    """
+    if expected_return_days is None:
+        return None
+    try:
+        d = float(expected_return_days)
+    except (TypeError, ValueError):
+        return None
+    # NaN guard — pandas NaN floats trip arithmetic
+    if d != d:  # NaN
+        return None
+    if d < 0:
+        return 1.0  # ESPN says already back
+    # Piecewise-linear between anchors. Each segment uses standard linear interp.
+    anchors = [(0, 1.0), (1, 0.95), (7, 0.85), (14, 0.70), (21, 0.55), (45, 0.30), (60, 0.20)]
+    if d >= anchors[-1][0]:
+        # Beyond the 60-day anchor — return None so caller falls through to
+        # status-based lookup (e.g. "Suspended" → 0.0 indefinite).
+        return None
+    for (x0, y0), (x1, y1) in zip(anchors, anchors[1:]):
+        if x0 <= d <= x1:
+            if x1 == x0:
+                return y0
+            t = (d - x0) / (x1 - x0)
+            return y0 + t * (y1 - y0)
+    return None  # unreachable defensive guard
+
+
+def _il_weight_from_status(
+    status: str,
+    expected_return_days: float | None = None,
+) -> float:
     """Return projection weight for a roster status string.
 
     Lower bound 0.0 (fully unavailable — Suspended / Restricted), upper
     bound 1.0 (active). IL statuses scale by expected return window. See
     _IL_WEIGHT_DEFAULTS for citations.
+
+    When ``expected_return_days`` is provided (from ESPN injury feed or
+    Yahoo news), the return-date curve from ``_return_date_weight`` takes
+    precedence over the string-based default for "potentially short"
+    statuses (Suspended / NA / Restricted / OUT / DTD). For IL10/IL15/IL60
+    specifically, the return-date curve is used when it would UPGRADE the
+    weight (more specific info → more accurate), e.g. an IL10 player with
+    a 1-day ETA should weight higher than the generic IL10 default of 0.85.
 
     Unknown statuses default to 1.0 (active assumption — fail open,
     not closed; the previous zeroing was the upstream bug).
@@ -95,6 +156,18 @@ def _il_weight_from_status(status: str) -> float:
     if not status:
         return 1.0
     key = str(status).upper().strip()
+    # Try return-date curve first for short-term statuses.
+    if expected_return_days is not None:
+        rd_weight = _return_date_weight(expected_return_days)
+        if rd_weight is not None:
+            if key in _RETURN_DATE_OVERRIDE_STATUSES:
+                # Short-suspension class — return date is authoritative.
+                return rd_weight
+            # IL10/IL15/IL60: if return date implies a HIGHER weight than
+            # the string default, use it (more specific info wins).
+            string_default = _IL_WEIGHT_DEFAULTS.get(key)
+            if string_default is not None and rd_weight > string_default:
+                return rd_weight
     return _IL_WEIGHT_DEFAULTS.get(key, 1.0)
 
 
@@ -132,7 +205,10 @@ def _roster_category_totals(roster_ids: list, player_pool: pd.DataFrame) -> dict
     }
     for _, p in roster.iterrows():
         status = str(p.get("status", "") or "").upper().strip()
-        weight = _il_weight_from_status(status)
+        # PR17: optional per-player return-date override (column may be
+        # absent on legacy DataFrames; use defensive .get()).
+        expected_return_days = p.get("expected_return_days") if hasattr(p, "get") else None
+        weight = _il_weight_from_status(status, expected_return_days=expected_return_days)
         if weight == 0.0:
             continue  # Suspended / Restricted / NA — keep legacy zero
         totals["R"] += int(p.get("r", 0) or 0) * weight

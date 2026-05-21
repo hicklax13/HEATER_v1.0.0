@@ -953,7 +953,9 @@ def _compute_league_constraints(ctx: OptimizerDataContext, yds) -> None:
     except Exception:
         il_stash_names = {"Shane Bieber", "Spencer Strider"}
 
-    # Add players with ESPN return dates within 2 weeks
+    # Add players with ESPN return dates within 2 weeks; also stash the
+    # return_dates dict so we can derive expected_return_days below.
+    return_dates: dict = {}
     try:
         from src.alerts import _get_il_return_dates
 
@@ -967,6 +969,48 @@ def _compute_league_constraints(ctx: OptimizerDataContext, yds) -> None:
                     il_stash_names.add(key)
     except Exception:
         pass
+
+    # PR17: merge ESPN/Yahoo return dates as `expected_return_days` (float,
+    # days from now or NaN) into BOTH ctx.roster and ctx.player_pool so any
+    # downstream consumer of either DataFrame can pass it through to
+    # _il_weight_from_status. Match by player_id (int keys) first, then by
+    # name (string keys). NaN where unknown — _il_weight_from_status
+    # handles NaN/None as fall-through to status string lookup.
+    if return_dates:
+        now_utc = datetime.now(UTC)
+
+        def _days_from_now(dt) -> float:
+            try:
+                return (dt - now_utc).total_seconds() / 86400.0
+            except Exception:
+                return float("nan")
+
+        def _attach_return_days(df: pd.DataFrame) -> pd.DataFrame:
+            if df is None or df.empty:
+                return df
+            days_col = pd.Series([float("nan")] * len(df), index=df.index, dtype="float64")
+            for idx, row in df.iterrows():
+                pid = row.get("player_id")
+                ret_dt = None
+                # ID match first (int)
+                if pid is not None:
+                    try:
+                        ret_dt = return_dates.get(int(pid))
+                    except (TypeError, ValueError):
+                        ret_dt = None
+                # Fall back to name match (str). Roster uses 'name';
+                # player_pool may use 'name' or 'player_name'.
+                if ret_dt is None:
+                    pname = row.get("name") or row.get("player_name")
+                    if pname:
+                        ret_dt = return_dates.get(str(pname))
+                if ret_dt is not None:
+                    days_col.loc[idx] = _days_from_now(ret_dt)
+            df["expected_return_days"] = days_col
+            return df
+
+        ctx.roster = _attach_return_days(ctx.roster)
+        ctx.player_pool = _attach_return_days(ctx.player_pool)
 
     # Map IL stash names to player IDs
     if not ctx.roster.empty and "name" in ctx.roster.columns:
