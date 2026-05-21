@@ -4,6 +4,8 @@ Reuses SGPCalculator, compute_replacement_levels, compute_category_weights
 from src/valuation.py. MC simulation pattern adapted from src/simulation.py.
 """
 
+import re
+
 import numpy as np
 import pandas as pd
 
@@ -13,6 +15,46 @@ from src.valuation import (
     SGPCalculator,
     compute_category_weights,
 )
+
+# 2026-05-20 FA-engine overhaul PR8: parse day-count out of free-form
+# status / news text so we can populate ``expected_return_days`` from
+# Yahoo's status string + ``player_news.headline`` text in addition to
+# ESPN's structured feed. The patterns below cover the high-signal
+# Yahoo / Rotoworld phrasings without over-matching free prose.
+_RETURN_DAYS_PATTERNS = (
+    # "3 days remaining" / "7 days until return" / "5 days left"
+    re.compile(r"\b(\d+)\s*-?\s*days?\s+(?:remaining|left|until|return)", re.IGNORECASE),
+    # "expected back in 5 days" / "return in 3 days" / "out in 10 days"
+    re.compile(r"\b(?:return|back|out)\s+in\s+(\d+)\s*days?", re.IGNORECASE),
+    # "IL - 3 days" (Yahoo status convention)
+    re.compile(r"\bIL\s*-\s*(\d+)\s*days?", re.IGNORECASE),
+    # Trailing "- 3 days" / "- 7 day" suffix
+    re.compile(r"-\s*(\d+)\s*days?$", re.IGNORECASE),
+)
+
+
+def _parse_return_days_from_text(text: str | None) -> int | None:
+    """Extract day count from free-form text like 'IL10 - 3 days remaining'
+    or 'expected back in 5 days'.
+
+    Returns int days (sanity-bounded to [0, 365]) or None when no pattern
+    matches. Used to fall back to a numeric return-date estimate when
+    ESPN's structured data isn't available — Yahoo's roster ``status``
+    string and ``player_news.headline`` text both surface this kind of
+    phrasing for stash decisions.
+    """
+    if not text or not isinstance(text, str):
+        return None
+    for pat in _RETURN_DAYS_PATTERNS:
+        m = pat.search(text)
+        if m:
+            try:
+                days = int(m.group(1))
+                if 0 <= days <= 365:  # sanity bound
+                    return days
+            except (ValueError, IndexError):
+                continue
+    return None
 
 
 def compute_category_fit(
@@ -156,10 +198,28 @@ def _il_weight_from_status(
     if not status:
         return 1.0
     key = str(status).upper().strip()
+    # PR8 (2026-05-20): if status string itself contains a day-count
+    # pattern (e.g. 'IL10 - 3 days remaining'), extract it as a fallback
+    # when expected_return_days kwarg is None. Lets Yahoo's free-form
+    # status text drive the return-date curve in addition to ESPN's
+    # structured feed. When the day count is parsed FROM the status
+    # text itself (not passed in by caller), it's authoritative — the
+    # whole point is that we extracted more-specific info than the
+    # static IL10/IL15 string default provides.
+    parsed_from_text = False
+    if expected_return_days is None:
+        parsed = _parse_return_days_from_text(status)
+        if parsed is not None:
+            expected_return_days = float(parsed)
+            parsed_from_text = True
     # Try return-date curve first for short-term statuses.
     if expected_return_days is not None:
         rd_weight = _return_date_weight(expected_return_days)
         if rd_weight is not None:
+            if parsed_from_text:
+                # Status text embedded the day count itself — return date
+                # is the highest-specificity signal we have.
+                return rd_weight
             if key in _RETURN_DATE_OVERRIDE_STATUSES:
                 # Short-suspension class — return date is authoritative.
                 return rd_weight
