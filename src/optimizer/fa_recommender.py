@@ -117,6 +117,15 @@ _POSITION_CAPS: dict[str, int] = {
 _MIN_ACTIVE_HITTERS = CONSTANTS_REGISTRY["min_active_hitters"].value
 _MIN_ACTIVE_PITCHERS = CONSTANTS_REGISTRY["min_active_pitchers"].value
 
+# FA P5f (2026-05-20): punt-category awareness. When a category has a
+# very low matchup win probability OR is explicitly tagged as a punt in
+# ctx.h2h_strategy, its weight in FA scoring drops to _PUNT_WEIGHT so
+# the engine doesn't reward FAs whose value is concentrated in a
+# category we're conceding. Near-zero (0.05) instead of exactly zero so
+# downstream divide-by-zero paths in marginal_sgp stay safe.
+_PUNT_WEIGHT = 0.05
+_PUNT_WIN_PROB_THRESHOLD = 0.10
+
 
 def _playing_time_multiplier(fa_data: pd.Series, ctx: OptimizerDataContext) -> float:
     """De-weight FAs whose YTD playing time is low vs season progress.
@@ -617,6 +626,15 @@ def _score_fa_candidates(
     treatment. If ``None``, falls back to a fresh local computation so
     standalone callers / tests still work; on any failure the dict stays
     empty and scarcity is disabled (1.0× neutral fallback).
+
+    FA P5f (2026-05-20): punt-category awareness. When a category is
+    explicitly punted in ``ctx.h2h_strategy`` or its ``win_prob`` is below
+    ``_PUNT_WIN_PROB_THRESHOLD``, its ``ctx.category_weights`` entry is
+    temporarily zeroed (to ``_PUNT_WEIGHT``) for the duration of this
+    scoring call. This prevents the engine from rewarding FAs whose value
+    is concentrated in a category we're conceding (e.g. a Trea Turner-class
+    SB specialist looking strong to a user punting SB). Restored on exit
+    via try/finally so the broader context is not mutated.
     """
     if ctx.free_agents.empty:
         return []
@@ -637,6 +655,44 @@ def _score_fa_candidates(
     else:
         _replacement_levels = replacement_levels
 
+    # FA P5f (2026-05-20): punt-category detection. Build punt set from
+    # explicit h2h_strategy tags (key 'punt' OR legacy 'punt_cats') AND
+    # any category with win_prob below the threshold. Apply the override
+    # to ctx.category_weights for the scoring loop; restore on exit.
+    _punt_cats: set[str] = set()
+    _strategy = getattr(ctx, "h2h_strategy", {}) or {}
+    for _key in ("punt", "punt_cats"):
+        for c in _strategy.get(_key, []) or []:
+            if c:
+                _punt_cats.add(str(c).upper())
+    _per_cat = (ctx.urgency_weights or {}).get("per_cat", {}) or {}
+    for cat, info in _per_cat.items():
+        try:
+            wp = float((info or {}).get("win_prob", 0.5))
+        except (TypeError, ValueError):
+            wp = 0.5
+        if wp < _PUNT_WIN_PROB_THRESHOLD:
+            _punt_cats.add(str(cat).upper())
+
+    _original_weights: dict[str, float] | None = None
+    if _punt_cats and ctx.category_weights:
+        _original_weights = dict(ctx.category_weights)
+        _modified_weights = dict(ctx.category_weights)
+        for cat in _punt_cats:
+            # category_weights may be keyed upper or lower depending on caller.
+            if cat in _modified_weights:
+                _modified_weights[cat] = _PUNT_WEIGHT
+            if cat.lower() in _modified_weights:
+                _modified_weights[cat.lower()] = _PUNT_WEIGHT
+        ctx.category_weights = _modified_weights
+        # Invalidate cached SGPCalculator state derived from category_weights
+        # so the per-category weights are re-read on the next _compute_base_value.
+        # (_fa_roster_totals is independent of weights, so we only clear if
+        # the underlying calc memoizes weight-dependent state. Currently
+        # SGPCalculator.marginal_sgp accepts category_weights per-call, so
+        # the cached calc instance is safe to keep — but invalidate defensively
+        # to avoid future drift.)
+
     candidates: list[dict] = []
 
     # Build set of ALL rostered player IDs (user + opponents) for exclusion.
@@ -646,138 +702,146 @@ def _score_fa_candidates(
     _excluded_ids: set[int] = set(int(pid) for pid in ctx.user_roster_ids)
     _excluded_ids.update(int(pid) for pid in ctx.league_rostered_ids)
 
-    for _, fa_row in ctx.free_agents.iterrows():
-        fa_id = fa_row.get("player_id")
-        if fa_id is None:
-            continue
-        fa_id = int(fa_id)
+    # FA P5f (2026-05-20): try/finally wrapping the scoring loop so the
+    # caller-side category_weights override is always restored even if
+    # an exception propagates through marginal_sgp / sustainability.
+    try:
+        for _, fa_row in ctx.free_agents.iterrows():
+            fa_id = fa_row.get("player_id")
+            if fa_id is None:
+                continue
+            fa_id = int(fa_id)
 
-        # Roster guard: skip players already on any team
-        if fa_id in _excluded_ids:
-            continue
+            # Roster guard: skip players already on any team
+            if fa_id in _excluded_ids:
+                continue
 
-        # Identify IL/injured FAs — don't exclude them, just flag. IL FAs
-        # are valid pairs for IL drops (upgrading an IL stash), but must
-        # not be matched with healthy drops. The matching is enforced
-        # downstream in _evaluate_swaps.
-        status = str(fa_row.get("status", "")).lower().strip()
-        pool_match = ctx.player_pool[ctx.player_pool["player_id"] == fa_id]
-        if not pool_match.empty:
-            pool_status = str(pool_match.iloc[0].get("status", "")).lower().strip()
-            if pool_status and pool_status != "active":
-                status = pool_status
-            fa_data = pool_match.iloc[0]
-        else:
-            fa_data = fa_row
-        health = ctx.health_scores.get(fa_id, 1.0)
-        fa_is_il = status in _IL_EXCLUDE_STATUSES or health < 0.65
+            # Identify IL/injured FAs — don't exclude them, just flag. IL FAs
+            # are valid pairs for IL drops (upgrading an IL stash), but must
+            # not be matched with healthy drops. The matching is enforced
+            # downstream in _evaluate_swaps.
+            status = str(fa_row.get("status", "")).lower().strip()
+            pool_match = ctx.player_pool[ctx.player_pool["player_id"] == fa_id]
+            if not pool_match.empty:
+                pool_status = str(pool_match.iloc[0].get("status", "")).lower().strip()
+                if pool_status and pool_status != "active":
+                    status = pool_status
+                fa_data = pool_match.iloc[0]
+            else:
+                fa_data = fa_row
+            health = ctx.health_scores.get(fa_id, 1.0)
+            fa_is_il = status in _IL_EXCLUDE_STATUSES or health < 0.65
 
-        # Base value × positional scarcity (FA-engine overhaul P1 PR3).
-        # Top-2 catcher with raw SGP X is more valuable to the team than
-        # the 25th-best OF with raw SGP X — the catcher pool is shallow.
-        base_value = _compute_base_value(fa_data, ctx)
-        _scarcity_mult = _positional_scarcity_factor(str(fa_data.get("positions", "")), _replacement_levels)
-        base_value *= _scarcity_mult
+            # Base value × positional scarcity (FA-engine overhaul P1 PR3).
+            # Top-2 catcher with raw SGP X is more valuable to the team than
+            # the 25th-best OF with raw SGP X — the catcher pool is shallow.
+            base_value = _compute_base_value(fa_data, ctx)
+            _scarcity_mult = _positional_scarcity_factor(str(fa_data.get("positions", "")), _replacement_levels)
+            base_value *= _scarcity_mult
 
-        # FA-engine overhaul P2 PR6 (2026-05-20): urgency is now applied
-        # MULTIPLICATIVELY inside _compute_base_value via per-category weights
-        # (ctx.category_weights) rather than additively here. The old
-        # `composite = base_value * ... + urgency_boost` mixed scales — the
-        # additive boost summed ctx.category_weights across all relevant
-        # categories (4-6 cats × ~0.5-1.8 per cat = boost 2-12), which
-        # dwarfed base_value for marginal FAs (often 0.5-2 SGP) and rewarded
-        # FAs touching MANY categories over ones with concentrated value.
-        # Keeping the additive term turned at zero preserves backward
-        # compatibility of the variable name in the composite line below;
-        # the multiplicative weighting in _compute_base_value is the
-        # authoritative urgency signal now. _compute_urgency_boost stays
-        # callable for legacy paths but is no longer added to composite.
-        urgency_boost = 0.0
+            # FA-engine overhaul P2 PR6 (2026-05-20): urgency is now applied
+            # MULTIPLICATIVELY inside _compute_base_value via per-category weights
+            # (ctx.category_weights) rather than additively here. The old
+            # `composite = base_value * ... + urgency_boost` mixed scales — the
+            # additive boost summed ctx.category_weights across all relevant
+            # categories (4-6 cats × ~0.5-1.8 per cat = boost 2-12), which
+            # dwarfed base_value for marginal FAs (often 0.5-2 SGP) and rewarded
+            # FAs touching MANY categories over ones with concentrated value.
+            # Keeping the additive term turned at zero preserves backward
+            # compatibility of the variable name in the composite line below;
+            # the multiplicative weighting in _compute_base_value is the
+            # authoritative urgency signal now. _compute_urgency_boost stays
+            # callable for legacy paths but is no longer added to composite.
+            urgency_boost = 0.0
 
-        # Ownership trend boost
-        ownership_mult = 1.0
-        trend = ctx.ownership_trends.get(fa_id, {})
-        delta_7d = trend.get("delta_7d", 0.0)
-        if delta_7d > _OWNERSHIP_BOOST_DELTA:
-            ownership_mult = _OWNERSHIP_BOOST_MULT
+            # Ownership trend boost
+            ownership_mult = 1.0
+            trend = ctx.ownership_trends.get(fa_id, {})
+            delta_7d = trend.get("delta_7d", 0.0)
+            if delta_7d > _OWNERSHIP_BOOST_DELTA:
+                ownership_mult = _OWNERSHIP_BOOST_MULT
 
-        # Sustainability
-        sustainability = compute_sustainability_score(fa_data)
+            # Sustainability
+            sustainability = compute_sustainability_score(fa_data)
 
-        # Floor preference penalty
-        floor_mult = 1.0
-        is_hitter = bool(int(fa_data.get("is_hitter", 1)))
-        if is_hitter:
-            pa = float(fa_data.get("pa", 0) or 0)
-            if pa < _FLOOR_PA_MIN:
-                floor_mult = _FLOOR_PENALTY_MULT
-        else:
-            ip = float(fa_data.get("ip", 0) or 0)
-            if ip < _FLOOR_IP_MIN:
-                floor_mult = _FLOOR_PENALTY_MULT
+            # Floor preference penalty
+            floor_mult = 1.0
+            is_hitter = bool(int(fa_data.get("is_hitter", 1)))
+            if is_hitter:
+                pa = float(fa_data.get("pa", 0) or 0)
+                if pa < _FLOOR_PA_MIN:
+                    floor_mult = _FLOOR_PENALTY_MULT
+            else:
+                ip = float(fa_data.get("ip", 0) or 0)
+                if ip < _FLOOR_IP_MIN:
+                    floor_mult = _FLOOR_PENALTY_MULT
 
-        # FA-engine overhaul P3.9 PR21 (2026-05-20): playing-time gate.
-        # De-weight FAs whose YTD playing time is well below season-progress
-        # expectations (IL stash phantoms with inflated preseason ROS but
-        # near-zero actual games). See `_playing_time_multiplier` docstring
-        # for full calibration rationale.
-        pt_mult = _playing_time_multiplier(fa_data, ctx)
+            # FA-engine overhaul P3.9 PR21 (2026-05-20): playing-time gate.
+            # De-weight FAs whose YTD playing time is well below season-progress
+            # expectations (IL stash phantoms with inflated preseason ROS but
+            # near-zero actual games). See `_playing_time_multiplier` docstring
+            # for full calibration rationale.
+            pt_mult = _playing_time_multiplier(fa_data, ctx)
 
-        # PR10 Part A (2026-05-20): regression flag adjustment.
-        # The pool's regression_flag column (BUY_LOW / SELL_HIGH / empty) was
-        # being loaded but never consumed. Wire it as a final ranking nudge:
-        # BUY_LOW = 1.05x (engine slightly favors regression-favorable players);
-        # SELL_HIGH = 0.95x (slight discount). Industry consensus: regression
-        # signals from xwOBA-wOBA gap and similar metrics are 5-10% accurate
-        # over a single matchup, so a 5% multiplier is the right order of
-        # magnitude — neither dominates nor disappears.
-        regression_mult = 1.0
-        _reg_flag = str(fa_data.get("regression_flag", "") or "").strip().upper()
-        if _reg_flag == "BUY_LOW":
-            regression_mult = 1.05
-        elif _reg_flag == "SELL_HIGH":
-            regression_mult = 0.95
+            # PR10 Part A (2026-05-20): regression flag adjustment.
+            # The pool's regression_flag column (BUY_LOW / SELL_HIGH / empty) was
+            # being loaded but never consumed. Wire it as a final ranking nudge:
+            # BUY_LOW = 1.05x (engine slightly favors regression-favorable players);
+            # SELL_HIGH = 0.95x (slight discount). Industry consensus: regression
+            # signals from xwOBA-wOBA gap and similar metrics are 5-10% accurate
+            # over a single matchup, so a 5% multiplier is the right order of
+            # magnitude — neither dominates nor disappears.
+            regression_mult = 1.0
+            _reg_flag = str(fa_data.get("regression_flag", "") or "").strip().upper()
+            if _reg_flag == "BUY_LOW":
+                regression_mult = 1.05
+            elif _reg_flag == "SELL_HIGH":
+                regression_mult = 0.95
 
-        composite = (
-            base_value * sustainability * ownership_mult * floor_mult * pt_mult * regression_mult + urgency_boost
-        )
+            composite = (
+                base_value * sustainability * ownership_mult * floor_mult * pt_mult * regression_mult + urgency_boost
+            )
 
-        # T3-4: ECR stddev consensus adjustment
-        try:
-            _ecr_stddev = float(fa_data.get("ecr_rank_stddev", 0) or 0)
-            if _ecr_stddev > 20:
-                composite *= 0.95  # Polarizing pick — small discount
-            elif 0 < _ecr_stddev < 5:
-                composite *= 1.02  # Consensus pick — small premium
-        except (TypeError, ValueError):
-            pass
+            # T3-4: ECR stddev consensus adjustment
+            try:
+                _ecr_stddev = float(fa_data.get("ecr_rank_stddev", 0) or 0)
+                if _ecr_stddev > 20:
+                    composite *= 0.95  # Polarizing pick — small discount
+                elif 0 < _ecr_stddev < 5:
+                    composite *= 1.02  # Consensus pick — small premium
+            except (TypeError, ValueError):
+                pass
 
-        # Ownership trend label
-        pct_owned = trend.get("pct_owned", 0.0)
-        if delta_7d > _OWNERSHIP_BOOST_DELTA:
-            trend_label = f"Rising ({pct_owned:.0f}%, +{delta_7d:.1f}%)"
-        elif delta_7d < -_OWNERSHIP_BOOST_DELTA:
-            trend_label = f"Falling ({pct_owned:.0f}%, {delta_7d:.1f}%)"
-        else:
-            trend_label = f"Stable ({pct_owned:.0f}%)"
+            # Ownership trend label
+            pct_owned = trend.get("pct_owned", 0.0)
+            if delta_7d > _OWNERSHIP_BOOST_DELTA:
+                trend_label = f"Rising ({pct_owned:.0f}%, +{delta_7d:.1f}%)"
+            elif delta_7d < -_OWNERSHIP_BOOST_DELTA:
+                trend_label = f"Falling ({pct_owned:.0f}%, {delta_7d:.1f}%)"
+            else:
+                trend_label = f"Stable ({pct_owned:.0f}%)"
 
-        candidates.append(
-            {
-                "player_id": fa_id,
-                "name": str(fa_data.get("name", fa_data.get("player_name", "?"))),
-                "positions": str(fa_data.get("positions", "")),
-                "is_hitter": is_hitter,
-                "composite_score": composite,
-                "sustainability": round(sustainability, 3),
-                "ownership_trend": trend_label,
-                "ownership_delta_7d": delta_7d,
-                "is_il": fa_is_il,
-            }
-        )
+            candidates.append(
+                {
+                    "player_id": fa_id,
+                    "name": str(fa_data.get("name", fa_data.get("player_name", "?"))),
+                    "positions": str(fa_data.get("positions", "")),
+                    "is_hitter": is_hitter,
+                    "composite_score": composite,
+                    "sustainability": round(sustainability, 3),
+                    "ownership_trend": trend_label,
+                    "ownership_delta_7d": delta_7d,
+                    "is_il": fa_is_il,
+                }
+            )
 
-    # Sort by composite descending, take top N
-    candidates.sort(key=lambda x: x["composite_score"], reverse=True)
-    return candidates[:_MAX_FA_CANDIDATES]
+        # Sort by composite descending, take top N
+        candidates.sort(key=lambda x: x["composite_score"], reverse=True)
+        return candidates[:_MAX_FA_CANDIDATES]
+    finally:
+        # FA P5f: restore original category_weights even on exception path.
+        if _original_weights is not None:
+            ctx.category_weights = _original_weights
 
 
 # ---------------------------------------------------------------------------
