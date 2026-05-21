@@ -1045,6 +1045,47 @@ def _compute_league_constraints(ctx: OptimizerDataContext, yds) -> None:
         ctx.roster = _attach_return_days(ctx.roster)
         ctx.player_pool = _attach_return_days(ctx.player_pool)
 
+    # P5d: parse suspension end-dates from player_news headlines and merge
+    # into expected_return_days where ESPN data is absent. Yahoo's news
+    # field stores free-form text like "Suspended through 5/26" / "Suspended
+    # for 6 games" — _il_weight_from_status can use the structured day count
+    # to apply the return-date curve (instead of treating every suspension
+    # as season-ending). ESPN structured dates above take priority; news
+    # fills the gap when ESPN data is missing.
+    try:
+        from src.database import get_connection
+        from src.news_sentiment import parse_suspension_days
+
+        _conn = get_connection()
+        try:
+            rows = _conn.execute(
+                "SELECT player_id, headline FROM player_news "
+                "WHERE LOWER(headline) LIKE '%suspen%' "
+                "ORDER BY fetched_at DESC"
+            ).fetchall()
+        finally:
+            _conn.close()
+        for row in rows:
+            pid = row[0]
+            headline = row[1] or ""
+            days = parse_suspension_days(headline)
+            if days is None or pid is None:
+                continue
+            # Merge into roster + player_pool as expected_return_days,
+            # but ONLY where currently NaN (ESPN data wins on conflicts).
+            for df in (ctx.roster, ctx.player_pool):
+                if df is None or df.empty:
+                    continue
+                if "expected_return_days" not in df.columns:
+                    df["expected_return_days"] = float("nan")
+                try:
+                    mask = df["player_id"] == int(pid)
+                except (TypeError, ValueError):
+                    continue
+                df.loc[mask & df["expected_return_days"].isna(), "expected_return_days"] = float(days)
+    except Exception:
+        logger.debug("Suspension news parsing failed; falling back to status-only", exc_info=True)
+
     # Map IL stash names to player IDs
     if not ctx.roster.empty and "name" in ctx.roster.columns:
         for _, row in ctx.roster.iterrows():
