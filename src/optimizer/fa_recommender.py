@@ -231,23 +231,33 @@ def _passes_roster_construction_guard(
     if fa_id not in post_swap_ids:
         post_swap_ids.append(fa_id)
 
-    # ── Check 1: position cap (FA must have at least one position
-    # below cap; if ALL eligible positions are at cap → block).
+    # ── Check 1: position cap (FA must have at least one position at-
+    # or-below cap; if ALL eligible positions are STRICTLY ABOVE cap → block).
+    #
+    # FA-engine overhaul P3.8 PR20 (2026-05-20): boundary semantics fix.
+    # The pre-PR20 check `cnt < cap` (block at-or-above cap) was off-by-
+    # one. Per the design, cap = "Yahoo starting slots + 1" represents the
+    # MAX ALLOWED depth — having exactly `cap` players at a position is
+    # healthy roster construction (starter + 1 backup). The block should
+    # only fire when post-swap count STRICTLY EXCEEDS the cap, otherwise
+    # legitimate same-position upgrade swaps get blocked (e.g. dropping
+    # Muncy [2B-eligible] for Stott [2B] leaves post-swap 2B count = 2 =
+    # cap, which is fine — the pre-fix engine wrongly blocked this).
     fa_positions = _parse_position_tokens(str(fa_data.get("positions", "")))
     capped_positions = [p for p in fa_positions if p in _POSITION_CAPS]
     if capped_positions:
         position_results: list[tuple[str, int, int]] = []
-        any_below_cap = False
+        any_at_or_below_cap = False
         for pos in capped_positions:
             cnt = _count_eligible_at_position(post_swap_ids, pool, pos)
             cap = _POSITION_CAPS[pos]
             position_results.append((pos, cnt, cap))
-            if cnt < cap:
-                any_below_cap = True
+            if cnt <= cap:
+                any_at_or_below_cap = True
                 break
-        if not any_below_cap:
+        if not any_at_or_below_cap:
             worst = position_results[0]
-            return False, f"position-cap: {worst[0]}={worst[1]}>={worst[2]}"
+            return False, f"position-cap: {worst[0]}={worst[1]}>{worst[2]}"
 
     # ── Check 2: active hitter floor.
     n_hitters = _count_active_by_side(post_swap_ids, pool, is_hitter=True)
