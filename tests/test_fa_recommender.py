@@ -601,9 +601,27 @@ class TestFloorPreference:
     """Floor preference penalty is applied for low PA/IP players."""
 
     def test_low_pa_hitter_penalized(self):
+        # PR19 (FA P3.7): _compute_base_value now delegates to
+        # SGPCalculator.marginal_sgp which volume-weights rate stats. Test
+        # fixture updated to provide physically consistent counting stats
+        # for each PA (h scales with ab; small-sample player has
+        # proportionally smaller counting totals). The floor_mult penalty
+        # (0.85×) is still the lever this test validates.
         roster = _make_player(1, "Roster")
         fa_solid = _make_player(100, "Solid FA", marginal_value=3.0, pa=500)
-        fa_small = _make_player(101, "Small Sample FA", marginal_value=3.0, pa=30)
+        fa_small = _make_player(
+            101,
+            "Small Sample FA",
+            marginal_value=3.0,
+            pa=30,
+            ab=27,
+            h=7,  # ~.260 AVG over 27 AB
+            hr=1,
+            r=4,
+            rbi=4,
+            sb=0,
+            sf=0,
+        )
         all_players = [roster, fa_solid, fa_small]
 
         ctx = _build_ctx(

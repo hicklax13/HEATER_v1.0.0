@@ -799,37 +799,45 @@ def _blend_fa_row(fa_data: pd.Series) -> pd.Series:
 def _compute_base_value(fa_data: pd.Series, ctx: OptimizerDataContext) -> float:
     """Compute base value for an FA candidate.
 
-    FA-engine overhaul P2 PR4 (2026-05-20): inputs are now blended (ROS +
-    YTD with canonical published weights) before scoring. Without blending
-    the engine treated a hot-streak player at his Feb 2026 projection and
-    a cold-streak player at his Feb 2026 projection identically — ignoring
-    2 months of actual performance. The blend is sample-size gated so
-    early-season small samples don't dominate.
+    FA-engine overhaul P3.7 PR19 (2026-05-20): delegates to the canonical
+    SGPCalculator.marginal_sgp instead of reinventing per-category SGP math.
+    The pre-PR19 inline formula ``value += (stat/denom) * weight`` summed
+    inverse stats (ERA/WHIP/L) with the WRONG SIGN — high ERA was treated as
+    a positive contribution, so unknown pitchers with default ERA=9.0/WHIP=2.0
+    scored base=+38.8, outranking real MLB hitters at base=+18.3. marginal_sgp
+    handles inverse-stat signs and rate-stat volume-weighting correctly.
 
-    Marginal_value column is no longer used as a fast-path return because
-    that precomputed value is also based on pure ROS — using it would
-    silently bypass the blend. Always recompute from blended stats so
-    the engine reflects current player state.
+    FA-engine overhaul P2 PR4 (2026-05-20): inputs blended (ROS + YTD with
+    canonical published weights) before scoring. Sample-size gated so early-
+    season small samples don't dominate.
     """
+    from src.in_season import _roster_category_totals
+    from src.valuation import SGPCalculator
+
     blended = _blend_fa_row(fa_data)
 
-    # Fallback to precomputed marginal_value only if blend produced no
-    # useful data (no ytd_gp, no blendable columns). Otherwise compute
-    # from blended row.
-    value = 0.0
-    stat_map = ctx.config.STAT_MAP
-    for cat_display, col in stat_map.items():
-        if col in blended.index:
-            stat_val = float(blended.get(col, 0) or 0)
-            weight = ctx.category_weights.get(cat_display, ctx.category_weights.get(cat_display.lower(), 1.0))
-            denom = ctx.config.sgp_denominators.get(cat_display, 1.0)
-            if abs(denom) < 1e-9:
-                denom = 1.0
-            value += (stat_val / denom) * weight
+    # Cache roster_totals + sgp_calc on ctx so marginal_sgp's rate-stat
+    # math sees a stable per-call roster context (it depends on team
+    # totals for AVG/OBP/ERA/WHIP volume-weighting).
+    if not hasattr(ctx, "_fa_roster_totals"):
+        try:
+            ctx._fa_roster_totals = _roster_category_totals(ctx.user_roster_ids, ctx.player_pool)
+        except Exception:
+            logger.debug("Could not compute roster_totals for FA scoring", exc_info=True)
+            ctx._fa_roster_totals = {}
+    if not hasattr(ctx, "_fa_sgp_calc"):
+        ctx._fa_sgp_calc = SGPCalculator(ctx.config)
 
-    # If computed value is zero AND marginal_value is precomputed,
-    # fall back to it (preserves existing test contracts that rely on
-    # marginal_value being available).
+    try:
+        sgp_dict = ctx._fa_sgp_calc.marginal_sgp(blended, ctx._fa_roster_totals, ctx.category_weights)
+        value = sum(sgp_dict.values())
+    except Exception:
+        logger.debug("marginal_sgp failed for FA scoring — falling back to 0", exc_info=True)
+        value = 0.0
+
+    # Fallback to precomputed marginal_value if marginal_sgp produced no
+    # signal AND the rank_free_agents column is available (preserves
+    # existing test contracts that rely on marginal_value as a base).
     if abs(value) < 1e-9 and "marginal_value" in fa_data.index and pd.notna(fa_data.get("marginal_value")):
         return float(fa_data["marginal_value"])
 
