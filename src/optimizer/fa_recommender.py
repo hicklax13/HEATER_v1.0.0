@@ -1027,12 +1027,17 @@ def _build_reasoning(
     reasons: list[str] = []
     cat_deltas = swap["category_deltas"]
 
+    # PR13 (FA P3.10): track which category deltas are surfaced explicitly
+    # in the reasoning so we can reconcile the remainder against net_sgp.
+    mentioned_cats: set[str] = set()
+
     # Best category improvement
     if cat_deltas:
         best_cat = max(cat_deltas, key=lambda c: cat_deltas[c])
         best_val = cat_deltas[best_cat]
         if best_val > 0:
             reasons.append(f"{fa['name']} adds +{best_val:.2f} SGP in {best_cat}")
+            mentioned_cats.add(best_cat)
 
     # Worst category cost
     if cat_deltas:
@@ -1040,6 +1045,7 @@ def _build_reasoning(
         worst_val = cat_deltas[worst_cat]
         if worst_val < _CATEGORY_WORSEN_THRESHOLD:
             reasons.append(f"Costs {worst_val:.2f} SGP in {worst_cat}")
+            mentioned_cats.add(worst_cat)
 
     # Urgency mention
     losing = _get_losing_categories(ctx)
@@ -1062,6 +1068,17 @@ def _build_reasoning(
     news = ctx.news_flags.get(fa["player_id"])
     if news:
         reasons.append(f"Recent news: {news}")
+
+    # PR13 (FA P3.10): reconciliation. The best/worst-cat lines above only
+    # surface 1-2 categories' SGP contribution, but the net_sgp summary
+    # below sums ALL categories. When the residual (everything not yet
+    # mentioned) is materially non-zero, append an explicit "Other
+    # categories: +X.XX SGP" line so the user can see the reasoning
+    # adds up to the net.
+    other_total = sum(v for c, v in cat_deltas.items() if c not in mentioned_cats)
+    if abs(other_total) > 0.10:
+        sign = "+" if other_total >= 0 else ""
+        reasons.append(f"Other categories: {sign}{other_total:.2f} SGP")
 
     # Net SGP summary
     reasons.append(f"Net team improvement: +{swap['net_sgp']:.2f} SGP")
