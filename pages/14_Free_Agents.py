@@ -262,13 +262,20 @@ try:
     from src.optimizer.shared_data_layer import build_optimizer_context
     from src.validation.dynamic_context import compute_weeks_remaining
 
+    # PR18 (2026-05-20): pass the USER's roster slice + propagate the
+    # level filter. Previously passed full multi-team `rosters` which
+    # made ctx.user_roster_ids contain all 317 league IDs instead of
+    # the user's 27 — broke drop scoring, cross-type guard, and roster
+    # construction guard. Also pass level_filter so the engine pool
+    # respects the page's "MLB only" default.
     _ctx_fa = build_optimizer_context(
         scope="rest_of_season",
         yds=yds,
         config=config,
         weeks_remaining=compute_weeks_remaining(),
         user_team_name=user_team_name,
-        roster=rosters,
+        roster=user_roster,
+        level_filter=_level_filter,
     )
     _raw_moves = recommend_fa_moves(_ctx_fa, max_moves=5)
     recommendations = [
@@ -280,8 +287,16 @@ try:
         }
         for m in _raw_moves
     ]
-except Exception:
+except Exception as _fa_engine_err:
     logger.exception("Failed to compute FA recommendations via fa_recommender")
+    # PR18 (2026-05-20): surface the fallback so silent legacy-engine
+    # output no longer masks new-engine bugs. Caller can copy the
+    # exception message to investigate.
+    st.warning(
+        f"FA recommendation engine fell back to legacy waiver_wire engine "
+        f"(new engine error: {type(_fa_engine_err).__name__}: {_fa_engine_err}). "
+        f"Recommendations may not reflect the latest P3.5 fixes. Check logs."
+    )
     # Fallback to the legacy waiver_wire engine so the page degrades
     # gracefully if the newer engine throws (missing deps, malformed
     # context, etc.). User-visible result is the same UI, just without

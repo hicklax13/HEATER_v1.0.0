@@ -18,6 +18,7 @@ from datetime import UTC, datetime, timedelta
 
 import pandas as pd
 
+from src.database import load_player_pool
 from src.optimizer.data_freshness import DataFreshnessTracker
 from src.valuation import LeagueConfig
 
@@ -179,6 +180,7 @@ def build_optimizer_context(
     park_factors: dict | None = None,
     user_team_name: str | None = None,
     roster: pd.DataFrame | None = None,
+    level_filter: str = "MLB only",
 ) -> OptimizerDataContext:
     """Build the complete data context for any optimizer scope.
 
@@ -201,6 +203,12 @@ def build_optimizer_context(
         User's team name. Auto-detected from roster if not provided.
     roster : pd.DataFrame, optional
         Pre-loaded roster. If None, fetched from yds.
+    level_filter : str
+        Player-level filter applied to the loaded player pool. One of
+        "MLB only" (default), "MLB + AAA", "MLB + AAA + AA", "All".
+        Matches the FA page's selectbox so minor leaguers don't pollute
+        FA recommendations. Pass "All" for prospect-aware callers (e.g.,
+        Player Databank, Draft Simulator).
     """
     if config is None:
         config = LeagueConfig()
@@ -211,16 +219,41 @@ def build_optimizer_context(
 
     # ── Step 1: Load enriched player pool ─────────────────────────────
     try:
-        from src.database import load_player_pool
-
         ctx.player_pool = load_player_pool()
+        # PR18 (2026-05-20): apply level filter to engine pool so minor
+        # leaguers don't pollute FA recommendations. Matches the FA page's
+        # default UI selection ("MLB only"). Callers wanting prospects
+        # (Player Databank, Draft Simulator) can pass level_filter="All".
+        if "level" in ctx.player_pool.columns:
+            if level_filter == "MLB only":
+                ctx.player_pool = ctx.player_pool[ctx.player_pool["level"].isna() | (ctx.player_pool["level"] == "MLB")]
+            elif level_filter == "MLB + AAA":
+                ctx.player_pool = ctx.player_pool[
+                    ctx.player_pool["level"].isna() | ctx.player_pool["level"].isin(["MLB", "AAA"])
+                ]
+            elif level_filter == "MLB + AAA + AA":
+                ctx.player_pool = ctx.player_pool[
+                    ctx.player_pool["level"].isna() | ctx.player_pool["level"].isin(["MLB", "AAA", "AA"])
+                ]
+            # else "All" — no filter
     except Exception:
         logger.warning("Failed to load player pool")
         ctx.player_pool = pd.DataFrame()
 
     # ── Step 2: Load roster ───────────────────────────────────────────
     if roster is not None and not roster.empty:
-        ctx.roster = roster
+        # PR18 (2026-05-20): defensive filter — if caller passed a
+        # multi-team roster AND user_team_name, slice to the user's team.
+        # The previous behavior trusted the caller to pre-filter, but
+        # pages/14_Free_Agents.py passed the full league rosters which
+        # made ctx.user_roster_ids contain all 12 teams (317 players
+        # instead of ~27). Belt-and-suspenders: also fixes the FA page
+        # to pass user_roster, but this guard prevents future regressions
+        # in other callers.
+        if user_team_name and "team_name" in roster.columns and roster["team_name"].nunique() > 1:
+            ctx.roster = roster[roster["team_name"] == user_team_name].copy()
+        else:
+            ctx.roster = roster
     else:
         try:
             rosters = yds.get_rosters()
