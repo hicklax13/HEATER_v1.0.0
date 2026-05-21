@@ -203,7 +203,22 @@ scripts/
   install-hooks.py / pre-commit
   run_backtest.py / compute_empirical_stats.py / calibrate_sigmoid.py
   draft_vs_current.py / extract_trade_data.py / optimal_roster_sim.py  (all use get_connection)
-tests/                      — 165+ test files, ~3700 passing tests
+
+  # FA engine diagnostics (preserved 2026-05-20 → 2026-05-21 for ongoing debug)
+  diag_fa_cross_type.py            — Traces _allow_cross_type for known bad rec pairs
+  diag_fa_with_filter.py           — Verifies user-roster slicing fix end-to-end
+  diag_fa_full_trace.py            — Stage-by-stage pipeline trace (drops, FAs, evaluate_swaps)
+  diag_fa_score_plateau.py         — Inspects _compute_base_value internals for inverse-stat bug
+  diag_fa_stage_by_stage.py        — Full recommend_fa_moves trace with intermediate counts
+  diag_fa_adds_budget.py           — ctx.adds_remaining_this_week + transactions check
+  diag_muncy_data.py               — DB column inspection for Muncy DNA collision
+  diag_roster_data_audit.py        — Audits ALL rostered players for DNA collisions + stale YTD
+  diag_fa_score_plateau.py         — Why unknown minor leaguers score composite=20.6
+
+  # One-time DB migration (2026-05-21)
+  migrate_muncy_dna_2026_05_21.py  — Insert LAD Muncy + repoint league_rosters (idempotent)
+
+tests/                      — 195+ test files, ~4200 passing tests
   conftest.py               — Session-scoped league_standings fixture (autouse)
   test_no_*.py              — Structural-invariant guards (see Structural Invariants section)
   test_sf*.py               — TDD tests for SF-1..SF-28 fixes
@@ -234,13 +249,16 @@ docs/
 
 ### Unified Services (sole sources of truth)
 - **`LeagueConfig`** (`src/valuation.py`) — Category lists, inverse stats, rate stats, SGP denominators. **Never hardcode category lists** — structural test guards this in src/, pages/, and tests.
-- **`SGPCalculator`** (`src/valuation.py`) — Sole path for SGP computation. The `totals_sgp(totals, weights=None)` method consolidates 7 prior local reinventions across trade_finder, waiver_wire, daily_optimizer, trade_evaluator, trade_simulator, in_season, start_sit.
+- **`SGPCalculator`** (`src/valuation.py`) — Sole path for SGP computation. The `totals_sgp(totals, weights=None)` method consolidates 7 prior local reinventions across trade_finder, waiver_wire, daily_optimizer, trade_evaluator, trade_simulator, in_season, start_sit. **`marginal_sgp(player, roster_totals, weights)`** handles inverse-stat signs correctly (PR #99 / FA P3.7) — consumed via `_compute_base_value` in `fa_recommender.py`.
 - **`MatchupContextService`** (`src/matchup_context.py`) — Single source for category weights with 3 modes: "matchup" (H2H urgency), "standings" (gap analysis), "blended" (alpha-weighted).
 - **`standings_utils.get_team_totals()`** — Session-cached roster totals.
 - **`get_yahoo_data_service()`** — Singleton; 3-tier cache: session_state → Yahoo API → SQLite. All 11+ pages route through it (no raw `load_league_rosters/standings` in pages).
 - **`format_stat(value, stat_type)`** (`src/ui_shared.py`) — Enforced display: AVG/OBP=`.3f`, ERA/WHIP=`.2f`, SGP=`+.2f`.
 - **`get_connection()`** (`src/database.py`) — Only sanctioned SQLite access. Sets `PRAGMA journal_mode=WAL`, `busy_timeout=60000`, `synchronous=NORMAL`. Direct `sqlite3.connect` is structurally guarded against.
 - **`PULP_AVAILABLE`** — Defined ONCE in `src/lineup_optimizer.py`. `src/optimizer/advanced_lp.py` imports it (no duplicate flag).
+- **`CONSTANTS_REGISTRY`** (`src/optimizer/constants_registry.py`) — 50+ optimizer/FA-engine constants with citations, bounds, sensitivity tags. **Never hardcode tunable thresholds in `fa_recommender.py` / `waiver_wire.py`** — register them. After PR #107 the FA engine reads all major thresholds (streaming, playing-time, ownership, floor, position-cap, urgency) from the registry at import time.
+- **`compute_positional_scarcity_factor(positions, replacement_levels)`** (`src/valuation.py`) — Shared scarcity math (PR #96). Both `fa_recommender._score_fa_candidates` (adds) and `waiver_wire.compute_drop_cost` (drops) consume it for symmetric scarcity treatment. Moved here from `fa_recommender.py` to break the `waiver_wire ← fa_recommender` import cycle.
+- **`get_il_stash_names()`** (`src/alerts.py`) — Dynamic derivation of IL stash names from `league_rosters.status IN (IL10, IL15, IL60, IL, DTD)` (PR #102). The module-level `IL_STASH_NAMES` constant calls this at import time. Pages should call the function directly for fresh data each render. Now surfaces ~52 IL players league-wide vs the previously hardcoded 2 (Bieber + Strider).
 
 ### Yahoo Data Service (Live-First Architecture)
 3-tier cache: `st.session_state` → Yahoo Fantasy API → SQLite fallback.
@@ -347,6 +365,39 @@ from src.optimizer.constants_registry import CONSTANTS_REGISTRY
 from src.optimizer.sensitivity_analysis import run_sensitivity_analysis
 from src.optimizer.backtest_runner import run_backtest, format_report
 from src.optimizer.sigmoid_calibrator import calibrate_sigmoid_k
+
+# FA recommender (canonical engine for Free Agents page)
+from src.optimizer.fa_recommender import recommend_fa_moves, recommend_streaming_moves
+from src.optimizer.shared_data_layer import build_optimizer_context
+
+# build_optimizer_context accepts level_filter (default "MLB only") and
+# auto-filters multi-team rosters by user_team_name (PR #98 / FA P3.6)
+ctx = build_optimizer_context(
+    scope="rest_of_season", yds=yds, config=config,
+    weeks_remaining=compute_weeks_remaining(),
+    user_team_name=user_team_name,
+    roster=user_roster,                     # pre-filtered single-team slice preferred
+    level_filter="MLB only",                # filters minor leaguers from ctx.player_pool
+)
+recommend_fa_moves(ctx, max_moves=5)        # post-PR #110 engine
+
+# Shared scarcity factor (used by both add-side and drop-side scoring)
+from src.valuation import compute_positional_scarcity_factor
+compute_positional_scarcity_factor(positions_str, replacement_levels_dict) -> float  # 1.0 - 1.25x
+
+# Dynamic IL stash (replaces hardcoded {"Bieber", "Strider"})
+from src.alerts import get_il_stash_names
+get_il_stash_names() -> set[str]            # Fresh from league_rosters.status
+
+# News-derived suspension end-dates (PR #109 / FA P5d)
+from src.news_sentiment import parse_suspension_days
+parse_suspension_days("Suspended through 5/26", reference_date=datetime.now(UTC)) -> int | None
+
+# IL weighting with return-date awareness (PR #95 + PR #105)
+from src.in_season import _il_weight_from_status, _return_date_weight
+_il_weight_from_status(status: str, expected_return_days: float | None = None) -> float
+# Curve: 0d→1.0, 1d→0.95, 7d→0.85, 14d→0.70 (= IL10), 21d→0.55, 45d→0.30, 60d→0.20
+# Also parses day counts inline from status strings (PR #105): "IL10 - 3 days" → 3
 ```
 
 ## Gotchas
@@ -391,6 +442,27 @@ from src.optimizer.sigmoid_calibrator import calibrate_sigmoid_k
 - **True antithetic variates** — `trade_simulator.py` negates uniform quantiles (`u → 1-u`, `z → -z`) for paired arms; ~25% variance reduction.
 - **SGP through `SGPCalculator.totals_sgp` only** — All 7 prior local reinventions migrated. Structurally guarded.
 - **Sigmoid urgency reads from registry at runtime** — `category_urgency.py` reads `sigmoid_k_counting` / `sigmoid_k_rate` from `CONSTANTS_REGISTRY` per call, so `calibrate_sigmoid.py` updates take effect without restart.
+
+### FA Recommender Engine (post-2026-05-21 overhaul)
+The Free Agents page (`pages/14_Free_Agents.py`) is the sole consumer of `recommend_fa_moves` in production. The engine's correctness depends on these invariants — guard tests prevent regression:
+
+- **`ctx.user_roster_ids` is the USER's team, not the whole league** — Pages pass a single-team roster slice to `build_optimizer_context`. The builder auto-filters multi-team rosters when `user_team_name` is set (PR #98 / FA P3.6). Without this filter, drop candidates would be drawn from all 12 teams.
+- **`ctx.player_pool` respects `level_filter`** — Default `"MLB only"` filters minor leaguers (PR #98). Pages can opt into `"All"` for prospect lookups (Player Databank, Draft Simulator).
+- **`_compute_base_value` delegates to canonical `SGPCalculator.marginal_sgp`** (PR #99 / FA P3.7) — Handles inverse-stat signs (ERA, WHIP, L are NEGATIVE contributions) and rate-stat volume weighting. The earlier inline formula `value += (stat/denom) * weight` had the wrong sign for inverse stats — unknown pitchers with default `era=9.0/whip=2.0` scored base=+38.8 (should be -38.8).
+- **Position cap boundary semantics** — Block when post-swap count `> cap` (PR #100). Having exactly `cap` players at a position is healthy (`starter + 1 backup`), not a violation. Cap = Yahoo starting slots + 1. Off-by-one (`>=`) was blocking legitimate same-position upgrade swaps.
+- **Roster-construction floors** — Never drop below 10 active hitters or 8 active pitchers (FourzynBurn starting lineup count). IL players count toward position caps but NOT toward active-roster floors (PR #97 / FA P3.5).
+- **Symmetric positional scarcity** — `_compute_base_value` (adds) AND `compute_drop_cost` (drops) both multiply by `compute_positional_scarcity_factor` (PR #96 / FA P3.5). Without symmetry, backup catchers got over-boosted on the add side.
+- **Playing-time gate** — FA composite score multiplied by [0.30, 1.0] based on `ytd_gp / expected_gp` ratio for hitters (or `ytd_ip / expected_ip` for pitchers). Grace period: first 30 days of season inactive. Curve: 0 GP → 0.30x, <30% → 0.60x, 30-59% → 0.85x, ≥60% → 1.0x (PR #101 / FA P3.9).
+- **ROS × playing-time scaling** — Before blending, ROS counting stats are scaled by `max(0.20, ytd_gp / expected_gp)` for low-volume players (PR #110 / FA P5c). Stops IL stash phantoms (e.g. Westburg, 0 YTD GP) from riding inflated preseason ROS projections.
+- **Canonical blend weights** — 0.70 ROS + 0.20 YTD + 0.10 L14 in `_blend_fa_row` (PRs #92 + #110/P5b). L14 wired from `l14_*` columns when `l14_pa >= 20` (hitters) / `l14_ip >= 5` (pitchers); below the volume gate, ROS+YTD renormalize.
+- **Regression flag nudge** — `_score_fa_candidates` multiplies composite by 1.05× for `BUY_LOW`, 0.95× for `SELL_HIGH`, 1.0× for empty/None (PR #106 / FA P10).
+- **Punt-category awareness** — When `ctx.h2h_strategy.get("punt", [])` lists a category OR `ctx.urgency_weights["per_cat"][cat]["win_prob"] < 0.10`, its weight is overridden to 0.05× for the duration of FA scoring (PR #110 / FA P5f). Prevents engine from rewarding contributions to conceded cats.
+- **Sustainability: counting vs rate** — `compute_sustainability_score` in `waiver_wire.py` combines rate-stat signals (xwOBA-wOBA, SIERA-ERA) with counting-stat signals (HR/FB% for hitters, LOB% for pitchers). PR #108 / FA P5e. Backward compat: missing counting cols → rate-only behavior.
+- **Drop candidate diversity** — `_deduplicate_and_limit` walks sorted swaps and surfaces distinct (add, drop) pairs. When all top swaps share a single drop, output collapses to 1; when alternative drops exist, output diversifies (PR #110 / FA P5a is a regression-guard test, no impl change).
+- **Roster sync: mlb_id matching** — `src/live_stats.py::match_player_id` emits a WARNING when name-only match resolves to a different team than the caller's `team_abbr` (PR #104 / FA P4). Prevents Muncy-DNA-class bugs (one MLB roster row → two players with the same name).
+- **News-derived suspension dates** — `parse_suspension_days()` in `news_sentiment.py` recognizes "Suspended through MM/DD" and "Suspended for N games" patterns (PR #109 / FA P5d). Wired into `expected_return_days` column on `ctx.roster` + `ctx.player_pool` so short suspensions (Valdez-class, ~1-7 days) get appropriate IL-weight curves, not the 0.0 indefinite default.
+- **`_il_weight_from_status` parses day counts inline** — Status strings like `"IL10 - 3 days"` now extract the day count before falling through to the IL10/IL15/IL60 string defaults (PR #105 / FA PR8).
+- **Legacy fallback is now visible** — When the new `recommend_fa_moves` engine throws, `pages/14_Free_Agents.py` falls back to the legacy `compute_add_drop_recommendations` AND shows a `st.warning(...)` banner with the exception type and message (PR #98). Prevents silent degradation masking new-engine bugs.
 
 ### Lineup Optimizer
 - **DTD/IL exclusion** — `_il_statuses` includes `dtd` and `day-to-day`.
@@ -511,6 +583,37 @@ These tests guard against regression of the cleanup work. Adding new code that v
 | `test_yahoo_player_key_column.py` | `league_rosters` has `yahoo_player_key` column after `init_db()`; `upsert_league_roster_entry` writes it; TWP-on-different-teams persists both rows distinguished by yahoo_player_key; UNIQUE(team_name, player_id) constraint preserved (SFH M4) |
 | `test_draft_pick_name_resolution.py` | `resolve_player_names_by_keys` batch-fetches Yahoo player names (25 per call); `get_draft_results` uses it for entries where yfpy didn't expand the player resource; still-unresolved keys fall back to legacy `"Player {key}"` placeholder (SFH L8) |
 
+**FA Engine Overhaul guards (PRs #89-#110, 2026-05-20 → 2026-05-21):**
+
+| Test | Guards |
+|------|--------|
+| `test_fa_il_stash_unified_protection.py` | FA page UI-layer IL filter applies to BOTH top "Recommended Adds/Drops" and bottom "Recommended Drops" tables. Imports + uses `get_il_stash_names()` not the static set (FA PR #89 + PR #102) |
+| `test_roster_category_totals_il_weighted.py` | `_roster_category_totals` no longer zeroes IL players — they keep their projection × `_il_weight_from_status` weight (FA PR #90) |
+| `test_fa_page_uses_recommend_fa_moves.py` | FA page imports + calls `recommend_fa_moves`, not legacy `compute_add_drop_recommendations` (FA PR #91) |
+| `test_fa_blending_ros_ytd.py` | `_blend_fa_row` uses canonical 0.70/0.20 ROS/YTD blend with sample-size gating (FA PR #92) |
+| `test_sustainability_calibrated.py` | `compute_sustainability_score` is a calibrated sigmoid, not a 5-bucket step function (FA PR #93) |
+| `test_fa_composite_multiplicative.py` | Composite formula is purely multiplicative (urgency applied per-category inside `_compute_base_value`, not additively outside) (FA PR #94) |
+| `test_il_weight_return_date_aware.py` + `test_roster_category_totals_return_date_aware.py` | `_il_weight_from_status(status, expected_return_days)` uses the piecewise-linear curve when ESPN/Yahoo provides return-date data (FA PR #95) |
+| `test_drop_cost_positional_scarcity.py` | `compute_drop_cost(player_id, ..., replacement_levels=...)` multiplies base_cost by symmetric scarcity factor. `compute_positional_scarcity_factor` importable from `src.valuation` (FA PR #96) |
+| `test_fa_recommender_positional_scarcity.py` | `_compute_base_value` multiplies by positional scarcity factor (top-2 catcher with raw SGP X outranks 25th OF with same raw SGP) (FA PR #91/PR3 + PR #96) |
+| `test_fa_roster_construction_guard.py` + `test_fa_position_cap_at_boundary.py` | `_passes_roster_construction_guard` blocks: 3rd catcher (at-cap position), drops below 10 active hitters or 8 active pitchers (FourzynBurn starting-lineup minimums). Boundary semantics: block when count `> cap`, NOT `>= cap` (FA PR #97 + PR #100) |
+| `test_build_optimizer_context_user_roster_filter.py` + `test_fa_page_passes_user_roster.py` | `build_optimizer_context` filters multi-team rosters by `user_team_name`; FA page passes `user_roster` not `rosters` (FA PR #98 / FA P3.6) |
+| `test_build_optimizer_context_level_filter.py` | `level_filter` param defaults to `"MLB only"`; minor leaguers filtered from `ctx.player_pool` (FA PR #98) |
+| `test_compute_base_value_inverse_stats.py` | `_compute_base_value` delegates to `SGPCalculator.marginal_sgp` so inverse stats (ERA/WHIP/L) get negative contribution. Unknown pitchers with default-bad stats score LOWER than real MLB hitters (FA PR #99) |
+| `test_fa_playing_time_gate.py` | `_playing_time_multiplier` penalizes low-GP FAs after 30-day grace period; curve 0.30x/0.60x/0.85x/1.0x (FA PR #101) |
+| `test_dynamic_il_stash_list.py` + `test_no_hardcoded_il_stash.py` | `IL_STASH_NAMES` derived dynamically from `league_rosters`; no hardcoded set literal allowed in `src/alerts.py` (FA PR #102) |
+| `test_fa_page_ui_polish.py` | ECR formatted as integer; position string dedup; "Other categories" reconciliation line in why-expander; "Show all NNN" pagination toggle present (FA PR #103) |
+| `test_roster_sync_mlb_id_matching.py` + `test_no_name_only_roster_matching.py` | `match_player_id` emits DNA-collision WARNING when name-only resolves to a different team than caller's `team_abbr`; no new name-only roster matching code in `src/live_stats.py` / `src/yahoo_data_service.py` / `src/league_manager.py` / `src/data_bootstrap.py` (FA PR #104) |
+| `test_il_return_date_multi_source.py` | `_parse_return_days_from_text` extracts day count from Yahoo status strings like `"IL10 - 3 days"` (FA PR #105) |
+| `test_regression_flag_wiring.py` + `test_rate_stat_volume_in_targeted_adds.py` | `_score_fa_candidates` multiplies composite by `regression_mult` (BUY_LOW=1.05, SELL_HIGH=0.95). `compute_matchup_targeted_adds` does NOT use naive `team_totals["AVG"] +=` rate-stat addition (FA PR #106) |
+| `test_constants_registry_coverage.py` | 23 FA-engine constants registered in `CONSTANTS_REGISTRY` with `value`, `citation`, `lower_bound`, `upper_bound`, `sensitivity`. Includes streaming, playing-time, ownership, floor, position-cap thresholds (FA PR #107) |
+| `test_sustainability_counting_vs_rate.py` | `compute_sustainability_score` incorporates HR/FB% z-score (hitters) and LOB% z-score (pitchers) alongside existing rate-stat signals. Backward compat: missing counting cols → rate-only (FA PR #108) |
+| `test_news_suspension_parser.py` | `parse_suspension_days` recognizes "Suspended through MM/DD" and "Suspended for N games" patterns; returns None for non-suspension text; clamps past-dates to 0 (FA PR #109) |
+| `test_l14_blend_wiring.py` | `_blend_fa_row` consumes `l14_*` columns when `l14_pa >= 20` (hitters) or `l14_ip >= 5` (pitchers); below gate, falls back to renormalized ROS+YTD (FA PR #110 / P5b) |
+| `test_ros_projection_playing_time_scale.py` | `_scale_ros_by_playing_time` discounts ROS counting stats by `max(0.20, ytd_gp/expected_gp)` for low-volume FAs after 30-day grace period (FA PR #110 / P5c) |
+| `test_drop_candidate_diversity.py` | `_deduplicate_and_limit` walks sorted swaps and produces distinct (add, drop) pairs when alternatives exist (FA PR #110 / P5a — regression guard) |
+| `test_punt_category_awareness.py` | `_score_fa_candidates` overrides `category_weights` to 0.05× for punted categories (from `ctx.h2h_strategy.get("punt", [])` or per-cat `win_prob < 0.10`) (FA PR #110 / P5f) |
+
 ## Audit History
 
 The data + analytics pipeline has been audited across 13 waves (April–May 2026) covering ~105 silent-failure / drift / dead-code / type-design / migration bugs. All HIGH-severity findings are resolved across PRs #7–#23 + the 2026-05-17 deep-audit cleanup (PRs #29–#46) + 2026-05-19 deep-audit completion + 2026-05-19 follow-up cleanups (PRs #47–#52) + 2026-05-20 silent-failure sweep (PRs #59–#72).
@@ -569,6 +672,67 @@ Bootstrap diagnostic surfaced 12 distinct issues across HIGH/MEDIUM/LOW severity
 | #85 | fix(yahoo) batch-resolve draft pick names via Yahoo Players API (L8) | ~25 rounds 1-3 picks (70%) came back as "Player 469.p.XXXX" placeholders because yfpy's get_league_draft_results doesn't expand the player resource. New resolve_player_names_by_keys helper batch-fetches names (25 per call, Yahoo's cap). Still-unresolved keys keep the legacy placeholder so the NOT NULL constraint doesn't break |
 | #86 | docs(claude.md) document not-bugs + audit history append | This PR. Adds the _Known Design Choices_ section so future audits don't re-flag L2/L3/L4/L5/L7/M3 |
 
+**2026-05-20 → 2026-05-21 FA Engine Overhaul (PRs #89-#110)** — 22 PRs landing the most invasive engine rewrite in the codebase's history. Triggered by the Crochet/Kirk live-validation report ("Drop top-30 SP on IL15 for a backup catcher"). The plan in `docs/2026-05-20-fa-engine-overhaul-plan.md` + `docs/2026-05-20-fa-engine-p3.5-plan.md` covers the architectural decisions.
+
+**Phase 1 — Critical defense-in-depth (PRs #89, #90, #91):**
+
+| PR | Title | Highlights |
+|----|-------|------------|
+| #89 | fix(fa_page) unified IL-stash protection across top + bottom drop tables | UI-layer filter expands IL_STASH_NAMES with news-keyword matches + league_rosters.status. Both the headline "Top pickup" callout and the bottom "Recommended Drops" table now apply the same filter |
+| #90 | fix(in_season) IL players keep weighted projection instead of being zeroed | Root cause of Crochet/Kirk class — `_roster_category_totals` was zeroing IL contributions, making drops of IL aces look "free" in the SGP math. Replaced with `_il_weight_from_status(status)` returning a [0, 1] weight scaled by expected return window |
+| #91 | fix(fa_page) wire to recommend_fa_moves + positional scarcity | Free Agents page switched from legacy `compute_add_drop_recommendations` to `recommend_fa_moves`. PR1 + PR3 combined |
+
+**Phase 2 — Engine quality (PRs #92, #93, #94):**
+
+| PR | Title | Highlights |
+|----|-------|------------|
+| #92 | fix(fa_recommender) blend ROS + YTD when scoring FAs | `_blend_fa_row` implements canonical 0.70 ROS + 0.20 YTD blend with sample-size gating (skips when ytd_gp < 30). L14 placeholder noted as future work |
+| #93 | fix(waiver_wire) rewrite compute_sustainability_score as calibrated sigmoid | Replaces 5-bucket step function with logistic on xwOBA-wOBA gap (hitters) + SIERA-ERA gap (pitchers). Pitcher inversion bug fixed |
+| #94 | fix(fa_recommender) composite formula no longer double-counts urgency | Urgency now applied multiplicatively per-category inside `_compute_base_value` (via `ctx.category_weights`), not additively in the composite line. The additive boost summed weights across 4-6 cats which dwarfed base_value for marginal FAs |
+
+**Phase 3.5 — Live-validation surfaced bugs (PRs #95, #96, #97):**
+
+| PR | Title | Highlights |
+|----|-------|------------|
+| #95 | fix(in_season) `_il_weight_from_status` uses return-date curve for short suspensions | Framber Valdez (6-day suspension ending today) was getting weight 0.0. New piecewise-linear curve consumes `expected_return_days` from ESPN + Yahoo news |
+| #96 | fix(waiver_wire) symmetric positional scarcity on `compute_drop_cost` | PR3 added scarcity to add side; this PR matches on drop side. Hoisted `compute_positional_scarcity_factor` to `src/valuation.py` to break import cycle |
+| #97 | fix(fa_recommender) add roster-construction guard | New `_passes_roster_construction_guard` blocks 3rd catcher adds + drops below starting-lineup minimums |
+
+**Phase 3.6/3.7/3.8/3.9 — Root-cause cascade discovered via diagnostic (PRs #98, #99, #100, #101):**
+
+| PR | Title | Highlights |
+|----|-------|------------|
+| #98 | fix(fa_recommender) pass user roster + filter MLB-only pool | THREE compounding bugs: (a) FA page passed full 12-team rosters to `build_optimizer_context`, making `ctx.user_roster_ids` contain all 317 league players; (b) `load_player_pool()` loaded minor leaguers, polluting top FA candidates; (c) silent legacy fallback masked engine errors. Fix: defensive multi-team filter in builder + `level_filter` param + visible `st.warning` on fallback |
+| #99 | fix(fa_recommender) delegate `_compute_base_value` to canonical `marginal_sgp` | The earlier inline formula `value += (stat/denom) * weight` had WRONG SIGN for inverse stats (ERA, WHIP, L). Unknown pitchers with default `era=9.0/whip=2.0` scored base=+38.8 (should be -38.8). Brandon Marsh (real hitter, .325 AVG) scored 18.3 — half the unknown phantom. Delegated to `SGPCalculator.marginal_sgp` which handles signs and rate-stat volume correctly |
+| #100 | fix(fa_recommender) position-cap boundary off-by-one | PR #97's check used `cnt >= cap` (block at or above). Cap = max allowed depth; having exactly `cap` is healthy. Changed to `cnt > cap` (block only when EXCEEDING) — was blocking legitimate same-position upgrade swaps |
+| #101 | fix(fa_recommender) playing-time gate de-weights IL-stash phantoms | Jordan Westburg (0 YTD GP, post-wrist-surgery IL stash) was top FA pickup because his ROS projection assumed regular playing time. New `_playing_time_multiplier` curve (0 GP → 0.30x) penalizes low-volume players with 30-day grace period |
+
+**Phase 4 — DNA collision fixes (PR #104):**
+
+| PR | Title | Highlights |
+|----|-------|------------|
+| #104 | fix(roster_sync) DNA collision warning + Muncy migration | Two Max Muncys in MLB (LAD veteran mlb_id=571970 + ATH rookie mlb_id=691777). Yahoo correctly identified user's LAD Muncy via `editorial_team_abbr`, but `match_player_id` did name-only lookup → mapped to ATH Muncy's `player_id=71`. Engine read ATH Muncy's stats (.239/2HR/26GP) for user's LAD Muncy (.263/12HR/47GP). Fix: WARNING when name-only resolves to a different team than caller's `team_abbr`. One-time `migrate_muncy_dna_2026_05_21.py` inserted LAD Muncy as new row + repointed user's league_rosters |
+
+**Phase P3+P4 cleanup (PRs #102, #103, #105, #106, #107):**
+
+| PR | Title | Highlights |
+|----|-------|------------|
+| #102 | fix(alerts) derive IL_STASH_NAMES dynamically from league_rosters (FA PR7) | Hardcoded {Bieber, Strider} set went stale weekly. New `get_il_stash_names()` queries `league_rosters.status IN (IL10, IL15, IL60, IL, DTD)`. Surfaces ~52 IL players vs 2 hardcoded |
+| #103 | FA Page UI Polish (PR11+12+13+14) | ECR shown as integer; position string dedup (`"2B/3B,3B"` → `"2B,3B"`); "Other categories" reconciliation line; "Show all NNN" pagination toggle |
+| #105 | fix(in_season) `_il_weight_from_status` parses day-count from status string (FA PR8) | Yahoo status strings like `"IL10 - 3 days"` now extract the day count via 4 regex patterns; falls through to existing string lookup when no pattern matches |
+| #106 | fix(fa_recommender, waiver_wire) wire regression_flag + fix rate-stat volume (FA PR10) | `regression_flag` column (BUY_LOW / SELL_HIGH) was loaded but never consumed. Wired as 5% nudge in `_score_fa_candidates`. Rate-stat volume guard test added (no bug found, but locked against future regression) |
+| #107 | fix(constants_registry) consolidate FA-engine magic constants (FA PR9) | 23 magic constants migrated from `fa_recommender.py` + `waiver_wire.py` into `CONSTANTS_REGISTRY` with citations, bounds, sensitivity tags. Includes streaming thresholds (Razzball / Pitcher List), playing-time gate (PR21 calibration), ownership boost, floor multipliers |
+
+**Phase P5 — Additional engine quality (PRs #108, #109, #110):**
+
+| PR | Title | Highlights |
+|----|-------|------------|
+| #108 | feat(waiver_wire) sustainability differentiates counting vs rate regression (FA P5e) | `compute_sustainability_score` adds HR/FB% z-score (hitters) and LOB% strand-rate z-score (pitchers). A 30% HR/FB hitter now gets lower sustainability than 13% peer; high-LOB pitcher rides regression risk |
+| #109 | feat(news_sentiment) parse_suspension_days extracts return date from news (FA P5d) | Recognizes "Suspended through MM/DD" (date parse) and "Suspended for N games" (game-count → day estimate). Wired into `expected_return_days` after ESPN merge (ESPN priority) |
+| #110 | FA Engine P5 Bundle: L14 + ROS-scale + diversity + punt (P5b+c+a+f) | Four sequential commits in one PR. L14 wired into `_blend_fa_row` (canonical 0.70/0.20/0.10); ROS scaled by playing-time ratio before blending; drop-candidate diversity regression-guard test; punt-category weight override (`0.05x` for categories with win_prob<10% or explicit punt tag) |
+
+Milestone tag `milestone/2026-05-21-fa-engine-overhaul-complete` marks SHA after PR #110.
+
 ## Known Design Choices & External Limitations
 
 These items have surfaced in audits as "broken" or "flagged" but are NOT bugs. They are either external limitations we can't fix from our side, deliberate design choices, or correctly-handled edge cases. **Do not flag any of these as bugs in future audits without re-reading this section first.**
@@ -581,6 +745,12 @@ These items have surfaced in audits as "broken" or "flagged" but are NOT bugs. T
 | **News fetcher canonical-name collisions** | There are genuinely 3 different active MLB players named "Luis Garcia", 2 named "Will Smith", etc. PR #61 made the warning explicit (`canonical-name collision 'luis garcia' maps to player_ids [...] - keeping first`). The fix path is team-based disambiguation at every news caller — a multi-module refactor for a known, accepted limitation. The current keep-first behavior is documented as deliberate |
 | **`season_stats: partial 2497/7498`** | MLB Stats API returns ~7500 player-seasons including all 40-man + spring training + minor-league callups. Our `players` table is curated to ~1100 active MLB rosters. The ~5000 unmatched rows are players we don't track by design (not data loss). PR #68 lowered expected_min threshold 70%→25% to reflect this reality. The "partial" status reflects intentional scope, not pipeline failure |
 | **pybaseball `statcast_catcher_framing` CSV tokenization** | Upstream pybaseball/Savant integration issue — Savant's response can't be parsed by pybaseball 2.2.7. Our 3-tier waterfall already catches this gracefully: Tier 2 (browser-headers Savant scrape) covers, then Tier 3 seed file. The pybaseball failure is logged as WARNING, not ERROR. No code on our side fixes the upstream parser; removing the call would lose resilience when pybaseball updates |
+| **Playing-time gate 30-day grace period** | First 30 days of season, `_playing_time_multiplier` returns 1.0 regardless of GP/IP. Avoids penalizing late-March / early-April call-ups whose YTD samples are too small to interpret. After Day 30, the curve kicks in (PR #101) |
+| **ROS playing-time scale floor (0.20x)** | `_scale_ros_by_playing_time` floors at 0.20× even for 0-GP players. Hot rookies just called up shouldn't lose ALL their ROS projection — 0.20 preserves a meaningful baseline while still discounting IL phantoms (PR #110 / P5c) |
+| **Punt-category weight = 0.05x (not 0)** | When a category is detected as punted (h2h_strategy or win_prob < 10%), weight overridden to 0.05 not exactly 0. Avoids divide-by-zero edge cases in downstream rate-stat math while effectively zeroing the contribution (PR #110 / P5f) |
+| **L14 volume gate (20 PA hitters, 5 IP pitchers)** | Below this, `_blend_fa_row` skips L14 and renormalizes to ROS+YTD. 20 PA / 5 IP is the empirical "signal noise floor" — below this, single hot/cold games dominate (PR #110 / P5b) |
+| **Drop candidate dedup collapses to 1 when single drop dominates** | When all top FAs share a single best drop, `_deduplicate_and_limit` correctly surfaces only 1 rec (each drop used at most once). Adding alternative drops requires the engine to see additional viable swap pairs in `_evaluate_swaps`, not a dedup-logic change (PR #110 / P5a) |
+| **ATH Max Muncy (player_id=71) preserved post-migration** | The Muncy DNA migration (PR #104) inserted LAD Muncy as a new player_id (9807) and repointed the user's roster — it did NOT delete or update the ATH Muncy row. The ATH row remains for any other team in the league that might roster him |
 
 When a future audit flags one of these, the correct response is: confirm it matches the entry above, then move on.
 
@@ -591,17 +761,21 @@ When a future audit flags one of these, the correct response is: confirm it matc
 
 ## Testing
 
-- **~4027 passing tests** across 170+ test files, 15 skipped (PyMC/XGBoost/WeasyPrint optional)
+- **~4200 passing tests** across 195+ test files, 15 skipped (PyMC/XGBoost/WeasyPrint optional)
 - **CI:** GitHub Actions (Python 3.12, sharded 4 ways)
 - **Coverage:** ~71% (60% CI floor — the 5-week "Coverage Floor red" was actually a flaky timing test, fixed 2026-05-20 by PR #70)
 - **Pre-commit hook:** Enforces `ruff format` + `ruff check` on every commit
+- **Pre-push hook:** Runs structural-invariant suite (~210 tests) — catches regressions on the locked design choices before they reach CI
 - **Backtesting framework:** Historical replay validates engine recommendations vs actual outcomes
+- **FA engine diagnostic toolkit:** 9 `scripts/diag_fa_*.py` scripts preserved as evidence + future debug tools (cross-type trace, score plateau inspection, roster data audit, etc.)
 
 ## Resume Checklist (New Session)
 
 1. Confirm shell is in `C:\Users\conno\Code\HEATER_v1.0.1` (NOT the deprecated `OneDrive\Desktop` path; note the local folder is `v1.0.1` while GitHub repo NAME remains `HEATER_v1.0.0`).
 2. Read `CLAUDE.md` (this file)
-3. Check git status: `git status`, `git log --oneline -10`
-4. Run `python -m pytest --ignore=tests/test_cheat_sheet.py -x -q` to verify tests pass
+3. Check git status: `git status`, `git log --oneline -10`. Master should be at or beyond SHA marked by tag `milestone/2026-05-21-fa-engine-overhaul-complete` (PR #110)
+4. Run `python -m pytest --ignore=tests/test_cheat_sheet.py -x -q` to verify tests pass (~4200 tests, ~3-5 min)
 5. Run `streamlit run app.py` and verify Yahoo auto-reconnect
 6. Inspect refresh_log: `python -c "from src.database import get_refresh_log_snapshot; import json; print(json.dumps(get_refresh_log_snapshot(), indent=2))"`
+7. (If continuing FA engine work) Read `docs/2026-05-20-fa-engine-overhaul-plan.md` + `docs/2026-05-20-fa-engine-p3.5-plan.md` for full design rationale of PRs #89-#110
+8. (If debugging FA recommendations) Use `scripts/diag_fa_stage_by_stage.py` to see what the engine sees stage-by-stage. `scripts/diag_roster_data_audit.py` flags DNA collisions across the roster
