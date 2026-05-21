@@ -613,6 +613,7 @@ These tests guard against regression of the cleanup work. Adding new code that v
 | `test_ros_projection_playing_time_scale.py` | `_scale_ros_by_playing_time` discounts ROS counting stats by `max(0.20, ytd_gp/expected_gp)` for low-volume FAs after 30-day grace period (FA PR #110 / P5c) |
 | `test_drop_candidate_diversity.py` | `_deduplicate_and_limit` walks sorted swaps and produces distinct (add, drop) pairs when alternatives exist (FA PR #110 / P5a — regression guard) |
 | `test_punt_category_awareness.py` | `_score_fa_candidates` overrides `category_weights` to 0.05× for punted categories (from `ctx.h2h_strategy.get("punt", [])` or per-cat `win_prob < 0.10`) (FA PR #110 / P5f) |
+| `test_fa_nan_guard.py` | `_score_fa_candidates` must not raise `ValueError` when FA rows contain NaN `player_id` or NaN `is_hitter` (post-pool-merge left-join artefact). `_is_hitter_safe()` helper guards all 5 int-cast sites; NaN `player_id` rows silently skipped; valid FA rows still score correctly. `compute_sustainability_score` in `waiver_wire.py` also guarded. |
 
 ## Audit History
 
@@ -750,7 +751,7 @@ These items have surfaced in audits as "broken" or "flagged" but are NOT bugs. T
 | **Punt-category weight = 0.05x (not 0)** | When a category is detected as punted (h2h_strategy or win_prob < 10%), weight overridden to 0.05 not exactly 0. Avoids divide-by-zero edge cases in downstream rate-stat math while effectively zeroing the contribution (PR #110 / P5f) |
 | **L14 volume gate (20 PA hitters, 5 IP pitchers)** | Below this, `_blend_fa_row` skips L14 and renormalizes to ROS+YTD. 20 PA / 5 IP is the empirical "signal noise floor" — below this, single hot/cold games dominate (PR #110 / P5b) |
 | **Drop candidate dedup collapses to 1 when single drop dominates** | When all top FAs share a single best drop, `_deduplicate_and_limit` correctly surfaces only 1 rec (each drop used at most once). Adding alternative drops requires the engine to see additional viable swap pairs in `_evaluate_swaps`, not a dedup-logic change (PR #110 / P5a) |
-| **ATH Max Muncy (player_id=71) preserved post-migration** | The Muncy DNA migration (PR #104) inserted LAD Muncy as a new player_id (9807) and repointed the user's roster — it did NOT delete or update the ATH Muncy row. The ATH row remains for any other team in the league that might roster him |
+| **ATH Max Muncy (player_id=71) preserved post-migration** | The Muncy DNA migration (PR #104 + `scripts/migrate_muncy_dna_2026_05_21.py`) inserted LAD Muncy as player_id=9864 (mlb_id=571970) and repointed Team Hickey's league_rosters to player_id=9864 — it did NOT delete or update the ATH Muncy row (player_id=71, mlb_id=691777). The ATH row remains for any other team in the league that might roster him |
 
 When a future audit flags one of these, the correct response is: confirm it matches the entry above, then move on.
 
