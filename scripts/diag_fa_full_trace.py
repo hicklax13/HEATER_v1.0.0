@@ -8,16 +8,12 @@ import io
 import logging
 import sys
 
-import pandas as pd
-
 from src.database import init_db
 from src.league_manager import get_team_roster
 from src.optimizer.fa_recommender import (
-    _MAX_DROP_CANDIDATES,
-    _MAX_FA_CANDIDATES,
+    _evaluate_swaps,
     _score_drop_candidates,
     _score_fa_candidates,
-    _evaluate_swaps,
 )
 from src.optimizer.shared_data_layer import build_optimizer_context
 from src.validation.dynamic_context import compute_weeks_remaining
@@ -57,6 +53,7 @@ def main() -> int:
 
     # Score candidates
     from src.valuation import SGPCalculator, compute_replacement_levels
+
     repl = compute_replacement_levels(ctx.player_pool, ctx.config, SGPCalculator(ctx.config))
 
     drops = _score_drop_candidates(ctx, repl)
@@ -68,7 +65,9 @@ def main() -> int:
     print()
     print("FA CANDIDATES (top 10 highest composite):")
     for f in fas:
-        print(f"  {f['name']:25} {f['positions']:20} is_hitter={f['is_hitter']} composite={f['composite_score']:.2f} is_il={f['is_il']}")
+        print(
+            f"  {f['name']:25} {f['positions']:20} is_hitter={f['is_hitter']} composite={f['composite_score']:.2f} is_il={f['is_il']}"
+        )
     print()
 
     # Try evaluating swaps — show what blocks each
@@ -88,6 +87,7 @@ def main() -> int:
             _passes_roster_construction_guard,
         )
         from src.waiver_wire import compute_net_swap_value
+
         losing = []  # placeholder, doesn't affect for diagnostic
         for fa in fas[:5]:
             for drop in drops[:5]:
@@ -103,7 +103,9 @@ def main() -> int:
                     print(f"  {fa['name']:20} ← {drop['name']:20}: {cross_blocked}")
                     continue
                 # Net SGP
-                swap = compute_net_swap_value(fa["player_id"], drop["player_id"], ctx.user_roster_ids, ctx.player_pool, ctx.config)
+                swap = compute_net_swap_value(
+                    fa["player_id"], drop["player_id"], ctx.user_roster_ids, ctx.player_pool, ctx.config
+                )
                 net_sgp = swap["net_sgp"]
                 if net_sgp <= 0:
                     print(f"  {fa['name']:20} ← {drop['name']:20}: NEG net_sgp ({net_sgp:.2f})")

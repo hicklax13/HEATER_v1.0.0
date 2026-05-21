@@ -28,9 +28,17 @@ def _hitter(pid, name, positions, status="active"):
         "positions": positions,
         "is_hitter": 1,
         "status": status,
-        "r": 50, "hr": 10, "rbi": 40, "sb": 5,
-        "ab": 300, "h": 80, "bb": 30, "hbp": 2, "sf": 2,
-        "avg": 0.265, "obp": 0.340,
+        "r": 50,
+        "hr": 10,
+        "rbi": 40,
+        "sb": 5,
+        "ab": 300,
+        "h": 80,
+        "bb": 30,
+        "hbp": 2,
+        "sf": 2,
+        "avg": 0.265,
+        "obp": 0.340,
     }
 
 
@@ -41,8 +49,14 @@ def _pitcher(pid, name, positions, status="active"):
         "positions": positions,
         "is_hitter": 0,
         "status": status,
-        "w": 6, "l": 3, "sv": 0, "k": 80,
-        "ip": 70, "er": 25, "bb_allowed": 20, "h_allowed": 55,
+        "w": 6,
+        "l": 3,
+        "sv": 0,
+        "k": 80,
+        "ip": 70,
+        "er": 25,
+        "bb_allowed": 20,
+        "h_allowed": 55,
     }
 
 
@@ -57,7 +71,7 @@ def test_same_position_swap_at_cap_is_allowed():
     # Build a roster with TWO 2B-eligible players (Muncy + another) plus
     # enough other positions to satisfy the floor checks.
     roster_rows = [
-        _hitter(1, "Max Muncy", "2B,3B"),     # drop target
+        _hitter(1, "Max Muncy", "2B,3B"),  # drop target
         _hitter(2, "Other 2B", "2B"),
         _hitter(3, "Catcher", "C"),
         _hitter(4, "1B Guy", "1B"),
