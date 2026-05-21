@@ -113,6 +113,38 @@ def match_player_id(player_name: str, team_abbr: str) -> int | None:
                 )
                 results = cursor.fetchall()
         if results:
+            # PR22 (2026-05-21): DNA-collision warning. The (name + team) match
+            # at line 81 failed even though the caller passed team_abbr. If the
+            # name-only fallback now resolves to a row whose stored team DIFFERS
+            # from the caller's team_abbr, log a WARNING so the silent
+            # Muncy-class collision becomes visible. Root cause of the April 8
+            # Muncy bug: ATH-Muncy (player_id=71) was the only "Max Muncy" in
+            # DB, but Yahoo passed team='LAD' for the user's actual LAD-Muncy.
+            # The (name + team) match returned nothing, this fallback silently
+            # accepted ATH-Muncy, and every downstream FA/lineup/optimizer
+            # query reasoned about the wrong player's stats.
+            if team_abbr:
+                pid_list = [r[0] for r in results]
+                placeholders = ",".join("?" * len(pid_list))
+                cursor.execute(
+                    f"SELECT player_id, team FROM players WHERE player_id IN ({placeholders})",
+                    pid_list,
+                )
+                team_rows = cursor.fetchall()
+                stored_teams = sorted({(r[1] or "").upper() for r in team_rows if r[1]})
+                yahoo_team_upper = team_abbr.upper()
+                if stored_teams and yahoo_team_upper not in stored_teams:
+                    logger.warning(
+                        "Roster sync DNA collision risk: name='%s' Yahoo team=%s but DB has "
+                        "%d candidate(s) on team(s) %s. Picking canonical match — consider "
+                        "adding a %s '%s' row to players or running migrate_*_dna.py.",
+                        player_name,
+                        team_abbr,
+                        len(pid_list),
+                        stored_teams,
+                        team_abbr,
+                        player_name,
+                    )
             if len(results) == 1:
                 return results[0][0]
             # Multiple matches — prefer the one with projections (canonical)
