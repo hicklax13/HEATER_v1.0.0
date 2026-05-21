@@ -72,6 +72,27 @@ _STREAM_IP_TARGET = 54  # weekly IP goal (12 SP starts/team × ~6.5 IP/start)
 _STREAM_NET_SGP_RELAXED = 0.40  # pitcher-stream threshold when IP < 75% of target
 _STREAM_IP_RELAX_RATIO = 0.75  # below this fraction of target, relax pitcher SGP bar
 
+# FA-engine overhaul P3.5 PR16 (2026-05-20): roster-construction guard.
+# FourzynBurn league roster construction has 10 starting hitters
+# (1C/1·1B/1·2B/1·3B/1SS/3OF/2Util), 8 starting pitchers (2SP/2RP/4P),
+# 5 BN, 4 IL. Position caps = starters + 1 (one backup beyond starter
+# per position). Util/P are flex slots that overlap many positions, so
+# they are intentionally excluded from the per-position caps (overlap
+# would double-count). Drop floors = starting-lineup minimum counts —
+# below these the user cannot field a full starting roster.
+_POSITION_CAPS: dict[str, int] = {
+    "C": 2,
+    "1B": 2,
+    "2B": 2,
+    "3B": 2,
+    "SS": 2,
+    "OF": 4,
+    "SP": 3,
+    "RP": 3,
+}
+_MIN_ACTIVE_HITTERS = 10  # 1C+1·1B+1·2B+1·3B+1SS+3OF+2Util starting hitters
+_MIN_ACTIVE_PITCHERS = 8  # 2SP+2RP+4P starting pitchers
+
 
 def _player_is_il(ctx: OptimizerDataContext, pid: int) -> bool:
     """Return True if the player is on IL/DTD/NA/suspended per roster or pool.
@@ -96,6 +117,149 @@ def _player_is_il(ctx: OptimizerDataContext, pid: int) -> bool:
         if status in _IL_EXCLUDE_STATUSES:
             return True
     return False
+
+
+# ---------------------------------------------------------------------------
+# Roster-construction guard (FA-engine overhaul P3.5 PR16)
+# ---------------------------------------------------------------------------
+
+
+def _parse_position_tokens(positions: str) -> set[str]:
+    """Split a positions string (e.g. "2B,SS" or "2B/SS,Util") into a set
+    of upper-case tokens. Used by the roster-construction guard to test
+    membership against ``_POSITION_CAPS``."""
+    if not positions:
+        return set()
+    return {p.strip().upper() for p in str(positions).replace("/", ",").split(",") if p.strip()}
+
+
+def _count_eligible_at_position(
+    roster_ids: list[int],
+    pool: pd.DataFrame,
+    position: str,
+) -> int:
+    """Return how many rostered players are eligible at ``position``.
+
+    Counts ALL rostered players, INCLUDING IL — by design. Per the
+    user spec: 2 catchers (Raleigh IL + Dingler) count as 2 toward
+    the C cap, so a 3rd catcher add is blocked even though one is on
+    the IL. Multi-position players count toward each of their positions.
+    """
+    if pool is None or pool.empty or "player_id" not in pool.columns:
+        return 0
+    target = position.strip().upper()
+    if not target:
+        return 0
+    count = 0
+    for pid in roster_ids:
+        match = pool[pool["player_id"] == pid]
+        if match.empty:
+            continue
+        tokens = _parse_position_tokens(str(match.iloc[0].get("positions", "")))
+        if target in tokens:
+            count += 1
+    return count
+
+
+def _count_active_by_side(
+    roster_ids: list[int],
+    pool: pd.DataFrame,
+    is_hitter: bool,
+) -> int:
+    """Return how many ACTIVE (non-IL) rostered players match the side.
+
+    Per the user spec: IL players do NOT count toward the active-roster
+    floor — they cannot start. BN players DO count (they're flex healthy
+    reserves, eligible to start). Status check matches ``_player_is_il``
+    semantics so IL/DTD/NA/suspended/out all drop out.
+    """
+    if pool is None or pool.empty or "player_id" not in pool.columns:
+        return 0
+    count = 0
+    for pid in roster_ids:
+        match = pool[pool["player_id"] == pid]
+        if match.empty:
+            continue
+        row = match.iloc[0]
+        if bool(int(row.get("is_hitter", 1))) != is_hitter:
+            continue
+        status = str(row.get("status", "") or "").strip().lower()
+        if status in _IL_EXCLUDE_STATUSES:
+            continue
+        count += 1
+    return count
+
+
+def _passes_roster_construction_guard(
+    fa_data: pd.Series,
+    drop_data: pd.Series,
+    ctx: OptimizerDataContext,
+) -> tuple[bool, str]:
+    """Return ``(True, "")`` if the (add FA, drop) swap leaves a viable
+    roster, otherwise ``(False, reason)`` so the caller can skip + log.
+
+    Three checks against the POST-swap roster (drop removed, FA added):
+
+    1. **Position cap**: for each of the FA's eligible positions in
+       ``_POSITION_CAPS``, count rostered eligibility (incl. IL). If
+       ALL of the FA's positions are at or above their cap, block.
+       Multi-position FAs (e.g. 2B/SS) only block when EVERY eligible
+       position is at cap — a 2B/SS can fill 2B even when SS is full.
+       Util / P / "BN" positions are NOT in ``_POSITION_CAPS`` and are
+       skipped entirely (flex slots overlap many positions).
+    2. **Active hitter floor**: post-swap active hitter count must
+       stay >= ``_MIN_ACTIVE_HITTERS`` (10 = FourzynBurn starting
+       lineup count).
+    3. **Active pitcher floor**: post-swap active pitcher count must
+       stay >= ``_MIN_ACTIVE_PITCHERS`` (8 = starting lineup count).
+
+    IL exclusion uses ``_IL_EXCLUDE_STATUSES`` semantics via
+    ``_count_active_by_side``.
+    """
+    pool = ctx.player_pool
+    if pool is None or pool.empty or "player_id" not in pool.columns:
+        return True, ""
+
+    try:
+        drop_id = int(drop_data.get("player_id"))
+        fa_id = int(fa_data.get("player_id"))
+    except (TypeError, ValueError):
+        return True, ""
+
+    # Build POST-swap roster id list (drop removed, FA added).
+    post_swap_ids = [int(pid) for pid in ctx.user_roster_ids if int(pid) != drop_id]
+    if fa_id not in post_swap_ids:
+        post_swap_ids.append(fa_id)
+
+    # ── Check 1: position cap (FA must have at least one position
+    # below cap; if ALL eligible positions are at cap → block).
+    fa_positions = _parse_position_tokens(str(fa_data.get("positions", "")))
+    capped_positions = [p for p in fa_positions if p in _POSITION_CAPS]
+    if capped_positions:
+        position_results: list[tuple[str, int, int]] = []
+        any_below_cap = False
+        for pos in capped_positions:
+            cnt = _count_eligible_at_position(post_swap_ids, pool, pos)
+            cap = _POSITION_CAPS[pos]
+            position_results.append((pos, cnt, cap))
+            if cnt < cap:
+                any_below_cap = True
+                break
+        if not any_below_cap:
+            worst = position_results[0]
+            return False, f"position-cap: {worst[0]}={worst[1]}>={worst[2]}"
+
+    # ── Check 2: active hitter floor.
+    n_hitters = _count_active_by_side(post_swap_ids, pool, is_hitter=True)
+    if n_hitters < _MIN_ACTIVE_HITTERS:
+        return False, f"below {_MIN_ACTIVE_HITTERS} active hitters (post-swap={n_hitters})"
+
+    # ── Check 3: active pitcher floor.
+    n_pitchers = _count_active_by_side(post_swap_ids, pool, is_hitter=False)
+    if n_pitchers < _MIN_ACTIVE_PITCHERS:
+        return False, f"below {_MIN_ACTIVE_PITCHERS} active pitchers (post-swap={n_pitchers})"
+
+    return True, ""
 
 
 # ---------------------------------------------------------------------------
@@ -447,6 +611,21 @@ def _evaluate_swaps(
 
             # Skip non-positive swaps
             if net_sgp <= 0:
+                continue
+
+            # FA-engine overhaul P3.5 PR16 (2026-05-20): roster-construction
+            # guard. Without this the engine happily recommends a 3rd C when
+            # the user has 2 (Raleigh IL + Dingler), or drops the 2nd SP
+            # when only 8 healthy starters remain. Logged at DEBUG to avoid
+            # noisy WARNINGs on every blocked swap.
+            passes_construction, _block_reason = _passes_roster_construction_guard(fa, drop, ctx)
+            if not passes_construction:
+                logger.debug(
+                    "Roster-construction guard blocked %s → %s: %s",
+                    drop.get("name", drop.get("player_id")),
+                    fa.get("name", fa.get("player_id")),
+                    _block_reason,
+                )
                 continue
 
             # Category worsening check (informational — log but don't block)
