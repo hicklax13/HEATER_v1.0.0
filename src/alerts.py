@@ -24,8 +24,46 @@ def _fmt_et(dt_obj: datetime) -> str:
     return f"{dt_et.strftime('%b %d')}, {hour}:{dt_et.strftime('%M')} {ampm} ET"
 
 
-# IL stash players — do NOT drop or trade within 2 weeks of return
-IL_STASH_NAMES: set[str] = {"Shane Bieber", "Spencer Strider"}
+# IL stash players — do NOT drop or trade within 2 weeks of return.
+#
+# FA-engine overhaul PR7 (2026-05-20): dynamic derivation from
+# league_rosters.status replaces the previously hardcoded
+# {"Shane Bieber", "Spencer Strider"} set, which went stale immediately
+# as players cycled through IL every week. Callers needing fresh data
+# (e.g. an in-app refresh after a Yahoo sync) should call
+# get_il_stash_names(); callers that just want the cached module-level
+# snapshot continue to import IL_STASH_NAMES, populated at import time.
+def get_il_stash_names() -> set[str]:
+    """Dynamically derive IL stash player names from league_rosters.
+
+    Returns the set of all rostered player names whose status is in
+    (IL10, IL15, IL60, IL, DTD). This replaces the hardcoded
+    {"Shane Bieber", "Spencer Strider"} list which went stale every week.
+
+    On any DB error, returns an empty set (caller handles fallback).
+    """
+    try:
+        from src.database import get_connection
+
+        conn = get_connection()
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT DISTINCT p.name FROM league_rosters lr "
+                "JOIN players p ON p.player_id = lr.player_id "
+                "WHERE UPPER(lr.status) IN ('IL10', 'IL15', 'IL60', 'IL', 'DTD')"
+            )
+            return {row[0] for row in cur.fetchall() if row[0]}
+        finally:
+            conn.close()
+    except Exception:
+        logger.warning("Failed to derive IL_STASH_NAMES from league_rosters", exc_info=True)
+        return set()
+
+
+# Backward-compat module-level snapshot — populated once at import time.
+# New callers should prefer get_il_stash_names() for fresh data.
+IL_STASH_NAMES: set[str] = get_il_stash_names()
 
 
 def generate_roster_alerts(
