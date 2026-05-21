@@ -682,6 +682,65 @@ def compute_replacement_levels(player_pool: pd.DataFrame, config: LeagueConfig, 
     return replacement
 
 
+# ── Positional Scarcity ──────────────────────────────────────────────
+
+# Maximum boost applied to a player's value when their position is much
+# scarcer than the league median replacement level. Capped at +25% so the
+# scarcity adjustment can never dominate raw production. Industry-published
+# scarcity adjustments (Razzball Player Rater, FanGraphs auction calculator)
+# generally range 5-25%; this cap sits at the upper end of that range.
+POSITIONAL_SCARCITY_MAX_BOOST = 0.25
+
+
+def compute_positional_scarcity_factor(positions: str, replacement_levels: dict) -> float:
+    """Compute a multiplier reflecting how scarce a player's position is.
+
+    FA-engine overhaul P1 PR3 (2026-05-20): industry consensus (Razzball
+    Player Rater FAQ, FanGraphs auction calculator methodology) values
+    players partially by replacement-level scarcity at their position.
+    A top-2 catcher is worth more than a top-10 OF with equivalent raw
+    SGP because the FA pool of replaceable catchers is much thinner.
+
+    FA-engine overhaul P3.5 PR15 (2026-05-20): hoisted from
+    ``src.optimizer.fa_recommender`` to ``src.valuation`` so both
+    ``src.waiver_wire`` and ``src.optimizer.fa_recommender`` can call it
+    without circular-import risk (``waiver_wire`` is imported BY
+    ``fa_recommender`` so it can't import from it). The hoisting enables
+    symmetric application of scarcity on the DROP side (waiver_wire's
+    ``compute_drop_cost``) as well as the ADD side (already wired by PR3).
+
+    Computation: for each eligible position, derive a per-position
+    scarcity score from the dynamic replacement-level pool. Use the
+    SCARCEST position the player qualifies at (best for the user) and
+    return ``1.0 + max(0, (median_repl - position_repl) / median_repl)``
+    bounded by ``POSITIONAL_SCARCITY_MAX_BOOST``.
+
+    Returns 1.0 (neutral) when no replacement-level data is available,
+    or when the player has no usable positions — fail-safe default.
+    """
+    if not positions or not replacement_levels:
+        return 1.0
+    pos_list = [p.strip() for p in str(positions).split(",") if p.strip()]
+    if not pos_list:
+        return 1.0
+    valid = [p for p in pos_list if p in replacement_levels]
+    if not valid:
+        return 1.0
+    # Replacement level (lower = scarcer position). Pick the scarcest
+    # position the player qualifies at — best-case scarcity for them.
+    best_repl = min(replacement_levels.get(p, 0.0) for p in valid)
+    repl_values = [v for v in replacement_levels.values() if v is not None]
+    if not repl_values:
+        return 1.0
+    median_repl = sorted(repl_values)[len(repl_values) // 2]
+    if median_repl <= 0:
+        return 1.0
+    # Positive ratio when this position has LOWER replacement (more scarce)
+    # than the league median. Capped at the max boost.
+    scarcity_ratio = (median_repl - best_repl) / median_repl
+    return 1.0 + max(0.0, min(POSITIONAL_SCARCITY_MAX_BOOST, scarcity_ratio))
+
+
 def compute_vorp(player: pd.Series, sgp_calc: SGPCalculator, replacement_levels: dict) -> float:
     """Compute Value Over Replacement Player.
 

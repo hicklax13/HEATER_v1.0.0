@@ -322,6 +322,7 @@ def compute_drop_cost(
     roster_ids: list[int],
     player_pool: pd.DataFrame,
     config: LeagueConfig | None = None,
+    replacement_levels: dict | None = None,
 ) -> float:
     """Compute the adjusted cost of dropping a player from the roster.
 
@@ -330,10 +331,17 @@ def compute_drop_cost(
     and rate stat drag players appear cheaper to drop:
 
     1. Base SGP cost: how much team SGP drops when player is removed
-    2. DH/Util-only penalty: -3.0 (no positional value)
-    3. Category dead weight: -1.5 if 0 SB, -0.5 if very low HR
-    4. Rate stat drag: -1.0 if AVG < .245, -0.5 if OBP < .310
-    5. Multi-position bonus: +1.0 if 3+ positions (flexibility)
+    2. Positional scarcity multiplier (FA P3.5 PR15) — when
+       ``replacement_levels`` is provided, multiplies the base cost so
+       dropping a scarce-position player (catcher, SS) costs MORE than
+       dropping a deep-position player (OF, 1B) with equivalent raw SGP.
+       This is the symmetric counterpart to the add-side scarcity boost
+       applied by ``_compute_base_value`` (FA P1 PR3). When None or
+       empty, behavior is unchanged from pre-PR15 (backward-compat).
+    3. DH/Util-only penalty: -3.0 (no positional value)
+    4. Category dead weight: -1.5 if 0 SB, -0.5 if very low HR
+    5. Rate stat drag: -1.0 if AVG < league avg, -0.5 if OBP < league avg
+    6. Multi-position bonus: +1.0 if 3+ positions (flexibility)
 
     Lower cost = better drop candidate.
 
@@ -361,6 +369,20 @@ def compute_drop_cost(
         return base_cost
 
     row = match.iloc[0]
+
+    # FA-engine overhaul P3.5 PR15 (2026-05-20): symmetric positional
+    # scarcity. Apply BEFORE the structural-flaw adjustments below so the
+    # scarcity multiplier scales the raw replacement-cost signal — the
+    # adjustments are additive flat amounts that compose normally on top.
+    # Without this, dropping a top SS to add a backup catcher looked free
+    # because the SS didn't pay scarcity on the cost side while the catcher
+    # got a 1.20× boost on the add side (see docs/2026-05-20-fa-engine-p3.5-plan.md).
+    if replacement_levels:
+        from src.valuation import compute_positional_scarcity_factor
+
+        scarcity_mult = compute_positional_scarcity_factor(str(row.get("positions", "")), replacement_levels)
+        base_cost *= scarcity_mult
+
     is_hitter = int(row.get("is_hitter", 0)) == 1
     adjustment = 0.0
 
