@@ -487,30 +487,31 @@ def compute_sustainability_score(player: pd.Series) -> float:
     FA-engine overhaul P2 PR5 (2026-05-20): rewritten to use the canonical
     industry regression signals (xwOBA-wOBA gap for hitters, xFIP/SIERA-ERA
     gap for pitchers) via a sigmoid combination, replacing the previous
-    5-bucket step function that:
+    5-bucket step function.
 
-      * Used only BABIP for hitters (one signal, easy to misread)
-      * INVERTED the pitcher logic (high ERA → high "sustainability" —
-        the comment said "likely to improve" but the UI text "Strong
-        underlying metrics support continued production" read as a buy
-        signal, not a regression-favorable flag)
-      * Returned only ~5 discrete bucket values, which displayed as
-        percentages and read as calibrated probabilities to the user
+    FA-engine overhaul P5e (2026-05-21): counting-stat regression signals
+    added on top of the rate-stat anchor. xwOBA-wOBA predicts AVG/OBP
+    regression but doesn't predict HR sustainability — HR/FB% drives
+    that. LOB% (strand rate) drives ERA regression over a longer
+    horizon than SIERA-ERA. Both terms are additive on the existing
+    logit and skipped entirely when the underlying column is absent
+    (backward compat with the P2 PR5 rate-only behavior).
 
-    New design:
+    Hitters:
+      Primary:   xwOBA - wOBA delta (POSITIVE = overperforming → LOW sus)
+      Secondary: BABIP vs career baseline / .300 league avg
+      NEW (P5e): HR/FB% vs league avg ~0.13 (HIGH = HR regression risk)
 
-    Hitters: anchor on xwOBA-wOBA delta (positive = overperforming =
-    unsustainable). Secondary signal from BABIP vs career baseline.
-    Combine via sigmoid → 0-1 calibrated.
-
-    Pitchers: anchor on ERA-xFIP delta (positive = unlucky = expected
-    to improve = HIGH sustainability for buy-low intent). Secondary
-    signal from Stuff+ relative to league average. Combine via sigmoid.
+    Pitchers:
+      Primary:   ERA - xFIP delta (POSITIVE = unlucky → HIGH sus, buy-low)
+      Secondary: Stuff+ vs league avg 100
+      NEW (P5e): LOB% vs league avg 0.74 (HIGH = strand-rate regression
+                 risk → LOW sustainability)
 
     Returns 0.5 (neutral) when sample size insufficient — small samples
-    are too noisy for either regression signal. Threshold raised from
-    AB > 50 / IP > 20 to AB > 80 / IP > 30 (closer to BABIP/xwOBA
-    stabilization point per Pizza Cutter / Russell Carleton research).
+    are too noisy for either regression signal. Threshold AB > 80 / IP > 30
+    (closer to BABIP/xwOBA stabilization point per Pizza Cutter / Russell
+    Carleton research).
     """
     val = player.get("is_hitter")
     is_hitter = int(val) if val is not None else 1
@@ -542,17 +543,43 @@ def compute_sustainability_score(player: pd.Series) -> float:
         # and delta=-0.030 → ~0.80 (buy-low). Coefficient: 0.7 / 0.030 ≈ 23.
         primary_logit = -23.0 * xwoba_delta
 
-        # Secondary signal: BABIP vs career-typical .300. Lighter weight.
-        h = float(player.get("h", 0) or 0)
-        hr = float(player.get("hr", 0) or 0)
-        sf = float(player.get("sf", 0) or 0)
-        hitter_k = float(player.get("k", 0) or 0)
-        babip = compute_babip(h, hr, ab, hitter_k, sf)
-        # BABIP delta from league average .300 — positive = overperforming.
-        babip_logit = -8.0 * (babip - 0.300)
+        # Secondary signal: BABIP vs career-typical .300 (or career_babip if
+        # supplied). Lighter weight than primary.
+        if "babip" in player.index and player.get("babip") not in (None, 0):
+            # Caller supplied BABIP directly — honor it.
+            babip = float(player.get("babip", 0) or 0)
+        else:
+            h = float(player.get("h", 0) or 0)
+            hr = float(player.get("hr", 0) or 0)
+            sf = float(player.get("sf", 0) or 0)
+            hitter_k = float(player.get("k", 0) or 0)
+            babip = compute_babip(h, hr, ab, hitter_k, sf)
+        # Prefer career_babip baseline when supplied; else .300 league avg.
+        career_babip = float(player.get("career_babip", 0) or 0)
+        babip_baseline = career_babip if career_babip > 0 else 0.300
+        # BABIP delta from baseline — positive = overperforming.
+        babip_logit = -8.0 * (babip - babip_baseline)
 
-        # Combine — primary signal weighted 2x relative to secondary.
-        logit = 2.0 * primary_logit + babip_logit
+        # P5e counting-stat signal: HR/FB%. League avg ~0.13, SD ~0.05.
+        # Positive z-score (e.g. 30% HR/FB) → unsustainable HR rate →
+        # LOWER sustainability. Skip the term entirely when the column
+        # isn't supplied (backward compat with PR5 rate-only behavior).
+        hr_fb_logit = 0.0
+        hr_per_fb_raw = player.get("hr_per_fb")
+        if hr_per_fb_raw not in (None,):
+            try:
+                hr_per_fb = float(hr_per_fb_raw or 0)
+            except (TypeError, ValueError):
+                hr_per_fb = 0.0
+            if hr_per_fb > 0:
+                # z = (hr_per_fb - 0.13) / 0.05. Coefficient -2.0 so that
+                # a +2 SD elevation (HR/FB ~0.23) shifts logit by -4 (~-0.7
+                # in probability space — meaningful but not overwhelming).
+                hr_fb_z = (hr_per_fb - 0.13) / 0.05
+                hr_fb_logit = -2.0 * hr_fb_z
+
+        # Combine — primary signal weighted 2x relative to secondaries.
+        logit = 2.0 * primary_logit + babip_logit + hr_fb_logit
         # Center at sigmoid(0) = 0.5 (neutral when no signal).
         return _sigmoid(logit)
 
@@ -577,7 +604,24 @@ def compute_sustainability_score(player: pd.Series) -> float:
     stuff_plus = float(player.get("stuff_plus", 100.0) or 100.0)
     stuff_logit = (stuff_plus - 100.0) / 20.0  # ±10 Stuff+ ≈ ±0.5 logit shift
 
-    logit = 2.0 * primary_logit + stuff_logit
+    # P5e counting-stat signal: LOB% (strand rate). League avg ~0.74,
+    # SD ~0.04. Positive z (e.g. 0.85 LOB%) → unsustainable strand rate
+    # → regression UP coming → LOWER sustainability. Skip when missing
+    # (backward compat).
+    lob_logit = 0.0
+    lob_pct_raw = player.get("lob_pct")
+    if lob_pct_raw not in (None,):
+        try:
+            lob_pct = float(lob_pct_raw or 0)
+        except (TypeError, ValueError):
+            lob_pct = 0.0
+        if lob_pct > 0:
+            # z = (lob_pct - 0.74) / 0.04. Coefficient -1.5 so that
+            # +2.75 SD elevation (LOB% ~0.85) shifts logit by ~-4.1.
+            lob_z = (lob_pct - 0.74) / 0.04
+            lob_logit = -1.5 * lob_z
+
+    logit = 2.0 * primary_logit + stuff_logit + lob_logit
     return _sigmoid(logit)
 
 
