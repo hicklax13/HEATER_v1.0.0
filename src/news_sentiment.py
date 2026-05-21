@@ -8,9 +8,73 @@ based on common fantasy baseball news patterns.
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 logger = logging.getLogger(__name__)
+
+# ── Suspension parsing (P5d) ─────────────────────────────────────────
+# Yahoo's news pipeline stores free-form text like "Suspended through 5/26"
+# or "Suspended for 6 games". These patterns let us extract a structured
+# `expected_return_days` value that `_il_weight_from_status` can feed
+# into the return-date curve (instead of treating any suspension as
+# season-ending). See `parse_suspension_days` below.
+_SUSPENSION_THROUGH_PATTERN = re.compile(
+    r"suspen[sd]\w*\s+through\s+(\d{1,2})/(\d{1,2})(?:/(\d{2,4}))?",
+    re.IGNORECASE,
+)
+_SUSPENSION_N_GAMES_PATTERN = re.compile(
+    r"suspen[sd]\w*\s+for\s+(\d+)\s+games?",
+    re.IGNORECASE,
+)
+
+
+def parse_suspension_days(text: str | None, reference_date: datetime | None = None) -> int | None:
+    """Parse a suspension end-date or duration from news headline text.
+
+    Returns the number of days from ``reference_date`` until the player
+    returns, clamped to >= 0 (in-the-past dates return 0). Returns None
+    when no suspension pattern matches — caller falls through to other
+    return-date sources (ESPN, status string).
+
+    Patterns recognized:
+      - 'Suspended through MM/DD' or 'MM/DD/YY' → date-based
+      - 'Suspended for N games' → N-day estimate (typical 1-per-day cadence)
+    """
+    if not text or not isinstance(text, str):
+        return None
+    if reference_date is None:
+        reference_date = datetime.now(UTC)
+
+    # Try 'through DATE' pattern first (more specific than game count).
+    m = _SUSPENSION_THROUGH_PATTERN.search(text)
+    if m:
+        try:
+            month = int(m.group(1))
+            day = int(m.group(2))
+            year_str = m.group(3)
+            year = int(year_str) if year_str else reference_date.year
+            if year < 100:
+                year += 2000
+            end_date = datetime(year, month, day, tzinfo=UTC)
+            delta = (end_date - reference_date).total_seconds() / 86400
+            return max(0, int(delta))
+        except (ValueError, AttributeError):
+            pass
+
+    # Try 'for N games' pattern (1 game/day approximation).
+    m = _SUSPENSION_N_GAMES_PATTERN.search(text)
+    if m:
+        try:
+            games = int(m.group(1))
+            if 0 < games <= 365:
+                return games
+        except (ValueError, IndexError):
+            pass
+
+    return None
+
 
 # ── Keyword Dictionaries ─────────────────────────────────────────────
 
