@@ -16,7 +16,7 @@ from datetime import UTC, datetime
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
-from src.analytics_context import AnalyticsContext, DataQuality
+from src.analytics_context import AnalyticsContext, DataQuality, ModuleStatus
 
 logger = logging.getLogger(__name__)
 
@@ -234,18 +234,54 @@ def get_bootstrap_context() -> AnalyticsContext | None:
 
 
 def _stamp_from_result(ctx: AnalyticsContext, source: str, result: str) -> None:
-    """Stamp data source quality from a bootstrap result string."""
+    """Stamp data source quality from a bootstrap result string.
+
+    Logic (inverted from enumerate-success to enumerate-failure):
+    - Explicit error   → MISSING
+    - "no <x>" (empty fetch) → MISSING, except "no duplicates" which is a
+      successful dedup run with nothing to merge → LIVE
+    - "skipped" for bat_speed → omit entirely (permanent pybaseball limit;
+      module still stamped SKIPPED so the badge shows the skip, but it
+      doesn't drag down data_avg)
+    - other "skipped" → STALE (transient, will refresh next bootstrap)
+    - everything else → LIVE (covers "fresh", "saved", "merged",
+      "refreshed", "populated", "flagged", "pitcher positions: N rows
+      enriched", and any future success messages)
+    """
     r = result.lower()
-    if r == "fresh":
-        ctx.stamp_data(source, DataQuality.LIVE, notes="Within staleness threshold")
-    elif r.startswith("saved") or "refreshed" in r or r.startswith("merged"):
-        ctx.stamp_data(source, DataQuality.LIVE, notes=result)
-    elif r.startswith("error") or r.startswith("no "):
+    if r.startswith("error"):
         ctx.stamp_data(source, DataQuality.MISSING, notes=result)
+    elif r == "no duplicates":
+        # Successful dedup run — nothing to merge is a healthy state.
+        ctx.stamp_data(source, DataQuality.LIVE, notes=result)
+    elif r.startswith("no "):
+        ctx.stamp_data(source, DataQuality.MISSING, notes=result)
+    elif r.startswith("skipped") and source == "bat_speed":
+        # Permanent skip — pybaseball doesn't expose this endpoint.
+        # Omit from data_sources so it doesn't penalize data_avg.
+        pass
     elif r.startswith("skipped"):
         ctx.stamp_data(source, DataQuality.STALE, notes=result)
     else:
-        ctx.stamp_data(source, DataQuality.STALE, notes=result)
+        ctx.stamp_data(source, DataQuality.LIVE, notes=result)
+
+
+def _stamp_module_from_result(ctx: AnalyticsContext, source: str, result: str) -> None:
+    """Stamp module execution status from a bootstrap result string.
+
+    EXECUTED: phase ran and produced data (or confirmed data was fresh).
+    SKIPPED:  phase intentionally bypassed (staleness gate or known limit).
+    ERROR:    phase threw or returned an explicit error / empty-fetch string.
+    SKIPPED modules are excluded from module_avg so known permanent skips
+    (bat_speed) don't penalize the quality score.
+    """
+    r = result.lower()
+    if r.startswith("error") or (r.startswith("no ") and r != "no duplicates"):
+        ctx.stamp_module(source, ModuleStatus.ERROR, reason=result)
+    elif r.startswith("skipped"):
+        ctx.stamp_module(source, ModuleStatus.SKIPPED, reason=result)
+    else:
+        ctx.stamp_module(source, ModuleStatus.EXECUTED)
 
 
 @dataclass
@@ -3690,11 +3726,14 @@ def bootstrap_all_data(
     # ensures DataFreshnessTracker reflects the true status of this run.
     _reconcile_results_to_refresh_log(results)
 
-    # Stamp all results into AnalyticsContext for data quality badges
+    # Stamp all results into AnalyticsContext for data quality badges.
+    # _stamp_from_result → data source freshness (LIVE/STALE/MISSING).
+    # _stamp_module_from_result → pipeline execution (EXECUTED/SKIPPED/ERROR).
     global _LAST_BOOTSTRAP_CTX  # noqa: PLW0603
     ctx = AnalyticsContext(pipeline="data_bootstrap")
     for source, result_msg in results.items():
         _stamp_from_result(ctx, source, result_msg)
+        _stamp_module_from_result(ctx, source, result_msg)
     _LAST_BOOTSTRAP_CTX = ctx
 
     # Persist results to disk for post-mortem analysis (SF-14)
