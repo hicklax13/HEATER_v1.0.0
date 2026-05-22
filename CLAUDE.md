@@ -614,6 +614,7 @@ These tests guard against regression of the cleanup work. Adding new code that v
 | `test_drop_candidate_diversity.py` | `_deduplicate_and_limit` walks sorted swaps and produces distinct (add, drop) pairs when alternatives exist (FA PR #110 / P5a — regression guard) |
 | `test_punt_category_awareness.py` | `_score_fa_candidates` overrides `category_weights` to 0.05× for punted categories (from `ctx.h2h_strategy.get("punt", [])` or per-cat `win_prob < 0.10`) (FA PR #110 / P5f) |
 | `test_fa_nan_guard.py` | `_score_fa_candidates` must not raise `ValueError` when FA rows contain NaN `player_id` or NaN `is_hitter` (post-pool-merge left-join artefact). `_is_hitter_safe()` helper guards all 5 int-cast sites; NaN `player_id` rows silently skipped; valid FA rows still score correctly. `compute_sustainability_score` in `waiver_wire.py` also guarded. |
+| `test_no_dna_collision_dedup.py` | `upsert_player_bulk` matches by `mlb_id` first (then name+NULL-mlb_id), so two MLB players sharing a name but with distinct mlb_ids (Muncy LAD vs Muncy ATH, Will Smith LAD vs ATL, etc.) each get their own players row. `deduplicate_players` skips groups where distinct non-null mlb_ids > 1 — preserves same-name-different-mlb_id rows. Backward compat: same-mlb_id + NULL-mlb_id duplicates still merge. Replaces the one-shot `scripts/migrate_muncy_dna_2026_05_21.py` — fix is now self-healing on every bootstrap. |
 
 ## Audit History
 
@@ -733,6 +734,29 @@ Bootstrap diagnostic surfaced 12 distinct issues across HIGH/MEDIUM/LOW severity
 | #110 | FA Engine P5 Bundle: L14 + ROS-scale + diversity + punt (P5b+c+a+f) | Four sequential commits in one PR. L14 wired into `_blend_fa_row` (canonical 0.70/0.20/0.10); ROS scaled by playing-time ratio before blending; drop-candidate diversity regression-guard test; punt-category weight override (`0.05x` for categories with win_prob<10% or explicit punt tag) |
 
 Milestone tag `milestone/2026-05-21-fa-engine-overhaul-complete` marks SHA after PR #110.
+
+**2026-05-21 evening — DNA-collision root-cause fix (post-#110):**
+
+The Muncy DNA migration (PR #104) was a one-shot fix that did not survive subsequent bootstraps. Investigation surfaced two compounding upstream bugs:
+
+- `upsert_player_bulk` in `src/database.py` did SELECT-first by **name only** — collapsed LAD Muncy + ATH Muncy into a single row on every MLB Stats API ingest, with last-write winning the team column.
+- `deduplicate_players` grouped rows by **name only**, then merged genuinely-different MLB players (different mlb_ids) into a single canonical row — destroying the migration's inserted row on every full bootstrap (phase 12 dedup).
+
+Both functions are now `mlb_id`-aware:
+
+- `upsert_player_bulk` matches by `mlb_id` first; falls back to (name + NULL-mlb_id) only for data enrichment of legacy rows. Never collapses rows with distinct non-null mlb_ids.
+- `deduplicate_players` detects same-name groups with >1 distinct non-null mlb_id and skips dedup for those groups (logs an `INFO` line). Same-mlb_id and NULL-mlb_id duplicates still merge (back-compat preserved).
+
+End-to-end behavior on a full bootstrap with this fix:
+
+1. Players phase fetches all MLB players → both LAD Muncy (mlb_id=571970) and ATH Muncy (mlb_id=691777) get separate rows in `players`.
+2. Dedup phase finds the name collision, sees distinct mlb_ids, **skips merge**.
+3. Yahoo roster sync calls `match_player_id('Max Muncy', editorial_team_abbr='LAD')` → (name + team) precise match hits LAD Muncy → `league_rosters.player_id` updated correctly.
+4. FA recommender, lineup optimizer, war room — all downstream consumers reason about the correct player's projections.
+
+Guard test: `tests/test_no_dna_collision_dedup.py` (7 tests; 4 target the bug, 3 lock the back-compat semantics).
+
+`scripts/migrate_muncy_dna_2026_05_21.py` is now redundant — kept for reference but can be removed once verified across fresh installs.
 
 ## Known Design Choices & External Limitations
 

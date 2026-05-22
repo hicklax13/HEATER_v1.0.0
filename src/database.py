@@ -2787,15 +2787,42 @@ def upsert_player_bulk(players: list[dict]) -> int:
     Optional: mlb_id, bats, throws, birth_date, roster_type, level.
 
     Uses SELECT-first approach since players table has no UNIQUE constraint on name.
+
+    Matching precedence (DNA-collision-safe, 2026-05-21 post-PR-#110):
+      1. If incoming mlb_id is non-NULL, look up by mlb_id (unambiguous).
+      2. Else (or if no mlb_id match), fall back to (name, mlb_id IS NULL) —
+         data-enrichment case where a legacy NULL-mlb_id row gets adopted
+         by the API-sourced row.
+      3. Two same-name rows with DIFFERENT non-null mlb_ids are different
+         MLB players (e.g. LAD Max Muncy mlb_id=571970 vs ATH Max Muncy
+         mlb_id=691777) — they must NOT collapse into a single row.
     """
     conn = get_connection()
     try:
         saved = 0
         for p in players:
-            existing = conn.execute(
-                "SELECT player_id FROM players WHERE name = ? COLLATE NOCASE", (p["name"],)
-            ).fetchone()
             mlb_id = p.get("mlb_id")
+            existing = None
+            if mlb_id is not None:
+                # Primary: match by mlb_id (unambiguous; survives DNA collisions)
+                existing = conn.execute("SELECT player_id FROM players WHERE mlb_id = ?", (mlb_id,)).fetchone()
+                if not existing:
+                    # Fallback: same-name with NULL mlb_id is data enrichment
+                    # (a legacy seed row getting upgraded with an API mlb_id).
+                    # Crucially: NOT same-name with a DIFFERENT non-null mlb_id
+                    # — that's a different MLB player.
+                    existing = conn.execute(
+                        "SELECT player_id FROM players WHERE name = ? COLLATE NOCASE AND mlb_id IS NULL",
+                        (p["name"],),
+                    ).fetchone()
+            else:
+                # Caller didn't supply mlb_id (legacy/seed insert).
+                # Match by name; will only collide with other NULL-mlb_id rows
+                # since the API path above already routes mlb_id rows away.
+                existing = conn.execute(
+                    "SELECT player_id FROM players WHERE name = ? COLLATE NOCASE",
+                    (p["name"],),
+                ).fetchone()
             bats = p.get("bats")
             throws = p.get("throws")
             birth_date = p.get("birth_date")
@@ -2901,10 +2928,30 @@ def deduplicate_players() -> dict[str, int]:
 
         for norm_name in dup_names:
             cursor.execute(
-                "SELECT player_id FROM players WHERE LOWER(TRIM(name)) = ? ORDER BY player_id",
+                "SELECT player_id, mlb_id FROM players WHERE LOWER(TRIM(name)) = ? ORDER BY player_id",
                 (norm_name,),
             )
-            ids = [row[0] for row in cursor.fetchall()]
+            rows = cursor.fetchall()
+
+            # DNA-collision guard (2026-05-21 post-PR-#110 follow-up):
+            # Same name with DIFFERENT non-null mlb_ids = DIFFERENT MLB players
+            # (e.g. LAD Max Muncy mlb_id=571970 vs ATH Max Muncy mlb_id=691777).
+            # Merging them corrupts every downstream FA/lineup/optimizer query.
+            # Skip dedup for this name group; both rows persist as separate
+            # players. Same-mlb_id duplicates AND NULL-mlb_id duplicates (legacy
+            # seed data) still merge — back-compat preserved.
+            distinct_mlb_ids = {mlb for _, mlb in rows if mlb is not None}
+            if len(distinct_mlb_ids) > 1:
+                logger.info(
+                    "Dedup skip: '%s' has %d distinct non-null mlb_ids %s "
+                    "— preserving as separate MLB players (DNA collision)",
+                    norm_name,
+                    len(distinct_mlb_ids),
+                    sorted(distinct_mlb_ids),
+                )
+                continue
+
+            ids = [row[0] for row in rows]
             if len(ids) < 2:
                 continue
 
