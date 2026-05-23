@@ -841,9 +841,11 @@ with main:
 
             progress_bar = st.progress(0, text="Syncing roster and building shared data context...")
 
-            # Force roster refresh to ensure current players only
+            # T1.21: use cached roster data. Users can force-refresh via the
+            # "Refresh Yahoo Data" button in the sidebar. Implicit force_refresh
+            # here caused a 159s OAuth hang when the access token expired.
             try:
-                yds.get_rosters(force_refresh=True)
+                yds.get_rosters()
                 roster = get_team_roster(user_team_name)
                 if "name" in roster.columns and "player_name" not in roster.columns:
                     roster = roster.rename(columns={"name": "player_name"})

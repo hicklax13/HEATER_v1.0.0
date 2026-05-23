@@ -52,6 +52,8 @@ def test_no_force_refresh_in_optimize_handler():
         for sub in ast.walk(block):
             if isinstance(sub, ast.Call):
                 for kw in sub.keywords:
+                    # Literal True only — variable-bound force_refresh is not detected,
+                    # but the production pattern is always the literal form.
                     if kw.arg == "force_refresh" and isinstance(kw.value, ast.Constant):
                         if kw.value.value is True:
                             violations.append(f"line {sub.lineno}: {ast.unparse(sub)}")
