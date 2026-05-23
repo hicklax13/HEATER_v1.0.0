@@ -132,6 +132,14 @@ class TradeResult(TypedDict, total=False):
     market_values: dict[int, dict[str, Any]]
     sensitivity_report: dict[str, Any]
 
+    # --- Phase 6: Feature 2 (2026-05-23) Weekly H2H matrix ---
+    # Per report Section B.5 — 26-week × 12-cat win-probability matrix.
+    # Present only when enable_weekly_matrix=True AND weekly_schedule +
+    # league_rosters are provided. Dict with keys: before (pd.DataFrame),
+    # after (pd.DataFrame), delta (pd.DataFrame), schedule (dict),
+    # summary (pd.DataFrame), method (str), cv_used (dict).
+    weekly_matrix: dict[str, Any]
+
     # --- Transparency ---
     analytics_context: Any  # AnalyticsContext (avoid import cycle)
 

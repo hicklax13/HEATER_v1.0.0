@@ -599,6 +599,9 @@ def evaluate_trade(
     enable_context: bool = True,
     enable_game_theory: bool = True,
     apply_ytd_blend: bool = True,
+    enable_weekly_matrix: bool = False,
+    weekly_schedule: dict[int, str] | None = None,
+    league_rosters: dict[str, list[int]] | None = None,
 ) -> TradeResult:
     """Full trade evaluation using Phase 1-5 engine pipeline.
 
@@ -1250,6 +1253,37 @@ def evaluate_trade(
         else:
             _mod_mc.status = ModuleStatus.DISABLED
             _mod_mc.fallback_reason = "enable_mc=False (default)"
+
+    # Feature 2 (2026-05-23): Weekly H2H win-probability matrix.
+    # Per report Section B.5 — for each remaining matchup week, the
+    # probability of winning each category against the scheduled opponent.
+    # Surfaces playoff-week asymmetries that the surplus_sgp scalar can't
+    # capture (e.g. "this trade helps weeks 8-12 but hurts weeks 24-26").
+    # Opt-in via enable_weekly_matrix=True; requires weekly_schedule
+    # (Yahoo schedule lookup) and league_rosters (for opponent means).
+    with ctx.track_module("phase6_weekly_matrix") as _mod_wm:
+        if enable_weekly_matrix:
+            if weekly_schedule and league_rosters:
+                from src.engine.output.weekly_matrix import compute_trade_weekly_delta
+
+                wm = compute_trade_weekly_delta(
+                    before_roster_ids=before_ids,
+                    after_roster_ids=after_ids,
+                    player_pool=player_pool,
+                    schedule=weekly_schedule,
+                    all_team_rosters=league_rosters,
+                    config=config,
+                )
+                result["weekly_matrix"] = wm
+                _mod_wm.influence = 0.6
+            else:
+                _mod_wm.status = ModuleStatus.FALLBACK
+                _mod_wm.fallback_reason = (
+                    "enable_weekly_matrix=True but weekly_schedule or league_rosters is None — skipping matrix"
+                )
+        else:
+            _mod_wm.status = ModuleStatus.DISABLED
+            _mod_wm.fallback_reason = "enable_weekly_matrix=False (default)"
 
     # Attach transparency context for UI badge rendering
     result["analytics_context"] = ctx

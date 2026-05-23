@@ -175,6 +175,25 @@ def main() -> None:
     print(f"  RECV: {', '.join(top_trade.get('receiving_names', []))}")
     print()
 
+    # Feature 2: build a synthetic schedule by rotating the 11 opposing
+    # teams across the remaining weeks. The REAL Yahoo schedule would come
+    # from yds.get_schedule() — synthetic is fine for demonstrating the
+    # matrix shape and engine wiring.
+    from datetime import datetime, timedelta, timezone
+
+    _ET = timezone(timedelta(hours=-4))
+    _now = datetime.now(_ET)
+    _season_start = datetime(2026, 3, 25, tzinfo=_ET)
+    _current_week = max(1, ((_now - _season_start).days // 7) + 1)
+    opp_teams = [t for t in rosters if t != USER_TEAM]
+    remaining_weeks = list(range(_current_week, config.season_weeks + 1))
+    synthetic_schedule = {wk: opp_teams[(wk - _current_week) % len(opp_teams)] for wk in remaining_weeks}
+    print(
+        f"  Synthetic schedule: weeks {_current_week}-{config.season_weeks} "
+        f"({len(remaining_weeks)} weeks, rotating {len(opp_teams)} opponents)"
+    )
+    print()
+
     result = evaluate_trade(
         giving_ids=top_trade["giving_ids"],
         receiving_ids=top_trade["receiving_ids"],
@@ -187,6 +206,9 @@ def main() -> None:
         enable_context=True,
         enable_game_theory=True,
         apply_ytd_blend=True,
+        enable_weekly_matrix=True,
+        weekly_schedule=synthetic_schedule,
+        league_rosters=rosters,
     )
 
     _print_subheader("Headline decision signals (Phase 1 weighted SGP — AUTHORITY)")
@@ -317,6 +339,36 @@ def main() -> None:
     _print_subheader("Punt categories")
     print(f"  {result.get('punt_categories', [])}")
 
+    # Feature 2 (2026-05-23): Weekly H2H matrix
+    wm = result.get("weekly_matrix")
+    if wm:
+        _print_subheader("Weekly H2H win-probability matrix (Feature 2 — report Section B.5)")
+        summary = wm.get("summary")
+        if summary is not None and not summary.empty:
+            print(f"  Method: {wm.get('method')}  |  Weeks: {len(summary)}")
+            print()
+            print(f"  {'Week':<5} {'Opponent':<30} {'Cats Before':<13} {'Cats After':<12} {'Δ Cats':<10}")
+            print(f"  {'-' * 5} {'-' * 30} {'-' * 13} {'-' * 12} {'-' * 10}")
+            for wk, row in summary.iterrows():
+                opp = str(row.get("opponent", "?"))[:30]
+                cb = row.get("expected_cat_wins_before", 0)
+                ca = row.get("expected_cat_wins_after", 0)
+                dc = row.get("delta_cat_wins", 0)
+                marker = "↑" if dc > 0.05 else ("↓" if dc < -0.05 else "·")
+                print(f"  {wk:<5} {opp:<30} {cb:>10.2f}    {ca:>10.2f}   {marker} {dc:+.2f}")
+            print()
+            # Show the worst- and best-impact weeks for the trade
+            sorted_delta = summary.sort_values("delta_cat_wins")
+            worst = sorted_delta.iloc[0]
+            best = sorted_delta.iloc[-1]
+            print(
+                f"  WORST week impact: week {worst.name} vs {worst['opponent']}: "
+                f"Δ={worst['delta_cat_wins']:+.2f} cat wins"
+            )
+            print(
+                f"  BEST week impact:  week {best.name} vs {best['opponent']}: Δ={best['delta_cat_wins']:+.2f} cat wins"
+            )
+
     _print_header("STEP 4: Gap analysis vs Enhanced Trade Engine spec")
     print()
     print("  Outputs the current engine PRODUCED:")
@@ -330,14 +382,14 @@ def main() -> None:
     print("    ✓ Roster reshuffle transparency (LP promote/demote)")
     print("    ✓ Punt-category awareness")
     print()
-    print("  Outputs the report's HCV-Hybrid would ALSO produce — and current doesn't:")
-    print("    ✗ ΔΠ_playoff (probability of making top-4) — NOT computed")
-    print("    ✗ ΔΠ_champ (probability of winning championship) — NOT computed")
-    print("    ✗ Weekly 26×12 win-probability matrix p_{w,c} — NOT computed")
-    print("    ✗ IP-floor penalty (κ × (20 - IP_w)²) — NOT applied to this trade")
+    print("  Outputs the report's HCV-Hybrid would ALSO produce:")
+    print("    ✓ IP-floor penalty (κ × (20 - IP_w)²) — Feature 1 SHIPPED")
+    print("    ✓ Weekly 26×12 win-probability matrix p_{w,c} — Feature 2 SHIPPED")
+    print("    ⏳ ΔΠ_playoff (probability of making top-4) — Feature 3 in progress")
+    print("    ⏳ ΔΠ_champ (probability of winning championship) — Feature 3 in progress")
     print("    ✗ G-score (Rosenof) — current uses pure z-scores with σ*=0")
     print("    ✗ Dynamic Markov FA replacement — current uses static best-current-FA")
-    print("    ✗ Bracket simulation for top-4 playoff — not modeled")
+    print("    ✗ Bracket simulation for top-4 playoff — Feature 3 in progress")
     print("    ✗ Three-horizon split (pre-deadline / regular / playoff window)")
     print()
     print("  Key question for the user: which of these missing outputs would have")
