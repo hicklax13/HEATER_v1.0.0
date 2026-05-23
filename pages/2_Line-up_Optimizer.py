@@ -790,6 +790,37 @@ with ctx:
 
     render_context_card("Data Freshness", _freshness_html)
 
+    # T1.21: explicit refresh button replaces the implicit force_refresh=True
+    # that used to live in the optimize click path. Users now control when
+    # Yahoo is force-refreshed; optimize uses cached data otherwise.
+    if st.button(
+        "Refresh Yahoo Data",
+        key="lineup_refresh_yahoo",
+        help=(
+            "Force-refresh rosters, standings, matchup, free agents, and "
+            "transactions from Yahoo. Use when you've made changes in the "
+            "Yahoo app (added/dropped a player, set lineup, etc.) and want "
+            "HEATER to see them immediately. Otherwise leave alone — "
+            "optimize uses cached data."
+        ),
+        width="stretch",
+    ):
+        with st.spinner("Refreshing Yahoo data (rosters, standings, matchup, FAs)..."):
+            try:
+                from src.yahoo_data_service import get_yahoo_data_service
+
+                _refresh_results = get_yahoo_data_service().force_refresh_all()
+                _ok = sum(1 for v in _refresh_results.values() if v == "Refreshed")
+                _total = len(_refresh_results)
+                if _ok == _total:
+                    st.success(f"Refreshed {_ok}/{_total} Yahoo data types.")
+                else:
+                    _problems = {k: v for k, v in _refresh_results.items() if v != "Refreshed"}
+                    st.warning(f"Refreshed {_ok}/{_total}. Issues: {_problems}")
+            except Exception as _refresh_err:
+                st.error(f"Refresh failed: {_refresh_err}")
+        st.rerun()
+
 
 # ── Main content panel ───────────────────────────────────────────────
 
