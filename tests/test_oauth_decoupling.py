@@ -16,6 +16,8 @@ import time
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PAGE_PATH = REPO_ROOT / "pages" / "2_Line-up_Optimizer.py"
 YDS_PATH = REPO_ROOT / "src" / "yahoo_data_service.py"
@@ -95,6 +97,7 @@ def test_refresh_yahoo_button_present():
     )
 
 
+@pytest.mark.timeout(25)
 def test_get_cached_times_out_when_yahoo_hangs():
     """YahooDataService._get_cached must NOT hang forever when fetch_fn
     is slow (T1.21 root cause: yfpy OAuth retry loop can take 100s+).
@@ -125,19 +128,31 @@ def test_get_cached_times_out_when_yahoo_hangs():
     def fast_fallback():
         return pd.DataFrame({"team_name": ["Cached"]})
 
-    start = time.time()
-    result = service._get_cached(
-        key="test_hang",
-        ttl=300,
-        fetch_fn=slow_fetch,
-        db_fallback_fn=fast_fallback,
-        force=True,  # force=True so we definitely call fetch_fn
-    )
-    elapsed = time.time() - start
+    try:
+        start = time.time()
+        result = service._get_cached(
+            key="test_hang",
+            ttl=300,
+            fetch_fn=slow_fetch,
+            db_fallback_fn=fast_fallback,
+            force=True,  # force=True so we definitely call fetch_fn
+        )
+        elapsed = time.time() - start
 
-    assert elapsed < 20, (
-        f"_get_cached blocked for {elapsed:.1f}s when fetch_fn was slow. "
-        f"Expected <20s (15s budget + 5s grace). Timeout protection is missing."
-    )
-    assert not result.empty, "Expected fallback DataFrame, got empty"
-    assert result.iloc[0]["team_name"] == "Cached", f"Expected fallback 'Cached', got '{result.iloc[0]['team_name']}'"
+        assert elapsed < 20, (
+            f"_get_cached blocked for {elapsed:.1f}s when fetch_fn was slow. "
+            f"Expected <20s (15s budget + 5s grace). Timeout protection is missing."
+        )
+        assert not result.empty, "Expected fallback DataFrame, got empty"
+        assert result.iloc[0]["team_name"] == "Cached", (
+            f"Expected fallback 'Cached', got '{result.iloc[0]['team_name']}'"
+        )
+    finally:
+        # Clean up the module-level _fallback_store so we don't leak the
+        # "_yds_test_test_hang" cache entry to later tests in the same session.
+        try:
+            from src.yahoo_data_service import _fallback_store
+
+            _fallback_store.pop("_yds_test_test_hang", None)
+        except Exception:
+            pass
