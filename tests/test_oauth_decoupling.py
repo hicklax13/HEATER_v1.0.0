@@ -12,7 +12,9 @@ control via the "Refresh Yahoo Data" button.
 from __future__ import annotations
 
 import ast
+import time
 from pathlib import Path
+from unittest.mock import MagicMock
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PAGE_PATH = REPO_ROOT / "pages" / "2_Line-up_Optimizer.py"
@@ -91,3 +93,51 @@ def test_refresh_yahoo_button_present():
         "The 'Refresh Yahoo Data' button must call yds.force_refresh_all() "
         "so all 7 data caches are invalidated, not just one."
     )
+
+
+def test_get_cached_times_out_when_yahoo_hangs():
+    """YahooDataService._get_cached must NOT hang forever when fetch_fn
+    is slow (T1.21 root cause: yfpy OAuth retry loop can take 100s+).
+
+    When fetch_fn exceeds the 15-second budget, _get_cached must fall
+    back to the db_fallback_fn return value rather than blocking the
+    page render.
+    """
+    import pandas as pd
+
+    from src.yahoo_data_service import YahooDataService
+
+    # Mock client that pretends to be connected
+    mock_client = MagicMock()
+    mock_client.is_authenticated = True
+
+    service = YahooDataService.__new__(YahooDataService)
+    service._client = mock_client
+    service._stats = MagicMock()
+    service._PREFIX = "_yds_test_"
+
+    # Slow fetch (would take 60s)
+    def slow_fetch():
+        time.sleep(60)
+        return pd.DataFrame({"team_name": ["Hung"]})
+
+    # Fast fallback
+    def fast_fallback():
+        return pd.DataFrame({"team_name": ["Cached"]})
+
+    start = time.time()
+    result = service._get_cached(
+        key="test_hang",
+        ttl=300,
+        fetch_fn=slow_fetch,
+        db_fallback_fn=fast_fallback,
+        force=True,  # force=True so we definitely call fetch_fn
+    )
+    elapsed = time.time() - start
+
+    assert elapsed < 20, (
+        f"_get_cached blocked for {elapsed:.1f}s when fetch_fn was slow. "
+        f"Expected <20s (15s budget + 5s grace). Timeout protection is missing."
+    )
+    assert not result.empty, "Expected fallback DataFrame, got empty"
+    assert result.iloc[0]["team_name"] == "Cached", f"Expected fallback 'Cached', got '{result.iloc[0]['team_name']}'"
