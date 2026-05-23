@@ -72,7 +72,7 @@ def _starter_pool() -> pd.DataFrame:
 def test_compute_weekly_ip_full_staff() -> None:
     pool = _starter_pool()
     # All 4 starters
-    weekly = _compute_weekly_ip([1, 2, 3, 4], pool, season_weeks=26)
+    weekly = _compute_weekly_ip([1, 2, 3, 4], pool, weeks_remaining=26)
     # 720 IP / 26 weeks = 27.69
     assert abs(weekly - 27.6923) < 0.001
 
@@ -80,7 +80,7 @@ def test_compute_weekly_ip_full_staff() -> None:
 def test_compute_weekly_ip_partial_staff() -> None:
     pool = _starter_pool()
     # Only 2 starters
-    weekly = _compute_weekly_ip([1, 2], pool, season_weeks=26)
+    weekly = _compute_weekly_ip([1, 2], pool, weeks_remaining=26)
     # 360 / 26 = 13.85
     assert abs(weekly - 13.846) < 0.001
 
@@ -88,7 +88,7 @@ def test_compute_weekly_ip_partial_staff() -> None:
 def test_compute_weekly_ip_hitters_only_zero() -> None:
     pool = _starter_pool()
     # Only hitters → 0 IP
-    weekly = _compute_weekly_ip([5, 6, 7], pool, season_weeks=26)
+    weekly = _compute_weekly_ip([5, 6, 7], pool, weeks_remaining=26)
     assert weekly == 0.0
 
 
@@ -107,7 +107,7 @@ def test_delta_trade_worsens_ip_produces_penalty() -> None:
         before_starter_ids=[1, 2, 3, 4],
         after_starter_ids=[1, 2],
         player_pool=pool,
-        season_weeks=26,
+        weeks_remaining=26,
     )
     assert delta > 0, "Losing 2 starters must produce a positive delta penalty"
     assert detail["before_weekly_ip"] > 20
@@ -126,7 +126,7 @@ def test_delta_trade_stays_above_floor_zero_penalty() -> None:
         before_starter_ids=[1, 2, 3, 4],
         after_starter_ids=[1, 2, 3, 4],  # same staff
         player_pool=pool,
-        season_weeks=26,
+        weeks_remaining=26,
     )
     assert delta == 0.0
     assert detail["below_floor"] is False
@@ -139,7 +139,7 @@ def test_delta_trade_improves_ip_no_negative_bonus() -> None:
         before_starter_ids=[1, 2],  # 13.85 IP/w (below)
         after_starter_ids=[1, 2, 3, 4],  # 27.7 IP/w (above)
         player_pool=pool,
-        season_weeks=26,
+        weeks_remaining=26,
     )
     assert delta == 0.0, "Improving IP must not produce a negative 'bonus'"
     assert detail["before_penalty"] > 0
@@ -153,10 +153,77 @@ def test_delta_already_below_unchanged_zero_penalty() -> None:
         before_starter_ids=[1, 2],
         after_starter_ids=[1, 2],
         player_pool=pool,
-        season_weeks=26,
+        weeks_remaining=26,
     )
     assert delta == 0.0, "If trade doesn't worsen IP, no marginal penalty"
     assert detail["below_floor"] is True  # still flag the situation
+
+
+# ── Bug F regression: ROS-aware IP scaling ──────────────────────────
+
+
+def test_bug_f_ros_aware_uses_ip_minus_ytd_ip() -> None:
+    """Bug F: when ytd_ip column exists, weekly = (ip - ytd_ip) / weeks_remaining.
+
+    Pre-fix: divided full-season ip by 26 → 8.11 IP/week mid-season (wrong).
+    Post-fix: subtracts ytd_ip first, then divides by weeks_remaining.
+    """
+    # Pitcher with 180 IP full-season projection, 60 IP already accrued.
+    # ROS = 120 IP. With 18 weeks remaining → 6.67 IP/week (matches the
+    # forward-looking rate the IP floor actually cares about).
+    pool = pd.DataFrame(
+        [
+            {
+                "player_id": 1,
+                "name": "Mid_season_pitcher",
+                "is_hitter": 0,
+                "ip": 180.0,
+                "ytd_ip": 60.0,
+            }
+        ]
+    )
+    weekly = _compute_weekly_ip([1], pool, weeks_remaining=18)
+    # ROS = 180 - 60 = 120. 120 / 18 = 6.67
+    assert abs(weekly - 6.6667) < 0.001, f"Bug F regression: expected ROS = (180 - 60) / 18 = 6.67, got {weekly:.4f}"
+
+
+def test_bug_f_ros_floored_at_zero_for_overperformers() -> None:
+    """If YTD already exceeded blended projection (over-performer), ROS = 0,
+    not negative."""
+    pool = pd.DataFrame(
+        [
+            {
+                "player_id": 1,
+                "name": "Overperformer",
+                "is_hitter": 0,
+                "ip": 100.0,
+                "ytd_ip": 150.0,  # exceeded blend
+            }
+        ]
+    )
+    weekly = _compute_weekly_ip([1], pool, weeks_remaining=18)
+    assert weekly == 0.0, "Negative ROS must be floored at 0, not contribute"
+
+
+def test_bug_f_no_ytd_column_falls_back_to_full_ip() -> None:
+    """When ytd_ip column is missing (preseason mode), `ip` IS already ROS."""
+    pool = pd.DataFrame([{"player_id": 1, "name": "Preseason_pitcher", "is_hitter": 0, "ip": 180.0}])
+    weekly = _compute_weekly_ip([1], pool, weeks_remaining=26)
+    # No ytd subtraction available; treat full ip as the projection
+    assert abs(weekly - (180.0 / 26.0)) < 0.001
+
+
+def test_bug_f_weeks_remaining_in_detail() -> None:
+    """Detail dict must surface the weeks_remaining used for the computation
+    (so the UI can show 'using N weeks remaining' for transparency)."""
+    pool = _starter_pool()
+    _, detail = _compute_ip_floor_penalty(
+        before_starter_ids=[1, 2, 3, 4],
+        after_starter_ids=[1, 2],
+        player_pool=pool,
+        weeks_remaining=18,
+    )
+    assert detail["weeks_remaining"] == 18
 
 
 # ── Integration test: evaluate_trade end-to-end ─────────────────────

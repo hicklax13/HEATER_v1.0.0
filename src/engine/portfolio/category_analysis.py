@@ -252,11 +252,23 @@ def category_gap_analysis(
 
 def build_standings_totals(
     standings: pd.DataFrame,
+    valid_teams: set[str] | None = None,
 ) -> dict[str, dict[str, float]]:
     """Convert standings DataFrame to the all_team_totals dict format.
 
+    Bug D (2026-05-23 validation): the standings table can contain rows
+    that don't correspond to real league teams (renamed/abandoned teams
+    that linger in the standings cache, or aggregate rows like 'League
+    Average'). When those leak into the team-totals dict, downstream
+    rank calculations produce off-by-one outputs like 'Ranked 13th in SB'
+    in a 12-team league. Pass ``valid_teams`` (typically the keys of
+    league_rosters) to filter out ghost rows.
+
     Args:
         standings: DataFrame with columns: team_name, category, total.
+        valid_teams: Optional whitelist of real team names. When provided,
+            rows whose ``team_name`` is not in the set are silently dropped.
+            When ``None``, all rows pass through (legacy behavior).
 
     Returns:
         Dict mapping team_name -> {category: total}.
@@ -267,6 +279,8 @@ def build_standings_totals(
     totals: dict[str, dict[str, float]] = {}
     for _, row in standings.iterrows():
         team = str(row["team_name"])
+        if valid_teams is not None and team not in valid_teams:
+            continue
         cat = str(row["category"])
         total = float(row.get("total", 0) or 0)
         if team not in totals:

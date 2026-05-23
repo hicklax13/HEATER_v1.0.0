@@ -175,23 +175,39 @@ def main() -> None:
     print(f"  RECV: {', '.join(top_trade.get('receiving_names', []))}")
     print()
 
-    # Feature 2: build a synthetic schedule by rotating the 11 opposing
-    # teams across the remaining weeks. The REAL Yahoo schedule would come
-    # from yds.get_schedule() — synthetic is fine for demonstrating the
-    # matrix shape and engine wiring.
-    from datetime import datetime, timedelta, timezone
+    # Feature 2 + 3 schedule: prefer the REAL Yahoo schedule loaded into the
+    # league_schedule DB table (24 weeks of opponent matchups for Team Hickey
+    # post-sync). Falls back to synthetic rotation if the table is empty.
+    from src.database import load_league_schedule
 
-    _ET = timezone(timedelta(hours=-4))
-    _now = datetime.now(_ET)
-    _season_start = datetime(2026, 3, 25, tzinfo=_ET)
-    _current_week = max(1, ((_now - _season_start).days // 7) + 1)
-    opp_teams = [t for t in rosters if t != USER_TEAM]
-    remaining_weeks = list(range(_current_week, config.season_weeks + 1))
-    synthetic_schedule = {wk: opp_teams[(wk - _current_week) % len(opp_teams)] for wk in remaining_weeks}
-    print(
-        f"  Synthetic schedule: weeks {_current_week}-{config.season_weeks} "
-        f"({len(remaining_weeks)} weeks, rotating {len(opp_teams)} opponents)"
-    )
+    real_schedule = load_league_schedule()
+    if real_schedule:
+        # Filter to remaining weeks only (matchups already played don't matter)
+        from datetime import datetime, timedelta, timezone
+
+        _ET = timezone(timedelta(hours=-4))
+        _now = datetime.now(_ET)
+        _season_start = datetime(2026, 3, 25, tzinfo=_ET)
+        _current_week = max(1, ((_now - _season_start).days // 7) + 1)
+        synthetic_schedule = {w: opp for w, opp in real_schedule.items() if w >= _current_week}
+        print(
+            f"  Real Yahoo schedule: weeks {_current_week}-{max(synthetic_schedule)} "
+            f"({len(synthetic_schedule)} remaining matchups)"
+        )
+    else:
+        from datetime import datetime, timedelta, timezone
+
+        _ET = timezone(timedelta(hours=-4))
+        _now = datetime.now(_ET)
+        _season_start = datetime(2026, 3, 25, tzinfo=_ET)
+        _current_week = max(1, ((_now - _season_start).days // 7) + 1)
+        opp_teams = [t for t in rosters if t != USER_TEAM]
+        remaining_weeks = list(range(_current_week, config.season_weeks + 1))
+        synthetic_schedule = {wk: opp_teams[(wk - _current_week) % len(opp_teams)] for wk in remaining_weeks}
+        print(
+            f"  Synthetic schedule fallback (no league_schedule data): weeks "
+            f"{_current_week}-{config.season_weeks} ({len(remaining_weeks)} weeks)"
+        )
     print()
 
     # Feature 3: build current_wins dict for playoff sim from standings
