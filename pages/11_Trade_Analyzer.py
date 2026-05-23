@@ -251,6 +251,56 @@ else:
 
                         from src.validation.dynamic_context import compute_weeks_remaining
 
+                        # 2026-05-23: load Yahoo schedule + league rosters + current
+                        # wins for Features 2 (weekly matrix) + 3 (playoff sim).
+                        # Best-effort — if any source fails we still produce the
+                        # core trade evaluation; the affected feature is skipped.
+                        _weekly_schedule: dict[int, str] | None = None
+                        _league_rosters: dict[str, list[int]] | None = None
+                        _current_wins: dict[str, int] | None = None
+                        try:
+                            from src.database import (
+                                get_connection,
+                                load_league_schedule,
+                                load_league_standings,
+                            )
+
+                            _weekly_schedule = load_league_schedule() or None
+                            _conn = get_connection()
+                            try:
+                                import pandas as pd
+
+                                _lr_df = pd.read_sql_query(
+                                    "SELECT team_name, player_id FROM league_rosters WHERE player_id IS NOT NULL",
+                                    _conn,
+                                )
+                            finally:
+                                _conn.close()
+                            if not _lr_df.empty:
+                                _league_rosters = {}
+                                for _tn, _grp in _lr_df.groupby("team_name"):
+                                    _league_rosters[str(_tn)] = _grp["player_id"].astype(int).tolist()
+                            _standings = load_league_standings()
+                            if not _standings.empty:
+                                _wins_rows = _standings[_standings["category"] == "WINS"]
+                                if not _wins_rows.empty:
+                                    _current_wins = {
+                                        str(r["team_name"]): int(r["total"]) for _, r in _wins_rows.iterrows()
+                                    }
+                        except Exception as _ctx_exc:
+                            import logging
+
+                            logging.getLogger(__name__).warning(
+                                "Trade Analyzer: failed to load schedule/rosters/wins "
+                                "for Features 2/3 wiring (%s) — proceeding without",
+                                _ctx_exc,
+                            )
+
+                        # Both Features 2 + 3 require schedule + rosters; F3 also
+                        # needs current_wins + user_team_name. Wire what we have.
+                        _enable_wm = bool(_weekly_schedule and _league_rosters)
+                        _enable_ps = bool(_weekly_schedule and _league_rosters and _current_wins and user_team_name)
+
                         result = evaluate_trade(
                             giving_ids=giving_ids,
                             receiving_ids=receiving_ids,
@@ -259,6 +309,12 @@ else:
                             config=config,
                             user_team_name=user_team_name,
                             weeks_remaining=compute_weeks_remaining(),
+                            enable_weekly_matrix=_enable_wm,
+                            enable_playoff_sim=_enable_ps,
+                            weekly_schedule=_weekly_schedule,
+                            league_rosters=_league_rosters,
+                            current_wins=_current_wins,
+                            playoff_n_sims=20_000,
                         )
                         engine_used = "phase1"
                     except Exception as e:
@@ -323,6 +379,56 @@ else:
                             f'<div style="font-size:20px;font-family:Bebas Neue,sans-serif;color:{surplus_color};">{surplus:+.2f}</div>',
                         )
 
+                    # ── Feature 3 (2026-05-23): Playoff + Championship probability ──
+                    # Per the Enhanced Trade Engine report Q(a), this is the engine's
+                    # PRIMARY objective. Render ABOVE the SGP-grade verdict so the user
+                    # sees title-odds impact first, with SGP as the interpretable diagnostic.
+                    if "playoff_sim" in result:
+                        ps = result["playoff_sim"]
+                        before = ps.get("before", {})
+                        after = ps.get("after", {})
+                        d_play = result.get("delta_playoff_prob", 0.0)
+                        d_champ = result.get("delta_champ_prob", 0.0)
+
+                        st.markdown(
+                            '<div style="font-family:Bebas Neue,sans-serif;font-size:18px;'
+                            'color:#9ca3af;letter-spacing:2px;margin-top:8px;">'
+                            "PRIMARY OBJECTIVE — Δ TITLE ODDS</div>",
+                            unsafe_allow_html=True,
+                        )
+                        pc1, pc2, pc3 = st.columns(3)
+                        pc1.metric(
+                            "P(make playoffs / top-4)",
+                            f"{after.get('playoff_prob', 0):.1%}",
+                            delta=f"{d_play:+.2%}",
+                            delta_color="normal",
+                            help=(
+                                "Monte-Carlo simulated probability of finishing top-4. "
+                                "Delta = after-trade minus before-trade. Negative = trade "
+                                "hurts your playoff odds. Report Section B.10 + Q(a)."
+                            ),
+                        )
+                        pc2.metric(
+                            "P(win championship)",
+                            f"{after.get('champ_prob', 0):.1%}",
+                            delta=f"{d_champ:+.2%}",
+                            delta_color="normal",
+                            help=(
+                                "Joint probability of (a) finishing top-4 AND (b) winning "
+                                "the 2-round bracket (1v4, 2v3, re-seeded final). "
+                                "20,000 MC sims with paired-MC discipline."
+                            ),
+                        )
+                        pc3.metric(
+                            "E[additional regular-season wins]",
+                            f"{after.get('mean_regular_season_wins', 0):.1f}",
+                            delta=f"{after.get('mean_regular_season_wins', 0) - before.get('mean_regular_season_wins', 0):+.1f}",
+                            delta_color="normal",
+                            help=(
+                                "Expected matchup wins over remaining weeks (per the schedule-aware weekly H2H matrix)."
+                            ),
+                        )
+
                     # Verdict banner
                     if result["verdict"] == "ACCEPT":
                         color = T["ok"]
@@ -364,6 +470,33 @@ else:
                     )
                     verdict_key = "trade_verdict" if engine_used == "phase1" else "trade_verdict_legacy"
                     st.caption(METRIC_TOOLTIPS[verdict_key])
+
+                    # ── Feature 1 (2026-05-23): IP-floor status indicator ──
+                    # When projected weekly IP drops below the 20 IP/week Yahoo floor,
+                    # surface it as an inline warning. Adapts text based on whether the
+                    # trade caused the shortfall (delta > 0) or it pre-existed (delta == 0).
+                    _ip_detail = result.get("ip_floor_detail", {}) or {}
+                    if _ip_detail.get("below_floor"):
+                        _post_ip = _ip_detail.get("after_weekly_ip", 0.0)
+                        _floor = _ip_detail.get("threshold_ip_per_week", 20.0)
+                        _delta_pen = _ip_detail.get("delta_penalty", 0.0)
+                        _wks_rem = _ip_detail.get("weeks_remaining", "?")
+                        if _delta_pen > 0:
+                            st.error(
+                                f"⚠ **IP floor breach (trade-caused)** — post-trade "
+                                f"weekly IP **{_post_ip:.1f}** below the {_floor:.0f} IP/week "
+                                f"Yahoo floor. SGP penalty of **{_delta_pen:.2f}** applied. "
+                                f"At this rate, Yahoo will convert pitching-cat shortfall to "
+                                f"losses. (Using {_wks_rem} weeks remaining.)"
+                            )
+                        else:
+                            st.warning(
+                                f"⚠ **IP floor warning (pre-existing)** — weekly IP "
+                                f"**{_post_ip:.1f}** is already below the {_floor:.0f} IP/week "
+                                f"Yahoo floor. This trade doesn't worsen the situation, but "
+                                f"your pitching cats are at risk of converting to losses. "
+                                f"Consider adding pitching volume via FA pickups."
+                            )
 
                     # Warn when standings data is absent or not yet meaningful
                     _standings_state = _standings_data_state()
@@ -427,6 +560,76 @@ else:
                         if result.get("punt_categories"):
                             punt_text = ", ".join(result["punt_categories"])
                             st.info(f"Punted categories (zero-weighted): {punt_text}")
+
+                        # ── Feature 2 (2026-05-23): Weekly H2H matrix ──
+                        # Per report Section B.5 — for each remaining week + cat,
+                        # P(win) before vs after the trade. Negative delta = trade
+                        # hurts you that week. Surfaces playoff-window asymmetry
+                        # the SGP scalar can't see.
+                        _wm = result.get("weekly_matrix")
+                        if _wm and "summary" in _wm:
+                            with st.expander(
+                                f"📅 Weekly H2H impact (Feature 2 — {len(_wm['summary'])} weeks)",
+                                expanded=False,
+                            ):
+                                st.caption(
+                                    f"Per-week expected category wins (of 12) before and after the trade, "
+                                    f"against the actual Yahoo schedule. Method: {_wm.get('method', '?')}. "
+                                    f"Use the heatmap below to spot playoff-window vs regular-season asymmetry."
+                                )
+                                _summary = _wm["summary"].copy()
+                                # Round for display
+                                if "expected_cat_wins_before" in _summary.columns:
+                                    _summary["expected_cat_wins_before"] = _summary["expected_cat_wins_before"].round(2)
+                                    _summary["expected_cat_wins_after"] = _summary["expected_cat_wins_after"].round(2)
+                                    _summary["delta_cat_wins"] = _summary["delta_cat_wins"].round(2)
+                                st.dataframe(_summary, use_container_width=True)
+
+                                # Heatmap of the delta matrix (weeks × cats)
+                                try:
+                                    import plotly.express as px
+
+                                    _delta_df = _wm["delta"]
+                                    fig_hm = px.imshow(
+                                        _delta_df.astype(float),
+                                        labels=dict(x="Category", y="Week", color="Δ win probability"),
+                                        x=list(_delta_df.columns),
+                                        y=list(_delta_df.index),
+                                        color_continuous_scale="RdYlGn",
+                                        color_continuous_midpoint=0,
+                                        aspect="auto",
+                                    )
+                                    fig_hm.update_layout(
+                                        height=480,
+                                        margin=dict(l=40, r=40, t=30, b=40),
+                                        template="plotly_white",
+                                    )
+                                    st.plotly_chart(fig_hm, use_container_width=True)
+                                    st.caption(
+                                        "Green = trade helps you in that week+category. "
+                                        "Red = trade hurts. Look for asymmetry between "
+                                        "regular-season weeks and the playoff window (weeks 24-26)."
+                                    )
+                                except ImportError:
+                                    pass  # plotly not available — table alone is fine
+
+                                # Worst/best week callouts
+                                _sorted = _summary.sort_values("delta_cat_wins")
+                                _worst = _sorted.iloc[0]
+                                _best = _sorted.iloc[-1]
+                                wcol, bcol = st.columns(2)
+                                wcol.metric(
+                                    f"Worst week impact (vs {_worst.get('opponent', '?')})",
+                                    f"week {_worst.name}",
+                                    delta=f"{_worst['delta_cat_wins']:+.2f} cat-wins",
+                                    delta_color="normal",
+                                )
+                                bcol.metric(
+                                    f"Best week impact (vs {_best.get('opponent', '?')})",
+                                    f"week {_best.name}",
+                                    delta=f"{_best['delta_cat_wins']:+.2f} cat-wins",
+                                    delta_color="normal",
+                                )
                     else:
                         col1, col2, col3 = st.columns(3)
                         col1.metric(
