@@ -140,6 +140,17 @@ class TradeResult(TypedDict, total=False):
     # summary (pd.DataFrame), method (str), cv_used (dict).
     weekly_matrix: dict[str, Any]
 
+    # --- Phase 7: Feature 3 (2026-05-23) Playoff + championship sim ---
+    # Per report Section B.10 + Q(a) — the engine's PRIMARY objective.
+    # Present only when enable_playoff_sim=True AND weekly_schedule +
+    # league_rosters + current_wins + user_team_name are provided.
+    # playoff_sim dict contains before/after/delta playoff_prob + champ_prob.
+    # delta_playoff_prob and delta_champ_prob are also surfaced at top level
+    # for headline display.
+    playoff_sim: dict[str, Any]
+    delta_playoff_prob: float
+    delta_champ_prob: float
+
     # --- Transparency ---
     analytics_context: Any  # AnalyticsContext (avoid import cycle)
 

@@ -194,6 +194,13 @@ def main() -> None:
     )
     print()
 
+    # Feature 3: build current_wins dict for playoff sim from standings
+    current_wins_dict: dict[str, int] = {}
+    if not standings.empty:
+        wins_rows = standings[standings["category"] == "WINS"]
+        for _, _r in wins_rows.iterrows():
+            current_wins_dict[str(_r["team_name"])] = int(_r["total"])
+
     result = evaluate_trade(
         giving_ids=top_trade["giving_ids"],
         receiving_ids=top_trade["receiving_ids"],
@@ -209,6 +216,9 @@ def main() -> None:
         enable_weekly_matrix=True,
         weekly_schedule=synthetic_schedule,
         league_rosters=rosters,
+        enable_playoff_sim=True,
+        current_wins=current_wins_dict,
+        playoff_n_sims=20_000,
     )
 
     _print_subheader("Headline decision signals (Phase 1 weighted SGP — AUTHORITY)")
@@ -369,6 +379,43 @@ def main() -> None:
                 f"  BEST week impact:  week {best.name} vs {best['opponent']}: Δ={best['delta_cat_wins']:+.2f} cat wins"
             )
 
+    # Feature 3 (2026-05-23): Playoff + championship probability — REPORT PRIMARY OBJECTIVE
+    ps = result.get("playoff_sim")
+    if ps:
+        _print_subheader("Playoff + championship probability (Feature 3 — REPORT PRIMARY)")
+        before = ps.get("before", {})
+        after = ps.get("after", {})
+        print(f"  Method: {before.get('method', '?')}  |  Sims per arm: {before.get('n_sims', '?')}")
+        print()
+        print(f"  {'Metric':<35} {'Before':<10} {'After':<10} {'Delta':<10}")
+        print(f"  {'-' * 35} {'-' * 10} {'-' * 10} {'-' * 10}")
+        bp = before.get("playoff_prob", 0)
+        ap = after.get("playoff_prob", 0)
+        print(f"  {'P(make playoffs / top-4)':<35} {bp:>7.1%}    {ap:>7.1%}    {ap - bp:+7.2%}")
+        bc = before.get("champ_prob", 0)
+        ac = after.get("champ_prob", 0)
+        print(f"  {'P(win championship)':<35} {bc:>7.1%}    {ac:>7.1%}    {ac - bc:+7.2%}")
+        bw = before.get("mean_regular_season_wins", 0)
+        aw = after.get("mean_regular_season_wins", 0)
+        print(f"  {'E[additional regular-season wins]':<35} {bw:>7.2f}    {aw:>7.2f}    {aw - bw:+7.2f}")
+        print()
+        print("  Playoff seed distribution (after trade):")
+        seeds = after.get("playoff_seed_distribution", {})
+        for seed_num in sorted(seeds):
+            print(f"    Seed {seed_num}: {seeds[seed_num]:.1%}")
+        print()
+        # Headline framing per the report's Q(a) primary-objective hierarchy
+        delta_champ = result.get("delta_champ_prob", 0)
+        delta_playoff = result.get("delta_playoff_prob", 0)
+        if abs(delta_champ) > 0.005 or abs(delta_playoff) > 0.01:
+            verdict = "ACCEPT" if delta_champ > 0 else "DECLINE"
+            print(
+                f"  📊 PRIMARY OBJECTIVE (report Q(a)): "
+                f"Δchamp={delta_champ:+.2%}, Δplayoff={delta_playoff:+.2%}  →  {verdict}"
+            )
+        else:
+            print("  📊 PRIMARY OBJECTIVE: Trade does not meaningfully move title odds")
+
     _print_header("STEP 4: Gap analysis vs Enhanced Trade Engine spec")
     print()
     print("  Outputs the current engine PRODUCED:")
@@ -385,12 +432,12 @@ def main() -> None:
     print("  Outputs the report's HCV-Hybrid would ALSO produce:")
     print("    ✓ IP-floor penalty (κ × (20 - IP_w)²) — Feature 1 SHIPPED")
     print("    ✓ Weekly 26×12 win-probability matrix p_{w,c} — Feature 2 SHIPPED")
-    print("    ⏳ ΔΠ_playoff (probability of making top-4) — Feature 3 in progress")
-    print("    ⏳ ΔΠ_champ (probability of winning championship) — Feature 3 in progress")
-    print("    ✗ G-score (Rosenof) — current uses pure z-scores with σ*=0")
-    print("    ✗ Dynamic Markov FA replacement — current uses static best-current-FA")
-    print("    ✗ Bracket simulation for top-4 playoff — Feature 3 in progress")
-    print("    ✗ Three-horizon split (pre-deadline / regular / playoff window)")
+    print("    ✓ ΔΠ_playoff (probability of making top-4) — Feature 3 SHIPPED")
+    print("    ✓ ΔΠ_champ (probability of winning championship) — Feature 3 SHIPPED")
+    print("    ✓ Bracket simulation for top-4 playoff — Feature 3 SHIPPED")
+    print("    ✗ G-score (Rosenof) — current uses pure z-scores with σ*=0 (future)")
+    print("    ✗ Dynamic Markov FA replacement — current uses static best-current-FA (future)")
+    print("    ✗ Three-horizon split (pre-deadline / regular / playoff window) (future)")
     print()
     print("  Key question for the user: which of these missing outputs would have")
     print("  CHANGED YOUR DECISION on this specific trade?")

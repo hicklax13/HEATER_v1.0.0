@@ -602,6 +602,9 @@ def evaluate_trade(
     enable_weekly_matrix: bool = False,
     weekly_schedule: dict[int, str] | None = None,
     league_rosters: dict[str, list[int]] | None = None,
+    enable_playoff_sim: bool = False,
+    current_wins: dict[str, int] | None = None,
+    playoff_n_sims: int = 20_000,
 ) -> TradeResult:
     """Full trade evaluation using Phase 1-5 engine pipeline.
 
@@ -1284,6 +1287,44 @@ def evaluate_trade(
         else:
             _mod_wm.status = ModuleStatus.DISABLED
             _mod_wm.fallback_reason = "enable_weekly_matrix=False (default)"
+
+    # Feature 3 (2026-05-23): Playoff + championship probability bracket sim.
+    # Per report Section B.10 + Q(a) — the engine's PRIMARY objective per
+    # the report. ΔΠ_playoff and ΔΠ_champ tell the user how this trade
+    # changes their actual title odds, not just SGP-flavored scalars.
+    # Opt-in via enable_playoff_sim=True; requires weekly_schedule,
+    # league_rosters, AND current_wins. Default off so Trade Finder
+    # bulk scans stay fast (20K sims ~0.5-2s per trade).
+    with ctx.track_module("phase7_playoff_sim") as _mod_ps:
+        if enable_playoff_sim:
+            if weekly_schedule and league_rosters and current_wins and user_team_name:
+                from src.engine.output.playoff_sim import simulate_trade_playoff_delta
+
+                ps = simulate_trade_playoff_delta(
+                    before_roster_ids=before_ids,
+                    after_roster_ids=after_ids,
+                    user_team_name=user_team_name,
+                    all_team_rosters=league_rosters,
+                    user_schedule=weekly_schedule,
+                    current_wins=current_wins,
+                    player_pool=player_pool,
+                    config=config,
+                    n_sims=playoff_n_sims,
+                )
+                result["playoff_sim"] = ps
+                # Also surface delta fields at top level for headline display
+                result["delta_playoff_prob"] = ps["delta_playoff_prob"]
+                result["delta_champ_prob"] = ps["delta_champ_prob"]
+                _mod_ps.influence = 0.8  # primary objective per report
+            else:
+                _mod_ps.status = ModuleStatus.FALLBACK
+                _mod_ps.fallback_reason = (
+                    "enable_playoff_sim=True but missing one of: "
+                    "weekly_schedule, league_rosters, current_wins, user_team_name"
+                )
+        else:
+            _mod_ps.status = ModuleStatus.DISABLED
+            _mod_ps.fallback_reason = "enable_playoff_sim=False (default)"
 
     # Attach transparency context for UI badge rendering
     result["analytics_context"] = ctx
