@@ -79,3 +79,6 @@ test_screenshots/
 /trade_target_analysis.py
 /trade_ytd_plus_ros.py
 /trade_ytd_plus_ros_wave2.py
+
+# Superpowers brainstorming visual companion artifacts
+.superpowers/
