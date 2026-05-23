@@ -78,6 +78,12 @@ class TradeResult(TypedDict, total=False):
     replacement_detail: dict[str, Any]
     flexibility_penalty: float
     flexibility_detail: dict[str, Any]
+    # Feature 1 (2026-05-23): IP-floor soft penalty per report Section B.6.
+    # Trade-marginal penalty when post-trade weekly IP falls below the
+    # 20 IP/week Yahoo floor; delta semantics so a trade that doesn't
+    # worsen an already-below-floor situation contributes 0.
+    ip_floor_penalty: float
+    ip_floor_detail: dict[str, Any]
     risk_flags: list[str]
     verdict: str  # "ACCEPT" | "DECLINE"
     compliant: bool

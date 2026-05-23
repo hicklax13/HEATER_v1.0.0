@@ -240,6 +240,14 @@ def main() -> None:
     print(f"  flexibility_penalty : {result.get('flexibility_penalty', 0):+.3f}")
     print(f"  concentration_pen   : {result.get('concentration_penalty', 0):+.3f}")
     print(f"  bench_cost          : {result.get('bench_cost', 0):+.3f}")
+    print(f"  ip_floor_penalty    : {result.get('ip_floor_penalty', 0):+.3f}")
+    ipd = result.get("ip_floor_detail", {}) or {}
+    if ipd:
+        print(
+            f"    └─ weekly IP: {ipd.get('before_weekly_ip', '?')} → "
+            f"{ipd.get('after_weekly_ip', '?')}  (floor={ipd.get('threshold_ip_per_week', '?')}, "
+            f"below_floor={ipd.get('below_floor', '?')})"
+        )
 
     _print_subheader("Roster cap enforcement")
     print(f"  lineup_constrained : {result.get('lineup_constrained')}")
