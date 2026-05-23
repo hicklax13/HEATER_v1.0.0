@@ -95,6 +95,11 @@ class TradeResult(TypedDict, total=False):
     mc_std: float
 
     # --- Phase 2: MC overlay ---
+    # Bug A (2026-05-23): Phase 1 weighted SGP is the AUTHORITY for grade /
+    # verdict / confidence_pct. The MC's own grade/verdict/confidence_pct
+    # are exposed as mc_grade/mc_verdict/mc_confidence_pct so the user can
+    # see when the two graders disagree, but they NEVER override the
+    # top-level grade. (See _run_mc_overlay rename block.)
     mc_median: float
     p5: float
     p25: float
@@ -106,6 +111,9 @@ class TradeResult(TypedDict, total=False):
     sharpe: float
     confidence_interval: tuple[float, float]
     convergence_quality: str  # "good" | "marginal" | "poor"
+    mc_grade: str  # MC-derived grade — diagnostic only, never the top-level grade
+    mc_verdict: str  # "ACCEPT" | "DECLINE" from MC mean — diagnostic only
+    mc_confidence_pct: float  # MC's prob_positive expressed as %
 
     # --- Phase 4: context ---
     concentration_hhi_before: float
@@ -123,7 +131,12 @@ class TradeResult(TypedDict, total=False):
 
 
 class MCOverlayResult(TypedDict, total=False):
-    """Return shape of ``_run_mc_overlay`` — Phase 2 MC metrics overlay."""
+    """Return shape of ``_run_mc_overlay`` — Phase 2 MC metrics overlay.
+
+    Bug A (2026-05-23): The MC's grade/verdict/confidence_pct are renamed to
+    mc_grade/mc_verdict/mc_confidence_pct at the boundary so the caller's
+    ``result.update(mc_result)`` cannot clobber Phase 1's authoritative grade.
+    """
 
     mc_mean: float
     mc_std: float
@@ -138,6 +151,6 @@ class MCOverlayResult(TypedDict, total=False):
     sharpe: float
     confidence_interval: tuple[float, float]
     convergence_quality: str
-    grade: str
-    verdict: str
-    confidence_pct: float
+    mc_grade: str
+    mc_verdict: str
+    mc_confidence_pct: float

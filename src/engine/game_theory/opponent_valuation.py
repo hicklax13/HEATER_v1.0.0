@@ -67,6 +67,104 @@ STAT_MAP: dict[str, str] = {
     "WHIP": "whip",
 }
 
+# Bug C (2026-05-23 validation): defense-in-depth cap per category.
+# A single player cannot realistically contribute more than ~2 SGP to a
+# single opponent's category. Any computation producing > MAX_PER_CAT_SGP
+# is almost certainly a math bug (the original Bug C produced ~29 SGP per
+# rate category for the "already best" path). The cap clamps to a safe
+# bound; if it fires, the value flows through but a logger.warning surfaces
+# the anomaly for operators.
+MAX_PER_CAT_SGP: float = 3.0
+
+# Bug C: roster-baseline defaults from LeagueConfig (CLAUDE.md):
+#   AB_0 = 5500, PA_0 = 6100, IP_0 = 1300
+# Used when team totals don't include component stats (e.g. standings
+# table only has AVG/OBP/ERA/WHIP rates, not the underlying AB/PA/IP).
+_DEFAULT_TEAM_AB: float = 5500.0
+_DEFAULT_TEAM_PA: float = 6100.0
+_DEFAULT_TEAM_IP: float = 1200.0  # existing value preserved for ERA/WHIP back-compat
+# Sensible per-player defaults when projection lacks component stats:
+_DEFAULT_PLAYER_AB: float = 500.0  # full-season everyday hitter
+_DEFAULT_PLAYER_PA: float = 600.0
+_DEFAULT_PLAYER_IP: float = 150.0  # existing value preserved
+
+
+def _rate_stat_marginal_sgp(
+    cat: str,
+    player_rate: float,
+    team_rate: float,
+    player_volume: float,
+    team_volume: float,
+    denom: float,
+    gap_to_next: float,
+    already_best_mult: float = 0.5,
+) -> float:
+    """Marginal SGP contribution for a rate-stat addition.
+
+    Computes how a player's rate stat shifts a team's existing rate via
+    volume-weighted blending, then converts the shift to SGP units.
+
+    For inverse rates (ERA, WHIP): benefit = team_rate − blended_rate
+        (positive when player LOWERS the team's rate, which is good).
+    For non-inverse rates (AVG, OBP): benefit = blended_rate − team_rate
+        (positive when player RAISES the team's rate, which is good).
+
+    Args:
+        cat: Category name (AVG/OBP/ERA/WHIP).
+        player_rate: Player's projected rate (e.g. AVG=0.215, ERA=2.50).
+        team_rate: Team's current rate.
+        player_volume: Player's volume in matching units (AB for AVG,
+            PA for OBP, IP for ERA/WHIP).
+        team_volume: Team's volume in matching units.
+        denom: SGP denominator for the category.
+        gap_to_next: Standings gap to the next-ranked team in raw rate
+            units. 0 means team is already best.
+        already_best_mult: Multiplier applied when gap_to_next == 0
+            (default 0.5 for half-marginal value).
+
+    Returns:
+        Marginal SGP contribution (clamped to [0, MAX_PER_CAT_SGP]).
+    """
+    if player_volume <= 0 or team_volume <= 0 or abs(denom) < 1e-9:
+        return 0.0
+
+    blended = (team_rate * team_volume + player_rate * player_volume) / (team_volume + player_volume)
+
+    if cat in ("ERA", "WHIP"):
+        benefit = team_rate - blended  # lower rate is good
+    else:  # AVG, OBP
+        benefit = blended - team_rate  # higher rate is good
+
+    if benefit <= 0:
+        return 0.0
+
+    if gap_to_next > 0:
+        # Bound the benefit by the achievable gap
+        raw_sgp = min(benefit, gap_to_next) / denom
+    else:
+        # Team is already best — half-marginal value
+        raw_sgp = (benefit / denom) * already_best_mult
+
+    # Defense-in-depth: clamp to MAX_PER_CAT_SGP. A single player should
+    # never plausibly contribute > 3 SGP to a single opponent's category.
+    if raw_sgp > MAX_PER_CAT_SGP:
+        logger.warning(
+            "opponent_valuation: rate-stat SGP %.2f for category %s exceeded "
+            "cap %.1f (player_rate=%.3f team_rate=%.3f, volumes=%.1f/%.1f). "
+            "Clamping. If this fires often, investigate the upstream rate / "
+            "volume data.",
+            raw_sgp,
+            cat,
+            MAX_PER_CAT_SGP,
+            player_rate,
+            team_rate,
+            player_volume,
+            team_volume,
+        )
+        raw_sgp = MAX_PER_CAT_SGP
+
+    return raw_sgp
+
 
 def estimate_opponent_valuations(
     player_projections: dict[str, float],
@@ -103,9 +201,21 @@ def estimate_opponent_valuations(
     denoms = sgp_denominators
     valuations: dict[str, float] = {}
 
+    # Bug C: rate stats (AVG, OBP, ERA, WHIP) require volume-weighted
+    # blending. Component volumes (AB/PA/IP) come from the projections
+    # dict when available, otherwise fall back to LeagueConfig roster-
+    # baseline defaults. Pull once per player.
+    player_ab = float(player_projections.get("ab", player_projections.get("AB", 0)) or 0)
+    player_pa = float(player_projections.get("pa", player_projections.get("PA", 0)) or 0)
+    player_ip = float(player_projections.get("ip", player_projections.get("IP", 0)) or 0)
+
     for team_id, team_totals in all_team_totals.items():
         if team_id == your_team_id:
             continue
+
+        team_ab = float(team_totals.get("ab", team_totals.get("AB", 0)) or 0)
+        team_pa = float(team_totals.get("pa", team_totals.get("PA", 0)) or 0)
+        team_ip = float(team_totals.get("ip", team_totals.get("IP", 0)) or 0)
 
         # Compute this opponent's marginal value for the player
         team_val = 0.0
@@ -118,59 +228,65 @@ def estimate_opponent_valuations(
             if abs(denom) < 1e-9:
                 denom = 1.0
 
-            # Compute marginal value: how many standings points
-            # could this team gain from +proj in this category?
             team_cat_total = team_totals.get(cat, 0.0)
-
-            # Count how many teams they'd overtake
             gap_to_next = _gap_to_next_team(team_cat_total, cat, team_id, all_team_totals)
 
-            if gap_to_next > 0:
-                if cat in INVERSE_CATEGORIES and cat in ("ERA", "WHIP"):
-                    # Rate stat: need IP-weighted blend to compute benefit
-                    player_ip = player_projections.get("ip", player_projections.get("IP", 0))
-                    team_ip = team_totals.get("ip", team_totals.get("IP", 0))
-                    # Default IP when not provided: 150 for player, 1200 for team
-                    if player_ip <= 0 and proj > 0:
-                        player_ip = 150.0
-                    if team_ip <= 0 and team_cat_total > 0:
-                        team_ip = 1200.0
-                    if player_ip > 0 and team_ip > 0:
-                        blended_rate = (team_cat_total * team_ip + proj * player_ip) / (team_ip + player_ip)
-                        benefit = team_cat_total - blended_rate
-                    else:
-                        benefit = 0.0
-                    # Linear: cap benefit at gap, convert to SGP
-                    team_val += min(benefit, gap_to_next) / denom
-                elif cat == "L":
-                    # L: inverse counting stat — more losses hurts the team
-                    proj_l = player_projections.get("L", player_projections.get("l", 0.0))
-                    team_val -= proj_l / denom
-                else:
-                    # Counting stats: cap projected contribution at gap
-                    team_val += min(proj, gap_to_next) / denom
+            # Bug C: route AVG/OBP/ERA/WHIP through the rate-stat helper.
+            # Previously, AVG/OBP fell through to the generic counting-stat
+            # `proj / denom * 0.5` path in the "already best" branch,
+            # producing absurd SGP values (~29 SGP per rate cat for a
+            # below-average hitter — see scripts/diag_trade_engine_validation.py
+            # 2026-05-23 baseline run).
+            if cat in ("AVG", "OBP", "ERA", "WHIP"):
+                # Pick the matching volume per category
+                if cat == "AVG":
+                    pv = player_ab if player_ab > 0 else _DEFAULT_PLAYER_AB
+                    tv = team_ab if team_ab > 0 else _DEFAULT_TEAM_AB
+                elif cat == "OBP":
+                    pv = player_pa if player_pa > 0 else _DEFAULT_PLAYER_PA
+                    tv = team_pa if team_pa > 0 else _DEFAULT_TEAM_PA
+                else:  # ERA, WHIP
+                    pv = player_ip if player_ip > 0 else _DEFAULT_PLAYER_IP
+                    tv = team_ip if team_ip > 0 else _DEFAULT_TEAM_IP
+                team_val += _rate_stat_marginal_sgp(
+                    cat=cat,
+                    player_rate=proj,
+                    team_rate=team_cat_total,
+                    player_volume=pv,
+                    team_volume=tv,
+                    denom=denom,
+                    gap_to_next=gap_to_next,
+                    already_best_mult=0.5,
+                )
+            elif cat == "L":
+                # L: inverse counting stat — more losses hurts the team.
+                # Half-weight when team is already best in L (low L count).
+                multiplier = 1.0 if gap_to_next > 0 else 0.5
+                proj_l = float(player_projections.get("L", player_projections.get("l", 0.0)) or 0)
+                contribution = proj_l / denom * multiplier
+                # Clamp to cap (defense-in-depth)
+                contribution = min(contribution, MAX_PER_CAT_SGP)
+                team_val -= contribution
             else:
-                if cat in INVERSE_CATEGORIES and cat in ("ERA", "WHIP"):
-                    # Rate stat: IP-weighted blend even when already best
-                    player_ip = player_projections.get("ip", player_projections.get("IP", 0))
-                    team_ip = team_totals.get("ip", team_totals.get("IP", 0))
-                    if player_ip <= 0 and proj > 0:
-                        player_ip = 150.0
-                    if team_ip <= 0 and team_cat_total > 0:
-                        team_ip = 1200.0
-                    if player_ip > 0 and team_ip > 0:
-                        blended_rate = (team_cat_total * team_ip + proj * player_ip) / (team_ip + player_ip)
-                        benefit = team_cat_total - blended_rate
-                    else:
-                        benefit = 0.0
-                    team_val += benefit / denom * 0.5
-                elif cat == "L":
-                    # L: inverse counting stat — more losses hurts the team
-                    proj_l = player_projections.get("L", player_projections.get("l", 0.0))
-                    team_val -= proj_l / denom * 0.5
+                # Counting stats (R, HR, RBI, SB, W, SV, K)
+                if gap_to_next > 0:
+                    contribution = min(proj, gap_to_next) / denom
                 else:
-                    # Team is already last; any help has marginal value
-                    team_val += proj / denom * 0.5
+                    contribution = proj / denom * 0.5
+                # Clamp to cap (defense-in-depth)
+                if contribution > MAX_PER_CAT_SGP:
+                    logger.warning(
+                        "opponent_valuation: counting-stat SGP %.2f for category %s "
+                        "exceeded cap %.1f (proj=%.1f gap=%.1f denom=%.2f). Clamping.",
+                        contribution,
+                        cat,
+                        MAX_PER_CAT_SGP,
+                        proj,
+                        gap_to_next,
+                        denom,
+                    )
+                    contribution = MAX_PER_CAT_SGP
+                team_val += contribution
 
         valuations[team_id] = round(team_val, 3)
 
@@ -326,5 +442,16 @@ def get_player_projections_from_pool(
             projections[cat] = float(val) if val is not None else 0.0
         except (ValueError, TypeError):
             projections[cat] = 0.0
+
+    # Bug C: also surface component volumes (AB/PA/IP) so the rate-stat
+    # blender in estimate_opponent_valuations can compute volume-weighted
+    # marginal SGP for AVG/OBP (parallel to existing ERA/WHIP handling).
+    # Falls back to LeagueConfig roster-baseline defaults when missing.
+    for vol_col in ("ab", "pa", "ip"):
+        val = row.get(vol_col, 0.0)
+        try:
+            projections[vol_col] = float(val) if val is not None else 0.0
+        except (ValueError, TypeError):
+            projections[vol_col] = 0.0
 
     return projections
