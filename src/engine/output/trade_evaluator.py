@@ -1077,17 +1077,46 @@ def evaluate_trade(
             config=config,
             category_weights=category_weights,
         )
-        # Add risk flag when reshuffle is a large fraction of surplus
+        # Bug B (2026-05-23 validation): the previous condition
+        # `if demoted and abs(total_surplus) > 0.01:` skipped the warning
+        # whenever the LP did a PROMOTE-only reshuffle (a bench player got
+        # elevated to a starting slot to replace a traded starter, no
+        # existing starter demoted). In live validation, this hid a trade
+        # whose reshuffle SGP (+3.97) dwarfed its actual surplus (-1.58):
+        # most of the "trade value" was really the engine finally deploying
+        # a bench bat (Max Muncy) that the user could promote without
+        # trading at all. The warning now fires whenever the reshuffle is
+        # large in EITHER direction, with text adapted per case.
         reshuffle_sgp = reshuffle_info.get("reshuffle_sgp", 0.0)
+        promoted = reshuffle_info.get("promoted", [])
         demoted = reshuffle_info.get("demoted", [])
-        if demoted and abs(total_surplus) > 0.01:
+        if (promoted or demoted) and abs(total_surplus) > 0.01:
             reshuffle_pct = abs(reshuffle_sgp) / abs(total_surplus)
             reshuffle_info["reshuffle_pct"] = round(reshuffle_pct * 100, 1)
             if reshuffle_pct > 0.3:
+                promoted_names = ", ".join(p["name"] for p in promoted)
                 demoted_names = ", ".join(d["name"] for d in demoted)
-                risk_flags.append(
-                    f"Lineup reshuffle accounts for {reshuffle_pct:.0%} of surplus — benching {demoted_names}"
-                )
+                if promoted and demoted:
+                    # Both directions — LP did a full swap
+                    risk_flags.append(
+                        f"Lineup reshuffle accounts for {reshuffle_pct:.0%} of surplus — "
+                        f"promoting {promoted_names}, benching {demoted_names}"
+                    )
+                elif demoted:
+                    # Demote-only (rare — usually means trade gave you a clear upgrade)
+                    risk_flags.append(
+                        f"Lineup reshuffle accounts for {reshuffle_pct:.0%} of surplus — benching {demoted_names}"
+                    )
+                else:
+                    # Promote-only — the most decision-relevant case:
+                    # "the trade looks good, but most of the value is the LP
+                    # finally using a bench bat you could deploy without trading."
+                    risk_flags.append(
+                        f"Lineup reshuffle accounts for {reshuffle_pct:.0%} of surplus — "
+                        f"promoting {promoted_names} from bench. "
+                        f"You may capture most of this value by setting your lineup, "
+                        f"without making the trade."
+                    )
 
     result: TradeResult = {
         "grade": trade_grade,
@@ -1150,6 +1179,17 @@ def evaluate_trade(
             _mod_gt.fallback_reason = "enable_game_theory=False"
 
     # Phase 2: Monte Carlo simulation overlay
+    #
+    # Bug A (2026-05-23 validation): Phase 1 weighted SGP is the AUTHORITY for
+    # grade/verdict/confidence_pct. Prior code blindly overrode these from MC,
+    # producing user-facing contradictions like grade=B alongside surplus_sgp=-1.58
+    # (Phase 1 said DECLINE, MC said ACCEPT, user only saw the MC verdict).
+    #
+    # _run_mc_overlay now renames its grade/verdict/confidence_pct →
+    # mc_grade/mc_verdict/mc_confidence_pct BEFORE returning, so the
+    # result.update(mc_result) call is safe and cannot clobber Phase 1.
+    # The MC contribution is exclusively a RISK DIAGNOSTIC
+    # (mc_mean/std/percentiles/CVaR5/sharpe/prob_positive) — never the grade.
     with ctx.track_module("phase2_monte_carlo") as _mod_mc:
         if enable_mc:
             mc_result = _run_mc_overlay(
@@ -1161,15 +1201,10 @@ def evaluate_trade(
                 weeks_remaining=weeks_remaining,
                 n_sims=n_sims,
             )
-            # Overlay MC metrics onto result
+            # Overlay MC risk diagnostics onto result.  By contract,
+            # _run_mc_overlay has stripped grade/verdict/confidence_pct and
+            # exposed them as mc_grade/mc_verdict/mc_confidence_pct.
             result.update(mc_result)
-            # Use MC grade and verdict when available
-            if "grade" in mc_result:
-                result["grade"] = mc_result["grade"]
-            if "verdict" in mc_result:
-                result["verdict"] = mc_result["verdict"]
-            if "confidence_pct" in mc_result:
-                result["confidence_pct"] = mc_result["confidence_pct"]
             _mod_mc.influence = 0.7
         else:
             _mod_mc.status = ModuleStatus.DISABLED
@@ -1257,6 +1292,18 @@ def _run_mc_overlay(
         mc_result["convergence_quality"] = "not_assessed"
         mc_result["convergence_ess"] = float("nan")
         mc_result["convergence_rhat"] = float("nan")
+
+    # Bug A (2026-05-23): rename grade/verdict/confidence_pct so the
+    # caller's result.update(mc_result) cannot clobber Phase 1's
+    # authoritative grade. These keys remain accessible as
+    # mc_grade/mc_verdict/mc_confidence_pct for diagnostics, comparison
+    # against the Phase 1 grade, and future hybrid graders.
+    if "grade" in mc_result:
+        mc_result["mc_grade"] = mc_result.pop("grade")
+    if "verdict" in mc_result:
+        mc_result["mc_verdict"] = mc_result.pop("verdict")
+    if "confidence_pct" in mc_result:
+        mc_result["mc_confidence_pct"] = mc_result.pop("confidence_pct")
 
     return mc_result
 
