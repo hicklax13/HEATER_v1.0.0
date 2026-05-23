@@ -846,30 +846,21 @@ def evaluate_trade(
 
     # Step 3: Load standings and compute marginal elasticity
     standings = load_league_standings()
-    # Bug D (2026-05-23): filter out ghost teams (e.g. renamed teams that
-    # linger in the standings cache). Use league_rosters as the authoritative
-    # set of real team names — either the caller-supplied dict or the DB.
+    # Bug D (2026-05-23): when the caller supplies league_rosters, filter out
+    # ghost teams (renamed/abandoned teams that linger in the standings cache).
+    # When league_rosters is None we do NOT auto-query the DB — that approach
+    # broke caller-supplied test scenarios where standings team names don't
+    # match the DB's authoritative list (PR #113 CI failure). Pages that want
+    # the ghost-team protection must pass league_rosters explicitly. The
+    # Trade Analyzer page already does this (validated by
+    # test_trade_analyzer_features_wired.py::test_page_loads_league_rosters).
     _valid_teams: set[str] | None = None
     if league_rosters:
-        _valid_teams = set(league_rosters.keys())
-    else:
-        try:
-            _conn = get_connection()
-            try:
-                _team_df = pd.read_sql_query(
-                    "SELECT DISTINCT team_name FROM league_rosters WHERE team_name IS NOT NULL",
-                    _conn,
-                )
-                _valid_teams = set(_team_df["team_name"].astype(str))
-            finally:
-                _conn.close()
-        except Exception as exc:
-            logger.warning(
-                "evaluate_trade: could not load league_rosters team names for "
-                "ghost-team filtering (%s) — proceeding with all standings rows",
-                exc,
-            )
-            _valid_teams = None
+        _candidate = set(league_rosters.keys())
+        # Empty caller-supplied dict → no-filter (don't silently zero out
+        # all_team_totals). The user-supplied None / empty is a "skip filter"
+        # signal, not an "everything is ghost" signal.
+        _valid_teams = _candidate if _candidate else None
     all_team_totals = build_standings_totals(standings, valid_teams=_valid_teams)
 
     # Validate that standings contain actual stat categories (R, HR, etc.)

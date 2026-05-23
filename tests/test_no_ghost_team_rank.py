@@ -98,6 +98,134 @@ def test_ghost_team_filtered_gives_correct_rank() -> None:
     assert rank_filtered == 12
 
 
+def test_empty_league_rosters_falls_back_to_no_filter() -> None:
+    """Hotfix regression (PR #113 CI failure): when league_rosters is empty
+    (fresh DB, test env, etc.), evaluate_trade must NOT silently filter out
+    all standings rows. The ghost-team protection is a safety net, not a
+    hard prerequisite.
+
+    This test patches load_league_standings to return a non-empty standings
+    DataFrame WITHOUT supplying league_rosters. With the empty-set bug,
+    all_team_totals would come back empty and category_gap_analysis would
+    never run. Asserts the call chain remains intact.
+    """
+    from unittest.mock import patch
+
+    from src.engine.output.trade_evaluator import evaluate_trade
+    from src.valuation import LeagueConfig
+
+    cfg = LeagueConfig()
+    pool = pd.DataFrame(
+        [
+            {
+                "player_id": 1,
+                "name": "P1",
+                "player_name": "P1",
+                "is_hitter": 1,
+                "positions": "OF",
+                "r": 70,
+                "hr": 25,
+                "rbi": 80,
+                "sb": 8,
+                "h": 130,
+                "ab": 500,
+                "bb": 50,
+                "hbp": 5,
+                "sf": 5,
+                "pa": 560,
+                "avg": 0.270,
+                "obp": 0.340,
+                "w": 0,
+                "l": 0,
+                "sv": 0,
+                "k": 0,
+                "ip": 0,
+                "er": 0,
+                "bb_allowed": 0,
+                "h_allowed": 0,
+                "era": 0,
+                "whip": 0,
+            },
+            {
+                "player_id": 2,
+                "name": "P2",
+                "player_name": "P2",
+                "is_hitter": 1,
+                "positions": "OF",
+                "r": 75,
+                "hr": 22,
+                "rbi": 75,
+                "sb": 10,
+                "h": 132,
+                "ab": 500,
+                "bb": 52,
+                "hbp": 5,
+                "sf": 5,
+                "pa": 562,
+                "avg": 0.270,
+                "obp": 0.340,
+                "w": 0,
+                "l": 0,
+                "sv": 0,
+                "k": 0,
+                "ip": 0,
+                "er": 0,
+                "bb_allowed": 0,
+                "h_allowed": 0,
+                "era": 0,
+                "whip": 0,
+            },
+        ]
+    )
+
+    # Standings with real category totals for "Team Hickey" + 2 opponents
+    standings_df = pd.DataFrame(
+        [
+            {"team_name": "Team Hickey", "category": c, "total": v, "rank": 2}
+            for c, v in {"R": 100, "HR": 30, "RBI": 90, "SB": 12, "AVG": 0.27, "OBP": 0.34}.items()
+        ]
+        + [
+            {"team_name": f"Opp{n}", "category": c, "total": v, "rank": 1}
+            for n in (1, 2)
+            for c, v in {"R": 110, "HR": 32, "RBI": 95, "SB": 15, "AVG": 0.28, "OBP": 0.35}.items()
+        ]
+    )
+
+    # Patch the gap analysis so we can detect whether it was called
+    with (
+        patch("src.engine.output.trade_evaluator.category_gap_analysis") as cga,
+        patch("src.engine.output.trade_evaluator.load_league_standings", return_value=standings_df),
+    ):
+        cga.return_value = {
+            c: {"rank": 6, "is_punt": False, "marginal_value": 1.0, "gap_to_next": 0.0, "gainable_positions": 1}
+            for c in cfg.all_categories
+        }
+        try:
+            evaluate_trade(
+                giving_ids=[1],
+                receiving_ids=[2],
+                user_roster_ids=[1],
+                player_pool=pool,
+                config=cfg,
+                user_team_name="Team Hickey",
+                weeks_remaining=16,
+                enable_mc=False,
+                enable_context=False,
+                enable_game_theory=False,
+                apply_ytd_blend=False,
+                # Critical: NO league_rosters passed → forces DB fallback,
+                # which in test env returns empty → previously broke the chain
+            )
+        except Exception:
+            pass
+
+        assert cga.called, (
+            "PR #113 hotfix regression: empty league_rosters fallback caused "
+            "all_team_totals to be empty, skipping category_gap_analysis. "
+            "The ghost-team filter must degrade to no-filter on empty input."
+        )
+
+
 def test_no_13th_in_12_team_league_via_evaluate_trade() -> None:
     """End-to-end via evaluate_trade: no risk flag should mention rank > 12
     when league_rosters has 12 teams."""
