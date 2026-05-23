@@ -599,6 +599,12 @@ def evaluate_trade(
     enable_context: bool = True,
     enable_game_theory: bool = True,
     apply_ytd_blend: bool = True,
+    enable_weekly_matrix: bool = False,
+    weekly_schedule: dict[int, str] | None = None,
+    league_rosters: dict[str, list[int]] | None = None,
+    enable_playoff_sim: bool = False,
+    current_wins: dict[str, int] | None = None,
+    playoff_n_sims: int = 20_000,
 ) -> TradeResult:
     """Full trade evaluation using Phase 1-5 engine pipeline.
 
@@ -1002,6 +1008,28 @@ def evaluate_trade(
             total_surplus -= flexibility_penalty
         _mod_flex.influence = 0.2
 
+    # Step 6d: IP-floor soft penalty
+    # Per report Section B.6 + 2026-05-23 design Q1: Yahoo's 20 IP/week floor
+    # converts shortfall to losses across pitching cats. Apply quadratic SGP
+    # penalty kappa*(20 - IP_w)^2 when projected weekly IP falls below floor.
+    # Delta semantics: only the post-trade marginal increase in penalty counts
+    # against this trade. If user was already at 18 IP and stays at 18, no
+    # additional penalty — that situation existed before the trade.
+    ip_floor_penalty_delta = 0.0
+    ip_floor_detail: dict[str, Any] = {}
+    with ctx.track_module("phase1_ip_floor") as _mod_ip:
+        before_starter_ids = [a["player_id"] for a in (before_assignments or [])]
+        after_starter_ids = [a["player_id"] for a in (after_assignments or [])]
+        ip_floor_penalty_delta, ip_floor_detail = _compute_ip_floor_penalty(
+            before_starter_ids=before_starter_ids,
+            after_starter_ids=after_starter_ids,
+            player_pool=player_pool,
+            season_weeks=config.season_weeks,
+        )
+        if ip_floor_penalty_delta > 0:
+            total_surplus -= ip_floor_penalty_delta
+        _mod_ip.influence = 0.3
+
     # Step 7: Grade the trade
     trade_grade = grade_trade(total_surplus)
 
@@ -1021,6 +1049,23 @@ def evaluate_trade(
         cat_analysis=cat_analysis,
         category_impact=category_impact,
     )
+
+    # IP-floor risk flag: when post-trade weekly IP is below the Yahoo floor.
+    # Fires regardless of whether the trade caused it (informational), but the
+    # SGP penalty above only counts the trade-caused marginal worsening.
+    if ip_floor_detail.get("below_floor"):
+        _post_ip = ip_floor_detail.get("after_weekly_ip", 0.0)
+        _delta = ip_floor_detail.get("delta_penalty", 0.0)
+        if _delta > 0:
+            risk_flags.append(
+                f"Post-trade weekly IP ({_post_ip:.1f}) below {_IP_FLOOR_PER_WEEK:.0f} IP/week "
+                f"Yahoo floor — pitching cats at risk; trade adds {_delta:.2f} SGP penalty"
+            )
+        else:
+            risk_flags.append(
+                f"Weekly IP ({_post_ip:.1f}) already below {_IP_FLOOR_PER_WEEK:.0f} IP/week "
+                f"Yahoo floor; trade doesn't worsen it but pitching cats are at risk"
+            )
 
     # Phase 4 risk flags: concentration risk
     if enable_context and concentration_data:
@@ -1130,6 +1175,8 @@ def evaluate_trade(
         "replacement_detail": replacement_detail,
         "flexibility_penalty": round(flexibility_penalty, 3),
         "flexibility_detail": flexibility_detail,
+        "ip_floor_penalty": round(ip_floor_penalty_delta, 3),
+        "ip_floor_detail": ip_floor_detail,
         "risk_flags": risk_flags,
         "verdict": verdict,
         "compliant": True,  # Legacy field — no longer enforced
@@ -1209,6 +1256,75 @@ def evaluate_trade(
         else:
             _mod_mc.status = ModuleStatus.DISABLED
             _mod_mc.fallback_reason = "enable_mc=False (default)"
+
+    # Feature 2 (2026-05-23): Weekly H2H win-probability matrix.
+    # Per report Section B.5 — for each remaining matchup week, the
+    # probability of winning each category against the scheduled opponent.
+    # Surfaces playoff-week asymmetries that the surplus_sgp scalar can't
+    # capture (e.g. "this trade helps weeks 8-12 but hurts weeks 24-26").
+    # Opt-in via enable_weekly_matrix=True; requires weekly_schedule
+    # (Yahoo schedule lookup) and league_rosters (for opponent means).
+    with ctx.track_module("phase6_weekly_matrix") as _mod_wm:
+        if enable_weekly_matrix:
+            if weekly_schedule and league_rosters:
+                from src.engine.output.weekly_matrix import compute_trade_weekly_delta
+
+                wm = compute_trade_weekly_delta(
+                    before_roster_ids=before_ids,
+                    after_roster_ids=after_ids,
+                    player_pool=player_pool,
+                    schedule=weekly_schedule,
+                    all_team_rosters=league_rosters,
+                    config=config,
+                )
+                result["weekly_matrix"] = wm
+                _mod_wm.influence = 0.6
+            else:
+                _mod_wm.status = ModuleStatus.FALLBACK
+                _mod_wm.fallback_reason = (
+                    "enable_weekly_matrix=True but weekly_schedule or league_rosters is None — skipping matrix"
+                )
+        else:
+            _mod_wm.status = ModuleStatus.DISABLED
+            _mod_wm.fallback_reason = "enable_weekly_matrix=False (default)"
+
+    # Feature 3 (2026-05-23): Playoff + championship probability bracket sim.
+    # Per report Section B.10 + Q(a) — the engine's PRIMARY objective per
+    # the report. ΔΠ_playoff and ΔΠ_champ tell the user how this trade
+    # changes their actual title odds, not just SGP-flavored scalars.
+    # Opt-in via enable_playoff_sim=True; requires weekly_schedule,
+    # league_rosters, AND current_wins. Default off so Trade Finder
+    # bulk scans stay fast (20K sims ~0.5-2s per trade).
+    with ctx.track_module("phase7_playoff_sim") as _mod_ps:
+        if enable_playoff_sim:
+            if weekly_schedule and league_rosters and current_wins and user_team_name:
+                from src.engine.output.playoff_sim import simulate_trade_playoff_delta
+
+                ps = simulate_trade_playoff_delta(
+                    before_roster_ids=before_ids,
+                    after_roster_ids=after_ids,
+                    user_team_name=user_team_name,
+                    all_team_rosters=league_rosters,
+                    user_schedule=weekly_schedule,
+                    current_wins=current_wins,
+                    player_pool=player_pool,
+                    config=config,
+                    n_sims=playoff_n_sims,
+                )
+                result["playoff_sim"] = ps
+                # Also surface delta fields at top level for headline display
+                result["delta_playoff_prob"] = ps["delta_playoff_prob"]
+                result["delta_champ_prob"] = ps["delta_champ_prob"]
+                _mod_ps.influence = 0.8  # primary objective per report
+            else:
+                _mod_ps.status = ModuleStatus.FALLBACK
+                _mod_ps.fallback_reason = (
+                    "enable_playoff_sim=True but missing one of: "
+                    "weekly_schedule, league_rosters, current_wins, user_team_name"
+                )
+        else:
+            _mod_ps.status = ModuleStatus.DISABLED
+            _mod_ps.fallback_reason = "enable_playoff_sim=False (default)"
 
     # Attach transparency context for UI badge rendering
     result["analytics_context"] = ctx
@@ -1489,6 +1605,96 @@ def _compute_replacement_penalty(
         total_penalty += sgp_penalty
 
     return round(total_penalty, 3), detail
+
+
+# ── IP-floor soft penalty (report Section B.6) ──────────────────────
+
+# FourzynBurn / Yahoo H2H Categories default: 20 IP/week. Below this,
+# Yahoo converts the shortfall to losses across pitching counting cats
+# (W, K, SV) and inflates ERA/WHIP. Confirmed via 2026-05-23 design Q1.
+_IP_FLOOR_PER_WEEK: float = 20.0
+
+# Quadratic penalty coefficient. Per report calibration: at 50% shortfall
+# (10 IP/week, i.e. 10 IP below floor), penalty = 0.05 * 10^2 = 5.0 SGP
+# — "forfeit-equivalent" against the typical ±1-3 SGP trade-surplus scale.
+# At 30% shortfall (14 IP/week), penalty = 0.05 * 6^2 = 1.8 SGP — meaningful
+# but not catastrophic. Steep at extremes, gentle near the threshold.
+_IP_FLOOR_KAPPA: float = 0.05
+
+
+def _ip_floor_penalty(weekly_ip: float) -> float:
+    """Quadratic SGP penalty per report Section B.6.
+
+    Pen_IP(IP_w) = 0                          if IP_w >= 20
+                 = kappa * (20 - IP_w)^2      if IP_w <  20
+    """
+    if weekly_ip >= _IP_FLOOR_PER_WEEK:
+        return 0.0
+    shortfall = _IP_FLOOR_PER_WEEK - weekly_ip
+    return _IP_FLOOR_KAPPA * shortfall * shortfall
+
+
+def _compute_weekly_ip(
+    starter_ids: list[int],
+    player_pool: pd.DataFrame,
+    season_weeks: int = 26,
+) -> float:
+    """Sum projected season IP across starting pitchers, divide by season weeks.
+
+    Hitters and zero-IP rows contribute nothing. Result is the
+    expected average IP per matchup week for the LP-selected pitching staff.
+    """
+    if not starter_ids:
+        return 0.0
+    matches = player_pool[player_pool["player_id"].isin(starter_ids)]
+    if matches.empty:
+        return 0.0
+    if "is_hitter" in matches.columns:
+        pitchers = matches[matches["is_hitter"] == 0]
+    else:
+        pitchers = matches
+    if pitchers.empty or "ip" not in pitchers.columns:
+        return 0.0
+    total_ip = float(pd.to_numeric(pitchers["ip"], errors="coerce").fillna(0).sum())
+    return total_ip / max(season_weeks, 1)
+
+
+def _compute_ip_floor_penalty(
+    before_starter_ids: list[int],
+    after_starter_ids: list[int],
+    player_pool: pd.DataFrame,
+    season_weeks: int = 26,
+) -> tuple[float, dict[str, Any]]:
+    """SGP delta penalty when a trade pushes weekly IP below the floor.
+
+    Delta semantics: returns max(0, after_penalty - before_penalty). If the
+    user was already below the floor pre-trade and the trade doesn't worsen
+    the situation, this returns 0 (the prior under-floor state is not the
+    trade's fault). If the trade IMPROVES weekly IP, this also returns 0
+    (negative deltas don't become bonuses here).
+
+    Returns:
+        (penalty_delta, detail_dict). penalty_delta >= 0.
+    """
+    before_weekly = _compute_weekly_ip(before_starter_ids, player_pool, season_weeks)
+    after_weekly = _compute_weekly_ip(after_starter_ids, player_pool, season_weeks)
+    before_pen = _ip_floor_penalty(before_weekly)
+    after_pen = _ip_floor_penalty(after_weekly)
+    # Only count the marginal increase in penalty caused by the trade.
+    # A trade that maintains or improves the IP situation contributes 0.
+    delta = max(0.0, after_pen - before_pen)
+
+    detail: dict[str, Any] = {
+        "threshold_ip_per_week": _IP_FLOOR_PER_WEEK,
+        "kappa": _IP_FLOOR_KAPPA,
+        "before_weekly_ip": round(before_weekly, 2),
+        "after_weekly_ip": round(after_weekly, 2),
+        "before_penalty": round(before_pen, 3),
+        "after_penalty": round(after_pen, 3),
+        "delta_penalty": round(delta, 3),
+        "below_floor": after_weekly < _IP_FLOOR_PER_WEEK,
+    }
+    return round(delta, 3), detail
 
 
 # ── Positional flexibility penalty ──────────────────────────────────

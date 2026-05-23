@@ -78,6 +78,12 @@ class TradeResult(TypedDict, total=False):
     replacement_detail: dict[str, Any]
     flexibility_penalty: float
     flexibility_detail: dict[str, Any]
+    # Feature 1 (2026-05-23): IP-floor soft penalty per report Section B.6.
+    # Trade-marginal penalty when post-trade weekly IP falls below the
+    # 20 IP/week Yahoo floor; delta semantics so a trade that doesn't
+    # worsen an already-below-floor situation contributes 0.
+    ip_floor_penalty: float
+    ip_floor_detail: dict[str, Any]
     risk_flags: list[str]
     verdict: str  # "ACCEPT" | "DECLINE"
     compliant: bool
@@ -125,6 +131,25 @@ class TradeResult(TypedDict, total=False):
     # --- Phase 5: game theory ---
     market_values: dict[int, dict[str, Any]]
     sensitivity_report: dict[str, Any]
+
+    # --- Phase 6: Feature 2 (2026-05-23) Weekly H2H matrix ---
+    # Per report Section B.5 — 26-week × 12-cat win-probability matrix.
+    # Present only when enable_weekly_matrix=True AND weekly_schedule +
+    # league_rosters are provided. Dict with keys: before (pd.DataFrame),
+    # after (pd.DataFrame), delta (pd.DataFrame), schedule (dict),
+    # summary (pd.DataFrame), method (str), cv_used (dict).
+    weekly_matrix: dict[str, Any]
+
+    # --- Phase 7: Feature 3 (2026-05-23) Playoff + championship sim ---
+    # Per report Section B.10 + Q(a) — the engine's PRIMARY objective.
+    # Present only when enable_playoff_sim=True AND weekly_schedule +
+    # league_rosters + current_wins + user_team_name are provided.
+    # playoff_sim dict contains before/after/delta playoff_prob + champ_prob.
+    # delta_playoff_prob and delta_champ_prob are also surfaced at top level
+    # for headline display.
+    playoff_sim: dict[str, Any]
+    delta_playoff_prob: float
+    delta_champ_prob: float
 
     # --- Transparency ---
     analytics_context: Any  # AnalyticsContext (avoid import cycle)
