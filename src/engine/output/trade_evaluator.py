@@ -846,7 +846,31 @@ def evaluate_trade(
 
     # Step 3: Load standings and compute marginal elasticity
     standings = load_league_standings()
-    all_team_totals = build_standings_totals(standings)
+    # Bug D (2026-05-23): filter out ghost teams (e.g. renamed teams that
+    # linger in the standings cache). Use league_rosters as the authoritative
+    # set of real team names — either the caller-supplied dict or the DB.
+    _valid_teams: set[str] | None = None
+    if league_rosters:
+        _valid_teams = set(league_rosters.keys())
+    else:
+        try:
+            _conn = get_connection()
+            try:
+                _team_df = pd.read_sql_query(
+                    "SELECT DISTINCT team_name FROM league_rosters WHERE team_name IS NOT NULL",
+                    _conn,
+                )
+                _valid_teams = set(_team_df["team_name"].astype(str))
+            finally:
+                _conn.close()
+        except Exception as exc:
+            logger.warning(
+                "evaluate_trade: could not load league_rosters team names for "
+                "ghost-team filtering (%s) — proceeding with all standings rows",
+                exc,
+            )
+            _valid_teams = None
+    all_team_totals = build_standings_totals(standings, valid_teams=_valid_teams)
 
     # Validate that standings contain actual stat categories (R, HR, etc.)
     # not just W/L records. If they only have matchup records, fall back to
@@ -1020,11 +1044,15 @@ def evaluate_trade(
     with ctx.track_module("phase1_ip_floor") as _mod_ip:
         before_starter_ids = [a["player_id"] for a in (before_assignments or [])]
         after_starter_ids = [a["player_id"] for a in (after_assignments or [])]
+        # Bug F (2026-05-23): pass weeks_remaining (forward-looking horizon),
+        # not season_weeks. The pool's `ip` column is full-season blended
+        # projection; the helper subtracts ytd_ip to get ROS, then divides
+        # by remaining weeks to produce the per-week IP that the floor checks.
         ip_floor_penalty_delta, ip_floor_detail = _compute_ip_floor_penalty(
             before_starter_ids=before_starter_ids,
             after_starter_ids=after_starter_ids,
             player_pool=player_pool,
-            season_weeks=config.season_weeks,
+            weeks_remaining=weeks_remaining,
         )
         if ip_floor_penalty_delta > 0:
             total_surplus -= ip_floor_penalty_delta
@@ -1637,12 +1665,25 @@ def _ip_floor_penalty(weekly_ip: float) -> float:
 def _compute_weekly_ip(
     starter_ids: list[int],
     player_pool: pd.DataFrame,
-    season_weeks: int = 26,
+    weeks_remaining: int = 26,
 ) -> float:
-    """Sum projected season IP across starting pitchers, divide by season weeks.
+    """ROS-aware average IP per remaining matchup week.
 
-    Hitters and zero-IP rows contribute nothing. Result is the
-    expected average IP per matchup week for the LP-selected pitching staff.
+    Bug F (2026-05-23 validation): the prior implementation divided the
+    full-season ``ip`` projection by ``season_weeks=26`` and got 8.11 IP/week
+    mid-season — wrong because the ``ip`` column INCLUDES YTD already accrued.
+    The correct semantic is "expected IP for the REMAINING weeks":
+
+        ROS_IP = max(0, ip - ytd_ip)
+        weekly = sum(ROS_IP across pitchers) / weeks_remaining
+
+    Subtracting ``ytd_ip`` removes IP that was already accumulated (and
+    won't recur), then dividing by ``weeks_remaining`` gives the forward-
+    looking per-week IP. Falls back to ``ip / weeks_remaining`` when the
+    ``ytd_ip`` column is missing (e.g., off-season / preseason mode where
+    the full ``ip`` IS the ROS projection).
+
+    Hitters and zero-IP rows contribute nothing.
     """
     if not starter_ids:
         return 0.0
@@ -1655,17 +1696,29 @@ def _compute_weekly_ip(
         pitchers = matches
     if pitchers.empty or "ip" not in pitchers.columns:
         return 0.0
-    total_ip = float(pd.to_numeric(pitchers["ip"], errors="coerce").fillna(0).sum())
-    return total_ip / max(season_weeks, 1)
+    full_ip = pd.to_numeric(pitchers["ip"], errors="coerce").fillna(0)
+    if "ytd_ip" in pitchers.columns:
+        ytd_ip = pd.to_numeric(pitchers["ytd_ip"], errors="coerce").fillna(0)
+        # ROS = full - ytd, floored at 0 in case mid-season YTD exceeded the
+        # blended projection (over-performers can show ytd > ip).
+        ros_ip = (full_ip - ytd_ip).clip(lower=0)
+    else:
+        # No ytd column — assume `ip` is already ROS (preseason mode).
+        ros_ip = full_ip
+    return float(ros_ip.sum()) / max(weeks_remaining, 1)
 
 
 def _compute_ip_floor_penalty(
     before_starter_ids: list[int],
     after_starter_ids: list[int],
     player_pool: pd.DataFrame,
-    season_weeks: int = 26,
+    weeks_remaining: int = 26,
 ) -> tuple[float, dict[str, Any]]:
     """SGP delta penalty when a trade pushes weekly IP below the floor.
+
+    Bug F: caller must pass ``weeks_remaining`` (the forward-looking
+    horizon), NOT ``season_weeks`` (the full season). The IP-floor check
+    is about per-week IP for the rest of the season, not the season average.
 
     Delta semantics: returns max(0, after_penalty - before_penalty). If the
     user was already below the floor pre-trade and the trade doesn't worsen
@@ -1676,8 +1729,8 @@ def _compute_ip_floor_penalty(
     Returns:
         (penalty_delta, detail_dict). penalty_delta >= 0.
     """
-    before_weekly = _compute_weekly_ip(before_starter_ids, player_pool, season_weeks)
-    after_weekly = _compute_weekly_ip(after_starter_ids, player_pool, season_weeks)
+    before_weekly = _compute_weekly_ip(before_starter_ids, player_pool, weeks_remaining)
+    after_weekly = _compute_weekly_ip(after_starter_ids, player_pool, weeks_remaining)
     before_pen = _ip_floor_penalty(before_weekly)
     after_pen = _ip_floor_penalty(after_weekly)
     # Only count the marginal increase in penalty caused by the trade.
@@ -1687,6 +1740,7 @@ def _compute_ip_floor_penalty(
     detail: dict[str, Any] = {
         "threshold_ip_per_week": _IP_FLOOR_PER_WEEK,
         "kappa": _IP_FLOOR_KAPPA,
+        "weeks_remaining": int(weeks_remaining),
         "before_weekly_ip": round(before_weekly, 2),
         "after_weekly_ip": round(after_weekly, 2),
         "before_penalty": round(before_pen, 3),
