@@ -229,6 +229,7 @@ class YahooDataService:
                         key,
                     )
                     future.cancel()
+                    self._stats.record_error(key, "TimeoutError: fetch hung >15s")
                     data = None
                 except Exception as exc:
                     self._stats.record_error(key, str(exc))
