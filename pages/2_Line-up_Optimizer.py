@@ -805,20 +805,25 @@ with ctx:
         ),
         width="stretch",
     ):
-        with st.spinner("Refreshing Yahoo data (rosters, standings, matchup, FAs)..."):
+        with st.spinner("Refreshing Yahoo data (rosters, standings, matchup, free agents, transactions)..."):
             try:
                 from src.yahoo_data_service import get_yahoo_data_service
 
                 _refresh_results = get_yahoo_data_service().force_refresh_all()
                 _ok = sum(1 for v in _refresh_results.values() if v == "Refreshed")
                 _total = len(_refresh_results)
-                if _ok == _total:
-                    st.success(f"Refreshed {_ok}/{_total} Yahoo data types.")
+                # "No active matchup" is a normal between-weeks state, not a failure
+                _benign = {"Refreshed", "No active matchup"}
+                _problems = {k: v for k, v in _refresh_results.items() if v not in _benign}
+                if not _problems:
+                    st.toast(f"Yahoo data refreshed ({_ok}/{_total} types).", icon="✅")
                 else:
-                    _problems = {k: v for k, v in _refresh_results.items() if v != "Refreshed"}
-                    st.warning(f"Refreshed {_ok}/{_total}. Issues: {_problems}")
+                    st.toast(
+                        f"Refreshed {_total - len(_problems)}/{_total} Yahoo types. Issues: {_problems}",
+                        icon="⚠️",
+                    )
             except Exception as _refresh_err:
-                st.error(f"Refresh failed: {_refresh_err}")
+                st.toast(f"Refresh failed: {_refresh_err}", icon="❌")
         st.rerun()
 
 
