@@ -815,6 +815,9 @@ Items grouped by dependency-free batches. Each batch can be built in parallel by
 - T1.15: DoWhy back-door adjustment
 - T1.19: Gaussian copula same-team correlation
 
+**Batch G — OAuth decoupling (3-4 days):**
+- T1.21: Decouple `yds.get_rosters(force_refresh=True)` from optimize click path. Use cached data unless explicit "Refresh Yahoo" pressed. Eliminates the 159s hang documented in the audit.
+
 ### Phase 2 — Foundational v2 (Tier 2, 11 items, ~8-12 weeks)
 
 Order chosen to surface load-bearing pieces first:
@@ -933,10 +936,10 @@ These are non-blocking but worth noting before implementation:
 
 | Phase | Items | Effort estimate | Calendar weeks (1 dev) |
 |---|---|---|---|
-| Phase 1 (Tier 1) | 20 | 80-120 person-days | 3-5 |
+| Phase 1 (Tier 1) | 21 | 84-124 person-days | 3-5 |
 | Phase 2 (Tier 2) | 11 | 200-300 person-days | 8-12 |
-| **v2.0 total** | **31** | **280-420 person-days** | **3-4 months** |
-| Phase 3 (Tier 3, v2.5+) | 4 | 100-200+ person-days | 4-8 weeks later |
+| **v2.0 total** | **32** | **284-424 person-days** | **3-4 months** |
+| Phase 3 (Tier 3, v2.5+) | 3 | 100-200+ person-days | 4-8 weeks later |
 
 ---
 
@@ -964,10 +967,7 @@ Items intentionally deferred from v2.0:
 - **Cost:** $99/mo
 - **Trigger to ship:** when user demand for player-prop-aware optimization is clear
 
-### A.4 OAuth-bypass refactor of optimize button (decouple from Yahoo force_refresh)
-- **What:** Currently every optimize click force-refreshes Yahoo rosters first, hanging 159s on OAuth retries. Refactor to use cached data unless explicit "refresh" pressed.
-- **Effort:** ~3-4 days
-- **Trigger to ship:** **Move to Phase 1 of v2.0** — this is too painful to leave unfixed. (Suggesting promotion to T1.21 in v2.0.)
+### A.4 ~~OAuth-bypass refactor~~ — **Promoted to T1.21 in v2.0 Phase 1 Batch G** (user-approved 2026-05-22)
 
 ---
 
