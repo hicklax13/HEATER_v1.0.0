@@ -422,6 +422,7 @@ _il_weight_from_status(status: str, expected_return_days: float | None = None) -
 - **Yahoo game_key** — MLB 2026 = 469. Must set BOTH `self._query.game_id` AND `self._query.league_key`.
 - **429 backoff** — `_request_with_backoff()` retries 3× with exponential delay.
 - **yfpy eligible_positions bug** — yfpy's `Player.eligible_positions` drops multi-position data. Workaround: read from `player._extracted_data["eligible_positions"]` which preserves the full list. Separator is `,` (not `/`).
+- **Optimize click uses cached Yahoo data (T1.21)** — `pages/2_Line-up_Optimizer.py`'s optimize handler does NOT force-refresh Yahoo. Users force-refresh via the "Refresh Yahoo Data" sidebar button. This decoupling closed the 159-second OAuth hang documented in the v2 design spec. `_get_cached` in `src/yahoo_data_service.py` also wraps every Yahoo fetch in a 15-second `ThreadPoolExecutor` timeout so a hung Yahoo call cannot block page rendering. Structurally guarded by `tests/test_oauth_decoupling.py`.
 
 ### Streamlit UI
 - **No emoji** — All icons are inline SVGs from `PAGE_ICONS`. Injury badges use CSS dots.
@@ -582,6 +583,7 @@ These tests guard against regression of the cleanup work. Adding new code that v
 | `test_pybaseball_batting_stats_no_pos_kwarg.py` | No `batting_stats(..., pos=...)` calls in `src/data_bootstrap.py` — pybaseball 2.2.7 rejects `pos=` with TypeError (SFH M2) |
 | `test_yahoo_player_key_column.py` | `league_rosters` has `yahoo_player_key` column after `init_db()`; `upsert_league_roster_entry` writes it; TWP-on-different-teams persists both rows distinguished by yahoo_player_key; UNIQUE(team_name, player_id) constraint preserved (SFH M4) |
 | `test_draft_pick_name_resolution.py` | `resolve_player_names_by_keys` batch-fetches Yahoo player names (25 per call); `get_draft_results` uses it for entries where yfpy didn't expand the player resource; still-unresolved keys fall back to legacy `"Player {key}"` placeholder (SFH L8) |
+| `test_oauth_decoupling.py` | `pages/2_Line-up_Optimizer.py`'s optimize click handler must not call YahooDataService methods with `force_refresh=True`; the "Refresh Yahoo Data" button must be present and invoke `force_refresh_all()`; `_get_cached` must time out at 15s when Yahoo hangs. T1.21 / Batch G of v2. |
 
 **FA Engine Overhaul guards (PRs #89-#110, 2026-05-20 → 2026-05-21):**
 
