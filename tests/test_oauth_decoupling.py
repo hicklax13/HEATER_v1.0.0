@@ -63,3 +63,31 @@ def test_no_force_refresh_in_optimize_handler():
         "violates T1.21. Move forced refreshes to the explicit "
         "'Refresh Yahoo Data' button. Violations:\n  " + "\n  ".join(violations)
     )
+
+
+def test_refresh_yahoo_button_present():
+    """`pages/2_Line-up_Optimizer.py` must contain an explicit button to
+    force-refresh Yahoo data. Replaces the implicit force_refresh=True
+    that used to live in the optimize click handler (T1.21).
+
+    The button must invoke YahooDataService.force_refresh_all() so that
+    rosters, standings, matchup, free agents, transactions, settings, and
+    schedule are all refreshed in one click.
+    """
+    assert PAGE_PATH.exists(), f"Page not found: {PAGE_PATH}"
+    source = PAGE_PATH.read_text(encoding="utf-8")
+
+    # Look for a Streamlit button referencing "Refresh Yahoo"
+    assert "Refresh Yahoo Data" in source, (
+        "pages/2_Line-up_Optimizer.py must contain an explicit "
+        "'Refresh Yahoo Data' button (T1.21). The button replaces the "
+        "implicit force_refresh=True that was dropped from the optimize "
+        "click handler."
+    )
+
+    # Verify the button calls force_refresh_all (the YDS method that
+    # refreshes all 7 data types in one shot)
+    assert "force_refresh_all()" in source, (
+        "The 'Refresh Yahoo Data' button must call yds.force_refresh_all() "
+        "so all 7 data caches are invalidated, not just one."
+    )
