@@ -55,6 +55,16 @@ def _build_trade_df(trades: list[dict]) -> pd.DataFrame:
     for trade in trades:
         giving = ", ".join(trade.get("giving_names", []))
         receiving = ", ".join(trade.get("receiving_names", []))
+        # Trade Finder Phase 2: title-odds columns. Empty string when the
+        # candidate wasn't in the top-N deep-eval (ranked_by="composite_score_only").
+        _dpp = trade.get("delta_playoff_prob")
+        _dcp = trade.get("delta_champ_prob")
+        delta_playoff_str = (
+            f"{_dpp:+.2%}" if isinstance(_dpp, (int, float)) and trade.get("ranked_by") == "title_odds_blend" else ""
+        )
+        delta_champ_str = (
+            f"{_dcp:+.3%}" if isinstance(_dcp, (int, float)) and trade.get("ranked_by") == "title_odds_blend" else ""
+        )
         row = {
             "You Give": giving,
             "You Receive": receiving,
@@ -62,6 +72,9 @@ def _build_trade_df(trades: list[dict]) -> pd.DataFrame:
             "Partner": trade.get("opponent_team", ""),
             "Your Gain": round(trade.get("user_sgp_gain", 0), 2),
             "Their Gain": round(trade.get("opponent_sgp_gain", 0), 2),
+            # Title-odds (Phase 2) — primary objective per report Q(a)
+            "ΔPlayoff%": delta_playoff_str,
+            "ΔChamp%": delta_champ_str,
             "Give ADP": trade.get("give_adp_round", "N/A") if trade.get("give_adp_round") else "N/A",
             "Recv ADP": trade.get("recv_adp_round", "N/A") if trade.get("recv_adp_round") else "N/A",
             "ADP Fair": f"{trade.get('adp_fairness', 0):.0%}"
@@ -176,7 +189,46 @@ def main():
     all_team_totals = get_all_team_totals(league_rosters=league_rosters, player_pool=pool)
 
     # ── Run trade finder engine ───────────────────────────────────────
-    with st.spinner("Scanning league for trade opportunities..."):
+    # Title-odds re-rank (Trade Finder Phase 2 — 2026-05-24): after the fast
+    # composite scan, deep-evaluate the top 15 candidates with
+    # simulate_trade_playoff_delta to re-rank by Δ-championship-probability
+    # (the report's primary objective per Q(a)). Compute cost ~4-5 seconds
+    # at n_sims=5000; surfaced behind a sidebar toggle so users can opt out
+    # if they want pure-composite ranking only.
+    _title_odds_enabled = st.sidebar.toggle(
+        "Re-rank by title odds (slower, ~5s)",
+        value=True,
+        help=(
+            "When ON, deep-evaluate the top 15 candidates with playoff/championship "
+            "Monte Carlo and re-rank by a blend of Δchamp_prob (60%) + composite "
+            "score (40%). When OFF, fast composite-only ranking. Per report Q(a) "
+            "this is the engine's primary objective."
+        ),
+    )
+
+    # Load schedule + current wins for the playoff-prob re-rank.
+    _weekly_schedule = None
+    _current_wins = None
+    if _title_odds_enabled:
+        try:
+            from src.database import load_league_schedule, load_league_standings
+
+            _weekly_schedule = load_league_schedule() or None
+            _standings = load_league_standings()
+            if not _standings.empty:
+                _wins_rows = _standings[_standings["category"] == "WINS"]
+                if not _wins_rows.empty:
+                    _current_wins = {str(r["team_name"]): int(r["total"]) for _, r in _wins_rows.iterrows()}
+        except Exception:
+            _weekly_schedule = None
+            _current_wins = None
+
+    _spinner_msg = (
+        "Scanning league + computing title-odds (~5 sec)..."
+        if _title_odds_enabled and _weekly_schedule and _current_wins
+        else "Scanning league for trade opportunities..."
+    )
+    with st.spinner(_spinner_msg):
         t0 = time.time()
         opportunities = find_trade_opportunities(
             user_roster_ids=user_roster_ids,
@@ -187,6 +239,11 @@ def main():
             league_rosters=league_rosters,
             max_results=50,
             top_partners=11,
+            enable_title_odds_rerank=_title_odds_enabled,
+            weekly_schedule=_weekly_schedule,
+            current_wins=_current_wins,
+            title_odds_top_n=15,
+            title_odds_n_sims=5_000,
         )
         scan_time = time.time() - t0
 
