@@ -205,6 +205,13 @@ def simulate_playoff_outcomes(
         "current_wins": int(current_wins.get(user_team_name, 0)),
         "n_sims": int(n_sims),
         "method": "hickey-centric-binomial-opp",
+        # CARA Phase (2026-05-24): per-sim Bernoulli outcomes for the
+        # downstream CARA mean-CVaR utility computation in
+        # simulate_trade_playoff_delta. Each entry is 0 or 1.
+        # These arrays paired with the SAME RNG seed across before/after
+        # arms enable true per-sim DELTA variance (most deltas = 0).
+        "champ_outcomes": champ_wins.astype(int),
+        "playoff_outcomes": user_in_top4.astype(int),
     }
 
 
@@ -236,6 +243,14 @@ def simulate_trade_playoff_delta(
           - delta_playoff_prob: after.playoff_prob - before.playoff_prob
           - delta_champ_prob: after.champ_prob - before.champ_prob
           - n_sims: sims per arm
+          - cara_utility: CARA mean-variance utility per report Section B.9 —
+            E[Δchamp] - λ/2 × Var[Δchamp] computed from per-sim deltas.
+            Penalizes high-variance trades (uncertain outcomes).
+          - cvar20_champ: Conditional VaR at 20% — expected loss in the
+            worst 20% of sims. Per report B.9 the "Lose the trade?"
+            downside check.
+          - var_champ: Var of per-sim champ deltas (input to CARA).
+          - lambda: Risk-aversion parameter (LeagueConfig).
     """
     before = simulate_playoff_outcomes(
         user_roster_ids=before_roster_ids,
@@ -262,12 +277,45 @@ def simulate_trade_playoff_delta(
         variance_cv=variance_cv,
     )
 
+    # ── CARA mean-CVaR utility (report Section B.9 + Q(a)) ────────────
+    # Per-sim deltas (paired-MC = same seed across arms → most deltas are 0,
+    # only sims where the bracket outcome differs contribute non-zero).
+    champ_deltas = after["champ_outcomes"] - before["champ_outcomes"]
+    playoff_deltas = after["playoff_outcomes"] - before["playoff_outcomes"]
+
+    # CARA: U = E[delta] - lambda/2 × Var[delta]
+    # lambda from LeagueConfig.risk_aversion (default 0.15 per report B.9 calibration).
+    cfg = config if config is not None else LeagueConfig()
+    lambda_ = float(getattr(cfg, "risk_aversion", 0.15))
+
+    e_champ = float(champ_deltas.mean())
+    var_champ = float(champ_deltas.var())
+    cara_utility = e_champ - (lambda_ / 2.0) * var_champ
+
+    # CVaR_20: mean of worst 20% of per-sim deltas. Report B.9 — the
+    # "downside reporting" metric that preserves coherence (sub-additive
+    # unlike VaR). For paired-MC where most deltas are 0, the worst 20%
+    # picks up the sims where the trade hurt championship outcome.
+    sorted_deltas = np.sort(champ_deltas)
+    cvar20_cutoff = max(1, int(len(sorted_deltas) * 0.20))
+    cvar20_champ = float(sorted_deltas[:cvar20_cutoff].mean())
+
     return {
         "before": before,
         "after": after,
         "delta_playoff_prob": round(after["playoff_prob"] - before["playoff_prob"], 4),
         "delta_champ_prob": round(after["champ_prob"] - before["champ_prob"], 4),
         "n_sims": n_sims,
+        # CARA mean-CVaR (report Section B.9 + Q(a)) — risk-adjusted
+        # utility on the per-sim championship-probability delta.
+        # Recommended primary objective for decision-making per report.
+        "cara_utility": round(cara_utility, 6),
+        "var_champ": round(var_champ, 6),
+        "cvar20_champ": round(cvar20_champ, 4),
+        "lambda_risk_aversion": lambda_,
+        # Also expose playoff-prob mean delta for symmetry (already in
+        # delta_playoff_prob, but keep here for ease of access alongside CARA).
+        "mean_playoff_delta_per_sim": round(float(playoff_deltas.mean()), 4),
     }
 
 

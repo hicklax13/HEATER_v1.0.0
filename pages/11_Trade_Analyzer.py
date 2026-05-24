@@ -429,6 +429,48 @@ else:
                             ),
                         )
 
+                        # ── CARA mean-CVaR utility (report Section B.9) ──
+                        # Risk-adjusted utility on per-sim Δchamp_prob deltas.
+                        # CARA = E[Δchamp] - λ/2 × Var[Δchamp] with λ=0.15.
+                        # CVaR_20 = average outcome in worst 20% of sims.
+                        # Together they answer: "Is the expected gain worth
+                        # the downside risk?"
+                        _cara = ps.get("cara_utility")
+                        _cvar20 = ps.get("cvar20_champ")
+                        _var_champ = ps.get("var_champ")
+                        _lambda = ps.get("lambda_risk_aversion", 0.15)
+                        if _cara is not None and _cvar20 is not None:
+                            cara1, cara2, cara3 = st.columns(3)
+                            cara1.metric(
+                                "CARA utility (risk-adjusted)",
+                                f"{_cara:+.4f}",
+                                help=(
+                                    f"E[Δchamp] − (λ/2) × Var[Δchamp] with λ={_lambda}. "
+                                    f"Penalizes high-variance trades. > 0 → accept under "
+                                    f"CARA preferences; < 0 → variance penalty exceeds "
+                                    f"expected gain. Report Section B.9."
+                                ),
+                            )
+                            cara2.metric(
+                                "CVaR₂₀ (worst-20% Δchamp)",
+                                f"{_cvar20:+.2%}",
+                                help=(
+                                    "Conditional Value-at-Risk at 20%: average "
+                                    "championship-prob delta across the WORST 20% "
+                                    "of simulated futures. Negative = trade carries "
+                                    "real downside in unlucky scenarios. Report B.9."
+                                ),
+                            )
+                            cara3.metric(
+                                "Var[Δchamp]",
+                                f"{_var_champ:.4f}" if _var_champ is not None else "—",
+                                help=(
+                                    "Variance of per-sim championship-prob delta. "
+                                    "0 = trade always produces identical bracket "
+                                    "outcome; >0 = bracket outcome varies across sims."
+                                ),
+                            )
+
                     # Verdict banner
                     if result["verdict"] == "ACCEPT":
                         color = T["ok"]
