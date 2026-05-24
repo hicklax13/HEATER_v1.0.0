@@ -233,16 +233,43 @@ def _category_win_prob(
     mu_o: float,
     cv: float,
     inverse: bool,
+    kalman_var_h: float = 0.0,
+    kalman_var_o: float = 0.0,
 ) -> float:
     """Per-category single-week win probability via normal approximation.
 
     p = Phi((mu_h - mu_o) / sqrt(sigma_h^2 + sigma_o^2))
 
     For inverse cats, the result is 1 - p (lower mean wins).
+
+    Kalman-augmented mode (2026-05-24, per design Q3 follow-up):
+    When kalman_var_h / kalman_var_o are non-zero, the effective σ is
+    blended with the Kalman true-talent uncertainty:
+
+        sigma_effective² = (CV × mean)² + kalman_var
+
+    This captures BOTH per-week sampling variance (CV term, dominant
+    for short matchups) AND true-talent uncertainty (Kalman term,
+    matters for under-sampled players). Defaults to 0.0 preserves
+    legacy CV-only behavior.
+
+    Args:
+        mu_h: User's per-week mean for category.
+        mu_o: Opponent's per-week mean for category.
+        cv: Per-week coefficient of variation (e.g. 0.20 for HR).
+        inverse: True for ERA/WHIP/L (lower wins).
+        kalman_var_h: Optional Kalman true-talent variance for user side.
+        kalman_var_o: Optional Kalman true-talent variance for opponent side.
+
+    Returns:
+        Win probability in [0, 1].
     """
-    sigma_h = max(abs(mu_h) * cv, _MIN_SIGMA)
-    sigma_o = max(abs(mu_o) * cv, _MIN_SIGMA)
-    combined_sigma = float(np.sqrt(sigma_h**2 + sigma_o**2))
+    sigma_h_cv = max(abs(mu_h) * cv, _MIN_SIGMA)
+    sigma_o_cv = max(abs(mu_o) * cv, _MIN_SIGMA)
+    # Blend: σ_total² = σ_CV² + σ_Kalman² (independent variance addition)
+    sigma_h_total_sq = sigma_h_cv**2 + max(kalman_var_h, 0.0)
+    sigma_o_total_sq = sigma_o_cv**2 + max(kalman_var_o, 0.0)
+    combined_sigma = float(np.sqrt(sigma_h_total_sq + sigma_o_total_sq))
 
     if combined_sigma < 1e-12:
         # Degenerate: both means and sigmas are 0. Coin-flip.
