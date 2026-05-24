@@ -435,6 +435,40 @@ def _find_drop_candidate(
     return scores[0][0]
 
 
+# Markov FA discount (report Section B.7) — geometric convergence of
+# top-available FA quality to a stationary level over the season.
+_MARKOV_ALPHA: float = 0.85
+_MARKOV_STATIONARY_FRACTION: float = 0.70
+
+
+def _markov_fa_discount(
+    week_index: int,
+    alpha: float = _MARKOV_ALPHA,
+    stationary_fraction: float = _MARKOV_STATIONARY_FRACTION,
+) -> float:
+    """Markov-decayed FA pool quality factor per report Section B.7.
+
+    The FA pool's top-available quality starts at 1.0 on draft day and
+    geometrically converges to ``stationary_fraction`` as good players
+    get rostered over the season:
+
+        factor = α^w + (1 − α^w) × stationary_fraction
+
+    With α=0.85, stationary=0.70:
+      Week 1:   1.000 (full draft-day quality)
+      Week 5:   0.857 (still pretty fresh)
+      Week 10:  0.759 (mid-season depletion)
+      Week 18:  0.715 (near stationary)
+      Week 26:  0.704 (essentially stationary)
+
+    Used to discount FA pickups in 2-for-1 trade evaluation so trades
+    made later in the season get less inflated by FA replacement value.
+    """
+    week = max(int(week_index), 0)
+    geometric = alpha**week
+    return float(geometric * 1.0 + (1.0 - geometric) * stationary_fraction)
+
+
 def _find_fa_pickup(
     player_pool: pd.DataFrame,
     sgp_calc: SGPCalculator,
@@ -1049,6 +1083,45 @@ def evaluate_trade(
             total_surplus -= ip_floor_penalty_delta
         _mod_ip.influence = 0.3
 
+    # Step 6e: Markov FA discount (report Section B.7)
+    # When the trade is 2-for-1, the engine fills the empty roster slot
+    # with the current best FA. The current code captures that FA's full
+    # static SGP, implicitly assuming draft-day-quality pool. But the
+    # pool degrades over the season (good FAs get rostered). Apply a
+    # Markov-decayed discount so trades made later get appropriately less
+    # credit for FA replacement value.
+    markov_fa_penalty = 0.0
+    markov_fa_detail: dict[str, Any] = {}
+    with ctx.track_module("phase1_markov_fa_discount") as _mod_markov:
+        if picked_up_ids:
+            # Compute current week index from weeks_remaining + total season
+            # (LeagueConfig.season_weeks=26 for FourzynBurn)
+            current_week = max(1, config.season_weeks - weeks_remaining)
+            markov_factor = _markov_fa_discount(current_week)
+            # Discount = (1 - markov_factor) × (sum of FA SGPs)
+            # E.g. week 10 → factor 0.76 → discount 24% of FA SGP value
+            fa_sgp_total = 0.0
+            for pid in picked_up_ids:
+                match = player_pool[player_pool["player_id"] == pid]
+                if not match.empty:
+                    fa_sgp_total += sgp_calc.total_sgp(match.iloc[0])
+            markov_fa_penalty = max(0.0, (1.0 - markov_factor) * fa_sgp_total)
+            markov_fa_detail = {
+                "current_week": int(current_week),
+                "markov_factor": round(markov_factor, 4),
+                "alpha": _MARKOV_ALPHA,
+                "stationary_fraction": _MARKOV_STATIONARY_FRACTION,
+                "fa_pickup_count": len(picked_up_ids),
+                "fa_sgp_total_static": round(fa_sgp_total, 3),
+                "discount_penalty": round(markov_fa_penalty, 3),
+            }
+            if markov_fa_penalty > 0:
+                total_surplus -= markov_fa_penalty
+            _mod_markov.influence = 0.2
+        else:
+            _mod_markov.status = ModuleStatus.DISABLED
+            _mod_markov.fallback_reason = "No FA pickups (not a roster-shrink trade)"
+
     # Step 7: Grade the trade
     trade_grade = grade_trade(total_surplus)
 
@@ -1196,6 +1269,8 @@ def evaluate_trade(
         "flexibility_detail": flexibility_detail,
         "ip_floor_penalty": round(ip_floor_penalty_delta, 3),
         "ip_floor_detail": ip_floor_detail,
+        "markov_fa_penalty": round(markov_fa_penalty, 3),
+        "markov_fa_detail": markov_fa_detail,
         "risk_flags": risk_flags,
         "verdict": verdict,
         "compliant": True,  # Legacy field — no longer enforced
