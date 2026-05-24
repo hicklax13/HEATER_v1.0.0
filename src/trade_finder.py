@@ -1633,6 +1633,145 @@ def _compute_category_fit_score(
 # ── Main Trade Finder ─────────────────────────────────────────────────
 
 
+def rerank_by_title_odds(
+    candidates: list[dict],
+    user_team_name: str,
+    user_roster_ids: list[int],
+    all_team_rosters: dict[str, list[int]],
+    weekly_schedule: dict[int, str],
+    current_wins: dict[str, int],
+    player_pool: pd.DataFrame,
+    config: LeagueConfig | None = None,
+    top_n: int = 15,
+    n_sims: int = 5_000,
+    composite_weight: float = 0.4,
+    champ_weight: float = 0.6,
+) -> list[dict]:
+    """Deep-evaluate top N candidates with playoff/championship sim, re-rank.
+
+    Per Enhanced Trade Engine report Q(a) — the primary engine objective is
+    Δ-championship-probability. Trade Finder's fast composite_score (SGP +
+    ADP + acceptance + cat-fit) is great for surfacing candidates, but does
+    NOT directly measure how the trade moves your title odds.
+
+    This function takes the top-N candidates by composite_score, runs the
+    playoff/championship bracket sim on each, and re-ranks by a blend of
+    Δchamp_prob and composite_score. The blend (0.6 × Δchamp + 0.4 × composite,
+    after normalization) is a deliberate trade-off:
+      - Δchamp_prob captures the report's primary objective (title impact)
+      - composite_score grounds the metric in acceptance/ADP/fit reality
+        (a 99% Δchamp trade nobody accepts is worthless)
+
+    Compute cost: ~250ms per candidate at n_sims=5000. Top 15 ≈ 4 seconds.
+
+    Args:
+        candidates: Output of find_trade_opportunities (sorted by composite).
+        user_team_name: User's team name (key in all_team_rosters).
+        user_roster_ids: User's full roster player IDs (pre-trade baseline).
+        all_team_rosters: {team_name: [player_ids]} for ALL teams.
+        weekly_schedule: {week: opponent_team_name} for user's remaining weeks.
+        current_wins: {team_name: current_W_record} for all teams.
+        player_pool: Full enriched player pool.
+        config: LeagueConfig.
+        top_n: Number of candidates to deep-evaluate. Default 15 per
+            2026-05-24 design Q1.
+        n_sims: MC sims per candidate for the re-rank. Default 5,000 keeps
+            total compute under 5 seconds for top_n=15.
+        composite_weight: Weight on (normalized) composite_score in the
+            final ranking metric. Default 0.4.
+        champ_weight: Weight on (normalized) Δchamp_prob. Default 0.6.
+
+    Returns:
+        New list with the same length as ``candidates``. The top top_n are
+        enriched with new keys (delta_playoff_prob, delta_champ_prob,
+        title_odds_score, ranked_by) and re-sorted by title_odds_score.
+        Remaining (top_n+1 onward) keep original composite-score order,
+        appended after the re-ranked top-N.
+    """
+    if not candidates:
+        return []
+    if not (weekly_schedule and current_wins and user_team_name):
+        # Required inputs missing — return candidates unchanged
+        logger.warning(
+            "rerank_by_title_odds: missing required inputs "
+            "(weekly_schedule/current_wins/user_team_name) — returning candidates unchanged"
+        )
+        return candidates
+
+    if config is None:
+        config = LeagueConfig()
+
+    from src.engine.output.playoff_sim import simulate_trade_playoff_delta
+
+    # Take top_n by composite_score for deep evaluation
+    sorted_by_composite = sorted(candidates, key=lambda t: t.get("composite_score", 0), reverse=True)
+    top_candidates = sorted_by_composite[:top_n]
+    remaining = sorted_by_composite[top_n:]
+
+    # Deep-evaluate each top candidate
+    enriched_top: list[dict] = []
+    for cand in top_candidates:
+        give_ids = cand.get("giving_ids", [])
+        recv_ids = cand.get("receiving_ids", [])
+        after_ids = [pid for pid in user_roster_ids if pid not in give_ids] + list(recv_ids)
+        try:
+            ps = simulate_trade_playoff_delta(
+                before_roster_ids=user_roster_ids,
+                after_roster_ids=after_ids,
+                user_team_name=user_team_name,
+                all_team_rosters=all_team_rosters,
+                user_schedule=weekly_schedule,
+                current_wins=current_wins,
+                player_pool=player_pool,
+                config=config,
+                n_sims=n_sims,
+            )
+            cand["delta_playoff_prob"] = ps["delta_playoff_prob"]
+            cand["delta_champ_prob"] = ps["delta_champ_prob"]
+        except Exception as exc:
+            logger.warning(
+                "rerank_by_title_odds: playoff sim failed for trade %s → %s (%s) — leaving with neutral 0.0 deltas",
+                cand.get("giving_names"),
+                cand.get("receiving_names"),
+                exc,
+            )
+            cand["delta_playoff_prob"] = 0.0
+            cand["delta_champ_prob"] = 0.0
+        enriched_top.append(cand)
+
+    # Normalize champ deltas and composite scores into [0, 1] for blend
+    # to avoid scale dominance (champ_prob is typically 0.001-0.05 absolute).
+    champ_deltas = [c.get("delta_champ_prob", 0.0) for c in enriched_top]
+    composites = [c.get("composite_score", 0.0) for c in enriched_top]
+
+    def _normalize(values: list[float]) -> list[float]:
+        if not values:
+            return []
+        lo, hi = min(values), max(values)
+        if hi - lo < 1e-12:
+            return [0.5] * len(values)
+        return [(v - lo) / (hi - lo) for v in values]
+
+    norm_champ = _normalize(champ_deltas)
+    norm_composite = _normalize(composites)
+
+    # Blend metric — the report's Q(a) primary objective weighted at 60%,
+    # acceptance/ADP/fit reality anchored at 40%.
+    for i, cand in enumerate(enriched_top):
+        title_score = champ_weight * norm_champ[i] + composite_weight * norm_composite[i]
+        cand["title_odds_score"] = round(title_score, 4)
+        cand["ranked_by"] = "title_odds_blend"
+
+    # Re-sort top by title_odds_score
+    enriched_top.sort(key=lambda c: c.get("title_odds_score", 0), reverse=True)
+
+    # Tag remaining candidates so UI can distinguish
+    for cand in remaining:
+        cand["ranked_by"] = "composite_score_only"
+
+    return enriched_top + remaining
+
+
 def find_trade_opportunities(
     user_roster_ids: list[int],
     player_pool: pd.DataFrame,
@@ -1645,6 +1784,11 @@ def find_trade_opportunities(
     top_partners: int = 5,
     standings_rank: int | None = None,
     team_record: tuple | None = None,
+    enable_title_odds_rerank: bool = False,
+    weekly_schedule: dict[int, str] | None = None,
+    current_wins: dict[str, int] | None = None,
+    title_odds_top_n: int = 15,
+    title_odds_n_sims: int = 5_000,
 ) -> list[dict]:
     """Scan league for the best trade opportunities.
 
@@ -1916,4 +2060,32 @@ def find_trade_opportunities(
 
     combined = selected_1v1 + selected_multi
     combined.sort(key=lambda x: x.get("composite_score", 0), reverse=True)
-    return combined[:max_results]
+    combined = combined[:max_results]
+
+    # ── Optional Tier 3: title-odds-aware re-rank ────────────────────
+    # Per Enhanced Trade Engine report Q(a) — the report's PRIMARY engine
+    # objective is Δ-championship-probability. The composite-score scan
+    # above is fast but doesn't directly measure title impact. When
+    # enabled, this runs simulate_trade_playoff_delta on the top N
+    # candidates and re-ranks by a blend of Δchamp_prob and composite.
+    if enable_title_odds_rerank and weekly_schedule and current_wins and user_team_name:
+        try:
+            combined = rerank_by_title_odds(
+                candidates=combined,
+                user_team_name=user_team_name,
+                user_roster_ids=user_roster_ids,
+                all_team_rosters=league_rosters,
+                weekly_schedule=weekly_schedule,
+                current_wins=current_wins,
+                player_pool=player_pool,
+                config=config,
+                top_n=title_odds_top_n,
+                n_sims=title_odds_n_sims,
+            )
+        except Exception:
+            logger.warning(
+                "find_trade_opportunities: title-odds re-rank failed — returning composite-only order",
+                exc_info=True,
+            )
+
+    return combined

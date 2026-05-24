@@ -429,6 +429,48 @@ else:
                             ),
                         )
 
+                        # ── CARA mean-CVaR utility (report Section B.9) ──
+                        # Risk-adjusted utility on per-sim Δchamp_prob deltas.
+                        # CARA = E[Δchamp] - λ/2 × Var[Δchamp] with λ=0.15.
+                        # CVaR_20 = average outcome in worst 20% of sims.
+                        # Together they answer: "Is the expected gain worth
+                        # the downside risk?"
+                        _cara = ps.get("cara_utility")
+                        _cvar20 = ps.get("cvar20_champ")
+                        _var_champ = ps.get("var_champ")
+                        _lambda = ps.get("lambda_risk_aversion", 0.15)
+                        if _cara is not None and _cvar20 is not None:
+                            cara1, cara2, cara3 = st.columns(3)
+                            cara1.metric(
+                                "CARA utility (risk-adjusted)",
+                                f"{_cara:+.4f}",
+                                help=(
+                                    f"E[Δchamp] − (λ/2) × Var[Δchamp] with λ={_lambda}. "
+                                    f"Penalizes high-variance trades. > 0 → accept under "
+                                    f"CARA preferences; < 0 → variance penalty exceeds "
+                                    f"expected gain. Report Section B.9."
+                                ),
+                            )
+                            cara2.metric(
+                                "CVaR₂₀ (worst-20% Δchamp)",
+                                f"{_cvar20:+.2%}",
+                                help=(
+                                    "Conditional Value-at-Risk at 20%: average "
+                                    "championship-prob delta across the WORST 20% "
+                                    "of simulated futures. Negative = trade carries "
+                                    "real downside in unlucky scenarios. Report B.9."
+                                ),
+                            )
+                            cara3.metric(
+                                "Var[Δchamp]",
+                                f"{_var_champ:.4f}" if _var_champ is not None else "—",
+                                help=(
+                                    "Variance of per-sim championship-prob delta. "
+                                    "0 = trade always produces identical bracket "
+                                    "outcome; >0 = bracket outcome varies across sims."
+                                ),
+                            )
+
                     # Verdict banner
                     if result["verdict"] == "ACCEPT":
                         color = T["ok"]
@@ -561,12 +603,92 @@ else:
                             punt_text = ", ".join(result["punt_categories"])
                             st.info(f"Punted categories (zero-weighted): {punt_text}")
 
+                        # ── Three-horizon split (report Q(b)) ──
+                        # Per Enhanced Trade Engine report Q(b): the
+                        # decision-relevant horizons are pre-deadline,
+                        # regular-season-finish, and playoff-window. Slice
+                        # the weekly matrix by these horizons so the user
+                        # can see asymmetric impact (e.g., trade hurts you
+                        # for 12 regular weeks but helps the playoff window).
+                        _wm = result.get("weekly_matrix")
+                        if _wm and "summary" in _wm and not _wm["summary"].empty:
+                            _summary_for_horizons = _wm["summary"]
+                            # Yahoo H2H Cats standard: trade deadline week ~19,
+                            # regular season ends week ~24, playoffs weeks 25-26.
+                            # Use the user's actual schedule weeks (clamped).
+                            _weeks_in_sched = list(_summary_for_horizons.index)
+                            _TRADE_DEADLINE_WEEK = 19
+                            _REGULAR_END_WEEK = 24
+                            _pre_deadline = [w for w in _weeks_in_sched if w <= _TRADE_DEADLINE_WEEK]
+                            _reg_season = [w for w in _weeks_in_sched if w <= _REGULAR_END_WEEK]
+                            _playoff = [w for w in _weeks_in_sched if w > _REGULAR_END_WEEK]
+
+                            def _sum_delta(weeks: list) -> float:
+                                if not weeks:
+                                    return 0.0
+                                return float(_summary_for_horizons.loc[weeks, "delta_cat_wins"].sum())
+
+                            _pd_delta = _sum_delta(_pre_deadline)
+                            _rs_delta = _sum_delta(_reg_season)
+                            _po_delta = _sum_delta(_playoff)
+
+                            st.markdown(
+                                '<div style="font-family:Bebas Neue,sans-serif;font-size:16px;'
+                                'color:#9ca3af;letter-spacing:2px;margin-top:8px;">'
+                                "THREE-HORIZON IMPACT (report Q(b))</div>",
+                                unsafe_allow_html=True,
+                            )
+                            h1, h2, h3 = st.columns(3)
+                            h1.metric(
+                                f"Pre-trade-deadline ({len(_pre_deadline)} wks)",
+                                "Σ Δ cat-wins",
+                                delta=f"{_pd_delta:+.2f}",
+                                delta_color="normal",
+                                help=(
+                                    f"Cumulative cat-wins delta across weeks "
+                                    f"{_pre_deadline[0] if _pre_deadline else '?'}-"
+                                    f"{_pre_deadline[-1] if _pre_deadline else '?'} "
+                                    f"(through Yahoo trade deadline ~week 19). After this "
+                                    f"window you cannot reverse the trade if it goes poorly."
+                                ),
+                            )
+                            h2.metric(
+                                f"Full regular season ({len(_reg_season)} wks)",
+                                "Σ Δ cat-wins",
+                                delta=f"{_rs_delta:+.2f}",
+                                delta_color="normal",
+                                help=(
+                                    "Cumulative cat-wins delta across all remaining "
+                                    "regular-season weeks (through ~week 24)."
+                                ),
+                            )
+                            if _playoff:
+                                h3.metric(
+                                    f"Playoff window ({len(_playoff)} wks)",
+                                    "Σ Δ cat-wins",
+                                    delta=f"{_po_delta:+.2f}",
+                                    delta_color="normal",
+                                    help=(
+                                        f"Cumulative cat-wins delta across playoff "
+                                        f"weeks {_playoff[0]}-{_playoff[-1]}. "
+                                        f"Conditional on making the playoffs."
+                                    ),
+                                )
+                            else:
+                                h3.metric(
+                                    "Playoff window",
+                                    "Not in schedule",
+                                    help=(
+                                        "Yahoo schedule cache doesn't yet include "
+                                        "playoff weeks (typically populated late season)."
+                                    ),
+                                )
+
                         # ── Feature 2 (2026-05-23): Weekly H2H matrix ──
                         # Per report Section B.5 — for each remaining week + cat,
                         # P(win) before vs after the trade. Negative delta = trade
                         # hurts you that week. Surfaces playoff-window asymmetry
                         # the SGP scalar can't see.
-                        _wm = result.get("weekly_matrix")
                         if _wm and "summary" in _wm:
                             with st.expander(
                                 f"📅 Weekly H2H impact (Feature 2 — {len(_wm['summary'])} weeks)",

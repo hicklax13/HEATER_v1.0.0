@@ -128,6 +128,113 @@ def compute_player_zscores(
     return pool
 
 
+# G-score Phase (2026-05-24): Rosenof arXiv:2307.02188 — adds team-level
+# weekly variance term to the z-score denominator. Per the report's
+# Section B.5 / C.2: G_i = (μ_i − μ̄) / sqrt(σ̄² + σ*²) where σ* is the
+# expected team weekly variance contribution. Reusing the per-cat CV
+# calibration from weekly_matrix._DEFAULT_CV (5-35% by category type).
+
+
+def compute_player_gscores(
+    player_pool: pd.DataFrame,
+    config: LeagueConfig | None = None,
+    sigma_star_cv: dict[str, float] | None = None,
+) -> pd.DataFrame:
+    """Compute per-player G-scores (Rosenof) per report Section B.5 / C.2.
+
+    G-score = (μ_i − μ̄_peers) / sqrt(σ̄²_peers + σ*²)
+
+    where σ* is the team-level weekly variance, calibrated as
+    σ* = cv_cat × μ̄_peers per the weekly_matrix._DEFAULT_CV table:
+
+      Hitting rates (AVG, OBP): cv=4-5% — stable per week
+      Counting hitting (R, RBI): cv=15%
+      Power/speed (HR, SB): cv=20-25% — Poisson-like
+      Pitching W/L: cv=30% — small per-week samples
+      Pitching counting K: cv=15%
+      Pitching rates ERA/WHIP: cv=12-18% — IP-bounded
+
+    Players with high VOLATILITY (in cats where their CV is high) get
+    smaller G-scores than equivalent z-scores would predict, properly
+    reflecting that H2H matchups punish week-to-week variance.
+
+    Why this matters: a player with μ=25 HR and a player with μ=25 HR
+    but higher weekly volatility produce identical z-scores. G-score
+    discounts the volatile one because their team-total variance is
+    larger → more weeks where you accidentally lose HR by chance.
+
+    Args:
+        player_pool: Full player pool DataFrame.
+        config: LeagueConfig.
+        sigma_star_cv: Per-category CV for σ* calibration. Defaults to
+            weekly_matrix._DEFAULT_CV.
+
+    Returns:
+        DataFrame with original columns plus g_{cat} columns and g_composite.
+    """
+    if config is None:
+        config = LeagueConfig()
+
+    # Source σ* CV from weekly_matrix's calibrated defaults
+    if sigma_star_cv is None:
+        from src.engine.output.weekly_matrix import _DEFAULT_CV
+
+        sigma_star_cv = dict(_DEFAULT_CV)
+
+    pool = player_pool.copy()
+    g_cols: list[str] = []
+
+    for cat in config.all_categories:
+        col = STAT_MAP.get(cat, cat.lower())
+        g_col = f"g_{cat}"
+        g_cols.append(g_col)
+
+        if col not in pool.columns:
+            pool[g_col] = 0.0
+            continue
+
+        # Peer group (same as z-score)
+        if cat in config.hitting_categories:
+            peer_mask = pool["is_hitter"] == 1
+        else:
+            peer_mask = pool["is_hitter"] == 0
+            if cat in config.inverse_stats and "ip" in pool.columns:
+                peer_mask = peer_mask & (pool["ip"].fillna(0) > 0)
+
+        peer_vals = pool.loc[peer_mask, col].dropna()
+        mean = peer_vals.mean() if len(peer_vals) > 0 else 0.0
+        peer_std = peer_vals.std() if len(peer_vals) > 1 else 1.0
+        if peer_std == 0 or pd.isna(peer_std):
+            peer_std = 1.0
+
+        # σ* = cv_cat × peer_mean — the team-level weekly variance contribution
+        cv = sigma_star_cv.get(cat, 0.15)
+        sigma_star = abs(mean) * cv if mean != 0 else 0.01
+
+        # G-score denominator includes BOTH cross-sectional variance (σ̄²)
+        # and within-player weekly variance (σ*²)
+        g_denom = (peer_std**2 + sigma_star**2) ** 0.5
+        if g_denom < 1e-9:
+            g_denom = 1.0
+
+        raw_g = (pool[col].fillna(0) - mean) / g_denom
+
+        # Flip sign for inverse stats
+        if cat in config.inverse_stats:
+            pool[g_col] = -raw_g
+        else:
+            pool[g_col] = raw_g
+
+        # Zero out cross-peer-group (don't give pitchers hitting G-scores)
+        if cat in config.hitting_categories:
+            pool.loc[pool["is_hitter"] == 0, g_col] = 0.0
+        else:
+            pool.loc[pool["is_hitter"] == 1, g_col] = 0.0
+
+    pool["g_composite"] = pool[g_cols].sum(axis=1)
+    return pool
+
+
 def compute_sgp_from_standings(
     standings: pd.DataFrame,
     config: LeagueConfig | None = None,
