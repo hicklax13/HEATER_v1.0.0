@@ -258,14 +258,21 @@ else:
                         _weekly_schedule: dict[int, str] | None = None
                         _league_rosters: dict[str, list[int]] | None = None
                         _current_wins: dict[str, int] | None = None
+                        # Full Schedule Phase (2026-05-24): also load
+                        # full league schedule so playoff sim can use
+                        # per-team-per-week opponent matchups instead of
+                        # Binomial(N, avg_p) approximation.
+                        _full_league_schedule = None
                         try:
                             from src.database import (
                                 get_connection,
                                 load_league_schedule,
+                                load_league_schedule_full,
                                 load_league_standings,
                             )
 
                             _weekly_schedule = load_league_schedule() or None
+                            _full_league_schedule = load_league_schedule_full() or None
                             _conn = get_connection()
                             try:
                                 import pandas as pd
@@ -315,6 +322,7 @@ else:
                             league_rosters=_league_rosters,
                             current_wins=_current_wins,
                             playoff_n_sims=20_000,
+                            full_league_schedule=_full_league_schedule,
                         )
                         engine_used = "phase1"
                     except Exception as e:

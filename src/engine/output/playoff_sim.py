@@ -61,6 +61,7 @@ def simulate_playoff_outcomes(
     n_sims: int = _DEFAULT_N_SIMS,
     seed: int = 42,
     variance_cv: dict[str, float] | None = None,
+    full_league_schedule: dict[int, list[tuple[str, str]]] | None = None,
 ) -> dict[str, Any]:
     """Simulate the rest of the regular season + 2-round playoff bracket.
 
@@ -153,12 +154,41 @@ def simulate_playoff_outcomes(
     user_weekly_outcomes = rng.random((n_sims, n_weeks_remaining)) < user_weekly_p[None, :]
     user_additional_wins = user_weekly_outcomes.sum(axis=1).astype(int)  # (n_sims,)
 
-    # ── Simulate other teams' regular-season wins via Binomial ──────
-    # Each opponent gets n_weeks_remaining Bernoulli(p_avg) draws.
-    # Shape: (n_sims, n_teams)
-    additional_wins = rng.binomial(n_weeks_remaining, p_avg_arr[None, :], size=(n_sims, n_teams)).astype(int)
-    # Override user's column with the schedule-aware draws
-    additional_wins[:, user_idx] = user_additional_wins
+    # ── Simulate other teams' regular-season wins ──────────────────
+    # Phase 3 (2026-05-24): two paths.
+    # Path A — full_league_schedule provided: per-team per-week win-prob
+    #   matrix using actual matchups. Captures schedule-strength variation
+    #   (e.g. Team A faces stronger opponents late in season).
+    # Path B — no schedule (fallback): Binomial(N, avg_p) approximation
+    #   per team. Assumes all opponents are league-average.
+    if full_league_schedule:
+        # Path A: build per-week-per-team P(win) matrix using actual matchups.
+        # Shape: (n_teams, n_weeks_remaining)
+        weeks_to_sim = sorted(user_schedule.keys())
+        per_team_p_matrix = _compute_per_week_per_team_p_win(
+            full_league_schedule=full_league_schedule,
+            all_team_rosters=all_team_rosters,
+            player_pool=player_pool,
+            config=config,
+            variance_cv=variance_cv,
+            weeks_to_include=weeks_to_sim,
+            team_names=team_names,
+        )
+        # Override user's row with the schedule-aware probs we already computed.
+        # (Otherwise per_team_p_matrix has the same value for user as for others,
+        # which would lose the user-side variance from compute_weekly_matrix.)
+        per_team_p_matrix[user_idx, :] = user_per_week_p_win
+        # Sample Bernoulli per team per week per sim.
+        # Shape: (n_sims, n_teams, n_weeks_remaining)
+        per_team_samples = rng.random((n_sims, n_teams, n_weeks_remaining)) < per_team_p_matrix[None, :, :]
+        additional_wins = per_team_samples.sum(axis=2).astype(int)  # (n_sims, n_teams)
+        sim_method = "hickey-centric-full-sched-opp"
+    else:
+        # Path B: Binomial approximation (legacy/fallback).
+        additional_wins = rng.binomial(n_weeks_remaining, p_avg_arr[None, :], size=(n_sims, n_teams)).astype(int)
+        # Override user's column with the schedule-aware draws
+        additional_wins[:, user_idx] = user_additional_wins
+        sim_method = "hickey-centric-binomial-opp"
 
     # ── Final standings ──────────────────────────────────────────────
     current_wins_arr = np.array([current_wins.get(t, 0) for t in team_names], dtype=int)
@@ -204,7 +234,7 @@ def simulate_playoff_outcomes(
         "mean_regular_season_wins": round(float(user_additional_wins.mean()), 2),
         "current_wins": int(current_wins.get(user_team_name, 0)),
         "n_sims": int(n_sims),
-        "method": "hickey-centric-binomial-opp",
+        "method": sim_method,
         # CARA Phase (2026-05-24): per-sim Bernoulli outcomes for the
         # downstream CARA mean-CVaR utility computation in
         # simulate_trade_playoff_delta. Each entry is 0 or 1.
@@ -227,6 +257,7 @@ def simulate_trade_playoff_delta(
     n_sims: int = _DEFAULT_N_SIMS,
     seed: int = 42,
     variance_cv: dict[str, float] | None = None,
+    full_league_schedule: dict[int, list[tuple[str, str]]] | None = None,
 ) -> dict[str, Any]:
     """Compute the DELTA playoff + championship probability from a trade.
 
@@ -263,6 +294,7 @@ def simulate_trade_playoff_delta(
         n_sims=n_sims,
         seed=seed,
         variance_cv=variance_cv,
+        full_league_schedule=full_league_schedule,
     )
     after = simulate_playoff_outcomes(
         user_roster_ids=after_roster_ids,
@@ -275,6 +307,7 @@ def simulate_trade_playoff_delta(
         n_sims=n_sims,
         seed=seed,  # SAME seed → paired-MC variance reduction
         variance_cv=variance_cv,
+        full_league_schedule=full_league_schedule,
     )
 
     # ── CARA mean-CVaR utility (report Section B.9 + Q(a)) ────────────
@@ -322,6 +355,87 @@ def simulate_trade_playoff_delta(
 # ─────────────────────────────────────────────────────────────────────
 # Internal helpers
 # ─────────────────────────────────────────────────────────────────────
+
+
+def _compute_per_week_per_team_p_win(
+    full_league_schedule: dict[int, list[tuple[str, str]]],
+    all_team_rosters: dict[str, list[int]],
+    player_pool: pd.DataFrame,
+    config: LeagueConfig,
+    variance_cv: dict[str, float],
+    weeks_to_include: list[int],
+    team_names: list[str],
+) -> np.ndarray:
+    """Per-team-per-week P(team wins matchup) using full league schedule.
+
+    Per Enhanced Trade Engine report Section B.10 Phase 3 (2026-05-24).
+    Replaces the Binomial approximation in playoff sim with schedule-
+    aware per-week win-probability for ALL teams (not just user).
+
+    For each (team, week) pair:
+      1. Look up team's opponent in full_league_schedule
+      2. Compute per-cat per-week win probs using _per_week_means + Phi formula
+      3. Aggregate to P(team wins majority of 12 cats) via Poisson-binomial
+         normal approximation
+
+    If a team has no scheduled matchup in a given week (bye/playoff weeks
+    not in schedule), defaults to 0.5 (neutral) for that cell.
+
+    Returns:
+        Array of shape (n_teams, n_weeks_remaining), values in [0, 1].
+    """
+    cats = list(config.all_categories)
+    inverse = set(config.inverse_stats)
+    season_weeks = int(config.season_weeks)
+
+    # Local import to keep top-level cycle-free
+    from src.engine.output.weekly_matrix import _category_win_prob
+
+    # Pre-compute per-team per-cat means (volume-weighted rates).
+    team_means_cache: dict[str, dict[str, float]] = {
+        t: _per_week_means(ids, player_pool, cats, season_weeks) for t, ids in all_team_rosters.items()
+    }
+
+    n_teams = len(team_names)
+    n_weeks = len(weeks_to_include)
+    p_matrix = np.full((n_teams, n_weeks), 0.5)  # default neutral
+
+    # Index team_name → team_idx for O(1) lookup
+    team_idx = {t: i for i, t in enumerate(team_names)}
+
+    for w_idx, week in enumerate(weeks_to_include):
+        matchups = full_league_schedule.get(week, [])
+        for team_a, team_b in matchups:
+            if team_a not in team_idx or team_b not in team_idx:
+                continue  # unknown team (renamed/abandoned)
+            means_a = team_means_cache.get(team_a)
+            means_b = team_means_cache.get(team_b)
+            if means_a is None or means_b is None:
+                continue
+
+            # Compute per-cat win probs for team_a vs team_b
+            p_per_cat = np.zeros(len(cats))
+            for c_idx, cat in enumerate(cats):
+                p_per_cat[c_idx] = _category_win_prob(
+                    mu_h=means_a.get(cat, 0.0),
+                    mu_o=means_b.get(cat, 0.0),
+                    cv=variance_cv.get(cat, 0.15),
+                    inverse=cat in inverse,
+                )
+
+            # P(team_a wins majority of 12 cats) — Poisson-binomial normal approx
+            mean_cats = float(p_per_cat.sum())
+            var_cats = float((p_per_cat * (1.0 - p_per_cat)).sum())
+            sd = float(np.sqrt(max(var_cats, 1e-12)))
+            z = (len(cats) / 2.0 - mean_cats) / sd
+            p_a_wins = float(1.0 - norm.cdf(z))
+            p_a_wins = max(0.0, min(1.0, p_a_wins))
+
+            # Symmetric assignment: team_a wins → team_b loses
+            p_matrix[team_idx[team_a], w_idx] = p_a_wins
+            p_matrix[team_idx[team_b], w_idx] = 1.0 - p_a_wins
+
+    return p_matrix
 
 
 def _user_per_week_per_cat(

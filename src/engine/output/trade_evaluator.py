@@ -639,6 +639,7 @@ def evaluate_trade(
     enable_playoff_sim: bool = False,
     current_wins: dict[str, int] | None = None,
     playoff_n_sims: int = 20_000,
+    full_league_schedule: dict[int, list[tuple[str, str]]] | None = None,
 ) -> TradeResult:
     """Full trade evaluation using Phase 1-5 engine pipeline.
 
@@ -1404,6 +1405,7 @@ def evaluate_trade(
                     player_pool=player_pool,
                     config=config,
                     n_sims=playoff_n_sims,
+                    full_league_schedule=full_league_schedule,
                 )
                 result["playoff_sim"] = ps
                 # Also surface delta fields at top level for headline display
