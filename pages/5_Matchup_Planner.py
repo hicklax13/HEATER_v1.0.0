@@ -168,6 +168,15 @@ def _compute_win_probs(week: int) -> dict | None:
     weeks_played = max(0, week - 1)
     # 2026-05-17 Section 3 D5: source from LeagueConfig.season_weeks
     # (was hardcoded 26 in Section 2 L10 fix; now derived from config).
+    #
+    # Intentionally NOT the canonical src.league_rules.weeks_remaining():
+    # that helper is CALENDAR-based (weeks left from *today*), whereas the
+    # Matchup Planner analyzes an arbitrary selected matchup `week` and needs
+    # the horizon relative to THAT week's index (weeks remaining including the
+    # analyzed week). Swapping in the calendar helper would ignore `week` and
+    # mis-horizon any matchup other than the current one. Deep-audit punchlist
+    # Task 10 step 5 prescribed the swap here; closed as wontfix-by-design
+    # because the semantics differ (week-index-relative vs calendar-from-today).
     weeks_remaining = max(1, config.season_weeks - week + 1)
 
     try:
