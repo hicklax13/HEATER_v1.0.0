@@ -45,7 +45,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
-from scipy.stats import norm
+from scipy.stats import norm, skellam
 
 from src.valuation import LeagueConfig
 
@@ -88,6 +88,8 @@ def compute_weekly_matrix(
     all_team_rosters: dict[str, list[int]],
     config: LeagueConfig | None = None,
     variance_cv: dict[str, float] | None = None,
+    variance_model: str = "normal",
+    enable_kalman: bool = False,
 ) -> dict[str, Any]:
     """Build the 26 × 12 weekly win-probability matrix for one roster.
 
@@ -120,6 +122,7 @@ def compute_weekly_matrix(
 
     cats = list(config.all_categories)
     inverse = set(config.inverse_stats)
+    counting_cats = set(cats) - set(config.rate_stats)
     season_weeks = int(config.season_weeks)
 
     # User per-week means (one set, used for every week — projections are
@@ -130,6 +133,14 @@ def compute_weekly_matrix(
     opp_team_means: dict[str, dict[str, float]] = {}
     for team_name, ids in all_team_rosters.items():
         opp_team_means[team_name] = _per_week_means(ids, player_pool, cats, season_weeks)
+
+    # Optional Kalman true-talent variance (per-week mean units) per team.
+    user_kalman: dict[str, float] = {}
+    opp_kalman: dict[str, dict[str, float]] = {}
+    if enable_kalman:
+        user_kalman = build_team_kalman_variances(user_roster_ids, player_pool, cats, season_weeks, config)
+        for team_name, ids in all_team_rosters.items():
+            opp_kalman[team_name] = build_team_kalman_variances(ids, player_pool, cats, season_weeks, config)
 
     weeks = sorted(schedule.keys())
     matrix = pd.DataFrame(index=weeks, columns=cats, dtype=float)
@@ -146,6 +157,7 @@ def compute_weekly_matrix(
             matrix.loc[week, :] = 0.5
             continue
         opp_means = opp_team_means[opp_name]
+        opp_k = opp_kalman.get(opp_name, {})
 
         for cat in cats:
             p = _category_win_prob(
@@ -153,15 +165,23 @@ def compute_weekly_matrix(
                 mu_o=opp_means.get(cat, 0.0),
                 cv=variance_cv.get(cat, 0.15),
                 inverse=cat in inverse,
+                kalman_var_h=user_kalman.get(cat, 0.0),
+                kalman_var_o=opp_k.get(cat, 0.0),
+                variance_model=variance_model,
+                counting=cat in counting_cats,
             )
             matrix.loc[week, cat] = p
+
+    method = variance_model if variance_model != "normal" else "cv-based"
+    if enable_kalman:
+        method = f"{method}+kalman"
 
     return {
         "matrix": matrix,
         "schedule": dict(schedule),
         "user_weekly_means": user_means,
         "opponent_weekly_means": opp_team_means,
-        "method": "cv-based",
+        "method": method,
         "cv_used": dict(variance_cv),
     }
 
@@ -174,6 +194,8 @@ def compute_trade_weekly_delta(
     all_team_rosters: dict[str, list[int]],
     config: LeagueConfig | None = None,
     variance_cv: dict[str, float] | None = None,
+    variance_model: str = "normal",
+    enable_kalman: bool = False,
 ) -> dict[str, Any]:
     """Compute the before / after / delta weekly matrices for a trade.
 
@@ -200,8 +222,12 @@ def compute_trade_weekly_delta(
           - summary: per-week summary including expected_cats_won_delta
           - method: 'cv-based'
     """
-    before = compute_weekly_matrix(before_roster_ids, player_pool, schedule, all_team_rosters, config, variance_cv)
-    after = compute_weekly_matrix(after_roster_ids, player_pool, schedule, all_team_rosters, config, variance_cv)
+    before = compute_weekly_matrix(
+        before_roster_ids, player_pool, schedule, all_team_rosters, config, variance_cv, variance_model, enable_kalman
+    )
+    after = compute_weekly_matrix(
+        after_roster_ids, player_pool, schedule, all_team_rosters, config, variance_cv, variance_model, enable_kalman
+    )
     delta = after["matrix"] - before["matrix"]
 
     # Per-week summary: expected cat-wins (sum of p_c) before/after/delta.
@@ -235,23 +261,32 @@ def _category_win_prob(
     inverse: bool,
     kalman_var_h: float = 0.0,
     kalman_var_o: float = 0.0,
+    variance_model: str = "normal",
+    counting: bool = False,
 ) -> float:
-    """Per-category single-week win probability via normal approximation.
+    """Per-category single-week win probability.
 
-    p = Phi((mu_h - mu_o) / sqrt(sigma_h^2 + sigma_o^2))
+    Two variance models (per report Section H.9 / C.5):
 
-    For inverse cats, the result is 1 - p (lower mean wins).
+    * ``"normal"`` (default): Gaussian approximation
+      ``p = Phi((mu_h - mu_o) / sqrt(sigma_h^2 + sigma_o^2))``. Symmetric;
+      adequate for rate stats and high-count categories.
+    * ``"skellam"``: for COUNTING categories, model each side's weekly total
+      as Poisson and use the Skellam distribution (the exact difference of
+      two Poissons) for ``P(X_h > X_o)``. This captures the right-skew the
+      report flags for low-count categories like SB and SV, where the
+      Gaussian approximation understates the spread and mis-handles
+      asymmetry. Rate categories always use the normal model regardless,
+      since Skellam is only defined for integer counts.
 
-    Kalman-augmented mode (2026-05-24, per design Q3 follow-up):
-    When kalman_var_h / kalman_var_o are non-zero, the effective σ is
-    blended with the Kalman true-talent uncertainty:
+    For inverse cats, the "winning" direction is lower (fewer L, lower
+    ERA/WHIP), handled per model.
 
-        sigma_effective² = (CV × mean)² + kalman_var
-
-    This captures BOTH per-week sampling variance (CV term, dominant
-    for short matchups) AND true-talent uncertainty (Kalman term,
-    matters for under-sampled players). Defaults to 0.0 preserves
-    legacy CV-only behavior.
+    Kalman-augmented mode (normal model only, per design Q3 follow-up):
+    when ``kalman_var_h`` / ``kalman_var_o`` are non-zero, the effective σ
+    blends per-week sampling variance with Kalman true-talent uncertainty:
+    ``sigma_effective² = (CV × mean)² + kalman_var``. Defaults to 0.0
+    preserves the legacy CV-only behavior.
 
     Args:
         mu_h: User's per-week mean for category.
@@ -260,10 +295,16 @@ def _category_win_prob(
         inverse: True for ERA/WHIP/L (lower wins).
         kalman_var_h: Optional Kalman true-talent variance for user side.
         kalman_var_o: Optional Kalman true-talent variance for opponent side.
+        variance_model: "normal" or "skellam".
+        counting: True for counting categories. Only counting cats use the
+            Skellam model; rate cats fall back to normal even under "skellam".
 
     Returns:
         Win probability in [0, 1].
     """
+    if variance_model == "skellam" and counting:
+        return _category_win_prob_skellam(mu_h, mu_o, inverse)
+
     sigma_h_cv = max(abs(mu_h) * cv, _MIN_SIGMA)
     sigma_o_cv = max(abs(mu_o) * cv, _MIN_SIGMA)
     # Blend: σ_total² = σ_CV² + σ_Kalman² (independent variance addition)
@@ -281,6 +322,33 @@ def _category_win_prob(
     if inverse:
         p = 1.0 - p
     # Clamp to (0, 1) for numerical safety
+    return max(0.0, min(1.0, p))
+
+
+def _category_win_prob_skellam(mu_h: float, mu_o: float, inverse: bool) -> float:
+    """Skew-aware single-week win prob for a counting category (report C.5/H.9).
+
+    Models each side's weekly count as Poisson(mu) and uses the Skellam
+    distribution K = X_h - X_o for the exact head-to-head probability:
+
+        P(X_h > X_o) = P(K >= 1) = 1 - skellam.cdf(0, mu_h, mu_o)
+        P(tie)       = skellam.pmf(0, mu_h, mu_o)
+
+    A category tie is scored as half a win (Yahoo splits tied categories).
+    For inverse counting cats (Losses), the winning direction flips to
+    ``X_h < X_o`` = ``P(K <= -1)``. This Poisson-difference model captures
+    the right skew of low-count categories (SB, SV) that the Gaussian
+    approximation in the "normal" model misses.
+    """
+    mh = max(float(mu_h), 1e-6)
+    mo = max(float(mu_o), 1e-6)
+    p_tie = float(skellam.pmf(0, mh, mo))
+    if inverse:
+        # Lower count wins: P(K <= -1) + half the tie mass.
+        p = float(skellam.cdf(-1, mh, mo)) + 0.5 * p_tie
+    else:
+        # Higher count wins: P(K >= 1) = 1 - P(K <= 0); add half the tie mass.
+        p = (1.0 - float(skellam.cdf(0, mh, mo))) + 0.5 * p_tie
     return max(0.0, min(1.0, p))
 
 
@@ -334,3 +402,69 @@ def _per_week_means(
             means[cat] = total / max(season_weeks, 1)
 
     return means
+
+
+# Kalman true-talent variance wiring (report C.5/C.6, design Q3 follow-up).
+# Stabilization sample sizes (Carleton/Russell-style): a roster with this
+# much YTD volume has roughly half its true-talent uncertainty resolved.
+_KALMAN_STABILIZE_PA: float = 200.0
+_KALMAN_STABILIZE_IP: float = 70.0
+# True-talent SD as a fraction of the per-week mean for a fully-UNSAMPLED
+# roster. Shrinks toward 0 as YTD sample grows (shrink factor below).
+_KALMAN_TALENT_CV: float = 0.40
+
+
+def build_team_kalman_variances(
+    roster_ids: list[int],
+    player_pool: pd.DataFrame,
+    cats: list[str],
+    season_weeks: int,
+    config: LeagueConfig | None = None,
+) -> dict[str, float]:
+    """Per-team per-category Kalman true-talent variance (per-week mean units).
+
+    Turns the Kalman ``_category_win_prob`` plumbing into a real caller per
+    the design Q3 follow-up. The idea: a roster whose projections rest on
+    little YTD evidence carries extra TRUE-TALENT uncertainty (is this rookie
+    really a .300 hitter?), separate from week-to-week sampling noise. That
+    uncertainty widens the win-probability distribution toward 0.5.
+
+    Model: team-level true-talent SD for category ``c`` is
+    ``|mu_c| × _KALMAN_TALENT_CV × shrink`` where ``shrink = S0 / (S0 +
+    sample)`` uses the roster's aggregate YTD volume (PA for hitting cats,
+    IP for pitching cats). Fully-sampled rosters → shrink ≈ 0 → behaves like
+    the legacy CV-only model; rookie-heavy rosters → larger variance.
+
+    Returns ``{cat: variance}`` (variance, not SD) ready to pass as
+    ``kalman_var_h`` / ``kalman_var_o`` to :func:`_category_win_prob`.
+    """
+    if config is None:
+        config = LeagueConfig()
+    rows = player_pool[player_pool["player_id"].isin(roster_ids)]
+    if rows.empty:
+        return dict.fromkeys(cats, 0.0)
+
+    hitting = set(config.hitting_categories)
+    means = _per_week_means(roster_ids, player_pool, cats, season_weeks)
+
+    def _num(col: str) -> pd.Series:
+        if col not in rows.columns:
+            return pd.Series(np.zeros(len(rows)), index=rows.index)
+        return pd.to_numeric(rows[col], errors="coerce").fillna(0)
+
+    is_hit = _num("is_hitter")
+    ytd_pa = _num("ytd_pa")
+    ytd_ip = _num("ytd_ip")
+    hitter_pa = float(ytd_pa[is_hit == 1].sum())
+    pitcher_ip = float(ytd_ip[is_hit == 0].sum())
+
+    shrink_hit = _KALMAN_STABILIZE_PA / (_KALMAN_STABILIZE_PA + hitter_pa)
+    shrink_pit = _KALMAN_STABILIZE_IP / (_KALMAN_STABILIZE_IP + pitcher_ip)
+
+    out: dict[str, float] = {}
+    for cat in cats:
+        m = means.get(cat, 0.0)
+        shrink = shrink_hit if cat in hitting else shrink_pit
+        sd = abs(m) * _KALMAN_TALENT_CV * shrink
+        out[cat] = float(sd * sd)
+    return out

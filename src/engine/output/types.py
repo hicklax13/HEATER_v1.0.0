@@ -84,6 +84,18 @@ class TradeResult(TypedDict, total=False):
     # worsen an already-below-floor situation contributes 0.
     ip_floor_penalty: float
     ip_floor_detail: dict[str, Any]
+    # Specialist cap (report Section H.2): excess SGP credit removed when a
+    # single received starter exceeds 25% of a category's standings range.
+    specialist_cap_penalty: float
+    specialist_cap_detail: dict[str, Any]
+    # Secondary valuation diagnostics (report B.8 + B.5/C.2 + B.7 pseudocode).
+    # These do NOT feed the grade — they are league-wide / variance-aware
+    # sanity checks alongside the primary roster-context SGP surplus.
+    delta_vorp_prp: float  # Σ VORP(receiving) − Σ VORP(giving) — report B.8
+    vorp_detail: dict[str, Any]
+    delta_g_score: float  # Σ g_composite(receiving) − Σ g_composite(giving)
+    gscore_detail: dict[str, Any]
+    drl_replacement_chain: list[dict[str, Any]]  # named bench/FA fills — report B.7
     risk_flags: list[str]
     verdict: str  # "ACCEPT" | "DECLINE"
     compliant: bool

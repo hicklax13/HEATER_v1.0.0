@@ -110,6 +110,146 @@ def calibration_curve(
     }
 
 
+# ─────────────────────────────────────────────────────────────────────
+# Section G error metrics + historical-data ingestion
+# ─────────────────────────────────────────────────────────────────────
+
+# Report Section G targets. A backtest is "passing" on a metric when the
+# value sits on the better side of the target.
+_SECTION_G_TARGETS: dict[str, dict[str, Any]] = {
+    "rank_mae": {"target": 1.5, "direction": "lower"},
+    "cat_win_rmse": {"target": 8.0, "direction": "lower"},
+    "brier": {"target": 0.20, "direction": "lower"},
+    "trade_spearman": {"target": 0.40, "direction": "higher"},
+    "hr_mae": {"target": 5.0, "direction": "lower"},
+    "avg_mae": {"target": 0.020, "direction": "lower"},
+}
+
+
+def rank_mae(predicted_ranks: np.ndarray, actual_ranks: np.ndarray) -> float:
+    """Mean absolute error on final standings rank (report Section G #1).
+
+    Target < 1.5 ranks.
+    """
+    p = np.asarray(predicted_ranks, dtype=float)
+    a = np.asarray(actual_ranks, dtype=float)
+    if len(p) == 0 or len(p) != len(a):
+        return float("nan")
+    return float(np.mean(np.abs(p - a)))
+
+
+def cat_win_rmse(predicted_cat_wins: np.ndarray, actual_cat_wins: np.ndarray) -> float:
+    """RMSE on category wins out of 312 possible (report Section G #2).
+
+    Target < 8 cat-wins.
+    """
+    p = np.asarray(predicted_cat_wins, dtype=float)
+    a = np.asarray(actual_cat_wins, dtype=float)
+    if len(p) == 0 or len(p) != len(a):
+        return float("nan")
+    return float(np.sqrt(np.mean((p - a) ** 2)))
+
+
+def trade_prediction_spearman(
+    predicted_delta: np.ndarray,
+    realized_rank_change: np.ndarray,
+) -> float:
+    """Spearman ρ between predicted ΔΠ and realized rank change (report G #4).
+
+    Target ρ > 0.4 (high-noise domain). Returns NaN when there is too little
+    data or no variance to rank.
+    """
+    from scipy.stats import spearmanr
+
+    p = np.asarray(predicted_delta, dtype=float)
+    r = np.asarray(realized_rank_change, dtype=float)
+    if len(p) < 3 or len(p) != len(r):
+        return float("nan")
+    if np.ptp(p) == 0 or np.ptp(r) == 0:
+        return float("nan")
+    rho, _ = spearmanr(p, r)
+    return float(rho)
+
+
+def projection_mae(predicted: np.ndarray, actual: np.ndarray) -> float:
+    """Out-of-sample projection MAE for a single stat (report Section G #5).
+
+    Targets: HR MAE < 5, AVG MAE < 0.020 (ATC historical level).
+    """
+    p = np.asarray(predicted, dtype=float)
+    a = np.asarray(actual, dtype=float)
+    if len(p) == 0 or len(p) != len(a):
+        return float("nan")
+    return float(np.mean(np.abs(p - a)))
+
+
+def run_historical_backtest(records: pd.DataFrame) -> dict[str, Any]:
+    """Score engine predictions against realized historical outcomes (Section G).
+
+    This is the ingestion + scoring path the report calls for. It is
+    data-agnostic: callers supply a DataFrame of historical observations and
+    the function computes whichever Section G metrics the available columns
+    support, then grades each against the report's targets.
+
+    No historical H2H-Cats data ships with the repo (it requires
+    week-by-week prior-season Yahoo/NFBC logs that aren't scraped), so this
+    function operates on whatever the caller provides — making it testable
+    today and immediately usable once historical data lands.
+
+    Recognised optional columns:
+      - predicted_rank, actual_rank            → rank_mae
+      - predicted_cat_wins, actual_cat_wins    → cat_win_rmse
+      - predicted_playoff_prob, made_playoffs  → brier + calibration curve
+      - predicted_trade_delta, realized_rank_change → trade_spearman
+      - predicted_hr, actual_hr                → hr_mae
+      - predicted_avg, actual_avg              → avg_mae
+
+    Returns a dict with ``metrics`` (computed values), ``targets`` (the
+    Section G goals + pass/fail per metric), and ``n_records``.
+    """
+    metrics: dict[str, float] = {}
+    cols = set(records.columns)
+
+    if {"predicted_rank", "actual_rank"} <= cols:
+        metrics["rank_mae"] = rank_mae(records["predicted_rank"], records["actual_rank"])
+    if {"predicted_cat_wins", "actual_cat_wins"} <= cols:
+        metrics["cat_win_rmse"] = cat_win_rmse(records["predicted_cat_wins"], records["actual_cat_wins"])
+    if {"predicted_playoff_prob", "made_playoffs"} <= cols:
+        metrics["brier"] = brier_score(records["predicted_playoff_prob"], records["made_playoffs"])
+    if {"predicted_trade_delta", "realized_rank_change"} <= cols:
+        metrics["trade_spearman"] = trade_prediction_spearman(
+            records["predicted_trade_delta"], records["realized_rank_change"]
+        )
+    if {"predicted_hr", "actual_hr"} <= cols:
+        metrics["hr_mae"] = projection_mae(records["predicted_hr"], records["actual_hr"])
+    if {"predicted_avg", "actual_avg"} <= cols:
+        metrics["avg_mae"] = projection_mae(records["predicted_avg"], records["actual_avg"])
+
+    # Grade each computed metric against the Section G target.
+    target_report: dict[str, dict[str, Any]] = {}
+    for name, value in metrics.items():
+        spec = _SECTION_G_TARGETS.get(name)
+        if spec is None or value != value:  # NaN check
+            target_report[name] = {"value": value, "target": spec, "passing": None}
+            continue
+        if spec["direction"] == "lower":
+            passing = value <= spec["target"]
+        else:
+            passing = value >= spec["target"]
+        target_report[name] = {
+            "value": round(float(value), 4),
+            "target": spec["target"],
+            "direction": spec["direction"],
+            "passing": bool(passing),
+        }
+
+    return {
+        "metrics": {k: (round(float(v), 4) if v == v else v) for k, v in metrics.items()},
+        "targets": target_report,
+        "n_records": int(len(records)),
+    }
+
+
 def stability_check(
     user_roster_ids: list[int],
     user_team_name: str,

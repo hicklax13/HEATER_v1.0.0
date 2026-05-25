@@ -49,6 +49,13 @@ _DEFAULT_N_SIMS: int = 20_000
 # Number of playoff spots (FourzynBurn / CLAUDE.md _PLAYOFF_SPOTS=4).
 _PLAYOFF_SPOTS: int = 4
 
+# CARA risk-aversion sensitivity sweep per report Section H.10 + C.7.
+# λ=0.15 is the calibrated central value; 0.05 (more risk-seeking, e.g. a
+# team that must gamble to make a playoff push) and 0.30 (more risk-averse,
+# protecting a strong position) bracket it so the user can see how the
+# risk-adjusted utility shifts with their stance.
+_LAMBDA_SWEEP: tuple[float, ...] = (0.05, 0.15, 0.30)
+
 
 def simulate_playoff_outcomes(
     user_roster_ids: list[int],
@@ -325,6 +332,12 @@ def simulate_trade_playoff_delta(
     var_champ = float(champ_deltas.var())
     cara_utility = e_champ - (lambda_ / 2.0) * var_champ
 
+    # λ-sensitivity sweep (report Section H.10 + C.7): recompute the CARA
+    # utility at the bracketing risk-aversion levels so the user can see how
+    # the recommendation shifts with their risk stance. The central value
+    # (0.15) appears both here and as cara_utility above.
+    cara_utility_sweep = {lam: round(e_champ - (lam / 2.0) * var_champ, 6) for lam in _LAMBDA_SWEEP}
+
     # CVaR_20: mean of worst 20% of per-sim deltas. Report B.9 — the
     # "downside reporting" metric that preserves coherence (sub-additive
     # unlike VaR). For paired-MC where most deltas are 0, the worst 20%
@@ -343,6 +356,7 @@ def simulate_trade_playoff_delta(
         # utility on the per-sim championship-probability delta.
         # Recommended primary objective for decision-making per report.
         "cara_utility": round(cara_utility, 6),
+        "cara_utility_sweep": cara_utility_sweep,
         "var_champ": round(var_champ, 6),
         "cvar20_champ": round(cvar20_champ, 4),
         "lambda_risk_aversion": lambda_,

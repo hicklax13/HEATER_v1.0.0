@@ -566,6 +566,233 @@ def _compute_median_sgp_cap(
     return sgp_values[mid]
 
 
+# ── Secondary valuation diagnostics (report B.8 + B.5/C.2) ───────────
+
+
+def _compute_vorp_delta(
+    giving_ids: list[int],
+    receiving_ids: list[int],
+    player_pool: pd.DataFrame,
+    sgp_calc: SGPCalculator,
+    config: LeagueConfig,
+    name_col: str,
+) -> tuple[float, dict[str, Any]]:
+    """Secondary league-wide VORP/PRP sanity check per report Section B.8.
+
+    The primary engine signal is the roster-context SGP surplus. This is the
+    SECONDARY check the report calls for: a league-wide positional
+    replacement-player delta that answers "is this trade fair league-wide?"
+    independent of the user's specific roster. Computed as
+    Σ VORP(receiving) − Σ VORP(giving) using the standard positional
+    replacement levels (N_p-th ranked player per position).
+
+    Returns (delta_vorp, detail). Fails safe to (0.0, {}) if replacement
+    levels can't be computed (e.g. empty pool).
+    """
+    from src.valuation import compute_replacement_levels, compute_vorp
+
+    try:
+        replacement_levels = compute_replacement_levels(player_pool, config, sgp_calc)
+    except Exception:
+        logger.warning("VORP secondary check: replacement levels failed", exc_info=True)
+        return 0.0, {}
+
+    def _sum_vorp(ids: list[int]) -> tuple[float, dict[str, float]]:
+        total = 0.0
+        per: dict[str, float] = {}
+        for pid in ids:
+            match = player_pool[player_pool["player_id"] == pid]
+            if match.empty:
+                continue
+            row = match.iloc[0]
+            v = float(compute_vorp(row, sgp_calc, replacement_levels))
+            per[str(row.get(name_col, pid))] = round(v, 3)
+            total += v
+        return total, per
+
+    recv_total, recv_per = _sum_vorp(receiving_ids)
+    give_total, give_per = _sum_vorp(giving_ids)
+    delta = recv_total - give_total
+    detail = {
+        "receiving_vorp": recv_per,
+        "giving_vorp": give_per,
+        "receiving_total": round(recv_total, 3),
+        "giving_total": round(give_total, 3),
+        "method": "league-wide PRP/VORP (report B.8 secondary check)",
+    }
+    return round(delta, 3), detail
+
+
+def _compute_gscore_delta(
+    giving_ids: list[int],
+    receiving_ids: list[int],
+    player_pool: pd.DataFrame,
+    config: LeagueConfig,
+    name_col: str,
+) -> tuple[float, dict[str, Any]]:
+    """Variance-aware G-score (Rosenof) trade delta per report B.5 / C.2.
+
+    Surfaces the G-score valuation alongside the SGP surplus as a
+    diagnostic. G-score adds the team-level weekly-variance term to the
+    z-score denominator, so volatile boom-bust profiles get discounted
+    relative to steady producers — exactly the H2H-Cats correction the
+    report calls for. Computed as Σ g_composite(receiving) − Σ g_composite(giving).
+
+    Returns (delta_g, detail). Fails safe to (0.0, {}).
+    """
+    from src.engine.portfolio.valuation import compute_player_gscores
+
+    try:
+        scored = compute_player_gscores(player_pool, config)
+    except Exception:
+        logger.warning("G-score diagnostic failed", exc_info=True)
+        return 0.0, {}
+    if "g_composite" not in scored.columns or "player_id" not in scored.columns:
+        return 0.0, {}
+
+    gmap = dict(zip(scored["player_id"], scored["g_composite"], strict=False))
+
+    def _sum_g(ids: list[int]) -> tuple[float, dict[str, float]]:
+        total = 0.0
+        per: dict[str, float] = {}
+        for pid in ids:
+            g = float(gmap.get(pid, 0.0) or 0.0)
+            match = player_pool[player_pool["player_id"] == pid]
+            label = str(match.iloc[0].get(name_col, pid)) if not match.empty else str(pid)
+            per[label] = round(g, 3)
+            total += g
+        return total, per
+
+    recv_total, recv_per = _sum_g(receiving_ids)
+    give_total, give_per = _sum_g(giving_ids)
+    delta = recv_total - give_total
+    detail = {
+        "receiving_g": recv_per,
+        "giving_g": give_per,
+        "receiving_total": round(recv_total, 3),
+        "giving_total": round(give_total, 3),
+        "method": "rosenof-gscore (report B.5/C.2)",
+    }
+    return round(delta, 3), detail
+
+
+def _build_drl_replacement_chain(
+    dropped_ids: list[int],
+    picked_up_ids: set[int],
+    player_pool: pd.DataFrame,
+    sgp_calc: SGPCalculator,
+    name_col: str,
+) -> list[dict[str, Any]]:
+    """Assemble the named DRL replacement chain per report Section B.7 / pseudocode.
+
+    The report's pseudocode outputs a ``DRL_replacement_chain`` — the named
+    bench/FA players that actually fill the slots a trade vacates. The
+    roster-cap branches already perform the greedy priority-order fill (best
+    FA first for roster-shrink trades; worst bench first for roster-grow
+    trades); this just records the result so the UI can show "you'll pick up
+    X off waivers / drop Y to the bench" rather than an abstract scalar.
+    """
+    chain: list[dict[str, Any]] = []
+    for pid in picked_up_ids:
+        match = player_pool[player_pool["player_id"] == pid]
+        if match.empty:
+            continue
+        row = match.iloc[0]
+        chain.append(
+            {
+                "action": "pickup",
+                "player_id": int(pid),
+                "name": str(row.get(name_col, "Unknown")),
+                "positions": str(row.get("positions", "")),
+                "sgp": round(float(sgp_calc.total_sgp(row)), 3),
+                "source": "FCFS waiver",
+            }
+        )
+    for pid in dropped_ids:
+        match = player_pool[player_pool["player_id"] == pid]
+        if match.empty:
+            continue
+        row = match.iloc[0]
+        chain.append(
+            {
+                "action": "drop",
+                "player_id": int(pid),
+                "name": str(row.get(name_col, "Unknown")),
+                "positions": str(row.get("positions", "")),
+                "sgp": round(float(sgp_calc.total_sgp(row)), 3),
+                "source": "bench",
+            }
+        )
+    return chain
+
+
+# Specialist cap (report Section H.2): no single received player should be
+# credited with more than this fraction of a full category's standings range
+# in any one category. Prevents SB-only / SV-only specialists from inflating
+# a trade's surplus through one narrow category. 0.25 × (T-1) standings
+# points = the report's recommended 25%-of-category-target cap.
+_SPECIALIST_CAP_FRACTION: float = 0.25
+
+
+def _compute_specialist_cap_penalty(
+    receiving_ids: list[int],
+    after_starter_ids: list[int],
+    player_pool: pd.DataFrame,
+    sgp_calc: SGPCalculator,
+    config: LeagueConfig,
+    category_weights: dict[str, float],
+) -> tuple[float, dict[str, Any]]:
+    """Per report Section H.2 — cap a single specialist's per-category credit.
+
+    For each received player who actually starts post-trade, compute their
+    per-category SGP. If a single category's weighted contribution exceeds
+    ``_SPECIALIST_CAP_FRACTION × (num_teams − 1)`` standings points, the
+    excess is "phantom value" the trade shouldn't be credited for — it is
+    summed into a penalty subtracted from the surplus.
+
+    Only received STARTERS are considered: a benched specialist contributes
+    nothing to category totals, so penalising it would double-count.
+
+    Returns (penalty, detail).
+    """
+    n_teams = int(getattr(config, "num_teams", 12))
+    cap = _SPECIALIST_CAP_FRACTION * max(n_teams - 1, 1)
+    starter_set = set(after_starter_ids)
+    penalty = 0.0
+    capped: dict[str, dict[str, dict[str, float]]] = {}
+
+    for pid in receiving_ids:
+        if pid not in starter_set:
+            continue
+        match = player_pool[player_pool["player_id"] == pid]
+        if match.empty:
+            continue
+        row = match.iloc[0]
+        try:
+            per_cat = sgp_calc.player_sgp(row)
+        except Exception:
+            continue
+        name = str(row.get("player_name", row.get("name", pid)))
+        for cat, raw_sgp in per_cat.items():
+            weight = category_weights.get(cat, 1.0)
+            weighted = float(raw_sgp) * weight
+            if weighted > cap:
+                excess = weighted - cap
+                penalty += excess
+                capped.setdefault(name, {})[cat] = {
+                    "weighted_sgp": round(weighted, 2),
+                    "cap": round(cap, 2),
+                    "excess": round(excess, 2),
+                }
+
+    detail = {
+        "cap_per_category": round(cap, 3),
+        "fraction": _SPECIALIST_CAP_FRACTION,
+        "capped": capped,
+    }
+    return round(penalty, 3), detail
+
+
 def grade_trade(surplus_sgp: float) -> str:
     """Convert a trade surplus (in SGP) to a letter grade.
 
@@ -764,6 +991,13 @@ def evaluate_trade(
     if before_assignments:
         lineup_constrained = True
 
+    # DRL replacement bookkeeping (report B.7 / C.9). Hoisted before the
+    # roster-cap branches so they are always defined (equal and roster-grow
+    # trades never enter the FA-pickup branch) and so the DRL replacement
+    # chain can be assembled after the branches regardless of trade shape.
+    dropped_ids: list[int] = []
+    picked_up_ids: set[int] = set()
+
     # --- After totals with roster cap enforcement ---
     if net_roster_growth > 0 and PULP_AVAILABLE and LineupOptimizer is not None:
         # Roster grows (e.g., 1-for-2): run LP on oversized roster, then drop
@@ -782,7 +1016,6 @@ def evaluate_trade(
                     _recv_hitters = int(_rmatch.iloc[0].get("is_hitter", 0)) == 1
                     break  # Use first received player's type
 
-            dropped_ids: list[int] = []
             for _ in range(net_roster_growth):
                 remaining_bench = [b for b in bench_ids if b not in dropped_ids]
                 drop_id = _find_drop_candidate(remaining_bench, player_pool, sgp_calc, receiving_hitters=_recv_hitters)
@@ -813,7 +1046,6 @@ def evaluate_trade(
             fa_pool_check = player_pool
         use_median_cap = fa_pool_check.shape[0] > 500  # heuristic: no real rosters loaded
 
-        picked_up_ids: set[int] = set()
         # Determine type needed: check what type of player was lost
         lost_players = player_pool[player_pool["player_id"].isin(giving_ids)]
         if not lost_players.empty:
@@ -1123,6 +1355,28 @@ def evaluate_trade(
             _mod_markov.status = ModuleStatus.DISABLED
             _mod_markov.fallback_reason = "No FA pickups (not a roster-shrink trade)"
 
+    # Step 6f: Specialist cap (report Section H.2)
+    # A single received specialist (SB-only, SV-only) can rack up huge SGP in
+    # one narrow category. Cap any single received starter's per-category
+    # credit at 25% of a full category's standings range; subtract the excess.
+    specialist_cap_penalty = 0.0
+    specialist_cap_detail: dict[str, Any] = {}
+    with ctx.track_module("phase1_specialist_cap") as _mod_spec:
+        specialist_cap_penalty, specialist_cap_detail = _compute_specialist_cap_penalty(
+            receiving_ids=receiving_ids,
+            after_starter_ids=after_starter_ids,
+            player_pool=player_pool,
+            sgp_calc=sgp_calc,
+            config=config,
+            category_weights=category_weights,
+        )
+        if specialist_cap_penalty > 0:
+            total_surplus -= specialist_cap_penalty
+            _mod_spec.influence = 0.2
+        else:
+            _mod_spec.status = ModuleStatus.DISABLED
+            _mod_spec.fallback_reason = "No received starter exceeds the per-category specialist cap"
+
     # Step 7: Grade the trade
     trade_grade = grade_trade(total_surplus)
 
@@ -1256,6 +1510,15 @@ def evaluate_trade(
                         f"without making the trade."
                     )
 
+    # Secondary diagnostics (report B.8 + B.5/C.2 + B.7 pseudocode output).
+    # These do not feed the grade — they are the report's sanity-check
+    # outputs alongside the primary roster-context surplus.
+    delta_vorp_prp, vorp_detail = _compute_vorp_delta(
+        giving_ids, receiving_ids, player_pool, sgp_calc, config, name_col
+    )
+    delta_g_score, gscore_detail = _compute_gscore_delta(giving_ids, receiving_ids, player_pool, config, name_col)
+    drl_replacement_chain = _build_drl_replacement_chain(dropped_ids, picked_up_ids, player_pool, sgp_calc, name_col)
+
     result: TradeResult = {
         "grade": trade_grade,
         "grade_range": grade_range,
@@ -1272,6 +1535,14 @@ def evaluate_trade(
         "ip_floor_detail": ip_floor_detail,
         "markov_fa_penalty": round(markov_fa_penalty, 3),
         "markov_fa_detail": markov_fa_detail,
+        "specialist_cap_penalty": round(specialist_cap_penalty, 3),
+        "specialist_cap_detail": specialist_cap_detail,
+        # Secondary valuation diagnostics (report B.8 + B.5/C.2 + B.7).
+        "delta_vorp_prp": delta_vorp_prp,
+        "vorp_detail": vorp_detail,
+        "delta_g_score": delta_g_score,
+        "gscore_detail": gscore_detail,
+        "drl_replacement_chain": drl_replacement_chain,
         "risk_flags": risk_flags,
         "verdict": verdict,
         "compliant": True,  # Legacy field — no longer enforced

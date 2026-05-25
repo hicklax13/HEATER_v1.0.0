@@ -479,6 +479,19 @@ else:
                                 ),
                             )
 
+                            # λ-sensitivity sweep (report Sections H.10 / C.7).
+                            # Shows how the risk-adjusted utility shifts with the
+                            # manager's risk stance: 0.05 = risk-seeking (must
+                            # gamble for a playoff push), 0.30 = risk-averse
+                            # (protecting a strong position).
+                            _sweep = ps.get("cara_utility_sweep") or {}
+                            if _sweep:
+                                _parts = []
+                                _labels = {0.05: "risk-seeking", 0.15: "central", 0.30: "risk-averse"}
+                                for _lam in sorted(_sweep):
+                                    _parts.append(f"λ={_lam} ({_labels.get(_lam, '')}): **{_sweep[_lam]:+.4f}**")
+                                st.caption("CARA utility across risk-aversion λ — " + " · ".join(_parts))
+
                     # Verdict banner
                     if result["verdict"] == "ACCEPT":
                         color = T["ok"]
@@ -547,6 +560,57 @@ else:
                                 f"your pitching cats are at risk of converting to losses. "
                                 f"Consider adding pitching volume via FA pickups."
                             )
+
+                    # ── Secondary valuation diagnostics (report B.8 / B.5-C.2 / B.7 / H.2) ──
+                    # These do NOT drive the grade — they are the report's
+                    # sanity-check + transparency outputs alongside the primary
+                    # roster-context SGP surplus.
+                    if engine_used == "phase1":
+                        _vorp = result.get("delta_vorp_prp")
+                        _gscore = result.get("delta_g_score")
+                        _spec_pen = result.get("specialist_cap_penalty", 0.0) or 0.0
+                        _drl_chain = result.get("drl_replacement_chain") or []
+                        if _vorp is not None or _gscore is not None or _spec_pen or _drl_chain:
+                            with st.expander("Secondary diagnostics (VORP · G-score · DRL · specialist cap)"):
+                                dcol1, dcol2 = st.columns(2)
+                                dcol1.metric(
+                                    "Δ VORP (league-wide)",
+                                    f"{_vorp:+.2f}" if _vorp is not None else "—",
+                                    help=(
+                                        "Secondary league-wide fairness check (report B.8): "
+                                        "Σ VORP(receiving) − Σ VORP(giving) using standard "
+                                        "positional replacement levels. Independent of YOUR "
+                                        "roster — answers 'is this trade fair league-wide?'"
+                                    ),
+                                )
+                                dcol2.metric(
+                                    "Δ G-score (variance-aware)",
+                                    f"{_gscore:+.2f}" if _gscore is not None else "—",
+                                    help=(
+                                        "Rosenof G-score delta (report B.5/C.2): like a "
+                                        "z-score delta but with the team-level weekly-variance "
+                                        "term, so volatile boom-bust profiles are discounted "
+                                        "relative to steady producers."
+                                    ),
+                                )
+                                if _spec_pen > 0:
+                                    _capped = (result.get("specialist_cap_detail", {}) or {}).get("capped", {})
+                                    _names = ", ".join(_capped.keys())
+                                    st.warning(
+                                        f"Specialist cap (report H.2): **{_spec_pen:.2f}** SGP of "
+                                        f"single-category credit removed for {_names} — a single "
+                                        f"player shouldn't be valued on more than 25% of one "
+                                        f"category's standings range."
+                                    )
+                                if _drl_chain:
+                                    st.caption("**Replacement chain** (the bench/FA moves this trade triggers):")
+                                    for _entry in _drl_chain:
+                                        _verb = "Pick up" if _entry["action"] == "pickup" else "Drop"
+                                        st.caption(
+                                            f"• {_verb} **{_entry['name']}** "
+                                            f"({_entry['positions']}, {_entry['sgp']:+.2f} SGP, "
+                                            f"via {_entry['source']})"
+                                        )
 
                     # Warn when standings data is absent or not yet meaningful
                     _standings_state = _standings_data_state()
