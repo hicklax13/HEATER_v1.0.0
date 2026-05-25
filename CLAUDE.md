@@ -695,7 +695,7 @@ Bootstrap diagnostic surfaced 12 distinct issues across HIGH/MEDIUM/LOW severity
 | #85 | fix(yahoo) batch-resolve draft pick names via Yahoo Players API (L8) | ~25 rounds 1-3 picks (70%) came back as "Player 469.p.XXXX" placeholders because yfpy's get_league_draft_results doesn't expand the player resource. New resolve_player_names_by_keys helper batch-fetches names (25 per call, Yahoo's cap). Still-unresolved keys keep the legacy placeholder so the NOT NULL constraint doesn't break |
 | #86 | docs(claude.md) document not-bugs + audit history append | This PR. Adds the _Known Design Choices_ section so future audits don't re-flag L2/L3/L4/L5/L7/M3 |
 
-**2026-05-20 → 2026-05-21 FA Engine Overhaul (PRs #89-#110)** — 22 PRs landing the most invasive engine rewrite in the codebase's history. Triggered by the Crochet/Kirk live-validation report ("Drop top-30 SP on IL15 for a backup catcher"). The plan in `docs/2026-05-20-fa-engine-overhaul-plan.md` + `docs/2026-05-20-fa-engine-p3.5-plan.md` covers the architectural decisions.
+**2026-05-20 → 2026-05-21 FA Engine Overhaul (PRs #89-#110)** — 22 PRs landing the most invasive engine rewrite in the codebase's history. Triggered by the Crochet/Kirk live-validation report ("Drop top-30 SP on IL15 for a backup catcher"). The plan in `docs/archive/specs/2026-05-20-fa-engine-overhaul-plan.md` + `docs/archive/specs/2026-05-20-fa-engine-p3.5-plan.md` covers the architectural decisions.
 
 **Phase 1 — Critical defense-in-depth (PRs #89, #90, #91):**
 
@@ -823,5 +823,5 @@ When a future audit flags one of these, the correct response is: confirm it matc
 4. Run `python -m pytest --ignore=tests/test_cheat_sheet.py -x -q` to verify tests pass (~4200 tests, ~3-5 min)
 5. Run `streamlit run app.py` and verify Yahoo auto-reconnect
 6. Inspect refresh_log: `python -c "from src.database import get_refresh_log_snapshot; import json; print(json.dumps(get_refresh_log_snapshot(), indent=2))"`
-7. (If continuing FA engine work) Read `docs/2026-05-20-fa-engine-overhaul-plan.md` + `docs/2026-05-20-fa-engine-p3.5-plan.md` for full design rationale of PRs #89-#110
+7. (If continuing FA engine work) Read `docs/archive/specs/2026-05-20-fa-engine-overhaul-plan.md` + `docs/archive/specs/2026-05-20-fa-engine-p3.5-plan.md` for full design rationale of PRs #89-#110
 8. (If debugging FA recommendations) Use `scripts/diag_fa_stage_by_stage.py` to see what the engine sees stage-by-stage. `scripts/diag_roster_data_audit.py` flags DNA collisions across the roster

@@ -378,7 +378,7 @@ def compute_drop_cost(
     # adjustments are additive flat amounts that compose normally on top.
     # Without this, dropping a top SS to add a backup catcher looked free
     # because the SS didn't pay scarcity on the cost side while the catcher
-    # got a 1.20× boost on the add side (see docs/2026-05-20-fa-engine-p3.5-plan.md).
+    # got a 1.20× boost on the add side (see docs/archive/specs/2026-05-20-fa-engine-p3.5-plan.md).
     if replacement_levels:
         from src.valuation import compute_positional_scarcity_factor
 
@@ -678,7 +678,7 @@ def compute_add_drop_recommendations(
     warnings.warn(
         "compute_add_drop_recommendations is deprecated and will be removed in the next sweep. "
         "Use src.optimizer.fa_recommender.recommend_fa_moves(ctx) instead — see "
-        "docs/2026-05-20-fa-engine-overhaul-plan.md.",
+        "docs/archive/specs/2026-05-20-fa-engine-overhaul-plan.md.",
         DeprecationWarning,
         stacklevel=2,
     )
