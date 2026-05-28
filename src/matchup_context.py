@@ -444,6 +444,11 @@ class MatchupContextService:
             urgency_data = self.get_category_urgency()
             urgency_map = urgency_data.get("urgency", {})
             if urgency_map:
+                # DCV-A1-017: the +0.5 offset maps raw urgency [0.10, 1.00] onto
+                # weights [0.60, 1.50]. The floor (0.60, not 0.0) keeps a
+                # comfortably-won category contributing ~40% of an even split so
+                # the matchup mode never fully abandons a category the user
+                # already leads — it soft-de-emphasizes rather than zeroes.
                 matchup_weights = {cat: 0.5 + float(urgency_map.get(cat, 0.5)) for cat in all_cats}
         except Exception as exc:
             logger.warning("matchup weights failed: %s", exc)

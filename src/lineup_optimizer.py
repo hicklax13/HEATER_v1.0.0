@@ -234,6 +234,25 @@ class LineupOptimizer:
             for p_idx in players:
                 objective_terms.append(x[(p_idx, slot_name)] * tightness_bonus)
 
+        # Bug G (2026-05-23): per-slot fill bonus.
+        # Without this, the LP can leave a slot EMPTY whenever filling it would
+        # HURT the objective (e.g. a high-IP mediocre-ERA pitcher in P-flex
+        # drags down team ERA, so the LP skips them). That's locally rational
+        # but globally catastrophic — Yahoo's 20 IP/week floor converts the
+        # shortfall to LOSSES across ALL pitching cats. Any pitcher in the
+        # lineup is better than no pitcher.
+        # Fix: add a SLOT_FILL_BONUS to every player-slot assignment. The
+        # bonus is large enough to dominate realistic per-player negative
+        # contributions (typical range ±5 after normalization), but it's
+        # constant per assignment — relative SGP comparison between players
+        # for the same slot still wins. Net effect: the LP prefers ANY
+        # eligible player in a slot over leaving it empty, but still picks
+        # the BEST eligible player when multiple options exist.
+        _SLOT_FILL_BONUS = 100.0
+        for p_idx in players:
+            for slot_name, _ in expanded_slots:
+                objective_terms.append(x[(p_idx, slot_name)] * _SLOT_FILL_BONUS)
+
         prob += lpSum(objective_terms)
 
         # Constraint 1: Each player assigned to at most one slot

@@ -435,6 +435,40 @@ def _find_drop_candidate(
     return scores[0][0]
 
 
+# Markov FA discount (report Section B.7) — geometric convergence of
+# top-available FA quality to a stationary level over the season.
+_MARKOV_ALPHA: float = 0.85
+_MARKOV_STATIONARY_FRACTION: float = 0.70
+
+
+def _markov_fa_discount(
+    week_index: int,
+    alpha: float = _MARKOV_ALPHA,
+    stationary_fraction: float = _MARKOV_STATIONARY_FRACTION,
+) -> float:
+    """Markov-decayed FA pool quality factor per report Section B.7.
+
+    The FA pool's top-available quality starts at 1.0 on draft day and
+    geometrically converges to ``stationary_fraction`` as good players
+    get rostered over the season:
+
+        factor = α^w + (1 − α^w) × stationary_fraction
+
+    With α=0.85, stationary=0.70:
+      Week 1:   1.000 (full draft-day quality)
+      Week 5:   0.857 (still pretty fresh)
+      Week 10:  0.759 (mid-season depletion)
+      Week 18:  0.715 (near stationary)
+      Week 26:  0.704 (essentially stationary)
+
+    Used to discount FA pickups in 2-for-1 trade evaluation so trades
+    made later in the season get less inflated by FA replacement value.
+    """
+    week = max(int(week_index), 0)
+    geometric = alpha**week
+    return float(geometric * 1.0 + (1.0 - geometric) * stationary_fraction)
+
+
 def _find_fa_pickup(
     player_pool: pd.DataFrame,
     sgp_calc: SGPCalculator,
@@ -532,6 +566,233 @@ def _compute_median_sgp_cap(
     return sgp_values[mid]
 
 
+# ── Secondary valuation diagnostics (report B.8 + B.5/C.2) ───────────
+
+
+def _compute_vorp_delta(
+    giving_ids: list[int],
+    receiving_ids: list[int],
+    player_pool: pd.DataFrame,
+    sgp_calc: SGPCalculator,
+    config: LeagueConfig,
+    name_col: str,
+) -> tuple[float, dict[str, Any]]:
+    """Secondary league-wide VORP/PRP sanity check per report Section B.8.
+
+    The primary engine signal is the roster-context SGP surplus. This is the
+    SECONDARY check the report calls for: a league-wide positional
+    replacement-player delta that answers "is this trade fair league-wide?"
+    independent of the user's specific roster. Computed as
+    Σ VORP(receiving) − Σ VORP(giving) using the standard positional
+    replacement levels (N_p-th ranked player per position).
+
+    Returns (delta_vorp, detail). Fails safe to (0.0, {}) if replacement
+    levels can't be computed (e.g. empty pool).
+    """
+    from src.valuation import compute_replacement_levels, compute_vorp
+
+    try:
+        replacement_levels = compute_replacement_levels(player_pool, config, sgp_calc)
+    except Exception:
+        logger.warning("VORP secondary check: replacement levels failed", exc_info=True)
+        return 0.0, {}
+
+    def _sum_vorp(ids: list[int]) -> tuple[float, dict[str, float]]:
+        total = 0.0
+        per: dict[str, float] = {}
+        for pid in ids:
+            match = player_pool[player_pool["player_id"] == pid]
+            if match.empty:
+                continue
+            row = match.iloc[0]
+            v = float(compute_vorp(row, sgp_calc, replacement_levels))
+            per[str(row.get(name_col, pid))] = round(v, 3)
+            total += v
+        return total, per
+
+    recv_total, recv_per = _sum_vorp(receiving_ids)
+    give_total, give_per = _sum_vorp(giving_ids)
+    delta = recv_total - give_total
+    detail = {
+        "receiving_vorp": recv_per,
+        "giving_vorp": give_per,
+        "receiving_total": round(recv_total, 3),
+        "giving_total": round(give_total, 3),
+        "method": "league-wide PRP/VORP (report B.8 secondary check)",
+    }
+    return round(delta, 3), detail
+
+
+def _compute_gscore_delta(
+    giving_ids: list[int],
+    receiving_ids: list[int],
+    player_pool: pd.DataFrame,
+    config: LeagueConfig,
+    name_col: str,
+) -> tuple[float, dict[str, Any]]:
+    """Variance-aware G-score (Rosenof) trade delta per report B.5 / C.2.
+
+    Surfaces the G-score valuation alongside the SGP surplus as a
+    diagnostic. G-score adds the team-level weekly-variance term to the
+    z-score denominator, so volatile boom-bust profiles get discounted
+    relative to steady producers — exactly the H2H-Cats correction the
+    report calls for. Computed as Σ g_composite(receiving) − Σ g_composite(giving).
+
+    Returns (delta_g, detail). Fails safe to (0.0, {}).
+    """
+    from src.engine.portfolio.valuation import compute_player_gscores
+
+    try:
+        scored = compute_player_gscores(player_pool, config)
+    except Exception:
+        logger.warning("G-score diagnostic failed", exc_info=True)
+        return 0.0, {}
+    if "g_composite" not in scored.columns or "player_id" not in scored.columns:
+        return 0.0, {}
+
+    gmap = dict(zip(scored["player_id"], scored["g_composite"], strict=False))
+
+    def _sum_g(ids: list[int]) -> tuple[float, dict[str, float]]:
+        total = 0.0
+        per: dict[str, float] = {}
+        for pid in ids:
+            g = float(gmap.get(pid, 0.0) or 0.0)
+            match = player_pool[player_pool["player_id"] == pid]
+            label = str(match.iloc[0].get(name_col, pid)) if not match.empty else str(pid)
+            per[label] = round(g, 3)
+            total += g
+        return total, per
+
+    recv_total, recv_per = _sum_g(receiving_ids)
+    give_total, give_per = _sum_g(giving_ids)
+    delta = recv_total - give_total
+    detail = {
+        "receiving_g": recv_per,
+        "giving_g": give_per,
+        "receiving_total": round(recv_total, 3),
+        "giving_total": round(give_total, 3),
+        "method": "rosenof-gscore (report B.5/C.2)",
+    }
+    return round(delta, 3), detail
+
+
+def _build_drl_replacement_chain(
+    dropped_ids: list[int],
+    picked_up_ids: set[int],
+    player_pool: pd.DataFrame,
+    sgp_calc: SGPCalculator,
+    name_col: str,
+) -> list[dict[str, Any]]:
+    """Assemble the named DRL replacement chain per report Section B.7 / pseudocode.
+
+    The report's pseudocode outputs a ``DRL_replacement_chain`` — the named
+    bench/FA players that actually fill the slots a trade vacates. The
+    roster-cap branches already perform the greedy priority-order fill (best
+    FA first for roster-shrink trades; worst bench first for roster-grow
+    trades); this just records the result so the UI can show "you'll pick up
+    X off waivers / drop Y to the bench" rather than an abstract scalar.
+    """
+    chain: list[dict[str, Any]] = []
+    for pid in picked_up_ids:
+        match = player_pool[player_pool["player_id"] == pid]
+        if match.empty:
+            continue
+        row = match.iloc[0]
+        chain.append(
+            {
+                "action": "pickup",
+                "player_id": int(pid),
+                "name": str(row.get(name_col, "Unknown")),
+                "positions": str(row.get("positions", "")),
+                "sgp": round(float(sgp_calc.total_sgp(row)), 3),
+                "source": "FCFS waiver",
+            }
+        )
+    for pid in dropped_ids:
+        match = player_pool[player_pool["player_id"] == pid]
+        if match.empty:
+            continue
+        row = match.iloc[0]
+        chain.append(
+            {
+                "action": "drop",
+                "player_id": int(pid),
+                "name": str(row.get(name_col, "Unknown")),
+                "positions": str(row.get("positions", "")),
+                "sgp": round(float(sgp_calc.total_sgp(row)), 3),
+                "source": "bench",
+            }
+        )
+    return chain
+
+
+# Specialist cap (report Section H.2): no single received player should be
+# credited with more than this fraction of a full category's standings range
+# in any one category. Prevents SB-only / SV-only specialists from inflating
+# a trade's surplus through one narrow category. 0.25 × (T-1) standings
+# points = the report's recommended 25%-of-category-target cap.
+_SPECIALIST_CAP_FRACTION: float = 0.25
+
+
+def _compute_specialist_cap_penalty(
+    receiving_ids: list[int],
+    after_starter_ids: list[int],
+    player_pool: pd.DataFrame,
+    sgp_calc: SGPCalculator,
+    config: LeagueConfig,
+    category_weights: dict[str, float],
+) -> tuple[float, dict[str, Any]]:
+    """Per report Section H.2 — cap a single specialist's per-category credit.
+
+    For each received player who actually starts post-trade, compute their
+    per-category SGP. If a single category's weighted contribution exceeds
+    ``_SPECIALIST_CAP_FRACTION × (num_teams − 1)`` standings points, the
+    excess is "phantom value" the trade shouldn't be credited for — it is
+    summed into a penalty subtracted from the surplus.
+
+    Only received STARTERS are considered: a benched specialist contributes
+    nothing to category totals, so penalising it would double-count.
+
+    Returns (penalty, detail).
+    """
+    n_teams = int(getattr(config, "num_teams", 12))
+    cap = _SPECIALIST_CAP_FRACTION * max(n_teams - 1, 1)
+    starter_set = set(after_starter_ids)
+    penalty = 0.0
+    capped: dict[str, dict[str, dict[str, float]]] = {}
+
+    for pid in receiving_ids:
+        if pid not in starter_set:
+            continue
+        match = player_pool[player_pool["player_id"] == pid]
+        if match.empty:
+            continue
+        row = match.iloc[0]
+        try:
+            per_cat = sgp_calc.player_sgp(row)
+        except Exception:
+            continue
+        name = str(row.get("player_name", row.get("name", pid)))
+        for cat, raw_sgp in per_cat.items():
+            weight = category_weights.get(cat, 1.0)
+            weighted = float(raw_sgp) * weight
+            if weighted > cap:
+                excess = weighted - cap
+                penalty += excess
+                capped.setdefault(name, {})[cat] = {
+                    "weighted_sgp": round(weighted, 2),
+                    "cap": round(cap, 2),
+                    "excess": round(excess, 2),
+                }
+
+    detail = {
+        "cap_per_category": round(cap, 3),
+        "fraction": _SPECIALIST_CAP_FRACTION,
+        "capped": capped,
+    }
+    return round(penalty, 3), detail
+
+
 def grade_trade(surplus_sgp: float) -> str:
     """Convert a trade surplus (in SGP) to a letter grade.
 
@@ -599,6 +860,13 @@ def evaluate_trade(
     enable_context: bool = True,
     enable_game_theory: bool = True,
     apply_ytd_blend: bool = True,
+    enable_weekly_matrix: bool = False,
+    weekly_schedule: dict[int, str] | None = None,
+    league_rosters: dict[str, list[int]] | None = None,
+    enable_playoff_sim: bool = False,
+    current_wins: dict[str, int] | None = None,
+    playoff_n_sims: int = 20_000,
+    full_league_schedule: dict[int, list[tuple[str, str]]] | None = None,
 ) -> TradeResult:
     """Full trade evaluation using Phase 1-5 engine pipeline.
 
@@ -723,6 +991,13 @@ def evaluate_trade(
     if before_assignments:
         lineup_constrained = True
 
+    # DRL replacement bookkeeping (report B.7 / C.9). Hoisted before the
+    # roster-cap branches so they are always defined (equal and roster-grow
+    # trades never enter the FA-pickup branch) and so the DRL replacement
+    # chain can be assembled after the branches regardless of trade shape.
+    dropped_ids: list[int] = []
+    picked_up_ids: set[int] = set()
+
     # --- After totals with roster cap enforcement ---
     if net_roster_growth > 0 and PULP_AVAILABLE and LineupOptimizer is not None:
         # Roster grows (e.g., 1-for-2): run LP on oversized roster, then drop
@@ -741,7 +1016,6 @@ def evaluate_trade(
                     _recv_hitters = int(_rmatch.iloc[0].get("is_hitter", 0)) == 1
                     break  # Use first received player's type
 
-            dropped_ids: list[int] = []
             for _ in range(net_roster_growth):
                 remaining_bench = [b for b in bench_ids if b not in dropped_ids]
                 drop_id = _find_drop_candidate(remaining_bench, player_pool, sgp_calc, receiving_hitters=_recv_hitters)
@@ -772,7 +1046,6 @@ def evaluate_trade(
             fa_pool_check = player_pool
         use_median_cap = fa_pool_check.shape[0] > 500  # heuristic: no real rosters loaded
 
-        picked_up_ids: set[int] = set()
         # Determine type needed: check what type of player was lost
         lost_players = player_pool[player_pool["player_id"].isin(giving_ids)]
         if not lost_players.empty:
@@ -840,7 +1113,22 @@ def evaluate_trade(
 
     # Step 3: Load standings and compute marginal elasticity
     standings = load_league_standings()
-    all_team_totals = build_standings_totals(standings)
+    # Bug D (2026-05-23): when the caller supplies league_rosters, filter out
+    # ghost teams (renamed/abandoned teams that linger in the standings cache).
+    # When league_rosters is None we do NOT auto-query the DB — that approach
+    # broke caller-supplied test scenarios where standings team names don't
+    # match the DB's authoritative list (PR #113 CI failure). Pages that want
+    # the ghost-team protection must pass league_rosters explicitly. The
+    # Trade Analyzer page already does this (validated by
+    # test_trade_analyzer_features_wired.py::test_page_loads_league_rosters).
+    _valid_teams: set[str] | None = None
+    if league_rosters:
+        _candidate = set(league_rosters.keys())
+        # Empty caller-supplied dict → no-filter (don't silently zero out
+        # all_team_totals). The user-supplied None / empty is a "skip filter"
+        # signal, not an "everything is ghost" signal.
+        _valid_teams = _candidate if _candidate else None
+    all_team_totals = build_standings_totals(standings, valid_teams=_valid_teams)
 
     # Validate that standings contain actual stat categories (R, HR, etc.)
     # not just W/L records. If they only have matchup records, fall back to
@@ -1002,6 +1290,93 @@ def evaluate_trade(
             total_surplus -= flexibility_penalty
         _mod_flex.influence = 0.2
 
+    # Step 6d: IP-floor soft penalty
+    # Per report Section B.6 + 2026-05-23 design Q1: Yahoo's 20 IP/week floor
+    # converts shortfall to losses across pitching cats. Apply quadratic SGP
+    # penalty kappa*(20 - IP_w)^2 when projected weekly IP falls below floor.
+    # Delta semantics: only the post-trade marginal increase in penalty counts
+    # against this trade. If user was already at 18 IP and stays at 18, no
+    # additional penalty — that situation existed before the trade.
+    ip_floor_penalty_delta = 0.0
+    ip_floor_detail: dict[str, Any] = {}
+    with ctx.track_module("phase1_ip_floor") as _mod_ip:
+        before_starter_ids = [a["player_id"] for a in (before_assignments or [])]
+        after_starter_ids = [a["player_id"] for a in (after_assignments or [])]
+        # Bug F (2026-05-23): pass weeks_remaining (forward-looking horizon),
+        # not season_weeks. The pool's `ip` column is full-season blended
+        # projection; the helper subtracts ytd_ip to get ROS, then divides
+        # by remaining weeks to produce the per-week IP that the floor checks.
+        ip_floor_penalty_delta, ip_floor_detail = _compute_ip_floor_penalty(
+            before_starter_ids=before_starter_ids,
+            after_starter_ids=after_starter_ids,
+            player_pool=player_pool,
+            weeks_remaining=weeks_remaining,
+        )
+        if ip_floor_penalty_delta > 0:
+            total_surplus -= ip_floor_penalty_delta
+        _mod_ip.influence = 0.3
+
+    # Step 6e: Markov FA discount (report Section B.7)
+    # When the trade is 2-for-1, the engine fills the empty roster slot
+    # with the current best FA. The current code captures that FA's full
+    # static SGP, implicitly assuming draft-day-quality pool. But the
+    # pool degrades over the season (good FAs get rostered). Apply a
+    # Markov-decayed discount so trades made later get appropriately less
+    # credit for FA replacement value.
+    markov_fa_penalty = 0.0
+    markov_fa_detail: dict[str, Any] = {}
+    with ctx.track_module("phase1_markov_fa_discount") as _mod_markov:
+        if picked_up_ids:
+            # Compute current week index from weeks_remaining + total season
+            # (LeagueConfig.season_weeks=26 for FourzynBurn)
+            current_week = max(1, config.season_weeks - weeks_remaining)
+            markov_factor = _markov_fa_discount(current_week)
+            # Discount = (1 - markov_factor) × (sum of FA SGPs)
+            # E.g. week 10 → factor 0.76 → discount 24% of FA SGP value
+            fa_sgp_total = 0.0
+            for pid in picked_up_ids:
+                match = player_pool[player_pool["player_id"] == pid]
+                if not match.empty:
+                    fa_sgp_total += sgp_calc.total_sgp(match.iloc[0])
+            markov_fa_penalty = max(0.0, (1.0 - markov_factor) * fa_sgp_total)
+            markov_fa_detail = {
+                "current_week": int(current_week),
+                "markov_factor": round(markov_factor, 4),
+                "alpha": _MARKOV_ALPHA,
+                "stationary_fraction": _MARKOV_STATIONARY_FRACTION,
+                "fa_pickup_count": len(picked_up_ids),
+                "fa_sgp_total_static": round(fa_sgp_total, 3),
+                "discount_penalty": round(markov_fa_penalty, 3),
+            }
+            if markov_fa_penalty > 0:
+                total_surplus -= markov_fa_penalty
+            _mod_markov.influence = 0.2
+        else:
+            _mod_markov.status = ModuleStatus.DISABLED
+            _mod_markov.fallback_reason = "No FA pickups (not a roster-shrink trade)"
+
+    # Step 6f: Specialist cap (report Section H.2)
+    # A single received specialist (SB-only, SV-only) can rack up huge SGP in
+    # one narrow category. Cap any single received starter's per-category
+    # credit at 25% of a full category's standings range; subtract the excess.
+    specialist_cap_penalty = 0.0
+    specialist_cap_detail: dict[str, Any] = {}
+    with ctx.track_module("phase1_specialist_cap") as _mod_spec:
+        specialist_cap_penalty, specialist_cap_detail = _compute_specialist_cap_penalty(
+            receiving_ids=receiving_ids,
+            after_starter_ids=after_starter_ids,
+            player_pool=player_pool,
+            sgp_calc=sgp_calc,
+            config=config,
+            category_weights=category_weights,
+        )
+        if specialist_cap_penalty > 0:
+            total_surplus -= specialist_cap_penalty
+            _mod_spec.influence = 0.2
+        else:
+            _mod_spec.status = ModuleStatus.DISABLED
+            _mod_spec.fallback_reason = "No received starter exceeds the per-category specialist cap"
+
     # Step 7: Grade the trade
     trade_grade = grade_trade(total_surplus)
 
@@ -1021,6 +1396,23 @@ def evaluate_trade(
         cat_analysis=cat_analysis,
         category_impact=category_impact,
     )
+
+    # IP-floor risk flag: when post-trade weekly IP is below the Yahoo floor.
+    # Fires regardless of whether the trade caused it (informational), but the
+    # SGP penalty above only counts the trade-caused marginal worsening.
+    if ip_floor_detail.get("below_floor"):
+        _post_ip = ip_floor_detail.get("after_weekly_ip", 0.0)
+        _delta = ip_floor_detail.get("delta_penalty", 0.0)
+        if _delta > 0:
+            risk_flags.append(
+                f"Post-trade weekly IP ({_post_ip:.1f}) below {_IP_FLOOR_PER_WEEK:.0f} IP/week "
+                f"Yahoo floor — pitching cats at risk; trade adds {_delta:.2f} SGP penalty"
+            )
+        else:
+            risk_flags.append(
+                f"Weekly IP ({_post_ip:.1f}) already below {_IP_FLOOR_PER_WEEK:.0f} IP/week "
+                f"Yahoo floor; trade doesn't worsen it but pitching cats are at risk"
+            )
 
     # Phase 4 risk flags: concentration risk
     if enable_context and concentration_data:
@@ -1077,17 +1469,55 @@ def evaluate_trade(
             config=config,
             category_weights=category_weights,
         )
-        # Add risk flag when reshuffle is a large fraction of surplus
+        # Bug B (2026-05-23 validation): the previous condition
+        # `if demoted and abs(total_surplus) > 0.01:` skipped the warning
+        # whenever the LP did a PROMOTE-only reshuffle (a bench player got
+        # elevated to a starting slot to replace a traded starter, no
+        # existing starter demoted). In live validation, this hid a trade
+        # whose reshuffle SGP (+3.97) dwarfed its actual surplus (-1.58):
+        # most of the "trade value" was really the engine finally deploying
+        # a bench bat (Max Muncy) that the user could promote without
+        # trading at all. The warning now fires whenever the reshuffle is
+        # large in EITHER direction, with text adapted per case.
         reshuffle_sgp = reshuffle_info.get("reshuffle_sgp", 0.0)
+        promoted = reshuffle_info.get("promoted", [])
         demoted = reshuffle_info.get("demoted", [])
-        if demoted and abs(total_surplus) > 0.01:
+        if (promoted or demoted) and abs(total_surplus) > 0.01:
             reshuffle_pct = abs(reshuffle_sgp) / abs(total_surplus)
             reshuffle_info["reshuffle_pct"] = round(reshuffle_pct * 100, 1)
             if reshuffle_pct > 0.3:
+                promoted_names = ", ".join(p["name"] for p in promoted)
                 demoted_names = ", ".join(d["name"] for d in demoted)
-                risk_flags.append(
-                    f"Lineup reshuffle accounts for {reshuffle_pct:.0%} of surplus — benching {demoted_names}"
-                )
+                if promoted and demoted:
+                    # Both directions — LP did a full swap
+                    risk_flags.append(
+                        f"Lineup reshuffle accounts for {reshuffle_pct:.0%} of surplus — "
+                        f"promoting {promoted_names}, benching {demoted_names}"
+                    )
+                elif demoted:
+                    # Demote-only (rare — usually means trade gave you a clear upgrade)
+                    risk_flags.append(
+                        f"Lineup reshuffle accounts for {reshuffle_pct:.0%} of surplus — benching {demoted_names}"
+                    )
+                else:
+                    # Promote-only — the most decision-relevant case:
+                    # "the trade looks good, but most of the value is the LP
+                    # finally using a bench bat you could deploy without trading."
+                    risk_flags.append(
+                        f"Lineup reshuffle accounts for {reshuffle_pct:.0%} of surplus — "
+                        f"promoting {promoted_names} from bench. "
+                        f"You may capture most of this value by setting your lineup, "
+                        f"without making the trade."
+                    )
+
+    # Secondary diagnostics (report B.8 + B.5/C.2 + B.7 pseudocode output).
+    # These do not feed the grade — they are the report's sanity-check
+    # outputs alongside the primary roster-context surplus.
+    delta_vorp_prp, vorp_detail = _compute_vorp_delta(
+        giving_ids, receiving_ids, player_pool, sgp_calc, config, name_col
+    )
+    delta_g_score, gscore_detail = _compute_gscore_delta(giving_ids, receiving_ids, player_pool, config, name_col)
+    drl_replacement_chain = _build_drl_replacement_chain(dropped_ids, picked_up_ids, player_pool, sgp_calc, name_col)
 
     result: TradeResult = {
         "grade": trade_grade,
@@ -1101,6 +1531,18 @@ def evaluate_trade(
         "replacement_detail": replacement_detail,
         "flexibility_penalty": round(flexibility_penalty, 3),
         "flexibility_detail": flexibility_detail,
+        "ip_floor_penalty": round(ip_floor_penalty_delta, 3),
+        "ip_floor_detail": ip_floor_detail,
+        "markov_fa_penalty": round(markov_fa_penalty, 3),
+        "markov_fa_detail": markov_fa_detail,
+        "specialist_cap_penalty": round(specialist_cap_penalty, 3),
+        "specialist_cap_detail": specialist_cap_detail,
+        # Secondary valuation diagnostics (report B.8 + B.5/C.2 + B.7).
+        "delta_vorp_prp": delta_vorp_prp,
+        "vorp_detail": vorp_detail,
+        "delta_g_score": delta_g_score,
+        "gscore_detail": gscore_detail,
+        "drl_replacement_chain": drl_replacement_chain,
         "risk_flags": risk_flags,
         "verdict": verdict,
         "compliant": True,  # Legacy field — no longer enforced
@@ -1150,6 +1592,17 @@ def evaluate_trade(
             _mod_gt.fallback_reason = "enable_game_theory=False"
 
     # Phase 2: Monte Carlo simulation overlay
+    #
+    # Bug A (2026-05-23 validation): Phase 1 weighted SGP is the AUTHORITY for
+    # grade/verdict/confidence_pct. Prior code blindly overrode these from MC,
+    # producing user-facing contradictions like grade=B alongside surplus_sgp=-1.58
+    # (Phase 1 said DECLINE, MC said ACCEPT, user only saw the MC verdict).
+    #
+    # _run_mc_overlay now renames its grade/verdict/confidence_pct →
+    # mc_grade/mc_verdict/mc_confidence_pct BEFORE returning, so the
+    # result.update(mc_result) call is safe and cannot clobber Phase 1.
+    # The MC contribution is exclusively a RISK DIAGNOSTIC
+    # (mc_mean/std/percentiles/CVaR5/sharpe/prob_positive) — never the grade.
     with ctx.track_module("phase2_monte_carlo") as _mod_mc:
         if enable_mc:
             mc_result = _run_mc_overlay(
@@ -1161,19 +1614,84 @@ def evaluate_trade(
                 weeks_remaining=weeks_remaining,
                 n_sims=n_sims,
             )
-            # Overlay MC metrics onto result
+            # Overlay MC risk diagnostics onto result.  By contract,
+            # _run_mc_overlay has stripped grade/verdict/confidence_pct and
+            # exposed them as mc_grade/mc_verdict/mc_confidence_pct.
             result.update(mc_result)
-            # Use MC grade and verdict when available
-            if "grade" in mc_result:
-                result["grade"] = mc_result["grade"]
-            if "verdict" in mc_result:
-                result["verdict"] = mc_result["verdict"]
-            if "confidence_pct" in mc_result:
-                result["confidence_pct"] = mc_result["confidence_pct"]
             _mod_mc.influence = 0.7
         else:
             _mod_mc.status = ModuleStatus.DISABLED
             _mod_mc.fallback_reason = "enable_mc=False (default)"
+
+    # Feature 2 (2026-05-23): Weekly H2H win-probability matrix.
+    # Per report Section B.5 — for each remaining matchup week, the
+    # probability of winning each category against the scheduled opponent.
+    # Surfaces playoff-week asymmetries that the surplus_sgp scalar can't
+    # capture (e.g. "this trade helps weeks 8-12 but hurts weeks 24-26").
+    # Opt-in via enable_weekly_matrix=True; requires weekly_schedule
+    # (Yahoo schedule lookup) and league_rosters (for opponent means).
+    with ctx.track_module("phase6_weekly_matrix") as _mod_wm:
+        if enable_weekly_matrix:
+            if weekly_schedule and league_rosters:
+                from src.engine.output.weekly_matrix import compute_trade_weekly_delta
+
+                wm = compute_trade_weekly_delta(
+                    before_roster_ids=before_ids,
+                    after_roster_ids=after_ids,
+                    player_pool=player_pool,
+                    schedule=weekly_schedule,
+                    all_team_rosters=league_rosters,
+                    config=config,
+                )
+                result["weekly_matrix"] = wm
+                _mod_wm.influence = 0.6
+            else:
+                _mod_wm.status = ModuleStatus.FALLBACK
+                _mod_wm.fallback_reason = (
+                    "enable_weekly_matrix=True but weekly_schedule or league_rosters is None — skipping matrix"
+                )
+        else:
+            _mod_wm.status = ModuleStatus.DISABLED
+            _mod_wm.fallback_reason = "enable_weekly_matrix=False (default)"
+
+    # Feature 3 (2026-05-23): Playoff + championship probability bracket sim.
+    # Per report Section B.10 + Q(a) — the engine's PRIMARY objective per
+    # the report. ΔΠ_playoff and ΔΠ_champ tell the user how this trade
+    # changes their actual title odds, not just SGP-flavored scalars.
+    # Opt-in via enable_playoff_sim=True; requires weekly_schedule,
+    # league_rosters, AND current_wins. Default off so Trade Finder
+    # bulk scans stay fast (20K sims ~0.5-2s per trade).
+    with ctx.track_module("phase7_playoff_sim") as _mod_ps:
+        if enable_playoff_sim:
+            if weekly_schedule and league_rosters and current_wins and user_team_name:
+                from src.engine.output.playoff_sim import simulate_trade_playoff_delta
+
+                ps = simulate_trade_playoff_delta(
+                    before_roster_ids=before_ids,
+                    after_roster_ids=after_ids,
+                    user_team_name=user_team_name,
+                    all_team_rosters=league_rosters,
+                    user_schedule=weekly_schedule,
+                    current_wins=current_wins,
+                    player_pool=player_pool,
+                    config=config,
+                    n_sims=playoff_n_sims,
+                    full_league_schedule=full_league_schedule,
+                )
+                result["playoff_sim"] = ps
+                # Also surface delta fields at top level for headline display
+                result["delta_playoff_prob"] = ps["delta_playoff_prob"]
+                result["delta_champ_prob"] = ps["delta_champ_prob"]
+                _mod_ps.influence = 0.8  # primary objective per report
+            else:
+                _mod_ps.status = ModuleStatus.FALLBACK
+                _mod_ps.fallback_reason = (
+                    "enable_playoff_sim=True but missing one of: "
+                    "weekly_schedule, league_rosters, current_wins, user_team_name"
+                )
+        else:
+            _mod_ps.status = ModuleStatus.DISABLED
+            _mod_ps.fallback_reason = "enable_playoff_sim=False (default)"
 
     # Attach transparency context for UI badge rendering
     result["analytics_context"] = ctx
@@ -1257,6 +1775,18 @@ def _run_mc_overlay(
         mc_result["convergence_quality"] = "not_assessed"
         mc_result["convergence_ess"] = float("nan")
         mc_result["convergence_rhat"] = float("nan")
+
+    # Bug A (2026-05-23): rename grade/verdict/confidence_pct so the
+    # caller's result.update(mc_result) cannot clobber Phase 1's
+    # authoritative grade. These keys remain accessible as
+    # mc_grade/mc_verdict/mc_confidence_pct for diagnostics, comparison
+    # against the Phase 1 grade, and future hybrid graders.
+    if "grade" in mc_result:
+        mc_result["mc_grade"] = mc_result.pop("grade")
+    if "verdict" in mc_result:
+        mc_result["mc_verdict"] = mc_result.pop("verdict")
+    if "confidence_pct" in mc_result:
+        mc_result["mc_confidence_pct"] = mc_result.pop("confidence_pct")
 
     return mc_result
 
@@ -1442,6 +1972,122 @@ def _compute_replacement_penalty(
         total_penalty += sgp_penalty
 
     return round(total_penalty, 3), detail
+
+
+# ── IP-floor soft penalty (report Section B.6) ──────────────────────
+
+# FourzynBurn / Yahoo H2H Categories default: 20 IP/week. Below this,
+# Yahoo converts the shortfall to losses across pitching counting cats
+# (W, K, SV) and inflates ERA/WHIP. Confirmed via 2026-05-23 design Q1.
+_IP_FLOOR_PER_WEEK: float = 20.0
+
+# Quadratic penalty coefficient. Per report calibration: at 50% shortfall
+# (10 IP/week, i.e. 10 IP below floor), penalty = 0.05 * 10^2 = 5.0 SGP
+# — "forfeit-equivalent" against the typical ±1-3 SGP trade-surplus scale.
+# At 30% shortfall (14 IP/week), penalty = 0.05 * 6^2 = 1.8 SGP — meaningful
+# but not catastrophic. Steep at extremes, gentle near the threshold.
+_IP_FLOOR_KAPPA: float = 0.05
+
+
+def _ip_floor_penalty(weekly_ip: float) -> float:
+    """Quadratic SGP penalty per report Section B.6.
+
+    Pen_IP(IP_w) = 0                          if IP_w >= 20
+                 = kappa * (20 - IP_w)^2      if IP_w <  20
+    """
+    if weekly_ip >= _IP_FLOOR_PER_WEEK:
+        return 0.0
+    shortfall = _IP_FLOOR_PER_WEEK - weekly_ip
+    return _IP_FLOOR_KAPPA * shortfall * shortfall
+
+
+def _compute_weekly_ip(
+    starter_ids: list[int],
+    player_pool: pd.DataFrame,
+    weeks_remaining: int = 26,
+) -> float:
+    """ROS-aware average IP per remaining matchup week.
+
+    Bug F (2026-05-23 validation): the prior implementation divided the
+    full-season ``ip`` projection by ``season_weeks=26`` and got 8.11 IP/week
+    mid-season — wrong because the ``ip`` column INCLUDES YTD already accrued.
+    The correct semantic is "expected IP for the REMAINING weeks":
+
+        ROS_IP = max(0, ip - ytd_ip)
+        weekly = sum(ROS_IP across pitchers) / weeks_remaining
+
+    Subtracting ``ytd_ip`` removes IP that was already accumulated (and
+    won't recur), then dividing by ``weeks_remaining`` gives the forward-
+    looking per-week IP. Falls back to ``ip / weeks_remaining`` when the
+    ``ytd_ip`` column is missing (e.g., off-season / preseason mode where
+    the full ``ip`` IS the ROS projection).
+
+    Hitters and zero-IP rows contribute nothing.
+    """
+    if not starter_ids:
+        return 0.0
+    matches = player_pool[player_pool["player_id"].isin(starter_ids)]
+    if matches.empty:
+        return 0.0
+    if "is_hitter" in matches.columns:
+        pitchers = matches[matches["is_hitter"] == 0]
+    else:
+        pitchers = matches
+    if pitchers.empty or "ip" not in pitchers.columns:
+        return 0.0
+    full_ip = pd.to_numeric(pitchers["ip"], errors="coerce").fillna(0)
+    if "ytd_ip" in pitchers.columns:
+        ytd_ip = pd.to_numeric(pitchers["ytd_ip"], errors="coerce").fillna(0)
+        # ROS = full - ytd, floored at 0 in case mid-season YTD exceeded the
+        # blended projection (over-performers can show ytd > ip).
+        ros_ip = (full_ip - ytd_ip).clip(lower=0)
+    else:
+        # No ytd column — assume `ip` is already ROS (preseason mode).
+        ros_ip = full_ip
+    return float(ros_ip.sum()) / max(weeks_remaining, 1)
+
+
+def _compute_ip_floor_penalty(
+    before_starter_ids: list[int],
+    after_starter_ids: list[int],
+    player_pool: pd.DataFrame,
+    weeks_remaining: int = 26,
+) -> tuple[float, dict[str, Any]]:
+    """SGP delta penalty when a trade pushes weekly IP below the floor.
+
+    Bug F: caller must pass ``weeks_remaining`` (the forward-looking
+    horizon), NOT ``season_weeks`` (the full season). The IP-floor check
+    is about per-week IP for the rest of the season, not the season average.
+
+    Delta semantics: returns max(0, after_penalty - before_penalty). If the
+    user was already below the floor pre-trade and the trade doesn't worsen
+    the situation, this returns 0 (the prior under-floor state is not the
+    trade's fault). If the trade IMPROVES weekly IP, this also returns 0
+    (negative deltas don't become bonuses here).
+
+    Returns:
+        (penalty_delta, detail_dict). penalty_delta >= 0.
+    """
+    before_weekly = _compute_weekly_ip(before_starter_ids, player_pool, weeks_remaining)
+    after_weekly = _compute_weekly_ip(after_starter_ids, player_pool, weeks_remaining)
+    before_pen = _ip_floor_penalty(before_weekly)
+    after_pen = _ip_floor_penalty(after_weekly)
+    # Only count the marginal increase in penalty caused by the trade.
+    # A trade that maintains or improves the IP situation contributes 0.
+    delta = max(0.0, after_pen - before_pen)
+
+    detail: dict[str, Any] = {
+        "threshold_ip_per_week": _IP_FLOOR_PER_WEEK,
+        "kappa": _IP_FLOOR_KAPPA,
+        "weeks_remaining": int(weeks_remaining),
+        "before_weekly_ip": round(before_weekly, 2),
+        "after_weekly_ip": round(after_weekly, 2),
+        "before_penalty": round(before_pen, 3),
+        "after_penalty": round(after_pen, 3),
+        "delta_penalty": round(delta, 3),
+        "below_floor": after_weekly < _IP_FLOOR_PER_WEEK,
+    }
+    return round(delta, 3), detail
 
 
 # ── Positional flexibility penalty ──────────────────────────────────

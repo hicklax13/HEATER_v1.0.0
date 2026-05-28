@@ -276,7 +276,7 @@ recommendations: list[dict] = []
 # has opponent context (urgency weights from the current matchup), proper
 # IL filtering (il_stash_ids built from authoritative roster status),
 # news-warning surfacing, and slot-aware drop selection — all missing
-# from the older engine. See docs/2026-05-20-fa-engine-overhaul-plan.md.
+# from the older engine. See docs/archive/specs/2026-05-20-fa-engine-overhaul-plan.md.
 #
 # Output-shape translation: recommend_fa_moves returns dicts with
 # add_id / drop_id / sustainability keys. The FA page's rendering code

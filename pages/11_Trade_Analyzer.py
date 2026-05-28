@@ -251,6 +251,63 @@ else:
 
                         from src.validation.dynamic_context import compute_weeks_remaining
 
+                        # 2026-05-23: load Yahoo schedule + league rosters + current
+                        # wins for Features 2 (weekly matrix) + 3 (playoff sim).
+                        # Best-effort — if any source fails we still produce the
+                        # core trade evaluation; the affected feature is skipped.
+                        _weekly_schedule: dict[int, str] | None = None
+                        _league_rosters: dict[str, list[int]] | None = None
+                        _current_wins: dict[str, int] | None = None
+                        # Full Schedule Phase (2026-05-24): also load
+                        # full league schedule so playoff sim can use
+                        # per-team-per-week opponent matchups instead of
+                        # Binomial(N, avg_p) approximation.
+                        _full_league_schedule = None
+                        try:
+                            from src.database import (
+                                get_connection,
+                                load_league_schedule,
+                                load_league_schedule_full,
+                                load_league_standings,
+                            )
+
+                            _weekly_schedule = load_league_schedule() or None
+                            _full_league_schedule = load_league_schedule_full() or None
+                            _conn = get_connection()
+                            try:
+                                import pandas as pd
+
+                                _lr_df = pd.read_sql_query(
+                                    "SELECT team_name, player_id FROM league_rosters WHERE player_id IS NOT NULL",
+                                    _conn,
+                                )
+                            finally:
+                                _conn.close()
+                            if not _lr_df.empty:
+                                _league_rosters = {}
+                                for _tn, _grp in _lr_df.groupby("team_name"):
+                                    _league_rosters[str(_tn)] = _grp["player_id"].astype(int).tolist()
+                            _standings = load_league_standings()
+                            if not _standings.empty:
+                                _wins_rows = _standings[_standings["category"] == "WINS"]
+                                if not _wins_rows.empty:
+                                    _current_wins = {
+                                        str(r["team_name"]): int(r["total"]) for _, r in _wins_rows.iterrows()
+                                    }
+                        except Exception as _ctx_exc:
+                            import logging
+
+                            logging.getLogger(__name__).warning(
+                                "Trade Analyzer: failed to load schedule/rosters/wins "
+                                "for Features 2/3 wiring (%s) — proceeding without",
+                                _ctx_exc,
+                            )
+
+                        # Both Features 2 + 3 require schedule + rosters; F3 also
+                        # needs current_wins + user_team_name. Wire what we have.
+                        _enable_wm = bool(_weekly_schedule and _league_rosters)
+                        _enable_ps = bool(_weekly_schedule and _league_rosters and _current_wins and user_team_name)
+
                         result = evaluate_trade(
                             giving_ids=giving_ids,
                             receiving_ids=receiving_ids,
@@ -259,6 +316,13 @@ else:
                             config=config,
                             user_team_name=user_team_name,
                             weeks_remaining=compute_weeks_remaining(),
+                            enable_weekly_matrix=_enable_wm,
+                            enable_playoff_sim=_enable_ps,
+                            weekly_schedule=_weekly_schedule,
+                            league_rosters=_league_rosters,
+                            current_wins=_current_wins,
+                            playoff_n_sims=20_000,
+                            full_league_schedule=_full_league_schedule,
                         )
                         engine_used = "phase1"
                     except Exception as e:
@@ -323,6 +387,111 @@ else:
                             f'<div style="font-size:20px;font-family:Bebas Neue,sans-serif;color:{surplus_color};">{surplus:+.2f}</div>',
                         )
 
+                    # ── Feature 3 (2026-05-23): Playoff + Championship probability ──
+                    # Per the Enhanced Trade Engine report Q(a), this is the engine's
+                    # PRIMARY objective. Render ABOVE the SGP-grade verdict so the user
+                    # sees title-odds impact first, with SGP as the interpretable diagnostic.
+                    if "playoff_sim" in result:
+                        ps = result["playoff_sim"]
+                        before = ps.get("before", {})
+                        after = ps.get("after", {})
+                        d_play = result.get("delta_playoff_prob", 0.0)
+                        d_champ = result.get("delta_champ_prob", 0.0)
+
+                        st.markdown(
+                            '<div style="font-family:Bebas Neue,sans-serif;font-size:18px;'
+                            'color:#9ca3af;letter-spacing:2px;margin-top:8px;">'
+                            "PRIMARY OBJECTIVE — Δ TITLE ODDS</div>",
+                            unsafe_allow_html=True,
+                        )
+                        pc1, pc2, pc3 = st.columns(3)
+                        pc1.metric(
+                            "P(make playoffs / top-4)",
+                            f"{after.get('playoff_prob', 0):.1%}",
+                            delta=f"{d_play:+.2%}",
+                            delta_color="normal",
+                            help=(
+                                "Monte-Carlo simulated probability of finishing top-4. "
+                                "Delta = after-trade minus before-trade. Negative = trade "
+                                "hurts your playoff odds. Report Section B.10 + Q(a)."
+                            ),
+                        )
+                        pc2.metric(
+                            "P(win championship)",
+                            f"{after.get('champ_prob', 0):.1%}",
+                            delta=f"{d_champ:+.2%}",
+                            delta_color="normal",
+                            help=(
+                                "Joint probability of (a) finishing top-4 AND (b) winning "
+                                "the 2-round bracket (1v4, 2v3, re-seeded final). "
+                                "20,000 MC sims with paired-MC discipline."
+                            ),
+                        )
+                        pc3.metric(
+                            "E[additional regular-season wins]",
+                            f"{after.get('mean_regular_season_wins', 0):.1f}",
+                            delta=f"{after.get('mean_regular_season_wins', 0) - before.get('mean_regular_season_wins', 0):+.1f}",
+                            delta_color="normal",
+                            help=(
+                                "Expected matchup wins over remaining weeks (per the schedule-aware weekly H2H matrix)."
+                            ),
+                        )
+
+                        # ── CARA mean-CVaR utility (report Section B.9) ──
+                        # Risk-adjusted utility on per-sim Δchamp_prob deltas.
+                        # CARA = E[Δchamp] - λ/2 × Var[Δchamp] with λ=0.15.
+                        # CVaR_20 = average outcome in worst 20% of sims.
+                        # Together they answer: "Is the expected gain worth
+                        # the downside risk?"
+                        _cara = ps.get("cara_utility")
+                        _cvar20 = ps.get("cvar20_champ")
+                        _var_champ = ps.get("var_champ")
+                        _lambda = ps.get("lambda_risk_aversion", 0.15)
+                        if _cara is not None and _cvar20 is not None:
+                            cara1, cara2, cara3 = st.columns(3)
+                            cara1.metric(
+                                "CARA utility (risk-adjusted)",
+                                f"{_cara:+.4f}",
+                                help=(
+                                    f"E[Δchamp] − (λ/2) × Var[Δchamp] with λ={_lambda}. "
+                                    f"Penalizes high-variance trades. > 0 → accept under "
+                                    f"CARA preferences; < 0 → variance penalty exceeds "
+                                    f"expected gain. Report Section B.9."
+                                ),
+                            )
+                            cara2.metric(
+                                "CVaR₂₀ (worst-20% Δchamp)",
+                                f"{_cvar20:+.2%}",
+                                help=(
+                                    "Conditional Value-at-Risk at 20%: average "
+                                    "championship-prob delta across the WORST 20% "
+                                    "of simulated futures. Negative = trade carries "
+                                    "real downside in unlucky scenarios. Report B.9."
+                                ),
+                            )
+                            cara3.metric(
+                                "Var[Δchamp]",
+                                f"{_var_champ:.4f}" if _var_champ is not None else "—",
+                                help=(
+                                    "Variance of per-sim championship-prob delta. "
+                                    "0 = trade always produces identical bracket "
+                                    "outcome; >0 = bracket outcome varies across sims."
+                                ),
+                            )
+
+                            # λ-sensitivity sweep (report Sections H.10 / C.7).
+                            # Shows how the risk-adjusted utility shifts with the
+                            # manager's risk stance: 0.05 = risk-seeking (must
+                            # gamble for a playoff push), 0.30 = risk-averse
+                            # (protecting a strong position).
+                            _sweep = ps.get("cara_utility_sweep") or {}
+                            if _sweep:
+                                _parts = []
+                                _labels = {0.05: "risk-seeking", 0.15: "central", 0.30: "risk-averse"}
+                                for _lam in sorted(_sweep):
+                                    _parts.append(f"λ={_lam} ({_labels.get(_lam, '')}): **{_sweep[_lam]:+.4f}**")
+                                st.caption("CARA utility across risk-aversion λ — " + " · ".join(_parts))
+
                     # Verdict banner
                     if result["verdict"] == "ACCEPT":
                         color = T["ok"]
@@ -364,6 +533,84 @@ else:
                     )
                     verdict_key = "trade_verdict" if engine_used == "phase1" else "trade_verdict_legacy"
                     st.caption(METRIC_TOOLTIPS[verdict_key])
+
+                    # ── Feature 1 (2026-05-23): IP-floor status indicator ──
+                    # When projected weekly IP drops below the 20 IP/week Yahoo floor,
+                    # surface it as an inline warning. Adapts text based on whether the
+                    # trade caused the shortfall (delta > 0) or it pre-existed (delta == 0).
+                    _ip_detail = result.get("ip_floor_detail", {}) or {}
+                    if _ip_detail.get("below_floor"):
+                        _post_ip = _ip_detail.get("after_weekly_ip", 0.0)
+                        _floor = _ip_detail.get("threshold_ip_per_week", 20.0)
+                        _delta_pen = _ip_detail.get("delta_penalty", 0.0)
+                        _wks_rem = _ip_detail.get("weeks_remaining", "?")
+                        if _delta_pen > 0:
+                            st.error(
+                                f"⚠ **IP floor breach (trade-caused)** — post-trade "
+                                f"weekly IP **{_post_ip:.1f}** below the {_floor:.0f} IP/week "
+                                f"Yahoo floor. SGP penalty of **{_delta_pen:.2f}** applied. "
+                                f"At this rate, Yahoo will convert pitching-cat shortfall to "
+                                f"losses. (Using {_wks_rem} weeks remaining.)"
+                            )
+                        else:
+                            st.warning(
+                                f"⚠ **IP floor warning (pre-existing)** — weekly IP "
+                                f"**{_post_ip:.1f}** is already below the {_floor:.0f} IP/week "
+                                f"Yahoo floor. This trade doesn't worsen the situation, but "
+                                f"your pitching cats are at risk of converting to losses. "
+                                f"Consider adding pitching volume via FA pickups."
+                            )
+
+                    # ── Secondary valuation diagnostics (report B.8 / B.5-C.2 / B.7 / H.2) ──
+                    # These do NOT drive the grade — they are the report's
+                    # sanity-check + transparency outputs alongside the primary
+                    # roster-context SGP surplus.
+                    if engine_used == "phase1":
+                        _vorp = result.get("delta_vorp_prp")
+                        _gscore = result.get("delta_g_score")
+                        _spec_pen = result.get("specialist_cap_penalty", 0.0) or 0.0
+                        _drl_chain = result.get("drl_replacement_chain") or []
+                        if _vorp is not None or _gscore is not None or _spec_pen or _drl_chain:
+                            with st.expander("Secondary diagnostics (VORP · G-score · DRL · specialist cap)"):
+                                dcol1, dcol2 = st.columns(2)
+                                dcol1.metric(
+                                    "Δ VORP (league-wide)",
+                                    f"{_vorp:+.2f}" if _vorp is not None else "—",
+                                    help=(
+                                        "Secondary league-wide fairness check (report B.8): "
+                                        "Σ VORP(receiving) − Σ VORP(giving) using standard "
+                                        "positional replacement levels. Independent of YOUR "
+                                        "roster — answers 'is this trade fair league-wide?'"
+                                    ),
+                                )
+                                dcol2.metric(
+                                    "Δ G-score (variance-aware)",
+                                    f"{_gscore:+.2f}" if _gscore is not None else "—",
+                                    help=(
+                                        "Rosenof G-score delta (report B.5/C.2): like a "
+                                        "z-score delta but with the team-level weekly-variance "
+                                        "term, so volatile boom-bust profiles are discounted "
+                                        "relative to steady producers."
+                                    ),
+                                )
+                                if _spec_pen > 0:
+                                    _capped = (result.get("specialist_cap_detail", {}) or {}).get("capped", {})
+                                    _names = ", ".join(_capped.keys())
+                                    st.warning(
+                                        f"Specialist cap (report H.2): **{_spec_pen:.2f}** SGP of "
+                                        f"single-category credit removed for {_names} — a single "
+                                        f"player shouldn't be valued on more than 25% of one "
+                                        f"category's standings range."
+                                    )
+                                if _drl_chain:
+                                    st.caption("**Replacement chain** (the bench/FA moves this trade triggers):")
+                                    for _entry in _drl_chain:
+                                        _verb = "Pick up" if _entry["action"] == "pickup" else "Drop"
+                                        st.caption(
+                                            f"• {_verb} **{_entry['name']}** "
+                                            f"({_entry['positions']}, {_entry['sgp']:+.2f} SGP, "
+                                            f"via {_entry['source']})"
+                                        )
 
                     # Warn when standings data is absent or not yet meaningful
                     _standings_state = _standings_data_state()
@@ -427,6 +674,156 @@ else:
                         if result.get("punt_categories"):
                             punt_text = ", ".join(result["punt_categories"])
                             st.info(f"Punted categories (zero-weighted): {punt_text}")
+
+                        # ── Three-horizon split (report Q(b)) ──
+                        # Per Enhanced Trade Engine report Q(b): the
+                        # decision-relevant horizons are pre-deadline,
+                        # regular-season-finish, and playoff-window. Slice
+                        # the weekly matrix by these horizons so the user
+                        # can see asymmetric impact (e.g., trade hurts you
+                        # for 12 regular weeks but helps the playoff window).
+                        _wm = result.get("weekly_matrix")
+                        if _wm and "summary" in _wm and not _wm["summary"].empty:
+                            _summary_for_horizons = _wm["summary"]
+                            # Yahoo H2H Cats standard: trade deadline week ~19,
+                            # regular season ends week ~24, playoffs weeks 25-26.
+                            # Use the user's actual schedule weeks (clamped).
+                            _weeks_in_sched = list(_summary_for_horizons.index)
+                            _TRADE_DEADLINE_WEEK = 19
+                            _REGULAR_END_WEEK = 24
+                            _pre_deadline = [w for w in _weeks_in_sched if w <= _TRADE_DEADLINE_WEEK]
+                            _reg_season = [w for w in _weeks_in_sched if w <= _REGULAR_END_WEEK]
+                            _playoff = [w for w in _weeks_in_sched if w > _REGULAR_END_WEEK]
+
+                            def _sum_delta(weeks: list) -> float:
+                                if not weeks:
+                                    return 0.0
+                                return float(_summary_for_horizons.loc[weeks, "delta_cat_wins"].sum())
+
+                            _pd_delta = _sum_delta(_pre_deadline)
+                            _rs_delta = _sum_delta(_reg_season)
+                            _po_delta = _sum_delta(_playoff)
+
+                            st.markdown(
+                                '<div style="font-family:Bebas Neue,sans-serif;font-size:16px;'
+                                'color:#9ca3af;letter-spacing:2px;margin-top:8px;">'
+                                "THREE-HORIZON IMPACT (report Q(b))</div>",
+                                unsafe_allow_html=True,
+                            )
+                            h1, h2, h3 = st.columns(3)
+                            h1.metric(
+                                f"Pre-trade-deadline ({len(_pre_deadline)} wks)",
+                                "Σ Δ cat-wins",
+                                delta=f"{_pd_delta:+.2f}",
+                                delta_color="normal",
+                                help=(
+                                    f"Cumulative cat-wins delta across weeks "
+                                    f"{_pre_deadline[0] if _pre_deadline else '?'}-"
+                                    f"{_pre_deadline[-1] if _pre_deadline else '?'} "
+                                    f"(through Yahoo trade deadline ~week 19). After this "
+                                    f"window you cannot reverse the trade if it goes poorly."
+                                ),
+                            )
+                            h2.metric(
+                                f"Full regular season ({len(_reg_season)} wks)",
+                                "Σ Δ cat-wins",
+                                delta=f"{_rs_delta:+.2f}",
+                                delta_color="normal",
+                                help=(
+                                    "Cumulative cat-wins delta across all remaining "
+                                    "regular-season weeks (through ~week 24)."
+                                ),
+                            )
+                            if _playoff:
+                                h3.metric(
+                                    f"Playoff window ({len(_playoff)} wks)",
+                                    "Σ Δ cat-wins",
+                                    delta=f"{_po_delta:+.2f}",
+                                    delta_color="normal",
+                                    help=(
+                                        f"Cumulative cat-wins delta across playoff "
+                                        f"weeks {_playoff[0]}-{_playoff[-1]}. "
+                                        f"Conditional on making the playoffs."
+                                    ),
+                                )
+                            else:
+                                h3.metric(
+                                    "Playoff window",
+                                    "Not in schedule",
+                                    help=(
+                                        "Yahoo schedule cache doesn't yet include "
+                                        "playoff weeks (typically populated late season)."
+                                    ),
+                                )
+
+                        # ── Feature 2 (2026-05-23): Weekly H2H matrix ──
+                        # Per report Section B.5 — for each remaining week + cat,
+                        # P(win) before vs after the trade. Negative delta = trade
+                        # hurts you that week. Surfaces playoff-window asymmetry
+                        # the SGP scalar can't see.
+                        if _wm and "summary" in _wm:
+                            with st.expander(
+                                f"📅 Weekly H2H impact (Feature 2 — {len(_wm['summary'])} weeks)",
+                                expanded=False,
+                            ):
+                                st.caption(
+                                    f"Per-week expected category wins (of 12) before and after the trade, "
+                                    f"against the actual Yahoo schedule. Method: {_wm.get('method', '?')}. "
+                                    f"Use the heatmap below to spot playoff-window vs regular-season asymmetry."
+                                )
+                                _summary = _wm["summary"].copy()
+                                # Round for display
+                                if "expected_cat_wins_before" in _summary.columns:
+                                    _summary["expected_cat_wins_before"] = _summary["expected_cat_wins_before"].round(2)
+                                    _summary["expected_cat_wins_after"] = _summary["expected_cat_wins_after"].round(2)
+                                    _summary["delta_cat_wins"] = _summary["delta_cat_wins"].round(2)
+                                st.dataframe(_summary, use_container_width=True)
+
+                                # Heatmap of the delta matrix (weeks × cats)
+                                try:
+                                    import plotly.express as px
+
+                                    _delta_df = _wm["delta"]
+                                    fig_hm = px.imshow(
+                                        _delta_df.astype(float),
+                                        labels=dict(x="Category", y="Week", color="Δ win probability"),
+                                        x=list(_delta_df.columns),
+                                        y=list(_delta_df.index),
+                                        color_continuous_scale="RdYlGn",
+                                        color_continuous_midpoint=0,
+                                        aspect="auto",
+                                    )
+                                    fig_hm.update_layout(
+                                        height=480,
+                                        margin=dict(l=40, r=40, t=30, b=40),
+                                        template="plotly_white",
+                                    )
+                                    st.plotly_chart(fig_hm, use_container_width=True)
+                                    st.caption(
+                                        "Green = trade helps you in that week+category. "
+                                        "Red = trade hurts. Look for asymmetry between "
+                                        "regular-season weeks and the playoff window (weeks 24-26)."
+                                    )
+                                except ImportError:
+                                    pass  # plotly not available — table alone is fine
+
+                                # Worst/best week callouts
+                                _sorted = _summary.sort_values("delta_cat_wins")
+                                _worst = _sorted.iloc[0]
+                                _best = _sorted.iloc[-1]
+                                wcol, bcol = st.columns(2)
+                                wcol.metric(
+                                    f"Worst week impact (vs {_worst.get('opponent', '?')})",
+                                    f"week {_worst.name}",
+                                    delta=f"{_worst['delta_cat_wins']:+.2f} cat-wins",
+                                    delta_color="normal",
+                                )
+                                bcol.metric(
+                                    f"Best week impact (vs {_best.get('opponent', '?')})",
+                                    f"week {_best.name}",
+                                    delta=f"{_best['delta_cat_wins']:+.2f} cat-wins",
+                                    delta_color="normal",
+                                )
                     else:
                         col1, col2, col3 = st.columns(3)
                         col1.metric(

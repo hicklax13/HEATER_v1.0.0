@@ -47,6 +47,16 @@ _PLATOON_MULT_HI: float = 1.20
 # Full-season game count used for per-game rate computation.
 _FULL_SEASON_GAMES: float = 162.0
 
+# Hitter games-played per season (DCV-A1-012 fix): a regular position
+# player appears in ~145 of 162 team games (4-5 scheduled rest days plus
+# minor day-to-day absences), so a hitter's season counting projection is
+# spread across ~145 games, not the full 162. Dividing by 162 under-weighted
+# every hitter's daily DCV by ~10% (145/162). Pitchers keep _FULL_SEASON_GAMES
+# in the counting path — their appearance frequency is handled separately by
+# the per-role daily fraction (1/30 SP, 1/40 swing, 1/50 RP). Source: FanGraphs
+# games-played distributions for qualified hitters, 2022-2024 (~143-147 median).
+_HITTER_GAMES_PER_SEASON: float = 145.0
+
 # Replacement-level baselines for rate-stat marginal-contribution SGP.
 # Used by build_daily_dcv_table's rate-stat path AND by apply_stud_floor
 # for stud ranking. A player's contribution is computed as
@@ -1107,9 +1117,9 @@ def build_daily_dcv_table(
         # constants (_REPL_*, _RAW_SGP_DENOM) so apply_stud_floor can share
         # the same calibration. See module-level definitions above.
         # Daily volume fraction (today's contribution / annual contribution).
-        # Hitters: ~145 games out of 162 → 1/162. SP: ~30 starts → 1/30.
+        # Hitters: ~145 games played → 1/145 (DCV-A1-012). SP: ~30 starts → 1/30.
         # RP: ~50 appearances → 1/50.
-        _hitter_daily_frac = 1.0 / 162.0
+        _hitter_daily_frac = 1.0 / _HITTER_GAMES_PER_SEASON
         # Token-set match (mirrors the SP gate above): a starter must have
         # "SP" as a literal token in `positions` (e.g. "SP" / "SP,RP"); a
         # substring check would also fire on a hypothetical "RSP" or any
@@ -1133,14 +1143,18 @@ def build_daily_dcv_table(
             col = cat.lower()
             proj_val = form_adjustments.get(col, float(player.get(col, 0) or 0))
 
-            # Per-game rate: divide counting stats by ~162 games.
+            # Per-game rate: spread the season counting projection across the
+            # player's games. Hitters play ~145 (DCV-A1-012); pitchers keep the
+            # full-season denominator (their per-appearance frequency is carried
+            # by the daily fraction / volume factor, not this divisor).
             # Rate stats use volume-weighted SGP (computed below).
             if cat in config.rate_stats:
                 # Compute volume-weighted SGP contribution directly,
                 # bypassing the per-game daily_proj path.
                 daily_proj = 0.0  # placeholder; sgp_dcv computed below
             else:
-                daily_proj = proj_val / 162.0
+                _games_divisor = _HITTER_GAMES_PER_SEASON if is_hitter else _FULL_SEASON_GAMES
+                daily_proj = proj_val / _games_divisor
 
             # Zero out abandoned rate stats for pitchers so DCV focuses
             # on flippable categories (W, K, SV) instead of unrecoverable ones.
