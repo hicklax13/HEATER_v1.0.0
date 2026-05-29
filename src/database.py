@@ -810,6 +810,35 @@ def _init_multiuser_tables(conn):
             last_seen_at TEXT                        -- updated by usage logging (Plan 2); nullable now
         );
         CREATE INDEX IF NOT EXISTS idx_users_status ON users(status);
+
+        -- v2 Plan 2: per-feature feedback inbox. user_id/page/message are the
+        -- core; app_version + data_state snapshot the build + data-freshness
+        -- state at submit time so an admin can reproduce what the user saw.
+        CREATE TABLE IF NOT EXISTS feedback (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL REFERENCES users(user_id),
+            page TEXT NOT NULL,
+            feature_tag TEXT,
+            message TEXT NOT NULL,
+            app_version TEXT NOT NULL,
+            data_state TEXT,                         -- JSON refresh_log snapshot, nullable
+            status TEXT NOT NULL DEFAULT 'new',       -- new | triaged | resolved
+            admin_notes TEXT,
+            created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_feedback_status ON feedback(status);
+
+        -- v2 Plan 2: lightweight usage logging. One 'view' row per (page, action)
+        -- per session; session_id groups a single visit's events.
+        CREATE TABLE IF NOT EXISTS usage_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL REFERENCES users(user_id),
+            page TEXT NOT NULL,
+            action TEXT NOT NULL DEFAULT 'view',
+            session_id TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_usage_user_created ON usage_events(user_id, created_at);
     """)
     conn.commit()
 
