@@ -268,3 +268,116 @@ def _set_session_user(user: dict) -> None:
 def logout() -> None:
     """Clear the session's identity."""
     _session_state().pop(_SESSION_KEY, None)
+
+
+# ── Auth guards ──────────────────────────────────────────────────────
+
+
+def _ensure_session_bootstrap() -> None:
+    """Idempotently init the DB schema + seed the admin, once per session.
+
+    Pages can be deep-linked without app.py's main() ever running this
+    session, so the guard self-bootstraps rather than assuming setup ran.
+    """
+    state = _session_state()
+    if state.get("_auth_bootstrap_done"):
+        return
+    from src.database import init_db
+
+    init_db()
+    ensure_bootstrap_admin()
+    state["_auth_bootstrap_done"] = True
+
+
+def require_auth() -> None:
+    """Gate the current page. No-op when MULTI_USER is off.
+
+    When on: render login/register and stop if there's no valid session user;
+    otherwise re-validate against the DB so admin revoke/reassign takes effect
+    on the next navigation.
+    """
+    if not multi_user_enabled():
+        return
+    _ensure_session_bootstrap()
+
+    sess_user = current_user()
+    if sess_user is None:
+        _render_login_and_register()
+        st.stop()
+        return  # unreachable in real Streamlit; kept for test stubs
+
+    fresh = get_user(sess_user.get("username", ""))
+    if fresh is None or fresh.get("status") != "active":
+        logout()
+        _render_login_and_register()
+        st.stop()
+        return
+    _set_session_user(fresh)
+
+
+def require_admin() -> None:
+    """Gate an admin-only page. Hard-stops non-admins."""
+    require_auth()
+    user = current_user()
+    if not user or not user.get("is_admin"):
+        st.error("You don't have access to this page.")
+        st.stop()
+
+
+# ── Login / register UI ──────────────────────────────────────────────
+
+
+def get_league_team_names() -> list[str]:
+    """Yahoo team names from league_teams, for the admin approval dropdown."""
+    from src.database import get_connection
+
+    conn = get_connection()
+    try:
+        rows = conn.execute("SELECT team_name FROM league_teams ORDER BY team_name").fetchall()
+        return [r[0] for r in rows if r[0]]
+    except Exception:
+        return []
+    finally:
+        conn.close()
+
+
+def _render_login_and_register() -> None:
+    """Render the login + self-registration tabs and stop the page."""
+    st.title("HEATER — League Sign In")
+    login_tab, register_tab = st.tabs(["Sign in", "Create account"])
+
+    with login_tab:
+        with st.form("login_form"):
+            username = st.text_input("Username")
+            password = st.text_input("Password", type="password")
+            submitted = st.form_submit_button("Sign in")
+        if submitted:
+            result = classify_login(get_user(username), password)
+            if result == "ok":
+                _set_session_user(get_user(username))
+                st.rerun()
+            elif result == "pending":
+                st.warning("Your account is awaiting admin approval.")
+            elif result == "revoked":
+                st.error("Your access has been revoked. Contact the league admin.")
+            else:
+                st.error("Invalid username or password.")
+
+    with register_tab:
+        with st.form("register_form"):
+            new_username = st.text_input("Choose a username")
+            display_name = st.text_input("Display name (optional)")
+            new_password = st.text_input("Choose a password", type="password")
+            confirm = st.text_input("Confirm password", type="password")
+            registered = st.form_submit_button("Create account")
+        if registered:
+            if new_password != confirm:
+                st.error("Passwords do not match.")
+            else:
+                try:
+                    create_user(new_username, new_password, display_name=display_name)
+                    st.success(
+                        "Account created. The league admin will approve you and assign your team — check back shortly."
+                    )
+                except ValueError as exc:
+                    st.error(str(exc))
