@@ -15,6 +15,7 @@ import os
 from datetime import UTC, datetime
 
 import bcrypt
+import streamlit as st
 
 logger = logging.getLogger(__name__)
 
@@ -243,3 +244,27 @@ def ensure_bootstrap_admin() -> None:
     finally:
         conn.close()
     logger.info("ensure_bootstrap_admin: seeded admin account '%s'", username)
+
+
+# ── Session identity ─────────────────────────────────────────────────
+
+_SESSION_KEY = "auth_user"
+
+
+def _session_state():
+    """Return st.session_state (indirection seam for unit tests)."""
+    return st.session_state
+
+
+def current_user() -> dict | None:
+    """Return the logged-in user dict for this session, or None."""
+    return _session_state().get(_SESSION_KEY)
+
+
+def _set_session_user(user: dict) -> None:
+    _session_state()[_SESSION_KEY] = user
+
+
+def logout() -> None:
+    """Clear the session's identity."""
+    _session_state().pop(_SESSION_KEY, None)
