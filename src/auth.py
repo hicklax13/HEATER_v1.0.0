@@ -11,6 +11,7 @@ league_teams.is_user_team flag for personalized surfaces.
 from __future__ import annotations
 
 import logging
+import os
 
 import bcrypt
 
@@ -34,3 +35,13 @@ def verify_password(password: str, password_hash: str) -> bool:
     except (ValueError, TypeError):
         # Malformed/corrupt hash → treat as non-match, don't crash the page.
         return False
+
+
+# ── Feature flag ─────────────────────────────────────────────────────
+
+_TRUTHY = {"1", "true", "yes", "on"}
+
+
+def multi_user_enabled() -> bool:
+    """True iff the MULTI_USER env flag is set to a truthy value."""
+    return os.environ.get("MULTI_USER", "").strip().lower() in _TRUTHY
