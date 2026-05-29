@@ -33,6 +33,8 @@ from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 
+from src.auth import current_user, multi_user_enabled
+
 if TYPE_CHECKING:
     from src.yahoo_api import MatchupResult, YahooClientProtocol
 
@@ -1101,7 +1103,18 @@ class YahooDataService:
             return {}
 
     def _get_user_team_name(self) -> str | None:
-        """Get the authenticated user's team name from the DB."""
+        """Get the current user's team name.
+
+        v2 multi-user: when the flag is on and a logged-in session user has an
+        assigned team, that team is the identity (non-impersonable — it was set
+        by the admin, not self-asserted). Otherwise fall back to the legacy
+        league_teams.is_user_team flag so single-user v1 behavior is unchanged.
+        """
+        if multi_user_enabled():
+            user = current_user()
+            if user and user.get("team_name"):
+                return user["team_name"]
+
         try:
             from src.database import get_connection
 
