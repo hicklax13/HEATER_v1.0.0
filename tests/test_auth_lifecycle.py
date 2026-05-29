@@ -72,3 +72,56 @@ def test_stored_password_is_hashed(temp_db):
     row = get_user("frank")
     assert row["password_hash"] != "frank-secret"
     assert verify_password("frank-secret", row["password_hash"]) is True
+
+
+# ── classify_login (pure; no DB) ─────────────────────────────────────
+
+
+def _make_user(status="active", password="pw"):
+    from src.auth import hash_password
+
+    return {
+        "username": "u",
+        "password_hash": hash_password(password),
+        "status": status,
+        "is_admin": 0,
+        "team_name": "Team Hickey",
+    }
+
+
+def test_classify_login_no_such_user():
+    from src.auth import classify_login
+
+    assert classify_login(None, "anything") == "bad_credentials"
+
+
+def test_classify_login_wrong_password():
+    from src.auth import classify_login
+
+    assert classify_login(_make_user(password="right"), "wrong") == "bad_credentials"
+
+
+def test_classify_login_pending():
+    from src.auth import classify_login
+
+    assert classify_login(_make_user(status="pending"), "pw") == "pending"
+
+
+def test_classify_login_revoked():
+    from src.auth import classify_login
+
+    assert classify_login(_make_user(status="revoked"), "pw") == "revoked"
+
+
+def test_classify_login_active_ok():
+    from src.auth import classify_login
+
+    assert classify_login(_make_user(status="active"), "pw") == "ok"
+
+
+def test_classify_login_checks_password_before_status():
+    # A pending user with the WRONG password is bad_credentials, not "pending"
+    # (don't leak account-existence/status to someone who can't authenticate).
+    from src.auth import classify_login
+
+    assert classify_login(_make_user(status="pending", password="right"), "wrong") == "bad_credentials"

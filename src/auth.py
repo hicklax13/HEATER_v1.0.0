@@ -102,3 +102,25 @@ def create_user(username: str, password: str, display_name: str | None = None) -
     finally:
         conn.close()
     return get_user(username)
+
+
+# ── Login decision (pure) ────────────────────────────────────────────
+
+
+def classify_login(user: dict | None, password: str) -> str:
+    """Pure decision: what is the result of this login attempt?
+
+    Returns one of: 'bad_credentials', 'pending', 'revoked', 'ok'.
+    Password is always checked first so a wrong password never reveals
+    whether an account exists or what state it's in.
+    """
+    if user is None:
+        return "bad_credentials"
+    if not verify_password(password, user.get("password_hash", "")):
+        return "bad_credentials"
+    status = user.get("status")
+    if status == "active":
+        return "ok"
+    if status == "revoked":
+        return "revoked"
+    return "pending"
