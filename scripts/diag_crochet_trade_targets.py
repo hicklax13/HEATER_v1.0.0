@@ -18,7 +18,7 @@ import argparse
 
 import pandas as pd
 
-from src.database import load_player_pool, get_connection
+from src.database import get_connection, load_player_pool
 from src.league_rules import weeks_remaining
 from src.opponent_trade_analysis import compute_opponent_needs
 from src.valuation import LeagueConfig
@@ -71,9 +71,7 @@ def main() -> None:
             "bootstrap with force=True to populate draft results + undroppable flags."
         )
 
-    league_rosters = {
-        t: g["player_id"].tolist() for t, g in rosters.groupby("team_name")
-    }
+    league_rosters = {t: g["player_id"].tolist() for t, g in rosters.groupby("team_name")}
     all_team_totals = _team_totals(league_rosters, pool, cfg)
 
     # ── Step 1: which teams need a top-ranked SP? ──────────────────────
