@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import os
+from datetime import UTC, datetime
 
 import bcrypt
 
@@ -45,3 +46,59 @@ _TRUTHY = {"1", "true", "yes", "on"}
 def multi_user_enabled() -> bool:
     """True iff the MULTI_USER env flag is set to a truthy value."""
     return os.environ.get("MULTI_USER", "").strip().lower() in _TRUTHY
+
+
+# ── DB row helpers ───────────────────────────────────────────────────
+
+
+def _row_to_dict(row) -> dict | None:
+    """Convert a sqlite3.Row to a plain dict (or None)."""
+    return dict(row) if row is not None else None
+
+
+def get_user(username: str) -> dict | None:
+    """Fetch a user by username (case-insensitive). Returns None if absent."""
+    from src.database import get_connection
+
+    conn = get_connection()
+    try:
+        row = conn.execute(
+            "SELECT * FROM users WHERE username = ? COLLATE NOCASE",
+            (username,),
+        ).fetchone()
+        return _row_to_dict(row)
+    finally:
+        conn.close()
+
+
+def create_user(username: str, password: str, display_name: str | None = None) -> dict:
+    """Create a self-registered user with status='pending'.
+
+    Raises ValueError if the username is already taken (case-insensitive).
+    """
+    username = username.strip()
+    if not username:
+        raise ValueError("Username cannot be empty.")
+    if not password:
+        raise ValueError("Password cannot be empty.")
+    if get_user(username) is not None:
+        raise ValueError(f"Username '{username}' is already taken.")
+
+    from src.database import get_connection
+
+    conn = get_connection()
+    try:
+        conn.execute(
+            "INSERT INTO users (username, password_hash, display_name, status, "
+            "is_admin, created_at) VALUES (?, ?, ?, 'pending', 0, ?)",
+            (
+                username,
+                hash_password(password),
+                (display_name or "").strip() or None,
+                datetime.now(UTC).isoformat(),
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return get_user(username)
