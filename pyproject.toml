@@ -40,3 +40,6 @@ pythonpath = ["."]
 # Tests that need longer (e.g. backtest replay) can override with the
 # `@pytest.mark.timeout(N)` decorator.
 timeout = 120
+markers = [
+    "allow_network: opt a test back into real outbound network (bypasses the conftest network guard)",
+]
