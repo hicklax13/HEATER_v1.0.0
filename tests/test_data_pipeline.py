@@ -31,6 +31,18 @@ def temp_db():
         pass
 
 
+@pytest.fixture(autouse=True)
+def _no_rate_limit_sleep():
+    """Neutralize the inter-request rate-limit sleeps in fetch_projections /
+    fetch_all_projections. The retry + per-system loops call real
+    time.sleep(_RATE_LIMIT) (1.5s each); across test_network_error_raises,
+    test_partial_failure and test_total_failure that summed to ~60s of dead
+    wall-clock per run. None of these tests assert on timing — only on control
+    flow and returned data — so removing the delay is behavior-preserving."""
+    with patch("src.data_pipeline.time.sleep", lambda *a, **k: None):
+        yield
+
+
 # ── Sample FanGraphs JSON records ──────────────────────────────────
 
 SAMPLE_HITTER_JSON = [

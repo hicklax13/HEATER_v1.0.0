@@ -790,6 +790,42 @@ with ctx:
 
     render_context_card("Data Freshness", _freshness_html)
 
+    # T1.21: explicit refresh button replaces the implicit force_refresh=True
+    # that used to live in the optimize click path. Users now control when
+    # Yahoo is force-refreshed; optimize uses cached data otherwise.
+    if st.button(
+        "Refresh Yahoo Data",
+        key="lineup_refresh_yahoo",
+        help=(
+            "Force-refresh rosters, standings, matchup, free agents, and "
+            "transactions from Yahoo. Use when you've made changes in the "
+            "Yahoo app (added/dropped a player, set lineup, etc.) and want "
+            "HEATER to see them immediately. Otherwise leave alone — "
+            "optimize uses cached data."
+        ),
+        width="stretch",
+    ):
+        with st.spinner("Refreshing Yahoo data (rosters, standings, matchup, free agents, transactions)..."):
+            try:
+                from src.yahoo_data_service import get_yahoo_data_service
+
+                _refresh_results = get_yahoo_data_service().force_refresh_all()
+                _ok = sum(1 for v in _refresh_results.values() if v == "Refreshed")
+                _total = len(_refresh_results)
+                # "No active matchup" is a normal between-weeks state, not a failure
+                _benign = {"Refreshed", "No active matchup"}
+                _problems = {k: v for k, v in _refresh_results.items() if v not in _benign}
+                if not _problems:
+                    st.toast(f"Yahoo data refreshed ({_ok}/{_total} types).", icon="✅")
+                else:
+                    st.toast(
+                        f"Refreshed {_total - len(_problems)}/{_total} Yahoo types. Issues: {_problems}",
+                        icon="⚠️",
+                    )
+            except Exception as _refresh_err:
+                st.toast(f"Refresh failed: {_refresh_err}", icon="❌")
+        st.rerun()
+
 
 # ── Main content panel ───────────────────────────────────────────────
 
@@ -841,9 +877,11 @@ with main:
 
             progress_bar = st.progress(0, text="Syncing roster and building shared data context...")
 
-            # Force roster refresh to ensure current players only
+            # T1.21: use cached roster data. Users can force-refresh via the
+            # "Refresh Yahoo Data" button in the sidebar. Implicit force_refresh
+            # here caused a 159s OAuth hang when the access token expired.
             try:
-                yds.get_rosters(force_refresh=True)
+                yds.get_rosters()
                 roster = get_team_roster(user_team_name)
                 if "name" in roster.columns and "player_name" not in roster.columns:
                     roster = roster.rename(columns={"name": "player_name"})

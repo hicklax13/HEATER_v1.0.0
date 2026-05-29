@@ -23,6 +23,7 @@ Usage::
 
 from __future__ import annotations
 
+import concurrent.futures
 import logging
 import time
 from collections.abc import Callable
@@ -199,29 +200,68 @@ class YahooDataService:
                 self._stats.record_hit(key)
                 return entry.value
 
-        # Tier 2: Yahoo API (live)
+        # Tier 2: Yahoo API (live, with 15s timeout — T1.21).
+        # Wraps fetch_fn in a ThreadPoolExecutor so a hanging Yahoo call
+        # (e.g. yfpy OAuth retry loop when the access token expired)
+        # cannot block the page render indefinitely. On timeout we fall
+        # through to Tier 3 (SQLite fallback).
+        #
+        # We intentionally do NOT use the context-manager form of
+        # ThreadPoolExecutor because its __exit__ calls shutdown(wait=True),
+        # which would re-block us until the orphaned worker finishes.
+        # Instead we call shutdown(wait=False): the worker keeps running in
+        # the background (it will eventually hit an OAuth error and exit on
+        # its own), while the page render proceeds immediately with the
+        # fallback result.
         if self.is_connected():
+            data = None
+            executor = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="yds-fetch")
             try:
-                data = fetch_fn()
-                # Validate we got real data
-                if self._is_valid_data(data):
-                    # Cache in session_state
-                    store[cache_key] = _CacheEntry(value=data, ttl=ttl)
-                    self._stats.record_miss(key)
+                future = executor.submit(fetch_fn)
+                try:
+                    data = future.result(timeout=15)
+                except concurrent.futures.TimeoutError:
+                    logger.warning(
+                        "yahoo_data_service._get_cached: Yahoo fetch for '%s' "
+                        "timed out after 15s — falling back to SQLite cache. "
+                        "If this persists, the OAuth token may have expired; "
+                        "use the 'Refresh Yahoo Data' button after re-auth.",
+                        key,
+                    )
+                    future.cancel()
+                    self._stats.record_error(key, "TimeoutError: fetch hung >15s")
+                    data = None
+                except Exception as exc:
+                    self._stats.record_error(key, str(exc))
+                    logger.warning(
+                        "yahoo_data_service._get_cached: Yahoo fetch for '%s' "
+                        "raised %s — falling back to SQLite cache.",
+                        key,
+                        type(exc).__name__,
+                    )
+                    data = None
+            finally:
+                # Non-blocking shutdown: the worker keeps running if it hung
+                # in yfpy's OAuth retry, but we don't wait for it. It'll
+                # complete eventually (with an OAuth failure) and exit on
+                # its own. Without wait=False, page render blocks 100+ seconds.
+                executor.shutdown(wait=False)
 
-                    # Write-through to SQLite
-                    if sync_fn is not None:
-                        try:
-                            sync_fn(data)
-                        except Exception:
-                            logger.exception("Write-through to DB failed for %s", key)
+            if data is not None and self._is_valid_data(data):
+                # Cache in session_state
+                store[cache_key] = _CacheEntry(value=data, ttl=ttl)
+                self._stats.record_miss(key)
 
-                    return data
-                else:
-                    logger.debug("Yahoo returned empty data for %s, falling back to DB", key)
-            except Exception as exc:
-                self._stats.record_error(key, str(exc))
-                logger.warning("Yahoo API error for %s: %s — falling back to DB", key, exc)
+                # Write-through to SQLite
+                if sync_fn is not None:
+                    try:
+                        sync_fn(data)
+                    except Exception:
+                        logger.exception("Write-through to DB failed for %s", key)
+
+                return data
+            elif data is not None:
+                logger.debug("Yahoo returned empty data for %s, falling back to DB", key)
 
         # Tier 3: SQLite fallback
         self._stats.record_miss(key)
