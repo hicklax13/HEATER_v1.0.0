@@ -57,3 +57,49 @@ def submit_feedback(user_id: int, page: str, message: str, feature_tag: str | No
         return int(cur.lastrowid)
     finally:
         conn.close()
+
+
+def list_feedback(status: str | None = None) -> list[dict]:
+    """Feedback rows joined with submitter username/team, newest first."""
+    from src.database import get_connection
+
+    conn = get_connection()
+    try:
+        sql = (
+            "SELECT f.*, u.username AS username, u.team_name AS team_name "
+            "FROM feedback f LEFT JOIN users u ON u.user_id = f.user_id"
+        )
+        params: tuple = ()
+        if status is not None:
+            sql += " WHERE f.status = ?"
+            params = (status,)
+        sql += " ORDER BY f.created_at DESC, f.id DESC"
+        return [dict(r) for r in conn.execute(sql, params).fetchall()]
+    finally:
+        conn.close()
+
+
+def set_feedback_status(feedback_id: int, status: str) -> None:
+    """Update a feedback row's triage status. Validates against _VALID_STATUSES."""
+    if status not in _VALID_STATUSES:
+        raise ValueError(f"Invalid feedback status: {status!r}. Expected one of {_VALID_STATUSES}.")
+    from src.database import get_connection
+
+    conn = get_connection()
+    try:
+        conn.execute("UPDATE feedback SET status = ? WHERE id = ?", (status, feedback_id))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def set_feedback_notes(feedback_id: int, notes: str) -> None:
+    """Save an admin's triage notes onto a feedback row."""
+    from src.database import get_connection
+
+    conn = get_connection()
+    try:
+        conn.execute("UPDATE feedback SET admin_notes = ? WHERE id = ?", (notes, feedback_id))
+        conn.commit()
+    finally:
+        conn.close()
