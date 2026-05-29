@@ -125,3 +125,60 @@ def test_classify_login_checks_password_before_status():
     from src.auth import classify_login
 
     assert classify_login(_make_user(status="pending", password="right"), "wrong") == "bad_credentials"
+
+
+# ── Admin lifecycle (needs temp_db) ──────────────────────────────────
+
+
+def test_approve_user_activates_and_assigns_team(temp_db):
+    from src.auth import approve_user, create_user, get_user
+
+    create_user("grace", "pw")
+    approve_user("grace", team_name="Team Hickey", approved_by="admin")
+    u = get_user("grace")
+    assert u["status"] == "active"
+    assert u["team_name"] == "Team Hickey"
+    assert u["approved_by"] == "admin"
+    assert u["approved_at"] is not None
+
+
+def test_revoke_user(temp_db):
+    from src.auth import approve_user, create_user, get_user, revoke_user
+
+    create_user("heidi", "pw")
+    approve_user("heidi", team_name="Team A")
+    revoke_user("heidi")
+    assert get_user("heidi")["status"] == "revoked"
+
+
+def test_set_user_team_reassigns(temp_db):
+    from src.auth import approve_user, create_user, get_user, set_user_team
+
+    create_user("ivan", "pw")
+    approve_user("ivan", team_name="Team A")
+    set_user_team("ivan", "Team B")
+    assert get_user("ivan")["team_name"] == "Team B"
+
+
+def test_list_users_filters_by_status(temp_db):
+    from src.auth import approve_user, create_user, list_users
+
+    create_user("p1", "pw")
+    create_user("p2", "pw")
+    create_user("a1", "pw")
+    approve_user("a1", team_name="Team A")
+
+    pending = {u["username"] for u in list_users(status="pending")}
+    active = {u["username"] for u in list_users(status="active")}
+    everyone = {u["username"] for u in list_users()}
+
+    assert pending == {"p1", "p2"}
+    assert active == {"a1"}
+    assert {"p1", "p2", "a1"}.issubset(everyone)
+
+
+def test_approve_unknown_user_raises(temp_db):
+    from src.auth import approve_user
+
+    with pytest.raises(ValueError):
+        approve_user("ghost", team_name="Team A")

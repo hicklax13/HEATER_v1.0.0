@@ -124,3 +124,80 @@ def classify_login(user: dict | None, password: str) -> str:
     if status == "revoked":
         return "revoked"
     return "pending"
+
+
+# ── Admin lifecycle ──────────────────────────────────────────────────
+
+
+def list_users(status: str | None = None) -> list[dict]:
+    """Return all users, optionally filtered by status, newest first."""
+    from src.database import get_connection
+
+    conn = get_connection()
+    try:
+        if status is None:
+            rows = conn.execute("SELECT * FROM users ORDER BY created_at DESC, user_id DESC").fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM users WHERE status = ? ORDER BY created_at DESC, user_id DESC",
+                (status,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def _require_existing(username: str) -> dict:
+    user = get_user(username)
+    if user is None:
+        raise ValueError(f"No such user: '{username}'.")
+    return user
+
+
+def approve_user(username: str, team_name: str, approved_by: str | None = None) -> None:
+    """Activate a pending user and assign their Yahoo team."""
+    _require_existing(username)
+    from src.database import get_connection
+
+    conn = get_connection()
+    try:
+        conn.execute(
+            "UPDATE users SET status='active', team_name=?, approved_at=?, approved_by=? "
+            "WHERE username = ? COLLATE NOCASE",
+            (team_name, datetime.now(UTC).isoformat(), approved_by, username),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def revoke_user(username: str) -> None:
+    """Revoke a user's access (reversible — admin can re-approve)."""
+    _require_existing(username)
+    from src.database import get_connection
+
+    conn = get_connection()
+    try:
+        conn.execute(
+            "UPDATE users SET status='revoked' WHERE username = ? COLLATE NOCASE",
+            (username,),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def set_user_team(username: str, team_name: str) -> None:
+    """Reassign a user's Yahoo team without changing their status."""
+    _require_existing(username)
+    from src.database import get_connection
+
+    conn = get_connection()
+    try:
+        conn.execute(
+            "UPDATE users SET team_name=? WHERE username = ? COLLATE NOCASE",
+            (team_name, username),
+        )
+        conn.commit()
+    finally:
+        conn.close()
