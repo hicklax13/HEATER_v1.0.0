@@ -9,6 +9,7 @@ import streamlit as st
 from src.auth import require_auth
 from src.database import init_db, load_player_pool
 from src.draft_state import DraftState
+from src.feedback import render_feedback_widget
 from src.simulation import DraftSimulator
 from src.ui_shared import (
     T,
@@ -25,6 +26,7 @@ from src.ui_shared import (
     render_player_select,
     render_styled_table,
 )
+from src.usage import log_page_view
 from src.valuation import (
     LeagueConfig,
     SGPCalculator,
@@ -52,6 +54,7 @@ st.set_page_config(
 init_db()
 inject_custom_css()
 require_auth()
+log_page_view("Draft Simulator")
 page_timer_start()
 
 
@@ -851,3 +854,4 @@ with main:
     render_tabs(pool, ds)
 
 page_timer_footer("Draft Simulator")
+render_feedback_widget("Draft Simulator")

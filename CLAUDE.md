@@ -21,7 +21,7 @@ The codebase is organized around 7 feature surfaces:
 - **Local Python:** 3.14 preferred, 3.12 acceptable. Recreate venv with `py -3.14 -m venv .venv` (or `py -3.12 -m venv .venv`).
 - **Yahoo OAuth deps:** `yfpy` and `streamlit-oauth` must be installed with `--no-deps` after `pip install -r requirements.txt`, per the comment in `requirements.txt` (python-dotenv pin conflict on 3.14).
 - **Hooks:** Reinstall after any fresh venv via `python scripts/install-hooks.py`.
-- **Multi-user mode (v2, additive):** Set `MULTI_USER=1` to enable league-mate self-registration + admin-approved team assignment. Off (unset) = single-user v1 behavior, byte-for-byte. Admin is seeded from `ADMIN_USERNAME` / `ADMIN_PASSWORD` / `ADMIN_TEAM_NAME` env vars (idempotent — set once). Auth lives entirely in `src/auth.py`; identity is per-session (`st.session_state["auth_user"]`) and replaces the global `league_teams.is_user_team` flag for personalized surfaces only.
+- **Multi-user mode (v2, additive):** Set `MULTI_USER=1` to enable league-mate self-registration + admin-approved team assignment. Off (unset) = single-user v1 behavior, byte-for-byte. Admin is seeded from `ADMIN_USERNAME` / `ADMIN_PASSWORD` / `ADMIN_TEAM_NAME` env vars (idempotent — set once). Auth lives entirely in `src/auth.py`; identity is per-session (`st.session_state["auth_user"]`) and replaces the global `league_teams.is_user_team` flag for personalized surfaces only. Plan 2 adds two additive, MULTI_USER-gated surfaces: a per-feature feedback inbox (`src/feedback.py` → Admin Console "Feedback" tab) and per-page usage logging (`src/usage.py`, one deduped view per session + `last_seen_at`). Both are inert when the flag is off.
 
 ## Commands
 
@@ -154,6 +154,9 @@ src/
 
   # Multi-user (v2)
   auth.py                   — register→pending→admin-approve→active; MULTI_USER-gated; per-session identity
+  version.py                — APP_VERSION string (env-overridable via HEATER_APP_VERSION); stamped onto feedback
+  feedback.py               — per-feature feedback capture + admin inbox helpers + render_feedback_widget popover (MULTI_USER-gated)
+  usage.py                  — per-session deduped page-view logging + last_seen_at bump (MULTI_USER-gated)
 
   # Data sources
   live_stats.py / adp_sources.py / depth_charts.py / contract_data.py
@@ -592,6 +595,9 @@ These tests guard against regression of the cleanup work. Adding new code that v
 | `test_pages_have_auth_guard.py` | Every interactive `pages/*.py` (those calling `inject_custom_css()`, excluding `00_Admin_Console.py`) imports + calls `require_auth()` after `inject_custom_css()`. Streamlit runs each page independently, so the gate must be per-page |
 | `test_admin_console_guarded.py` | `pages/00_Admin_Console.py` calls `require_admin()` before any `approve_user` action; AppTest smoke confirms non-admins are hard-stopped |
 | `test_auth_backcompat.py` | `MULTI_USER` off ⇒ `require_auth()` is a no-op and `_get_user_team_name` uses the `league_teams.is_user_team=1` query (v1 behavior preserved) |
+| `test_pages_have_feedback_and_usage.py` | Every interactive `pages/*.py` (those calling `inject_custom_css()`, excluding `00_Admin_Console.py`) imports `log_page_view` + `render_feedback_widget`; `log_page_view()` is called after `require_auth()`; `render_feedback_widget()` is called on the page. Per-page because Streamlit re-runs each page independently (v2 Plan 2) |
+| `test_feedback_usage_tables.py` | `init_db()` creates the `feedback` + `usage_events` tables (additive, idempotent). feedback carries `app_version` + `data_state` (JSON refresh_log snapshot); usage_events dedupes per `(page, action)` per `session_id` (v2 Plan 2) |
+| `test_feedback_usage_backcompat.py` | `MULTI_USER` off ⇒ `log_page_view()` and `render_feedback_widget()` are no-ops (zero DB writes, no popover) — v1 byte-for-byte (v2 Plan 2) |
 | `test_network_guard.py` | The `tests/conftest.py` network guard blocks real outbound sockets: `socket.connect`/`connect_ex` to a non-loopback host raises `NetworkBlockedError` by default; loopback passes through as a normal `OSError`; `@pytest.mark.allow_network` restores the real connect within a test. Load-bearing fix for the Windows full-suite hang (2026-05-29) |
 | `test_phase1_is_grade_authority.py` | Phase 1 weighted SGP is the AUTHORITY for `grade`/`verdict`/`confidence_pct`. `_run_mc_overlay` MUST rename its `grade`/`verdict`/`confidence_pct` keys → `mc_grade`/`mc_verdict`/`mc_confidence_pct` BEFORE returning so `result.update(mc_result)` in `evaluate_trade` cannot clobber the Phase 1 grade. Catches the 2026-05-23 validation regression where `grade=B` was shown alongside `surplus_sgp=-1.58` (Bug A). |
 | `test_reshuffle_warning_promote_or_demote.py` | The LP reshuffle warning in `evaluate_trade` fires whenever `(promoted OR demoted) AND abs(total_surplus) > 0.01` — NOT only on `demoted`. Three message variants: promote+demote, demote-only, promote-only (the promote-only variant tells the user they may capture most of the surplus by setting their lineup without making the trade). `reshuffle_pct` is always populated. Catches the 2026-05-23 validation regression where a +3.97 SGP reshuffle (251% of surplus) was silently hidden (Bug B). |

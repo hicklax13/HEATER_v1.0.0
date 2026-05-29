@@ -16,6 +16,7 @@ from src.database import (
     init_db,
     load_player_pool,
 )
+from src.feedback import render_feedback_widget
 from src.in_season import _roster_category_totals
 from src.trade_finder import (
     find_complementary_teams,
@@ -36,6 +37,7 @@ from src.ui_shared import (
     render_page_layout,
     render_sortable_table,
 )
+from src.usage import log_page_view
 from src.valuation import LeagueConfig
 from src.yahoo_data_service import get_yahoo_data_service
 
@@ -133,6 +135,7 @@ def main():
     page_timer_start()
     inject_custom_css()
     require_auth()
+    log_page_view("Trade Finder")
     init_db()
 
     config = LeagueConfig()
@@ -1112,3 +1115,4 @@ if __name__ == "__main__":
     main()
 else:
     main()
+render_feedback_widget("Trade Finder")

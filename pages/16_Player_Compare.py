@@ -7,8 +7,10 @@ import streamlit as st
 
 from src.auth import require_auth
 from src.database import coerce_numeric_df, get_connection, init_db, load_player_pool
+from src.feedback import render_feedback_widget
 from src.in_season import compare_players
 from src.injury_model import get_injury_badge
+from src.usage import log_page_view
 from src.yahoo_data_service import get_yahoo_data_service
 
 try:
@@ -49,6 +51,7 @@ init_db()
 
 inject_custom_css()
 require_auth()
+log_page_view("Player Compare")
 page_timer_start()
 
 render_page_layout("PLAYER COMPARE", banner_teaser="Select two players to compare", banner_icon="player_compare")
@@ -754,3 +757,4 @@ with ctx:
         )
 
 page_timer_footer("Player Compare")
+render_feedback_widget("Player Compare")

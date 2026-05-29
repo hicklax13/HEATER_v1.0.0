@@ -9,6 +9,7 @@ import streamlit as st
 from src.auth import require_auth
 from src.closer_monitor import build_closer_grid
 from src.database import get_connection, init_db, load_player_pool
+from src.feedback import render_feedback_widget
 from src.ui_shared import (
     _headshot_img_html,
     format_stat,
@@ -17,6 +18,7 @@ from src.ui_shared import (
     page_timer_start,
     render_page_layout,
 )
+from src.usage import log_page_view
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +28,7 @@ init_db()
 
 inject_custom_css()
 require_auth()
+log_page_view("Closer Monitor")
 page_timer_start()
 
 render_page_layout("CLOSER MONITOR", banner_teaser="30-team closer depth chart", banner_icon="closer")
@@ -275,3 +278,4 @@ else:
                     )
 
 page_timer_footer("Closer Monitor")
+render_feedback_widget("Closer Monitor")
