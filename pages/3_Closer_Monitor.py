@@ -6,6 +6,7 @@ import logging
 
 import streamlit as st
 
+from src.auth import require_auth
 from src.closer_monitor import build_closer_grid
 from src.database import get_connection, init_db, load_player_pool
 from src.ui_shared import (
@@ -24,6 +25,7 @@ st.set_page_config(page_title="Heater | Closer Monitor", page_icon="", layout="w
 init_db()
 
 inject_custom_css()
+require_auth()
 page_timer_start()
 
 render_page_layout("CLOSER MONITOR", banner_teaser="30-team closer depth chart", banner_icon="closer")

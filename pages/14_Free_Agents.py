@@ -9,6 +9,7 @@ from src.alerts import (  # noqa: F401  IL_STASH_NAMES re-export kept for backwa
     IL_STASH_NAMES,
     get_il_stash_names,
 )
+from src.auth import require_auth
 from src.database import get_connection, init_db, load_player_pool
 from src.in_season import rank_free_agents
 from src.league_manager import get_team_roster
@@ -176,6 +177,7 @@ st.set_page_config(
 
 init_db()
 inject_custom_css()
+require_auth()
 page_timer_start()
 
 # ── Data loading ──────────────────────────────────────────────────────────────

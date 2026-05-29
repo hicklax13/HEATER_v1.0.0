@@ -41,9 +41,82 @@ if _xdist_worker and _xdist_worker != "master":
     _worker_db_dir.mkdir(parents=True, exist_ok=True)
     os.environ["HEATER_DB_PATH"] = str(_worker_db_dir / f"draft_tool_{_xdist_worker}.db")
 
+import socket as _socket  # noqa: E402 - stdlib, delayed alongside the block below
+
 import numpy as np  # noqa: E402 - delayed import is intentional (must come after HEATER_DB_PATH set)
 import pandas as pd  # noqa: E402
 import pytest  # noqa: E402
+
+# ─── Network guard (no real outbound sockets in tests) ───────────────────
+# Why: on Windows, pytest-timeout falls back to the `thread` method, which can
+# DETECT a per-test timeout but cannot INTERRUPT a blocking C-level
+# socket.recv(). An unmocked live fetch (FanGraphs / MLB-StatsAPI / Open-Meteo
+# / pybaseball) therefore wedges its xdist worker forever — "node down: Not
+# properly terminated" near ~98% — and the master hangs indefinitely. CI
+# (Linux) only survived because SIGALRM can interrupt the blocking call.
+#
+# Fix: block any real connect() to a non-loopback host at import time, raising
+# immediately. This converts an infinite hang into an instant, clearly-labeled
+# failure that names the offending test, on every platform. Loopback is allowed
+# (AppTest, local servers); SQLite is file-based and unaffected. A test that
+# legitimately needs the network can opt in with @pytest.mark.allow_network,
+# or the whole guard can be disabled with HEATER_ALLOW_NETWORK=1.
+_NET_ALLOW_HOSTS = frozenset({"127.0.0.1", "::1", "localhost", "0.0.0.0", ""})
+_NET_INET_FAMILIES = (_socket.AF_INET, _socket.AF_INET6)
+_real_socket_connect = _socket.socket.connect
+_real_socket_connect_ex = _socket.socket.connect_ex
+
+
+class NetworkBlockedError(RuntimeError):
+    """Raised when test code attempts a real outbound network connection."""
+
+
+def _net_host_allowed(sock: _socket.socket, address) -> bool:
+    if sock.family not in _NET_INET_FAMILIES:
+        return True  # AF_UNIX / others: not the live-API hang class
+    if not (isinstance(address, tuple) and address):
+        return True
+    return address[0] in _NET_ALLOW_HOSTS
+
+
+def _guarded_connect(self, address):
+    if not _net_host_allowed(self, address):
+        raise NetworkBlockedError(
+            f"HEATER-TEST-NETWORK-BLOCKED: outbound connection to {address!r}. "
+            "Mock the live fetch in this test, or mark it @pytest.mark.allow_network."
+        )
+    return _real_socket_connect(self, address)
+
+
+def _guarded_connect_ex(self, address):
+    if not _net_host_allowed(self, address):
+        raise NetworkBlockedError(
+            f"HEATER-TEST-NETWORK-BLOCKED: outbound connection to {address!r}. "
+            "Mock the live fetch in this test, or mark it @pytest.mark.allow_network."
+        )
+    return _real_socket_connect_ex(self, address)
+
+
+if not os.environ.get("HEATER_ALLOW_NETWORK"):
+    _socket.socket.connect = _guarded_connect
+    _socket.socket.connect_ex = _guarded_connect_ex
+
+
+@pytest.fixture(autouse=True)
+def _allow_network_marker(request):
+    """Let a test opt back into real networking via @pytest.mark.allow_network."""
+    if request.node.get_closest_marker("allow_network"):
+        _socket.socket.connect = _real_socket_connect
+        _socket.socket.connect_ex = _real_socket_connect_ex
+        try:
+            yield
+        finally:
+            if not os.environ.get("HEATER_ALLOW_NETWORK"):
+                _socket.socket.connect = _guarded_connect
+                _socket.socket.connect_ex = _guarded_connect_ex
+    else:
+        yield
+
 
 # 12 H2H Categories: 6 hitting (R, HR, RBI, SB, AVG, OBP) + 6 pitching
 # (W, L, SV, K, ERA, WHIP). ERA/WHIP/L are inverse (lower better).

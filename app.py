@@ -21,6 +21,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
+from src.auth import multi_user_enabled, require_auth
 from src.data_bootstrap import BootstrapProgress, bootstrap_all_data
 from src.database import (
     create_blended_projections,
@@ -2452,6 +2453,13 @@ def main():
 
     # Bootstrap all data on every session start (splash screen with progress)
     init_db()
+
+    # v2 multi-user gate: no-op when MULTI_USER is off (v1 behavior preserved).
+    # When on, this renders login/register and stops for unauthenticated users
+    # before any data or draft UI is shown.
+    if multi_user_enabled():
+        require_auth()
+
     render_splash_screen()
 
     # Force Refresh button in sidebar (only after bootstrap is done)

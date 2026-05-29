@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 
 import streamlit as st
 
+from src.auth import require_auth
 from src.database import init_db
 from src.player_databank import (
     STAT_VIEW_OPTIONS,
@@ -41,6 +42,7 @@ st.set_page_config(
 )
 init_db()
 inject_custom_css()
+require_auth()
 
 # Page layout
 render_page_layout(

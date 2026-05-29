@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
+from src.auth import require_auth
 from src.database import init_db, load_player_pool
 from src.draft_state import DraftState
 from src.simulation import DraftSimulator
@@ -50,6 +51,7 @@ st.set_page_config(
 
 init_db()
 inject_custom_css()
+require_auth()
 page_timer_start()
 
 
