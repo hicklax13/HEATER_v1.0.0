@@ -21,6 +21,7 @@ The codebase is organized around 7 feature surfaces:
 - **Local Python:** 3.14 preferred, 3.12 acceptable. Recreate venv with `py -3.14 -m venv .venv` (or `py -3.12 -m venv .venv`).
 - **Yahoo OAuth deps:** `yfpy` and `streamlit-oauth` must be installed with `--no-deps` after `pip install -r requirements.txt`, per the comment in `requirements.txt` (python-dotenv pin conflict on 3.14).
 - **Hooks:** Reinstall after any fresh venv via `python scripts/install-hooks.py`.
+- **Multi-user mode (v2, additive):** Set `MULTI_USER=1` to enable league-mate self-registration + admin-approved team assignment. Off (unset) = single-user v1 behavior, byte-for-byte. Admin is seeded from `ADMIN_USERNAME` / `ADMIN_PASSWORD` / `ADMIN_TEAM_NAME` env vars (idempotent — set once). Auth lives entirely in `src/auth.py`; identity is per-session (`st.session_state["auth_user"]`) and replaces the global `league_teams.is_user_team` flag for personalized surfaces only.
 
 ## Commands
 
@@ -150,6 +151,9 @@ src/
   alerts.py / opponent_intel.py / waiver_wire.py / weekly_report.py
   ip_tracker.py / il_manager.py / two_start.py / power_rankings.py / leaders.py
   league_rules.py           — Undroppable list + 10 txn/week + FCFS
+
+  # Multi-user (v2)
+  auth.py                   — register→pending→admin-approve→active; MULTI_USER-gated; per-session identity
 
   # Data sources
   live_stats.py / adp_sources.py / depth_charts.py / contract_data.py
@@ -584,6 +588,10 @@ These tests guard against regression of the cleanup work. Adding new code that v
 | `test_yahoo_player_key_column.py` | `league_rosters` has `yahoo_player_key` column after `init_db()`; `upsert_league_roster_entry` writes it; TWP-on-different-teams persists both rows distinguished by yahoo_player_key; UNIQUE(team_name, player_id) constraint preserved (SFH M4) |
 | `test_draft_pick_name_resolution.py` | `resolve_player_names_by_keys` batch-fetches Yahoo player names (25 per call); `get_draft_results` uses it for entries where yfpy didn't expand the player resource; still-unresolved keys fall back to legacy `"Player {key}"` placeholder (SFH L8) |
 | `test_oauth_decoupling.py` | `pages/2_Line-up_Optimizer.py`'s optimize click handler must not call YahooDataService methods with `force_refresh=True`; the "Refresh Yahoo Data" button must be present and invoke `force_refresh_all()`; `_get_cached` must time out at 15s when Yahoo hangs. T1.21 / Batch G of v2. |
+| `test_app_main_auth_gate.py` | `app.py main()` calls `require_auth()` between `init_db()` and `render_splash_screen()`; imports it from `src.auth` |
+| `test_pages_have_auth_guard.py` | Every interactive `pages/*.py` (those calling `inject_custom_css()`, excluding `00_Admin_Console.py`) imports + calls `require_auth()` after `inject_custom_css()`. Streamlit runs each page independently, so the gate must be per-page |
+| `test_admin_console_guarded.py` | `pages/00_Admin_Console.py` calls `require_admin()` before any `approve_user` action; AppTest smoke confirms non-admins are hard-stopped |
+| `test_auth_backcompat.py` | `MULTI_USER` off ⇒ `require_auth()` is a no-op and `_get_user_team_name` uses the `league_teams.is_user_team=1` query (v1 behavior preserved) |
 | `test_phase1_is_grade_authority.py` | Phase 1 weighted SGP is the AUTHORITY for `grade`/`verdict`/`confidence_pct`. `_run_mc_overlay` MUST rename its `grade`/`verdict`/`confidence_pct` keys → `mc_grade`/`mc_verdict`/`mc_confidence_pct` BEFORE returning so `result.update(mc_result)` in `evaluate_trade` cannot clobber the Phase 1 grade. Catches the 2026-05-23 validation regression where `grade=B` was shown alongside `surplus_sgp=-1.58` (Bug A). |
 | `test_reshuffle_warning_promote_or_demote.py` | The LP reshuffle warning in `evaluate_trade` fires whenever `(promoted OR demoted) AND abs(total_surplus) > 0.01` — NOT only on `demoted`. Three message variants: promote+demote, demote-only, promote-only (the promote-only variant tells the user they may capture most of the surplus by setting their lineup without making the trade). `reshuffle_pct` is always populated. Catches the 2026-05-23 validation regression where a +3.97 SGP reshuffle (251% of surplus) was silently hidden (Bug B). |
 | `test_opponent_market_value_scale.py` | `estimate_opponent_valuations` routes AVG/OBP through the rate-stat marginal blender parallel to ERA/WHIP (volume-weighted blending with `_DEFAULT_TEAM_AB`/`_DEFAULT_TEAM_PA` fallbacks); per-category contribution clamped to `MAX_PER_CAT_SGP=3.0` as defense-in-depth; `get_player_projections_from_pool` surfaces `ab`/`pa`/`ip` so the blender has the volumes it needs. Catches the 2026-05-23 validation regression where a below-average hitter (Swanson, .215/.288) got `market_price=+54.84` from teams already best in AVG/OBP (Bug C). |
