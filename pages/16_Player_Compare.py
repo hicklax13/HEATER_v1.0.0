@@ -5,6 +5,7 @@ import time
 import pandas as pd
 import streamlit as st
 
+from src.auth import require_auth
 from src.database import coerce_numeric_df, get_connection, init_db, load_player_pool
 from src.in_season import compare_players
 from src.injury_model import get_injury_badge
@@ -47,6 +48,7 @@ st.set_page_config(page_title="Heater | Player Compare", page_icon="", layout="w
 init_db()
 
 inject_custom_css()
+require_auth()
 page_timer_start()
 
 render_page_layout("PLAYER COMPARE", banner_teaser="Select two players to compare", banner_icon="player_compare")

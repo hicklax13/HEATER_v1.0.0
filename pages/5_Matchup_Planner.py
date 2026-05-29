@@ -7,6 +7,7 @@ import logging
 import pandas as pd
 import streamlit as st
 
+from src.auth import require_auth
 from src.database import init_db, load_player_pool
 from src.league_manager import get_team_roster
 from src.ui_shared import (
@@ -94,6 +95,7 @@ st.set_page_config(
 
 init_db()
 inject_custom_css()
+require_auth()
 page_timer_start()
 
 # ── Load player pool ──────────────────────────────────────────────────

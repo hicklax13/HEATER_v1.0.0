@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
+from src.auth import require_auth
 from src.database import (
     get_connection,
     init_db,
@@ -240,6 +241,7 @@ st.set_page_config(
 
 init_db()
 inject_custom_css()
+require_auth()
 page_timer_start()
 
 # ── Data loading ──────────────────────────────────────────────────────

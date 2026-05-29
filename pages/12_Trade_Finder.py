@@ -10,6 +10,7 @@ import time
 import pandas as pd
 import streamlit as st
 
+from src.auth import require_auth
 from src.database import (
     coerce_numeric_df,
     init_db,
@@ -131,6 +132,7 @@ def _get_user_weak_categories(
 def main():
     page_timer_start()
     inject_custom_css()
+    require_auth()
     init_db()
 
     config = LeagueConfig()

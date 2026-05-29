@@ -5,6 +5,7 @@ import time
 import pandas as pd
 import streamlit as st
 
+from src.auth import require_auth
 from src.database import coerce_numeric_df, init_db, load_player_pool
 from src.injury_model import compute_health_score, get_injury_badge
 from src.league_manager import get_team_roster
@@ -433,6 +434,7 @@ st.set_page_config(page_title="Heater | My Team", page_icon="", layout="wide", i
 init_db()
 
 inject_custom_css()
+require_auth()
 page_timer_start()
 
 # Determine user team

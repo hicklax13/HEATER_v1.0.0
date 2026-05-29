@@ -19,6 +19,7 @@ import time
 import pandas as pd
 import streamlit as st
 
+from src.auth import require_auth
 from src.database import (
     coerce_numeric_df,
     get_connection,
@@ -132,6 +133,7 @@ st.set_page_config(
 
 init_db()
 inject_custom_css()
+require_auth()
 page_timer_start()
 
 render_page_layout(

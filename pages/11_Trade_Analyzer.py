@@ -11,6 +11,7 @@ import time
 import pandas as pd
 import streamlit as st
 
+from src.auth import require_auth
 from src.database import coerce_numeric_df, init_db, load_player_pool
 from src.injury_model import get_injury_badge
 from src.league_manager import get_team_roster
@@ -69,6 +70,7 @@ def _standings_data_state() -> str:
 init_db()
 
 inject_custom_css()
+require_auth()
 page_timer_start()
 
 render_page_layout("TRADE ANALYZER", banner_teaser="Analyze a trade below", banner_icon="trade")

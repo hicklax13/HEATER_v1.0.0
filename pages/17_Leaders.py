@@ -5,6 +5,7 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
+from src.auth import require_auth
 from src.database import coerce_numeric_df, get_connection, init_db, load_player_pool
 from src.ui_shared import (
     THEME,
@@ -64,6 +65,7 @@ st.set_page_config(page_title="Heater | Leaders", page_icon="", layout="wide", i
 init_db()
 
 inject_custom_css()
+require_auth()
 page_timer_start()
 
 render_page_layout("LEADERS", banner_teaser="Category leaders and breakout detection", banner_icon="leaders")
