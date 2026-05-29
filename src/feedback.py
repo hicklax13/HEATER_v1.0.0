@@ -8,6 +8,9 @@ the current data-freshness state so an admin can reproduce what the user saw.
 import json
 from datetime import UTC, datetime
 
+import streamlit as st
+
+from src.auth import current_user, multi_user_enabled
 from src.version import APP_VERSION
 
 _VALID_STATUSES = ("new", "triaged", "resolved")
@@ -103,3 +106,33 @@ def set_feedback_notes(feedback_id: int, notes: str) -> None:
         conn.commit()
     finally:
         conn.close()
+
+
+def render_feedback_widget(page: str, feature_tag: str | None = None) -> None:
+    """Render a 'Send feedback' popover. No-op unless multi-user + logged in.
+
+    Streamlit re-runs each page top-to-bottom, so this is called explicitly per
+    page rather than via global middleware. When the flag is off (v1) or there
+    is no session user, it returns immediately and renders nothing.
+    """
+    if not multi_user_enabled():
+        return
+    user = current_user()
+    if user is None:
+        return
+
+    suffix = feature_tag or page
+    with st.popover("Send feedback on this"):
+        with st.form(f"feedback_form_{suffix}", clear_on_submit=True):
+            message = st.text_area(
+                "What's working, broken, or confusing?",
+                key=f"feedback_msg_{suffix}",
+            )
+            submitted = st.form_submit_button("Send feedback")
+        if submitted:
+            text = (message or "").strip()
+            if not text:
+                st.warning("Please enter a message before sending.")
+            else:
+                submit_feedback(user["user_id"], page, text, feature_tag=feature_tag)
+                st.success("Thanks — your feedback was sent to the admin.")
