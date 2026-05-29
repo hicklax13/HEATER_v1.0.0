@@ -202,6 +202,7 @@ def init_db():
     conn = get_connection()
     try:
         _init_db_tables_and_columns(conn)
+        _init_multiuser_tables(conn)
     finally:
         conn.close()
 
@@ -783,6 +784,33 @@ def _init_db_tables_and_columns(conn):
 
     # Commit schema migrations + backfill. Without this, the UPDATE above
     # and any ALTER TABLEs are rolled back when the connection closes.
+    conn.commit()
+
+
+def _init_multiuser_tables(conn):
+    """Create v2 multi-user tables (additive; no-op once created).
+
+    Gated at the app layer by the MULTI_USER env flag, but the table itself is
+    always created so a flag flip needs no migration. username is UNIQUE +
+    COLLATE NOCASE so 'Sam' and 'sam' are the same account (Muncy-DNA-class
+    case-collision guard, consistent with players-table lookups).
+    """
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS users (
+            user_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+            password_hash TEXT NOT NULL,
+            display_name TEXT,
+            team_name TEXT,                          -- assigned Yahoo team; NULL until approved
+            status TEXT NOT NULL DEFAULT 'pending',  -- pending | active | revoked
+            is_admin INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            approved_at TEXT,
+            approved_by TEXT,
+            last_seen_at TEXT                        -- updated by usage logging (Plan 2); nullable now
+        );
+        CREATE INDEX IF NOT EXISTS idx_users_status ON users(status);
+    """)
     conn.commit()
 
 
