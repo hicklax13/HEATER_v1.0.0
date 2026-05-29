@@ -182,3 +182,44 @@ def test_approve_unknown_user_raises(temp_db):
 
     with pytest.raises(ValueError):
         approve_user("ghost", team_name="Team A")
+
+
+# ── Bootstrap admin from env ─────────────────────────────────────────
+
+
+def test_ensure_bootstrap_admin_creates_active_admin(temp_db, monkeypatch):
+    from src.auth import ensure_bootstrap_admin, get_user
+
+    monkeypatch.setenv("ADMIN_USERNAME", "connor")
+    monkeypatch.setenv("ADMIN_PASSWORD", "admin-pw")
+    monkeypatch.setenv("ADMIN_TEAM_NAME", "Team Hickey")
+
+    ensure_bootstrap_admin()
+    u = get_user("connor")
+    assert u is not None
+    assert u["is_admin"] == 1
+    assert u["status"] == "active"
+    assert u["team_name"] == "Team Hickey"
+
+
+def test_ensure_bootstrap_admin_is_idempotent(temp_db, monkeypatch):
+    from src.auth import ensure_bootstrap_admin, get_user, verify_password
+
+    monkeypatch.setenv("ADMIN_USERNAME", "connor")
+    monkeypatch.setenv("ADMIN_PASSWORD", "first-pw")
+    ensure_bootstrap_admin()
+    # Second call with a DIFFERENT password must NOT reset the existing admin.
+    monkeypatch.setenv("ADMIN_PASSWORD", "second-pw")
+    ensure_bootstrap_admin()
+    u = get_user("connor")
+    assert verify_password("first-pw", u["password_hash"]) is True
+    assert verify_password("second-pw", u["password_hash"]) is False
+
+
+def test_ensure_bootstrap_admin_noop_without_env(temp_db, monkeypatch):
+    from src.auth import ensure_bootstrap_admin, list_users
+
+    monkeypatch.delenv("ADMIN_USERNAME", raising=False)
+    monkeypatch.delenv("ADMIN_PASSWORD", raising=False)
+    ensure_bootstrap_admin()
+    assert list_users() == []

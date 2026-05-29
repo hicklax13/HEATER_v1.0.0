@@ -201,3 +201,45 @@ def set_user_team(username: str, team_name: str) -> None:
         conn.commit()
     finally:
         conn.close()
+
+
+# ── Bootstrap admin ──────────────────────────────────────────────────
+
+
+def ensure_bootstrap_admin() -> None:
+    """Seed the admin account from ADMIN_USERNAME / ADMIN_PASSWORD env vars.
+
+    Idempotent: if the admin already exists, this does nothing (it never
+    resets the password). No-op when the env vars are unset. ADMIN_TEAM_NAME
+    is optional — set it so the admin's personalized surfaces pin to their
+    own league team.
+    """
+    username = os.environ.get("ADMIN_USERNAME", "").strip()
+    password = os.environ.get("ADMIN_PASSWORD", "")
+    if not username or not password:
+        return
+    if get_user(username) is not None:
+        return
+
+    team_name = os.environ.get("ADMIN_TEAM_NAME", "").strip() or None
+    from src.database import get_connection
+
+    conn = get_connection()
+    try:
+        conn.execute(
+            "INSERT INTO users (username, password_hash, display_name, team_name, "
+            "status, is_admin, created_at, approved_at, approved_by) "
+            "VALUES (?, ?, ?, ?, 'active', 1, ?, ?, 'bootstrap')",
+            (
+                username,
+                hash_password(password),
+                username,
+                team_name,
+                datetime.now(UTC).isoformat(),
+                datetime.now(UTC).isoformat(),
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    logger.info("ensure_bootstrap_admin: seeded admin account '%s'", username)
