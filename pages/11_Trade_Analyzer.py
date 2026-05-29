@@ -13,6 +13,7 @@ import streamlit as st
 
 from src.auth import require_auth
 from src.database import coerce_numeric_df, init_db, load_player_pool
+from src.feedback import render_feedback_widget
 from src.injury_model import get_injury_badge
 from src.league_manager import get_team_roster
 from src.ui_shared import (
@@ -31,6 +32,7 @@ from src.ui_shared import (
     render_player_select,
     render_styled_table,
 )
+from src.usage import log_page_view
 from src.valuation import LeagueConfig, add_process_risk, compute_percentile_projections, compute_projection_volatility
 from src.yahoo_data_service import get_yahoo_data_service
 
@@ -71,6 +73,7 @@ init_db()
 
 inject_custom_css()
 require_auth()
+log_page_view("Trade Analyzer")
 page_timer_start()
 
 render_page_layout("TRADE ANALYZER", banner_teaser="Analyze a trade below", banner_icon="trade")
@@ -1187,3 +1190,4 @@ else:
                         pass  # Graceful degradation
 
 page_timer_footer("Trade Analyzer")
+render_feedback_widget("Trade Analyzer")

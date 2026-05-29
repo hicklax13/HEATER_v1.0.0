@@ -12,6 +12,7 @@ import streamlit as st
 
 from src.auth import require_auth
 from src.database import init_db
+from src.feedback import render_feedback_widget
 from src.player_databank import (
     STAT_VIEW_OPTIONS,
     export_to_excel,
@@ -22,6 +23,7 @@ from src.player_databank import (
     render_databank_table,
 )
 from src.ui_shared import T, inject_custom_css, render_page_layout
+from src.usage import log_page_view
 
 try:
     from src.yahoo_data_service import get_yahoo_data_service
@@ -43,6 +45,7 @@ st.set_page_config(
 init_db()
 inject_custom_css()
 require_auth()
+log_page_view("Player Databank")
 
 # Page layout
 render_page_layout(
@@ -386,3 +389,4 @@ with pag_c4:
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         key="db_export",
     )
+render_feedback_widget("Player Databank")

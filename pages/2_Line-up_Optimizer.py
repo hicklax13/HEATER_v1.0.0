@@ -26,6 +26,7 @@ from src.database import (
     init_db,
     load_player_pool,
 )
+from src.feedback import render_feedback_widget
 from src.injury_model import compute_health_score, get_injury_badge
 from src.league_manager import get_free_agents, get_team_roster
 from src.standings_utils import get_all_team_totals
@@ -44,6 +45,7 @@ from src.ui_shared import (
     render_player_select,
     render_styled_table,
 )
+from src.usage import log_page_view
 from src.valuation import LeagueConfig
 from src.yahoo_data_service import get_yahoo_data_service
 
@@ -134,6 +136,7 @@ st.set_page_config(
 init_db()
 inject_custom_css()
 require_auth()
+log_page_view("Lineup")
 page_timer_start()
 
 render_page_layout(
@@ -3606,3 +3609,4 @@ with main:
                     st.caption("No probable starters identified in schedule for streaming candidates.")
 
 page_timer_footer("Lineup")
+render_feedback_widget("Lineup")

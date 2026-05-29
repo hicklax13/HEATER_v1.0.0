@@ -9,6 +9,7 @@ import streamlit as st
 
 from src.auth import require_auth
 from src.database import init_db, load_player_pool
+from src.feedback import render_feedback_widget
 from src.league_manager import get_team_roster
 from src.ui_shared import (
     THEME,
@@ -22,6 +23,7 @@ from src.ui_shared import (
     render_page_layout,
     render_player_select,
 )
+from src.usage import log_page_view
 from src.yahoo_data_service import get_yahoo_data_service
 
 try:
@@ -96,6 +98,7 @@ st.set_page_config(
 init_db()
 inject_custom_css()
 require_auth()
+log_page_view("Matchup Planner")
 page_timer_start()
 
 # ── Load player pool ──────────────────────────────────────────────────
@@ -932,3 +935,4 @@ with main:
     )
 
 page_timer_footer("Matchup Planner")
+render_feedback_widget("Matchup Planner")

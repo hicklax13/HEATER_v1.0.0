@@ -8,7 +8,9 @@ import streamlit as st
 
 from src.auth import require_auth
 from src.database import init_db, load_player_pool
+from src.feedback import render_feedback_widget
 from src.ui_shared import format_stat, inject_custom_css, render_styled_table
+from src.usage import log_page_view
 from src.valuation import LeagueConfig, SGPCalculator
 from src.yahoo_data_service import get_yahoo_data_service
 
@@ -25,6 +27,7 @@ st.set_page_config(page_title="Heater | Punt Analyzer", page_icon="", layout="wi
 init_db()
 inject_custom_css()
 require_auth()
+log_page_view("Punt Analyzer")
 
 st.markdown(
     '<div class="page-title-wrap"><div class="page-title"><span>PUNT STRATEGY SIMULATOR</span></div></div>',
@@ -220,3 +223,4 @@ if _HAS_CATEGORY_ANALYSIS:
                     f"{active_points}",
                     help=f"Total points: {total_points} (active: {active_points}, punted: {punt_points})",
                 )
+render_feedback_widget("Punt Analyzer")

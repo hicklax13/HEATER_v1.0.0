@@ -7,6 +7,7 @@ import streamlit as st
 
 from src.auth import require_auth
 from src.database import coerce_numeric_df, get_connection, init_db, load_player_pool
+from src.feedback import render_feedback_widget
 from src.ui_shared import (
     THEME,
     format_stat,  # noqa: F401
@@ -22,6 +23,7 @@ from src.ui_shared import (
     render_player_select,
     render_styled_table,
 )
+from src.usage import log_page_view
 
 T = THEME
 
@@ -66,6 +68,7 @@ init_db()
 
 inject_custom_css()
 require_auth()
+log_page_view("Leaders")
 page_timer_start()
 
 render_page_layout("LEADERS", banner_teaser="Category leaders and breakout detection", banner_icon="leaders")
@@ -959,3 +962,4 @@ with main:
                 render_styled_table(disp, max_height=500)
 
 page_timer_footer("Leaders")
+render_feedback_widget("Leaders")

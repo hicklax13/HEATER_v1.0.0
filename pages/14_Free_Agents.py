@@ -11,6 +11,7 @@ from src.alerts import (  # noqa: F401  IL_STASH_NAMES re-export kept for backwa
 )
 from src.auth import require_auth
 from src.database import get_connection, init_db, load_player_pool
+from src.feedback import render_feedback_widget
 from src.in_season import rank_free_agents
 from src.league_manager import get_team_roster
 from src.standings_utils import get_fa_pool
@@ -29,6 +30,7 @@ from src.ui_shared import (
     render_player_select,
     render_sortable_table,
 )
+from src.usage import log_page_view
 from src.valuation import LeagueConfig
 from src.yahoo_data_service import get_yahoo_data_service
 
@@ -178,6 +180,7 @@ st.set_page_config(
 init_db()
 inject_custom_css()
 require_auth()
+log_page_view("Free Agents")
 page_timer_start()
 
 # ── Data loading ──────────────────────────────────────────────────────────────
@@ -1189,3 +1192,4 @@ with main:
             st.info("All drop candidates are protected by IL stash rules.")
 
 page_timer_footer("Free Agents")
+render_feedback_widget("Free Agents")

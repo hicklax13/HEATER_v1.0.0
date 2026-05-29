@@ -7,6 +7,7 @@ import streamlit as st
 
 from src.auth import require_auth
 from src.database import coerce_numeric_df, init_db, load_player_pool
+from src.feedback import render_feedback_widget
 from src.injury_model import compute_health_score, get_injury_badge
 from src.league_manager import get_team_roster
 from src.live_stats import refresh_all_stats
@@ -24,6 +25,7 @@ from src.ui_shared import (
     render_player_select,
     sort_roster_for_display,
 )
+from src.usage import log_page_view
 from src.valuation import LeagueConfig
 from src.yahoo_data_service import get_yahoo_data_service
 
@@ -435,6 +437,7 @@ init_db()
 
 inject_custom_css()
 require_auth()
+log_page_view("My Team")
 page_timer_start()
 
 # Determine user team
@@ -2105,3 +2108,4 @@ else:
                 _render_news_tab(roster)
 
 page_timer_footer("My Team")
+render_feedback_widget("My Team")

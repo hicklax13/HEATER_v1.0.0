@@ -17,6 +17,7 @@ from src.database import (
     load_league_schedule_full,
     load_player_pool,
 )
+from src.feedback import render_feedback_widget
 from src.standings_utils import get_all_team_totals
 from src.ui_shared import (
     THEME,
@@ -31,6 +32,7 @@ from src.ui_shared import (
     render_data_freshness_card,
     render_page_layout,
 )
+from src.usage import log_page_view
 from src.valuation import LeagueConfig
 from src.yahoo_data_service import get_yahoo_data_service
 
@@ -242,6 +244,7 @@ st.set_page_config(
 init_db()
 inject_custom_css()
 require_auth()
+log_page_view("League Standings")
 page_timer_start()
 
 # ── Data loading ──────────────────────────────────────────────────────
@@ -1062,3 +1065,4 @@ with main:
 
 
 page_timer_footer("League Standings")
+render_feedback_widget("League Standings")
