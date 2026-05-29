@@ -31,7 +31,7 @@ python load_sample_data.py             # Load sample data (first time/testing)
 streamlit run app.py                   # Run the app
 python -m ruff check .                 # Lint
 python -m ruff format .                # Format
-python -m pytest --ignore=tests/test_cheat_sheet.py  # Full suite (~3900 pass; cheat_sheet skipped on Windows)
+python -m pytest --ignore=tests/test_cheat_sheet.py  # Full suite (~4458 pass; cheat_sheet skipped on Windows)
 python -m pytest tests/test_foo.py -v  # Single test file
 
 # Parallel test execution (matches CI's sharded layout)
@@ -218,7 +218,7 @@ scripts/
   # One-time DB migration (2026-05-21)
   migrate_muncy_dna_2026_05_21.py  — Insert LAD Muncy + repoint league_rosters (idempotent)
 
-tests/                      — 195+ test files, ~4200 passing tests
+tests/                      — 336 test files, ~4458 passing tests
   conftest.py               — Session-scoped league_standings fixture (autouse)
   test_no_*.py              — Structural-invariant guards (see Structural Invariants section)
   test_sf*.py               — TDD tests for SF-1..SF-28 fixes
@@ -781,6 +781,21 @@ Guard test: `tests/test_no_dna_collision_dedup.py` (7 tests; 4 target the bug, 3
 
 `scripts/migrate_muncy_dna_2026_05_21.py` is now redundant — kept for reference but can be removed once verified across fresh installs.
 
+**2026-05-23 → 2026-05-28 — Enhanced Trade Engine + T1.21 OAuth decoupling (PRs #113-#118):**
+
+These PRs landed the Enhanced Trade Engine research report (Sections B-H, plus Section G backtest framework) and the T1.21 OAuth-hang fix. All are squash-merged to master; CI green on each.
+
+| PR | Title | Highlights |
+|----|-------|------------|
+| #113 | fix+feat: Bugs D/E/F + UI wiring of Features 1/2/3 into Trade Analyzer | Bug D (ghost-team rank filter), Bug E (grade/grade_range consistency post-Bug-A), Bug F (IP-floor `weeks_remaining` ROS horizon). Wired IP-floor penalty, weekly H2H matrix, playoff/championship sim into `pages/11_Trade_Analyzer.py` |
+| #114 | fix(trade_engine) empty league_rosters must not silently zero standings (PR #113 hotfix) | Caught by master CI ~22 min after #113 merge: `test_sf21_caller_chain` failed ("category_gap_analysis was never called"). Empty `league_rosters` was silently zeroing standings instead of falling back to DB query |
+| #115 | fix+feat: Bug G (LP pitcher fill) + three-horizon UI split | Bug G: LP pitcher-fill edge case. Three-horizon UI split (this-week / ROS / playoff) on the trade output |
+| #116 | feat(playoff_sim) full opponent schedule simulation (report B.10 Phase 3) | `simulate_playoff_outcomes` + `simulate_trade_playoff_delta` with full opponent week-by-week schedule, Bradley-Terry bracket, paired-MC discipline |
+| #117 | feat(engine) backtest + calibration framework (report Section G) | `run_historical_backtest` data-agnostic ingestion; Section G error-metric targets (rank_mae, cat_win_rmse, trade_prediction_spearman, projection_mae) |
+| #118 | T1.21 OAuth decoupling | Lineup Optimizer optimize click no longer force-refreshes Yahoo (closed the 159s OAuth hang); explicit "Refresh Yahoo Data" button; 15s ThreadPoolExecutor timeout in `YahooDataService._get_cached` (timeouts recorded as `error` in cache stats). Guarded by `tests/test_oauth_decoupling.py` |
+
+Milestone tags: `milestone/2026-05-21-fa-engine-overhaul-complete` (PR #110); `milestone/t1.21-oauth-decoupling-complete` (PR #118, current master).
+
 ## Known Design Choices & External Limitations
 
 These items have surfaced in audits as "broken" or "flagged" but are NOT bugs. They are either external limitations we can't fix from our side, deliberate design choices, or correctly-handled edge cases. **Do not flag any of these as bugs in future audits without re-reading this section first.**
@@ -799,6 +814,7 @@ These items have surfaced in audits as "broken" or "flagged" but are NOT bugs. T
 | **L14 volume gate (20 PA hitters, 5 IP pitchers)** | Below this, `_blend_fa_row` skips L14 and renormalizes to ROS+YTD. 20 PA / 5 IP is the empirical "signal noise floor" — below this, single hot/cold games dominate (PR #110 / P5b) |
 | **Drop candidate dedup collapses to 1 when single drop dominates** | When all top FAs share a single best drop, `_deduplicate_and_limit` correctly surfaces only 1 rec (each drop used at most once). Adding alternative drops requires the engine to see additional viable swap pairs in `_evaluate_swaps`, not a dedup-logic change (PR #110 / P5a) |
 | **ATH Max Muncy (player_id=71) preserved post-migration** | The Muncy DNA migration (PR #104 + `scripts/migrate_muncy_dna_2026_05_21.py`) inserted LAD Muncy as player_id=9864 (mlb_id=571970) and repointed Team Hickey's league_rosters to player_id=9864 — it did NOT delete or update the ATH Muncy row (player_id=71, mlb_id=691777). The ATH row remains for any other team in the league that might roster him |
+| **Local Windows full-suite parallel run can hang ~98%** | A handful of network-touching tests (e.g. `test_data_pipeline`) can issue a real blocking C-level `socket.recv()`. On Windows, `pytest-timeout` only has the `thread` method (signal/SIGALRM is Unix-only), which can DETECT but not INTERRUPT a blocking socket — the xdist worker dies (`node down: Not properly terminated`) near the end of the run. **CI is unaffected** (Linux + mocked network → SIGALRM works, master CI green). Workaround for local full runs: `python -m pytest -p no:cacheprovider --ignore=tests/test_data_pipeline.py`, or run the network-touching files serially. `test_data_pipeline.py` itself was de-slowed (autouse fixture neutralizes ~60s of unmocked rate-limit `time.sleep`, 28 tests now ~1s) but a true blocking socket from any future test can still trigger the same Windows-only behavior |
 
 When a future audit flags one of these, the correct response is: confirm it matches the entry above, then move on.
 
@@ -809,11 +825,11 @@ When a future audit flags one of these, the correct response is: confirm it matc
 
 ## Testing
 
-- **~4200 passing tests** across 195+ test files, 15 skipped (PyMC/XGBoost/WeasyPrint optional)
+- **~4458 passing tests** across 336 test files, 16 skipped (PyMC/XGBoost/WeasyPrint optional)
 - **CI:** GitHub Actions (Python 3.12, sharded 4 ways)
-- **Coverage:** ~71% (60% CI floor — the 5-week "Coverage Floor red" was actually a flaky timing test, fixed 2026-05-20 by PR #70)
+- **Coverage:** ~71.6% (60% CI floor — the 5-week "Coverage Floor red" was actually a flaky timing test, fixed 2026-05-20 by PR #70)
 - **Pre-commit hook:** Enforces `ruff format` + `ruff check` on every commit
-- **Pre-push hook:** Runs structural-invariant suite (~210 tests) — catches regressions on the locked design choices before they reach CI
+- **Pre-push hook:** Runs structural-invariant suite (~222 tests) — catches regressions on the locked design choices before they reach CI
 - **Backtesting framework:** Historical replay validates engine recommendations vs actual outcomes
 - **FA engine diagnostic toolkit:** 9 `scripts/diag_fa_*.py` scripts preserved as evidence + future debug tools (cross-type trace, score plateau inspection, roster data audit, etc.)
 
@@ -821,8 +837,8 @@ When a future audit flags one of these, the correct response is: confirm it matc
 
 1. Confirm shell is in `C:\Users\conno\Code\HEATER_v1.0.1` (NOT the deprecated `OneDrive\Desktop` path; note the local folder is `v1.0.1` while GitHub repo NAME remains `HEATER_v1.0.0`).
 2. Read `CLAUDE.md` (this file)
-3. Check git status: `git status`, `git log --oneline -10`. Master should be at or beyond SHA marked by tag `milestone/2026-05-21-fa-engine-overhaul-complete` (PR #110)
-4. Run `python -m pytest --ignore=tests/test_cheat_sheet.py -x -q` to verify tests pass (~4200 tests, ~3-5 min)
+3. Check git status: `git status`, `git log --oneline -10`. Master should be at or beyond SHA marked by tag `milestone/t1.21-oauth-decoupling-complete` (PR #118)
+4. Run `python -m pytest --ignore=tests/test_cheat_sheet.py -x -q` to verify tests pass (~4458 tests, ~3-5 min). On Windows, if a parallel run hangs near 98%, see the "Local Windows full-suite parallel run can hang" row in _Known Design Choices_
 5. Run `streamlit run app.py` and verify Yahoo auto-reconnect
 6. Inspect refresh_log: `python -c "from src.database import get_refresh_log_snapshot; import json; print(json.dumps(get_refresh_log_snapshot(), indent=2))"`
 7. (If continuing FA engine work) Read `docs/archive/specs/2026-05-20-fa-engine-overhaul-plan.md` + `docs/archive/specs/2026-05-20-fa-engine-p3.5-plan.md` for full design rationale of PRs #89-#110
