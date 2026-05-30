@@ -19,8 +19,21 @@ from src.player_databank import (
 class TestGameLogsSchema:
     """Verify game_logs table exists and has correct columns."""
 
+    # Synthetic player_id that cannot collide with any real players/game_logs row.
+    # get_connection() returns the shared production DB, so the PK test must write
+    # to a sentinel id and clean only that id — never real data (cf. PR #82).
+    _PK_TEST_PID = 999999999
+
     def setup_method(self):
         init_db()
+        # Drop any leftover sentinel rows so the first PK-test insert always succeeds,
+        # regardless of prior-run crashes or concurrent xdist workers.
+        conn = get_connection()
+        try:
+            conn.execute("DELETE FROM game_logs WHERE player_id = ?", (self._PK_TEST_PID,))
+            conn.commit()
+        finally:
+            conn.close()
 
     def test_game_logs_table_exists(self):
         conn = get_connection()
@@ -68,17 +81,19 @@ class TestGameLogsSchema:
         try:
             conn.execute(
                 "INSERT INTO game_logs (player_id, game_date, season, h, ab, r, hr, rbi, sb) "
-                "VALUES (1, '2026-04-01', 2026, 2, 4, 1, 1, 2, 0)"
+                "VALUES (?, '2026-04-01', 2026, 2, 4, 1, 1, 2, 0)",
+                (self._PK_TEST_PID,),
             )
             conn.commit()
             with pytest.raises(sqlite3.IntegrityError):
                 conn.execute(
                     "INSERT INTO game_logs (player_id, game_date, season, h, ab, r, hr, rbi, sb) "
-                    "VALUES (1, '2026-04-01', 2026, 1, 3, 0, 0, 1, 0)"
+                    "VALUES (?, '2026-04-01', 2026, 1, 3, 0, 0, 1, 0)",
+                    (self._PK_TEST_PID,),
                 )
                 conn.commit()
         finally:
-            conn.execute("DELETE FROM game_logs WHERE player_id = 1")
+            conn.execute("DELETE FROM game_logs WHERE player_id = ?", (self._PK_TEST_PID,))
             conn.commit()
             conn.close()
 
