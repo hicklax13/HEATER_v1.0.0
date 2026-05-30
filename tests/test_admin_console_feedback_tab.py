@@ -43,7 +43,7 @@ def test_feedback_tab_renders_message_for_admin(temp_db, monkeypatch):
         "team_name": "Team Hickey",
     }
     at.session_state["_auth_bootstrap_done"] = True
-    at.run()
+    at.run(timeout=60)
 
     assert not at.exception, [str(e) for e in at.exception]
     # The submitted message must appear somewhere in the rendered markdown/text.

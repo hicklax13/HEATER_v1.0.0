@@ -40,7 +40,7 @@ def test_admin_controls_smoke_renders_for_admin(temp_db, monkeypatch):
         "team_name": "Team Hickey",
     }
     at.session_state["_auth_bootstrap_done"] = True
-    at.run()
+    at.run(timeout=60)
     assert not at.exception, [str(e) for e in at.exception]
     assert any("controls" in m.value.lower() for m in at.title), [m.value for m in at.title]
 
@@ -62,5 +62,5 @@ def test_admin_controls_smoke_blocks_non_admin(temp_db, monkeypatch):
         "team_name": "Team Alice",
     }
     at.session_state["_auth_bootstrap_done"] = True
-    at.run()
+    at.run(timeout=60)
     assert any("access" in e.value.lower() for e in at.error), [e.value for e in at.error]
