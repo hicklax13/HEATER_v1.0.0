@@ -136,3 +136,28 @@ def render_feedback_widget(page: str, feature_tag: str | None = None) -> None:
             else:
                 submit_feedback(user["user_id"], page, text, feature_tag=feature_tag)
                 st.success("Thanks — your feedback was sent to the admin.")
+
+
+def feedback_csv() -> str:
+    """Export the feedback inbox as CSV (drops the data_state snapshot + raw user_id)."""
+    import csv
+    import io
+
+    fieldnames = [
+        "id",
+        "created_at",
+        "username",
+        "team_name",
+        "page",
+        "feature_tag",
+        "status",
+        "message",
+        "app_version",
+        "admin_notes",
+    ]
+    buf = io.StringIO()
+    writer = csv.DictWriter(buf, fieldnames=fieldnames, extrasaction="ignore")
+    writer.writeheader()
+    for row in list_feedback():
+        writer.writerow(row)
+    return buf.getvalue()
