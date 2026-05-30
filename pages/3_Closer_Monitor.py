@@ -6,9 +6,10 @@ import logging
 
 import streamlit as st
 
-from src.auth import require_auth
+from src.auth import multi_user_enabled, require_auth
 from src.closer_monitor import build_closer_grid
 from src.database import get_connection, init_db, load_player_pool
+from src.feature_flags import require_page_enabled
 from src.feedback import render_feedback_widget
 from src.ui_shared import (
     _headshot_img_html,
@@ -22,12 +23,16 @@ from src.usage import log_page_view
 
 logger = logging.getLogger(__name__)
 
-st.set_page_config(page_title="Heater | Closer Monitor", page_icon="", layout="wide", initial_sidebar_state="collapsed")
+if not multi_user_enabled():
+    st.set_page_config(
+        page_title="Heater | Closer Monitor", page_icon="", layout="wide", initial_sidebar_state="collapsed"
+    )
 
 init_db()
 
 inject_custom_css()
 require_auth()
+require_page_enabled("page:3_Closer_Monitor")
 log_page_view("Closer Monitor")
 page_timer_start()
 

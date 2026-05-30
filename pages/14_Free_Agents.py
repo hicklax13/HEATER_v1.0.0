@@ -9,8 +9,9 @@ from src.alerts import (  # noqa: F401  IL_STASH_NAMES re-export kept for backwa
     IL_STASH_NAMES,
     get_il_stash_names,
 )
-from src.auth import require_auth
+from src.auth import multi_user_enabled, require_auth
 from src.database import get_connection, init_db, load_player_pool
+from src.feature_flags import require_page_enabled
 from src.feedback import render_feedback_widget
 from src.in_season import rank_free_agents
 from src.league_manager import get_team_roster
@@ -170,16 +171,18 @@ T = THEME
 
 # ── Page setup ────────────────────────────────────────────────────────────────
 
-st.set_page_config(
-    page_title="Heater | Free Agents",
-    page_icon="",
-    layout="wide",
-    initial_sidebar_state="collapsed",
-)
+if not multi_user_enabled():
+    st.set_page_config(
+        page_title="Heater | Free Agents",
+        page_icon="",
+        layout="wide",
+        initial_sidebar_state="collapsed",
+    )
 
 init_db()
 inject_custom_css()
 require_auth()
+require_page_enabled("page:14_Free_Agents")
 log_page_view("Free Agents")
 page_timer_start()
 

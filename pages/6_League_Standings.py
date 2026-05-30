@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-from src.auth import require_auth
+from src.auth import multi_user_enabled, require_auth
 from src.database import (
     get_connection,
     init_db,
@@ -17,6 +17,7 @@ from src.database import (
     load_league_schedule_full,
     load_player_pool,
 )
+from src.feature_flags import require_page_enabled
 from src.feedback import render_feedback_widget
 from src.standings_utils import get_all_team_totals
 from src.ui_shared import (
@@ -234,16 +235,18 @@ def _rank_badge(rank: int) -> str:
 # Page Setup
 # ══════════════════════════════════════════════════════════════════════
 
-st.set_page_config(
-    page_title="Heater | League Standings",
-    page_icon="",
-    layout="wide",
-    initial_sidebar_state="collapsed",
-)
+if not multi_user_enabled():
+    st.set_page_config(
+        page_title="Heater | League Standings",
+        page_icon="",
+        layout="wide",
+        initial_sidebar_state="collapsed",
+    )
 
 init_db()
 inject_custom_css()
 require_auth()
+require_page_enabled("page:6_League_Standings")
 log_page_view("League Standings")
 page_timer_start()
 
