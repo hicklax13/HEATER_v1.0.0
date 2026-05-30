@@ -1,0 +1,66 @@
+"""Smoke + guard tests for the admin operational-controls page (nav-routed)."""
+
+from pathlib import Path
+
+import pytest
+
+_PAGE = Path(__file__).resolve().parent.parent / "pages" / "_admin_controls.py"
+
+
+@pytest.fixture
+def temp_db(tmp_path, monkeypatch):
+    db = tmp_path / "admin_controls.db"
+    monkeypatch.setattr("src.database.DB_PATH", db)
+    from src.database import init_db
+
+    init_db()
+    return db
+
+
+def test_admin_controls_page_exists():
+    assert _PAGE.exists(), "pages/_admin_controls.py must exist"
+
+
+def test_admin_controls_smoke_renders_for_admin(temp_db, monkeypatch):
+    from streamlit.testing.v1 import AppTest
+
+    from src.auth import ensure_bootstrap_admin
+
+    monkeypatch.setenv("MULTI_USER", "1")
+    monkeypatch.setenv("ADMIN_USERNAME", "connor")
+    monkeypatch.setenv("ADMIN_PASSWORD", "pw")
+    monkeypatch.setenv("ADMIN_TEAM_NAME", "Team Hickey")
+    ensure_bootstrap_admin()
+
+    at = AppTest.from_file(str(_PAGE))
+    at.session_state["auth_user"] = {
+        "username": "connor",
+        "status": "active",
+        "is_admin": 1,
+        "team_name": "Team Hickey",
+    }
+    at.session_state["_auth_bootstrap_done"] = True
+    at.run(timeout=60)
+    assert not at.exception, [str(e) for e in at.exception]
+    assert any("controls" in m.value.lower() for m in at.title), [m.value for m in at.title]
+
+
+def test_admin_controls_smoke_blocks_non_admin(temp_db, monkeypatch):
+    from streamlit.testing.v1 import AppTest
+
+    from src.auth import approve_user, create_user
+
+    monkeypatch.setenv("MULTI_USER", "1")
+    create_user("alice", "pw", display_name="Alice")
+    approve_user("alice", team_name="Team Alice", approved_by="test")
+
+    at = AppTest.from_file(str(_PAGE))
+    at.session_state["auth_user"] = {
+        "username": "alice",
+        "status": "active",
+        "is_admin": 0,
+        "team_name": "Team Alice",
+    }
+    at.session_state["_auth_bootstrap_done"] = True
+    at.run(timeout=60)
+    assert any("access" in e.value.lower() for e in at.error), [e.value for e in at.error]

@@ -5,8 +5,9 @@ import time
 import pandas as pd
 import streamlit as st
 
-from src.auth import require_auth
+from src.auth import multi_user_enabled, require_auth
 from src.database import coerce_numeric_df, get_connection, init_db, load_player_pool
+from src.feature_flags import require_page_enabled
 from src.feedback import render_feedback_widget
 from src.in_season import compare_players
 from src.injury_model import get_injury_badge
@@ -45,12 +46,16 @@ try:
 except ImportError:
     HAS_PLOTLY = False
 
-st.set_page_config(page_title="Heater | Player Compare", page_icon="", layout="wide", initial_sidebar_state="collapsed")
+if not multi_user_enabled():
+    st.set_page_config(
+        page_title="Heater | Player Compare", page_icon="", layout="wide", initial_sidebar_state="collapsed"
+    )
 
 init_db()
 
 inject_custom_css()
 require_auth()
+require_page_enabled("page:16_Player_Compare")
 log_page_view("Player Compare")
 page_timer_start()
 

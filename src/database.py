@@ -839,6 +839,49 @@ def _init_multiuser_tables(conn):
             created_at TEXT NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_usage_user_created ON usage_events(user_id, created_at);
+
+        CREATE TABLE IF NOT EXISTS feature_flags (
+            key TEXT PRIMARY KEY,
+            enabled INTEGER NOT NULL DEFAULT 1,
+            updated_by INTEGER,
+            updated_at TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS audit_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            admin_id INTEGER NOT NULL,
+            action TEXT NOT NULL,
+            target TEXT,
+            detail TEXT,
+            created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_log(created_at);
+
+        CREATE TABLE IF NOT EXISTS app_settings (
+            key TEXT PRIMARY KEY,
+            value TEXT,
+            updated_by INTEGER,
+            updated_at TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS sessions (
+            session_id TEXT PRIMARY KEY,
+            user_id INTEGER NOT NULL,
+            login_at TEXT NOT NULL,
+            last_activity_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+
+        CREATE TABLE IF NOT EXISTS page_visits (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id TEXT NOT NULL,
+            user_id INTEGER NOT NULL,
+            page TEXT NOT NULL,
+            enter_at TEXT NOT NULL,
+            exit_at TEXT,
+            dwell_seconds REAL
+        );
+        CREATE INDEX IF NOT EXISTS idx_page_visits_session ON page_visits(session_id);
     """)
     conn.commit()
 

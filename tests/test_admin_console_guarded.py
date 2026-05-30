@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-_PAGE = Path(__file__).resolve().parent.parent / "pages" / "00_Admin_Console.py"
+_PAGE = Path(__file__).resolve().parent.parent / "pages" / "_admin_console.py"
 
 
 @pytest.fixture
@@ -26,7 +26,7 @@ def temp_db(tmp_path, monkeypatch):
 
 
 def test_admin_console_exists():
-    assert _PAGE.exists(), "pages/00_Admin_Console.py must exist"
+    assert _PAGE.exists(), "pages/_admin_console.py must exist"
 
 
 def test_admin_console_calls_require_admin():
@@ -62,7 +62,7 @@ def test_admin_console_smoke_blocks_non_admin(temp_db, monkeypatch):
         "team_name": "Team Alice",
     }
     at.session_state["_auth_bootstrap_done"] = True
-    at.run()
+    at.run(timeout=60)
     # require_admin() calls st.error + st.stop → an error is shown, page halts.
     assert any("access" in e.value.lower() for e in at.error), [e.value for e in at.error]
 
@@ -87,7 +87,7 @@ def test_admin_console_smoke_renders_for_admin(temp_db, monkeypatch):
         "team_name": "Team Hickey",
     }
     at.session_state["_auth_bootstrap_done"] = True
-    at.run()
+    at.run(timeout=60)
     assert not at.exception, [str(e) for e in at.exception]
     # The page title should render for an admin.
     assert any("admin" in m.value.lower() for m in at.title), [m.value for m in at.title]

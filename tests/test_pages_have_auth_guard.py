@@ -4,8 +4,8 @@ Streamlit executes each pages/*.py independently, so the auth gate from app.py
 does not protect deep-linked pages. Any page that renders UI (detected via its
 inject_custom_css() call) MUST import and call require_auth().
 
-The admin console (00_Admin_Console.py) is exempt: it uses the stricter
-require_admin() guard instead.
+Underscore-prefixed pages (admin surfaces, e.g. _admin_console.py) are exempt:
+they use the stricter require_admin() guard instead.
 """
 
 from pathlib import Path
@@ -17,7 +17,7 @@ _PAGES_DIR = Path(__file__).resolve().parent.parent / "pages"
 _INTERACTIVE_PAGES = sorted(
     p
     for p in _PAGES_DIR.glob("*.py")
-    if "inject_custom_css()" in p.read_text(encoding="utf-8") and p.name != "00_Admin_Console.py"
+    if "inject_custom_css()" in p.read_text(encoding="utf-8") and not p.name.startswith("_")
 )
 
 
