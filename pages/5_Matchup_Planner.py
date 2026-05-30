@@ -7,8 +7,9 @@ import logging
 import pandas as pd
 import streamlit as st
 
-from src.auth import require_auth
+from src.auth import multi_user_enabled, require_auth
 from src.database import init_db, load_player_pool
+from src.feature_flags import require_page_enabled
 from src.feedback import render_feedback_widget
 from src.league_manager import get_team_roster
 from src.ui_shared import (
@@ -88,16 +89,18 @@ _PITCH_CATS = {"W", "L", "SV", "K", "ERA", "WHIP"}
 
 # ── Page config ───────────────────────────────────────────────────────
 
-st.set_page_config(
-    page_title="Heater | Matchup Planner",
-    page_icon="",
-    layout="wide",
-    initial_sidebar_state="collapsed",
-)
+if not multi_user_enabled():
+    st.set_page_config(
+        page_title="Heater | Matchup Planner",
+        page_icon="",
+        layout="wide",
+        initial_sidebar_state="collapsed",
+    )
 
 init_db()
 inject_custom_css()
 require_auth()
+require_page_enabled("page:5_Matchup_Planner")
 log_page_view("Matchup Planner")
 page_timer_start()
 

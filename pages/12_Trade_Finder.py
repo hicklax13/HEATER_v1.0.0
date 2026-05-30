@@ -10,12 +10,13 @@ import time
 import pandas as pd
 import streamlit as st
 
-from src.auth import require_auth
+from src.auth import multi_user_enabled, require_auth
 from src.database import (
     coerce_numeric_df,
     init_db,
     load_player_pool,
 )
+from src.feature_flags import require_page_enabled
 from src.feedback import render_feedback_widget
 from src.in_season import _roster_category_totals
 from src.trade_finder import (
@@ -41,12 +42,13 @@ from src.usage import log_page_view
 from src.valuation import LeagueConfig
 from src.yahoo_data_service import get_yahoo_data_service
 
-st.set_page_config(
-    page_title="Heater | Trade Finder",
-    page_icon="",
-    layout="wide",
-    initial_sidebar_state="collapsed",
-)
+if not multi_user_enabled():
+    st.set_page_config(
+        page_title="Heater | Trade Finder",
+        page_icon="",
+        layout="wide",
+        initial_sidebar_state="collapsed",
+    )
 
 
 # ── Helpers ────────────────────────────────────────────────────────────
@@ -135,6 +137,7 @@ def main():
     page_timer_start()
     inject_custom_css()
     require_auth()
+    require_page_enabled("page:12_Trade_Finder")
     log_page_view("Trade Finder")
     init_db()
 

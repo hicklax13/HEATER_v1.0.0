@@ -6,8 +6,9 @@ import time
 import pandas as pd
 import streamlit as st
 
-from src.auth import require_auth
+from src.auth import multi_user_enabled, require_auth
 from src.database import init_db, load_player_pool
+from src.feature_flags import require_page_enabled
 from src.feedback import render_feedback_widget
 from src.ui_shared import format_stat, inject_custom_css, render_styled_table
 from src.usage import log_page_view
@@ -22,11 +23,13 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-st.set_page_config(page_title="Heater | Punt Analyzer", page_icon="", layout="wide")
+if not multi_user_enabled():
+    st.set_page_config(page_title="Heater | Punt Analyzer", page_icon="", layout="wide")
 
 init_db()
 inject_custom_css()
 require_auth()
+require_page_enabled("page:10_Punt_Analyzer")
 log_page_view("Punt Analyzer")
 
 st.markdown(

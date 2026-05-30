@@ -5,7 +5,8 @@ bottom on every interaction, so the usage/feedback wiring is per-page, not
 global. log_page_view() must sit after the auth gate; the feedback widget is
 rendered on the page (appended at EOF).
 
-The admin console (00_Admin_Console.py) is exempt — it has its own surfaces.
+Underscore-prefixed admin pages (e.g. _admin_console.py) are exempt — they have
+their own surfaces.
 """
 
 from pathlib import Path
@@ -17,7 +18,7 @@ _PAGES_DIR = Path(__file__).resolve().parent.parent / "pages"
 _INTERACTIVE_PAGES = sorted(
     p
     for p in _PAGES_DIR.glob("*.py")
-    if "inject_custom_css()" in p.read_text(encoding="utf-8") and p.name != "00_Admin_Console.py"
+    if "inject_custom_css()" in p.read_text(encoding="utf-8") and not p.name.startswith("_")
 )
 
 

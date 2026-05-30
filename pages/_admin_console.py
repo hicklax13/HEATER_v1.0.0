@@ -16,6 +16,7 @@ from src.auth import (
     approve_user,
     get_league_team_names,
     list_users,
+    multi_user_enabled,
     require_admin,
     revoke_user,
     set_user_team,
@@ -23,12 +24,13 @@ from src.auth import (
 from src.feedback import list_feedback, set_feedback_notes, set_feedback_status
 from src.ui_shared import inject_custom_css
 
-st.set_page_config(
-    page_title="Heater | Admin Console",
-    page_icon="",
-    layout="wide",
-    initial_sidebar_state="collapsed",
-)
+if not multi_user_enabled():
+    st.set_page_config(
+        page_title="Heater | Admin Console",
+        page_icon="",
+        layout="wide",
+        initial_sidebar_state="collapsed",
+    )
 
 inject_custom_css()
 require_admin()

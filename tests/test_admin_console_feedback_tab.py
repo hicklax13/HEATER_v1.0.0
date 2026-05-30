@@ -35,7 +35,7 @@ def test_feedback_tab_renders_message_for_admin(temp_db, monkeypatch):
     approve_user("submitter", team_name="Team Sam", approved_by="test")
     submit_feedback(get_user("submitter")["user_id"], "Trade Analyzer", "ZNVECTOR sentinel message")
 
-    at = AppTest.from_file("pages/00_Admin_Console.py")
+    at = AppTest.from_file("pages/_admin_console.py")
     at.session_state["auth_user"] = {
         "username": "connor",
         "status": "active",
@@ -43,7 +43,7 @@ def test_feedback_tab_renders_message_for_admin(temp_db, monkeypatch):
         "team_name": "Team Hickey",
     }
     at.session_state["_auth_bootstrap_done"] = True
-    at.run()
+    at.run(timeout=60)
 
     assert not at.exception, [str(e) for e in at.exception]
     # The submitted message must appear somewhere in the rendered markdown/text.

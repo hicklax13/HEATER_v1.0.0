@@ -11,8 +11,9 @@ import time
 import pandas as pd
 import streamlit as st
 
-from src.auth import require_auth
+from src.auth import multi_user_enabled, require_auth
 from src.database import coerce_numeric_df, init_db, load_player_pool
+from src.feature_flags import require_page_enabled
 from src.feedback import render_feedback_widget
 from src.injury_model import get_injury_badge
 from src.league_manager import get_team_roster
@@ -43,7 +44,10 @@ try:
 except ImportError:
     TRADE_INTEL_AVAILABLE = False
 
-st.set_page_config(page_title="Heater | Trade Analyzer", page_icon="", layout="wide", initial_sidebar_state="collapsed")
+if not multi_user_enabled():
+    st.set_page_config(
+        page_title="Heater | Trade Analyzer", page_icon="", layout="wide", initial_sidebar_state="collapsed"
+    )
 
 
 def _standings_data_state() -> str:
@@ -73,6 +77,7 @@ init_db()
 
 inject_custom_css()
 require_auth()
+require_page_enabled("page:11_Trade_Analyzer")
 log_page_view("Trade Analyzer")
 page_timer_start()
 
