@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-_PAGE = Path(__file__).resolve().parent.parent / "pages" / "00_Admin_Console.py"
+_PAGE = Path(__file__).resolve().parent.parent / "pages" / "_admin_console.py"
 
 
 @pytest.fixture
@@ -26,7 +26,7 @@ def temp_db(tmp_path, monkeypatch):
 
 
 def test_admin_console_exists():
-    assert _PAGE.exists(), "pages/00_Admin_Console.py must exist"
+    assert _PAGE.exists(), "pages/_admin_console.py must exist"
 
 
 def test_admin_console_calls_require_admin():

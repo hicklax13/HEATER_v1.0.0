@@ -35,7 +35,7 @@ def test_feedback_tab_renders_message_for_admin(temp_db, monkeypatch):
     approve_user("submitter", team_name="Team Sam", approved_by="test")
     submit_feedback(get_user("submitter")["user_id"], "Trade Analyzer", "ZNVECTOR sentinel message")
 
-    at = AppTest.from_file("pages/00_Admin_Console.py")
+    at = AppTest.from_file("pages/_admin_console.py")
     at.session_state["auth_user"] = {
         "username": "connor",
         "status": "active",
