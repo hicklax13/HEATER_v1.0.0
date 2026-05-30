@@ -324,6 +324,39 @@ def require_admin() -> None:
         st.stop()
 
 
+_VIEW_AS_KEY = "auth_view_as_real"
+
+
+def enter_view_as(target_username: str, admin_id: int) -> None:
+    if not multi_user_enabled():
+        return
+    real = _session_state().get(_SESSION_KEY)
+    if not (real and real.get("is_admin")):
+        return
+    target = get_user(target_username)
+    if target is None:
+        return
+    _session_state()[_VIEW_AS_KEY] = real
+    _set_session_user(target)
+    from src.audit import log_action
+
+    log_action(admin_id, "view_as", target=target_username)
+
+
+def exit_view_as() -> None:
+    real = _session_state().pop(_VIEW_AS_KEY, None)
+    if real is None:
+        return
+    _set_session_user(real)
+    from src.audit import log_action
+
+    log_action(real.get("user_id", 0), "exit_view_as")
+
+
+def is_viewing_as() -> dict | None:
+    return _session_state().get(_VIEW_AS_KEY)
+
+
 # ── Login / register UI ──────────────────────────────────────────────
 
 
