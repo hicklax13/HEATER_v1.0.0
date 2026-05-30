@@ -541,7 +541,7 @@ These tests guard against regression of the cleanup work. Adding new code that v
 | `test_no_merge_conflict_markers.py` | No leftover `<<<<<<<`/`=======`/`>>>>>>>` in any source file |
 | `test_pages_yahoo_compliance.py` | 7 named pages don't call `load_league_rosters/standings` directly (must use `yahoo_data_service`) |
 | `test_pages_format_compliance.py` | No inline `f"{x:.3f}"` near ERA/WHIP context (must use `format_stat`) |
-| `test_no_direct_sqlite_connect_in_scripts.py` | Scripts use `get_connection`, never raw `sqlite3.connect` |
+| `test_no_direct_sqlite_connect_in_scripts.py` | Scripts **and `app.py`** use `get_connection`, never raw `sqlite3.connect` (app.py checked via AST so an aliased `import sqlite3 as _sql` can't slip past the name-based regex) |
 | `test_refresh_log_status_validity.py` | All bootstrap-emitted statuses (`success`/`partial`/`cached`/`skipped`/`no_data`/`error`) round-trip without downgrade |
 | `test_my_team_uses_pool.py`, `test_player_compare_uses_pool.py`, `test_trade_analyzer_uses_pool.py` | No raw `SELECT FROM season_stats/ecr_rankings/statcast_archive` in those pages |
 | `test_pulp_availability_consolidation.py` | `PULP_AVAILABLE` defined ONCE (`src/lineup_optimizer.py`); other modules import |
