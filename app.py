@@ -21,7 +21,14 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-from src.auth import multi_user_enabled, require_auth
+from src.app_settings import get_broadcast, get_maintenance
+from src.auth import (
+    current_user,
+    exit_view_as,
+    is_viewing_as,
+    multi_user_enabled,
+    require_auth,
+)
 from src.data_bootstrap import BootstrapProgress, bootstrap_all_data
 from src.database import (
     create_blended_projections,
@@ -37,6 +44,7 @@ from src.injury_model import (
     get_injury_badge,
     workload_flag,
 )
+from src.nav import build_pages
 from src.simulation import DraftSimulator, compute_team_preferences, detect_position_run
 from src.ui_shared import (
     METRIC_TOOLTIPS,
@@ -51,6 +59,7 @@ from src.ui_shared import (
     render_styled_table,
     sec,
 )
+from src.usage import bump_activity
 from src.valuation import (
     LeagueConfig,
     SGPCalculator,
@@ -2447,19 +2456,12 @@ def render_draft_log(ds):
 # ═══════════════════════════════════════════════════════════════════
 
 
-def main():
-    init_session()
-    inject_custom_css()
+def render_single_user_app():
+    """The v1 single-user experience: splash/bootstrap, refresh, draft flow.
 
-    # Bootstrap all data on every session start (splash screen with progress)
-    init_db()
-
-    # v2 multi-user gate: no-op when MULTI_USER is off (v1 behavior preserved).
-    # When on, this renders login/register and stops for unauthenticated users
-    # before any data or draft UI is shown.
-    if multi_user_enabled():
-        require_auth()
-
+    Called directly when MULTI_USER is off, and registered as the default
+    "Draft Tool" Home page under st.navigation() when MULTI_USER is on.
+    """
     render_splash_screen()
 
     # Force Refresh button in sidebar (only after bootstrap is done)
@@ -2490,6 +2492,64 @@ def main():
         render_setup_page()
     elif st.session_state.page == "draft":
         render_draft_page()
+
+
+def _render_view_as_banner():
+    """Show an exit-able banner whenever an admin is impersonating a user."""
+    if is_viewing_as() is None:
+        return
+    target = (current_user() or {}).get("username", "?")
+    col1, col2 = st.columns([5, 1])
+    with col1:
+        st.warning(f"Viewing as **{target}** — you are seeing this user's view.")
+    with col2:
+        if st.button("Exit view-as", key="_exit_view_as_btn", width="stretch"):
+            exit_view_as()
+            st.rerun()
+
+
+def _render_broadcast_banner():
+    """Render the admin broadcast message at the top of the page, if enabled."""
+    bc = get_broadcast()
+    if bc.get("enabled") and bc.get("message"):
+        st.info(bc["message"])
+
+
+def _enforce_maintenance_gate():
+    """Hard-stop non-admins when maintenance mode is on; admins pass through."""
+    mt = get_maintenance()
+    if not mt.get("enabled"):
+        return
+    if (current_user() or {}).get("is_admin"):
+        return
+    st.warning(mt.get("message") or "HEATER is temporarily down for maintenance. Check back soon.")
+    st.stop()
+
+
+@st.fragment(run_every="60s")
+def _heartbeat_fragment():
+    """Bump the session's last_activity_at every 60s (powers idle-close)."""
+    bump_activity()
+
+
+def main():
+    init_session()
+    inject_custom_css()
+    init_db()
+
+    # v2 multi-user gate. Flag OFF -> byte-for-byte v1: run the single-user app
+    # directly (Streamlit's automatic pages/ sidebar nav, no auth). Flag ON ->
+    # role-aware nav with auth, banners, maintenance gate, heartbeat.
+    if not multi_user_enabled():
+        render_single_user_app()
+        return
+
+    require_auth()
+    _render_view_as_banner()
+    _render_broadcast_banner()
+    _enforce_maintenance_gate()
+    _heartbeat_fragment()
+    st.navigation(build_pages(current_user(), render_single_user_app)).run()
 
 
 if __name__ == "__main__":
