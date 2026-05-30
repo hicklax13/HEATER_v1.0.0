@@ -21,7 +21,8 @@ for r in cur.fetchall():
 
 cur.execute("""
     SELECT player_id, season, r, hr, rbi, sb, avg, obp, games_played
-    FROM season_stats WHERE player_id IN (71, 9864)
+    FROM season_stats
+    WHERE player_id IN (SELECT player_id FROM players WHERE name LIKE '%Muncy%')
     ORDER BY player_id, season DESC
 """)
 for r in cur.fetchall():
