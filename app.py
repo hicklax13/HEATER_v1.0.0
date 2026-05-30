@@ -328,11 +328,9 @@ def render_splash_screen():
 
         # Blend projections if we have multi-system data
         try:
-            import sqlite3 as _sql
+            from src.database import get_connection
 
-            from src.database import DB_PATH as _dbp
-
-            _tc = _sql.connect(str(_dbp))
+            _tc = get_connection()
             try:
                 _non_blended = _tc.execute("SELECT COUNT(*) FROM projections WHERE system != 'blended'").fetchone()[0]
             finally:
