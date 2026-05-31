@@ -32,6 +32,7 @@ from src.auth import (
 from src.data_bootstrap import BootstrapProgress, bootstrap_all_data
 from src.database import (
     create_blended_projections,
+    get_refresh_log_snapshot,
     init_db,
     load_player_pool,
 )
@@ -2452,6 +2453,33 @@ def render_draft_log(ds):
 # ═══════════════════════════════════════════════════════════════════
 # MAIN
 # ═══════════════════════════════════════════════════════════════════
+
+
+def _latest_successful_refresh():
+    """Most recent successful refresh timestamp, or None.
+
+    Single authoritative 'is the data warm yet?' signal — shared by the
+    freshness caption and the multi-user warming gate so they can never
+    disagree (design spec §8-§9). Reads the same snapshot as the freshness
+    badge; references the module-level get_refresh_log_snapshot so tests can
+    monkeypatch it.
+    """
+    from datetime import datetime
+
+    latest = None
+    for row in get_refresh_log_snapshot():
+        if row.get("status") != "success":
+            continue
+        ts = row.get("last_refresh")
+        if not ts:
+            continue
+        try:
+            dt = datetime.fromisoformat(ts)
+        except (ValueError, TypeError):
+            continue
+        if latest is None or dt > latest:
+            latest = dt
+    return latest
 
 
 def render_single_user_app():
