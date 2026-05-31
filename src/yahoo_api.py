@@ -28,6 +28,7 @@ Rate limiting:
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 from pathlib import Path
@@ -2094,6 +2095,32 @@ class YahooFantasyClient:
         except Exception:
             logger.exception("Failed to get current matchup.")
             return None
+
+
+def save_yahoo_token_json(text: str) -> tuple[bool, str]:
+    """Validate pasted Yahoo OAuth token JSON and persist it to the volume.
+
+    Backs the admin "Yahoo token" control (Plan 4). Validates that ``text`` is a
+    JSON object carrying a non-empty ``refresh_token``, then writes it to
+    ``_AUTH_DIR/yahoo_token.json`` (the same path ``try_reconnect_yahoo`` reads).
+    Token contents are NEVER logged or echoed. Returns ``(ok, message)``.
+    """
+    try:
+        data = json.loads(text)
+    except (json.JSONDecodeError, TypeError):
+        return False, "Not valid JSON — paste the full contents of yahoo_token.json."
+    if not isinstance(data, dict):
+        return False, "Expected a JSON object (the yahoo_token.json dict)."
+    if not data.get("refresh_token"):
+        return False, "Missing 'refresh_token' — this does not look like a Yahoo token file."
+    token_path = _AUTH_DIR / "yahoo_token.json"
+    try:
+        _AUTH_DIR.mkdir(parents=True, exist_ok=True)
+        with open(token_path, "w", encoding="utf-8") as fh:
+            json.dump(data, fh, indent=2)
+    except OSError as exc:
+        return False, f"Could not write token file: {exc}"
+    return True, "Yahoo token saved."
 
 
 def try_reconnect_yahoo() -> YahooFantasyClient | None:
