@@ -3,6 +3,7 @@
 .gitignore
 .venv
 venv
+.claude/
 __pycache__/
 *.pyc
 *.pyo
@@ -10,15 +11,15 @@ __pycache__/
 .ruff_cache/
 htmlcov/
 .coverage
-# Runtime DB + WAL/SHM live on the Railway volume, not in the image.
-data/draft_tool.db
-data/draft_tool.db-wal
-data/draft_tool.db-shm
-# Secrets / tokens are seeded onto the volume at runtime, never baked in.
-data/yahoo_token.json
+# Everything under data/ lives on the Railway volume at runtime (the SQLite DB +
+# WAL/SHM, any *.db.backup-* snapshots, data/backups/, the Yahoo token, logs).
+# Exclude the whole dir, then re-include ONLY data/seed/ whose Tier 3 fallbacks
+# (catcher_framing, umpire_tendencies, park_factors) must ship in the image.
+# Mirrors .gitignore's allow-list shape so new data/ files can't silently leak in.
+data/*
+!data/seed/
+!data/seed/**
 .env
-# Logs regenerate at runtime.
-data/logs/
 *.log
 # Not needed in the runtime image.
 docs/
