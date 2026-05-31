@@ -2507,12 +2507,15 @@ def _render_multiuser_home_gate() -> bool:
                 start = datetime.now(UTC)
                 with st.spinner("Refreshing all data..."):
                     yahoo_client = st.session_state.get("yahoo_client")
+                    try:
+                        st.cache_data.clear()
+                    except Exception:
+                        pass
                     results = bootstrap_all_data(yahoo_client=yahoo_client, force=True)
                 elapsed = (datetime.now(UTC) - start).total_seconds()
                 st.session_state["bootstrap_results"] = results
                 st.session_state["bootstrap_elapsed_secs"] = elapsed
                 st.session_state["bootstrap_elapsed_hms"] = _format_elapsed_hms(elapsed)
-                st.cache_data.clear()
                 st.rerun()
 
     if latest is None:
