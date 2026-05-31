@@ -1,0 +1,16 @@
+# HEATER — Railway service config (v2 Plan 4).
+# Single service, single volume, single replica (in-process scheduler is the
+# sole SQLite writer — see the design spec). The startCommand here OVERRIDES the
+# Dockerfile CMD and uses Railway's injected $PORT (always present on Railway).
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+startCommand = "streamlit run app.py --server.port $PORT --server.address 0.0.0.0 --server.headless true"
+healthcheckPath = "/_stcore/health"
+healthcheckTimeout = 300
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3
+numReplicas = 1

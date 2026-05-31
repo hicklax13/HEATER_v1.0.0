@@ -1,0 +1,26 @@
+# Plan 4 build context trim. KEEPS data/seed/ — Tier 3 fallbacks ship in the image.
+.git
+.gitignore
+.venv
+venv
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+# Runtime DB + WAL/SHM live on the Railway volume, not in the image.
+data/draft_tool.db
+data/draft_tool.db-wal
+data/draft_tool.db-shm
+# Secrets / tokens are seeded onto the volume at runtime, never baked in.
+data/yahoo_token.json
+.env
+# Logs regenerate at runtime.
+data/logs/
+*.log
+# Not needed in the runtime image.
+docs/
+tests/
+.github/
