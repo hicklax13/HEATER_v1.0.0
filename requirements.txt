@@ -7,12 +7,19 @@ plotly>=5.18.0
 requests>=2.28.0
 MLB-StatsAPI>=1.7
 pybaseball>=2.2.7
-# Yahoo Fantasy API integration
-# NOTE: yfpy and streamlit-oauth have conflicting python-dotenv pins
-# and python-dotenv lacks Python 3.14 wheels. Install manually when resolved:
+# Yahoo Fantasy API integration (optional — Yahoo features degrade gracefully).
+# yfpy and streamlit-oauth pin DIFFERENT exact python-dotenv versions
+# (yfpy ==1.1.1, streamlit-oauth ==1.0.1), so pip can't resolve both normally.
+# Install those two wrappers with --no-deps AFTER this file:
 #   pip install yfpy>=17.0 --no-deps
 #   pip install streamlit-oauth>=0.1.14 --no-deps
-# The app works fully without these — Yahoo features degrade gracefully.
+# Their real runtime deps are pinned below so a fresh venv has everything Yahoo
+# needs — without these the --no-deps installs import-fail and Yahoo OAuth (plus
+# .env credential loading) silently break on venv recreation.
+stringcase>=1.2.0       # yfpy runtime dep (leaf)
+yahoo-oauth>=2.1.1      # yfpy runtime dep (pulls myql/pyaml/rauth; no dotenv pin)
+httpx-oauth>=0.15.1     # streamlit-oauth runtime dep
+python-dotenv>=1.0.1    # imported by streamlit-oauth + app.py/scripts/preflight.py (guarded)
 # Bayesian projection updates (optional — heavy dependency)
 # pymc>=5.0
 arviz>=0.15.0
