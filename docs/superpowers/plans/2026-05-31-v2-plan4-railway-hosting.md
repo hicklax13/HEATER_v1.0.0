@@ -1065,8 +1065,8 @@ Service → **Variables** → add:
 | `ADMIN_PASSWORD` | _strong secret_ | Seeds the admin account |
 | `ADMIN_TEAM_NAME` | `Team Hickey` | Your Yahoo team name |
 | `YAHOO_LEAGUE_ID` | _your league id_ | Read by `try_reconnect_yahoo` for headless reconnect |
-| `YAHOO_CONSUMER_KEY` | _client id_ | Yahoo OAuth app credential |
-| `YAHOO_CONSUMER_SECRET` | _client secret_ | Yahoo OAuth app credential |
+| `YAHOO_CLIENT_ID` | _client id_ | Yahoo OAuth app credential (fallback when not embedded in the token JSON) |
+| `YAHOO_CLIENT_SECRET` | _client secret_ | Yahoo OAuth app credential (fallback when not embedded in the token JSON) |
 
 > Railway injects `PORT` automatically — do NOT set it. The `railway.toml`
 > `startCommand` binds `$PORT`.
