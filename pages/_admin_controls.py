@@ -15,6 +15,7 @@ from src.feedback import feedback_csv
 from src.nav import PAGE_REGISTRY
 from src.ui_shared import inject_custom_css
 from src.usage import per_user_activity, usage_csv
+from src.yahoo_api import save_yahoo_token_json
 
 inject_custom_css()
 require_admin()
@@ -80,6 +81,22 @@ st.download_button(
     mime="text/csv",
     on_click=lambda: log_action(_admin_id, "export_csv", target="feedback"),
 )
+
+# --- Yahoo token -----------------------------------------------------------
+st.subheader("Yahoo token")
+st.caption(
+    "Paste the contents of a locally-generated data/yahoo_token.json to seed "
+    "headless Yahoo reconnect on this server. Stored on the persistent volume; "
+    "never displayed back."
+)
+_yahoo_token_text = st.text_area("yahoo_token.json contents", value="", key="yahoo_token_paste", height=160)
+if st.button("Save Yahoo token"):
+    _ok, _msg = save_yahoo_token_json(_yahoo_token_text)
+    if _ok:
+        log_action(_admin_id, "yahoo_token_update")
+        st.success(_msg)
+    else:
+        st.error(_msg)
 
 # --- Audit log -------------------------------------------------------------
 st.subheader("Audit log")
