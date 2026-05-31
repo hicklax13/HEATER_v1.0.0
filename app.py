@@ -2482,37 +2482,83 @@ def _latest_successful_refresh():
     return latest
 
 
+def _render_multiuser_home_gate() -> bool:
+    """Flag-on Home header. Returns True if data is warm enough to render the
+    rest of the page, False if still warming up (caller should return early).
+
+    No per-session bootstrap here — the in-process scheduler thread is the sole
+    writer. Shows a freshness caption, an admin-only manual 'Refresh All Data'
+    button, and a warming notice until the first successful refresh lands.
+    """
+    from datetime import UTC, datetime
+
+    latest = _latest_successful_refresh()
+    if latest is not None:
+        if latest.tzinfo is None:
+            mins = int((datetime.now() - latest).total_seconds() // 60)
+        else:
+            mins = int((datetime.now(UTC) - latest).total_seconds() // 60)
+        st.caption(f"Data last refreshed {max(0, mins)} min ago.")
+
+    user = current_user() or {}
+    if user.get("is_admin"):
+        with st.sidebar:
+            if st.button("Refresh All Data", key="force_refresh_btn_mu", width="stretch"):
+                start = datetime.now(UTC)
+                with st.spinner("Refreshing all data..."):
+                    yahoo_client = st.session_state.get("yahoo_client")
+                    results = bootstrap_all_data(yahoo_client=yahoo_client, force=True)
+                elapsed = (datetime.now(UTC) - start).total_seconds()
+                st.session_state["bootstrap_results"] = results
+                st.session_state["bootstrap_elapsed_secs"] = elapsed
+                st.session_state["bootstrap_elapsed_hms"] = _format_elapsed_hms(elapsed)
+                st.cache_data.clear()
+                st.rerun()
+
+    if latest is None:
+        st.info("Data warming up — first refresh in progress (~15-20 min); this page populates automatically.")
+        return False
+    return True
+
+
 def render_single_user_app():
     """The v1 single-user experience: splash/bootstrap, refresh, draft flow.
 
     Called directly when MULTI_USER is off, and registered as the default
     "Draft Tool" Home page under st.navigation() when MULTI_USER is on.
     """
-    render_splash_screen()
+    if multi_user_enabled():
+        # Hosted multi-user: the in-process scheduler is the sole writer, so we
+        # do NOT run the per-session force=True splash bootstrap. Show the
+        # warming gate and bail out until the first successful refresh lands.
+        if not _render_multiuser_home_gate():
+            return
+    else:
+        render_splash_screen()
 
-    # Force Refresh button in sidebar (only after bootstrap is done)
-    # Refreshes ALL data sources (force=True), clears Streamlit cache_data so
-    # stale in-memory player pools don't survive the refresh, preserves the
-    # Data Status panel by assigning the new results (previous bug: set to
-    # None, which blanked the panel), and records the new elapsed load time.
-    if st.session_state.get("bootstrap_complete"):
-        with st.sidebar:
-            if st.button("Refresh All Data", key="force_refresh_btn", width="stretch"):
-                import time as _time
+        # Force Refresh button in sidebar (only after bootstrap is done)
+        # Refreshes ALL data sources (force=True), clears Streamlit cache_data so
+        # stale in-memory player pools don't survive the refresh, preserves the
+        # Data Status panel by assigning the new results (previous bug: set to
+        # None, which blanked the panel), and records the new elapsed load time.
+        if st.session_state.get("bootstrap_complete"):
+            with st.sidebar:
+                if st.button("Refresh All Data", key="force_refresh_btn", width="stretch"):
+                    import time as _time
 
-                with st.spinner("Refreshing all data sources..."):
-                    yahoo_client = st.session_state.get("yahoo_client")
-                    try:
-                        st.cache_data.clear()
-                    except Exception:
-                        pass
-                    _rf_start = _time.monotonic()
-                    results = bootstrap_all_data(yahoo_client=yahoo_client, force=True)
-                    _rf_elapsed = _time.monotonic() - _rf_start
-                    st.session_state["bootstrap_results"] = results
-                    st.session_state["bootstrap_elapsed_secs"] = float(_rf_elapsed)
-                    st.session_state["bootstrap_elapsed_hms"] = _format_elapsed_hms(_rf_elapsed)
-                st.rerun()
+                    with st.spinner("Refreshing all data sources..."):
+                        yahoo_client = st.session_state.get("yahoo_client")
+                        try:
+                            st.cache_data.clear()
+                        except Exception:
+                            pass
+                        _rf_start = _time.monotonic()
+                        results = bootstrap_all_data(yahoo_client=yahoo_client, force=True)
+                        _rf_elapsed = _time.monotonic() - _rf_start
+                        st.session_state["bootstrap_results"] = results
+                        st.session_state["bootstrap_elapsed_secs"] = float(_rf_elapsed)
+                        st.session_state["bootstrap_elapsed_hms"] = _format_elapsed_hms(_rf_elapsed)
+                    st.rerun()
 
     if st.session_state.page == "setup":
         render_setup_page()
