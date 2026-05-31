@@ -46,6 +46,7 @@ from src.injury_model import (
     workload_flag,
 )
 from src.nav import build_pages
+from src.scheduler import start_background_refresh
 from src.simulation import DraftSimulator, compute_team_preferences, detect_position_run
 from src.ui_shared import (
     METRIC_TOOLTIPS,
@@ -2619,6 +2620,7 @@ def main():
         render_single_user_app()
         return
 
+    start_background_refresh()  # single SQLite writer; idempotent + process-global
     require_auth()
     _render_view_as_banner()
     _render_broadcast_banner()
