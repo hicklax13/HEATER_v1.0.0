@@ -24,6 +24,10 @@ from src.auth import (
 from src.feedback import list_feedback, set_feedback_notes, set_feedback_status
 from src.ui_shared import inject_custom_css
 
+# Blank default for the pending-approval team picker — approval is refused until a
+# real team is chosen, so we never silently assign the first team in the list.
+_TEAM_SENTINEL = "— Select a team —"
+
 if not multi_user_enabled():
     st.set_page_config(
         page_title="Heater | Admin Console",
@@ -57,7 +61,7 @@ with users_tab:
                 if team_names:
                     team = st.selectbox(
                         "Assign team",
-                        options=team_names,
+                        options=[_TEAM_SENTINEL, *team_names],
                         key=f"team_{user['username']}",
                     )
                 else:
@@ -67,8 +71,11 @@ with users_tab:
                     )
             with cols[2]:
                 if st.button("Approve", key=f"approve_{user['username']}", width="stretch"):
-                    approve_user(user["username"], team_name=team, approved_by="admin")
-                    st.rerun()
+                    if not team or team == _TEAM_SENTINEL:
+                        st.warning("Pick a team before approving.")
+                    else:
+                        approve_user(user["username"], team_name=team, approved_by="admin")
+                        st.rerun()
 
     # ── Active users ─────────────────────────────────────────────────────
     st.header("Active users")
@@ -84,10 +91,17 @@ with users_tab:
                 st.write(f"**{label}**  \n`{user['username']}`{admin_tag} · {user['team_name'] or '—'}")
             with cols[1]:
                 if team_names:
-                    idx = team_names.index(user["team_name"]) if user["team_name"] in team_names else 0
+                    # Guarantee the user's current team is an option so it
+                    # preselects — otherwise the selectbox falls back to index 0
+                    # (first team) and the Save button silently arms a mis-assign.
+                    current = user["team_name"]
+                    options = list(team_names)
+                    if current and current not in options:
+                        options = [current, *options]
+                    idx = options.index(current) if current in options else 0
                     new_team = st.selectbox(
                         "Reassign team",
-                        options=team_names,
+                        options=options,
                         index=idx,
                         key=f"reassign_{user['username']}",
                     )
