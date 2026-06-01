@@ -2507,7 +2507,10 @@ def _render_multiuser_home_gate() -> bool:
             if st.button("Refresh All Data", key="force_refresh_btn_mu", width="stretch"):
                 start = datetime.now(UTC)
                 with st.spinner("Refreshing all data..."):
-                    yahoo_client = st.session_state.get("yahoo_client")
+                    # Under MULTI_USER no session ever sets yahoo_client, so fall
+                    # back to a headless reconnect from the saved token — else the
+                    # Yahoo sync phase self-skips and league data never lands.
+                    yahoo_client = st.session_state.get("yahoo_client") or _try_reconnect_yahoo()
                     try:
                         st.cache_data.clear()
                     except Exception:

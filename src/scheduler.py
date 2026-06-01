@@ -56,12 +56,27 @@ def is_running() -> bool:
 
 
 def _refresh_loop():
-    """Main scheduler loop — runs bootstrap with staleness checks."""
+    """Main scheduler loop — runs bootstrap with staleness checks.
+
+    Reconnects Yahoo from the saved token each cycle and passes the client into
+    bootstrap_all_data. Under MULTI_USER this thread is the SOLE SQLite writer
+    and no Streamlit session ever supplies a client, so the Yahoo sync phase
+    only runs if WE reconnect here. Degrades to yahoo_client=None (the Yahoo
+    phase self-skips) when no token / YAHOO_LEAGUE_ID is configured.
+    """
     while _scheduler_running:
         try:
             from src.data_bootstrap import bootstrap_all_data
 
-            results = bootstrap_all_data(force=False)
+            yahoo_client = None
+            try:
+                from src.yahoo_api import try_reconnect_yahoo
+
+                yahoo_client = try_reconnect_yahoo()
+            except Exception as exc:
+                logger.warning("Scheduler Yahoo reconnect failed: %s", exc)
+
+            results = bootstrap_all_data(yahoo_client=yahoo_client, force=False)
             refreshed = [k for k, v in results.items() if v != "Fresh"]
             if refreshed:
                 logger.info("Background refresh updated: %s", refreshed)
