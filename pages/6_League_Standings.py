@@ -9,9 +9,8 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-from src.auth import multi_user_enabled, require_auth
+from src.auth import multi_user_enabled, require_auth, resolve_viewer_team_name
 from src.database import (
-    get_connection,
     init_db,
     load_league_records,
     load_league_schedule_full,
@@ -90,16 +89,8 @@ _CAT_ORDER = ["R", "HR", "RBI", "SB", "AVG", "OBP", "W", "L", "SV", "K", "ERA", 
 
 
 def _get_user_team_name() -> str | None:
-    """Retrieve the authenticated user's team name from the DB."""
-    try:
-        conn = get_connection()
-        try:
-            row = conn.execute("SELECT team_name FROM league_teams WHERE is_user_team = 1").fetchone()
-            return row[0] if row else None
-        finally:
-            conn.close()
-    except Exception:
-        return None
+    """The current viewer's team — canonical resolver (auth-aware under MULTI_USER)."""
+    return resolve_viewer_team_name()
 
 
 # ── Helper: ordinal suffix ────────────────────────────────────────────
@@ -439,11 +430,11 @@ def _render_playoff_odds_tab() -> None:
     if _po_rosters.empty:
         st.info("No league rosters loaded. Connect your Yahoo league first.")
         return
-    _po_user_teams = _po_rosters[_po_rosters["is_user_team"] == 1]
-    if _po_user_teams.empty:
+    user_team_name = resolve_viewer_team_name(_po_rosters)
+    if not user_team_name:
         st.info("No user team identified in roster data.")
         return
-    user_team_name = str(_po_user_teams.iloc[0]["team_name"])
+    user_team_name = str(user_team_name)
 
     _po_rosters = _coerce(_po_rosters)
     league_rosters_dict: dict[str, list[int]] = {}

@@ -7,7 +7,7 @@ import logging
 import pandas as pd
 import streamlit as st
 
-from src.auth import multi_user_enabled, require_auth
+from src.auth import multi_user_enabled, require_auth, resolve_viewer_team_name
 from src.database import init_db, load_player_pool
 from src.feature_flags import require_page_enabled
 from src.feedback import render_feedback_widget
@@ -131,11 +131,9 @@ except Exception:
     logger.debug("Could not load full league schedule", exc_info=True)
 
 # Determine user team name
-user_team_name: str | None = None
-if not rosters.empty:
-    user_rows = rosters[rosters["is_user_team"] == 1]
-    if not user_rows.empty:
-        user_team_name = str(user_rows.iloc[0]["team_name"])
+user_team_name: str | None = resolve_viewer_team_name(rosters)
+if user_team_name is not None:
+    user_team_name = str(user_team_name)
 
 # ── Compute category win probabilities if possible ────────────────────
 
@@ -493,8 +491,8 @@ with ctx:
 
     if not rosters.empty:
         team_names = sorted(rosters["team_name"].unique().tolist())
-        user_rows = rosters[rosters["is_user_team"] == 1]
-        default_team = user_rows.iloc[0]["team_name"] if not user_rows.empty else team_names[0]
+        _viewer_team = resolve_viewer_team_name(rosters)
+        default_team = _viewer_team if _viewer_team in team_names else team_names[0]
         default_idx = team_names.index(default_team) if default_team in team_names else 0
 
         team_name = st.selectbox(

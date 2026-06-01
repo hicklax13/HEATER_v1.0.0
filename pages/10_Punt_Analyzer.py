@@ -6,7 +6,7 @@ import time
 import pandas as pd
 import streamlit as st
 
-from src.auth import multi_user_enabled, require_auth
+from src.auth import multi_user_enabled, require_auth, resolve_viewer_team_name
 from src.database import init_db, load_player_pool
 from src.feature_flags import require_page_enabled
 from src.feedback import render_feedback_widget
@@ -170,9 +170,9 @@ if _HAS_CATEGORY_ANALYSIS:
     rosters = _yds.get_rosters()
 
     if not standings.empty and not rosters.empty:
-        user_teams = rosters[rosters["is_user_team"] == 1]
-        if not user_teams.empty:
-            user_team_name = str(user_teams.iloc[0]["team_name"])
+        user_team_name = resolve_viewer_team_name(rosters)
+        if user_team_name:
+            user_team_name = str(user_team_name)
 
             all_team_totals: dict[str, dict[str, float]] = {}
             if "category" in standings.columns:

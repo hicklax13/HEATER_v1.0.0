@@ -10,7 +10,7 @@ import time
 import pandas as pd
 import streamlit as st
 
-from src.auth import multi_user_enabled, require_auth
+from src.auth import multi_user_enabled, require_auth, resolve_viewer_team_name
 from src.database import (
     coerce_numeric_df,
     init_db,
@@ -169,18 +169,13 @@ def main():
         st.warning("Need at least 2 teams loaded to find trades.")
         return
 
-    # Identify user team — use is_user_team flag from league_rosters table
-    user_teams = rosters_df[rosters_df["is_user_team"] == 1]
-    if user_teams.empty:
-        # Fallback: try session state, then first team
+    # Identify the current viewer's team (auth-aware under MULTI_USER).
+    user_team_name = resolve_viewer_team_name(rosters_df)
+    if not user_team_name or user_team_name not in league_rosters:
+        # Fallback: session state, then the first loaded team.
         user_team_name = st.session_state.get("user_team_name")
         if not user_team_name or user_team_name not in league_rosters:
-            # Last resort: pick the first team
             user_team_name = next(iter(league_rosters), None)
-    else:
-        user_team_name = user_teams.iloc[0]["team_name"]
-        if isinstance(user_team_name, bytes):
-            user_team_name = user_team_name.decode("utf-8", errors="replace")
 
     if not user_team_name or user_team_name not in league_rosters:
         st.warning("No user team identified. Connect to Yahoo and sync rosters first.")

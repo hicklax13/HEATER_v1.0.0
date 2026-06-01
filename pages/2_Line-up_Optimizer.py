@@ -19,7 +19,7 @@ import time
 import pandas as pd
 import streamlit as st
 
-from src.auth import multi_user_enabled, require_auth
+from src.auth import multi_user_enabled, require_auth, resolve_viewer_team_name
 from src.database import (
     coerce_numeric_df,
     get_connection,
@@ -170,12 +170,12 @@ if rosters.empty:
     )
     st.stop()
 
-user_teams = rosters[rosters["is_user_team"] == 1]
-if user_teams.empty:
+user_team_name = resolve_viewer_team_name(rosters)
+if not user_team_name:
     st.warning("No user team identified in roster data.")
     st.stop()
 
-user_team_name = str(user_teams.iloc[0]["team_name"])
+user_team_name = str(user_team_name)
 _display_team_name = "".join(c for c in user_team_name if ord(c) < 0x10000).strip()
 
 roster = get_team_roster(user_team_name)

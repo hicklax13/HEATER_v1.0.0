@@ -270,6 +270,53 @@ def logout() -> None:
     _session_state().pop(_SESSION_KEY, None)
 
 
+def resolve_viewer_team_name(rosters=None) -> str | None:
+    """The team that belongs to the current viewer — the SOLE source of truth.
+
+    MULTI_USER on and the logged-in session user has an admin-assigned team:
+    return that team (per-session identity; set by the admin, not self-asserted).
+    Otherwise fall back to the legacy ``league_teams.is_user_team`` flag so
+    single-user v1 behavior is byte-for-byte unchanged — preferring the supplied
+    ``rosters`` DataFrame (the same source the pages filtered pre-fix) and finally
+    a ``league_teams`` DB lookup.
+
+    Every personalized page MUST call this instead of filtering
+    ``rosters["is_user_team"] == 1`` directly — otherwise every logged-in user
+    sees the single is_user_team team (the 2026-06-01 launch-blocker). Guarded by
+    ``tests/test_pages_use_viewer_team_resolver.py``.
+    """
+    if multi_user_enabled():
+        user = current_user()
+        if user and user.get("team_name"):
+            return user["team_name"]
+
+    # v1 / fallback — the legacy is_user_team flag, from the rosters frame if given.
+    if (
+        rosters is not None
+        and not getattr(rosters, "empty", True)
+        and "is_user_team" in getattr(rosters, "columns", [])
+    ):
+        user_rows = rosters[rosters["is_user_team"] == 1]
+        if not user_rows.empty:
+            name = user_rows.iloc[0]["team_name"]
+            if isinstance(name, bytes):
+                name = name.decode("utf-8", errors="replace")
+            return name
+
+    try:
+        from src.database import get_connection
+
+        conn = get_connection()
+        try:
+            row = conn.execute("SELECT team_name FROM league_teams WHERE is_user_team = 1").fetchone()
+            return row[0] if row else None
+        finally:
+            conn.close()
+    except Exception:
+        logger.warning("resolve_viewer_team_name: DB fallback failed.", exc_info=True)
+        return None
+
+
 # ── Auth guards ──────────────────────────────────────────────────────
 
 
