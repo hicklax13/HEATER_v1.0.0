@@ -121,7 +121,18 @@ rosters = yds.get_rosters()
 # ── Get current matchup + schedule for category probabilities ─────────
 
 matchup_data = yds.get_matchup()
-current_week = matchup_data.get("week", 1) if matchup_data else 1
+if matchup_data and matchup_data.get("week"):
+    current_week = int(matchup_data["week"])
+else:
+    # No live Yahoo matchup in this session (read-only member, or between weeks):
+    # derive the current week from the league calendar instead of defaulting to 1
+    # (which mislabeled today's week as "Future" for every member).
+    try:
+        from src.opponent_intel import get_week_number
+
+        current_week = get_week_number()
+    except Exception:
+        current_week = 1
 
 # Attempt to load the full league schedule for week navigation
 full_schedule: dict[int, list[tuple[str, str]]] = {}
@@ -530,7 +541,16 @@ with ctx:
         from src.matchup_context import get_matchup_context
 
         _ctx = get_matchup_context()
-        _opp = _ctx.get_opponent_context()
+        # Resolve the SELECTED team's opponent (defaults to the viewer's own team)
+        # instead of the global/admin opponent, so each member sees the right
+        # matchup on this card. (2026-06-01 audit.)
+        _opp_name = None
+        if STANDINGS_ENGINE_AVAILABLE and team_name and full_schedule:
+            try:
+                _opp_name = find_user_opponent(full_schedule, selected_week, team_name)
+            except Exception:
+                _opp_name = None
+        _opp = _ctx.get_opponent_context(week=selected_week, opponent_name=_opp_name)
         if _opp.get("name") and _opp["name"] != "Unknown":
             _weak = _opp.get("weaknesses", [])
             _strong = _opp.get("strengths", [])

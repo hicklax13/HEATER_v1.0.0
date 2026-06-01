@@ -19,7 +19,7 @@ import time
 import pandas as pd
 import streamlit as st
 
-from src.auth import multi_user_enabled, require_auth, resolve_viewer_team_name
+from src.auth import multi_user_enabled, require_auth, resolve_viewer_team_name, viewer_can_write
 from src.database import (
     coerce_numeric_df,
     get_connection,
@@ -801,7 +801,7 @@ with ctx:
     # T1.21: explicit refresh button replaces the implicit force_refresh=True
     # that used to live in the optimize click path. Users now control when
     # Yahoo is force-refreshed; optimize uses cached data otherwise.
-    if st.button(
+    if viewer_can_write() and st.button(
         "Refresh Yahoo Data",
         key="lineup_refresh_yahoo",
         help=(

@@ -123,8 +123,8 @@ st.caption("Players whose value increases most when punted categories are remove
 gainers = pool.nlargest(15, "value_change")[
     ["player_name", "positions", "team", "original_sgp", "punt_sgp", "value_change"]
 ].copy()
-gainers["original_sgp"] = gainers["original_sgp"].map(lambda x: f"{x:.2f}")
-gainers["punt_sgp"] = gainers["punt_sgp"].map(lambda x: f"{x:.2f}")
+gainers["original_sgp"] = gainers["original_sgp"].map(lambda x: f"{x:+.2f}")
+gainers["punt_sgp"] = gainers["punt_sgp"].map(lambda x: f"{x:+.2f}")
 gainers["value_change"] = gainers["value_change"].map(lambda x: f"{x:+.2f}")
 gainers = gainers.rename(
     columns={
@@ -146,8 +146,8 @@ st.caption("Players whose value decreases when punted categories are removed —
 losers = pool.nsmallest(15, "value_change")[
     ["player_name", "positions", "team", "original_sgp", "punt_sgp", "value_change"]
 ].copy()
-losers["original_sgp"] = losers["original_sgp"].map(lambda x: f"{x:.2f}")
-losers["punt_sgp"] = losers["punt_sgp"].map(lambda x: f"{x:.2f}")
+losers["original_sgp"] = losers["original_sgp"].map(lambda x: f"{x:+.2f}")
+losers["punt_sgp"] = losers["punt_sgp"].map(lambda x: f"{x:+.2f}")
 losers["value_change"] = losers["value_change"].map(lambda x: f"{x:+.2f}")
 losers = losers.rename(
     columns={

@@ -286,9 +286,14 @@ def resolve_viewer_team_name(rosters=None) -> str | None:
     ``tests/test_pages_use_viewer_team_resolver.py``.
     """
     if multi_user_enabled():
+        # Per-session identity. A logged-in member with no assigned team resolves
+        # to None (NOT the legacy is_user_team flag, which points at the admin's
+        # team) so pages show a 'connect / no team' state instead of the wrong
+        # team. Under MULTI_USER we never fall through to the global flag.
         user = current_user()
-        if user and user.get("team_name"):
-            return user["team_name"]
+        team = (user or {}).get("team_name")
+        team = team.strip() if isinstance(team, str) else team
+        return team or None
 
     # v1 / fallback — the legacy is_user_team flag, from the rosters frame if given.
     if (
@@ -315,6 +320,20 @@ def resolve_viewer_team_name(rosters=None) -> str | None:
     except Exception:
         logger.warning("resolve_viewer_team_name: DB fallback failed.", exc_info=True)
         return None
+
+
+def viewer_can_write() -> bool:
+    """True if the current viewer may trigger data writes/refreshes.
+
+    Single-user v1 (MULTI_USER off): always True — the lone user owns the data.
+    MULTI_USER on: only admins, because the in-process scheduler is the SOLE
+    SQLite writer and member sessions are read-only consumers. Gates the
+    member-facing 'Refresh'/'Sync' buttons so a dozen members can't fire
+    concurrent writes against the single-writer DB ("database is locked").
+    """
+    if not multi_user_enabled():
+        return True
+    return bool((current_user() or {}).get("is_admin"))
 
 
 # ── Auth guards ──────────────────────────────────────────────────────
@@ -381,7 +400,9 @@ def enter_view_as(target_username: str, admin_id: int) -> None:
     if not (real and real.get("is_admin")):
         return
     target = get_user(target_username)
-    if target is None:
+    if target is None or target.get("is_admin"):
+        # View-as previews a MEMBER's experience; never impersonate another admin
+        # (it would mis-attribute that admin's actions in the audit log).
         return
     _session_state()[_VIEW_AS_KEY] = real
     _set_session_user(target)

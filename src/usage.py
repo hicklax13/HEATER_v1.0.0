@@ -127,6 +127,11 @@ def bump_activity() -> None:
     try:
         conn.execute("UPDATE sessions SET last_activity_at = ? WHERE session_id = ?", (_now_iso(), session_id))
         conn.commit()
+    except Exception:
+        # Best-effort heartbeat: if the single-writer scheduler holds the DB at
+        # this instant, skip silently — the next 60s tick self-heals. A transient
+        # lock must never crash a member's page.
+        pass
     finally:
         conn.close()
 

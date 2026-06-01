@@ -5,7 +5,7 @@ import time
 import pandas as pd
 import streamlit as st
 
-from src.auth import multi_user_enabled, require_auth, resolve_viewer_team_name
+from src.auth import multi_user_enabled, require_auth, resolve_viewer_team_name, viewer_can_write
 from src.database import coerce_numeric_df, init_db, load_player_pool
 from src.feature_flags import require_page_enabled
 from src.feedback import render_feedback_widget
@@ -538,7 +538,7 @@ else:
         # Action buttons — inline row
         btn1, btn2, btn_spacer = st.columns([1, 1, 3])
         with btn1:
-            if st.button("Refresh Stats"):
+            if viewer_can_write() and st.button("Refresh Stats"):
                 refresh_progress = st.progress(0, text="Pulling live stats from MLB Stats API...")
                 refresh_progress.progress(20, text="Fetching current season statistics...")
                 result = refresh_all_stats(force=True)
@@ -552,7 +552,7 @@ else:
 
         # Yahoo sync button — uses YahooDataService (handles sync internally)
         with btn2:
-            if st.button("Sync Yahoo", key="sync_yahoo_roster"):
+            if viewer_can_write() and st.button("Sync Yahoo", key="sync_yahoo_roster"):
                 with st.spinner("Syncing league data..."):
                     yds.force_refresh_all()
                 st.rerun()

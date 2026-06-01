@@ -5,7 +5,7 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from src.auth import multi_user_enabled, require_auth
+from src.auth import multi_user_enabled, require_auth, viewer_can_write
 from src.database import coerce_numeric_df, get_connection, init_db, load_player_pool
 from src.feature_flags import require_page_enabled
 from src.feedback import render_feedback_widget
@@ -377,7 +377,7 @@ with ctx:
         )
 
         # Refresh button
-        refresh_clicked = st.button("Refresh Data", key="prospect_refresh")
+        refresh_clicked = viewer_can_write() and st.button("Refresh Data", key="prospect_refresh")
 
 # -- Main content (right): tabs + data tables -----------------------------
 

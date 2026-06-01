@@ -30,14 +30,30 @@ def test_multiuser_returns_session_team_over_flag(monkeypatch):
     assert auth.resolve_viewer_team_name(_rosters(flag_team="Team Hickey")) == "HUMAN INTELLIGENCE"
 
 
-def test_multiuser_no_session_team_falls_back_to_flag(monkeypatch):
-    """If the session user has no assigned team yet, fall back to the legacy flag."""
+def test_multiuser_no_session_team_returns_none(monkeypatch):
+    """A logged-in member with no assigned team must NOT inherit the admin's team.
+
+    Under MULTI_USER, an empty/blank team_name resolves to None (so pages show a
+    'connect / no team' state) — never the legacy is_user_team flag, which points
+    at the admin's team. 2026-06-01 audit: empty-team guard.
+    """
     import src.auth as auth
 
     monkeypatch.setattr(auth, "multi_user_enabled", lambda: True)
     monkeypatch.setattr(auth, "current_user", lambda: {"username": "x", "team_name": None})
 
-    assert auth.resolve_viewer_team_name(_rosters(flag_team="Team Hickey")) == "Team Hickey"
+    # The flag points at Team Hickey, but a teamless member must not see it.
+    assert auth.resolve_viewer_team_name(_rosters(flag_team="Team Hickey")) is None
+
+
+def test_multiuser_blank_team_returns_none(monkeypatch):
+    """Whitespace-only team_name is treated as 'no team' (None), not the flag."""
+    import src.auth as auth
+
+    monkeypatch.setattr(auth, "multi_user_enabled", lambda: True)
+    monkeypatch.setattr(auth, "current_user", lambda: {"username": "x", "team_name": "  "})
+
+    assert auth.resolve_viewer_team_name(_rosters(flag_team="Team Hickey")) is None
 
 
 def test_single_user_uses_flag_ignoring_session(monkeypatch):

@@ -80,25 +80,50 @@ class MatchupContextService:
 
     # ── Opponent Context ─────────────────────────────────────────────
 
-    def get_opponent_context(self, week: int | None = None) -> dict:
+    def get_opponent_context(self, week: int | None = None, opponent_name: str | None = None) -> dict:
         """Get opponent profile + category needs for this/specified week.
+
+        When ``opponent_name`` is supplied (e.g. a league member's own opponent,
+        resolved from THEIR team's schedule), that team's profile is used
+        directly instead of the global single-user schedule — so each member sees
+        their own opponent, not the admin's. (2026-06-01 audit.)
 
         Returns:
             Dict with keys: name, tier, threat, strengths, weaknesses,
             needs (per-category gap analysis), week.
         """
-        cache_key = f"opponent_{week or 'current'}"
+        cache_key = f"opponent_{opponent_name or week or 'current'}"
         cached = self._get_cached(cache_key)
         if cached is not None:
             return cached
 
         result: dict[str, Any] = {}
         try:
-            from src.opponent_intel import get_current_opponent, get_opponent_for_week
+            from src.opponent_intel import OPPONENT_PROFILES, get_current_opponent, get_opponent_for_week
             from src.yahoo_data_service import get_yahoo_data_service
 
             yds = get_yahoo_data_service()
-            if week is not None:
+            if opponent_name:
+                live = {}
+                try:
+                    live = yds.get_opponent_profile(opponent_name) or {}
+                except Exception:
+                    live = {}
+                if live and live.get("threat") != "Unknown":
+                    result = {"name": opponent_name, "week": week, **live}
+                else:
+                    _prof = OPPONENT_PROFILES.get(opponent_name, {})
+                    result = {
+                        "name": opponent_name,
+                        "week": week,
+                        "tier": _prof.get("tier", 3),
+                        "threat": _prof.get("threat", "Unknown"),
+                        "manager": _prof.get("manager", "Unknown"),
+                        "strengths": _prof.get("strengths", []),
+                        "weaknesses": _prof.get("weaknesses", []),
+                        "notes": _prof.get("notes", ""),
+                    }
+            elif week is not None:
                 result = get_opponent_for_week(week, yds=yds)
             else:
                 result = get_current_opponent(yds=yds)

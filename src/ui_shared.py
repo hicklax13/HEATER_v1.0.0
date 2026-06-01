@@ -609,7 +609,17 @@ def inject_custom_css():
     [data-testid="stDecoration"] {{ display: none !important; }}
     [data-testid="stToolbar"] {{ display: none !important; }}
     [data-testid="stAppDeployButton"] {{ display: none !important; }}
-    header[data-testid="stHeader"] {{ display: none !important; }}
+    /* Hide the header bar on desktop (sidebar is always visible there); KEEP it
+       on phone widths so the sidebar/menu toggle stays reachable — without it,
+       mobile users are stranded on the landing page with no navigation. */
+    @media (min-width: 768px) {{
+        header[data-testid="stHeader"] {{ display: none !important; }}
+    }}
+    @media (max-width: 767px) {{
+        header[data-testid="stHeader"] {{ display: flex !important; }}
+        [data-testid="stSidebarCollapsedControl"],
+        [data-testid="collapsedControl"] {{ display: flex !important; visibility: visible !important; }}
+    }}
 
     /* ── TEXT PROTECTION (global) ─────────────── */
     .stApp p, .stApp span, .stApp td, .stApp th,

@@ -1208,7 +1208,7 @@ def _html_escape(text: str) -> str:
     )
 
 
-_EST_OFFSET = timedelta(hours=-5)  # EST = UTC-5 (no DST adjustment)
+# US Eastern conversion is computed inline in get_data_as_of_label (DST-aware).
 
 
 def _parse_iso_timestamp(ts_str: str) -> datetime | None:
@@ -1324,10 +1324,20 @@ def get_data_refreshed_label(stat_view: str) -> str:
         if status and status.get("last_refresh"):
             dt = _parse_iso_timestamp(str(status["last_refresh"]))
             if dt is not None:
-                # Convert UTC → EST (UTC-5) for display
-                est_dt = dt + _EST_OFFSET
-                time_str = est_dt.strftime("%I:%M %p").lstrip("0")
-                return f"Refreshed {est_dt.month}/{est_dt.day}, {time_str} EST"
+                # Convert UTC → US Eastern for display (DST-aware: EDT in summer).
+                _aware = dt if dt.tzinfo else dt.replace(tzinfo=UTC)
+                try:
+                    from zoneinfo import ZoneInfo
+
+                    et_dt = _aware.astimezone(ZoneInfo("America/New_York"))
+                    tz_abbr = et_dt.strftime("%Z") or "ET"
+                except Exception:
+                    # zoneinfo/tzdata unavailable (bare Windows): the MLB season
+                    # (Mar-Nov) is daylight time, so UTC-4/EDT is correct.
+                    et_dt = _aware + timedelta(hours=-4)
+                    tz_abbr = "EDT"
+                time_str = et_dt.strftime("%I:%M %p").lstrip("0")
+                return f"Refreshed {et_dt.month}/{et_dt.day}, {time_str} {tz_abbr}"
     return ""
 
 
