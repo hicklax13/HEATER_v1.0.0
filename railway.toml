@@ -2,13 +2,17 @@
 # Single service, single volume, single replica (in-process scheduler is the
 # sole SQLite writer — see the design spec). The startCommand here OVERRIDES the
 # Dockerfile CMD and uses Railway's injected $PORT (always present on Railway).
+# It MUST be wrapped in `sh -c '...'`: Railway runs a Dockerfile service's
+# startCommand in exec form (no shell), so an unwrapped $PORT is passed to
+# Streamlit as the literal string "$PORT", the server never binds, and the
+# /_stcore/health check times out. The shell expands $PORT to the real port.
 
 [build]
 builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile"
 
 [deploy]
-startCommand = "streamlit run app.py --server.port $PORT --server.address 0.0.0.0 --server.headless true"
+startCommand = "sh -c 'streamlit run app.py --server.port $PORT --server.address 0.0.0.0 --server.headless true'"
 healthcheckPath = "/_stcore/health"
 healthcheckTimeout = 300
 restartPolicyType = "ON_FAILURE"
