@@ -604,21 +604,30 @@ def inject_custom_css():
     .block-container {{ padding-top: 1rem; padding-bottom: 1rem; }}
 
     /* ── HIDE STREAMLIT CHROME ────────────────── */
-    /* Toolbar decoration bar and deploy button — suppressed by config
-       toolbarMode=minimal but belt-and-suspenders CSS for all versions */
+    /* Pure clutter (decoration strip + Deploy button) — hidden on all widths. */
     [data-testid="stDecoration"] {{ display: none !important; }}
-    [data-testid="stToolbar"] {{ display: none !important; }}
     [data-testid="stAppDeployButton"] {{ display: none !important; }}
-    /* Hide the header bar on desktop (sidebar is always visible there); KEEP it
-       on phone widths so the sidebar/menu toggle stays reachable — without it,
-       mobile users are stranded on the landing page with no navigation. */
+    /* DESKTOP: hide the header bar AND the toolbar — the sidebar is always
+       visible, so Streamlit's chrome isn't needed.
+       PHONES: KEEP both. The collapsed sidebar's open toggle
+       (stExpandSidebarButton, a "»" button) is parented INSIDE stToolbar, so
+       hiding the toolbar on mobile strands users with no way to open the nav
+       (2026-06-01: this was the mobile-navigation bug). */
     @media (min-width: 768px) {{
         header[data-testid="stHeader"] {{ display: none !important; }}
+        [data-testid="stToolbar"] {{ display: none !important; }}
     }}
     @media (max-width: 767px) {{
         header[data-testid="stHeader"] {{ display: flex !important; }}
-        [data-testid="stSidebarCollapsedControl"],
-        [data-testid="collapsedControl"] {{ display: flex !important; visibility: visible !important; }}
+        [data-testid="stToolbar"] {{ display: flex !important; }}
+        [data-testid="stExpandSidebarButton"] {{
+            display: inline-flex !important;
+            visibility: visible !important;
+            min-width: 2.5rem !important;
+            min-height: 2.5rem !important;
+            align-items: center !important;
+            justify-content: center !important;
+        }}
     }}
 
     /* ── TEXT PROTECTION (global) ─────────────── */
