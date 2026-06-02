@@ -55,6 +55,14 @@ class HarnessResult:
     dataframes: list = field(default_factory=list)  # every st.dataframe / st.table value
     metrics: list = field(default_factory=list)  # [{"label","value"}] from st.metric
     markdown: str = ""  # concatenated st.markdown text (custom HTML tables live here)
+    # st.subheader/header/title/caption/text are SEPARATE element types and are NOT
+    # part of `markdown`. Captured here so heading-presence checks work.
+    headings: list[str] = field(default_factory=list)
+    # multiselect / selectbox option labels (option text is NOT in markdown).
+    widget_options: list[str] = field(default_factory=list)
+    # Unified text corpus (markdown + headings + metric pairs + dataframe text) so
+    # value-plausibility scans catch a value regardless of which channel rendered it.
+    text: str = ""
 
 
 # ── Core harness ─────────────────────────────────────────────────────────────
@@ -186,6 +194,41 @@ def run_page_as_team(
 
         markdown_text = "\n".join(getattr(elem, "value", "") or "" for elem in list(getattr(at, "markdown", []) or []))
 
+        # Headings / captions / plain text — these are SEPARATE Streamlit element
+        # types from st.markdown and are NOT included in markdown_text above.
+        headings: list[str] = []
+        for _attr in ("title", "header", "subheader", "caption", "text"):
+            for elem in list(getattr(at, _attr, []) or []):
+                try:
+                    val = getattr(elem, "value", None)
+                    if val:
+                        headings.append(str(val))
+                except Exception:  # noqa: BLE001
+                    pass
+
+        # Widget option labels (multiselect / selectbox) — option text is NOT in markdown.
+        widget_options: list[str] = []
+        for _attr in ("multiselect", "selectbox"):
+            for elem in list(getattr(at, _attr, []) or []):
+                try:
+                    opts = getattr(elem, "options", None) or []
+                    widget_options.extend(str(o) for o in opts)
+                except Exception:  # noqa: BLE001
+                    pass
+
+        # Unified text corpus so value-plausibility scans catch a value regardless of
+        # which channel rendered it (markdown vs heading vs metric vs dataframe text).
+        _text_parts: list[str] = [markdown_text] if markdown_text else []
+        _text_parts.extend(headings)
+        for _m in metrics:
+            _text_parts.append(f"{_m.get('label', '')}: {_m.get('value', '')}")
+        for _df in dataframes:
+            try:
+                _text_parts.append(_df.to_string())
+            except Exception:  # noqa: BLE001
+                pass
+        text_corpus = "\n".join(p for p in _text_parts if p)
+
         return HarnessResult(
             page=page_path,
             team=team_name,
@@ -197,6 +240,9 @@ def run_page_as_team(
             dataframes=dataframes,
             metrics=metrics,
             markdown=markdown_text,
+            headings=headings,
+            widget_options=widget_options,
+            text=text_corpus,
         )
     finally:
         # Restore prior MULTI_USER (None → unset) so there is no env bleed.
