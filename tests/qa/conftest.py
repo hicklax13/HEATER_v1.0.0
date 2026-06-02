@@ -102,3 +102,32 @@ def run_page_as_team():
     sys.modules["qa_harness"] = mod
     spec.loader.exec_module(mod)
     return mod.run_page_as_team
+
+
+# ── Generous per-test timeout for the render-heavy qa suite ──────────────────
+
+
+def pytest_collection_modifyitems(config, items):
+    """Give qa tests a generous timeout when they don't declare their own.
+
+    The per-page deep modules and the ownership module render all 12 teams in a
+    module-scoped fixture (the 2-page ownership fixture renders 24).  That batch
+    wall-time blows the repo-global ``timeout = 120`` (pyproject.toml
+    ``pytest-timeout``), which on Windows uses the ``thread`` method and kills the
+    whole worker process mid-render.  Apply a 3000s ceiling to any qa item that
+    doesn't set its own ``@pytest.mark.timeout`` (the smoke suite sets its own
+    1200s).  3000s covers the worst realistic batch (24 renders * 180s
+    per-render AppTest cap = 4320s never occurs because real renders are ~15-90s;
+    3000s is comfortable headroom).  The per-render AppTest ``default_timeout=180``
+    still bounds any single hung render.
+
+    Path-filtered to ``tests/qa`` so that running the FULL repo suite (where this
+    sub-package conftest is still loaded) never weakens the 120s ceiling for
+    non-qa tests.
+    """
+    for item in items:
+        path = str(getattr(item, "fspath", "")).replace("\\", "/")
+        if "/tests/qa/" not in path and "/qa/" not in path:
+            continue
+        if item.get_closest_marker("timeout") is None:
+            item.add_marker(pytest.mark.timeout(3000))

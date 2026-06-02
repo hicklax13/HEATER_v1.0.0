@@ -45,8 +45,13 @@ def _is_bad_number(s) -> bool:
 
 
 def _strip_html(text: str) -> str:
-    """Remove HTML tags so regex matching hits the actual displayed numbers."""
-    return re.sub(r"<[^>]+>", " ", text)
+    """Strip HTML — INCLUDING <style>/<script> block CONTENT — so the percent
+    regex hits real win-probabilities, not CSS values like ``saturate(180%)`` /
+    ``background-position: -200%`` that survive naive tag-stripping and were
+    mis-read as >100% win-probs (2026-06-02 deep-run false positive INFRA-3)."""
+    t = text or ""
+    t = re.sub(r"<(style|script)\b[^>]*>.*?</\1>", " ", t, flags=re.IGNORECASE | re.DOTALL)
+    return re.sub(r"<[^>]+>", " ", t)
 
 
 @pytest.fixture(scope="module")

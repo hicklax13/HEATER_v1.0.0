@@ -72,7 +72,7 @@ def run_page_as_team(
     page_path: str,
     team_name: str,
     is_admin: bool = False,
-    timeout: float = 90.0,
+    timeout: float = 180.0,
 ) -> HarnessResult:
     """Run a HEATER page headlessly as a specific team/role.
 
@@ -86,8 +86,12 @@ def run_page_as_team(
     is_admin:
         When True the ``qa_admin`` user is used instead of the per-team slug.
     timeout:
-        AppTest run timeout in seconds (default 90s — pages hit SQLite fallback
-        paths under the network guard, which is slower than live Yahoo).
+        AppTest run timeout in seconds (default 180s). Under the test network
+        guard, each Yahoo fetch burns ~15s (backoff retries until the 15s
+        ThreadPoolExecutor cap) before falling back to SQLite, so a page that
+        makes several Yahoo calls (e.g. Closer Monitor) can take 60-120s to
+        render — well above live-Yahoo latency. 180s absorbs that plus machine
+        load variance; a genuinely hung render is still bounded.
 
     Returns
     -------
@@ -121,6 +125,18 @@ def run_page_as_team(
                     f"QA user {username!r} not found — run `.venv\\Scripts\\python.exe scripts\\qa_seed_local.py`"
                 ),
             )
+
+        # Reset module-global league caches so one team's totals / FA pool can't
+        # bleed into the next team's render in this shared serial process. The
+        # standings_utils caches hold league-global data (so this is defense-in-
+        # depth, not a production bug), but it keeps per-team value/ownership
+        # assertions honest. See the 2026-06-02 silent-failure audit, Finding 2.
+        try:
+            from src import standings_utils
+
+            standings_utils.clear_cache()
+        except Exception:  # noqa: BLE001
+            pass
 
         # Build absolute path relative to repo root for AppTest.
         abs_path = str(_repo_root / page_path)

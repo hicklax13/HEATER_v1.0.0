@@ -22,12 +22,15 @@ _BAD = ("nan", "none", "inf", "-inf", "")  # case-insensitive sentinels in displ
 # These are intentionally broad: they look for the display-formatted values
 # that _compute_category_totals() + format_stat() produce.
 #
-# AVG / OBP: rendered as ".NNN"  (3 decimal places, no leading 0)
+# AVG / OBP: rendered as ".NNN" (3 decimals, no leading 0). This is the ONLY
+# rate stat with a true mathematical ceiling (<= 1.0), so it is the only one
+# safe to range-check by scanning rendered HTML.
 _RE_AVG_OBP = re.compile(r"\.\d{3}")
-# ERA: rendered as "N.NN" (e.g. "3.85")
-_RE_ERA = re.compile(r"\bERA\b.*?(\d{1,2}\.\d{2})", re.IGNORECASE)
-# WHIP: rendered as "N.NN" (e.g. "1.22")
-_RE_WHIP = re.compile(r"\bWHIP\b.*?(\d{1,2}\.\d{2})", re.IGNORECASE)
+# NOTE: ERA/WHIP are intentionally NOT scanned. They have no upper bound (a
+# 1-out blowup yields ERA 162 / WHIP 18 — real, correctly displayed), and a
+# keyword-anchored scan of the roster table matched generic stat cells, not the
+# ERA/WHIP values (2026-06-02 deep-run false positive INFRA-2). NaN/inf in a
+# displayed rate stat is covered by test_my_team_no_nan_metrics + the render gate.
 # Category-rank context: e.g. "rank: 7" or ">7<" inside rank-related HTML cells.
 _RE_RANK = re.compile(r"\brank[:\s]*(\d{1,2})\b", re.IGNORECASE)
 # Roster count from the banner teaser that the page renders via st.markdown:
@@ -40,8 +43,12 @@ def _is_bad_number(s) -> bool:
 
 
 def _strip_html(text: str) -> str:
-    """Remove HTML tags so regex matching hits the actual displayed numbers."""
-    return re.sub(r"<[^>]+>", " ", text)
+    """Strip HTML — INCLUDING <style>/<script> block CONTENT — so regex matching
+    hits actual displayed numbers, not CSS values like ``saturate(180%)`` that
+    survive naive tag-stripping (2026-06-02 deep-run false positive)."""
+    t = text or ""
+    t = re.sub(r"<(style|script)\b[^>]*>.*?</\1>", " ", t, flags=re.IGNORECASE | re.DOTALL)
+    return re.sub(r"<[^>]+>", " ", t)
 
 
 @pytest.fixture(scope="module")
@@ -125,16 +132,16 @@ def test_my_team_roster_dataframe_plausible(results):
 
 
 def test_my_team_rate_stats_in_range(results):
-    """Scan .markdown for rate-stat values; any found must be in plausible ranges.
+    """Scan .markdown for AVG/OBP values; any found must be in [0, 1].
 
-    My Team renders category totals (AVG, OBP, ERA, WHIP) as custom HTML via
-    st.markdown.  We strip tags and run tolerant regex; we NEVER fail because a
+    My Team renders category totals as custom HTML via st.markdown.  We strip
+    tags (incl. <style> blocks) and run a tolerant regex; we NEVER fail because a
     pattern is absent — only when a matched value is out of range.
 
-    Plausible ranges (CLAUDE.md / baseball reality):
-      AVG/OBP expressed as ".NNN" strings: 0 ≤ value ≤ 1
-      ERA: 0 ≤ value ≤ 20
-      WHIP: 0 ≤ value ≤ 4
+    Only AVG/OBP is scanned: it has a true ceiling (<= 1.0).  ERA/WHIP are
+    deliberately NOT range-checked here — they are unbounded for small samples
+    (ERA 162 on 0.33 IP is real) and a roster-table scan matched the wrong cells
+    (INFRA-2, 2026-06-02).  NaN/inf is covered by test_my_team_no_nan_metrics.
     """
     bad = []
     for team, r in results.items():
@@ -143,7 +150,7 @@ def test_my_team_rate_stats_in_range(results):
 
         plain = _strip_html(r.markdown)
 
-        # --- AVG / OBP: all ".NNN" tokens ---
+        # AVG / OBP: all ".NNN" tokens — true mathematical ceiling of 1.0
         for m in _RE_AVG_OBP.finditer(plain):
             raw = m.group(0)  # ".275"
             try:
@@ -152,26 +159,6 @@ def test_my_team_rate_stats_in_range(results):
                 continue
             if not (0.0 <= val <= 1.0):
                 bad.append((team, "AVG/OBP", raw, "outside [0, 1]"))
-
-        # --- ERA ---
-        for m in _RE_ERA.finditer(plain):
-            raw = m.group(1)
-            try:
-                val = float(raw)
-            except ValueError:
-                continue
-            if not (0.0 <= val <= 20.0):
-                bad.append((team, "ERA", raw, "outside [0, 20]"))
-
-        # --- WHIP ---
-        for m in _RE_WHIP.finditer(plain):
-            raw = m.group(1)
-            try:
-                val = float(raw)
-            except ValueError:
-                continue
-            if not (0.0 <= val <= 4.0):
-                bad.append((team, "WHIP", raw, "outside [0, 4]"))
 
     assert not bad, "My Team out-of-range rate stats:\n" + "\n".join(
         f"  team={b[0]}  stat={b[1]}  value={b[2]}  reason={b[3]}" for b in bad
