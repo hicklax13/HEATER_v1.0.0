@@ -503,6 +503,33 @@ def sec(title):
     st.markdown(f'<div class="sec-head">{title}</div>', unsafe_allow_html=True)
 
 
+def no_league_data_message(reason: str = "") -> str:
+    """Member-facing message for the empty-league-data state, adapted to WHY it
+    is empty (from ``YahooDataService.data_unavailable_reason()``).
+
+    F3 (2026-06-02 silent-failure sweep): the four personalized pages used to show
+    a single generic "No league data loaded — connect your Yahoo league" string,
+    which implies the league was never connected even when the real cause is a
+    transient Yahoo timeout (Yahoo slow → SQLite empty). This makes the message
+    honest for the timeout/error cases while keeping the original guidance for the
+    genuinely-not-loaded case.
+    """
+    if reason == "timeout":
+        return (
+            "Live league data timed out just now (Yahoo was slow to respond). It may "
+            "still be warming up — use the Refresh Yahoo Data button, or reload in a moment."
+        )
+    if reason == "error":
+        return (
+            "League data is temporarily unavailable (a data fetch failed). Use the "
+            "Refresh Yahoo Data button, or reload in a moment."
+        )
+    return (
+        "No league data loaded yet. It loads automatically on app launch and may still "
+        "be warming up; if this persists, reconnect your Yahoo league in Connect League."
+    )
+
+
 # ── Plotly Theme Helpers ───────────────────────────────────────────
 
 

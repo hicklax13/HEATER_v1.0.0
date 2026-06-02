@@ -297,6 +297,26 @@ class YahooDataService:
     # Page-facing accessors
     # ------------------------------------------------------------------
 
+    def data_unavailable_reason(self, key: str = "rosters") -> str:
+        """Classify WHY a page-facing fetch came back empty, for a clearer
+        member message.
+
+        Returns ``"timeout"`` when the most recent live fetch for ``key`` hung
+        past the 15s cap (Yahoo slow → SQLite had nothing), ``"error"`` when it
+        raised, or ``""`` when there's no recorded failure (genuinely not
+        connected / no data yet). Reads the last error from cache stats.
+
+        F3 (2026-06-02 silent-failure sweep): the empty state previously always
+        showed a generic "no league data — connect your Yahoo league" message
+        that implied "never connected", masking a transient Yahoo timeout.
+        """
+        err = (self._stats.errors.get(key) or "").lower()
+        if "timeout" in err or "hung" in err:
+            return "timeout"
+        if err:
+            return "error"
+        return ""
+
     def get_rosters(self, force_refresh: bool = False) -> pd.DataFrame:
         """All 12 teams' rosters. Same schema as ``load_league_rosters()``."""
         from src.database import load_league_rosters

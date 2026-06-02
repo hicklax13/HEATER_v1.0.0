@@ -26,7 +26,7 @@
 - **OWNERSHIP: all 4 tests PASSED.** No cross-team roster bleed on My Team or Lineup for any of the 12 teams; the signal is live (calibrated 26/26 on a probe); no wrong-team name shown. **Team isolation is verified for all 12 teams** — the launch-critical property the 2026-06-01 bug violated.
 - The 3 failures were INFRA-2 (My Team ERA/WHIP regex grabbed roster-table cells; `BUBBA CROSBY` "ERA 34.00" is actually a hitter's cell — confirmed the team has no >20-ERA pitcher), INFRA-3 (Matchup `\d{1,3}%` matched CSS `saturate(180%)`/`-200%`; real win-probs were `30%`), INFRA-4 (Closer render for `My Precious` hit the 90s AppTest cap from stacked 15s Yahoo-timeouts + concurrent load). None is a real implausible value, crash, or wrong-data.
 
-Fixes applied (INFRA-2/3/4 below); the 3 modules are being re-run (#3) to confirm a fully green suite.
+Fixes applied (INFRA-2/3/4 below) and **verified — run #3: the 3 fixed modules pass 15/15**. Because the fixes were isolated (2 test-logic edits + 2 additive timeout bumps that can only flip fail→pass), the 10 untouched modules + 4 ownership tests from run #2 remain valid. **Full per-team gate is GREEN: smoke 16/16, deep + ownership 71/71.** Committed locally as `9226e86`.
 
 ## Phase 3 — Browser walkthrough (live app, Railway)
 
@@ -52,6 +52,17 @@ Fixes applied (INFRA-2/3/4 below); the 3 modules are being re-run (#3) to confir
 | INFRA-4 | infra (test env) | Closer Monitor per-render timeout | `My Precious` Closer render hit the 90s AppTest cap (1 of 12 teams). Under the network guard each Yahoo fetch burns ~15s (backoff → 15s executor cap); Closer makes several, and concurrent browser load during the run pushed it over 90s. Not a crash — a `did-not-run` timeout. | deep run #2 | **fixed** — harness per-render `default_timeout` 90→180s; conftest ceiling 1800→3000s. Re-verifying in run #3. Non-blocking prod note: members triggering several live Yahoo calls per page — fine in prod (Yahoo fast, scheduler keeps SQLite warm), but a latency risk if Yahoo degrades. |
 
 ---
+
+## Phase 4 — Fixes applied (owner-approved 2026-06-02)
+
+QA-suite artifacts (INFRA-1..4) + the launch-critical ownership gap (F1) + harness cache-reset (F2) are fixed + verified (commits `70adbdc`, `9226e86`). Owner then approved fixing the member-facing items:
+
+- **F-UI-1 (done, local):** removed the dead `forms.gle/PLACEHOLDER` banner link in `app.py`; members use the in-app feedback popover. Guard: `test_no_placeholder_feedback_url_in_app`.
+- **F3 (done, local):** added `YahooDataService.data_unavailable_reason()` + `ui_shared.no_league_data_message(reason)`; wired the 4 personalized pages to show a timeout/error-aware message instead of the generic "connect your Yahoo league" string. Tests: `test_no_league_data_message.py` (8).
+- **F4 (done, local):** `compute_drop_cost` now reads league averages from `get_all_team_totals()` instead of the never-written `st.session_state["_cached_team_totals"]` key (it had silently used the .250/.320 defaults forever). Tests: `test_drop_cost_dynamic_league_avg.py` (2).
+- **F5:** left as-is (latent, unreachable from the sole production caller).
+
+Verification: F3+F4+F-UI-1 unit/guard tests green; full main-suite regression gate (excl. `qa/`) running; then owner-confirmed push → Railway redeploy → live re-verify + the authenticated browser walkthrough.
 
 ## Triage notes
 _(adversarial confirmation that each finding is real, not a harness artifact)_

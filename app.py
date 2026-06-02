@@ -118,8 +118,7 @@ st.markdown(
         width: 100%;
         box-sizing: border-box;
     ">
-        HEATER Beta &mdash; Thanks for testing! &nbsp;
-        <a href="https://forms.gle/PLACEHOLDER" target="_blank" style="color: #ffd60a !important; text-decoration: underline;">Share feedback</a>
+        HEATER Beta &mdash; Thanks for testing! Use the in-app feedback button to share notes.
     </div>
     """,
     unsafe_allow_html=True,

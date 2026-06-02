@@ -409,23 +409,28 @@ def compute_drop_cost(
         # Uses dynamic league averages when available, not hardcoded .245/.310.
         avg = float(row.get("avg", 0) or 0)
         obp = float(row.get("obp", 0) or 0)
-        _lg_avg = 0.250  # Dynamic: compute from league data if available
+        _lg_avg = 0.250  # Prior-season defaults; overridden by live league data below.
         _lg_obp = 0.320
         try:
-            import streamlit as st
+            # F4 (2026-06-02): derive league averages from the canonical
+            # module-cached totals, NOT st.session_state["_cached_team_totals"]
+            # (a key nothing writes — the old read always missed, silently
+            # pinning these to the .250/.320 defaults). get_all_team_totals()
+            # returns {team: {CATEGORY: total}} with uppercase category keys.
+            from src.standings_utils import get_all_team_totals
 
-            _cached = st.session_state.get("_cached_team_totals")
-            if _cached:
-                _all_avgs = [t.get("AVG", 0) for t in _cached.values() if t.get("AVG", 0) > 0]
+            _team_totals = get_all_team_totals()
+            if _team_totals:
+                _all_avgs = [t.get("AVG", 0) for t in _team_totals.values() if t.get("AVG", 0) > 0]
                 if _all_avgs:
                     _lg_avg = sum(_all_avgs) / len(_all_avgs)
-                _all_obps = [t.get("OBP", 0) for t in _cached.values() if t.get("OBP", 0) > 0]
+                _all_obps = [t.get("OBP", 0) for t in _team_totals.values() if t.get("OBP", 0) > 0]
                 if _all_obps:
                     _lg_obp = sum(_all_obps) / len(_all_obps)
         except Exception as exc:
             logger.warning(
-                "waiver_wire: failed to read cached league AVG/OBP from session_state; "
-                "drop-cost adjustment will use prior season defaults (.250/.320): %s",
+                "waiver_wire: failed to read league AVG/OBP from get_all_team_totals(); "
+                "drop-cost adjustment will use prior-season defaults (.250/.320): %s",
                 exc,
                 exc_info=True,
             )

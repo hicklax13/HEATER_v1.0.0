@@ -37,6 +37,7 @@ from src.ui_shared import (
     THEME,
     format_stat,
     inject_custom_css,
+    no_league_data_message,
     page_timer_footer,
     page_timer_start,
     render_compact_table,
@@ -164,10 +165,7 @@ ALL_CATS = list(CAT_DISPLAY_NAMES.keys())
 yds = get_yahoo_data_service()
 rosters = yds.get_rosters()
 if rosters.empty:
-    st.warning(
-        "No league data loaded. Connect your Yahoo league in Connect League, "
-        "or league data will load automatically on next app launch."
-    )
+    st.warning(no_league_data_message(yds.data_unavailable_reason()))
     st.stop()
 
 user_team_name = resolve_viewer_team_name(rosters)
