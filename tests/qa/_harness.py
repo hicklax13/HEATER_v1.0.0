@@ -50,6 +50,11 @@ class HarnessResult:
     exception: str | None = None
     errors: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    # Rendered output (populated only on a successful run) so deep per-page
+    # tests can assert value-plausibility, not just crash-freedom.
+    dataframes: list = field(default_factory=list)  # every st.dataframe / st.table value
+    metrics: list = field(default_factory=list)  # [{"label","value"}] from st.metric
+    markdown: str = ""  # concatenated st.markdown text (custom HTML tables live here)
 
 
 # ── Core harness ─────────────────────────────────────────────────────────────
@@ -154,6 +159,33 @@ def run_page_as_team(
             except AttributeError:
                 warnings.append(repr(elem))
 
+        # Capture rendered data so deep per-page tests can assert value
+        # plausibility (not just crash-freedom). Index-robust: collect ALL
+        # dataframes/tables/metrics + the concatenated markdown text.
+        dataframes: list = []
+        for elem in list(getattr(at, "dataframe", []) or []):
+            try:
+                dataframes.append(elem.value)
+            except Exception:  # noqa: BLE001
+                pass
+        try:
+            for elem in list(getattr(at, "table", []) or []):
+                try:
+                    dataframes.append(elem.value)
+                except Exception:  # noqa: BLE001
+                    pass
+        except Exception:  # noqa: BLE001 - some Streamlit versions lack .table
+            pass
+
+        metrics: list = []
+        for elem in list(getattr(at, "metric", []) or []):
+            try:
+                metrics.append({"label": elem.label, "value": elem.value})
+            except Exception:  # noqa: BLE001
+                pass
+
+        markdown_text = "\n".join(getattr(elem, "value", "") or "" for elem in list(getattr(at, "markdown", []) or []))
+
         return HarnessResult(
             page=page_path,
             team=team_name,
@@ -162,6 +194,9 @@ def run_page_as_team(
             exception=page_exception,
             errors=errors,
             warnings=warnings,
+            dataframes=dataframes,
+            metrics=metrics,
+            markdown=markdown_text,
         )
     finally:
         # Restore prior MULTI_USER (None → unset) so there is no env bleed.
