@@ -153,4 +153,14 @@ def seed(*, min_teams: int = 12) -> None:
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
+    # Windows consoles often default to cp1252, which cannot encode the emoji in
+    # some team names (e.g. '🏆 Team Hickey'). An unguarded print would crash the
+    # seeder mid-run — potentially before qa_admin is created. Replace unencodable
+    # characters instead of crashing. Guarded + only on direct invocation, so
+    # importing qa_username for the test never touches pytest's output capture.
+    try:
+        sys.stdout.reconfigure(errors="replace")
+        sys.stderr.reconfigure(errors="replace")
+    except Exception:  # noqa: BLE001 - best-effort console hardening
+        pass
     seed()
