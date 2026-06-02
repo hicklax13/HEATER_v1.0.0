@@ -1,14 +1,13 @@
 """Run any HEATER page headlessly as a chosen team/role and report what broke.
 
-Usage from other qa tests:
-    # Load by file path (avoids the installed `tests` package collision):
-    import importlib.util, sys
-    from pathlib import Path
-    _h = Path(__file__).resolve().parent / "_harness.py"
-    _spec = importlib.util.spec_from_file_location("qa_harness", _h)
-    _mod = importlib.util.module_from_spec(_spec)
-    _spec.loader.exec_module(_mod)
-    run_page_as_team = _mod.run_page_as_team
+Usage from other qa tests — PREFER the conftest fixture (no import boilerplate,
+and it sidesteps the installed `tests` package collision in .venv):
+
+    def test_my_page(run_page_as_team, team_names):
+        r = run_page_as_team("pages/1_My_Team.py", team_names[0])
+        assert r.ran and r.exception is None and not r.errors
+
+(The fixture lives in tests/qa/conftest.py and simply returns this function.)
 """
 
 from __future__ import annotations
@@ -85,76 +84,88 @@ def run_page_as_team(
         ``st.exception`` elements) or the Python exception message.  ``.errors``
         lists all ``st.error`` message bodies.
     """
-    # Must be set BEFORE AppTest runs so multi_user_enabled() returns True
-    # when the page module is imported.
+    # Scope MULTI_USER to this call only, restoring it in the finally below.
+    # Without this, the harness would leave MULTI_USER=1 set process-wide and
+    # leak into MULTI_USER-off (v1 back-compat) tests when the qa suite shares a
+    # process with the main suite (e.g. the Task-6 full-suite re-verification),
+    # silently corrupting their results.
+    _prev_multi_user = os.environ.get("MULTI_USER")
     os.environ["MULTI_USER"] = "1"
-
-    username = "qa_admin" if is_admin else qa_username(team_name)
-
-    # Late import so the MULTI_USER env is already set when auth.py loads.
-    from src.auth import get_user
-
-    user = get_user(username)
-    if user is None:
-        return HarnessResult(
-            page_path,
-            team_name,
-            is_admin,
-            ran=False,
-            exception=(f"QA user {username!r} not found — run `.venv\\Scripts\\python.exe scripts\\qa_seed_local.py`"),
-        )
-
-    # Build absolute path relative to repo root for AppTest.
-    abs_path = str(_repo_root / page_path)
-
-    at = AppTest.from_file(abs_path, default_timeout=timeout)
-
-    # Seed the session so require_auth() passes without a login redirect.
-    # _auth_bootstrap_done skips _ensure_session_bootstrap() (init_db already ran).
-    at.session_state["auth_user"] = dict(user)
-    at.session_state["_auth_bootstrap_done"] = True
-
     try:
-        at.run()
-    except Exception as e:  # page raised before/while rendering
+        username = "qa_admin" if is_admin else qa_username(team_name)
+
+        # Late import so the MULTI_USER env is already set when auth.py loads.
+        from src.auth import get_user
+
+        user = get_user(username)
+        if user is None:
+            return HarnessResult(
+                page_path,
+                team_name,
+                is_admin,
+                ran=False,
+                exception=(
+                    f"QA user {username!r} not found — run `.venv\\Scripts\\python.exe scripts\\qa_seed_local.py`"
+                ),
+            )
+
+        # Build absolute path relative to repo root for AppTest.
+        abs_path = str(_repo_root / page_path)
+
+        at = AppTest.from_file(abs_path, default_timeout=timeout)
+
+        # Seed the session so require_auth() passes without a login redirect.
+        # _auth_bootstrap_done skips _ensure_session_bootstrap() (init_db already ran).
+        at.session_state["auth_user"] = dict(user)
+        at.session_state["_auth_bootstrap_done"] = True
+
+        try:
+            at.run()
+        except Exception as e:  # page raised before/while rendering
+            return HarnessResult(
+                page=page_path,
+                team=team_name,
+                is_admin=is_admin,
+                ran=False,
+                exception=f"{type(e).__name__}: {e}",
+            )
+
+        # Extract exception elements (st.exception() calls within the page).
+        page_exception: str | None = None
+        if at.exception:
+            try:
+                page_exception = at.exception[0].value
+            except (AttributeError, IndexError):
+                page_exception = repr(at.exception[0])
+
+        # Extract st.error() elements.
+        errors: list[str] = []
+        for elem in at.error:
+            try:
+                errors.append(elem.value)
+            except AttributeError:
+                errors.append(repr(elem))
+
+        # Extract st.warning() elements.
+        warnings: list[str] = []
+        for elem in at.warning:
+            try:
+                warnings.append(elem.value)
+            except AttributeError:
+                warnings.append(repr(elem))
+
         return HarnessResult(
             page=page_path,
             team=team_name,
             is_admin=is_admin,
-            ran=False,
-            exception=f"{type(e).__name__}: {e}",
+            ran=True,
+            exception=page_exception,
+            errors=errors,
+            warnings=warnings,
         )
-
-    # Extract exception elements (st.exception() calls within the page).
-    page_exception: str | None = None
-    if at.exception:
-        try:
-            page_exception = at.exception[0].value
-        except (AttributeError, IndexError):
-            page_exception = repr(at.exception[0])
-
-    # Extract st.error() elements.
-    errors: list[str] = []
-    for elem in at.error:
-        try:
-            errors.append(elem.value)
-        except AttributeError:
-            errors.append(repr(elem))
-
-    # Extract st.warning() elements.
-    warnings: list[str] = []
-    for elem in at.warning:
-        try:
-            warnings.append(elem.value)
-        except AttributeError:
-            warnings.append(repr(elem))
-
-    return HarnessResult(
-        page=page_path,
-        team=team_name,
-        is_admin=is_admin,
-        ran=True,
-        exception=page_exception,
-        errors=errors,
-        warnings=warnings,
-    )
+    finally:
+        # Restore prior MULTI_USER (None → unset) so there is no env bleed.
+        if _prev_multi_user is None:
+            os.environ.pop("MULTI_USER", None)
+        else:
+            os.environ["MULTI_USER"] = _prev_multi_user

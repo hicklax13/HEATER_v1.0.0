@@ -13,13 +13,12 @@ Run SERIALLY — no -n flag:
 
 from __future__ import annotations
 
-import os
-
 import pytest
 
-# The qa suite is auth-on by design — set MULTI_USER before any module
-# that calls multi_user_enabled() at import time.
-os.environ["MULTI_USER"] = "1"
+# NOTE: MULTI_USER is NOT set at import time on purpose. run_page_as_team()
+# scopes the flag to each page run (set on entry, restored on exit), so the qa
+# suite never leaks MULTI_USER=1 into MULTI_USER-off tests when run in the same
+# process as the main suite.
 
 # ── Skip-gate constants ───────────────────────────────────────────────────────
 
@@ -72,3 +71,34 @@ def team_names() -> list[str]:
 
     df = load_league_rosters()
     return sorted(set(df["team_name"].dropna()))
+
+
+# ── Harness fixture (the canonical way fleet tests get the page runner) ───────
+
+
+@pytest.fixture(scope="session")
+def run_page_as_team():
+    """Return the per-team page runner from tests/qa/_harness.py.
+
+    Fleet test files should depend on THIS fixture rather than importing
+    _harness.py directly — it loads the harness by file path (sidestepping the
+    broken installed ``tests`` package in .venv) once per session and hands back
+    the ``run_page_as_team`` callable:
+
+        def test_my_page(run_page_as_team, team_names):
+            r = run_page_as_team("pages/1_My_Team.py", team_names[0])
+            assert r.ran and r.exception is None and not r.errors
+    """
+    import importlib.util
+    import sys
+    from pathlib import Path
+
+    harness_path = Path(__file__).resolve().parent / "_harness.py"
+    if "qa_harness" in sys.modules:
+        return sys.modules["qa_harness"].run_page_as_team
+
+    spec = importlib.util.spec_from_file_location("qa_harness", harness_path)
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules["qa_harness"] = mod
+    spec.loader.exec_module(mod)
+    return mod.run_page_as_team
