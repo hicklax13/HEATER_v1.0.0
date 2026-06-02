@@ -199,8 +199,8 @@ def main():
     # at n_sims=5000; surfaced behind a sidebar toggle so users can opt out
     # if they want pure-composite ranking only.
     _title_odds_enabled = st.sidebar.toggle(
-        "Re-rank by title odds (slower, ~5s)",
-        value=True,
+        "Re-rank by title odds (slower, ~1 min)",
+        value=False,
         help=(
             "When ON, deep-evaluate the top 15 candidates with playoff/championship "
             "Monte Carlo and re-rank by a blend of Δchamp_prob (60%) + composite "

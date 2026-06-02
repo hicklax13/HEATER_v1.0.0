@@ -702,13 +702,39 @@ with main:
         # V4: Use MatchupContextService for opponent intel (unified)
         # 2026-05-20: same rename as in pages/1_My_Team.py —
         # get_matchup_context_service() was removed. Use get_matchup_context().
+        # F-VIS-2 (2026-06-02 browser walkthrough): resolve the VIEWER's own
+        # opponent and pass it explicitly. A no-opponent_name call uses the
+        # global single-user path (get_current_opponent),
+        # which under MULTI_USER mis-resolves — a member saw streaming targets
+        # "(vs <their OWN team>)". Mirror 5_Matchup_Planner.py: find the opponent
+        # for THIS member's team from the league schedule (fallback: live matchup).
         _opp_profile = None
         try:
             from src.matchup_context import get_matchup_context
 
-            _opp_profile = get_matchup_context().get_opponent_context()
+            _opp_name = None
+            try:
+                from src.opponent_intel import get_week_number
+                from src.standings_engine import find_user_opponent
+
+                _matchup = yds.get_matchup()
+                _week = int(_matchup["week"]) if _matchup and _matchup.get("week") else get_week_number()
+                _sched = yds.get_full_league_schedule() or {}
+                if _sched and user_team_name:
+                    _opp_name = find_user_opponent(_sched, _week, user_team_name)
+                if not _opp_name and _matchup:
+                    _opp_name = _matchup.get("opp_name")
+            except Exception:
+                _opp_name = None
+
+            # Never attribute streaming to the viewer's OWN team (defensive guard).
+            if _opp_name and _opp_name == user_team_name:
+                _opp_name = None
+
+            if _opp_name:
+                _opp_profile = get_matchup_context().get_opponent_context(opponent_name=_opp_name)
         except Exception:
-            pass
+            _opp_profile = None
 
         # Exclude ALL rostered players (all 12 teams), not just user's team
         from src.database import get_all_rostered_player_ids

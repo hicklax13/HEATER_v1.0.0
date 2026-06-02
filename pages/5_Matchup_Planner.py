@@ -350,33 +350,26 @@ def _build_category_prob_html(cat_data: list[dict]) -> str:
             user_str = f"{user_proj:.1f}"
             opp_str = f"{opp_proj:.1f}"
 
-        row_html = f"""
-        <div style="display:flex;align-items:center;gap:10px;padding:6px 0;
-                    border-bottom:1px solid rgba(0,0,0,0.06);">
-            <div style="width:55px;font-weight:700;font-size:13px;
-                        color:{header_color};flex-shrink:0;">{name}</div>
-            <div style="flex:1;position:relative;height:22px;
-                        background:rgba(0,0,0,0.05);border-radius:11px;overflow:hidden;">
-                <div style="position:absolute;top:0;left:0;height:100%;
-                            width:{max(2, min(pct, 100)):.1f}%;
-                            background:{bar_color};border-radius:11px;
-                            transition:width 0.3s ease;"></div>
-                <div style="position:absolute;top:0;left:0;width:100%;height:100%;
-                            display:flex;align-items:center;justify-content:center;
-                            font-size:11px;font-weight:700;color:{T["tx"]};
-                            text-shadow:0 0 3px rgba(255,255,255,0.8);">
-                    {pct:.0f}%
-                </div>
-            </div>
-            <div style="width:110px;font-size:11px;color:{T["tx2"]};
-                        text-align:right;flex-shrink:0;opacity:{conf_opacity};">
-                {user_str} vs {opp_str}{direction_hint}
-            </div>
-        </div>
-        """
+        # Single-line HTML, joined with "" (F-VIS-1, 2026-06-02 browser
+        # walkthrough). A multi-line pretty-printed f-string broke rendering:
+        # Streamlit's markdown treats lines indented 4+ spaces as a code block,
+        # and the blank line between rows terminated the first HTML block — so
+        # the 2nd+ category bars rendered as escaped raw HTML. Keeping each row on
+        # one logical line with no leading indentation, and joining with "", makes
+        # the whole bar set one uninterrupted HTML block.
+        row_html = (
+            f'<div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid rgba(0,0,0,0.06);">'
+            f'<div style="width:55px;font-weight:700;font-size:13px;color:{header_color};flex-shrink:0;">{name}</div>'
+            f'<div style="flex:1;position:relative;height:22px;background:rgba(0,0,0,0.05);border-radius:11px;overflow:hidden;">'
+            f'<div style="position:absolute;top:0;left:0;height:100%;width:{max(2, min(pct, 100)):.1f}%;background:{bar_color};border-radius:11px;transition:width 0.3s ease;"></div>'
+            f'<div style="position:absolute;top:0;left:0;width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:{T["tx"]};text-shadow:0 0 3px rgba(255,255,255,0.8);">{pct:.0f}%</div>'
+            f"</div>"
+            f'<div style="width:110px;font-size:11px;color:{T["tx2"]};text-align:right;flex-shrink:0;opacity:{conf_opacity};">{user_str} vs {opp_str}{direction_hint}</div>'
+            f"</div>"
+        )
         rows.append(row_html)
 
-    return "\n".join(rows)
+    return "".join(rows)
 
 
 def _build_win_prob_context_html(prob_data: dict) -> str:
