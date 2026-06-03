@@ -717,6 +717,48 @@ def _store_yahoo_adp(adp_records: list[dict]) -> int:
         conn.close()
 
 
+def _refresh_yahoo_aux(yahoo_client, yds=None) -> None:
+    """Refresh + log Yahoo settings and schedule beyond sync_to_db's rosters/
+    standings, so the scheduler keeps them fresh and the Data Freshness card
+    reports them Live. Each source is independent and non-fatal: a failure logs
+    an ``error`` status for that source and moves on. ``yds`` is injectable for
+    tests; in production a YahooDataService is built around the live client so
+    the write-through + session cache (24h TTLs) are reused.
+    """
+    from src.database import update_refresh_log, update_refresh_log_auto
+
+    if yds is None:
+        from src.yahoo_data_service import YahooDataService
+
+        yds = YahooDataService(yahoo_client=yahoo_client)
+
+    try:
+        settings = yds.get_settings(force_refresh=False)
+        update_refresh_log_auto(
+            "yahoo_settings",
+            len(settings) if settings else 0,
+            expected_min=1,
+            message="league settings",
+        )
+    except Exception as exc:
+        update_refresh_log("yahoo_settings", "error", message=str(exc)[:200])
+
+    try:
+        schedule = yds.get_schedule(force_refresh=False)
+        n = len(schedule) if schedule else 0
+        update_refresh_log_auto("yahoo_schedule", n, expected_min=1, message=f"{n} weeks")
+    except Exception as exc:
+        update_refresh_log("yahoo_schedule", "error", message=str(exc)[:200])
+
+    # Per-team matchup: one scoreboard fetch caches every team's matchup so all
+    # members (not just the token owner) read their own from SQLite.
+    try:
+        n_matchups = yds.sync_all_team_matchups()
+        update_refresh_log_auto("yahoo_matchup", n_matchups, expected_min=1, message=f"{n_matchups} team matchups")
+    except Exception as exc:
+        update_refresh_log("yahoo_matchup", "error", message=str(exc)[:200])
+
+
 def _bootstrap_yahoo(progress: BootstrapProgress, yahoo_client=None) -> str:
     """Sync Yahoo league data if client is available."""
     from src.database import get_connection, update_refresh_log, update_refresh_log_auto
@@ -753,6 +795,11 @@ def _bootstrap_yahoo(progress: BootstrapProgress, yahoo_client=None) -> str:
             expected_min=1,
             message=f"{roster_count} roster rows in league_rosters",
         )
+
+        # Settings + schedule aren't covered by sync_to_db; refresh + log them
+        # so all Data Freshness rows can report Live (24h TTLs keep it cheap).
+        _refresh_yahoo_aux(yahoo_client)
+
         return f"Yahoo league data synced ({roster_count} rosters, {status})"
     except Exception as e:
         update_refresh_log("yahoo_data", "error", message=str(e)[:200])

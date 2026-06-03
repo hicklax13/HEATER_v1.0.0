@@ -423,11 +423,13 @@ class YahooDataService:
 
     def get_settings(self, force_refresh: bool = False) -> dict:
         """League settings (scoring categories, roster positions, etc.)."""
+        from src.database import load_league_settings
+
         return self._get_cached(
             key="settings",
             ttl=self._ttl.settings,
             fetch_fn=self._fetch_settings,
-            db_fallback_fn=lambda: {},
+            db_fallback_fn=load_league_settings,
             force=force_refresh,
         )
 
@@ -655,6 +657,9 @@ class YahooDataService:
         "standings": "yahoo_standings",
         "free_agents": "yahoo_free_agents",
         "transactions": "yahoo_transactions",
+        "settings": "yahoo_settings",
+        "schedule": "yahoo_schedule",
+        "matchup": "yahoo_matchup",
     }
 
     def get_data_freshness(self) -> dict[str, str]:
@@ -919,6 +924,36 @@ class YahooDataService:
             logger.debug("matchup DB fallback failed", exc_info=True)
         return None
 
+    def sync_all_team_matchups(self) -> int:
+        """Fetch every team's current-week matchup from the scoreboard and write
+        each to the per-team SQLite cache (``league_matchup_cache``). Returns the
+        number of teams cached. Lets read-only members read their OWN matchup
+        offline — the scheduler is the sole fetcher under MULTI_USER, and the
+        token-owner-only ``_fetch_and_sync_matchup`` never covered the other 11.
+        """
+        if not self._client or not self.is_connected():
+            return 0
+        try:
+            all_matchups = self._client.get_all_team_matchups()
+        except Exception:
+            logger.debug("get_all_team_matchups failed", exc_info=True)
+            return 0
+        if not all_matchups:
+            return 0
+
+        from src.database import save_matchup_cache
+
+        count = 0
+        for team_name, matchup in all_matchups.items():
+            try:
+                week = int(matchup.get("week", 0) or 0)
+                if team_name and week > 0:
+                    save_matchup_cache(team_name, week, matchup)
+                    count += 1
+            except Exception:
+                logger.debug("save_matchup_cache failed for %s", team_name, exc_info=True)
+        return count
+
     def _fetch_free_agents(self, max_players: int) -> pd.DataFrame:
         """Fetch free agents from Yahoo with pagination."""
         return self._client.get_all_free_agents(max_players=max_players)
@@ -928,8 +963,16 @@ class YahooDataService:
         return self._client.get_league_transactions()
 
     def _fetch_settings(self) -> dict:
-        """Fetch league settings from Yahoo."""
-        return self._client.get_league_settings()
+        """Fetch league settings from Yahoo and write through to SQLite."""
+        settings = self._client.get_league_settings()
+        if settings:
+            try:
+                from src.database import save_league_settings
+
+                save_league_settings(settings)
+            except Exception:
+                logger.debug("settings write-through failed", exc_info=True)
+        return settings
 
     def _fetch_draft_results(self) -> pd.DataFrame:
         """Fetch draft results from Yahoo and write-through to SQLite."""

@@ -57,7 +57,10 @@ def get_all_team_totals(
         import streamlit as st
 
         yds = st.session_state.get("_yahoo_data_service")
-        if yds is not None and yds.is_connected():
+        # Not gated on is_connected(): read-only MULTI_USER members never hold a
+        # live client, but the get_* methods fall back to the scheduler-written
+        # SQLite cache, so members get real Yahoo data instead of projections.
+        if yds is not None:
             standings_df = yds.get_standings()
             if standings_df is not None and not standings_df.empty:
                 if "category" in standings_df.columns and "team_name" in standings_df.columns:
@@ -145,7 +148,10 @@ def get_fa_pool(
         import streamlit as st
 
         yds = st.session_state.get("_yahoo_data_service")
-        if yds is not None and yds.is_connected():
+        # Not gated on is_connected(): read-only MULTI_USER members never hold a
+        # live client, but the get_* methods fall back to the scheduler-written
+        # SQLite cache, so members get real Yahoo data instead of projections.
+        if yds is not None:
             yahoo_fa = yds.get_free_agents()
             if yahoo_fa is not None and not yahoo_fa.empty and not player_pool.empty:
                 # Cross-reference Yahoo FAs with player_pool to get projections

@@ -489,6 +489,15 @@ def _init_db_tables_and_columns(conn):
             PRIMARY KEY (team_name, week)
         );
 
+        -- Single-row JSON cache of Yahoo league settings (scoring categories,
+        -- roster positions, etc.) so the scheduler can keep it fresh and
+        -- read-only members can read it offline (no live client of their own).
+        CREATE TABLE IF NOT EXISTS league_settings (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            settings_json TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
         CREATE TABLE IF NOT EXISTS yahoo_free_agents (
             player_key TEXT PRIMARY KEY,
             player_name TEXT NOT NULL,
@@ -2522,6 +2531,46 @@ def load_matchup_cache(team_name: str, week: int | None = None) -> dict | None:
             exc_info=True,
         )
         return None
+    finally:
+        conn.close()
+
+
+def save_league_settings(settings: dict) -> None:
+    """Persist Yahoo league settings as a single-row JSON blob.
+
+    Lets the scheduler keep settings fresh and read-only members read them
+    offline. No-ops on falsy input so a transient empty fetch can't clobber a
+    good cache.
+    """
+    if not settings:
+        return
+    import json as _json
+    from datetime import UTC, datetime
+
+    conn = get_connection()
+    try:
+        conn.execute(
+            "INSERT OR REPLACE INTO league_settings (id, settings_json, updated_at) VALUES (1, ?, ?)",
+            (_json.dumps(settings, default=str), datetime.now(UTC).isoformat()),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def load_league_settings() -> dict:
+    """Load cached Yahoo league settings. Returns ``{}`` when none stored."""
+    import json as _json
+
+    conn = get_connection()
+    try:
+        row = conn.execute("SELECT settings_json FROM league_settings WHERE id = 1").fetchone()
+        if row and row[0]:
+            return _json.loads(row[0])
+        return {}
+    except Exception as exc:
+        logger.warning("database.load_league_settings read failed: %s", exc, exc_info=True)
+        return {}
     finally:
         conn.close()
 

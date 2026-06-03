@@ -458,9 +458,16 @@ with ctx:
     _freshness = yds.get_data_freshness()
     _roster_fresh = _freshness.get("rosters", "Unknown")
     _fa_fresh = _freshness.get("free_agents", "Unknown")
-    _connected = yds.is_connected()
-    _sync_status = "Connected" if _connected else "Not connected"
-    _sync_color = T["ok"] if _connected else T["tx2"]
+    # Honest status under MULTI_USER: members never hold a live client, so report
+    # data availability (served by the scheduler) rather than session connection.
+    _status = yds.connection_status()
+    _sync_status = {
+        "connected": "Connected",
+        "server": "Live (via server)",
+        "warming": "Warming up",
+        "offline": "Not connected",
+    }.get(_status, "Not connected")
+    _sync_color = T["ok"] if _status in ("connected", "server") else T["tx2"]
     sync_html = (
         f'<div style="display:flex;justify-content:space-between;'
         f'padding:2px 0;font-size:12px;font-family:IBM Plex Mono,monospace;">'

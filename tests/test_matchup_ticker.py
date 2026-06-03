@@ -296,6 +296,50 @@ class TestGetCurrentMatchup:
         client._query = None
         assert client.get_current_matchup() is None
 
+    def test_get_all_team_matchups_covers_both_teams(self):
+        """One scoreboard matchup yields a card for BOTH teams, keyed by name —
+        the basis for per-team matchup population (all 12 members, not just the
+        token owner)."""
+        user = {
+            "R": "19",
+            "HR": "6",
+            "RBI": "14",
+            "SB": "3",
+            "AVG": ".243",
+            "OBP": ".364",
+            "W": "2",
+            "L": "0",
+            "SV": "0",
+            "K": "30",
+            "ERA": "1.38",
+            "WHIP": "1.15",
+        }
+        opp = {
+            "R": "21",
+            "HR": "3",
+            "RBI": "16",
+            "SB": "3",
+            "AVG": ".257",
+            "OBP": ".383",
+            "W": "2",
+            "L": "2",
+            "SV": "0",
+            "K": "37",
+            "ERA": "3.30",
+            "WHIP": "1.35",
+        }
+        client = self._make_client_with_mocks(user, opp)
+        client._ensure_auth = lambda: True
+
+        all_m = client.get_all_team_matchups()
+
+        assert set(all_m.keys()) == {"Team Hickey", "Opponent"}
+        assert all_m["Team Hickey"]["opp_name"] == "Opponent"
+        assert all_m["Opponent"]["opp_name"] == "Team Hickey"
+        # Symmetric perspectives: one team's wins are the other's losses.
+        assert all_m["Team Hickey"]["wins"] == all_m["Opponent"]["losses"]
+        assert all_m["Team Hickey"]["losses"] == all_m["Opponent"]["wins"]
+
 
 # ---------------------------------------------------------------------------
 # render_matchup_ticker (unit tests for data logic, not Streamlit rendering)

@@ -2110,6 +2110,145 @@ class YahooFantasyClient:
             logger.exception("Failed to get current matchup.")
             return None
 
+    def _determine_current_week(self) -> int:
+        """Best-effort current fantasy week: Yahoo game-weeks when available,
+        else a date-based fallback from the 2026 season start (Mar 23)."""
+        from datetime import UTC, datetime
+
+        today_dt = datetime.now(UTC)
+        today = today_dt.strftime("%Y-%m-%d")
+        _SEASON_START = datetime(2026, 3, 23, tzinfo=UTC)
+        _days_in = (today_dt - _SEASON_START).days
+        current_week = max(1, min(24, (_days_in // 7) + 1)) if _days_in >= 0 else 1
+        try:
+            _rate_limit()
+            weeks = self._query.get_game_weeks_by_game_id(game_id=int(self._query.game_id))
+            for w in weeks or []:
+                start = str(getattr(w, "start", ""))
+                end = str(getattr(w, "end", ""))
+                wk = getattr(w, "week", None)
+                if start and end and start <= today <= end:
+                    current_week = int(wk) if wk else current_week
+                    break
+        except Exception:
+            logger.debug(
+                "Could not determine current week from Yahoo API; using date-based fallback (week %d).",
+                current_week,
+                exc_info=True,
+            )
+        return current_week
+
+    def _build_team_matchup_result(self, m, focus_key: str, week: int) -> MatchupResult | None:
+        """Build a MatchupResult from ``focus_key``'s perspective within scoreboard
+        matchup ``m``. Returns None if ``focus_key`` is not one of the two teams.
+
+        Same parsing as get_current_matchup but parameterized on the focus team,
+        so get_all_team_matchups can build every team's card from one scoreboard.
+        """
+        teams = getattr(m, "teams", None)
+        if not teams:
+            return None
+        focus_key = str(focus_key)
+        team_info = []
+        for t in teams:
+            team_obj = getattr(t, "team", t)
+            tk = self._safe_str(getattr(team_obj, "team_key", ""))
+            tn = self._safe_str(getattr(team_obj, "name", ""))
+            team_info.append((tk, tn))
+        if focus_key not in [ti[0] for ti in team_info]:
+            return None
+
+        focus_name = ""
+        opp_key = ""
+        opp_name = ""
+        for tk, tn in team_info:
+            if tk == focus_key:
+                focus_name = tn
+            else:
+                opp_key = tk
+                opp_name = tn
+
+        status = self._safe_str(getattr(m, "status", ""))
+        focus_stats, focus_points = self._get_team_week_stats_raw(focus_key, week)
+        opp_stats, opp_points = self._get_team_week_stats_raw(opp_key, week)
+
+        wins = losses = ties = 0
+        categories = []
+        for cat in self._all_cats:
+            yv_str = focus_stats.get(cat, "-")
+            ov_str = opp_stats.get(cat, "-")
+            result = "-"
+            try:
+                yv = float(yv_str) if yv_str not in ("-", "") else None
+                ov = float(ov_str) if ov_str not in ("-", "") else None
+                if yv is not None and ov is not None:
+                    if cat in self._inverse_cats:
+                        if yv < ov:
+                            result = "WIN"
+                            wins += 1
+                        elif yv > ov:
+                            result = "LOSS"
+                            losses += 1
+                        else:
+                            result = "TIE"
+                            ties += 1
+                    else:
+                        if yv > ov:
+                            result = "WIN"
+                            wins += 1
+                        elif yv < ov:
+                            result = "LOSS"
+                            losses += 1
+                        else:
+                            result = "TIE"
+                            ties += 1
+            except (ValueError, TypeError):
+                pass
+            categories.append({"cat": cat, "you": yv_str, "opp": ov_str, "result": result})
+
+        return {
+            "week": week,
+            "status": status,
+            "user_name": focus_name,
+            "opp_name": opp_name,
+            "wins": wins,
+            "losses": losses,
+            "ties": ties,
+            "categories": categories,
+            "user_points": focus_points,
+            "opp_points": opp_points,
+        }
+
+    def get_all_team_matchups(self) -> dict:
+        """Every team's current-week matchup, keyed by team name.
+
+        One scoreboard fetch; builds a per-team MatchupResult for both sides of
+        each matchup. Lets the scheduler populate the per-team matchup cache so
+        ALL members (not just the token owner) get their own weekly matchup.
+        """
+        if not self._ensure_auth():
+            return {}
+        try:
+            current_week = self._determine_current_week()
+            _rate_limit()
+            scoreboard = self._query.get_league_scoreboard_by_week(chosen_week=current_week)
+            matchups = getattr(scoreboard, "matchups", []) or []
+            results: dict = {}
+            for m in matchups:
+                teams = getattr(m, "teams", None) or []
+                for t in teams:
+                    team_obj = getattr(t, "team", t)
+                    tk = self._safe_str(getattr(team_obj, "team_key", ""))
+                    if not tk:
+                        continue
+                    res = self._build_team_matchup_result(m, tk, current_week)
+                    if res and res.get("user_name"):
+                        results[res["user_name"]] = res
+            return results
+        except Exception:
+            logger.exception("Failed to get all team matchups.")
+            return {}
+
 
 def save_yahoo_token_json(text: str) -> tuple[bool, str]:
     """Validate pasted Yahoo OAuth token JSON and persist it to the volume.
