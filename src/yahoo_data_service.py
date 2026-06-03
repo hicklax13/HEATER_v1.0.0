@@ -152,12 +152,21 @@ def _age_freshness_label(age_seconds: float, ttl_seconds: float) -> str:
     """
     if ttl_seconds <= 0:
         ttl_seconds = 60.0
-    age_min = max(0, int(age_seconds / 60))
     if age_seconds < ttl_seconds:
-        return "Live (just now)" if age_min < 1 else f"Live ({age_min}m ago)"
-    if age_seconds < 2 * ttl_seconds:
-        return f"Cached ({age_min}m ago)"
-    return f"Stale ({age_min}m ago)"
+        prefix = "Live"
+    elif age_seconds < 2 * ttl_seconds:
+        prefix = "Cached"
+    else:
+        prefix = "Stale"
+    age_min = max(0, int(age_seconds / 60))
+    if age_min < 1:
+        return f"{prefix} (just now)"
+    if age_min < 60:
+        return f"{prefix} ({age_min}m ago)"
+    age_hr = age_min // 60
+    if age_hr < 24:
+        return f"{prefix} ({age_hr}h ago)"
+    return f"{prefix} ({age_hr // 24}d ago)"
 
 
 # ---------------------------------------------------------------------------
@@ -699,7 +708,7 @@ class YahooDataService:
             "settings",
             "schedule",
         ]:
-            ttl_seconds = float(getattr(self._ttl, key, 1800))
+            ttl_seconds = float(getattr(getattr(self, "_ttl", None), key, 1800))
             cache_key = f"{self._PREFIX}{key}"
             entry = store.get(cache_key)
             if isinstance(entry, _CacheEntry) and not entry.is_stale:

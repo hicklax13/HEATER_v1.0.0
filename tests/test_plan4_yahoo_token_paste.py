@@ -60,25 +60,38 @@ def test_page_admin_gated_and_logs_action_not_contents():
                 assert getattr(arg, "id", None) != "_yahoo_token_text"
 
 
-def test_admin_smoke_renders_yahoo_section(monkeypatch):
+def test_admin_smoke_renders_yahoo_section(tmp_path, monkeypatch):
     from streamlit.testing.v1 import AppTest
 
-    # The admin Yahoo-token section only renders under MULTI_USER. Set it
-    # explicitly so the test does not depend on ambient env state left by another
-    # test on the same xdist worker — the intermittent `-n auto` failure observed
-    # 2026-06-02 (the "Yahoo" subheader was absent whenever MULTI_USER was off).
+    from src.auth import ensure_bootstrap_admin
+
+    # Isolated DB + a REAL seeded admin. require_admin() -> require_auth()
+    # re-validates the session user against the DB (get_user), st.stop()-ing if
+    # the row is missing — which would skip the "Yahoo" subheader. The previous
+    # version set session_state but never created an "admin" row, so it passed
+    # only when another test on the same xdist worker happened to seed one first
+    # (the 2026-06-03 CI / -n auto flake). Seed deterministically instead.
+    db = tmp_path / "admin_yahoo.db"
+    monkeypatch.setattr("src.database.DB_PATH", db)
+    from src.database import init_db
+
+    init_db()
+
     monkeypatch.setenv("MULTI_USER", "1")
+    monkeypatch.setenv("ADMIN_USERNAME", "connor")
+    monkeypatch.setenv("ADMIN_PASSWORD", "pw")
+    monkeypatch.setenv("ADMIN_TEAM_NAME", "Team Hickey")
+    ensure_bootstrap_admin()
 
     at = AppTest.from_file(str(_PAGE))
     at.session_state["auth_user"] = {
-        "user_id": 1,
-        "username": "admin",
-        "is_admin": 1,
+        "username": "connor",
         "status": "active",
+        "is_admin": 1,
         "team_name": "Team Hickey",
     }
     at.session_state["_auth_bootstrap_done"] = True
     at.run(timeout=60)
-    assert not at.exception
+    assert not at.exception, [str(e) for e in at.exception]
     subheaders = [s.value for s in at.subheader]
-    assert any("Yahoo" in s for s in subheaders)
+    assert any("Yahoo" in s for s in subheaders), subheaders
