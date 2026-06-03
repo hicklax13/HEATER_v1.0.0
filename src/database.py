@@ -2130,6 +2130,41 @@ def clear_league_rosters():
         conn.close()
 
 
+# Roster-sync data-integrity guard (2026-06-02 live incident). The Yahoo roster
+# sync (``YahooFantasyClient.sync_to_db``) does ``clear_league_rosters()`` then
+# re-inserts whatever was fetched, so a *partial* fetch (Yahoo still reconnecting
+# after a token re-paste, or rate-limited) would replace a full league with an
+# incomplete one — the user's roster vanished. A fetch that drops a whole team,
+# or falls below this fraction of the cached row count, is treated as incomplete
+# and the caller KEEPS the existing cache rather than wiping it.
+_ROSTER_SYNC_MIN_ROW_FRACTION = 0.8
+
+
+def roster_fetch_is_complete(new_rosters_df, *, min_row_fraction: float = _ROSTER_SYNC_MIN_ROW_FRACTION) -> bool:
+    """Whether a freshly-fetched rosters frame is complete enough to safely
+    REPLACE the cached ``league_rosters`` (clear + reinsert).
+
+    Returns ``False`` (caller should KEEP the existing cache) when the fetch is
+    empty/malformed, has fewer teams than the cache, or loses more than
+    ``1 - min_row_fraction`` of total roster rows. When the cache is empty
+    (first-ever load) any non-empty fetch is considered complete.
+    """
+    if new_rosters_df is None or "team_name" not in getattr(new_rosters_df, "columns", []):
+        return False
+    if new_rosters_df.empty:
+        return False
+    existing = load_league_rosters()
+    if existing.empty:
+        return True
+    new_teams = new_rosters_df["team_name"].nunique()
+    old_teams = existing["team_name"].nunique() if "team_name" in existing.columns else 0
+    if new_teams < old_teams:
+        return False
+    if len(new_rosters_df) < len(existing) * min_row_fraction:
+        return False
+    return True
+
+
 def upsert_league_standing(team_name: str, category: str, total: float, rank: int = None, points: float = None):
     """Insert or update a league standing entry."""
     conn = get_connection()

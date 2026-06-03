@@ -1559,6 +1559,7 @@ class YahooFantasyClient:
         from src.database import (
             clear_league_rosters,
             get_connection,
+            roster_fetch_is_complete,
             update_refresh_log,
             upsert_league_roster_entry,
             upsert_league_standing,
@@ -1595,7 +1596,20 @@ class YahooFantasyClient:
         # --- Rosters ---
         try:
             rosters_df = self.get_all_rosters()
-            if not rosters_df.empty:
+            if not rosters_df.empty and not roster_fetch_is_complete(rosters_df):
+                # 2026-06-02 incident: a partial Yahoo fetch (client still
+                # reconnecting after a token re-paste, or rate-limited) is
+                # non-empty but incomplete. The block below does
+                # clear_league_rosters() + reinsert, so syncing a partial set
+                # would wipe a full league down to it. Keep the good cache.
+                logger.warning(
+                    "Roster sync skipped: incomplete fetch (%d rows, %d teams) "
+                    "would shrink cached league_rosters; keeping existing cache.",
+                    len(rosters_df),
+                    rosters_df["team_name"].nunique() if "team_name" in rosters_df.columns else 0,
+                )
+                update_refresh_log("yahoo_data", "partial")
+            elif not rosters_df.empty:
                 clear_league_rosters()
 
                 # Identify the authenticated user's team so we can flag it
