@@ -142,6 +142,24 @@ def _get_state_store() -> dict:
 _fallback_store: dict = {}
 
 
+def _age_freshness_label(age_seconds: float, ttl_seconds: float) -> str:
+    """Map a data age (vs its refresh-window TTL) to a UI freshness label.
+
+    Within the TTL the data is genuinely current -> "Live"; up to 2x TTL it is
+    usable-but-aging -> "Cached"; beyond that -> "Stale". Replaces the old
+    always-"Cached" labeling so data the scheduler refreshes well inside its
+    window (rosters/standings every 5 min vs a 30 min TTL) reads honestly.
+    """
+    if ttl_seconds <= 0:
+        ttl_seconds = 60.0
+    age_min = max(0, int(age_seconds / 60))
+    if age_seconds < ttl_seconds:
+        return "Live (just now)" if age_min < 1 else f"Live ({age_min}m ago)"
+    if age_seconds < 2 * ttl_seconds:
+        return f"Cached ({age_min}m ago)"
+    return f"Stale ({age_min}m ago)"
+
+
 # ---------------------------------------------------------------------------
 # YahooDataService
 # ---------------------------------------------------------------------------
@@ -676,20 +694,18 @@ class YahooDataService:
             "settings",
             "schedule",
         ]:
+            ttl_seconds = float(getattr(self._ttl, key, 1800))
             cache_key = f"{self._PREFIX}{key}"
             entry = store.get(cache_key)
             if isinstance(entry, _CacheEntry) and not entry.is_stale:
-                age_min = int(entry.age_seconds / 60)
-                if age_min < 1:
-                    freshness[key] = "Live (just now)"
-                else:
-                    freshness[key] = f"Cached ({age_min}m ago)"
+                freshness[key] = _age_freshness_label(entry.age_seconds, ttl_seconds)
                 continue
 
-            # Session-state cache miss / stale — fall back to refresh_log so
-            # the label reflects when the data was last actually written.
+            # Session-state cache miss / stale — fall back to refresh_log so the
+            # label reflects when the scheduler (sole writer under MULTI_USER)
+            # last wrote this source, aged against its TTL.
             rl_source = self._REFRESH_LOG_SOURCE_BY_KEY.get(key)
-            rl_label = self._refresh_log_freshness_label(refresh_log_by_source, rl_source)
+            rl_label = self._refresh_log_freshness_label(refresh_log_by_source, rl_source, ttl_seconds)
             if rl_label:
                 freshness[key] = rl_label
                 continue
@@ -702,8 +718,10 @@ class YahooDataService:
         return freshness
 
     @staticmethod
-    def _refresh_log_freshness_label(rl_by_source: dict[str, dict], source: str | None) -> str | None:
-        """Translate a refresh_log row into a Cached label.
+    def _refresh_log_freshness_label(
+        rl_by_source: dict[str, dict], source: str | None, ttl_seconds: float = 1800.0
+    ) -> str | None:
+        """Translate a refresh_log row into a freshness label (aged vs TTL).
 
         Returns ``None`` when there's no usable refresh_log row for the given
         source (which keeps the legacy fallback path active). A row with a
@@ -730,16 +748,7 @@ class YahooDataService:
         if ts.tzinfo is None:
             ts = ts.replace(tzinfo=UTC)
         age = datetime.now(UTC) - ts
-        age_min = int(age.total_seconds() / 60)
-        if age_min < 1:
-            return "Cached (<1m ago)"
-        if age_min < 60:
-            return f"Cached ({age_min}m ago)"
-        age_hr = int(age_min / 60)
-        if age_hr < 24:
-            return f"Cached ({age_hr}h ago)"
-        age_days = int(age_hr / 24)
-        return f"Cached ({age_days}d ago)"
+        return _age_freshness_label(age.total_seconds(), ttl_seconds)
 
     def get_cache_stats(self) -> dict:
         """Return observability data: hits, misses, ages, errors."""
