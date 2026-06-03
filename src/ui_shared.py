@@ -3618,6 +3618,7 @@ def render_data_freshness_card():
     t = THEME
     freshness = yds.get_data_freshness()
     connected = yds.is_connected()
+    status = yds.connection_status()
 
     # Build status rows
     rows_html = ""
@@ -3656,12 +3657,19 @@ def render_data_freshness_card():
             f"<span>{label}</span>{badge}</div>"
         )
 
+    # Under MULTI_USER, member sessions never hold a live client, so report the
+    # DATA status (server-served / warming), not the always-False session
+    # connection. v1 keeps the literal connected/offline wording.
+    _status_label = {
+        "connected": ("Yahoo Connected", t["green"]),
+        "server": ("Yahoo: Live (via server)", t["green"]),
+        "warming": ("Yahoo: Warming up", t["amber"]),
+        "offline": ("Yahoo Offline", t["tx2"]),
+    }
+    _label_text, _label_color = _status_label.get(status, ("Yahoo Offline", t["tx2"]))
     conn_status = (
-        f'<div style="font-size:10px!important;color:{t["green"]}!important;'
-        f'margin-bottom:4px!important">Yahoo Connected</div>'
-        if connected
-        else f'<div style="font-size:10px!important;color:{t["tx2"]}!important;'
-        f'margin-bottom:4px!important">Yahoo Offline</div>'
+        f'<div style="font-size:10px!important;color:{_label_color}!important;'
+        f'margin-bottom:4px!important">{_label_text}</div>'
     )
 
     render_context_card("Data Freshness", f"{conn_status}{rows_html}")

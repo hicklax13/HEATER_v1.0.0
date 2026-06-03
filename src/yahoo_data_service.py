@@ -561,6 +561,28 @@ class YahooDataService:
             )
             return False
 
+    def connection_status(self) -> str:
+        """UI-facing Yahoo status for the Data Freshness card.
+
+        v1 (single-user): mirrors this session's live client — ``"connected"``
+        or ``"offline"``. Under MULTI_USER, member sessions never hold a Yahoo
+        client (the scheduler is the sole connector), so ``is_connected()`` is
+        always False and would mislabel live data as "Yahoo Offline". Instead
+        report DATA availability: ``"server"`` when any core source is fresh in
+        cache (the scheduler is serving), else ``"warming"``.
+        """
+        from src.auth import multi_user_enabled
+
+        if not multi_user_enabled():
+            return "connected" if self.is_connected() else "offline"
+        try:
+            fresh = self.get_data_freshness()
+        except Exception:
+            fresh = {}
+        if any(("Live" in v) or ("Cached" in v) for v in fresh.values()):
+            return "server"
+        return "warming"
+
     def force_refresh_all(self) -> dict[str, str]:
         """Invalidate all caches and re-fetch everything from Yahoo.
 

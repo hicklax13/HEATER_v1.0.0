@@ -755,11 +755,14 @@ else:
                 from src.war_room_actions import compute_todays_actions
                 from src.war_room_hotcold import compute_hot_cold_report
 
-                # Fetch matchup data from Yahoo
+                # Fetch matchup data. Do NOT gate on is_connected(): read-only
+                # MULTI_USER members never hold a live Yahoo client, so gating
+                # here blanked the matchup for every member. get_matchup() already
+                # falls back to the SQLite cache the scheduler writes through.
                 _wr_matchup = None
                 _wr_losing_cats: list[str] = []
                 try:
-                    if yds and yds.is_connected():
+                    if yds:
                         _wr_matchup = yds.get_matchup()
                 except Exception:
                     pass
