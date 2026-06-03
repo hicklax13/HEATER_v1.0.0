@@ -60,8 +60,14 @@ def test_page_admin_gated_and_logs_action_not_contents():
                 assert getattr(arg, "id", None) != "_yahoo_token_text"
 
 
-def test_admin_smoke_renders_yahoo_section():
+def test_admin_smoke_renders_yahoo_section(monkeypatch):
     from streamlit.testing.v1 import AppTest
+
+    # The admin Yahoo-token section only renders under MULTI_USER. Set it
+    # explicitly so the test does not depend on ambient env state left by another
+    # test on the same xdist worker — the intermittent `-n auto` failure observed
+    # 2026-06-02 (the "Yahoo" subheader was absent whenever MULTI_USER was off).
+    monkeypatch.setenv("MULTI_USER", "1")
 
     at = AppTest.from_file(str(_PAGE))
     at.session_state["auth_user"] = {
