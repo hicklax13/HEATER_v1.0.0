@@ -422,11 +422,13 @@ class YahooDataService:
 
     def get_transactions(self, force_refresh: bool = False) -> pd.DataFrame:
         """Recent league transactions (adds/drops/trades)."""
+        from src.database import load_transactions
+
         return self._get_cached(
             key="transactions",
             ttl=self._ttl.transactions,
             fetch_fn=self._fetch_transactions,
-            db_fallback_fn=lambda: pd.DataFrame(),
+            db_fallback_fn=load_transactions,
             force=force_refresh,
         )
 

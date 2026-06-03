@@ -2575,6 +2575,35 @@ def load_league_settings() -> dict:
         conn.close()
 
 
+def load_transactions(limit: int = 500) -> "pd.DataFrame":
+    """Load stored league transactions joined to player names.
+
+    The ``transactions`` table stores ``player_id`` (a FK); consumers such as the
+    Player Databank ownership-trends map expect a ``player_name`` column, so join
+    ``players``. Returns columns: player_name, type, team_from, team_to,
+    timestamp. Empty DataFrame when none stored. Serves as the SQLite fallback
+    for read-only MULTI_USER members (who never hold a live Yahoo client).
+    """
+    import pandas as pd
+
+    conn = get_connection()
+    try:
+        return pd.read_sql_query(
+            """SELECT p.name AS player_name, t.type, t.team_from, t.team_to, t.timestamp
+               FROM transactions t
+               JOIN players p ON p.player_id = t.player_id
+               ORDER BY t.timestamp DESC
+               LIMIT ?""",
+            conn,
+            params=(int(limit),),
+        )
+    except Exception as exc:
+        logger.warning("database.load_transactions read failed: %s", exc, exc_info=True)
+        return pd.DataFrame()
+    finally:
+        conn.close()
+
+
 def upsert_league_schedule(week: int, team_name: str, opponent_name: str) -> None:
     """Insert or update a single week's matchup in the league_schedule table.
 

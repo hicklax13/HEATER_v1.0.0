@@ -571,8 +571,9 @@ def get_adds_drops_map() -> tuple[dict[str, int], dict[str, int]]:
         from src.yahoo_data_service import get_yahoo_data_service
 
         yds = get_yahoo_data_service()
-        if not yds.is_connected():
-            return {}, {}
+        # Not gated on is_connected(): read-only MULTI_USER members never hold a
+        # live client, but get_transactions() falls back to the SQLite cache the
+        # scheduler writes, so members still see league ownership trends.
         txns = yds.get_transactions()
         if txns is None or txns.empty:
             return {}, {}
