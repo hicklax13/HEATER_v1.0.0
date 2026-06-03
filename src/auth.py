@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from datetime import UTC, datetime
 
 import bcrypt
@@ -270,6 +271,14 @@ def logout() -> None:
     _session_state().pop(_SESSION_KEY, None)
 
 
+def _normalize_team_name(name) -> str:
+    """Lowercase + strip all non-alphanumerics (emoji, whitespace, punctuation)
+    for tolerant team-name matching, so an env-seeded admin assignment missing the
+    Yahoo team's leading emoji ("Team Hickey") still matches the roster name
+    ("🏆 Team Hickey"). 2026-06-02 (surfaced on the owner's own team at launch)."""
+    return re.sub(r"[^a-z0-9]+", "", str(name).lower())
+
+
 def resolve_viewer_team_name(rosters=None) -> str | None:
     """The team that belongs to the current viewer — the SOLE source of truth.
 
@@ -293,7 +302,28 @@ def resolve_viewer_team_name(rosters=None) -> str | None:
         user = current_user()
         team = (user or {}).get("team_name")
         team = team.strip() if isinstance(team, str) else team
-        return team or None
+        if not team:
+            return None
+        # Reconcile the admin-assigned name against the ACTUAL roster names: a
+        # team whose Yahoo name carries a leading emoji/whitespace (e.g.
+        # "🏆 Team Hickey") won't exact-match an env-seeded assignment
+        # ("Team Hickey"), leaving My Team empty. If a normalized match exists,
+        # return the EXACT roster name so downstream get_team_roster() filters
+        # hit. Exact matches (the common case — members assigned via the admin
+        # dropdown) short-circuit unchanged.
+        if (
+            rosters is not None
+            and not getattr(rosters, "empty", True)
+            and "team_name" in getattr(rosters, "columns", [])
+        ):
+            names = [str(n) for n in rosters["team_name"].dropna().unique()]
+            if team not in names:
+                tnorm = _normalize_team_name(team)
+                if tnorm:
+                    for n in names:
+                        if _normalize_team_name(n) == tnorm:
+                            return n
+        return team
 
     # v1 / fallback — the legacy is_user_team flag, from the rosters frame if given.
     if (

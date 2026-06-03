@@ -68,3 +68,43 @@ def test_vis2_free_agents_resolves_member_opponent():
     assert "find_user_opponent" in src, (
         "Free Agents must resolve the member's opponent via find_user_opponent (F-VIS-2), mirroring Matchup Planner."
     )
+
+
+def test_vis3_resolve_viewer_team_matches_emoji_roster_name(monkeypatch):
+    """F-VIS-3 (launch, 2026-06-02): an admin assigned 'Team Hickey' (env-seeded,
+    no emoji) must resolve to the roster's '🏆 Team Hickey' so their My Team isn't
+    empty. resolve_viewer_team_name reconciles the assigned name against the actual
+    roster names, tolerating a leading emoji/whitespace mismatch."""
+    import pandas as pd
+
+    from src import auth
+
+    monkeypatch.setenv("MULTI_USER", "1")
+    monkeypatch.setattr(auth, "current_user", lambda: {"team_name": "Team Hickey"})
+    rosters = pd.DataFrame({"team_name": ["🏆 Team Hickey", "My Precious", "On a Twosday"]})
+    assert auth.resolve_viewer_team_name(rosters) == "🏆 Team Hickey"
+
+
+def test_vis3_resolve_viewer_team_exact_match_unchanged(monkeypatch):
+    """Exact matches (members assigned via the admin dropdown) return as-is; the
+    reconciliation only engages on a non-exact match."""
+    import pandas as pd
+
+    from src import auth
+
+    monkeypatch.setenv("MULTI_USER", "1")
+    monkeypatch.setattr(auth, "current_user", lambda: {"team_name": "My Precious"})
+    rosters = pd.DataFrame({"team_name": ["🏆 Team Hickey", "My Precious"]})
+    assert auth.resolve_viewer_team_name(rosters) == "My Precious"
+
+
+def test_vis3_resolve_viewer_team_no_false_match(monkeypatch):
+    """No normalized match → return the assigned name unchanged (no wrong-team)."""
+    import pandas as pd
+
+    from src import auth
+
+    monkeypatch.setenv("MULTI_USER", "1")
+    monkeypatch.setattr(auth, "current_user", lambda: {"team_name": "Team Hickey"})
+    rosters = pd.DataFrame({"team_name": ["My Precious", "On a Twosday"]})
+    assert auth.resolve_viewer_team_name(rosters) == "Team Hickey"
