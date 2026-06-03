@@ -629,6 +629,15 @@ def inject_custom_css():
         color: {t["tx"]};
     }}
     .block-container {{ padding-top: 1rem; padding-bottom: 1rem; }}
+    /* Force full-width content on EVERY render. When a page is reached via a
+       direct URL (Streamlit pages/ auto-discovery) rather than through app.py's
+       st.navigation, app.py's set_page_config(layout="wide") never runs and
+       Streamlit falls back to its narrow centered max-width — leaving the page
+       "condensed". inject_custom_css runs on every page, so overriding the
+       container max-width here keeps the layout wide regardless of routing. */
+    [data-testid="stMainBlockContainer"],
+    [data-testid="stAppViewBlockContainer"],
+    .block-container {{ max-width: 100% !important; }}
 
     /* ── HIDE STREAMLIT CHROME ────────────────── */
     /* Pure clutter (decoration strip + Deploy button) — hidden on all widths. */
