@@ -88,9 +88,16 @@ _CAT_ORDER = ["R", "HR", "RBI", "SB", "AVG", "OBP", "W", "L", "SV", "K", "ERA", 
 # ── Helper: user team name ────────────────────────────────────────────
 
 
-def _get_user_team_name() -> str | None:
-    """The current viewer's team — canonical resolver (auth-aware under MULTI_USER)."""
-    return resolve_viewer_team_name()
+def _get_user_team_name(rosters) -> str | None:
+    """The current viewer's team — canonical resolver (auth-aware under MULTI_USER).
+
+    Pass the standings/roster frame so a Yahoo team name carrying a leading
+    emoji/whitespace reconciles to the env-seeded admin assignment (e.g.
+    "Team Hickey"); a no-arg resolve skips reconciliation and breaks every
+    downstream ``== user_team`` match -- the 2026-06-05 "Your Position: Team not
+    found in standings" bug. Required arg so a frame-less call fails loudly.
+    """
+    return resolve_viewer_team_name(rosters)
 
 
 # ── Helper: ordinal suffix ────────────────────────────────────────────
@@ -247,7 +254,7 @@ yds = get_yahoo_data_service()
 matchup = yds.get_matchup()
 # DB-only: Yahoo API surface doesn't expose historical league records.
 records_df = load_league_records()
-user_team = _get_user_team_name()
+user_team = _get_user_team_name(records_df)
 
 # ── Banner ────────────────────────────────────────────────────────────
 

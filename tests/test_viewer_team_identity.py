@@ -96,3 +96,30 @@ def test_multiuser_session_team_wins_even_with_no_rosters(monkeypatch):
     monkeypatch.setattr(auth, "current_user", lambda: {"username": "testuser", "team_name": "HUMAN INTELLIGENCE"})
 
     assert auth.resolve_viewer_team_name(None) == "HUMAN INTELLIGENCE"
+
+
+def test_multiuser_reconciles_env_name_to_emoji_roster_name(monkeypatch):
+    """F-VIS-3 / 2026-06-05: an env-seeded admin assignment missing the Yahoo team's
+    leading emoji ("Team Hickey") must reconcile to the EXACT roster/standings name
+    (an emoji-prefixed "Team Hickey") when the frame is passed -- so downstream
+    `== user_team` lookups hit the viewer's own row. Without the frame it returns the
+    raw env name, which is why League Standings showed "Team not found in standings".
+    """
+    import pandas as pd
+
+    import src.auth as auth
+
+    monkeypatch.setattr(auth, "multi_user_enabled", lambda: True)
+    monkeypatch.setattr(auth, "current_user", lambda: {"username": "admin", "team_name": "Team Hickey"})
+
+    emoji_name = "\U0001f3c6 Team Hickey"  # the trophy emoji is part of the real Yahoo name
+    frame = pd.DataFrame({"team_name": ["Over the Rembow", emoji_name, "HUMAN INTELLIGENCE"]})
+
+    # WITH the frame: reconcile env "Team Hickey" -> exact roster "<emoji> Team Hickey".
+    resolved = auth.resolve_viewer_team_name(frame)
+    assert resolved == emoji_name
+    # The reconciled name finds the viewer's own row -- the exact lookup the page does.
+    assert not frame[frame["team_name"] == resolved].empty
+
+    # WITHOUT a frame: no reconciliation -> raw env name (would MISS the emoji row).
+    assert auth.resolve_viewer_team_name() == "Team Hickey"
