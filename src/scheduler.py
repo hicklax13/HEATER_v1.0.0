@@ -77,6 +77,14 @@ def _refresh_loop():
                 logger.warning("Scheduler Yahoo reconnect failed: %s", exc)
 
             results = bootstrap_all_data(yahoo_client=yahoo_client, force=False)
+            # Persist the (possibly just-refreshed) token so the next cycle / a restart
+            # re-reads the latest one instead of re-refreshing a stale, already-consumed
+            # token until Yahoo rejects it (item #2, 2026-06-05). Atomic + WARNING-logged.
+            if yahoo_client is not None:
+                try:
+                    yahoo_client.persist_current_token()
+                except Exception:
+                    logger.warning("Scheduler: persisting refreshed Yahoo token failed.", exc_info=True)
             refreshed = [k for k, v in results.items() if v != "Fresh"]
             if refreshed:
                 logger.info("Background refresh updated: %s", refreshed)

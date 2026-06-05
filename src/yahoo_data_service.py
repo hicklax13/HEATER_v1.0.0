@@ -610,7 +610,13 @@ class YahooDataService:
             fresh = self.get_data_freshness()
         except Exception:
             fresh = {}
-        if any(("Live" in v) or ("Cached" in v) for v in fresh.values()):
+        # "Live (via server)" must reflect the REAL-TIME sources the scheduler keeps
+        # fresh -- NOT the 24h-TTL settings/schedule, which coast for a day and would
+        # mask a dead scheduler/token (the 2026-06-05 incident: the card said "Live
+        # (via server)" while every short-TTL row was hours stale). Require a core
+        # source to be fresh; otherwise report "warming" so the staleness is visible.
+        _CORE_SOURCES = ("rosters", "standings", "matchup", "free_agents", "transactions")
+        if any(("Live" in fresh.get(k, "")) or ("Cached" in fresh.get(k, "")) for k in _CORE_SOURCES):
             return "server"
         return "warming"
 

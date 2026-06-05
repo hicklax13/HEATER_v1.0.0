@@ -137,6 +137,39 @@ _last_request_time: float = 0.0
 _MAX_RETRIES = 3
 
 
+def _write_token_file(token: dict) -> bool:
+    """Atomically write a Yahoo token dict to ``_AUTH_DIR/yahoo_token.json``.
+
+    Uses a temp file + ``os.replace`` so a crash mid-write can never leave a
+    truncated/corrupt token on the volume. Logs at WARNING (not debug) on failure so
+    a persistence problem is visible in the server logs instead of silently swallowed.
+    Returns True on success, False on any failure (never raises).
+    """
+    import json
+    import os
+    import tempfile
+
+    try:
+        _AUTH_DIR.mkdir(parents=True, exist_ok=True)
+        token_file = _AUTH_DIR / "yahoo_token.json"
+        fd, tmp_path = tempfile.mkstemp(dir=str(_AUTH_DIR), prefix=".yahoo_token.", suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                json.dump(token, fh, indent=2)
+            os.replace(tmp_path, token_file)
+        finally:
+            if os.path.exists(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except OSError:
+                    pass
+        logger.info("Persisted Yahoo token to %s (token_time=%s)", token_file, token.get("token_time"))
+        return True
+    except Exception:
+        logger.warning("Failed to persist Yahoo token to volume.", exc_info=True)
+        return False
+
+
 def _rate_limit():
     """Sleep if needed to respect Yahoo API rate limits."""
     global _last_request_time
@@ -381,6 +414,11 @@ class YahooFantasyClient:
             logger.error("Invalid credential format --- key or secret too short / empty.")
             return False
 
+        # Remember credentials so persist_current_token() can backfill them if the
+        # live yfpy oauth object ever omits consumer_key/secret.
+        self._consumer_key = consumer_key
+        self._consumer_secret = consumer_secret
+
         try:
             import json
 
@@ -477,26 +515,11 @@ class YahooFantasyClient:
                     "Auth validation call failed: %s (sync may still work)",
                     exc,
                 )
-            # Write back the (possibly refreshed) token to disk so that
-            # subsequent restarts use the latest access_token/token_time.
-            try:
-                refreshed = getattr(self._query, "_yahoo_access_token_dict", None)
-                if refreshed and refreshed.get("access_token"):
-                    updated_dict = {
-                        "access_token": refreshed.get("access_token"),
-                        "consumer_key": consumer_key,
-                        "consumer_secret": consumer_secret,
-                        "expires_in": refreshed.get("expires_in", 3600),
-                        "guid": refreshed.get("guid", ""),
-                        "refresh_token": refreshed.get("refresh_token"),
-                        "token_time": refreshed.get("token_time", time.time()),
-                        "token_type": refreshed.get("token_type", "bearer"),
-                    }
-                    token_file = _AUTH_DIR / "yahoo_token.json"
-                    token_file.write_text(json.dumps(updated_dict, indent=2))
-                    logger.info("Wrote refreshed Yahoo token to %s", token_file)
-            except Exception:
-                logger.debug("Could not write refreshed token.", exc_info=True)
+            # Persist the (possibly refreshed) token so the next scheduler cycle and
+            # any process restart re-read the LATEST access/refresh token instead of
+            # re-refreshing a stale (already-consumed) one until Yahoo rejects it.
+            # Atomic + WARNING-logged inside persist_current_token() (item #2).
+            self.persist_current_token()
 
             logger.info("Yahoo Fantasy API authenticated successfully.")
             return True
@@ -533,29 +556,76 @@ class YahooFantasyClient:
             else:
                 logger.warning("No known yfpy metadata method found; skipping refresh call.")
 
-            # Persist refreshed token to disk so future restarts use it
-            try:
-                refreshed = getattr(self._query, "_yahoo_access_token_dict", None)
-                if refreshed and refreshed.get("access_token"):
-                    token_file = _AUTH_DIR / "yahoo_token.json"
-                    if token_file.exists():
-                        import json
-
-                        existing = json.loads(token_file.read_text(encoding="utf-8"))
-                        existing["access_token"] = refreshed["access_token"]
-                        existing["token_time"] = refreshed.get("token_time", time.time())
-                        if refreshed.get("refresh_token"):
-                            existing["refresh_token"] = refreshed["refresh_token"]
-                        token_file.write_text(json.dumps(existing, indent=2))
-                        logger.info("Persisted refreshed token to %s", token_file)
-            except Exception:
-                logger.debug("Could not persist refreshed token.", exc_info=True)
+            # Persist the refreshed token (atomic + observable) so restarts use it.
+            self.persist_current_token()
 
             logger.info("OAuth token refreshed successfully.")
             return True
         except Exception:
             logger.exception("Token refresh failed.")
             return False
+
+    def persist_current_token(self) -> bool:
+        """Write the live (possibly just-refreshed) OAuth token to the volume.
+
+        yfpy constructs OAuth2 with ``store_file=False`` so it never persists the
+        token itself. After yfpy refreshes the access token (and any rotated refresh
+        token) in memory, this writes it back to ``yahoo_token.json`` -- otherwise the
+        next scheduler cycle / process restart re-reads a stale token, re-refreshes an
+        already-consumed one, and Yahoo eventually rejects it (the token "dies" ~1h
+        after a paste -- item #2, 2026-06-05).
+
+        Reads the authoritative live ``self._query.oauth`` object, falling back to
+        yfpy's updated ``_yahoo_access_token_dict``. Writes ATOMICALLY, logs at WARNING
+        on any failure (never silently), and refuses to write an incomplete token so a
+        good file is never clobbered. Never raises.
+        """
+        if self._query is None:
+            return False
+        token = self._extract_live_token()
+        if not token or not token.get("access_token") or not token.get("refresh_token"):
+            logger.warning(
+                "persist_current_token: live Yahoo token missing access/refresh token; "
+                "keeping the existing file (not writing)."
+            )
+            return False
+        return _write_token_file(token)
+
+    def _extract_live_token(self) -> dict | None:
+        """Build a full Yahoo token dict from yfpy's live oauth (post-refresh).
+
+        Prefers ``self._query.oauth`` (the live yahoo_oauth object, updated in place on
+        every refresh), falling back to yfpy's ``_yahoo_access_token_dict``. Returns
+        None when no access token is available.
+        """
+        oauth = getattr(self._query, "oauth", None)
+        src: dict = {}
+        if oauth is not None and getattr(oauth, "access_token", None):
+            src = {
+                "access_token": getattr(oauth, "access_token", None),
+                "refresh_token": getattr(oauth, "refresh_token", None),
+                "token_time": getattr(oauth, "token_time", None),
+                "token_type": getattr(oauth, "token_type", "bearer"),
+                "guid": getattr(oauth, "guid", ""),
+                "consumer_key": getattr(oauth, "consumer_key", None),
+                "consumer_secret": getattr(oauth, "consumer_secret", None),
+            }
+        else:
+            cached = getattr(self._query, "_yahoo_access_token_dict", None)
+            if isinstance(cached, dict) and cached.get("access_token"):
+                src = dict(cached)
+        if not src.get("access_token"):
+            return None
+        return {
+            "access_token": src.get("access_token"),
+            "consumer_key": src.get("consumer_key") or getattr(self, "_consumer_key", None),
+            "consumer_secret": src.get("consumer_secret") or getattr(self, "_consumer_secret", None),
+            "expires_in": src.get("expires_in", 3600),
+            "guid": src.get("guid") or "",
+            "refresh_token": src.get("refresh_token"),
+            "token_time": src.get("token_time") if src.get("token_time") else time.time(),
+            "token_type": src.get("token_type") or "bearer",
+        }
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -2328,6 +2398,6 @@ def try_reconnect_yahoo() -> YahooFantasyClient | None:
             return None
         logger.warning("Yahoo auto-reconnect: authentication returned False.")
     except Exception:
-        logger.debug("Yahoo auto-reconnect failed.", exc_info=True)
+        logger.warning("Yahoo auto-reconnect failed (token may be expired or rejected).", exc_info=True)
 
     return None

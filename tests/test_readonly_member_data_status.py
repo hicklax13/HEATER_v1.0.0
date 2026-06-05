@@ -49,6 +49,31 @@ def test_connection_status_multiuser_reflects_data_not_session(monkeypatch):
     assert yds.connection_status() == "warming"
 
 
+def test_connection_status_multiuser_ignores_only_longttl_fresh(monkeypatch):
+    """Only the 24h-TTL rows (settings/schedule) being fresh must NOT read as
+    'Live (via server)'. 2026-06-05: a dead scheduler/token left settings/schedule
+    coasting while rosters/standings/matchup/free_agents/transactions were hours
+    stale, yet the card still said 'Yahoo: Live (via server)'. 'Live' must reflect
+    the real-time (core) sources, not the once-a-day ones."""
+    monkeypatch.setenv("MULTI_USER", "1")
+    yds = YahooDataService(yahoo_client=None)
+    monkeypatch.setattr(yds, "is_connected", lambda: False)
+    monkeypatch.setattr(
+        yds,
+        "get_data_freshness",
+        lambda: {
+            "rosters": "Stale (3h ago)",
+            "standings": "Stale (3h ago)",
+            "matchup": "Stale (3h ago)",
+            "free_agents": "Stale (3h ago)",
+            "transactions": "Stale (3h ago)",
+            "settings": "Live (1h ago)",
+            "schedule": "Live (1h ago)",
+        },
+    )
+    assert yds.connection_status() == "warming"
+
+
 def test_my_team_matchup_reads_cache_not_session_connection():
     """My Team must not gate the matchup fetch behind is_connected() — members are
     never connected; get_matchup() already falls back to the SQLite cache."""
