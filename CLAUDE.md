@@ -635,6 +635,16 @@ These tests guard against regression of the cleanup work. Adding new code that v
 | `test_plan4_bootstrap_suppression.py` | `render_single_user_app()` branches on `multi_user_enabled()`; the flag-on branch calls `_render_multiuser_home_gate()` and does NOT call `render_splash_screen` (no per-session bootstrap under MULTI_USER). `_latest_successful_refresh()` returns None when the refresh-log snapshot is empty or success-free, and the most-recent success timestamp otherwise (the single authoritative "data warm yet?" signal) (v2 Plan 4) |
 | `test_plan4_backcompat.py` | `MULTI_USER` off ⇒ `main()` renders the single-user app exactly once and starts the scheduler ZERO times (`require_auth` never reached); flag-off Home keeps `render_splash_screen` (v1 byte-for-byte) (v2 Plan 4) |
 
+**2026-06-05 launch-hardening guards (post-go-live fixes):**
+
+| Test | Guards |
+|------|--------|
+| `test_yahoo_token_persistence.py` | Item #2: `YahooFantasyClient.persist_current_token()` reads the LIVE yfpy `oauth` object (post-refresh), writes ATOMICALLY (temp + `os.replace`), refuses an incomplete token (never clobbers a good file), and logs WARNING on failure; `authenticate()`/`refresh_token()`/the scheduler all call it. yfpy uses `store_file=False` so persistence is HEATER's job — the old write-back read a stale dict, wrote non-atomically, and debug-swallowed failures, so the token died ~1h after each paste (refresh storm → Yahoo rate-limit). Module fn `_write_token_file` is the atomic writer (`95912d4`) |
+| `test_readonly_member_data_status.py` (connection_status honesty, extended 2026-06-05) | `connection_status()` reports `"server"` ("Live (via server)") only when a CORE real-time source (rosters/standings/matchup/free_agents/transactions) is fresh — NOT the 24h-TTL settings/schedule, which coast for a day and masked a dead scheduler/token (`95912d4`) |
+| `test_pages_use_viewer_team_resolver.py` (frame guard, extended 2026-06-05) | Every personalized page calls `resolve_viewer_team_name()` WITH a frame (no zero-arg call) so the emoji/whitespace reconciliation runs. League Standings' no-frame call returned the env-seeded "Team Hickey", which never matched the Yahoo emoji-prefixed name → "Your Position: Team not found in standings" + 9 other broken `== user_team` comparisons (`b7f0567`) |
+| `test_build_optimizer_context_user_roster_filter.py` (F5, extended 2026-06-05) | `build_optimizer_context` refuses a multi-team rosters fallback when `user_team_name` is falsy + `roster=None` (leaves roster empty + WARNs) instead of silently using all 12 teams → league-wide nonsense recs. Single-team fetched rosters (unambiguous) are still used |
+| `test_standings_close_battles.py` | `standings_utils.close_battle_categories()` skips matchup categories with a missing/empty/whitespace name so the standings banner never renders "Close battles: , , ." (2026-06-05 cosmetic); tolerates malformed rows without raising |
+
 **Spec-completion guards (Items 1-8, 2026-05-25 — finish the Enhanced Trade Engine report):**
 
 | Test | Guards |

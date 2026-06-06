@@ -260,7 +260,19 @@ def build_optimizer_context(
             if not rosters.empty and user_team_name:
                 ctx.roster = rosters[rosters["team_name"] == user_team_name].copy()
             elif not rosters.empty:
-                ctx.roster = rosters
+                # F5 defense-in-depth (2026-06-05): without a user_team_name we
+                # cannot identify the viewer's team. A MULTI-team rosters frame here
+                # would silently become "all 12 teams" -> league-wide nonsense recs.
+                # Refuse to guess: leave the roster empty (downstream shows "no team").
+                # A single-team frame is unambiguous, so keep that.
+                if "team_name" in rosters.columns and rosters["team_name"].nunique() > 1:
+                    logger.warning(
+                        "build_optimizer_context: multi-team rosters but no user_team_name; "
+                        "refusing to use all teams (would produce league-wide recs). "
+                        "Leaving roster empty."
+                    )
+                else:
+                    ctx.roster = rosters
         except Exception:
             logger.warning("Failed to load rosters from Yahoo")
 

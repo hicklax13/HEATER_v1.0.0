@@ -23,6 +23,31 @@ _cached_team_totals: dict[str, dict[str, float]] | None = None
 _cached_fa_pool: pd.DataFrame | None = None
 
 
+def close_battle_categories(categories) -> list[str]:
+    """Names of matchup categories that are a close battle (small relative margin).
+
+    Skips any entry with a missing/empty/whitespace name so the standings banner
+    never renders "Close battles: , , ." (2026-06-05 cosmetic fix), and tolerates
+    malformed rows (non-dict, non-numeric values) without raising.
+    """
+    names: list[str] = []
+    for c in categories or []:
+        try:
+            name = c.get("name", "")
+        except AttributeError:
+            continue
+        if not (isinstance(name, str) and name.strip()):
+            continue
+        try:
+            user_v = float(c.get("user_val", 0))
+            opp_v = float(c.get("opp_val", 0))
+        except (TypeError, ValueError):
+            continue
+        if abs(user_v - opp_v) < max(0.01 * max(abs(user_v), abs(opp_v), 1), 0.001):
+            names.append(name.strip())
+    return names
+
+
 def get_all_team_totals(
     league_rosters: dict[str, list[int]] | None = None,
     player_pool: pd.DataFrame | None = None,

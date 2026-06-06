@@ -18,7 +18,7 @@ from src.database import (
 )
 from src.feature_flags import require_page_enabled
 from src.feedback import render_feedback_widget
-from src.standings_utils import get_all_team_totals
+from src.standings_utils import close_battle_categories, get_all_team_totals
 from src.ui_shared import (
     THEME,
     build_compact_table_html,
@@ -185,14 +185,9 @@ def _build_banner_teaser(matchup: dict | None) -> str:
     t = matchup.get("ties", 0)
     cats = matchup.get("categories", [])
 
-    # Determine close categories (where diff is small)
-    close_cats: list[str] = []
-    for c in cats:
-        name = c.get("name", "")
-        user_v = float(c.get("user_val", 0))
-        opp_v = float(c.get("opp_val", 0))
-        if abs(user_v - opp_v) < max(0.01 * max(abs(user_v), abs(opp_v), 1), 0.001):
-            close_cats.append(name)
+    # Close categories (small margin), excluding any unnamed entries so the
+    # banner never renders "Close battles: , , ." (2026-06-05 cosmetic fix).
+    close_cats = close_battle_categories(cats)
 
     teaser = f"This week vs {opp}: "
     if w > l:

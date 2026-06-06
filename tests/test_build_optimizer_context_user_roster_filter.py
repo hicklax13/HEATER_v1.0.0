@@ -101,3 +101,50 @@ def test_filter_no_op_when_team_name_already_unique():
         roster=team_a_only,
     )
     assert len(ctx.user_roster_ids) == 10
+
+
+def test_f5_no_team_name_and_no_roster_does_not_use_all_teams():
+    """F5 defense-in-depth (2026-06-05): with NO user_team_name AND no roster
+    passed, build_optimizer_context must NOT fall back to the full multi-team
+    rosters (which silently produced league-wide nonsense recommendations). It
+    leaves the roster empty so downstream degrades to a 'no team' state."""
+    rosters = _make_multi_team_rosters()  # 3 teams, 30 players
+    config = LeagueConfig()
+    yds = MagicMock()
+    yds.get_rosters.return_value = rosters
+    yds.get_free_agents.return_value = pd.DataFrame()
+    yds.get_matchup.return_value = None
+
+    ctx = build_optimizer_context(
+        scope="rest_of_season",
+        yds=yds,
+        config=config,
+        user_team_name=None,  # falsy → viewer's team cannot be identified
+        roster=None,  # no explicit roster
+    )
+    assert ctx.roster.empty, (
+        "F5: multi-team rosters + no user_team_name must NOT populate the roster "
+        f"with all teams; got {len(ctx.roster)} rows."
+    )
+    assert ctx.user_roster_ids == []
+
+
+def test_f5_single_team_fetched_still_used_without_team_name():
+    """Backward-compat for the F5 guard: a single-team fetched roster is
+    unambiguous, so it is still used even without a user_team_name."""
+    rosters = _make_multi_team_rosters()
+    team_a_only = rosters[rosters["team_name"] == "Team A"]
+    config = LeagueConfig()
+    yds = MagicMock()
+    yds.get_rosters.return_value = team_a_only
+    yds.get_free_agents.return_value = pd.DataFrame()
+    yds.get_matchup.return_value = None
+
+    ctx = build_optimizer_context(
+        scope="rest_of_season",
+        yds=yds,
+        config=config,
+        user_team_name=None,
+        roster=None,
+    )
+    assert len(ctx.user_roster_ids) == 10
