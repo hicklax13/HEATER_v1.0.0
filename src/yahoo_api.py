@@ -295,6 +295,71 @@ def exchange_code_for_token(
         return None
 
 
+def refresh_yahoo_token(token_dict: dict) -> dict | None:
+    """Refresh a Yahoo OAuth access token via a direct token-endpoint POST.
+
+    Works from residential IPs (the mini-PC relay). On the Railway datacenter IP
+    Yahoo rejects this with INVALID_CONSUMER_KEY — which this function now SURFACES
+    in the log instead of letting it surface as a bare KeyError elsewhere.
+
+    Returns the input dict merged with the new ``access_token``/``token_time`` (and
+    any rotated ``refresh_token``), or ``None`` on any failure.
+    """
+    import base64
+
+    ck = token_dict.get("consumer_key")
+    cs = token_dict.get("consumer_secret")
+    rt = token_dict.get("refresh_token")
+    if not (ck and cs and rt):
+        logger.warning("refresh_yahoo_token: token missing consumer_key/secret/refresh_token.")
+        return None
+
+    basic = base64.b64encode(f"{ck}:{cs}".encode()).decode()
+    try:
+        resp = _requests.post(
+            "https://api.login.yahoo.com/oauth2/get_token",
+            headers={
+                "Authorization": "Basic " + basic,
+                "Content-Type": "application/x-www-form-urlencoded",
+            },
+            data={"grant_type": "refresh_token", "redirect_uri": "oob", "refresh_token": rt},
+            timeout=20,
+        )
+    except Exception as exc:
+        logger.warning("refresh_yahoo_token: request failed: %s", type(exc).__name__)
+        return None
+
+    if resp.status_code != 200:
+        try:
+            err = resp.json().get("error", "")
+        except Exception:
+            err = (resp.text or "")[:120]
+        logger.warning(
+            "refresh_yahoo_token: Yahoo refused the refresh (HTTP %s, error=%s). If this is the "
+            "Railway server, its datacenter IP is blocked from refreshing — the mini-PC relay must "
+            "supply the token.",
+            resp.status_code,
+            err,
+        )
+        return None
+
+    data = resp.json()
+    if "access_token" not in data:
+        logger.warning("refresh_yahoo_token: response missing access_token (keys=%s).", sorted(data.keys()))
+        return None
+
+    merged = dict(token_dict)
+    merged["access_token"] = data["access_token"]
+    merged["token_time"] = time.time()
+    if data.get("refresh_token"):
+        merged["refresh_token"] = data["refresh_token"]
+    if data.get("expires_in"):
+        merged["expires_in"] = data["expires_in"]
+    if data.get("token_type"):
+        merged["token_type"] = data["token_type"]
+    return merged
+
+
 def create_streamlit_oauth_component(consumer_key: str, consumer_secret: str):
     """Create a streamlit-oauth OAuth2Component for Yahoo Fantasy.
 
