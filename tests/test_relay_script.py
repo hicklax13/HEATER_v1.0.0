@@ -57,3 +57,34 @@ def test_main_uploads_on_success(monkeypatch, tmp_path):
     ):
         assert relay.main() == 0
     p.assert_called_once()
+
+
+def test_main_returns_6_when_token_file_corrupt(monkeypatch, tmp_path):
+    tok = tmp_path / "yahoo_token.json"
+    tok.write_text("{ this is not valid json")
+    monkeypatch.setattr(relay, "TOKEN_FILE", tok)
+    assert relay.main() == 6
+
+
+def test_main_returns_5_on_gist_network_error(monkeypatch, tmp_path):
+    from cryptography.fernet import Fernet
+
+    tok = tmp_path / "yahoo_token.json"
+    tok.write_text('{"consumer_key":"ck","consumer_secret":"cs","refresh_token":"rt"}')
+    monkeypatch.setattr(relay, "TOKEN_FILE", tok)
+    monkeypatch.setenv("HEATER_RELAY_KEY", Fernet.generate_key().decode())
+    monkeypatch.setenv("HEATER_GIST_ID", "gid")
+    monkeypatch.setenv("HEATER_GIST_PAT", "pat")
+    fresh = {
+        "access_token": "NEW",
+        "refresh_token": "rt",
+        "consumer_key": "ck",
+        "consumer_secret": "cs",
+        "token_time": 1.0,
+    }
+    with (
+        patch.object(relay, "refresh_yahoo_token", return_value=fresh),
+        patch.object(relay, "_write_token_file", return_value=True),
+        patch.object(relay.requests, "patch", side_effect=relay.requests.exceptions.RequestException("boom")),
+    ):
+        assert relay.main() == 5

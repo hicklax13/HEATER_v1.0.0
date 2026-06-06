@@ -31,13 +31,22 @@ def main() -> int:
     if not TOKEN_FILE.exists():
         logger.error("No token file at %s — seed it once via the local OAuth flow.", TOKEN_FILE)
         return 1
-    token = json.loads(TOKEN_FILE.read_text(encoding="utf-8"))
+    try:
+        token = json.loads(TOKEN_FILE.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as exc:
+        logger.error(
+            "Token file at %s is unreadable/corrupt (%s) — reseed via the local OAuth flow.",
+            TOKEN_FILE,
+            type(exc).__name__,
+        )
+        return 6
 
     fresh = refresh_yahoo_token(token)
     if fresh is None:
         logger.error("Refresh failed (see the Yahoo error above).")
         return 2
-    _write_token_file(fresh)  # keep the local seed current
+    if not _write_token_file(fresh):
+        logger.warning("Could not refresh local seed token; next run may read a stale refresh_token.")
 
     f = _fernet()
     if f is None:
@@ -51,14 +60,18 @@ def main() -> int:
         return 4
 
     ciphertext = encrypt_token(fresh, f)
-    resp = requests.patch(
-        f"https://api.github.com/gists/{gist_id}",
-        headers={"Authorization": f"token {pat}", "Accept": "application/vnd.github+json"},
-        json={"files": {GIST_FILENAME: {"content": ciphertext}}},
-        timeout=20,
-    )
+    try:
+        resp = requests.patch(
+            f"https://api.github.com/gists/{gist_id}",
+            headers={"Authorization": f"token {pat}", "Accept": "application/vnd.github+json"},
+            json={"files": {GIST_FILENAME: {"content": ciphertext}}},
+            timeout=20,
+        )
+    except requests.exceptions.RequestException as exc:
+        logger.error("Gist upload request failed: %s", type(exc).__name__)
+        return 5
     if resp.status_code not in (200, 201):
-        logger.error("Gist upload failed: HTTP %s", resp.status_code)
+        logger.error("Gist upload failed: HTTP %s — %s", resp.status_code, (resp.text or "")[:200])
         return 5
 
     logger.info("Relay OK: token refreshed + uploaded (token_time advanced).")

@@ -22,6 +22,9 @@ logger = logging.getLogger(__name__)
 
 GIST_FILENAME = "heater_yahoo_token.enc"
 _relay_healthy: bool | None = None  # for degrade/recover transition logging
+# Warn when the gist's newest token ages past this (the mini-PC relay refreshes
+# every 30 min and tokens live 60, so >45 min stale ⇒ the relay likely stopped).
+_RELAY_STALE_WARN_MINUTES = 45
 
 
 def _fernet() -> Fernet | None:
@@ -60,7 +63,15 @@ def _read_local_token() -> dict | None:
 def pull_relayed_token() -> bool:
     """Fetch + decrypt the relayed token from the gist raw URL; write it to the
     volume if it is newer than what's on disk. No-op (returns False) when the relay
-    is not configured. Never logs token contents."""
+    is not configured. Never logs token contents.
+
+    Observability: warns ONCE (healthy->stale transition) when the gist stops
+    advancing past ``_RELAY_STALE_WARN_MINUTES`` — i.e. the mini-PC relay is likely
+    down — and logs recovery once when it advances again. This keeps a dead relay
+    from being silently invisible (the exact failure class this feature fixes)."""
+    global _relay_healthy
+    if not relay_enabled():
+        return False
     url = os.environ.get("HEATER_TOKEN_RELAY_URL", "").strip()
     f = _fernet()
     if not url or f is None:
@@ -87,11 +98,25 @@ def pull_relayed_token() -> bool:
     new_tt = float(token.get("token_time") or 0)
     old_tt = float((existing or {}).get("token_time") or 0)
     if existing and new_tt <= old_tt:
+        # Gist not advancing. Normal between the relay's 30-min refreshes; only a
+        # problem once the newest token ages past the warn threshold (relay down).
+        age_min = int((time.time() - new_tt) / 60) if new_tt else -1
+        if (age_min < 0 or age_min > _RELAY_STALE_WARN_MINUTES) and _relay_healthy is not False:
+            logger.warning(
+                "pull_relayed_token: relay gist not advancing — newest token is ~%dm old. "
+                "Is the mini-PC relay still running?",
+                age_min,
+            )
+            _relay_healthy = False
         return False
 
     if not _write_token_file(token):
+        logger.warning("pull_relayed_token: failed to write the relayed token to disk.")
         return False
 
+    if _relay_healthy is False:
+        logger.info("pull_relayed_token: relay recovered (gist advancing again).")
+    _relay_healthy = True
     age_min = max(0, int((time.time() - new_tt) / 60)) if new_tt else -1
     logger.info("pull_relayed_token: wrote relayed token (age ~%dm).", age_min)
     return True

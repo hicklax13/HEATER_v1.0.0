@@ -55,5 +55,9 @@ def configure_src_logging(_force: bool = False) -> None:
         fileh.setFormatter(fmt)
         src_logger.addHandler(fileh)
     except Exception:
-        # File logging is best-effort; stdout (above) is what matters on Railway.
-        pass
+        # File logging is best-effort; the stdout handler above is already attached,
+        # so report the degradation there rather than swallowing it entirely.
+        src_logger.warning(
+            "configure_src_logging: bootstrap.log file handler unavailable; stdout logging only.",
+            exc_info=True,
+        )
