@@ -2611,6 +2611,9 @@ def _heartbeat_fragment():
 
 
 def main():
+    from src.logging_setup import configure_src_logging
+
+    configure_src_logging()  # ensure src.* logs reach Railway stdout (explicit + idempotent)
     init_session()
     inject_custom_css()
     init_db()
