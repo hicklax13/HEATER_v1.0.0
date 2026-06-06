@@ -33,9 +33,21 @@ _UNDER_PYTEST = "pytest" in sys.modules or os.environ.get("HEATER_DISABLE_FILE_L
 if not _UNDER_PYTEST:
     _LOG_DIR = Path("data/logs")
     _LOG_DIR.mkdir(parents=True, exist_ok=True)
+    _log_fmt = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+    _src_logger = logging.getLogger("src")
+    _src_logger.setLevel(logging.INFO)
+    # Own the src.* handlers fully so a WARNING isn't also emitted via the root
+    # lastResort handler (would double-print on the console).
+    _src_logger.propagate = False
     _file_handler = RotatingFileHandler(_LOG_DIR / "bootstrap.log", maxBytes=5_000_000, backupCount=3)
-    _file_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
-    logging.getLogger("src").addHandler(_file_handler)
+    _file_handler.setFormatter(_log_fmt)
+    _src_logger.addHandler(_file_handler)
+    # Also emit src.* logs to STDOUT so the deploy console (Railway) shows the
+    # scheduler + Yahoo reconnect/persist diagnostics. The file handler alone routed
+    # them to a file on the volume, leaving production failures invisible (2026-06-06).
+    _stream_handler = logging.StreamHandler(sys.stdout)
+    _stream_handler.setFormatter(_log_fmt)
+    _src_logger.addHandler(_stream_handler)
 
 # Maximum seconds any single bootstrap phase is allowed to run.
 # Raised from 90s → 180s to accommodate slower networks and
