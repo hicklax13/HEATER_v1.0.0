@@ -18,6 +18,7 @@ _scheduler_thread: threading.Thread | None = None
 _scheduler_lock = threading.Lock()
 _stop_event = threading.Event()
 _CHECK_INTERVAL_SECONDS = 300  # Check every 5 minutes
+_last_yahoo_ok: bool | None = None  # for degrade/recover transition logging
 
 
 def start_background_refresh():
@@ -55,39 +56,54 @@ def is_running() -> bool:
     return _scheduler_running
 
 
-def _refresh_loop():
-    """Main scheduler loop — runs bootstrap with staleness checks.
+def _refresh_once() -> None:
+    """One scheduler cycle: pull the relayed token, reconnect, bootstrap. Extracted
+    from the loop so it is unit-testable."""
+    global _last_yahoo_ok
+    from src.data_bootstrap import bootstrap_all_data
 
-    Reconnects Yahoo from the saved token each cycle and passes the client into
-    bootstrap_all_data. Under MULTI_USER this thread is the SOLE SQLite writer
-    and no Streamlit session ever supplies a client, so the Yahoo sync phase
-    only runs if WE reconnect here. Degrades to yahoo_client=None (the Yahoo
-    phase self-skips) when no token / YAHOO_LEAGUE_ID is configured.
-    """
+    # Relay: refresh the on-disk token from the gist BEFORE reconnecting, so yfpy
+    # sees a valid token and never calls Yahoo's (datacenter-blocked) refresh.
+    try:
+        from src.token_relay import pull_relayed_token
+
+        pull_relayed_token()
+    except Exception as exc:
+        logger.warning("Scheduler: relay token pull failed: %s", exc)
+
+    yahoo_client = None
+    try:
+        from src.yahoo_api import try_reconnect_yahoo
+
+        yahoo_client = try_reconnect_yahoo()
+    except Exception as exc:
+        logger.warning("Scheduler Yahoo reconnect failed: %s", exc)
+
+    # Degrade/recover transition — log ONCE, not every cycle (no error storm).
+    if yahoo_client is None and _last_yahoo_ok is not False:
+        logger.warning("Yahoo sync degraded — relayed token stale? Is the mini-PC relay running?")
+        _last_yahoo_ok = False
+    elif yahoo_client is not None and _last_yahoo_ok is not True:
+        if _last_yahoo_ok is False:
+            logger.info("Yahoo sync recovered.")
+        _last_yahoo_ok = True
+
+    results = bootstrap_all_data(yahoo_client=yahoo_client, force=False)
+    if yahoo_client is not None:
+        try:
+            yahoo_client.persist_current_token()
+        except Exception:
+            logger.warning("Scheduler: persisting refreshed Yahoo token failed.", exc_info=True)
+    refreshed = [k for k, v in results.items() if v != "Fresh"]
+    if refreshed:
+        logger.info("Background refresh updated: %s", refreshed)
+
+
+def _refresh_loop():
+    """Main scheduler loop — see _refresh_once for one cycle's work."""
     while _scheduler_running:
         try:
-            from src.data_bootstrap import bootstrap_all_data
-
-            yahoo_client = None
-            try:
-                from src.yahoo_api import try_reconnect_yahoo
-
-                yahoo_client = try_reconnect_yahoo()
-            except Exception as exc:
-                logger.warning("Scheduler Yahoo reconnect failed: %s", exc)
-
-            results = bootstrap_all_data(yahoo_client=yahoo_client, force=False)
-            # Persist the (possibly just-refreshed) token so the next cycle / a restart
-            # re-reads the latest one instead of re-refreshing a stale, already-consumed
-            # token until Yahoo rejects it (item #2, 2026-06-05). Atomic + WARNING-logged.
-            if yahoo_client is not None:
-                try:
-                    yahoo_client.persist_current_token()
-                except Exception:
-                    logger.warning("Scheduler: persisting refreshed Yahoo token failed.", exc_info=True)
-            refreshed = [k for k, v in results.items() if v != "Fresh"]
-            if refreshed:
-                logger.info("Background refresh updated: %s", refreshed)
+            _refresh_once()
         except Exception as e:
             logger.warning("Background refresh error: %s", e)
         # Interruptible sleep — stop_event.set() wakes us immediately
