@@ -1120,10 +1120,47 @@ def import_pitcher_csv(csv_path: str, system: str):
     return imported
 
 
-def _load_stacking_weights(conn) -> dict[str, dict[str, float]]:
-    """Try to compute ridge-regression stacking weights from prior-year actuals.
+def _matched_forecast_years(conn) -> list[int]:
+    """Completed years Y with BOTH forecast_season=Y projections and season=Y actuals.
 
-    Returns ``{stat: {system_name: weight}}`` or empty dict on failure.
+    Only years strictly before the current season qualify — the in-progress
+    season has partial actuals and no resolved forecast skill yet.
+    """
+    current = datetime.now(UTC).year
+    try:
+        proj_years = {
+            int(r[0])
+            for r in conn.execute(
+                "SELECT DISTINCT forecast_season FROM projections "
+                "WHERE system != 'blended' AND forecast_season IS NOT NULL"
+            ).fetchall()
+        }
+        actual_years = {
+            int(r[0])
+            for r in conn.execute("SELECT DISTINCT season FROM season_stats WHERE season IS NOT NULL").fetchall()
+        }
+    except sqlite3.Error:
+        return []
+    return sorted(y for y in (proj_years & actual_years) if y < current)
+
+
+def _load_stacking_weights(conn) -> dict[str, dict[str, float]]:
+    """Compute ridge-regression stacking weights from MATCHED prior-year pairs.
+
+    Weights are learned only from completed years ``Y`` where both
+    ``projections.forecast_season = Y`` and ``season_stats.season = Y`` exist —
+    i.e. each system's forecast for year Y regressed onto that same year's
+    actuals (genuine forecast skill). Results are averaged across all available
+    matched years and applied to the current forecast_season rows.
+
+    When NO matched (forecast_season=Y AND season=Y) pair exists — the current
+    reality, since no prior-season forecasts have been stored yet — this returns
+    an EMPTY dict so the caller falls back to uniform 1/n weights. It NEVER
+    regresses current-year forecasts onto prior-year actuals (PV-C1): that
+    measures year-over-year persistence, not forecast skill.
+
+    Returns ``{stat: {system_name: weight}}`` (summing to 1 per stat), or an
+    empty dict to signal uniform weighting.
     """
     try:
         from src.projection_stacking import compute_all_stat_weights
@@ -1132,47 +1169,73 @@ def _load_stacking_weights(conn) -> dict[str, dict[str, float]]:
         return {}
 
     try:
-        # Load prior-year actuals (2025 season stats)
-        actuals = pd.read_sql_query("SELECT * FROM season_stats WHERE season = 2025", conn)
-        if actuals.empty or len(actuals) < 10:
+        matched_years = _matched_forecast_years(conn)
+        if not matched_years:
             logger.info(
-                "Not enough prior-year actuals (%d rows); using uniform weights.",
-                len(actuals),
+                "No matched (forecast_season=Y, season=Y) pair available; "
+                "using uniform projection weights (no cross-year regression)."
             )
             return {}
 
-        # Load per-system projections as separate DataFrames
-        systems_df = pd.read_sql_query("SELECT DISTINCT system FROM projections WHERE system != 'blended'", conn)
-        system_names = [row[0] for row in systems_df.itertuples(index=False)]
-        if len(system_names) < 2:
-            logger.info(
-                "Only %d projection system(s); stacking needs >= 2. Using uniform.",
-                len(system_names),
-            )
-            return {}
-
-        systems: dict[str, pd.DataFrame] = {}
-        for sys_name in system_names:
-            df = pd.read_sql_query(
-                "SELECT player_id, pa, ab, h, r, hr, rbi, sb, avg, obp, bb, hbp, sf, "
-                "ip, w, l, sv, k, era, whip, er, bb_allowed, h_allowed "
-                "FROM projections WHERE system = ?",
+        # Accumulate per-stat per-system weights across all matched years.
+        accum: dict[str, dict[str, list[float]]] = {}
+        for year in matched_years:
+            actuals = pd.read_sql_query(
+                "SELECT * FROM season_stats WHERE season = ?",
                 conn,
-                params=(sys_name,),
+                params=(year,),
             )
-            if not df.empty:
-                systems[sys_name] = df
+            if actuals.empty or len(actuals) < 10:
+                continue
 
-        if len(systems) < 2:
-            logger.info("Fewer than 2 systems with data; using uniform weights.")
+            systems_df = pd.read_sql_query(
+                "SELECT DISTINCT system FROM projections WHERE system != 'blended' AND forecast_season = ?",
+                conn,
+                params=(year,),
+            )
+            system_names = [row[0] for row in systems_df.itertuples(index=False)]
+            if len(system_names) < 2:
+                continue
+
+            systems: dict[str, pd.DataFrame] = {}
+            for sys_name in system_names:
+                df = pd.read_sql_query(
+                    "SELECT player_id, pa, ab, h, r, hr, rbi, sb, avg, obp, bb, hbp, sf, "
+                    "ip, w, l, sv, k, era, whip, er, bb_allowed, h_allowed "
+                    "FROM projections WHERE system = ? AND forecast_season = ?",
+                    conn,
+                    params=(sys_name, year),
+                )
+                if not df.empty:
+                    systems[sys_name] = df
+
+            if len(systems) < 2:
+                continue
+
+            year_weights = compute_all_stat_weights(systems, actuals)
+            for stat, sys_w in year_weights.items():
+                stat_acc = accum.setdefault(stat, {})
+                for sys_name, w in sys_w.items():
+                    stat_acc.setdefault(sys_name, []).append(float(w))
+
+        if not accum:
+            logger.info("Matched years present but no usable regression pairs; using uniform weights.")
             return {}
 
-        weights = compute_all_stat_weights(systems, actuals)
+        # Average across years, then renormalize each stat to sum to 1.
+        weights: dict[str, dict[str, float]] = {}
+        for stat, sys_acc in accum.items():
+            means = {s: (sum(vals) / len(vals)) for s, vals in sys_acc.items() if vals}
+            total = sum(means.values())
+            if total <= 0:
+                continue
+            weights[stat] = {s: v / total for s, v in means.items()}
+
         if weights:
             logger.info(
-                "Projection stacking: computed ridge-regression weights for %d stats across %d systems.",
+                "Projection stacking: learned ridge weights for %d stats from matched years %s.",
                 len(weights),
-                len(systems),
+                matched_years,
             )
         return weights
 
