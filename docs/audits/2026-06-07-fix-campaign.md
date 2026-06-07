@@ -94,11 +94,12 @@ All clear correctness bugs fixed. Remaining = big features + enhancements (below
 - ☑ **MS-E1** `default_weekly_sigmas()` canonical source; standings_engine + standings_projection + playoff_sim all read it; 1σ edge → ~0.76 (was saturating 0.99). (commit 0d5769f) [full suite 4996 green]
 - ☐ **MS-E1b** (follow-up) a 4th weekly-tau (`src/trade_value.py::WEEKLY_TAU`, G-Score/SGP units) left as-is — fold onto the canonical source if desired.
 - ☑ **LO-E3** `h2h_engine` routes SB/SV/W/L → Skellam, rest → Normal, overall win-prob via Gaussian copula (reuses `weekly_matrix._category_win_prob_skellam` + `copula.py`, no import cycle); sample matchup 0.187→0.260 (de-saturated). **Completes BR-6 with MS-E1.** (commit f9eeadb)
-- ☐ **TE-E1** weekly/playoff per-week means from LP starters (overlaps TE-C1).
-- ☐ **TE-E5** wire `injury_process` Weibull availability into the trade MC tails.
-- ☐ **TE-E2** copula-correlated weekly outcomes in playoff sim.
-- ☐ **TE-E3** schedule-aware opponent playoff sim by default.
-- ☐ **TE-E4** empirical per-cat weekly CV + default Skellam for low-count cats.
+- ◑ **TE-E1** partially covered by TE-C1 (IL excluded from per-week means); full LP-starter weighting deferred (low marginal). [remaining]
+- ☑ **TE-E5** injury availability wired into the paired MC risk tails (antithetic-aware; `enable_injury_mc`, engages on `enable_mc=True`); fragile player cvar5 +17.95→−17.75. (commit 1da0317)
+- ☑ **TE-E2** copula-correlated playoff weekly outcomes (reuses DEFAULT_CORRELATION); playoff_prob 0.798→0.758 de-saturated. (commit 35898d9)
+- ☐ **TE-E3** schedule-aware opponent playoff sim by default (Path A exists+tested; opt-in). [remaining]
+- ☐ **TE-E4** empirical per-cat weekly CV (needs prior-season data) + default Skellam low-count. [remaining]
+- ☐ **UI follow-up:** Trade Analyzer page passes `enable_mc=True` to surface the injury MC tail. [remaining]
 - ☐ **DB-E1/E2** (= DB-C2/DB-C1 done as full features).
 - ☐ **PV-E1/E2/E3** (= PV-C1/PV-C2/PV-C4 done as full features).
 - ☐ **DE-E1..E5**, **FA-E1..E4**, **LO-E1/E2/E4** — per-engine enhancement backlog (see report §4).
