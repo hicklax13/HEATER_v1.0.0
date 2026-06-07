@@ -30,9 +30,9 @@ Source of truth for executing the fixes + enhancements from
 
 ## Wave 2 — Projections / valuation
 - ☑ **PV-C2** invert Bayesian Layer-2 blend (expert ∝ reliability). (commit 9d8e487; test_ros_projections + bayesian = 56 pass)
-- ☐ **PV-C1** (HIGH, full) add `forecast_season` column to `projections`; stop DELETE-all; learn stacking weights from held-out (prior-forecast→prior-actual) pairs; uniform fallback when no valid pair. `src/database.py:1089`, `projection_stacking.py`, `data_pipeline.py`.
-- ☐ **PV-C3** (Low) blend volume cols (pa/ab/ip) with one shared weight, not per-component.
-- ☐ **PV-C4** (Low) single standings-stddev SGP-denominator source.
+- ☑ **PV-C1** (full) `forecast_season` column + idempotent migration; write retains prior seasons; `_load_stacking_weights` learns from matched (forecast=Y ∧ actual=Y) years, UNIFORM fallback when none — **invalid cross-year regression confirmed GONE on the live DB** (uniform until a season of forecasts accrues, then auto-skill-weights). (commits 646a422, b5e3dc4, e75d285)
+- ☑ **PV-C3** volume cols (pa/ab/ip) blend with one shared playing-time weight. (commit 47df34e)
+- ☐ **PV-C4** (Low) single standings-stddev SGP-denominator source. → Wave 9 (valuation enhancement).
 - ☑ **FA-C2** wire real L14 into the FA blend. `_blend_fa_row(fa_data, l14_form=)` + new `_resolve_fa_l14` (prefers `ctx.recent_form[pid]['l14']`, else lazy `get_player_recent_form_cached`); row-column L14 kept for back-compat. (done inline after 3rd background-agent stall; 28 FA tests pass incl. 4 new dict-path tests.)
 
 ## Wave 3 — Standings / matchup (DONE — 7/7; note: 2 background agents stalled on the watchdog, so MS-C5/C6/BR-2 done inline)
@@ -62,9 +62,11 @@ Source of truth for executing the fixes + enhancements from
 - ☑ **BR-9** FA Ownership Heat Index wired to `percent_owned`. (commit e899cf9)
 - ☑ **BR-5** Home quick-stats reflects scheduler data under MULTI_USER (flag-gated; v1 byte-for-byte). (commit 6a453bb)
 
-## Wave 5b — Big data features (separate waves)
-- ☐ **DB-C1** (Med, full) repair park-factor Tier 1 type bug + add a live source; optimizer reads DB table. `data_bootstrap.py:608`.
-- ☐ **DB-C2** (Med) wire real closer depth data into Closer Monitor; replace SV heuristic. `pages/3_Closer_Monitor.py` + `data_bootstrap` depth phase.
+## Wave 5b — Big data features
+- ☑ **DB-C1** repaired dead Tier-1 (`_tier1_fangraphs` returns a real `{team:factor}` dict; the `isinstance(dict)` guard now fires); optimizer reads the live `park_factors` DB table via `load_park_factors`/`_effective_park_factors` (5 call sites). (commits e7e4f25, f361d72) NOTE: no un-authenticated park-factor source works (FanGraphs guts→403, pybaseball/MLB/ESPN have none) → prod still uses the emergency dict but HONESTLY (tier='emergency'), not via dead code; self-heals when a working feed exists.
+- ☑ **DB-C2** `build_depth_data_from_db()` surfaces real `depth_chart_role` (closer/setup/committee) → grid; SV heuristic kept as flagged ESTIMATE fallback; honest caption. (commit c346a6f) — live DB: 23 closer + 324 bullpen roles / 21 teams but 0 setup/committee (Roster Resource scrape empty, known limitation); richer hierarchy auto-activates when that scrape succeeds.
+
+**CHECKPOINT (post FA-C2 + DB-C2 + PV-C1/C3): full suite 4978 passed, 107 skipped, 0 failed. ✅**
 
 ## Wave 6 — Trade engine (DONE — 3/3; 79 tests pass incl. grade-authority + playoff guards)
 - ☑ **TE-C1** exclude IL players from weekly/playoff per-week means (one shared helper covers both). (commit 2621cca) — full LP-starter weighting remains TE-E1 (Wave 9).
