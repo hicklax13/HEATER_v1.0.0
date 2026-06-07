@@ -17,9 +17,17 @@ Source of truth for executing the fixes + enhancements from
 
 ## ✅ CAMPAIGN STATUS (2026-06-07)
 
-**COMPLETE + full suite 5044 passed / 107 skipped / 0 failed.** All on branch
-`fix/audit-followups-2026-06-07` — **NOT deployed; awaiting owner deploy decision.**
-~45 fixes/features, each TDD'd red→green, atomically committed, suite green at every boundary.
+**COMPLETE + DEPLOYED + CI GREEN.** Owner approved deploy → `master` fast-forwarded to the
+campaign tip and pushed (Railway auto-deploys from master). GitHub Actions CI is **fully green**
+on master `5b0c36f` (Lint · 4 test shards · Build · **Coverage Floor** all ✓). Full local suite
+5044+ passed / 0 failed; ~45 fixes/features, each TDD'd red→green, atomically committed, suite
+green at every boundary. Campaign branch `fix/audit-followups-2026-06-07` also pushed (backup).
+
+> **CI footnote (5b0c36f):** the first master push (e5a5347) tripped a *pre-existing* flaky test —
+> `test_token_relay.py::test_encrypt_decrypt_roundtrip` asserted a 2-char token fragment ("AT")
+> wasn't in the random Fernet base64 ciphertext (~3%/run false fail). Not a campaign regression;
+> fixed by giving the fixture realistic-length (49-char) token values so the leak-check is
+> deterministic. Coverage itself always passed (73.48% ≥ 60%).
 
 - **All correctness findings (Waves 0–7 + NEW-1/2):** BR-4 crash · FA-C1 sign / FA-C3 / FA-C4 ·
   PV-C2 blend · MS-C1–C6 + BR-2 · LO-C1–C4 + BR-7 · DB-C3–C6 + BR-9 + BR-5 · TE-C1–C3 · DE-C1–C6 ·
