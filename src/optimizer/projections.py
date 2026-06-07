@@ -114,6 +114,9 @@ def build_enhanced_projections(
     enhanced["projection_confidence"] = 1.0
     enhanced["regime_label"] = ""
     enhanced["health_adjusted"] = False
+    # Per-player availability factor applied by Step 5 (injury). Defaults to
+    # 1.0 (no scaling); Step 5b reads it to avoid double-counting (LO-C1).
+    enhanced["_injury_avail_factor"] = 1.0
 
     # Save pre-Bayesian projection values for Kalman prior
     # The Kalman filter needs a separate prior (original projection) and
@@ -672,6 +675,12 @@ def _apply_injury_availability(
                     val = float(row.get(cat, 0) or 0)
                     roster.at[idx, cat] = val * expected_availability
 
+            # Record the per-player factor applied so Step 5b (playing-time)
+            # can avoid double-counting availability. The playing-time PA/IP
+            # prediction already reflects injury-shortened seasons, so when
+            # Step 5b produces a prediction for this player it OWNS the volume
+            # adjustment and undoes this factor (LO-C1).
+            roster.at[idx, "_injury_avail_factor"] = expected_availability
             roster.at[idx, "health_adjusted"] = True
             # Lower confidence for injury-prone players
             if health_score < 0.80:
@@ -722,6 +731,15 @@ def _apply_playing_time_adjustment(
         for idx, row in pt_result.iterrows():
             is_hitter = bool(row.get("is_hitter", True))
 
+            # LO-C1: when Step 5 (injury) already scaled this player's counting
+            # stats by an availability factor, undo it here so playing-time owns
+            # the volume adjustment ONCE. The PA/IP prediction already reflects
+            # injury-shortened usage, so applying both would double-count.
+            injury_factor = (
+                float(roster.at[idx, "_injury_avail_factor"]) if "_injury_avail_factor" in roster.columns else 1.0
+            )
+            undo_injury = (1.0 / injury_factor) if injury_factor > 0 else 1.0
+
             if is_hitter:
                 projected_pa = float(row.get("pa", 0) or 0)
                 predicted_pa = float(row.get("predicted_remaining_pa", 0) or 0)
@@ -735,7 +753,7 @@ def _apply_playing_time_adjustment(
                 ratio = min(predicted_pa / proj_remaining_pa, _PT_MAX_SCALE_RATIO)
                 for cat in ("r", "hr", "rbi", "sb"):
                     if cat in roster.columns:
-                        roster.at[idx, cat] = float(roster.at[idx, cat]) * ratio
+                        roster.at[idx, cat] = float(roster.at[idx, cat]) * undo_injury * ratio
                 adjusted_count += 1
             else:
                 projected_ip = float(row.get("ip", 0) or 0)
@@ -749,7 +767,7 @@ def _apply_playing_time_adjustment(
                 for cat in ("w", "l", "sv", "k"):
                     if cat in roster.columns:
                         val = float(roster.at[idx, cat])
-                        roster.at[idx, cat] = val * ratio
+                        roster.at[idx, cat] = val * undo_injury * ratio
                 adjusted_count += 1
 
         if adjusted_count > 0:

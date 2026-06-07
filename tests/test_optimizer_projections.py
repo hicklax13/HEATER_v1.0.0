@@ -439,6 +439,130 @@ class TestInjuryAvailability:
         assert result.at[0, "hr"] == 40.0
 
 
+# ── LO-C1: Availability must not be discounted twice ─────────────────
+
+
+class TestAvailabilityNotDoubleDiscounted:
+    """Step 5 (injury) and Step 5b (playing-time) both scale the SAME
+    counting cats. Running both must NOT multiply the two factors together
+    (double-counting availability). Playing-time owns the volume adjustment
+    when it produces a prediction for a player."""
+
+    def _single_hitter(self) -> pd.DataFrame:
+        return pd.DataFrame(
+            {
+                "player_id": [1],
+                "player_name": ["Injury Prone Starter"],
+                "positions": ["OF"],
+                "is_hitter": [True],
+                "r": [100.0],
+                "hr": [40.0],
+                "rbi": [100.0],
+                "sb": [20.0],
+                "avg": [0.300],
+                "pa": [600.0],
+                "ip": [0.0],
+                "w": [0.0],
+                "sv": [0.0],
+                "k": [0.0],
+                "era": [0.0],
+                "whip": [0.0],
+                "projection_confidence": [1.0],
+                "regime_label": [""],
+                "health_adjusted": [False],
+            }
+        )
+
+    def test_counting_stat_scaled_by_single_factor(self):
+        """An injury-prone (avail<1) AND low-depth (pt_ratio<1) hitter must
+        have HR scaled by a SINGLE factor, not injury_avail * pt_ratio."""
+        roster = self._single_hitter()
+        original_hr = 40.0
+        injury_avail = 0.80
+        pt_ratio = 0.75  # predicted_remaining_pa / proj_remaining_pa
+
+        mock_injury_df = pd.DataFrame(
+            {
+                "player_id": [1, 1, 1],
+                "season": [2023, 2024, 2025],
+                "games_played": [120, 110, 130],
+                "games_available": [162, 162, 162],
+            }
+        )
+
+        # Step 5: injury availability scaling with a fixed 0.80 availability.
+        with patch("src.database.get_connection") as mock_conn:
+            mock_conn.return_value = MagicMock()
+            with (
+                patch(
+                    "src.optimizer.projections.pd.read_sql_query",
+                    return_value=mock_injury_df,
+                ),
+                patch(
+                    "src.engine.context.injury_process.sample_season_availability",
+                    return_value=injury_avail,
+                ),
+            ):
+                after_injury = _apply_injury_availability(roster.copy(), weeks_remaining=16)
+
+        assert after_injury.at[0, "health_adjusted"]
+        # Sanity: injury alone applied its 0.80 factor.
+        assert after_injury.at[0, "hr"] == pytest.approx(original_hr * injury_avail)
+
+        # Step 5b: playing-time. weeks_remaining=26 so proj_remaining_pa == pa,
+        # making the ratio exactly predicted/600. Pick predicted to hit pt_ratio.
+        pt_result = after_injury.copy()
+        pt_result["predicted_remaining_pa"] = [600.0 * pt_ratio]
+        pt_result["predicted_remaining_ip"] = [0.0]
+
+        from src.optimizer import projections as _proj
+
+        with patch.object(_proj, "_PT_MODEL_AVAILABLE", True):
+            with patch.object(_proj, "predict_remaining_pa_batch", return_value=pt_result):
+                final = _proj._apply_playing_time_adjustment(after_injury, weeks_remaining=26)
+
+        # Single-factor (playing-time owns volume): 40 * 0.75 = 30.0
+        # Double-discount bug would give 40 * 0.80 * 0.75 = 24.0
+        assert final.at[0, "hr"] == pytest.approx(original_hr * pt_ratio)
+        assert final.at[0, "hr"] != pytest.approx(original_hr * injury_avail * pt_ratio)
+
+    def test_rate_stat_untouched_by_either_step(self):
+        """AVG (a rate stat) must be unchanged by injury + playing-time."""
+        roster = self._single_hitter()
+        mock_injury_df = pd.DataFrame(
+            {
+                "player_id": [1, 1],
+                "season": [2024, 2025],
+                "games_played": [120, 130],
+                "games_available": [162, 162],
+            }
+        )
+        with patch("src.database.get_connection") as mock_conn:
+            mock_conn.return_value = MagicMock()
+            with (
+                patch(
+                    "src.optimizer.projections.pd.read_sql_query",
+                    return_value=mock_injury_df,
+                ),
+                patch(
+                    "src.engine.context.injury_process.sample_season_availability",
+                    return_value=0.80,
+                ),
+            ):
+                after_injury = _apply_injury_availability(roster.copy(), weeks_remaining=26)
+
+        pt_result = after_injury.copy()
+        pt_result["predicted_remaining_pa"] = [600.0 * 0.75]
+        pt_result["predicted_remaining_ip"] = [0.0]
+        from src.optimizer import projections as _proj
+
+        with patch.object(_proj, "_PT_MODEL_AVAILABLE", True):
+            with patch.object(_proj, "predict_remaining_pa_batch", return_value=pt_result):
+                final = _proj._apply_playing_time_adjustment(after_injury, weeks_remaining=26)
+
+        assert final.at[0, "avg"] == pytest.approx(0.300)
+
+
 # ── Test Graceful Degradation ────────────────────────────────────────
 
 
