@@ -12,6 +12,7 @@ from src.feedback import render_feedback_widget
 from src.injury_model import compute_health_score, get_injury_badge
 from src.league_manager import get_team_roster
 from src.live_stats import refresh_all_stats
+from src.optimizer.h2h_engine import default_weekly_sigmas
 from src.ui_shared import (
     PAGE_ICONS,
     THEME,
@@ -158,6 +159,49 @@ def _compute_category_totals(df: pd.DataFrame) -> tuple[dict, dict]:
         pitch_stats["WHIP"] = format_stat((bb + ha) / ip, "WHIP") if ip > 0 else "0.00"
 
     return hit_stats, pitch_stats
+
+
+def _rank_priority_losing_cats(
+    gap_rows: list[dict],
+    sigmas: dict[str, float],
+    top_n: int = 2,
+) -> list[dict]:
+    """Rank the losing categories by NORMALIZED closeness-to-flip (BR-2b).
+
+    The "Priority Targets" callout should surface the most ACTIONABLE losing
+    categories — the ones closest to flipping — not the ones with the biggest
+    raw gap. Sorting losing cats by raw ``diff`` mixes counting cats (R behind
+    by 6) with rate cats (AVG behind by 0.069) on incompatible scales, so the
+    big-count cats almost always sort first and a winnable rate cat never
+    surfaces.
+
+    Each losing cat's gap is normalized by that category's weekly standard
+    deviation (the canonical ``h2h_engine.default_weekly_sigmas()``, keyed by
+    uppercase cat) to a unit-free z-gap ``|diff| / sigma``. The SMALLEST
+    |z-gap| losing cats are the closest to flipping = the real priority
+    targets. Inverse cats use the gap MAGNITUDE (the ``diff`` is already
+    oriented so positive = winning), so ``abs`` is correct for all cats. A
+    category with no sigma entry is treated as an infinitely-wide gap (sorted
+    last) rather than crashing.
+
+    Args:
+        gap_rows: Per-category gap rows (each carrying ``cat``, ``diff``,
+            ``above``, ``tied``).
+        sigmas: Uppercase-keyed per-team weekly category standard deviations.
+        top_n: Number of priority targets to return.
+
+    Returns:
+        Up to ``top_n`` losing gap rows, ordered closest-to-flip first.
+    """
+    losing = [r for r in gap_rows if not r["above"] and not r["tied"]]
+
+    def _z_gap(row: dict) -> float:
+        sigma = sigmas.get(row["cat"])
+        if not sigma or sigma <= 0:
+            return float("inf")  # no scale -> treat as far from flipping
+        return abs(float(row["diff"])) / float(sigma)
+
+    return sorted(losing, key=_z_gap)[:top_n]
 
 
 def _source_badge(source: str) -> str:
@@ -1491,11 +1535,15 @@ else:
                             )
 
                         if _gap_rows:
-                            # Identify losing categories (priority targets)
-                            _losing = [r for r in _gap_rows if not r["above"] and not r["tied"]]
-                            _losing_sorted = sorted(_losing, key=lambda x: x["diff"])
-                            _priority_cats = {r["cat"] for r in _losing_sorted[:2]}
-                            _priority_names = [r["cat"] for r in _losing_sorted[:2]]
+                            # Priority targets = losing cats CLOSEST TO FLIPPING,
+                            # ranked by a normalized z-gap (|diff| / weekly sigma)
+                            # so counting cats (R) and rate cats (AVG) are
+                            # cross-comparable. Raw-diff sort buried winnable
+                            # rate cats behind big-count cats (BR-2b).
+                            _sigmas = default_weekly_sigmas()
+                            _priority_rows = _rank_priority_losing_cats(_gap_rows, _sigmas, top_n=2)
+                            _priority_cats = {r["cat"] for r in _priority_rows}
+                            _priority_names = [r["cat"] for r in _priority_rows]
 
                             _priority_html = ""
                             if _priority_names:
