@@ -352,6 +352,11 @@ def _category_win_prob_skellam(mu_h: float, mu_o: float, inverse: bool) -> float
     return max(0.0, min(1.0, p))
 
 
+# IL statuses excluded from per-week means (TE-C1). Matches the engine's
+# IL convention in src/alerts.get_il_stash_names (compared upper-cased).
+_IL_STATUSES: frozenset[str] = frozenset({"IL10", "IL15", "IL60", "IL", "DTD"})
+
+
 def _per_week_means(
     roster_ids: list[int],
     player_pool: pd.DataFrame,
@@ -366,6 +371,15 @@ def _per_week_means(
     naive mean of rates.
     """
     rows = player_pool[player_pool["player_id"].isin(roster_ids)]
+    # TE-C1: exclude IL-status players (they don't contribute to weekly
+    # totals) so per-week counting means aren't inflated and rate-stat
+    # volume weights aren't skewed toward non-contributing IL stashes.
+    # Opt-in on the column's presence — pools without a status column
+    # (e.g. unit-test fixtures) behave exactly as before. IL convention
+    # matches src/alerts.get_il_stash_names: {IL10, IL15, IL60, IL, DTD}.
+    if "status" in rows.columns and not rows.empty:
+        status_upper = rows["status"].astype(str).str.strip().str.upper()
+        rows = rows[~status_upper.isin(_IL_STATUSES)]
     if rows.empty:
         return dict.fromkeys(cats, 0.0)
 

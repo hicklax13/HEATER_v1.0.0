@@ -170,6 +170,46 @@ def test_per_week_means_empty_roster_returns_zeros() -> None:
     assert all(v == 0.0 for v in means.values())
 
 
+def test_per_week_means_excludes_il_players() -> None:
+    """TE-C1: IL-status players (IL10/IL15/IL60/IL/DTD) must NOT inflate the
+    per-week counting means or skew rate-stat volume weights.
+
+    A roster of one active hitter + several IL stashes should yield the
+    SAME per-week means as the active hitter alone — the IL rows are dropped
+    before aggregation (matching the engine's IL convention).
+    """
+    pool = _two_hitter_pool().copy()
+    # player 1 active, player 2 on IL15 — duplicate player 2 onto IL10/IL60/IL/DTD
+    pool["status"] = ["active", "IL15"]
+    il_clones = []
+    for new_pid, st in [(3, "IL10"), (4, "IL60"), (5, "IL"), (6, "DTD")]:
+        clone = pool[pool["player_id"] == 2].copy()
+        clone["player_id"] = new_pid
+        clone["status"] = st
+        il_clones.append(clone)
+    pool = pd.concat([pool, *il_clones], ignore_index=True)
+
+    roster = [1, 2, 3, 4, 5, 6]
+    means_with_il = _per_week_means(roster, pool, CONFIG.all_categories, season_weeks=26)
+    # Active-only baseline: just player 1 (status active)
+    means_active = _per_week_means([1], pool, CONFIG.all_categories, season_weeks=26)
+
+    # Counting mean (HR): IL players excluded → equals the active-only value
+    assert abs(means_with_il["HR"] - means_active["HR"]) < 1e-9
+    assert abs(means_with_il["HR"] - (35.0 / 26.0)) < 1e-9
+    # Rate mean (AVG): IL volume excluded → active-only weighted value
+    assert abs(means_with_il["AVG"] - means_active["AVG"]) < 1e-9
+
+
+def test_per_week_means_no_status_column_unchanged() -> None:
+    """Back-compat: a pool with NO status column behaves exactly as before
+    (no rows dropped) — the IL filter is opt-in on the column's presence."""
+    pool = _two_hitter_pool()
+    assert "status" not in pool.columns
+    means = _per_week_means([1, 2], pool, CONFIG.all_categories, season_weeks=26)
+    assert abs(means["HR"] - (45.0 / 26.0)) < 1e-9
+
+
 # ── compute_weekly_matrix ────────────────────────────────────────────
 
 
