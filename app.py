@@ -397,6 +397,37 @@ def render_splash_screen():
 # ── Step 1: Settings ───────────────────────────────────────────────
 
 
+def _home_quick_stats_labels(
+    multi_user: bool,
+    bootstrap_done: bool,
+    pool_count: int,
+    yahoo_connected: bool,
+    conn_status: str,
+) -> tuple[str, str]:
+    """Derive the Home quick-stats card's (pool_label, yahoo_badge_text).
+
+    BR-5 (2026-06-07): under MULTI_USER the per-session signals are inert —
+    read-only members never run the per-session bootstrap (``bootstrap_done``
+    stays False) and never hold a Yahoo client (``yahoo_connected`` stays
+    False), so the card wrongly read "Player Pool Loading..." + "Yahoo Not
+    Connected" despite the scheduler serving live data. When the flag is on we
+    use the scheduler-served ``conn_status`` ("server"/"warming") and show the
+    pool count whenever it's populated. Flag off → v1 strings, byte-for-byte.
+    """
+    if multi_user:
+        pool_label = f"{pool_count:,}" if pool_count > 0 else "Loading..."
+        if conn_status == "server":
+            badge = "Yahoo: Live (via server)"
+        else:  # "warming" (or any non-server state under MULTI_USER)
+            badge = "Yahoo: Warming up"
+        return pool_label, badge
+
+    # v1 (single-user) — unchanged.
+    pool_label = f"{pool_count:,}" if pool_count > 0 else "Loading..."
+    badge = "Yahoo Connected" if yahoo_connected else "Yahoo Not Connected"
+    return pool_label, badge
+
+
 def render_step_settings():
     sec("Step 1 — League Settings")
 
@@ -512,8 +543,21 @@ def render_step_settings():
     # League quick-stats summary cards
     num_teams = st.session_state.get("num_teams", 12)
     num_rounds = st.session_state.get("num_rounds", 23)
-    pool_count = len(load_player_pool()) if "bootstrap_complete" in st.session_state else 0
+    _mu = multi_user_enabled()
+    # BR-5: under MULTI_USER the per-session bootstrap is suppressed (the
+    # scheduler is the writer), so gate the pool read on bootstrap_complete only
+    # in v1; under the flag the DB is already populated by the scheduler.
+    pool_count = len(load_player_pool()) if (_mu or "bootstrap_complete" in st.session_state) else 0
     yahoo_ok = st.session_state.get("yahoo_connected", False)
+    # BR-5: members hold no live client; read the scheduler-served status.
+    conn_status = "offline"
+    if _mu:
+        try:
+            from src.yahoo_data_service import get_yahoo_data_service
+
+            conn_status = get_yahoo_data_service().connection_status()
+        except Exception:
+            conn_status = "warming"
     qs1, qs2 = st.columns(2)
     with qs1:
         st.markdown(
@@ -527,12 +571,18 @@ def render_step_settings():
             unsafe_allow_html=True,
         )
     with qs2:
-        pool_label = f"{pool_count:,}" if pool_count > 0 else "Loading..."
-        conn_badge = (
-            f'<span style="color:{T["ok"]};font-weight:600;">Yahoo Connected</span>'
-            if yahoo_ok
-            else f'<span style="color:{T["tx2"]};">Yahoo Not Connected</span>'
+        pool_label, _badge_text = _home_quick_stats_labels(
+            multi_user=_mu,
+            bootstrap_done="bootstrap_complete" in st.session_state,
+            pool_count=pool_count,
+            yahoo_connected=yahoo_ok,
+            conn_status=conn_status,
         )
+        # Green when live/connected (server or v1-connected), gray when warming/offline.
+        _badge_live = conn_status in ("server", "connected") or (not _mu and yahoo_ok)
+        _badge_color = T["ok"] if _badge_live else T["tx2"]
+        _badge_weight = "600" if _badge_live else "400"
+        conn_badge = f'<span style="color:{_badge_color};font-weight:{_badge_weight};">{_badge_text}</span>'
         st.markdown(
             f'<div class="metric-card">'
             f'<div style="font-family:Bebas Neue,sans-serif;font-size:13px;letter-spacing:2px;'
