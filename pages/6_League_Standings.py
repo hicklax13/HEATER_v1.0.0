@@ -70,15 +70,18 @@ except ImportError:
 
 # ── Constants ─────────────────────────────────────────────────────────
 
+# 2026-05-19 D6: snapshot rate_stats from LeagueConfig.
+# 2026-05-19 D4: snapshot inverse_stats from LeagueConfig.
+# MS-C1 (2026-06-07): total weeks sourced from LeagueConfig (canonical 26),
+# mirroring pages/2_Line-up_Optimizer.py's _LC_W().season_weeks pattern.
+from src.valuation import LeagueConfig as _LC_FOR_CATS  # noqa: E402
+
 _SEASON_START = datetime(2026, 3, 25, tzinfo=UTC)
-_TOTAL_WEEKS = 24
+_TOTAL_WEEKS = _LC_FOR_CATS().season_weeks
 _PLAYOFF_SPOTS = 4
 
 _HIT_CATS = {"R", "HR", "RBI", "SB", "AVG", "OBP"}
 _PIT_CATS = {"W", "L", "SV", "K", "ERA", "WHIP"}
-# 2026-05-19 D6: snapshot rate_stats from LeagueConfig.
-# 2026-05-19 D4: snapshot inverse_stats from LeagueConfig.
-from src.valuation import LeagueConfig as _LC_FOR_CATS  # noqa: E402
 
 _RATE_STATS = set(_LC_FOR_CATS().rate_stats)
 _INVERSE_CATS = set(_LC_FOR_CATS().inverse_stats)
