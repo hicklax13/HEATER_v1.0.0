@@ -47,35 +47,43 @@ Source of truth for executing the fixes + enhancements from
 
 **Checkpoint:** full suite **4920 passed, 107 skipped** in 121s after Waves 0–3. ✅
 
-## Wave 4 — Lineup optimizer
-- ☐ **LO-C1** (Med) stop injury×playing-time double-discount. `optimizer/projections.py:606,694`.
-- ☐ **LO-C2** (Low) unify pitcher park-factor across daily vs weekly paths. `optimizer/matchup_adjustments.py:424,743`.
-- ☐ **LO-C3** (Low) fix post-LP IP comment / dead branch. `pages/2_Line-up_Optimizer.py:1474`.
-- ☐ **LO-C4** (Low) apply 0.93 two-start fatigue in streaming ranker. `optimizer/streaming.py:118`.
-- ☐ **BR-7** (Low/Med) IP-budget forfeit warning scope (daily vs weekly).
+## Wave 4 — Lineup optimizer (DONE — 5/5; 108 area tests pass)
+- ☑ **LO-C1** avoid double-discounting counting-stat availability (injury factor recorded; playing-time divides it out → single factor). (commit 8ab2494)
+- ☑ **LO-C2** pitcher park factor neutral in daily path (matches weekly). (commit c7aa6e0)
+- ☑ **LO-C3** fix stale post-LP IP comment + collapse dead branch. (commit c02aa49)
+- ☑ **LO-C4** 2-start fatigue (0.93) in compute_streaming_value. (commit 056c84a)
+- ☑ **BR-7** suppress false weekly-IP forfeit warning on Today scope. (commit 76007b7)
 
-## Wave 5 — Data / bootstrap + game-day
+## Wave 5a — Data / bootstrap + game-day (contained) (DONE — 6/6; 98 tests incl. backcompat guards)
+- ☑ **DB-C3** independent 5-min matchup gate in the game window (Phase 7b). (commit 3034dca)
+- ☑ **DB-C4** ET game_date + venue-local forecast hour for weather. (commit 616423d)
+- ☑ **DB-C5** DNA-collision warning covers trailing match_player_id fallbacks. (commit 51ff4e3)
+- ☑ **DB-C6** preserve real 0.0 in team_strength reads (`_safe_float_or`). (commit 6735988)
+- ☑ **BR-9** FA Ownership Heat Index wired to `percent_owned`. (commit e899cf9)
+- ☑ **BR-5** Home quick-stats reflects scheduler data under MULTI_USER (flag-gated; v1 byte-for-byte). (commit 6a453bb)
+
+## Wave 5b — Big data features (separate waves)
 - ☐ **DB-C1** (Med, full) repair park-factor Tier 1 type bug + add a live source; optimizer reads DB table. `data_bootstrap.py:608`.
 - ☐ **DB-C2** (Med) wire real closer depth data into Closer Monitor; replace SV heuristic. `pages/3_Closer_Monitor.py` + `data_bootstrap` depth phase.
-- ☐ **DB-C3** (Med) short game-window staleness gate for `yahoo_matchup`. `data_bootstrap.py:3266`.
-- ☐ **DB-C4** (Low) weather game_date ET + venue-local forecast hour. `game_day.py:345`.
-- ☐ **DB-C5** (Low) DNA-collision warning on the trailing match_player_id fallbacks. `live_stats.py:153`.
-- ☐ **DB-C6** (Low) None-check (not falsy) for team_strength rate reads. `game_day.py:691,882`.
-- ☐ **BR-9** (Low) feed `percent_owned` into the FA Ownership Heat Index.
-- ☐ **BR-5** (Low) Draft/Home "Yahoo Not Connected" + "Player Pool Loading" wording under MULTI_USER.
 
-## Wave 6 — Trade engine
-- ☐ **TE-C1** (Low) weekly-matrix/playoff per-week means from LP starters (exclude IL). `engine/output/weekly_matrix.py:355`.
-- ☐ **TE-C2** (Low) regime fallback xwOBA 0.315→registry 0.320. `engine/signals/regime.py:341`.
-- ☐ **TE-C3** (Low) remove dead `_compute_other_teams_sgp` call. `monte_carlo/trade_simulator.py:118`.
+## Wave 6 — Trade engine (DONE — 3/3; 79 tests pass incl. grade-authority + playoff guards)
+- ☑ **TE-C1** exclude IL players from weekly/playoff per-week means (one shared helper covers both). (commit 2621cca) — full LP-starter weighting remains TE-E1 (Wave 9).
+- ☑ **TE-C2** regime fallback reads canonical league-avg xwOBA (0.320) from registry. (commit beb38f2)
+- ☑ **TE-C3** remove dead `_compute_other_teams_sgp` call. (commit 900173d)
 
-## Wave 7 — Draft engine (preseason, lower priority)
-- ☐ **DE-C1** (Med) seed/CRN for candidate MC. `simulation.py:351`.
-- ☐ **DE-C2** (Med) per_category_sgp reindex by player_id. `simulation.py:610`.
-- ☐ **DE-C3** (Med) signed-magnitude floor in enhanced_pick_score. `draft_engine.py:1157`.
-- ☐ **DE-C4** (Low) pick_predictor off-by-one. `pick_predictor.py:49`.
-- ☐ **DE-C5** (Low) self-referential horizon test + docstring. `tests/test_simulation_math.py:496`.
-- ☐ **DE-C6** (Low) draft_analytics wiring vs docstring.
+## Wave 7 — Draft engine (preseason) (DONE — 6/6; 203 area tests pass)
+- ☑ **DE-C1** seed + common-random-numbers across MC candidate eval. (commit e82abb9)
+- ☑ **DE-C2** reindex per_category_sgp by sim_available player_id. (commit 4d51911)
+- ☑ **DE-C3** signed-magnitude clip preserves sign in enhanced_pick_score. (commit e947ae7)
+- ☑ **DE-C4** exclude current on-the-clock pick from future picks. (commit b14c205)
+- ☑ **DE-C5** horizon test exercises the real *4 horizon + docstring. (commit 683544a)
+- ☑ **DE-C6** draft_analytics docstring corrected (imported only by tests; engine-wiring is a follow-up). (commit 1c30063)
+
+## NEW-2 — settings dict-contract hardening (regression fix)
+- ☑ **NEW-2** `save_league_settings` rejects non-dict; `load_league_settings` coerces non-dict→{} (honor `-> dict`). Fixed a deterministic xdist-ordering failure exposed by the campaign's added test files. (commit 738b1b3)
+
+**CHECKPOINT (post contained-waves 0–7): full suite 4958 passed, 107 skipped, 0 failed. ✅**
+All clear correctness bugs fixed. Remaining = big features + enhancements (below).
 
 ## Wave 8 — Infrastructure (owner chose full)
 - ☐ **BR-1 / cookie auth** persistent cookie/token-backed sessions so refresh/bookmarks stay logged in. `src/auth.py`, `app.py`. (Security-sensitive — careful review.)
