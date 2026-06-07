@@ -1,16 +1,17 @@
 # HEATER Full Audit — 2026-06-07
 
-> **STATUS: CODE-SIDE COMPLETE + ADVERSARIALLY VERIFIED. Browser sweep (Phase A) PENDING.**
+> **STATUS: COMPLETE — code-side (Phases B–D) + browser sweep (Phase A: 12/14 surfaces). ADVERSARIALLY VERIFIED.**
 > Read-only functional + accuracy audit per `docs/superpowers/specs/2026-06-07-heater-full-audit-design.md`
 > + `docs/superpowers/plans/2026-06-07-heater-full-audit.md`. **No fixes in this effort** — this is a
 > diagnosis report + ranked enhancement backlog; each fix/enhancement is a separate spec→plan→build.
 >
 > **What's done:** Phase B (7/7 engine code-audits, L4–L6) + Phase C adversarial re-verification of all
 > HIGH findings (independent skeptics) + controller verification of key Mediums + Phase D report-conclusions
-> review (verdict: publish-with-edits; applied — MS-C2 downgraded to dormant/Low). **What's pending:** Phase A
-> (live read-only browser sweep, L1–L3 functional/sanity/cross-feature consistency) — needs the owner logged
-> into the live app; will be folded into a v2 of this report. Per-engine raw notes: `docs/audits/raw/B*.md`;
-> verification verdicts: `docs/audits/raw/_verdicts.md`.
+> review (verdict: publish-with-edits; applied — MS-C2 downgraded to dormant/Low) + Phase A live read-only
+> browser sweep (12 of 14 surfaces; the live app drove off a logged-in admin session). **Remaining:** 5
+> low-priority surfaces not exercised (Punt Analyzer, Player Compare, Draft Simulator, Usage Analytics, Admin
+> Controls) — recommend a quick follow-up render check. Per-engine raw notes: `docs/audits/raw/B*.md`;
+> verification verdicts: `docs/audits/raw/_verdicts.md`; browser evidence: `docs/audits/_browser-evidence.md`.
 
 ---
 
@@ -34,12 +35,14 @@ runs a simpler/wrong thing."** Four of the highest-value findings are this exact
 
 | Rank | ID | Sev | Risk |
 |---|---|---|---|
-| 1 | **FA-C1** | **High** | Free-agent **sustainability score is sign-inverted for hitters** → it actively *rewards sell-high* and *penalizes buy-low* hitters in FA ranking. The guard test masks it by encoding the wrong sign. |
-| 2 | **PV-C1** | **High** | The foundational **7-system projection blend learns year-over-year persistence, not forecast skill** (2026 forecasts regressed onto 2025 actuals; no `forecast_season` column). **Confirmed active on the live DB.** Every downstream value (SGP/VORP/trade/FA/lineup/draft) sits on a weaker base than advertised. |
-| 3 | **DB-C1** | Medium | **Park-factor live tier is dead code** — the fetcher returns the wrong type, so the frozen 2026-04-18 emergency dict feeds *every* lineup/matchup park adjustment year-round. |
-| 4 | **DB-C2** | Medium | **Closer Monitor primary path is dead** — `closer_depth_data` is never written, so closers are a "most-saves-per-team" guess (no committee detection). *Confirms your open task #11.* |
-| 5 | **MS-C3** | Medium | **Standings/team-totals cache never invalidates** on the long-lived Railway replica → the first snapshot can persist process-wide until redeploy. |
-| 6 | **DB-C3** | Medium | **Live matchup scores effectively refresh every 30 min, not the advertised 5** during games. *Confirms your open task #12.* |
+| 1 | **BR-4** | **High** | **Live crash:** the Playoff Odds tab throws a raw `KeyError: 'accent'` traceback to the user after "Simulate Season" (`pages/6_League_Standings.py:528`). Deterministic on a flagship feature. *(Found by the browser sweep.)* |
+| 2 | **FA-C1** | **High** | Free-agent **sustainability score is sign-inverted for hitters** → it actively *rewards sell-high* and *penalizes buy-low* hitters in FA ranking. The guard test masks it by encoding the wrong sign. |
+| 3 | **PV-C1** | **High** | The foundational **7-system projection blend learns year-over-year persistence, not forecast skill** (2026 forecasts regressed onto 2025 actuals; no `forecast_season` column). **Confirmed active on the live DB.** Every downstream value (SGP/VORP/trade/FA/lineup/draft) sits on a weaker base than advertised. |
+| 4 | **DB-C1** | Medium | **Park-factor live tier is dead code** — the fetcher returns the wrong type, so the frozen 2026-04-18 emergency dict feeds *every* lineup/matchup park adjustment year-round. |
+| 5 | **DB-C2** | Medium | **Closer Monitor primary path is dead** — `closer_depth_data` is never written, so closers are a "most-saves-per-team" guess (no committee detection). *Confirms task #11; browser sweep showed it's projected-SV-based, e.g. Hader 67% with 1 actual save.* |
+| 6 | **MS-C3** | Medium | **Standings/team-totals cache never invalidates** on the long-lived Railway replica → the first snapshot can persist process-wide until redeploy. |
+| 7 | **DB-C3** | Medium | **Live matchup scores effectively refresh every 30 min, not the advertised 5** during games. *Confirms task #12 (browser showed Matchup flipping LIVE→STALE).* |
+| 8 | **BR-8** | Medium | FA page shows **"No add/drop recommendations"** for a 9th-place, losing-7-cats team while the FA list shows large positive impacts and streaming works — the headline recommender yields nothing (possibly downstream of FA-C1). |
 
 **Headline enhancement opportunities** (full ranked backlog in §4):
 1. **Fix the projection foundation (PV-C1/PV-E1):** add a `forecast_season` key, learn stacking weights from a true held-out (prior-forecast → prior-actual) regression. Highest leverage — it lifts every engine.
@@ -49,16 +52,28 @@ runs a simpler/wrong thing."** Four of the highest-value findings are this exact
 
 ---
 
-## 2. Per-feature functional table (Phase A — PENDING)
+## 2. Per-feature functional table (Phase A — 12/14 surfaces)
 
-> Requires the live read-only browser sweep (per-session auth; owner must be logged in). Not yet run.
-> The matrix of surfaces × controls × edge-cases is specified in the plan (§ Phase A). On completion this
-> section gets one row per surface/tab/control → ✅/⚠️/❌ + finding + evidence ref, plus
-> `docs/audits/_browser-evidence.md`.
+Live read-only sweep off a logged-in admin session. Full evidence: `docs/audits/_browser-evidence.md`.
 
-| Surface | Status | Note |
+| Surface | Status | Finding / evidence |
 |---|---|---|
-| _All 14 surfaces_ | ⏳ pending | Browser sweep not yet run — code-side audit below is complete and standalone. |
+| Home / Draft Tool | ⚠️ | Renders; "Yahoo Not Connected" + "Player Pool Loading…" under MULTI_USER despite live data (BR-5, task #13). |
+| My Team | ✅ | Roster 27 (13H/14P), streaks/actions/category-gap all sane. "Losing categories" banner under-reports (BR-2). |
+| Lineup Optimizer | ✅ | Optimize works (no NaN/crash); LEAVE-EMPTY logic correct; Muncy=LAD (DNA fix holds); win-prob 8.5% (BR-6). Slow: 28s load / 33s optimize. IP-budget daily/weekly confusion (BR-7). |
+| Closer Monitor | ⚠️ | Renders 30 teams; confirms DB-C2 — projected-SV heuristic, no committee, false "FanGraphs depth chart" caption (Hader 67% w/ 1 actual SV). |
+| Matchup Planner | ✅ | Win 29%/Tie 23%/Loss 48%; copula 10k sims; inverse cats labeled. Same-label-different-metric vs My Team (BR-3). |
+| League Standings | ⚠️ | Current/Category standings ✅ (12 teams, no ghost, consistent). **Playoff Odds tab CRASHES (BR-4).** Freshness "Live (via server)". |
+| Punt Analyzer | ⏳ | Not exercised (low priority). |
+| Trade Analyzer | ✅ | Builder + live transactions render (17s). Matchup STALE here (BR/DB-C3). Full trade-build not exercised. |
+| Trade Finder | ⚠️ | Completes but **74s scan** (BR-10, task #10); top rec looks lopsided (BR-10b). |
+| Free Agents | ⚠️ | Renders (15s); L14 columns blank (FA-C2); "No add/drop recs" (BR-8); Heat Index all zeros (BR-9); streaming works. |
+| Player Compare | ⏳ | Not exercised (low priority). |
+| Leaders | ✅ | Runs leaderboard descending; "Rostered By" matches Yahoo (L3 ✓); 7 tabs. |
+| Player Databank | ✅ | Search returns 4,235; 3-dp rate formatting; %Ros populated (cf. BR-9). |
+| Draft Simulator | ⏳ | Not exercised (preseason, low priority). |
+| Admin Console | ✅ | Users/Feedback render; testuser + admin listed; controls present (inspect-only). Onboarding flow functional. |
+| Usage Analytics / Admin Controls | ⏳ | Not exercised (inspect-only, low priority). |
 
 ---
 
@@ -117,6 +132,24 @@ Severities below reflect **adversarial re-verification** where performed (✓V =
 | DE-C6 | 90 | Draft | `draft_analytics.py:1-11` | Docstring claims it's wired into `draft_engine`, but `draft_engine` imports none of it (reimplements category balance + BUY/FAIR/AVOID) → 2 divergent implementations. |
 
 \* LO-C1: the lineup-optimizer subagent confirmed both enable flags default on and both steps run; not handed to a separate skeptic.
+
+### Browser-sweep findings (BR — L1–L3, from Phase A)
+Full detail + evidence in `docs/audits/_browser-evidence.md`. Several confirm code findings live.
+
+| ID | Sev | Surface | Finding |
+|---|---|---|---|
+| **BR-4** | **High** | League Standings | Playoff Odds tab crashes `KeyError: 'accent'` to screen after Simulate Season (`pages/6_League_Standings.py:528`; eager `T["accent"]` default in a `.get`). Deterministic; flagship feature. |
+| **BR-8** | Medium | Free Agents | "No add/drop recommendations" for a 9th-place losing team while list shows large impacts + streaming works (likely downstream of FA-C1 / guards / threshold). |
+| **BR-1** | Medium | (global) | Per-session auth (not cookie-backed): deep-link/refresh/bookmark → forced re-login. Friction for 12 users. |
+| **BR-2** | Medium | My Team | "LOSING CATEGORIES: R · SB" contradicts its own per-cat detail + Standings "3-7-2" (7 losing). Mislabeled or under-counts (`pages/1_My_Team.py`). |
+| **BR-10** | Medium (UX) | Trade Finder | Scan takes 74s on the single replica (task #10). Completes (no hang). |
+| **BR-3** | Low/Med | My Team ↔ Matchup Planner | "Week 11" = week-to-date actuals on one page, 7-day projection on the other, same label, no cue. |
+| **BR-7** | Low/Med | Lineup Optimizer | "Today" scope post-LP IP budget shows a *weekly*-forfeit WARNING (16.5/20) from only today's pitchers. |
+| **BR-9** | Low | Free Agents | Ownership Heat Index all zeros; `percent_owned` exists (shown in Databank) but the FA heat path ignores it. |
+| **BR-5** | Low | Home/Draft | "Yahoo Not Connected" + "Player Pool Loading…" under MULTI_USER despite live data (task #13). |
+| **BR-10b** | Low | Trade Finder | Top rec looks lopsided (2 everyday IF for 1 marginal RP, +0.81 SGP) — low confidence; verify. |
+
+**Browser sweep also LIVE-CONFIRMED these code findings:** DB-C1 (park factors fresh-timestamp but tier=emergency), DB-C2 (closer heuristic, vividly wrong), DB-C3 (Matchup STALE flicker), **MS-E1 (win prob 8.5% Lineup vs 29% Matchup Planner — same matchup)**, FA-C2 (L14 columns blank). And confirmed GOOD: Yahoo relay live in prod; DNA fix (Muncy=LAD) holds; standings consistent across pages; 12 teams no ghost; rate formatting correct.
 
 **Tally:** 2 High · 10 Medium (7 in-season + 3 preseason-draft) · 19 Low/Info. **All 4 original HIGH findings survived adversarial verification (0 false positives); 2 were calibrated down to Medium for honest impact. The Phase-D review confirmed every spot-checked Medium/Low against current code and downgraded the one dormant Medium (MS-C2) to Low.**
 
@@ -185,8 +218,13 @@ TWP routing, IP parsing all hold. Two "dead wiring" data-quality bugs (DB-C1, DB
 
 ## 5. Cross-feature consistency findings
 
-Browser-driven cross-feature checks (same player/standings/matchup numbers across surfaces) are **pending the
-Phase A sweep**. Code-level cross-engine inconsistencies already surfaced:
+Browser-driven cross-feature checks from Phase A:
+- **CONFIRMED INCONSISTENT — win probability (BR-6 / MS-E1):** same Week-11 matchup shows **8.5%** (Lineup Optimizer, Normal model) vs **29%** (Matchup Planner, Gaussian copula) — a ~3.4× disagreement. The "different number on every page" symptom, live.
+- **CONFIRMED INCONSISTENT — "losing categories" (BR-2):** My Team banner says "R · SB" while Standings + the optimizer's matchup-state both say all 7 (R/SB/AVG/OBP/L/SV/WHIP).
+- **CONFIRMED INCONSISTENT — "Week 11" labels (BR-3):** week-to-date actuals (My Team) vs 7-day projection (Matchup Planner), same label.
+- **CONFIRMED CONSISTENT (good):** standings position (9th, 3-6-1) identical across My Team ↔ Standings; the 3-7-2 category tally matches My Team detail ↔ Standings; player stats match (Iglesias 13 SV/0.87 ERA across My Team ↔ Closer Monitor; rostered-by on Leaders matches Yahoo); 12 teams, no ghost; Muncy=LAD everywhere.
+
+Code-level cross-engine inconsistencies also surfaced:
 
 - **Three divergent weekly-variance tables** (MS-E1) → the *same* matchup yields different win-probabilities on
   Matchup Planner vs Season Projections vs Playoff Odds. *(User-visible "different number on every page" — the
