@@ -634,23 +634,122 @@ def _bootstrap_injury_data(progress: BootstrapProgress, historical: dict | None 
         return f"Error: {e}"
 
 
+# FanGraphs / ESPN abbreviation aliases → the project's canonical 3-letter
+# codes (the keys used in _PARK_FACTORS_EMERGENCY_2026 and the park_factors
+# table). The only meaningful divergence in the 2026 era is Oakland → ATH;
+# the rest are pass-through but listed for the handful of sources that use the
+# older Chicago/Washington/Kansas City variants.
+_PARK_FACTOR_TEAM_ALIASES: dict[str, str] = {
+    "OAK": "ATH",
+    "ATH": "ATH",
+    "CHW": "CWS",
+    "WAS": "WSH",
+    "KCR": "KC",
+    "SDP": "SD",
+    "SFG": "SF",
+    "TBR": "TB",
+}
+
+
+def _normalize_park_team_code(raw: str) -> str:
+    """Map a source team abbreviation to the project's canonical code.
+
+    Returns "" for falsy/non-team tokens so the caller can skip header /
+    league-average / garbage rows.
+    """
+    if not raw:
+        return ""
+    code = str(raw).strip().upper()
+    if not code or not code.isalpha() or len(code) > 4:
+        return ""
+    return _PARK_FACTOR_TEAM_ALIASES.get(code, code)
+
+
+def _parse_fangraphs_park_factors(html: str) -> dict[str, float]:
+    """Parse a FanGraphs guts.aspx?type=pf HTML table into {team: factor}.
+
+    FanGraphs renders the "Basic" (single-season) park factor scaled to 100
+    (e.g. Coors ~112, Petco ~96). We divide by 100 to match the project's
+    1.000-neutral convention, normalize team codes (OAK → ATH), keep only
+    plausible factors (0.70–1.40), and drop the league-average / header rows.
+
+    Returns an empty dict when nothing parseable is found.
+    """
+    if not html:
+        return {}
+    try:
+        from io import StringIO
+
+        import pandas as pd
+
+        # Let pandas locate every <table>; the park-factor grid is the one
+        # carrying recognizable team codes plus a "Basic" column.
+        tables = pd.read_html(StringIO(html))
+    except Exception:
+        return {}
+
+    out: dict[str, float] = {}
+    for table in tables:
+        cols = {str(c).strip().lower(): c for c in table.columns}
+        team_col = cols.get("team")
+        # FanGraphs labels the single-season factor "Basic"; tolerate "pf".
+        factor_col = cols.get("basic") or cols.get("park factor") or cols.get("pf")
+        if team_col is None or factor_col is None:
+            continue
+        for _, row in table.iterrows():
+            code = _normalize_park_team_code(row.get(team_col, ""))
+            if not code:
+                continue
+            raw_val = row.get(factor_col)
+            try:
+                val = float(raw_val)
+            except (TypeError, ValueError):
+                continue
+            # FanGraphs scales to 100; convert to the 1.0-neutral convention.
+            if val > 5.0:
+                val = val / 100.0
+            if 0.70 <= val <= 1.40:
+                out[code] = val
+        if out:
+            break
+    return out
+
+
 def _bootstrap_park_factors(progress: BootstrapProgress) -> str:
     """Phase 2: Fetch park factors via live sources with emergency fallback."""
-    from src.data_fetch_utils import fetch_with_fallback, patch_pybaseball_session
+    from src.data_fetch_utils import _BROWSER_HEADERS, fetch_with_fallback
     from src.database import update_refresh_log_auto, upsert_park_factors
 
     progress.phase = "Park Factors"
     progress.detail = "Fetching live park factors..."
 
-    def _tier1_pybaseball():
-        """Tier 1: pybaseball with browser headers."""
-        with patch_pybaseball_session():
-            from pybaseball import team_batting
+    def _tier1_fangraphs():
+        """Tier 1: FanGraphs guts park factors → {team_code: factor} dict.
 
-            bat = team_batting(datetime.now(UTC).year)
-            if bat is None or bat.empty:
-                return None
-            return bat
+        Returns a real ``{team: factor}`` mapping (NOT a DataFrame) so the
+        ``isinstance(data, dict)`` guard below fires on success. Returns ``{}``
+        on any failure (403, network, parse) so the waterfall falls through
+        cleanly to the emergency dict.
+
+        NOTE: FanGraphs typically 403s non-browser scrapers (documented Known
+        Design Choice). The code path is correct and a working source CAN flow
+        through; in production this usually falls to the emergency dict.
+        """
+        try:
+            import requests
+        except ImportError:
+            return {}
+        try:
+            resp = requests.get(
+                "https://www.fangraphs.com/guts.aspx?type=pf",
+                headers=_BROWSER_HEADERS,
+                timeout=15,
+            )
+        except Exception:
+            return {}
+        if getattr(resp, "status_code", None) != 200:
+            return {}
+        return _parse_fangraphs_park_factors(getattr(resp, "text", "") or "")
 
     def _tier3_emergency():
         """Tier 3: Hardcoded 2026 FanGraphs 5yr values."""
@@ -659,7 +758,7 @@ def _bootstrap_park_factors(progress: BootstrapProgress) -> str:
     try:
         data, tier = fetch_with_fallback(
             "park_factors",
-            primary_fn=_tier1_pybaseball,
+            primary_fn=_tier1_fangraphs,
             fallback_fn=None,
             emergency_fn=_tier3_emergency,
         )
