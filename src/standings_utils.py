@@ -7,6 +7,7 @@ across Trade Finder, League Standings, and My Team pages.
 from __future__ import annotations
 
 import logging
+import time
 
 import pandas as pd
 
@@ -17,6 +18,14 @@ _MATCH_RECORD_CATS = frozenset({"WINS", "LOSSES", "TIES", "PERCENTAGE", "POINTS_
 
 
 _cached_team_totals: dict[str, dict[str, float]] | None = None
+# MS-C3 (2026-06-07): the module cache is stamped with wall-clock time and
+# treated stale after _TEAM_TOTALS_TTL_SECS. Without a TTL the cache
+# short-circuited the TTL'd YahooDataService call forever on the always-on
+# Railway replica, and nothing in production calls clear_cache(). 5 min bounds
+# staleness while still collapsing redundant computation within a request burst
+# (the underlying get_standings() carries its own 30-min TTL).
+_cached_team_totals_ts: float = 0.0
+_TEAM_TOTALS_TTL_SECS: float = 300.0
 # Defined here (not below get_fa_pool) so clear_cache cannot NameError on a
 # cold-start invocation, and so static analyzers / readers see both caches
 # declared up-front together. (Wave 8a/D5A-013.)
@@ -71,8 +80,10 @@ def get_all_team_totals(
     Returns:
         Dict mapping team_name -> {category: total_value}.
     """
-    global _cached_team_totals
-    if _cached_team_totals is not None and not force_refresh:
+    global _cached_team_totals, _cached_team_totals_ts
+    # MS-C3: honor a TTL so a long-lived replica refreshes stale standings.
+    fresh = (time.time() - _cached_team_totals_ts) < _TEAM_TOTALS_TTL_SECS
+    if _cached_team_totals is not None and fresh and not force_refresh:
         return _cached_team_totals
 
     result: dict[str, dict[str, float]] = {}
@@ -114,6 +125,7 @@ def get_all_team_totals(
                 if result:
                     logger.debug("Team totals loaded from Yahoo standings (%d teams)", len(result))
                     _cached_team_totals = result
+                    _cached_team_totals_ts = time.time()
                     return result
     except Exception:
         logger.debug("Yahoo standings unavailable for team totals", exc_info=True)
@@ -134,13 +146,15 @@ def get_all_team_totals(
             logger.warning("Projection-based team totals failed", exc_info=True)
 
     _cached_team_totals = result if result else None
+    _cached_team_totals_ts = time.time() if result else 0.0
     return result
 
 
 def clear_cache():
     """Clear cached totals and FA pool (call when rosters change)."""
-    global _cached_team_totals, _cached_fa_pool
+    global _cached_team_totals, _cached_team_totals_ts, _cached_fa_pool
     _cached_team_totals = None
+    _cached_team_totals_ts = 0.0
     _cached_fa_pool = None
 
 
