@@ -304,7 +304,7 @@ def simulate_season(
         Dict mapping team_name to:
             avg_wins: float — average wins across sims
             avg_losses: float — average losses across sims
-            playoff_prob: float — fraction of sims finishing top 6
+            playoff_prob: float — fraction of sims finishing top 4 (_PLAYOFF_SPOTS)
             rank_distribution: list[int] — count at each rank (index 0 = rank 1)
     """
     cfg = config or LeagueConfig()
