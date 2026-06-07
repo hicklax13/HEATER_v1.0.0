@@ -25,24 +25,27 @@ Source of truth for executing the fixes + enhancements from
 - ☑ **BR-8** investigated (root cause, no live fix yet): the page "Impact" (`fa−min(roster)`, can inflate via a below-replacement roster `min`) ≠ engine `net_sgp_delta`; empty output is the **position-cap guard** (`_POSITION_CAPS`, `fa_recommender.py:405-484`) + narrow funnel (`_MAX_FA_CANDIDATES=10`×`_MAX_DROP=5`) collapsing swaps (synthetic +9.18 SGP swap killed solely by `2B=6>2`), amplified by the FA-C1 sign bug suppressing buy-low targets. FIX 1 should materially improve it. **Follow-up (needs live roster):** run `scripts/diag_fa_stage_by_stage.py` (after repointing off the defunct `is_user_team` flag — it currently IndexErrors under MULTI_USER) to confirm cap-vs-threshold; if cap, widen funnel / relax cap on clear upgrades (with a guard test). → tracked as **BR-8b** below.
 
 ### New findings surfaced during Wave 1 (added to backlog)
-- ☐ **NEW-1** (Low, latent — canonical SGP path) `_marginal_era_sgp`/`_marginal_whip_sgp` (`src/valuation.py:548,563`) + `_blend_fa_row` (`fa_recommender.py:1150`) use `x or 0`, which passes NaN through (NaN is truthy) → NaN ERA/WHIP marginal SGP for a hitter with NaN ip. **Not a prod bug** (pool COALESCEs `ytd_ip→0` + `coerce_numeric_df` fillna(0)), but harden with NaN-safe coercion. Fold into Wave 2.
+- ☑ **NEW-1** NaN-safe `_num()` helper applied to `_marginal_era_sgp`/`_marginal_whip_sgp` (`src/valuation.py`) + `_blend_fa_row` (`fa_recommender.py`). (commit 189f17d; test_valuation_math = 41 pass)
 - ☐ **BR-8b** (Med) FA recommender funnel/position-cap may over-collapse output; confirm against live roster + widen/relax with a guard test. (Wave 5/FA follow-up.)
 
 ## Wave 2 — Projections / valuation
-- ☐ **PV-C2** (Med) invert Bayesian Layer-2 blend (expert ∝ reliability). `src/bayesian.py:979`.
+- ☑ **PV-C2** invert Bayesian Layer-2 blend (expert ∝ reliability). (commit 9d8e487; test_ros_projections + bayesian = 56 pass)
 - ☐ **PV-C1** (HIGH, full) add `forecast_season` column to `projections`; stop DELETE-all; learn stacking weights from held-out (prior-forecast→prior-actual) pairs; uniform fallback when no valid pair. `src/database.py:1089`, `projection_stacking.py`, `data_pipeline.py`.
 - ☐ **PV-C3** (Low) blend volume cols (pa/ab/ip) with one shared weight, not per-component.
 - ☐ **PV-C4** (Low) single standings-stddev SGP-denominator source.
 - ☐ **FA-C2** (Med) wire a real L14 source into the FA blend (closes FA-C2 + the blank L14 columns). `fa_recommender._blend_fa_row` + `shared_data_layer._load_recent_form`.
 
-## Wave 3 — Standings / matchup
-- ☐ **MS-C1** (Med) `_TOTAL_WEEKS 24→26` (source `LeagueConfig().season_weeks`). `pages/6_League_Standings.py:74`.
-- ☐ **MS-C2** (Low/dormant) `apply_time_decay` default 24→26 + clamp time_fraction [0,1]. `src/trade_intelligence.py:87`.
-- ☐ **MS-C3** (Med) invalidate `standings_utils._cached_team_totals` (TTL / refresh-log key / clear on refresh).
-- ☐ **MS-C4** (Low) momentum inverse-cat sign in `simulate_season_enhanced`. `standings_engine.py:417`.
-- ☐ **MS-C5** (Low) standings-page ghost filter (`valid_teams`). `pages/6_League_Standings.py:680`.
-- ☐ **MS-C6** (Info) playoff_sim docstring "top 6"→"top 4". `src/playoff_sim.py:307`.
-- ☐ **BR-2** (Med) My Team "LOSING CATEGORIES" banner under-reports vs detail/standings. `pages/1_My_Team.py`.
+## Wave 3 — Standings / matchup (DONE — 7/7; note: 2 background agents stalled on the watchdog, so MS-C5/C6/BR-2 done inline)
+- ☑ **MS-C1** source total weeks from LeagueConfig (24→26). (commit e84a19e)
+- ☑ **MS-C2** clamp time-decay fraction [0,1] + canonical season default. (commit 07a9e42)
+- ☑ **MS-C3** TTL the team-totals module cache (300s). (commit c48ebe1)
+- ☑ **MS-C4** momentum respects inverse-cat sign in season sim. (commit 535be80)
+- ☑ **MS-C5** ghost-team filter on the category-rank grid (`standings_utils.filter_standings_to_valid_teams`). (commit 0a23bab)
+- ☑ **MS-C6** playoff_sim docstring "top 6"→"top 4". (commit 49aa825)
+- ☑ **BR-2** My Team callout was case (b): top-2 priority subset mislabeled "Losing Categories" → relabeled "Priority Targets" + guard test. (commit fa40a74). NEW finding: the subset selection sorts by raw diff (favors counting cats) — flagged BR-2b below.
+- ☐ **BR-2b** (Low, enhancement) My Team priority-target selection sorts by raw diff (apples-to-oranges across counting vs rate cats) → favors big-count cats; consider normalizing by category or using win-prob. (Wave 9.)
+
+**Checkpoint:** full suite **4920 passed, 107 skipped** in 121s after Waves 0–3. ✅
 
 ## Wave 4 — Lineup optimizer
 - ☐ **LO-C1** (Med) stop injury×playing-time double-discount. `optimizer/projections.py:606,694`.
