@@ -413,5 +413,20 @@ class TestEdgeCases:
         for cat, tau in WEEKLY_TAU.items():
             assert tau > 0, f"Tau for {cat} should be positive"
 
+    def test_weekly_tau_resolves_from_canonical_source(self):
+        """MS-E1b: trade_value.WEEKLY_TAU is the SAME quantity (per-team weekly
+        category SD in raw stat units) as the canonical weekly-SD source, so it
+        must resolve from h2h_engine.default_weekly_sigmas() — the single source
+        of truth shared with standings_engine / standings_projection /
+        playoff_sim — not an independently hand-tuned table."""
+        from src.optimizer.h2h_engine import default_weekly_sigmas
+
+        canonical = default_weekly_sigmas()
+        for cat in LeagueConfig().all_categories:
+            assert WEEKLY_TAU[cat] == pytest.approx(canonical[cat]), (
+                f"trade_value.WEEKLY_TAU[{cat}] diverges from the canonical "
+                f"weekly SD ({WEEKLY_TAU.get(cat)} != {canonical[cat]})"
+            )
+
     def test_league_budget_constant(self):
         assert LEAGUE_BUDGET == 3120.0  # 12 × $260

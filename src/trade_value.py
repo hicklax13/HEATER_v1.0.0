@@ -19,6 +19,7 @@ import math
 import numpy as np
 import pandas as pd
 
+from src.optimizer.h2h_engine import default_weekly_sigmas
 from src.valuation import (
     LeagueConfig,
     SGPCalculator,
@@ -28,25 +29,22 @@ from src.valuation import (
 # Minimum weeks_remaining to avoid degenerate scaling
 _MIN_WEEKS_REMAINING = 1
 
-# ── Weekly Variance Defaults (tau² per category) ──────────────────────
-# Empirical week-to-week standard deviation of a roster's category total
-# in a 12-team H2H league. Higher tau = more weekly randomness = lower
-# H2H value per G-Score theory. Sources: FanGraphs, arXiv:2307.02188.
-
-WEEKLY_TAU: dict[str, float] = {
-    "R": 8.5,
-    "HR": 3.2,
-    "RBI": 8.0,
-    "SB": 2.8,
-    "AVG": 0.015,
-    "OBP": 0.014,
-    "W": 1.6,
-    "L": 1.5,
-    "SV": 2.4,
-    "K": 12.0,
-    "ERA": 0.75,
-    "WHIP": 0.06,
-}
+# ── Weekly Variance Defaults (tau per category) ───────────────────────
+# Empirical week-to-week standard deviation of a roster's category total in a
+# 12-team H2H league, in RAW STAT units (R=runs/week, ERA=ERA-points/week, ...).
+# Higher tau = more weekly randomness = lower H2H value per G-Score theory
+# (Rosenof 2023, arXiv:2307.02188). The G-Score below converts each tau to SGP
+# units (tau / sgp_denominator) before use — the conversion is a derived
+# intermediate; the TABLE itself is in the same raw-stat per-team weekly-SD
+# space as the canonical source.
+#
+# MS-E1b: this is the SAME quantity as h2h_engine.default_weekly_sigmas() — the
+# single source of truth (MS-E1) already shared by standings_engine,
+# standings_projection, and playoff_sim — so it resolves from there rather than
+# being an independently hand-tuned 4th copy that drifted 2-5x. (The downstream
+# formula differs — G-Score variance correction here vs. a Phi win-prob in the
+# standings surfaces — but the INPUT quantity and provenance are identical.)
+WEEKLY_TAU: dict[str, float] = default_weekly_sigmas()
 
 # ── Tier Definitions ──────────────────────────────────────────────────
 
