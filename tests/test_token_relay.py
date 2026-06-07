@@ -102,6 +102,45 @@ def test_pull_warns_once_when_relay_stale(monkeypatch, caplog):
     assert caplog.text.count("relay gist not advancing") == 1
 
 
+def test_pull_logs_recovery_after_stale(monkeypatch, caplog):
+    """After a stale period, a newer relayed token logs recovery exactly once."""
+    caplog.set_level(logging.INFO)
+    token_relay._relay_healthy = False  # simulate a prior stale state
+    key = Fernet.generate_key()
+    f = Fernet(key)
+    fresh = dict(_TOKEN)
+    fresh["token_time"] = time.time()  # brand new, newer than on-disk
+    blob = token_relay.encrypt_token(fresh, f)
+    monkeypatch.setenv("HEATER_TOKEN_RELAY_URL", "https://gist/raw")
+    monkeypatch.setenv("HEATER_RELAY_KEY", key.decode())
+    monkeypatch.setattr(token_relay, "_read_local_token", lambda: {"token_time": 0.0})
+    monkeypatch.setattr(token_relay, "_write_token_file", lambda t: True)
+    resp = MagicMock()
+    resp.text = blob
+    resp.raise_for_status.return_value = None
+    with patch("src.token_relay._requests.get", return_value=resp):
+        assert token_relay.pull_relayed_token() is True
+    assert caplog.text.count("relay recovered") == 1
+    assert token_relay._relay_healthy is True
+
+
+def test_pull_rejects_token_missing_token_time(monkeypatch, caplog):
+    """A relayed token without token_time is malformed — reject cleanly (no -1 age)."""
+    caplog.set_level(logging.WARNING)
+    key = Fernet.generate_key()
+    f = Fernet(key)
+    malformed = {"access_token": "AT", "refresh_token": "RT"}  # no token_time
+    blob = token_relay.encrypt_token(malformed, f)
+    monkeypatch.setenv("HEATER_TOKEN_RELAY_URL", "https://gist/raw")
+    monkeypatch.setenv("HEATER_RELAY_KEY", key.decode())
+    resp = MagicMock()
+    resp.text = blob
+    resp.raise_for_status.return_value = None
+    with patch("src.token_relay._requests.get", return_value=resp):
+        assert token_relay.pull_relayed_token() is False
+    assert "missing access/refresh token or token_time" in caplog.text
+
+
 def test_pull_never_logs_token_contents(monkeypatch, caplog):
     key = Fernet.generate_key()
     f = Fernet(key)

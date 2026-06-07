@@ -90,8 +90,8 @@ def pull_relayed_token() -> bool:
         logger.warning("pull_relayed_token: decrypt failed (HEATER_RELAY_KEY mismatch?).")
         return False
 
-    if not (token.get("access_token") and token.get("refresh_token")):
-        logger.warning("pull_relayed_token: relayed token missing access/refresh token.")
+    if not (token.get("access_token") and token.get("refresh_token") and token.get("token_time")):
+        logger.warning("pull_relayed_token: relayed token missing access/refresh token or token_time.")
         return False
 
     existing = _read_local_token()
