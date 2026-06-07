@@ -80,6 +80,25 @@ _DEFAULT_CV: dict[str, float] = {
 # can pop a HR or steal a base in a given week.
 _MIN_SIGMA: float = 0.01
 
+# TE-E4 / LO-E3: low-count COUNTING categories that route to the Skellam
+# (Poisson-difference) model by default. Their weekly totals are small enough
+# (single digits / low teens) that the Gaussian approximation understates the
+# spread and mis-handles the right skew (report C.5 / H.9). High-count counting
+# cats (R/HR/RBI/K) and all rate cats keep the Normal model. The set is
+# intersected with the league's counting (non-rate) cats so it cannot drift
+# from LeagueConfig's category set. Mirrors src/optimizer/h2h_engine.SKELLAM_CATS.
+_LOW_COUNT_SKELLAM_NAMES: frozenset[str] = frozenset({"SB", "SV", "W", "L"})
+
+
+def _skellam_cats(config: LeagueConfig) -> frozenset[str]:
+    """Low-count counting cats to route through Skellam, derived from config.
+
+    Intersects the low-count name set with the league's counting (non-rate)
+    categories so the routing can't drift from LeagueConfig.
+    """
+    counting = {c for c in config.all_categories} - set(config.rate_stats)
+    return frozenset(_LOW_COUNT_SKELLAM_NAMES & counting)
+
 
 def compute_weekly_matrix(
     user_roster_ids: list[int],
@@ -88,7 +107,7 @@ def compute_weekly_matrix(
     all_team_rosters: dict[str, list[int]],
     config: LeagueConfig | None = None,
     variance_cv: dict[str, float] | None = None,
-    variance_model: str = "normal",
+    variance_model: str = "auto",
     enable_kalman: bool = False,
 ) -> dict[str, Any]:
     """Build the 26 × 12 weekly win-probability matrix for one roster.
@@ -104,6 +123,18 @@ def compute_weekly_matrix(
         config: LeagueConfig instance (defaults to LeagueConfig()).
         variance_cv: Optional per-category CV override. Defaults to
             _DEFAULT_CV calibrated per the docstring rationale.
+        variance_model: Per-category win-prob model selector (TE-E4):
+          - ``"auto"`` (default): low-count counting cats (SB/SV/W/L per
+            :func:`_skellam_cats`) use the skew-aware Skellam model; every
+            other cat (rate cats + high-count counting cats) uses Normal.
+          - ``"normal"``: force ALL cats through the Normal model (back-compat
+            all-Normal override; keeps the legacy ``'cv-based'`` method tag).
+          - ``"skellam"``: force every COUNTING cat through Skellam (rate cats
+            always stay Normal since Skellam is integer-only).
+            The empirical per-category CV table needs prior-season box-score
+            data we don't have, so it is left as-is (needs-data).
+        enable_kalman: Blend Kalman true-talent variance into the Normal-model
+            cats (Kalman is a Normal-only augmentation; Skellam cats ignore it).
 
     Returns:
         Dict with keys:
@@ -112,7 +143,9 @@ def compute_weekly_matrix(
           - schedule: Echo of the schedule used.
           - user_weekly_means: Dict[cat -> float] of user's per-week means.
           - opponent_weekly_means: Dict[team -> Dict[cat -> float]].
-          - method: 'cv-based' (future: 'kalman-augmented' once wired).
+          - method: 'cv-based' (all-Normal), 'cv-based+skellam-lowcount'
+                    (auto default), or 'skellam' (force-all-counting), each
+                    optionally '+kalman'.
           - cv_used: The CV dict actually used (for diagnostic transparency).
     """
     if config is None:
@@ -124,6 +157,16 @@ def compute_weekly_matrix(
     inverse = set(config.inverse_stats)
     counting_cats = set(cats) - set(config.rate_stats)
     season_weeks = int(config.season_weeks)
+
+    # TE-E4: resolve the per-category model. In "auto" (default), low-count
+    # counting cats route to Skellam and everything else to Normal; "normal"
+    # forces all-Normal; "skellam" forces every counting cat to Skellam.
+    skellam_cats = _skellam_cats(config)
+
+    def _model_for(cat: str) -> str:
+        if variance_model == "auto":
+            return "skellam" if cat in skellam_cats else "normal"
+        return variance_model
 
     # User per-week means (one set, used for every week — projections are
     # season-flat; per-week schedule strength comes from opponent variance)
@@ -167,12 +210,17 @@ def compute_weekly_matrix(
                 inverse=cat in inverse,
                 kalman_var_h=user_kalman.get(cat, 0.0),
                 kalman_var_o=opp_k.get(cat, 0.0),
-                variance_model=variance_model,
+                variance_model=_model_for(cat),
                 counting=cat in counting_cats,
             )
             matrix.loc[week, cat] = p
 
-    method = variance_model if variance_model != "normal" else "cv-based"
+    if variance_model == "auto":
+        method = "cv-based+skellam-lowcount"
+    elif variance_model == "normal":
+        method = "cv-based"
+    else:
+        method = variance_model
     if enable_kalman:
         method = f"{method}+kalman"
 
@@ -194,7 +242,7 @@ def compute_trade_weekly_delta(
     all_team_rosters: dict[str, list[int]],
     config: LeagueConfig | None = None,
     variance_cv: dict[str, float] | None = None,
-    variance_model: str = "normal",
+    variance_model: str = "auto",
     enable_kalman: bool = False,
 ) -> dict[str, Any]:
     """Compute the before / after / delta weekly matrices for a trade.

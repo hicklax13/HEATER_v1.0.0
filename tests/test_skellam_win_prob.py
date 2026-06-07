@@ -15,6 +15,7 @@ import pandas as pd
 from src.engine.output.weekly_matrix import (
     _category_win_prob,
     _category_win_prob_skellam,
+    _per_week_means,
     compute_weekly_matrix,
 )
 from src.valuation import LeagueConfig
@@ -110,3 +111,48 @@ def test_compute_weekly_matrix_skellam_method_tag() -> None:
     mat = result["matrix"]
     assert mat.shape[0] == 2
     assert ((mat.fillna(0.5) >= 0.0) & (mat.fillna(0.5) <= 1.0)).all().all()
+
+
+# ── TE-E4: Skellam is the DEFAULT for low-count counting cats ────────────
+
+
+def test_weekly_matrix_default_routes_low_count_to_skellam() -> None:
+    """By default (no variance_model), a low-count counting cat (SB) routes
+    through Skellam while a rate cat (AVG) stays Normal. Compared against the
+    explicit all-Normal override, SB must differ and AVG must match.
+    """
+    pool, rosters = _mini_pool()
+    schedule = {10: "Opp"}
+    default = compute_weekly_matrix(rosters["Me"], pool, schedule, rosters, config=CONFIG)
+    all_normal = compute_weekly_matrix(rosters["Me"], pool, schedule, rosters, config=CONFIG, variance_model="normal")
+    # SB is a low-count counting cat → default uses Skellam, override uses Normal.
+    assert default["matrix"].loc[10, "SB"] != all_normal["matrix"].loc[10, "SB"]
+    # AVG is a rate cat → both models identical.
+    assert abs(default["matrix"].loc[10, "AVG"] - all_normal["matrix"].loc[10, "AVG"]) < 1e-12
+
+
+def test_weekly_matrix_default_method_tag_flags_skellam_lowcount() -> None:
+    """The auto-routing default carries a distinct method tag (not 'cv-based',
+    which is reserved for the all-Normal override, nor bare 'skellam')."""
+    pool, rosters = _mini_pool()
+    schedule = {10: "Opp"}
+    default = compute_weekly_matrix(rosters["Me"], pool, schedule, rosters, config=CONFIG)
+    assert "skellam" in default["method"]
+    assert default["method"] != "skellam"  # not the force-all-counting-skellam tag
+    assert default["method"] != "cv-based"  # not the all-Normal override
+
+
+def test_weekly_matrix_all_normal_override_matches_legacy() -> None:
+    """variance_model='normal' forces every cat (incl. SB/W/L/SV) through the
+    Normal model and keeps the legacy 'cv-based' method tag for back-compat."""
+    pool, rosters = _mini_pool()
+    schedule = {10: "Opp"}
+    res = compute_weekly_matrix(rosters["Me"], pool, schedule, rosters, config=CONFIG, variance_model="normal")
+    assert res["method"] == "cv-based"
+    # Every SB cell must equal the direct Normal-model helper value.
+    user_means = _per_week_means(rosters["Me"], pool, list(CONFIG.all_categories), int(CONFIG.season_weeks))
+    opp_means = _per_week_means(rosters["Opp"], pool, list(CONFIG.all_categories), int(CONFIG.season_weeks))
+    expected_sb = _category_win_prob(
+        mu_h=user_means["SB"], mu_o=opp_means["SB"], cv=0.25, inverse=False, variance_model="normal", counting=True
+    )
+    assert abs(res["matrix"].loc[10, "SB"] - expected_sb) < 1e-12
