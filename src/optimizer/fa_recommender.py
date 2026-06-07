@@ -211,39 +211,25 @@ def _playing_time_multiplier(fa_data: pd.Series, ctx: OptimizerDataContext) -> f
     return _PT_MULT_LOW
 
 
-def _scale_ros_by_playing_time(fa_data: pd.Series, ctx: OptimizerDataContext) -> pd.Series:
-    """Scale a player's ROS projection by their actual playing-time ratio.
+def _ros_playing_time_scale(fa_data: pd.Series, ctx: OptimizerDataContext) -> float:
+    """Return the scalar ROS playing-time scale (1.0 = no discount).
 
-    Motivation (FA P5c, 2026-05-20): a player with 0 YTD GP at Day 50 has
-    the same ROS projection as a healthy starter — that's wrong because
-    their projection assumes regular playing time they aren't getting (IL
-    stash, demotion, platoon split, etc.). The PR21 ``_playing_time_multiplier``
-    de-weights the composite score, but the ROS COLUMNS themselves still
-    feed into ``_blend_fa_row`` and ``marginal_sgp`` at full preseason
-    magnitude, so a Westburg-class 0-GP phantom keeps ROS=57R/16HR going
-    into the blend. This function discounts those columns at the source.
+    Factored out of ``_scale_ros_by_playing_time`` (FA-E3, 2026-06-07) so the
+    same scalar can be surfaced in the FA "why" expander WITHOUT recomputing
+    (and risking drift from) the discount that's actually applied to the ROS
+    columns. The calibration is unchanged:
 
-    Calibration matches the existing playing-time gate philosophy:
-      * Grace period: first ``_PT_GATE_GRACE_DAYS`` (30) days — no scaling
-        (call-ups have no season yet).
-      * Hitter signal: ``ytd_gp`` vs ``days_elapsed * _PT_HITTER_GP_PER_DAY``
-        (typical starter pace).
-      * Pitcher signal: ``ytd_ip`` vs ``days_elapsed * _PT_PITCHER_IP_PER_DAY``
-        (blended SP+RP).
-      * If ratio >= ``_PT_RATIO_FULL_CREDIT`` (0.6), return unchanged.
-      * Below the threshold, multiply counting columns by ``max(0.2, ratio)``
-        so an IL stash with 0 GP still gets a 20% floor (matches PR21's
-        ``_PT_MULT_LOW`` magnitude philosophy — phantoms aren't worth zero,
-        but they aren't worth full projection either).
+      * Grace period (first ``_PT_GATE_GRACE_DAYS`` days): 1.0.
+      * ratio >= ``_PT_RATIO_FULL_CREDIT`` (0.6): 1.0.
+      * Otherwise ``max(0.2, ratio)`` — a 0-GP phantom keeps a 20% floor.
 
-    Returns a copy of ``fa_data`` with counting columns scaled. Rate
-    stat columns (AVG/OBP/ERA/WHIP) are left untouched — they regenerate
-    downstream from numerator/denominator counting columns.
+    Hitter signal: ``ytd_gp`` vs ``days_elapsed * _PT_HITTER_GP_PER_DAY``.
+    Pitcher signal: ``ytd_ip`` vs ``days_elapsed * _PT_PITCHER_IP_PER_DAY``.
     """
     weeks_remaining = float(getattr(ctx, "weeks_remaining", 16) or 16)
     days_elapsed = max(1.0, (_PT_TOTAL_SEASON_WEEKS - weeks_remaining) * 7.0)
     if days_elapsed < _PT_GATE_GRACE_DAYS:
-        return fa_data  # grace period: no scaling
+        return 1.0  # grace period: no scaling
 
     # NOTE: same is_hitter handling as _playing_time_multiplier — pitchers
     # have is_hitter=0 which is falsy; default only when key is missing.
@@ -270,9 +256,52 @@ def _scale_ros_by_playing_time(fa_data: pd.Series, ctx: OptimizerDataContext) ->
 
     ratio = ytd_volume / max(1.0, expected_volume)
     if ratio >= _PT_RATIO_FULL_CREDIT:
-        return fa_data  # full credit
+        return 1.0  # full credit
+    return max(0.2, ratio)
 
-    scale = max(0.2, ratio)
+
+def _combined_playing_time_factor(fa_data: pd.Series, ctx: OptimizerDataContext) -> float:
+    """Combined playing-time discount applied to a FA (1.0 = no discount).
+
+    The engine stacks TWO playing-time discounts on a low-volume FA:
+      * ``_ros_playing_time_scale`` floors the ROS counting columns (consumed
+        in ``_compute_base_value`` via ``_scale_ros_by_playing_time``), and
+      * ``_playing_time_multiplier`` scales the composite score.
+
+    For a ~0-GP phantom these compound to ~0.06x (0.20 x 0.30). This helper
+    returns their product so the FA "why" expander can show the user the
+    single factor responsible for an otherwise-strong ROS projection ranking
+    low (FA-E3, 2026-06-07). Transparency only — no scoring change.
+    """
+    return _ros_playing_time_scale(fa_data, ctx) * _playing_time_multiplier(fa_data, ctx)
+
+
+def _scale_ros_by_playing_time(fa_data: pd.Series, ctx: OptimizerDataContext) -> pd.Series:
+    """Scale a player's ROS projection by their actual playing-time ratio.
+
+    Motivation (FA P5c, 2026-05-20): a player with 0 YTD GP at Day 50 has
+    the same ROS projection as a healthy starter — that's wrong because
+    their projection assumes regular playing time they aren't getting (IL
+    stash, demotion, platoon split, etc.). The PR21 ``_playing_time_multiplier``
+    de-weights the composite score, but the ROS COLUMNS themselves still
+    feed into ``_blend_fa_row`` and ``marginal_sgp`` at full preseason
+    magnitude, so a Westburg-class 0-GP phantom keeps ROS=57R/16HR going
+    into the blend. This function discounts those columns at the source.
+
+    The scalar discount is computed by ``_ros_playing_time_scale`` (factored
+    out FA-E3 so the FA "why" expander can surface the same value):
+      * Grace period: first ``_PT_GATE_GRACE_DAYS`` (30) days — no scaling.
+      * If ratio >= ``_PT_RATIO_FULL_CREDIT`` (0.6), return unchanged.
+      * Below the threshold, multiply counting columns by ``max(0.2, ratio)``
+        so an IL stash with 0 GP still gets a 20% floor.
+
+    Returns a copy of ``fa_data`` with counting columns scaled. Rate
+    stat columns (AVG/OBP/ERA/WHIP) are left untouched — they regenerate
+    downstream from numerator/denominator counting columns.
+    """
+    scale = _ros_playing_time_scale(fa_data, ctx)
+    if scale >= 1.0:
+        return fa_data  # grace period or full credit — no scaling
 
     # Cast to object dtype to avoid pandas FutureWarning when assigning
     # fractional results into int64 counting columns.
@@ -867,6 +896,14 @@ def _score_fa_candidates(
             # for full calibration rationale.
             pt_mult = _playing_time_multiplier(fa_data, ctx)
 
+            # FA-E3 (2026-06-07): combined playing-time discount for the
+            # "why" expander. The composite pt_mult above stacks on top of
+            # the ROS-column scale already applied inside _compute_base_value
+            # (_scale_ros_by_playing_time). Surface their product so a strong-
+            # ROS FA ranking low has a visible reason. Transparency only — the
+            # ROS scale is NOT re-applied here, just reported.
+            pt_discount = _ros_playing_time_scale(fa_data, ctx) * pt_mult
+
             # PR10 Part A (2026-05-20): regression flag adjustment.
             # The pool's regression_flag column (BUY_LOW / SELL_HIGH / empty) was
             # being loaded but never consumed. Wire it as a final ranking nudge:
@@ -917,6 +954,8 @@ def _score_fa_candidates(
                     "ownership_trend": trend_label,
                     "ownership_delta_7d": delta_7d,
                     "is_il": fa_is_il,
+                    # FA-E3: combined ROS-scale x composite playing-time factor.
+                    "playing_time_discount": round(pt_discount, 3),
                 }
             )
 
@@ -1450,6 +1489,15 @@ def _build_reasoning(
         reasons.append("Caution: current stats may not be sustainable")
     elif sust > 0.7:
         reasons.append("Strong underlying metrics support continued production")
+
+    # FA-E3 (2026-06-07): playing-time discount transparency. When the FA's
+    # combined playing-time factor (ROS-column scale x composite multiplier)
+    # is materially below 1.0, the engine has knocked down an otherwise-strong
+    # ROS projection because YTD volume is low (IL stash / platoon / demotion).
+    # Surface it so a low rank for a high-projection FA has a visible reason.
+    pt_discount = fa.get("playing_time_discount")
+    if pt_discount is not None and pt_discount < 0.95:
+        reasons.append(f"Playing-time discount: {pt_discount:.2f}x (low YTD volume)")
 
     # Ownership trend
     if fa.get("ownership_delta_7d", 0) > _OWNERSHIP_BOOST_DELTA:
