@@ -93,7 +93,7 @@ All clear correctness bugs fixed. Remaining = big features + enhancements (below
 ## Wave 9 — Big accuracy enhancements (owner chose include)
 - ☑ **MS-E1** `default_weekly_sigmas()` canonical source; standings_engine + standings_projection + playoff_sim all read it; 1σ edge → ~0.76 (was saturating 0.99). (commit 0d5769f) [full suite 4996 green]
 - ☐ **MS-E1b** (follow-up) a 4th weekly-tau (`src/trade_value.py::WEEKLY_TAU`, G-Score/SGP units) left as-is — fold onto the canonical source if desired.
-- ☐ **LO-E3** adopt Skellam (low-count cats) + Gaussian-copula correlation in `h2h_engine` (lineup win-prob).
+- ☑ **LO-E3** `h2h_engine` routes SB/SV/W/L → Skellam, rest → Normal, overall win-prob via Gaussian copula (reuses `weekly_matrix._category_win_prob_skellam` + `copula.py`, no import cycle); sample matchup 0.187→0.260 (de-saturated). **Completes BR-6 with MS-E1.** (commit f9eeadb)
 - ☐ **TE-E1** weekly/playoff per-week means from LP starters (overlaps TE-C1).
 - ☐ **TE-E5** wire `injury_process` Weibull availability into the trade MC tails.
 - ☐ **TE-E2** copula-correlated weekly outcomes in playoff sim.
