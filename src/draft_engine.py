@@ -31,6 +31,7 @@ import numpy as np
 import pandas as pd
 
 from src.analytics_context import AnalyticsContext, DataQuality, ModuleStatus
+from src.simulation import _signed_magnitude_clip
 from src.valuation import LeagueConfig, SGPCalculator
 
 if TYPE_CHECKING:
@@ -1155,8 +1156,13 @@ class DraftRecommendationEngine:
             additive = sum of additive bonuses
         """
         base_sgp = float(row.get("pick_score", row.get("total_sgp", 0)) or 0)
-        if base_sgp <= 0:
-            base_sgp = BASE_SGP_FLOOR
+        # DE-C3: preserve sign AND relative magnitude for below-replacement
+        # players. The old `if base_sgp <= 0: base_sgp = BASE_SGP_FLOOR`
+        # collapsed every negative base to +0.01, so additive bonuses (e.g.
+        # closer +2.0) could invert the true ordering of bad picks. Reuse the
+        # D6B-022 signed-magnitude clip: |x| >= floor -> x; tiny values clip
+        # to ±floor; exactly 0 -> +floor.
+        base_sgp = float(_signed_magnitude_clip(base_sgp, min_mag=BASE_SGP_FLOOR))
 
         # Multiplicative adjustments
         mult = 1.0

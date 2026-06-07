@@ -950,7 +950,14 @@ class TestEnhancedPickScore:
         # base_sgp floored to 0.01
         assert score == pytest.approx(BASE_SGP_FLOOR)
 
-    def test_negative_pick_score_floor(self, engine):
+    def test_negative_pick_score_preserves_sign(self, engine):
+        """DE-C3: a below-replacement base keeps its sign+magnitude.
+
+        Previously base_sgp <= 0 was floored to +BASE_SGP_FLOOR, which
+        collapsed every below-replacement player to one value and let
+        additive bonuses invert their order. With _signed_magnitude_clip
+        the base stays -5.0 (magnitude already exceeds the floor).
+        """
         row = pd.Series(
             {
                 "pick_score": -5.0,
@@ -968,7 +975,60 @@ class TestEnhancedPickScore:
             }
         )
         score = engine._compute_enhanced_pick_score(row)
-        assert score == pytest.approx(BASE_SGP_FLOOR)
+        assert score == pytest.approx(-5.0)
+
+    def test_tiny_negative_base_clips_to_min_magnitude(self, engine):
+        """DE-C3: |base| < floor clips magnitude but keeps the sign."""
+        row = pd.Series(
+            {
+                "pick_score": -0.001,
+                "category_balance_multiplier": 1.0,
+                "park_factor_adj": 1.0,
+                "injury_probability": 0.0,
+                "statcast_delta": 0.0,
+                "platoon_factor": 1.0,
+                "contract_year_factor": 1.0,
+                "streaming_penalty": 0.0,
+                "lineup_protection_bonus": 0.0,
+                "closer_hierarchy_bonus": 0.0,
+                "ml_correction": 0.0,
+                "flex_bonus": 0.0,
+            }
+        )
+        score = engine._compute_enhanced_pick_score(row)
+        assert score == pytest.approx(-BASE_SGP_FLOOR)
+
+    def test_below_replacement_order_preserved_under_additive(self, engine):
+        """DE-C3: two below-replacement players keep their relative order
+        even when a large additive bonus (e.g. closer +2.0) is applied.
+
+        Old floor-to-0.01 made both bases identical, so the additive alone
+        decided order — a worse player with a closer bonus could outrank a
+        better one without it. Sign-preserving base keeps -0.5 > -3.0.
+        """
+
+        def _row(pick_score, closer_bonus=0.0):
+            return pd.Series(
+                {
+                    "pick_score": pick_score,
+                    "category_balance_multiplier": 1.0,
+                    "park_factor_adj": 1.0,
+                    "injury_probability": 0.0,
+                    "statcast_delta": 0.0,
+                    "platoon_factor": 1.0,
+                    "contract_year_factor": 1.0,
+                    "streaming_penalty": 0.0,
+                    "lineup_protection_bonus": 0.0,
+                    "closer_hierarchy_bonus": closer_bonus,
+                    "ml_correction": 0.0,
+                    "flex_bonus": 0.0,
+                }
+            )
+
+        # Equal adjustments: better base ranks higher.
+        better = engine._compute_enhanced_pick_score(_row(-0.5))
+        worse = engine._compute_enhanced_pick_score(_row(-3.0))
+        assert better > worse
 
     def test_streaming_penalty_reduces_score(self, engine):
         base_row = pd.Series(
