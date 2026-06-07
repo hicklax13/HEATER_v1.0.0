@@ -97,6 +97,24 @@ def test_page_renders_weekly_matrix(page_source: str) -> None:
     )
 
 
+def test_page_enables_mc_for_single_trade(page_source: str) -> None:
+    """UI follow-up: single-trade analysis must opt into Phase 2 Monte Carlo
+    (enable_mc=True) so the risk band + injury-aware downside tail render.
+    Without it, the TE-E5 injury MC never runs on the Trade Analyzer."""
+    assert "enable_mc=True" in page_source, (
+        "Trade Analyzer must pass enable_mc=True for the single-trade path so "
+        "the Monte-Carlo risk band / injury downside tail surfaces."
+    )
+
+
+def test_page_renders_mc_risk_tail(page_source: str) -> None:
+    """The page must surface the injury-aware MC downside (CVaR5) so the
+    enable_mc output isn't computed-but-invisible."""
+    assert "cvar5" in page_source, (
+        "Trade Analyzer must render the MC CVaR5 risk tail — the injury-aware downside the enable_mc path produces."
+    )
+
+
 def test_page_syntax_valid(page_source: str) -> None:
     """The page must parse as valid Python."""
     import ast

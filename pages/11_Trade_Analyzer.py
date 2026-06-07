@@ -324,6 +324,12 @@ else:
                             config=config,
                             user_team_name=user_team_name,
                             weeks_remaining=compute_weeks_remaining(),
+                            # UI follow-up: single-trade analysis runs the Phase 2
+                            # Monte Carlo so the risk band + injury-aware downside
+                            # tail (enable_injury_mc defaults True) surface. The
+                            # grade stays Phase-1 weighted-SGP (authority); MC is a
+                            # risk diagnostic only. ~a few seconds for one trade.
+                            enable_mc=True,
                             enable_weekly_matrix=_enable_wm,
                             enable_playoff_sim=_enable_ps,
                             weekly_schedule=_weekly_schedule,
@@ -682,6 +688,57 @@ else:
                         if result.get("punt_categories"):
                             punt_text = ", ".join(result["punt_categories"])
                             st.info(f"Punted categories (zero-weighted): {punt_text}")
+
+                        # ── Monte Carlo risk band (injury-aware downside tail) ──
+                        # The single-trade path runs Phase 2 MC with the injury
+                        # model on (enable_injury_mc default), so the worst-case
+                        # tail (CVaR5 / VaR5) reflects fragile/IL players widening
+                        # the downside. The grade stays Phase-1 (SGP); these are
+                        # RISK diagnostics, not the verdict.
+                        if "mc_mean" in result and "cvar5" in result:
+                            st.markdown(
+                                '<div style="font-family:Bebas Neue,sans-serif;font-size:16px;'
+                                'color:#9ca3af;letter-spacing:2px;margin-top:8px;">'
+                                "MONTE CARLO RISK (injury-aware downside)</div>",
+                                unsafe_allow_html=True,
+                            )
+                            mc1, mc2, mc3, mc4 = st.columns(4)
+                            mc1.metric(
+                                "MC mean surplus",
+                                format_stat(result.get("mc_mean", 0), "SGP"),
+                                help=METRIC_TOOLTIPS["mc_mean"],
+                            )
+                            mc2.metric(
+                                "MC std (uncertainty)",
+                                f"{result.get('mc_std', 0):.2f}",
+                                help=METRIC_TOOLTIPS["mc_std"],
+                            )
+                            mc3.metric(
+                                "CVaR₅ (worst-5% surplus)",
+                                format_stat(result.get("cvar5", 0), "SGP"),
+                                help=(
+                                    "Conditional Value-at-Risk at 5%: the average SGP surplus across "
+                                    "the WORST 5% of simulated futures. The injury model (Weibull "
+                                    "season-availability) widens this downside tail when fragile or "
+                                    "IL-prone players are involved. More negative = more downside risk."
+                                ),
+                            )
+                            mc4.metric(
+                                "P(trade helps)",
+                                f"{result.get('prob_positive', 0):.0%}",
+                                help=(
+                                    "Share of Monte-Carlo sims where the post-trade roster beats the "
+                                    "pre-trade roster on net SGP. Complements the Phase-1 point estimate "
+                                    "with distributional confidence."
+                                ),
+                            )
+                            _ci = result.get("confidence_interval")
+                            if _ci and isinstance(_ci, (list, tuple)) and len(_ci) == 2:
+                                st.caption(
+                                    f"95% CI for mean surplus: [{_ci[0]:+.2f}, {_ci[1]:+.2f}] SGP "
+                                    f"· VaR₅ (5th-pct surplus): {result.get('var5', 0):+.2f} SGP. "
+                                    f"The injury-aware MC tail is the downside if availability breaks badly."
+                                )
 
                         # ── Three-horizon split (report Q(b)) ──
                         # Per Enhanced Trade Engine report Q(b): the
