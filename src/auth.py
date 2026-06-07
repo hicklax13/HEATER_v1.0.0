@@ -10,10 +10,12 @@ league_teams.is_user_team flag for personalized surfaces.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
-from datetime import UTC, datetime
+import secrets
+from datetime import UTC, datetime, timedelta
 
 import bcrypt
 import streamlit as st
@@ -247,6 +249,170 @@ def ensure_bootstrap_admin() -> None:
     logger.info("ensure_bootstrap_admin: seeded admin account '%s'", username)
 
 
+# ── Persistent session tokens (BR-1) ─────────────────────────────────
+#
+# A page refresh / bookmark / deep-link starts a fresh st.session_state (it is
+# per-websocket), which would otherwise drop a logged-in member back to the
+# login wall. At login we mint an opaque token, store it server-side, and set it
+# in a browser cookie; on app load with an empty session we re-hydrate auth_user
+# from that token. The cookie cannot be HttpOnly (Streamlit can only set cookies
+# from JS), so the token is opaque (secrets.token_urlsafe), validated server-side
+# on every restore, expires, and is revoked on logout — never identity-bearing.
+
+_AUTH_COOKIE_NAME = "heater_session"
+_TOKEN_TTL_DAYS = 30
+_SESSION_TOKEN_KEY = "_auth_session_token"  # session_state cache of this session's token
+
+
+def issue_session_token(user_id: int, days: int = _TOKEN_TTL_DAYS) -> str:
+    """Mint + persist an opaque session token for ``user_id``; return the token.
+
+    ``days`` may be negative in tests to mint an already-expired token. The token
+    itself is never logged.
+    """
+    token = secrets.token_urlsafe(32)
+    now = datetime.now(UTC)
+    expires = now + timedelta(days=days)
+    from src.database import get_connection
+
+    conn = get_connection()
+    try:
+        conn.execute(
+            "INSERT INTO auth_tokens (token, user_id, created_at, expires_at, revoked) VALUES (?, ?, ?, ?, 0)",
+            (token, int(user_id), now.isoformat(), expires.isoformat()),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return token
+
+
+def validate_session_token(token: str | None) -> dict | None:
+    """Return the user dict for a valid token, else None.
+
+    Valid means: token exists, not revoked, not expired, AND the backing user is
+    still status='active' (so an admin revoke/suspend of the ACCOUNT also kills
+    the persistent session, not just an explicit logout).
+    """
+    if not token:
+        return None
+    from src.database import get_connection
+
+    conn = get_connection()
+    try:
+        row = conn.execute(
+            "SELECT user_id, expires_at, revoked FROM auth_tokens WHERE token = ?",
+            (token,),
+        ).fetchone()
+    finally:
+        conn.close()
+    if row is None or row["revoked"]:
+        return None
+    try:
+        if datetime.fromisoformat(row["expires_at"]) <= datetime.now(UTC):
+            return None
+    except (ValueError, TypeError):
+        return None
+
+    from src.database import get_connection as _gc
+
+    conn = _gc()
+    try:
+        urow = conn.execute("SELECT * FROM users WHERE user_id = ?", (row["user_id"],)).fetchone()
+    finally:
+        conn.close()
+    user = _row_to_dict(urow)
+    if user is None or user.get("status") != "active":
+        return None
+    return user
+
+
+def revoke_session_token(token: str | None) -> None:
+    """Mark a token revoked (idempotent; unknown token is a no-op)."""
+    if not token:
+        return
+    from src.database import get_connection
+
+    conn = get_connection()
+    try:
+        conn.execute("UPDATE auth_tokens SET revoked = 1 WHERE token = ?", (token,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+# ── Cookie layer (thin, mockable seams) ──────────────────────────────
+#
+# Streamlit has no native cookie-WRITE API, so reads use st.context.cookies
+# (Streamlit >= 1.42) and writes/clears inject a `document.cookie` assignment via
+# st.components.v1.html. The cookie is set Secure + SameSite=Lax. Both helpers
+# are no-ops on any failure (missing st.context, headless test runner) so a
+# cookie hiccup can never crash a page.
+
+
+def _read_auth_cookie() -> str | None:
+    """Read the persistent-session token from the browser cookie, or None."""
+    try:
+        cookies = getattr(st.context, "cookies", None)
+        if not cookies:
+            return None
+        val = cookies.get(_AUTH_COOKIE_NAME)
+        return val or None
+    except Exception:
+        return None
+
+
+def _write_auth_cookie(token: str, max_age_days: int = _TOKEN_TTL_DAYS) -> None:
+    """Set the session-token cookie in the browser (Secure; SameSite=Lax)."""
+    try:
+        import streamlit.components.v1 as components
+
+        max_age = int(max_age_days * 24 * 3600)
+        # json.dumps gives a safely-quoted JS string literal for the opaque token.
+        js = (
+            "<script>document.cookie = "
+            + json.dumps(f"{_AUTH_COOKIE_NAME}=")
+            + " + "
+            + json.dumps(token)
+            + " + "
+            + json.dumps(f"; Max-Age={max_age}; Path=/; SameSite=Lax; Secure")
+            + ";</script>"
+        )
+        components.html(js, height=0, width=0)
+    except Exception:
+        # Cookie persistence is best-effort: if the component can't render, the
+        # user simply re-logs in on the next fresh session (v1-equivalent UX).
+        logger.debug("auth: _write_auth_cookie failed", exc_info=True)
+
+
+def _clear_auth_cookie() -> None:
+    """Expire the session-token cookie in the browser."""
+    try:
+        import streamlit.components.v1 as components
+
+        js = (
+            "<script>document.cookie = "
+            + json.dumps(f"{_AUTH_COOKIE_NAME}=; Max-Age=0; Path=/; SameSite=Lax; Secure")
+            + ";</script>"
+        )
+        components.html(js, height=0, width=0)
+    except Exception:
+        logger.debug("auth: _clear_auth_cookie failed", exc_info=True)
+
+
+def _establish_persistent_session(user: dict | None) -> None:
+    """Mint a token for ``user`` + set the browser cookie + cache the token.
+
+    Called after a successful login so a later refresh re-hydrates. No-op when
+    the flag is off (v1 never sets a cookie) or the user has no id.
+    """
+    if not multi_user_enabled() or not user or not user.get("user_id"):
+        return
+    token = issue_session_token(user["user_id"])
+    _session_state()[_SESSION_TOKEN_KEY] = token
+    _write_auth_cookie(token)
+
+
 # ── Session identity ─────────────────────────────────────────────────
 
 _SESSION_KEY = "auth_user"
@@ -267,8 +433,20 @@ def _set_session_user(user: dict) -> None:
 
 
 def logout() -> None:
-    """Clear the session's identity."""
-    _session_state().pop(_SESSION_KEY, None)
+    """Clear the session's identity.
+
+    Under MULTI_USER this also revokes the persistent-session token server-side
+    and clears the browser cookie so a refresh after logout does NOT re-hydrate.
+    When the flag is off this is exactly the v1 behavior: just drop the session
+    key (no cookie/token machinery is ever touched).
+    """
+    state = _session_state()
+    if multi_user_enabled():
+        token = state.pop(_SESSION_TOKEN_KEY, None)
+        if token:
+            revoke_session_token(token)
+        _clear_auth_cookie()
+    state.pop(_SESSION_KEY, None)
 
 
 def _normalize_team_name(name) -> str:
@@ -398,6 +576,15 @@ def require_auth() -> None:
 
     sess_user = current_user()
     if sess_user is None:
+        # BR-1: a fresh per-websocket session (refresh / bookmark / deep-link)
+        # has no auth_user. Try to re-hydrate from a valid persistent-session
+        # cookie before falling back to the login wall.
+        cookie_token = _read_auth_cookie()
+        restored = validate_session_token(cookie_token)
+        if restored is not None:
+            _set_session_user(restored)
+            _session_state()[_SESSION_TOKEN_KEY] = cookie_token
+            return
         _render_login_and_register()
         st.stop()
         return  # unreachable in real Streamlit; kept for test stubs
@@ -485,7 +672,9 @@ def _render_login_and_register() -> None:
         if submitted:
             result = classify_login(get_user(username), password)
             if result == "ok":
-                _set_session_user(get_user(username))
+                user = get_user(username)
+                _set_session_user(user)
+                _establish_persistent_session(user)
                 st.rerun()
             elif result == "pending":
                 st.warning("Your account is awaiting admin approval.")

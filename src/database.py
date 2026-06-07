@@ -907,6 +907,21 @@ def _init_multiuser_tables(conn):
             dwell_seconds REAL
         );
         CREATE INDEX IF NOT EXISTS idx_page_visits_session ON page_visits(session_id);
+
+        -- BR-1: persistent (cookie-backed) auth sessions. The token is an opaque
+        -- secrets.token_urlsafe value set in a browser cookie at login; it is
+        -- stored here server-side, validated on every restore, expires (~30d),
+        -- and is revoked on logout. Never identity-bearing on its own — the
+        -- cookie can't be HttpOnly (Streamlit sets it from JS), so the secret
+        -- must be opaque + server-validated + revocable.
+        CREATE TABLE IF NOT EXISTS auth_tokens (
+            token TEXT PRIMARY KEY,
+            user_id INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            expires_at TEXT NOT NULL,
+            revoked INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX IF NOT EXISTS idx_auth_tokens_user ON auth_tokens(user_id);
     """)
     conn.commit()
 
