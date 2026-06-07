@@ -160,6 +160,11 @@ def init_db():
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 player_id INTEGER NOT NULL,
                 system TEXT NOT NULL,  -- 'steamer', 'zips', 'depthcharts', 'blended'
+                -- Season this forecast is FOR (e.g. 2026). Lets the ridge
+                -- stacker learn weights from matched (forecast_season=Y,
+                -- season_stats.season=Y) pairs instead of regressing current
+                -- forecasts on prior-year actuals (PV-C1).
+                forecast_season INTEGER,
                 -- Hitting stats
                 pa INTEGER DEFAULT 0,
                 ab INTEGER DEFAULT 0,
@@ -656,6 +661,17 @@ def _init_db_tables_and_columns(conn):
     _safe_add_column(conn, "players", "mlb_id", "INTEGER")
     _safe_add_column(conn, "projections", "birth_date", "TEXT")
     _safe_add_column(conn, "projections", "mlb_id", "INTEGER")
+
+    # PV-C1: tag each forecast with the season it is FOR so the ridge stacker
+    # can learn from matched prior-year (forecast, actual) pairs. Legacy rows
+    # predate this column — backfill them to the current season so existing
+    # forecasts remain the current-season set.
+    _safe_add_column(conn, "projections", "forecast_season", "INTEGER")
+    conn.execute(
+        "UPDATE projections SET forecast_season = ? WHERE forecast_season IS NULL",
+        (datetime.now(UTC).year,),
+    )
+    conn.commit()
 
     # Phase 1 league format migration: OBP/L/BB/HBP/SF columns
     for table in ("projections", "season_stats", "ros_projections"):
