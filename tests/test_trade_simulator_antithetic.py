@@ -295,3 +295,36 @@ def test_paired_mc_better_roster_still_positive():
     )
     assert result["mc_mean"] > 0
     assert result["prob_positive"] > 0.5
+
+
+def test_all_team_totals_does_not_affect_mc_output():
+    """TE-C3: passing all_team_totals must not change the MC surplus math.
+
+    The opponent standings context was computed (`_compute_other_teams_sgp`)
+    purely for a discarded return value — dead work, since the MC evaluates a
+    roster-vs-self SGP delta. Removing that dead call must leave every MC
+    aggregate byte-for-byte identical. This guards against re-introducing a
+    branch that silently lets opponent totals leak into the surplus.
+    """
+    before = _toy_roster()
+    after = {
+        "1": dict(before["1"], hr=35, r=100, rbi=110),
+        "2": before["2"],
+    }
+    all_team_totals = {
+        "Rival_A": {"hr": 220, "r": 800, "rbi": 760, "sb": 90, "era": 3.90, "whip": 1.22},
+        "Rival_B": {"hr": 180, "r": 720, "rbi": 690, "sb": 140, "era": 4.10, "whip": 1.30},
+    }
+    common = dict(
+        before_roster_stats=before,
+        after_roster_stats=after,
+        n_sims=300,
+        seed=123,
+    )
+    without_totals = run_paired_monte_carlo(**common)
+    with_totals = run_paired_monte_carlo(**common, all_team_totals=all_team_totals)
+
+    for key in ("mc_mean", "mc_std", "mc_median", "prob_positive"):
+        assert without_totals[key] == with_totals[key], (
+            f"all_team_totals must not change MC '{key}': {without_totals[key]} != {with_totals[key]}"
+        )

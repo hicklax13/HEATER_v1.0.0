@@ -114,9 +114,12 @@ def run_paired_monte_carlo(
 
     rng_master = np.random.RandomState(seed)
 
-    # Pre-compute team totals array for standings comparison
-    if all_team_totals:
-        _compute_other_teams_sgp(all_team_totals, sgp_denominators)
+    # TE-C3: the MC evaluates a roster-vs-self SGP delta, so opponent
+    # standings context never enters the surplus math. The former
+    # `_compute_other_teams_sgp(all_team_totals, ...)` call here discarded
+    # its return value — dead work (a full pass over every team's totals per
+    # MC invocation). Removed. `all_team_totals` is retained in the signature
+    # for API compatibility; the helper remains defined for potential reuse.
 
     # C8: True antithetic variate MC — run n_sims/2 paired simulations.
     # Each pair uses the SAME random seed but the antithetic arm negates the
