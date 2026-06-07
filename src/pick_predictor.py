@@ -55,7 +55,14 @@ def _future_user_picks(
     """Compute all future picks for the user in snake draft order."""
     total_picks = num_teams * num_rounds
     picks = []
-    for overall in range(current_pick + 1, total_picks + 1):
+    # DE-C4: current_pick is 0-indexed (DraftState.current_pick); overall is
+    # 1-indexed below, so overall == current_pick + 1 IS the pick currently
+    # on the clock. Start at current_pick + 2 to exclude it — these are
+    # *future* survival points, not the pick the user is making right now.
+    # (overall == current_pick + 1 is a user pick only when the user is on
+    # the clock, so this never drops a legitimate future pick.) Snake parity
+    # below is unchanged.
+    for overall in range(current_pick + 2, total_picks + 1):
         rnd = (overall - 1) // num_teams  # 0-indexed round
         pos_in_round = (overall - 1) % num_teams
         if rnd % 2 == 0:
