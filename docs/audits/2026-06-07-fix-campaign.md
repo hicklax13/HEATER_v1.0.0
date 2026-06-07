@@ -87,8 +87,8 @@ Source of truth for executing the fixes + enhancements from
 **CHECKPOINT (post contained-waves 0–7): full suite 4958 passed, 107 skipped, 0 failed. ✅**
 All clear correctness bugs fixed. Remaining = big features + enhancements (below).
 
-## Wave 8 — Infrastructure (owner chose full)
-- ☐ **BR-1 / cookie auth** persistent cookie/token-backed sessions so refresh/bookmarks stay logged in. `src/auth.py`, `app.py`. (Security-sensitive — careful review.)
+## Wave 8 — Infrastructure (owner chose full) (DONE)
+- ☑ **BR-1 / cookie auth** opaque server-stored revocable tokens (`auth_tokens` table) + `heater_session` cookie (st.context.cookies read / document.cookie write; NO new dep; streamlit pin 1.40→1.42). `require_auth` re-hydrates from a server-validated token (checks revoked/expired/user-active → admin revoke kills sessions); logout revokes + clears; flag-off byte-for-byte; no secret in cookie. **Security-reviewed by controller** (auth diff read). (commit 151859b) [full suite 5027 green]
 
 ## Wave 9 — Big accuracy enhancements (owner chose include)
 - ☑ **MS-E1** `default_weekly_sigmas()` canonical source; standings_engine + standings_projection + playoff_sim all read it; 1σ edge → ~0.76 (was saturating 0.99). (commit 0d5769f) [full suite 4996 green]
