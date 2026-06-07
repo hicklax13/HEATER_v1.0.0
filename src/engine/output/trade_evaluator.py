@@ -1674,6 +1674,25 @@ def evaluate_trade(
             if weekly_schedule and league_rosters and current_wins and user_team_name:
                 from src.engine.output.playoff_sim import simulate_trade_playoff_delta
 
+                # TE-E3: make the schedule-aware playoff sim (Path A) the DEFAULT.
+                # When the caller didn't supply full_league_schedule, auto-load it
+                # from the Yahoo-cache DB reader so Path A (per-team-per-week
+                # opponent matchups, strength-of-schedule aware) runs whenever the
+                # cache has a schedule. Path B (Binomial league-average) remains
+                # the documented fallback when no full schedule is available.
+                if full_league_schedule is None:
+                    try:
+                        from src.database import load_league_schedule_full
+
+                        full_league_schedule = load_league_schedule_full() or None
+                    except Exception:
+                        logger.warning(
+                            "TE-E3: load_league_schedule_full() failed — "
+                            "playoff sim falls back to Binomial league-average (Path B)",
+                            exc_info=True,
+                        )
+                        full_league_schedule = None
+
                 ps = simulate_trade_playoff_delta(
                     before_roster_ids=before_ids,
                     after_roster_ids=after_ids,

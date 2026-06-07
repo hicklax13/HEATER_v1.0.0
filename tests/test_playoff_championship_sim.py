@@ -344,3 +344,118 @@ def test_evaluate_trade_playoff_sim_missing_inputs_skips_gracefully() -> None:
 def test_playoff_spots_constant_is_four() -> None:
     """FourzynBurn / CLAUDE.md says playoff field is 4 teams."""
     assert _PLAYOFF_SPOTS == 4
+
+
+# ── TE-E3: schedule-aware Path A is the default when data is available ──
+
+
+def _build_full_schedule(team_names: list[str], start_week: int, end_week: int) -> dict[int, list[tuple[str, str]]]:
+    """Circle-method round-robin full league schedule for an even team count."""
+    n = len(team_names)
+    fixed = team_names[0]
+    others = team_names[1:]
+    full: dict[int, list[tuple[str, str]]] = {}
+    for wk_idx, wk in enumerate(range(start_week, end_week + 1)):
+        rotation = wk_idx % (n - 1)
+        rotated = others[rotation:] + others[:rotation]
+        matchups: list[tuple[str, str]] = [(fixed, rotated[0])]
+        for i in range(1, (n - 1) // 2 + 1):
+            matchups.append((rotated[i], rotated[-i]))
+        full[wk] = matchups
+    return full
+
+
+def test_evaluate_trade_auto_uses_full_schedule_from_db(monkeypatch) -> None:
+    """TE-E3: when the caller doesn't pass full_league_schedule but the DB
+    cache has one, evaluate_trade auto-loads it so Path A is the default."""
+    import src.database as _db
+
+    pool, rosters, wins = _build_mini_league()
+    schedule = _build_schedule("Team_5", [t for t in rosters if t != "Team_5"], 10, 25)
+    full_sched = _build_full_schedule(sorted(rosters.keys()), 10, 25)
+    monkeypatch.setattr(_db, "load_league_schedule_full", lambda: full_sched)
+
+    result = evaluate_trade(
+        giving_ids=[],
+        receiving_ids=[],
+        user_roster_ids=rosters["Team_5"],
+        player_pool=pool,
+        user_team_name="Team_5",
+        enable_mc=False,
+        enable_context=False,
+        enable_game_theory=False,
+        apply_ytd_blend=False,
+        enable_playoff_sim=True,
+        weekly_schedule=schedule,
+        league_rosters=rosters,
+        current_wins=wins,
+        playoff_n_sims=600,
+        full_league_schedule=None,  # caller did NOT supply it
+    )
+    assert "playoff_sim" in result
+    # Path A method tag (a "-corr" suffix may follow when the copula path is on).
+    assert result["playoff_sim"]["before"]["method"].startswith("hickey-centric-full-sched-opp")
+
+
+def test_evaluate_trade_falls_back_to_path_b_when_no_schedule(monkeypatch) -> None:
+    """TE-E3: when neither the caller nor the DB has a full schedule, Path B
+    (Binomial league-average) is the documented fallback."""
+    import src.database as _db
+
+    pool, rosters, wins = _build_mini_league()
+    schedule = _build_schedule("Team_5", [t for t in rosters if t != "Team_5"], 10, 25)
+    monkeypatch.setattr(_db, "load_league_schedule_full", lambda: {})
+
+    result = evaluate_trade(
+        giving_ids=[],
+        receiving_ids=[],
+        user_roster_ids=rosters["Team_5"],
+        player_pool=pool,
+        user_team_name="Team_5",
+        enable_mc=False,
+        enable_context=False,
+        enable_game_theory=False,
+        apply_ytd_blend=False,
+        enable_playoff_sim=True,
+        weekly_schedule=schedule,
+        league_rosters=rosters,
+        current_wins=wins,
+        playoff_n_sims=600,
+        full_league_schedule=None,
+    )
+    assert "playoff_sim" in result
+    assert result["playoff_sim"]["before"]["method"].startswith("hickey-centric-binomial-opp")
+
+
+def test_evaluate_trade_explicit_full_schedule_not_overwritten(monkeypatch) -> None:
+    """TE-E3: a caller-supplied full_league_schedule must take precedence over
+    the DB auto-load (no DB read needed when the caller already passed one)."""
+    import src.database as _db
+
+    pool, rosters, wins = _build_mini_league()
+    schedule = _build_schedule("Team_5", [t for t in rosters if t != "Team_5"], 10, 25)
+    full_sched = _build_full_schedule(sorted(rosters.keys()), 10, 25)
+
+    def _boom() -> dict:
+        raise AssertionError("DB auto-load must not run when caller supplies full_league_schedule")
+
+    monkeypatch.setattr(_db, "load_league_schedule_full", _boom)
+
+    result = evaluate_trade(
+        giving_ids=[],
+        receiving_ids=[],
+        user_roster_ids=rosters["Team_5"],
+        player_pool=pool,
+        user_team_name="Team_5",
+        enable_mc=False,
+        enable_context=False,
+        enable_game_theory=False,
+        apply_ytd_blend=False,
+        enable_playoff_sim=True,
+        weekly_schedule=schedule,
+        league_rosters=rosters,
+        current_wins=wins,
+        playoff_n_sims=600,
+        full_league_schedule=full_sched,
+    )
+    assert result["playoff_sim"]["before"]["method"].startswith("hickey-centric-full-sched-opp")
