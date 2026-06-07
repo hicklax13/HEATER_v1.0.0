@@ -33,7 +33,7 @@ Source of truth for executing the fixes + enhancements from
 - ☐ **PV-C1** (HIGH, full) add `forecast_season` column to `projections`; stop DELETE-all; learn stacking weights from held-out (prior-forecast→prior-actual) pairs; uniform fallback when no valid pair. `src/database.py:1089`, `projection_stacking.py`, `data_pipeline.py`.
 - ☐ **PV-C3** (Low) blend volume cols (pa/ab/ip) with one shared weight, not per-component.
 - ☐ **PV-C4** (Low) single standings-stddev SGP-denominator source.
-- ☐ **FA-C2** (Med) wire a real L14 source into the FA blend (closes FA-C2 + the blank L14 columns). `fa_recommender._blend_fa_row` + `shared_data_layer._load_recent_form`.
+- ☑ **FA-C2** wire real L14 into the FA blend. `_blend_fa_row(fa_data, l14_form=)` + new `_resolve_fa_l14` (prefers `ctx.recent_form[pid]['l14']`, else lazy `get_player_recent_form_cached`); row-column L14 kept for back-compat. (done inline after 3rd background-agent stall; 28 FA tests pass incl. 4 new dict-path tests.)
 
 ## Wave 3 — Standings / matchup (DONE — 7/7; note: 2 background agents stalled on the watchdog, so MS-C5/C6/BR-2 done inline)
 - ☑ **MS-C1** source total weeks from LeagueConfig (24→26). (commit e84a19e)
