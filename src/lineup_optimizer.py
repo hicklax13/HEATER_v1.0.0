@@ -67,6 +67,14 @@ ALL_CATS = HITTING_CATS + PITCHING_CATS
 INVERSE_CATS = {c.lower() for c in _LC_ONCE.inverse_stats}
 del _LC_ONCE
 
+# LO-E1 ratio-protect: how much worse a pure-SP's ERA must be than the rest of
+# the staff before its P-flex fill bonus is dropped in a ratio-protect posture.
+# 0.30 ERA ≈ ~1 standings win in a 12-team H2H league (e.g. 3.50 vs 3.80) — the
+# same calibrated "protect" delta used by
+# src/optimizer/category_urgency.py::classify_rate_stat_mode (ERA threshold).
+# Source: 2022-2024 FourzynBurn-equivalent league standings analysis.
+_PROTECT_ERA_MARGIN = 0.30
+
 
 class LineupOptimizer:
     """Optimize start/sit decisions using linear programming.
@@ -101,6 +109,7 @@ class LineupOptimizer:
         remaining_games_scale: dict[int, float] | None = None,
         two_start_ids: set[int] | None = None,
         opposing_pitcher_mult: dict[int, float] | None = None,
+        protect_ratios: bool = False,
     ) -> dict:
         """Find the optimal lineup assignment.
 
@@ -116,6 +125,18 @@ class LineupOptimizer:
             opposing_pitcher_mult: Maps hitter player_id to matchup multiplier
                 based on opposing pitcher quality. Applied to hitter counting
                 stats in the LP objective. When None, no adjustment applied.
+            protect_ratios: When True the matchup is in a ratio-protect posture
+                (ERA + WHIP are locked wins — e.g. the caller derived this from
+                ``pivot_advisor.recommend_ip_management_mode`` returning
+                ``"PROTECT_RATIOS"``). In this posture the per-slot fill bonus is
+                DROPPED for pure-SP candidates whose ERA is meaningfully worse
+                than the rest of the staff: always on the generic P-flex slot
+                (so a damaging EXTRA starter is benched rather than flipping the
+                locked ratio), and additionally on the dedicated SP slots when
+                enough non-damaging SP-eligible arms exist to fill them. RP slots
+                are never affected, and a starter whose ERA is in line with the
+                staff is never suppressed. Default False preserves the
+                unconditional Bug-G fill behavior.
 
         Returns:
             Dict with keys:
@@ -174,7 +195,40 @@ class LineupOptimizer:
         _HITTING_COUNTING = {"r", "hr", "rbi", "sb"}
         _PITCHING_COUNTING = {"w", "l", "sv", "k"}
 
+        # LO-E1 ratio-protect: precompute the staff's IP-weighted ERA baseline
+        # (over all rostered pitchers with ip > 0). A pure-SP P-flex candidate
+        # only counts as "ratio-damaging" if their ERA is worse than the rest of
+        # the staff by a meaningful margin — measured leave-one-out so a single
+        # bad apple isn't compared against itself.
+        staff_era_sum = 0.0
+        staff_ip_sum = 0.0
+        if protect_ratios and "ip" in self.roster.columns and "era" in self.roster.columns:
+            for q_idx in players:
+                q_row = self.roster.loc[q_idx]
+                if bool(q_row.get("is_hitter", 1)):
+                    continue
+                q_ip = float(q_row.get("ip", 0) or 0)
+                q_era = float(q_row.get("era", 0) or 0)
+                if q_ip > 0:
+                    staff_era_sum += q_era * q_ip
+                    staff_ip_sum += q_ip
+
         objective_terms = []
+        # LO-E1: track the largest normalized |player_value| so the fill bonus
+        # can be sized RELATIVE to the actual roster (a fixed constant fails
+        # to dominate when within-roster stat stdevs are tiny — e.g. a cluster
+        # of identical-ERA pitchers floors the scale to 1.0 and inflates the
+        # normalized magnitude into the hundreds).
+        max_abs_player_value = 0.0
+        # LO-E1 ratio-protect bookkeeping:
+        #   protect_damaging_sp — pure-SP candidates whose ERA is meaningfully
+        #     worse than the rest of the staff (ratio-damaging surplus starters).
+        #   n_safe_sp_eligible — SP-eligible pitchers NOT flagged damaging, used
+        #     to decide whether the dedicated SP slots can be filled by good arms
+        #     (so we only suppress damaging SPs from SP slots when good ones exist
+        #     to cover them — otherwise the IP-floor Bug-G guard still applies).
+        protect_damaging_sp: set[int] = set()
+        n_safe_sp_eligible = 0
         for p_idx in players:
             row = self.roster.loc[p_idx]
             player_value = 0.0
@@ -217,6 +271,30 @@ class LineupOptimizer:
                 else:
                     player_value += (val / s) * w
 
+            max_abs_player_value = max(max_abs_player_value, abs(player_value))
+
+            # LO-E1 ratio-protect: a "pure-SP" candidate is a pitcher eligible at
+            # SP (and the generic P flex) but NOT at RP. When such a player's ERA
+            # is worse than the rest of the staff by more than the
+            # ~one-standings-win delta (_PROTECT_ERA_MARGIN), force-filling them
+            # into a lineup slot can flip a locked ERA/WHIP win — so under a
+            # ratio-protect posture they are flagged for fill-bonus suppression.
+            # A starter whose ERA is in line with (or better than) the staff is
+            # NOT flagged (a legitimate extra K/W source); relievers are exempt.
+            if protect_ratios and not is_hitter:
+                positions = _parse_positions(row.get("positions", ""))
+                is_pure_sp = "SP" in positions and "RP" not in positions
+                if is_pure_sp:
+                    p_era = float(row.get("era", 0) or 0)
+                    damaging = False
+                    if ip > 0 and staff_ip_sum > ip:
+                        loo_baseline = (staff_era_sum - p_era * ip) / (staff_ip_sum - ip)
+                        damaging = p_era > loo_baseline + _PROTECT_ERA_MARGIN
+                    if damaging:
+                        protect_damaging_sp.add(p_idx)
+                    else:
+                        n_safe_sp_eligible += 1
+
             for slot_name, _ in expanded_slots:
                 objective_terms.append(x[(p_idx, slot_name)] * player_value)
 
@@ -241,16 +319,44 @@ class LineupOptimizer:
         # but globally catastrophic — Yahoo's 20 IP/week floor converts the
         # shortfall to LOSSES across ALL pitching cats. Any pitcher in the
         # lineup is better than no pitcher.
-        # Fix: add a SLOT_FILL_BONUS to every player-slot assignment. The
-        # bonus is large enough to dominate realistic per-player negative
-        # contributions (typical range ±5 after normalization), but it's
-        # constant per assignment — relative SGP comparison between players
-        # for the same slot still wins. Net effect: the LP prefers ANY
-        # eligible player in a slot over leaving it empty, but still picks
-        # the BEST eligible player when multiple options exist.
-        _SLOT_FILL_BONUS = 100.0
+        # Fix: add a SLOT_FILL_BONUS to every player-slot assignment, constant
+        # per assignment so the relative SGP comparison between players for the
+        # SAME slot still wins. The LP prefers ANY eligible player in a slot
+        # over leaving it empty, but still picks the BEST eligible player.
+        #
+        # LO-E1: the bonus is sized RELATIVE to the roster's largest normalized
+        # |player_value| rather than a fixed 100. Because the LP normalizes each
+        # category by its within-roster stdev, a tightly-clustered stat (e.g.
+        # several identical-ERA pitchers) floors the scale to 1.0 and inflates
+        # the normalized magnitude into the hundreds — a fixed 100 could then
+        # FAIL to dominate and the slot would (wrongly) stay empty. Using
+        # k × max|value| guarantees the bonus dominates by a known margin (k-1×)
+        # on every roster. The absolute floor keeps it positive when every
+        # player_value is ~0.
+        _FILL_BONUS_K = 2.0  # dominate the worst player by at least 1× its magnitude
+        _FILL_BONUS_FLOOR = 100.0  # absolute floor for near-zero-value rosters
+        _SLOT_FILL_BONUS = max(_FILL_BONUS_FLOOR, _FILL_BONUS_K * max_abs_player_value)
+
+        # LO-E1 ratio-protect: decide which slots a damaging pure-SP loses its
+        # fill bonus on. Always drop it on the generic P-flex slot (the "extra
+        # starter" slot — never pad a locked ratio there). Also drop it on the
+        # dedicated SP slots ONLY when enough non-damaging SP-eligible arms exist
+        # to fill every SP slot; otherwise the IP-floor Bug-G guard wins and the
+        # damaging SP keeps its SP-slot bonus (a bad start still beats forfeiting
+        # all pitching cats to the 20 IP/week floor). Dropping the bonus on the
+        # SP slot too is what actually lets the surplus damaging starter bench —
+        # otherwise the LP parks it in an SP slot and pushes a good arm to P-flex.
+        _n_sp_slots = self.slots.get("SP", (0, []))[0]
+        _drop_damaging_sp_slot = n_safe_sp_eligible >= _n_sp_slots
         for p_idx in players:
+            drop_pflex = p_idx in protect_damaging_sp
+            drop_sp = drop_pflex and _drop_damaging_sp_slot
             for slot_name, _ in expanded_slots:
+                base_slot = slot_name.rsplit("_", 1)[0]
+                if base_slot == "P" and drop_pflex:
+                    continue
+                if base_slot == "SP" and drop_sp:
+                    continue
                 objective_terms.append(x[(p_idx, slot_name)] * _SLOT_FILL_BONUS)
 
         prob += lpSum(objective_terms)
