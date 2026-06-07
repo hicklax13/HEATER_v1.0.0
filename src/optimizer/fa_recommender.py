@@ -678,12 +678,19 @@ def _score_fa_candidates(
         _replacement_levels = replacement_levels
 
     # FA P5f (2026-05-20): punt-category detection. Build punt set from
-    # explicit h2h_strategy tags (key 'punt' OR legacy 'punt_cats') AND
-    # any category with win_prob below the threshold. Apply the override
-    # to ctx.category_weights for the scoring loop; restore on exit.
+    # explicit h2h_strategy tags AND any category with win_prob below the
+    # threshold. Apply the override to ctx.category_weights for the scoring
+    # loop; restore on exit.
+    #
+    # FA-C3 (2026-06-07): the AUTHORITATIVE key is 'punt_cats'. ctx.h2h_strategy
+    # is populated solely by shared_data_layer._load_h2h_strategy from
+    # weekly_h2h_strategy.compute_weekly_matchup_state, which emits 'punt_cats'
+    # (the same key shared_data_layer._build_unified_category_weights reads).
+    # The bare 'punt' key is kept as a defensive fallback for any future/external
+    # producer, but no current producer emits it.
     _punt_cats: set[str] = set()
     _strategy = getattr(ctx, "h2h_strategy", {}) or {}
-    for _key in ("punt", "punt_cats"):
+    for _key in ("punt_cats", "punt"):
         for c in _strategy.get(_key, []) or []:
             if c:
                 _punt_cats.add(str(c).upper())
