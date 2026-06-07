@@ -42,6 +42,13 @@ EXPECTED_KEYS = [
     "min_active_hitters",  # 10
     "min_active_pitchers",  # 8
     "league_avg_whip",  # 1.30 — already registered pre-PR9; re-asserted here
+    # FA-E4 (2026-06-07): last inline FA tunables centralized.
+    "ecr_stddev_polarizing_threshold",  # 20 — ECR rank stddev above which a pick is "polarizing"
+    "ecr_stddev_consensus_threshold",  # 5 — ECR rank stddev below which a pick is "consensus"
+    "ecr_polarizing_mult",  # 0.95 — discount for polarizing picks
+    "ecr_consensus_mult",  # 1.02 — premium for consensus picks
+    "regression_buy_low_mult",  # 1.05 — BUY_LOW regression-flag nudge
+    "regression_sell_high_mult",  # 0.95 — SELL_HIGH regression-flag nudge
 ]
 
 

@@ -679,4 +679,63 @@ CONSTANTS_REGISTRY: dict[str, ConstantEntry] = {
         sensitivity="LOW",
         description="Starting-pitcher minimum below which the FA engine refuses to surface a drop",
     ),
+    # -- FA Recommender ECR + regression nudges (FA-E4 — 2026-06-07) -------
+    # The last inline FA tunables: the ECR-rank-stddev consensus nudge and the
+    # regression-flag (BUY_LOW/SELL_HIGH) nudge magnitudes. Centralized so
+    # sensitivity_analysis / sigmoid_calibrator treat them as first-class
+    # inputs. Values unchanged from the pre-FA-E4 inline literals.
+    "ecr_stddev_polarizing_threshold": ConstantEntry(
+        value=20,
+        lower_bound=10,
+        upper_bound=40,
+        citation="FA P3 T3-4 heuristic (2026-05-20): ECR rank stddev above ~20 across sources = polarizing pick (analysts disagree), apply small discount",
+        module="optimizer/fa_recommender.py",
+        sensitivity="LOW",
+        description="ECR rank stddev above which a FA is treated as a polarizing pick",
+    ),
+    "ecr_stddev_consensus_threshold": ConstantEntry(
+        value=5,
+        lower_bound=2,
+        upper_bound=15,
+        citation="FA P3 T3-4 heuristic (2026-05-20): ECR rank stddev below ~5 across sources = strong consensus pick, apply small premium",
+        module="optimizer/fa_recommender.py",
+        sensitivity="LOW",
+        description="ECR rank stddev below which a FA is treated as a consensus pick",
+    ),
+    "ecr_polarizing_mult": ConstantEntry(
+        value=0.95,
+        lower_bound=0.85,
+        upper_bound=0.99,
+        citation="FA P3 T3-4 heuristic (2026-05-20): 5% composite discount for polarizing (high-stddev) ECR picks",
+        module="optimizer/fa_recommender.py",
+        sensitivity="LOW",
+        description="Composite multiplier applied to polarizing-ECR FAs",
+    ),
+    "ecr_consensus_mult": ConstantEntry(
+        value=1.02,
+        lower_bound=1.01,
+        upper_bound=1.10,
+        citation="FA P3 T3-4 heuristic (2026-05-20): 2% composite premium for consensus (low-stddev) ECR picks",
+        module="optimizer/fa_recommender.py",
+        sensitivity="LOW",
+        description="Composite multiplier applied to consensus-ECR FAs",
+    ),
+    "regression_buy_low_mult": ConstantEntry(
+        value=1.05,
+        lower_bound=1.01,
+        upper_bound=1.15,
+        citation="FA PR10 Part A (2026-05-20): xwOBA-wOBA / similar regression signals are ~5-10% accurate over one matchup, so a 5% BUY_LOW nudge is the right order of magnitude",
+        module="optimizer/fa_recommender.py",
+        sensitivity="MEDIUM",
+        description="Composite multiplier applied to BUY_LOW regression-flagged FAs",
+    ),
+    "regression_sell_high_mult": ConstantEntry(
+        value=0.95,
+        lower_bound=0.85,
+        upper_bound=0.99,
+        citation="FA PR10 Part A (2026-05-20): symmetric counterpart of regression_buy_low_mult — 5% discount for SELL_HIGH regression-flagged FAs",
+        module="optimizer/fa_recommender.py",
+        sensitivity="MEDIUM",
+        description="Composite multiplier applied to SELL_HIGH regression-flagged FAs",
+    ),
 }

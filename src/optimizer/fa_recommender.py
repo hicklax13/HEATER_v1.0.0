@@ -149,6 +149,16 @@ _MIN_ACTIVE_PITCHERS = CONSTANTS_REGISTRY["min_active_pitchers"].value
 _PUNT_WEIGHT = 0.05
 _PUNT_WIN_PROB_THRESHOLD = 0.10
 
+# FA-E4 (2026-06-07): ECR-stddev consensus nudge + regression-flag nudge
+# magnitudes. Previously inline literals in _score_fa_candidates; now read
+# from CONSTANTS_REGISTRY at import so calibration tools can perturb them.
+_ECR_STDDEV_POLARIZING_THRESHOLD = CONSTANTS_REGISTRY["ecr_stddev_polarizing_threshold"].value
+_ECR_STDDEV_CONSENSUS_THRESHOLD = CONSTANTS_REGISTRY["ecr_stddev_consensus_threshold"].value
+_ECR_POLARIZING_MULT = CONSTANTS_REGISTRY["ecr_polarizing_mult"].value
+_ECR_CONSENSUS_MULT = CONSTANTS_REGISTRY["ecr_consensus_mult"].value
+_REGRESSION_BUY_LOW_MULT = CONSTANTS_REGISTRY["regression_buy_low_mult"].value
+_REGRESSION_SELL_HIGH_MULT = CONSTANTS_REGISTRY["regression_sell_high_mult"].value
+
 
 def _playing_time_multiplier(fa_data: pd.Series, ctx: OptimizerDataContext) -> float:
     """De-weight FAs whose YTD playing time is low vs season progress.
@@ -907,30 +917,32 @@ def _score_fa_candidates(
             # PR10 Part A (2026-05-20): regression flag adjustment.
             # The pool's regression_flag column (BUY_LOW / SELL_HIGH / empty) was
             # being loaded but never consumed. Wire it as a final ranking nudge:
-            # BUY_LOW = 1.05x (engine slightly favors regression-favorable players);
-            # SELL_HIGH = 0.95x (slight discount). Industry consensus: regression
-            # signals from xwOBA-wOBA gap and similar metrics are 5-10% accurate
-            # over a single matchup, so a 5% multiplier is the right order of
-            # magnitude — neither dominates nor disappears.
+            # BUY_LOW favors regression-favorable players, SELL_HIGH discounts.
+            # Industry consensus: regression signals from the xwOBA-wOBA gap and
+            # similar metrics are 5-10% accurate over a single matchup, so a ~5%
+            # multiplier is the right order of magnitude — neither dominates nor
+            # disappears. Magnitudes live in CONSTANTS_REGISTRY (FA-E4).
             _reg_flag = str(fa_data.get("regression_flag", "") or "").strip().upper()
 
             composite = base_value * sustainability * ownership_mult * floor_mult * pt_mult + urgency_boost
 
             # Sign-aware regression nudge: BUY_LOW always moves composite toward
             # positive (better ranking), SELL_HIGH always moves toward negative.
-            # Naïve ×1.05 inverts direction when composite < 0 — use reciprocal.
+            # Naïve ×mult inverts direction when composite < 0 — use reciprocal.
+            # Magnitudes read from CONSTANTS_REGISTRY (FA-E4).
             if _reg_flag == "BUY_LOW":
-                composite *= 1.05 if composite >= 0 else (1.0 / 1.05)
+                composite *= _REGRESSION_BUY_LOW_MULT if composite >= 0 else (1.0 / _REGRESSION_BUY_LOW_MULT)
             elif _reg_flag == "SELL_HIGH":
-                composite *= 0.95 if composite >= 0 else (1.0 / 0.95)
+                composite *= _REGRESSION_SELL_HIGH_MULT if composite >= 0 else (1.0 / _REGRESSION_SELL_HIGH_MULT)
 
-            # T3-4: ECR stddev consensus adjustment
+            # T3-4: ECR stddev consensus adjustment (thresholds + multipliers
+            # read from CONSTANTS_REGISTRY — FA-E4).
             try:
                 _ecr_stddev = float(fa_data.get("ecr_rank_stddev", 0) or 0)
-                if _ecr_stddev > 20:
-                    composite *= 0.95  # Polarizing pick — small discount
-                elif 0 < _ecr_stddev < 5:
-                    composite *= 1.02  # Consensus pick — small premium
+                if _ecr_stddev > _ECR_STDDEV_POLARIZING_THRESHOLD:
+                    composite *= _ECR_POLARIZING_MULT  # Polarizing pick — small discount
+                elif 0 < _ecr_stddev < _ECR_STDDEV_CONSENSUS_THRESHOLD:
+                    composite *= _ECR_CONSENSUS_MULT  # Consensus pick — small premium
             except (TypeError, ValueError):
                 pass
 
