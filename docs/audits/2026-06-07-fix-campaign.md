@@ -15,6 +15,30 @@ Source of truth for executing the fixes + enhancements from
 
 ---
 
+## ✅ CAMPAIGN STATUS (2026-06-07)
+
+**COMPLETE + full suite 5044 passed / 107 skipped / 0 failed.** All on branch
+`fix/audit-followups-2026-06-07` — **NOT deployed; awaiting owner deploy decision.**
+~45 fixes/features, each TDD'd red→green, atomically committed, suite green at every boundary.
+
+- **All correctness findings (Waves 0–7 + NEW-1/2):** BR-4 crash · FA-C1 sign / FA-C3 / FA-C4 ·
+  PV-C2 blend · MS-C1–C6 + BR-2 · LO-C1–C4 + BR-7 · DB-C3–C6 + BR-9 + BR-5 · TE-C1–C3 · DE-C1–C6 ·
+  settings dict-contract.
+- **4 big features:** FA-C2 (real L14) · DB-C2 (real closer depth) · DB-C1 (park-factor tier repaired +
+  optimizer reads live table) · PV-C1 (projection-stacking foundation: forecast_season + matched-year training;
+  invalid cross-year regression gone).
+- **Cookie auth (BR-1):** opaque server-stored revocable tokens; flag-off byte-for-byte; security-reviewed.
+- **Enhancements:** MS-E1 + LO-E3 (unified Skellam/copula win-prob → fixes the BR-6 cross-page mismatch) ·
+  TE-E5 (injury MC risk tails) · TE-E2 (copula playoff odds) · BR-8b (FA no-recs fixed).
+
+**REMAINING — lower-priority enhancement tail (for a follow-up / owner greenlight):**
+TE-E1 (full LP-starter per-week means; IL already excluded by TE-C1) · TE-E3 (schedule-aware playoff default,
+Path A exists) · TE-E4 (empirical CV — needs prior-season data) · PV-C4 (unify SGP denominators) ·
+MS-E1b (4th tau in `trade_value.py`) · BR-2b (My Team priority-target raw-diff selection) · per-engine
+E-items (FA-E3/E4, LO-E1/E2/E4, DE-E3/E4/E5) · UI: Trade Analyzer pass `enable_mc=True` to surface the injury tail.
+
+---
+
 ## Wave 0 — live crash (DONE)
 - ☑ **BR-4** Playoff Odds `KeyError 'accent'` → `T["primary"]` + regression guard. (commit 5df8507)
 
@@ -26,7 +50,7 @@ Source of truth for executing the fixes + enhancements from
 
 ### New findings surfaced during Wave 1 (added to backlog)
 - ☑ **NEW-1** NaN-safe `_num()` helper applied to `_marginal_era_sgp`/`_marginal_whip_sgp` (`src/valuation.py`) + `_blend_fa_row` (`fa_recommender.py`). (commit 189f17d; test_valuation_math = 41 pass)
-- ☐ **BR-8b** (Med) FA recommender funnel/position-cap may over-collapse output; confirm against live roster + widen/relax with a guard test. (Wave 5/FA follow-up.)
+- ☑ **BR-8b** FA "no recommendations" root cause was the DROP funnel (only the 5 globally-cheapest, all scrub pitchers on a keeper roster), NOT the cap (cap netting already correct). `_score_drop_candidates` now also surfaces the cheapest droppable player at each FA-candidate capped position → a stud FA gets a same-position upgrade partner. 0→1 rec on a synthetic keeper roster. (commit 88ccbb0)
 
 ## Wave 2 — Projections / valuation
 - ☑ **PV-C2** invert Bayesian Layer-2 blend (expert ∝ reliability). (commit 9d8e487; test_ros_projections + bayesian = 56 pass)
