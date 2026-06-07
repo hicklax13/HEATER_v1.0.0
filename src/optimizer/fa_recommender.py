@@ -535,16 +535,27 @@ def recommend_fa_moves(
     except Exception:
         logger.debug("Could not compute replacement_levels — positional scarcity disabled this call")
 
-    # ── Step 1: Score drop candidates ────────────────────────────────
-    drop_candidates = _score_drop_candidates(ctx, replacement_levels)
-    if not drop_candidates:
-        logger.info("No viable drop candidates found")
-        return []
-
-    # ── Step 2: Score FA candidates ──────────────────────────────────
+    # ── Step 1: Score FA candidates ──────────────────────────────────
+    # (Scored BEFORE drops so the drop funnel can be position-aware — see
+    # BR-8b below. FA scoring does not depend on the drop set.)
     fa_candidates = _score_fa_candidates(ctx, replacement_levels)
     if not fa_candidates:
         logger.info("No viable FA candidates found")
+        return []
+
+    # ── Step 2: Score drop candidates ────────────────────────────────
+    # BR-8b (2026-06-07): pass the FA candidates' capped positions so the
+    # drop funnel guarantees a same-position drop partner for each strong FA.
+    # Without this, a stud FA at a keeper-heavy position (e.g. OF when all 4
+    # OF are keepers) had no viable same-position drop in the cheapest-N set,
+    # the cap blocked every cross-position pairing, and the engine returned
+    # zero recommendations for a clearly-suboptimal roster.
+    fa_positions: set[str] = set()
+    for fa in fa_candidates:
+        fa_positions |= _parse_position_tokens(str(fa.get("positions", "")))
+    drop_candidates = _score_drop_candidates(ctx, replacement_levels, fa_positions=fa_positions)
+    if not drop_candidates:
+        logger.info("No viable drop candidates found")
         return []
 
     # ── Step 3: Evaluate all (drop, add) pairs ───────────────────────
@@ -564,6 +575,7 @@ def recommend_fa_moves(
 def _score_drop_candidates(
     ctx: OptimizerDataContext,
     replacement_levels: dict[str, float] | None = None,
+    fa_positions: set[str] | None = None,
 ) -> list[dict]:
     """Score rostered players as drop candidates.
 
@@ -576,6 +588,22 @@ def _score_drop_candidates(
     player (catcher, SS) costs MORE than dropping a deep-position player
     (OF, 1B) with equivalent raw SGP. Default ``None`` preserves the
     pre-PR15 backward-compat path (no scarcity multiplier on cost).
+
+    BR-8b (2026-06-07): position-aware funnel. The drop set was the
+    ``_MAX_DROP_CANDIDATES`` *globally cheapest* players. When a strong FA
+    lives at a position where every rostered player is an expensive keeper
+    (e.g. a stud OF while the 5 cheapest drops are all spare pitchers), no
+    SAME-position drop ever entered the funnel — and the position cap then
+    (correctly) blocked every cross-position pairing, so ``recommend_fa_moves``
+    returned ZERO recommendations for a clearly-suboptimal roster. To fix
+    this WITHOUT loosening the cap, ``fa_positions`` (the set of capped
+    positions held by the FA candidates) lets us additionally surface the
+    single cheapest droppable player eligible at each such position, so a
+    strong FA always has a viable same-position partner to compete against.
+    A same-position upgrade leaves the post-swap position count unchanged, so
+    the cap permits it; true hoarding (a 3rd catcher with no paired C drop)
+    still has no viable partner and stays blocked downstream. ``None``
+    preserves the pre-BR-8b behavior (global cheapest-N only).
     """
     candidates: list[dict] = []
 
@@ -613,9 +641,35 @@ def _score_drop_candidates(
             }
         )
 
-    # Sort by cost ascending (cheapest to drop first), take top N
+    # Sort by cost ascending (cheapest to drop first).
     candidates.sort(key=lambda x: x["drop_cost"])
-    return candidates[:_MAX_DROP_CANDIDATES]
+    selected = candidates[:_MAX_DROP_CANDIDATES]
+
+    # BR-8b: ensure each FA-candidate capped position has a same-position
+    # drop in the funnel. For every capped position the FAs can fill that is
+    # NOT already represented among the selected drops, append the cheapest
+    # eligible droppable player at that position (if any). Each player is
+    # added at most once. Only capped positions matter — uncapped flex slots
+    # (Util/P/BN) never trip the cap, so they can't starve a swap.
+    if fa_positions:
+        capped_fa_positions = {p for p in fa_positions if p in _POSITION_CAPS}
+        if capped_fa_positions:
+            selected_ids = {c["player_id"] for c in selected}
+            covered_positions = set()
+            for cand in selected:
+                covered_positions |= _parse_position_tokens(cand["positions"]) & capped_fa_positions
+            for pos in capped_fa_positions - covered_positions:
+                # candidates already sorted cheapest-first; take the first
+                # eligible one not yet selected.
+                for cand in candidates:
+                    if cand["player_id"] in selected_ids:
+                        continue
+                    if pos in _parse_position_tokens(cand["positions"]):
+                        selected.append(cand)
+                        selected_ids.add(cand["player_id"])
+                        break
+
+    return selected
 
 
 # ---------------------------------------------------------------------------
