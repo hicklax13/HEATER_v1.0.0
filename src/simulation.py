@@ -623,18 +623,27 @@ class DraftSimulator:
         else:
             aligned_vol = None
 
-        # Re-align per_category_sgp to the sim pool subset
+        # Re-align per_category_sgp to the sim pool subset.
+        # DE-C2: per_category_sgp arrives aligned to *player_pool* (pool
+        # order). It must be reordered to match sim_available's order so
+        # that row i corresponds to available_ids[i] — the index that
+        # simulate_draft uses internally. The previous implementation
+        # collected indices in POOL order (`enumerate(pool_ids)`), which
+        # silently mis-paired each category vector with the wrong player
+        # whenever pool order != ADP (sim_available) order. Mirror the
+        # sgp_volatility reindex-by-player_id path above.
         aligned_cat_sgp = None
         if category_weights is not None and per_category_sgp is not None:
+            pca = np.asarray(per_category_sgp)
             pool_ids = player_pool["player_id"].values
-            sim_ids_set = set(sim_available["player_id"].values)
-            # Build index mapping: pool position -> sim_available position
-            avail_indices = [i for i, pid in enumerate(pool_ids) if pid in sim_ids_set]
-            if len(avail_indices) == len(sim_available):
-                aligned_cat_sgp = per_category_sgp[avail_indices]
-            else:
-                # Fallback: disable category-aware selection
-                aligned_cat_sgp = None
+            if pca.shape[0] == len(pool_ids):
+                # Map player_id -> pool row, then gather in sim_available order.
+                id_to_pool_row = pd.Series(np.arange(len(pool_ids)), index=pool_ids)
+                sim_rows = id_to_pool_row.reindex(sim_available["player_id"].values)
+                if not sim_rows.isna().any():
+                    aligned_cat_sgp = pca[sim_rows.to_numpy(dtype=int)]
+                # else: a sim_available id is absent from the pool -> disable
+                # category-aware selection (aligned_cat_sgp stays None).
 
         user_needs = set(draft_state.user_team.open_positions())
         current_pick = draft_state.current_pick

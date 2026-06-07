@@ -588,3 +588,71 @@ class TestCommonRandomNumbers:
         df = sim.evaluate_candidates(self._eval_pool(), self._draft_state(), top_n=3, n_simulations=10)
         assert not df.empty
         assert "mc_mean_sgp" in df.columns
+
+
+class TestPerCategorySgpAlignment:
+    """DE-C2: per_category_sgp must be reindexed by sim_available player_id."""
+
+    @staticmethod
+    def _draft_state():
+        from src.draft_state import DraftState
+
+        return DraftState(num_teams=12, num_rounds=23, user_team_index=0)
+
+    def test_aligned_cat_sgp_matches_available_ids_order(self, monkeypatch):
+        """When pool order != ADP (sim_available) order, the per-category
+        SGP passed to simulate_draft must align row-for-row with
+        available_ids (NOT with pool positional order)."""
+        config = LeagueConfig()
+        sim = DraftSimulator(config, sigma=10)
+        n_cats = len(config.all_categories)
+
+        # Build a pool whose ROW ORDER is the REVERSE of ADP order, so
+        # sim_available (built via nsmallest on adp) reorders the rows.
+        n = 20
+        rows = []
+        positions = ["C", "1B", "2B", "3B", "SS", "OF", "SP", "RP"]
+        for i in range(n):
+            pid = i + 1
+            rows.append(
+                {
+                    "player_id": pid,
+                    "name": f"Player {pid}",
+                    "team": "TST",
+                    "positions": positions[i % len(positions)],
+                    "adp": float(n - i),  # reverse: row 0 has highest ADP
+                    "pick_score": 10.0 - i * 0.3,
+                    "total_sgp": 10.0 - i * 0.3,
+                }
+            )
+        pool = pd.DataFrame(rows)
+
+        # Signature: column 0 of each player's per-category row == player_id.
+        per_category_sgp = np.zeros((n, n_cats))
+        per_category_sgp[:, 0] = pool["player_id"].values.astype(float)
+        category_weights = {c.lower(): 1.0 for c in config.all_categories}
+
+        captured = {}
+        orig = sim.simulate_draft
+
+        def _spy(*args, available_ids, per_category_sgp=None, **kwargs):
+            captured["available_ids"] = np.asarray(available_ids)
+            captured["per_category_sgp"] = per_category_sgp
+            return orig(*args, available_ids=available_ids, per_category_sgp=per_category_sgp, **kwargs)
+
+        monkeypatch.setattr(sim, "simulate_draft", _spy)
+
+        sim.evaluate_candidates(
+            pool,
+            self._draft_state(),
+            top_n=3,
+            n_simulations=5,
+            category_weights=category_weights,
+            per_category_sgp=per_category_sgp,
+        )
+
+        aligned = captured["per_category_sgp"]
+        avail_ids = captured["available_ids"]
+        assert aligned is not None, "category-aware path was disabled (misalignment fallback)"
+        # Row i of the aligned matrix must carry available_ids[i]'s signature.
+        np.testing.assert_array_equal(aligned[:, 0], avail_ids.astype(float))
