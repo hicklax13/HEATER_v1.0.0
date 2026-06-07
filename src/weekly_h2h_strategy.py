@@ -195,18 +195,22 @@ def compute_desperation_level(
 
 def get_dynamic_weeks_remaining(
     current_week: int | None = None,
-    total_weeks: int = 24,
+    total_weeks: int | None = None,
 ) -> int:
     """Return the number of weeks remaining in the fantasy season.
 
     Args:
         current_week: If provided, used directly. Otherwise detected from
             date math (MLB 2026 season start = March 25).
-        total_weeks: Total weeks in the fantasy season.
+        total_weeks: Total weeks in the fantasy season. Defaults to the
+            canonical ``LeagueConfig().season_weeks`` (26) when None.
 
     Returns:
         Integer weeks remaining (minimum 0).
     """
+    # MS-C2 (2026-06-07): default to canonical season length, not a stale 24.
+    if total_weeks is None:
+        total_weeks = LeagueConfig().season_weeks
     if current_week is not None:
         return max(0, total_weeks - current_week)
 
@@ -227,7 +231,7 @@ def get_dynamic_weeks_remaining(
 def get_optimal_alpha(
     desperation_level: float,
     weeks_remaining: int,
-    total_weeks: int = 24,
+    total_weeks: int | None = None,
 ) -> float:
     """Compute the H2H-vs-season-long alpha blend for the optimizer.
 
@@ -244,13 +248,18 @@ def get_optimal_alpha(
     Args:
         desperation_level: 0.0 (comfortable) to 1.0 (dire).
         weeks_remaining: Weeks left in the season.
-        total_weeks: Total weeks in the season.
+        total_weeks: Total weeks in the season. Defaults to the canonical
+            ``LeagueConfig().season_weeks`` (26) when None.
 
     Returns:
         Float in [0.4, 0.95].
     """
-    # Season progress: 0.0 = start, 1.0 = end
-    progress = 1.0 - (weeks_remaining / max(1, total_weeks))
+    # MS-C2 (2026-06-07): default to canonical season length, not a stale 24.
+    if total_weeks is None:
+        total_weeks = LeagueConfig().season_weeks
+    # Season progress: 0.0 = start, 1.0 = end. Clamp to [0, 1] so an early
+    # season weeks_remaining > total_weeks can't drive progress negative.
+    progress = max(0.0, min(1.0, 1.0 - (weeks_remaining / max(1, total_weeks))))
 
     # Base alpha ramps from 0.5 early to 0.75 late season
     base = 0.5 + 0.25 * progress

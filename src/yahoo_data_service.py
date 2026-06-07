@@ -459,15 +459,25 @@ class YahooDataService:
     def get_full_league_schedule(
         self,
         force_refresh: bool = False,
-        total_weeks: int = 24,
+        total_weeks: int | None = None,
     ) -> dict[int, list[tuple[str, str]]]:
         """Fetch all matchups for all weeks (all 12 teams).
+
+        Args:
+            total_weeks: Number of weeks to fetch. Defaults to the canonical
+                ``LeagueConfig().season_weeks`` (26) when None — a stale 24
+                silently dropped weeks 25-26 from the full schedule.
 
         Returns:
             ``{week: [(team_a, team_b), ...]}`` with 6 matchups per week.
             Cached in session_state with 24h TTL. Stored in
             ``league_schedule_full`` table.
         """
+        # MS-C2 (2026-06-07): default to canonical season length, not a stale 24.
+        if total_weeks is None:
+            from src.valuation import LeagueConfig
+
+            total_weeks = LeagueConfig().season_weeks
         try:
             from src.database import load_league_schedule_full, upsert_league_schedule_full
         except ImportError:

@@ -84,7 +84,7 @@ PITCHING_RATE_DISCOUNT = 0.88  # 12% discount
 def apply_time_decay(
     player_sgp_by_cat: dict[str, float],
     weeks_remaining: int,
-    total_weeks: int = 24,
+    total_weeks: int | None = None,
     config: Any = None,
 ) -> dict[str, float]:
     """Apply differential time decay to per-category SGP.
@@ -95,7 +95,8 @@ def apply_time_decay(
     Args:
         player_sgp_by_cat: Per-category SGP values {cat: sgp_value}.
         weeks_remaining: Weeks left in the fantasy season.
-        total_weeks: Total weeks in the fantasy season.
+        total_weeks: Total weeks in the fantasy season. Defaults to the
+            canonical ``LeagueConfig().season_weeks`` (26) when None.
         config: League configuration for identifying rate stats.
 
     Returns:
@@ -103,8 +104,14 @@ def apply_time_decay(
     """
     if config is None:
         config = LeagueConfig()
+    # MS-C2 (2026-06-07): default to canonical season length, not a stale 24.
+    if total_weeks is None:
+        total_weeks = config.season_weeks
 
-    time_fraction = weeks_remaining / max(total_weeks, 1)
+    # MS-C2: clamp to [0, 1]. weeks_remaining can equal/exceed total_weeks
+    # early in the season; without the clamp the counting-stat factor exceeds
+    # 1.0 and AMPLIFIES SGP instead of decaying it.
+    time_fraction = max(0.0, min(1.0, weeks_remaining / max(total_weeks, 1)))
     rate_confidence = min(1.0, weeks_remaining / 8.0)
 
     adjusted = {}
@@ -173,12 +180,15 @@ def compute_schedule_urgency(
     from src.opponent_intel import get_opponent_for_week, get_week_number
 
     current_week = get_week_number()
+    # MS-C2 (2026-06-07): cap lookahead at the canonical season length, not a
+    # stale 24, so weeks 25-26 aren't silently dropped from the urgency calc.
+    _season_weeks = LeagueConfig().season_weeks
     tier_scores = {1: 2.0, 2: 1.0, 3: 0.0, 4: -0.5}
     total_difficulty = 0.0
     count = 0
 
     for w in range(current_week + 1, current_week + 1 + weeks_ahead):
-        if w > 24:
+        if w > _season_weeks:
             break
         opp = get_opponent_for_week(w, yds=yds)
         if opp:
