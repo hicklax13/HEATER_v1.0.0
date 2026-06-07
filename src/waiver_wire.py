@@ -29,6 +29,30 @@ logger = logging.getLogger(__name__)
 
 _CONSTANTS = load_constants()
 
+
+def _is_hitter_safe(val) -> bool:
+    """Convert an is_hitter field to bool, defaulting to True (hitter) for NaN/None.
+
+    pandas ``Series.get(key, default)`` returns NaN when the key exists but holds
+    NaN — not the default — so ``int(row.get("is_hitter", 0))`` raises ValueError
+    on the pool left-join artefact where an unmatched FA/roster row has NaN
+    ``is_hitter`` (FA-C4). Mirrors ``src.optimizer.fa_recommender._is_hitter_safe``;
+    defined locally here to avoid the ``waiver_wire <- fa_recommender`` import cycle
+    (fa_recommender already imports ``compute_drop_cost`` from this module).
+    """
+    if val is None:
+        return True
+    try:
+        if pd.isna(val):
+            return True
+    except (TypeError, ValueError):
+        pass
+    try:
+        return bool(int(val))
+    except (TypeError, ValueError):
+        return True
+
+
 # ── Constants ─────────────────────────────────────────────────────────
 
 # Category priority tier thresholds (R calibratable)
@@ -385,7 +409,9 @@ def compute_drop_cost(
         scarcity_mult = compute_positional_scarcity_factor(str(row.get("positions", "")), replacement_levels)
         base_cost *= scarcity_mult
 
-    is_hitter = int(row.get("is_hitter", 0)) == 1
+    # FA-C4: NaN-safe is_hitter cast — pool left-joins can leave is_hitter as
+    # NaN for unmatched rows; plain int(NaN) would raise and abort the drop loop.
+    is_hitter = _is_hitter_safe(row.get("is_hitter"))
     adjustment = 0.0
 
     if is_hitter:

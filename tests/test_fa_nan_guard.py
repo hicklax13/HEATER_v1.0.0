@@ -15,6 +15,7 @@ import pytest
 from src.optimizer.fa_recommender import _score_fa_candidates
 from src.optimizer.shared_data_layer import OptimizerDataContext
 from src.valuation import LeagueConfig
+from src.waiver_wire import compute_drop_cost
 
 
 def _make_ctx_nan(fa_overrides):
@@ -118,3 +119,60 @@ def test_valid_fa_still_scores_after_nan_guard():
     result = _score_fa_candidates(ctx)
     assert result, "Expected at least one scored FA"
     assert result[0]["player_id"] == 2
+
+
+# ── Drop-side NaN guard (FA-C4) ───────────────────────────────────────
+#
+# compute_drop_cost did `int(row.get("is_hitter", 0)) == 1` with no NaN
+# guard. A NaN is_hitter (pool left-join artefact, same root cause as the
+# add-side guard above) raised ValueError and aborted the whole drop loop
+# in compute_add_drop_recommendations. These tests pin the fix.
+
+
+def _drop_pool(is_hitter_val):
+    """Two-player pool where the drop candidate (id=1) has the given
+    (possibly NaN) is_hitter value."""
+    drop_candidate = {
+        "player_id": 1,
+        "name": "Dropper",
+        "player_name": "Dropper",
+        "positions": "OF",
+        "is_hitter": is_hitter_val,
+        "r": 40,
+        "hr": 8,
+        "rbi": 30,
+        "sb": 1,
+        "ab": 250,
+        "h": 65,
+        "bb": 22,
+        "hbp": 1,
+        "sf": 2,
+        "avg": 0.260,
+        "obp": 0.330,
+        "w": 0,
+        "l": 0,
+        "sv": 0,
+        "k": 0,
+        "ip": 0,
+        "er": 0,
+        "bb_allowed": 0,
+        "h_allowed": 0,
+    }
+    keeper = {**drop_candidate, "player_id": 2, "name": "Keeper", "player_name": "Keeper"}
+    return pd.DataFrame([drop_candidate, keeper])
+
+
+def test_compute_drop_cost_nan_is_hitter_does_not_raise():
+    """A NaN is_hitter on the drop candidate must not raise ValueError."""
+    pool = _drop_pool(float("nan"))
+    # Must not raise — NaN is_hitter defaults to hitter (matches add-side _is_hitter_safe)
+    cost = compute_drop_cost(1, [1, 2], pool)
+    assert isinstance(cost, float)
+
+
+def test_compute_drop_cost_valid_is_hitter_still_works():
+    """A well-formed is_hitter still computes a finite cost (no regression)."""
+    pool = _drop_pool(1)
+    cost = compute_drop_cost(1, [1, 2], pool)
+    assert isinstance(cost, float)
+    assert not math.isnan(cost)
