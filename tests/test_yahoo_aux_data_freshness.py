@@ -103,3 +103,30 @@ def test_sync_all_team_matchups_caches_each_team():
     cached = load_matchup_cache("Rivals", 11)
     assert cached is not None
     assert cached["opp_name"] == "Team Hickey"
+
+
+def test_load_settings_coerces_non_dict_blob_to_dict():
+    """load_league_settings honors its -> dict contract even if the stored blob
+    parses to a non-dict. Regression for the 2026-06-07 shared-DB/xdist-ordering
+    failure where a non-dict value in league_settings made load return a str."""
+    import json
+
+    from src.database import get_connection
+
+    conn = get_connection()
+    try:
+        conn.execute(
+            "INSERT OR REPLACE INTO league_settings (id, settings_json, updated_at) VALUES (1, ?, ?)",
+            (json.dumps("not-a-dict"), "2026-06-07T00:00:00+00:00"),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    assert isinstance(load_league_settings(), dict)
+
+
+def test_save_settings_rejects_non_dict():
+    """save_league_settings no-ops on non-dict input so a mock/bad fetch can't
+    poison the shared cache; load always returns a dict afterward."""
+    save_league_settings("garbage")  # type: ignore[arg-type]
+    assert isinstance(load_league_settings(), dict)

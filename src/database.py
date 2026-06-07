@@ -2539,10 +2539,10 @@ def save_league_settings(settings: dict) -> None:
     """Persist Yahoo league settings as a single-row JSON blob.
 
     Lets the scheduler keep settings fresh and read-only members read them
-    offline. No-ops on falsy input so a transient empty fetch can't clobber a
-    good cache.
+    offline. No-ops on falsy OR non-dict input so a transient empty fetch — or a
+    mock/bad value — can't clobber the cache with a non-dict blob.
     """
-    if not settings:
+    if not isinstance(settings, dict) or not settings:
         return
     import json as _json
     from datetime import UTC, datetime
@@ -2566,7 +2566,10 @@ def load_league_settings() -> dict:
     try:
         row = conn.execute("SELECT settings_json FROM league_settings WHERE id = 1").fetchone()
         if row and row[0]:
-            return _json.loads(row[0])
+            parsed = _json.loads(row[0])
+            # Honor the -> dict contract even if the stored blob parses to a
+            # non-dict (e.g. a stray non-dict value written by a buggy caller).
+            return parsed if isinstance(parsed, dict) else {}
         return {}
     except Exception as exc:
         logger.warning("database.load_league_settings read failed: %s", exc, exc_info=True)
