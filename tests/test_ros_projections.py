@@ -113,7 +113,12 @@ class TestBlendWithProjection:
         assert result["hr_rate"] == pytest.approx(25 / 550, rel=1e-3)
 
     def test_full_history_blends(self):
-        """With substantial history, blend shifts toward Marcel."""
+        """Well-sampled player (reliability→1.0) is dominated by the EXPERT projection.
+
+        Expert systems (Steamer/ZiPS/DC) already fold in full history + aging +
+        park/role, so a fully-sampled veteran should be projected almost entirely
+        from them; the crude 3-year Marcel prior carries ~0 weight (PV-C2).
+        """
         marcel = {
             "total_weighted_vol": 1500.0,  # above threshold → reliability = 1500/1200 capped at 1.0
             "hr_rate": 0.040,
@@ -122,12 +127,12 @@ class TestBlendWithProjection:
         proj = pd.Series({"pa": 600, "hr": 20, "avg": 0.260})
         result = _blend_with_projection(marcel, proj, ["hr"], ["avg"], "pa")
 
-        # reliability = min(1.0, 1500/1200) = 1.0 → 100% Marcel
-        assert result["avg"] == pytest.approx(0.280, rel=1e-3)
-        assert result["hr_rate"] == pytest.approx(0.040, rel=1e-3)
+        # reliability = min(1.0, 1500/1200) = 1.0 → 100% expert projection
+        assert result["avg"] == pytest.approx(0.260, rel=1e-3)
+        assert result["hr_rate"] == pytest.approx(20 / 600, rel=1e-3)
 
     def test_partial_history_blends(self):
-        """With partial history, blend is proportional."""
+        """With partial history, blend is proportional (50/50 is symmetric)."""
         marcel = {
             "total_weighted_vol": 600.0,  # reliability = 600/1200 = 0.5
             "hr_rate": 0.050,
@@ -136,10 +141,51 @@ class TestBlendWithProjection:
         proj = pd.Series({"pa": 500, "hr": 20, "avg": 0.250})
         result = _blend_with_projection(marcel, proj, ["hr"], ["avg"], "pa")
 
-        # reliability = 0.5 → 50% Marcel, 50% projection
-        assert result["avg"] == pytest.approx(0.5 * 0.290 + 0.5 * 0.250, rel=1e-3)
+        # reliability = 0.5 → 50% expert, 50% Marcel (symmetric — same value either way)
+        assert result["avg"] == pytest.approx(0.5 * 0.250 + 0.5 * 0.290, rel=1e-3)
         proj_hr_rate = 20 / 500
-        assert result["hr_rate"] == pytest.approx(0.5 * 0.050 + 0.5 * proj_hr_rate, rel=1e-3)
+        assert result["hr_rate"] == pytest.approx(0.5 * proj_hr_rate + 0.5 * 0.050, rel=1e-3)
+
+    def test_reliability_weights_expert_not_marcel(self):
+        """PV-C2: as reliability RISES, the blend moves TOWARD the expert projection
+        and AWAY from the Marcel value — for both a rate stat and a counting stat."""
+        proj = pd.Series({"pa": 600, "hr": 20, "avg": 0.260})
+        proj_avg = 0.260
+        proj_hr_rate = 20 / 600
+        marcel_avg = 0.300  # clearly different from the expert AVG
+        marcel_hr_rate = 0.050  # clearly different from the expert HR rate
+
+        def blend_for_vol(total_vol):
+            marcel = {
+                "total_weighted_vol": total_vol,
+                "hr_rate": marcel_hr_rate,
+                "avg": marcel_avg,
+            }
+            return _blend_with_projection(marcel, proj, ["hr"], ["avg"], "pa")
+
+        thin = blend_for_vol(120.0)  # reliability = 0.1
+        mid = blend_for_vol(600.0)  # reliability = 0.5
+        thick = blend_for_vol(1200.0)  # reliability = 1.0
+
+        # Rate stat: distance to the EXPERT projection shrinks as reliability rises.
+        assert abs(thin["avg"] - proj_avg) > abs(mid["avg"] - proj_avg) > abs(thick["avg"] - proj_avg)
+        # And distance to the Marcel value grows as reliability rises.
+        assert abs(thin["avg"] - marcel_avg) < abs(mid["avg"] - marcel_avg) < abs(thick["avg"] - marcel_avg)
+        # At full reliability the expert projection dominates entirely.
+        assert thick["avg"] == pytest.approx(proj_avg, rel=1e-3)
+
+        # Counting stat (per-game rate): same direction.
+        assert (
+            abs(thin["hr_rate"] - proj_hr_rate)
+            > abs(mid["hr_rate"] - proj_hr_rate)
+            > abs(thick["hr_rate"] - proj_hr_rate)
+        )
+        assert (
+            abs(thin["hr_rate"] - marcel_hr_rate)
+            < abs(mid["hr_rate"] - marcel_hr_rate)
+            < abs(thick["hr_rate"] - marcel_hr_rate)
+        )
+        assert thick["hr_rate"] == pytest.approx(proj_hr_rate, rel=1e-3)
 
 
 # ---------------------------------------------------------------------------

@@ -960,8 +960,11 @@ def _blend_with_projection(
 ) -> dict[str, float]:
     """Blend Marcel historical prior with expert projection.
 
-    Uses reliability weighting: trust historical data proportional to
-    total weighted PA/IP (caps at ~2 full seasons = 1200 PA or 400 IP).
+    Reliability grows with accumulated PA/IP (caps at ~2 full seasons =
+    1200 PA or 400 IP). The EXPERT projection (Steamer/ZiPS/DC) already folds
+    in full history + aging curves + park/role, so its weight rises with
+    reliability and dominates for well-sampled players; the crude 3-year Marcel
+    prior only carries weight when the sample is thin (PV-C2).
     """
     result: dict[str, float] = {}
     total_vol = marcel.get("total_weighted_vol", 0)
@@ -976,7 +979,7 @@ def _blend_with_projection(
         marcel_val = marcel.get(stat)
         proj_val = float(proj_row.get(stat, 0) or 0)
         if marcel_val is not None and reliability > 0:
-            result[stat] = reliability * marcel_val + (1 - reliability) * proj_val
+            result[stat] = reliability * proj_val + (1 - reliability) * marcel_val
         else:
             result[stat] = proj_val
 
@@ -985,7 +988,7 @@ def _blend_with_projection(
         proj_val = float(proj_row.get(stat, 0) or 0)
         proj_rate = proj_val / proj_vol if proj_vol > 0 else 0
         if marcel_rate is not None and reliability > 0:
-            result[f"{stat}_rate"] = reliability * marcel_rate + (1 - reliability) * proj_rate
+            result[f"{stat}_rate"] = reliability * proj_rate + (1 - reliability) * marcel_rate
         else:
             result[f"{stat}_rate"] = proj_rate
 
