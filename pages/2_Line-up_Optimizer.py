@@ -377,9 +377,18 @@ if IP_TRACKER_AVAILABLE and not roster.empty:
             # Post-LP IP (set by Optimizer tab after LP decisions).
             # Shown as a second line when available so user sees how
             # benching non-probable SPs changes the IP outlook.
+            #
+            # BR-7: the post-LP recompute only runs under the Today (daily)
+            # scope and sums only TODAY's LP-started pitchers, so comparing it
+            # to the WEEKLY target (54 IP) falsely warns of a forfeit-level IP
+            # shortfall. Only render this weekly comparison when the optimize
+            # scope was weekly / rest-of-season (where the post-LP IP is a
+            # genuine week-wide projection). On the Today view it is suppressed.
             _post_lp_ip_value = st.session_state.get("_post_lp_ip")
+            _post_lp_scope = st.session_state.get("_post_lp_scope")
+            _post_lp_weekly = _post_lp_scope in ("rest_of_week", "rest_of_season")
             _post_lp_line = ""
-            if _post_lp_ip_value is not None and _post_lp_ip_value > 0:
+            if _post_lp_weekly and _post_lp_ip_value is not None and _post_lp_ip_value > 0:
                 _post_pct = (100.0 * _post_lp_ip_value / _target) if _target else 0.0
                 _post_color = "#2d6a4f" if _post_pct >= 100 else ("#ff9f1c" if _post_pct >= 75 else "#e63946")
                 _post_lp_line = (
@@ -1478,6 +1487,14 @@ with main:
                         _post_lp_ip += _proj_ip / 26.0
                 st.session_state["_post_lp_ip"] = _post_lp_ip
                 st.session_state["_pre_lp_ip"] = _pre_lp_ip
+                # BR-7: record the scope this post-LP IP was computed under.
+                # This recompute only runs for the Today (daily) scope and sums
+                # only TODAY's LP-started pitchers, so it is NOT a weekly IP
+                # projection. The IP-budget card uses this to suppress the
+                # weekly post-LP comparison on the Today view (false forfeit
+                # warning). It would only be a valid weekly figure under a
+                # weekly/ROS optimization.
+                st.session_state["_post_lp_scope"] = result.get("scope", "today")
 
                 # ── Post-process: bench SPs when rate stats are abandoned ──
                 # When both ERA and WHIP are unrecoverable, pure SPs with
