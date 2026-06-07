@@ -195,15 +195,27 @@ def compute_streaming_value(
     w_era = weights.get("era", 1.0)
     w_whip = weights.get("whip", 1.0)
 
+    whip_adjusted = whip * team_park_factor
+
+    # LO-C4: two-start fatigue. The 2nd (and any further) start of a week has
+    # ~7% worse rate stats (shorter rest, pitch-count effects), consistent with
+    # quantify_two_start_value (era_2nd = era / _TWO_START_FATIGUE_FACTOR).
+    # Use the IP-weighted effective ERA/WHIP across the starts: start 1 at full
+    # quality, the rest fatigued. For weekly_games == 1 this reduces to the
+    # unadjusted value (no regression).
+    n_starts = max(weekly_games, 1)
+    fatigued_starts = max(n_starts - 1, 0)
+    eff_era = (era_adjusted * 1 + (era_adjusted / _TWO_START_FATIGUE_FACTOR) * fatigued_starts) / n_starts
+    eff_whip = (whip_adjusted * 1 + (whip_adjusted / _TWO_START_FATIGUE_FACTOR) * fatigued_starts) / n_starts
+
     # ERA impact: negative ERA delta = good (lower team ERA)
     # A league-average ERA is ~4.00; improvement relative to that
     baseline_era = _CONSTANTS.get("streaming_baseline_era")
-    era_delta = (baseline_era - era_adjusted) * ip_contribution / (team_ip + ip_contribution)
+    era_delta = (baseline_era - eff_era) * ip_contribution / (team_ip + ip_contribution)
     era_sgp = (era_delta / sgp_era) * w_era
 
     baseline_whip = _CONSTANTS.get("streaming_baseline_whip")
-    whip_adjusted = whip * team_park_factor
-    whip_delta = (baseline_whip - whip_adjusted) * ip_contribution / (team_ip + ip_contribution)
+    whip_delta = (baseline_whip - eff_whip) * ip_contribution / (team_ip + ip_contribution)
     whip_sgp = (whip_delta / sgp_whip) * w_whip
 
     rate_impact = era_sgp + whip_sgp

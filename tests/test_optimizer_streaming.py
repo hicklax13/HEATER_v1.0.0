@@ -59,6 +59,65 @@ def test_counting_sgp_positive():
     assert result["counting_sgp"] >= 0
 
 
+def test_two_start_streaming_applies_fatigue_to_second_start():
+    """LO-C4: compute_streaming_value must degrade the 2nd start's rate-stat
+    quality by _TWO_START_FATIGUE_FACTOR, consistent with
+    quantify_two_start_value. Previously both starts were valued at full ERA/WHIP."""
+    from src.optimizer import streaming as s
+
+    pitcher = {"k": 7.0, "w": 0.5, "era": 3.00, "whip": 1.05, "ip": 6.0}
+    result = compute_streaming_value(pitcher, weekly_games=2)
+
+    # Reconstruct the expected fatigued rate_impact from the documented model.
+    era = 3.00
+    whip = 1.05
+    ip_per_start = 6.0  # input ip <= 15 -> used directly
+    ip_contribution = ip_per_start * 2
+    team_ip = s._DEFAULT_TEAM_WEEKLY_IP
+    baseline_era = s._CONSTANTS.get("streaming_baseline_era")
+    baseline_whip = s._CONSTANTS.get("streaming_baseline_whip")
+    sgp_era = s.DEFAULT_SGP_DENOMS["era"]
+    sgp_whip = s.DEFAULT_SGP_DENOMS["whip"]
+    fatigue = _TWO_START_FATIGUE_FACTOR
+
+    # IP-weighted effective ERA/WHIP: start 1 full, start 2 fatigued.
+    eff_era = (era + era / fatigue) / 2
+    eff_whip = (whip + whip / fatigue) / 2
+    exp_era_sgp = ((baseline_era - eff_era) * ip_contribution / (team_ip + ip_contribution)) / sgp_era
+    exp_whip_sgp = ((baseline_whip - eff_whip) * ip_contribution / (team_ip + ip_contribution)) / sgp_whip
+    expected_rate_impact = exp_era_sgp + exp_whip_sgp
+
+    assert result["rate_impact"] == pytest.approx(expected_rate_impact, abs=1e-3)
+
+    # Sanity: a good pitcher's positive rate_impact must be STRICTLY WORSE
+    # (smaller) than the no-fatigue version (both starts at full quality).
+    no_fatigue_era_sgp = ((baseline_era - era) * ip_contribution / (team_ip + ip_contribution)) / sgp_era
+    no_fatigue_whip_sgp = ((baseline_whip - whip) * ip_contribution / (team_ip + ip_contribution)) / sgp_whip
+    no_fatigue_rate_impact = no_fatigue_era_sgp + no_fatigue_whip_sgp
+    assert result["rate_impact"] < no_fatigue_rate_impact
+
+
+def test_one_start_streaming_no_fatigue_regression():
+    """LO-C4: a 1-start week must be unaffected by the fatigue change."""
+    from src.optimizer import streaming as s
+
+    pitcher = {"k": 7.0, "w": 0.5, "era": 3.00, "whip": 1.05, "ip": 6.0}
+    result = compute_streaming_value(pitcher, weekly_games=1)
+
+    era = 3.00
+    whip = 1.05
+    ip_contribution = 6.0
+    team_ip = s._DEFAULT_TEAM_WEEKLY_IP
+    baseline_era = s._CONSTANTS.get("streaming_baseline_era")
+    baseline_whip = s._CONSTANTS.get("streaming_baseline_whip")
+    sgp_era = s.DEFAULT_SGP_DENOMS["era"]
+    sgp_whip = s.DEFAULT_SGP_DENOMS["whip"]
+
+    exp_era_sgp = ((baseline_era - era) * ip_contribution / (team_ip + ip_contribution)) / sgp_era
+    exp_whip_sgp = ((baseline_whip - whip) * ip_contribution / (team_ip + ip_contribution)) / sgp_whip
+    assert result["rate_impact"] == pytest.approx(exp_era_sgp + exp_whip_sgp, abs=1e-3)
+
+
 # ── quantify_two_start_value ─────────────────────────────────────────
 
 
