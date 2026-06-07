@@ -857,6 +857,7 @@ def evaluate_trade(
     weeks_remaining: int | None = None,
     enable_mc: bool = False,
     n_sims: int = 10_000,
+    enable_injury_mc: bool = True,
     enable_context: bool = True,
     enable_game_theory: bool = True,
     apply_ytd_blend: bool = True,
@@ -905,6 +906,11 @@ def evaluate_trade(
             dynamically from today's date.
         enable_mc: Whether to run Phase 2 Monte Carlo simulation.
         n_sims: Number of MC simulations (default 10K).
+        enable_injury_mc: TE-E5 — when the Phase 2 MC runs (enable_mc=True),
+            model per-player season availability (Weibull injury durations)
+            so fragile/IL players widen the downside risk tail (CVaR5). Only
+            takes effect when enable_mc=True; default True for deep single-
+            trade evaluation. No effect on the bulk-scan path (enable_mc=False).
         enable_context: Whether to run Phase 4 context analysis
             (concentration risk, enhanced bench value). Default True.
         enable_game_theory: Whether to run Phase 5 game theory analysis
@@ -1613,6 +1619,7 @@ def evaluate_trade(
                 all_team_totals=all_team_totals,
                 weeks_remaining=weeks_remaining,
                 n_sims=n_sims,
+                enable_injury_mc=enable_injury_mc,
             )
             # Overlay MC risk diagnostics onto result.  By contract,
             # _run_mc_overlay has stripped grade/verdict/confidence_pct and
@@ -1706,6 +1713,7 @@ def _run_mc_overlay(
     all_team_totals: dict[str, dict[str, float]],
     weeks_remaining: int,
     n_sims: int,
+    enable_injury_mc: bool = False,
 ) -> MCOverlayResult:
     """Run Phase 2 Monte Carlo simulation and return overlay metrics.
 
@@ -1743,6 +1751,7 @@ def _run_mc_overlay(
         sgp_denominators=dict(config.sgp_denominators),
         n_sims=n_sims,
         weeks_remaining=weeks_remaining,
+        enable_injury_mc=enable_injury_mc,
     )
 
     # BUG-007 fix: assess MC convergence quality and attach to result.

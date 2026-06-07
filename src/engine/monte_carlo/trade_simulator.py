@@ -29,6 +29,11 @@ from typing import Any
 
 import numpy as np
 
+from src.engine.context.injury_process import (
+    estimate_injury_probability,
+    frailty_from_health_score,
+    sample_injury_duration,
+)
 from src.engine.portfolio.category_analysis import CATEGORIES, INVERSE_CATEGORIES
 from src.valuation import LeagueConfig, SGPCalculator
 
@@ -43,6 +48,87 @@ logger = logging.getLogger(__name__)
 # Default simulation count for Phase 2 (spec says 100K for full prod,
 # Phase 2 targets 10K for speed/accuracy balance)
 DEFAULT_N_SIMS: int = 10_000
+
+# Season length in days (mirrors injury_process.SEASON_DAYS) for the
+# availability-fraction calc below.
+_INJURY_SEASON_DAYS: int = 183
+
+
+def _sample_availability_fraction(
+    health_score: float,
+    age: int | None,
+    is_pitcher: bool,
+    weeks_remaining: int,
+    rng: np.random.RandomState,
+    negate: bool,
+) -> float:
+    """Sample a player's available-fraction of the remaining season.
+
+    TE-E5: this is the antithetic-aware twin of
+    ``injury_process.sample_season_availability``. It draws from the SAME
+    Weibull-duration injury model but threads the paired-MC antithetic
+    transform (``u → 1 - u``) through BOTH uniform draws (the injury coin
+    flip and the duration quantile), so the before/after arms keep their
+    perfectly anti-correlated noise.
+
+    A perfectly healthy player (health_score ≥ ~1.0) has a low injury
+    probability and almost always returns 1.0 (fully available). A fragile
+    player has a fat left tail of availability < 1.0, which the caller uses
+    to scale that player's counting-stat volume down.
+
+    Returns a fraction in [0, 1]. Rate stats are unaffected by the caller;
+    only counting-stat volume is scaled.
+    """
+    days_remaining = max(weeks_remaining * 7, 1)
+
+    p_injury = estimate_injury_probability(
+        health_score=health_score,
+        age=age,
+        is_pitcher=is_pitcher,
+        horizon_days=days_remaining,
+    )
+
+    # Injury coin flip. Antithetic: reflect the uniform so the paired arm's
+    # draw is perfectly anti-correlated (matches the copula u → 1-u and the
+    # Gaussian z → -z discipline used elsewhere in this module).
+    u_coin = rng.uniform()
+    if negate:
+        u_coin = 1.0 - u_coin
+    if u_coin > p_injury:
+        return 1.0  # no injury — fully available
+
+    # Sample injury duration via the Weibull model. sample_injury_duration
+    # consumes one rng.uniform() internally; we draw that uniform here so we
+    # can reflect it for the antithetic arm, then hand it to the duration
+    # sampler through a deterministic single-value RandomState stand-in.
+    u_dur = rng.uniform()
+    if negate:
+        u_dur = 1.0 - u_dur
+    frailty = frailty_from_health_score(health_score)
+    duration = sample_injury_duration(
+        injury_type="other",
+        frailty=frailty,
+        rng=_FixedUniform(u_dur),
+    )
+
+    days_missed = min(duration, days_remaining)
+    return max(0.0, 1.0 - days_missed / days_remaining)
+
+
+class _FixedUniform:
+    """Minimal RandomState stand-in returning a preset uniform.
+
+    ``sample_injury_duration`` only calls ``rng.uniform(0, 1)``; this lets the
+    caller pre-draw (and reflect, for antithetic) the duration quantile so the
+    paired-MC discipline holds end-to-end.
+    """
+
+    def __init__(self, value: float) -> None:
+        self._value = float(value)
+
+    def uniform(self, low: float = 0.0, high: float = 1.0) -> float:  # noqa: ARG002
+        return self._value
+
 
 # Minimum sims for meaningful confidence intervals
 MIN_SIMS: int = 100
@@ -59,6 +145,7 @@ def run_paired_monte_carlo(
     n_sims: int = DEFAULT_N_SIMS,
     seed: int = 42,
     weeks_remaining: int = 16,
+    enable_injury_mc: bool = False,
 ) -> dict[str, Any]:
     """Run paired Monte Carlo simulation for trade evaluation.
 
@@ -86,6 +173,14 @@ def run_paired_monte_carlo(
         n_sims: Number of paired simulations.
         seed: Master random seed.
         weeks_remaining: Weeks left in the season (scales noise amplitude).
+        enable_injury_mc: TE-E5 — when True, each player's COUNTING-stat
+            contributions are scaled by a sampled season-availability
+            fraction (Weibull injury-duration model from injury_process).
+            Fragile/low-health players get a fat downside tail (CVaR5 drops)
+            because missed time reduces their volume. Default OFF so Trade
+            Finder bulk scans stay fast and the legacy distribution is
+            byte-for-byte preserved; turn ON only for single-trade deep
+            evaluation (evaluate_trade(..., enable_mc=True)).
 
     Returns:
         Dict with keys:
@@ -151,6 +246,7 @@ def run_paired_monte_carlo(
             weeks_remaining=weeks_remaining,
             sgp_calc=sgp_calc,
             negate_noise=False,
+            enable_injury_mc=enable_injury_mc,
         )
         after_total_sgp = _simulate_roster_sgp(
             roster_stats=after_roster_stats,
@@ -161,6 +257,7 @@ def run_paired_monte_carlo(
             weeks_remaining=weeks_remaining,
             sgp_calc=sgp_calc,
             negate_noise=False,
+            enable_injury_mc=enable_injury_mc,
         )
 
         surpluses[sim_idx * 2] = after_total_sgp - before_total_sgp
@@ -180,6 +277,7 @@ def run_paired_monte_carlo(
             weeks_remaining=weeks_remaining,
             sgp_calc=sgp_calc,
             negate_noise=True,
+            enable_injury_mc=enable_injury_mc,
         )
         after_anti = _simulate_roster_sgp(
             roster_stats=after_roster_stats,
@@ -190,6 +288,7 @@ def run_paired_monte_carlo(
             weeks_remaining=weeks_remaining,
             sgp_calc=sgp_calc,
             negate_noise=True,
+            enable_injury_mc=enable_injury_mc,
         )
 
         surpluses[sim_idx * 2 + 1] = after_anti - before_anti
@@ -260,6 +359,7 @@ def _simulate_roster_sgp(
     weeks_remaining: int,
     sgp_calc: SGPCalculator | None = None,
     negate_noise: bool = False,
+    enable_injury_mc: bool = False,
 ) -> float:
     """Simulate one season and compute total SGP for a roster.
 
@@ -275,6 +375,13 @@ def _simulate_roster_sgp(
             are reflected (u → 1 - u). Combined with paired-MC seed
             discipline this gives true antithetic variates with perfectly
             anti-correlated noise across the two arms.
+        enable_injury_mc: TE-E5 — if True, each player's COUNTING-stat
+            component contributions are scaled by a sampled availability
+            fraction (Weibull injury-duration model). The availability draw
+            uses the SAME per-player ``rng`` stream and honors the antithetic
+            reflection, so identical before/after rosters cancel exactly and
+            the antithetic arm stays perfectly anti-correlated. Rate stats are
+            unaffected (only volume is reduced).
     """
     rng = np.random.RandomState(seed)
 
@@ -358,6 +465,37 @@ def _simulate_roster_sgp(
             p_bb_allowed = p_bb_h_allowed * 0.4  # rough split
             p_h_allowed = p_bb_h_allowed * 0.6
 
+        # TE-E5: sample this player's available-fraction of the season and
+        # scale COUNTING-stat volume by it. The draw consumes rng BEFORE any
+        # stat-noise draws so the per-player rng position is identical for the
+        # before/after arms (paired-MC cancels exactly on identical rosters)
+        # and the antithetic arm reflects the same uniforms (negate_noise).
+        # Rate-stat components (h/ab, er/ip, ...) are ALL scaled by the same
+        # factor, leaving the per-player rate unchanged while reducing its
+        # volume weight in the roster aggregate.
+        avail = 1.0
+        if enable_injury_mc:
+            avail = _sample_availability_fraction(
+                health_score=float(stats.get("health_score", 1.0)),
+                age=(int(stats["age"]) if stats.get("age") not in (None, 0, 0.0) else None),
+                is_pitcher=bool(stats.get("is_pitcher", 0)),
+                weeks_remaining=weeks_remaining,
+                rng=rng,
+                negate=negate_noise,
+            )
+            # Scale rate-stat components (numerator AND denominator) so the
+            # per-player rate is preserved but its volume weight shrinks.
+            p_h *= avail
+            p_ab *= avail
+            p_pa *= avail
+            p_bb *= avail
+            p_hbp *= avail
+            p_sf *= avail
+            p_ip *= avail
+            p_er *= avail
+            p_bb_allowed *= avail
+            p_h_allowed *= avail
+
         # Generate noise for this player
         if marginals and player_id in marginals and copula is not None:
             # Use copula + marginals for correlated sampling
@@ -380,9 +518,10 @@ def _simulate_roster_sgp(
                         sampled = m.ppf(1 - u[i])
                     else:
                         sampled = m.ppf(u[i])
-                    roster_totals[cat] += float(sampled)
+                    # TE-E5: scale counting-stat volume by availability.
+                    roster_totals[cat] += float(sampled) * avail
                 elif cat_lower in stats:
-                    roster_totals[cat] += stats[cat_lower]
+                    roster_totals[cat] += stats[cat_lower] * avail
 
             # Accumulate components with separate noise for numerator and
             # denominator so rate-stat uncertainty is not cancelled out.
@@ -415,7 +554,8 @@ def _simulate_roster_sgp(
                     # Noise proportional to the stat value (coefficient of variation ~15%)
                     noise_sigma = abs(base_val) * 0.15 * noise_scale
                     noisy_val = base_val + noise_sign * rng.normal(0, max(noise_sigma, 0.01))
-                    roster_totals[cat] += noisy_val
+                    # TE-E5: scale counting-stat volume by availability.
+                    roster_totals[cat] += noisy_val * avail
 
             # Accumulate components with separate noise for numerator and
             # denominator so rate-stat uncertainty is not cancelled out.
@@ -572,6 +712,16 @@ def build_roster_stats(
                 if col in row.index:
                     val = row[col]
                     stats[col] = float(val) if pd.notna(val) else 0.0
+            # TE-E5: carry injury-MC inputs when available. health_score
+            # defaults to 1.0 (fully available) so a pool missing the column
+            # behaves exactly as the no-injury path. is_pitcher derives from
+            # is_hitter (pool convention: is_hitter ∈ {0, 1}).
+            if "health_score" in row.index and pd.notna(row["health_score"]):
+                stats["health_score"] = float(row["health_score"])
+            if "age" in row.index and pd.notna(row["age"]):
+                stats["age"] = float(row["age"])
+            if "is_hitter" in row.index and pd.notna(row["is_hitter"]):
+                stats["is_pitcher"] = 0.0 if int(row["is_hitter"]) == 1 else 1.0
             roster_stats[str(pid)] = stats
     elif isinstance(player_pool, dict):
         for pid in player_ids:
