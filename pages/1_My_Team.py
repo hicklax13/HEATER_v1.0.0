@@ -1505,7 +1505,7 @@ else:
                                     f'border-left:3px solid {T["danger"]};">'
                                     f'<div style="font-size:10px;font-weight:700;letter-spacing:0.8px;'
                                     f'text-transform:uppercase;color:{T["danger"]};margin-bottom:3px;">'
-                                    f"Losing Categories</div>"
+                                    f"Priority Targets</div>"
                                     f'<div style="font-size:12px;font-weight:600;'
                                     f'font-family:IBM Plex Mono,monospace;color:{T["tx"]};">'
                                     f"{' · '.join(_priority_names)}</div>"
