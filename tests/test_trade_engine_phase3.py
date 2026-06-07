@@ -374,6 +374,28 @@ class TestRegimeClassification:
             _, probs = classify_regime_simple(xwoba, 0.315)
             assert abs(probs.sum() - 1.0) < 1e-6
 
+    def test_default_league_avg_is_canonical_320(self):
+        """TE-C2: the default league-avg xwOBA must be the canonical 0.320 read
+        from CONSTANTS_REGISTRY, not the stale 0.315.
+
+        A borderline player at recent_xwoba=0.339 sits on opposite sides of the
+        level>0.020 threshold for the two values:
+          - 0.320 (canonical): level=0.019 → Below-avg
+          - 0.315 (stale):     level=0.024 → Above-avg
+        With the default resolved from the registry, the canonical 0.320 wins.
+        """
+        from src.engine.signals.regime import classify_regime_simple
+
+        # No league_avg_xwoba passed → default resolves from registry (0.320).
+        label_default, _ = classify_regime_simple(recent_xwoba=0.339, season_xwoba=0.339)
+        # Explicit canonical 0.320 must agree with the default.
+        label_canonical, _ = classify_regime_simple(recent_xwoba=0.339, season_xwoba=0.339, league_avg_xwoba=0.320)
+        assert label_default == label_canonical == "Below-avg"
+        # And it must NOT match the stale-0.315 bucket.
+        label_stale, _ = classify_regime_simple(recent_xwoba=0.339, season_xwoba=0.339, league_avg_xwoba=0.315)
+        assert label_stale == "Above-avg"
+        assert label_default != label_stale
+
     def test_regime_conditional_projection(self):
         """Mixture projection should weight by state probabilities."""
         from src.engine.signals.regime import regime_conditional_projection

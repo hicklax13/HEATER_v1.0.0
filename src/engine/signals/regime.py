@@ -338,7 +338,7 @@ def regime_conditional_projection(
 def classify_regime_simple(
     recent_xwoba: float,
     season_xwoba: float,
-    league_avg_xwoba: float = 0.315,
+    league_avg_xwoba: float | None = None,
 ) -> tuple[str, np.ndarray]:
     """Simple rule-based regime classification (fallback when no HMM data).
 
@@ -347,11 +347,20 @@ def classify_regime_simple(
     Args:
         recent_xwoba: Rolling 14-day xwOBA.
         season_xwoba: Season-long xwOBA.
-        league_avg_xwoba: League average xwOBA.
+        league_avg_xwoba: League average xwOBA. Defaults to the canonical
+            value from CONSTANTS_REGISTRY (0.320), read at call time so
+            calibration applies (TE-C2; mirrors src/engine/context/matchup.py).
 
     Returns:
         Tuple of (regime_label, state_probabilities).
     """
+    if league_avg_xwoba is None:
+        # Read at call time (not a frozen module constant) so calibration of
+        # the registry value takes effect without a module reload.
+        from src.optimizer.constants_registry import CONSTANTS_REGISTRY
+
+        league_avg_xwoba = float(CONSTANTS_REGISTRY["league_avg_woba"].value)
+
     delta = recent_xwoba - season_xwoba
     level = recent_xwoba - league_avg_xwoba
 
