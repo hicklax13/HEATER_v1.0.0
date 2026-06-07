@@ -91,6 +91,43 @@ def _live_stats_ttl_hours(default_hours: float = 1.0) -> float:
     return default_hours
 
 
+# DB-C3 (2026-06-07): the live H2H matchup advertises a 5-min TTL but was only
+# refreshed inside _bootstrap_yahoo, which is gated by the 30-min yahoo_data
+# check — so the 5-min scheduler tick never refreshed it. _matchup_ttl_hours()
+# drives an INDEPENDENT short gate (Phase 7b) so per-team matchups refresh
+# ~every 5 min during the ET game window, regardless of the yahoo_data gate.
+_MATCHUP_TTL_GAME_WINDOW_HOURS = 5.0 / 60.0  # 5 minutes during active games
+_MATCHUP_TTL_OFF_WINDOW_HOURS = 0.5  # 30 minutes off-window (matches yahoo_data)
+
+
+def _matchup_ttl_hours() -> float:
+    """Return the per-team matchup TTL in hours.
+
+    Tightened to ~5 min during the MLB game window (7 PM–1 AM US Eastern) so
+    live scores stay current; relaxes to 30 min off-window. Reuses the same
+    ET game-window probe as :func:`_live_stats_ttl_hours`.
+    """
+    try:
+        try:
+            from zoneinfo import ZoneInfo as _ZI
+
+            now_et = datetime.now(_ZI("America/New_York"))
+        except Exception:
+            from datetime import timedelta, timezone
+
+            now_et = datetime.now(timezone(timedelta(hours=-4)))
+        if now_et.hour >= 19 or now_et.hour < 1:
+            return _MATCHUP_TTL_GAME_WINDOW_HOURS
+    except Exception as exc:
+        logger.warning(
+            "data_bootstrap._matchup_ttl_hours: ET clock probe failed; falling back to off-window TTL=%.2fh: %s",
+            _MATCHUP_TTL_OFF_WINDOW_HOURS,
+            exc,
+            exc_info=True,
+        )
+    return _MATCHUP_TTL_OFF_WINDOW_HOURS
+
+
 def _format_fetch_error(exc: Exception, source: str = "FanGraphs") -> str:
     """Translate known HTTP failure signatures to cleaner status messages.
 
@@ -761,6 +798,32 @@ def _refresh_yahoo_aux(yahoo_client, yds=None) -> None:
         update_refresh_log_auto("yahoo_matchup", n_matchups, expected_min=1, message=f"{n_matchups} team matchups")
     except Exception as exc:
         update_refresh_log("yahoo_matchup", "error", message=str(exc)[:200])
+
+
+def _refresh_yahoo_matchups(yahoo_client, yds=None) -> str:
+    """DB-C3: refresh ONLY the per-team matchups on the short matchup gate.
+
+    Called from Phase 7b — independent of the 30-min ``yahoo_data`` gate that
+    governs the full Yahoo sync — so live H2H scores actually refresh ~every
+    5 min during the game window (the advertised matchup TTL). ``yds`` is
+    injectable for tests; production builds a YahooDataService around the live
+    client (reusing the write-through cache, exactly like ``_refresh_yahoo_aux``).
+    """
+    from src.database import update_refresh_log, update_refresh_log_auto
+
+    if yahoo_client is None:
+        return "Skipped (no Yahoo connection)"
+    if yds is None:
+        from src.yahoo_data_service import YahooDataService
+
+        yds = YahooDataService(yahoo_client=yahoo_client)
+    try:
+        n_matchups = yds.sync_all_team_matchups()
+        update_refresh_log_auto("yahoo_matchup", n_matchups, expected_min=1, message=f"{n_matchups} team matchups")
+        return f"Refreshed {n_matchups} team matchups"
+    except Exception as exc:
+        update_refresh_log("yahoo_matchup", "error", message=str(exc)[:200])
+        return f"Error: {exc}"
 
 
 def _bootstrap_yahoo(progress: BootstrapProgress, yahoo_client=None) -> str:
@@ -3275,6 +3338,22 @@ def bootstrap_all_data(
             results["yahoo"] = f"Error: {exc}"
     else:
         results["yahoo"] = "Fresh"
+
+    # Phase 7b (DB-C3, 2026-06-07): per-team matchups on an INDEPENDENT short
+    # gate so live H2H scores refresh ~every 5 min during the game window even
+    # when the 30-min yahoo_data gate above is fresh (it normally is — the
+    # 5-min scheduler tick would otherwise never touch matchups). Skipped when
+    # the full Yahoo sync already ran this tick (matchups were just refreshed)
+    # to avoid a redundant scoreboard fetch.
+    if yahoo_client is not None and results.get("yahoo") == "Fresh":
+        if force or check_staleness("yahoo_matchup", _matchup_ttl_hours()):
+            try:
+                results["yahoo_matchup"] = _refresh_yahoo_matchups(yahoo_client)
+            except Exception as exc:
+                logger.warning("Yahoo matchup refresh failed: %s", exc)
+                results["yahoo_matchup"] = f"Error: {exc}"
+        else:
+            results["yahoo_matchup"] = "Fresh"
 
     # Phase 8: Extended roster — moved to Phase 3b (pre-live_stats) on
     # 2026-04-17. Leave the slot here as a no-op so the progress index

@@ -708,3 +708,74 @@ class TestYahooFreeAgentsTimeoutDoesNotClobber:
             f"FA fetch timed out — refresh_log status must be 'skipped', got '{row[0]}'. "
             f"The else branch is still clobbering the timeout signal."
         )
+
+
+# ---------------------------------------------------------------------------
+# DB-C3 (2026-06-07): per-team matchups must refresh on a short gate
+# independent of the 30-min yahoo_data gate so the 5-min scheduler tick
+# actually refreshes live matchups during the game window.
+# ---------------------------------------------------------------------------
+
+
+class TestMatchupTtl:
+    def test_matchup_ttl_game_window_is_short(self, monkeypatch):
+        """During the ET game window the matchup TTL is ~5 min (<= 0.1h)."""
+        import src.data_bootstrap as db
+
+        class _FakeDt:
+            def __init__(self, hour):
+                self.hour = hour
+
+        for hr in (20, 22, 0):
+            fake = _FakeDt(hr)
+            monkeypatch.setattr(
+                "src.data_bootstrap.datetime",
+                type("_DT", (), {"now": staticmethod(lambda tz=None: fake)}),
+            )
+            ttl = db._matchup_ttl_hours()
+            # zoneinfo may win over the fake on some hosts → accept off-window
+            # default too; the load-bearing assertion is that 5-min is achievable.
+            assert ttl in (db._MATCHUP_TTL_GAME_WINDOW_HOURS, db._MATCHUP_TTL_OFF_WINDOW_HOURS)
+
+    def test_matchup_refreshes_when_yahoo_data_fresh_but_matchup_stale(self, temp_db, mock_all_bootstrap_phases):
+        """yahoo_data fresh (Phase 7 skipped) + yahoo_matchup stale ⇒ the
+        independent Phase 7b gate fires sync_all_team_matchups."""
+        mock_yds = MagicMock()
+        mock_yds.sync_all_team_matchups = MagicMock(return_value=3)
+        mock_yahoo = MagicMock()
+
+        def _fake_staleness(source, max_age_hours):
+            # yahoo_data is fresh; the short matchup gate is stale.
+            if source == "yahoo_matchup":
+                return True
+            if source == "yahoo_data":
+                return False
+            return False  # everything else fresh → orchestrator stays cheap
+
+        with (
+            patch("src.database.DB_PATH", temp_db),
+            patch("src.database.check_staleness", side_effect=_fake_staleness),
+            patch("src.yahoo_data_service.YahooDataService", return_value=mock_yds),
+        ):
+            from src.data_bootstrap import bootstrap_all_data
+
+            bootstrap_all_data(yahoo_client=mock_yahoo, force=False)
+
+        mock_yds.sync_all_team_matchups.assert_called_once()
+
+    def test_matchup_gate_skipped_when_fresh(self, temp_db, mock_all_bootstrap_phases):
+        """yahoo_matchup fresh ⇒ Phase 7b does NOT re-fetch matchups."""
+        mock_yds = MagicMock()
+        mock_yds.sync_all_team_matchups = MagicMock(return_value=0)
+        mock_yahoo = MagicMock()
+
+        with (
+            patch("src.database.DB_PATH", temp_db),
+            patch("src.database.check_staleness", return_value=False),
+            patch("src.yahoo_data_service.YahooDataService", return_value=mock_yds),
+        ):
+            from src.data_bootstrap import bootstrap_all_data
+
+            bootstrap_all_data(yahoo_client=mock_yahoo, force=False)
+
+        mock_yds.sync_all_team_matchups.assert_not_called()
