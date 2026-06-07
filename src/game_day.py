@@ -245,6 +245,15 @@ _NEUTRAL_DEFAULTS: dict[str, float] = {
 from src.data_fetch_utils import safe_float_or_none as _safe_float  # noqa: E402, F401
 
 
+def _safe_float_or(val: object, default: float) -> float:
+    """Coerce *val* to float, falling back to *default* ONLY when coercion
+    fails (None / NaN / non-numeric). DB-C6: unlike ``_safe_float(x) or default``,
+    a legitimate 0.0 is preserved instead of being swapped for the default.
+    """
+    v = _safe_float(val)
+    return v if v is not None else default
+
+
 def _parse_pct(val: object) -> float | None:
     """Parse a percentage value that may be a string like '22.5 %' or a float."""
     if val is None:
@@ -703,8 +712,8 @@ def _fetch_team_strength_statsapi(season: int) -> pd.DataFrame:
             pit_splits = pit_data.get("stats", [{}])[0].get("splits", [])
             if pit_splits:
                 stat = pit_splits[0].get("stat", {})
-                row["team_era"] = _safe_float(stat.get("era")) or _NEUTRAL_DEFAULTS["team_era"]
-                row["team_whip"] = _safe_float(stat.get("whip")) or _NEUTRAL_DEFAULTS["team_whip"]
+                row["team_era"] = _safe_float_or(stat.get("era"), _NEUTRAL_DEFAULTS["team_era"])
+                row["team_whip"] = _safe_float_or(stat.get("whip"), _NEUTRAL_DEFAULTS["team_whip"])
                 # D6B-002,003: Approximate FIP from component stats:
                 # FIP ~= ERA for this fallback. True FIP requires HR, BB, HBP,
                 # K, IP which are available but the FIP constant changes
@@ -894,13 +903,13 @@ def get_team_strength(team_abbr: str) -> dict:
         if not team_row.empty:
             row = team_row.iloc[0]
             return {
-                "wrc_plus": _safe_float(row.get("wrc_plus")) or 100.0,
-                "fip": _safe_float(row.get("fip")) or 4.00,
-                "team_ops": _safe_float(row.get("team_ops")) or 0.720,
-                "team_era": _safe_float(row.get("team_era")) or 4.00,
-                "team_whip": _safe_float(row.get("team_whip")) or 1.25,
-                "k_pct": _safe_float(row.get("k_pct")) or 22.0,
-                "bb_pct": _safe_float(row.get("bb_pct")) or 8.0,
+                "wrc_plus": _safe_float_or(row.get("wrc_plus"), 100.0),
+                "fip": _safe_float_or(row.get("fip"), 4.00),
+                "team_ops": _safe_float_or(row.get("team_ops"), 0.720),
+                "team_era": _safe_float_or(row.get("team_era"), 4.00),
+                "team_whip": _safe_float_or(row.get("team_whip"), 1.25),
+                "k_pct": _safe_float_or(row.get("k_pct"), 22.0),
+                "bb_pct": _safe_float_or(row.get("bb_pct"), 8.0),
             }
 
     logger.debug("No team strength data for %s; returning neutral defaults", team_abbr)

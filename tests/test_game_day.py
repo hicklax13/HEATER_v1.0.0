@@ -351,6 +351,37 @@ def test_get_team_strength_missing():
     assert result["team_whip"] == 1.25
 
 
+def test_get_team_strength_preserves_real_zero():
+    """DB-C6: a legitimate stored 0.0 (e.g. a team with 0% walk rate in a tiny
+    sample, or wrc_plus floored to 0) must be preserved — `value or DEFAULT`
+    wrongly swapped a real 0.0 for the neutral default."""
+    from datetime import UTC, datetime
+
+    from src.database import upsert_team_strength
+
+    season = datetime.now(UTC).year
+    upsert_team_strength(
+        team_abbr="ZER",
+        season=season,
+        wrc_plus=0.0,
+        fip=0.0,
+        team_ops=0.0,
+        team_era=0.0,
+        team_whip=0.0,
+        k_pct=0.0,
+        bb_pct=0.0,
+    )
+
+    result = get_team_strength("ZER")
+    assert result["wrc_plus"] == 0.0, f"real 0.0 wrc_plus coerced to {result['wrc_plus']}"
+    assert result["fip"] == 0.0, f"real 0.0 fip coerced to {result['fip']}"
+    assert result["team_ops"] == 0.0
+    assert result["team_era"] == 0.0
+    assert result["team_whip"] == 0.0
+    assert result["k_pct"] == 0.0
+    assert result["bb_pct"] == 0.0
+
+
 # ── fetch_opposing_pitchers tests ─────────────────────────────────────
 
 
