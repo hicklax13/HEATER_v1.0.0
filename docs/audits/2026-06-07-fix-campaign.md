@@ -121,9 +121,9 @@ All clear correctness bugs fixed. Remaining = big features + enhancements (below
 - ◑ **TE-E1** partially covered by TE-C1 (IL excluded from per-week means); full LP-starter weighting deferred (low marginal). [remaining]
 - ☑ **TE-E5** injury availability wired into the paired MC risk tails (antithetic-aware; `enable_injury_mc`, engages on `enable_mc=True`); fragile player cvar5 +17.95→−17.75. (commit 1da0317)
 - ☑ **TE-E2** copula-correlated playoff weekly outcomes (reuses DEFAULT_CORRELATION); playoff_prob 0.798→0.758 de-saturated. (commit 35898d9)
-- ☐ **TE-E3** schedule-aware opponent playoff sim by default (Path A exists+tested; opt-in). [remaining]
-- ☐ **TE-E4** empirical per-cat weekly CV (needs prior-season data) + default Skellam low-count. [remaining]
-- ☐ **UI follow-up:** Trade Analyzer page passes `enable_mc=True` to surface the injury MC tail. [remaining]
+- ☑ **TE-E3** playoff sim defaults to schedule-aware Path A (auto-loads `load_league_schedule_full`; Path B fallback). (commit c7b2b7e)
+- ☑ **TE-E4** weekly matrix defaults low-count cats (SB/SV/W/L) to Skellam (`variance_model='auto'`); empirical CV left as needs-data. (commit dda05c3)
+- ☑ **UI** Trade Analyzer passes `enable_mc=True` + renders the MC risk band incl. injury-aware CVaR₅ (also fixed: the Phase-1 engine path rendered NO MC output). (commit 864c337)
 - ☐ **DB-E1/E2** (= DB-C2/DB-C1 done as full features).
 - ☐ **PV-E1/E2/E3** (= PV-C1/PV-C2/PV-C4 done as full features).
 - ☐ **DE-E1..E5**, **FA-E1..E4**, **LO-E1/E2/E4** — per-engine enhancement backlog (see report §4).
