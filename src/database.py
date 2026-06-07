@@ -1318,13 +1318,37 @@ def create_blended_projections():
                 "xfip",
                 "siera",
             ]
+            # PV-C3: the volume columns (pa/ab/ip) must share ONE playing-time
+            # weight per system so rate stats recomputed from them
+            # (avg=h/ab, era=er*9/ip, whip=(bb+h)/ip, obp from ab) sit on a
+            # coherent volume basis. Blending each volume column with its own
+            # per-stat ridge weights would mix systems differently for pa vs
+            # ab, corrupting the derived ratios.
+            _VOLUME_COLS = ("pa", "ab", "ip")
+            shared_volume_weights: dict[str, float] = {}
+            if use_stacking:
+                # Average each system's learned weights across the volume stats
+                # to form a single shared playing-time weight vector.
+                for sys_name in row_systems:
+                    acc, cnt = 0.0, 0
+                    for vcol in _VOLUME_COLS:
+                        vw = stacking_weights.get(vcol, {})
+                        if sys_name in vw:
+                            acc += vw[sys_name]
+                            cnt += 1
+                    shared_volume_weights[sys_name] = (acc / cnt) if cnt else 1.0
+
             for i, name in enumerate(stat_names):
                 # Values start at column index 1 (index 0 is 'system')
                 vals = [row[i + 1] or 0 for row in rows]
 
                 if use_stacking:
-                    # Apply per-system ridge-regression weights
-                    stat_weights = stacking_weights.get(name, {})
+                    # Volume columns use the shared playing-time weight; all
+                    # other stats use their own per-stat ridge weights.
+                    if name in _VOLUME_COLS:
+                        stat_weights = shared_volume_weights
+                    else:
+                        stat_weights = stacking_weights.get(name, {})
                     weighted_sum = 0.0
                     weight_total = 0.0
                     for sys_name, val in zip(row_systems, vals):
