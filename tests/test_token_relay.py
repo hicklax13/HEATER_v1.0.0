@@ -21,9 +21,14 @@ def _reset_relay_healthy():
     yield
 
 
+# Long, distinctive token values. A short fragment like "AT" can appear by
+# chance inside random Fernet base64 ciphertext (~3%/run for 2 chars over the
+# 64-symbol alphabet), which made the leak-check below flaky. Real Yahoo OAuth
+# tokens are long opaque strings — modeling that makes `token not in blob` a
+# meaningful AND deterministic leak assertion ((1/64)^len ≈ 0).
 _TOKEN = {
-    "access_token": "AT",
-    "refresh_token": "RT",
+    "access_token": "ATtok_3f9c1e7a5b2d4806f1a9c3e5d7b08246fa9c3e5d7b0",
+    "refresh_token": "RTtok_8c2e6a04f7b1d9350e8a6c4b2f1097d3e5a8b6c4d2e",
     "consumer_key": "ck",
     "consumer_secret": "cs",
     "token_time": 2000.0,
@@ -60,7 +65,7 @@ def test_pull_writes_when_newer(monkeypatch, tmp_path):
     resp.raise_for_status.return_value = None
     with patch("src.token_relay._requests.get", return_value=resp):
         assert token_relay.pull_relayed_token() is True
-    assert written["access_token"] == "AT"
+    assert written["access_token"] == _TOKEN["access_token"]
 
 
 def test_pull_skips_when_not_newer(monkeypatch):
@@ -154,7 +159,7 @@ def test_pull_never_logs_token_contents(monkeypatch, caplog):
     resp.raise_for_status.return_value = None
     with patch("src.token_relay._requests.get", return_value=resp):
         token_relay.pull_relayed_token()
-    assert "AT" not in caplog.text and "RT" not in caplog.text
+    assert _TOKEN["access_token"] not in caplog.text and _TOKEN["refresh_token"] not in caplog.text
 
 
 def test_pull_handles_decrypt_failure(monkeypatch):
