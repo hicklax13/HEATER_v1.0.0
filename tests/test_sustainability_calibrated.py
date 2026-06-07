@@ -21,11 +21,20 @@ Background:
       Pizza Cutter / Russell Carleton stabilization points).
     * 0.5 returned for insufficient samples (no signal — neutral).
 
+Pool convention (CANONICAL — see src/database.py:1503):
+    df["xwoba_delta"] = xwoba - woba_approx   # i.e. xwOBA - wOBA
+A POSITIVE delta therefore means xwOBA > wOBA = the hitter is
+UNDERPERFORMING his quality of contact = regression UP coming = BUY_LOW.
+database.py:1505 flags xwoba_delta >= 0.030 as BUY_LOW; src/alerts.py
+labels positive delta "underperforming contact quality". So a positive
+xwoba_delta must map to HIGH sustainability (the underlying skill supports
+better results going forward).
+
 These tests pin the calibration:
-  * Overperforming hitter (positive xwoba_delta) → low sustainability
-    (regression DOWN coming — sell high)
-  * Underperforming hitter (negative xwoba_delta) → high sustainability
-    (regression UP coming — buy low)
+  * Underperforming hitter (positive xwoba_delta, BUY_LOW) → high
+    sustainability (regression UP coming — buy low)
+  * Overperforming hitter (negative xwoba_delta, SELL_HIGH) → low
+    sustainability (regression DOWN coming — sell high)
   * Lucky pitcher (low ERA, high xFIP) → low sustainability
   * Unlucky pitcher (high ERA, low xFIP) → high sustainability
   * Output is continuous in (0, 1) — no more discrete buckets
@@ -84,25 +93,65 @@ def test_pitcher_below_threshold_returns_neutral():
 # ── Hitter signal ────────────────────────────────────────────────────
 
 
-def test_hitter_overperforming_xwoba_yields_low_sustainability():
-    """Positive xwoba_delta (actual wOBA > xwOBA) means hitter is
-    overperforming his quality of contact — regression DOWN coming.
-    Sustainability should be LOW (sell high)."""
-    p = _hitter(ab=400, h=120, xwoba_delta=0.040)
+def test_hitter_underperforming_xwoba_yields_high_sustainability():
+    """Pool convention: xwoba_delta = xwOBA - wOBA (src/database.py:1503).
+    A POSITIVE delta means xwOBA > wOBA = hitter is UNDERPERFORMING his
+    quality of contact — regression UP coming. Sustainability HIGH (buy
+    low). This is the same direction database.py flags as BUY_LOW at the
+    +0.030 threshold."""
+    p = _hitter(ab=400, h=80, xwoba_delta=0.040)
     score = compute_sustainability_score(p)
-    assert score < 0.5, (
-        f"Hitter overperforming xwOBA (+0.040) should have sustainability < 0.5, got {score:.3f}. Sell-high signal."
+    assert score > 0.5, (
+        f"Hitter underperforming xwOBA (+0.040 = xwOBA above wOBA) should have "
+        f"sustainability > 0.5, got {score:.3f}. Buy-low signal."
     )
 
 
-def test_hitter_underperforming_xwoba_yields_high_sustainability():
-    """Negative xwoba_delta (actual wOBA < xwOBA) means hitter is
-    underperforming his quality of contact — regression UP coming.
-    Sustainability HIGH (buy low)."""
-    p = _hitter(ab=400, h=80, xwoba_delta=-0.040)
+def test_hitter_overperforming_xwoba_yields_low_sustainability():
+    """A NEGATIVE xwoba_delta means xwOBA < wOBA = hitter is
+    OVERPERFORMING his quality of contact — regression DOWN coming.
+    Sustainability should be LOW (sell high). Same direction database.py
+    flags as SELL_HIGH at the -0.030 threshold."""
+    p = _hitter(ab=400, h=120, xwoba_delta=-0.040)
     score = compute_sustainability_score(p)
-    assert score > 0.5, (
-        f"Hitter underperforming xwOBA (-0.040) should have sustainability > 0.5, got {score:.3f}. Buy-low signal."
+    assert score < 0.5, (
+        f"Hitter overperforming xwOBA (-0.040 = xwOBA below wOBA) should have "
+        f"sustainability < 0.5, got {score:.3f}. Sell-high signal."
+    )
+
+
+def test_sustainability_direction_agrees_with_regression_flag():
+    """The sustainability direction must agree with how _build_player_pool
+    derives regression_flag from the SAME xwoba_delta column.
+
+    src/database.py:1503-1508:
+        xwoba_delta = xwOBA - wOBA
+        xwoba_delta >= 0.030  → BUY_LOW   (underperforming → buy)
+        xwoba_delta <= -0.030 → SELL_HIGH (overperforming → sell)
+
+    A BUY_LOW hitter has more upside than he's shown, so his current
+    (depressed) line is SUSTAINABLE-or-better → sustainability should be
+    HIGH. A SELL_HIGH hitter is riding luck → LOW sustainability.
+    """
+    _BUY_LOW_THRESHOLD = 0.030  # mirrors database.py:1505
+    _SELL_HIGH_THRESHOLD = -0.030  # mirrors database.py:1506
+
+    buy_low = _hitter(ab=400, h=90, xwoba_delta=_BUY_LOW_THRESHOLD)
+    sell_high = _hitter(ab=400, h=130, xwoba_delta=_SELL_HIGH_THRESHOLD)
+
+    s_buy = compute_sustainability_score(buy_low)
+    s_sell = compute_sustainability_score(sell_high)
+
+    assert s_buy > 0.5, (
+        f"xwoba_delta=+0.030 is flagged BUY_LOW by _build_player_pool; "
+        f"sustainability must be HIGH (>0.5), got {s_buy:.3f}."
+    )
+    assert s_sell < 0.5, (
+        f"xwoba_delta=-0.030 is flagged SELL_HIGH by _build_player_pool; "
+        f"sustainability must be LOW (<0.5), got {s_sell:.3f}."
+    )
+    assert s_buy > s_sell, (
+        f"BUY_LOW hitter must be more sustainable than the SELL_HIGH hitter; got buy={s_buy:.3f} sell={s_sell:.3f}."
     )
 
 

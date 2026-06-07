@@ -503,7 +503,9 @@ def compute_sustainability_score(player: pd.Series) -> float:
     (backward compat with the P2 PR5 rate-only behavior).
 
     Hitters:
-      Primary:   xwOBA - wOBA delta (POSITIVE = overperforming → LOW sus)
+      Primary:   xwOBA - wOBA delta. Pool stores xwOBA - wOBA
+                 (src/database.py:1503), so POSITIVE = xwOBA above wOBA =
+                 UNDERPERFORMING = buy-low → HIGH sustainability.
       Secondary: BABIP vs career baseline / .300 league avg
       NEW (P5e): HR/FB% vs league avg ~0.13 (HIGH = HR regression risk)
 
@@ -539,14 +541,17 @@ def compute_sustainability_score(player: pd.Series) -> float:
 
         # Primary signal: xwOBA - wOBA gap (canonical regression signal per
         # FanGraphs, Pitcher List, The Athletic). Pool's xwoba_delta column
-        # is already woba - xwoba (per src/database.py convention) — so a
-        # POSITIVE delta means wOBA > xwOBA = OVERPERFORMING = regression
-        # DOWN = unsustainable. The sustainability score should DECREASE.
+        # is xwOBA - wOBA (per src/database.py:1503 convention) — so a
+        # POSITIVE delta means xwOBA > wOBA = UNDERPERFORMING quality of
+        # contact = regression UP coming = BUY_LOW. database.py:1505 flags
+        # xwoba_delta >= 0.030 as BUY_LOW; alerts.py labels positive delta
+        # "underperforming". So a positive delta should INCREASE the
+        # sustainability score (the underlying skill supports better results).
         xwoba_delta = float(player.get("xwoba_delta", 0) or 0)
         # Industry threshold: |gap| > 0.030 wOBA points is meaningful signal.
-        # Sigmoid scaled so delta=+0.030 → ~0.30 sustainability (sell-high)
-        # and delta=-0.030 → ~0.80 (buy-low). Coefficient: 0.7 / 0.030 ≈ 23.
-        primary_logit = -23.0 * xwoba_delta
+        # Sigmoid scaled so delta=+0.030 → ~0.70 sustainability (buy-low)
+        # and delta=-0.030 → ~0.30 (sell-high). Coefficient: 0.7 / 0.030 ≈ 23.
+        primary_logit = 23.0 * xwoba_delta
 
         # Secondary signal: BABIP vs career-typical .300 (or career_babip if
         # supplied). Lighter weight than primary.
