@@ -1,13 +1,26 @@
 """Draft strategy analytics — category balance, opportunity cost, streaming, BUY/FAIR/AVOID.
 
-Provides four standalone functions consumed by DraftRecommendationEngine
-(src/draft_engine.py) and the draft UI (app.py).  Each function is pure —
-no database or Streamlit dependency — so it is trivially testable.
+Provides four standalone, pure functions (no database or Streamlit
+dependency, so trivially testable): ``compute_category_balance``,
+``compute_opportunity_cost``, ``compute_streaming_draft_value``,
+``compute_buy_fair_avoid``.
 
-Wires into:
+Actual usage (DE-C6, corrected 2026-06-07): these functions are NOT yet
+imported by the production draft pipeline. ``src/draft_engine.py`` and the
+draft UI (``app.py``) currently REIMPLEMENT category balance and
+BUY/FAIR/AVOID inline rather than calling this module, so today the only
+importer is ``tests/test_draft_analytics.py``.
+
+FOLLOW-UP (enhancement, not done here): wire ``draft_engine`` to these
+canonical functions to remove the duplicate implementations. The earlier
+docstring claimed ``enhance_player_pool()`` calls them — it does not.
+
+Conceptual inputs:
   - src/valuation.py: LeagueConfig (categories, inverse_stats, rate_stats)
-  - src/draft_engine.py: enhance_player_pool() calls these functions
-  - src/simulation.py: survival probability feeds opportunity cost
+    — passed in as the ``config`` argument.
+  - Survival probability (e.g. from src/simulation.py / src/pick_predictor.py)
+    is passed in as ``compute_opportunity_cost(survival=...)``; this module
+    does not import it.
 """
 
 from __future__ import annotations
