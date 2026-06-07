@@ -1470,15 +1470,12 @@ with main:
                     for _idx in dcv[_starter_mask].index:
                         _row = dcv.loc[_idx]
                         _proj_ip = float(_row.get("ip", 0) or 0)
-                        _positions = str(_row.get("positions", "")).upper()
-                        # Rough per-game share: SPs get ~1 start this week,
-                        # RPs get ~3-4 appearances. Treat projected weekly
-                        # IP as (ip / 26 weeks) for SPs, (ip / 26 * 4) for RPs
-                        # where 4 ≈ RP appearances/week.
-                        if "SP" in _positions and "RP" not in _positions:
-                            _post_lp_ip += _proj_ip / 26.0  # one start scaled
-                        else:
-                            _post_lp_ip += (_proj_ip / 26.0) * 1.0  # rp share
+                        # Projected weekly IP is the season IP spread over 26
+                        # weeks (ip / 26). This already encodes each role's
+                        # appearance frequency — an SP's ~1 start and an RP's
+                        # ~3-4 appearances are both baked into their season IP —
+                        # so SPs and RPs use the same per-week share.
+                        _post_lp_ip += _proj_ip / 26.0
                 st.session_state["_post_lp_ip"] = _post_lp_ip
                 st.session_state["_pre_lp_ip"] = _pre_lp_ip
 
