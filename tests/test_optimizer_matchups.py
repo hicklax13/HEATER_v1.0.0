@@ -104,19 +104,70 @@ class TestParkFactorAdjustment:
         factor = park_factor_adjustment("XYZ", "ABC", pf, is_hitter=True)
         assert factor == 1.0
 
-    def test_park_factor_pitcher_dampened(self) -> None:
-        """C5: Pitcher park factor uses reciprocal (1/pf)."""
+    def test_park_factor_pitcher_neutral(self) -> None:
+        """LO-C2: Pitcher counting stats are park-neutral (no adjustment),
+        matching the weekly-path convention in compute_weekly_matchup_adjustments.
+        Previously this returned the reciprocal (1/pf), disagreeing with the
+        weekly path and ranking the same pitcher differently across the two."""
         pf = {"COL": 1.38}
         factor = park_factor_adjustment("COL", "COL", pf, is_hitter=False)
-        # 1.0 / 1.38 = 0.7246
-        assert factor == pytest.approx(1.0 / 1.38, abs=1e-3)
+        assert factor == pytest.approx(1.0, abs=1e-6)
 
     def test_park_factor_pitcher_unknown_neutral(self) -> None:
-        """Pitcher in unknown park gets neutral 1.0 (pf defaults to 1.0)."""
+        """Pitcher in unknown park gets neutral 1.0."""
         pf = {"COL": 1.38}
         factor = park_factor_adjustment("XYZ", "ABC", pf, is_hitter=False)
-        # pf = 1.0, so 1.0 / 1.0 = 1.0
         assert factor == pytest.approx(1.0, abs=1e-6)
+
+    def test_park_factor_pitcher_consistent_daily_vs_weekly(self) -> None:
+        """LO-C2: a pitcher in a hitter-friendly park (Coors) must get the
+        SAME (neutral) park treatment in both the daily path
+        (park_factor_adjustment) and the weekly path
+        (compute_weekly_matchup_adjustments)."""
+        park_factors = {"COL": 1.38, "MIA": 0.88}
+
+        # Daily path: pitcher park factor is neutral.
+        daily = park_factor_adjustment("COL", "COL", park_factors, is_hitter=False)
+        assert daily == pytest.approx(1.0, abs=1e-6)
+
+        # Weekly path: a COL pitcher pitching at home in Coors must NOT have
+        # its K (a counting stat) moved by the park factor.
+        roster = pd.DataFrame(
+            [
+                {
+                    "name": "COL Pitcher",
+                    "team": "COL",
+                    "is_hitter": False,
+                    "r": 0.0,
+                    "hr": 0.0,
+                    "rbi": 0.0,
+                    "sb": 0.0,
+                    "w": 2.0,
+                    "sv": 0.0,
+                    "k": 15.0,
+                },
+            ]
+        )
+        schedule = [
+            {
+                "game_date": "2026-03-16",
+                "home_name": "Colorado Rockies",
+                "away_name": "Miami Marlins",
+                "home_probable_pitcher": "COL Pitcher",
+                "away_probable_pitcher": "Other Pitcher",
+            },
+        ]
+        result = compute_weekly_matchup_adjustments(
+            roster=roster,
+            week_schedule=schedule,
+            park_factors=park_factors,
+            enable_platoon=False,
+            enable_weather=False,
+            enable_opposing_pitcher=False,
+        )
+        pitcher_row = result[result["name"] == "COL Pitcher"].iloc[0]
+        # K unchanged by the park (weekly path applies no pitcher park factor).
+        assert pitcher_row["k"] == pytest.approx(15.0, abs=1e-6)
 
 
 # ── Weather Tests ────────────────────────────────────────────────────

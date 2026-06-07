@@ -423,17 +423,18 @@ class TestMatchupAdjustmentCompounding:
         )
         assert pf == pytest.approx(1.38, abs=0.05)
 
-    def test_park_factor_pitcher_inverted(self):
-        """Pitchers at Coors should get WORSE (inverted factor)."""
+    def test_park_factor_pitcher_neutral(self):
+        """LO-C2: pitcher counting stats are park-neutral, matching the weekly
+        path (compute_weekly_matchup_adjustments). The two optimizer matchup
+        paths must treat pitchers identically; the daily path no longer applies
+        a reciprocal (1/pf) that the weekly path didn't."""
         pf_pitcher = park_factor_adjustment(
             player_team="COL",
             opponent_team="COL",
             park_factors={"COL": 1.38},
             is_hitter=False,
         )
-        # Pitcher factor should be < 1.0 at hitter-friendly parks
-        # Implementation uses 1/pf for pitchers
-        assert pf_pitcher < 1.0
+        assert pf_pitcher == pytest.approx(1.0, abs=1e-6)
 
     def test_weather_heat_boosts_hr(self):
         """Temperatures above 72F should boost HR projection.

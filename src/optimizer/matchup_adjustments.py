@@ -422,9 +422,11 @@ def park_factor_adjustment(
     pf = park_factors.get(ot, park_factors.get(pt, 1.0))
 
     if not is_hitter:
-        # C5: Reciprocal park factor for pitchers — Coors (1.38) → 0.72 for pitchers
-        # (hitter-friendly parks hurt pitcher stats). More accurate than linear dampening.
-        return 1.0 / pf if pf > 0 else 1.0
+        # LO-C2: pitcher counting stats are park-neutral, matching the weekly
+        # path (compute_weekly_matchup_adjustments). Previously this returned the
+        # reciprocal (1/pf), which disagreed with the weekly path and ranked the
+        # same pitcher differently across the daily vs weekly matchup paths.
+        return 1.0
 
     return float(pf)
 
