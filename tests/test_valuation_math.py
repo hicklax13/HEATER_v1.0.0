@@ -284,6 +284,37 @@ class TestSGPRateStats:
         assert calc.player_sgp(player)["ERA"] == 0.0
         assert calc.player_sgp(player)["WHIP"] == 0.0
 
+    def test_marginal_era_whip_nan_ip_returns_finite(self, config):
+        """NaN-safe coercion (NEW-1): NaN ip/ytd_ip must not pass through to NaN.
+
+        `NaN or 0` evaluates to NaN (NaN is truthy), so an un-hardened coercion
+        would yield NaN. The hardened SGP inputs coerce NaN→0 so the existing
+        `if ip == 0: return 0` guard fires and the result stays finite.
+        """
+        calc = SGPCalculator(config)
+        roster = {
+            "ip": 1300.0,
+            "er": 548.0,
+            "bb_allowed": 390.0,
+            "h_allowed": 1235.0,
+        }
+        player = pd.Series(
+            {
+                "ip": np.nan,
+                "ytd_ip": np.nan,
+                "er": np.nan,
+                "bb_allowed": np.nan,
+                "h_allowed": np.nan,
+            }
+        )
+        era_sgp = calc._marginal_era_sgp(player, roster, config.sgp_denominators["ERA"])
+        whip_sgp = calc._marginal_whip_sgp(player, roster, config.sgp_denominators["WHIP"])
+        assert np.isfinite(era_sgp)
+        assert np.isfinite(whip_sgp)
+        # NaN ip → treated as 0 IP → no marginal contribution.
+        assert era_sgp == 0.0
+        assert whip_sgp == 0.0
+
 
 # ── SGP Denominator Auto-Computation ─────────────────────────────────
 

@@ -169,6 +169,22 @@ def normalize_player_name(name: object) -> str:
     return " ".join(ascii_str.split())
 
 
+def _num(value: object) -> float:
+    """NaN-safe numeric coercion for SGP inputs.
+
+    The `value or 0` idiom is unsafe for floats because `NaN or 0` evaluates to
+    NaN (NaN is truthy), letting NaN pass straight through. Returns 0.0 for
+    None/NaN/non-numeric inputs (NEW-1 hardening).
+    """
+    if value is None:
+        return 0.0
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    return f if pd.notna(f) else 0.0
+
+
 # ── League Configuration ─────────────────────────────────────────────
 
 
@@ -545,8 +561,8 @@ class SGPCalculator:
         return (new_avg - old_avg) / denom
 
     def _marginal_era_sgp(self, player: pd.Series, roster: dict, denom: float) -> float:
-        ip = player.get("ip", 0) or 0
-        er = player.get("er", 0) or 0
+        ip = _num(player.get("ip", 0))
+        er = _num(player.get("er", 0))
         if ip == 0:
             return 0
         if abs(denom) < 1e-9:
@@ -560,9 +576,9 @@ class SGPCalculator:
         return -(new_era - old_era) / denom  # negative change in ERA = positive value
 
     def _marginal_whip_sgp(self, player: pd.Series, roster: dict, denom: float) -> float:
-        ip = player.get("ip", 0) or 0
-        bb = player.get("bb_allowed", 0) or 0
-        ha = player.get("h_allowed", 0) or 0
+        ip = _num(player.get("ip", 0))
+        bb = _num(player.get("bb_allowed", 0))
+        ha = _num(player.get("h_allowed", 0))
         if ip == 0:
             return 0
         if abs(denom) < 1e-9:

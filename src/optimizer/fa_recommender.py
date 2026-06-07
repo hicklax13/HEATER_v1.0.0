@@ -31,6 +31,7 @@ from src.valuation import (
     POSITIONAL_SCARCITY_MAX_BOOST as _POSITIONAL_SCARCITY_MAX_BOOST,  # noqa: F401
 )
 from src.valuation import TEAM_NAME_TO_ABBR as _FULL_TO_ABBR
+from src.valuation import _num as _num_safe
 from src.valuation import (
     compute_positional_scarcity_factor as _positional_scarcity_factor,
 )
@@ -1143,11 +1144,11 @@ def _blend_fa_row(fa_data: pd.Series) -> pd.Series:
     for col in _BLENDABLE_COUNTING_COLS:
         if col not in fa_data.index:
             continue
-        ros_val = float(fa_data.get(col, 0) or 0)
+        ros_val = _num_safe(fa_data.get(col, 0))
         ytd_col = f"ytd_{col}"
         if ytd_col not in fa_data.index:
             continue
-        ytd_val = float(fa_data.get(ytd_col, 0) or 0)
+        ytd_val = _num_safe(fa_data.get(ytd_col, 0))
 
         # Both rates normalized to per-game so they can be combined.
         ros_per_game = ros_val / games_remaining if games_remaining > 0 else 0.0
@@ -1159,10 +1160,7 @@ def _blend_fa_row(fa_data: pd.Series) -> pd.Series:
         # to ROS+YTD proportionally so the per-row blend still sums to 1.
         l14_col = f"l14_{col}"
         if l14_active and l14_col in fa_data.index:
-            try:
-                l14_val = float(fa_data.get(l14_col, 0) or 0)
-            except (TypeError, ValueError):
-                l14_val = 0.0
+            l14_val = _num_safe(fa_data.get(l14_col, 0))
             l14_per_game = l14_val / l14_games if l14_games > 0 else 0.0
             blended_per_game = ros_weight * ros_per_game + ytd_weight * ytd_per_game + l14_weight * l14_per_game
         else:
