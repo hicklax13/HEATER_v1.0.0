@@ -1061,7 +1061,7 @@ _BLENDABLE_COUNTING_COLS = (
 )
 
 
-def _blend_fa_row(fa_data: pd.Series) -> pd.Series:
+def _blend_fa_row(fa_data: pd.Series, l14_form: dict | None = None) -> pd.Series:
     """Blend a player's stat row from ROS projection + YTD pace + L14 recent form.
 
     Industry consensus (Marcel-style blending, Smart Fantasy Baseball's
@@ -1071,7 +1071,9 @@ def _blend_fa_row(fa_data: pd.Series) -> pd.Series:
     are 0.70 ROS / 0.20 YTD / 0.10 L14.
 
     L14 wiring (FA P5b, 2026-05-20): L14 is read from ``l14_*`` row columns
-    when present (l14_hr, l14_r, l14_k, l14_ip, l14_pa, etc.). Per-side
+    when present (l14_hr, l14_r, l14_k, l14_ip, l14_pa, etc.), OR from the
+    ``l14_form`` recent-form dict (FA-C2, 2026-06-07) — the live FA path, since
+    the FA pool carries no l14_* columns. The dict wins when present. Per-side
     volume gate: hitters need ``l14_pa >= _BLEND_L14_MIN_PA`` (20),
     pitchers need ``l14_ip >= _BLEND_L14_MIN_IP`` (5). Below the gate
     L14 is skipped and the remaining weights renormalize so the blend
@@ -1103,25 +1105,29 @@ def _blend_fa_row(fa_data: pd.Series) -> pd.Series:
     except (TypeError, ValueError):
         is_hitter = True
 
+    # FA-C2 (2026-06-07): unify the L14 signal from two sources — row l14_*
+    # columns (back-compat / tests) and the recent-form dict (l14_form, from
+    # ctx.recent_form / get_player_recent_form_cached, the live FA path). The
+    # dict (keyed by bare stat name: pa/ip/games/hr/r/rbi/sb/k/...) wins when present.
+    l14_lookup: dict = {}
+    for _c in fa_data.index:
+        if isinstance(_c, str) and _c.startswith("l14_"):
+            l14_lookup[_c[4:]] = fa_data[_c]
+    if l14_form:
+        for _k, _v in l14_form.items():
+            if _v is not None:
+                l14_lookup[_k] = _v
+
     if is_hitter:
-        try:
-            l14_volume = float(fa_data.get("l14_pa", 0) or 0)
-        except (TypeError, ValueError):
-            l14_volume = 0.0
+        l14_volume = _num_safe(l14_lookup.get("pa", 0))
         l14_active = l14_volume >= _BLEND_L14_MIN_PA
     else:
-        try:
-            l14_volume = float(fa_data.get("l14_ip", 0) or 0)
-        except (TypeError, ValueError):
-            l14_volume = 0.0
+        l14_volume = _num_safe(l14_lookup.get("ip", 0))
         l14_active = l14_volume >= _BLEND_L14_MIN_IP
 
-    # L14 sample size in games (for per-game projection). Use l14_games
-    # if surfaced, else default to 14 (the canonical window length).
-    try:
-        l14_games = float(fa_data.get("l14_games", 0) or 0)
-    except (TypeError, ValueError):
-        l14_games = 0.0
+    # L14 sample size in games (for per-game projection). Use the L14 games
+    # count if surfaced, else default to 14 (the canonical window length).
+    l14_games = _num_safe(l14_lookup.get("games", 0))
     if l14_games <= 0:
         l14_games = float(_BLEND_L14_DEFAULT_GAMES)
 
@@ -1158,9 +1164,8 @@ def _blend_fa_row(fa_data: pd.Series) -> pd.Series:
         # column is present on the row. A missing per-stat l14 column
         # means we have no signal for that stat; redistribute its weight
         # to ROS+YTD proportionally so the per-row blend still sums to 1.
-        l14_col = f"l14_{col}"
-        if l14_active and l14_col in fa_data.index:
-            l14_val = _num_safe(fa_data.get(l14_col, 0))
+        if l14_active and col in l14_lookup:
+            l14_val = _num_safe(l14_lookup.get(col, 0))
             l14_per_game = l14_val / l14_games if l14_games > 0 else 0.0
             blended_per_game = ros_weight * ros_per_game + ytd_weight * ytd_per_game + l14_weight * l14_per_game
         else:
@@ -1175,6 +1180,43 @@ def _blend_fa_row(fa_data: pd.Series) -> pd.Series:
         blended[col] = blended_per_game * games_remaining
 
     return blended
+
+
+def _resolve_fa_l14(fa_data: pd.Series, ctx: OptimizerDataContext) -> dict | None:
+    """Resolve a free agent's last-14-day form dict for the blend (FA-C2).
+
+    The FA pool carries no ``l14_*`` columns, so the 0.10 L14 blend term was dead
+    for free agents. Source it from recent form instead: prefer a pre-loaded
+    ``ctx.recent_form[pid]['l14']`` entry; else lazily fetch via
+    ``get_player_recent_form_cached`` (the same 2h-cached source the optimizer's
+    projections use) — bounded by the scored-candidate set and deduped by the
+    cache. Returns the l14 dict (keys games/pa/ip/hr/r/rbi/sb/k/era/whip/...) or
+    ``None`` (→ the blend renormalizes to ROS+YTD, prior behavior).
+    """
+    rf = getattr(ctx, "recent_form", None)
+    pid = fa_data.get("player_id")
+    if rf and pid is not None and not (isinstance(pid, float) and pd.isna(pid)):
+        try:
+            entry = rf.get(int(pid))
+        except (TypeError, ValueError):
+            entry = None
+        if isinstance(entry, dict):
+            l14 = entry.get("l14")
+            if isinstance(l14, dict) and l14:
+                return l14
+    mlb = fa_data.get("mlb_id")
+    if mlb is not None and not (isinstance(mlb, float) and pd.isna(mlb)):
+        try:
+            from src.game_day import get_player_recent_form_cached
+
+            form = get_player_recent_form_cached(int(mlb))
+            if isinstance(form, dict):
+                l14 = form.get("l14")
+                if isinstance(l14, dict) and l14:
+                    return l14
+        except Exception:
+            return None
+    return None
 
 
 def _compute_base_value(fa_data: pd.Series, ctx: OptimizerDataContext) -> float:
@@ -1203,7 +1245,8 @@ def _compute_base_value(fa_data: pd.Series, ctx: OptimizerDataContext) -> float:
     # the composite score still applies downstream (stacked penalty).
     fa_data = _scale_ros_by_playing_time(fa_data, ctx)
 
-    blended = _blend_fa_row(fa_data)
+    l14_form = _resolve_fa_l14(fa_data, ctx)
+    blended = _blend_fa_row(fa_data, l14_form=l14_form)
 
     # Cache roster_totals + sgp_calc on ctx so marginal_sgp's rate-stat
     # math sees a stable per-call roster context (it depends on team

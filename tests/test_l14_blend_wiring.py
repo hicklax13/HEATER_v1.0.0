@@ -124,3 +124,49 @@ def test_l14_pitcher_uses_ip_volume():
     # Should produce a sensible IP value
     assert blended["ip"] >= 0
     assert blended["k"] >= 0
+
+
+# ── FA-C2 (2026-06-07): L14 from the recent-form dict (the live FA path) ──
+# Free agents carry NO l14_* columns, so L14 must arrive via l14_form (sourced
+# from ctx.recent_form / get_player_recent_form_cached). These exercise that path.
+
+
+def test_l14_wired_via_recent_form_dict_without_columns():
+    """A hot L14 recent-form dict boosts blended HR even with no l14_* columns."""
+    fa = _make_fa_row()  # no l14_* columns at all (the real FA pool shape)
+    l14 = {"games": 14, "pa": 60, "hr": 5, "r": 15}
+    blended_with = _blend_fa_row(fa, l14_form=l14)
+    blended_without = _blend_fa_row(fa)
+    assert blended_with["hr"] > blended_without["hr"], (
+        f"recent-form L14 dict should boost blended HR. "
+        f"with={blended_with['hr']:.2f} without={blended_without['hr']:.2f}"
+    )
+
+
+def test_l14_dict_respects_volume_gate():
+    """A recent-form dict below the PA gate (<20) contributes no L14 weight."""
+    fa = _make_fa_row()
+    under_gate = _blend_fa_row(fa, l14_form={"games": 3, "pa": 8, "hr": 3})
+    no_l14 = _blend_fa_row(fa)
+    assert under_gate["hr"] == no_l14["hr"]
+
+
+def test_resolve_fa_l14_reads_ctx_recent_form():
+    """_resolve_fa_l14 prefers a pre-loaded ctx.recent_form[pid]['l14'] entry."""
+    from types import SimpleNamespace
+
+    from src.optimizer.fa_recommender import _resolve_fa_l14
+
+    fa = _make_fa_row(player_id=42)
+    ctx = SimpleNamespace(recent_form={42: {"l14": {"games": 14, "pa": 55, "hr": 4}}})
+    assert _resolve_fa_l14(fa, ctx) == {"games": 14, "pa": 55, "hr": 4}
+
+
+def test_resolve_fa_l14_none_when_absent():
+    """No recent_form entry + no mlb_id → None (blend falls back to ROS+YTD)."""
+    from types import SimpleNamespace
+
+    from src.optimizer.fa_recommender import _resolve_fa_l14
+
+    fa = _make_fa_row(player_id=42)  # no mlb_id present
+    assert _resolve_fa_l14(fa, SimpleNamespace(recent_form={})) is None
