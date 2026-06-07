@@ -9,6 +9,7 @@ CSV upload remains available as a manual fallback.
 
 import logging
 import time
+from datetime import UTC, datetime
 
 import pandas as pd
 import requests
@@ -372,9 +373,13 @@ def _store_projections(projections: dict[str, pd.DataFrame]) -> int:
     """Upsert players then store projections in DB.
 
     Keys are "{db_system}_{bat|pit}" e.g. "steamer_bat", "depthcharts_pit".
-    For each system: DELETE existing rows → upsert players → INSERT projections.
+    For each system: replace ONLY this season's rows → upsert players → INSERT
+    projections tagged with the current forecast_season. Prior-season forecasts
+    are retained so the ridge stacker can learn weights from matched
+    (forecast_season=Y, season_stats.season=Y) pairs (PV-C1).
     Returns total row count inserted.
     """
+    forecast_season = datetime.now(UTC).year
     conn = get_connection()
     try:
         cursor = conn.cursor()
@@ -386,9 +391,13 @@ def _store_projections(projections: dict[str, pd.DataFrame]) -> int:
             db_system = key.rsplit("_", 1)[0]  # "steamer_bat" → "steamer"
             systems_stored.add(db_system)
 
-        # Delete old projections for each system (idempotency)
+        # Delete only THIS season's rows for each system (idempotency). Prior
+        # forecast_seasons are kept as training history.
         for system in systems_stored:
-            cursor.execute("DELETE FROM projections WHERE system = ?", (system,))
+            cursor.execute(
+                "DELETE FROM projections WHERE system = ? AND forecast_season = ?",
+                (system, forecast_season),
+            )
 
         # Insert new projections
         for key, df in projections.items():
@@ -403,11 +412,12 @@ def _store_projections(projections: dict[str, pd.DataFrame]) -> int:
                     is_hitter,
                 )
 
-                # Check if a row already exists for this (player_id, system)
-                # — handles two-way players (e.g. Ohtani) appearing in both bat and pit
+                # Check if a row already exists for this
+                # (player_id, system, forecast_season) — handles two-way
+                # players (e.g. Ohtani) appearing in both bat and pit
                 cursor.execute(
-                    "SELECT id FROM projections WHERE player_id = ? AND system = ?",
-                    (player_id, db_system),
+                    "SELECT id FROM projections WHERE player_id = ? AND system = ? AND forecast_season = ?",
+                    (player_id, db_system, forecast_season),
                 )
                 existing_row = cursor.fetchone()
 
@@ -439,8 +449,8 @@ def _store_projections(projections: dict[str, pd.DataFrame]) -> int:
                         cursor.execute(
                             """INSERT INTO projections
                                (player_id, system, pa, ab, h, r, hr, rbi, sb, avg,
-                                obp, bb, hbp, sf)
-                               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                                obp, bb, hbp, sf, forecast_season)
+                               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                             (
                                 player_id,
                                 db_system,
@@ -456,6 +466,7 @@ def _store_projections(projections: dict[str, pd.DataFrame]) -> int:
                                 int(row.get("bb", 0)),
                                 int(row.get("hbp", 0)),
                                 int(row.get("sf", 0)),
+                                forecast_season,
                             ),
                         )
                 else:
@@ -488,8 +499,8 @@ def _store_projections(projections: dict[str, pd.DataFrame]) -> int:
                         cursor.execute(
                             """INSERT INTO projections
                                (player_id, system, ip, w, l, sv, k, era, whip, er,
-                                bb_allowed, h_allowed, fip, xfip, siera)
-                               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                                bb_allowed, h_allowed, fip, xfip, siera, forecast_season)
+                               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                             (
                                 player_id,
                                 db_system,
@@ -506,6 +517,7 @@ def _store_projections(projections: dict[str, pd.DataFrame]) -> int:
                                 float(row.get("fip", 0)),
                                 float(row.get("xfip", 0)),
                                 float(row.get("siera", 0)),
+                                forecast_season,
                             ),
                         )
                 total += 1

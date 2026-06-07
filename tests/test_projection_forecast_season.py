@@ -98,6 +98,107 @@ def test_legacy_db_migration_adds_forecast_season(tmp_path, monkeypatch):
         conn.close()
 
 
+# ── 2. _store_projections retains prior-season forecasts ───────────────
+
+
+def _store_one(system: str, name: str, hr: int, forecast_season: int | None = None):
+    """Drive _store_projections for a single hitter of one system.
+
+    When forecast_season is None, _store_projections tags with the current
+    season. When set, we seed directly so we can simulate a PRIOR season's
+    forecast already living in the table.
+    """
+    from src.data_pipeline import _store_projections
+
+    df = pd.DataFrame(
+        [
+            {
+                "name": name,
+                "team": "NYY",
+                "positions": "OF",
+                "is_hitter": True,
+                "pa": 600,
+                "ab": 540,
+                "h": 150,
+                "r": 90,
+                "hr": hr,
+                "rbi": 80,
+                "sb": 10,
+                "avg": 0.278,
+                "obp": 0.350,
+                "bb": 50,
+                "hbp": 5,
+                "sf": 5,
+            }
+        ]
+    )
+    _store_projections({f"{system}_bat": df})
+
+
+def test_store_projections_tags_current_season(fresh_db):
+    _store_one("steamer", "Aaron Judge", 50)
+    conn = get_connection()
+    try:
+        rows = conn.execute("SELECT forecast_season FROM projections WHERE system = 'steamer'").fetchall()
+    finally:
+        conn.close()
+    assert rows
+    assert all(r["forecast_season"] == CURRENT_SEASON for r in rows)
+
+
+def test_store_projections_retains_prior_forecast_season(fresh_db):
+    """A new current-season write must NOT delete a prior season's forecasts."""
+    prior = CURRENT_SEASON - 1
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("INSERT INTO players (player_id, name, positions, is_hitter) VALUES (1, 'Aaron Judge', 'OF', 1)")
+        cur.execute(
+            "INSERT INTO projections (player_id, system, hr, forecast_season) VALUES (1, 'steamer', 44, ?)",
+            (prior,),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    # New current-season run for the same system.
+    _store_one("steamer", "Aaron Judge", 50)
+
+    conn = get_connection()
+    try:
+        prior_rows = conn.execute(
+            "SELECT hr FROM projections WHERE system = 'steamer' AND forecast_season = ?",
+            (prior,),
+        ).fetchall()
+        cur_rows = conn.execute(
+            "SELECT hr FROM projections WHERE system = 'steamer' AND forecast_season = ?",
+            (CURRENT_SEASON,),
+        ).fetchall()
+    finally:
+        conn.close()
+
+    assert len(prior_rows) == 1 and prior_rows[0]["hr"] == 44, (
+        "prior-season forecast was wiped by the current-season write"
+    )
+    assert len(cur_rows) == 1 and cur_rows[0]["hr"] == 50
+
+
+def test_store_projections_replaces_same_season_only(fresh_db):
+    """Re-running the same system for the current season replaces (not duplicates)."""
+    _store_one("steamer", "Aaron Judge", 50)
+    _store_one("steamer", "Aaron Judge", 47)  # corrected fetch
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            "SELECT hr FROM projections WHERE system = 'steamer' AND forecast_season = ?",
+            (CURRENT_SEASON,),
+        ).fetchall()
+    finally:
+        conn.close()
+    assert len(rows) == 1, "same-season re-run should replace, not duplicate"
+    assert rows[0]["hr"] == 47
+
+
 # ── 3. _load_stacking_weights: no cross-year leakage ───────────────────
 
 

@@ -1012,10 +1012,26 @@ def import_hitter_csv(csv_path: str, system: str):
             cursor.execute(
                 """
                 INSERT INTO projections (player_id, system, pa, ab, h, r, hr, rbi, sb, avg,
-                                         obp, bb, hbp, sf)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                         obp, bb, hbp, sf, forecast_season)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-                (player_id, system, pa, ab, h, r, hr, rbi, sb, avg, obp, bb, hbp, sf),
+                (
+                    player_id,
+                    system,
+                    pa,
+                    ab,
+                    h,
+                    r,
+                    hr,
+                    rbi,
+                    sb,
+                    avg,
+                    obp,
+                    bb,
+                    hbp,
+                    sf,
+                    datetime.now(UTC).year,
+                ),
             )
             imported += 1
 
@@ -1077,10 +1093,24 @@ def import_pitcher_csv(csv_path: str, system: str):
 
             cursor.execute(
                 """
-                INSERT INTO projections (player_id, system, ip, w, l, sv, k, era, whip, er, bb_allowed, h_allowed)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO projections (player_id, system, ip, w, l, sv, k, era, whip, er, bb_allowed, h_allowed, forecast_season)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-                (player_id, system, ip, w, l, sv, k, era, whip, er, bb_allowed, h_allowed),
+                (
+                    player_id,
+                    system,
+                    ip,
+                    w,
+                    l,
+                    sv,
+                    k,
+                    era,
+                    whip,
+                    er,
+                    bb_allowed,
+                    h_allowed,
+                    datetime.now(UTC).year,
+                ),
             )
             imported += 1
 
