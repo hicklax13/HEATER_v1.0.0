@@ -91,7 +91,8 @@ All clear correctness bugs fixed. Remaining = big features + enhancements (below
 - ☐ **BR-1 / cookie auth** persistent cookie/token-backed sessions so refresh/bookmarks stay logged in. `src/auth.py`, `app.py`. (Security-sensitive — careful review.)
 
 ## Wave 9 — Big accuracy enhancements (owner chose include)
-- ☐ **MS-E1** unify the 3 divergent weekly-variance tables → one calibrated source (fixes BR-6 win-prob mismatch across pages).
+- ☑ **MS-E1** `default_weekly_sigmas()` canonical source; standings_engine + standings_projection + playoff_sim all read it; 1σ edge → ~0.76 (was saturating 0.99). (commit 0d5769f) [full suite 4996 green]
+- ☐ **MS-E1b** (follow-up) a 4th weekly-tau (`src/trade_value.py::WEEKLY_TAU`, G-Score/SGP units) left as-is — fold onto the canonical source if desired.
 - ☐ **LO-E3** adopt Skellam (low-count cats) + Gaussian-copula correlation in `h2h_engine` (lineup win-prob).
 - ☐ **TE-E1** weekly/playoff per-week means from LP starters (overlaps TE-C1).
 - ☐ **TE-E5** wire `injury_process` Weibull availability into the trade MC tails.
