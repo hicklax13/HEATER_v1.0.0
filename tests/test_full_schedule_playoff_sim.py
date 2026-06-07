@@ -7,8 +7,10 @@ the sum of per-week P(win) against their actual scheduled opponent.
 
 Contract locked:
   - simulate_playoff_outcomes accepts full_league_schedule kwarg (optional)
-  - When provided: result['method'] == 'hickey-centric-full-sched-opp'
-  - When None: result['method'] == 'hickey-centric-binomial-opp' (legacy)
+  - When provided: result['method'] starts with 'hickey-centric-full-sched-opp'
+    (a '-corr' suffix is appended when the TE-E2 copula-correlated category
+    path is active, which is the default)
+  - When None: result['method'] starts with 'hickey-centric-binomial-opp' (legacy)
   - _compute_per_week_per_team_p_win returns symmetric (a wins, b loses)
   - Trade Analyzer page loads + passes full_league_schedule
 """
@@ -176,7 +178,9 @@ def test_simulate_returns_full_sched_method_when_provided() -> None:
         n_sims=500,
         full_league_schedule=full_sched,
     )
-    assert result["method"] == "hickey-centric-full-sched-opp"
+    # startswith: the path-selection tag may carry a "-corr" suffix when the
+    # TE-E2 copula-correlated category path is active (now the default).
+    assert result["method"].startswith("hickey-centric-full-sched-opp")
 
 
 def test_simulate_falls_back_to_binomial_without_full_sched() -> None:
@@ -192,7 +196,7 @@ def test_simulate_falls_back_to_binomial_without_full_sched() -> None:
         n_sims=500,
         full_league_schedule=None,  # explicit None
     )
-    assert result["method"] == "hickey-centric-binomial-opp"
+    assert result["method"].startswith("hickey-centric-binomial-opp")
 
 
 def test_simulate_trade_delta_propagates_full_sched() -> None:
@@ -209,8 +213,8 @@ def test_simulate_trade_delta_propagates_full_sched() -> None:
         n_sims=500,
         full_league_schedule=full_sched,
     )
-    assert result["before"]["method"] == "hickey-centric-full-sched-opp"
-    assert result["after"]["method"] == "hickey-centric-full-sched-opp"
+    assert result["before"]["method"].startswith("hickey-centric-full-sched-opp")
+    assert result["after"]["method"].startswith("hickey-centric-full-sched-opp")
 
 
 # ── UI wiring ────────────────────────────────────────────────────────

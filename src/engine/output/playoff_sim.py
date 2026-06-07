@@ -39,7 +39,15 @@ import pandas as pd
 from scipy.stats import norm
 
 from src.engine.output.weekly_matrix import _DEFAULT_CV, _per_week_means
+from src.engine.portfolio.copula import DEFAULT_CORRELATION as _COPULA_CORRELATION
+from src.engine.portfolio.copula import GaussianCopula
 from src.valuation import LeagueConfig
+
+# TE-E2: number of correlated copula draws per week when estimating
+# P(win majority of categories). 4000 keeps the per-week estimate stable
+# (±0.01) while staying cheap inside the 20K-sim playoff loop (the copula
+# draw is vectorised over all weeks at once).
+_COPULA_DRAWS: int = 4000
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +77,7 @@ def simulate_playoff_outcomes(
     seed: int = 42,
     variance_cv: dict[str, float] | None = None,
     full_league_schedule: dict[int, list[tuple[str, str]]] | None = None,
+    correlate_categories: bool = True,
 ) -> dict[str, Any]:
     """Simulate the rest of the regular season + 2-round playoff bracket.
 
@@ -84,6 +93,12 @@ def simulate_playoff_outcomes(
         seed: Master RNG seed for reproducibility.
         variance_cv: Optional per-category CV for win-prob noise (defaults
             to weekly_matrix._DEFAULT_CV).
+        correlate_categories: TE-E2 — when True (default), the user's weekly
+            P(win majority) is computed from copula-correlated category
+            outcomes (DEFAULT_CORRELATION) instead of the independent
+            Poisson-binomial normal approximation. Correlation widens the
+            weekly-cat-win variance, de-saturating over-confident playoff/
+            champ probabilities. Set False for the fast independent fallback.
 
     Returns:
         Dict with:
@@ -146,9 +161,16 @@ def simulate_playoff_outcomes(
         variance_cv=variance_cv,
     )  # dict {team_name: float in [0, 1]}
 
-    # Override user's p with the schedule-aware avg from the matrix
+    # Override user's p with the schedule-aware avg from the matrix.
+    # TE-E2: P(win majority) from copula-correlated category outcomes
+    # (de-saturates over-confident odds) unless the caller opts out.
+    # Same seed across before/after arms → paired-MC discipline holds.
     user_per_week_mean_cats = p_user_per_week_per_cat.sum(axis=1)  # E[cat wins]
-    user_per_week_p_win = _prob_majority_cat_wins(p_user_per_week_per_cat)
+    user_per_week_p_win = _prob_majority_cat_wins(
+        p_user_per_week_per_cat,
+        correlate_categories=correlate_categories,
+        seed=seed,
+    )
     team_avg_p_win[user_team_name] = float(user_per_week_p_win.mean())
 
     # Convert team_avg_p_win to numpy array in canonical order
@@ -190,12 +212,16 @@ def simulate_playoff_outcomes(
         per_team_samples = rng.random((n_sims, n_teams, n_weeks_remaining)) < per_team_p_matrix[None, :, :]
         additional_wins = per_team_samples.sum(axis=2).astype(int)  # (n_sims, n_teams)
         sim_method = "hickey-centric-full-sched-opp"
+        if correlate_categories:
+            sim_method += "-corr"
     else:
         # Path B: Binomial approximation (legacy/fallback).
         additional_wins = rng.binomial(n_weeks_remaining, p_avg_arr[None, :], size=(n_sims, n_teams)).astype(int)
         # Override user's column with the schedule-aware draws
         additional_wins[:, user_idx] = user_additional_wins
         sim_method = "hickey-centric-binomial-opp"
+        if correlate_categories:
+            sim_method += "-corr"
 
     # ── Final standings ──────────────────────────────────────────────
     current_wins_arr = np.array([current_wins.get(t, 0) for t in team_names], dtype=int)
@@ -265,6 +291,7 @@ def simulate_trade_playoff_delta(
     seed: int = 42,
     variance_cv: dict[str, float] | None = None,
     full_league_schedule: dict[int, list[tuple[str, str]]] | None = None,
+    correlate_categories: bool = True,
 ) -> dict[str, Any]:
     """Compute the DELTA playoff + championship probability from a trade.
 
@@ -302,6 +329,7 @@ def simulate_trade_playoff_delta(
         seed=seed,
         variance_cv=variance_cv,
         full_league_schedule=full_league_schedule,
+        correlate_categories=correlate_categories,
     )
     after = simulate_playoff_outcomes(
         user_roster_ids=after_roster_ids,
@@ -315,6 +343,7 @@ def simulate_trade_playoff_delta(
         seed=seed,  # SAME seed → paired-MC variance reduction
         variance_cv=variance_cv,
         full_league_schedule=full_league_schedule,
+        correlate_categories=correlate_categories,
     )
 
     # ── CARA mean-CVaR utility (report Section B.9 + Q(a)) ────────────
@@ -501,22 +530,72 @@ def _user_per_week_per_cat(
     return matrix
 
 
-def _prob_majority_cat_wins(p_per_week_per_cat: np.ndarray) -> np.ndarray:
+def _prob_majority_cat_wins(
+    p_per_week_per_cat: np.ndarray,
+    correlate_categories: bool = False,
+    seed: int = 42,
+) -> np.ndarray:
     """For each week, compute P(user wins majority of 12 categories).
 
-    Uses a normal approximation to the Poisson-binomial distribution:
-      mean = sum(p_c)
-      var  = sum(p_c * (1 - p_c))
-      P(X > 6) ≈ 1 - Phi((6.5 - mean) / sqrt(var))   # continuity correction
+    Two paths (TE-E2):
+
+    * ``correlate_categories=False`` (default — fast fallback): normal
+      approximation to the Poisson-binomial distribution treating the 12
+      categories as INDEPENDENT::
+
+          mean = sum(p_c);  var = sum(p_c * (1 - p_c))
+          P(X > 6) ≈ 1 - Phi((6 - mean) / sqrt(var))
+
+      Independence understates the win-count variance because HR/RBI/R move
+      together and ERA/WHIP/K move together, so it over-states P(majority)
+      for a uniformly-favored roster (and under-states it for an underdog).
+
+    * ``correlate_categories=True``: copula-correlated draws using the SAME
+      ``DEFAULT_CORRELATION`` matrix LO-E3 + the Matchup Planner use. Each
+      category's marginal ``p_c`` is mapped to a latent threshold; correlated
+      uniforms are drawn via the Gaussian copula; a category is "won" when
+      ``u_c <= p_c``; the per-draw win count gives the majority distribution.
+      Positive intra-cluster correlation widens the win-count variance, so the
+      estimate is pulled toward 0.5 (less over-confident) — matching the
+      Matchup Planner's joint-distribution estimate.
+
+    Args:
+        p_per_week_per_cat: (n_weeks, n_cats) per-category win probs.
+        correlate_categories: Use the copula-correlated path when True.
+        seed: RNG seed for the copula draws (deterministic).
+
+    Returns:
+        (n_weeks,) array of P(win majority) in [0, 1].
     """
     n_weeks, n_cats = p_per_week_per_cat.shape
-    means = p_per_week_per_cat.sum(axis=1)  # (n_weeks,)
-    variances = (p_per_week_per_cat * (1 - p_per_week_per_cat)).sum(axis=1)
-    # Continuity correction: treat "majority" as > n_cats / 2 = 6 → use 6.5
-    threshold = n_cats / 2.0
-    sd = np.sqrt(np.maximum(variances, 1e-12))
-    z = (threshold - means) / sd
-    p_majority = 1.0 - norm.cdf(z)
+
+    if not correlate_categories or n_cats != _COPULA_CORRELATION.shape[0]:
+        # Independent Poisson-binomial normal approximation (fast fallback).
+        # Also the path for any non-canonical category count, where the
+        # copula sub-matrix order can't be assumed.
+        means = p_per_week_per_cat.sum(axis=1)  # (n_weeks,)
+        variances = (p_per_week_per_cat * (1 - p_per_week_per_cat)).sum(axis=1)
+        threshold = n_cats / 2.0
+        sd = np.sqrt(np.maximum(variances, 1e-12))
+        z = (threshold - means) / sd
+        p_majority = 1.0 - norm.cdf(z)
+        return np.clip(p_majority, 0.0, 1.0)
+
+    # Copula-correlated path. The playoff sim passes all 12 cats in canonical
+    # order (== copula CAT_ORDER), so the full DEFAULT_CORRELATION applies
+    # directly without sub-matrix reindexing.
+    rng = np.random.RandomState(seed)
+    copula = GaussianCopula(_COPULA_CORRELATION)
+    half = n_cats / 2.0
+    p_majority = np.zeros(n_weeks)
+    for w in range(n_weeks):
+        probs = p_per_week_per_cat[w]  # (n_cats,)
+        u = copula.sample(_COPULA_DRAWS, rng)  # (_COPULA_DRAWS, n_cats)
+        wins = (u <= probs).sum(axis=1).astype(float)
+        # Tie at exactly n/2 scored as half a win (Yahoo splits even ties).
+        won = float((wins > half).sum())
+        tied = float((wins == half).sum())
+        p_majority[w] = (won + 0.5 * tied) / float(_COPULA_DRAWS)
     return np.clip(p_majority, 0.0, 1.0)
 
 
