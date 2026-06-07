@@ -108,6 +108,25 @@ except ImportError:
     PARK_FACTORS: dict[str, float] = {}
     PARK_FACTORS_AVAILABLE = False
 
+
+def _effective_park_factors() -> dict[str, float] | None:
+    """Park factors from the refreshed DB table, frozen emergency dict as fallback.
+
+    DB-E2: route lineup/start-sit decisions through the live park_factors table
+    so a successful Tier-1 refresh reaches the optimizer; falls back to the
+    frozen ``PARK_FACTORS`` emergency dict when the table is empty/unavailable
+    (behavior then identical to the prior static import). Returns ``None`` when
+    no factors are available at all, matching the existing call-site convention.
+    """
+    try:
+        from src.database import load_park_factors
+
+        pf = load_park_factors(fallback=PARK_FACTORS if PARK_FACTORS else None)
+    except Exception:
+        pf = PARK_FACTORS if PARK_FACTORS else None
+    return pf or None
+
+
 # Start/sit advisor
 START_SIT_AVAILABLE = False
 try:
@@ -917,7 +936,7 @@ with main:
                     yds=yds,
                     config=league_config,
                     weeks_remaining=weeks_remaining,
-                    park_factors=PARK_FACTORS if PARK_FACTORS else None,
+                    park_factors=_effective_park_factors(),
                     user_team_name=user_team_name,
                     roster=roster,
                 )
@@ -987,7 +1006,7 @@ with main:
                         roster=roster if not roster.empty else pool,
                         matchup=yds.get_matchup(),
                         schedule_today=_dcv_sched if _dcv_sched else None,
-                        park_factors=PARK_FACTORS if PARK_FACTORS else {},
+                        park_factors=_effective_park_factors() or {},
                         urgency_weights=_dcv_urgency,
                         confirmed_lineups=_dcv_lineups,
                         recent_form=_dcv_form,
@@ -1135,7 +1154,7 @@ with main:
                         h2h_opponent_totals=opp_totals if opp_totals else None,
                         my_totals=my_totals if my_totals else None,
                         week_schedule=week_schedule if week_schedule else None,
-                        park_factors=PARK_FACTORS if PARK_FACTORS else None,
+                        park_factors=_effective_park_factors(),
                         free_agents=_fa_for_streaming if not _fa_for_streaming.empty else None,
                     )
 
@@ -2514,7 +2533,7 @@ with main:
                                     player_pool=_ss_pool,
                                     config=league_config,
                                     weekly_schedule=week_schedule if week_schedule else None,
-                                    park_factors=(PARK_FACTORS if PARK_FACTORS else None),
+                                    park_factors=_effective_park_factors(),
                                     my_weekly_totals=my_totals if my_totals else None,
                                     opp_weekly_totals=opp_weekly_totals,
                                     standings=(standings if not standings.empty else None),
@@ -2776,7 +2795,7 @@ with main:
                                     else pool.rename(columns={"player_name": "name"}),
                                     config=league_config,
                                     weekly_schedule=week_schedule if week_schedule else None,
-                                    park_factors=(PARK_FACTORS if PARK_FACTORS else None),
+                                    park_factors=_effective_park_factors(),
                                     my_weekly_totals=(my_totals if my_totals else None),
                                     opp_weekly_totals=opp_weekly_totals,
                                     standings=(standings if not standings.empty else None),

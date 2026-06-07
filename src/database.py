@@ -3504,6 +3504,41 @@ def upsert_park_factors(factors: list[dict]) -> int:
         conn.close()
 
 
+def load_park_factors(fallback: dict[str, float] | None = None) -> dict[str, float]:
+    """Return ``{team_code: factor_hitting}`` from the park_factors DB table.
+
+    DB-E2: the lineup optimizer must read the REFRESHED park_factors table so a
+    successful Tier-1 refresh actually reaches lineup/matchup decisions, instead
+    of the frozen ``data_bootstrap.PARK_FACTORS`` emergency alias. Callers pass
+    the frozen dict as ``fallback`` so behavior is identical when the table is
+    empty/unavailable (or holds emergency values).
+
+    Returns the supplied ``fallback`` (or ``{}``) when the table is empty or the
+    read fails, so the call is always safe.
+    """
+    default = dict(fallback) if fallback else {}
+    try:
+        conn = get_connection()
+    except Exception:
+        return default
+    try:
+        rows = conn.execute("SELECT team_code, factor_hitting FROM park_factors").fetchall()
+    except Exception:
+        return default
+    finally:
+        conn.close()
+
+    out: dict[str, float] = {}
+    for code, factor in rows:
+        if not code or factor is None:
+            continue
+        try:
+            out[str(code)] = float(factor)
+        except (TypeError, ValueError):
+            continue
+    return out if out else default
+
+
 def upsert_statcast_bulk(records: list[dict]) -> int:
     """Bulk upsert statcast archive records.
 
