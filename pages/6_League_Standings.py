@@ -523,9 +523,9 @@ def _render_playoff_odds_tab() -> None:
         prob_color = (
             T["green"]
             if prob_pct >= 60
-            else T.get("hot", T["accent"])
+            else T.get("hot", T["primary"])
             if prob_pct >= 40
-            else T.get("primary", T["accent"])
+            else T.get("primary", T["primary"])
         )
         prob_label = "Strong" if prob_pct >= 60 else "Moderate" if prob_pct >= 40 else "At Risk"
         st.markdown(
