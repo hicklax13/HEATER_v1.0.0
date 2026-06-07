@@ -67,7 +67,7 @@ E-items (FA-E3/E4, LO-E1/E2/E4, DE-E3/E4/E5) · UI: Trade Analyzer pass `enable_
 - ☑ **MS-C5** ghost-team filter on the category-rank grid (`standings_utils.filter_standings_to_valid_teams`). (commit 0a23bab)
 - ☑ **MS-C6** playoff_sim docstring "top 6"→"top 4". (commit 49aa825)
 - ☑ **BR-2** My Team callout was case (b): top-2 priority subset mislabeled "Losing Categories" → relabeled "Priority Targets" + guard test. (commit fa40a74). NEW finding: the subset selection sorts by raw diff (favors counting cats) — flagged BR-2b below.
-- ☐ **BR-2b** (Low, enhancement) My Team priority-target selection sorts by raw diff (apples-to-oranges across counting vs rate cats) → favors big-count cats; consider normalizing by category or using win-prob. (Wave 9.)
+- ☑ **BR-2b** My Team "Priority Targets" now ranks losing cats by normalized z-gap (|diff|/canonical σ) via testable `_rank_priority_losing_cats`, so a near-flip rate cat surfaces over a wide-gap counting cat. (commit acf318d)
 
 **Checkpoint:** full suite **4920 passed, 107 skipped** in 121s after Waves 0–3. ✅
 
@@ -116,7 +116,7 @@ All clear correctness bugs fixed. Remaining = big features + enhancements (below
 
 ## Wave 9 — Big accuracy enhancements (owner chose include)
 - ☑ **MS-E1** `default_weekly_sigmas()` canonical source; standings_engine + standings_projection + playoff_sim all read it; 1σ edge → ~0.76 (was saturating 0.99). (commit 0d5769f) [full suite 4996 green]
-- ☐ **MS-E1b** (follow-up) a 4th weekly-tau (`src/trade_value.py::WEEKLY_TAU`, G-Score/SGP units) left as-is — fold onto the canonical source if desired.
+- ☑ **MS-E1b** investigated: `trade_value.WEEKLY_TAU` IS the same quantity (per-team weekly SD, same provenance) → unified onto `default_weekly_sigmas()`. All 4 variance tables now share one source (they'd drifted 2-5×). (commit 9a35277)
 - ☑ **LO-E3** `h2h_engine` routes SB/SV/W/L → Skellam, rest → Normal, overall win-prob via Gaussian copula (reuses `weekly_matrix._category_win_prob_skellam` + `copula.py`, no import cycle); sample matchup 0.187→0.260 (de-saturated). **Completes BR-6 with MS-E1.** (commit f9eeadb)
 - ◑ **TE-E1** partially covered by TE-C1 (IL excluded from per-week means); full LP-starter weighting deferred (low marginal). [remaining]
 - ☑ **TE-E5** injury availability wired into the paired MC risk tails (antithetic-aware; `enable_injury_mc`, engages on `enable_mc=True`); fragile player cvar5 +17.95→−17.75. (commit 1da0317)
