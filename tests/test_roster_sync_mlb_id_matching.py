@@ -195,3 +195,50 @@ def test_team_case_mismatch_does_not_warn(temp_db, caplog):
     assert pid == 42
     warnings = [r for r in caplog.records if r.levelname == "WARNING"]
     assert not warnings, f"Case-insensitive team match should not warn: {[r.getMessage() for r in warnings]}"
+
+
+# ---------------------------------------------------------------------------
+# DB-C5 (2026-06-07): the trailing team-less last-name fallback
+# (`LIKE '% lastname'`, no team filter) silently returned a match. When the
+# caller DID pass team_abbr and the resolved player's team differs, it must
+# warn too — that branch is the most collision-prone of all.
+# ---------------------------------------------------------------------------
+
+
+def test_lastname_only_fallback_team_mismatch_logs_warning(temp_db, caplog):
+    """A caller passes team_abbr='LAD' and only a last name ('Trout'); the
+    full-name and team-aware branches all miss, so the team-LESS
+    `LIKE '% lastname'` branch resolves to LAA-Trout. Because the caller
+    supplied a team that differs from the match, a WARNING must fire."""
+    _seed_player(temp_db, player_id=27, name="Mike Trout", team="LAA", mlb_id=545361)
+
+    from src.live_stats import match_player_id
+
+    with caplog.at_level(logging.WARNING, logger="src.live_stats"):
+        pid = match_player_id("Trout", "LAD")
+
+    # Match still resolves via the last-name fallback (back-compat).
+    assert pid == 27
+    warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+    msgs = " ".join(r.getMessage() for r in warnings)
+    assert "Trout" in msgs, f"Expected WARNING mentioning 'Trout'; got: {msgs!r}"
+    assert "LAD" in msgs and "LAA" in msgs, (
+        f"Expected WARNING to surface both caller team (LAD) and DB team (LAA); got: {msgs!r}"
+    )
+
+
+def test_lastname_only_fallback_no_team_does_not_warn(temp_db, caplog):
+    """When the caller did NOT pass a team, the team-less last-name fallback
+    can't detect a mismatch — it must resolve quietly (no spurious warning)."""
+    _seed_player(temp_db, player_id=27, name="Mike Trout", team="LAA", mlb_id=545361)
+
+    from src.live_stats import match_player_id
+
+    with caplog.at_level(logging.WARNING, logger="src.live_stats"):
+        pid = match_player_id("Trout", "")
+
+    assert pid == 27
+    warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert not any("DNA" in r.getMessage() for r in warnings), (
+        f"No team passed → no collision check → no warning; got: {[r.getMessage() for r in warnings]}"
+    )
