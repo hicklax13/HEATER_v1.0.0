@@ -39,11 +39,30 @@ from src.yahoo_data_service import get_yahoo_data_service
 # ── Ownership Heat Index helpers ─────────────────────────────────────────────
 
 
-def _load_ownership_heat(fa_player_ids: list[int]) -> pd.DataFrame:
-    """Load ownership trends and compute a Heat Score (1-10) for free agents.
+def _compute_heat_score(percent_owned: float, delta_7d: float, recent_adds: float) -> int:
+    """Heat Score (0-10) for a free agent's wire activity.
 
-    Heat Score formula:
-        heat = min(10, int(ownership_pct_change * 20 + recent_adds * 2))
+    BR-9 (2026-06-07): the previous formula was momentum-only
+    (``delta_7d.abs()*20 + recent_adds*2``). Both inputs are ~0 until a week
+    of ownership history accrues, so every FA scored heat=0 and the index +
+    HEAT column were dead. ``percent_owned`` IS populated (Yahoo FA fetch →
+    ownership_trends), so make it the base signal — a more widely-rostered FA
+    is "hotter" on the wire — with delta/adds as momentum boosts on top.
+
+    Scale: ownership 70% → ~7 (Hot), 40% → ~4 (Warm); a low-owned FA with
+    real positive momentum can still climb into Breakout territory.
+    """
+    base = (percent_owned or 0.0) / 10.0  # 0-100% → 0-10
+    momentum = abs(delta_7d or 0.0) * 20.0 + (recent_adds or 0.0) * 2.0
+    score = int(round(base + momentum))
+    return max(0, min(10, score))
+
+
+def _load_ownership_heat(fa_player_ids: list[int]) -> pd.DataFrame:
+    """Load ownership trends and compute a Heat Score (0-10) for free agents.
+
+    Heat reflects ``percent_owned`` (base) plus 7-day ownership momentum and
+    recent adds (see ``_compute_heat_score``).
 
     Returns a DataFrame with columns: player_id, percent_owned, delta_7d, heat.
     If ownership_trends is empty, returns an empty DataFrame.
@@ -94,10 +113,12 @@ def _load_ownership_heat(fa_player_ids: list[int]) -> pd.DataFrame:
     if fa_player_ids:
         ownership = ownership[ownership["player_id"].isin(fa_player_ids)]
 
-    # Compute heat score: ownership_pct_change (delta_7d) scaled + recent_adds
-    # Vectorized computation avoids apply() issues
-    _raw_heat = (ownership["delta_7d"].abs() * 20 + ownership["recent_adds"] * 2).astype(int)
-    ownership["heat"] = _raw_heat.clip(lower=0, upper=10)
+    # BR-9: heat = percent_owned base + delta_7d/recent_adds momentum. Vectorized
+    # mirror of _compute_heat_score (round-then-clip) so the index is meaningful
+    # even before 7 days of ownership history make delta_7d non-zero.
+    _base = ownership["percent_owned"].fillna(0.0) / 10.0
+    _momentum = ownership["delta_7d"].abs() * 20 + ownership["recent_adds"] * 2
+    ownership["heat"] = (_base + _momentum).round().clip(lower=0, upper=10).astype(int)
 
     return ownership[["player_id", "percent_owned", "delta_7d", "recent_adds", "heat"]]
 
