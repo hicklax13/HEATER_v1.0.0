@@ -126,7 +126,14 @@ All clear correctness bugs fixed. Remaining = big features + enhancements (below
 - ☑ **UI** Trade Analyzer passes `enable_mc=True` + renders the MC risk band incl. injury-aware CVaR₅ (also fixed: the Phase-1 engine path rendered NO MC output). (commit 864c337)
 - ☐ **DB-E1/E2** (= DB-C2/DB-C1 done as full features).
 - ☐ **PV-E1/E2/E3** (= PV-C1/PV-C2/PV-C4 done as full features).
-- ☐ **DE-E1..E5**, **FA-E1..E4**, **LO-E1/E2/E4** — per-engine enhancement backlog (see report §4).
+- ☑ **LO-E1** roster-relative SLOT_FILL_BONUS + ratio-protect posture. (commit 54d4bac)
+- ☑ **LO-E2** daily mode stops double-applying L14 recent form (DCV sole applier). (commit c153d57)
+- ☑ **FA-E1** = FA-C2 (L14 wiring, done).
+- ◐ **FA-E3/E4** — in progress.
+- ☐ **Deferred (risk vs low-conf value):** **PV-C4** (unify SGP denominators — changes SGP everywhere) · **LO-E4** (LP normalize by SGP denom not roster stdev — documented-deliberate, structural tests lock it) · **TE-E1** (full LP-starter per-week means — IL already excluded by TE-C1, low marginal).
+- ☐ **Deferred (preseason, no live use mid-season):** **DE-E3** (tier-cliff signal) · **DE-E4** (per-player ADP sigma / opponent need) · **DE-E5** (less self-referential grader baseline).
+
+**CHECKPOINT (post TE-E3/E4/UI + BR-2b + MS-E1b + LO-E1/E2): full suite 5066 passed, 0 failed. ✅**
 
 ## Final
 - ☐ Full suite green (`python -m pytest --ignore=tests/test_cheat_sheet.py -q`).
