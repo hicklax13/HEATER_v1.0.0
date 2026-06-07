@@ -357,6 +357,21 @@ def compute_category_win_probabilities(
 # ── Enhanced MC Season Simulation ──────────────────────────────────
 
 
+def _apply_momentum_to_mean(val: float, mom: float, is_inverse: bool) -> float:
+    """Apply a +/-5% momentum nudge to a projected weekly category mean.
+
+    Momentum > 1 means a hot team. For normal cats (more is better) a hot team
+    gets a higher mean; for inverse cats (ERA/WHIP/L, lower is better) the sign
+    flips so a hot team gets a LOWER (better) mean. MS-C4 (2026-06-07): the
+    prior code applied `val *= 1.0 + 0.05*(mom-1.0)` uniformly, which raised
+    inverse-cat means for hot teams — the wrong direction.
+    """
+    delta = 0.05 * (mom - 1.0)
+    if is_inverse:
+        delta = -delta
+    return val * (1.0 + delta)
+
+
 def simulate_season_enhanced(
     current_standings: dict[str, dict[str, int]],
     team_weekly_totals: dict[str, dict[str, float]],
@@ -414,12 +429,10 @@ def simulate_season_enhanced(
         totals = team_weekly_totals.get(team, {})
         for ci, cat in enumerate(categories):
             val = totals.get(cat, 0.0)
-            # Apply momentum adjustment if available
+            # Apply momentum adjustment if available. MS-C4: inverse cats
+            # (ERA/WHIP/L) flip the sign so a hot team's mean improves (lowers).
             if momentum_data and team in momentum_data:
-                mom = momentum_data[team]
-                # Momentum adjusts mean by +/-5% max
-                adjustment = 1.0 + 0.05 * (mom - 1.0)
-                val *= adjustment
+                val = _apply_momentum_to_mean(val, momentum_data[team], cat in INVERSE_CATS)
             team_means[ti, ci] = val
 
     # Determine remaining weeks
