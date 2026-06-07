@@ -7,7 +7,7 @@ import logging
 import streamlit as st
 
 from src.auth import multi_user_enabled, require_auth
-from src.closer_monitor import build_closer_grid
+from src.closer_monitor import build_closer_grid, build_depth_data_from_db
 from src.database import get_connection, init_db, load_player_pool
 from src.feature_flags import require_page_enabled
 from src.feedback import render_feedback_widget
@@ -70,11 +70,6 @@ def _load_actual_sv_stats():
         conn.close()
 
 
-st.info(
-    "Closer depth charts are populated from the FanGraphs depth chart data loaded at app launch. "
-    "Connect your Yahoo league or run the app bootstrap to refresh depth chart data."
-)
-
 # Load player pool for stat lookups
 pool = load_player_pool()
 
@@ -97,8 +92,11 @@ def _normalize_team(abbr: str) -> str:
     return _TEAM_NORMALIZE.get(abbr.upper().strip(), abbr.upper().strip())
 
 
-# Attempt to load depth chart data from session state (populated by bootstrap)
-_raw_depth_data: dict = st.session_state.get("closer_depth_data", {})
+# Primary source: real bullpen-role classification from the DB
+# (players.depth_chart_role, persisted by _persist_depth_chart_roles at bootstrap).
+# DB-C2/DB-E1 fix — the page previously read st.session_state["closer_depth_data"],
+# a key nothing ever wrote, so it always fell to the season-SV heuristic below.
+_raw_depth_data: dict = build_depth_data_from_db()
 # Normalize keys to canonical abbreviations
 depth_data: dict = {}
 for _k, _v in _raw_depth_data.items():
@@ -106,8 +104,13 @@ for _k, _v in _raw_depth_data.items():
     if _canon not in depth_data or _v.get("closer_confidence", 0) > depth_data[_canon].get("closer_confidence", 0):
         depth_data[_canon] = _v
 
+# Track whether we're showing real role data or an estimate, for an honest caption.
+_using_role_data = bool(depth_data)
+
 if not depth_data:
-    # Try to build a minimal depth chart from pitcher pool using sv projections
+    # Fallback: no depth_chart_role rows in the DB (Roster Resource scrape is often
+    # empty and the MLB Stats API fallback may not have run). Build a minimal,
+    # clearly-flagged ESTIMATE from pitcher pool using sv projections.
     if not pool.empty:
         pitchers = pool[pool["is_hitter"] == 0].copy()
         if not pitchers.empty and "sv" in pitchers.columns:
@@ -130,6 +133,20 @@ if not depth_data:
                             "setup": [],
                             "closer_confidence": confidence,
                         }
+
+if depth_data:
+    if _using_role_data:
+        st.info(
+            "Closer depth charts are populated from the bullpen-role depth chart data "
+            "(FanGraphs Roster Resource, with an MLB Stats API fallback) loaded at app launch. "
+            "Run the app bootstrap to refresh."
+        )
+    else:
+        st.warning(
+            "No bullpen depth-chart roles available — showing an ESTIMATE: the highest "
+            "projected-saves pitcher per team. Run the app bootstrap to load real depth "
+            "chart roles (FanGraphs Roster Resource / MLB Stats API)."
+        )
 
 if not depth_data:
     st.warning(

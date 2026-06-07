@@ -176,6 +176,117 @@ def detect_opener(first_inning_pct: float, total_appearances: int) -> bool:
     return first_inning_pct > 0.30 and total_appearances >= 10
 
 
+def build_depth_data_from_db(season: int = 2026) -> dict:
+    """Build canonical closer-depth data from the ``players.depth_chart_role`` column.
+
+    This is the DB-C2 / DB-E1 fix: surface the REAL bullpen-role classification
+    (persisted by ``_persist_depth_chart_roles`` in ``src/data_bootstrap.py``)
+    to the closer grid, replacing the "top season-SV pitcher per team = closer"
+    heuristic the page used because nothing ever wrote
+    ``st.session_state['closer_depth_data']``.
+
+    Roles considered: ``closer`` (the designated closer), ``setup`` (setup arms),
+    ``committee`` (no defined closer). Season saves are joined to (a) pick the
+    primary arm when a team has multiple ``closer`` rows — the MLB-Stats-API
+    fallback classifies the top-2-by-saves relievers as closers — and (b) drive
+    the confidence score.
+
+    Args:
+        season: Season for the season_stats saves join (default 2026).
+
+    Returns:
+        Dict keyed by team code in the canonical ``build_closer_grid`` shape::
+
+            {team: {"closer": str, "setup": list[str], "closer_confidence": float,
+                    "committee": bool}}
+
+        Empty dict when no ``depth_chart_role`` rows exist (the caller should fall
+        back to the flagged season-SV heuristic).
+    """
+    from src.database import get_connection
+
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            """
+            SELECT p.name, p.team, p.depth_chart_role,
+                   COALESCE(SUM(ss.sv), 0) AS sv
+            FROM players p
+            LEFT JOIN season_stats ss
+                   ON p.player_id = ss.player_id AND ss.season = ?
+            WHERE p.depth_chart_role IN ('closer', 'setup', 'committee')
+              AND p.team IS NOT NULL AND p.team != ''
+              AND p.name IS NOT NULL AND p.name != ''
+            GROUP BY p.player_id
+            """,
+            (season,),
+        ).fetchall()
+    except Exception:
+        return {}
+    finally:
+        conn.close()
+
+    if not rows:
+        return {}
+
+    # Bucket players per team by role.
+    by_team: dict[str, dict[str, list]] = {}
+    for name, team, role, sv in rows:
+        role_l = (role or "").strip().lower()
+        bucket = by_team.setdefault(team, {"closer": [], "setup": [], "committee": []})
+        sv_int = int(sv or 0)
+        if role_l == "closer":
+            bucket["closer"].append((name, sv_int))
+        elif role_l == "setup":
+            bucket["setup"].append((name, sv_int))
+        elif role_l == "committee":
+            bucket["committee"].append((name, sv_int))
+
+    depth: dict[str, dict] = {}
+    for team, bucket in by_team.items():
+        closers = sorted(bucket["closer"], key=lambda x: x[1], reverse=True)
+        setups = bucket["setup"]
+        committee_members = bucket["committee"]
+
+        if committee_members and not closers:
+            # No defined closer — committee. Surface the highest-saves member as the
+            # nominal name but flag it so the grid renders low/uncertain security.
+            committee_sorted = sorted(committee_members, key=lambda x: x[1], reverse=True)
+            depth[team] = {
+                "closer": "Committee",
+                "setup": [n for n, _ in committee_sorted],
+                "closer_confidence": 0.30,
+                "committee": True,
+            }
+            continue
+
+        if not closers:
+            # setup arms only, no closer/committee → not enough to name a closer.
+            continue
+
+        primary_name, primary_sv = closers[0]
+        # Demote any secondary closer-role rows to setup (statsapi top-2 heuristic).
+        secondary_closers = [n for n, _ in closers[1:]]
+        setup_names = [n for n, _ in setups] + secondary_closers
+
+        # Confidence: a designated closer starts trusted; saves nudge it up, and a
+        # crowded setup picture nudges it down toward committee territory.
+        confidence = 0.75
+        confidence += min(0.20, primary_sv / 30.0 * 0.20)
+        if len(secondary_closers) >= 1:
+            confidence -= 0.15
+        confidence = max(0.0, min(1.0, confidence))
+
+        depth[team] = {
+            "closer": primary_name,
+            "setup": setup_names,
+            "closer_confidence": round(confidence, 3),
+            "committee": False,
+        }
+
+    return depth
+
+
 def build_closer_grid(
     depth_data: dict,
     player_pool: pd.DataFrame | None = None,
