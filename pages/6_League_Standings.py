@@ -18,7 +18,11 @@ from src.database import (
 )
 from src.feature_flags import require_page_enabled
 from src.feedback import render_feedback_widget
-from src.standings_utils import close_battle_categories, get_all_team_totals
+from src.standings_utils import (
+    close_battle_categories,
+    filter_standings_to_valid_teams,
+    get_all_team_totals,
+)
 from src.ui_shared import (
     THEME,
     build_compact_table_html,
@@ -674,6 +678,17 @@ with main:
             config = LeagueConfig()
             scoring_cats = set(c.upper() for c in config.all_categories)
             cat_standings = standings_df[standings_df["category"].str.upper().isin(scoring_cats)].copy()
+
+            # MS-C5: drop ghost teams (present in the standings cache but not on
+            # current rosters) so per-category ranks never include a renamed/
+            # abandoned team. Rosters unavailable -> no filtering.
+            _rosters_for_filter = yds.get_rosters()
+            _valid_teams = (
+                set(_rosters_for_filter["team_name"].astype(str).unique())
+                if not _rosters_for_filter.empty and "team_name" in _rosters_for_filter.columns
+                else None
+            )
+            cat_standings = filter_standings_to_valid_teams(cat_standings, _valid_teams)
 
             if not cat_standings.empty:
                 st.markdown("**Category Standings**")

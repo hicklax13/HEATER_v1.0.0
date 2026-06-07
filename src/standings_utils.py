@@ -158,6 +158,19 @@ def clear_cache():
     _cached_fa_pool = None
 
 
+def filter_standings_to_valid_teams(cat_standings: pd.DataFrame, valid_teams: set[str] | None) -> pd.DataFrame:
+    """Drop ghost teams from a long-format category-standings frame (MS-C5).
+
+    Excludes teams present in the standings cache but absent from the current
+    league rosters/records, so per-category ranks never include a renamed or
+    abandoned team (the standings-page analogue of the Bug-D engine ghost filter).
+    ``valid_teams=None`` (rosters unavailable) returns the frame unchanged.
+    """
+    if valid_teams is None or cat_standings is None or cat_standings.empty or "team_name" not in cat_standings.columns:
+        return cat_standings
+    return cat_standings[cat_standings["team_name"].astype(str).isin(valid_teams)].copy()
+
+
 def get_fa_pool(
     player_pool: pd.DataFrame,
     force_refresh: bool = False,
