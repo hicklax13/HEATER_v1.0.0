@@ -129,7 +129,8 @@ All clear correctness bugs fixed. Remaining = big features + enhancements (below
 - ☑ **LO-E1** roster-relative SLOT_FILL_BONUS + ratio-protect posture. (commit 54d4bac)
 - ☑ **LO-E2** daily mode stops double-applying L14 recent form (DCV sole applier). (commit c153d57)
 - ☑ **FA-E1** = FA-C2 (L14 wiring, done).
-- ◐ **FA-E3/E4** — in progress.
+- ☑ **FA-E3** surface the stacked playing-time discount in the FA why-expander (transparency; no scoring change). (commit abf1b9e)
+- ☑ **FA-E4** 6 ECR-stddev + regression-flag nudges → CONSTANTS_REGISTRY (centralized; no behavior change). (commit 1e9f929)
 - ☐ **Deferred (risk vs low-conf value):** **PV-C4** (unify SGP denominators — changes SGP everywhere) · **LO-E4** (LP normalize by SGP denom not roster stdev — documented-deliberate, structural tests lock it) · **TE-E1** (full LP-starter per-week means — IL already excluded by TE-C1, low marginal).
 - ☐ **Deferred (preseason, no live use mid-season):** **DE-E3** (tier-cliff signal) · **DE-E4** (per-player ADP sigma / opponent need) · **DE-E5** (less self-referential grader baseline).
 
