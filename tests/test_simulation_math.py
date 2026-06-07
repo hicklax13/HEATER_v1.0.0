@@ -500,3 +500,91 @@ class TestMCConvergence:
         total_picks = 276
         expected_horizon = min(total_picks, current_pick + 1 + num_teams * 6)
         assert expected_horizon == 83  # 10 + 1 + 72 = 83
+
+
+class TestCommonRandomNumbers:
+    """DE-C1: seeded common-random-numbers across candidate evaluation."""
+
+    @staticmethod
+    def _eval_pool(n=24):
+        rows = []
+        positions = ["C", "1B", "2B", "3B", "SS", "OF", "SP", "RP"]
+        for i in range(n):
+            rows.append(
+                {
+                    "player_id": i + 1,
+                    "name": f"Player {i + 1}",
+                    "team": "TST",
+                    "positions": positions[i % len(positions)],
+                    "adp": float(i + 1),
+                    "pick_score": 10.0 - i * 0.3,
+                    "total_sgp": 10.0 - i * 0.3,
+                }
+            )
+        return pd.DataFrame(rows)
+
+    @staticmethod
+    def _draft_state():
+        from src.draft_state import DraftState
+
+        return DraftState(num_teams=12, num_rounds=23, user_team_index=0)
+
+    def test_simulate_draft_seed_reproducible(self, sim):
+        """Same seed → identical mean/std (no fresh unseeded RNG)."""
+        pool = _pool_df(30)
+        kwargs = dict(
+            available_ids=pool["player_id"].values,
+            adp_values=pool["adp"].values.astype(float),
+            sgp_values=pool["pick_score"].values.astype(float),
+            positions=[str(p) for p in pool["positions"]],
+            user_team_index=0,
+            current_pick=1,
+            total_picks=120,
+            num_teams=12,
+            user_roster_needs={"OF", "SP"},
+            candidate_id=1,
+            n_simulations=40,
+        )
+        r1 = sim.simulate_draft(seed=123, **kwargs)
+        r2 = sim.simulate_draft(seed=123, **kwargs)
+        assert r1["mean_sgp"] == r2["mean_sgp"]
+        assert r1["std_sgp"] == r2["std_sgp"]
+
+    def test_evaluate_candidates_seed_reproducible(self):
+        """Two seeded evaluate_candidates calls → identical ordering + scores."""
+        sim = DraftSimulator(LeagueConfig(), sigma=10)
+        pool = self._eval_pool()
+
+        df1 = sim.evaluate_candidates(pool, self._draft_state(), top_n=5, n_simulations=30, seed=42)
+        df2 = sim.evaluate_candidates(pool, self._draft_state(), top_n=5, n_simulations=30, seed=42)
+
+        assert list(df1["player_id"]) == list(df2["player_id"])
+        for col in ("mc_mean_sgp", "mc_std_sgp", "combined_score"):
+            assert list(df1[col]) == list(df2[col]), col
+
+    def test_evaluate_candidates_crn_independent_of_pool_order(self):
+        """CRN: permuting pool row order must not change a candidate's score.
+
+        With a shared seed, every candidate is evaluated against the same
+        opponent random stream, so each candidate's MC mean depends only on
+        the candidate itself — not on the order rows arrive in.
+        """
+        sim = DraftSimulator(LeagueConfig(), sigma=10)
+        pool = self._eval_pool()
+        shuffled = pool.sample(frac=1.0, random_state=99).reset_index(drop=True)
+
+        base = sim.evaluate_candidates(pool, self._draft_state(), top_n=5, n_simulations=30, seed=42)
+        perm = sim.evaluate_candidates(shuffled, self._draft_state(), top_n=5, n_simulations=30, seed=42)
+
+        base_by_id = dict(zip(base["player_id"], base["mc_mean_sgp"]))
+        perm_by_id = dict(zip(perm["player_id"], perm["mc_mean_sgp"]))
+        assert set(base_by_id) == set(perm_by_id)
+        for pid, val in base_by_id.items():
+            assert perm_by_id[pid] == pytest.approx(val, abs=1e-9), pid
+
+    def test_evaluate_candidates_unseeded_still_runs(self):
+        """seed=None preserves current (non-reproducible) behavior."""
+        sim = DraftSimulator(LeagueConfig(), sigma=10)
+        df = sim.evaluate_candidates(self._eval_pool(), self._draft_state(), top_n=3, n_simulations=10)
+        assert not df.empty
+        assert "mc_mean_sgp" in df.columns

@@ -304,6 +304,7 @@ class DraftSimulator:
         sgp_volatility: np.ndarray | None = None,
         category_weights: dict[str, float] | None = None,
         per_category_sgp: np.ndarray | None = None,
+        seed: int | None = None,
     ) -> dict:
         """Run Monte Carlo draft simulations for a candidate pick.
 
@@ -338,6 +339,13 @@ class DraftSimulator:
                 containing per-category SGP values aligned with *available_ids*.
                 Categories are ordered as ``self.config.all_categories``.
                 Required when *category_weights* is not None; ignored otherwise.
+            seed: Optional RNG seed (DE-C1). When set, the opponent/percentile
+                random stream is deterministic, so evaluating multiple
+                candidates under the SAME seed gives common random numbers
+                (each candidate faces the identical opponent draws), making
+                the top recommendation reproducible and signal-driven rather
+                than noise-dominated on close calls. None preserves the prior
+                non-reproducible behavior (fresh entropy each call).
 
         Returns:
             dict with 'mean_sgp', 'std_sgp', 'p25_sgp', and
@@ -348,7 +356,7 @@ class DraftSimulator:
             return {"mean_sgp": 0, "std_sgp": 0, "p25_sgp": 0, "risk_adjusted_sgp": 0}
 
         results = np.zeros(n_simulations)
-        rng = np.random.default_rng()
+        rng = np.random.default_rng(seed)
 
         # Pre-parse positions for each player into lists for fast lookup
         pos_lists = [str(p).split(",") for p in positions]
@@ -543,6 +551,7 @@ class DraftSimulator:
         sgp_volatility: np.ndarray | None = None,
         category_weights: dict[str, float] | None = None,
         per_category_sgp: np.ndarray | None = None,
+        seed: int | None = None,
     ) -> pd.DataFrame:
         """Evaluate the top N candidate picks using Monte Carlo simulation.
 
@@ -564,6 +573,13 @@ class DraftSimulator:
                 for category-aware MC pick selection. When provided, must
                 be aligned with *player_pool*; this method re-aligns it to
                 the available subset before passing to simulate_draft().
+            seed: Optional RNG seed for common random numbers (DE-C1). When
+                set, EVERY candidate is simulated against the identical
+                opponent random stream (same seed per candidate), so the
+                relative ranking reflects each candidate's true value rather
+                than independent sampling noise — and repeat calls with the
+                same seed reproduce the exact ordering/scores. None preserves
+                the prior independent-stream behavior.
 
         Returns:
             DataFrame with simulation results for each candidate.
@@ -655,6 +671,9 @@ class DraftSimulator:
                 sgp_volatility=aligned_vol,
                 category_weights=category_weights,
                 per_category_sgp=aligned_cat_sgp,
+                # DE-C1: same seed for every candidate → common random
+                # numbers, so candidate ranking is signal- not noise-driven.
+                seed=seed,
             )
 
             p_survive = self.survival_probability(
