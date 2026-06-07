@@ -145,10 +145,24 @@ class TestCalibratedWeeklyTau:
         min_counting = min(CALIBRATED_WEEKLY_TAU[c] for c in counting_cats)
         assert max_rate < min_counting, f"Rate stat max tau ({max_rate}) should be < counting stat min ({min_counting})"
 
+    def test_resolves_canonical_weekly_sigmas(self) -> None:
+        """MS-E1: CALIBRATED_WEEKLY_TAU resolves from the single canonical
+        weekly-SD source so this surface agrees with standings_projection and
+        playoff_sim (no more divergent per-module tau tables)."""
+        from src.optimizer.h2h_engine import default_weekly_sigmas
+
+        canonical = default_weekly_sigmas()
+        for cat in ALL_CATEGORIES:
+            assert CALIBRATED_WEEKLY_TAU[cat] == pytest.approx(canonical[cat]), (
+                f"{cat} tau diverges from canonical weekly SD"
+            )
+
     def test_specific_calibrated_values(self) -> None:
-        """Spot-check specific FanGraphs-derived values."""
-        assert CALIBRATED_WEEKLY_TAU["R"] == 1.6
-        assert CALIBRATED_WEEKLY_TAU["HR"] == 2.1
-        assert CALIBRATED_WEEKLY_TAU["K"] == 1.2
-        assert CALIBRATED_WEEKLY_TAU["ERA"] == 0.50
-        assert CALIBRATED_WEEKLY_TAU["WHIP"] == 0.05
+        """Spot-check the canonical FanGraphs / G-Score (arXiv:2307.02188)
+        weekly SDs. Counting stats are empirically grounded (R/RBI/K swing by
+        ~12-15 in a week), NOT the implausibly-tight pre-MS-E1 values."""
+        assert CALIBRATED_WEEKLY_TAU["R"] == pytest.approx(15.0)
+        assert CALIBRATED_WEEKLY_TAU["HR"] == pytest.approx(4.0)
+        assert CALIBRATED_WEEKLY_TAU["K"] == pytest.approx(12.0)
+        assert CALIBRATED_WEEKLY_TAU["ERA"] == pytest.approx(0.50)
+        assert CALIBRATED_WEEKLY_TAU["WHIP"] == pytest.approx(0.05)

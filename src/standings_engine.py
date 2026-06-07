@@ -16,32 +16,23 @@ import numpy as np
 import pandas as pd
 from scipy.stats import norm
 
+from src.optimizer.h2h_engine import default_weekly_sigmas
 from src.standings_projection import INVERSE_CATS
 from src.standings_projection import WEEKLY_TAU as _RAW_WEEKLY_TAU
 from src.valuation import LeagueConfig
 
 logger = logging.getLogger(__name__)
 
-# Empirical weekly SDs from FanGraphs community research (48 12-team leagues).
-# These are season-long roto category SDs in SGP/standings space, used as proxy
-# for weekly H2H variance.  Counting stats (R, HR, ...) represent how many
-# SGP-equivalent units a team can swing in a week; rate stats (AVG, OBP, ERA,
-# WHIP) are in raw units so they can be compared directly against projected
-# weekly averages.
-CALIBRATED_WEEKLY_TAU: dict[str, float] = {
-    "R": 1.6,
-    "HR": 2.1,
-    "RBI": 2.3,
-    "SB": 2.3,
-    "AVG": 0.025,
-    "OBP": 0.020,
-    "W": 1.7,
-    "L": 1.7,
-    "SV": 1.8,
-    "K": 1.2,
-    "ERA": 0.50,
-    "WHIP": 0.05,
-}
+# Per-category weekly standard deviations used for matchup win-probabilities.
+# MS-E1: resolved from the single canonical weekly-SD source (shared with
+# standings_projection + playoff_sim) so the same matchup yields the same
+# win-prob across the standings-engine, Season Projections, and Playoff Odds
+# surfaces. The prior hand-tuned values (R=1.6, K=1.2, ...) were implausibly
+# tight — a small per-category edge saturated to ~0.99. Provenance for the
+# canonical values lives in h2h_engine.default_weekly_sigmas (FanGraphs 12-team
+# H2H weekly variance + arXiv:2307.02188). The consumer below combines two
+# independent team draws via sqrt(2 * var), so these are per-team weekly SDs.
+CALIBRATED_WEEKLY_TAU: dict[str, float] = default_weekly_sigmas()
 
 # Keep the raw-stat WEEKLY_TAU available for backward compat with callers that
 # import it from this module.

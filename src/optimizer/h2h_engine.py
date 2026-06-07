@@ -91,6 +91,37 @@ def default_category_variances() -> dict[str, float]:
     }
 
 
+def default_weekly_sigmas() -> dict[str, float]:
+    """Return the CANONICAL per-category weekly standard deviation for each
+    fantasy category, keyed by the league's uppercase category names.
+
+    This is the single source of truth (MS-E1) for weekly per-category SDs used
+    by every win-probability surface — standings_engine, standings_projection,
+    and playoff_sim all resolve their per-category weekly SD from here so the
+    same matchup yields the same win-prob across the Season Projections, Playoff
+    Odds, and standings-engine pages.
+
+    The values are simply ``sqrt(default_category_variances())``, re-keyed from
+    the lowercase stat names to the league's canonical uppercase category names.
+    Provenance: FanGraphs community research on 12-team H2H weekly category
+    variance + the G-Score weekly-tau analysis (arXiv:2307.02188). A realistic
+    one-team-sigma edge through the consumers' ``sqrt(2)*sd`` difference SD lands
+    a win-prob at ~0.76 — neither compressed toward 0.5 nor saturated near 0.99.
+
+    Returns:
+        Dict mapping uppercase category name (R, HR, ..., ERA, WHIP) to the
+        per-team weekly standard deviation. All values are positive.
+    """
+    variances = default_category_variances()
+    cfg = _LC_Class()
+    sigmas: dict[str, float] = {}
+    for cat in cfg.all_categories:
+        key = cfg.STAT_MAP.get(cat, cat.lower())
+        var = variances.get(key, 1.0)
+        sigmas[cat] = float(math.sqrt(max(float(var), 0.0)))
+    return sigmas
+
+
 # ── H2H Category Weights ────────────────────────────────────────────
 
 

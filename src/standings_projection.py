@@ -7,27 +7,18 @@ import numpy as np
 import pandas as pd
 from scipy.stats import norm
 
+from src.optimizer.h2h_engine import default_weekly_sigmas
 from src.validation.constant_optimizer import load_constants
 from src.valuation import LeagueConfig
 
 _CONSTANTS = load_constants()
 _LC_ONCE = LeagueConfig()
 
-# Weekly stat standard deviations (tau) per category
-WEEKLY_TAU: dict[str, float] = {
-    "R": 6.0,
-    "HR": 2.5,
-    "RBI": 6.5,
-    "SB": 1.5,
-    "AVG": 0.020,
-    "OBP": 0.025,
-    "W": 1.0,
-    "L": 1.0,
-    "SV": 1.5,
-    "K": 8.0,
-    "ERA": _CONSTANTS.get("standings_tau_era"),
-    "WHIP": 0.15,
-}
+# Weekly stat standard deviations (tau) per category.
+# MS-E1: resolved from the single canonical weekly-SD source so this surface,
+# standings_engine, and playoff_sim all agree on per-category weekly variance.
+# (Provenance for the values lives in h2h_engine.default_weekly_sigmas.)
+WEEKLY_TAU: dict[str, float] = default_weekly_sigmas()
 
 INVERSE_CATS: set[str] = set(_LC_ONCE.inverse_stats)
 

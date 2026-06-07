@@ -13,7 +13,7 @@ import pandas as pd
 from src.valuation import LeagueConfig
 
 try:
-    from src.optimizer.h2h_engine import default_category_variances
+    from src.optimizer.h2h_engine import default_weekly_sigmas
 
     _HAS_H2H = True
 except ImportError:
@@ -22,22 +22,26 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 # ── Default weekly standard deviations ──────────────────────────────
-# Used when the h2h_engine module is unavailable.  These represent
-# typical weekly fluctuation for a single 12-team H2H roster.
-
+# MS-E1: per-category weekly SDs resolve from the single canonical source
+# (h2h_engine.default_weekly_sigmas) so this surface, standings_engine, and
+# standings_projection all agree on per-category weekly variance and the same
+# matchup yields the same win-prob across pages. The literal fallback below is
+# used ONLY if h2h_engine fails to import; the VALUES are the canonical set
+# (FanGraphs 12-team H2H weekly variance + arXiv:2307.02188), so even the
+# degraded path stays consistent with the other two surfaces.
 _DEFAULT_WEEKLY_SIGMAS: dict[str, float] = {
-    "R": 8.5,
-    "HR": 3.2,
-    "RBI": 8.0,
-    "SB": 2.8,
+    "R": 15.0,
+    "HR": 4.0,
+    "RBI": 14.0,
+    "SB": 3.0,
     "AVG": 0.015,
-    "OBP": 0.014,
-    "W": 1.6,
+    "OBP": 0.012,
+    "W": 1.5,
     "L": 1.5,
-    "SV": 2.4,
+    "SV": 1.5,
     "K": 12.0,
-    "ERA": 0.75,
-    "WHIP": 0.06,
+    "ERA": 0.5,
+    "WHIP": 0.05,
 }
 
 # Reasonable clip bounds for sampled rate stats
@@ -62,15 +66,11 @@ def _build_weekly_sigmas(config: LeagueConfig | None = None) -> dict[str, float]
     cfg = config or LeagueConfig()
 
     if _HAS_H2H:
-        variances = default_category_variances()
-        sigmas: dict[str, float] = {}
-        for cat in cfg.all_categories:
-            key = cfg.STAT_MAP.get(cat, cat.lower())
-            var = variances.get(key, 1.0)
-            sigmas[cat] = float(np.sqrt(max(var, 0.0)))
-        return sigmas
+        # MS-E1: resolve from the single canonical weekly-SD source.
+        canonical = default_weekly_sigmas()
+        return {cat: float(canonical.get(cat, 1.0)) for cat in cfg.all_categories}
 
-    # Fallback
+    # Fallback (h2h_engine unavailable) — same canonical VALUES.
     return {cat: _DEFAULT_WEEKLY_SIGMAS.get(cat, 1.0) for cat in cfg.all_categories}
 
 

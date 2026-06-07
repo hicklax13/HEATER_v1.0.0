@@ -6,14 +6,21 @@ flagged this as H2 — concerned that tau (variance) would be miscalibrated rela
 to the new mean scale, compressing all win probabilities toward 0.5.
 
 Empirical check: with the L3 fix, a clearly-elite team (910 R/season → 35 R/wk)
-vs a weak team (650 R/season → 25 R/wk) gives:
+vs a weak team (650 R/season → 25 R/wk) is the clear matchup favorite — H2 was a
+false positive (p_win is NOT compressed toward 0.5).
+
+MS-E1 (2026-06-07) then unified the three divergent per-module weekly-variance
+tables onto one canonical source (h2h_engine.default_weekly_sigmas). The prior
+standings_engine taus were implausibly tight (R=1.6, K=1.2), which saturated a
+10 R/wk edge to ~0.99. Under the canonical, empirically-grounded SDs (R sd=15,
+K sd=12):
 
     USER weekly R = 35.08, OPP weekly R = 24.92
-    P(USER wins R) = 0.990  ← DECISIVE, not compressed
-    Overall win pct = 0.9991
+    P(USER wins R) ≈ 0.75   ← clear favorite, REALISTICALLY calibrated
+    Overall win pct > 0.95  ← decisive, driven by the rate-stat sweep
 
-H2 was a false positive. This test locks the empirical p_win values to detect
-future drift if the divisor or tau scale ever changes.
+This test locks the realistic p_win bands to detect future drift if the divisor
+or the canonical weekly-SD scale ever changes.
 """
 
 from __future__ import annotations
@@ -139,11 +146,17 @@ def test_l3_weekly_mean_uses_season_weeks(synthetic_unequal_rosters):
 
 
 def test_l3_win_prob_decisive_for_unequal_rosters(synthetic_unequal_rosters):
-    """H2 lock: tau/sigma_diff stays calibrated; decisive p_win for clear winners.
+    """L3 + MS-E1 lock: the elite roster is clearly favored, with REALISTICALLY
+    calibrated per-category win-probs.
 
-    Silent-failure-hunter H2 was concerned that the L3 divisor change would
-    compress p_win values toward 0.5. Empirically it doesn't — this test
-    locks the decisive-win behavior.
+    Silent-failure-hunter H2 was concerned the L3 divisor change would compress
+    p_win toward 0.5; it does not — the elite roster decisively wins the matchup
+    overall. MS-E1 then replaced the implausibly-tight per-module tau (R=1.6,
+    K=1.2 — which saturated a 10 R/wk edge to ~0.99) with the canonical,
+    empirically-grounded weekly SDs (R sd=15, K sd=12). A 10-runs/week edge is a
+    clear-favorite ~0.75, NOT a near-certain 0.99 — that is the correct, sane
+    calibration this test now locks. The overall win-prob stays decisive because
+    the rate stats (AVG/OBP/ERA/WHIP) are swept by wide margins.
     """
     config = LeagueConfig()
     pool = synthetic_unequal_rosters
@@ -159,20 +172,28 @@ def test_l3_win_prob_decisive_for_unequal_rosters(synthetic_unequal_rosters):
         weeks_remaining=16,
     )
 
-    # Decisive overall win — should be very high given the lopsided rosters.
+    # Decisive overall win — still very high given the lopsided rosters (driven
+    # by the rate-stat sweep), even with realistically-wider counting-stat SDs.
     assert result["overall_win_pct"] > 0.95, (
-        f"H2 regression: overall_win_pct should be >0.95 for clearly-elite vs weak rosters; "
+        f"overall_win_pct should be >0.95 for clearly-elite vs weak rosters; "
         f"got {result['overall_win_pct']:.3f}. If compressed near 0.5, the L3 divisor + "
-        f"CALIBRATED_WEEKLY_TAU are out of scale. See PR #47 H2 finding."
+        f"canonical weekly SDs (h2h_engine.default_weekly_sigmas) are out of scale."
     )
 
     cat_probs = {c["name"]: c["win_pct"] for c in result["categories"]}
 
-    # USER decisively wins counting stats with ~10 R/wk advantage.
-    assert cat_probs["R"] > 0.95, f"P(user wins R) should be >0.95; got {cat_probs['R']:.3f}"
-    assert cat_probs["RBI"] > 0.95, f"P(user wins RBI) should be >0.95; got {cat_probs['RBI']:.3f}"
-    assert cat_probs["HR"] > 0.85, f"P(user wins HR) should be >0.85; got {cat_probs['HR']:.3f}"
-    assert cat_probs["K"] > 0.95, f"P(user wins K) should be >0.95; got {cat_probs['K']:.3f}"
+    # USER is the clear favorite in counting stats with a ~10 R/wk advantage —
+    # favored but NOT near-certain, the empirically-correct band (~0.66-0.85).
+    assert 0.65 < cat_probs["R"] < 0.85, f"P(user wins R) should be a clear favorite ~0.75; got {cat_probs['R']:.3f}"
+    assert 0.60 < cat_probs["RBI"] < 0.80, f"P(user wins RBI) should be ~0.67; got {cat_probs['RBI']:.3f}"
+    assert 0.65 < cat_probs["HR"] < 0.90, f"P(user wins HR) should be ~0.78; got {cat_probs['HR']:.3f}"
+    assert 0.75 < cat_probs["K"] < 0.95, f"P(user wins K) should be ~0.85; got {cat_probs['K']:.3f}"
+
+    # Rate stats are swept by wide margins relative to their (small) weekly SDs —
+    # these remain decisively in the user's favor and drive the overall win.
+    assert cat_probs["AVG"] > 0.90, f"P(user wins AVG) should be decisive; got {cat_probs['AVG']:.3f}"
+    assert cat_probs["ERA"] > 0.90, f"P(user wins ERA) should be decisive; got {cat_probs['ERA']:.3f}"
+    assert cat_probs["WHIP"] > 0.90, f"P(user wins WHIP) should be decisive; got {cat_probs['WHIP']:.3f}"
 
     # USER decisively wins inverse rate stats (lower better).
     assert cat_probs["ERA"] > 0.95, f"P(user wins ERA) should be >0.95; got {cat_probs['ERA']:.3f}"
