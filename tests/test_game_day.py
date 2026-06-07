@@ -153,12 +153,90 @@ def test_weather_stores_to_db(mock_requests):
 
     from src.database import load_game_day_weather
 
-    today = datetime.now(UTC).strftime("%Y-%m-%d")
-    df = load_game_day_weather(today)
+    # DB-C4: rows are now stamped with the ET target date, not UTC.
+    from src.game_day import get_target_game_date
+
+    df = load_game_day_weather(get_target_game_date())
     assert len(df) >= 1
     row = df.iloc[0]
     assert row["venue_team"] == "COL"
     assert row["temp_f"] == 85.0
+
+
+# ── DB-C4: weather game_date (ET) + venue-local forecast hour ─────────
+
+
+@patch("src.game_day._requests")
+def test_weather_game_date_uses_et_target_not_utc(mock_requests):
+    """DB-C4: a night game whose UTC date is already 'tomorrow' must store the
+    ET target date (matching the schedule fetch), not datetime.now(UTC).date()."""
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = {
+        "hourly": {
+            "temperature_2m": [70.0] * 24,
+            "windspeed_10m": [8.5] * 24,
+            "winddirection_10m": [180.0] * 24,
+            "precipitation_probability": [10.0] * 24,
+            "relativehumidity_2m": [55.0] * 24,
+        },
+        "utc_offset_seconds": -14400,
+    }
+    mock_resp.raise_for_status = MagicMock()
+    mock_requests.get.return_value = mock_resp
+
+    # Pin both the UTC clock (already next-day) and the ET target date so the
+    # two diverge: the stored game_date must follow the ET target.
+    schedule = [_make_schedule_game("New York Yankees")]
+    with (
+        patch("src.game_day.get_target_game_date", return_value="2026-06-07"),
+        patch("src.game_day.datetime") as mock_dt,
+    ):
+        # datetime.now(UTC) → a moment whose UTC date is 2026-06-08 (next day).
+        from datetime import datetime as _real_dt
+
+        mock_dt.now.return_value = _real_dt(2026, 6, 8, 2, 30)
+        mock_dt.side_effect = lambda *a, **k: _real_dt(*a, **k)
+        results = fetch_game_day_weather(schedule)
+
+    assert len(results) == 1
+    assert results[0]["game_date"] == "2026-06-07", (
+        f"game_date should be the ET target date, got {results[0]['game_date']}"
+    )
+
+
+@patch("src.game_day._requests")
+def test_weather_forecast_hour_converted_to_venue_local(mock_requests):
+    """DB-C4: the game's UTC start hour must be converted to venue-local time
+    before indexing the (now timezone=auto) local hourly array."""
+    # Distinct value per hour so we can detect which index was picked.
+    hourly_temps = [float(h) for h in range(24)]
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = {
+        "hourly": {
+            "temperature_2m": hourly_temps,
+            "windspeed_10m": [5.0] * 24,
+            "winddirection_10m": [90.0] * 24,
+            "precipitation_probability": [0.0] * 24,
+            "relativehumidity_2m": [40.0] * 24,
+        },
+        # NYY (Eastern) in June = EDT = UTC-4 → -14400 seconds.
+        "utc_offset_seconds": -14400,
+    }
+    mock_resp.raise_for_status = MagicMock()
+    mock_requests.get.return_value = mock_resp
+
+    # 7:10 PM ET first pitch == 23:10 UTC. Local hour must be 23 + (-4) = 19.
+    schedule = [_make_schedule_game("New York Yankees", game_datetime="2026-06-07T23:10:00Z")]
+    results = fetch_game_day_weather(schedule)
+
+    assert len(results) == 1
+    assert results[0]["temp_f"] == 19.0, (
+        f"Expected venue-local hour 19 (UTC 23 + offset -4), got temp {results[0]['temp_f']} "
+        f"(raw UTC-hour indexing would give 23.0)"
+    )
+    # The request must ask Open-Meteo for venue-local times.
+    called_url = mock_requests.get.call_args[0][0]
+    assert "timezone=auto" in called_url, "Open-Meteo request must use timezone=auto"
 
 
 # ── fetch_team_strength tests ─────────────────────────────────────────

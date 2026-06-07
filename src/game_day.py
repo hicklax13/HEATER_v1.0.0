@@ -342,7 +342,12 @@ def fetch_game_day_weather(schedule: list[dict]) -> list[dict]:
     }
 
     results: list[dict] = []
-    today_str = datetime.now(UTC).strftime("%Y-%m-%d")
+    # DB-C4: stamp rows with the ET target date (matching the schedule fetch in
+    # fetch_game_day_intelligence), not datetime.now(UTC). During the evening
+    # game window the UTC date rolls over to "tomorrow" while MLB games are
+    # still "today" in ET — UTC stamping wrote night games to a next-day row
+    # the optimizer (which reads by get_target_game_date) never queried.
+    today_str = get_target_game_date()
 
     for game in schedule:
         game_pk = game.get("game_id") or game.get("game_pk") or game.get("gamePk", 0)
@@ -370,13 +375,16 @@ def fetch_game_day_weather(schedule: list[dict]) -> list[dict]:
         # Fetch from Open-Meteo (free, no API key)
         lat, lon = STADIUM_COORDS[venue_abbr]
         try:
+            # DB-C4: request timezone=auto so the hourly array is in venue-LOCAL
+            # time, and convert the game's UTC start hour to local before
+            # indexing (statsapi game_datetime is UTC, e.g. "...T23:10:00Z").
             url = (
                 f"https://api.open-meteo.com/v1/forecast?"
                 f"latitude={lat}&longitude={lon}"
                 f"&hourly=temperature_2m,windspeed_10m,winddirection_10m,"
                 f"precipitation_probability,relativehumidity_2m"
                 f"&temperature_unit=fahrenheit&windspeed_unit=mph"
-                f"&forecast_days=1"
+                f"&timezone=auto&forecast_days=1"
             )
             resp = _requests.get(url, timeout=10)
             resp.raise_for_status()
@@ -389,12 +397,19 @@ def fetch_game_day_weather(schedule: list[dict]) -> list[dict]:
             precips = hourly.get("precipitation_probability", [])
             humids = hourly.get("relativehumidity_2m", [])
 
-            # Pick game-time hour (default 19:00 local = ~7pm first pitch)
+            # Pick game-time hour (default 19:00 local = ~7pm first pitch).
+            # game_datetime is UTC; add the venue's utc_offset_seconds (returned
+            # by timezone=auto) to land on the correct local hour index.
             game_dt = game.get("game_datetime", "")
             try:
-                hour = int(game_dt[11:13]) if game_dt and len(game_dt) > 13 else 19
+                utc_hour = int(game_dt[11:13]) if game_dt and len(game_dt) > 13 else None
             except (ValueError, IndexError):
+                utc_hour = None
+            if utc_hour is None:
                 hour = 19
+            else:
+                offset_hours = int(data.get("utc_offset_seconds", 0) // 3600)
+                hour = (utc_hour + offset_hours) % 24
             # Clamp to available data range
             idx = min(hour, len(temps) - 1) if temps else 0
 
