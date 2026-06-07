@@ -448,7 +448,8 @@ class TestMCConvergence:
             candidate_id=1,
             n_simulations=50,
         )
-        # With SGP=2.0 for everyone and ~6-round horizon picking ~6 players
+        # With SGP=2.0 for everyone and a ~4-round horizon picking several
+        # players, the user's expected total SGP is positive.
         assert result["mean_sgp"] > 0, "Mean SGP should be positive"
 
     def test_std_positive_with_noise(self, sim):
@@ -493,13 +494,40 @@ class TestMCConvergence:
         )
         assert result["risk_adjusted_sgp"] <= result["mean_sgp"] + 0.01
 
-    def test_horizon_limit(self):
-        """MC horizon = current_pick + 1 + num_teams * 6."""
+    def test_horizon_limit(self, sim):
+        """MC horizon = current_pick + 1 + num_teams * 4 (DE-C5).
+
+        Pin the horizon multiplier at 4 (~4 rounds of look-ahead) and
+        actually drive simulate_draft, instead of recomputing the schedule
+        locally (the old test asserted `* 6` against a value it computed
+        itself and never called the code — a self-referential no-op).
+        """
         current_pick = 10
         num_teams = 12
         total_picks = 276
-        expected_horizon = min(total_picks, current_pick + 1 + num_teams * 6)
-        assert expected_horizon == 83  # 10 + 1 + 72 = 83
+        # Intentional pin: simulation.py uses num_teams * 4.
+        expected_horizon = min(total_picks, current_pick + 1 + num_teams * 4)
+        assert expected_horizon == 59  # 10 + 1 + 48 = 59
+
+        # Drive the real code path. With a 60-player pool and a 59-pick
+        # horizon, every opponent pick in range draws a player; the run
+        # must complete and return finite stats under the *4 horizon.
+        pool = _pool_df(60)
+        result = sim.simulate_draft(
+            available_ids=pool["player_id"].values,
+            adp_values=pool["adp"].values.astype(float),
+            sgp_values=np.ones(60) * 2.0,
+            positions=[str(p) for p in pool["positions"]],
+            user_team_index=0,
+            current_pick=current_pick,
+            total_picks=total_picks,
+            num_teams=num_teams,
+            user_roster_needs={"OF", "SP"},
+            candidate_id=1,
+            n_simulations=10,
+        )
+        assert np.isfinite(result["mean_sgp"])
+        assert np.isfinite(result["std_sgp"])
 
 
 class TestCommonRandomNumbers:
