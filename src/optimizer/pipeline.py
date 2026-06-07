@@ -331,6 +331,11 @@ class LineupOptimizerPipeline:
                     enable_kalman=True,
                     enable_statcast=(self.mode in ("full", "standard")),
                     enable_injury=True,
+                    # LO-E2: in 'daily' mode the DCV stage (build_daily_dcv_table)
+                    # is the canonical L14 recent-form applier, so skip Step 4
+                    # here to avoid blending recent form twice. Non-daily modes
+                    # keep Stage 1 recent form (unchanged behavior).
+                    enable_recent_form=(self.mode != "daily"),
                     weeks_remaining=self.weeks_remaining,
                 )
                 logger.info("Stage 1: Enhanced projections applied")

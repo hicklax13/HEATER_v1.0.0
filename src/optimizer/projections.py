@@ -74,6 +74,7 @@ def build_enhanced_projections(
     enable_statcast: bool = True,
     enable_injury: bool = True,
     enable_playing_time: bool = True,
+    enable_recent_form: bool = True,
     weeks_remaining: int = 16,
 ) -> pd.DataFrame:
     """Build enhanced projections by chaining analytics modules.
@@ -92,6 +93,11 @@ def build_enhanced_projections(
         enable_injury: Scale counting stats by expected availability.
         enable_playing_time: Adjust counting stats by predicted remaining
             playing time (PA for hitters, IP for pitchers).
+        enable_recent_form: Blend L14 recent-form game-log aggregates into the
+            projection (Step 4). Defaults to True. Set False when a downstream
+            stage owns recent-form blending — e.g. the pipeline's 'daily' mode,
+            where build_daily_dcv_table applies L14 itself and running it here
+            too would double-apply (LO-E2).
         weeks_remaining: Weeks left in the fantasy season.
 
     Returns:
@@ -139,7 +145,10 @@ def build_enhanced_projections(
         enhanced = _apply_statcast_adjustment(enhanced)
 
     # Step 4: Recent form adjustment (L7/L14/L30)
-    enhanced = _apply_recent_form_adjustment(enhanced)
+    # Gated so a downstream stage can own recent-form blending without
+    # double-applying L14 (LO-E2: pipeline 'daily' mode → build_daily_dcv_table).
+    if enable_recent_form:
+        enhanced = _apply_recent_form_adjustment(enhanced)
 
     # Step 5: Injury availability scaling
     if enable_injury:
