@@ -445,7 +445,7 @@ def render_step_settings():
                     f'<a href="{auth_url}" target="_blank" style="'
                     f"display:inline-block;padding:8px 20px;"
                     f"background:{T['amber']};color:{T['ink']};"
-                    f"border-radius:8px;font-weight:700;font-family:Bebas Neue,sans-serif;"
+                    f"border-radius:8px;font-weight:700;font-family:var(--font-body);"
                     f'text-decoration:none;font-size:14px;">'
                     f"Authorize with Yahoo</a>",
                     unsafe_allow_html=True,
@@ -505,7 +505,7 @@ def render_step_settings():
         st.markdown(
             f'<div style="background:{T["card"]};border:1px solid {T["ok"]};'
             f'border-radius:12px;padding:12px 16px;margin-bottom:16px;">'
-            f'<span style="font-family:Bebas Neue,sans-serif;color:{T["ok"]};'
+            f'<span style="font-family:var(--font-body);color:{T["ok"]};'
             f'font-size:14px;">{PAGE_ICONS["check"]} Yahoo Fantasy Connected</span></div>',
             unsafe_allow_html=True,
         )
@@ -533,7 +533,7 @@ def render_step_settings():
                     f'border-top:1px solid {T["border"]};margin-top:6px;padding-top:8px;">'
                     f'<span style="font-size:14px;">{PAGE_ICONS["check"]}</span>'
                     f'<span style="color:{T["tx"]};font-size:13px;font-weight:700;'
-                    f"font-family:'Bebas Neue',sans-serif;letter-spacing:1px;\">"
+                    f'font-family:var(--font-body);letter-spacing:1px;">'
                     f"TOTAL LOAD TIME</span>"
                     f'<span style="color:{T["tx2"]};font-size:12px;'
                     f"font-family:'IBM Plex Mono',monospace;\">— {_elapsed_hms}</span></div>",
@@ -562,7 +562,7 @@ def render_step_settings():
     with qs1:
         st.markdown(
             f'<div class="metric-card">'
-            f'<div style="font-family:Bebas Neue,sans-serif;font-size:13px;letter-spacing:2px;'
+            f'<div style="font-family:var(--font-body);font-size:13px;letter-spacing:2px;'
             f'color:{T["tx2"]};text-transform:uppercase;">League Format</div>'
             f'<div style="font-family:Figtree,sans-serif;font-size:18px;font-weight:700;'
             f'color:{T["tx"]};margin-top:4px;">{num_teams} Teams</div>'
@@ -585,7 +585,7 @@ def render_step_settings():
         conn_badge = f'<span style="color:{_badge_color};font-weight:{_badge_weight};">{_badge_text}</span>'
         st.markdown(
             f'<div class="metric-card">'
-            f'<div style="font-family:Bebas Neue,sans-serif;font-size:13px;letter-spacing:2px;'
+            f'<div style="font-family:var(--font-body);font-size:13px;letter-spacing:2px;'
             f'color:{T["tx2"]};text-transform:uppercase;">Player Pool</div>'
             f'<div style="font-family:Figtree,sans-serif;font-size:18px;font-weight:700;'
             f'color:{T["tx"]};margin-top:4px;">{pool_label}</div>'
@@ -707,7 +707,7 @@ def render_step_launch():
         st.markdown(
             f'<div class="glass" style="display:flex;align-items:center;gap:12px;padding:12px 16px;">'
             f'<span style="font-size:20px;">{icon}</span>'
-            f'<div><span style="font-family:Bebas Neue,sans-serif;font-weight:600;font-size:14px;'
+            f'<div><span style="font-family:var(--font-body);font-weight:600;font-size:14px;'
             f'text-transform:uppercase;letter-spacing:1px;color:{T["tx"]};">{label}</span>'
             f'<br><span class="badge {badge_cls}">{detail}</span></div></div>',
             unsafe_allow_html=True,
@@ -1066,7 +1066,7 @@ def render_draft_page():
         st.markdown(
             f'<div class="glass" style="border:2px solid {T["warn"]};'
             f'padding:10px;text-align:center;margin-bottom:12px;">'
-            f'<span style="font-family:Bebas Neue,sans-serif;letter-spacing:2px;color:{T["warn"]};">'
+            f'<span style="font-family:var(--font-body);letter-spacing:2px;color:{T["warn"]};">'
             f"PRACTICE MODE — Picks will not be saved</span></div>",
             unsafe_allow_html=True,
         )
@@ -1296,7 +1296,7 @@ def render_draft_page():
             picks_away = ds.picks_until_user_turn()
             st.markdown(
                 f'<div class="glass" style="text-align:center;padding:32px;">'
-                f'<div style="font-family:Bebas Neue,sans-serif;font-size:20px;color:{T["tx2"]};">'
+                f'<div style="font-family:var(--font-body);font-size:20px;color:{T["tx2"]};">'
                 f"{team_name} is on the clock</div>"
                 f'<div style="font-family:IBM Plex Mono,monospace;font-size:14px;color:{T["tx2"]};'
                 f'margin-top:8px;">{picks_away} picks until your turn</div></div>',
@@ -1740,7 +1740,7 @@ def render_pick_entry(ds, pool, available):
             # Confirmation card
             st.markdown(
                 f'<div class="glass" style="border-color:{T["amber"]}44;">'
-                f'<div style="font-family:Bebas Neue,sans-serif;font-size:16px;color:{T["tx"]};">'
+                f'<div style="font-family:var(--font-body);font-size:16px;color:{T["tx"]};">'
                 f"{p['player_name']}</div>"
                 f'<div style="font-size:12px;color:{T["tx2"]};">{p.get("positions", "?")}</div>'
                 f"</div>",
@@ -2479,7 +2479,7 @@ def render_draft_log(ds):
         # Round break
         if entry["pick_in_round"] == 1 and entry["pick"] > 0:
             st.markdown(
-                f'<div style="text-align:center;padding:4px;font-family:Bebas Neue,sans-serif;'
+                f'<div style="text-align:center;padding:4px;font-family:var(--font-body);'
                 f'font-size:11px;color:{T["tx2"]};text-transform:uppercase;letter-spacing:2px;">'
                 f"— Round {entry['round']} —</div>",
                 unsafe_allow_html=True,
