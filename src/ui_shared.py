@@ -667,7 +667,7 @@ def inject_custom_css():
        container max-width here keeps the layout wide regardless of routing. */
     [data-testid="stMainBlockContainer"],
     [data-testid="stAppViewBlockContainer"],
-    .block-container {{ max-width: 100% !important; }}
+    .block-container {{ max-width: 1180px !important; margin-left: auto !important; margin-right: auto !important; }}
 
     /* ── HIDE STREAMLIT CHROME ────────────────── */
     /* Pure clutter (decoration strip + Deploy button) — hidden on all widths. */
@@ -2189,6 +2189,88 @@ def inject_custom_css():
             backdrop-filter: none !important;
         }}
     }}
+
+    /* ── FP COMPONENTS (revamp task 3) — flat cards, clean buttons,
+          underline tabs, rounded inputs. Placed late to win the cascade. ── */
+    .glass, .fp-card, .metric-card, div[data-testid="stMetric"] {{
+        background: var(--fp-surface) !important;
+        backdrop-filter: none !important;
+        -webkit-backdrop-filter: none !important;
+        border: 1px solid var(--fp-border) !important;
+        border-radius: var(--fp-radius) !important;
+        box-shadow: var(--fp-shadow) !important;
+        padding: 20px !important;
+    }}
+    .glass:hover, .fp-card:hover {{
+        transform: none !important;
+        box-shadow: 0 4px 14px rgba(16,33,58,.10) !important;
+    }}
+    /* Buttons: flat, rounded, solid red primary / white-outline secondary */
+    .stButton > button {{
+        border-radius: var(--fp-radius-sm) !important;
+        font-weight: 600 !important;
+        font-size: 14px !important;
+        border: 1px solid var(--fp-border) !important;
+        background: var(--fp-surface) !important;
+        color: var(--fp-tx) !important;
+        box-shadow: none !important;
+        transform: none !important;
+        transition: background .15s ease, border-color .15s ease, color .15s ease !important;
+    }}
+    .stButton > button:hover {{
+        border-color: var(--fp-primary) !important;
+        color: var(--fp-primary) !important;
+        transform: none !important;
+        box-shadow: none !important;
+    }}
+    .stButton > button[kind="primary"],
+    .stButton > button[data-testid="stBaseButton-primary"] {{
+        background: var(--fp-primary) !important;
+        color: var(--fp-ink) !important;
+        border-color: var(--fp-primary) !important;
+        box-shadow: none !important;
+        transform: none !important;
+    }}
+    .stButton > button[kind="primary"]:hover,
+    .stButton > button[data-testid="stBaseButton-primary"]:hover {{
+        background: #cf2f3c !important;
+        border-color: #cf2f3c !important;
+        color: var(--fp-ink) !important;
+        transform: none !important;
+        box-shadow: none !important;
+    }}
+    /* Tabs: FP underline strip (no glass pill) */
+    .stTabs [data-baseweb="tab-list"] {{
+        gap: 4px !important;
+        background: transparent !important;
+        backdrop-filter: none !important;
+        border: none !important;
+        border-bottom: 1px solid var(--fp-divider) !important;
+        border-radius: 0 !important;
+        padding: 0 !important;
+    }}
+    .stTabs [data-baseweb="tab"] {{
+        background: transparent !important;
+        color: var(--fp-tx-muted) !important;
+        font-weight: 600 !important;
+        border-radius: 0 !important;
+        padding: 8px 14px !important;
+        box-shadow: none !important;
+    }}
+    .stTabs [aria-selected="true"] {{
+        background: transparent !important;
+        color: var(--fp-primary) !important;
+        box-shadow: inset 0 -2px 0 var(--fp-primary) !important;
+    }}
+    /* Inputs: FP rounded-sm */
+    div[data-testid="stTextInput"] input,
+    div[data-testid="stNumberInput"] input,
+    div[data-testid="stSelectbox"] > div {{
+        border-radius: var(--fp-radius-sm) !important;
+        border-color: var(--fp-border) !important;
+    }}
+    /* Roomier top spacing */
+    .block-container {{ padding-top: 1.5rem !important; }}
 
     /* ── FP calm: retire Bebas-era all-caps on prose headers/names/actions.
           Placed last so it wins the cascade over earlier uppercase rules.
