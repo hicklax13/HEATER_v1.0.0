@@ -1,0 +1,5 @@
+# Shell scripts MUST use LF endings so the Linux container's /bin/sh can run
+# them — a CRLF start.sh injects \r and breaks the shebang + every command
+# (#9 boot scheduler, 2026-06-07). eol=lf overrides core.autocrlf on Windows
+# checkouts, so the script stays LF on every platform/clone.
+*.sh text eol=lf
