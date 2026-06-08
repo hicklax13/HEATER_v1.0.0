@@ -2295,6 +2295,13 @@ def clear_league_rosters():
 # or falls below this fraction of the cached row count, is treated as incomplete
 # and the caller KEEPS the existing cache rather than wiping it.
 _ROSTER_SYNC_MIN_ROW_FRACTION = 0.8
+# Per-team completeness (2026-06-08 incident): a single team's roster collapsing
+# is only ~8% of league rows in a 12-team league, so it slips under the aggregate
+# floor above. Treat a fetch as incomplete if any team that had at least
+# _ROSTER_SYNC_TEAM_FLOOR players cached would keep fewer than this fraction of
+# them — the owner's own team (Team Hickey) was emptied while the other 11 survived.
+_ROSTER_SYNC_MIN_TEAM_ROW_FRACTION = 0.5
+_ROSTER_SYNC_TEAM_FLOOR = 3
 
 
 def roster_fetch_is_complete(new_rosters_df, *, min_row_fraction: float = _ROSTER_SYNC_MIN_ROW_FRACTION) -> bool:
@@ -2302,8 +2309,10 @@ def roster_fetch_is_complete(new_rosters_df, *, min_row_fraction: float = _ROSTE
     REPLACE the cached ``league_rosters`` (clear + reinsert).
 
     Returns ``False`` (caller should KEEP the existing cache) when the fetch is
-    empty/malformed, has fewer teams than the cache, or loses more than
-    ``1 - min_row_fraction`` of total roster rows. When the cache is empty
+    empty/malformed, has fewer teams than the cache, loses more than
+    ``1 - min_row_fraction`` of total roster rows, OR drops any single cached
+    team (with a real roster) below ``_ROSTER_SYNC_MIN_TEAM_ROW_FRACTION`` of its
+    players (the 2026-06-08 single-team-wipe gap). When the cache is empty
     (first-ever load) any non-empty fetch is considered complete.
     """
     if new_rosters_df is None or "team_name" not in getattr(new_rosters_df, "columns", []):
@@ -2319,6 +2328,16 @@ def roster_fetch_is_complete(new_rosters_df, *, min_row_fraction: float = _ROSTE
         return False
     if len(new_rosters_df) < len(existing) * min_row_fraction:
         return False
+    # Per-team completeness: catch a single team collapsing (e.g. the token
+    # owner's own roster fetch returning empty) that the aggregate checks above
+    # miss because one team is only ~8% of league rows.
+    if "team_name" in existing.columns:
+        new_counts = new_rosters_df["team_name"].value_counts().to_dict()
+        for team, old_count in existing["team_name"].value_counts().items():
+            if int(old_count) < _ROSTER_SYNC_TEAM_FLOOR:
+                continue
+            if new_counts.get(team, 0) < int(old_count) * _ROSTER_SYNC_MIN_TEAM_ROW_FRACTION:
+                return False
     return True
 
 

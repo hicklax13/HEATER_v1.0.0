@@ -110,6 +110,53 @@ def test_large_row_loss_same_teams_is_incomplete():
         clear_league_rosters()
 
 
+_TEAMS_12 = [f"Team {i:02d}" for i in range(12)]
+
+
+def _seed_league(teams: list[str], players_per_team: int) -> None:
+    clear_league_rosters()
+    for ti, team in enumerate(teams):
+        for pid in range(1, players_per_team + 1):
+            upsert_league_roster_entry(
+                team_name=team,
+                team_index=ti,
+                player_id=ti * 100 + pid,
+                roster_slot="BN",
+            )
+
+
+def test_single_team_collapse_under_aggregate_floor_is_incomplete():
+    """A single team's roster collapsing is incomplete even when total row loss
+    stays under the 20% aggregate floor.
+
+    The 2026-06-08 live incident: in a 12-team league one team is only ~8% of
+    rows, so the owner's own team (Team Hickey) was emptied while the other 11
+    survived and the aggregate guard never tripped. The per-team check must
+    catch a single team losing half-or-more of its players.
+    """
+    _seed_league(_TEAMS_12, players_per_team=10)  # 120 rows cached
+    try:
+        counts = {t: 10 for t in _TEAMS_12}
+        counts[_TEAMS_12[0]] = 1  # one team collapses 10 -> 1
+        # aggregate loss = 9/120 = 7.5% (under 20%); team count still 12.
+        partial = _df(counts)
+        assert roster_fetch_is_complete(partial) is False
+    finally:
+        clear_league_rosters()
+
+
+def test_normal_per_team_churn_stays_complete():
+    """The per-team guard must NOT flag normal roster churn (a team drops a
+    couple of players) — only catastrophic single-team loss."""
+    _seed_league(_TEAMS_12, players_per_team=10)
+    try:
+        counts = {t: 10 for t in _TEAMS_12}
+        counts[_TEAMS_12[0]] = 8  # dropped 2 players — normal churn
+        assert roster_fetch_is_complete(_df(counts)) is True
+    finally:
+        clear_league_rosters()
+
+
 # ── sync_to_db wiring (the behavior) ─────────────────────────────────────
 
 
