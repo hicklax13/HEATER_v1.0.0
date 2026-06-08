@@ -12,6 +12,21 @@
 
 ---
 
+## 2026-06-07 — Post-campaign re-validation (after the audit fix campaign + #9/#10)
+
+The June QA below validated + fixed every finding. After the 2026-06-07 audit fix
+campaign (~45 fixes) + handoff items #9/#10, the per-team suite was re-run to catch
+regressions before inviting the league. New findings:
+
+| # | Severity | Area | Problem | Status |
+|---|----------|------|---------|--------|
+| Q2-1 | **HIGH (hang)** | `src/game_day.py::get_player_recent_form` (via `shared_data_layer._load_recent_form`, used by Free Agents + Lineup Optimizer) | Per-roster-player `statsapi.player_stat_data` calls had **NO timeout** → a slow/unreachable MLB Stats API blocks `requests.get` indefinitely in the SSL handshake, hanging the page render forever for every member (per-session cache = cold on first load). Caught as a 17-min hang on `test_page_14_free_agents::test_free_agents_renders_for_all_teams`. Introduced by the campaign's FA-C2 L14 recent-form wiring (post-June-QA). Also dropped a wasteful 0.5s/player sleep in the render loop. | **FIXED + DEPLOYED** — `f32c38f`: 4s per-call hard timeout (`_statsapi_gamelog_bounded`, non-blocking shutdown) + 12s total budget in `_load_recent_form` (timed-out players fall back to ROS/YTD projection). TDD `tests/test_recent_form_bounded.py` (3); 104 focused regression tests + full CI green. Verified: statsapi no longer in the stuck stack. |
+| Q2-2 | **HIGH (hang, QA-invisible)** | `src/game_day.py` — `_fetch_single_pitcher` (`statsapi.lookup_player` + `player_stat_data`, opposing pitchers on Matchup Planner + Lineup), `get_todays_lineups` (`statsapi.boxscore_data`), + any other `statsapi.player_stat_data/lookup_player/boxscore_data/schedule` caller (e.g. `injury_model`) | Same class as Q2-1, found by INSPECTION (not the suite): these statsapi wrapper fns call `statsapi.get` internally with **no timeout** → slow MLB Stats API hangs the render for members. The **guarded QA suite CANNOT catch this** — the conftest network guard fail-fasts the connect, masking the real-network hang — so only code inspection (the no-guard faulthandler diagnostic on FA) surfaced the class. | **FIXED** — `game_day._install_statsapi_default_timeout()` wraps `statsapi.get` at import to `setdefault` a 30s `request_kwargs` timeout, bounding EVERY statsapi call app-wide (one idempotent wrapper; preserves caller timeouts like live_stats'). TDD `tests/test_statsapi_default_timeout.py` (5); 52 focused regression tests green. |
+
+> Q2-1 had blocked the suite at test #18; the re-run (FA-unblocked) is in progress (slow but completing — Yahoo-15s-waits + heavy compute × 12 teams under the guard, NOT hung) to surface any further suite-visible findings (crashes/NaN/implausible values). Standard CI suite (5,110) stayed green throughout — these were render-path hangs the CI suite doesn't exercise. Q2-2 is a deliberate, QA-invisible robustness fix (the guard hides the whole statsapi-hang class).
+
+---
+
 ## Phase 2 — Smoke baseline (crash level)
 
 **Run 2026-06-02** (`tests/qa/test_per_team_smoke.py`, serial): **16 passed in 33:23, exit 0.**

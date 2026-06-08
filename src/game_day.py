@@ -90,6 +90,43 @@ except ImportError:  # pragma: no cover
 
 _API_TIMEOUT = 30  # seconds — prevents indefinite hangs on MLB Stats API
 
+
+def _inject_default_timeout(kwargs: dict) -> dict:
+    """Return a copy of ``kwargs`` with a default ``request_kwargs['timeout']``.
+
+    Preserves any caller-provided timeout + other request_kwargs.
+    """
+    kwargs = dict(kwargs)
+    rk = dict(kwargs.get("request_kwargs") or {})
+    rk.setdefault("timeout", _API_TIMEOUT)
+    kwargs["request_kwargs"] = rk
+    return kwargs
+
+
+def _install_statsapi_default_timeout() -> None:
+    """Wrap ``statsapi.get`` so EVERY statsapi call carries a default timeout.
+
+    ``statsapi.player_stat_data`` / ``lookup_player`` / ``boxscore_data`` /
+    ``schedule`` all call ``statsapi.get`` internally WITHOUT a timeout, so a
+    slow/unreachable MLB Stats API makes ``requests.get`` block forever and hangs
+    the page render (opposing pitchers in Matchup/Lineup, today's lineups). The
+    guarded QA suite can't catch this (it fail-fasts the connect); found by
+    inspection. ``statsapi.get`` accepts ``request_kwargs={"timeout": ...}``, so
+    one idempotent wrapper bounds the whole class. (#4 QA Q2-2.)
+    """
+    if _statsapi is None or getattr(getattr(_statsapi, "get", None), "_heater_timeout_wrapped", False):
+        return
+    _orig_get = _statsapi.get
+
+    def _get_with_timeout(endpoint, params=None, **kwargs):
+        return _orig_get(endpoint, params, **_inject_default_timeout(kwargs))
+
+    _get_with_timeout._heater_timeout_wrapped = True
+    _statsapi.get = _get_with_timeout
+
+
+_install_statsapi_default_timeout()
+
 from src.database import load_team_strength, upsert_opp_pitcher, upsert_team_strength  # noqa: E402
 
 # ── Stadium coordinates for weather lookups (lat, lon) ───────────────
