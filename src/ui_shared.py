@@ -1701,50 +1701,83 @@ def inject_custom_css():
         border-bottom: none !important;
     }}
 
-    /* Sidebar — navy top for header, orange below */
+    /* ── FP SIDEBAR RAIL (revamp task 6): thin dark navy icon rail ── */
     .stSidebar {{
-        background: linear-gradient(180deg, #16213e 0%, #16213e 70px, #e65c00 70px, #cc5200 100%) !important;
+        background: var(--fp-sidebar-bg) !important;
         border-right: none !important;
+        width: 100px !important;
+        min-width: 100px !important;
+    }}
+    .stSidebar [data-testid="stSidebarContent"] {{
+        background: var(--fp-sidebar-bg) !important;
     }}
     .stSidebar, .stSidebar * {{
-        color: #ffffff !important;
+        color: var(--fp-sidebar-ink) !important;
     }}
     .stSidebar a {{
-        color: rgba(255,255,255,0.9) !important;
+        color: var(--fp-sidebar-ink) !important;
         font-weight: 600 !important;
-        font-size: 14px !important;
-        white-space: nowrap !important;
-        overflow: hidden !important;
-        text-overflow: ellipsis !important;
+        font-size: 9.5px !important;
+        white-space: normal !important;
+        overflow: visible !important;
+        word-break: break-word !important;
+        overflow-wrap: anywhere !important;
+    }}
+    /* nav label text: Streamlit renders the label as a <p> with nowrap +
+       ellipsis (built for a wide sidebar). Force it to wrap onto 2 short
+       lines, centered, so it fits the thin rail. */
+    .stSidebar [data-testid="stSidebarNav"] li a p,
+    .stSidebar [data-testid="stSidebarNav"] li a span:not(.nav-icon),
+    .stSidebar [data-testid="stSidebarNavLink"] p,
+    .stSidebar [data-testid="stSidebarNavLink"] span:not(.nav-icon) {{
+        white-space: normal !important;
+        word-break: normal !important;
+        overflow-wrap: break-word !important;
+        text-overflow: clip !important;
+        overflow: visible !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        text-align: center !important;
+        font-size: 9px !important;
+        line-height: 1.12 !important;
     }}
     .stSidebar a:hover {{
         color: #ffffff !important;
     }}
     .stSidebar [data-testid="stSidebarNav"] li {{
-        margin-bottom: 4px !important;
+        margin-bottom: 2px !important;
     }}
     .stSidebar [data-testid="stSidebarNav"] li a {{
         display: flex !important;
+        flex-direction: column !important;
         align-items: center !important;
-        gap: 10px !important;
-        padding: 10px 12px !important;
-        border-radius: 10px !important;
+        justify-content: center !important;
+        gap: 3px !important;
+        padding: 8px 1px !important;
+        border-radius: 8px !important;
+        text-align: center !important;
+        line-height: 1.1 !important;
         transition: background 0.2s ease !important;
     }}
     .stSidebar [data-testid="stSidebarNav"] li a:hover {{
-        background: rgba(255,255,255,0.1) !important;
+        background: rgba(255,255,255,0.07) !important;
     }}
     .stSidebar [data-testid="stSidebarNav"] li a[aria-current="page"] {{
-        background: rgba(0,0,0,0.18) !important;
-        border-radius: 10px !important;
+        background: rgba(230,57,70,0.16) !important;
+        box-shadow: inset 3px 0 0 {t["primary"]} !important;
+        border-radius: 8px !important;
     }}
     .stSidebar [data-testid="stSidebarNav"] li a[aria-current="page"] span {{
         color: #ffffff !important;
-        font-weight: 800 !important;
+        font-weight: 700 !important;
     }}
     .stSidebar [data-testid="stSidebarNav"] li a .nav-icon {{
         flex-shrink: 0;
         display: inline-flex;
+    }}
+    .stSidebar [data-testid="stSidebarNav"] li a .nav-icon svg {{
+        width: 22px !important;
+        height: 22px !important;
     }}
     .stSidebar [data-testid="stSidebarHeader"] {{
         background: transparent !important;
