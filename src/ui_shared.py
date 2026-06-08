@@ -322,7 +322,7 @@ PAGE_ICONS = {
 # ── Theme (Light-only — Heater palette) ──────────────────────────
 
 THEME = {
-    "bg": "#f4f5f0",
+    "bg": "#f6f7f9",  # FP-revamp: cooler app bg so white cards pop (was cream #f4f5f0)
     "card": "#ffffff",
     "card_h": "#e8e9e3",
     "primary": "#e63946",
@@ -340,8 +340,17 @@ THEME = {
     "warn": "#ff9f1c",
     "tx": "#1d1d1f",
     "tx2": "#6b7280",
-    "border": "#d4d5cf",
+    "border": "#e6e8ec",  # FP-revamp: softened border (was #d4d5cf)
     "ink": "#ffffff",
+    # ── FP-revamp neutrals (2026-06-08, fantasypros.com-inspired) ──
+    # "surface" is the card fill (== card); the sidebar pair drives the thin dark
+    # icon rail; divider/tx_muted/tx_subtle give the calmer FP text + line hierarchy.
+    "surface": "#ffffff",
+    "sidebar_bg": "#10213a",
+    "sidebar_ink": "#e8edf5",
+    "divider": "#eef0f3",
+    "tx_muted": "#5b6470",
+    "tx_subtle": "#8a929c",
     "tiers": [
         "#e63946",
         "#ff6d00",
@@ -620,12 +629,33 @@ def inject_custom_css():
         --gdg-text-dark: #1d1d1f !important;
         --gdg-border-color: #d4c5b0 !important;
         --gdg-header-font-style: 700 14px Figtree, sans-serif !important;
+
+        /* ── FP-revamp design tokens (revamp task 1) ──
+           Pages + renderers reference these vars, not hex literals. Values are
+           derived from THEME so the dict stays the single source of truth. */
+        --fp-app-bg: {t["bg"]};
+        --fp-surface: {t["surface"]};
+        --fp-primary: {t["primary"]};
+        --fp-amber: {t["warn"]};
+        --fp-ink: {t["ink"]};
+        --fp-tx: {t["tx"]};
+        --fp-tx-muted: {t["tx_muted"]};
+        --fp-tx-subtle: {t["tx_subtle"]};
+        --fp-border: {t["border"]};
+        --fp-divider: {t["divider"]};
+        --fp-sidebar-bg: {t["sidebar_bg"]};
+        --fp-sidebar-ink: {t["sidebar_ink"]};
+        --fp-radius: 12px;
+        --fp-radius-sm: 8px;
+        --fp-shadow: 0 1px 3px rgba(16,33,58,.08);
+        --font-body: 'Figtree', system-ui, -apple-system, sans-serif;
+        --font-mono: 'IBM Plex Mono', monospace;
     }}
 
     /* ── BASE ─────────────────────────────────── */
     .stApp {{
-        background: {t["bg"]};
-        font-family: 'Figtree', sans-serif;
+        background: var(--fp-app-bg) !important;
+        font-family: var(--font-body);
         color: {t["tx"]};
     }}
     .block-container {{ padding-top: 1rem; padding-bottom: 1rem; }}
