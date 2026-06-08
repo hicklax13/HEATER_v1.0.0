@@ -1705,8 +1705,15 @@ def inject_custom_css():
     .stSidebar {{
         background: var(--fp-sidebar-bg) !important;
         border-right: none !important;
-        width: 100px !important;
-        min-width: 100px !important;
+    }}
+    /* Thin rail WIDTH only on desktop. On phones Streamlit renders the sidebar
+       as a slide-over drawer — forcing 100px there would cramp it — so mobile
+       keeps the default full-width drawer (the dark rail styling still applies). */
+    @media (min-width: 768px) {{
+        .stSidebar {{
+            width: 100px !important;
+            min-width: 100px !important;
+        }}
     }}
     .stSidebar [data-testid="stSidebarContent"] {{
         background: var(--fp-sidebar-bg) !important;
