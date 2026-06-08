@@ -1860,27 +1860,32 @@ def inject_custom_css():
     .stMarkdown h2, h2, [data-testid="stSubheader"], .stSubheader {{ font-size: 18px !important; }}
     .stMarkdown h3, h3 {{ font-size: 15px !important; }}
 
-    /* Orange action buttons — "Refresh Stats", "Sync Yahoo", etc. */
+    /* Secondary action buttons (Refresh Stats, Sync Yahoo, Refresh All Data, ...)
+       — FP flat-outline style, red on hover. Was an amber 3D gradient; the
+       [kind="secondary"] specificity here outranks the base FP button rule, so
+       this block now carries the FP look explicitly. */
     .stButton > button[kind="secondary"],
     .stButton > button[data-testid="stBaseButton-secondary"] {{
-        background: linear-gradient(135deg, #e65c00, #cc5200) !important;
-        color: #ffffff !important;
-        font-weight: 700 !important;
-        border: none !important;
-        transform: translateY(-1px);
-        box-shadow: 0 3px 0 #993d00, 0 4px 12px rgba(230, 92, 0, 0.25) !important;
+        background: var(--fp-surface) !important;
+        color: var(--fp-tx) !important;
+        font-weight: 600 !important;
+        border: 1px solid var(--fp-border) !important;
+        border-radius: var(--fp-radius-sm) !important;
+        transform: none !important;
+        box-shadow: none !important;
     }}
     .stButton > button[kind="secondary"]:hover,
     .stButton > button[data-testid="stBaseButton-secondary"]:hover {{
-        background: linear-gradient(135deg, #ff6d00, #e65c00) !important;
-        color: #ffffff !important;
-        transform: translateY(-2px);
-        box-shadow: 0 4px 0 #993d00, 0 6px 16px rgba(230, 92, 0, 0.35) !important;
+        background: var(--fp-surface) !important;
+        color: var(--fp-primary) !important;
+        border-color: var(--fp-primary) !important;
+        transform: none !important;
+        box-shadow: none !important;
     }}
     .stButton > button[kind="secondary"]:active,
     .stButton > button[data-testid="stBaseButton-secondary"]:active {{
-        transform: translateY(0) scale(0.98);
-        box-shadow: 0 1px 0 #993d00, 0 2px 4px rgba(0, 0, 0, 0.1) !important;
+        transform: none !important;
+        box-shadow: none !important;
     }}
 
     /* ── TOOLTIP (CSS-based, on title attr) ─── */
