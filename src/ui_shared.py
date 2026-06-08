@@ -620,15 +620,15 @@ def inject_custom_css():
 
     /* ── Glide Data Grid root-level theme overrides ── */
     :root {{
-        --gdg-bg-header: #16213e !important;
-        --gdg-bg-header-has-focus: #1a1a2e !important;
-        --gdg-bg-header-hovered: #1e2a45 !important;
-        --gdg-text-header: #ffffff !important;
-        --gdg-bg-cell: #faf8f5 !important;
-        --gdg-bg-cell-medium: #f5f2ed !important;
+        --gdg-bg-header: #ffffff !important;
+        --gdg-bg-header-has-focus: #f6f7f9 !important;
+        --gdg-bg-header-hovered: #eef0f3 !important;
+        --gdg-text-header: #8a929c !important;
+        --gdg-bg-cell: #ffffff !important;
+        --gdg-bg-cell-medium: #f6f7f9 !important;
         --gdg-text-dark: #1d1d1f !important;
-        --gdg-border-color: #d4c5b0 !important;
-        --gdg-header-font-style: 700 14px Figtree, sans-serif !important;
+        --gdg-border-color: #e6e8ec !important;
+        --gdg-header-font-style: 600 13px Figtree, sans-serif !important;
 
         /* ── FP-revamp design tokens (revamp task 1) ──
            Pages + renderers reference these vars, not hex literals. Values are
@@ -1545,15 +1545,15 @@ def inject_custom_css():
     div[data-testid="stDataFrame"] [data-testid="glideDataEditor"],
     div[data-testid="stDataFrame"] .dvn-scroller,
     div[data-testid="stDataFrame"] {{
-        --gdg-bg-header: #16213e !important;
-        --gdg-bg-header-has-focus: #1a1a2e !important;
-        --gdg-bg-header-hovered: #1e2a45 !important;
-        --gdg-text-header: #ffffff !important;
-        --gdg-bg-cell: #faf8f5 !important;
-        --gdg-bg-cell-medium: #f5f2ed !important;
+        --gdg-bg-header: #ffffff !important;
+        --gdg-bg-header-has-focus: #f6f7f9 !important;
+        --gdg-bg-header-hovered: #eef0f3 !important;
+        --gdg-text-header: #8a929c !important;
+        --gdg-bg-cell: #ffffff !important;
+        --gdg-bg-cell-medium: #f6f7f9 !important;
         --gdg-text-dark: #1d1d1f !important;
-        --gdg-border-color: #d4c5b0 !important;
-        --gdg-header-font-style: 700 14px Figtree, sans-serif !important;
+        --gdg-border-color: #e6e8ec !important;
+        --gdg-header-font-style: 600 13px Figtree, sans-serif !important;
     }}
     div[data-testid="stDataFrame"] [data-testid="glideDataEditor"] {{
         background: #faf8f5 !important;
@@ -1649,15 +1649,16 @@ def inject_custom_css():
         color: {t["tx"]};
     }}
     .heater-table thead th {{
-        background: linear-gradient(135deg, #16213e, #1a1a2e) !important;
-        color: #ffffff !important;
-        font-weight: 700 !important;
-        font-family: 'Figtree', sans-serif !important;
+        background: var(--fp-surface) !important;
+        color: var(--fp-tx-subtle) !important;
+        font-weight: 600 !important;
+        font-family: var(--font-body) !important;
         font-size: 12px !important;
-        letter-spacing: 0.5px;
-        text-transform: uppercase;
+        letter-spacing: 0;
+        text-transform: none;
         padding: 10px 12px !important;
         border: none !important;
+        border-bottom: 1px solid var(--fp-divider) !important;
         text-align: left;
         white-space: nowrap;
         position: sticky;
@@ -1672,12 +1673,12 @@ def inject_custom_css():
     }}
     .heater-table tbody td {{
         padding: 8px 12px !important;
-        border-bottom: 1px solid #e8e0d4 !important;
+        border-bottom: 1px solid var(--fp-divider) !important;
         border-top: none !important;
         border-left: none !important;
         border-right: none !important;
-        background: #faf8f5 !important;
-        font-family: 'Figtree', sans-serif;
+        background: var(--fp-surface) !important;
+        font-family: var(--font-body);
         font-size: 13px !important;
         color: {t["tx"]};
     }}
@@ -1686,7 +1687,7 @@ def inject_custom_css():
         font-weight: 600 !important;
     }}
     .heater-table tbody tr:hover td {{
-        background: #f0ece4 !important;
+        background: #fafbfc !important;
     }}
     .heater-table tbody tr:last-child td {{
         border-bottom: none !important;
@@ -1994,10 +1995,10 @@ def inject_custom_css():
     .compact-table-wrap {{
         overflow-x: auto !important;
         overflow-y: auto !important;
-        border-left: 3px solid {t["hot"]} !important;
-        border-radius: 8px !important;
-        background: {t["card"]} !important;
-        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.06) !important;
+        border: 1px solid var(--fp-border) !important;
+        border-radius: var(--fp-radius) !important;
+        background: var(--fp-surface) !important;
+        box-shadow: var(--fp-shadow) !important;
         margin-bottom: 12px !important;
     }}
     .compact-table {{
@@ -2009,27 +2010,28 @@ def inject_custom_css():
         color: {t["tx"]} !important;
     }}
     .compact-table th {{
-        background: linear-gradient(135deg, #16213e, #1a1a2e) !important;
-        color: #ffffff !important;
+        background: var(--fp-surface) !important;
+        color: var(--fp-tx-subtle) !important;
+        font-family: var(--font-body) !important;
         font-weight: 600 !important;
         font-size: 11px !important;
-        text-transform: uppercase !important;
-        letter-spacing: 0.5px !important;
-        padding: 6px 10px !important;
+        text-transform: none !important;
+        letter-spacing: 0 !important;
+        padding: 8px 10px !important;
         position: sticky !important;
         top: 0 !important;
         z-index: 2 !important;
-        border-bottom: 2px solid {t["hot"]} !important;
+        border-bottom: 1px solid var(--fp-divider) !important;
     }}
     .compact-table td {{
-        padding: 5px 10px !important;
-        border-bottom: 1px solid {t["border"]} !important;
+        padding: 7px 10px !important;
+        border-bottom: 1px solid var(--fp-divider) !important;
         font-size: 13px !important;
         font-variant-numeric: tabular-nums !important;
-        background: {t["card"]} !important;
+        background: var(--fp-surface) !important;
     }}
     .compact-table tr:hover td {{
-        background: rgba(255, 109, 0, 0.06) !important;
+        background: #fafbfc !important;
     }}
     .th-hit {{
         border-bottom: 3px solid {t["hot"]} !important;
@@ -2060,8 +2062,8 @@ def inject_custom_css():
     /* Corner cell: sticky both top+left — needs highest z-index */
     .compact-table thead th.col-name {{
         z-index: 4 !important;
-        background: linear-gradient(135deg, #16213e, #1a1a2e) !important;
-        box-shadow: 2px 0 4px rgba(0, 0, 0, 0.12) !important;
+        background: var(--fp-surface) !important;
+        box-shadow: 2px 0 4px rgba(0, 0, 0, 0.06) !important;
     }}
     .compact-table tr:hover .col-name {{
         background: #ffffff !important;
