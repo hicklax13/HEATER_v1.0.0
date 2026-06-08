@@ -2964,6 +2964,32 @@ def get_player_draft_round(player_id: int) -> int | None:
         conn.close()
 
 
+def get_player_draft_rounds(player_ids: list[int]) -> dict[int, int]:
+    """Batch version of ``get_player_draft_round``: ONE query for many players.
+
+    Avoids the N+1 that made the Trade Finder slow (the per-pair scan called
+    get_player_draft_round — a fresh SQLite connect + query — thousands of times).
+    Draft rounds are immutable post-draft, so one snapshot per scan is correct.
+
+    Returns ``{player_id: round}`` for drafted players found; undrafted/unknown
+    ids are omitted (callers use ``.get(pid)`` which yields None, matching the
+    scalar function's behavior).
+    """
+    if not player_ids:
+        return {}
+    ids = list({int(p) for p in player_ids})
+    placeholders = ",".join("?" * len(ids))
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            f"SELECT player_id, round FROM league_draft_picks WHERE player_id IN ({placeholders})",
+            ids,
+        ).fetchall()
+        return {int(r[0]): int(r[1]) for r in rows if r[0] is not None and r[1] is not None}
+    finally:
+        conn.close()
+
+
 def compute_ownership_deltas(lookback_days: int = 7) -> int:
     """Compute ownership % change over the last N days.
 

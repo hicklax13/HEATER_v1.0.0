@@ -22,6 +22,7 @@ from src.in_season import _roster_category_totals
 from src.trade_finder import (
     find_complementary_teams,
     find_trade_opportunities,
+    trade_scan_signature,
 )
 
 # 2026-05-17 Section 3 D10: use canonical map from ui_shared (was a local
@@ -231,24 +232,49 @@ def main():
         if _title_odds_enabled and _weekly_schedule and _current_wins
         else "Scanning league for trade opportunities..."
     )
-    with st.spinner(_spinner_msg):
-        t0 = time.time()
-        opportunities = find_trade_opportunities(
-            user_roster_ids=user_roster_ids,
-            player_pool=pool,
-            config=config,
-            all_team_totals=all_team_totals,
-            user_team_name=user_team_name,
-            league_rosters=league_rosters,
-            max_results=50,
-            top_partners=11,
-            enable_title_odds_rerank=_title_odds_enabled,
-            weekly_schedule=_weekly_schedule,
-            current_wins=_current_wins,
-            title_odds_top_n=15,
-            title_odds_n_sims=5_000,
-        )
-        scan_time = time.time() - t0
+
+    # #10: memoize the expensive scan in session_state. It used to re-run on EVERY
+    # widget interaction (filters, viewing a trade) — 16-75s each time. Recompute
+    # only when the inputs change (rosters/totals shift on a data refresh, or the
+    # title-odds toggle flips); all_team_totals in the signature is the freshness
+    # proxy (a refresh updates standings → totals → the key changes).
+    _scan_sig = trade_scan_signature(
+        user_team_name=user_team_name,
+        user_roster_ids=user_roster_ids,
+        league_rosters=league_rosters,
+        all_team_totals=all_team_totals,
+        top_partners=11,
+        max_results=50,
+        title_odds_enabled=bool(_title_odds_enabled),
+    )
+    _cached = st.session_state.get("_tf_scan_cache")
+    if _cached and _cached.get("sig") == _scan_sig:
+        opportunities = _cached["results"]
+        scan_time = _cached.get("scan_time", 0.0)
+    else:
+        with st.spinner(_spinner_msg):
+            t0 = time.time()
+            opportunities = find_trade_opportunities(
+                user_roster_ids=user_roster_ids,
+                player_pool=pool,
+                config=config,
+                all_team_totals=all_team_totals,
+                user_team_name=user_team_name,
+                league_rosters=league_rosters,
+                max_results=50,
+                top_partners=11,
+                enable_title_odds_rerank=_title_odds_enabled,
+                weekly_schedule=_weekly_schedule,
+                current_wins=_current_wins,
+                title_odds_top_n=15,
+                title_odds_n_sims=5_000,
+            )
+            scan_time = time.time() - t0
+        st.session_state["_tf_scan_cache"] = {
+            "sig": _scan_sig,
+            "results": opportunities,
+            "scan_time": scan_time,
+        }
 
     # ── Banner ────────────────────────────────────────────────────────
     if opportunities:

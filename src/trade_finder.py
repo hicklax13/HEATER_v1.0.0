@@ -371,6 +371,7 @@ def compute_adp_fairness(
     give_id: int,
     recv_id: int,
     player_pool: pd.DataFrame,
+    draft_rounds: dict[int, int] | None = None,
 ) -> float:
     """Compute ADP fairness score between two players.
 
@@ -378,29 +379,42 @@ def compute_adp_fairness(
     ADP fairness is critical because league mates won't accept trades
     where they give up a higher-drafted player, even if stats favor them.
 
+    Args:
+        draft_rounds: Optional pre-fetched ``{player_id: round}`` map. When
+            provided, rounds are read from it (no per-player DB query) — the
+            #10 N+1 fix. When None, falls back to the per-player query
+            (byte-for-byte the prior behavior for any other caller).
+
     Returns:
         float in [0.0, 1.0] where 1.0 = perfect ADP match,
         0.0 = extreme ADP mismatch.
     """
-    # Try league-specific draft rounds first
-    try:
-        from src.database import get_player_draft_round
+    # Resolve league draft rounds (strongest signal) — from the batch dict if
+    # provided, else a per-player query.
+    give_round: int | None = None
+    recv_round: int | None = None
+    if draft_rounds is not None:
+        give_round = draft_rounds.get(give_id)
+        recv_round = draft_rounds.get(recv_id)
+    else:
+        try:
+            from src.database import get_player_draft_round
 
-        give_round = get_player_draft_round(give_id)
-        recv_round = get_player_draft_round(recv_id)
-        if give_round and recv_round:
-            round_gap = abs(give_round - recv_round)
-            max_gap = 23  # max rounds in league draft
-            return max(0.0, 1.0 - (round_gap / max_gap))
-    except Exception as exc:
-        logger.warning(
-            "trade_finder.compute_adp_fairness: league draft-round lookup failed for "
-            "give_id=%s recv_id=%s; falling back to generic ADP fairness: %s",
-            give_id,
-            recv_id,
-            exc,
-            exc_info=True,
-        )
+            give_round = get_player_draft_round(give_id)
+            recv_round = get_player_draft_round(recv_id)
+        except Exception as exc:
+            logger.warning(
+                "trade_finder.compute_adp_fairness: league draft-round lookup failed for "
+                "give_id=%s recv_id=%s; falling back to generic ADP fairness: %s",
+                give_id,
+                recv_id,
+                exc,
+                exc_info=True,
+            )
+    if give_round and recv_round:
+        round_gap = abs(give_round - recv_round)
+        max_gap = 23  # max rounds in league draft
+        return max(0.0, 1.0 - (round_gap / max_gap))
 
     # Fallback to generic ADP
     give_p = player_pool[player_pool["player_id"] == give_id]
@@ -614,6 +628,15 @@ def scan_2_for_1(
     if config is None:
         config = LeagueConfig()
 
+    # #10: batch-load draft rounds ONCE (immutable) for the ADP-fairness checks
+    # below, instead of a per-expansion DB query.
+    try:
+        from src.database import get_player_draft_rounds
+
+        _draft_rounds = get_player_draft_rounds(list(user_roster_ids) + list(opponent_roster_ids))
+    except Exception:
+        _draft_rounds = {}
+
     # H2: Dynamic roster spot value from FA pool
     roster_spot_sgp = compute_roster_spot_sgp(player_pool, config)
 
@@ -712,7 +735,9 @@ def scan_2_for_1(
                     continue
 
             # Score — use WORST ADP fairness across all give players
-            fairness_scores = [compute_adp_fairness(gid, orig_recv[0], player_pool) for gid in new_give]
+            fairness_scores = [
+                compute_adp_fairness(gid, orig_recv[0], player_pool, draft_rounds=_draft_rounds) for gid in new_give
+            ]
             adp_fairness = min(fairness_scores) if fairness_scores else 0.5
 
             need_match = min(1.0, max(0.0, (opp_delta + 1.0) / 2.0))
@@ -889,6 +914,15 @@ def scan_1_for_1(
         config = LeagueConfig()
 
     sgp_calc = SGPCalculator(config)
+
+    # #10: batch-load every relevant draft round ONCE (immutable post-draft)
+    # instead of a per-give×recv-pair SQLite query (the old N+1 dominated the scan).
+    try:
+        from src.database import get_player_draft_rounds
+
+        _draft_rounds = get_player_draft_rounds(list(user_roster_ids) + list(opponent_roster_ids))
+    except Exception:
+        _draft_rounds = {}
 
     # Pre-compute baseline totals
     # Try LP-constrained baseline for user (starters only, no bench inflation).
@@ -1132,18 +1166,14 @@ def scan_1_for_1(
             give_round: int | None = None
             recv_round: int | None = None
 
-            # Try league-specific draft rounds first (strongest signal)
-            try:
-                from src.database import get_player_draft_round
-
-                give_round = get_player_draft_round(give_id)
-                recv_round = get_player_draft_round(recv_id)
-                if give_round and recv_round:
-                    # A Rd 2 pick should not be traded for a Rd 15 pick (gap > 8)
-                    if recv_round - give_round > DRAFT_ROUND_MAX_GAP:
-                        continue
-            except Exception:
-                pass
+            # League-specific draft rounds first (strongest signal) — from the
+            # batch dict built once above (#10: no per-pair DB query).
+            give_round = _draft_rounds.get(give_id)
+            recv_round = _draft_rounds.get(recv_id)
+            if give_round and recv_round:
+                # A Rd 2 pick should not be traded for a Rd 15 pick (gap > 8)
+                if recv_round - give_round > DRAFT_ROUND_MAX_GAP:
+                    continue
 
             # Generic ADP (used for filter + ADP fairness + result)
             give_adp = float(give_player.iloc[0].get("adp", 999) or 999)
@@ -1242,7 +1272,7 @@ def scan_1_for_1(
             need_match = min(1.0, max(0.0, (opp_delta + 1.0) / 2.0))
 
             # Compute ADP fairness
-            adp_fairness = compute_adp_fairness(give_id, recv_id, player_pool)
+            adp_fairness = compute_adp_fairness(give_id, recv_id, player_pool, draft_rounds=_draft_rounds)
 
             # ECR ranking fairness: penalize trades where you receive a much
             # lower-ranked player than you give. ECR rank captures market
@@ -1330,14 +1360,9 @@ def scan_1_for_1(
                 raw_divergence = ytd_modifier - 1.0
                 ytd_modifier = 1.0 + raw_divergence * reliability
 
-            # F2: Draft-round anchoring — look up opponent's player draft round
-            recv_round = None
-            try:
-                from src.database import get_player_draft_round
-
-                recv_round = get_player_draft_round(recv_id)
-            except Exception:
-                pass
+            # F2: Draft-round anchoring — opponent's player draft round
+            # (#10: from the batch dict, no per-pair DB query).
+            recv_round = _draft_rounds.get(recv_id)
 
             # F3: Disposition effect — reuse perf_ratio from YTD modifier above
             recv_ytd_ratio = ytd_modifier if ytd_modifier != 1.0 else None
@@ -1770,6 +1795,46 @@ def rerank_by_title_odds(
         cand["ranked_by"] = "composite_score_only"
 
     return enriched_top + remaining
+
+
+def trade_scan_signature(
+    user_team_name: str | None,
+    user_roster_ids: list[int] | None,
+    league_rosters: dict[str, list[int]] | None,
+    all_team_totals: dict[str, dict[str, float]] | None,
+    top_partners: int,
+    max_results: int,
+    title_odds_enabled: bool,
+) -> tuple:
+    """Stable, order-independent key over the inputs that determine a Trade Finder
+    scan result.
+
+    Lets the page memoize the expensive scan in session_state and recompute ONLY
+    when the inputs actually change (e.g. after a scheduler data refresh updates
+    rosters/totals), instead of rerunning on every widget interaction (#10).
+    Floats are rounded so tiny totals jitter doesn't bust the cache.
+    """
+
+    def _rosters_sig(d: dict | None) -> tuple:
+        return tuple(sorted((str(t), tuple(sorted(int(p) for p in (ids or [])))) for t, ids in (d or {}).items()))
+
+    def _totals_sig(d: dict | None) -> tuple:
+        return tuple(
+            sorted(
+                (str(t), tuple(sorted((str(c), round(float(v), 4)) for c, v in (cats or {}).items())))
+                for t, cats in (d or {}).items()
+            )
+        )
+
+    return (
+        str(user_team_name or ""),
+        tuple(sorted(int(p) for p in (user_roster_ids or []))),
+        _rosters_sig(league_rosters),
+        _totals_sig(all_team_totals),
+        int(top_partners),
+        int(max_results),
+        bool(title_odds_enabled),
+    )
 
 
 def find_trade_opportunities(
