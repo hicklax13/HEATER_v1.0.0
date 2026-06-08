@@ -11,6 +11,7 @@ Usage:
 
 from __future__ import annotations
 
+import concurrent.futures
 import logging
 import math
 import time
@@ -683,17 +684,40 @@ def _compute_remaining_games(ctx: OptimizerDataContext) -> None:
         logger.warning("Failed to compute remaining games")
 
 
+# Render-path budget for two-start detection. identify_two_start_pitchers makes
+# slow live fetches (7-day schedule + fetch_team_batting_stats); without a bound a
+# degraded MLB data source makes the FA/Lineup render exceed the cap (#4 QA Q2-3).
+# Two-start data is an enhancement, so on timeout it is skipped gracefully.
+_TWO_START_DETECT_TIMEOUT_S = 10.0
+
+
 def _detect_two_start_pitchers(ctx: OptimizerDataContext) -> None:
-    """Identify two-start pitchers for the current week."""
+    """Identify two-start pitchers for the current week (time-bounded)."""
     if ctx.scope == "today":
         return  # Not relevant for single-day scope
     try:
         from src.two_start import identify_two_start_pitchers
 
-        two_starters = identify_two_start_pitchers(
-            days_ahead=7,
-            player_pool=ctx.player_pool if not ctx.player_pool.empty else None,
-        )
+        # Bound the slow live fetch so it can't hang the page render. Non-blocking
+        # shutdown (a hung worker leaks but never blocks the caller); on timeout
+        # two-start data is simply absent (enhancement, not required).
+        _ex = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="twostart")
+        try:
+            _fut = _ex.submit(
+                identify_two_start_pitchers,
+                days_ahead=7,
+                player_pool=ctx.player_pool if not ctx.player_pool.empty else None,
+            )
+            two_starters = _fut.result(timeout=_TWO_START_DETECT_TIMEOUT_S)
+        except concurrent.futures.TimeoutError:
+            logger.warning(
+                "optimizer.shared_data_layer._detect_two_start_pitchers: exceeded %ss budget — "
+                "skipping (two-start enhancement absent this render; likely a slow MLB data source).",
+                _TWO_START_DETECT_TIMEOUT_S,
+            )
+            two_starters = []
+        finally:
+            _ex.shutdown(wait=False)
         # Map pitcher names to player IDs
         if not ctx.player_pool.empty and two_starters:
             name_to_id = dict(
