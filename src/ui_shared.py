@@ -543,14 +543,22 @@ def no_league_data_message(reason: str = "") -> str:
 
 
 def get_plotly_layout(theme=None):
-    """Return Plotly layout kwargs for consistent chart theming."""
+    """Return Plotly layout kwargs for consistent chart theming.
+
+    FP palette: transparent bg, Figtree font, muted gridlines, HEATER colorway.
+    Plotly 6 rejects 8-digit hex, so gridlines use rgba().
+    """
     t = theme or THEME
+    grid = "rgba(16,33,58,0.06)"
     return {
         "paper_bgcolor": "rgba(0,0,0,0)",
         "plot_bgcolor": "rgba(0,0,0,0)",
         "font": {"color": t["tx"], "family": "Figtree, sans-serif"},
         "margin": {"l": 40, "r": 40, "t": 30, "b": 30},
         "height": 350,
+        "colorway": [t["primary"], t["warn"], t["green_l"], t["sky"], t["tx_subtle"]],
+        "xaxis": {"gridcolor": grid, "zerolinecolor": grid, "linecolor": grid},
+        "yaxis": {"gridcolor": grid, "zerolinecolor": grid, "linecolor": grid},
     }
 
 
@@ -558,14 +566,14 @@ def get_plotly_polar(theme=None):
     """Return polar/radar chart config for Player Compare."""
     t = theme or THEME
     return {
-        "bgcolor": "rgba(255,255,255,0.5)",
+        "bgcolor": "rgba(0,0,0,0)",
         "radialaxis": {
-            "gridcolor": "rgba(0,0,0,0.06)",
-            "tickfont": {"color": t["tx2"], "size": 10},
+            "gridcolor": "rgba(16,33,58,0.06)",
+            "tickfont": {"color": t["tx_subtle"], "size": 10},
             "visible": True,
         },
         "angularaxis": {
-            "gridcolor": "rgba(0,0,0,0.08)",
+            "gridcolor": "rgba(16,33,58,0.08)",
             "tickfont": {"color": t["tx"], "size": 11},
         },
     }
