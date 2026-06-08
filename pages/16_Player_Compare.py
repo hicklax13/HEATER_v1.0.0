@@ -59,7 +59,7 @@ require_page_enabled("page:16_Player_Compare")
 log_page_view("Player Compare")
 page_timer_start()
 
-render_page_layout("PLAYER COMPARE", banner_teaser="Select two players to compare", banner_icon="player_compare")
+render_page_layout("Player Compare", banner_teaser="Select two players to compare", banner_icon="player_compare")
 
 
 @st.cache_data(ttl=600, show_spinner=False)

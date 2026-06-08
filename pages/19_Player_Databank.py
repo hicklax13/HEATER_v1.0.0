@@ -52,7 +52,7 @@ log_page_view("Player Databank")
 
 # Page layout
 render_page_layout(
-    "PLAYER DATABANK",
+    "Player Databank",
     banner_teaser="Live stats for every MLB player",
     banner_icon="databank",
 )

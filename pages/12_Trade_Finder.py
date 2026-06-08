@@ -288,12 +288,12 @@ def main():
             f"({format_stat(best_gain, 'SGP')} Standings Gained Points)"
         )
         render_page_layout(
-            "TRADE FINDER",
+            "Trade Finder",
             banner_teaser=banner_text,
             banner_icon="trade_analyzer",
         )
     else:
-        render_page_layout("TRADE FINDER", banner_teaser="No profitable trades found at this time.")
+        render_page_layout("Trade Finder", banner_teaser="No profitable trades found at this time.")
 
     # ── Context + Main columns ────────────────────────────────────────
     ctx, main_col = render_context_columns()
@@ -736,8 +736,8 @@ def main():
                             col_low, col_fair = st.columns(2)
 
                             for col_prop, label, key_prop, color in [
-                                (col_low, "LOWBALL", "lowball", T["hot"]),
-                                (col_fair, "FAIR VALUE", "fair_value", T["ok"]),
+                                (col_low, "Lowball", "lowball", T["hot"]),
+                                (col_fair, "Fair Value", "fair_value", T["ok"]),
                             ]:
                                 with col_prop:
                                     proposal = proposals.get(key_prop)
@@ -751,8 +751,8 @@ def main():
                                     st.markdown(
                                         f'<div style="background:{color}20;border:1px solid {color};'
                                         f'border-radius:8px;padding:12px;margin-bottom:8px;">'
-                                        f'<div style="font-family:Bebas Neue,sans-serif;font-size:20px;'
-                                        f'color:{color};letter-spacing:2px;">{label}</div>'
+                                        f'<div style="font-family:var(--font-body);font-size:20px;'
+                                        f'color:{color};font-weight:700;">{label}</div>'
                                         f"</div>",
                                         unsafe_allow_html=True,
                                     )
@@ -950,8 +950,8 @@ def main():
                                         ):
                                             col_lb, col_fv = st.columns(2)
                                             for col_p, lbl, pkey, clr in [
-                                                (col_lb, "LOWBALL", "lowball", T["hot"]),
-                                                (col_fv, "FAIR VALUE", "fair_value", T["ok"]),
+                                                (col_lb, "Lowball", "lowball", T["hot"]),
+                                                (col_fv, "Fair Value", "fair_value", T["ok"]),
                                             ]:
                                                 with col_p:
                                                     prop = proposals_b.get(pkey)
@@ -970,7 +970,7 @@ def main():
                                                     st.markdown(
                                                         f'<div style="background:{clr}20;border:1px solid {clr};'
                                                         f'border-radius:6px;padding:8px;margin-bottom:4px;">'
-                                                        f'<span style="font-family:Bebas Neue,sans-serif;color:{clr};">'
+                                                        f'<span style="font-family:var(--font-body);color:{clr};font-weight:700;">'
                                                         f"{lbl}</span></div>",
                                                         unsafe_allow_html=True,
                                                     )
@@ -1096,10 +1096,10 @@ def _render_value_chart_tab(pool, config, all_team_totals, user_team_name) -> No
         tier_color = TIER_COLORS.get(tier_name, "#666666")
         st.markdown(
             f'<div style="margin-top:24px;margin-bottom:8px;padding:8px 16px;'
-            f"background:linear-gradient(135deg, {tier_color}, {tier_color}dd);"
+            f"background:{tier_color};"
             f'border-radius:8px;display:inline-block;">'
             f'<span style="color:#ffffff;font-weight:700;font-size:16px;'
-            f'letter-spacing:0.5px;font-family:Figtree,sans-serif;">'
+            f'font-family:var(--font-body);">'
             f"{tier_name} ({len(tier_players)})</span></div>",
             unsafe_allow_html=True,
         )

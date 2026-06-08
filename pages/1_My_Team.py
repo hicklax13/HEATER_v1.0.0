@@ -561,7 +561,7 @@ else:
                 f'<div style="width:40px;height:40px;min-width:40px;border-radius:50%;'
                 f"background:linear-gradient(135deg,#e65c00,#cc5200);"
                 f"display:flex;align-items:center;justify-content:center;"
-                f"font-family:Bebas Neue,sans-serif;font-size:15px;letter-spacing:1px;"
+                f"font-family:var(--font-body),sans-serif;font-size:15px;letter-spacing:1px;"
                 f'color:#ffffff;font-weight:700;box-shadow:0 2px 8px rgba(230,92,0,0.25);">'
                 f"{initials}</div>"
             )
@@ -775,7 +775,7 @@ else:
             st.markdown(
                 f'<div style="text-align:center !important;margin-bottom:8px !important;">'
                 f'<div class="page-title" style="display:inline-block !important;">'
-                f"{_my_team_icon} MY TEAM</div>"
+                f"{_my_team_icon} My Team</div>"
                 f"{_lr_badge_html}"
                 f"</div>",
                 unsafe_allow_html=True,
@@ -849,7 +849,7 @@ else:
                         f'<div style="display:flex;justify-content:space-between;align-items:center;'
                         f'margin-bottom:6px;">'
                         f'<span style="font-family:IBM Plex Mono,monospace;font-size:12px;'
-                        f'color:{T["tx2"]};">MATCHUP PULSE — Week {pulse["week"]} vs {pulse["opponent"]}</span>'
+                        f'color:{T["tx2"]};">Matchup Pulse — Week {pulse["week"]} vs {pulse["opponent"]}</span>'
                         f'<span style="font-family:IBM Plex Mono,monospace;font-size:20px;'
                         f'font-weight:800;color:{_verdict_color};">{pulse["score"]}</span></div>'
                         f'<div style="font-family:IBM Plex Mono,monospace;font-size:11px;'
@@ -898,7 +898,7 @@ else:
                         f"border-radius:8px;padding:8px 12px;margin-bottom:8px;"
                         f'font-family:IBM Plex Mono,monospace;">'
                         f'<div style="font-size:11px;color:{T["tx2"]};margin-bottom:4px;'
-                        f'font-weight:600;">FLIPPABLE CATEGORIES</div>'
+                        f'font-weight:600;">Flippable Categories</div>'
                         f"{_flip_rows}</div>",
                         unsafe_allow_html=True,
                     )
@@ -946,7 +946,7 @@ else:
                             f"border-radius:8px;padding:8px 12px;margin-bottom:8px;"
                             f'font-family:IBM Plex Mono,monospace;">'
                             f'<div style="font-size:11px;color:{T["tx2"]};margin-bottom:4px;'
-                            f"font-weight:600;\">TODAY'S ACTIONS</div>"
+                            f"font-weight:600;\">Today's Actions</div>"
                             f"{_action_rows}</div>",
                             unsafe_allow_html=True,
                         )
@@ -987,7 +987,7 @@ else:
                             f"border-radius:8px;padding:8px 12px;margin-bottom:8px;"
                             f'font-family:IBM Plex Mono,monospace;">'
                             f'<div style="font-size:11px;color:{T["tx2"]};margin-bottom:4px;'
-                            f'font-weight:600;">PLAYER STREAKS</div>'
+                            f'font-weight:600;">Player Streaks</div>'
                             f"{_hc_rows}</div>",
                             unsafe_allow_html=True,
                         )
@@ -1093,7 +1093,7 @@ else:
                             f"border-radius:8px;padding:8px 12px;margin-bottom:8px;"
                             f'font-family:IBM Plex Mono,monospace;">'
                             f'<div style="font-size:11px;color:{T["tx2"]};margin-bottom:4px;'
-                            f'font-weight:600;">CATEGORY FLIP ANALYSIS'
+                            f'font-weight:600;">Category Flip Analysis'
                             f'<span style="font-weight:400;margin-left:6px;">'
                             f"({_flip_games_remaining}d left)</span></div>"
                             f"{_flip_rows}{_flip_actions_html}</div>",
@@ -1141,7 +1141,7 @@ else:
                         f"border-radius:8px;padding:8px 12px;margin-bottom:8px;"
                         f'font-family:IBM Plex Mono,monospace;">'
                         f'<div style="font-size:11px;color:{T["tx2"]};margin-bottom:4px;'
-                        f'font-weight:600;">REGRESSION ALERTS</div>'
+                        f'font-weight:600;">Regression Alerts</div>'
                         f"{_reg_rows}</div>",
                         unsafe_allow_html=True,
                     )
@@ -1552,7 +1552,7 @@ else:
                                     f"background:rgba(230,57,70,0.07);border-radius:6px;"
                                     f'border-left:3px solid {T["danger"]};">'
                                     f'<div style="font-size:10px;font-weight:700;letter-spacing:0.8px;'
-                                    f'text-transform:uppercase;color:{T["danger"]};margin-bottom:3px;">'
+                                    f'color:{T["danger"]};margin-bottom:3px;">'
                                     f"Priority Targets</div>"
                                     f'<div style="font-size:12px;font-weight:600;'
                                     f'font-family:IBM Plex Mono,monospace;color:{T["tx"]};">'
@@ -1681,7 +1681,7 @@ else:
                     if _benched:
                         _lv_html += (
                             f'<div style="margin-top:6px;font-size:10px;font-weight:700;'
-                            f"letter-spacing:0.8px;text-transform:uppercase;"
+                            f"letter-spacing:0.8px;"
                             f'color:{T["sky"]};margin-bottom:3px;">Bench — Playing Today</div>'
                         )
                         for _b in _benched:

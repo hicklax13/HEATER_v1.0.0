@@ -661,7 +661,7 @@ def render_tabs(pool: pd.DataFrame, ds: DraftState) -> None:
 
 # ── Main ────────────────────────────────────────────────────────────────────
 
-render_page_layout("DRAFT SIMULATOR", banner_teaser="Simulate your draft with AI opponents", banner_icon="draft")
+render_page_layout("Draft Simulator", banner_teaser="Simulate your draft with AI opponents", banner_icon="draft")
 
 pool = get_pool()
 
@@ -809,7 +809,7 @@ with main:
         header_html = (
             f'<div style="background:{T["amber"]};color:{T["ink"]};border-radius:10px;'
             f'padding:12px 20px;font-size:1.1rem;font-weight:700;margin-bottom:12px;">'
-            f"Round {round_num} / Pick {pick_num} &nbsp;&mdash;&nbsp; YOUR PICK!</div>"
+            f"Round {round_num} / Pick {pick_num} &nbsp;&mdash;&nbsp; Your Pick!</div>"
         )
     else:
         header_html = (

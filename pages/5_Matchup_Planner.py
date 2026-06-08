@@ -248,7 +248,7 @@ if win_prob_data and selected_week == current_week:
             banner_teaser += f". Toss-ups: {toss_str}"
 
 render_page_layout(
-    "MATCHUP PLANNER",
+    "Matchup Planner",
     banner_teaser=banner_teaser,
     banner_icon="calendar",
 )

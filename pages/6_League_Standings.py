@@ -262,7 +262,7 @@ user_team = _get_user_team_name(records_df)
 
 banner_teaser = _build_banner_teaser(matchup)
 render_page_layout(
-    "LEAGUE STANDINGS",
+    "League Standings",
     banner_teaser=banner_teaser,
     banner_icon="league_standings",
 )
@@ -539,16 +539,16 @@ def _render_playoff_odds_tab() -> None:
             f'<div style="background:#ffffff;border-radius:14px;padding:24px 32px;margin-bottom:24px;'
             f'box-shadow:0 2px 12px rgba(0,0,0,0.06);display:flex;align-items:center;gap:28px;">'
             f"<div>"
-            f'<div style="font-family:Figtree,sans-serif;font-size:14px;font-weight:600;'
-            f'color:#666;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">'
+            f'<div style="font-family:var(--font-body);font-size:14px;font-weight:600;'
+            f'color:{T["tx2"]};text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">'
             f"Your Playoff Probability</div>"
-            f'<div style="font-family:Bebas Neue,sans-serif;font-size:56px;font-weight:700;'
+            f'<div style="font-family:var(--font-body);font-size:56px;font-weight:700;'
             f'color:{prob_color};line-height:1;">{prob_pct:.1f}%</div>'
-            f'<div style="font-family:Figtree,sans-serif;font-size:14px;color:#888;margin-top:4px;">'
+            f'<div style="font-family:var(--font-body);font-size:14px;color:{T["tx2"]};margin-top:4px;">'
             f"{prob_label} -- {user_team_name}</div></div>"
             f'<div style="margin-left:auto;text-align:right;">'
-            f'<div style="font-size:13px;color:#888;">Projected Record</div>'
-            f'<div style="font-family:Bebas Neue,sans-serif;font-size:28px;color:#1d1d1f;">'
+            f'<div style="font-size:13px;color:{T["tx2"]};">Projected Record</div>'
+            f'<div style="font-family:var(--font-body);font-size:28px;color:{T["tx"]};">'
             f"{user_result['avg_wins']:.1f} - {user_result['avg_losses']:.1f}</div></div></div>",
             unsafe_allow_html=True,
         )
@@ -577,7 +577,7 @@ def _render_playoff_odds_tab() -> None:
 
         def _highlight_user(row: pd.Series) -> list[str]:
             if row["Team"] == user_team_name:
-                return ["background-color: rgba(230, 92, 0, 0.08); font-weight: 700;"] * len(row)
+                return ["background-color: rgba(230, 57, 70, 0.08); font-weight: 700;"] * len(row)
             return [""] * len(row)
 
         styled = standings_p.style.apply(_highlight_user, axis=1).format(

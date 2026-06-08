@@ -36,7 +36,7 @@ require_page_enabled("page:3_Closer_Monitor")
 log_page_view("Closer Monitor")
 page_timer_start()
 
-render_page_layout("CLOSER MONITOR", banner_teaser="30-team closer depth chart", banner_icon="closer")
+render_page_layout("Closer Monitor", banner_teaser="30-team closer depth chart", banner_icon="closer")
 
 
 @st.cache_data(ttl=300)
@@ -260,13 +260,13 @@ else:
     border-radius: 8px;
     padding: 10px 10px;
     margin-bottom: 8px;
-    font-family: sans-serif;
+    font-family: var(--font-body);
     min-height: 160px;
 ">
     <div style="font-size:0.7rem; font-weight:700; color:#888; letter-spacing:0.08em; white-space:nowrap;">
         {item["team"]}
     </div>
-    <div style="font-size:0.88rem; font-weight:700; color:#1a1a2e; margin:3px 0 2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; display:flex; align-items:center; gap:5px;">
+    <div style="font-size:0.88rem; font-weight:700; color:var(--fp-tx); margin:3px 0 2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; display:flex; align-items:center; gap:5px;">
         {headshot}{closer_name_safe}
     </div>
     <div style="

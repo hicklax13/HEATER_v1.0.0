@@ -163,7 +163,7 @@ log_page_view("Lineup")
 page_timer_start()
 
 render_page_layout(
-    "LINE-UP OPTIMIZER",
+    "Line-up Optimizer",
     banner_teaser="Optimize your weekly lineup and make start/sit decisions",
     banner_icon="lineup_optimizer",
 )
@@ -528,8 +528,8 @@ with ctx:
 
     # Optimizer settings
     st.markdown(
-        f'<p style="font-family:Bebas Neue,sans-serif;font-size:10px;text-transform:uppercase;'
-        f"letter-spacing:2px;color:{T['tx2']};margin:12px 0 6px;padding-bottom:4px;"
+        f'<p style="font-family:var(--font-body);font-size:11px;font-weight:600;'
+        f"letter-spacing:0.5px;color:{T['tx2']};margin:12px 0 6px;padding-bottom:4px;"
         f'border-bottom:1px solid {T["border"]};">Optimization Settings</p>',
         unsafe_allow_html=True,
     )
@@ -1780,9 +1780,9 @@ with main:
                         f'<div style="background:rgba(255,159,28,0.08);'
                         f"border:1px solid {T['warn']};"
                         f'border-radius:8px;padding:10px 14px;margin:0 0 12px;">'
-                        f'<div style="font-family:Bebas Neue,sans-serif;font-size:14px;'
-                        f'letter-spacing:1px;color:{T["warn"]};font-weight:700;margin-bottom:6px;">'
-                        f"⚠ YAHOO LINEUP MISMATCH ({len(_mismatches)})</div>"
+                        f'<div style="font-family:var(--font-body);font-size:14px;'
+                        f'letter-spacing:0.2px;color:{T["warn"]};font-weight:700;margin-bottom:6px;">'
+                        f"Yahoo Lineup Mismatch ({len(_mismatches)})</div>"
                         f'<p style="margin:0 0 6px;font-size:13px;color:{T["tx"]};">'
                         f"Your current Yahoo lineup differs from this recommendation. "
                         f"Adjust in Yahoo to capture the full projected value.</p>"
@@ -1794,7 +1794,7 @@ with main:
                 # ── Batters table ──
                 st.markdown(
                     f'<p style="font-size:12px;font-weight:700;letter-spacing:1px;'
-                    f"color:{T['tx2']};text-transform:uppercase;"
+                    f"color:{T['tx2']};"
                     f'margin:0 0 6px;">Batters</p>',
                     unsafe_allow_html=True,
                 )
@@ -1806,7 +1806,7 @@ with main:
                 # ── Pitchers table ──
                 st.markdown(
                     f'<p style="font-size:12px;font-weight:700;letter-spacing:1px;'
-                    f"color:{T['tx2']};text-transform:uppercase;"
+                    f"color:{T['tx2']};"
                     f'margin:16px 0 6px;">Pitchers</p>',
                     unsafe_allow_html=True,
                 )
@@ -1851,7 +1851,7 @@ with main:
                 st.divider()
                 st.markdown(
                     f'<p style="font-size:12px;font-weight:700;letter-spacing:1px;'
-                    f"color:{T['tx2']};text-transform:uppercase;"
+                    f"color:{T['tx2']};"
                     f"margin:0 0 6px;\">Today's Streaming Recommendations</p>",
                     unsafe_allow_html=True,
                 )
@@ -1992,7 +1992,7 @@ with main:
                 # Recommended lineup table — sorted by Yahoo slot order
                 st.markdown(
                     f'<p style="font-size:12px;font-weight:700;letter-spacing:1px;'
-                    f"color:{T['tx2']};text-transform:uppercase;"
+                    f"color:{T['tx2']};"
                     f'margin:0 0 6px;">Starting Lineup</p>',
                     unsafe_allow_html=True,
                 )
@@ -2111,7 +2111,7 @@ with main:
                 if lineup.get("projected_stats"):
                     st.markdown(
                         f'<p style="font-size:12px;font-weight:700;letter-spacing:1px;'
-                        f"color:{T['tx2']};text-transform:uppercase;"
+                        f"color:{T['tx2']};"
                         f'margin:16px 0 6px;">Projected Weekly Category Totals</p>',
                         unsafe_allow_html=True,
                     )
@@ -2143,7 +2143,7 @@ with main:
                 if risk_metrics:
                     st.markdown(
                         f'<p style="font-size:12px;font-weight:700;letter-spacing:1px;'
-                        f"color:{T['tx2']};text-transform:uppercase;"
+                        f"color:{T['tx2']};"
                         f'margin:16px 0 6px;">Risk Analysis</p>',
                         unsafe_allow_html=True,
                     )
@@ -2165,7 +2165,7 @@ with main:
                 if recs:
                     st.markdown(
                         f'<p style="font-size:12px;font-weight:700;letter-spacing:1px;'
-                        f"color:{T['tx2']};text-transform:uppercase;"
+                        f"color:{T['tx2']};"
                         f'margin:16px 0 6px;">Recommendations</p>',
                         unsafe_allow_html=True,
                     )
@@ -2180,7 +2180,7 @@ with main:
                 if bench:
                     st.markdown(
                         f'<p style="font-size:12px;font-weight:700;letter-spacing:1px;'
-                        f"color:{T['tx2']};text-transform:uppercase;"
+                        f"color:{T['tx2']};"
                         f'margin:16px 0 6px;">Bench (Sit)</p>',
                         unsafe_allow_html=True,
                     )
@@ -2239,7 +2239,7 @@ with main:
                             st.divider()
                             st.markdown(
                                 f'<p style="font-size:12px;font-weight:700;letter-spacing:1px;'
-                                f"color:{T['tx2']};text-transform:uppercase;"
+                                f"color:{T['tx2']};"
                                 f'margin:0 0 6px;">Recommended Free Agent Moves</p>',
                                 unsafe_allow_html=True,
                             )
@@ -2592,7 +2592,7 @@ with main:
                             st.markdown(
                                 f'<p style="font-size:12px;font-weight:700;'
                                 f"letter-spacing:1px;color:{T['tx2']};"
-                                f'text-transform:uppercase;margin:0 0 6px;">'
+                                f'margin:0 0 6px;">'
                                 f"Player Rankings</p>",
                                 unsafe_allow_html=True,
                             )
@@ -2670,7 +2670,7 @@ with main:
                             st.markdown(
                                 f'<p style="font-size:12px;font-weight:700;'
                                 f"letter-spacing:1px;color:{T['tx2']};"
-                                f'text-transform:uppercase;margin:16px 0 6px;">'
+                                f'margin:16px 0 6px;">'
                                 f"Decision Reasoning</p>",
                                 unsafe_allow_html=True,
                             )
@@ -3016,7 +3016,7 @@ with main:
         if weights:
             st.markdown(
                 f'<p style="font-size:12px;font-weight:700;letter-spacing:1px;'
-                f"color:{T['tx2']};text-transform:uppercase;"
+                f"color:{T['tx2']};"
                 f'margin:0 0 6px;">Category Weight Distribution</p>',
                 unsafe_allow_html=True,
             )
@@ -3051,7 +3051,7 @@ with main:
             st.divider()
             st.markdown(
                 f'<p style="font-size:12px;font-weight:700;letter-spacing:1px;'
-                f"color:{T['tx2']};text-transform:uppercase;"
+                f"color:{T['tx2']};"
                 f'margin:0 0 6px;">Maximin (Balanced) Lineup Comparison</p>',
                 unsafe_allow_html=True,
             )
@@ -3073,7 +3073,7 @@ with main:
             st.divider()
             st.markdown(
                 f'<p style="font-size:12px;font-weight:700;letter-spacing:1px;'
-                f"color:{T['tx2']};text-transform:uppercase;"
+                f"color:{T['tx2']};"
                 f'margin:0 0 6px;">Current Standings Position by Category</p>',
                 unsafe_allow_html=True,
             )
@@ -3277,7 +3277,7 @@ with main:
         # ──────────────────────────────────────────────────────────────
         st.markdown(
             f'<p style="font-size:12px;font-weight:700;letter-spacing:1px;'
-            f"color:{T['tx2']};text-transform:uppercase;"
+            f"color:{T['tx2']};"
             f'margin:0 0 6px;">Streaming Pitcher Picks</p>',
             unsafe_allow_html=True,
         )
@@ -3458,7 +3458,7 @@ with main:
         st.divider()
         st.markdown(
             f'<p style="font-size:12px;font-weight:700;letter-spacing:1px;'
-            f"color:{T['tx2']};text-transform:uppercase;"
+            f"color:{T['tx2']};"
             f'margin:0 0 6px;">Two-Start Pitchers (Your Roster)</p>',
             unsafe_allow_html=True,
         )
@@ -3597,7 +3597,7 @@ with main:
             st.divider()
             st.markdown(
                 f'<p style="font-size:12px;font-weight:700;letter-spacing:1px;'
-                f"color:{T['tx2']};text-transform:uppercase;"
+                f"color:{T['tx2']};"
                 f'margin:0 0 6px;">Weekly Streaming Calendar</p>',
                 unsafe_allow_html=True,
             )

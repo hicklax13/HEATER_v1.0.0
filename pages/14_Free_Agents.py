@@ -435,7 +435,7 @@ if recommendations:
         f"Top pickup: Add {_top_add} (drop {_top_drop}) for {format_stat(_top_delta, 'SGP')} Standings Gained Points"
     )
 
-render_page_layout("FREE AGENTS", banner_teaser=_banner_teaser, banner_icon="free_agents")
+render_page_layout("Free Agents", banner_teaser=_banner_teaser, banner_icon="free_agents")
 
 # ── Position filter (shared across all sections) ─────────────────────────────
 # 2026-05-19 Section 5: POSITIONS now imported from src.ui_shared (top of file).

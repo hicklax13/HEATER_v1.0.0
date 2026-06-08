@@ -33,7 +33,7 @@ require_page_enabled("page:10_Punt_Analyzer")
 log_page_view("Punt Analyzer")
 
 st.markdown(
-    '<div class="page-title-wrap"><div class="page-title"><span>PUNT STRATEGY SIMULATOR</span></div></div>',
+    '<div class="page-title-wrap"><div class="page-title"><span>Punt Strategy Simulator</span></div></div>',
     unsafe_allow_html=True,
 )
 

@@ -82,7 +82,7 @@ require_page_enabled("page:11_Trade_Analyzer")
 log_page_view("Trade Analyzer")
 page_timer_start()
 
-render_page_layout("TRADE ANALYZER", banner_teaser="Analyze a trade below", banner_icon="trade")
+render_page_layout("Trade Analyzer", banner_teaser="Analyze a trade below", banner_icon="trade")
 
 # Load data
 pool = load_player_pool()
@@ -371,9 +371,9 @@ else:
                     with ctx:
                         verdict_color = T["ok"] if result["verdict"] == "ACCEPT" else T["danger"]
                         grade_val = result.get("grade", "")
-                        grade_display = f'<div style="font-size:28px;font-family:Bebas Neue,sans-serif;color:{verdict_color};letter-spacing:2px;">{result["verdict"]}</div>'
+                        grade_display = f'<div style="font-size:28px;font-family:var(--font-body);color:{verdict_color};letter-spacing:2px;">{result["verdict"]}</div>'
                         if grade_val:
-                            grade_display += f'<div style="font-size:20px;font-family:Bebas Neue,sans-serif;color:{verdict_color};">{grade_val}</div>'
+                            grade_display += f'<div style="font-size:20px;font-family:var(--font-body);color:{verdict_color};">{grade_val}</div>'
                         grade_display += f'<div style="font-size:12px;color:#6b7280;margin-top:4px;">{result["confidence_pct"]:.2f}% confidence</div>'
                         render_context_card("Trade Verdict", grade_display)
 
@@ -398,7 +398,7 @@ else:
                         surplus_color = T["ok"] if (surplus or 0) >= 0 else T["danger"]
                         render_context_card(
                             surplus_label,
-                            f'<div style="font-size:20px;font-family:Bebas Neue,sans-serif;color:{surplus_color};">{surplus:+.2f}</div>',
+                            f'<div style="font-size:20px;font-family:var(--font-body);color:{surplus_color};">{surplus:+.2f}</div>',
                         )
 
                     # ── Feature 3 (2026-05-23): Playoff + Championship probability ──
@@ -413,9 +413,9 @@ else:
                         d_champ = result.get("delta_champ_prob", 0.0)
 
                         st.markdown(
-                            '<div style="font-family:Bebas Neue,sans-serif;font-size:18px;'
+                            '<div style="font-family:var(--font-body);font-size:18px;'
                             'color:#9ca3af;letter-spacing:2px;margin-top:8px;">'
-                            "PRIMARY OBJECTIVE — Δ TITLE ODDS</div>",
+                            "Primary Objective — Δ Title Odds</div>",
                             unsafe_allow_html=True,
                         )
                         pc1, pc2, pc3 = st.columns(3)
@@ -528,7 +528,7 @@ else:
                         else:
                             grade_color = T["danger"]
                         grade_html = (
-                            f'<span style="font-family:Bebas Neue,sans-serif;font-size:36px;'
+                            f'<span style="font-family:var(--font-body);font-size:36px;'
                             f"color:{grade_color};letter-spacing:3px;margin-left:16px;"
                             f'font-weight:bold;">{grade}</span>'
                         )
@@ -538,7 +538,7 @@ else:
                         f"padding:20px;text-align:center;margin:16px 0;"
                         f'animation:slideUp 0.4s ease-out both;">'
                         f"{icon}"
-                        f'<span style="font-family:Bebas Neue,sans-serif;font-size:28px;color:{color};'
+                        f'<span style="font-family:var(--font-body);font-size:28px;color:{color};'
                         f'letter-spacing:2px;margin-left:12px;">{result["verdict"]}</span>'
                         f"{grade_html}"
                         f'<span style="color:{T["tx2"]};margin-left:12px;font-size:18px;">'
@@ -697,9 +697,9 @@ else:
                         # RISK diagnostics, not the verdict.
                         if "mc_mean" in result and "cvar5" in result:
                             st.markdown(
-                                '<div style="font-family:Bebas Neue,sans-serif;font-size:16px;'
+                                '<div style="font-family:var(--font-body);font-size:16px;'
                                 'color:#9ca3af;letter-spacing:2px;margin-top:8px;">'
-                                "MONTE CARLO RISK (injury-aware downside)</div>",
+                                "Monte Carlo Risk (injury-aware downside)</div>",
                                 unsafe_allow_html=True,
                             )
                             mc1, mc2, mc3, mc4 = st.columns(4)
@@ -770,9 +770,9 @@ else:
                             _po_delta = _sum_delta(_playoff)
 
                             st.markdown(
-                                '<div style="font-family:Bebas Neue,sans-serif;font-size:16px;'
+                                '<div style="font-family:var(--font-body);font-size:16px;'
                                 'color:#9ca3af;letter-spacing:2px;margin-top:8px;">'
-                                "THREE-HORIZON IMPACT (report Q(b))</div>",
+                                "Three-Horizon Impact (report Q(b))</div>",
                                 unsafe_allow_html=True,
                             )
                             h1, h2, h3 = st.columns(3)

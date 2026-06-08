@@ -74,7 +74,7 @@ require_page_enabled("page:17_Leaders")
 log_page_view("Leaders")
 page_timer_start()
 
-render_page_layout("LEADERS", banner_teaser="Category leaders and breakout detection", banner_icon="leaders")
+render_page_layout("Leaders", banner_teaser="Category leaders and breakout detection", banner_icon="leaders")
 
 
 @st.cache_data(ttl=300)
