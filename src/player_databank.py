@@ -1013,12 +1013,14 @@ def render_databank_table(
 .hdb-table {{
     width: 100%;
     border-collapse: collapse;
-    font-family: Inter, -apple-system, BlinkMacSystemFont, sans-serif;
+    font-family: Figtree, -apple-system, BlinkMacSystemFont, sans-serif;
     font-size: 13px;
 }}
 .hdb-table thead th {{
-    background: linear-gradient(135deg, #16213e, #1a1a2e);
-    color: #ffffff;
+    background: #ffffff;
+    color: #8a929c;
+    font-weight: 600;
+    border-bottom: 1px solid #eef0f3;
     padding: 8px 10px;
     position: sticky;
     top: 0;
@@ -1028,7 +1030,7 @@ def render_databank_table(
     user-select: none;
 }}
 .hdb-table thead th:hover {{
-    background: #1e2a45;
+    background: #fafbfc;
 }}
 .sort-arrow {{
     font-size: 10px;
@@ -1040,13 +1042,14 @@ def render_databank_table(
     color: #ff6d00;
 }}
 .hdb-table .stat-group {{
-    background: linear-gradient(135deg, #1a1a2e, #16213e);
-    color: #ff6d00;
+    background: #f6f7f9;
+    color: #5b6470;
     text-align: center;
     font-size: 11px;
     font-weight: 600;
     letter-spacing: 0.04em;
     padding: 4px 8px;
+    border-bottom: 1px solid #eef0f3;
 }}
 .hdb-table tbody tr {{
     border-bottom: 1px solid #e5e7eb;
@@ -1055,7 +1058,7 @@ def render_databank_table(
     background: #fafaf8;
 }}
 .hdb-table tbody tr:hover {{
-    background: #fff7ed !important;
+    background: #fafbfc !important;
 }}
 .hdb-table td {{
     padding: 8px 10px;
@@ -1133,9 +1136,7 @@ function sortTable(colIdx, headerEl) {{
     # Stat group header row
     group_row = "<tr>"
     for _ in range(n_meta):
-        group_row += (
-            '<th class="stat-group" style="background:linear-gradient(135deg, #16213e, #1a1a2e);color:#ffffff;"></th>'
-        )
+        group_row += '<th class="stat-group" style="background:#f6f7f9;color:#5b6470;"></th>'
     group_row += f'<th class="stat-group" colspan="{n_stat}">{_html_escape(group_label)}</th>'
     group_row += "</tr>"
 

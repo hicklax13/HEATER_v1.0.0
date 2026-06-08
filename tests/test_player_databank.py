@@ -377,9 +377,11 @@ class TestHTMLTableRenderer:
             }
         )
         html = render_databank_table(df, stat_view="S_S_2026", is_pitcher=False)
-        # Check HEATER theme colors are present
-        assert "#16213e" in html  # Header background (dark navy gradient)
-        assert "#fff7ed" in html  # Hover color
+        # FP-light table treatment (revamp): muted header text, neutral hover,
+        # and the old dark-navy header is retired.
+        assert "#16213e" not in html  # dark navy header retired
+        assert "#8a929c" in html  # FP muted header text
+        assert "#fafbfc" in html  # FP neutral row hover
 
 
 class TestExcelExport:
