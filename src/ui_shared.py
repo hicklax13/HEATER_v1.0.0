@@ -508,7 +508,7 @@ METRIC_TOOLTIPS = {
 
 
 def sec(title):
-    """Render a styled section header (uppercase, Bebas Neue font)."""
+    """Render a styled section header (Figtree, title case)."""
     st.markdown(f'<div class="sec-head">{title}</div>', unsafe_allow_html=True)
 
 
@@ -704,15 +704,15 @@ def inject_custom_css():
     }}
     /* ── SECTION HEADER ───────────────────────── */
     .sec-head {{
-        font-family: 'Bebas Neue', sans-serif;
-        font-weight: 400;
-        font-size: 14px;
-        text-transform: uppercase;
-        letter-spacing: 3px;
-        color: {t["tx2"]};
+        font-family: var(--font-body);
+        font-weight: 700;
+        font-size: 20px;
+        text-transform: none;
+        letter-spacing: -0.01em;
+        color: {t["tx"]};
         margin-bottom: 10px;
         padding-bottom: 6px;
-        border-bottom: 2px solid {t["border"]};
+        border-bottom: 1px solid {t["divider"]};
     }}
     .sec-label {{
         font-size: 12px !important;
@@ -722,6 +722,19 @@ def inject_custom_css():
         color: {t["tx2"]} !important;
         margin-bottom: 4px !important;
     }}
+
+    /* ── FP TYPE SCALE (revamp task 2) — Figtree title-case, Bebas retired ── */
+    h1, .heater-h1 {{
+        font-family: var(--font-body) !important;
+        font-weight: 700 !important;
+        font-size: 28px !important;
+        letter-spacing: -0.02em !important;
+        text-transform: none !important;
+        color: {t["tx"]} !important;
+    }}
+    h2 {{ font-family: var(--font-body) !important; font-weight: 600 !important; font-size: 20px !important; text-transform: none !important; }}
+    h3 {{ font-family: var(--font-body) !important; font-weight: 600 !important; font-size: 16px !important; text-transform: none !important; }}
+    .stat, .mono, td.num {{ font-family: var(--font-mono) !important; }}
 
     /* ── GLASS CARD (Glassmorphism) ───────────── */
     .glass {{
@@ -757,7 +770,7 @@ def inject_custom_css():
         box-shadow: 0 4px 24px rgba(0, 0, 0, 0.06);
     }}
     .cmd-left {{
-        font-family: 'Bebas Neue', sans-serif;
+        font-family: var(--font-body);
         font-size: 20px;
         text-transform: uppercase;
         letter-spacing: 3px;
@@ -775,7 +788,7 @@ def inject_custom_css():
     .your-turn {{
         background: linear-gradient(135deg, {t["primary"]}, {t["hot"]});
         color: {t["ink"]};
-        font-family: 'Bebas Neue', sans-serif;
+        font-family: var(--font-body);
         font-size: 16px;
         text-transform: uppercase;
         letter-spacing: 2px;
@@ -786,7 +799,7 @@ def inject_custom_css():
     .waiting {{
         background: {t["card_h"]};
         color: {t["tx2"]};
-        font-family: 'Bebas Neue', sans-serif;
+        font-family: var(--font-body);
         font-size: 14px;
         text-transform: uppercase;
         letter-spacing: 1.5px;
@@ -831,7 +844,7 @@ def inject_custom_css():
         box-shadow: 0 20px 60px rgba(230, 57, 70, 0.15), 0 8px 24px rgba(0, 0, 0, 0.08);
     }}
     .hero .p-name {{
-        font-family: 'Bebas Neue', sans-serif;
+        font-family: var(--font-body);
         font-size: 36px;
         color: {t["tx"]};
         text-transform: uppercase;
@@ -913,7 +926,7 @@ def inject_custom_css():
         color: {t["tx2"]};
     }}
     .alt .a-name {{
-        font-family: 'Bebas Neue', sans-serif;
+        font-family: var(--font-body);
         font-size: 16px;
         color: {t["tx"]};
         text-transform: uppercase;
@@ -1010,7 +1023,7 @@ def inject_custom_css():
         border-color: {t["border"]};
     }}
     .roster-slot .s-label {{
-        font-family: 'Bebas Neue', sans-serif;
+        font-family: var(--font-body);
         font-size: 10px;
         text-transform: uppercase;
         letter-spacing: 1.5px;
@@ -1054,7 +1067,7 @@ def inject_custom_css():
         50% {{ transform: scale(1.08); box-shadow: 0 0 16px rgba(230, 57, 70, 0.3); }}
     }}
     .scar-label {{
-        font-family: 'Bebas Neue', sans-serif;
+        font-family: var(--font-body);
         font-size: 10px;
         text-transform: uppercase;
         letter-spacing: 1.5px;
@@ -1072,7 +1085,7 @@ def inject_custom_css():
         background: rgba(255, 255, 255, 0.8);
         backdrop-filter: blur(8px);
         color: {t["tx2"]};
-        font-family: 'Bebas Neue', sans-serif;
+        font-family: var(--font-body);
         font-size: 11px;
         text-transform: uppercase;
         letter-spacing: 1.5px;
@@ -1127,7 +1140,7 @@ def inject_custom_css():
         transform: translateY(-2px);
     }}
     .cat-name {{
-        font-family: 'Bebas Neue', sans-serif;
+        font-family: var(--font-body);
         font-size: 11px;
         text-transform: uppercase;
         letter-spacing: 1.5px;
@@ -1198,7 +1211,7 @@ def inject_custom_css():
         align-items: center;
         gap: 8px;
         padding: 12px 24px;
-        font-family: 'Bebas Neue', sans-serif;
+        font-family: var(--font-body);
         font-size: 14px;
         text-transform: uppercase;
         letter-spacing: 2px;
@@ -1228,7 +1241,7 @@ def inject_custom_css():
         border-radius: 12px;
         padding: 12px 20px;
         text-align: center;
-        font-family: 'Bebas Neue', sans-serif;
+        font-family: var(--font-body);
         font-size: 16px;
         text-transform: uppercase;
         letter-spacing: 3px;
@@ -1253,7 +1266,7 @@ def inject_custom_css():
         box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
     }}
     .verdict-banner .verdict-text {{
-        font-family: 'Bebas Neue', sans-serif;
+        font-family: var(--font-body);
         font-size: 32px;
         text-transform: uppercase;
         letter-spacing: 4px;
@@ -1281,7 +1294,7 @@ def inject_custom_css():
         transform: perspective(800px) rotateX(0deg) translateY(-2px);
     }}
     .metric-card .metric-label {{
-        font-family: 'Bebas Neue', sans-serif;
+        font-family: var(--font-body);
         font-size: 11px;
         text-transform: uppercase;
         letter-spacing: 1.5px;
@@ -1319,7 +1332,7 @@ def inject_custom_css():
         box-shadow: 0 4px 20px rgba(230, 57, 70, 0.15);
     }}
     .pc-name {{
-        font-family: 'Bebas Neue', sans-serif;
+        font-family: var(--font-body);
         font-size: 15px;
         letter-spacing: 1px;
         color: {t["tx"]};
@@ -1379,10 +1392,10 @@ def inject_custom_css():
         50% {{ background-position: 100% 50%; }}
     }}
     .page-title {{
-        font-family: 'Bebas Neue', sans-serif !important;
-        font-size: 28px !important;
-        letter-spacing: 4px !important;
-        font-style: italic !important;
+        font-family: var(--font-body) !important;
+        font-size: 26px !important;
+        letter-spacing: -0.01em !important;
+        font-style: normal !important;
         font-weight: 700 !important;
         text-align: center !important;
         margin-top: 8px !important;
@@ -1432,7 +1445,7 @@ def inject_custom_css():
 
     /* Buttons — 3D inflatable */
     .stButton > button {{
-        font-family: 'Bebas Neue', sans-serif;
+        font-family: var(--font-body);
         font-size: 14px;
         letter-spacing: 2px;
         text-transform: uppercase;
@@ -1493,7 +1506,7 @@ def inject_custom_css():
         border: 1px solid rgba(255, 255, 255, 0.3);
     }}
     .stTabs [data-baseweb="tab"] {{
-        font-family: 'Bebas Neue', sans-serif;
+        font-family: var(--font-body);
         text-transform: uppercase;
         letter-spacing: 1.5px;
         font-size: 13px;
@@ -1754,7 +1767,7 @@ def inject_custom_css():
     }}
     div[data-testid="stMetric"] label {{
         color: {t["tx2"]} !important;
-        font-family: 'Bebas Neue', sans-serif !important;
+        font-family: var(--font-body) !important;
         letter-spacing: 1px !important;
         text-transform: uppercase !important;
     }}
@@ -1884,7 +1897,7 @@ def inject_custom_css():
         flex-wrap: wrap !important;
     }}
     .matchup-ticker-week {{
-        font-family: 'Bebas Neue', sans-serif !important;
+        font-family: var(--font-body) !important;
         font-size: 11px !important;
         text-transform: uppercase !important;
         letter-spacing: 1.5px !important;
@@ -1945,7 +1958,7 @@ def inject_custom_css():
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05) !important;
     }}
     .context-card-title {{
-        font-family: 'Bebas Neue', sans-serif !important;
+        font-family: var(--font-body) !important;
         font-size: 10px !important;
         text-transform: uppercase !important;
         letter-spacing: 2px !important;
@@ -2175,6 +2188,19 @@ def inject_custom_css():
             box-shadow: none !important;
             backdrop-filter: none !important;
         }}
+    }}
+
+    /* ── FP calm: retire Bebas-era all-caps on prose headers/names/actions.
+          Placed last so it wins the cascade over earlier uppercase rules.
+          Micro-labels (position codes, category codes) keep their casing. ── */
+    .cmd-left, .your-turn, .waiting,
+    .hero .p-name, .alt .a-name, .pc-name,
+    .verdict-banner .verdict-text,
+    .stButton > button,
+    .stTabs [data-baseweb="tab"],
+    div[data-testid="stMetric"] label {{
+        text-transform: none !important;
+        letter-spacing: normal !important;
     }}
     </style>
     """,
