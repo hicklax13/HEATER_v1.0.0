@@ -1174,7 +1174,7 @@ def get_player_recent_form_cached(mlb_id: int) -> dict:
         return get_player_recent_form(mlb_id)
 
 
-def get_todays_lineups(schedule: list[dict]) -> dict:
+def get_todays_lineups(schedule: list[dict], deadline: float | None = None) -> dict:
     """Fetch confirmed starting lineups for today's games.
 
     Uses the MLB Stats API boxscore endpoint to retrieve batting orders
@@ -1199,6 +1199,8 @@ def get_todays_lineups(schedule: list[dict]) -> dict:
     result: dict[str, list[str]] = {}
 
     for game in schedule:
+        if deadline is not None and time.monotonic() > deadline:
+            break  # item A: render budget exhausted — remaining games skipped
         game_pk = game.get("game_id") or game.get("game_pk") or game.get("gamePk", 0)
         if not game_pk:
             continue

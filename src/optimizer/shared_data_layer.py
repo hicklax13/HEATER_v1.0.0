@@ -149,6 +149,9 @@ class OptimizerDataContext:
     team_strength: dict[str, dict] = field(default_factory=dict)
     park_factors: dict = field(default_factory=dict)
     weather: dict[str, dict] = field(default_factory=dict)
+    # Internal: monotonic deadline bounding total game-day enrichment time (item A,
+    # 2026-06-08). None = unbounded (default). Set per-run by build_optimizer_context.
+    gameday_deadline: float | None = None
 
     # Player intelligence
     recent_form: dict[int, dict] = field(default_factory=dict)
@@ -172,6 +175,18 @@ class OptimizerDataContext:
 # ---------------------------------------------------------------------------
 # Builder
 # ---------------------------------------------------------------------------
+
+# Total wall-clock budget for the game-day enrichment block (Steps 9-14: schedule,
+# lineups, two-start, opposing pitchers, team strength). In production the scheduler
+# warms these into SQLite (fast), but a brief cold-cache window goes live; this
+# deadline keeps the render bounded regardless (item A, 2026-06-08).
+_GAMEDAY_ENRICH_BUDGET_S = 25.0
+
+
+def _gameday_time_left(ctx: OptimizerDataContext) -> bool:
+    """True if there is still game-day-enrichment budget left (or none is set)."""
+    deadline = getattr(ctx, "gameday_deadline", None)
+    return deadline is None or time.monotonic() < deadline
 
 
 def build_optimizer_context(
@@ -364,10 +379,15 @@ def build_optimizer_context(
     _build_unified_category_weights(ctx)
 
     # ── Step 9: Today's schedule ──────────────────────────────────────
-    _load_schedule_data(ctx)
+    # Item A: bound the total game-day enrichment so a cold-cache render stays
+    # fast. Each step (and the looping ones internally) honors this deadline.
+    ctx.gameday_deadline = time.monotonic() + _GAMEDAY_ENRICH_BUDGET_S
+    if _gameday_time_left(ctx):
+        _load_schedule_data(ctx)
 
     # ── Step 10: Confirmed lineups ────────────────────────────────────
-    _load_confirmed_lineups(ctx)
+    if _gameday_time_left(ctx):
+        _load_confirmed_lineups(ctx)
     if ctx.confirmed_lineups:
         tracker.record(
             "confirmed_lineups",
@@ -377,15 +397,18 @@ def build_optimizer_context(
         )
 
     # ── Step 11: Remaining games this week per team ───────────────────
-    _compute_remaining_games(ctx)
+    if _gameday_time_left(ctx):
+        _compute_remaining_games(ctx)
     if ctx.remaining_games_this_week:
         tracker.record("schedule", ttl_hours=2.0, source_label="MLB Stats API", data_as_of="Today's game schedule")
 
     # ── Step 12: Two-start pitchers ───────────────────────────────────
-    _detect_two_start_pitchers(ctx)
+    if _gameday_time_left(ctx):
+        _detect_two_start_pitchers(ctx)
 
     # ── Step 13: Opposing pitcher data ────────────────────────────────
-    _load_opposing_pitchers(ctx)
+    if _gameday_time_left(ctx):
+        _load_opposing_pitchers(ctx)
     if ctx.opposing_pitchers:
         tracker.record(
             "opposing_pitchers",
@@ -395,7 +418,8 @@ def build_optimizer_context(
         )
 
     # ── Step 14: Team strength ────────────────────────────────────────
-    _load_team_strength(ctx)
+    if _gameday_time_left(ctx):
+        _load_team_strength(ctx)
     if ctx.team_strength:
         tracker.record(
             "team_strength",
@@ -627,7 +651,7 @@ def _load_confirmed_lineups(ctx: OptimizerDataContext) -> None:
     try:
         from src.game_day import get_todays_lineups
 
-        ctx.confirmed_lineups = get_todays_lineups(ctx.todays_schedule)
+        ctx.confirmed_lineups = get_todays_lineups(ctx.todays_schedule, deadline=ctx.gameday_deadline)
     except Exception:
         logger.warning("Failed to load confirmed lineups")
 
@@ -776,6 +800,8 @@ def _load_team_strength(ctx: OptimizerDataContext) -> None:
         _team_failures = 0
         _team_first_logged = False
         for team in teams_seen:
+            if not _gameday_time_left(ctx):
+                break  # item A: render budget exhausted — remaining teams skipped
             try:
                 ctx.team_strength[str(team)] = mcs.get_team_strength(str(team))
             except Exception as exc:
