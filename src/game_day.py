@@ -6,6 +6,7 @@ and recent player form to power daily lineup and start/sit decisions.
 
 from __future__ import annotations
 
+import concurrent.futures
 import logging
 import time
 from datetime import UTC, datetime, timedelta
@@ -1011,6 +1012,41 @@ def _aggregate_pitching_games(games: list[dict]) -> dict:
     }
 
 
+# Per-call timeout for the MLB Stats API gameLog fetch. Without it, a slow /
+# unreachable statsapi makes requests.get block indefinitely and hangs the page
+# render (FA + Lineup go through build_optimizer_context -> _load_recent_form).
+_RECENT_FORM_CALL_TIMEOUT = 4.0
+
+
+def _statsapi_gamelog_bounded(mlb_id: int, group: str) -> dict | None:
+    """Run a statsapi gameLog fetch under a HARD timeout so a slow/unreachable
+    MLB Stats API can never hang the render. Returns the raw result, or None on
+    timeout/error.
+
+    Mirrors yahoo_data_service._get_cached: a non-blocking ``shutdown(wait=False)``
+    so a hung worker leaks (and exits on its own) but never blocks the caller —
+    the context-manager form would re-block on shutdown(wait=True).
+    """
+    import statsapi
+
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="recentform")
+    try:
+        future = executor.submit(statsapi.player_stat_data, mlb_id, group=group, type="gameLog", sportId=1)
+        try:
+            return future.result(timeout=_RECENT_FORM_CALL_TIMEOUT)
+        except concurrent.futures.TimeoutError:
+            future.cancel()
+            logger.debug(
+                "recent-form gameLog timed out (>%ss) mlb_id=%s group=%s", _RECENT_FORM_CALL_TIMEOUT, mlb_id, group
+            )
+            return None
+        except Exception:
+            logger.debug("recent-form gameLog failed mlb_id=%s group=%s", mlb_id, group)
+            return None
+    finally:
+        executor.shutdown(wait=False)
+
+
 def get_player_recent_form(mlb_id: int) -> dict:
     """On-demand last 7/14/30 game stats from MLB Stats API gameLog.
 
@@ -1038,14 +1074,14 @@ def get_player_recent_form(mlb_id: int) -> dict:
     }
 
     try:
-        import statsapi
+        import statsapi  # noqa: F401 — presence check; the bounded helper imports it too
     except ImportError:
         logger.warning("statsapi not installed, cannot fetch recent form")
         return empty
 
-    # Try hitting first
-    try:
-        result = statsapi.player_stat_data(mlb_id, group="hitting", type="gameLog", sportId=1)
+    # Try hitting first (timeout-bounded so a slow statsapi can't hang the render).
+    result = _statsapi_gamelog_bounded(mlb_id, "hitting")
+    if result:
         game_stats = [entry["stats"] for entry in result.get("stats", [])]
         if game_stats:
             return {
@@ -1055,15 +1091,11 @@ def get_player_recent_form(mlb_id: int) -> dict:
                 "player_type": "hitter",
                 "mlb_id": mlb_id,
             }
-    except Exception:
-        logger.debug("No hitting gameLog for mlb_id=%d", mlb_id)
 
-    # Brief pause before pitching request
-    time.sleep(0.5)
-
-    # Try pitching
-    try:
-        result = statsapi.player_stat_data(mlb_id, group="pitching", type="gameLog", sportId=1)
+    # Fall back to pitching (no unconditional sleep — it added 0.5s PER player to
+    # the render loop; the per-call timeout + the caller's budget bound us instead).
+    result = _statsapi_gamelog_bounded(mlb_id, "pitching")
+    if result:
         game_stats = [entry["stats"] for entry in result.get("stats", [])]
         if game_stats:
             return {
@@ -1073,8 +1105,6 @@ def get_player_recent_form(mlb_id: int) -> dict:
                 "player_type": "pitcher",
                 "mlb_id": mlb_id,
             }
-    except Exception:
-        logger.debug("No pitching gameLog for mlb_id=%d", mlb_id)
 
     return empty
 

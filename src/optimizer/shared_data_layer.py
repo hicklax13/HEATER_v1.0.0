@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import math
+import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
@@ -817,8 +818,21 @@ def _load_weather(ctx: OptimizerDataContext) -> None:
         logger.warning("Failed to load weather")
 
 
+# Total wall-clock budget for the per-render recent-form load (live cached
+# statsapi calls over the roster). Bounds page render time if statsapi is slow.
+_RECENT_FORM_TOTAL_BUDGET_S = 12.0
+
+
 def _load_recent_form(ctx: OptimizerDataContext) -> None:
-    """Load L7/L14/L30 recent form for rostered players."""
+    """Load L7/L14/L30 recent form for rostered players.
+
+    Bounded by a total wall-clock budget: each player's fetch is a live (cached)
+    MLB Stats API call, so without a cap a degraded statsapi would make the page
+    render take minutes. Once the budget is exceeded the loop stops and the
+    remaining players fall back to their preseason/ROS projection (recent-form is
+    an enhancement, not required). Combined with game_day's per-call timeout, the
+    render is always bounded and never hangs.
+    """
     try:
         from src.game_day import get_player_recent_form_cached
 
@@ -828,7 +842,12 @@ def _load_recent_form(ctx: OptimizerDataContext) -> None:
         # FIRST per-pid failure + summary at loop exit.
         _form_failures = 0
         _form_first_logged = False
+        _start = time.monotonic()
+        _budget_exceeded = False
         for _, row in ctx.roster.iterrows():
+            if time.monotonic() - _start > _RECENT_FORM_TOTAL_BUDGET_S:
+                _budget_exceeded = True
+                break
             mlb_id = row.get("mlb_id")
             pid = row.get("player_id")
             if mlb_id is None or pid is None:
@@ -862,6 +881,13 @@ def _load_recent_form(ctx: OptimizerDataContext) -> None:
                 "optimizer.shared_data_layer._load_recent_form: %d additional per-pid "
                 "get_player_recent_form_cached failures suppressed (first logged above)",
                 _form_failures - 1,
+            )
+        if _budget_exceeded:
+            logger.warning(
+                "optimizer.shared_data_layer._load_recent_form: %.0fs budget exceeded — "
+                "remaining roster players fall back to projection (no recent-form blend). "
+                "Likely a slow/degraded MLB Stats API.",
+                _RECENT_FORM_TOTAL_BUDGET_S,
             )
     except Exception:
         logger.warning("Failed to load recent form data")
