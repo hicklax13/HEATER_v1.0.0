@@ -12,6 +12,24 @@
 
 ---
 
+## 2026-06-08 — Fresh full re-run (owner-requested launch verification)
+
+Owner asked for a fresh, full per-team re-run on current `master` before inviting
+the league ("verified programmatically; never claim ready without evidence"). Ran
+all 13 pages × 12 teams + ownership + gates (4 plain-process jobs sharing the seeded
+DB; the suite is built to run serially — `-n` xdist gives each worker an empty DB).
+
+| # | Severity | Area | Problem | Status |
+|---|----------|------|---------|--------|
+| Q-OWN-1 | ~~launch-critical~~ → **none (test bug)** | `tests/qa/test_team_ownership.py` bleed detector | `test_page_shows_viewers_own_roster[Lineup Optimizer]` failed: team `HUMAN INTELLIGENCE` (own=24) out-counted by 27-player teams. **Root cause (proven):** the Lineup Optimizer's Start/Sit "compare any player" `st.multiselect` lists the whole ~9,900-player pool; the harness captures `multiselect.options` into `widget_options`, and the bleed haystack included widget_options → every team's roster counted as "present." No swap was ever happening — the diagnostic showed **displayed-text overlap = 0 for ALL teams** (own included); 100% of the signal was the dropdown. Tripped now (not June) only because the data re-sync made HUMAN INTELLIGENCE the smallest roster (24), crossing the `+3` margin. Same class as why Trade Analyzer is already excluded. | **FIXED + VERIFIED** — bleed detector now reads DISPLAYED content only (`_displayed_text`, excludes widget options); extracted pure `_detect_roster_bleed` + a render-free unit guard. Module re-run **5/5 green** incl. the calibration guard (signal still live → not vacuous). App unchanged; `resolve_viewer_team_name` was already correct. |
+| Q-PERF-1 | infra (test exec) | Free Agents + Trade Finder "renders for all teams" | 4/12 (FA) and 6/12 (TF) teams hit the 180s AppTest render cap → `did-not-run` timeouts; Job A smoke also timed out on Trade Finder. **Root cause (proven):** test-harness CPU contention — a diagnostic + the ownership re-verify ran alongside all 4 parallel jobs (~6 concurrent render processes), so 84s/110s renders stretched past 180s wall-clock. **Clean idle-machine timing: FA 84.0s, TF 110.1s, both ran=True, no errors** (TF rendered its 5 tables). NOT an app bug. | **Resolved (clean re-run in progress).** Both pages render correctly with sensible data; the timeouts were self-inflicted contention. Clean serial re-run of FA+TF × 12 underway to capture a green 12/12. Lesson: run QA renders low-concurrency. |
+
+**Standing note — Trade Finder speed (#10, owner-aware):** Trade Finder is the slowest page (~110s offline cold-cache; ~46s in production warm-cache per the #10 optimization). It renders correctly; the ~46s first-load spinner is a known UX wart the owner already deferred. Not a launch-blocker by the agreed bar (loads / works / sensible data).
+
+**Clean pages (11/13) — all deep tests green for all 12 teams:** My Team, Lineup Optimizer, Matchup Planner, League Standings, Trade Analyzer, Punt Analyzer, Closer Monitor, Player Compare, Leaders, Player Databank, Draft Simulator. Ownership 5/5. The two flagged pages are the slow ones above (timeouts, not crashes/wrong-data).
+
+---
+
 ## 2026-06-07 — Post-campaign re-validation (after the audit fix campaign + #9/#10)
 
 The June QA below validated + fixed every finding. After the 2026-06-07 audit fix

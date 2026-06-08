@@ -56,6 +56,44 @@ def _count_present(names, haystack) -> int:
     return sum(1 for n in names if n and len(n) >= 5 and " " in n and n in haystack)
 
 
+def _displayed_text(r) -> str:
+    """Only what the page RENDERS as content (markdown + headings + metric pairs
+    + dataframe text) — NOT selectable widget-option labels.
+
+    The bleed detector must read the DISPLAYED roster, not dropdown options.
+    Several pages legitimately populate a selector with the whole league pool —
+    the Lineup Optimizer's "compare any player" multiselect lists all ~9,900 pool
+    players; Trade Analyzer's "You Receive" lists every other team's roster — which
+    would make every team's players "present" and false-positive an overlap check
+    (the 2026-06-08 regression: HUMAN INTELLIGENCE, the smallest roster at 24, was
+    out-counted by 27-player teams whose names only ever appeared in that dropdown).
+    A genuine cross-team *display* bug renders another team's roster as on-page
+    content, which lands in r.text — so we scan that, and only that.
+    """
+    return _strip_html(r.text)
+
+
+def _detect_roster_bleed(displayed, rosters_by_team, team, team_names):
+    """Return a problem string if another team's roster DOMINATES the displayed
+    page content, else None.
+
+    Fails only on a CLEAR bleed: another team has a meaningful on-page presence
+    (>=5 of its players) AND out-numbers the viewer's own roster by a solid margin
+    (+3). Operates on DISPLAYED text only (see ``_displayed_text``).
+    """
+    expected = rosters_by_team.get(team, set())
+    if not expected:
+        return None  # no known roster for this team; nothing to attribute
+    overlaps = {t: _count_present(rosters_by_team[t], displayed) for t in team_names}
+    own = overlaps[team]
+    best_team = max(team_names, key=lambda t: overlaps[t])
+    best = overlaps[best_team]
+    if best_team != team and best >= 5 and best >= own + 3:
+        top = sorted(overlaps.items(), key=lambda kv: -kv[1])[:3]
+        return f"team={team!r} sees '{best_team}' roster dominating (own={own}, {best_team}={best}); top overlaps={top}"
+    return None
+
+
 # ── Fixtures ─────────────────────────────────────────────────────────────────
 
 
@@ -103,21 +141,35 @@ def test_page_shows_viewers_own_roster(page_results, rosters_by_team, team_names
         r = results[team]
         if not r.ran or r.exception:
             continue  # crash already reported by the smoke/deep suites
-        expected = rosters_by_team.get(team, set())
-        if not expected:
-            continue  # no known roster for this team; nothing to attribute
-        hay = _haystack(r)
-        overlaps = {t: _count_present(rosters_by_team[t], hay) for t in team_names}
-        own = overlaps[team]
-        best_team = max(team_names, key=lambda t: overlaps[t])
-        best = overlaps[best_team]
-        if best_team != team and best >= 5 and best >= own + 3:
-            top = sorted(overlaps.items(), key=lambda kv: -kv[1])[:3]
-            problems.append(
-                f"{title}: team={team!r} sees '{best_team}' roster dominating "
-                f"(own={own}, {best_team}={best}); top overlaps={top}"
-            )
+        prob = _detect_roster_bleed(_displayed_text(r), rosters_by_team, team, team_names)
+        if prob:
+            problems.append(f"{title}: {prob}")
     assert not problems, "CROSS-TEAM ROSTER BLEED:\n" + "\n".join("  " + p for p in problems)
+
+
+# ── Test A-unit: bleed-detector logic (render-free regression guard) ──────────
+
+
+def test_detect_roster_bleed_ignores_full_pool_selector_and_catches_display_swap():
+    """Lock the 2026-06-08 fix: the bleed detector reads DISPLAYED content only.
+
+    A full-pool selector (Lineup's "compare any player" dropdown lists the whole
+    league) leaves the DISPLAYED roster text empty of other teams, so it must NOT
+    register as a bleed — while a genuine display swap (the page renders another
+    team's roster instead of the viewer's) MUST still be caught.
+    """
+    a = {"Alpha Aaa", "Alpha Bbb", "Alpha Ccc", "Alpha Ddd", "Alpha Eee", "Alpha Fff"}
+    b = {"Bravo Aaa", "Bravo Bbb", "Bravo Ccc", "Bravo Ddd", "Bravo Eee", "Bravo Fff"}
+    c = {"Charlie Aaa", "Charlie Bbb", "Charlie Ccc", "Charlie Ddd", "Charlie Eee"}
+    rosters = {"A": a, "B": b, "C": c}
+    teams = ["A", "B", "C"]
+
+    # Full-pool dropdown only -> DISPLAYED roster text is empty -> no bleed.
+    assert _detect_roster_bleed("", rosters, "A", teams) is None
+    # Own roster displayed, others absent -> no bleed.
+    assert _detect_roster_bleed(" ".join(a), rosters, "A", teams) is None
+    # Genuine display swap: A's page renders B's roster, A's own absent -> BLEED.
+    assert _detect_roster_bleed(" ".join(b), rosters, "A", teams) is not None
 
 
 # ── Test B: calibration guard — the ownership signal must be live ─────────────
