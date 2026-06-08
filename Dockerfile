@@ -20,10 +20,9 @@ COPY . .
 
 EXPOSE 8501
 
-# Shell form so ${PORT:-8501} expands: a bare local `docker run` (no $PORT) still
-# binds 8501; on Railway the railway.toml startCommand overrides this CMD and
-# uses the injected $PORT. Both are intentional — see the design spec §5.
-CMD streamlit run app.py \
-    --server.port "${PORT:-8501}" \
-    --server.address 0.0.0.0 \
-    --server.headless true
+# Boot via start.sh (#9): it launches the dedicated refresh scheduler — so data
+# warms at container boot without waiting for a browser session — then execs
+# Streamlit (binding the injected $PORT, headless, all interfaces). railway.toml's
+# startCommand points at the same script, so local `docker run` and Railway behave
+# identically. start.sh handles ${PORT:-8501} and the MULTI_USER gate internally.
+CMD ["sh", "start.sh"]

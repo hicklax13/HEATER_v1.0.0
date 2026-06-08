@@ -1,18 +1,18 @@
-# HEATER — Railway service config (v2 Plan 4).
-# Single service, single volume, single replica (in-process scheduler is the
-# sole SQLite writer — see the design spec). The startCommand here OVERRIDES the
-# Dockerfile CMD and uses Railway's injected $PORT (always present on Railway).
-# It MUST be wrapped in `sh -c '...'`: Railway runs a Dockerfile service's
-# startCommand in exec form (no shell), so an unwrapped $PORT is passed to
-# Streamlit as the literal string "$PORT", the server never binds, and the
-# /_stcore/health check times out. The shell expands $PORT to the real port.
+# HEATER — Railway service config (v2 Plan 4; start.sh boot scheduler added #9).
+# Single service, single volume, single replica (the scheduler is the sole SQLite
+# writer — see the design spec). The startCommand runs start.sh, which launches the
+# dedicated refresh scheduler at boot (so data warms without a browser session)
+# then execs Streamlit. Railway runs a Dockerfile service's startCommand in exec
+# form (no shell), so we invoke `sh start.sh` explicitly: start.sh reads the
+# injected $PORT from the env and expands ${PORT:-8501} itself, so the server binds
+# the real port and /_stcore/health passes (no literal "$PORT" footgun).
 
 [build]
 builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile"
 
 [deploy]
-startCommand = "sh -c 'streamlit run app.py --server.port $PORT --server.address 0.0.0.0 --server.headless true'"
+startCommand = "sh start.sh"
 healthcheckPath = "/_stcore/health"
 healthcheckTimeout = 300
 restartPolicyType = "ON_FAILURE"

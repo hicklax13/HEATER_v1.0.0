@@ -24,10 +24,14 @@ def test_dockerfile_installs_no_deps_yahoo_wrappers():
 
 
 def test_dockerfile_binds_port_headless_all_interfaces():
-    text = _DOCKERFILE.read_text(encoding="utf-8")
-    assert "PORT" in text, "must bind the platform-injected $PORT"
-    assert "--server.headless" in text
-    assert "0.0.0.0" in text, "must bind all interfaces inside the container"
+    # #9 (2026-06-07): the launch moved into start.sh (which also boots the
+    # dedicated scheduler so data warms without a browser session). The Dockerfile
+    # now delegates to start.sh; the port/headless/bind-all invariants live there.
+    startsh = (_ROOT / "start.sh").read_text(encoding="utf-8")
+    assert "PORT" in startsh, "must bind the platform-injected $PORT"
+    assert "--server.headless" in startsh
+    assert "0.0.0.0" in startsh, "must bind all interfaces inside the container"
+    assert "start.sh" in _DOCKERFILE.read_text(encoding="utf-8"), "Dockerfile must delegate to start.sh"
 
 
 def test_dockerignore_excludes_heavy_and_secret_paths():
