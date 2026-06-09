@@ -28,9 +28,9 @@ html,body{background:#dfe0e2;}
   background:radial-gradient(135% 95% at 22% 0%, #ffffff 0%, #f4f3f1 42%, #eceae6 100%);
   font-family:'Inter',system-ui,sans-serif;color:var(--ink);
 }
-.eyebrow{font-family:'Inter';font-weight:700;font-size:10px;letter-spacing:.28em;text-transform:uppercase;color:var(--muted2);}
+.eyebrow{font-family:'Inter';font-weight:700;font-size:10px;letter-spacing:.28em;text-transform:uppercase;color:var(--muted);}
 .mono{font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums;}
-.fig{font-family:'IBM Plex Mono';font-size:10px;letter-spacing:.12em;color:var(--muted2);}
+.fig{font-family:'IBM Plex Mono';font-weight:500;font-size:10px;letter-spacing:.12em;color:var(--muted);}
 
 /* ── SIDEBAR RAIL (charcoal) ── */
 .rail{width:92px;flex:0 0 92px;background:linear-gradient(180deg,#163259 0%,#0c1f3e 100%);border-right:1px solid rgba(0,0,0,0.22);
@@ -82,8 +82,8 @@ html,body{background:#dfe0e2;}
 .idname{font-family:'Archivo';font-weight:800;font-size:22px;color:var(--ink);letter-spacing:.01em;}
 .idmeta{display:flex;margin-left:auto;}
 .stat{padding:6px 20px;border-left:1px solid var(--hair);display:flex;flex-direction:column;gap:3px;}
-.stat .k{font-size:9px;font-weight:700;letter-spacing:.2em;text-transform:uppercase;color:var(--muted2);}
-.stat .v{font-family:'IBM Plex Mono';font-size:19px;font-weight:600;color:var(--ink);}
+.stat .k{font-size:9px;font-weight:800;letter-spacing:.2em;text-transform:uppercase;color:var(--muted);}
+.stat .v{font-family:'Archivo';font-weight:800;font-size:20px;font-variant-numeric:tabular-nums;color:var(--ink);letter-spacing:-.01em;}
 .stat .v.rec{color:var(--orange);}
 
 /* grid */
@@ -91,7 +91,8 @@ html,body{background:#dfe0e2;}
 .col{display:flex;flex-direction:column;gap:22px;}
 
 /* panel (instrument card) */
-.panel{position:relative;background:var(--panel);border:1px solid var(--hair);border-radius:14px;padding:20px 22px;overflow:hidden;
+.panel{position:relative;border:1px solid var(--hair);border-radius:14px;padding:20px 22px;overflow:hidden;
+  background:radial-gradient(rgba(24,26,32,.035) 1px,transparent 1.3px) 0 0/20px 20px,var(--panel);
   box-shadow:0 1px 3px rgba(24,26,32,.06),0 6px 20px rgba(24,26,32,.04);}
 .panel::before{content:"";position:absolute;inset:0;background:radial-gradient(120% 80% at 100% 0%,rgba(255,109,0,.05),transparent 42%);pointer-events:none;}
 .panel .pcorner{position:absolute;width:12px;height:12px;border:1px solid var(--hairO);opacity:.65;}
@@ -99,7 +100,7 @@ html,body{background:#dfe0e2;}
 .panel .pcorner.tr{top:10px;right:10px;border-left:none;border-bottom:none;}
 .panel .pcorner.bl{bottom:10px;left:10px;border-right:none;border-top:none;}
 .panel .pcorner.br{bottom:10px;right:10px;border-left:none;border-top:none;}
-.phdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;}
+.phdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;padding-bottom:13px;border-bottom:1px solid var(--hair);}
 .phdr .lhs{display:flex;align-items:center;gap:11px;}
 .phdr h3{font-family:'Archivo';font-weight:800;font-size:15px;letter-spacing:.05em;text-transform:uppercase;color:var(--ink);}
 .phdr .accent{width:3px;height:16px;background:var(--orange);box-shadow:0 0 8px rgba(255,109,0,.5);border-radius:2px;}
@@ -153,13 +154,16 @@ html,body{background:#dfe0e2;}
 .seg button{font-family:'Inter';font-size:11px;font-weight:600;letter-spacing:.01em;padding:6px 12px;border:none;background:transparent;color:var(--muted);border-radius:6px;cursor:pointer;}
 .seg button.on{background:var(--orange);color:#fff;box-shadow:0 1px 5px rgba(255,109,0,.32);}
 .rtbl{width:100%;border-collapse:collapse;margin-top:8px;}
-.rtbl thead th{font-family:'Inter';font-weight:700;font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted2);text-align:right;padding:9px 12px;border-bottom:1px solid var(--hair);}
+.rtbl thead th{font-family:'Archivo';font-weight:800;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:#2c2f36;text-align:right;padding:9px 12px;border-bottom:2px solid rgba(24,26,32,.18);}
 .rtbl thead th.ph{text-align:left;} .rtbl thead th.pp{text-align:center;}
-.rtbl tbody td{padding:8px 12px;border-bottom:1px solid var(--hair2);text-align:right;font-family:'IBM Plex Mono';font-size:13px;color:var(--ink);}
+.rtbl tbody td{padding:8px 12px;border-bottom:1px solid var(--hair2);text-align:right;font-family:'Archivo';font-weight:700;font-size:13.5px;font-variant-numeric:tabular-nums;color:var(--ink);}
 .rtbl tbody td.ph{text-align:left;} .rtbl tbody td.pp{text-align:center;}
 .rtbl tbody tr:hover{background:rgba(255,109,0,.06);cursor:pointer;}
+.rtbl tbody td.ph{position:relative;background:color-mix(in srgb,var(--tc,transparent) 8%,transparent);}
+.rtbl tbody td.ph::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--tc,var(--orange));}
 .pcell{display:flex;align-items:center;gap:12px;}
 .hs{width:36px;height:36px;border-radius:50%;object-fit:cover;background:radial-gradient(circle at 42% 34%,#e3e7ee,#c2c9d4);border:1.5px solid #fff;box-shadow:0 1px 3px rgba(24,26,32,.18);flex-shrink:0;}
+.tlogo{width:13px;height:13px;vertical-align:-3px;margin-right:5px;}
 .pi b{font-family:'Inter';font-weight:600;font-size:13.5px;color:var(--ink);display:flex;align-items:center;}
 .pi span{font-family:'IBM Plex Mono';font-size:10px;color:var(--muted2);letter-spacing:.04em;}
 .pos{display:inline-block;font-family:'IBM Plex Mono';font-size:9.5px;font-weight:600;color:var(--muted);background:var(--panel2);border:1px solid var(--hair);border-radius:5px;padding:2px 7px;}
@@ -252,11 +256,11 @@ html,body{background:#dfe0e2;}
         <div class="panel">
           <span class="pcorner tl"></span><span class="pcorner tr"></span><span class="pcorner bl"></span><span class="pcorner br"></span>
           <div class="phdr"><div class="lhs"><span class="accent"></span><h3>Today's Actions</h3></div><span class="fig">5 FLAGGED</span></div>
-          <div class="arow"><span class="pri">PRI·1</span><span class="name">Taj Bradley</span><span class="team">MIN</span><span class="why">Off today — no eligible bench replacement</span></div>
-          <div class="arow"><span class="pri">PRI·2</span><span class="name">Alex Bregman</span><span class="team">CHC</span><span class="why">Off today — no eligible bench replacement</span></div>
-          <div class="arow"><span class="pri">PRI·3</span><span class="name">Dillon Dingler</span><span class="team">DET</span><span class="why">Off today — no eligible bench replacement</span></div>
-          <div class="arow"><span class="pri">PRI·4</span><span class="name">Raisel Iglesias</span><span class="team">ATL</span><span class="why">Off today — no eligible bench replacement</span></div>
-          <div class="arow"><span class="pri">PRI·5</span><span class="name">Jakob Marsee</span><span class="team">MIA</span><span class="why">Off today — no eligible bench replacement</span></div>
+          <div class="arow"><span class="pri">PRI·1</span><span class="name">Taj Bradley</span><span class="team"><img class="tlogo" src="https://www.mlbstatic.com/team-logos/142.svg">MIN</span><span class="why">Off today — no eligible bench replacement</span></div>
+          <div class="arow"><span class="pri">PRI·2</span><span class="name">Alex Bregman</span><span class="team"><img class="tlogo" src="https://www.mlbstatic.com/team-logos/112.svg">CHC</span><span class="why">Off today — no eligible bench replacement</span></div>
+          <div class="arow"><span class="pri">PRI·3</span><span class="name">Dillon Dingler</span><span class="team"><img class="tlogo" src="https://www.mlbstatic.com/team-logos/116.svg">DET</span><span class="why">Off today — no eligible bench replacement</span></div>
+          <div class="arow"><span class="pri">PRI·4</span><span class="name">Raisel Iglesias</span><span class="team"><img class="tlogo" src="https://www.mlbstatic.com/team-logos/144.svg">ATL</span><span class="why">Off today — no eligible bench replacement</span></div>
+          <div class="arow"><span class="pri">PRI·5</span><span class="name">Jakob Marsee</span><span class="team"><img class="tlogo" src="https://www.mlbstatic.com/team-logos/146.svg">MIA</span><span class="why">Off today — no eligible bench replacement</span></div>
         </div>
       </div>
 
@@ -268,25 +272,25 @@ html,body{background:#dfe0e2;}
           <div class="phdr"><div class="lhs"><span class="accent"></span><h3>Player Streaks</h3></div><span class="fig">L6 GP</span></div>
           <div class="streaks">
             <div class="streak hot">
-              <div class="top"><span class="tag hot">HOT</span><div><div class="pn">Yordan Alvarez</div><div class="pt">HOU · DH</div></div></div>
+              <div class="top"><span class="tag hot">HOT</span><div><div class="pn">Yordan Alvarez</div><div class="pt"><img class="tlogo" src="https://www.mlbstatic.com/team-logos/117.svg">HOU · DH</div></div></div>
               <div class="line">.476 AVG · 2 HR · 9 RBI</div>
               <div class="delta">season .316 · <b>+.159</b></div>
               <div class="spark"><i style="height:40%"></i><i style="height:65%"></i><i style="height:80%"></i><i style="height:55%"></i><i style="height:95%"></i><i style="height:100%"></i></div>
             </div>
             <div class="streak hot">
-              <div class="top"><span class="tag hot">HOT</span><div><div class="pn">Jakob Marsee</div><div class="pt">MIA · OF</div></div></div>
+              <div class="top"><span class="tag hot">HOT</span><div><div class="pn">Jakob Marsee</div><div class="pt"><img class="tlogo" src="https://www.mlbstatic.com/team-logos/146.svg">MIA · OF</div></div></div>
               <div class="line">.375 AVG · 2 SB</div>
               <div class="delta">season .201 · <b>+.174</b></div>
               <div class="spark"><i style="height:50%"></i><i style="height:70%"></i><i style="height:60%"></i><i style="height:88%"></i><i style="height:75%"></i><i style="height:92%"></i></div>
             </div>
             <div class="streak cold">
-              <div class="top"><span class="tag cold">COLD</span><div><div class="pn">Mike Trout</div><div class="pt">LAA · OF</div></div></div>
+              <div class="top"><span class="tag cold">COLD</span><div><div class="pn">Mike Trout</div><div class="pt"><img class="tlogo" src="https://www.mlbstatic.com/team-logos/108.svg">LAA · OF</div></div></div>
               <div class="line">.053 AVG · 0 HR</div>
               <div class="delta">season .226 · <b>–.173</b></div>
               <div class="spark"><i style="height:30%"></i><i style="height:18%"></i><i style="height:24%"></i><i style="height:12%"></i><i style="height:20%"></i><i style="height:14%"></i></div>
             </div>
             <div class="streak cold">
-              <div class="top"><span class="tag cold">COLD</span><div><div class="pn">Alex Bregman</div><div class="pt">CHC · 3B</div></div></div>
+              <div class="top"><span class="tag cold">COLD</span><div><div class="pn">Alex Bregman</div><div class="pt"><img class="tlogo" src="https://www.mlbstatic.com/team-logos/112.svg">CHC · 3B</div></div></div>
               <div class="line">.083 AVG · 0 HR</div>
               <div class="delta">season .243 · <b>–.159</b></div>
               <div class="spark"><i style="height:28%"></i><i style="height:35%"></i><i style="height:20%"></i><i style="height:30%"></i><i style="height:16%"></i><i style="height:22%"></i></div>
@@ -317,18 +321,18 @@ html,body{background:#dfe0e2;}
           <th class="ph">Player</th><th class="pp">Pos</th><th>AB</th><th>R</th><th>H</th><th>HR</th><th>RBI</th><th>SB</th><th>AVG</th><th>OBP</th>
         </tr></thead>
         <tbody>
-          <tr><td class="ph"><div class="pcell"><img class="hs" src="https://midfield.mlbstatic.com/v1/people/670541/spots/120"><div class="pi"><b><span class="sdot ok"></span>Yordan Alvarez</b><span>HOU</span></div></div></td><td class="pp"><span class="pos">DH</span></td><td>312</td><td>58</td><td>99</td><td class="hl">28</td><td>82</td><td>1</td><td class="hl">.317</td><td>.402</td></tr>
-          <tr><td class="ph"><div class="pcell"><img class="hs" src="https://midfield.mlbstatic.com/v1/people/592450/spots/120"><div class="pi"><b><span class="sdot ok"></span>Aaron Judge</b><span>NYY</span></div></div></td><td class="pp"><span class="pos">RF</span></td><td>340</td><td>72</td><td>110</td><td class="hl">34</td><td>79</td><td>6</td><td class="hl">.324</td><td>.448</td></tr>
-          <tr><td class="ph"><div class="pcell"><img class="hs" src="https://midfield.mlbstatic.com/v1/people/677951/spots/120"><div class="pi"><b><span class="sdot ok"></span>Bobby Witt Jr.</b><span>KC</span></div></div></td><td class="pp"><span class="pos">SS</span></td><td>372</td><td>70</td><td>119</td><td>21</td><td>65</td><td class="hl">25</td><td>.320</td><td>.378</td></tr>
-          <tr><td class="ph"><div class="pcell"><img class="hs" src="https://midfield.mlbstatic.com/v1/people/608070/spots/120"><div class="pi"><b><span class="sdot ok"></span>José Ramírez</b><span>CLE</span></div></div></td><td class="pp"><span class="pos">3B</span></td><td>360</td><td>66</td><td>102</td><td>24</td><td>71</td><td class="hl">28</td><td>.283</td><td>.345</td></tr>
-          <tr><td class="ph"><div class="pcell"><img class="hs" src="https://midfield.mlbstatic.com/v1/people/683002/spots/120"><div class="pi"><b><span class="sdot ok"></span>Gunnar Henderson</b><span>BAL</span></div></div></td><td class="pp"><span class="pos">SS</span></td><td>350</td><td>68</td><td>98</td><td>23</td><td>60</td><td>14</td><td>.280</td><td>.360</td></tr>
-          <tr><td class="ph"><div class="pcell"><img class="hs" src="https://midfield.mlbstatic.com/v1/people/665742/spots/120"><div class="pi"><b><span class="sdot ok"></span>Juan Soto</b><span>NYM</span></div></div></td><td class="pp"><span class="pos">RF</span></td><td>320</td><td class="hl">75</td><td>92</td><td>27</td><td>70</td><td>7</td><td>.288</td><td class="hl">.419</td></tr>
-          <tr><td class="ph"><div class="pcell"><img class="hs" src="https://midfield.mlbstatic.com/v1/people/682998/spots/120"><div class="pi"><b><span class="sdot ok"></span>Corbin Carroll</b><span>ARI</span></div></div></td><td class="pp"><span class="pos">OF</span></td><td>345</td><td>71</td><td>96</td><td>19</td><td>55</td><td class="hl">30</td><td>.278</td><td>.350</td></tr>
-          <tr><td class="ph"><div class="pcell"><img class="hs" src="https://midfield.mlbstatic.com/v1/people/606466/spots/120"><div class="pi"><b><span class="sdot ok"></span>Ketel Marte</b><span>ARI</span></div></div></td><td class="pp"><span class="pos">2B</span></td><td>318</td><td>60</td><td>94</td><td>20</td><td>62</td><td>4</td><td>.296</td><td>.368</td></tr>
-          <tr><td class="ph"><div class="pcell"><img class="hs" src="https://midfield.mlbstatic.com/v1/people/663728/spots/120"><div class="pi"><b><span class="sdot ok"></span>Cal Raleigh</b><span>SEA</span></div></div></td><td class="pp"><span class="pos">C</span></td><td>300</td><td>50</td><td>72</td><td>26</td><td>68</td><td>0</td><td>.240</td><td>.320</td></tr>
-          <tr><td class="ph"><div class="pcell"><img class="hs" src="https://midfield.mlbstatic.com/v1/people/682985/spots/120"><div class="pi"><b><span class="sdot ok"></span>Riley Greene</b><span>DET</span></div></div></td><td class="pp"><span class="pos">OF</span></td><td>330</td><td>55</td><td>90</td><td>22</td><td>64</td><td>6</td><td>.273</td><td>.340</td></tr>
-          <tr><td class="ph"><div class="pcell"><img class="hs" src="https://midfield.mlbstatic.com/v1/people/545361/spots/120"><div class="pi"><b><span class="sdot dtd"></span>Mike Trout</b><span>LAA</span></div></div></td><td class="pp"><span class="pos">OF</span></td><td>280</td><td>52</td><td>63</td><td>18</td><td>48</td><td>5</td><td>.226</td><td>.330</td></tr>
-          <tr><td class="ph"><div class="pcell"><img class="hs" src="https://midfield.mlbstatic.com/v1/people/608324/spots/120"><div class="pi"><b><span class="sdot ok"></span>Alex Bregman</b><span>BOS</span></div></div></td><td class="pp"><span class="pos">3B</span></td><td>290</td><td>44</td><td>70</td><td>12</td><td>45</td><td>2</td><td>.243</td><td>.312</td></tr>
+          <tr style="--tc:#002D62"><td class="ph"><div class="pcell"><img class="hs" src="https://midfield.mlbstatic.com/v1/people/670541/spots/120"><div class="pi"><b><span class="sdot ok"></span>Yordan Alvarez</b><span><img class="tlogo" src="https://www.mlbstatic.com/team-logos/117.svg">HOU</span></div></div></td><td class="pp"><span class="pos">DH</span></td><td>312</td><td>58</td><td>99</td><td class="hl">28</td><td>82</td><td>1</td><td class="hl">.317</td><td>.402</td></tr>
+          <tr style="--tc:#0C2340"><td class="ph"><div class="pcell"><img class="hs" src="https://midfield.mlbstatic.com/v1/people/592450/spots/120"><div class="pi"><b><span class="sdot ok"></span>Aaron Judge</b><span><img class="tlogo" src="https://www.mlbstatic.com/team-logos/147.svg">NYY</span></div></div></td><td class="pp"><span class="pos">RF</span></td><td>340</td><td>72</td><td>110</td><td class="hl">34</td><td>79</td><td>6</td><td class="hl">.324</td><td>.448</td></tr>
+          <tr style="--tc:#004687"><td class="ph"><div class="pcell"><img class="hs" src="https://midfield.mlbstatic.com/v1/people/677951/spots/120"><div class="pi"><b><span class="sdot ok"></span>Bobby Witt Jr.</b><span><img class="tlogo" src="https://www.mlbstatic.com/team-logos/118.svg">KC</span></div></div></td><td class="pp"><span class="pos">SS</span></td><td>372</td><td>70</td><td>119</td><td>21</td><td>65</td><td class="hl">25</td><td>.320</td><td>.378</td></tr>
+          <tr style="--tc:#0C2340"><td class="ph"><div class="pcell"><img class="hs" src="https://midfield.mlbstatic.com/v1/people/608070/spots/120"><div class="pi"><b><span class="sdot ok"></span>José Ramírez</b><span><img class="tlogo" src="https://www.mlbstatic.com/team-logos/114.svg">CLE</span></div></div></td><td class="pp"><span class="pos">3B</span></td><td>360</td><td>66</td><td>102</td><td>24</td><td>71</td><td class="hl">28</td><td>.283</td><td>.345</td></tr>
+          <tr style="--tc:#DF4601"><td class="ph"><div class="pcell"><img class="hs" src="https://midfield.mlbstatic.com/v1/people/683002/spots/120"><div class="pi"><b><span class="sdot ok"></span>Gunnar Henderson</b><span><img class="tlogo" src="https://www.mlbstatic.com/team-logos/110.svg">BAL</span></div></div></td><td class="pp"><span class="pos">SS</span></td><td>350</td><td>68</td><td>98</td><td>23</td><td>60</td><td>14</td><td>.280</td><td>.360</td></tr>
+          <tr style="--tc:#002D72"><td class="ph"><div class="pcell"><img class="hs" src="https://midfield.mlbstatic.com/v1/people/665742/spots/120"><div class="pi"><b><span class="sdot ok"></span>Juan Soto</b><span><img class="tlogo" src="https://www.mlbstatic.com/team-logos/121.svg">NYM</span></div></div></td><td class="pp"><span class="pos">RF</span></td><td>320</td><td class="hl">75</td><td>92</td><td>27</td><td>70</td><td>7</td><td>.288</td><td class="hl">.419</td></tr>
+          <tr style="--tc:#A71930"><td class="ph"><div class="pcell"><img class="hs" src="https://midfield.mlbstatic.com/v1/people/682998/spots/120"><div class="pi"><b><span class="sdot ok"></span>Corbin Carroll</b><span><img class="tlogo" src="https://www.mlbstatic.com/team-logos/109.svg">ARI</span></div></div></td><td class="pp"><span class="pos">OF</span></td><td>345</td><td>71</td><td>96</td><td>19</td><td>55</td><td class="hl">30</td><td>.278</td><td>.350</td></tr>
+          <tr style="--tc:#A71930"><td class="ph"><div class="pcell"><img class="hs" src="https://midfield.mlbstatic.com/v1/people/606466/spots/120"><div class="pi"><b><span class="sdot ok"></span>Ketel Marte</b><span><img class="tlogo" src="https://www.mlbstatic.com/team-logos/109.svg">ARI</span></div></div></td><td class="pp"><span class="pos">2B</span></td><td>318</td><td>60</td><td>94</td><td>20</td><td>62</td><td>4</td><td>.296</td><td>.368</td></tr>
+          <tr style="--tc:#0C2C56"><td class="ph"><div class="pcell"><img class="hs" src="https://midfield.mlbstatic.com/v1/people/663728/spots/120"><div class="pi"><b><span class="sdot ok"></span>Cal Raleigh</b><span><img class="tlogo" src="https://www.mlbstatic.com/team-logos/136.svg">SEA</span></div></div></td><td class="pp"><span class="pos">C</span></td><td>300</td><td>50</td><td>72</td><td>26</td><td>68</td><td>0</td><td>.240</td><td>.320</td></tr>
+          <tr style="--tc:#0C2340"><td class="ph"><div class="pcell"><img class="hs" src="https://midfield.mlbstatic.com/v1/people/682985/spots/120"><div class="pi"><b><span class="sdot ok"></span>Riley Greene</b><span><img class="tlogo" src="https://www.mlbstatic.com/team-logos/116.svg">DET</span></div></div></td><td class="pp"><span class="pos">OF</span></td><td>330</td><td>55</td><td>90</td><td>22</td><td>64</td><td>6</td><td>.273</td><td>.340</td></tr>
+          <tr style="--tc:#BA0021"><td class="ph"><div class="pcell"><img class="hs" src="https://midfield.mlbstatic.com/v1/people/545361/spots/120"><div class="pi"><b><span class="sdot dtd"></span>Mike Trout</b><span><img class="tlogo" src="https://www.mlbstatic.com/team-logos/108.svg">LAA</span></div></div></td><td class="pp"><span class="pos">OF</span></td><td>280</td><td>52</td><td>63</td><td>18</td><td>48</td><td>5</td><td>.226</td><td>.330</td></tr>
+          <tr style="--tc:#BD3039"><td class="ph"><div class="pcell"><img class="hs" src="https://midfield.mlbstatic.com/v1/people/608324/spots/120"><div class="pi"><b><span class="sdot ok"></span>Alex Bregman</b><span><img class="tlogo" src="https://www.mlbstatic.com/team-logos/111.svg">BOS</span></div></div></td><td class="pp"><span class="pos">3B</span></td><td>290</td><td>44</td><td>70</td><td>12</td><td>45</td><td>2</td><td>.243</td><td>.312</td></tr>
         </tbody>
       </table>
       <div class="rfoot"><span class="o">▸</span> CLICK ANY PLAYER FOR GAME LOG · OUTCOMES · UPCOMING PROJECTIONS</div>
