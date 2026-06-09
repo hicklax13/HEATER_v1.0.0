@@ -14,6 +14,7 @@ from src.feedback import render_feedback_widget
 from src.simulation import DraftSimulator
 from src.ui_shared import (
     T,
+    build_heatbar_html,
     format_stat,
     get_session_config,
     get_session_replacement_levels,
@@ -23,9 +24,12 @@ from src.ui_shared import (
     render_compact_table,
     render_context_card,
     render_context_columns,
-    render_page_layout,
+    render_page_header,
     render_player_select,
+    render_reco_banner,
     render_styled_table,
+    team_color,
+    team_logo_url,
 )
 from src.usage import log_page_view
 from src.valuation import (
@@ -193,16 +197,20 @@ def render_recommendations(pool: pd.DataFrame, ds: DraftState, n_sims: int) -> N
 
         render_analytics_badge(engine._ctx)
 
+    import html as _ds_html
+
     top3 = recs.head(3)
     for rank, (_, row) in enumerate(top3.iterrows(), 1):
-        name = row.get("player_name", "Unknown")
-        pos = row.get("positions", "?")
+        name = _ds_html.escape(str(row.get("player_name", "Unknown")))
+        pos = _ds_html.escape(str(row.get("positions", "?")))
         adp = row.get("adp", 999)
         score = float(row.get("combined_score", row.get("pick_score", 0)))
         surv = float(row.get("p_survive", 0))
         urg = float(row.get("urgency", 0))
-        border_color = T["amber"] if rank == 1 else T["border"]
-        label_color = T["amber"] if rank == 1 else T["tx"]
+        _team = str(row.get("team", "") or "")
+        _tc = team_color(_team) if _team and _team != "MLB" else T["amber"]
+        _logo = team_logo_url(_team) if _team and _team != "MLB" else ""
+        is_hero = rank == 1
 
         # Headshot thumbnail
         _reco_mlb_id = row.get("mlb_id")
@@ -211,16 +219,25 @@ def render_recommendations(pool: pd.DataFrame, ds: DraftState, n_sims: int) -> N
             try:
                 _mid = int(_reco_mlb_id)
                 if _mid > 0:
+                    _hs_size = 46 if is_hero else 34
                     _reco_headshot = (
                         f'<img src="https://img.mlbstatic.com/mlb-photos/image/upload/'
                         f"d_people:generic:headshot:67:current.png/"
                         f'w_213,q_auto:best/v1/people/{_mid}/headshot/67/current" '
-                        f'width="36" height="36" style="border-radius:50%;object-fit:cover;'
-                        f'vertical-align:middle;margin-right:8px;border:2px solid {border_color};" '
+                        f'width="{_hs_size}" height="{_hs_size}" style="border-radius:50%;object-fit:cover;'
+                        f'flex-shrink:0;border:2px solid {_tc};" '
                         f'onerror="this.style.display=\'none\'" loading="lazy" />'
                     )
             except (ValueError, TypeError):
                 pass
+
+        _logo_html = (
+            f'<img src="{_logo}" width="14" height="14" style="vertical-align:-2px;margin-right:4px;" '
+            f'onerror="this.style.display=\'none\'" loading="lazy" />'
+            if _logo
+            else ""
+        )
+        _team_txt = _ds_html.escape(_team.upper()) if _team and _team != "MLB" else "FA"
 
         # BUY/FAIR/AVOID badge
         bfa = str(row.get("buy_fair_avoid", "fair") or "fair").lower()
@@ -228,19 +245,19 @@ def render_recommendations(pool: pd.DataFrame, ds: DraftState, n_sims: int) -> N
             bfa_pill = (
                 f'<span style="display:inline-block;padding:2px 8px;border-radius:10px;'
                 f"background:{T['green']};color:#fff;font-size:10px;font-weight:700;"
-                f'letter-spacing:0.5px;margin-left:6px;">BUY</span>'
+                f'letter-spacing:0.5px;margin-left:8px;">BUY</span>'
             )
         elif bfa == "avoid":
             bfa_pill = (
                 f'<span style="display:inline-block;padding:2px 8px;border-radius:10px;'
-                f"background:{T['primary']};color:#fff;font-size:10px;font-weight:700;"
-                f'letter-spacing:0.5px;margin-left:6px;">AVOID</span>'
+                f"background:{T['danger']};color:#fff;font-size:10px;font-weight:700;"
+                f'letter-spacing:0.5px;margin-left:8px;">AVOID</span>'
             )
         else:
             bfa_pill = (
                 f'<span style="display:inline-block;padding:2px 8px;border-radius:10px;'
                 f"background:{T['sky']};color:#fff;font-size:10px;font-weight:700;"
-                f'letter-spacing:0.5px;margin-left:6px;">FAIR</span>'
+                f'letter-spacing:0.5px;margin-left:8px;">FAIR</span>'
             )
 
         # Injury probability indicator
@@ -252,18 +269,61 @@ def render_recommendations(pool: pd.DataFrame, ds: DraftState, n_sims: int) -> N
                 f'<span style="color:{inj_color};font-size:0.78rem;margin-left:8px;">{inj_prob:.0%} injury risk</span>'
             )
 
+        # Survival + urgency heat bars (urgency 0-1 typical; clamp for display).
+        _surv_bar = build_heatbar_html(surv * 100.0, win=(surv >= 0.5))
+        _urg_bar = build_heatbar_html(min(100.0, urg * 100.0), win=(urg >= 0.5))
+        _name_size = "1.45rem" if is_hero else "1.05rem"
+        _corners = (
+            (
+                '<span style="position:absolute;top:9px;left:9px;width:11px;height:11px;'
+                'border-left:1px solid var(--fp-primary);border-top:1px solid var(--fp-primary);opacity:.55;"></span>'
+                '<span style="position:absolute;top:9px;right:9px;width:11px;height:11px;'
+                'border-right:1px solid var(--fp-primary);border-top:1px solid var(--fp-primary);opacity:.55;"></span>'
+                '<span style="position:absolute;bottom:9px;left:9px;width:11px;height:11px;'
+                'border-left:1px solid var(--fp-primary);border-bottom:1px solid var(--fp-primary);opacity:.55;"></span>'
+                '<span style="position:absolute;bottom:9px;right:9px;width:11px;height:11px;'
+                'border-right:1px solid var(--fp-primary);border-bottom:1px solid var(--fp-primary);opacity:.55;"></span>'
+            )
+            if is_hero
+            else ""
+        )
+
         st.markdown(
             f"""
-<div style="background:{T["card"]};border:2px solid {border_color};border-radius:12px;
-            padding:16px;margin-bottom:10px;">
-    <div style="color:{label_color};font-size:1.05rem;font-weight:700;display:flex;align-items:center;">
-        {_reco_headshot}#{rank} {name}{bfa_pill}
+<div style="position:relative;background:var(--fp-surface);border:1px solid var(--fp-border);
+            border-left:{4 if is_hero else 3}px solid {_tc};border-radius:12px;
+            padding:{"18px 20px" if is_hero else "13px 15px"};margin-bottom:10px;overflow:hidden;
+            box-shadow:var(--fp-shadow);font-family:var(--font-body);">
+    {_corners}
+    <div style="position:absolute;top:14px;right:16px;background:linear-gradient(135deg,var(--fp-primary),var(--fp-ember));
+                color:#fff;font-family:var(--font-mono);font-weight:700;font-size:{"19px" if is_hero else "14px"};
+                padding:5px 11px;border-radius:10px;">{score:.2f}</div>
+    <div style="display:flex;align-items:center;gap:11px;">
+        {_reco_headshot}
+        <div style="min-width:0;">
+            <div style="font-family:var(--font-display);font-weight:900;font-size:{_name_size};
+                        letter-spacing:-.01em;color:var(--fp-tx);display:flex;align-items:center;flex-wrap:wrap;">
+                <span style="font-family:var(--font-mono);font-size:0.7em;color:var(--fp-tx-subtle);margin-right:7px;">#{rank}</span>
+                {name}{bfa_pill}
+            </div>
+            <div style="font-family:var(--font-mono);font-size:10px;letter-spacing:.04em;color:var(--fp-tx-subtle);margin-top:3px;">
+                {_logo_html}{_team_txt} &middot; {pos} &middot; ADP {adp:.0f}{inj_html}
+            </div>
+        </div>
     </div>
-    <div style="color:{T["tx2"]};font-size:0.82rem;margin-top:2px;">
-        {pos} &nbsp;|&nbsp; Average Draft Position: {adp:.0f}{inj_html}
-    </div>
-    <div style="color:{T["tx"]};font-size:0.88rem;margin-top:8px;">
-        Score: {score:.2f} &nbsp;&nbsp; Survival: {surv:.0%} &nbsp;&nbsp; Urgency: {urg:.2f}
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px 20px;margin-top:11px;">
+        <div>
+            <div style="display:flex;justify-content:space-between;font-family:var(--font-mono);font-size:9px;
+                        letter-spacing:.12em;text-transform:uppercase;color:var(--fp-tx-muted);margin-bottom:3px;">
+                <span>Survival</span><span style="color:var(--fp-tx);font-weight:700;">{surv:.0%}</span></div>
+            {_surv_bar}
+        </div>
+        <div>
+            <div style="display:flex;justify-content:space-between;font-family:var(--font-mono);font-size:9px;
+                        letter-spacing:.12em;text-transform:uppercase;color:var(--fp-tx-muted);margin-bottom:3px;">
+                <span>Urgency</span><span style="color:var(--fp-tx);font-weight:700;">{urg:.2f}</span></div>
+            {_urg_bar}
+        </div>
     </div>
 </div>
 """,
@@ -661,7 +721,12 @@ def render_tabs(pool: pd.DataFrame, ds: DraftState) -> None:
 
 # ── Main ────────────────────────────────────────────────────────────────────
 
-render_page_layout("Draft Simulator", banner_teaser="Simulate your draft with AI opponents", banner_icon="draft")
+render_page_header(
+    "Draft Simulator",
+    eyebrow="PRESEASON",
+    fig="FIG.20 — MOCK DRAFT",
+)
+render_reco_banner("Simulate your draft with AI opponents", "", "draft")
 
 pool = get_pool()
 
@@ -804,20 +869,21 @@ with ctx:
 # ── Main content: header + controls + recommendations + tabs ─────────────────
 
 with main:
-    # Header bar
+    # Header bar — instrument command strip (mockup .cmd-bar look).
+    import html as _hdr_html
+
     if is_user:
-        header_html = (
-            f'<div style="background:{T["amber"]};color:{T["ink"]};border-radius:10px;'
-            f'padding:12px 20px;font-size:1.1rem;font-weight:700;margin-bottom:12px;">'
-            f"Round {round_num} / Pick {pick_num} &nbsp;&mdash;&nbsp; Your Pick!</div>"
-        )
+        _center = '<div class="your-turn">Your Pick</div>'
     else:
-        header_html = (
-            f'<div style="background:{T["card"]};color:{T["tx"]};border:1px solid {T["border"]};'
-            f'border-radius:10px;padding:12px 20px;font-size:1.1rem;font-weight:600;margin-bottom:12px;">'
-            f"Round {round_num} / Pick {pick_num} &nbsp;&mdash;&nbsp; On the Clock: {picking_team}</div>"
-        )
-    st.markdown(header_html, unsafe_allow_html=True)
+        _center = f'<div class="waiting">On the Clock · {_hdr_html.escape(str(picking_team))}</div>'
+    st.markdown(
+        f'<div class="cmd-bar">'
+        f'<div class="cmd-left">Round {round_num} &middot; Pick {pick_num}</div>'
+        f'<div class="cmd-center">{_center}</div>'
+        f'<div class="cmd-right"><span>Mock Draft</span></div>'
+        f"</div>",
+        unsafe_allow_html=True,
+    )
 
     # Control buttons
     btn_col1, btn_col2, btn_col3 = st.columns([1, 1, 2])

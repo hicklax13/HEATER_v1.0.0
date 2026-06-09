@@ -23,7 +23,13 @@ from src.player_databank import (
     load_databank,
     render_databank_table,
 )
-from src.ui_shared import T, inject_custom_css, render_page_layout
+from src.ui_shared import (
+    T,
+    build_stat_readout_html,
+    inject_custom_css,
+    render_page_header,
+    render_reco_banner,
+)
 from src.usage import log_page_view
 
 try:
@@ -51,11 +57,12 @@ require_page_enabled("page:19_Player_Databank")
 log_page_view("Player Databank")
 
 # Page layout
-render_page_layout(
+render_page_header(
     "Player Databank",
-    banner_teaser="Live stats for every MLB player",
-    banner_icon="databank",
+    eyebrow="RESEARCH",
+    fig="FIG.19 — PLAYER DATABASE",
 )
+render_reco_banner("Live stats for every MLB player", "", "databank")
 
 # ── Filter constants ─────────────────────────────────────────────────────────
 
@@ -328,22 +335,23 @@ page_df = filtered.iloc[start_idx:end_idx]
 as_of_label = get_data_as_of_label(stat_view)
 refreshed_label = get_data_refreshed_label(stat_view)
 
-# Left: player count | Right: stats-as-of + refreshed timestamps
-info_left = f"Showing {start_idx + 1}\u2013{end_idx} of {total_players:,} players"
-info_right_parts: list[str] = []
+# Instrument readout strip: range / total / page / freshness as Archivo chips.
+_readouts = [
+    build_stat_readout_html("SHOWING", f"{start_idx + 1}\u2013{end_idx}", sub=f"of {total_players:,}"),
+    build_stat_readout_html("PAGE", f"{page + 1} / {total_pages}"),
+]
 if as_of_label:
     # Extract date portion: "As of 04/12's games" → "04/12"
     date_part = as_of_label.replace("As of ", "").replace("'s games", "")
-    info_right_parts.append(f"<b>Stats as of end of {date_part} games</b>")
+    _readouts.append(build_stat_readout_html("STATS AS OF", date_part, accent=True, sub="end of games"))
 if refreshed_label:
-    info_right_parts.append(f"<b>{refreshed_label}</b>")
-info_right = " &middot; ".join(info_right_parts)
+    _refresh_val = refreshed_label.replace("Refreshed ", "").replace("Refreshed: ", "")
+    _readouts.append(build_stat_readout_html("REFRESHED", _refresh_val))
 
 st.markdown(
-    f'<div style="display:flex;justify-content:space-between;align-items:baseline;'
-    f'margin:4px 0 8px 0;font-size:13px;">'
-    f'<span style="color:{T["tx2"]}">{info_left}</span>'
-    f'<span style="color:{T["tx2"]}">{info_right}</span></div>',
+    '<div style="display:flex;gap:30px;flex-wrap:wrap;align-items:flex-start;'
+    "border:1px solid var(--fp-border);border-radius:10px;padding:11px 16px;"
+    'margin:4px 0 10px 0;box-shadow:var(--fp-shadow);background:var(--fp-surface);">' + "".join(_readouts) + "</div>",
     unsafe_allow_html=True,
 )
 

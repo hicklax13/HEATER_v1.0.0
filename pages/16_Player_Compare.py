@@ -23,6 +23,8 @@ except Exception:
 from src.ui_shared import (
     ALL_CATEGORIES,
     METRIC_TOOLTIPS,
+    build_heatbar_html,
+    build_stat_readout_html,
     format_stat,
     get_plotly_layout,
     get_plotly_polar,
@@ -33,9 +35,13 @@ from src.ui_shared import (
     render_compact_table,
     render_context_card,
     render_context_columns,
-    render_page_layout,
+    render_page_header,
+    render_panel,
     render_player_select,
+    render_reco_banner,
     render_styled_table,
+    team_color,
+    team_logo_url,
 )
 from src.valuation import LeagueConfig, add_process_risk, compute_percentile_projections, compute_projection_volatility
 
@@ -59,7 +65,12 @@ require_page_enabled("page:16_Player_Compare")
 log_page_view("Player Compare")
 page_timer_start()
 
-render_page_layout("Player Compare", banner_teaser="Select two players to compare", banner_icon="player_compare")
+render_page_header(
+    "Player Compare",
+    eyebrow="RESEARCH",
+    fig="FIG.16 — HEAD-TO-HEAD",
+)
+render_reco_banner("Select two players to compare", "", "player_compare")
 
 
 @st.cache_data(ttl=600, show_spinner=False)
@@ -232,6 +243,57 @@ with main:
         if "error" in result:
             st.error(result["error"])
         else:
+            # ── Player identity strip: logo + headshot + team-color accent ──
+            import html as _cmp_html
+
+            def _identity_card(_name, _pid, _accent):
+                _prow = pool[pool["player_id"] == _pid]
+                _team = str(_prow.iloc[0].get("team", "")) if not _prow.empty else ""
+                _mlb = _prow.iloc[0].get("mlb_id") if not _prow.empty else None
+                _pos = str(_prow.iloc[0].get("positions", "")) if not _prow.empty else ""
+                _tc = team_color(_team) if _team and _team != "MLB" else _accent
+                _logo = team_logo_url(_team) if _team and _team != "MLB" else ""
+                _hs = ""
+                try:
+                    _mid = int(_mlb) if _mlb is not None else 0
+                    if _mid > 0:
+                        _hs = (
+                            f'<img src="https://img.mlbstatic.com/mlb-photos/image/upload/'
+                            f"d_people:generic:headshot:67:current.png/w_213,q_auto:best/"
+                            f'v1/people/{_mid}/headshot/67/current" width="46" height="46" '
+                            f'style="border-radius:50%;object-fit:cover;border:2px solid {_tc};'
+                            f'flex-shrink:0;" onerror="this.style.display=\'none\'" loading="lazy" />'
+                        )
+                except (ValueError, TypeError):
+                    pass
+                _logo_html = (
+                    f'<img src="{_logo}" width="15" height="15" style="vertical-align:-2px;'
+                    f'margin-right:4px;" onerror="this.style.display=\'none\'" loading="lazy" />'
+                    if _logo
+                    else ""
+                )
+                _team_txt = _cmp_html.escape(_team.upper()) if _team and _team != "MLB" else "FA"
+                _pos_txt = _cmp_html.escape(_pos.split(",")[0].split("/")[0].strip())
+                return (
+                    f'<div style="display:flex;align-items:center;gap:11px;background:var(--fp-surface);'
+                    f"border:1px solid var(--fp-border);border-left:3px solid {_tc};border-radius:10px;"
+                    f'padding:11px 13px;box-shadow:var(--fp-shadow);">'
+                    f"{_hs}"
+                    f'<div style="min-width:0;">'
+                    f'<div style="font-family:var(--font-display);font-weight:800;font-size:16px;'
+                    f"letter-spacing:-.01em;color:var(--fp-tx);white-space:nowrap;overflow:hidden;"
+                    f'text-overflow:ellipsis;">{_cmp_html.escape(str(_name))}</div>'
+                    f'<div style="font-family:var(--font-mono);font-size:10px;letter-spacing:.04em;'
+                    f'color:var(--fp-tx-subtle);margin-top:2px;">{_logo_html}{_team_txt} · {_pos_txt}</div>'
+                    f"</div></div>"
+                )
+
+            _id_c1, _id_c2 = st.columns(2)
+            with _id_c1:
+                st.markdown(_identity_card(player_a_name, id_a, "#ff6d00"), unsafe_allow_html=True)
+            with _id_c2:
+                st.markdown(_identity_card(player_b_name, id_b, "#5f7d9c"), unsafe_allow_html=True)
+
             # Radar chart
             if HAS_PLOTLY:
                 t = get_theme()
@@ -282,7 +344,6 @@ with main:
                 st.plotly_chart(fig, width="stretch")
 
             # Z-score comparison table
-            st.subheader("Category Breakdown")
             cat_full_names = {
                 "R": "Runs",
                 "HR": "Home Runs",
@@ -297,6 +358,48 @@ with main:
                 "ERA": "Earned Run Average",
                 "WHIP": "Walks + Hits per Inning Pitched",
             }
+
+            # ── Category edge heat-bar panel: per-category win/loss visual ──
+            # Each bar's fill is the share of the pair's z-total held by player A
+            # (orange = A leads, steel = B leads). Pure presentation of the same
+            # advantages the compact table lists below.
+            _edge_rows_html = ""
+            for cat in ALL_CATEGORIES:
+                za = result["z_scores_a"].get(cat, 0) or 0
+                zb = result["z_scores_b"].get(cat, 0) or 0
+                adv = result["advantages"].get(cat, "TIE")
+                # Shift z-scores positive so the split is well-defined, then take
+                # A's share of the combined magnitude as the fill percentage.
+                _sa = za + 4.0
+                _sb = zb + 4.0
+                _tot = _sa + _sb
+                _fill = (_sa / _tot * 100.0) if _tot > 0 else 50.0
+                _a_leads = adv == result["player_a"]
+                _bar = build_heatbar_html(_fill, win=_a_leads)
+                _adv_safe = _cmp_html.escape(str(adv))
+                _adv_color = (
+                    "var(--fp-primary)"
+                    if _a_leads
+                    else ("var(--fp-cold)" if adv == result["player_b"] else "var(--fp-tx-subtle)")
+                )
+                _edge_rows_html += (
+                    '<div style="display:grid;grid-template-columns:130px 1fr 96px;align-items:center;'
+                    'gap:12px;padding:5px 0;">'
+                    f'<span style="font-family:var(--font-mono);font-size:11px;letter-spacing:.03em;'
+                    f'color:var(--fp-tx-muted);">{_cmp_html.escape(cat_full_names.get(cat, cat))}</span>'
+                    f"<span>{_bar}</span>"
+                    f'<span style="font-family:var(--font-mono);font-size:10.5px;font-weight:600;'
+                    f"text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"
+                    f'color:{_adv_color};">{_adv_safe}</span>'
+                    "</div>"
+                )
+            render_panel(
+                "Category Edge",
+                _edge_rows_html,
+                fig_label="12 CATS · Z-SCORE",
+            )
+
+            st.subheader("Category Breakdown")
             rows = []
             for cat in ALL_CATEGORIES:
                 za = result["z_scores_a"].get(cat, 0)
@@ -731,13 +834,13 @@ with ctx:
             _winner = _pa if _ca >= _cb else _pb
             _margin = abs(_ca - _cb)
             _verdict = "Even matchup" if _margin < 0.5 else f"{_winner} leads"
-            render_context_card(
-                "Composite Scores",
-                f'<div class="ctx-row"><span>{_pa}</span>'
-                f'<span style="font-weight:700 !important;">{_ca:+.2f}</span></div>'
-                f'<div class="ctx-row"><span>{_pb}</span>'
-                f'<span style="font-weight:700 !important;">{_cb:+.2f}</span></div>',
+            _readout = (
+                '<div style="display:flex;gap:18px;flex-wrap:wrap;">'
+                + build_stat_readout_html(_pa[:14], f"{_ca:+.2f}", accent=(_ca >= _cb))
+                + build_stat_readout_html(_pb[:14], f"{_cb:+.2f}", accent=(_cb > _ca))
+                + "</div>"
             )
+            render_context_card("Composite Scores", _readout)
             _adv_a = sum(1 for v in _r.get("advantages", {}).values() if v == _pa)
             _adv_b = sum(1 for v in _r.get("advantages", {}).values() if v == _pb)
             _ties = sum(1 for v in _r.get("advantages", {}).values() if v == "TIE")

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import html as _ldr_html
+
 import pandas as pd
 import streamlit as st
 
@@ -11,6 +13,7 @@ from src.feature_flags import require_page_enabled
 from src.feedback import render_feedback_widget
 from src.ui_shared import (
     THEME,
+    build_heatbar_html,
     format_stat,  # noqa: F401
     get_plotly_layout,
     get_plotly_polar,
@@ -20,13 +23,126 @@ from src.ui_shared import (
     render_compact_table,
     render_context_card,
     render_context_columns,
-    render_page_layout,
+    render_page_header,
     render_player_select,
+    render_reco_banner,
     render_styled_table,
+    team_color,
+    team_logo_url,
 )
 from src.usage import log_page_view
 
 T = THEME
+
+# Inverse categories (lower is better) — leaders are ranked ascending and the
+# heat bar inverts so the best (lowest) value still reads as a full bar.
+_INVERSE_LEADER_CATS = {"ERA", "WHIP", "L"}
+
+
+def _build_leaderboard_html(ldf, stat_col, category, stat_label):
+    """Build a branded ``.rtbl``-style leaderboard with logos + headshots + heat bars.
+
+    Pure presentation. ``ldf`` is the already-computed, already-ordered leaders
+    slice (its row order is preserved as the rank). Columns consumed when present:
+    ``name``, ``team``, ``positions``, ``mlb_id``, ``rostered_by`` and ``stat_col``.
+    Falls back gracefully when team/headshot data is missing.
+    """
+    rows = list(ldf.iterrows())
+    is_inverse = category in _INVERSE_LEADER_CATS
+    is_rate = category in ("AVG", "OBP", "ERA", "WHIP")
+
+    # Heat-bar normalization — share of the column peak (inverse cats invert so
+    # the lowest ERA/WHIP reads as the fullest bar).
+    vals = []
+    for _i, r in rows:
+        try:
+            vals.append(float(r.get(stat_col, 0) or 0))
+        except (TypeError, ValueError):
+            vals.append(0.0)
+    vmax = max(vals) if vals else 0.0
+    vmin = min(vals) if vals else 0.0
+    vspan = (vmax - vmin) or 1.0
+
+    th = (
+        "font-family:var(--font-display);font-weight:800;font-size:10.5px;"
+        "letter-spacing:.06em;text-transform:uppercase;color:#2c2f36;"
+        "padding:9px 12px;border-bottom:2px solid rgba(24,26,32,.18);"
+    )
+    head = (
+        f'<th style="{th}text-align:center;width:38px;">#</th>'
+        f'<th style="{th}text-align:left;">Player</th>'
+        f'<th style="{th}text-align:left;">Rostered</th>'
+        f'<th style="{th}text-align:right;width:74px;">{_ldr_html.escape(str(stat_label))}</th>'
+        f'<th style="{th}text-align:left;width:150px;">Leaders</th>'
+    )
+    body = ""
+    for rank, ((_idx, r), v) in enumerate(zip(rows, vals), start=1):
+        name = _ldr_html.escape(str(r.get("name", "")))
+        team = str(r.get("team", "") or "")
+        pos = _ldr_html.escape(str(r.get("positions", "") or "").split(",")[0].split("/")[0].strip())
+        rostered = _ldr_html.escape(str(r.get("rostered_by", "") or "—"))
+        tc = team_color(team) if team and team != "MLB" else "#ff6d00"
+        logo = team_logo_url(team) if team and team != "MLB" else ""
+        mlb = r.get("mlb_id")
+        hs = ""
+        try:
+            mid = int(mlb) if mlb is not None else 0
+            if mid > 0:
+                hs = (
+                    f'<img src="https://img.mlbstatic.com/mlb-photos/image/upload/'
+                    f"d_people:generic:headshot:67:current.png/w_213,q_auto:best/"
+                    f'v1/people/{mid}/headshot/67/current" width="30" height="30" '
+                    f'style="border-radius:50%;object-fit:cover;flex-shrink:0;" '
+                    f'onerror="this.style.display=\'none\'" loading="lazy" />'
+                )
+        except (ValueError, TypeError):
+            pass
+        logo_html = (
+            f'<img src="{logo}" width="13" height="13" style="vertical-align:-2px;margin-right:4px;" '
+            f'onerror="this.style.display=\'none\'" loading="lazy" />'
+            if logo
+            else ""
+        )
+        team_txt = _ldr_html.escape(team.upper()) if team and team != "MLB" else "FA"
+
+        if is_rate:
+            disp = format_stat(v, category)
+        elif v == int(v):
+            disp = str(int(v))
+        else:
+            disp = f"{v:.1f}"
+
+        # Bar fill: top value = full; inverse cats invert the scale.
+        frac = (v - vmin) / vspan
+        fill = (1.0 - frac) * 100.0 if is_inverse else frac * 100.0
+        bar = build_heatbar_html(max(6.0, fill), win=(rank <= 3))
+
+        body += (
+            f'<tr style="--tc:{tc}">'
+            f'<td style="padding:8px 12px;border-bottom:1px solid var(--fp-divider);text-align:center;'
+            f"font-family:var(--font-mono);font-size:12px;font-weight:600;"
+            f'color:{"var(--fp-primary)" if rank <= 3 else "var(--fp-tx-subtle)"};">{rank}</td>'
+            f'<td style="padding:8px 12px;border-bottom:1px solid var(--fp-divider);text-align:left;'
+            f'background:color-mix(in srgb,{tc} 8%,transparent);box-shadow:inset 3px 0 0 {tc};">'
+            f'<span style="display:flex;align-items:center;gap:9px;">{hs}'
+            f'<span style="display:flex;flex-direction:column;gap:1px;min-width:0;">'
+            f'<b style="font-family:var(--font-body);font-weight:600;font-size:13px;color:var(--fp-tx);">{name}</b>'
+            f'<span style="font-family:var(--font-mono);font-size:9.5px;color:var(--fp-tx-subtle);letter-spacing:.04em;">'
+            f"{logo_html}{team_txt} · {pos}</span></span></span></td>"
+            f'<td style="padding:8px 12px;border-bottom:1px solid var(--fp-divider);text-align:left;'
+            f'font-family:var(--font-mono);font-size:11px;color:var(--fp-tx-muted);">{rostered}</td>'
+            f'<td style="padding:8px 12px;border-bottom:1px solid var(--fp-divider);text-align:right;'
+            f"font-family:var(--font-display);font-weight:800;font-size:15px;font-variant-numeric:tabular-nums;"
+            f'color:var(--fp-tx);">{disp}</td>'
+            f'<td style="padding:8px 12px;border-bottom:1px solid var(--fp-divider);">{bar}</td>'
+            f"</tr>"
+        )
+
+    return (
+        '<table class="rtbl" style="width:100%;border-collapse:collapse;margin-top:8px;">'
+        f"<thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>"
+    )
+
 
 try:
     from src.leaders import compute_category_leaders, detect_breakouts  # noqa: F401
@@ -74,7 +190,12 @@ require_page_enabled("page:17_Leaders")
 log_page_view("Leaders")
 page_timer_start()
 
-render_page_layout("Leaders", banner_teaser="Category leaders and breakout detection", banner_icon="leaders")
+render_page_header(
+    "Leaders",
+    eyebrow="RESEARCH",
+    fig="FIG.17 — CATEGORY LEADERS",
+)
+render_reco_banner("Category leaders and breakout detection", "", "leaders")
 
 
 @st.cache_data(ttl=300)
@@ -480,29 +601,28 @@ with main:
                     ldf = leaders[category].copy()
                     st.caption(f"Showing top {len(ldf)} of {total_eligible:,} eligible players")
                     stat_col = _CAT_COL.get(category, category.lower())
-                    show_cols = ["name", "team", "positions", "rostered_by", stat_col]
-                    # Add health badge from enriched pool (if available)
-                    if "health_score" in ldf.columns:
-                        try:
-                            from src.injury_model import get_injury_badge
-
-                            ldf["health"] = ldf["health_score"].apply(
-                                lambda s: get_injury_badge(s)[0] if pd.notna(s) else ""
-                            )
-                            show_cols.insert(4, "health")
-                        except ImportError:
-                            pass
-                    # Include mlb_id for headshot rendering (auto-hidden by table)
-                    if "mlb_id" in ldf.columns:
-                        show_cols.append("mlb_id")
-                    show_cols = [c for c in show_cols if c in ldf.columns]
-                    ldf = ldf[show_cols].rename(columns={**_CAT_DISPLAY, "health": "Health"})
-                    render_compact_table(ldf)
+                    # Branded leaderboard: rank + headshot + team logo/color +
+                    # the leading stat as an Archivo figure + a heat bar showing
+                    # each player's share of the column peak.
+                    if stat_col in ldf.columns:
+                        _stat_label = _CAT_DISPLAY.get(category, category)
+                        st.markdown(
+                            _build_leaderboard_html(ldf, stat_col, category, _stat_label),
+                            unsafe_allow_html=True,
+                        )
+                    else:
+                        # Fallback to the compact table when the stat column is absent.
+                        show_cols = [
+                            c
+                            for c in ["name", "team", "positions", "rostered_by", stat_col, "mlb_id"]
+                            if c in ldf.columns
+                        ]
+                        render_compact_table(ldf[show_cols].rename(columns=_CAT_DISPLAY))
 
                     # Player card selector
-                    if "player_id" in leaders[category].columns and "Player" in ldf.columns:
+                    if "player_id" in leaders[category].columns and "name" in leaders[category].columns:
                         render_player_select(
-                            ldf["Player"].tolist(),
+                            leaders[category]["name"].tolist(),
                             leaders[category]["player_id"].tolist(),
                             key_suffix="leaders",
                         )
