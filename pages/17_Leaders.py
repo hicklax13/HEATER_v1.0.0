@@ -36,7 +36,10 @@ T = THEME
 
 # Inverse categories (lower is better) — leaders are ranked ascending and the
 # heat bar inverts so the best (lowest) value still reads as a full bar.
-_INVERSE_LEADER_CATS = {"ERA", "WHIP", "L"}
+# Sourced from LeagueConfig (canonical {L, ERA, WHIP}) — never hardcode the set.
+from src.valuation import LeagueConfig as _LC_FOR_CATS  # noqa: E402
+
+_INVERSE_LEADER_CATS = set(_LC_FOR_CATS().inverse_stats)
 
 
 def _build_leaderboard_html(ldf, stat_col, category, stat_label):

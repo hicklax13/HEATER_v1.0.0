@@ -793,6 +793,12 @@ def inject_custom_css():
     }}
 
     /* ── BASE ─────────────────────────────────── */
+    /* Font-lock the bare document root too: Streamlit computes its default
+       "Source Sans" on <body>, which leaks onto any node that doesn't inherit
+       from .stApp (portals, tooltips, BaseWeb popovers mounted to <body>).
+       Force Inter here so "these fonts only" holds at the very root. Headings
+       (Archivo) + figures (mono) re-assert their own families later. */
+    html, body {{ font-family: var(--font-body) !important; }}
     .stApp {{
         background: var(--fp-app-bg) !important;
         font-family: var(--font-body);
@@ -2628,9 +2634,14 @@ def inject_custom_css():
         color: var(--fp-flame) !important;
     }}
     /* Reusable helper classes (use anywhere a span/link should read as a
-       link or window-opener): <a class="heater-link"> / class="clickable". */
+       link or window-opener): <a class="heater-link"> / class="clickable".
+       The orange + underline convention is baked into the helper itself so it
+       reads as interactive wherever it is dropped, not only when nested under
+       the main block container. */
     .heater-link, .clickable {{
         color: var(--fp-primary);
+        text-decoration: underline;
+        text-underline-offset: 2px;
         cursor: pointer;
     }}
     /* Roster player-name link (build_roster_table_html emits

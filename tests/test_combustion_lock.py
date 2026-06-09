@@ -192,3 +192,117 @@ def test_no_emoji_in_page_icons():
     blob = "".join(str(v) for v in PAGE_ICONS.values())
     found = _EMOJI_RE.findall(blob)
     assert not found, f"PAGE_ICONS must not contain emoji; found {found!r}"
+
+
+# ── Font-lock ("these fonts only") ─────────────────────────────────────
+
+
+def test_body_font_locked_on_document_root():
+    """`html, body` is forced to Inter (--font-body) so the bare <body> element
+    no longer computes Streamlit's default Source Sans (Combustion detail pass).
+
+    Headings (Archivo) + figures (mono) keep their own families via later rules,
+    so this is a root body-font lock only, not a blanket override.
+    """
+    m = re.search(
+        r"html,\s*body\s*\{\{\s*font-family:\s*var\(--font-body\)\s*!important;",
+        _SRC,
+    )
+    assert m, "ui_shared must emit `html, body {{ font-family: var(--font-body) !important; }}` (root body-font lock)"
+
+
+def test_widget_containers_font_locked_to_body():
+    """Streamlit's built-in widgets are font-locked to Inter (--font-body).
+
+    BaseWeb selects/inputs/tabs, widget labels, metrics, etc. ship their own
+    font stacks that escape the base `.stApp` family. The font-lock block forces
+    `font-family: var(--font-body)` onto a comma-joined selector list that
+    includes representative widget containers. Assert that a representative
+    selector (`[data-baseweb="select"]` AND `[data-testid="stWidgetLabel"]`)
+    lives in the SAME rule that declares the body font.
+    """
+    decl = "font-family: var(--font-body) !important;"
+    # Walk every occurrence of the body-font declaration and inspect the
+    # selector list immediately preceding it (from the prior rule's closing
+    # "}}" up to the "{{" that opens this rule).
+    found_select = False
+    found_label = False
+    search_from = 0
+    while True:
+        decl_idx = _SRC.find(decl, search_from)
+        if decl_idx == -1:
+            break
+        open_idx = _SRC.rfind("{{", 0, decl_idx)
+        prev_close = _SRC.rfind("}}", 0, open_idx)
+        selector_blob = _SRC[prev_close + 2 : open_idx] if prev_close != -1 else _SRC[:open_idx]
+        if '[data-baseweb="select"]' in selector_blob:
+            found_select = True
+        if '[data-testid="stWidgetLabel"]' in selector_blob:
+            found_label = True
+        search_from = decl_idx + len(decl)
+    assert found_select, (
+        '[data-baseweb="select"] must appear in a `font-family: var(--font-body)` '
+        "rule (BaseWeb selects must be font-locked to Inter)"
+    )
+    assert found_label, (
+        '[data-testid="stWidgetLabel"] must appear in a `font-family: var(--font-body)` '
+        "rule (widget labels must be font-locked to Inter)"
+    )
+
+
+# ── Clickable-link convention (orange + underline, main content only) ───
+
+
+def test_clickable_helper_is_orange_and_underlined():
+    """The `.heater-link` / `.clickable` helper carries the interactive look:
+    orange (--fp-primary) + underline, so it reads as a link/window-opener
+    wherever it is dropped (Combustion clickable-link convention).
+    """
+    needle = ".heater-link, .clickable {{"
+    idx = _SRC.find(needle)
+    assert idx != -1, "the `.heater-link, .clickable` helper rule must exist in ui_shared.py"
+    end = _SRC.find("}}", idx)
+    assert end != -1, "the `.heater-link, .clickable` helper rule has no closing brace"
+    block = _SRC[idx:end]
+    assert "color: var(--fp-primary)" in block, ".heater-link/.clickable must be orange (color: var(--fp-primary))"
+    assert "text-decoration: underline" in block, (
+        ".heater-link/.clickable must be underlined (text-decoration: underline)"
+    )
+
+
+def test_content_links_scoped_to_main_not_sidebar():
+    """The content-hyperlink color rule (orange + underline on bare <a>) is
+    SCOPED to main content — prefixed with the main block container / .stMain —
+    and is NOT applied globally to the sidebar nav (which stays bone-on-navy).
+
+    The content-link rule is the one that pairs the orange color with an
+    underline (buttons/hover rules reuse the orange color but never underline a
+    bare link). Find the orange-color declaration that is immediately followed
+    by `text-decoration: underline` and inspect that rule's selector list.
+    """
+    idx = -1
+    search_from = 0
+    while True:
+        cand = _SRC.find("color: var(--fp-primary) !important;", search_from)
+        if cand == -1:
+            break
+        # The content-link rule pairs color + underline within the next few lines.
+        if "text-decoration: underline" in _SRC[cand : cand + 200]:
+            idx = cand
+            break
+        search_from = cand + 1
+    assert idx != -1, "an orange + underline content-link rule (color: var(--fp-primary) + underline) must exist"
+
+    open_idx = _SRC.rfind("{{", 0, idx)
+    prev_close = _SRC.rfind("}}", 0, open_idx)
+    selector_blob = _SRC[prev_close + 2 : open_idx] if prev_close != -1 else _SRC[:open_idx]
+    # Strip CSS comments so the explanatory prose (which mentions ".stSidebar"
+    # to document the exclusion) isn't mistaken for an actual selector.
+    selector_blob = re.sub(r"/\*.*?\*/", "", selector_blob, flags=re.DOTALL)
+    assert ("stMainBlockContainer" in selector_blob) or ("stMain" in selector_blob), (
+        "the content-link color rule must be scoped to main content "
+        "(stMainBlockContainer / stMain), not applied globally"
+    )
+    assert ".stSidebar" not in selector_blob, (
+        "the content-link orange rule must NOT target .stSidebar (sidebar nav links stay bone-on-navy)"
+    )
