@@ -2795,6 +2795,288 @@ def build_category_heatmap_html(user_totals: dict, all_totals: list[dict]) -> st
     return html
 
 
+# ── Combustion detail renderers (Phase B, 2026-06-08) ──────────────
+# Reusable HTML-string builders + thin st.markdown wrappers that mirror the
+# gold-standard mockups (docs/design/mockup-myteam.html + mockup-player-popup.html).
+# All colors come from the --fp-* custom properties emitted by inject_custom_css()
+# (or THEME), never raw brand hex. Each builder returns a single self-contained root
+# element (Streamlit auto-closes tags, so no dangling markup). No emoji — icons are
+# inline SVG / CSS elsewhere.
+
+
+def build_eyebrow_html(text: str) -> str:
+    """Build the mono uppercase letter-spaced eyebrow label (mockup ``.eyebrow``).
+
+    Brightened to ``var(--fp-tx-muted)`` per the Combustion spec. Use it for the
+    small label that sits above a section/page title.
+    """
+    safe = _html.escape(str(text))
+    style = (
+        "font-family:var(--font-body);font-weight:700;font-size:10px;"
+        "letter-spacing:.28em;text-transform:uppercase;color:var(--fp-tx-muted);"
+    )
+    return f'<span class="eyebrow" style="{style}">{safe}</span>'
+
+
+def render_eyebrow(text: str) -> None:
+    """``st.markdown`` wrapper around :func:`build_eyebrow_html`."""
+    st.markdown(build_eyebrow_html(text), unsafe_allow_html=True)
+
+
+def render_page_header(
+    title: str,
+    *,
+    eyebrow: str = "",
+    fig: str = "",
+    actions_html: str = "",
+) -> None:
+    """Render the Combustion page header (mockup ``.phead``).
+
+    Replaces the old navy ``.page-title`` pill. Renders:
+    - an optional mono ``eyebrow`` label + ``fig`` crumb (``FIG.NN — …``),
+    - the page title in Archivo-900 with an orange ``.`` accent + a 2px
+      orange→transparent underline rule,
+    - an optional right-aligned ``actions_html`` block (caller-supplied markup,
+      e.g. buttons / a live pill) embedded verbatim.
+
+    Args:
+        title: Page title text (escaped).
+        eyebrow: Optional small uppercase eyebrow label (escaped).
+        fig: Optional mono crumb, e.g. ``"FIG.01 — ROSTER CONTROL"`` (escaped).
+        actions_html: Optional pre-built HTML for the right side (NOT escaped).
+    """
+    safe_title = _html.escape(str(title))
+
+    crumb_html = ""
+    if eyebrow or fig:
+        parts = []
+        if eyebrow:
+            parts.append(build_eyebrow_html(eyebrow))
+        if fig:
+            safe_fig = _html.escape(str(fig))
+            parts.append(
+                f'<span class="fig" style="font-family:var(--font-mono);font-weight:500;'
+                f"font-size:10px;letter-spacing:.12em;color:var(--fp-tx-muted);"
+                f'">/ {safe_fig}</span>'
+            )
+        crumb_html = (
+            '<div class="phead-crumb" style="display:flex;align-items:center;gap:10px;'
+            'margin-bottom:9px;">' + "".join(parts) + "</div>"
+        )
+
+    title_html = (
+        '<h1 class="phead-title" style="font-family:var(--font-display);font-weight:900;'
+        "font-size:46px;letter-spacing:-.02em;line-height:.9;color:var(--fp-tx);margin:0;"
+        f'">{safe_title}<span style="color:var(--fp-primary);">.</span></h1>'
+    )
+
+    actions_block = (
+        f'<div class="phead-actions" style="display:flex;align-items:center;gap:12px;">{actions_html}</div>'
+        if actions_html
+        else ""
+    )
+
+    html = (
+        '<div class="phead" style="display:flex;align-items:flex-end;'
+        "justify-content:space-between;border-bottom:1px solid var(--fp-divider);"
+        'padding-bottom:18px;position:relative;margin-bottom:8px;">'
+        '<div class="phead-titlewrap" style="display:flex;flex-direction:column;gap:9px;">'
+        f"{crumb_html}{title_html}"
+        "</div>"
+        f"{actions_block}"
+        # orange underline accent rule (mockup .phead::after)
+        '<span style="position:absolute;left:0;bottom:-1px;width:120px;height:2px;'
+        'background:linear-gradient(90deg,var(--fp-primary),transparent);"></span>'
+        "</div>"
+    )
+    st.markdown(html, unsafe_allow_html=True)
+
+
+def build_panel_html(
+    title: str,
+    body_html: str,
+    *,
+    fig_label: str = "",
+    accent: str = "top",
+) -> str:
+    """Build a full ``.instr-panel`` instrument card (mockup ``.panel``).
+
+    Renders four corner ticks (``.pcorner``), an Archivo-800 uppercase header
+    with a 3px orange ``.accent`` bar + optional right ``fig_label``, then the
+    caller's ``body_html`` (embedded verbatim — pre-built HTML).
+
+    Args:
+        title: Panel header text (escaped).
+        body_html: Pre-built body markup (NOT escaped).
+        fig_label: Optional mono label on the right of the header (escaped).
+        accent: ``"top"`` (default) or ``"left"`` — selects the
+            ``.instr-panel`` accent-rule variant. Any other value = no accent rule.
+
+    Returns:
+        Self-contained HTML string (single ``.instr-panel`` root element).
+    """
+    safe_title = _html.escape(str(title))
+    accent_cls = {"top": " accent-top", "left": " accent-left"}.get(accent, "")
+
+    corners = (
+        '<span class="pcorner tl"></span>'
+        '<span class="pcorner tr"></span>'
+        '<span class="pcorner bl"></span>'
+        '<span class="pcorner br"></span>'
+    )
+
+    fig_html = ""
+    if fig_label:
+        safe_fig = _html.escape(str(fig_label))
+        fig_html = (
+            '<span class="fig" style="font-family:var(--font-mono);font-weight:500;'
+            "font-size:10px;letter-spacing:.12em;color:var(--fp-tx-muted);"
+            f'">{safe_fig}</span>'
+        )
+
+    header = (
+        '<div class="phdr" style="display:flex;align-items:center;'
+        "justify-content:space-between;margin-bottom:16px;padding-bottom:13px;"
+        'border-bottom:1px solid var(--fp-divider);">'
+        '<div class="lhs" style="display:flex;align-items:center;gap:11px;">'
+        # 3px orange accent bar (mockup .phdr .accent)
+        '<span class="accent" style="width:3px;height:16px;background:var(--fp-primary);'
+        'box-shadow:0 0 8px rgba(255,109,0,.5);border-radius:2px;"></span>'
+        '<h3 style="font-family:var(--font-display);font-weight:800;font-size:15px;'
+        "letter-spacing:.05em;text-transform:uppercase;color:var(--fp-tx);margin:0;"
+        f'">{safe_title}</h3>'
+        "</div>"
+        f"{fig_html}"
+        "</div>"
+    )
+
+    return f'<div class="instr-panel{accent_cls}">{corners}{header}<div class="panel-body">{body_html}</div></div>'
+
+
+def render_panel(
+    title: str,
+    body_html: str,
+    *,
+    fig_label: str = "",
+    accent: str = "top",
+) -> None:
+    """``st.markdown`` wrapper around :func:`build_panel_html`."""
+    st.markdown(
+        build_panel_html(title, body_html, fig_label=fig_label, accent=accent),
+        unsafe_allow_html=True,
+    )
+
+
+def build_heatbar_html(pct: float, *, win: bool | None = None) -> str:
+    """Build a mockup ``.cb``/``.cat`` heat bar: a track with a percentage fill.
+
+    Orange gradient when ``win`` is truthy (high/winning), steel
+    ``var(--fp-cold)`` when ``win`` is falsy (low/losing). When ``win`` is
+    ``None`` the orange↔steel split is inferred from the value (``>= 50`` = hot).
+
+    Args:
+        pct: Fill percentage (clamped to ``[0, 100]``).
+        win: Optional explicit win/high flag.
+
+    Returns:
+        Self-contained HTML string (single ``.cb`` root element).
+    """
+    try:
+        width = float(pct)
+    except (TypeError, ValueError):
+        width = 0.0
+    width = max(0.0, min(100.0, width))
+    # Trim trailing ``.0`` so integer inputs read cleanly (62 not 62.0).
+    width_str = f"{width:g}"
+
+    is_hot = (width >= 50.0) if win is None else bool(win)
+    fill_bg = "linear-gradient(90deg,var(--fp-ember),var(--fp-primary),var(--fp-flame))" if is_hot else "var(--fp-cold)"
+
+    return (
+        '<div class="cb" style="height:4px;border-radius:3px;'
+        'background:rgba(24,26,32,.10);overflow:hidden;">'
+        f'<i style="display:block;height:100%;border-radius:3px;width:{width_str}%;'
+        f'background:{fill_bg};"></i></div>'
+    )
+
+
+def build_sparkline_html(values: list[float], *, tone: str = "hot") -> str:
+    """Build a mockup ``.spark`` sparkline: a flex row of bars scaled to ``max``.
+
+    Orange gradient for ``tone="hot"``, steel ``var(--fp-cold)`` for ``"cold"``.
+    Guards empty / all-zero input (no divide-by-zero; renders the track only or
+    flat bars).
+
+    Args:
+        values: Numeric series. Each value becomes one bar.
+        tone: ``"hot"`` (orange) or ``"cold"`` (steel).
+
+    Returns:
+        Self-contained HTML string (single ``.spark`` root element).
+    """
+    nums: list[float] = []
+    for v in values or []:
+        try:
+            f = float(v)
+        except (TypeError, ValueError):
+            f = 0.0
+        if _math.isnan(f) or _math.isinf(f):
+            f = 0.0
+        nums.append(f)
+
+    bar_bg = "linear-gradient(180deg,var(--fp-flame),var(--fp-ember))" if tone == "hot" else "var(--fp-cold)"
+
+    peak = max((abs(n) for n in nums), default=0.0)
+    bars = ""
+    for n in nums:
+        # All-zero (peak == 0) → a thin flat 8% bar so the sparkline stays visible.
+        h = (abs(n) / peak * 100.0) if peak > 0 else 8.0
+        h = max(0.0, min(100.0, h))
+        bars += f'<i style="flex:1;border-radius:1px;height:{h:g}%;background:{bar_bg};"></i>'
+
+    return f'<div class="spark" style="display:flex;align-items:flex-end;gap:2px;height:22px;">{bars}</div>'
+
+
+def build_stat_readout_html(label, value, *, accent: bool = False, sub=None) -> str:
+    """Build a mockup ``.stat`` readout: small uppercase label + big figure.
+
+    The figure uses the Archivo display font with tabular numerals; it is colored
+    orange (``var(--fp-primary)``) when ``accent`` is set, else the standard text
+    token. An optional ``sub`` line renders muted beneath the value.
+
+    Args:
+        label: Small uppercase key (escaped).
+        value: Big figure value (escaped; coerced to ``str``).
+        accent: When True, color the figure orange.
+        sub: Optional muted sub-line (escaped).
+
+    Returns:
+        Self-contained HTML string (single ``.stat`` root element).
+    """
+    safe_label = _html.escape(str(label))
+    safe_value = _html.escape(str(value))
+    value_color = "var(--fp-primary)" if accent else "var(--fp-tx)"
+
+    sub_html = ""
+    if sub is not None and str(sub) != "":
+        safe_sub = _html.escape(str(sub))
+        sub_html = (
+            '<span class="stat-sub" style="font-family:var(--font-mono);font-size:10px;'
+            f'color:var(--fp-tx-subtle);letter-spacing:.04em;">{safe_sub}</span>'
+        )
+
+    return (
+        '<div class="stat" style="display:flex;flex-direction:column;gap:3px;">'
+        '<span class="stat-k" style="font-size:9px;font-weight:800;letter-spacing:.2em;'
+        f'text-transform:uppercase;color:var(--fp-tx-muted);">{safe_label}</span>'
+        '<span class="stat-v" style="font-family:var(--font-display);font-weight:800;'
+        f"font-size:20px;font-variant-numeric:tabular-nums;letter-spacing:-.01em;"
+        f'color:{value_color};">{safe_value}</span>'
+        f"{sub_html}"
+        "</div>"
+    )
+
+
 # ── 3-Zone Layout: Constants & Helpers ─────────────────────────────
 
 HITTING_STAT_COLS = set(HITTING_CATEGORIES)
