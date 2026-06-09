@@ -44,3 +44,12 @@
 - The data exists: `src/player_databank.py` (game logs, rolling stats), projection engine, `game_day` (upcoming/probables); headshots by `mlb_id`. Mostly wiring into the new UI.
 - Streamlit `st.dialog` for the popup (≥1.37, pinned). Mobile: keep the drawer (header-hide `@media min-width:768px`).
 - Local verify: `HEATER_SCHEDULER_BOOT=1` + park `data/yahoo_token.json` for a stable read-only app (restore before pytest). Login `qa_admin`/`qa-local-only-2026`. Live URL: `https://heaterv100-production.up.railway.app`.
+
+## Final approved refinements (2026-06-08) — `mockup-player-popup.png` is the GOLD STANDARD; match it everywhere
+- **"In your face" data type (app-wide):** ALL data tables use **Archivo bold (700) with tabular figures** for values (scoreboard feel), **bold underlined Archivo headers**, and **brightened/bolder eyebrow + stat labels** (no more quiet muted mono). The player popup is the reference for density + weight.
+- **Team identity theming (everywhere a team appears):**
+  - **Team logos** via `https://www.mlbstatic.com/team-logos/{teamId}.svg`; **player headshots** via `https://midfield.mlbstatic.com/v1/people/{mlbId}/spots/120`. Need an `mlb_team_id` (and team primary/secondary colors) lookup — add a `TEAM_BRAND` map (id → {abbr, primary, secondary, logo}) in `src/ui_shared.py` (or derive from MLB API `teams` endpoint, cache in DB).
+  - **Player popup header bg = that player's TEAM primary color** (e.g. Astros navy `#002D62`), with the team logo (large faint watermark + small inline by the team name) and the opponent's logo in each **game-log OPP** row.
+  - **Roster rows:** show the player's **team logo** + a subtle **team-color accent** (left border / chip) so the roster reads as a colorful branded grid.
+  - Keep text readable on any team color (auto-pick light/dark text by luminance).
+- These apply in Phase C (My Team) and propagate via the shared renderers (Phase B) to every page that lists players/teams (Standings, Leaders, Free Agents, Trade pages, Closer Monitor, etc.).
