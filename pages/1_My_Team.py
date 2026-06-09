@@ -16,6 +16,8 @@ from src.optimizer.h2h_engine import default_weekly_sigmas
 from src.ui_shared import (
     PAGE_ICONS,
     THEME,
+    build_panel_html,
+    build_roster_table_html,
     format_stat,
     inject_custom_css,
     no_league_data_message,
@@ -26,6 +28,7 @@ from src.ui_shared import (
     render_context_columns,
     render_data_freshness_card,
     render_player_select,
+    show_player_card_dialog,
     sort_roster_for_display,
 )
 from src.usage import log_page_view
@@ -1864,186 +1867,235 @@ else:
 
             # -- Main Content (right) --
             with main:
-                # Season/projection toggle (options computed earlier for context panel)
+                # ── Clickability: a roster player cell links to ?player=<id>.
+                # Read it here (top of the roster section) and open the existing
+                # player-card dialog, then clear the param so a rerun doesn't
+                # re-open it. Falls back to a selectbox below the table.
+                _qp_player = st.query_params.get("player")
+                if _qp_player:
+                    try:
+                        show_player_card_dialog(int(_qp_player))
+                    except (ValueError, TypeError):
+                        pass
+                    finally:
+                        try:
+                            del st.query_params["player"]
+                        except Exception:
+                            pass
+
+                # ── Stat-source control (drives the context-panel totals via the
+                # ``roster_stat_view`` session key). Kept; the table now adds its
+                # own timeframe + hitter/pitcher toggles below.
                 stat_view = st.segmented_control(
-                    "View stats from",
+                    "Stat source",
                     options=_stat_options,
                     default=_stat_default,
                     key="roster_stat_view",
                 )
 
-                base_cols = ["name", "positions", "roster_slot"]
-                stat_cols_ordered = list(_LC.all_categories)
+                # ── Combustion roster toolbar: timeframe + Hitters/Pitchers ──
+                _tf_col, _hp_col = st.columns([3, 2])
+                with _tf_col:
+                    timeframe = st.segmented_control(
+                        "Timeframe",
+                        options=["Season", "L30", "L14", "L7", "Today"],
+                        default="Season",
+                        key="roster_timeframe",
+                    )
+                with _hp_col:
+                    side = st.segmented_control(
+                        "Side",
+                        options=["Hitters", "Pitchers"],
+                        default="Hitters",
+                        key="roster_side",
+                    )
+                if not timeframe:
+                    timeframe = "Season"
+                if not side:
+                    side = "Hitters"
+
                 rename_map = {
                     "name": "Player",
                     "positions": "Pos",
                     "roster_slot": "Slot",
-                    "r": "R",
-                    "hr": "HR",
-                    "rbi": "RBI",
-                    "sb": "SB",
-                    "avg": "AVG",
-                    "obp": "OBP",
-                    "w": "W",
-                    "l": "L",
-                    "sv": "SV",
-                    "k": "K",
-                    "era": "ERA",
-                    "whip": "WHIP",
                 }
 
-                if stat_view in ("2026 Live", "2025", "2024", "2023"):
-                    # Load actual stats for the selected season (including live 2026).
-                    # For 2026 Live: pull the enriched player pool first so Statcast
-                    # signals (xwoba/barrel_pct/hard_hit_pct/stuff_plus) and regression
-                    # flags are available alongside ytd_* totals — those enrichments are
-                    # only computed inside _build_player_pool/_enrich_pool. The pool's
-                    # ytd_* set is missing R/W/L/OBP and the underlying counting cols,
-                    # so we still hit load_season_stats(2026) for the display table.
-                    # For historical years (2023-2025) the pool has no data, so we rely
-                    # entirely on load_season_stats. Both branches route SQL through the
-                    # canonical helper in src.database — no raw read_sql_query here.
+                # Base identity columns always carried into the display frame.
+                _base_keep = [
+                    c
+                    for c in ("player_id", "name", "positions", "roster_slot", "mlb_id", "team", "status", "is_hitter")
+                    if c in roster.columns
+                ]
+                display_df = roster[_base_keep].copy()
+
+                # Stat columns we may render (hitter + pitcher union).
+                _stat_keys = ["ab", "r", "h", "hr", "rbi", "sb", "avg", "obp", "ip", "w", "l", "sv", "k", "era", "whip"]
+
+                _today_unavailable = False
+                if timeframe == "Season":
+                    # 2026 live season stats (canonical loader; no raw SQL here).
                     from src.database import load_season_stats
 
-                    season_year = 2026 if stat_view == "2026 Live" else int(stat_view)
-                    hist = load_season_stats(season_year)
-
-                    # Pool enrichments are only meaningful for 2026 Live (the only
-                    # season the pool tracks via ytd_*); merge them in when possible.
-                    pool_enrich_cols: list[str] = []
-                    if season_year == 2026:
-                        try:
-                            _live_pool = load_player_pool()
-                            _candidate_enrich = [
-                                "xwoba",
-                                "barrel_pct",
-                                "hard_hit_pct",
-                                "stuff_plus",
-                                "regression_flag",
-                                "babip_regression_flag",
-                                "stuff_regression_flag",
-                                "bats",
-                                "throws",
-                            ]
-                            pool_enrich_cols = [c for c in _candidate_enrich if c in _live_pool.columns]
-                            if pool_enrich_cols and "player_id" in _live_pool.columns and not hist.empty:
-                                _slim_pool = _live_pool[["player_id"] + pool_enrich_cols].copy()
-                                hist = hist.merge(_slim_pool, on="player_id", how="left")
-                        except Exception:
-                            pool_enrich_cols = []  # Graceful degradation
-
-                    _roster_cols = ["name", "positions", "roster_slot", "player_id"]
-                    if "mlb_id" in roster.columns:
-                        _roster_cols.append("mlb_id")
-                    display_df = roster[_roster_cols].copy()
-                    if not hist.empty and "player_id" in hist.columns:
-                        hist_stat_cols = [c.lower() for c in stat_cols_ordered if c.lower() in hist.columns]
-                        hist_slim = hist[["player_id"] + hist_stat_cols].copy()
-                        display_df = display_df.merge(hist_slim, on="player_id", how="left")
-
-                    if "Health" in roster.columns:
-                        display_df["Health"] = roster["Health"].values
-
-                    display_df.rename(
-                        columns={k: v for k, v in rename_map.items() if k in display_df.columns},
-                        inplace=True,
-                    )
-
-                    if stat_view == "2026 Live":
-                        caption = "Live 2026 season stats. Updates hourly from MLB Stats API."
-                        if hist.empty:
-                            caption = "No 2026 season stats available yet."
-                        section_label = "Roster — 2026 Live Stats"
+                    _hist = load_season_stats(2026)
+                    if not _hist.empty and "player_id" in _hist.columns:
+                        _hist_cols = [c for c in _stat_keys if c in _hist.columns]
+                        display_df = display_df.merge(
+                            _hist[["player_id"] + _hist_cols],
+                            on="player_id",
+                            how="left",
+                        )
                     else:
-                        caption = f"Actual stats from the {season_year} MLB season."
-                        if hist.empty:
-                            caption = f"No historical data available for {season_year}."
-                        section_label = f"Roster — {season_year} Season Stats"
+                        # No 2026 actuals yet → fall back to roster's blended values.
+                        for k in _stat_keys:
+                            if k in roster.columns and k not in display_df.columns:
+                                display_df[k] = roster[k].values
+                    _caption = "Full 2026 season totals. Updates hourly from MLB Stats API."
+                elif timeframe in ("L30", "L14", "L7"):
+                    # Rolling window from per-game logs.
+                    from src.player_databank import compute_rolling_stats
 
-                    st.markdown(
-                        f'<div class="sec-head">{section_label}</div>'
-                        f'<div style="font-size:12px;color:{T["tx2"]};margin-bottom:8px;'
-                        f'font-family:Figtree,sans-serif;">{caption}</div>',
-                        unsafe_allow_html=True,
-                    )
-                else:
-                    # 2026 projected stats from roster
-                    display_cols = list(base_cols)
-                    for sc in stat_cols_ordered:
-                        lc = sc.lower()
-                        if lc in roster.columns:
-                            display_cols.append(lc)
-                    if "Health" in roster.columns:
-                        display_cols.append("Health")
-                    # Include mlb_id for headshot rendering (auto-hidden by table)
-                    if "mlb_id" in roster.columns:
-                        display_cols.append("mlb_id")
-                    # Include player_id temporarily for sort-stable extraction
-                    if "player_id" in roster.columns and "player_id" not in display_cols:
-                        display_cols.append("player_id")
-                    available_cols = [c for c in display_cols if c in roster.columns]
-                    display_df = roster[available_cols].copy()
-                    display_df.rename(
-                        columns={k: v for k, v in rename_map.items() if k in display_df.columns},
-                        inplace=True,
-                    )
+                    _days = {"L30": 30, "L14": 14, "L7": 7}[timeframe]
+                    _pids = display_df["player_id"].tolist() if "player_id" in display_df.columns else []
+                    _roll = compute_rolling_stats(_pids, days=_days, season=2026)
+                    if not _roll.empty:
+                        # compute_rolling_stats returns summed counting stats +
+                        # *_calc rate columns — fold the rate calcs into avg/obp/
+                        # era/whip so the renderer's column keys resolve.
+                        for _raw, _calc in (
+                            ("avg", "avg_calc"),
+                            ("obp", "obp_calc"),
+                            ("era", "era_calc"),
+                            ("whip", "whip_calc"),
+                        ):
+                            if _calc in _roll.columns:
+                                _roll[_raw] = _roll[_calc]
+                        _roll_cols = [c for c in _stat_keys if c in _roll.columns]
+                        display_df = display_df.merge(
+                            _roll[["player_id"] + _roll_cols],
+                            on="player_id",
+                            how="left",
+                        )
+                    _caption = f"Last {_days} days from per-game logs (weighted rate stats)."
+                else:  # "Today"
+                    # Today's single-game line, if game logs carry it.
+                    from src.player_databank import compute_rolling_stats
 
-                    st.markdown(
-                        f'<div class="sec-head">Roster — 2026 Projected Stats</div>'
-                        f'<div style="font-size:12px;color:{T["tx2"]};margin-bottom:8px;'
-                        f'font-family:Figtree,sans-serif;">'
-                        f"Full-season projections from blended system "
-                        f"(Steamer, ZiPS, Depth Charts, ATC, THE BAT, THE BAT X). "
-                        f"Updates to actual stats once the season begins.</div>",
-                        unsafe_allow_html=True,
-                    )
+                    _pids = display_df["player_id"].tolist() if "player_id" in display_df.columns else []
+                    _today = compute_rolling_stats(_pids, days=1, season=2026)
+                    if not _today.empty:
+                        for _raw, _calc in (
+                            ("avg", "avg_calc"),
+                            ("obp", "obp_calc"),
+                            ("era", "era_calc"),
+                            ("whip", "whip_calc"),
+                        ):
+                            if _calc in _today.columns:
+                                _today[_raw] = _today[_calc]
+                        _today_cols = [c for c in _stat_keys if c in _today.columns]
+                        display_df = display_df.merge(
+                            _today[["player_id"] + _today_cols],
+                            on="player_id",
+                            how="left",
+                        )
+                    else:
+                        _today_unavailable = True
+                    _caption = "Today's game line. Cells show — when no game has been logged yet."
 
-                # Sort roster into Yahoo slot order for display
-                display_df = sort_roster_for_display(display_df)
+                # Sort into Yahoo slot order, then split hitters vs pitchers.
+                _sortable = display_df.rename(columns={k: v for k, v in rename_map.items() if k in display_df.columns})
+                _sortable = sort_roster_for_display(_sortable)
+                # Map renamed cols back to lowercase keys the renderer expects.
+                _sortable = _sortable.rename(columns={"Player": "name", "Pos": "positions", "Slot": "roster_slot"})
 
-                # Extract player IDs after sorting so order matches display
-                player_ids_list = display_df["player_id"].tolist() if "player_id" in display_df.columns else []
-                if "player_id" in display_df.columns:
-                    display_df = display_df.drop(columns=["player_id"])
+                def _is_pitcher_row(r) -> bool:
+                    _ih = r.get("is_hitter")
+                    if _ih is not None and not (isinstance(_ih, float) and pd.isna(_ih)):
+                        try:
+                            return not bool(int(_ih))
+                        except (ValueError, TypeError):
+                            pass
+                    _pos = str(r.get("positions", "")).upper()
+                    _tokens = {t.strip() for t in _pos.replace("/", ",").split(",") if t.strip()}
+                    # Pitcher iff every eligible slot is a pitching slot.
+                    return bool(_tokens) and _tokens.issubset({"SP", "RP", "P"})
 
-                # Assign row classes: starters vs bench
-                row_cls = {}
-                if "Slot" in display_df.columns:
-                    for i, slot in enumerate(display_df["Slot"]):
-                        if slot and str(slot).upper() in ("BN", "BENCH", "IL", "IL+", "NA"):
-                            row_cls[i] = "row-bench"
-                        else:
-                            row_cls[i] = "row-start"
+                _mask_pitch = (
+                    _sortable.apply(_is_pitcher_row, axis=1) if not _sortable.empty else pd.Series([], dtype=bool)
+                )
+                _is_hitter_view = side == "Hitters"
+                _view_df = _sortable[~_mask_pitch] if _is_hitter_view else _sortable[_mask_pitch]
+                _view_df = _view_df.reset_index(drop=True)
 
-                health_col_name = "Health" if "Health" in display_df.columns else None
-                render_compact_table(
-                    display_df,
-                    row_classes=row_cls,
-                    health_col=health_col_name,
-                    max_height=600,
+                _h_count = int((~_mask_pitch).sum()) if not _sortable.empty else 0
+                _p_count = int(_mask_pitch.sum()) if not _sortable.empty else 0
+
+                # Player IDs aligned to the displayed (filtered, sorted) rows.
+                player_ids_list = _view_df["player_id"].tolist() if "player_id" in _view_df.columns else []
+
+                # ── Render inside the instrument panel ──
+                _tf_label = {
+                    "Season": "FULL SEASON",
+                    "L30": "LAST 30 DAYS",
+                    "L14": "LAST 14 DAYS",
+                    "L7": "LAST 7 DAYS",
+                    "Today": "TODAY",
+                }[timeframe]
+                _table_html = build_roster_table_html(
+                    _view_df,
+                    is_hitter=_is_hitter_view,
+                    player_ids=player_ids_list,
+                )
+                _footer_arrow = (
+                    '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" '
+                    'stroke="var(--fp-primary)" stroke-width="2.5" style="vertical-align:-1px;margin-right:6px;">'
+                    '<path d="M9 6l6 6-6 6"/></svg>'
+                )
+                _footer = (
+                    '<div class="rfoot" style="font-family:var(--font-mono);font-size:10px;'
+                    'color:var(--fp-tx-subtle);text-align:center;margin-top:14px;letter-spacing:.08em;">'
+                    f"{_footer_arrow}CLICK ANY PLAYER FOR GAME LOG · OUTCOMES · UPCOMING PROJECTIONS</div>"
+                )
+                _cap_html = (
+                    f'<div style="font-family:var(--font-mono);font-size:10.5px;color:var(--fp-tx-subtle);'
+                    f'letter-spacing:.04em;margin:-4px 0 6px;">{_html.escape(_caption)}</div>'
+                )
+                st.markdown(
+                    build_panel_html(
+                        "Active Roster",
+                        _cap_html + _table_html + _footer,
+                        fig_label=f"{_h_count} HITTERS · {_p_count} PITCHERS · {_tf_label}",
+                    ),
+                    unsafe_allow_html=True,
                 )
 
-                # Export to Excel
+                if _today_unavailable:
+                    st.caption("No game logged today yet — showing dashes.")
+
+                # ── Export to Excel (current view) ──
                 import io
 
+                _export_df = _view_df.drop(
+                    columns=[c for c in ("is_hitter",) if c in _view_df.columns],
+                    errors="ignore",
+                )
                 excel_buf = io.BytesIO()
-                display_df.to_excel(excel_buf, index=False, sheet_name="Roster")
+                _export_df.to_excel(excel_buf, index=False, sheet_name="Roster")
                 excel_buf.seek(0)
-                view_label = stat_view if stat_view else "2026_Projected"
+                _view_label = f"{side}_{timeframe}"
                 st.download_button(
                     "Export to Excel",
                     data=excel_buf,
-                    file_name=f"heater_roster_{view_label.replace(' ', '_').lower()}.xlsx",
+                    file_name=f"heater_roster_{_view_label.replace(' ', '_').lower()}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     key="export_roster_excel",
                 )
 
-                # Player card selector
+                # ── Fallback player-card opener (selectbox) below the table ──
                 if player_ids_list:
-                    player_names = display_df["Player"].tolist() if "Player" in display_df.columns else []
-                    if player_names:
+                    _player_names = _view_df["name"].tolist() if "name" in _view_df.columns else []
+                    if _player_names:
                         render_player_select(
-                            player_names,
+                            _player_names,
                             player_ids_list,
                             key_suffix="myteam",
                         )

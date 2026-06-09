@@ -3197,6 +3197,251 @@ def _headshot_img_html(mlb_id, size: int = 22) -> str:
     return f'<img src="{url}" width="{size}" height="{size}" style="{_style}" onerror="{_onerror}" loading="lazy" />'
 
 
+# Mockup .rtbl column sets — (df_key, header_label, stat_type_for_format).
+# stat_type None → counting stat (int via format_stat default path).
+_ROSTER_HITTER_COLS: list[tuple[str, str, str | None]] = [
+    ("ab", "AB", None),
+    ("r", "R", None),
+    ("h", "H", None),
+    ("hr", "HR", None),
+    ("rbi", "RBI", None),
+    ("sb", "SB", None),
+    ("avg", "AVG", "AVG"),
+    ("obp", "OBP", "OBP"),
+]
+_ROSTER_PITCHER_COLS: list[tuple[str, str, str | None]] = [
+    ("ip", "IP", None),
+    ("w", "W", None),
+    ("l", "L", None),
+    ("sv", "SV", None),
+    ("k", "K", None),
+    ("era", "ERA", "ERA"),
+    ("whip", "WHIP", "WHIP"),
+]
+
+
+def _roster_status_dot_class(status) -> str:
+    """Map a Yahoo roster status string to a ``.sdot`` modifier (ok/dtd/il)."""
+    s = str(status or "").strip().lower()
+    if not s or s in ("active", "ok", "starting", "started"):
+        return "ok"
+    if s in ("dtd", "day-to-day", "day to day", "gtd", "questionable", "probable"):
+        return "dtd"
+    # IL10 / IL15 / IL60 / IL / NA / OUT / DL / SUSP — anything else = injured/out.
+    return "il"
+
+
+def build_roster_table_html(df, *, is_hitter: bool = True, player_ids=None) -> str:
+    """Build the Combustion ``.rtbl`` Active Roster table (mockup My Team v3).
+
+    Renders the branded roster table with Archivo tabular figures, an Archivo-800
+    uppercase header row with a 2px bottom border, a player cell (headshot +
+    status dot + name + team logo/abbr), and a per-row ``--tc`` team-color custom
+    property that drives the 3px left accent + 8% tint on the player column.
+
+    Columns:
+        - hitters: Player, Pos, AB, R, H, HR, RBI, SB, AVG, OBP
+        - pitchers: Player, Pos, IP, W, L, SV, K, ERA, WHIP
+
+    The MLB team for each row is resolved from the ``team`` (or ``mlb_team`` /
+    ``editorial_team_abbr``) column for the logo + color; unresolved teams fall
+    back to the orange brand color.
+
+    Args:
+        df: Roster slice. Expected columns: ``name``, ``positions`` (or
+            ``Pos``), ``mlb_id``, ``status``, ``team``, plus the stat columns for
+            the selected side. Missing stat cells render as ``—``.
+        is_hitter: Select the hitter (True) or pitcher (False) column set.
+        player_ids: Optional list aligned row-for-row with ``df``. When supplied,
+            each player cell becomes an ``<a href="?player=<id>">`` so a click
+            opens the existing player-card dialog.
+
+    Returns:
+        Self-contained HTML string (single ``.rtbl`` table element). Empty/None
+        ``df`` still returns a valid header-only table shell.
+    """
+    cols = _ROSTER_HITTER_COLS if is_hitter else _ROSTER_PITCHER_COLS
+
+    # ── header row ──
+    th_common = (
+        "font-family:var(--font-display);font-weight:800;font-size:10.5px;"
+        "letter-spacing:.06em;text-transform:uppercase;color:#2c2f36;"
+        "padding:9px 12px;border-bottom:2px solid rgba(24,26,32,.18);"
+    )
+    head = (
+        f'<th class="ph" style="{th_common}text-align:left;">Player</th>'
+        f'<th class="pp" style="{th_common}text-align:center;">Pos</th>'
+    )
+    for _key, label, _fmt in cols:
+        head += f'<th style="{th_common}text-align:right;">{label}</th>'
+    thead = f"<thead><tr>{head}</tr></thead>"
+
+    n_cols = 2 + len(cols)
+
+    if df is None or len(df) == 0:
+        empty_row = (
+            f'<tr><td colspan="{n_cols}" style="padding:18px 12px;text-align:center;'
+            f'font-family:var(--font-mono);font-size:11px;color:var(--fp-tx-subtle);">'
+            f"No players</td></tr>"
+        )
+        return (
+            '<table class="rtbl" style="width:100%;border-collapse:collapse;margin-top:8px;">'
+            f"{thead}<tbody>{empty_row}</tbody></table>"
+        )
+
+    ids_list = list(player_ids) if player_ids is not None else None
+
+    # Resolve the team column once (first matching name in the row dict).
+    team_col = next(
+        (c for c in ("team", "mlb_team", "editorial_team_abbr", "Team") if c in df.columns),
+        None,
+    )
+    pos_col = next((c for c in ("positions", "Pos", "pos") if c in df.columns), None)
+
+    td_num = (
+        "padding:8px 12px;border-bottom:1px solid var(--fp-divider);text-align:right;"
+        "font-family:var(--font-display);font-weight:700;font-size:13.5px;"
+        "font-variant-numeric:tabular-nums;color:var(--fp-tx);"
+    )
+
+    body_rows: list[str] = []
+    for pos_i, (_idx, row) in enumerate(df.iterrows()):
+        team = row.get(team_col) if team_col else None
+        tc = team_color(team)
+        logo = team_logo_url(team)
+        abbr = ""
+        if team is not None and not (isinstance(team, float) and _math.isnan(team)):
+            abbr = _html.escape(str(team).strip().upper())
+
+        dot = _roster_status_dot_class(row.get("status"))
+        name = _html.escape(str(row.get("name", "")))
+        mlb_id = row.get("mlb_id")
+        headshot = _headshot_img_html(mlb_id, size=36)
+
+        # Player cell inner (headshot + name w/ status dot + team logo + abbr).
+        sdot = (
+            f'<span class="sdot {dot}" style="width:7px;height:7px;border-radius:50%;'
+            f"display:inline-block;margin-right:7px;flex-shrink:0;"
+            f'background:{_SDOT_COLORS[dot]};"></span>'
+        )
+        tlogo = (
+            f'<img class="tlogo" src="{logo}" width="13" height="13" '
+            f'style="vertical-align:-3px;margin-right:5px;" loading="lazy" '
+            f"onerror=\"this.style.display='none'\" />"
+        )
+        pcell_inner = (
+            f'<span class="pcell" style="display:flex;align-items:center;gap:12px;">'
+            f"{headshot}"
+            f'<span class="pi" style="display:flex;flex-direction:column;gap:1px;min-width:0;">'
+            f'<b style="font-family:var(--font-body);font-weight:600;font-size:13.5px;'
+            f'color:var(--fp-tx);display:flex;align-items:center;">{sdot}{name}</b>'
+            f'<span style="font-family:var(--font-mono);font-size:10px;color:var(--fp-tx-subtle);'
+            f'letter-spacing:.04em;display:flex;align-items:center;">{tlogo}{abbr}</span>'
+            f"</span></span>"
+        )
+
+        # Click wiring: wrap the player cell in an anchor to ?player=<id>.
+        if ids_list is not None and pos_i < len(ids_list):
+            pid = ids_list[pos_i]
+            pcell_inner = (
+                f'<a href="?player={_html.escape(str(pid))}" target="_self" '
+                f'style="text-decoration:none;color:inherit;display:block;">{pcell_inner}</a>'
+            )
+
+        ph_td = (
+            f'<td class="ph" style="padding:8px 12px;border-bottom:1px solid var(--fp-divider);'
+            f"text-align:left;position:relative;"
+            f"background:color-mix(in srgb,{tc} 8%,transparent);"
+            f'box-shadow:inset 3px 0 0 {tc};">{pcell_inner}</td>'
+        )
+
+        # Position chip.
+        pos_raw = row.get(pos_col) if pos_col else ""
+        pos_txt = _html.escape(str(pos_raw or "").split(",")[0].split("/")[0].strip())
+        pp_td = (
+            f'<td class="pp" style="padding:8px 12px;border-bottom:1px solid var(--fp-divider);'
+            f'text-align:center;">'
+            f'<span class="pos" style="display:inline-block;font-family:var(--font-mono);'
+            f"font-size:9.5px;font-weight:600;color:var(--fp-tx-muted);background:var(--fp-surface);"
+            f'border:1px solid var(--fp-border);border-radius:5px;padding:2px 7px;">{pos_txt}</span></td>'
+        )
+
+        # Stat cells + leader-highlight bookkeeping.
+        stat_tds: list[str] = []
+        for key, _label, fmt in cols:
+            val = row.get(key)
+            disp = _format_roster_stat(val, fmt)
+            hl = _roster_cell_is_leader(df, key, val, is_hitter)
+            cell_style = td_num + ("color:var(--fp-ember);" if hl else "")
+            cls = ' class="hl"' if hl else ""
+            stat_tds.append(f"<td{cls} style={chr(34)}{cell_style}{chr(34)}>{disp}</td>")
+
+        body_rows.append(f'<tr style="--tc:{tc}">{ph_td}{pp_td}{"".join(stat_tds)}</tr>')
+
+    return (
+        '<table class="rtbl" style="width:100%;border-collapse:collapse;margin-top:8px;">'
+        f"{thead}<tbody>{''.join(body_rows)}</tbody></table>"
+    )
+
+
+# Status-dot fill colors (mockup .sdot.ok/.dtd/.il), resolved from THEME.
+_SDOT_COLORS = {
+    "ok": THEME["green"],
+    "dtd": THEME["gold"],
+    "il": THEME["danger"],
+}
+
+# Stat keys eligible for the orange leader highlight (tasteful subset matching
+# the mockup's HR / AVG / SB / OBP accents). Inverse / rate-noise stats excluded.
+_ROSTER_HL_HITTER = {"hr", "avg", "sb", "obp"}
+_ROSTER_HL_PITCHER = {"k", "sv"}
+
+
+def _format_roster_stat(val, fmt: str | None) -> str:
+    """Format a roster stat cell; missing/NaN → em dash."""
+    if val is None:
+        return "—"
+    try:
+        f = float(val)
+    except (TypeError, ValueError):
+        s = str(val).strip()
+        return _html.escape(s) if s else "—"
+    if _math.isnan(f) or _math.isinf(f):
+        return "—"
+    if fmt:
+        return format_stat(f, fmt)
+    # Counting stat — integer when whole, else 1 decimal (e.g. IP 120.1).
+    return f"{int(f)}" if f == int(f) else f"{f:.1f}"
+
+
+def _roster_cell_is_leader(df, key: str, val, is_hitter: bool) -> bool:
+    """Return True when ``val`` is the column max for an HL-eligible stat.
+
+    Used for the tasteful orange leader highlight on a small subset of columns
+    (HR/AVG/SB/OBP for hitters; K/SV for pitchers). Single-row tables don't
+    highlight (no leader to distinguish).
+    """
+    import pandas as _pd
+
+    hl_set = _ROSTER_HL_HITTER if is_hitter else _ROSTER_HL_PITCHER
+    if key not in hl_set or key not in getattr(df, "columns", []):
+        return False
+    try:
+        col = _pd.to_numeric(df[key], errors="coerce")
+    except Exception:
+        return False
+    if col.notna().sum() < 2:
+        return False
+    try:
+        v = float(val)
+    except (TypeError, ValueError):
+        return False
+    if _math.isnan(v):
+        return False
+    col_max = col.max(skipna=True)
+    return bool(v >= col_max and col_max > 0)
+
+
 def build_compact_table_html(
     df,
     highlight_cols=None,
