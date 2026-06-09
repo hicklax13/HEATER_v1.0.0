@@ -1295,6 +1295,8 @@ else:
                     _reg_rows = ""
                     for _ra in _reg_alerts[:5]:
                         _ra_type = _ra["alert_type"]
+                        # Semantic chip color (THEME tokens, not raw hex): SELL HIGH
+                        # = danger (regression-down risk), BUY LOW = green (rebound).
                         if _ra_type == "SELL_HIGH":
                             _ra_color = T["danger"]
                             _ra_label = "SELL HIGH"
@@ -1302,28 +1304,37 @@ else:
                             _ra_color = T["green"]
                             _ra_label = "BUY LOW"
                         _ra_div = _ra.get("divergence_sd", 0)
+                        _ra_name = _html.escape(str(_ra["player_name"]))
                         _reg_rows += (
-                            f'<div style="display:flex;align-items:flex-start;gap:8px;'
-                            f'padding:4px 0;border-bottom:1px solid {T["border"]};">'
-                            f'<span style="background:{_ra_color};color:#fff;padding:1px 6px;'
-                            f"border-radius:4px;font-size:10px;font-weight:700;"
-                            f'white-space:nowrap;">{_ra_label}</span>'
-                            f'<div style="flex:1;">'
-                            f'<div style="font-size:12px;font-weight:600;color:{T["tx"]};">'
-                            f"{_ra['player_name']}"
-                            f'<span style="color:{T["tx2"]};font-weight:400;font-size:10px;'
-                            f'margin-left:6px;">{_ra_div:.1f} SD</span></div>'
-                            f'<div style="font-size:10px;color:{T["tx2"]};">'
-                            f"xwOBA {_ra['expected']:.3f} vs actual wOBA {_ra['actual']:.3f}</div>"
-                            f"</div></div>"
+                            '<div class="arow" style="display:flex;align-items:flex-start;gap:12px;'
+                            'padding:9px 4px;border-bottom:1px solid var(--fp-divider);">'
+                            # Mono uppercase semantic chip (figures/labels only stay mono)
+                            f'<span style="font-family:var(--font-mono);font-size:9px;font-weight:600;'
+                            f"letter-spacing:.12em;padding:4px 7px;border-radius:5px;"
+                            f"white-space:nowrap;min-width:74px;text-align:center;"
+                            f"background:{_ra_color}1f;color:{_ra_color};"
+                            f'border:1px solid {_ra_color}55;">{_ra_label}</span>'
+                            '<div style="flex:1;min-width:0;">'
+                            # Player name + SD figure: name in Inter body, SD in mono
+                            '<div style="display:flex;align-items:baseline;gap:8px;">'
+                            f'<span style="font-size:13px;font-weight:700;color:var(--fp-tx);">{_ra_name}</span>'
+                            f'<span style="font-family:var(--font-mono);font-size:10px;'
+                            f'color:var(--fp-tx-subtle);letter-spacing:.04em;">{_ra_div:.1f} SD</span>'
+                            "</div>"
+                            # Detail sentence in Inter body, with mono stat figures
+                            f'<div style="font-size:11.5px;color:var(--fp-tx-muted);margin-top:3px;">'
+                            f'xwOBA <span style="font-family:var(--font-mono);color:var(--fp-tx);">'
+                            f"{_ra['expected']:.3f}</span> vs actual wOBA "
+                            f'<span style="font-family:var(--font-mono);color:var(--fp-tx);">'
+                            f"{_ra['actual']:.3f}</span></div>"
+                            "</div></div>"
                         )
                     st.markdown(
-                        f'<div style="background:{T["card"]};border-left:4px solid {T["warn"]};'
-                        f"border-radius:8px;padding:8px 12px;margin-bottom:8px;"
-                        f'font-family:IBM Plex Mono,monospace;">'
-                        f'<div style="font-size:11px;color:{T["tx2"]};margin-bottom:4px;'
-                        f'font-weight:600;">Regression Alerts</div>'
-                        f"{_reg_rows}</div>",
+                        build_panel_html(
+                            "Regression Alerts",
+                            _reg_rows,
+                            fig_label=f"{len(_reg_alerts[:5])} FLAGGED",
+                        ),
                         unsafe_allow_html=True,
                     )
             except Exception:
