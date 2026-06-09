@@ -1868,20 +1868,23 @@ else:
             # -- Main Content (right) --
             with main:
                 # ── Clickability: a roster player cell links to ?player=<id>.
-                # Read it here (top of the roster section) and open the existing
-                # player-card dialog, then clear the param so a rerun doesn't
-                # re-open it. Falls back to a selectbox below the table.
+                # Two-run pattern so the @st.dialog modal survives: run 1 (param
+                # present) stashes the id in session_state and clears the URL
+                # param (which reruns); run 2 (param gone) pops the id and opens
+                # the dialog. .pop() means the built-in X close stays closed (the
+                # id is consumed on open, so the next rerun doesn't re-open it).
+                # Falls back to a selectbox below the table.
                 _qp_player = st.query_params.get("player")
-                if _qp_player:
+                if _qp_player is not None:
                     try:
-                        show_player_card_dialog(int(_qp_player))
-                    except (ValueError, TypeError):
+                        st.session_state["_dossier_pid"] = int(_qp_player)
+                    except (TypeError, ValueError):
                         pass
-                    finally:
-                        try:
-                            del st.query_params["player"]
-                        except Exception:
-                            pass
+                    del st.query_params["player"]  # schedules a rerun; do NOT open the dialog this run
+                else:
+                    _pid = st.session_state.pop("_dossier_pid", None)
+                    if _pid is not None:
+                        show_player_card_dialog(_pid)
 
                 # ── Stat-source control (drives the context-panel totals via the
                 # ``roster_stat_view`` session key). Kept; the table now adds its
