@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html as _html
 import logging
 
 import pandas as pd
@@ -14,6 +15,9 @@ from src.feedback import render_feedback_widget
 from src.league_manager import get_team_roster
 from src.ui_shared import (
     THEME,
+    _headshot_img_html,
+    build_eyebrow_html,
+    build_panel_html,
     format_stat,
     inject_custom_css,
     page_timer_footer,
@@ -21,8 +25,11 @@ from src.ui_shared import (
     render_compact_table,
     render_context_card,
     render_context_columns,
-    render_page_layout,
+    render_matchup_ticker,
+    render_page_header,
     render_player_select,
+    render_reco_banner,
+    team_logo_url,
 )
 from src.usage import log_page_view
 from src.yahoo_data_service import get_yahoo_data_service
@@ -247,11 +254,13 @@ if win_prob_data and selected_week == current_week:
         if toss_str:
             banner_teaser += f". Toss-ups: {toss_str}"
 
-render_page_layout(
+render_page_header(
     "Matchup Planner",
-    banner_teaser=banner_teaser,
-    banner_icon="calendar",
+    eyebrow="THIS WEEK",
+    fig="FIG.05 — MATCHUP GRID",
 )
+render_reco_banner(banner_teaser, "", "calendar")
+render_matchup_ticker()
 
 # ── Guard: matchup planner module ─────────────────────────────────────
 
@@ -280,6 +289,16 @@ def _tier_badge(tier: str) -> str:
 # ── Helper: build per-game detail HTML ───────────────────────────────
 
 
+def _opp_logo_html(opp_abbr: str, size: int = 14) -> str:
+    """Return an inline MLB team logo <img> for an opponent abbreviation."""
+    if not opp_abbr:
+        return ""
+    return (
+        f'<img src="{team_logo_url(opp_abbr)}" alt="" '
+        f'style="width:{size}px;height:{size}px;vertical-align:-3px;margin:0 4px 0 2px;" />'
+    )
+
+
 def _games_detail_html(games: list[dict]) -> str:
     """Render a compact list of per-game details as HTML."""
     if not games:
@@ -292,12 +311,34 @@ def _games_detail_html(games: list[dict]) -> str:
         home_away = g.get("home_away", 1.0)
         loc = "Home" if home_away and home_away > 1.0 else "Away"
         pf = g.get("park_factor", 1.0)
+        _opp_logo = _opp_logo_html(opp)
         parts.append(
-            f'<span style="font-size:11px;color:{T["tx2"]};">'
-            f"{date} vs {opp} ({loc}, Park Factor: {float(pf):.2f}, Score: {float(raw):.2f})"
-            f"</span>"
+            '<span style="font-size:11px;color:var(--fp-tx-muted);display:inline-flex;'
+            'align-items:center;gap:2px;">'
+            f'<span style="font-family:var(--font-mono);">{_html.escape(date)}</span> vs '
+            f'{_opp_logo}<b style="color:var(--fp-tx);">{_html.escape(opp)}</b> '
+            f'<span style="color:var(--fp-tx-subtle);">({loc} · PF {float(pf):.2f} · '
+            f"Score {float(raw):.2f})</span></span>"
         )
-    return "<br>".join(parts)
+    return '<div style="display:flex;flex-direction:column;gap:4px;">' + "".join(parts) + "</div>"
+
+
+def _section_label(text: str, *, fig: str = "") -> str:
+    """Return an instrument-style eyebrow section label (orange bar + Archivo)."""
+    fig_html = ""
+    if fig:
+        fig_html = (
+            '<span style="font-family:var(--font-mono);font-weight:500;font-size:10px;'
+            f'letter-spacing:.12em;color:var(--fp-tx-muted);">{_html.escape(str(fig))}</span>'
+        )
+    return (
+        '<div style="display:flex;align-items:center;justify-content:space-between;'
+        'margin:2px 0 10px;padding-bottom:7px;border-bottom:1px solid var(--fp-divider);">'
+        '<div style="display:flex;align-items:center;gap:9px;">'
+        '<span style="width:3px;height:14px;background:var(--fp-primary);border-radius:2px;'
+        'box-shadow:0 0 8px rgba(255,109,0,.5);"></span>'
+        f"{build_eyebrow_html(text)}</div>{fig_html}</div>"
+    )
 
 
 # ── Helper: build category probability bar HTML ──────────────────────
@@ -735,11 +776,15 @@ with main:
             # Sort categories by win probability descending
             sorted_cats = sorted(cats, key=lambda c: c["win_pct"], reverse=True)
 
-            # Build and render bars
+            # Build and render bars inside an instrument panel (corner ticks +
+            # Archivo header + orange accent), matching the dossier look.
             html = _build_category_prob_html(sorted_cats)
             st.markdown(
-                f'<div style="background:rgba(255,255,255,0.6);border-radius:12px;'
-                f'padding:12px 16px;border:1px solid rgba(0,0,0,0.06);">{html}</div>',
+                build_panel_html(
+                    "Category Win Probability",
+                    html,
+                    fig_label=f"{len(sorted_cats)} CAT · vs {_html.escape(str(opp_name_disp))}",
+                ),
                 unsafe_allow_html=True,
             )
 
@@ -825,7 +870,9 @@ with main:
                 "syncing Yahoo data to refresh schedule information."
             )
         else:
-            st.subheader(f"Weekly Matchup Summary — {len(ratings_df)} players")
+            st.markdown(
+                _section_label("Weekly Matchup Summary", fig=f"∑ {len(ratings_df)} PLAYERS"), unsafe_allow_html=True
+            )
             display_df = _build_display_df(ratings_df)
             row_classes = _tier_row_classes(ratings_df)
             render_compact_table(display_df, highlight_cols=["Rating", "Games"], row_classes=row_classes)
@@ -842,7 +889,7 @@ with main:
         if not has_player_ratings:
             st.info("No matchup ratings available for per-game detail.")
         else:
-            st.subheader("Per-Game Matchup Detail")
+            st.markdown(_section_label("Per-Game Matchup Detail", fig="PARK · PLATOON"), unsafe_allow_html=True)
             st.caption(
                 "Each player's individual game matchups for the week. "
                 "Park factor and home/away status are factored into every game score."
@@ -861,15 +908,22 @@ with main:
                 tier_color = _TIER_COLORS.get(tier, T["tx2"])
                 tier_label = _TIER_LABELS.get(tier, tier.capitalize())
 
+                _det_headshot = _headshot_img_html(row.get("mlb_id"), size=26)
+                _det_team = str(row.get("team", "") or "")
+                _det_team_logo = _opp_logo_html(_det_team, size=15) if _det_team else ""
+                _safe_name = _html.escape(name)
+                _safe_pos = _html.escape(positions)
                 header_html = (
-                    f'<div style="display:flex;align-items:center;gap:12px;'
-                    f'border-left:4px solid {tier_color};padding-left:10px;margin-bottom:4px;">'
-                    f'<span style="font-weight:700;font-size:14px;color:{T["tx"]};">{name}</span>'
-                    f'<span style="font-size:12px;color:{T["tx2"]};">{positions} &bull; {player_type_label}</span>'
-                    f'<span style="font-size:12px;color:{T["tx2"]};">{games_count} game(s)</span>'
-                    f'<span style="font-size:12px;font-weight:700;color:{tier_color};">'
-                    f"Rating: {rating:.2f} &bull; {tier_label}"
-                    f"</span>"
+                    f'<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;'
+                    f'border-left:4px solid {tier_color};padding:2px 0 2px 11px;margin-bottom:6px;">'
+                    f'<span style="display:inline-flex;align-items:center;">{_det_headshot}'
+                    f'<span style="font-family:var(--font-display);font-weight:800;font-size:14px;'
+                    f'color:var(--fp-tx);">{_safe_name}</span></span>'
+                    f"{_det_team_logo}"
+                    f'<span style="font-family:var(--font-mono);font-size:11px;color:var(--fp-tx-muted);'
+                    f'letter-spacing:.03em;">{_safe_pos} · {player_type_label} · {games_count} GM</span>'
+                    f'<span style="margin-left:auto;font-family:var(--font-display);font-size:12px;'
+                    f'font-weight:800;color:{tier_color};">RATING {rating:.2f} · {tier_label.upper()}</span>'
                     f"</div>"
                 )
                 games_html = _games_detail_html(games)
@@ -898,7 +952,7 @@ with main:
             if hitter_df.empty:
                 st.info("No hitters found in current selection.")
             else:
-                st.subheader(f"Hitters — {len(hitter_df)} players")
+                st.markdown(_section_label("Hitters", fig=f"∑ {len(hitter_df)}"), unsafe_allow_html=True)
                 hitter_display = _build_display_df(hitter_df)
                 hitter_classes = _tier_row_classes(hitter_df)
                 render_compact_table(hitter_display, highlight_cols=["Rating", "Games"], row_classes=hitter_classes)
@@ -917,7 +971,7 @@ with main:
             if pitcher_df.empty:
                 st.info("No pitchers found in current selection.")
             else:
-                st.subheader(f"Pitchers — {len(pitcher_df)} players")
+                st.markdown(_section_label("Pitchers", fig=f"∑ {len(pitcher_df)}"), unsafe_allow_html=True)
                 pitcher_display = _build_display_df(pitcher_df)
                 pitcher_classes = _tier_row_classes(pitcher_df)
                 render_compact_table(pitcher_display, highlight_cols=["Rating", "Games"], row_classes=pitcher_classes)

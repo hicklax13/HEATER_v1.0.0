@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html as _html
 import logging
 
 import streamlit as st
@@ -16,11 +17,17 @@ from src.ui_shared import (
 )
 from src.ui_shared import (
     _headshot_img_html,
+    build_heatbar_html,
     format_stat,
     inject_custom_css,
     page_timer_footer,
     page_timer_start,
-    render_page_layout,
+    render_matchup_ticker,
+    render_page_header,
+    render_reco_banner,
+    team_color,
+    team_logo_url,
+    text_on,
 )
 from src.usage import log_page_view
 
@@ -39,7 +46,13 @@ require_page_enabled("page:3_Closer_Monitor")
 log_page_view("Closer Monitor")
 page_timer_start()
 
-render_page_layout("Closer Monitor", banner_teaser="30-team closer depth chart", banner_icon="closer")
+render_page_header(
+    "Closer Monitor",
+    eyebrow="BULLPEN",
+    fig="FIG.03 — SAVE DEPTH CHART",
+)
+render_reco_banner("30-team closer depth chart", "", "closer")
+render_matchup_ticker()
 
 
 @st.cache_data(ttl=300)
@@ -181,14 +194,18 @@ else:
                     actual_era = actual.get("era")
                     actual_whip = actual.get("whip")
 
-                    import html as _html
-
                     era_str = format_stat(item["era"], "ERA") if item["era"] else "—"
                     whip_str = format_stat(item["whip"], "WHIP") if item["whip"] else "—"
                     sv_str = f"{int(item['projected_sv'])}" if item["projected_sv"] else "—"
                     setup_str = _html.escape(", ".join(item["setup_names"]) if item["setup_names"] else "—")
                     closer_name_safe = _html.escape(item["closer_name"])
-                    headshot = _headshot_img_html(item.get("mlb_id"), size=32)
+                    headshot = _headshot_img_html(item.get("mlb_id"), size=34)
+
+                    # Team identity: logo + official team color drive the card accent.
+                    _team_abbr = str(item["team"])
+                    _logo_url = team_logo_url(_team_abbr)
+                    _tc = team_color(_team_abbr)
+                    _team_label_ink = text_on(_tc)
 
                     # Recent form indicator from MatchupContextService
                     form_html = "<!-- no form data -->"
@@ -202,13 +219,15 @@ else:
                             _trend = _closer_form.get("trend", "neutral")
                             if _trend == "hot":
                                 form_html = (
-                                    '<div style="font-size:0.6rem;color:#2e7d32;font-weight:600;">'
-                                    "Recent Form: HOT</div>"
+                                    '<div style="font-family:var(--font-mono);font-size:9px;'
+                                    "letter-spacing:.1em;text-transform:uppercase;color:var(--fp-primary);"
+                                    'font-weight:600;margin-top:3px;">Recent Form · HOT</div>'
                                 )
                             elif _trend == "cold":
                                 form_html = (
-                                    '<div style="font-size:0.6rem;color:#c62828;font-weight:600;">'
-                                    "Recent Form: COLD</div>"
+                                    '<div style="font-family:var(--font-mono);font-size:9px;'
+                                    "letter-spacing:.1em;text-transform:uppercase;color:var(--fp-cold);"
+                                    'font-weight:600;margin-top:3px;">Recent Form · COLD</div>'
                                 )
                     except Exception:
                         pass
@@ -250,55 +269,64 @@ else:
                         actual_era_str = format_stat(actual_era, "ERA") if actual_era else "—"
                         actual_whip_str = format_stat(actual_whip, "WHIP") if actual_whip else "—"
                         actual_sv_html = (
-                            f'<div style="font-size:0.65rem;color:#2e7d32;'
-                            f'margin-top:2px;white-space:nowrap;font-weight:600;">'
-                            f"2026 Actual: {actual_sv} SV | {actual_era_str} ERA | "
+                            f'<div style="font-family:var(--font-mono);font-size:9.5px;'
+                            f"color:{T['green']};margin-top:3px;white-space:nowrap;font-weight:600;"
+                            f'letter-spacing:.02em;">2026 ACTUAL · {actual_sv} SV · {actual_era_str} ERA · '
                             f"{actual_whip_str} WHIP</div>"
                         )
 
+                    # Job-security heat bar: orange (secure) → steel (shaky).
+                    _security_bar = build_heatbar_html(pct, win=(security >= 0.5))
+                    # Instrument card: white panel + 4 corner ticks + team-color
+                    # left accent + a faint team-logo watermark, matching the
+                    # dossier .panel look. Stat figures use Archivo tabular.
                     st.markdown(
                         f"""
-<div style="
-    background: #ffffff;
-    border: 1px solid #e0e0e0;
-    border-left: 4px solid {color};
-    border-radius: 8px;
-    padding: 10px 10px;
-    margin-bottom: 8px;
-    font-family: var(--font-body);
-    min-height: 160px;
-">
-    <div style="font-size:0.7rem; font-weight:700; color:#888; letter-spacing:0.08em; white-space:nowrap;">
-        {item["team"]}
+<div class="instr-card" style="position:relative;background:var(--fp-surface);
+     border:1px solid var(--fp-divider);border-left:4px solid {_tc};border-radius:10px;
+     padding:11px 12px 10px;margin-bottom:9px;font-family:var(--font-body);
+     min-height:172px;overflow:hidden;box-shadow:var(--fp-shadow);">
+  <img src="{_logo_url}" alt="" aria-hidden="true" style="position:absolute;right:-14px;top:-12px;
+       width:86px;height:86px;opacity:0.07;pointer-events:none;" />
+  <span style="position:absolute;top:7px;left:7px;width:9px;height:9px;border-left:1px solid var(--fp-primary);border-top:1px solid var(--fp-primary);opacity:.55;"></span>
+  <span style="position:absolute;top:7px;right:7px;width:9px;height:9px;border-right:1px solid var(--fp-primary);border-top:1px solid var(--fp-primary);opacity:.55;"></span>
+  <span style="position:absolute;bottom:7px;left:7px;width:9px;height:9px;border-left:1px solid var(--fp-primary);border-bottom:1px solid var(--fp-primary);opacity:.55;"></span>
+  <span style="position:absolute;bottom:7px;right:7px;width:9px;height:9px;border-right:1px solid var(--fp-primary);border-bottom:1px solid var(--fp-primary);opacity:.55;"></span>
+  <div style="display:inline-flex;align-items:center;gap:5px;background:{_tc};color:{_team_label_ink};
+       font-family:var(--font-display);font-size:9px;font-weight:800;letter-spacing:.1em;
+       padding:2px 7px;border-radius:4px;position:relative;z-index:1;">
+    <img src="{_logo_url}" alt="" style="width:12px;height:12px;vertical-align:middle;" />{_html.escape(_team_abbr)}
+  </div>
+  <div style="font-family:var(--font-display);font-size:0.92rem;font-weight:800;color:var(--fp-tx);
+       margin:6px 0 3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+       display:flex;align-items:center;gap:5px;position:relative;z-index:1;">
+    {headshot}{closer_name_safe}
+  </div>
+  <div style="display:flex;align-items:center;gap:8px;margin:3px 0 5px;position:relative;z-index:1;">
+    <div style="flex:1;">{_security_bar}</div>
+    <span style="font-family:var(--font-mono);font-weight:600;font-size:11px;color:{color};white-space:nowrap;">{pct}% JOB</span>
+  </div>
+  <div style="display:flex;gap:0;border-top:1px solid var(--fp-divider);padding-top:5px;position:relative;z-index:1;">
+    <div style="flex:1;text-align:center;border-right:1px solid var(--fp-divider);">
+      <div style="font-family:var(--font-display);font-size:8.5px;font-weight:800;letter-spacing:.08em;color:var(--fp-tx-muted);">SV</div>
+      <div style="font-family:var(--font-display);font-weight:800;font-size:15px;font-variant-numeric:tabular-nums;color:var(--fp-ember);">{sv_str}</div>
     </div>
-    <div style="font-size:0.88rem; font-weight:700; color:var(--fp-tx); margin:3px 0 2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; display:flex; align-items:center; gap:5px;">
-        {headshot}{closer_name_safe}
+    <div style="flex:1;text-align:center;border-right:1px solid var(--fp-divider);">
+      <div style="font-family:var(--font-display);font-size:8.5px;font-weight:800;letter-spacing:.08em;color:var(--fp-tx-muted);">ERA</div>
+      <div style="font-family:var(--font-display);font-weight:800;font-size:15px;font-variant-numeric:tabular-nums;color:var(--fp-tx);">{era_str}</div>
     </div>
-    <div style="
-        display:inline-block;
-        background:{color};
-        color:#fff;
-        font-size:0.65rem;
-        font-weight:700;
-        border-radius:4px;
-        padding:1px 6px;
-        margin-bottom:4px;
-        white-space:nowrap;
-    ">
-        {pct}%
+    <div style="flex:1;text-align:center;">
+      <div style="font-family:var(--font-display);font-size:8.5px;font-weight:800;letter-spacing:.08em;color:var(--fp-tx-muted);">WHIP</div>
+      <div style="font-family:var(--font-display);font-weight:800;font-size:15px;font-variant-numeric:tabular-nums;color:var(--fp-tx);">{whip_str}</div>
     </div>
-    <div style="font-size:0.68rem; color:#555; margin-top:3px; white-space:nowrap;">
-        SV: <b>{sv_str}</b>
-    </div>
-    <div style="font-size:0.68rem; color:#555; white-space:nowrap;">
-        ERA: <b>{era_str}</b> &nbsp; WHIP: <b>{whip_str}</b>
-    </div>
-    {actual_sv_html}
-    {form_html}
-    {gmli_html}
-    <div style="font-size:0.65rem; color:#888; margin-top:3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
-        Setup: {setup_str}
-    </div>
+  </div>
+  {actual_sv_html}
+  {form_html}
+  {gmli_html}
+  <div style="font-family:var(--font-mono);font-size:9px;color:var(--fp-tx-subtle);margin-top:4px;
+       white-space:nowrap;overflow:hidden;text-overflow:ellipsis;position:relative;z-index:1;letter-spacing:.02em;">
+    SETUP · {setup_str}
+  </div>
 </div>
 """,
                         unsafe_allow_html=True,

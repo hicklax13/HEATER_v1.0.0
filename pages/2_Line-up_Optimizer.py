@@ -13,6 +13,7 @@ decision model into a single unified lineup management page:
 
 from __future__ import annotations
 
+import html as _html
 import logging
 import time
 
@@ -35,6 +36,8 @@ from src.ui_shared import (
     METRIC_TOOLTIPS,
     PAGE_ICONS,
     THEME,
+    build_eyebrow_html,
+    build_heatbar_html,
     format_stat,
     inject_custom_css,
     no_league_data_message,
@@ -43,8 +46,10 @@ from src.ui_shared import (
     render_compact_table,
     render_context_card,
     render_context_columns,
-    render_page_layout,
+    render_matchup_ticker,
+    render_page_header,
     render_player_select,
+    render_reco_banner,
     render_styled_table,
 )
 from src.usage import log_page_view
@@ -162,11 +167,38 @@ require_page_enabled("page:2_Line-up_Optimizer")
 log_page_view("Lineup")
 page_timer_start()
 
-render_page_layout(
+render_page_header(
     "Line-up Optimizer",
-    banner_teaser="Optimize your weekly lineup and make start/sit decisions",
-    banner_icon="lineup_optimizer",
+    eyebrow="DAILY ACTION",
+    fig="FIG.02 — LINEUP CONTROL",
 )
+render_reco_banner("Optimize your weekly lineup and make start/sit decisions", "", "lineup_optimizer")
+render_matchup_ticker()
+
+
+def _section_label(text: str, *, fig: str = "") -> None:
+    """Render an instrument-style eyebrow section label (mockup ``.sechd``).
+
+    A small orange accent bar + Archivo-800 uppercase label, with an optional
+    right-aligned mono ``fig`` micro-crumb — the dossier's ``.sec`` header look,
+    used in place of the legacy bold-grey ``<p>`` section captions.
+    """
+    fig_html = ""
+    if fig:
+        fig_html = (
+            '<span style="font-family:var(--font-mono);font-weight:500;font-size:10px;'
+            f'letter-spacing:.12em;color:var(--fp-tx-muted);">{_html.escape(str(fig))}</span>'
+        )
+    st.markdown(
+        '<div style="display:flex;align-items:center;justify-content:space-between;'
+        'margin:2px 0 8px;padding-bottom:7px;border-bottom:1px solid var(--fp-divider);">'
+        '<div style="display:flex;align-items:center;gap:9px;">'
+        '<span style="width:3px;height:14px;background:var(--fp-primary);border-radius:2px;'
+        'box-shadow:0 0 8px rgba(255,109,0,.5);"></span>'
+        f"{build_eyebrow_html(text)}</div>{fig_html}</div>",
+        unsafe_allow_html=True,
+    )
+
 
 # ── Category display names ───────────────────────────────────────────
 
@@ -1792,24 +1824,15 @@ with main:
                     )
 
                 # ── Batters table ──
-                st.markdown(
-                    f'<p style="font-size:12px;font-weight:700;letter-spacing:1px;'
-                    f"color:{T['tx2']};"
-                    f'margin:0 0 6px;">Batters</p>',
-                    unsafe_allow_html=True,
-                )
+                _section_label("Batters", fig=f"∑ {len(batters_display)}")
                 if not batters_display.empty:
                     _classes_b = _decision_row_classes(batters_display)
                     _b_render = batters_display.drop(columns=["_empty_reason"], errors="ignore")
                     render_compact_table(_b_render, row_classes=_classes_b)
 
                 # ── Pitchers table ──
-                st.markdown(
-                    f'<p style="font-size:12px;font-weight:700;letter-spacing:1px;'
-                    f"color:{T['tx2']};"
-                    f'margin:16px 0 6px;">Pitchers</p>',
-                    unsafe_allow_html=True,
-                )
+                st.markdown("<div style='height:14px;'></div>", unsafe_allow_html=True)
+                _section_label("Pitchers", fig=f"∑ {len(pitchers_display)}")
                 if not pitchers_display.empty:
                     _classes_p = _decision_row_classes(pitchers_display)
                     _p_render = pitchers_display.drop(columns=["_empty_reason"], errors="ignore")
@@ -1849,12 +1872,7 @@ with main:
                 # the section (with reasons when empty) regardless of ctx
                 # state or exceptions downstream.
                 st.divider()
-                st.markdown(
-                    f'<p style="font-size:12px;font-weight:700;letter-spacing:1px;'
-                    f"color:{T['tx2']};"
-                    f"margin:0 0 6px;\">Today's Streaming Recommendations</p>",
-                    unsafe_allow_html=True,
-                )
+                _section_label("Today's Streaming Recommendations", fig="DAILY")
 
                 def _fmt_deltas(d: dict) -> str:
                     if not d:
@@ -1990,12 +2008,7 @@ with main:
                         pass
 
                 # Recommended lineup table — sorted by Yahoo slot order
-                st.markdown(
-                    f'<p style="font-size:12px;font-weight:700;letter-spacing:1px;'
-                    f"color:{T['tx2']};"
-                    f'margin:0 0 6px;">Starting Lineup</p>',
-                    unsafe_allow_html=True,
-                )
+                _section_label("Starting Lineup", fig="18 SLOTS")
                 assignments = lineup["assignments"]
                 _pid_to_mlb_lineup = {}
                 if "mlb_id" in roster.columns and "player_id" in roster.columns:
@@ -2109,12 +2122,8 @@ with main:
 
                 # Projected stats
                 if lineup.get("projected_stats"):
-                    st.markdown(
-                        f'<p style="font-size:12px;font-weight:700;letter-spacing:1px;'
-                        f"color:{T['tx2']};"
-                        f'margin:16px 0 6px;">Projected Weekly Category Totals</p>',
-                        unsafe_allow_html=True,
-                    )
+                    st.markdown("<div style='height:14px;'></div>", unsafe_allow_html=True)
+                    _section_label("Projected Weekly Category Totals", fig="12 CAT")
                     proj = lineup["projected_stats"]
                     # Scale counting stats to weekly. 2026-05-17 Section 3 D5:
                     # source from LeagueConfig.season_weeks. Rate stats don't scale.
@@ -2141,12 +2150,8 @@ with main:
                 # Risk metrics
                 risk_metrics = result.get("risk_metrics")
                 if risk_metrics:
-                    st.markdown(
-                        f'<p style="font-size:12px;font-weight:700;letter-spacing:1px;'
-                        f"color:{T['tx2']};"
-                        f'margin:16px 0 6px;">Risk Analysis</p>',
-                        unsafe_allow_html=True,
-                    )
+                    st.markdown("<div style='height:14px;'></div>", unsafe_allow_html=True)
+                    _section_label("Risk Analysis", fig="CVaR")
                     rc1, rc2, rc3, rc4 = st.columns(4)
                     with rc1:
                         st.metric("Expected Value", f"{risk_metrics.get('mean', 0):.2f}")
@@ -2163,12 +2168,8 @@ with main:
                 # Recommendations
                 recs = result.get("recommendations", [])
                 if recs:
-                    st.markdown(
-                        f'<p style="font-size:12px;font-weight:700;letter-spacing:1px;'
-                        f"color:{T['tx2']};"
-                        f'margin:16px 0 6px;">Recommendations</p>',
-                        unsafe_allow_html=True,
-                    )
+                    st.markdown("<div style='height:14px;'></div>", unsafe_allow_html=True)
+                    _section_label("Recommendations")
                     for rec in recs:
                         st.markdown(
                             f"{PAGE_ICONS['trending_up']} {rec}",
@@ -2178,12 +2179,8 @@ with main:
                 # Bench players — clearly labeled as BENCH
                 bench = lineup.get("bench", [])
                 if bench:
-                    st.markdown(
-                        f'<p style="font-size:12px;font-weight:700;letter-spacing:1px;'
-                        f"color:{T['tx2']};"
-                        f'margin:16px 0 6px;">Bench (Sit)</p>',
-                        unsafe_allow_html=True,
-                    )
+                    st.markdown("<div style='height:14px;'></div>", unsafe_allow_html=True)
+                    _section_label("Bench (Sit)")
                     name_col = "player_name" if "player_name" in roster.columns else "name"
                     _pos_lookup = dict(
                         zip(
@@ -2237,12 +2234,7 @@ with main:
                         _fa_moves_lp = recommend_fa_moves(_ctx_fa_lp, max_moves=3)
                         if _fa_moves_lp:
                             st.divider()
-                            st.markdown(
-                                f'<p style="font-size:12px;font-weight:700;letter-spacing:1px;'
-                                f"color:{T['tx2']};"
-                                f'margin:0 0 6px;">Recommended Free Agent Moves</p>',
-                                unsafe_allow_html=True,
-                            )
+                            _section_label("Recommended Free Agent Moves", fig="WIRE")
                             for _mv in _fa_moves_lp:
                                 _add = _mv.get("add_name", "?")
                                 _drop = _mv.get("drop_name", "?")
@@ -2589,13 +2581,7 @@ with main:
                                 )
 
                             # Rankings table
-                            st.markdown(
-                                f'<p style="font-size:12px;font-weight:700;'
-                                f"letter-spacing:1px;color:{T['tx2']};"
-                                f'margin:0 0 6px;">'
-                                f"Player Rankings</p>",
-                                unsafe_allow_html=True,
-                            )
+                            _section_label("Player Rankings", fig="START / SIT")
 
                             _pid_to_mlb_ss = {}
                             if "mlb_id" in pool.columns and "player_id" in pool.columns:
@@ -2667,13 +2653,8 @@ with main:
                             )
 
                             # Per-player reasoning
-                            st.markdown(
-                                f'<p style="font-size:12px;font-weight:700;'
-                                f"letter-spacing:1px;color:{T['tx2']};"
-                                f'margin:16px 0 6px;">'
-                                f"Decision Reasoning</p>",
-                                unsafe_allow_html=True,
-                            )
+                            st.markdown("<div style='height:14px;'></div>", unsafe_allow_html=True)
+                            _section_label("Decision Reasoning")
 
                             for p in players_list:
                                 is_rec = p["player_id"] == rec_id
@@ -3014,28 +2995,32 @@ with main:
                     pass
 
         if weights:
+            _section_label("Category Weight Distribution", fig="MARGINAL SGP")
+            st.caption("Priority categories — higher weight = bigger marginal standings impact.")
+            weights_sorted = sorted(weights.items(), key=lambda x: x[1], reverse=True)
+            # Instrument heat-bar rows (dossier .cat look): category label,
+            # orange fill scaled to a 3.0x cap, and a mono multiplier readout.
+            _weight_rows = ""
+            for cat, weight in weights_sorted:
+                _pct = max(0.0, min(100.0, (min(float(weight), 3.0) / 3.0) * 100.0))
+                _hot = float(weight) > 1.0
+                _w_color = "var(--fp-primary)" if _hot else "var(--fp-tx-muted)"
+                display_name = CAT_DISPLAY_NAMES.get(cat, cat.upper())
+                _weight_rows += (
+                    '<div style="display:flex;align-items:center;gap:12px;padding:6px 0;'
+                    'border-bottom:1px solid var(--fp-divider);">'
+                    f'<div style="width:120px;flex-shrink:0;font-family:var(--font-display);'
+                    f"font-weight:800;font-size:12px;letter-spacing:.03em;color:{_w_color};"
+                    f'">{_html.escape(str(display_name))}</div>'
+                    f'<div style="flex:1;">{build_heatbar_html(_pct, win=_hot)}</div>'
+                    '<div style="width:54px;flex-shrink:0;text-align:right;font-family:var(--font-mono);'
+                    f'font-weight:600;font-size:12px;color:{_w_color};">{weight:.2f}x</div>'
+                    "</div>"
+                )
             st.markdown(
-                f'<p style="font-size:12px;font-weight:700;letter-spacing:1px;'
-                f"color:{T['tx2']};"
-                f'margin:0 0 6px;">Category Weight Distribution</p>',
+                f'<div style="margin:6px 0 4px;">{_weight_rows}</div>',
                 unsafe_allow_html=True,
             )
-            st.markdown("**Priority categories** (higher weight = bigger marginal standings impact):")
-            weights_sorted = sorted(weights.items(), key=lambda x: x[1], reverse=True)
-            for cat, weight in weights_sorted:
-                bar_len = int(min(weight, 3.0) / 3.0 * 20)
-                icon = (
-                    PAGE_ICONS["fire"]
-                    if weight > 1.5
-                    else PAGE_ICONS["trending_up"]
-                    if weight > 1.0
-                    else PAGE_ICONS["minus"]
-                )
-                display_name = CAT_DISPLAY_NAMES.get(cat, cat.upper())
-                st.markdown(
-                    f"{icon} **{display_name}**: {'█' * bar_len}{'░' * (20 - bar_len)} ({weight:.2f}x)",
-                    unsafe_allow_html=True,
-                )
             st.caption(METRIC_TOOLTIPS.get("cat_targeting", ""))
         elif standings.empty:
             st.info(
@@ -3049,12 +3034,7 @@ with main:
         maximin = result.get("maximin_comparison") if result else None
         if maximin:
             st.divider()
-            st.markdown(
-                f'<p style="font-size:12px;font-weight:700;letter-spacing:1px;'
-                f"color:{T['tx2']};"
-                f'margin:0 0 6px;">Maximin (Balanced) Lineup Comparison</p>',
-                unsafe_allow_html=True,
-            )
+            _section_label("Maximin (Balanced) Lineup Comparison", fig="WORST-CAT")
             z_val = maximin.get("z_value", 0)
             st.metric("Worst-Category Floor (z-score)", f"{z_val:.2f}")
 
@@ -3071,12 +3051,7 @@ with main:
         # Standings position for each category
         if not standings.empty and my_totals:
             st.divider()
-            st.markdown(
-                f'<p style="font-size:12px;font-weight:700;letter-spacing:1px;'
-                f"color:{T['tx2']};"
-                f'margin:0 0 6px;">Current Standings Position by Category</p>',
-                unsafe_allow_html=True,
-            )
+            _section_label("Current Standings Position by Category", fig="12 CAT")
             position_rows = []
             for cat in ALL_CATS:
                 my_val = my_totals.get(cat, 0)
@@ -3275,12 +3250,7 @@ with main:
         # ──────────────────────────────────────────────────────────────
         # SECTION 1: Daily Streaming Picks
         # ──────────────────────────────────────────────────────────────
-        st.markdown(
-            f'<p style="font-size:12px;font-weight:700;letter-spacing:1px;'
-            f"color:{T['tx2']};"
-            f'margin:0 0 6px;">Streaming Pitcher Picks</p>',
-            unsafe_allow_html=True,
-        )
+        _section_label("Streaming Pitcher Picks", fig="7-DAY WINDOW")
 
         if _stream_target_date:
             st.caption(f"Target date: **{_stream_target_date}** | Schedule window: next 7 days")
@@ -3456,12 +3426,7 @@ with main:
         # SECTION 2: Two-Start Starting Pitchers (your roster)
         # ──────────────────────────────────────────────────────────────
         st.divider()
-        st.markdown(
-            f'<p style="font-size:12px;font-weight:700;letter-spacing:1px;'
-            f"color:{T['tx2']};"
-            f'margin:0 0 6px;">Two-Start Pitchers (Your Roster)</p>',
-            unsafe_allow_html=True,
-        )
+        _section_label("Two-Start Pitchers (Your Roster)", fig="2x EXPOSURE")
 
         two_start_sps: list[dict] = []
         _stream_ctx = st.session_state.get("optimizer_context")
@@ -3595,12 +3560,7 @@ with main:
         # ──────────────────────────────────────────────────────────────
         if _stream_picks and _stream_schedule:
             st.divider()
-            st.markdown(
-                f'<p style="font-size:12px;font-weight:700;letter-spacing:1px;'
-                f"color:{T['tx2']};"
-                f'margin:0 0 6px;">Weekly Streaming Calendar</p>',
-                unsafe_allow_html=True,
-            )
+            _section_label("Weekly Streaming Calendar", fig="NEXT 7 DAYS")
 
             # Collect all unique dates in the schedule window
             _all_dates = sorted({g["game_date"] for g in _stream_schedule if g["game_date"]})

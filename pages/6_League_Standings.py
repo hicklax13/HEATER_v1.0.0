@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html as _html
 import logging
 from datetime import UTC, datetime
 
@@ -26,6 +27,9 @@ from src.standings_utils import (
 from src.ui_shared import (
     THEME,
     build_compact_table_html,
+    build_eyebrow_html,
+    build_heatbar_html,
+    build_panel_html,
     format_stat,
     inject_custom_css,
     page_timer_footer,
@@ -34,7 +38,9 @@ from src.ui_shared import (
     render_context_card,
     render_context_columns,
     render_data_freshness_card,
-    render_page_layout,
+    render_matchup_ticker,
+    render_page_header,
+    render_reco_banner,
 )
 from src.usage import log_page_view
 from src.valuation import LeagueConfig
@@ -261,11 +267,33 @@ user_team = _get_user_team_name(records_df)
 # ── Banner ────────────────────────────────────────────────────────────
 
 banner_teaser = _build_banner_teaser(matchup)
-render_page_layout(
+render_page_header(
     "League Standings",
-    banner_teaser=banner_teaser,
-    banner_icon="league_standings",
+    eyebrow="LEAGUE",
+    fig="FIG.06 — STANDINGS BOARD",
 )
+render_reco_banner(banner_teaser, "", "league_standings")
+render_matchup_ticker()
+
+
+def _section_label(text: str, *, fig: str = "") -> None:
+    """Render an instrument-style eyebrow section label (orange bar + Archivo)."""
+    fig_html = ""
+    if fig:
+        fig_html = (
+            '<span style="font-family:var(--font-mono);font-weight:500;font-size:10px;'
+            f'letter-spacing:.12em;color:var(--fp-tx-muted);">{_html.escape(str(fig))}</span>'
+        )
+    st.markdown(
+        '<div style="display:flex;align-items:center;justify-content:space-between;'
+        'margin:6px 0 10px;padding-bottom:7px;border-bottom:1px solid var(--fp-divider);">'
+        '<div style="display:flex;align-items:center;gap:9px;">'
+        '<span style="width:3px;height:14px;background:var(--fp-primary);border-radius:2px;'
+        'box-shadow:0 0 8px rgba(255,109,0,.5);"></span>'
+        f"{build_eyebrow_html(text)}</div>{fig_html}</div>",
+        unsafe_allow_html=True,
+    )
+
 
 # ── Layout ────────────────────────────────────────────────────────────
 
@@ -611,7 +639,7 @@ with main:
         has_records = not records_df.empty
         if has_records:
             # Section A: H2H Record Table
-            st.markdown("**Head-to-Head Record**")
+            _section_label("Head-to-Head Record", fig=f"{len(records_df)} TEAMS")
 
             display_rows: list[dict] = []
             for _, row in records_df.iterrows():
@@ -691,7 +719,7 @@ with main:
             cat_standings = filter_standings_to_valid_teams(cat_standings, _valid_teams)
 
             if not cat_standings.empty:
-                st.markdown("**Category Standings**")
+                _section_label("Category Standings", fig="12 CAT · RANKS")
 
                 # Compute per-category ranks: for each category rank teams by total
                 # (inverse stats: lower is better)
@@ -840,7 +868,7 @@ with main:
         sim_result = st.session_state.get(_sim_cache_key)
 
         if sim_result:
-            st.markdown("**Projected Final Standings**")
+            _section_label("Projected Final Standings", fig="500 SIMS · MC")
 
             proj_records = sim_result.get("projected_records", {})
             playoff_probs = sim_result.get("playoff_probability", {})
@@ -907,6 +935,34 @@ with main:
             )
             st.markdown(proj_cutoff_css + proj_html, unsafe_allow_html=True)
 
+            # ── Playoff-odds heat-bar strip (instrument panel) ──
+            # A dossier-style visualization of each team's MC playoff probability:
+            # orange fill above the 4-spot line, steel below. The user's team is
+            # accent-highlighted. Plays the role the escape-safe table can't.
+            _odds_rows = ""
+            for tn in sorted_teams:
+                _pp = float(playoff_probs.get(tn, 0.0))
+                _pct = max(0.0, min(100.0, _pp * 100.0))
+                _is_user = bool(user_team and tn == user_team)
+                _name_color = "var(--fp-primary)" if _is_user else "var(--fp-tx)"
+                _pct_color = "var(--fp-primary)" if _pp >= 0.5 else "var(--fp-tx-muted)"
+                _row_bg = "background:rgba(255,109,0,.06);" if _is_user else ""
+                _odds_rows += (
+                    f'<div style="display:flex;align-items:center;gap:12px;padding:5px 6px;'
+                    f'border-bottom:1px solid var(--fp-divider);{_row_bg}border-radius:4px;">'
+                    f'<div style="width:150px;flex-shrink:0;font-family:var(--font-display);'
+                    f"font-weight:{'800' if _is_user else '700'};font-size:12px;color:{_name_color};"
+                    f'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{_html.escape(str(tn))}</div>'
+                    f'<div style="flex:1;">{build_heatbar_html(_pct, win=(_pp >= 0.5))}</div>'
+                    f'<div style="width:42px;flex-shrink:0;text-align:right;font-family:var(--font-mono);'
+                    f'font-weight:600;font-size:12px;color:{_pct_color};">{_pct:.0f}%</div>'
+                    "</div>"
+                )
+            st.markdown(
+                build_panel_html("Playoff Odds", _odds_rows, fig_label=f"TOP {_PLAYOFF_SPOTS} ADVANCE"),
+                unsafe_allow_html=True,
+            )
+
             # Section B: Team Strength Profiles (expandable)
             with st.expander("Team Strength Profiles", expanded=False):
                 if ENGINE_AVAILABLE:
@@ -966,7 +1022,7 @@ with main:
                     st.info("Power rankings module not available.")
 
             # Section C: Scenario Explorer
-            st.markdown("**Scenario Explorer**")
+            _section_label("Scenario Explorer", fig="WHAT-IF")
             st.caption("What if you go ___-___-___ this week?")
 
             sc1, sc2, sc3, sc4 = st.columns([1, 1, 1, 1])
