@@ -1874,17 +1874,20 @@ else:
                 # the dialog. .pop() means the built-in X close stays closed (the
                 # id is consumed on open, so the next rerun doesn't re-open it).
                 # Falls back to a selectbox below the table.
+                # Roster "click a player" → open the dossier dialog. The link sets
+                # ?player=<id>. We open the @st.dialog directly from the param and
+                # guard re-open with a session sentinel: mutating st.query_params
+                # would change the URL and reset session_state (which silently broke
+                # the earlier stash/rerun approach), so we leave the param in place
+                # and instead remember the last id we opened. Same value on a rerun
+                # (e.g. the built-in ✕ dismiss) → do NOT re-open, so close works.
                 _qp_player = st.query_params.get("player")
-                if _qp_player is not None:
+                if _qp_player is not None and str(_qp_player) != str(st.session_state.get("_dossier_last_shown")):
+                    st.session_state["_dossier_last_shown"] = str(_qp_player)
                     try:
-                        st.session_state["_dossier_pid"] = int(_qp_player)
+                        show_player_card_dialog(int(_qp_player))
                     except (TypeError, ValueError):
                         pass
-                    del st.query_params["player"]  # schedules a rerun; do NOT open the dialog this run
-                else:
-                    _pid = st.session_state.pop("_dossier_pid", None)
-                    if _pid is not None:
-                        show_player_card_dialog(_pid)
 
                 # ── Stat-source control (drives the context-panel totals via the
                 # ``roster_stat_view`` session key). Kept; the table now adds its
