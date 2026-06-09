@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800;900&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+:root{
+  --ink:#1b1c20; --muted:#646a78; --muted2:#9aa0ac;
+  --orange:#ff6d00; --flame:#ff9a3c; --ember:#e8480a;
+  --navy:#163259; --navy2:#0e2244;
+  --good:#1f9d6b; --bad:#e0492f; --cold:#5f7d9c;
+  --hair:rgba(24,26,32,0.10); --hair2:rgba(24,26,32,0.055);
+  --hairO:rgba(255,109,0,0.55);
+  --panel2:#fbfbf9;
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+.scene{position:relative;width:1180px;height:980px;
+  background:radial-gradient(120% 90% at 30% 0%,#fdfdfc,#eeece8);
+  font-family:'Inter',system-ui,sans-serif;color:var(--ink);overflow:hidden;}
+/* dimmed roster hint behind */
+.dim{position:absolute;inset:0;background:rgba(18,26,42,.46);backdrop-filter:blur(2px);}
+.mono{font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums;}
+.fig{font-family:'IBM Plex Mono';font-size:10px;letter-spacing:.12em;color:var(--muted2);}
+
+.modal{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:1020px;
+  background:#fff;border-radius:18px;overflow:hidden;box-shadow:0 30px 90px rgba(10,18,34,.5);border:1px solid var(--hair);}
+.modal .corner{position:absolute;width:14px;height:14px;border:1px solid var(--hairO);z-index:3;}
+.corner.tl{top:12px;left:12px;border-right:none;border-bottom:none;}
+.corner.tr{top:12px;right:12px;border-left:none;border-bottom:none;}
+
+/* header (navy) */
+.mhead{position:relative;background:linear-gradient(120deg,#163259,#0e2244);padding:24px 28px;display:flex;align-items:center;gap:22px;overflow:hidden;}
+.mhead::after{content:"";position:absolute;right:-60px;top:-60px;width:280px;height:280px;border-radius:50%;
+  background:radial-gradient(circle,rgba(255,109,0,.22),transparent 60%);}
+.mhs{width:92px;height:92px;border-radius:50%;object-fit:cover;border:2px solid rgba(255,255,255,.85);
+  box-shadow:0 0 26px rgba(255,109,0,.4);background:radial-gradient(circle at 40% 35%,#33405a,#16233c);flex-shrink:0;z-index:1;}
+.mname{z-index:1;}
+.mname .eb{font-family:'IBM Plex Mono';font-size:10px;letter-spacing:.2em;color:#9fb1c9;text-transform:uppercase;}
+.mname h2{font-family:'Archivo';font-weight:900;font-size:34px;color:#fff;letter-spacing:-.01em;line-height:1;margin:5px 0 3px;}
+.mname .meta{font-family:'IBM Plex Mono';font-size:12px;color:#aebfd4;letter-spacing:.04em;}
+.mchips{margin-left:auto;display:flex;gap:0;z-index:1;}
+.mchip{padding:4px 18px;border-left:1px solid rgba(255,255,255,.14);display:flex;flex-direction:column;gap:3px;text-align:right;}
+.mchip .k{font-size:9px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:#8aa0bd;}
+.mchip .v{font-family:'IBM Plex Mono';font-size:20px;font-weight:600;color:#fff;}
+.mchip .v.o{color:var(--flame);}
+.mclose{position:absolute;top:16px;right:18px;width:30px;height:30px;border-radius:8px;border:1px solid rgba(255,255,255,.2);
+  display:flex;align-items:center;justify-content:center;color:#cdd9e8;z-index:2;}
+.mclose svg{width:15px;height:15px;stroke:currentColor;stroke-width:2;fill:none;}
+
+/* body */
+.mbody{display:grid;grid-template-columns:1.45fr 1fr;gap:0;}
+.sec{padding:20px 24px;}
+.sec.right{border-left:1px solid var(--hair);background:var(--panel2);}
+.sechd{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;}
+.sechd .lhs{display:flex;align-items:center;gap:10px;}
+.sechd h3{font-family:'Archivo';font-weight:800;font-size:13px;letter-spacing:.07em;text-transform:uppercase;color:var(--ink);}
+.sechd .accent{width:3px;height:14px;background:var(--orange);border-radius:2px;box-shadow:0 0 8px rgba(255,109,0,.5);}
+
+/* game log table */
+.glog{width:100%;border-collapse:collapse;}
+.glog th{font-family:'Inter';font-weight:700;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted2);text-align:right;padding:6px 8px;border-bottom:1px solid var(--hair);}
+.glog th.l{text-align:left;}
+.glog td{font-family:'IBM Plex Mono';font-size:12px;text-align:right;padding:7px 8px;border-bottom:1px solid var(--hair2);color:var(--ink);}
+.glog td.l{text-align:left;color:var(--muted);}
+.res{display:inline-block;font-family:'IBM Plex Mono';font-size:10px;font-weight:600;padding:2px 7px;border-radius:4px;}
+.res.w{background:rgba(31,157,107,.14);color:var(--good);} .res.l{background:rgba(224,73,47,.13);color:var(--bad);}
+.hot td{background:rgba(255,109,0,.05);}
+.bar{display:inline-block;width:42px;height:5px;border-radius:3px;background:var(--hair);overflow:hidden;vertical-align:middle;}
+.bar i{display:block;height:100%;background:linear-gradient(90deg,var(--ember),var(--flame));border-radius:3px;}
+
+/* upcoming */
+.up{display:flex;flex-direction:column;gap:10px;}
+.upc{border:1px solid var(--hair);border-radius:10px;padding:12px 13px;background:#fff;}
+.upc .top{display:flex;align-items:center;justify-content:space-between;margin-bottom:9px;}
+.upc .date{font-family:'IBM Plex Mono';font-size:11px;color:var(--ink);font-weight:600;}
+.upc .opp{font-family:'IBM Plex Mono';font-size:10px;color:var(--muted);}
+.upc .sp{font-size:10px;color:var(--muted2);}
+.proj{display:flex;gap:0;}
+.proj .p{flex:1;text-align:center;border-right:1px solid var(--hair2);padding:2px 0;}
+.proj .p:last-child{border-right:none;}
+.proj .p .pk{font-size:8px;font-weight:700;letter-spacing:.1em;color:var(--muted2);text-transform:uppercase;}
+.proj .p .pv{font-family:'IBM Plex Mono';font-size:14px;color:var(--ember);font-weight:600;}
+.conf{margin-top:9px;display:flex;align-items:center;gap:8px;}
+.conf .t{flex:1;height:4px;border-radius:3px;background:var(--hair);overflow:hidden;}
+.conf .t i{display:block;height:100%;background:linear-gradient(90deg,var(--ember),var(--orange));}
+.conf .cl{font-family:'IBM Plex Mono';font-size:9px;color:var(--muted2);}
+.mfoot{padding:11px 24px;border-top:1px solid var(--hair);display:flex;justify-content:space-between;align-items:center;}
+</style>
+</head>
+<body>
+<div class="scene">
+  <div class="dim"></div>
+
+  <div class="modal">
+    <span class="corner tl"></span><span class="corner tr"></span>
+    <!-- header -->
+    <div class="mhead">
+      <img class="mhs" src="https://midfield.mlbstatic.com/v1/people/670541/spots/120">
+      <div class="mname">
+        <div class="eb">Roster · DH · #44</div>
+        <h2>Yordan Alvarez</h2>
+        <div class="meta">HOUSTON ASTROS · BATS L · 2026 SEASON</div>
+      </div>
+      <div class="mchips">
+        <div class="mchip"><span class="k">AVG</span><span class="v o">.317</span></div>
+        <div class="mchip"><span class="k">HR</span><span class="v">28</span></div>
+        <div class="mchip"><span class="k">RBI</span><span class="v">82</span></div>
+        <div class="mchip"><span class="k">OBP</span><span class="v">.402</span></div>
+        <div class="mchip"><span class="k">OPS</span><span class="v">.985</span></div>
+      </div>
+      <div class="mclose"><svg viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></div>
+    </div>
+
+    <div class="mbody">
+      <!-- game log -->
+      <div class="sec">
+        <div class="sechd"><div class="lhs"><span class="accent"></span><h3>Game Log — Last 10</h3></div><span class="fig">.476 L6 · HOT</span></div>
+        <table class="glog">
+          <thead><tr><th class="l">Date</th><th class="l">Opp</th><th>Res</th><th>AB</th><th>H</th><th>HR</th><th>RBI</th><th>AVG</th><th class="l">Form</th></tr></thead>
+          <tbody>
+            <tr class="hot"><td class="l">Jun 08</td><td class="l">vs LAA</td><td><span class="res w">W 6–3</span></td><td>4</td><td>3</td><td>1</td><td>4</td><td>.750</td><td class="l"><span class="bar"><i style="width:95%"></i></span></td></tr>
+            <tr class="hot"><td class="l">Jun 07</td><td class="l">vs LAA</td><td><span class="res w">W 5–2</span></td><td>4</td><td>2</td><td>1</td><td>3</td><td>.500</td><td class="l"><span class="bar"><i style="width:80%"></i></span></td></tr>
+            <tr><td class="l">Jun 06</td><td class="l">@ SEA</td><td><span class="res l">L 2–5</span></td><td>4</td><td>1</td><td>0</td><td>1</td><td>.250</td><td class="l"><span class="bar"><i style="width:38%"></i></span></td></tr>
+            <tr class="hot"><td class="l">Jun 05</td><td class="l">@ SEA</td><td><span class="res w">W 7–4</span></td><td>5</td><td>3</td><td>0</td><td>1</td><td>.600</td><td class="l"><span class="bar"><i style="width:85%"></i></span></td></tr>
+            <tr><td class="l">Jun 04</td><td class="l">@ SEA</td><td><span class="res l">L 1–3</span></td><td>4</td><td>1</td><td>0</td><td>0</td><td>.250</td><td class="l"><span class="bar"><i style="width:35%"></i></span></td></tr>
+            <tr class="hot"><td class="l">Jun 03</td><td class="l">vs TEX</td><td><span class="res w">W 9–5</span></td><td>5</td><td>2</td><td>1</td><td>4</td><td>.400</td><td class="l"><span class="bar"><i style="width:72%"></i></span></td></tr>
+            <tr><td class="l">Jun 01</td><td class="l">vs TEX</td><td><span class="res l">L 3–6</span></td><td>4</td><td>1</td><td>0</td><td>1</td><td>.250</td><td class="l"><span class="bar"><i style="width:40%"></i></span></td></tr>
+            <tr><td class="l">May 31</td><td class="l">vs TEX</td><td><span class="res w">W 4–2</span></td><td>3</td><td>1</td><td>0</td><td>0</td><td>.333</td><td class="l"><span class="bar"><i style="width:48%"></i></span></td></tr>
+            <tr class="hot"><td class="l">May 30</td><td class="l">@ OAK</td><td><span class="res w">W 8–1</span></td><td>4</td><td>2</td><td>1</td><td>3</td><td>.500</td><td class="l"><span class="bar"><i style="width:78%"></i></span></td></tr>
+            <tr><td class="l">May 29</td><td class="l">@ OAK</td><td><span class="res l">L 4–7</span></td><td>4</td><td>1</td><td>0</td><td>1</td><td>.250</td><td class="l"><span class="bar"><i style="width:36%"></i></span></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- upcoming + projections -->
+      <div class="sec right">
+        <div class="sechd"><div class="lhs"><span class="accent"></span><h3>Upcoming · Projections</h3></div><span class="fig">NEXT 4</span></div>
+        <div class="up">
+          <div class="upc">
+            <div class="top"><div><span class="date">Jun 10</span> &nbsp;<span class="opp">@ OAK</span></div><span class="sp">vs L. Severino (R)</span></div>
+            <div class="proj"><div class="p"><div class="pk">H</div><div class="pv">1.3</div></div><div class="p"><div class="pk">HR</div><div class="pv">0.5</div></div><div class="p"><div class="pk">RBI</div><div class="pv">1.4</div></div><div class="p"><div class="pk">R</div><div class="pv">0.9</div></div></div>
+            <div class="conf"><div class="t"><i style="width:78%"></i></div><span class="cl">78% · favorable park</span></div>
+          </div>
+          <div class="upc">
+            <div class="top"><div><span class="date">Jun 11</span> &nbsp;<span class="opp">@ OAK</span></div><span class="sp">vs J. Estes (L)</span></div>
+            <div class="proj"><div class="p"><div class="pk">H</div><div class="pv">1.0</div></div><div class="p"><div class="pk">HR</div><div class="pv">0.3</div></div><div class="p"><div class="pk">RBI</div><div class="pv">1.0</div></div><div class="p"><div class="pk">R</div><div class="pv">0.7</div></div></div>
+            <div class="conf"><div class="t"><i style="width:54%"></i></div><span class="cl">54% · LHP matchup</span></div>
+          </div>
+          <div class="upc">
+            <div class="top"><div><span class="date">Jun 13</span> &nbsp;<span class="opp">vs NYY</span></div><span class="sp">vs C. Schmidt (R)</span></div>
+            <div class="proj"><div class="p"><div class="pk">H</div><div class="pv">1.2</div></div><div class="p"><div class="pk">HR</div><div class="pv">0.4</div></div><div class="p"><div class="pk">RBI</div><div class="pv">1.3</div></div><div class="p"><div class="pk">R</div><div class="pv">0.8</div></div></div>
+            <div class="conf"><div class="t"><i style="width:71%"></i></div><span class="cl">71% · home</span></div>
+          </div>
+          <div class="upc">
+            <div class="top"><div><span class="date">Jun 14</span> &nbsp;<span class="opp">vs NYY</span></div><span class="sp">vs M. Fried (L)</span></div>
+            <div class="proj"><div class="p"><div class="pk">H</div><div class="pv">0.9</div></div><div class="p"><div class="pk">HR</div><div class="pv">0.3</div></div><div class="p"><div class="pk">RBI</div><div class="pv">0.9</div></div><div class="p"><div class="pk">R</div><div class="pv">0.6</div></div></div>
+            <div class="conf"><div class="t"><i style="width:49%"></i></div><span class="cl">49% · tough LHP</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="mfoot">
+      <span class="fig">FIG.02 — PLAYER DOSSIER · GAME LOG ∑ 10 · PROJ ∑ 4</span>
+      <span class="fig">SOURCE: MLB STATS API · HEATER PROJECTION ENGINE</span>
+    </div>
+  </div>
+</div>
+</body>
+</html>

@@ -1,0 +1,339 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800;900&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+:root{
+  /* light neutral canvas */
+  --field:#f4f3f1; --field2:#ecebe7;
+  --panel:#ffffff; --panel2:#fbfbf9;
+  --ink:#1b1c20;            /* charcoal primary text */
+  --muted:#646a78; --muted2:#9aa0ac;
+  --orange:#ff6d00; --flame:#ff9a3c; --ember:#e8480a; --gold:#ffae42;
+  --cold:#5f7d9c;          /* muted steel — minimal blue, COLD only */
+  --good:#1f9d6b; --bad:#e0492f;
+  --hair:rgba(24,26,32,0.10);
+  --hair2:rgba(24,26,32,0.055);
+  --hairO:rgba(255,109,0,0.55);
+  /* charcoal chrome (de-blued) */
+  --char:#17181c; --char2:#0f1013;
+  --onchar:#ece9e3; --onchar-mut:#8b909c;
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+html,body{background:#dfe0e2;}
+.app{
+  position:relative;width:1600px;min-height:1180px;display:flex;
+  background:radial-gradient(135% 95% at 22% 0%, #ffffff 0%, #f4f3f1 42%, #eceae6 100%);
+  font-family:'Inter',system-ui,sans-serif;color:var(--ink);
+}
+.eyebrow{font-family:'Inter';font-weight:700;font-size:10px;letter-spacing:.28em;text-transform:uppercase;color:var(--muted2);}
+.mono{font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums;}
+.fig{font-family:'IBM Plex Mono';font-size:10px;letter-spacing:.12em;color:var(--muted2);}
+
+/* ── SIDEBAR RAIL (charcoal) ── */
+.rail{width:92px;flex:0 0 92px;background:linear-gradient(180deg,#163259 0%,#0c1f3e 100%);border-right:1px solid rgba(0,0,0,0.22);
+  display:flex;flex-direction:column;align-items:center;padding:18px 0;gap:2px;position:relative;}
+.rail::after{content:"";position:absolute;top:0;right:0;width:1px;height:100%;background:linear-gradient(180deg,var(--hairO),rgba(255,109,0,0) 26%);}
+.logo{display:flex;flex-direction:column;align-items:center;gap:5px;margin-bottom:18px;}
+.logo .ball{width:27px;height:27px;border-radius:50%;background:radial-gradient(circle at 38% 32%,#fcf9f3,#e7e1d4);
+  box-shadow:0 0 14px rgba(255,109,0,.45),inset 0 0 0 1px rgba(0,0,0,.12);position:relative;}
+.logo .ball::before,.logo .ball::after{content:"";position:absolute;top:4px;bottom:4px;width:6px;border:1.5px solid var(--orange);border-radius:50%;}
+.logo .ball::before{left:4px;border-right:none;}
+.logo .ball::after{right:4px;border-left:none;}
+.logo .wm{font-family:'Archivo';font-weight:900;font-size:11px;letter-spacing:.05em;color:#eef1f6;font-style:italic;}
+.navitem{width:74px;padding:9px 0 7px;display:flex;flex-direction:column;align-items:center;gap:5px;border-radius:9px;color:#93a0b5;position:relative;}
+.navitem svg{width:21px;height:21px;stroke:currentColor;fill:none;stroke-width:1.8;}
+.navitem span{font-size:8.5px;font-weight:600;letter-spacing:.02em;line-height:1;text-align:center;}
+.navitem.active{background:linear-gradient(135deg,rgba(255,109,0,.20),rgba(255,109,0,.06));color:#fff;box-shadow:inset 2px 0 0 var(--orange);}
+.navitem.active svg{stroke:var(--orange);}
+
+/* ── MAIN ── */
+.main{flex:1;padding:30px 40px 48px;position:relative;min-width:0;}
+.reg{position:absolute;width:14px;height:14px;}
+.reg b{position:absolute;background:var(--hairO);}
+.reg .h{width:14px;height:1px;} .reg .v{width:1px;height:14px;}
+
+/* page header */
+.phead{display:flex;align-items:flex-end;justify-content:space-between;border-bottom:1px solid var(--hair);padding-bottom:18px;position:relative;}
+.phead::after{content:"";position:absolute;left:0;bottom:-1px;width:120px;height:2px;background:linear-gradient(90deg,var(--orange),transparent);}
+.phead .titlewrap{display:flex;flex-direction:column;gap:9px;}
+.phead .crumb{display:flex;align-items:center;gap:10px;}
+.phead h1{font-family:'Archivo';font-weight:900;font-size:46px;letter-spacing:-.02em;line-height:.9;color:var(--ink);}
+.phead h1 .dot{color:var(--orange);}
+.tick-scale{display:flex;align-items:flex-end;gap:3px;height:14px;}
+.tick-scale i{width:1px;background:var(--hair);}
+.actions{display:flex;align-items:center;gap:12px;}
+.btn{font-family:'Inter';font-weight:600;font-size:12.5px;letter-spacing:.01em;padding:10px 16px;border-radius:8px;border:1px solid var(--hair);
+  color:var(--ink);background:#fff;display:flex;align-items:center;gap:8px;box-shadow:0 1px 2px rgba(24,26,32,.05);}
+.btn.primary{background:linear-gradient(135deg,var(--orange),var(--ember));color:#fff;border-color:transparent;font-weight:700;box-shadow:0 4px 16px rgba(255,109,0,.30);}
+.btn svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:2;}
+.livepill{display:flex;align-items:center;gap:7px;font-family:'IBM Plex Mono';font-size:11px;color:var(--muted);letter-spacing:.06em;}
+.livepill .d{width:7px;height:7px;border-radius:50%;background:var(--orange);box-shadow:0 0 10px var(--orange);}
+
+/* identity strip */
+.identity{display:flex;align-items:center;gap:22px;margin:26px 0 8px;}
+.idav{width:54px;height:54px;border-radius:13px;background:radial-gradient(circle at 36% 30%,#1d3d68,#0e2244);
+  box-shadow:0 4px 14px rgba(14,34,68,.28),inset 0 0 0 1px rgba(255,255,255,.10);display:flex;align-items:center;justify-content:center;
+  font-family:'Archivo';font-weight:900;color:#eef1f6;font-size:18px;letter-spacing:.04em;position:relative;overflow:hidden;}
+.idav::before,.idav::after{content:"";position:absolute;top:9px;bottom:9px;width:10px;border:1.5px solid rgba(255,109,0,.85);border-radius:50%;}
+.idav::before{left:8px;border-right:none;} .idav::after{right:8px;border-left:none;}
+.idname{font-family:'Archivo';font-weight:800;font-size:22px;color:var(--ink);letter-spacing:.01em;}
+.idmeta{display:flex;margin-left:auto;}
+.stat{padding:6px 20px;border-left:1px solid var(--hair);display:flex;flex-direction:column;gap:3px;}
+.stat .k{font-size:9px;font-weight:700;letter-spacing:.2em;text-transform:uppercase;color:var(--muted2);}
+.stat .v{font-family:'IBM Plex Mono';font-size:19px;font-weight:600;color:var(--ink);}
+.stat .v.rec{color:var(--orange);}
+
+/* grid */
+.grid{display:grid;grid-template-columns:1.55fr 1fr;gap:22px;margin-top:24px;}
+.col{display:flex;flex-direction:column;gap:22px;}
+
+/* panel (instrument card) */
+.panel{position:relative;background:var(--panel);border:1px solid var(--hair);border-radius:14px;padding:20px 22px;overflow:hidden;
+  box-shadow:0 1px 3px rgba(24,26,32,.06),0 6px 20px rgba(24,26,32,.04);}
+.panel::before{content:"";position:absolute;inset:0;background:radial-gradient(120% 80% at 100% 0%,rgba(255,109,0,.05),transparent 42%);pointer-events:none;}
+.panel .pcorner{position:absolute;width:12px;height:12px;border:1px solid var(--hairO);opacity:.65;}
+.panel .pcorner.tl{top:10px;left:10px;border-right:none;border-bottom:none;}
+.panel .pcorner.tr{top:10px;right:10px;border-left:none;border-bottom:none;}
+.panel .pcorner.bl{bottom:10px;left:10px;border-right:none;border-top:none;}
+.panel .pcorner.br{bottom:10px;right:10px;border-left:none;border-top:none;}
+.phdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;}
+.phdr .lhs{display:flex;align-items:center;gap:11px;}
+.phdr h3{font-family:'Archivo';font-weight:800;font-size:15px;letter-spacing:.05em;text-transform:uppercase;color:var(--ink);}
+.phdr .accent{width:3px;height:16px;background:var(--orange);box-shadow:0 0 8px rgba(255,109,0,.5);border-radius:2px;}
+
+/* matchup category chips */
+.matchsub{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:16px;}
+.matchsub .opp{font-size:12px;color:var(--muted);} .matchsub .opp b{color:var(--ink);font-weight:600;}
+.matchsub .rec{font-family:'Archivo';font-weight:900;font-size:28px;color:var(--orange);letter-spacing:.02em;}
+.cats{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;}
+.cat{position:relative;border:1px solid var(--hair);border-radius:9px;padding:9px 8px 8px;background:var(--panel2);text-align:center;}
+.cat .cn{font-size:10px;font-weight:700;letter-spacing:.08em;color:var(--muted);}
+.cat .cb{height:4px;border-radius:3px;margin-top:7px;background:rgba(24,26,32,.10);overflow:hidden;}
+.cat .cb i{display:block;height:100%;border-radius:3px;}
+.cat.win{border-color:rgba(255,109,0,.5);background:rgba(255,109,0,.07);}
+.cat.win .cn{color:var(--ember);}
+.cat.win .cb i{background:linear-gradient(90deg,var(--ember),var(--orange),var(--flame));}
+.cat.lose .cb i{background:var(--muted2);}
+.cat .pct{font-family:'IBM Plex Mono';font-size:9px;color:var(--muted2);margin-top:5px;}
+.cat.win .pct{color:var(--ember);}
+
+/* action rows */
+.arow{display:flex;align-items:center;gap:14px;padding:12px 4px;border-bottom:1px solid var(--hair2);}
+.arow:last-child{border-bottom:none;}
+.pri{font-family:'IBM Plex Mono';font-size:9.5px;font-weight:600;letter-spacing:.12em;padding:4px 8px;border-radius:5px;
+  background:rgba(255,109,0,.12);color:var(--ember);border:1px solid rgba(255,109,0,.32);}
+.arow .name{font-weight:600;font-size:13.5px;color:var(--ink);min-width:128px;}
+.arow .team{font-family:'IBM Plex Mono';font-size:10px;color:var(--muted2);}
+.arow .why{font-size:12.5px;color:var(--muted);margin-left:auto;text-align:right;}
+
+/* streak tiles */
+.streak{position:relative;border:1px solid var(--hair);border-radius:11px;padding:14px 15px;background:var(--panel2);overflow:hidden;}
+.streak.hot{border-color:rgba(255,109,0,.4);}
+.streak.hot::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:linear-gradient(180deg,var(--flame),var(--ember));}
+.streak.cold::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:linear-gradient(180deg,#8aa6c0,var(--cold));}
+.streak .top{display:flex;align-items:center;gap:10px;margin-bottom:9px;}
+.tag{font-family:'IBM Plex Mono';font-size:9px;font-weight:600;letter-spacing:.14em;padding:3px 7px;border-radius:4px;}
+.tag.hot{background:rgba(255,109,0,.14);color:var(--ember);} .tag.cold{background:rgba(95,125,156,.16);color:var(--cold);}
+.streak .pn{font-weight:700;font-size:14px;color:var(--ink);} .streak .pt{font-family:'IBM Plex Mono';font-size:10px;color:var(--muted2);}
+.streak .line{font-family:'IBM Plex Mono';font-size:12px;color:var(--ink);letter-spacing:.02em;}
+.streak .delta{font-size:11px;color:var(--muted);margin-top:4px;}
+.streak .delta b{color:var(--good);} .streak.cold .delta b{color:var(--bad);}
+.spark{display:flex;align-items:flex-end;gap:2px;height:22px;margin-top:8px;}
+.spark i{flex:1;border-radius:1px;background:rgba(24,26,32,.10);} .streak.hot .spark i{background:linear-gradient(180deg,var(--flame),var(--ember));}
+.streak.cold .spark i{background:linear-gradient(180deg,#8aa6c0,var(--cold));}
+.streaks{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+
+/* ── ACTIVE ROSTER ── */
+.roster{margin-top:22px;}
+.rtoolbar{display:flex;gap:10px;flex-wrap:wrap;}
+.seg{display:inline-flex;background:var(--panel2);border:1px solid var(--hair);border-radius:8px;padding:2px;gap:2px;}
+.seg button{font-family:'Inter';font-size:11px;font-weight:600;letter-spacing:.01em;padding:6px 12px;border:none;background:transparent;color:var(--muted);border-radius:6px;cursor:pointer;}
+.seg button.on{background:var(--orange);color:#fff;box-shadow:0 1px 5px rgba(255,109,0,.32);}
+.rtbl{width:100%;border-collapse:collapse;margin-top:8px;}
+.rtbl thead th{font-family:'Inter';font-weight:700;font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted2);text-align:right;padding:9px 12px;border-bottom:1px solid var(--hair);}
+.rtbl thead th.ph{text-align:left;} .rtbl thead th.pp{text-align:center;}
+.rtbl tbody td{padding:8px 12px;border-bottom:1px solid var(--hair2);text-align:right;font-family:'IBM Plex Mono';font-size:13px;color:var(--ink);}
+.rtbl tbody td.ph{text-align:left;} .rtbl tbody td.pp{text-align:center;}
+.rtbl tbody tr:hover{background:rgba(255,109,0,.06);cursor:pointer;}
+.pcell{display:flex;align-items:center;gap:12px;}
+.hs{width:36px;height:36px;border-radius:50%;object-fit:cover;background:radial-gradient(circle at 42% 34%,#e3e7ee,#c2c9d4);border:1.5px solid #fff;box-shadow:0 1px 3px rgba(24,26,32,.18);flex-shrink:0;}
+.pi b{font-family:'Inter';font-weight:600;font-size:13.5px;color:var(--ink);display:flex;align-items:center;}
+.pi span{font-family:'IBM Plex Mono';font-size:10px;color:var(--muted2);letter-spacing:.04em;}
+.pos{display:inline-block;font-family:'IBM Plex Mono';font-size:9.5px;font-weight:600;color:var(--muted);background:var(--panel2);border:1px solid var(--hair);border-radius:5px;padding:2px 7px;}
+.sdot{width:7px;height:7px;border-radius:50%;display:inline-block;margin-right:7px;flex-shrink:0;}
+.sdot.ok{background:var(--good);} .sdot.dtd{background:var(--gold);} .sdot.il{background:var(--bad);}
+.hl{color:var(--ember);font-weight:600;}
+.rfoot{font-family:'IBM Plex Mono';font-size:10px;color:var(--muted2);text-align:center;margin-top:14px;letter-spacing:.08em;}
+.rfoot .o{color:var(--orange);}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- SIDEBAR RAIL -->
+  <div class="rail">
+    <div class="logo"><div class="ball"></div><div class="wm">HEATER</div></div>
+    <div class="navitem active"><svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg><span>My Team</span></div>
+    <div class="navitem"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/></svg><span>Lineup</span></div>
+    <div class="navitem"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="6"/><path d="M9 18l3 3 3-3"/></svg><span>Closer</span></div>
+    <div class="navitem"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 10h18M8 2v4M16 2v4"/></svg><span>Matchup</span></div>
+    <div class="navitem"><svg viewBox="0 0 24 24"><path d="M4 20V4M4 20h16M9 16V9M14 16V6M19 16v-4"/></svg><span>Standings</span></div>
+    <div class="navitem"><svg viewBox="0 0 24 24"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg><span>Trade</span></div>
+    <div class="navitem"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg><span>Finder</span></div>
+    <div class="navitem"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4M8 11h6M11 8v6"/></svg><span>Agents</span></div>
+  </div>
+
+  <!-- MAIN -->
+  <div class="main">
+    <div class="reg" style="top:14px;left:14px;"><b class="h"></b><b class="v"></b></div>
+    <div class="reg" style="top:14px;right:14px;"><b class="h" style="right:0"></b><b class="v" style="right:0"></b></div>
+
+    <!-- page header -->
+    <div class="phead">
+      <div class="titlewrap">
+        <div class="crumb"><span class="eyebrow">Season</span><span class="fig">/ FIG.01 — ROSTER CONTROL</span></div>
+        <div class="crumb">
+          <h1>MY&nbsp;TEAM<span class="dot">.</span></h1>
+          <div class="tick-scale"><i style="height:6px"></i><i style="height:10px"></i><i style="height:6px"></i><i style="height:14px;background:var(--hairO)"></i><i style="height:6px"></i><i style="height:9px"></i><i style="height:6px"></i></div>
+        </div>
+      </div>
+      <div class="actions">
+        <div class="livepill"><span class="d"></span>LIVE · 9:28 PM ET</div>
+        <button class="btn"><svg viewBox="0 0 24 24"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.5 9a9 9 0 0 1 14.8-3.4L23 10M1 14l4.7 4.4A9 9 0 0 0 20.5 15"/></svg>Refresh Stats</button>
+        <button class="btn primary"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-6.2-8.5"/><path d="M21 3v6h-6"/></svg>Sync Yahoo</button>
+      </div>
+    </div>
+
+    <!-- identity strip -->
+    <div class="identity">
+      <div class="idav">TH</div>
+      <div>
+        <div class="idname">Team Hickey</div>
+        <div class="fig" style="margin-top:4px;">MANAGER · FOURZYNBURN · 12-TEAM H2H</div>
+      </div>
+      <div class="idmeta">
+        <div class="stat"><span class="k">Record</span><span class="v rec">2–7–3</span></div>
+        <div class="stat"><span class="k">Roster</span><span class="v">26</span></div>
+        <div class="stat"><span class="k">Hitters</span><span class="v">13</span></div>
+        <div class="stat"><span class="k">Pitchers</span><span class="v">13</span></div>
+        <div class="stat"><span class="k">Rank</span><span class="v">10<span style="font-size:12px;color:var(--muted2)">/12</span></span></div>
+      </div>
+    </div>
+
+    <!-- grid -->
+    <div class="grid">
+      <!-- LEFT COL -->
+      <div class="col">
+        <!-- matchup pulse -->
+        <div class="panel">
+          <span class="pcorner tl"></span><span class="pcorner tr"></span><span class="pcorner bl"></span><span class="pcorner br"></span>
+          <div class="phdr"><div class="lhs"><span class="accent"></span><h3>Matchup Pulse</h3><span class="fig">WK 12</span></div><span class="fig">Σ INDEX 0.41</span></div>
+          <div class="matchsub"><div class="opp">vs <b>The Good The Vlad The Ugly</b></div><div class="rec">0–0–8</div></div>
+          <div class="cats">
+            <div class="cat win"><div class="cn">R</div><div class="cb"><i style="width:62%"></i></div><div class="pct">62%</div></div>
+            <div class="cat win"><div class="cn">HR</div><div class="cb"><i style="width:58%"></i></div><div class="pct">58%</div></div>
+            <div class="cat win"><div class="cn">RBI</div><div class="cb"><i style="width:55%"></i></div><div class="pct">55%</div></div>
+            <div class="cat lose"><div class="cn">SB</div><div class="cb"><i style="width:31%"></i></div><div class="pct">31%</div></div>
+            <div class="cat lose"><div class="cn">AVG</div><div class="cb"><i style="width:28%"></i></div><div class="pct">28%</div></div>
+            <div class="cat lose"><div class="cn">OBP</div><div class="cb"><i style="width:34%"></i></div><div class="pct">34%</div></div>
+            <div class="cat win"><div class="cn">W</div><div class="cb"><i style="width:51%"></i></div><div class="pct">51%</div></div>
+            <div class="cat lose"><div class="cn">L</div><div class="cb"><i style="width:40%"></i></div><div class="pct">40%</div></div>
+            <div class="cat lose"><div class="cn">SV</div><div class="cb"><i style="width:22%"></i></div><div class="pct">22%</div></div>
+            <div class="cat win"><div class="cn">K</div><div class="cb"><i style="width:64%"></i></div><div class="pct">64%</div></div>
+            <div class="cat lose"><div class="cn">ERA</div><div class="cb"><i style="width:37%"></i></div><div class="pct">37%</div></div>
+            <div class="cat lose"><div class="cn">WHIP</div><div class="cb"><i style="width:33%"></i></div><div class="pct">33%</div></div>
+          </div>
+        </div>
+
+        <!-- today's actions -->
+        <div class="panel">
+          <span class="pcorner tl"></span><span class="pcorner tr"></span><span class="pcorner bl"></span><span class="pcorner br"></span>
+          <div class="phdr"><div class="lhs"><span class="accent"></span><h3>Today's Actions</h3></div><span class="fig">5 FLAGGED</span></div>
+          <div class="arow"><span class="pri">PRI·1</span><span class="name">Taj Bradley</span><span class="team">MIN</span><span class="why">Off today — no eligible bench replacement</span></div>
+          <div class="arow"><span class="pri">PRI·2</span><span class="name">Alex Bregman</span><span class="team">CHC</span><span class="why">Off today — no eligible bench replacement</span></div>
+          <div class="arow"><span class="pri">PRI·3</span><span class="name">Dillon Dingler</span><span class="team">DET</span><span class="why">Off today — no eligible bench replacement</span></div>
+          <div class="arow"><span class="pri">PRI·4</span><span class="name">Raisel Iglesias</span><span class="team">ATL</span><span class="why">Off today — no eligible bench replacement</span></div>
+          <div class="arow"><span class="pri">PRI·5</span><span class="name">Jakob Marsee</span><span class="team">MIA</span><span class="why">Off today — no eligible bench replacement</span></div>
+        </div>
+      </div>
+
+      <!-- RIGHT COL -->
+      <div class="col">
+        <!-- player streaks -->
+        <div class="panel">
+          <span class="pcorner tl"></span><span class="pcorner tr"></span><span class="pcorner bl"></span><span class="pcorner br"></span>
+          <div class="phdr"><div class="lhs"><span class="accent"></span><h3>Player Streaks</h3></div><span class="fig">L6 GP</span></div>
+          <div class="streaks">
+            <div class="streak hot">
+              <div class="top"><span class="tag hot">HOT</span><div><div class="pn">Yordan Alvarez</div><div class="pt">HOU · DH</div></div></div>
+              <div class="line">.476 AVG · 2 HR · 9 RBI</div>
+              <div class="delta">season .316 · <b>+.159</b></div>
+              <div class="spark"><i style="height:40%"></i><i style="height:65%"></i><i style="height:80%"></i><i style="height:55%"></i><i style="height:95%"></i><i style="height:100%"></i></div>
+            </div>
+            <div class="streak hot">
+              <div class="top"><span class="tag hot">HOT</span><div><div class="pn">Jakob Marsee</div><div class="pt">MIA · OF</div></div></div>
+              <div class="line">.375 AVG · 2 SB</div>
+              <div class="delta">season .201 · <b>+.174</b></div>
+              <div class="spark"><i style="height:50%"></i><i style="height:70%"></i><i style="height:60%"></i><i style="height:88%"></i><i style="height:75%"></i><i style="height:92%"></i></div>
+            </div>
+            <div class="streak cold">
+              <div class="top"><span class="tag cold">COLD</span><div><div class="pn">Mike Trout</div><div class="pt">LAA · OF</div></div></div>
+              <div class="line">.053 AVG · 0 HR</div>
+              <div class="delta">season .226 · <b>–.173</b></div>
+              <div class="spark"><i style="height:30%"></i><i style="height:18%"></i><i style="height:24%"></i><i style="height:12%"></i><i style="height:20%"></i><i style="height:14%"></i></div>
+            </div>
+            <div class="streak cold">
+              <div class="top"><span class="tag cold">COLD</span><div><div class="pn">Alex Bregman</div><div class="pt">CHC · 3B</div></div></div>
+              <div class="line">.083 AVG · 0 HR</div>
+              <div class="delta">season .243 · <b>–.159</b></div>
+              <div class="spark"><i style="height:28%"></i><i style="height:35%"></i><i style="height:20%"></i><i style="height:30%"></i><i style="height:16%"></i><i style="height:22%"></i></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- weekly report teaser -->
+        <div class="panel" style="display:flex;align-items:center;justify-content:space-between;">
+          <div class="lhs" style="display:flex;align-items:center;gap:11px;"><span class="accent"></span><div><h3 style="font-family:'Archivo';font-weight:800;font-size:14px;letter-spacing:.05em;text-transform:uppercase;color:var(--ink);">Weekly Report</h3><div class="fig" style="margin-top:5px;">WK 12 · VS THE GOOD THE VLAD THE UGLY</div></div></div>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--orange)" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+        </div>
+      </div>
+    </div>
+
+    <!-- ACTIVE ROSTER -->
+    <div class="panel roster">
+      <span class="pcorner tl"></span><span class="pcorner tr"></span><span class="pcorner bl"></span><span class="pcorner br"></span>
+      <div class="phdr">
+        <div class="lhs"><span class="accent"></span><h3>Active Roster</h3><span class="fig">13 HITTERS · 13 PITCHERS</span></div>
+        <div class="rtoolbar">
+          <div class="seg"><button class="on">Season</button><button>L30</button><button>L14</button><button>L7</button><button>Today</button></div>
+          <div class="seg"><button class="on">Hitters</button><button>Pitchers</button></div>
+        </div>
+      </div>
+      <table class="rtbl">
+        <thead><tr>
+          <th class="ph">Player</th><th class="pp">Pos</th><th>AB</th><th>R</th><th>H</th><th>HR</th><th>RBI</th><th>SB</th><th>AVG</th><th>OBP</th>
+        </tr></thead>
+        <tbody>
+          <tr><td class="ph"><div class="pcell"><img class="hs" src="https://midfield.mlbstatic.com/v1/people/670541/spots/120"><div class="pi"><b><span class="sdot ok"></span>Yordan Alvarez</b><span>HOU</span></div></div></td><td class="pp"><span class="pos">DH</span></td><td>312</td><td>58</td><td>99</td><td class="hl">28</td><td>82</td><td>1</td><td class="hl">.317</td><td>.402</td></tr>
+          <tr><td class="ph"><div class="pcell"><img class="hs" src="https://midfield.mlbstatic.com/v1/people/592450/spots/120"><div class="pi"><b><span class="sdot ok"></span>Aaron Judge</b><span>NYY</span></div></div></td><td class="pp"><span class="pos">RF</span></td><td>340</td><td>72</td><td>110</td><td class="hl">34</td><td>79</td><td>6</td><td class="hl">.324</td><td>.448</td></tr>
+          <tr><td class="ph"><div class="pcell"><img class="hs" src="https://midfield.mlbstatic.com/v1/people/677951/spots/120"><div class="pi"><b><span class="sdot ok"></span>Bobby Witt Jr.</b><span>KC</span></div></div></td><td class="pp"><span class="pos">SS</span></td><td>372</td><td>70</td><td>119</td><td>21</td><td>65</td><td class="hl">25</td><td>.320</td><td>.378</td></tr>
+          <tr><td class="ph"><div class="pcell"><img class="hs" src="https://midfield.mlbstatic.com/v1/people/608070/spots/120"><div class="pi"><b><span class="sdot ok"></span>José Ramírez</b><span>CLE</span></div></div></td><td class="pp"><span class="pos">3B</span></td><td>360</td><td>66</td><td>102</td><td>24</td><td>71</td><td class="hl">28</td><td>.283</td><td>.345</td></tr>
+          <tr><td class="ph"><div class="pcell"><img class="hs" src="https://midfield.mlbstatic.com/v1/people/683002/spots/120"><div class="pi"><b><span class="sdot ok"></span>Gunnar Henderson</b><span>BAL</span></div></div></td><td class="pp"><span class="pos">SS</span></td><td>350</td><td>68</td><td>98</td><td>23</td><td>60</td><td>14</td><td>.280</td><td>.360</td></tr>
+          <tr><td class="ph"><div class="pcell"><img class="hs" src="https://midfield.mlbstatic.com/v1/people/665742/spots/120"><div class="pi"><b><span class="sdot ok"></span>Juan Soto</b><span>NYM</span></div></div></td><td class="pp"><span class="pos">RF</span></td><td>320</td><td class="hl">75</td><td>92</td><td>27</td><td>70</td><td>7</td><td>.288</td><td class="hl">.419</td></tr>
+          <tr><td class="ph"><div class="pcell"><img class="hs" src="https://midfield.mlbstatic.com/v1/people/682998/spots/120"><div class="pi"><b><span class="sdot ok"></span>Corbin Carroll</b><span>ARI</span></div></div></td><td class="pp"><span class="pos">OF</span></td><td>345</td><td>71</td><td>96</td><td>19</td><td>55</td><td class="hl">30</td><td>.278</td><td>.350</td></tr>
+          <tr><td class="ph"><div class="pcell"><img class="hs" src="https://midfield.mlbstatic.com/v1/people/606466/spots/120"><div class="pi"><b><span class="sdot ok"></span>Ketel Marte</b><span>ARI</span></div></div></td><td class="pp"><span class="pos">2B</span></td><td>318</td><td>60</td><td>94</td><td>20</td><td>62</td><td>4</td><td>.296</td><td>.368</td></tr>
+          <tr><td class="ph"><div class="pcell"><img class="hs" src="https://midfield.mlbstatic.com/v1/people/663728/spots/120"><div class="pi"><b><span class="sdot ok"></span>Cal Raleigh</b><span>SEA</span></div></div></td><td class="pp"><span class="pos">C</span></td><td>300</td><td>50</td><td>72</td><td>26</td><td>68</td><td>0</td><td>.240</td><td>.320</td></tr>
+          <tr><td class="ph"><div class="pcell"><img class="hs" src="https://midfield.mlbstatic.com/v1/people/682985/spots/120"><div class="pi"><b><span class="sdot ok"></span>Riley Greene</b><span>DET</span></div></div></td><td class="pp"><span class="pos">OF</span></td><td>330</td><td>55</td><td>90</td><td>22</td><td>64</td><td>6</td><td>.273</td><td>.340</td></tr>
+          <tr><td class="ph"><div class="pcell"><img class="hs" src="https://midfield.mlbstatic.com/v1/people/545361/spots/120"><div class="pi"><b><span class="sdot dtd"></span>Mike Trout</b><span>LAA</span></div></div></td><td class="pp"><span class="pos">OF</span></td><td>280</td><td>52</td><td>63</td><td>18</td><td>48</td><td>5</td><td>.226</td><td>.330</td></tr>
+          <tr><td class="ph"><div class="pcell"><img class="hs" src="https://midfield.mlbstatic.com/v1/people/608324/spots/120"><div class="pi"><b><span class="sdot ok"></span>Alex Bregman</b><span>BOS</span></div></div></td><td class="pp"><span class="pos">3B</span></td><td>290</td><td>44</td><td>70</td><td>12</td><td>45</td><td>2</td><td>.243</td><td>.312</td></tr>
+        </tbody>
+      </table>
+      <div class="rfoot"><span class="o">▸</span> CLICK ANY PLAYER FOR GAME LOG · OUTCOMES · UPCOMING PROJECTIONS</div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

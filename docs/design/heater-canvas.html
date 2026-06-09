@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800;900&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
+
+:root{
+  --ink:#f2ede2;          /* bone / cream */
+  --muted:#7e8da0;
+  --muted2:#5f6e84;
+  --orange:#ff6d00;       /* the single ignition */
+  --flame:#ff9a3c;
+  --ember:#e8480a;
+  --hair:rgba(242,237,226,0.13);
+  --hairfaint:rgba(242,237,226,0.06);
+  --hairorange:rgba(255,109,0,0.55);
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+html,body{background:#04060b;}
+.stage{
+  position:relative;width:1600px;height:2000px;overflow:hidden;
+  background:radial-gradient(125% 95% at 36% 33%, #15294a 0%, #0c1c34 40%, #081223 74%, #050b16 100%);
+  font-family:'Inter',system-ui,sans-serif;color:var(--ink);
+  letter-spacing:.01em;
+}
+/* film-grain-free subtle vignette accent at the hot zone */
+.emberwash{position:absolute;left:120px;top:430px;width:760px;height:760px;border-radius:50%;
+  background:radial-gradient(circle,rgba(255,140,40,.20) 0%,rgba(255,109,0,.10) 38%,rgba(232,72,10,0) 70%);
+  filter:blur(8px);pointer-events:none;}
+
+/* plate frame */
+.frame{position:absolute;inset:62px;border:1px solid var(--hair);}
+.frame::before{content:"";position:absolute;inset:11px;border:1px solid var(--hairfaint);}
+
+/* corner registration ticks */
+.reg{position:absolute;width:18px;height:18px;}
+.reg span{position:absolute;background:var(--hairorange);}
+.reg .h{width:18px;height:1px;top:0;left:0;}
+.reg .v{height:18px;width:1px;top:0;left:0;}
+
+/* clinical micro-label */
+.lab{font-family:'Inter',sans-serif;font-weight:600;font-size:12px;letter-spacing:.34em;
+  text-transform:uppercase;color:var(--muted);}
+.mono{font-family:'IBM Plex Mono',monospace;font-size:12px;letter-spacing:.06em;color:var(--muted2);}
+.orange{color:var(--orange);}
+
+/* ── header band ── */
+.head{position:absolute;left:104px;right:104px;top:108px;display:flex;justify-content:space-between;align-items:baseline;}
+.rule{position:absolute;left:104px;right:104px;height:1px;background:linear-gradient(90deg,var(--hairorange),rgba(255,109,0,0) 60%);}
+
+/* ── hero numeral ── */
+.hero-num{position:absolute;right:120px;top:430px;text-align:right;}
+.hero-num .v0{font-family:'Inter';font-weight:600;font-size:13px;letter-spacing:.34em;color:var(--muted);text-transform:uppercase;margin-bottom:14px;}
+.hero-num .big{font-family:'Archivo',sans-serif;font-weight:900;font-size:280px;line-height:.8;
+  color:var(--ink);letter-spacing:-.02em;font-feature-settings:"tnum";}
+.hero-num .big .dec{color:var(--orange);}
+.hero-num .unit{font-family:'IBM Plex Mono',monospace;font-size:18px;letter-spacing:.4em;color:var(--ink);
+  margin-top:22px;}
+.hero-num .sub{font-family:'Inter';font-weight:500;font-size:13px;letter-spacing:.2em;color:var(--muted2);
+  text-transform:uppercase;margin-top:8px;}
+
+/* ── readout column ── */
+.readout{position:absolute;right:120px;top:920px;text-align:right;}
+.readout .row{display:flex;justify-content:flex-end;gap:26px;align-items:baseline;padding:9px 0;
+  border-bottom:1px solid var(--hairfaint);min-width:300px;}
+.readout .k{font-family:'Inter';font-weight:600;font-size:11px;letter-spacing:.26em;text-transform:uppercase;color:var(--muted2);}
+.readout .val{font-family:'IBM Plex Mono',monospace;font-size:19px;color:var(--ink);min-width:96px;text-align:right;}
+
+/* ── spectrum index ── */
+.spectrum{position:absolute;left:104px;top:1500px;width:720px;}
+.spectrum .bar{height:26px;border-radius:2px;
+  background:linear-gradient(90deg,#12233f 0%,#5e1803 16%,#a82e06 38%,#e8480a 60%,#ff6d00 82%,#ff9a3c 100%);
+  box-shadow:0 0 40px rgba(255,109,0,.18);}
+.spectrum .ticks{position:relative;height:14px;margin-top:6px;}
+.spectrum .ticks i{position:absolute;top:0;width:1px;height:7px;background:var(--hair);}
+.spectrum .scale{display:flex;justify-content:space-between;margin-top:4px;}
+
+/* ── strike-zone mini ── */
+.zone{position:absolute;left:104px;top:1640px;width:210px;height:210px;}
+.zone .g{position:absolute;inset:0;}
+
+/* ── wordmark footer ── */
+.mark{position:absolute;left:104px;right:104px;bottom:120px;display:flex;align-items:flex-end;justify-content:space-between;}
+.mark .word{font-family:'Archivo',sans-serif;font-weight:900;font-size:104px;letter-spacing:.02em;color:var(--ink);line-height:.9;}
+.mark .word .dot{color:var(--orange);}
+.mark .tag{font-family:'Inter';font-weight:600;font-size:12px;letter-spacing:.34em;text-transform:uppercase;color:var(--muted);text-align:right;}
+.mark .tag .m{font-family:'IBM Plex Mono';letter-spacing:.06em;color:var(--muted2);display:block;margin-top:8px;font-size:11px;}
+
+/* floating coordinate annotations */
+.coord{position:absolute;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--muted2);letter-spacing:.04em;}
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="emberwash"></div>
+  <div class="frame"></div>
+
+  <!-- registration ticks -->
+  <div class="reg" style="left:62px;top:62px;"><span class="h"></span><span class="v"></span></div>
+  <div class="reg" style="right:62px;top:62px;transform:scaleX(-1);"><span class="h"></span><span class="v"></span></div>
+  <div class="reg" style="left:62px;bottom:62px;transform:scaleY(-1);"><span class="h"></span><span class="v"></span></div>
+  <div class="reg" style="right:62px;bottom:62px;transform:scale(-1);"><span class="h"></span><span class="v"></span></div>
+
+  <!-- header -->
+  <div class="head">
+    <div class="lab">Combustion&nbsp;Index<span class="orange">&nbsp;·&nbsp;</span><span style="color:var(--muted2)">Plate&nbsp;I</span></div>
+    <div class="mono">FIG.&nbsp;01&nbsp;&nbsp;/&nbsp;&nbsp;v&#8320;&nbsp;=&nbsp;100.4&nbsp;MPH</div>
+  </div>
+  <div class="rule" style="top:150px;"></div>
+
+  <!-- hero analytical sphere -->
+  <svg style="position:absolute;left:96px;top:392px;" width="800" height="800" viewBox="0 0 800 800">
+    <defs>
+      <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+        <stop offset="0%" stop-color="#ffb15c" stop-opacity="0.85"/>
+        <stop offset="34%" stop-color="#ff6d00" stop-opacity="0.45"/>
+        <stop offset="66%" stop-color="#e8480a" stop-opacity="0.12"/>
+        <stop offset="100%" stop-color="#e8480a" stop-opacity="0"/>
+      </radialGradient>
+      <radialGradient id="sphere" cx="38%" cy="33%" r="74%">
+        <stop offset="0%" stop-color="#1b2f4e"/>
+        <stop offset="58%" stop-color="#0e1f39"/>
+        <stop offset="100%" stop-color="#070f1d"/>
+      </radialGradient>
+      <linearGradient id="seam" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#ff9a3c"/>
+        <stop offset="100%" stop-color="#e8480a"/>
+      </linearGradient>
+      <filter id="soft" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="16"/></filter>
+    </defs>
+
+    <!-- heat glow -->
+    <circle cx="400" cy="400" r="330" fill="url(#glow)" filter="url(#soft)"/>
+
+    <!-- outer dashed measurement orbit -->
+    <circle cx="400" cy="400" r="300" fill="none" stroke="rgba(242,237,226,0.16)" stroke-width="1" stroke-dasharray="1.5 13"/>
+    <!-- caliper ticks N/E/S/W -->
+    <g stroke="rgba(255,109,0,0.6)" stroke-width="1.5">
+      <line x1="400" y1="74" x2="400" y2="98"/>
+      <line x1="400" y1="702" x2="400" y2="726"/>
+      <line x1="74" y1="400" x2="98" y2="400"/>
+      <line x1="702" y1="400" x2="726" y2="400"/>
+    </g>
+
+    <!-- the sphere -->
+    <circle cx="400" cy="400" r="232" fill="url(#sphere)" stroke="rgba(242,237,226,0.5)" stroke-width="1.5"/>
+    <!-- terminator highlight arc -->
+    <path d="M 248 250 A 232 232 0 0 1 560 270" fill="none" stroke="rgba(255,177,92,0.35)" stroke-width="2"/>
+
+    <!-- seam arcs -->
+    <path d="M 228 232 C 330 340, 330 460, 228 568" fill="none" stroke="url(#seam)" stroke-width="4" stroke-linecap="round"/>
+    <path d="M 572 232 C 470 340, 470 460, 572 568" fill="none" stroke="url(#seam)" stroke-width="4" stroke-linecap="round"/>
+    <!-- seam stitches -->
+    <g stroke="#ff6d00" stroke-width="2" stroke-linecap="round" opacity="0.9">
+      <line x1="262" y1="262" x2="300" y2="276"/><line x1="252" y1="300" x2="292" y2="312"/>
+      <line x1="247" y1="340" x2="289" y2="348"/><line x1="247" y1="382" x2="289" y2="386"/>
+      <line x1="249" y1="424" x2="291" y2="424"/><line x1="254" y1="466" x2="295" y2="462"/>
+      <line x1="262" y1="506" x2="301" y2="498"/><line x1="274" y1="544" x2="310" y2="530"/>
+      <line x1="538" y1="262" x2="500" y2="276"/><line x1="548" y1="300" x2="508" y2="312"/>
+      <line x1="553" y1="340" x2="511" y2="348"/><line x1="553" y1="382" x2="511" y2="386"/>
+      <line x1="551" y1="424" x2="509" y2="424"/><line x1="546" y1="466" x2="505" y2="462"/>
+      <line x1="538" y1="506" x2="499" y2="498"/><line x1="526" y1="544" x2="490" y2="530"/>
+    </g>
+    <!-- center cross-hair -->
+    <g stroke="rgba(242,237,226,0.28)" stroke-width="1">
+      <line x1="370" y1="400" x2="430" y2="400"/><line x1="400" y1="370" x2="400" y2="430"/>
+    </g>
+    <circle cx="400" cy="400" r="3" fill="#ff6d00"/>
+  </svg>
+
+  <!-- coordinate annotations near sphere -->
+  <div class="coord" style="left:150px;top:430px;">θ 0.0°</div>
+  <div class="coord" style="left:830px;top:760px;">r 232</div>
+  <div class="coord" style="left:120px;top:1150px;">ø 002</div>
+
+  <!-- hero numeral -->
+  <div class="hero-num">
+    <div class="v0">v&#8320; · release velocity</div>
+    <div class="big">100<span class="dec">.4</span></div>
+    <div class="unit">M&nbsp;P&nbsp;H</div>
+    <div class="sub">measured at 50 ft · 2026 season</div>
+  </div>
+
+  <!-- instrument readout -->
+  <div class="readout">
+    <div class="row"><span class="k">Index</span><span class="val orange">100.4</span></div>
+    <div class="row"><span class="k">Spin</span><span class="val">2 480 rpm</span></div>
+    <div class="row"><span class="k">Break</span><span class="val">+1.2 in</span></div>
+    <div class="row"><span class="k">Ignition</span><span class="val">Σ&nbsp;0.91</span></div>
+  </div>
+
+  <!-- spectrum index -->
+  <div class="spectrum">
+    <div class="lab" style="margin-bottom:14px;">Spectral&nbsp;Index<span class="mono" style="margin-left:18px;letter-spacing:.06em;">240° → 1500° K</span></div>
+    <div class="bar"></div>
+    <div class="ticks">
+      <i style="left:0%"></i><i style="left:16%"></i><i style="left:38%"></i><i style="left:60%"></i><i style="left:82%"></i><i style="left:100%"></i>
+    </div>
+    <div class="scale">
+      <span class="mono">cool</span><span class="mono">smoulder</span><span class="mono orange" style="color:var(--orange)">ignition</span>
+    </div>
+  </div>
+
+  <!-- strike-zone mini -->
+  <svg class="zone" width="210" height="210" viewBox="0 0 210 210" style="left:auto;right:120px;top:1500px;">
+    <rect x="0.5" y="0.5" width="209" height="209" fill="none" stroke="rgba(242,237,226,0.14)"/>
+    <g stroke="rgba(242,237,226,0.14)" stroke-width="1">
+      <line x1="70" y1="0" x2="70" y2="210"/><line x1="140" y1="0" x2="140" y2="210"/>
+      <line x1="0" y1="70" x2="210" y2="70"/><line x1="0" y1="140" x2="210" y2="140"/>
+    </g>
+    <rect x="1" y="141" width="68" height="68" fill="#ff6d00" opacity="0.92"/>
+    <text x="35" y="182" font-family="IBM Plex Mono" font-size="20" fill="#0c1c34" text-anchor="middle" font-weight="500">7</text>
+  </svg>
+  <div class="coord" style="right:120px;top:1722px;text-align:right;width:210px;">LOCATED · ZONE 7</div>
+
+  <!-- wordmark footer -->
+  <div class="rule" style="bottom:248px;"></div>
+  <div class="mark">
+    <div class="word">HEATER<span class="dot">.</span></div>
+    <div class="tag">Measuring&nbsp;Fire<span class="m">EST.&nbsp;MMXXVI&nbsp;·&nbsp;FOURZYNBURN</span></div>
+  </div>
+
+</div>
+</body>
+</html>
