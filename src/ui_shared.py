@@ -5089,13 +5089,22 @@ def _render_dossier_detail(data: dict, is_hitter: bool) -> None:
             )
 
 
-def render_player_select(player_names, player_ids, key_suffix="default"):
-    """Render a selectbox that opens a player card dialog when a player is chosen."""
+def render_player_select(player_names, player_ids, key_suffix="default", label="View player card"):
+    """Render a selectbox that opens a player card dialog when a player is chosen.
+
+    Args:
+        player_names: Selectable player display names.
+        player_ids: IDs aligned row-for-row with ``player_names``.
+        key_suffix: Disambiguates the widget key across pages.
+        label: The selectbox label. Defaults to ``"View player card"`` so
+            existing callers are unchanged; My Team passes ``"Open player
+            dossier"`` (Combustion C3) to make the dossier opener obvious.
+    """
     if not player_ids:
         return
 
     selected = st.selectbox(
-        "View player card",
+        label,
         options=[""] + list(player_names),
         key=f"player_card_select_{key_suffix}",
         format_func=lambda x: "Select a player..." if x == "" else x,

@@ -16,8 +16,10 @@ from src.optimizer.h2h_engine import default_weekly_sigmas
 from src.ui_shared import (
     PAGE_ICONS,
     THEME,
+    build_heatbar_html,
     build_panel_html,
     build_roster_table_html,
+    build_stat_readout_html,
     format_stat,
     inject_custom_css,
     no_league_data_message,
@@ -25,8 +27,8 @@ from src.ui_shared import (
     page_timer_start,
     render_compact_table,
     render_context_card,
-    render_context_columns,
     render_data_freshness_card,
+    render_page_header,
     render_player_select,
     show_player_card_dialog,
     sort_roster_for_display,
@@ -527,57 +529,96 @@ else:
                 except Exception:
                     pass
 
-        # Try to fetch team logo from Yahoo
+        # Try to fetch team logo + season record/rank from Yahoo standings.
+        # Record (W-L-T) and overall rank are not reliably present in the
+        # SQLite long-format standings fallback, so we read them straight off
+        # the live yfpy standings object when a client is connected. Read-only
+        # members without a client fall back to "—" in the identity strip.
         team_logo_url = ""
+        _id_record = ""
+        _id_rank = None
         if yahoo_client:
             try:
                 standings_data = yahoo_client._query.get_league_standings()
-                for t in getattr(standings_data, "teams", None) or []:
-                    t_name = t.name
+                _teams = getattr(standings_data, "teams", None) or []
+                for _entry in _teams:
+                    t = getattr(_entry, "team", _entry)
+                    t_name = getattr(t, "name", "")
                     if isinstance(t_name, bytes):
                         t_name = t_name.decode("utf-8", errors="replace")
-                    if t_name == user_team_name:
+                    if str(t_name) == user_team_name:
                         logos = getattr(t, "team_logos", None) or []
                         if logos:
                             team_logo_url = getattr(logos[0], "url", "") or ""
+                        # Season record + rank from team_standings.
+                        _ts = getattr(t, "team_standings", None)
+                        _rank_v = getattr(t, "rank", None)
+                        if _ts is not None and _rank_v is None:
+                            _rank_v = getattr(_ts, "rank", None)
+                        try:
+                            _id_rank = int(_rank_v) if _rank_v else None
+                        except (TypeError, ValueError):
+                            _id_rank = None
+                        if _ts is not None:
+                            _outcome = getattr(_ts, "outcome_totals", None)
+                            if _outcome is not None:
+                                try:
+                                    _w = int(float(getattr(_outcome, "wins", 0) or 0))
+                                    _l = int(float(getattr(_outcome, "losses", 0) or 0))
+                                    _t = int(float(getattr(_outcome, "ties", 0) or 0))
+                                    _id_record = f"{_w}–{_l}–{_t}"
+                                except (TypeError, ValueError):
+                                    _id_record = ""
                         break
             except Exception:
                 pass
 
-        # Team header with Yahoo logo or monogram fallback
+        # Build the Combustion identity avatar (mockup .idav — a navy rounded
+        # square with initials, or the Yahoo logo when available). Rendered
+        # later in the identity strip once the roster counts are known.
         import html as _html
         import re as _re
 
+        # Strip emoji/symbols to get clean initials for the monogram fallback.
+        _clean_name = _re.sub(r"[^\w\s]", "", user_team_name, flags=_re.UNICODE).strip()
+        _id_words = [w for w in _clean_name.split() if w and w[0].isalpha()]
+        _id_initials = "".join(w[0].upper() for w in _id_words[:2]) if _id_words else "T"
         if team_logo_url:
             avatar_html = (
-                f'<img src="{team_logo_url}" '
-                f'style="width:40px;height:40px;min-width:40px;border-radius:50%;'
-                f'object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.15);" '
-                f'alt="Team logo"/>'
+                f'<div class="idav" style="width:54px;height:54px;min-width:54px;border-radius:13px;'
+                f"overflow:hidden;box-shadow:0 4px 14px rgba(14,34,68,.28);"
+                f'display:flex;align-items:center;justify-content:center;">'
+                f'<img src="{team_logo_url}" style="width:54px;height:54px;object-fit:cover;" '
+                f'alt="Team logo"/></div>'
             )
         else:
-            # Strip emoji/symbols to get clean initials
-            clean_name = _re.sub(r"[^\w\s]", "", user_team_name, flags=_re.UNICODE).strip()
-            words = [w for w in clean_name.split() if w and w[0].isalpha()]
-            initials = "".join(w[0].upper() for w in words[:2]) if words else "T"
             avatar_html = (
-                f'<div style="width:40px;height:40px;min-width:40px;border-radius:50%;'
-                f"background:linear-gradient(135deg,#e65c00,#cc5200);"
+                f'<div class="idav" style="width:54px;height:54px;min-width:54px;border-radius:13px;'
+                f"background:radial-gradient(circle at 36% 30%,var(--fp-navy),var(--fp-navy2));"
+                f"box-shadow:0 4px 14px rgba(14,34,68,.28),inset 0 0 0 1px rgba(255,255,255,.10);"
                 f"display:flex;align-items:center;justify-content:center;"
-                f"font-family:var(--font-body),sans-serif;font-size:15px;letter-spacing:1px;"
-                f'color:#ffffff;font-weight:700;box-shadow:0 2px 8px rgba(230,92,0,0.25);">'
-                f"{initials}</div>"
+                f"font-family:var(--font-display);font-weight:900;color:#eef1f6;"
+                f'font-size:18px;letter-spacing:.04em;">{_id_initials}</div>'
             )
 
         safe_name = _html.escape(user_team_name)
-        st.markdown('<div style="margin-top:4px;"></div>', unsafe_allow_html=True)
-        st.markdown(
-            f'<div style="display:flex;align-items:center;gap:12px;'
-            f'padding:10px 4px;overflow:visible !important;min-height:52px;">'
-            f"{avatar_html}"
-            f'<span style="font-family:Figtree,sans-serif;font-size:16px;font-weight:700;'
-            f'color:#1d1d1f;">{safe_name}</span></div>',
-            unsafe_allow_html=True,
+
+        # ── Combustion page header (mockup .phead) ──
+        # Replaces the old navy .page-title pill. The native Refresh/Sync
+        # buttons render just below (Streamlit buttons can't live inside the
+        # HTML header); a "LIVE" pill carries the freshness affordance.
+        _live_pill_html = (
+            '<div class="livepill" style="display:flex;align-items:center;gap:7px;'
+            "font-family:var(--font-mono);font-size:11px;color:var(--fp-tx-muted);"
+            'letter-spacing:.06em;">'
+            '<span style="width:7px;height:7px;border-radius:50%;background:var(--fp-primary);'
+            'box-shadow:0 0 10px var(--fp-primary);"></span>LIVE</div>'
+        )
+        render_page_header(
+            "My Team",
+            eyebrow="SEASON",
+            fig="FIG.01 — ROSTER CONTROL",
+            actions_html=_live_pill_html,
         )
 
         # Action buttons — inline row
@@ -654,7 +695,7 @@ else:
 
             # -- Determine stat view for context panel totals --
             # Read from session state so totals react to the segmented control
-            # (which renders later in the main column).
+            # (which renders later, in the full-width roster section below).
             _season_started = _check_2026_live_stats()
             if _season_started:
                 _stat_options = ["2026 Live", "2026 Projected", "2025", "2024", "2023"]
@@ -771,18 +812,53 @@ else:
             except Exception:
                 pass  # Non-fatal
 
-            # Render page title with inline sync badge
-            from src.ui_shared import PAGE_ICONS as _PI
-
-            _my_team_icon = _PI.get("my_team", "")
+            # ── Identity strip (mockup .identity) ──
+            # Navy avatar + team name (Archivo) + manager eyebrow line, with a
+            # right-aligned row of stat readouts (Record / Roster / Hitters /
+            # Pitchers / Rank). Record + Rank accent orange. Record + Rank come
+            # from the live Yahoo standings (read above); when unavailable
+            # (read-only member with no client) they show "—".
+            _rank_value = f"{_id_rank}" if _id_rank else "—"
+            _rank_sub = "/ 12" if _id_rank else None
+            _readouts = (
+                build_stat_readout_html("Record", _id_record or "—", accent=bool(_id_record))
+                + build_stat_readout_html("Roster", n_total)
+                + build_stat_readout_html("Hitters", n_hitters)
+                + build_stat_readout_html("Pitchers", n_pitchers)
+                + build_stat_readout_html("Rank", _rank_value, accent=bool(_id_rank), sub=_rank_sub)
+            )
+            _meta_line = (
+                '<div class="fig" style="font-family:var(--font-mono);font-weight:500;font-size:10px;'
+                "letter-spacing:.12em;color:var(--fp-tx-muted);margin-top:4px;"
+                '">MANAGER · FOURZYNBURN · 12-TEAM H2H</div>'
+            )
+            # Per-stat dividers (mockup .stat border-left) — wrap each readout.
+            _readout_wrap = (
+                '<div class="idmeta" style="display:flex;margin-left:auto;gap:0;">'
+                + _readouts.replace(
+                    '<div class="stat" style="',
+                    '<div class="stat" style="padding:6px 18px;border-left:1px solid var(--fp-divider);',
+                )
+                + "</div>"
+            )
             st.markdown(
-                f'<div style="text-align:center !important;margin-bottom:8px !important;">'
-                f'<div class="page-title" style="display:inline-block !important;">'
-                f"{_my_team_icon} My Team</div>"
-                f"{_lr_badge_html}"
-                f"</div>",
+                '<div class="identity" style="display:flex;align-items:center;gap:22px;'
+                'margin:18px 0 6px;flex-wrap:wrap;">'
+                f"{avatar_html}"
+                "<div>"
+                f'<div class="idname" style="font-family:var(--font-display);font-weight:800;'
+                f'font-size:22px;color:var(--fp-tx);letter-spacing:.01em;">{safe_name}</div>'
+                f"{_meta_line}"
+                "</div>"
+                f"{_readout_wrap}"
+                "</div>",
                 unsafe_allow_html=True,
             )
+            if _lr_badge_html:
+                st.markdown(
+                    f'<div style="margin:0 0 6px;">{_lr_badge_html}</div>',
+                    unsafe_allow_html=True,
+                )
             if banner_teaser:
                 from src.ui_shared import render_reco_banner
 
@@ -814,51 +890,118 @@ else:
                 except Exception:
                     pass
 
-                # ── Card 1: Matchup Pulse ──
+                # ── Card 1: Matchup Pulse (mockup .panel + .cats heat grid) ──
+                # Per-category win-probability drives the heat bars. Data source:
+                # the live Yahoo matchup category totals (you/opp), fed through
+                # pivot_advisor.compute_category_flip_probabilities — the same
+                # Normal-CDF model the Category Flip card uses. flip_prob is
+                # converted to a WIN probability: winning cats → 1 - P(lose lead),
+                # losing cats → P(catch up), tied → 0.5. Win cats render orange,
+                # losing cats steel (build_heatbar_html(win=...)). Categories are
+                # iterated in LeagueConfig order (no hardcoded list).
                 pulse = compute_matchup_pulse(_wr_matchup)
                 if pulse["available"]:
                     _wr_losing_cats = pulse.get("losing_cats", [])
-                    _p_margin = pulse["margin"]
-                    if _p_margin > 0:
-                        _verdict_color = T["green"]
-                    elif _p_margin < 0:
-                        _verdict_color = T["danger"]
-                    else:
-                        _verdict_color = T["tx2"]
+                    # Build my/opp per-category totals from the matchup.
+                    _mp_my: dict[str, float] = {}
+                    _mp_opp: dict[str, float] = {}
+                    for _ce in (_wr_matchup or {}).get("categories", []):
+                        _cc = str(_ce.get("cat", "")).upper()
+                        if not _cc:
+                            continue
+                        try:
+                            _mp_my[_cc] = float(_ce.get("you", 0) or 0)
+                        except (ValueError, TypeError):
+                            _mp_my[_cc] = 0.0
+                        try:
+                            _mp_opp[_cc] = float(_ce.get("opp", 0) or 0)
+                        except (ValueError, TypeError):
+                            _mp_opp[_cc] = 0.0
 
-                    # Winning cats in green, losing in red, tied in gray
-                    _win_tags = "".join(
-                        f'<span style="display:inline-block;background:{T["green"]};color:#fff;'
-                        f"padding:1px 6px;border-radius:4px;margin:1px 2px;font-size:11px;"
-                        f'font-weight:600;">{c}</span>'
-                        for c in pulse["winning_cats"]
-                    )
-                    _lose_tags = "".join(
-                        f'<span style="display:inline-block;background:{T["danger"]};color:#fff;'
-                        f"padding:1px 6px;border-radius:4px;margin:1px 2px;font-size:11px;"
-                        f'font-weight:600;">{c}</span>'
-                        for c in pulse["losing_cats"]
-                    )
-                    _tie_tags = "".join(
-                        f'<span style="display:inline-block;background:{T["tx2"]};color:#fff;'
-                        f"padding:1px 6px;border-radius:4px;margin:1px 2px;font-size:11px;"
-                        f'font-weight:600;">{c}</span>'
-                        for c in pulse["tied_cats"]
+                    # Games remaining in the matchup week (Mon=0 → 7-dow).
+                    from datetime import UTC as _MP_UTC
+                    from datetime import datetime as _mp_dt
+
+                    _mp_games_left = max(0, 7 - _mp_dt.now(_MP_UTC).weekday())
+
+                    _mp_winprobs: dict[str, tuple[float, bool]] = {}
+                    try:
+                        from src.optimizer.pivot_advisor import (
+                            compute_category_flip_probabilities as _mp_flip,
+                        )
+
+                        _mp_probs = _mp_flip(_mp_my, _mp_opp, _mp_games_left, config=_LC)
+                        for _cat, _info in _mp_probs.items():
+                            _margin = float(_info.get("margin", 0) or 0)
+                            _fp = float(_info.get("flip_prob", 0.5) or 0.5)
+                            if _margin > 0:
+                                _wp = 1.0 - _fp
+                                _is_win = True
+                            elif _margin < 0:
+                                _wp = _fp
+                                _is_win = False
+                            else:
+                                _wp = 0.5
+                                _is_win = False
+                            _mp_winprobs[str(_cat).upper()] = (_wp, _is_win)
+                    except Exception:
+                        # Fall back to the win/loss result flags (0/100) if the
+                        # probability model is unavailable.
+                        for _c in pulse.get("winning_cats", []):
+                            _mp_winprobs[str(_c).upper()] = (0.62, True)
+                        for _c in pulse.get("losing_cats", []):
+                            _mp_winprobs[str(_c).upper()] = (0.30, False)
+                        for _c in pulse.get("tied_cats", []):
+                            _mp_winprobs[str(_c).upper()] = (0.50, False)
+
+                    # Heat-bar grid in LeagueConfig category order.
+                    _cat_cells = ""
+                    for _cat in _LC.all_categories:
+                        _wp, _is_win = _mp_winprobs.get(_cat.upper(), (0.5, False))
+                        _pct = max(0.0, min(100.0, _wp * 100.0))
+                        _cn_color = "var(--fp-ember)" if _is_win else "var(--fp-tx-muted)"
+                        _pct_color = "var(--fp-ember)" if _is_win else "var(--fp-tx-subtle)"
+                        _cell_border = (
+                            "border-color:rgba(255,109,0,.5);background:rgba(255,109,0,.07);"
+                            if _is_win
+                            else "background:var(--fp-surface);"
+                        )
+                        _cat_cells += (
+                            f'<div class="cat" style="position:relative;border:1px solid var(--fp-divider);'
+                            f'border-radius:9px;padding:9px 8px 8px;text-align:center;{_cell_border}">'
+                            f'<div class="cn" style="font-size:10px;font-weight:700;letter-spacing:.08em;'
+                            f'color:{_cn_color};">{_html.escape(_cat)}</div>'
+                            f'<div style="margin-top:7px;">{build_heatbar_html(_pct, win=_is_win)}</div>'
+                            f'<div class="pct" style="font-family:var(--font-mono);font-size:9px;'
+                            f'color:{_pct_color};margin-top:5px;">{int(round(_pct))}%</div>'
+                            f"</div>"
+                        )
+                    _cats_grid = (
+                        '<div class="cats" style="display:grid;'
+                        f'grid-template-columns:repeat(6,1fr);gap:8px;">{_cat_cells}</div>'
                     )
 
+                    # Opponent + weekly score sub-header.
+                    _mp_score_color = (
+                        "var(--fp-primary)"
+                        if pulse["margin"] > 0
+                        else (T["danger"] if pulse["margin"] < 0 else "var(--fp-tx-muted)")
+                    )
+                    _mp_sub = (
+                        '<div class="matchsub" style="display:flex;align-items:baseline;'
+                        'justify-content:space-between;margin-bottom:16px;">'
+                        f'<div class="opp" style="font-size:12px;color:var(--fp-tx-muted);">vs '
+                        f'<b style="color:var(--fp-tx);font-weight:600;">{_html.escape(str(pulse["opponent"]))}</b></div>'
+                        f'<div class="rec" style="font-family:var(--font-display);font-weight:900;'
+                        f'font-size:28px;color:{_mp_score_color};letter-spacing:.02em;">{pulse["score"]}</div>'
+                        "</div>"
+                    )
                     st.markdown(
-                        f'<div style="background:{T["card"]};border:1px solid {_verdict_color};'
-                        f'border-radius:8px;padding:10px 14px;margin-bottom:8px;">'
-                        f'<div style="display:flex;justify-content:space-between;align-items:center;'
-                        f'margin-bottom:6px;">'
-                        f'<span style="font-family:IBM Plex Mono,monospace;font-size:12px;'
-                        f'color:{T["tx2"]};">Matchup Pulse — Week {pulse["week"]} vs {pulse["opponent"]}</span>'
-                        f'<span style="font-family:IBM Plex Mono,monospace;font-size:20px;'
-                        f'font-weight:800;color:{_verdict_color};">{pulse["score"]}</span></div>'
-                        f'<div style="font-family:IBM Plex Mono,monospace;font-size:11px;'
-                        f'color:{T["tx"]};">'
-                        f"{_win_tags}{_lose_tags}{_tie_tags}"
-                        f"</div></div>",
+                        build_panel_html(
+                            "Matchup Pulse",
+                            _mp_sub + _cats_grid,
+                            fig_label=f"WK {pulse['week']}",
+                        ),
                         unsafe_allow_html=True,
                     )
 
@@ -906,8 +1049,15 @@ else:
                         unsafe_allow_html=True,
                     )
 
-                # ── Card 3: Today's Actions ──
+                # ── Card 3: Today's Actions (mockup .panel + .arow rows) ──
+                # Each row: PRI·N orange chip + player name + team logo/abbr +
+                # the reason (detail), right-aligned. Data from
+                # war_room_actions.compute_todays_actions (priority/player/team/
+                # detail). The reason text strips the leading "<name> " so it
+                # reads as a clean why-clause beside the bold name.
                 try:
+                    from src.ui_shared import team_logo_url as _action_logo
+
                     _wr_actions = compute_todays_actions(
                         roster=roster,
                         matchup=_wr_matchup,
@@ -916,41 +1066,44 @@ else:
                     if _wr_actions:
                         _action_rows = ""
                         for _ai, _act in enumerate(_wr_actions, 1):
-                            _act_urgency = _act.get("urgency", "low")
-                            if _act_urgency == "high":
-                                _act_color = T["danger"]
-                                _act_badge = "HIGH"
-                            elif _act_urgency == "medium":
-                                _act_color = T["warn"]
-                                _act_badge = "MED"
-                            else:
-                                _act_color = T["green"]
-                                _act_badge = "OK"
-                            _cat_tags = ""
-                            for _c in _act.get("category_impact", []):
-                                _cat_tags += (
-                                    f'<span style="background:{T["border"]};color:{T["tx"]};'
-                                    f"padding:0 4px;border-radius:3px;font-size:9px;"
-                                    f'margin-left:4px;">{_c}</span>'
-                                )
+                            _pri = _act.get("priority", _ai)
+                            _aname = _html.escape(str(_act.get("player", "")))
+                            _ateam = _html.escape(str(_act.get("team", "")).strip().upper())
+                            _detail = str(_act.get("detail", ""))
+                            # Trim the leading "<player> " so the why reads cleanly.
+                            _why = _detail
+                            _plain = str(_act.get("player", ""))
+                            if _plain and _why.startswith(_plain):
+                                _why = _why[len(_plain) :].lstrip(" -—:")
+                            _why = _html.escape(_why) if _why else _html.escape(_detail)
+                            _logo_html = (
+                                f'<img class="tlogo" src="{_action_logo(_ateam)}" '
+                                f'style="width:13px;height:13px;vertical-align:-3px;margin-right:5px;" '
+                                f'loading="lazy"/>'
+                                if _ateam
+                                else ""
+                            )
                             _action_rows += (
-                                f'<div style="display:flex;align-items:flex-start;gap:8px;'
-                                f'padding:4px 0;border-bottom:1px solid {T["border"]};">'
-                                f'<span style="background:{_act_color};color:#fff;padding:1px 5px;'
-                                f"border-radius:4px;font-size:10px;font-weight:700;"
-                                f'white-space:nowrap;min-width:32px;text-align:center;">'
-                                f"{_act_badge}</span>"
-                                f'<span style="font-size:12px;color:{T["tx"]};flex:1;'
-                                f'line-height:1.4;">{_act["detail"]}{_cat_tags}</span>'
-                                f"</div>"
+                                '<div class="arow" style="display:flex;align-items:center;gap:14px;'
+                                'padding:12px 4px;border-bottom:1px solid var(--fp-divider);">'
+                                '<span class="pri" style="font-family:var(--font-mono);font-size:9.5px;'
+                                "font-weight:600;letter-spacing:.12em;padding:4px 8px;border-radius:5px;"
+                                "background:rgba(255,109,0,.12);color:var(--fp-ember);"
+                                f'border:1px solid rgba(255,109,0,.32);white-space:nowrap;">PRI·{_pri}</span>'
+                                f'<span class="name" style="font-weight:600;font-size:13.5px;color:var(--fp-tx);'
+                                f'min-width:128px;">{_aname}</span>'
+                                f'<span class="team" style="font-family:var(--font-mono);font-size:10px;'
+                                f'color:var(--fp-tx-subtle);white-space:nowrap;">{_logo_html}{_ateam}</span>'
+                                f'<span class="why" style="font-size:12.5px;color:var(--fp-tx-muted);'
+                                f'margin-left:auto;text-align:right;">{_why}</span>'
+                                "</div>"
                             )
                         st.markdown(
-                            f'<div style="background:{T["card"]};border-left:4px solid {T["sky"]};'
-                            f"border-radius:8px;padding:8px 12px;margin-bottom:8px;"
-                            f'font-family:IBM Plex Mono,monospace;">'
-                            f'<div style="font-size:11px;color:{T["tx2"]};margin-bottom:4px;'
-                            f"font-weight:600;\">Today's Actions</div>"
-                            f"{_action_rows}</div>",
+                            build_panel_html(
+                                "Today's Actions",
+                                _action_rows,
+                                fig_label=f"{len(_wr_actions)} FLAGGED",
+                            ),
                             unsafe_allow_html=True,
                         )
                 except Exception:
@@ -958,40 +1111,72 @@ else:
 
                 # ── Card 4: Hot/Cold Report ──
                 try:
+                    from src.ui_shared import team_logo_url as _streak_logo
+
                     _wr_hotcold = compute_hot_cold_report(roster, max_entries=4)
                     if _wr_hotcold:
-                        _hc_rows = ""
+                        # Mockup .streaks grid of .streak tiles. Each tile: HOT/COLD
+                        # tag, player name, team logo, the L7 line (headline) and the
+                        # season-delta line (detail). The mockup's decorative
+                        # per-game sparkline is omitted — compute_hot_cold_report's
+                        # entry dict carries no per-game series, and synthesizing one
+                        # would be fabricated data (flagged in the C3 report).
+                        _hc_tiles = ""
                         for _hc in _wr_hotcold:
-                            if _hc["status"] == "hot":
-                                _hc_accent = T["danger"]
-                                _hc_label = "HOT"
-                            else:
-                                _hc_accent = T["sky"]
-                                _hc_label = "COLD"
-                            _hc_rows += (
-                                f'<div style="display:flex;align-items:flex-start;gap:8px;'
-                                f'padding:5px 0;border-bottom:1px solid {T["border"]};">'
-                                f'<span style="background:{_hc_accent};color:#fff;padding:1px 6px;'
-                                f"border-radius:4px;font-size:10px;font-weight:700;"
-                                f'white-space:nowrap;">{_hc_label}</span>'
-                                f'<div style="flex:1;">'
-                                f'<div style="font-size:12px;font-weight:600;color:{T["tx"]};">'
-                                f'{_hc["player"]} <span style="color:{T["tx2"]};font-weight:400;">'
-                                f"{_hc['team']}</span></div>"
-                                f'<div style="font-size:11px;color:{T["tx"]};">{_hc["headline"]}</div>'
-                                f'<div style="font-size:10px;color:{T["tx2"]};">'
-                                f"{_hc['detail']}</div>"
-                                f'<div style="font-size:10px;color:{_hc_accent};font-style:italic;">'
-                                f"{_hc['verdict']}</div>"
-                                f"</div></div>"
+                            _is_hot = _hc.get("status") == "hot"
+                            _tone = "hot" if _is_hot else "cold"
+                            _accent_grad = (
+                                "linear-gradient(180deg,var(--fp-flame),var(--fp-ember))"
+                                if _is_hot
+                                else "linear-gradient(180deg,#8aa6c0,var(--fp-cold))"
                             )
+                            _tag_style = (
+                                "background:rgba(255,109,0,.14);color:var(--fp-ember);"
+                                if _is_hot
+                                else "background:rgba(95,125,156,.16);color:var(--fp-cold);"
+                            )
+                            _hc_name = _html.escape(str(_hc.get("player", "")))
+                            _hc_team = _html.escape(str(_hc.get("team", "")).strip().upper())
+                            _hc_head = _html.escape(str(_hc.get("headline", "")))
+                            _hc_detail = _html.escape(str(_hc.get("detail", "")))
+                            _logo_html = (
+                                f'<img class="tlogo" src="{_streak_logo(_hc_team)}" '
+                                f'style="width:13px;height:13px;vertical-align:-3px;margin-right:5px;" '
+                                f'loading="lazy"/>'
+                                if _hc_team
+                                else ""
+                            )
+                            _hc_tiles += (
+                                f'<div class="streak {_tone}" style="position:relative;'
+                                "border:1px solid var(--fp-divider);border-radius:11px;padding:14px 15px;"
+                                'background:var(--fp-surface);overflow:hidden;">'
+                                f"<span style=\"content:'';position:absolute;left:0;top:0;bottom:0;"
+                                f'width:3px;background:{_accent_grad};"></span>'
+                                '<div class="top" style="display:flex;align-items:center;gap:10px;margin-bottom:9px;">'
+                                f'<span class="tag" style="font-family:var(--font-mono);font-size:9px;'
+                                f"font-weight:600;letter-spacing:.14em;padding:3px 7px;border-radius:4px;"
+                                f'{_tag_style}">{"HOT" if _is_hot else "COLD"}</span>'
+                                "<div>"
+                                f'<div class="pn" style="font-weight:700;font-size:14px;color:var(--fp-tx);">{_hc_name}</div>'
+                                f'<div class="pt" style="font-family:var(--font-mono);font-size:10px;'
+                                f'color:var(--fp-tx-subtle);">{_logo_html}{_hc_team}</div>'
+                                "</div></div>"
+                                f'<div class="line" style="font-family:var(--font-mono);font-size:12px;'
+                                f'color:var(--fp-tx);letter-spacing:.02em;">{_hc_head}</div>'
+                                f'<div class="delta" style="font-size:11px;color:var(--fp-tx-muted);'
+                                f'margin-top:4px;">{_hc_detail}</div>'
+                                "</div>"
+                            )
+                        _streaks_grid = (
+                            '<div class="streaks" style="display:grid;'
+                            f'grid-template-columns:1fr 1fr;gap:12px;">{_hc_tiles}</div>'
+                        )
                         st.markdown(
-                            f'<div style="background:{T["card"]};border-left:4px solid {T["danger"]};'
-                            f"border-radius:8px;padding:8px 12px;margin-bottom:8px;"
-                            f'font-family:IBM Plex Mono,monospace;">'
-                            f'<div style="font-size:11px;color:{T["tx2"]};margin-bottom:4px;'
-                            f'font-weight:600;">Player Streaks</div>'
-                            f"{_hc_rows}</div>",
+                            build_panel_html(
+                                "Player Streaks",
+                                _streaks_grid,
+                                fig_label="L7 GP",
+                            ),
                             unsafe_allow_html=True,
                         )
                 except Exception:
@@ -1436,10 +1621,16 @@ else:
                 st.session_state["_lineup_issues"] = []
                 st.session_state["_lineup_teams_playing"] = 0
 
-            # -- 3-Zone Layout --
-            ctx, main = render_context_columns()
+            # -- Context band --
+            # Phase C3: the context totals render in a full-width container
+            # rather than a narrow left rail. The Active Roster now spans the
+            # full page width below this band (mockup places it full-width at
+            # the bottom), so a 2-column split would have stranded an empty
+            # right column. ``roster_stat_view`` is unaffected (the totals are
+            # computed from session state, not the layout).
+            ctx = st.container()
 
-            # -- Context Panel (left) --
+            # -- Context Panel --
             with ctx:
                 # Category totals card — Hitting
                 if hit_stats:
@@ -1865,238 +2056,177 @@ else:
                 # Data freshness card
                 render_data_freshness_card()
 
-            # -- Main Content (right) --
-            with main:
-                # ── Clickability: a roster player cell links to ?player=<id>.
-                # Two-run pattern so the @st.dialog modal survives: run 1 (param
-                # present) stashes the id in session_state and clears the URL
-                # param (which reruns); run 2 (param gone) pops the id and opens
-                # the dialog. .pop() means the built-in X close stays closed (the
-                # id is consumed on open, so the next rerun doesn't re-open it).
-                # Falls back to a selectbox below the table.
-                # Roster "click a player" → open the dossier dialog. The link sets
-                # ?player=<id>. We open the @st.dialog directly from the param and
-                # guard re-open with a session sentinel: mutating st.query_params
-                # would change the URL and reset session_state (which silently broke
-                # the earlier stash/rerun approach), so we leave the param in place
-                # and instead remember the last id we opened. Same value on a rerun
-                # (e.g. the built-in ✕ dismiss) → do NOT re-open, so close works.
-                _qp_player = st.query_params.get("player")
-                if _qp_player is not None and str(_qp_player) != str(st.session_state.get("_dossier_last_shown")):
-                    st.session_state["_dossier_last_shown"] = str(_qp_player)
+            # ══ ACTIVE ROSTER — full-width below the context band ══════════
+            # Moved out of the old right column (Phase C3) so the roster panel
+            # spans the full page width, matching docs/design/mockup-myteam-v3.png.
+
+            # ── Clickability: a roster player cell links to ?player=<id>.
+            # We open the @st.dialog directly from the param and guard re-open
+            # with a session sentinel: mutating st.query_params would change the
+            # URL and reset session_state (which silently broke the earlier
+            # stash/rerun approach), so we leave the param in place and instead
+            # remember the last id we opened. Same value on a rerun (e.g. the
+            # built-in ✕ dismiss) → do NOT re-open, so close works. The reliable
+            # opener is the "Open player dossier" selectbox in the panel header.
+            _qp_player = st.query_params.get("player")
+            if _qp_player is not None and str(_qp_player) != str(st.session_state.get("_dossier_last_shown")):
+                st.session_state["_dossier_last_shown"] = str(_qp_player)
+                try:
+                    show_player_card_dialog(int(_qp_player))
+                except (TypeError, ValueError):
+                    pass
+
+            # ── Stat-source control (drives the context-panel totals via the
+            # ``roster_stat_view`` session key). Kept; the table adds its own
+            # timeframe + hitter/pitcher toggles below.
+            stat_view = st.segmented_control(
+                "Stat source",
+                options=_stat_options,
+                default=_stat_default,
+                key="roster_stat_view",
+            )
+
+            # ── Combustion roster toolbar: timeframe + Hitters/Pitchers + opener ──
+            _tf_col, _hp_col, _open_col = st.columns([3, 2, 3])
+            with _tf_col:
+                timeframe = st.segmented_control(
+                    "Timeframe",
+                    options=["Season", "L30", "L14", "L7", "Today"],
+                    default="Season",
+                    key="roster_timeframe",
+                )
+            with _hp_col:
+                side = st.segmented_control(
+                    "Side",
+                    options=["Hitters", "Pitchers"],
+                    default="Hitters",
+                    key="roster_side",
+                )
+            if not timeframe:
+                timeframe = "Season"
+            if not side:
+                side = "Hitters"
+
+            rename_map = {
+                "name": "Player",
+                "positions": "Pos",
+                "roster_slot": "Slot",
+            }
+
+            # Base identity columns always carried into the display frame.
+            _base_keep = [
+                c
+                for c in ("player_id", "name", "positions", "roster_slot", "mlb_id", "team", "status", "is_hitter")
+                if c in roster.columns
+            ]
+            display_df = roster[_base_keep].copy()
+
+            # Stat columns we may render (hitter + pitcher union).
+            _stat_keys = ["ab", "r", "h", "hr", "rbi", "sb", "avg", "obp", "ip", "w", "l", "sv", "k", "era", "whip"]
+
+            _today_unavailable = False
+            if timeframe == "Season":
+                # 2026 live season stats (canonical loader; no raw SQL here).
+                from src.database import load_season_stats
+
+                _hist = load_season_stats(2026)
+                if not _hist.empty and "player_id" in _hist.columns:
+                    _hist_cols = [c for c in _stat_keys if c in _hist.columns]
+                    display_df = display_df.merge(
+                        _hist[["player_id"] + _hist_cols],
+                        on="player_id",
+                        how="left",
+                    )
+                else:
+                    # No 2026 actuals yet → fall back to roster's blended values.
+                    for k in _stat_keys:
+                        if k in roster.columns and k not in display_df.columns:
+                            display_df[k] = roster[k].values
+                _caption = "Full 2026 season totals. Updates hourly from MLB Stats API."
+            elif timeframe in ("L30", "L14", "L7"):
+                # Rolling window from per-game logs.
+                from src.player_databank import compute_rolling_stats
+
+                _days = {"L30": 30, "L14": 14, "L7": 7}[timeframe]
+                _pids = display_df["player_id"].tolist() if "player_id" in display_df.columns else []
+                _roll = compute_rolling_stats(_pids, days=_days, season=2026)
+                if not _roll.empty:
+                    # compute_rolling_stats returns summed counting stats +
+                    # *_calc rate columns — fold the rate calcs into avg/obp/
+                    # era/whip so the renderer's column keys resolve.
+                    for _raw, _calc in (
+                        ("avg", "avg_calc"),
+                        ("obp", "obp_calc"),
+                        ("era", "era_calc"),
+                        ("whip", "whip_calc"),
+                    ):
+                        if _calc in _roll.columns:
+                            _roll[_raw] = _roll[_calc]
+                    _roll_cols = [c for c in _stat_keys if c in _roll.columns]
+                    display_df = display_df.merge(
+                        _roll[["player_id"] + _roll_cols],
+                        on="player_id",
+                        how="left",
+                    )
+                _caption = f"Last {_days} days from per-game logs (weighted rate stats)."
+            else:  # "Today"
+                # Today's single-game line, if game logs carry it.
+                from src.player_databank import compute_rolling_stats
+
+                _pids = display_df["player_id"].tolist() if "player_id" in display_df.columns else []
+                _today = compute_rolling_stats(_pids, days=1, season=2026)
+                if not _today.empty:
+                    for _raw, _calc in (
+                        ("avg", "avg_calc"),
+                        ("obp", "obp_calc"),
+                        ("era", "era_calc"),
+                        ("whip", "whip_calc"),
+                    ):
+                        if _calc in _today.columns:
+                            _today[_raw] = _today[_calc]
+                    _today_cols = [c for c in _stat_keys if c in _today.columns]
+                    display_df = display_df.merge(
+                        _today[["player_id"] + _today_cols],
+                        on="player_id",
+                        how="left",
+                    )
+                else:
+                    _today_unavailable = True
+                _caption = "Today's game line. Cells show — when no game has been logged yet."
+
+            # Sort into Yahoo slot order, then split hitters vs pitchers.
+            _sortable = display_df.rename(columns={k: v for k, v in rename_map.items() if k in display_df.columns})
+            _sortable = sort_roster_for_display(_sortable)
+            # Map renamed cols back to lowercase keys the renderer expects.
+            _sortable = _sortable.rename(columns={"Player": "name", "Pos": "positions", "Slot": "roster_slot"})
+
+            def _is_pitcher_row(r) -> bool:
+                _ih = r.get("is_hitter")
+                if _ih is not None and not (isinstance(_ih, float) and pd.isna(_ih)):
                     try:
-                        show_player_card_dialog(int(_qp_player))
-                    except (TypeError, ValueError):
+                        return not bool(int(_ih))
+                    except (ValueError, TypeError):
                         pass
+                _pos = str(r.get("positions", "")).upper()
+                _tokens = {t.strip() for t in _pos.replace("/", ",").split(",") if t.strip()}
+                # Pitcher iff every eligible slot is a pitching slot.
+                return bool(_tokens) and _tokens.issubset({"SP", "RP", "P"})
 
-                # ── Stat-source control (drives the context-panel totals via the
-                # ``roster_stat_view`` session key). Kept; the table now adds its
-                # own timeframe + hitter/pitcher toggles below.
-                stat_view = st.segmented_control(
-                    "Stat source",
-                    options=_stat_options,
-                    default=_stat_default,
-                    key="roster_stat_view",
-                )
+            _mask_pitch = _sortable.apply(_is_pitcher_row, axis=1) if not _sortable.empty else pd.Series([], dtype=bool)
+            _is_hitter_view = side == "Hitters"
+            _view_df = _sortable[~_mask_pitch] if _is_hitter_view else _sortable[_mask_pitch]
+            _view_df = _view_df.reset_index(drop=True)
 
-                # ── Combustion roster toolbar: timeframe + Hitters/Pitchers ──
-                _tf_col, _hp_col = st.columns([3, 2])
-                with _tf_col:
-                    timeframe = st.segmented_control(
-                        "Timeframe",
-                        options=["Season", "L30", "L14", "L7", "Today"],
-                        default="Season",
-                        key="roster_timeframe",
-                    )
-                with _hp_col:
-                    side = st.segmented_control(
-                        "Side",
-                        options=["Hitters", "Pitchers"],
-                        default="Hitters",
-                        key="roster_side",
-                    )
-                if not timeframe:
-                    timeframe = "Season"
-                if not side:
-                    side = "Hitters"
+            _h_count = int((~_mask_pitch).sum()) if not _sortable.empty else 0
+            _p_count = int(_mask_pitch.sum()) if not _sortable.empty else 0
 
-                rename_map = {
-                    "name": "Player",
-                    "positions": "Pos",
-                    "roster_slot": "Slot",
-                }
+            # Player IDs aligned to the displayed (filtered, sorted) rows.
+            player_ids_list = _view_df["player_id"].tolist() if "player_id" in _view_df.columns else []
 
-                # Base identity columns always carried into the display frame.
-                _base_keep = [
-                    c
-                    for c in ("player_id", "name", "positions", "roster_slot", "mlb_id", "team", "status", "is_hitter")
-                    if c in roster.columns
-                ]
-                display_df = roster[_base_keep].copy()
-
-                # Stat columns we may render (hitter + pitcher union).
-                _stat_keys = ["ab", "r", "h", "hr", "rbi", "sb", "avg", "obp", "ip", "w", "l", "sv", "k", "era", "whip"]
-
-                _today_unavailable = False
-                if timeframe == "Season":
-                    # 2026 live season stats (canonical loader; no raw SQL here).
-                    from src.database import load_season_stats
-
-                    _hist = load_season_stats(2026)
-                    if not _hist.empty and "player_id" in _hist.columns:
-                        _hist_cols = [c for c in _stat_keys if c in _hist.columns]
-                        display_df = display_df.merge(
-                            _hist[["player_id"] + _hist_cols],
-                            on="player_id",
-                            how="left",
-                        )
-                    else:
-                        # No 2026 actuals yet → fall back to roster's blended values.
-                        for k in _stat_keys:
-                            if k in roster.columns and k not in display_df.columns:
-                                display_df[k] = roster[k].values
-                    _caption = "Full 2026 season totals. Updates hourly from MLB Stats API."
-                elif timeframe in ("L30", "L14", "L7"):
-                    # Rolling window from per-game logs.
-                    from src.player_databank import compute_rolling_stats
-
-                    _days = {"L30": 30, "L14": 14, "L7": 7}[timeframe]
-                    _pids = display_df["player_id"].tolist() if "player_id" in display_df.columns else []
-                    _roll = compute_rolling_stats(_pids, days=_days, season=2026)
-                    if not _roll.empty:
-                        # compute_rolling_stats returns summed counting stats +
-                        # *_calc rate columns — fold the rate calcs into avg/obp/
-                        # era/whip so the renderer's column keys resolve.
-                        for _raw, _calc in (
-                            ("avg", "avg_calc"),
-                            ("obp", "obp_calc"),
-                            ("era", "era_calc"),
-                            ("whip", "whip_calc"),
-                        ):
-                            if _calc in _roll.columns:
-                                _roll[_raw] = _roll[_calc]
-                        _roll_cols = [c for c in _stat_keys if c in _roll.columns]
-                        display_df = display_df.merge(
-                            _roll[["player_id"] + _roll_cols],
-                            on="player_id",
-                            how="left",
-                        )
-                    _caption = f"Last {_days} days from per-game logs (weighted rate stats)."
-                else:  # "Today"
-                    # Today's single-game line, if game logs carry it.
-                    from src.player_databank import compute_rolling_stats
-
-                    _pids = display_df["player_id"].tolist() if "player_id" in display_df.columns else []
-                    _today = compute_rolling_stats(_pids, days=1, season=2026)
-                    if not _today.empty:
-                        for _raw, _calc in (
-                            ("avg", "avg_calc"),
-                            ("obp", "obp_calc"),
-                            ("era", "era_calc"),
-                            ("whip", "whip_calc"),
-                        ):
-                            if _calc in _today.columns:
-                                _today[_raw] = _today[_calc]
-                        _today_cols = [c for c in _stat_keys if c in _today.columns]
-                        display_df = display_df.merge(
-                            _today[["player_id"] + _today_cols],
-                            on="player_id",
-                            how="left",
-                        )
-                    else:
-                        _today_unavailable = True
-                    _caption = "Today's game line. Cells show — when no game has been logged yet."
-
-                # Sort into Yahoo slot order, then split hitters vs pitchers.
-                _sortable = display_df.rename(columns={k: v for k, v in rename_map.items() if k in display_df.columns})
-                _sortable = sort_roster_for_display(_sortable)
-                # Map renamed cols back to lowercase keys the renderer expects.
-                _sortable = _sortable.rename(columns={"Player": "name", "Pos": "positions", "Slot": "roster_slot"})
-
-                def _is_pitcher_row(r) -> bool:
-                    _ih = r.get("is_hitter")
-                    if _ih is not None and not (isinstance(_ih, float) and pd.isna(_ih)):
-                        try:
-                            return not bool(int(_ih))
-                        except (ValueError, TypeError):
-                            pass
-                    _pos = str(r.get("positions", "")).upper()
-                    _tokens = {t.strip() for t in _pos.replace("/", ",").split(",") if t.strip()}
-                    # Pitcher iff every eligible slot is a pitching slot.
-                    return bool(_tokens) and _tokens.issubset({"SP", "RP", "P"})
-
-                _mask_pitch = (
-                    _sortable.apply(_is_pitcher_row, axis=1) if not _sortable.empty else pd.Series([], dtype=bool)
-                )
-                _is_hitter_view = side == "Hitters"
-                _view_df = _sortable[~_mask_pitch] if _is_hitter_view else _sortable[_mask_pitch]
-                _view_df = _view_df.reset_index(drop=True)
-
-                _h_count = int((~_mask_pitch).sum()) if not _sortable.empty else 0
-                _p_count = int(_mask_pitch.sum()) if not _sortable.empty else 0
-
-                # Player IDs aligned to the displayed (filtered, sorted) rows.
-                player_ids_list = _view_df["player_id"].tolist() if "player_id" in _view_df.columns else []
-
-                # ── Render inside the instrument panel ──
-                _tf_label = {
-                    "Season": "FULL SEASON",
-                    "L30": "LAST 30 DAYS",
-                    "L14": "LAST 14 DAYS",
-                    "L7": "LAST 7 DAYS",
-                    "Today": "TODAY",
-                }[timeframe]
-                _table_html = build_roster_table_html(
-                    _view_df,
-                    is_hitter=_is_hitter_view,
-                    player_ids=player_ids_list,
-                )
-                _footer_arrow = (
-                    '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" '
-                    'stroke="var(--fp-primary)" stroke-width="2.5" style="vertical-align:-1px;margin-right:6px;">'
-                    '<path d="M9 6l6 6-6 6"/></svg>'
-                )
-                _footer = (
-                    '<div class="rfoot" style="font-family:var(--font-mono);font-size:10px;'
-                    'color:var(--fp-tx-subtle);text-align:center;margin-top:14px;letter-spacing:.08em;">'
-                    f"{_footer_arrow}CLICK ANY PLAYER FOR GAME LOG · OUTCOMES · UPCOMING PROJECTIONS</div>"
-                )
-                _cap_html = (
-                    f'<div style="font-family:var(--font-mono);font-size:10.5px;color:var(--fp-tx-subtle);'
-                    f'letter-spacing:.04em;margin:-4px 0 6px;">{_html.escape(_caption)}</div>'
-                )
-                st.markdown(
-                    build_panel_html(
-                        "Active Roster",
-                        _cap_html + _table_html + _footer,
-                        fig_label=f"{_h_count} HITTERS · {_p_count} PITCHERS · {_tf_label}",
-                    ),
-                    unsafe_allow_html=True,
-                )
-
-                if _today_unavailable:
-                    st.caption("No game logged today yet — showing dashes.")
-
-                # ── Export to Excel (current view) ──
-                import io
-
-                _export_df = _view_df.drop(
-                    columns=[c for c in ("is_hitter",) if c in _view_df.columns],
-                    errors="ignore",
-                )
-                excel_buf = io.BytesIO()
-                _export_df.to_excel(excel_buf, index=False, sheet_name="Roster")
-                excel_buf.seek(0)
-                _view_label = f"{side}_{timeframe}"
-                st.download_button(
-                    "Export to Excel",
-                    data=excel_buf,
-                    file_name=f"heater_roster_{_view_label.replace(' ', '_').lower()}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    key="export_roster_excel",
-                )
-
-                # ── Fallback player-card opener (selectbox) below the table ──
+            # ── Reliable dossier opener (selectbox) in the toolbar's right cell.
+            # The C1 row <a href="?player="> links are the visual affordance; this
+            # relabeled selectbox is the dependable opener (mockup top-right).
+            with _open_col:
                 if player_ids_list:
                     _player_names = _view_df["name"].tolist() if "name" in _view_df.columns else []
                     if _player_names:
@@ -2104,117 +2234,173 @@ else:
                             _player_names,
                             player_ids_list,
                             key_suffix="myteam",
+                            label="Open player dossier",
                         )
 
-                # Bayesian-adjusted projections
-                if BAYESIAN_AVAILABLE:
+            # ── Render inside the full-width instrument panel ──
+            _tf_label = {
+                "Season": "FULL SEASON",
+                "L30": "LAST 30 DAYS",
+                "L14": "LAST 14 DAYS",
+                "L7": "LAST 7 DAYS",
+                "Today": "TODAY",
+            }[timeframe]
+            _table_html = build_roster_table_html(
+                _view_df,
+                is_hitter=_is_hitter_view,
+                player_ids=player_ids_list,
+            )
+            _footer_arrow = (
+                '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" '
+                'stroke="var(--fp-primary)" stroke-width="2.5" style="vertical-align:-1px;margin-right:6px;">'
+                '<path d="M9 6l6 6-6 6"/></svg>'
+            )
+            _footer = (
+                '<div class="rfoot" style="font-family:var(--font-mono);font-size:10px;'
+                'color:var(--fp-tx-subtle);text-align:center;margin-top:14px;letter-spacing:.08em;">'
+                f"{_footer_arrow}CLICK ANY PLAYER FOR GAME LOG · OUTCOMES · UPCOMING PROJECTIONS</div>"
+            )
+            _cap_html = (
+                f'<div style="font-family:var(--font-mono);font-size:10.5px;color:var(--fp-tx-subtle);'
+                f'letter-spacing:.04em;margin:-4px 0 6px;">{_html.escape(_caption)}</div>'
+            )
+            st.markdown(
+                build_panel_html(
+                    "Active Roster",
+                    _cap_html + _table_html + _footer,
+                    fig_label=f"{_h_count} HITTERS · {_p_count} PITCHERS · {_tf_label}",
+                ),
+                unsafe_allow_html=True,
+            )
+
+            if _today_unavailable:
+                st.caption("No game logged today yet — showing dashes.")
+
+            # ── Export to Excel (current view) ──
+            import io
+
+            _export_df = _view_df.drop(
+                columns=[c for c in ("is_hitter",) if c in _view_df.columns],
+                errors="ignore",
+            )
+            excel_buf = io.BytesIO()
+            _export_df.to_excel(excel_buf, index=False, sheet_name="Roster")
+            excel_buf.seek(0)
+            _view_label = f"{side}_{timeframe}"
+            st.download_button(
+                "Export to Excel",
+                data=excel_buf,
+                file_name=f"heater_roster_{_view_label.replace(' ', '_').lower()}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="export_roster_excel",
+            )
+
+            # ══ Bayesian projections + News — full-width below the roster ══
+            # Bayesian-adjusted projections
+            if BAYESIAN_AVAILABLE:
+                try:
+                    from src.database import get_connection, load_season_stats
+
+                    conn = get_connection()
                     try:
-                        from src.database import get_connection, load_season_stats
+                        # Marcel needs the most recent season per rostered player.
+                        # The player pool's ytd_* columns only cover 2026, so we
+                        # fan out load_season_stats across the most recent few
+                        # seasons and dedupe to the latest non-empty row per player.
+                        # Routing through the canonical loader keeps SQL out of the
+                        # page and applies coerce_numeric_df consistently.
+                        roster_pids = roster["player_id"].tolist() if "player_id" in roster.columns else []
+                        if roster_pids:
+                            _roster_pid_set = {int(p) for p in roster_pids}
+                            _frames: list[pd.DataFrame] = []
+                            for _yr in (2026, 2025, 2024, 2023):
+                                _yr_df = load_season_stats(_yr)
+                                if _yr_df.empty or "player_id" not in _yr_df.columns:
+                                    continue
+                                _yr_df = _yr_df[_yr_df["player_id"].isin(_roster_pid_set)]
+                                if not _yr_df.empty:
+                                    _frames.append(_yr_df)
+                            season_stats = pd.concat(_frames, ignore_index=True) if _frames else pd.DataFrame()
+                        else:
+                            season_stats = pd.DataFrame()
 
-                        conn = get_connection()
-                        try:
-                            # Marcel needs the most recent season per rostered player.
-                            # The player pool's ytd_* columns only cover 2026, so we
-                            # fan out load_season_stats across the most recent few
-                            # seasons and dedupe to the latest non-empty row per player.
-                            # Routing through the canonical loader keeps SQL out of the
-                            # page and applies coerce_numeric_df consistently.
-                            roster_pids = roster["player_id"].tolist() if "player_id" in roster.columns else []
-                            if roster_pids:
-                                _roster_pid_set = {int(p) for p in roster_pids}
-                                _frames: list[pd.DataFrame] = []
-                                for _yr in (2026, 2025, 2024, 2023):
-                                    _yr_df = load_season_stats(_yr)
-                                    if _yr_df.empty or "player_id" not in _yr_df.columns:
-                                        continue
-                                    _yr_df = _yr_df[_yr_df["player_id"].isin(_roster_pid_set)]
-                                    if not _yr_df.empty:
-                                        _frames.append(_yr_df)
-                                season_stats = pd.concat(_frames, ignore_index=True) if _frames else pd.DataFrame()
-                            else:
-                                season_stats = pd.DataFrame()
+                        # Keep only the latest season per player
+                        if not season_stats.empty and "season" in season_stats.columns:
+                            season_stats = season_stats.sort_values("season", ascending=False).drop_duplicates(
+                                subset=["player_id"], keep="first"
+                            )
 
-                            # Keep only the latest season per player
-                            if not season_stats.empty and "season" in season_stats.columns:
-                                season_stats = season_stats.sort_values("season", ascending=False).drop_duplicates(
-                                    subset=["player_id"], keep="first"
+                        if not season_stats.empty and season_stats.get("games_played", pd.Series([0])).sum() > 0:
+                            bayes_progress = st.progress(
+                                0, text="Loading preseason projections for Marcel stabilization..."
+                            )
+                            preseason = pd.read_sql_query("SELECT * FROM projections WHERE system = 'blended'", conn)
+                            preseason = coerce_numeric_df(preseason)
+                            # Filter preseason to roster players only (Bug fix: was showing ~9K players)
+                            if roster_pids and "player_id" in preseason.columns:
+                                preseason = preseason[preseason["player_id"].isin(roster_pids)]
+                            bayes_progress.progress(
+                                30,
+                                text="Applying Marcel regression with stabilization thresholds...",
+                            )
+                            updater = BayesianUpdater()
+                            updated = updater.batch_update_projections(season_stats, preseason)
+                            bayes_progress.progress(100, text="Marcel-adjusted projections complete!")
+                            time.sleep(0.3)
+                            bayes_progress.empty()
+                            st.markdown(
+                                '<div class="sec-head">Marcel-Adjusted Projections</div>',
+                                unsafe_allow_html=True,
+                            )
+                            stat_display = ["player_id", "avg", "hr", "rbi", "sb", "era", "whip", "k"]
+                            show_cols = [c for c in stat_display if c in updated.columns]
+                            bayes_df = updated[show_cols].copy()
+                            # Replace player_id with player name + add mlb_id for headshots
+                            if "player_id" in bayes_df.columns:
+                                players_lookup = pd.read_sql_query("SELECT player_id, name, mlb_id FROM players", conn)
+                                pid_to_name = dict(zip(players_lookup["player_id"], players_lookup["name"]))
+                                pid_to_mlb = dict(zip(players_lookup["player_id"], players_lookup["mlb_id"]))
+                                bayes_df["mlb_id"] = bayes_df["player_id"].map(
+                                    lambda x: pid_to_mlb.get(int(x)) if pd.notna(x) else None
                                 )
+                                bayes_df["player_id"] = bayes_df["player_id"].map(
+                                    lambda x: pid_to_name.get(int(x), f"Player {int(x)}") if pd.notna(x) else ""
+                                )
+                            bayes_rename = {
+                                "player_id": "Player",
+                                "avg": "AVG",
+                                "hr": "HR",
+                                "rbi": "RBI",
+                                "sb": "SB",
+                                "era": "ERA",
+                                "whip": "WHIP",
+                                "k": "K",
+                            }
+                            bayes_df.rename(
+                                columns={k: v for k, v in bayes_rename.items() if k in bayes_df.columns},
+                                inplace=True,
+                            )
+                            for c in ["AVG"]:
+                                if c in bayes_df.columns:
+                                    bayes_df[c] = bayes_df[c].map(lambda x, _c=c: format_stat(x, _c))
+                            for c in ["ERA", "WHIP"]:
+                                if c in bayes_df.columns:
+                                    bayes_df[c] = bayes_df[c].map(lambda x, _c=c: format_stat(x, _c))
+                            for c in ["HR", "RBI", "SB", "K", "ID"]:
+                                if c in bayes_df.columns:
+                                    bayes_df[c] = bayes_df[c].map(lambda x: f"{x:.2f}")
+                            render_compact_table(bayes_df, max_height=400)
+                    finally:
+                        conn.close()
+                except Exception:
+                    pass  # Graceful degradation
 
-                            if not season_stats.empty and season_stats.get("games_played", pd.Series([0])).sum() > 0:
-                                bayes_progress = st.progress(
-                                    0, text="Loading preseason projections for Marcel stabilization..."
-                                )
-                                preseason = pd.read_sql_query(
-                                    "SELECT * FROM projections WHERE system = 'blended'", conn
-                                )
-                                preseason = coerce_numeric_df(preseason)
-                                # Filter preseason to roster players only (Bug fix: was showing ~9K players)
-                                if roster_pids and "player_id" in preseason.columns:
-                                    preseason = preseason[preseason["player_id"].isin(roster_pids)]
-                                bayes_progress.progress(
-                                    30,
-                                    text="Applying Marcel regression with stabilization thresholds...",
-                                )
-                                updater = BayesianUpdater()
-                                updated = updater.batch_update_projections(season_stats, preseason)
-                                bayes_progress.progress(100, text="Marcel-adjusted projections complete!")
-                                time.sleep(0.3)
-                                bayes_progress.empty()
-                                st.markdown(
-                                    '<div class="sec-head">Marcel-Adjusted Projections</div>',
-                                    unsafe_allow_html=True,
-                                )
-                                stat_display = ["player_id", "avg", "hr", "rbi", "sb", "era", "whip", "k"]
-                                show_cols = [c for c in stat_display if c in updated.columns]
-                                bayes_df = updated[show_cols].copy()
-                                # Replace player_id with player name + add mlb_id for headshots
-                                if "player_id" in bayes_df.columns:
-                                    players_lookup = pd.read_sql_query(
-                                        "SELECT player_id, name, mlb_id FROM players", conn
-                                    )
-                                    pid_to_name = dict(zip(players_lookup["player_id"], players_lookup["name"]))
-                                    pid_to_mlb = dict(zip(players_lookup["player_id"], players_lookup["mlb_id"]))
-                                    bayes_df["mlb_id"] = bayes_df["player_id"].map(
-                                        lambda x: pid_to_mlb.get(int(x)) if pd.notna(x) else None
-                                    )
-                                    bayes_df["player_id"] = bayes_df["player_id"].map(
-                                        lambda x: pid_to_name.get(int(x), f"Player {int(x)}") if pd.notna(x) else ""
-                                    )
-                                bayes_rename = {
-                                    "player_id": "Player",
-                                    "avg": "AVG",
-                                    "hr": "HR",
-                                    "rbi": "RBI",
-                                    "sb": "SB",
-                                    "era": "ERA",
-                                    "whip": "WHIP",
-                                    "k": "K",
-                                }
-                                bayes_df.rename(
-                                    columns={k: v for k, v in bayes_rename.items() if k in bayes_df.columns},
-                                    inplace=True,
-                                )
-                                for c in ["AVG"]:
-                                    if c in bayes_df.columns:
-                                        bayes_df[c] = bayes_df[c].map(lambda x, _c=c: format_stat(x, _c))
-                                for c in ["ERA", "WHIP"]:
-                                    if c in bayes_df.columns:
-                                        bayes_df[c] = bayes_df[c].map(lambda x, _c=c: format_stat(x, _c))
-                                for c in ["HR", "RBI", "SB", "K", "ID"]:
-                                    if c in bayes_df.columns:
-                                        bayes_df[c] = bayes_df[c].map(lambda x: f"{x:.2f}")
-                                render_compact_table(bayes_df, max_height=400)
-                        finally:
-                            conn.close()
-                    except Exception:
-                        pass  # Graceful degradation
-
-                # -- News section (below table, no tab) --
-                st.markdown(
-                    '<div class="sec-head" style="margin-top:20px;">News and Alerts</div>',
-                    unsafe_allow_html=True,
-                )
-                _render_news_tab(roster)
+            # -- News section (below table, no tab) --
+            st.markdown(
+                '<div class="sec-head" style="margin-top:20px;">News and Alerts</div>',
+                unsafe_allow_html=True,
+            )
+            _render_news_tab(roster)
 
 page_timer_footer("My Team")
 render_feedback_widget("My Team")
