@@ -55,6 +55,6 @@ def test_fp_neutral_tokens_are_hex():
         assert isinstance(val, str) and _HEX_RE.match(val), f"THEME[{k!r}]={val!r} is not a #rrggbb hex color"
 
 
-def test_primary_stays_heater_red():
-    """The revamp keeps HEATER's red as the primary/action color (not FP yellow)."""
-    assert THEME["primary"] == "#e63946", f"primary must stay HEATER red #e63946, got {THEME['primary']!r}"
+def test_primary_is_combustion_orange():
+    """The Combustion redesign makes hot orange the primary/action color (was red)."""
+    assert THEME["primary"] == "#ff6d00", f"primary must be Combustion orange #ff6d00, got {THEME['primary']!r}"

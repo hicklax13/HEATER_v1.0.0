@@ -28,15 +28,18 @@ def test_job_security_clamp_lower():
 
 
 def test_security_color_green():
-    assert get_security_color(0.8) == "#2d6a4f"
+    # Combustion redesign: get_security_color returns THEME["green"].
+    assert get_security_color(0.8) == "#1f9d6b"
 
 
 def test_security_color_yellow():
+    # THEME["warn"] — unchanged by the redesign.
     assert get_security_color(0.5) == "#ff9f1c"
 
 
 def test_security_color_red():
-    assert get_security_color(0.2) == "#e63946"
+    # Combustion redesign: low security is a functional negative -> THEME["danger"].
+    assert get_security_color(0.2) == "#e0492f"
 
 
 def test_build_grid_basic():

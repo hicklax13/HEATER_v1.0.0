@@ -107,11 +107,11 @@ class TestHeatmapGreenForTop3:
 
         html = build_category_heatmap_html(user_totals, all_totals)
 
-        # HR: user has 40, rank 1 — should be Strong (green)
+        # HR: user has 40, rank 1 — should be Strong (Combustion green)
         hr_match = re.search(r"Home Runs.*?</tr>", html, re.DOTALL)
         assert hr_match is not None
         assert "Strong" in hr_match.group()
-        assert "#2d6a4f" in hr_match.group()  # green color
+        assert "#1f9d6b" in hr_match.group()  # green color (THEME["green"])
 
 
 class TestHeatmapRedForBottom3:
@@ -126,11 +126,11 @@ class TestHeatmapRedForBottom3:
 
         html = build_category_heatmap_html(user_totals, all_totals)
 
-        # HR: user has 18, rank 12 — should be Weak (red)
+        # HR: user has 18, rank 12 — should be Weak (Combustion primary/orange)
         hr_match = re.search(r"Home Runs.*?</tr>", html, re.DOTALL)
         assert hr_match is not None
         assert "Weak" in hr_match.group()
-        assert "#e63946" in hr_match.group()  # primary/red color
+        assert "#ff6d00" in hr_match.group()  # primary color (THEME["primary"])
 
 
 class TestHeatmapRendersWithoutError:

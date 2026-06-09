@@ -377,11 +377,12 @@ class TestHTMLTableRenderer:
             }
         )
         html = render_databank_table(df, stat_view="S_S_2026", is_pitcher=False)
-        # FP-light table treatment (revamp): muted header text, neutral hover,
-        # and the old dark-navy header is retired.
+        # Combustion scoreboard table treatment (2026-06-08): white header with
+        # charcoal text, neutral zebra/hover; the old dark-navy header stays
+        # retired.
         assert "#16213e" not in html  # dark navy header retired
-        assert "#8a929c" in html  # FP muted header text
-        assert "#fafbfc" in html  # FP neutral row hover
+        assert "#2c2f36" in html  # charcoal header text
+        assert "#eef0f3" in html  # neutral row hover
 
 
 class TestExcelExport:

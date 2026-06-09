@@ -350,17 +350,18 @@ class TestMatchupTickerHelpers:
     """Tests for ticker display logic."""
 
     def test_score_color_winning(self):
-        """Winning score should use green color."""
+        """Winning score should use the Combustion green color (wins > losses)."""
         from src.ui_shared import THEME
 
-        # Wins > losses = green
-        assert THEME["green"] == "#2d6a4f"
+        # render_matchup_ticker: w > lo -> score_color = THEME["green"]
+        assert THEME["green"] == "#1f9d6b"
 
     def test_score_color_losing(self):
-        """Losing score should use primary/red color."""
+        """Losing score should use the primary (orange) color (losses > wins)."""
         from src.ui_shared import THEME
 
-        assert THEME["primary"] == "#e63946"
+        # render_matchup_ticker: lo > w -> score_color = THEME["primary"]
+        assert THEME["primary"] == "#ff6d00"
 
     def test_all_categories_in_stat_map(self):
         """Verify stat ID map produces all 12 expected categories."""
