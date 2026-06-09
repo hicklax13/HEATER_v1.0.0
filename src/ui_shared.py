@@ -748,17 +748,20 @@ def inject_custom_css():
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800;900&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
 
-    /* ── Glide Data Grid root-level theme overrides ── */
+    /* ── Glide Data Grid root-level theme overrides — Combustion scoreboard:
+          Archivo-800 uppercase headers, Archivo data cells, charcoal text. ── */
     :root {{
         --gdg-bg-header: #ffffff !important;
         --gdg-bg-header-has-focus: #f6f7f9 !important;
         --gdg-bg-header-hovered: #eef0f3 !important;
-        --gdg-text-header: #8a929c !important;
+        --gdg-text-header: #2c2f36 !important;
         --gdg-bg-cell: #ffffff !important;
         --gdg-bg-cell-medium: #f6f7f9 !important;
-        --gdg-text-dark: #1d1d1f !important;
-        --gdg-border-color: #e6e8ec !important;
-        --gdg-header-font-style: 600 13px Inter, sans-serif !important;
+        --gdg-text-dark: #1b1c20 !important;
+        --gdg-border-color: rgba(24,26,32,.10) !important;
+        --gdg-font-family: Archivo, system-ui, sans-serif !important;
+        --gdg-header-font-style: 800 12px Archivo, sans-serif !important;
+        --gdg-base-font-style: 700 13px Archivo, sans-serif !important;
 
         /* ── FP-revamp design tokens (revamp task 1) ──
            Pages + renderers reference these vars, not hex literals. Values are
@@ -801,10 +804,20 @@ def inject_custom_css():
        st.navigation, app.py's set_page_config(layout="wide") never runs and
        Streamlit falls back to its narrow centered max-width — leaving the page
        "condensed". inject_custom_css runs on every page, so overriding the
-       container max-width here keeps the layout wide regardless of routing. */
+       container max-width here keeps the layout wide regardless of routing.
+       Combustion redesign (2026-06-08): full-bleed instrument layout — content
+       fills the whole canvas right of the navy rail, no 1180px clamp. Streamlit's
+       main block-container already starts to the RIGHT of the sidebar, so this
+       never slides under the rail. Comfortable fluid side padding. */
     [data-testid="stMainBlockContainer"],
     [data-testid="stAppViewBlockContainer"],
-    .block-container {{ max-width: 1180px !important; margin-left: auto !important; margin-right: auto !important; }}
+    .block-container {{
+        max-width: none !important;
+        margin-left: 0 !important;
+        margin-right: 0 !important;
+        padding-left: clamp(18px, 2.4vw, 48px) !important;
+        padding-right: clamp(18px, 2.4vw, 48px) !important;
+    }}
 
     /* ── HIDE STREAMLIT CHROME ────────────────── */
     /* Pure clutter (decoration strip + Deploy button) — hidden on all widths. */
@@ -839,17 +852,18 @@ def inject_custom_css():
         overflow-wrap: anywhere;
         word-break: break-word;
     }}
-    /* ── SECTION HEADER ───────────────────────── */
+    /* ── SECTION HEADER (Combustion: Archivo display + orange accent rule) ── */
     .sec-head {{
-        font-family: var(--font-body);
-        font-weight: 700;
+        font-family: var(--font-display);
+        font-weight: 800;
         font-size: 20px;
         text-transform: none;
-        letter-spacing: -0.01em;
+        letter-spacing: -0.005em;
         color: {t["tx"]};
         margin-bottom: 10px;
-        padding-bottom: 6px;
-        border-bottom: 1px solid {t["divider"]};
+        padding-bottom: 8px;
+        border-bottom: 2px solid var(--fp-primary);
+        position: relative;
     }}
     .sec-label {{
         font-size: 12px !important;
@@ -862,40 +876,78 @@ def inject_custom_css():
 
     /* ── TYPE SCALE (Combustion redesign) — Archivo display + Inter body ── */
     h1, .heater-h1 {{
-        font-family: var(--font-body) !important;
-        font-weight: 700 !important;
+        font-family: var(--font-display) !important;
+        font-weight: 900 !important;
         font-size: 28px !important;
         letter-spacing: -0.02em !important;
         text-transform: none !important;
         color: {t["tx"]} !important;
     }}
-    h2 {{ font-family: var(--font-body) !important; font-weight: 600 !important; font-size: 20px !important; text-transform: none !important; }}
-    h3 {{ font-family: var(--font-body) !important; font-weight: 600 !important; font-size: 16px !important; text-transform: none !important; }}
+    h2 {{ font-family: var(--font-display) !important; font-weight: 800 !important; font-size: 20px !important; letter-spacing: -0.01em !important; text-transform: none !important; }}
+    h3 {{ font-family: var(--font-display) !important; font-weight: 800 !important; font-size: 16px !important; letter-spacing: -0.005em !important; text-transform: none !important; }}
     .stat, .mono, td.num {{ font-family: var(--font-mono) !important; }}
 
-    /* ── GLASS CARD (Glassmorphism) ───────────── */
+    /* ── INSTRUMENT PANEL (Combustion) — reusable flat panel matching
+          mockup .panel: dot-grid texture, hairline border, soft layered
+          shadow, optional orange accent + corner ticks. ── */
+    .instr-panel {{
+        position: relative;
+        border: 1px solid var(--fp-border);
+        border-radius: 14px;
+        padding: 20px 22px;
+        overflow: hidden;
+        background:
+            radial-gradient(rgba(24,26,32,.035) 1px, transparent 1.3px) 0 0 / 20px 20px,
+            var(--fp-surface);
+        box-shadow: 0 1px 3px rgba(24,26,32,.06), 0 6px 20px rgba(24,26,32,.04);
+    }}
+    /* Faint orange wash bleeding from the top-right, like the mockup. */
+    .instr-panel::before {{
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: radial-gradient(120% 80% at 100% 0%, rgba(255,109,0,.05), transparent 42%);
+        pointer-events: none;
+    }}
+    /* Opt-in orange accent rules. */
+    .instr-panel.accent-top {{ border-top: 2px solid var(--fp-primary); }}
+    .instr-panel.accent-left {{ border-left: 3px solid var(--fp-primary); }}
+    /* Corner ticks — add four <span class="pcorner tl|tr|bl|br"></span> children,
+       or rely on ::after for a single TL tick when markup is minimal. */
+    .instr-panel .pcorner {{
+        position: absolute;
+        width: 12px;
+        height: 12px;
+        border: 1px solid var(--fp-primary);
+        opacity: .55;
+        pointer-events: none;
+    }}
+    .instr-panel .pcorner.tl {{ top: 10px; left: 10px; border-right: none; border-bottom: none; }}
+    .instr-panel .pcorner.tr {{ top: 10px; right: 10px; border-left: none; border-bottom: none; }}
+    .instr-panel .pcorner.bl {{ bottom: 10px; left: 10px; border-right: none; border-top: none; }}
+    .instr-panel .pcorner.br {{ bottom: 10px; right: 10px; border-left: none; border-top: none; }}
+
+    /* ── GLASS CARD — Combustion: glassmorphism flattened to a flat instrument
+          card (solid surface, hairline border, soft shadow). The translucent
+          fill + blur are removed; layout/padding preserved. ── */
     .glass {{
-        background: rgba(255, 255, 255, 0.6);
-        backdrop-filter: blur(20px) saturate(180%);
-        -webkit-backdrop-filter: blur(20px) saturate(180%);
-        border: 1px solid rgba(255, 255, 255, 0.3);
-        border-radius: 12px;
+        background: var(--fp-surface);
+        border: 1px solid var(--fp-border);
+        border-radius: 14px;
         padding: 20px;
         margin-bottom: 12px;
-        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08), 0 2px 8px rgba(0, 0, 0, 0.04);
-        transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.3s ease;
+        box-shadow: 0 1px 3px rgba(24,26,32,.06), 0 6px 20px rgba(24,26,32,.04);
+        transition: box-shadow 0.2s ease;
     }}
     .glass:hover {{
-        transform: translateY(-4px) scale(1.01);
-        box-shadow: 0 16px 48px rgba(0, 0, 0, 0.12), 0 4px 16px rgba(0, 0, 0, 0.06);
+        transform: none;
+        box-shadow: 0 4px 14px rgba(24,26,32,.10);
     }}
 
-    /* ── COMMAND BAR ──────────────────────────── */
+    /* ── COMMAND BAR — Combustion: flat instrument strip (no blur). ── */
     .cmd-bar {{
-        background: rgba(255, 255, 255, 0.7);
-        backdrop-filter: blur(16px) saturate(150%);
-        -webkit-backdrop-filter: blur(16px) saturate(150%);
-        border: 1px solid rgba(255, 255, 255, 0.4);
+        background: var(--fp-surface);
+        border: 1px solid var(--fp-border);
         border-radius: 12px;
         padding: 14px 24px;
         display: flex;
@@ -904,7 +956,7 @@ def inject_custom_css():
         margin-bottom: 16px;
         flex-wrap: wrap;
         gap: 10px;
-        box-shadow: 0 4px 24px rgba(0, 0, 0, 0.06);
+        box-shadow: 0 1px 3px rgba(24,26,32,.06);
     }}
     .cmd-left {{
         font-family: var(--font-body);
@@ -944,8 +996,8 @@ def inject_custom_css():
         border-radius: 10px;
     }}
     @keyframes heatPulse {{
-        0%, 100% {{ box-shadow: 0 0 8px rgba(230, 57, 70, 0.4); }}
-        50% {{ box-shadow: 0 0 24px rgba(230, 57, 70, 0.7), 0 0 48px rgba(255, 109, 0, 0.3); }}
+        0%, 100% {{ box-shadow: 0 0 8px rgba(255, 109, 0, 0.4); }}
+        50% {{ box-shadow: 0 0 24px rgba(255, 109, 0, 0.7), 0 0 48px rgba(255, 154, 60, 0.35); }}
     }}
 
     /* ── PROGRESS BAR ────────────────────────── */
@@ -962,30 +1014,30 @@ def inject_custom_css():
         transition: width 0.5s ease;
     }}
 
-    /* ── HERO PICK CARD ──────────────────────── */
+    /* ── HERO PICK CARD — Combustion: flat instrument card with a solid
+          orange left accent (glassmorphism + perspective tilt removed). ── */
     .hero {{
-        background: rgba(255, 255, 255, 0.7);
-        backdrop-filter: blur(20px) saturate(180%);
-        -webkit-backdrop-filter: blur(20px) saturate(180%);
-        border: 2px solid transparent;
-        border-image: linear-gradient(135deg, {t["primary"]}, {t["hot"]}) 1;
-        border-radius: 0px;
+        background: var(--fp-surface);
+        border: 1px solid var(--fp-border);
+        border-left: 3px solid var(--fp-primary);
+        border-radius: 14px;
         padding: 24px;
         margin-bottom: 16px;
         position: relative;
-        box-shadow: 0 8px 40px rgba(230, 57, 70, 0.12), 0 4px 16px rgba(0, 0, 0, 0.06);
-        transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.3s ease;
+        box-shadow: 0 1px 3px rgba(24,26,32,.06), 0 6px 20px rgba(24,26,32,.04);
+        transition: box-shadow 0.2s ease;
     }}
     .hero:hover {{
-        transform: perspective(1000px) rotateY(-1deg) rotateX(1deg) translateY(-4px);
-        box-shadow: 0 20px 60px rgba(230, 57, 70, 0.15), 0 8px 24px rgba(0, 0, 0, 0.08);
+        transform: none;
+        box-shadow: 0 4px 14px rgba(24,26,32,.10);
     }}
     .hero .p-name {{
-        font-family: var(--font-body);
+        font-family: var(--font-display);
+        font-weight: 900;
         font-size: 36px;
         color: {t["tx"]};
-        text-transform: uppercase;
-        letter-spacing: 2px;
+        text-transform: none;
+        letter-spacing: -0.01em;
         line-height: 1.1;
         word-break: break-word;
     }}
@@ -998,7 +1050,7 @@ def inject_custom_css():
     .hero .score-badge {{
         position: absolute;
         top: 16px; right: 20px;
-        background: linear-gradient(135deg, {t["primary"]}, {t["hot"]});
+        background: linear-gradient(135deg, {t["primary"]}, {t["ember"]});
         color: {t["ink"]};
         font-family: 'IBM Plex Mono', monospace;
         font-weight: 700;
@@ -1006,7 +1058,7 @@ def inject_custom_css():
         padding: 8px 14px;
         border-radius: 12px;
         cursor: help;
-        box-shadow: 0 4px 16px rgba(230, 57, 70, 0.3);
+        box-shadow: 0 4px 16px rgba(255, 109, 0, 0.30);
     }}
     .hero .reason {{
         font-family: 'Inter', sans-serif;
@@ -1035,27 +1087,27 @@ def inject_custom_css():
         padding: 4px 10px;
         border-radius: 20px;
         border: 1px solid {t["border"]};
-        background: rgba(255, 255, 255, 0.5);
+        background: var(--fp-surface);
         color: {t["tx2"]};
     }}
     .sgp-chip.pos {{ border-color: {t["green"]}; color: {t["green"]}; background: rgba(45, 106, 79, 0.08); }}
     .sgp-chip.neg {{ border-color: {t["danger"]}; color: {t["danger"]}; background: rgba(230, 57, 70, 0.08); }}
 
-    /* ── ALTERNATIVE CARDS ───────────────────── */
+    /* ── ALTERNATIVE CARDS — Combustion: flat surface, hairline border,
+          tier-colored left rail (glassmorphism + lift removed). ── */
     .alt {{
-        background: rgba(255, 255, 255, 0.5);
-        backdrop-filter: blur(12px);
-        -webkit-backdrop-filter: blur(12px);
-        border: 1px solid rgba(255, 255, 255, 0.3);
+        background: var(--fp-surface);
+        border: 1px solid var(--fp-border);
         border-left: 4px solid {t["border"]};
         border-radius: 12px;
         padding: 12px 14px;
-        transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.3s ease;
+        box-shadow: 0 1px 3px rgba(24,26,32,.06);
+        transition: box-shadow 0.2s ease;
         cursor: default;
     }}
     .alt:hover {{
-        transform: translateY(-6px) scale(1.02);
-        box-shadow: 0 12px 32px rgba(0, 0, 0, 0.1);
+        transform: none;
+        box-shadow: 0 4px 14px rgba(24,26,32,.10);
     }}
     .alt .a-rank {{
         font-family: 'IBM Plex Mono', monospace;
@@ -1063,11 +1115,12 @@ def inject_custom_css():
         color: {t["tx2"]};
     }}
     .alt .a-name {{
-        font-family: var(--font-body);
+        font-family: var(--font-display);
+        font-weight: 800;
         font-size: 16px;
         color: {t["tx"]};
-        text-transform: uppercase;
-        letter-spacing: 1px;
+        text-transform: none;
+        letter-spacing: -0.005em;
         margin: 2px 0;
         word-break: break-word;
     }}
@@ -1135,10 +1188,8 @@ def inject_custom_css():
         gap: 6px;
     }}
     .roster-slot {{
-        background: rgba(255, 255, 255, 0.6);
-        backdrop-filter: blur(8px);
-        -webkit-backdrop-filter: blur(8px);
-        border: 1px solid rgba(255, 255, 255, 0.3);
+        background: var(--fp-surface);
+        border: 1px solid var(--fp-border);
         border-radius: 10px;
         padding: 6px 10px;
         text-align: center;
@@ -1146,10 +1197,12 @@ def inject_custom_css():
         display: flex;
         flex-direction: column;
         justify-content: center;
-        transition: transform 0.2s ease;
+        box-shadow: 0 1px 2px rgba(24,26,32,.05);
+        transition: box-shadow 0.2s ease;
     }}
     .roster-slot:hover {{
-        transform: translateY(-2px);
+        transform: none;
+        box-shadow: 0 4px 14px rgba(24,26,32,.10);
     }}
     .roster-slot.filled {{
         border-color: rgba(45, 106, 79, 0.3);
@@ -1211,45 +1264,51 @@ def inject_custom_css():
         color: {t["tx2"]};
     }}
 
-    /* ── DRAFT BOARD ─────────────────────────── */
+    /* ── DRAFT BOARD — Combustion scoreboard: Archivo headers + cells,
+          hairline dividers, orange-tint hover (glassmorphism removed). ── */
     .draft-board {{
         width: 100%;
         border-collapse: collapse;
-        font-family: 'Inter', sans-serif;
+        font-family: var(--font-display);
+        font-weight: 700;
         font-size: 11px;
+        font-variant-numeric: tabular-nums;
     }}
     .draft-board th {{
-        background: rgba(255, 255, 255, 0.8);
-        backdrop-filter: blur(8px);
-        color: {t["tx2"]};
-        font-family: var(--font-body);
+        background: var(--fp-surface);
+        color: #2c2f36;
+        font-family: var(--font-display);
+        font-weight: 800;
         font-size: 11px;
         text-transform: uppercase;
-        letter-spacing: 1.5px;
+        letter-spacing: .06em;
         padding: 10px 6px;
-        border-bottom: 2px solid {t["border"]};
+        border-bottom: 2px solid rgba(24,26,32,.18);
         position: sticky;
         top: 0;
         z-index: 10;
     }}
     .draft-board td {{
         padding: 6px;
-        border-bottom: 1px solid rgba(0, 0, 0, 0.04);
-        color: {t["tx2"]};
+        border-bottom: 1px solid rgba(24,26,32,.055);
+        color: {t["tx"]};
         max-width: 200px;
         overflow-wrap: anywhere;
         word-break: break-word;
     }}
     .draft-board tr:nth-child(even) {{
-        background: rgba(0, 0, 0, 0.015);
+        background: rgba(24,26,32,.015);
+    }}
+    .draft-board tr:hover td {{
+        background: rgba(255, 109, 0, 0.06);
     }}
     .draft-board .user-col {{
-        background: rgba(230, 57, 70, 0.04);
+        background: rgba(255, 109, 0, 0.05);
         border-left: 2px solid {t["primary"]};
         border-right: 2px solid {t["primary"]};
     }}
     .draft-board .user-col th {{
-        background: linear-gradient(135deg, {t["primary"]}, {t["hot"]});
+        background: linear-gradient(135deg, {t["primary"]}, {t["ember"]});
         color: {t["ink"]};
     }}
     .draft-board .current-pick {{
@@ -1261,20 +1320,19 @@ def inject_custom_css():
         font-weight: 600;
     }}
 
-    /* ── CATEGORY CARDS ──────────────────────── */
+    /* ── CATEGORY CARDS — Combustion: flat instrument tile. ── */
     .cat-card {{
-        background: rgba(255, 255, 255, 0.6);
-        backdrop-filter: blur(12px);
-        -webkit-backdrop-filter: blur(12px);
-        border: 1px solid rgba(255, 255, 255, 0.3);
+        background: var(--fp-surface);
+        border: 1px solid var(--fp-border);
         border-radius: 12px;
         padding: 12px 14px;
         text-align: center;
-        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.04);
-        transition: transform 0.3s ease;
+        box-shadow: 0 1px 3px rgba(24,26,32,.06);
+        transition: box-shadow 0.2s ease;
     }}
     .cat-card:hover {{
-        transform: translateY(-2px);
+        transform: none;
+        box-shadow: 0 4px 14px rgba(24,26,32,.10);
     }}
     .cat-name {{
         font-family: var(--font-body);
@@ -1291,35 +1349,37 @@ def inject_custom_css():
         margin-top: 2px;
     }}
 
-    /* ── ALERTS, FEED, WIZARD ────────────────── */
+    /* ── ALERTS, FEED, WIZARD — Combustion: flat surfaces, no blur. ── */
     .alert-card {{
-        background: rgba(255, 255, 255, 0.6);
-        backdrop-filter: blur(8px);
+        background: var(--fp-surface);
+        border: 1px solid var(--fp-border);
         border-left: 4px solid {t["warn"]};
         border-radius: 10px;
         padding: 10px 14px;
         margin-bottom: 8px;
         font-size: 13px;
         color: {t["tx"]};
-        box-shadow: 0 2px 12px rgba(0, 0, 0, 0.04);
+        box-shadow: 0 1px 3px rgba(24,26,32,.06);
     }}
     .alert-card.critical {{ border-left-color: {t["danger"]}; }}
 
     .feed-card {{
-        background: rgba(255, 255, 255, 0.5);
-        border: 1px solid rgba(255, 255, 255, 0.3);
+        background: var(--fp-surface);
+        border: 1px solid var(--fp-border);
         border-radius: 10px;
         padding: 10px 14px;
         margin-bottom: 6px;
         font-size: 13px;
-        transition: transform 0.2s ease;
+        box-shadow: 0 1px 2px rgba(24,26,32,.05);
+        transition: box-shadow 0.2s ease;
     }}
     .feed-card:hover {{
-        transform: translateX(4px);
+        transform: none;
+        box-shadow: 0 4px 14px rgba(24,26,32,.10);
     }}
     .feed-card.user-pick {{
         border-left: 3px solid {t["primary"]};
-        background: rgba(230, 57, 70, 0.04);
+        background: rgba(255, 109, 0, 0.06);
     }}
     .feed-pick-num {{
         font-family: 'IBM Plex Mono', monospace;
@@ -1348,22 +1408,22 @@ def inject_custom_css():
         align-items: center;
         gap: 8px;
         padding: 12px 24px;
-        font-family: var(--font-body);
+        font-family: var(--font-display);
+        font-weight: 700;
         font-size: 14px;
         text-transform: uppercase;
-        letter-spacing: 2px;
+        letter-spacing: .04em;
         color: {t["tx2"]};
-        background: rgba(255, 255, 255, 0.6);
-        backdrop-filter: blur(8px);
-        border: 1px solid rgba(255, 255, 255, 0.3);
+        background: var(--fp-surface);
+        border: 1px solid var(--fp-border);
     }}
     .wizard-step:first-child {{ border-radius: 12px 0 0 12px; }}
     .wizard-step:last-child {{ border-radius: 0 12px 12px 0; }}
     .wizard-step.active {{
-        background: linear-gradient(135deg, {t["primary"]}, {t["hot"]});
+        background: linear-gradient(135deg, {t["primary"]}, {t["ember"]});
         color: {t["ink"]};
         border-color: transparent;
-        box-shadow: 0 4px 16px rgba(230, 57, 70, 0.3);
+        box-shadow: 0 4px 16px rgba(255, 109, 0, 0.30);
     }}
     .wizard-step.done {{
         background: rgba(45, 106, 79, 0.1);
@@ -1393,20 +1453,20 @@ def inject_custom_css():
         100% {{ opacity: 0; transform: translateY(-10px); }}
     }}
 
-    /* ── VERDICT BANNER (Trade Analyzer) ────── */
+    /* ── VERDICT BANNER (Trade Analyzer) — Combustion: flat, no blur. ── */
     .verdict-banner {{
         border-radius: 12px;
         padding: 24px;
         margin: 16px 0;
         text-align: center;
-        backdrop-filter: blur(12px);
-        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
+        box-shadow: 0 1px 3px rgba(24,26,32,.06), 0 6px 20px rgba(24,26,32,.04);
     }}
     .verdict-banner .verdict-text {{
-        font-family: var(--font-body);
+        font-family: var(--font-display);
+        font-weight: 900;
         font-size: 32px;
         text-transform: uppercase;
-        letter-spacing: 4px;
+        letter-spacing: .02em;
     }}
     .verdict-banner .verdict-conf {{
         font-family: 'IBM Plex Mono', monospace;
@@ -1414,21 +1474,21 @@ def inject_custom_css():
         margin-top: 4px;
     }}
 
-    /* ── METRIC CARD (In-Season — 3D tilt) ─── */
+    /* ── METRIC CARD (In-Season) — Combustion: flat tile, no 3D tilt/blur.
+          (Background/border/shadow also set by the late FP flatten block.) ── */
     .metric-card {{
-        background: rgba(255, 255, 255, 0.7);
-        backdrop-filter: blur(16px);
-        -webkit-backdrop-filter: blur(16px);
-        border: 1px solid rgba(255, 255, 255, 0.4);
+        background: var(--fp-surface);
+        border: 1px solid var(--fp-border);
         border-radius: 12px;
         padding: 16px 18px;
         text-align: center;
-        box-shadow: 0 4px 24px rgba(0, 0, 0, 0.06);
-        transform: perspective(800px) rotateX(2deg);
-        transition: transform 0.4s ease;
+        box-shadow: 0 1px 3px rgba(24,26,32,.06);
+        transform: none;
+        transition: box-shadow 0.2s ease;
     }}
     .metric-card:hover {{
-        transform: perspective(800px) rotateX(0deg) translateY(-2px);
+        transform: none;
+        box-shadow: 0 4px 14px rgba(24,26,32,.10);
     }}
     .metric-card .metric-label {{
         font-family: var(--font-body);
@@ -1445,35 +1505,35 @@ def inject_custom_css():
         margin-top: 4px;
     }}
 
-    /* ── PLAYER CARD (for card-based selection) ─ */
+    /* ── PLAYER CARD (card-based selection) — Combustion: flat surface,
+          orange hover/selected accents (glassmorphism + lift removed). ── */
     .player-card {{
-        background: rgba(255, 255, 255, 0.6);
-        backdrop-filter: blur(12px);
-        -webkit-backdrop-filter: blur(12px);
-        border: 1px solid rgba(255, 255, 255, 0.3);
+        background: var(--fp-surface);
+        border: 1px solid var(--fp-border);
         border-radius: 14px;
         padding: 14px;
         text-align: center;
-        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
-        transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+        box-shadow: 0 1px 3px rgba(24,26,32,.06);
+        transition: box-shadow 0.2s ease, border-color 0.2s ease;
         cursor: pointer;
     }}
     .player-card:hover {{
-        transform: translateY(-6px) scale(1.03);
-        box-shadow: 0 12px 40px rgba(230, 57, 70, 0.12);
-        border-color: rgba(230, 57, 70, 0.3);
+        transform: none;
+        box-shadow: 0 4px 14px rgba(24,26,32,.10);
+        border-color: rgba(255, 109, 0, 0.35);
     }}
     .player-card.selected {{
         border: 2px solid {t["primary"]};
-        background: rgba(230, 57, 70, 0.06);
-        box-shadow: 0 4px 20px rgba(230, 57, 70, 0.15);
+        background: rgba(255, 109, 0, 0.06);
+        box-shadow: 0 4px 16px rgba(255, 109, 0, 0.15);
     }}
     .pc-name {{
-        font-family: var(--font-body);
+        font-family: var(--font-display);
+        font-weight: 800;
         font-size: 15px;
-        letter-spacing: 1px;
+        letter-spacing: -0.005em;
         color: {t["tx"]};
-        text-transform: uppercase;
+        text-transform: none;
     }}
     .pc-pos {{
         font-family: 'Inter', sans-serif;
@@ -1529,11 +1589,11 @@ def inject_custom_css():
         50% {{ background-position: 100% 50%; }}
     }}
     .page-title {{
-        font-family: var(--font-body) !important;
+        font-family: var(--font-display) !important;
         font-size: 26px !important;
-        letter-spacing: -0.01em !important;
+        letter-spacing: -0.015em !important;
         font-style: normal !important;
-        font-weight: 700 !important;
+        font-weight: 900 !important;
         text-align: center !important;
         margin-top: 8px !important;
         margin-bottom: 8px !important;
@@ -1542,8 +1602,8 @@ def inject_custom_css():
         display: inline-block !important;
         padding: 8px 28px !important;
         border-radius: 50px !important;
-        background: linear-gradient(135deg, #1a1a2e, #16213e) !important;
-        box-shadow: 0 3px 14px rgba(22,33,62,0.3), inset 0 1px 0 rgba(255,255,255,0.08) !important;
+        background: linear-gradient(135deg, var(--fp-navy), var(--fp-navy2)) !important;
+        box-shadow: 0 3px 14px rgba(16,33,58,0.3), inset 0 1px 0 rgba(255,255,255,0.08) !important;
         position: relative !important;
         color: #ffffff !important;
         -webkit-text-fill-color: #ffffff !important;
@@ -1594,21 +1654,21 @@ def inject_custom_css():
     }}
     .stButton > button[kind="primary"],
     .stButton > button[data-testid="stBaseButton-primary"] {{
-        background: linear-gradient(135deg, {t["primary"]}, {t["hot"]});
+        background: linear-gradient(135deg, {t["primary"]}, {t["ember"]});
         color: {t["ink"]};
         border: none;
-        transform: translateY(-2px);
-        box-shadow: 0 4px 0 #b71c1c, 0 6px 16px rgba(230, 57, 70, 0.3);
+        transform: none;
+        box-shadow: 0 4px 16px rgba(255, 109, 0, 0.30);
     }}
     .stButton > button[kind="primary"]:hover,
     .stButton > button[data-testid="stBaseButton-primary"]:hover {{
-        transform: translateY(-3px);
-        box-shadow: 0 6px 0 #b71c1c, 0 8px 24px rgba(230, 57, 70, 0.4);
+        transform: none;
+        box-shadow: 0 6px 22px rgba(255, 109, 0, 0.42);
     }}
     .stButton > button[kind="primary"]:active,
     .stButton > button[data-testid="stBaseButton-primary"]:active {{
-        transform: translateY(0) scale(0.98);
-        box-shadow: 0 1px 0 #b71c1c, 0 2px 4px rgba(0, 0, 0, 0.1);
+        transform: scale(0.99);
+        box-shadow: 0 2px 8px rgba(255, 109, 0, 0.30);
         transition: all 0.08s ease;
     }}
     /* Inputs */
@@ -1624,7 +1684,7 @@ def inject_custom_css():
     div[data-testid="stTextInput"] input:focus,
     div[data-testid="stNumberInput"] input:focus {{
         border-color: {t["primary"]} !important;
-        box-shadow: 0 0 0 3px rgba(230, 57, 70, 0.1) !important;
+        box-shadow: 0 0 0 3px rgba(255, 109, 0, 0.12) !important;
     }}
     div[data-testid="stSelectbox"] > div {{
         background: rgba(255, 255, 255, 0.7) !important;
@@ -1653,9 +1713,9 @@ def inject_custom_css():
         transition: all 0.2s ease;
     }}
     .stTabs [aria-selected="true"] {{
-        background: linear-gradient(135deg, {t["primary"]}, {t["hot"]}) !important;
+        background: linear-gradient(135deg, {t["primary"]}, {t["ember"]}) !important;
         color: {t["ink"]} !important;
-        box-shadow: 0 2px 8px rgba(230, 57, 70, 0.3);
+        box-shadow: 0 2px 8px rgba(255, 109, 0, 0.30);
     }}
 
     /* File uploader */
@@ -1670,13 +1730,14 @@ def inject_custom_css():
         border-color: {t["primary"]};
     }}
 
-    /* DataFrames — contrasting background + bold headers */
+    /* DataFrames — Combustion scoreboard frame: hairline border, soft shadow,
+       white surface (was a tan-bordered cream panel). */
     div[data-testid="stDataFrame"] {{
-        border: 2px solid #d4c5b0 !important;
+        border: 1px solid var(--fp-border) !important;
         border-radius: 12px !important;
         overflow: hidden;
-        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.06), 0 0 0 1px rgba(0,0,0,0.03) !important;
-        background: #faf8f5 !important;
+        box-shadow: 0 1px 3px rgba(24,26,32,.06), 0 6px 20px rgba(24,26,32,.04) !important;
+        background: var(--fp-surface) !important;
     }}
     /* Glide Data Grid canvas theming via CSS custom properties (belt-and-suspenders) */
     div[data-testid="stDataFrame"] [data-testid="glideDataEditor"],
@@ -1685,15 +1746,17 @@ def inject_custom_css():
         --gdg-bg-header: #ffffff !important;
         --gdg-bg-header-has-focus: #f6f7f9 !important;
         --gdg-bg-header-hovered: #eef0f3 !important;
-        --gdg-text-header: #8a929c !important;
+        --gdg-text-header: #2c2f36 !important;
         --gdg-bg-cell: #ffffff !important;
         --gdg-bg-cell-medium: #f6f7f9 !important;
-        --gdg-text-dark: #1d1d1f !important;
-        --gdg-border-color: #e6e8ec !important;
-        --gdg-header-font-style: 600 13px Inter, sans-serif !important;
+        --gdg-text-dark: #1b1c20 !important;
+        --gdg-border-color: rgba(24,26,32,.10) !important;
+        --gdg-font-family: Archivo, system-ui, sans-serif !important;
+        --gdg-header-font-style: 800 12px Archivo, sans-serif !important;
+        --gdg-base-font-style: 700 13px Archivo, sans-serif !important;
     }}
     div[data-testid="stDataFrame"] [data-testid="glideDataEditor"] {{
-        background: #faf8f5 !important;
+        background: var(--fp-surface) !important;
     }}
 
     /* Override navy secondaryBackgroundColor on non-dataframe elements */
@@ -1727,9 +1790,9 @@ def inject_custom_css():
     [data-testid="stBottomBlockContainer"] {{
         background: {t["bg"]} !important;
     }}
-    /* Multiselect tags/pills — override navy bg */
+    /* Multiselect tags/pills — override navy bg (Combustion orange tint) */
     [data-baseweb="tag"] {{
-        background: rgba(230, 57, 70, 0.1) !important;
+        background: rgba(255, 109, 0, 0.10) !important;
         color: {t["primary"]} !important;
     }}
     /* Select/dropdown menus */
@@ -1752,7 +1815,7 @@ def inject_custom_css():
     .stProgress > div > div > div {{
         background: linear-gradient(90deg, {t["primary"]}, {t["hot"]}) !important;
     }}
-    /* Left accent border for visual anchor */
+    /* Left accent border for visual anchor — Combustion orange. */
     div[data-testid="stDataFrame"]::before {{
         content: '';
         position: absolute;
@@ -1760,7 +1823,7 @@ def inject_custom_css():
         top: 0;
         bottom: 0;
         width: 4px;
-        background: linear-gradient(180deg, #e65c00, #cc5200);
+        background: linear-gradient(180deg, var(--fp-primary), var(--fp-ember));
         border-radius: 12px 0 0 12px;
         z-index: 1;
     }}
@@ -1768,34 +1831,35 @@ def inject_custom_css():
         position: relative;
     }}
 
-    /* Styled HTML tables (render_styled_table helper) */
+    /* Styled HTML tables (render_styled_table helper) — Combustion scoreboard:
+       hairline frame, orange left rail, Archivo headers + cells, tabular nums. */
     .heater-table-wrap {{
-        border: 2px solid #d4c5b0;
+        border: 1px solid var(--fp-border);
         border-radius: 12px;
         overflow: hidden;
-        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.06), 0 0 0 1px rgba(0,0,0,0.03);
-        background: #faf8f5;
+        box-shadow: 0 1px 3px rgba(24,26,32,.06), 0 6px 20px rgba(24,26,32,.04);
+        background: var(--fp-surface);
         position: relative;
-        border-left: 4px solid #e65c00;
+        border-left: 4px solid var(--fp-primary);
     }}
     .heater-table {{
         width: 100%;
         border-collapse: collapse;
-        font-family: 'Inter', sans-serif;
+        font-family: var(--font-display);
         font-size: 13px;
         color: {t["tx"]};
     }}
     .heater-table thead th {{
         background: var(--fp-surface) !important;
-        color: var(--fp-tx-subtle) !important;
-        font-weight: 600 !important;
-        font-family: var(--font-body) !important;
-        font-size: 12px !important;
-        letter-spacing: 0;
-        text-transform: none;
+        color: #2c2f36 !important;
+        font-weight: 800 !important;
+        font-family: var(--font-display) !important;
+        font-size: 11px !important;
+        letter-spacing: .06em !important;
+        text-transform: uppercase !important;
         padding: 10px 12px !important;
         border: none !important;
-        border-bottom: 1px solid var(--fp-divider) !important;
+        border-bottom: 2px solid rgba(24,26,32,.18) !important;
         text-align: left;
         white-space: nowrap;
         position: sticky;
@@ -1810,29 +1874,31 @@ def inject_custom_css():
     }}
     .heater-table tbody td {{
         padding: 8px 12px !important;
-        border-bottom: 1px solid var(--fp-divider) !important;
+        border-bottom: 1px solid rgba(24,26,32,.055) !important;
         border-top: none !important;
         border-left: none !important;
         border-right: none !important;
         background: var(--fp-surface) !important;
-        font-family: var(--font-body);
-        font-size: 13px !important;
+        font-family: var(--font-display);
+        font-weight: 700;
+        font-size: 13.5px !important;
+        font-variant-numeric: tabular-nums !important;
         color: {t["tx"]};
     }}
     .heater-table tbody td:first-child {{
         white-space: nowrap !important;
-        font-weight: 600 !important;
+        font-weight: 700 !important;
     }}
     .heater-table tbody tr:hover td {{
-        background: #fafbfc !important;
+        background: rgba(255, 109, 0, 0.06) !important;
     }}
     .heater-table tbody tr:last-child td {{
         border-bottom: none !important;
     }}
 
-    /* ── FP SIDEBAR RAIL (revamp task 6): thin dark navy icon rail ── */
+    /* ── FP SIDEBAR RAIL (Combustion): thin deep-navy gradient icon rail ── */
     .stSidebar {{
-        background: var(--fp-sidebar-bg) !important;
+        background: linear-gradient(180deg, var(--fp-navy), var(--fp-navy2)) !important;
         border-right: none !important;
     }}
     /* Thin rail WIDTH only on desktop. On phones Streamlit renders the sidebar
@@ -1845,7 +1911,7 @@ def inject_custom_css():
         }}
     }}
     .stSidebar [data-testid="stSidebarContent"] {{
-        background: var(--fp-sidebar-bg) !important;
+        background: transparent !important;
     }}
     .stSidebar, .stSidebar * {{
         color: var(--fp-sidebar-ink) !important;
@@ -1899,13 +1965,18 @@ def inject_custom_css():
         background: rgba(255,255,255,0.07) !important;
     }}
     .stSidebar [data-testid="stSidebarNav"] li a[aria-current="page"] {{
-        background: rgba(230,57,70,0.16) !important;
-        box-shadow: inset 3px 0 0 {t["primary"]} !important;
+        background: rgba(255,109,0,0.14) !important;
+        box-shadow: inset 2px 0 0 {t["primary"]} !important;
         border-radius: 8px !important;
     }}
     .stSidebar [data-testid="stSidebarNav"] li a[aria-current="page"] span {{
-        color: #ffffff !important;
+        color: {t["primary"]} !important;
         font-weight: 700 !important;
+    }}
+    /* Active nav icon glows orange (mockup .navitem.active svg). */
+    .stSidebar [data-testid="stSidebarNav"] li a[aria-current="page"] .nav-icon svg {{
+        stroke: {t["primary"]} !important;
+        fill: none !important;
     }}
     .stSidebar [data-testid="stSidebarNav"] li a .nav-icon {{
         flex-shrink: 0;
@@ -1932,12 +2003,12 @@ def inject_custom_css():
         stroke: #ffffff !important;
     }}
 
-    /* Expanders */
+    /* Expanders — Combustion: flat surface, no blur. */
     div[data-testid="stExpander"] {{
-        background: rgba(255, 255, 255, 0.6) !important;
+        background: var(--fp-surface) !important;
         border: 1px solid {t["border"]} !important;
         border-radius: 14px !important;
-        backdrop-filter: blur(8px);
+        box-shadow: 0 1px 3px rgba(24,26,32,.06) !important;
     }}
     div[data-testid="stExpander"] summary {{
         color: {t["tx"]} !important;
@@ -1989,13 +2060,15 @@ def inject_custom_css():
         border-radius: 12px !important;
     }}
 
-    /* Bold ALL titles — subheaders, headers, markdown bold */
+    /* Bold ALL titles — subheaders, headers, markdown bold.
+       Combustion: Archivo display so headings read as instrument labels. */
     .stMarkdown h1, .stMarkdown h2, .stMarkdown h3,
     h1, h2, h3,
     [data-testid="stSubheader"],
     .stSubheader {{
-        font-weight: 700 !important;
-        font-family: 'Inter', sans-serif !important;
+        font-weight: 800 !important;
+        font-family: var(--font-display) !important;
+        letter-spacing: -0.01em !important;
         color: {t["tx"]} !important;
     }}
     .stMarkdown h1, h1 {{ font-size: 24px !important; }}
@@ -2035,17 +2108,15 @@ def inject_custom_css():
         cursor: help;
     }}
 
-    /* ── RECOMMENDATION BANNER ────────────────── */
+    /* ── RECOMMENDATION BANNER — Combustion: flat surface, orange left rail. ── */
     .reco-banner {{
-        background: rgba(255, 255, 255, 0.7) !important;
-        backdrop-filter: blur(16px) saturate(150%) !important;
-        -webkit-backdrop-filter: blur(16px) saturate(150%) !important;
-        border: 1px solid rgba(255, 255, 255, 0.4) !important;
-        border-left: 4px solid {t["hot"]} !important;
+        background: var(--fp-surface) !important;
+        border: 1px solid var(--fp-border) !important;
+        border-left: 4px solid var(--fp-primary) !important;
         border-radius: 12px !important;
         padding: 10px 16px !important;
         margin-bottom: 12px !important;
-        box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06) !important;
+        box-shadow: 0 1px 3px rgba(24,26,32,.06) !important;
     }}
     .reco-banner-teaser {{
         font-family: 'Inter', sans-serif !important;
@@ -2066,13 +2137,11 @@ def inject_custom_css():
         animation: slideUp 0.3s ease-out !important;
     }}
 
-    /* ── MATCHUP TICKER ──────────────────────── */
+    /* ── MATCHUP TICKER — Combustion: flat surface, orange left rail. ── */
     .matchup-ticker {{
-        background: linear-gradient(135deg, rgba(255,255,255,0.75), rgba(255,255,255,0.55)) !important;
-        backdrop-filter: blur(16px) saturate(160%) !important;
-        -webkit-backdrop-filter: blur(16px) saturate(160%) !important;
-        border: 1px solid rgba(255,255,255,0.4) !important;
-        border-left: 3px solid {t["hot"]} !important;
+        background: var(--fp-surface) !important;
+        border: 1px solid var(--fp-border) !important;
+        border-left: 3px solid var(--fp-primary) !important;
         border-radius: 10px !important;
         padding: 8px 14px !important;
         margin: 4px 0 12px !important;
@@ -2082,7 +2151,7 @@ def inject_custom_css():
         font-family: 'Inter', sans-serif !important;
         font-size: 13px !important;
         color: {t["tx"]} !important;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.05) !important;
+        box-shadow: 0 1px 3px rgba(24,26,32,.06) !important;
         flex-wrap: wrap !important;
     }}
     .matchup-ticker-week {{
@@ -2135,16 +2204,14 @@ def inject_custom_css():
         }}
     }}
 
-    /* ── CONTEXT CARD (sidebar panels) ────────── */
+    /* ── CONTEXT CARD (sidebar panels) — Combustion: flat surface, no blur. ── */
     .context-card {{
-        background: rgba(255, 255, 255, 0.6) !important;
-        backdrop-filter: blur(12px) saturate(140%) !important;
-        -webkit-backdrop-filter: blur(12px) saturate(140%) !important;
-        border: 1px solid rgba(255, 255, 255, 0.3) !important;
+        background: var(--fp-surface) !important;
+        border: 1px solid var(--fp-border) !important;
         border-radius: 10px !important;
         padding: 12px 14px !important;
         margin-bottom: 8px !important;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05) !important;
+        box-shadow: 0 1px 3px rgba(24,26,32,.06) !important;
     }}
     .context-card-title {{
         font-family: var(--font-body) !important;
@@ -2190,7 +2257,8 @@ def inject_custom_css():
         margin-bottom: 12px !important;
     }}
     .compact-table {{
-        font-family: 'IBM Plex Mono', monospace !important;
+        font-family: var(--font-display) !important;
+        font-weight: 700 !important;
         font-size: 13px !important;
         border-collapse: collapse !important;
         white-space: nowrap !important;
@@ -2199,30 +2267,33 @@ def inject_custom_css():
     }}
     .compact-table th {{
         background: var(--fp-surface) !important;
-        color: var(--fp-tx-subtle) !important;
-        font-family: var(--font-body) !important;
-        font-weight: 600 !important;
+        color: #2c2f36 !important;
+        font-family: var(--font-display) !important;
+        font-weight: 800 !important;
         font-size: 11px !important;
-        text-transform: none !important;
-        letter-spacing: 0 !important;
+        text-transform: uppercase !important;
+        letter-spacing: .06em !important;
         padding: 8px 10px !important;
         position: sticky !important;
         top: 0 !important;
         z-index: 2 !important;
-        border-bottom: 1px solid var(--fp-divider) !important;
+        border-bottom: 2px solid rgba(24,26,32,.18) !important;
     }}
     .compact-table td {{
         padding: 7px 10px !important;
-        border-bottom: 1px solid var(--fp-divider) !important;
-        font-size: 13px !important;
+        border-bottom: 1px solid rgba(24,26,32,.055) !important;
+        font-family: var(--font-display) !important;
+        font-weight: 700 !important;
+        font-size: 13.5px !important;
         font-variant-numeric: tabular-nums !important;
         background: var(--fp-surface) !important;
+        color: {t["tx"]} !important;
     }}
     .compact-table tr:hover td {{
-        background: #fafbfc !important;
+        background: rgba(255, 109, 0, 0.06) !important;
     }}
     .th-hit {{
-        border-bottom: 3px solid {t["hot"]} !important;
+        border-bottom: 3px solid {t["primary"]} !important;
     }}
     .th-pit {{
         border-bottom: 3px solid {t["sky"]} !important;
@@ -2263,10 +2334,10 @@ def inject_custom_css():
         background: #f7fbf9 !important;
     }}
     .row-bench td {{
-        background: rgba(230, 57, 70, 0.04) !important;
+        background: rgba(95, 125, 156, 0.05) !important;
     }}
     .row-bench td.col-name {{
-        background: #fdf7f7 !important;
+        background: #f6f8fa !important;
     }}
     .health-dot {{
         display: inline-block !important;
@@ -2395,7 +2466,8 @@ def inject_custom_css():
         transform: none !important;
         box-shadow: 0 4px 14px rgba(16,33,58,.10) !important;
     }}
-    /* Buttons: flat, rounded, solid red primary / white-outline secondary */
+    /* Buttons (Combustion): flat white-outline base; solid-orange gradient
+       primary with a subtle orange glow. Matches mockup .btn / .btn.primary. */
     .stButton > button {{
         border-radius: var(--fp-radius-sm) !important;
         font-weight: 600 !important;
@@ -2403,31 +2475,32 @@ def inject_custom_css():
         border: 1px solid var(--fp-border) !important;
         background: var(--fp-surface) !important;
         color: var(--fp-tx) !important;
-        box-shadow: none !important;
+        box-shadow: 0 1px 2px rgba(24,26,32,.05) !important;
         transform: none !important;
-        transition: background .15s ease, border-color .15s ease, color .15s ease !important;
+        transition: background .15s ease, border-color .15s ease, color .15s ease, box-shadow .15s ease !important;
     }}
     .stButton > button:hover {{
         border-color: var(--fp-primary) !important;
         color: var(--fp-primary) !important;
         transform: none !important;
-        box-shadow: none !important;
+        box-shadow: 0 1px 2px rgba(24,26,32,.05) !important;
     }}
     .stButton > button[kind="primary"],
     .stButton > button[data-testid="stBaseButton-primary"] {{
-        background: var(--fp-primary) !important;
+        background: linear-gradient(135deg, var(--fp-primary), var(--fp-ember)) !important;
         color: var(--fp-ink) !important;
-        border-color: var(--fp-primary) !important;
-        box-shadow: none !important;
+        font-weight: 700 !important;
+        border-color: transparent !important;
+        box-shadow: 0 4px 16px rgba(255,109,0,.30) !important;
         transform: none !important;
     }}
     .stButton > button[kind="primary"]:hover,
     .stButton > button[data-testid="stBaseButton-primary"]:hover {{
-        background: #cf2f3c !important;
-        border-color: #cf2f3c !important;
+        background: linear-gradient(135deg, var(--fp-flame), var(--fp-primary)) !important;
+        border-color: transparent !important;
         color: var(--fp-ink) !important;
         transform: none !important;
-        box-shadow: none !important;
+        box-shadow: 0 6px 22px rgba(255,109,0,.42) !important;
     }}
     /* Tabs: FP underline strip (no glass pill) */
     .stTabs [data-baseweb="tab-list"] {{
@@ -3485,12 +3558,13 @@ def _render_player_card_header(profile: dict) -> None:
 
     st.markdown(
         f'<div style="display:flex;align-items:center;gap:16px;padding:12px 16px;'
-        f"background:rgba(255,255,255,0.6);backdrop-filter:blur(12px);"
-        f"border:1px solid rgba(255,255,255,0.3);border-left:4px solid {t['hot']};"
+        f"background:{t['surface']};"
+        f"border:1px solid {t['border']};border-left:4px solid {t['primary']};"
+        f"box-shadow:0 1px 3px rgba(24,26,32,.06);"
         f'border-radius:12px;margin-bottom:12px;">'
         f"{img_html}"
         f'<div style="flex:1;">'
-        f'<div style="font-family:Archivo,sans-serif;font-size:24px;letter-spacing:2px;'
+        f'<div style="font-family:Archivo,sans-serif;font-weight:900;font-size:24px;letter-spacing:-0.01em;'
         f'color:{t["tx"]};line-height:1.2;">{name}</div>'
         f'<div style="font-family:Inter,sans-serif;font-size:13px;color:{t["tx2"]};'
         f'margin-top:2px;">{bio_line}</div>'
