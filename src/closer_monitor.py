@@ -63,16 +63,24 @@ def compute_job_security(
 def get_security_color(security: float) -> str:
     """Return color hex based on job security level.
 
-    >= 0.7 -> green (#2d6a4f)
-    >= 0.4 -> yellow (#ff9f1c)
-    <  0.4 -> red (#e63946)
+    Combustion redesign (2026-06-08): re-pointed off the old hardcoded palette
+    to THEME tokens. Low job security is a genuine functional-negative (the
+    closer is at risk of losing the role), so it maps to THEME["danger"]
+    (ember-red) — NOT the orange brand color, which the redesign reserves for
+    positive/brand chrome.
+
+    >= 0.7 -> green  (THEME["green"])
+    >= 0.4 -> yellow (THEME["warn"])
+    <  0.4 -> danger (THEME["danger"])
     """
+    from src.ui_shared import THEME
+
     if security >= 0.7:
-        return "#2d6a4f"
+        return THEME["green"]
     elif security >= 0.4:
-        return "#ff9f1c"
+        return THEME["warn"]
     else:
-        return "#e63946"
+        return THEME["danger"]
 
 
 def compute_skill_decay(

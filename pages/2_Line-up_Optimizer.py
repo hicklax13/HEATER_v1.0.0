@@ -385,7 +385,7 @@ if IP_TRACKER_AVAILABLE and not roster.empty:
                 )
         if _pitcher_data:
             _ip_result = compute_weekly_ip_projection(_pitcher_data, get_days_remaining_in_week())
-            _ip_color_map = {"safe": "#2d6a4f", "warning": "#ff9f1c", "danger": "#e63946"}
+            _ip_color_map = {"safe": T["green"], "warning": T["warn"], "danger": T["danger"]}
             _ip_color = _ip_color_map.get(_ip_result["status"], T["tx2"])
             # Use pre-formatted display string so header and status message
             # don't disagree at rounding boundaries (e.g. 39.5 vs 39.6).
@@ -409,7 +409,7 @@ if IP_TRACKER_AVAILABLE and not roster.empty:
             _post_lp_line = ""
             if _post_lp_weekly and _post_lp_ip_value is not None and _post_lp_ip_value > 0:
                 _post_pct = (100.0 * _post_lp_ip_value / _target) if _target else 0.0
-                _post_color = "#2d6a4f" if _post_pct >= 100 else ("#ff9f1c" if _post_pct >= 75 else "#e63946")
+                _post_color = T["green"] if _post_pct >= 100 else (T["warn"] if _post_pct >= 75 else T["danger"])
                 _post_lp_line = (
                     f'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">'
                     f'<span style="font-size:11px;color:{T["tx2"]};">Post-LP Starters</span>'

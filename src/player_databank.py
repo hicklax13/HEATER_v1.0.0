@@ -1004,23 +1004,31 @@ def render_databank_table(
     # ── CSS ──────────────────────────────────────────────────────────────────
     css = f"""
 <style>
+/* Combustion redesign (2026-06-08): scoreboard look — Archivo display family,
+   Archivo-800 uppercase headers, bold tabular-figure data cells. Matches the
+   global Glide-Data-Grid scoreboard theme in src/ui_shared.inject_custom_css. */
 .hdb-table-wrap {{
     overflow-x: auto;
-    border-radius: 8px;
-    box-shadow: 0 1px 4px rgba(0,0,0,0.10);
+    border-radius: var(--fp-radius-sm, 8px);
+    box-shadow: var(--fp-shadow, 0 1px 3px rgba(16,33,58,.08));
+    border: 1px solid var(--fp-border);
     background: {T["card"]};
 }}
 .hdb-table {{
     width: 100%;
     border-collapse: collapse;
-    font-family: Figtree, -apple-system, BlinkMacSystemFont, sans-serif;
+    font-family: var(--font-display), system-ui, sans-serif;
     font-size: 13px;
+    color: {T["tx"]};
 }}
 .hdb-table thead th {{
     background: #ffffff;
-    color: #8a929c;
-    font-weight: 600;
-    border-bottom: 1px solid #eef0f3;
+    color: #2c2f36;
+    font-weight: 800;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    border-bottom: 1px solid var(--fp-border);
     padding: 8px 10px;
     position: sticky;
     top: 0;
@@ -1030,7 +1038,7 @@ def render_databank_table(
     user-select: none;
 }}
 .hdb-table thead th:hover {{
-    background: #fafbfc;
+    background: #eef0f3;
 }}
 .sort-arrow {{
     font-size: 10px;
@@ -1039,42 +1047,45 @@ def render_databank_table(
 }}
 .hdb-table thead th.sorted .sort-arrow {{
     opacity: 1.0;
-    color: #ff6d00;
+    color: var(--fp-primary);
 }}
 .hdb-table .stat-group {{
     background: #f6f7f9;
-    color: #5b6470;
+    color: {T["tx2"]};
     text-align: center;
     font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 0.04em;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
     padding: 4px 8px;
-    border-bottom: 1px solid #eef0f3;
+    border-bottom: 1px solid var(--fp-border);
 }}
 .hdb-table tbody tr {{
-    border-bottom: 1px solid #e5e7eb;
+    border-bottom: 1px solid var(--fp-divider);
 }}
 .hdb-table tbody tr:nth-child(even) {{
-    background: #fafaf8;
+    background: #f6f7f9;
 }}
 .hdb-table tbody tr:hover {{
-    background: #fafbfc !important;
+    background: #eef0f3 !important;
 }}
 .hdb-table td {{
     padding: 8px 10px;
     white-space: nowrap;
+    font-weight: 700;
 }}
 .hdb-table .player-name {{
-    font-weight: 600;
-    color: {T["sky"]};
+    font-weight: 800;
+    color: {T["tx"]};
     min-width: 160px;
 }}
 .hdb-table .stat-cell {{
     text-align: right;
     font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1;
 }}
 .hdb-table .rate-stat {{
-    font-weight: 600;
+    font-weight: 800;
 }}
 </style>
 """

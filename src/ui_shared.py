@@ -48,24 +48,24 @@ PAGE_ICONS = {
         '<ellipse cx="39" cy="50" rx="12" ry="2" fill="#00000010"/>'
         "<!-- classic V-stitching left arc -->"
         '<path d="M29 16 C24 22 22 27 23 32 C22 37 24 42 29 48" '
-        'fill="none" stroke="#e63946" stroke-width="1.6" stroke-linecap="round"/>'
+        'fill="none" stroke="#ff6d00" stroke-width="1.6" stroke-linecap="round"/>'
         "<!-- classic V-stitching right arc -->"
         '<path d="M47 16 C52 22 54 27 53 32 C54 37 52 42 47 48" '
-        'fill="none" stroke="#e63946" stroke-width="1.6" stroke-linecap="round"/>'
+        'fill="none" stroke="#ff6d00" stroke-width="1.6" stroke-linecap="round"/>'
         "<!-- stitch tick marks left -->"
-        '<line x1="27" y1="19" x2="30" y2="20" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
-        '<line x1="25" y1="23" x2="28" y2="23.5" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
-        '<line x1="24" y1="27.5" x2="27" y2="27.5" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
-        '<line x1="24" y1="36.5" x2="27" y2="36.5" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
-        '<line x1="25" y1="41" x2="28" y2="40.5" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
-        '<line x1="27" y1="45" x2="30" y2="44" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
+        '<line x1="27" y1="19" x2="30" y2="20" stroke="#ff6d00" stroke-width="1" stroke-linecap="round"/>'
+        '<line x1="25" y1="23" x2="28" y2="23.5" stroke="#ff6d00" stroke-width="1" stroke-linecap="round"/>'
+        '<line x1="24" y1="27.5" x2="27" y2="27.5" stroke="#ff6d00" stroke-width="1" stroke-linecap="round"/>'
+        '<line x1="24" y1="36.5" x2="27" y2="36.5" stroke="#ff6d00" stroke-width="1" stroke-linecap="round"/>'
+        '<line x1="25" y1="41" x2="28" y2="40.5" stroke="#ff6d00" stroke-width="1" stroke-linecap="round"/>'
+        '<line x1="27" y1="45" x2="30" y2="44" stroke="#ff6d00" stroke-width="1" stroke-linecap="round"/>'
         "<!-- stitch tick marks right -->"
-        '<line x1="49" y1="19" x2="46" y2="20" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
-        '<line x1="51" y1="23" x2="48" y2="23.5" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
-        '<line x1="52" y1="27.5" x2="49" y2="27.5" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
-        '<line x1="52" y1="36.5" x2="49" y2="36.5" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
-        '<line x1="51" y1="41" x2="48" y2="40.5" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
-        '<line x1="49" y1="45" x2="46" y2="44" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
+        '<line x1="49" y1="19" x2="46" y2="20" stroke="#ff6d00" stroke-width="1" stroke-linecap="round"/>'
+        '<line x1="51" y1="23" x2="48" y2="23.5" stroke="#ff6d00" stroke-width="1" stroke-linecap="round"/>'
+        '<line x1="52" y1="27.5" x2="49" y2="27.5" stroke="#ff6d00" stroke-width="1" stroke-linecap="round"/>'
+        '<line x1="52" y1="36.5" x2="49" y2="36.5" stroke="#ff6d00" stroke-width="1" stroke-linecap="round"/>'
+        '<line x1="51" y1="41" x2="48" y2="40.5" stroke="#ff6d00" stroke-width="1" stroke-linecap="round"/>'
+        '<line x1="49" y1="45" x2="46" y2="44" stroke="#ff6d00" stroke-width="1" stroke-linecap="round"/>'
         "<!-- heat glow ring -->"
         '<circle cx="38" cy="32" r="21" fill="none" stroke="#ff6d00" stroke-width="1.2" opacity="0.25"/>'
         "</svg>"
@@ -91,21 +91,21 @@ PAGE_ICONS = {
         '<circle cx="38" cy="32" r="18" fill="none" stroke="#c8b8a8" stroke-width="0.8"/>'
         '<ellipse cx="39" cy="50" rx="12" ry="2" fill="#00000010"/>'
         '<path d="M29 16 C24 22 22 27 23 32 C22 37 24 42 29 48" '
-        'fill="none" stroke="#e63946" stroke-width="1.6" stroke-linecap="round"/>'
+        'fill="none" stroke="#ff6d00" stroke-width="1.6" stroke-linecap="round"/>'
         '<path d="M47 16 C52 22 54 27 53 32 C54 37 52 42 47 48" '
-        'fill="none" stroke="#e63946" stroke-width="1.6" stroke-linecap="round"/>'
-        '<line x1="27" y1="19" x2="30" y2="20" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
-        '<line x1="25" y1="23" x2="28" y2="23.5" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
-        '<line x1="24" y1="27.5" x2="27" y2="27.5" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
-        '<line x1="24" y1="36.5" x2="27" y2="36.5" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
-        '<line x1="25" y1="41" x2="28" y2="40.5" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
-        '<line x1="27" y1="45" x2="30" y2="44" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
-        '<line x1="49" y1="19" x2="46" y2="20" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
-        '<line x1="51" y1="23" x2="48" y2="23.5" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
-        '<line x1="52" y1="27.5" x2="49" y2="27.5" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
-        '<line x1="52" y1="36.5" x2="49" y2="36.5" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
-        '<line x1="51" y1="41" x2="48" y2="40.5" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
-        '<line x1="49" y1="45" x2="46" y2="44" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
+        'fill="none" stroke="#ff6d00" stroke-width="1.6" stroke-linecap="round"/>'
+        '<line x1="27" y1="19" x2="30" y2="20" stroke="#ff6d00" stroke-width="1" stroke-linecap="round"/>'
+        '<line x1="25" y1="23" x2="28" y2="23.5" stroke="#ff6d00" stroke-width="1" stroke-linecap="round"/>'
+        '<line x1="24" y1="27.5" x2="27" y2="27.5" stroke="#ff6d00" stroke-width="1" stroke-linecap="round"/>'
+        '<line x1="24" y1="36.5" x2="27" y2="36.5" stroke="#ff6d00" stroke-width="1" stroke-linecap="round"/>'
+        '<line x1="25" y1="41" x2="28" y2="40.5" stroke="#ff6d00" stroke-width="1" stroke-linecap="round"/>'
+        '<line x1="27" y1="45" x2="30" y2="44" stroke="#ff6d00" stroke-width="1" stroke-linecap="round"/>'
+        '<line x1="49" y1="19" x2="46" y2="20" stroke="#ff6d00" stroke-width="1" stroke-linecap="round"/>'
+        '<line x1="51" y1="23" x2="48" y2="23.5" stroke="#ff6d00" stroke-width="1" stroke-linecap="round"/>'
+        '<line x1="52" y1="27.5" x2="49" y2="27.5" stroke="#ff6d00" stroke-width="1" stroke-linecap="round"/>'
+        '<line x1="52" y1="36.5" x2="49" y2="36.5" stroke="#ff6d00" stroke-width="1" stroke-linecap="round"/>'
+        '<line x1="51" y1="41" x2="48" y2="40.5" stroke="#ff6d00" stroke-width="1" stroke-linecap="round"/>'
+        '<line x1="49" y1="45" x2="46" y2="44" stroke="#ff6d00" stroke-width="1" stroke-linecap="round"/>'
         '<circle cx="38" cy="32" r="21" fill="none" stroke="#ff6d00" stroke-width="1.2" opacity="0.25"/>'
         "</svg>"
     ),
@@ -2634,20 +2634,20 @@ def inject_custom_css():
                     + '<circle cx="38" cy="32" r="18" fill="url(#sbl)"/>'
                     + '<circle cx="38" cy="32" r="18" fill="none" stroke="rgba(255,255,255,0.4)" stroke-width="0.8"/>'
                     + '<ellipse cx="39" cy="50" rx="12" ry="2" fill="rgba(0,0,0,0.1)"/>'
-                    + '<path d="M29 16 C24 22 22 27 23 32 C22 37 24 42 29 48" fill="none" stroke="#e63946" stroke-width="1.6" stroke-linecap="round"/>'
-                    + '<path d="M47 16 C52 22 54 27 53 32 C54 37 52 42 47 48" fill="none" stroke="#e63946" stroke-width="1.6" stroke-linecap="round"/>'
-                    + '<line x1="27" y1="19" x2="30" y2="20" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
-                    + '<line x1="25" y1="23" x2="28" y2="23.5" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
-                    + '<line x1="24" y1="27.5" x2="27" y2="27.5" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
-                    + '<line x1="24" y1="36.5" x2="27" y2="36.5" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
-                    + '<line x1="25" y1="41" x2="28" y2="40.5" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
-                    + '<line x1="27" y1="45" x2="30" y2="44" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
-                    + '<line x1="49" y1="19" x2="46" y2="20" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
-                    + '<line x1="51" y1="23" x2="48" y2="23.5" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
-                    + '<line x1="52" y1="27.5" x2="49" y2="27.5" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
-                    + '<line x1="52" y1="36.5" x2="49" y2="36.5" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
-                    + '<line x1="51" y1="41" x2="48" y2="40.5" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
-                    + '<line x1="49" y1="45" x2="46" y2="44" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
+                    + '<path d="M29 16 C24 22 22 27 23 32 C22 37 24 42 29 48" fill="none" stroke="#ff6d00" stroke-width="1.6" stroke-linecap="round"/>'
+                    + '<path d="M47 16 C52 22 54 27 53 32 C54 37 52 42 47 48" fill="none" stroke="#ff6d00" stroke-width="1.6" stroke-linecap="round"/>'
+                    + '<line x1="27" y1="19" x2="30" y2="20" stroke="#ff6d00" stroke-width="1" stroke-linecap="round"/>'
+                    + '<line x1="25" y1="23" x2="28" y2="23.5" stroke="#ff6d00" stroke-width="1" stroke-linecap="round"/>'
+                    + '<line x1="24" y1="27.5" x2="27" y2="27.5" stroke="#ff6d00" stroke-width="1" stroke-linecap="round"/>'
+                    + '<line x1="24" y1="36.5" x2="27" y2="36.5" stroke="#ff6d00" stroke-width="1" stroke-linecap="round"/>'
+                    + '<line x1="25" y1="41" x2="28" y2="40.5" stroke="#ff6d00" stroke-width="1" stroke-linecap="round"/>'
+                    + '<line x1="27" y1="45" x2="30" y2="44" stroke="#ff6d00" stroke-width="1" stroke-linecap="round"/>'
+                    + '<line x1="49" y1="19" x2="46" y2="20" stroke="#ff6d00" stroke-width="1" stroke-linecap="round"/>'
+                    + '<line x1="51" y1="23" x2="48" y2="23.5" stroke="#ff6d00" stroke-width="1" stroke-linecap="round"/>'
+                    + '<line x1="52" y1="27.5" x2="49" y2="27.5" stroke="#ff6d00" stroke-width="1" stroke-linecap="round"/>'
+                    + '<line x1="52" y1="36.5" x2="49" y2="36.5" stroke="#ff6d00" stroke-width="1" stroke-linecap="round"/>'
+                    + '<line x1="51" y1="41" x2="48" y2="40.5" stroke="#ff6d00" stroke-width="1" stroke-linecap="round"/>'
+                    + '<line x1="49" y1="45" x2="46" y2="44" stroke="#ff6d00" stroke-width="1" stroke-linecap="round"/>'
                     + '<circle cx="38" cy="32" r="21" fill="none" stroke="rgba(255,255,255,0.3)" stroke-width="1.2"/>'
                     + '</svg>'
                     + '<span style="font-family:Archivo,sans-serif;font-size:16px;letter-spacing:2px;font-style:italic;white-space:nowrap;'
@@ -4361,19 +4361,16 @@ def render_matchup_ticker():
 
 
 def render_page_layout(title, banner_teaser="", banner_detail="", banner_icon="zap"):
-    """Render page title badge + recommendation banner + matchup ticker.
+    """Render page title header + recommendation banner + matchup ticker.
 
     Call at the top of every page, after ``inject_custom_css()``.
+
+    Combustion redesign (2026-06-08, Phase D): the page title now renders the
+    mockup ``.phead`` header (Archivo-900 title + orange underline rule, no navy
+    pill) via :func:`render_page_header`, so every page that calls this gets the
+    new look in one place. The banner-teaser + matchup-ticker behavior is kept.
     """
-    icon_svg = PAGE_ICONS.get(
-        title.lower().replace(" ", "_"),
-        PAGE_ICONS.get(title.lower(), ""),
-    )
-    safe_title = _html.escape(title)
-    st.markdown(
-        f'<div class="page-title">{icon_svg} {safe_title}</div>',
-        unsafe_allow_html=True,
-    )
+    render_page_header(title)
     if banner_teaser:
         render_reco_banner(banner_teaser, banner_detail, banner_icon)
     render_matchup_ticker()

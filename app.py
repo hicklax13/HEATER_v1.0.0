@@ -108,7 +108,7 @@ st.set_page_config(
 st.markdown(
     """
     <div style="
-        background: linear-gradient(90deg, #e63946 0%, #ff6d00 100%);
+        background: linear-gradient(90deg, #e8480a 0%, #ff6d00 100%);
         color: #ffffff;
         text-align: center;
         font-size: 14px;
@@ -248,7 +248,7 @@ def render_splash_screen():
             f'<div style="text-align:center; padding:4rem 2rem;">'
             f"{PAGE_ICONS['logo_lg']}"
             f'<div class="splash-title">HEATER</div>'
-            f'<p style="color:{T["tx2"]};font-family:Figtree,sans-serif;">'
+            f'<p style="color:{T["tx2"]};font-family:var(--font-body);">'
             f"Loading MLB data...</p>"
             f"</div>",
             unsafe_allow_html=True,
@@ -564,7 +564,7 @@ def render_step_settings():
             f'<div class="metric-card">'
             f'<div style="font-family:var(--font-body);font-size:13px;letter-spacing:2px;'
             f'color:{T["tx2"]};text-transform:uppercase;">League Format</div>'
-            f'<div style="font-family:Figtree,sans-serif;font-size:18px;font-weight:700;'
+            f'<div style="font-family:var(--font-body);font-size:18px;font-weight:700;'
             f'color:{T["tx"]};margin-top:4px;">{num_teams} Teams</div>'
             f'<div style="font-size:13px;color:{T["tx2"]};">{num_rounds} Rounds &middot; Snake &middot; H2H Categories</div>'
             f"</div>",
@@ -587,7 +587,7 @@ def render_step_settings():
             f'<div class="metric-card">'
             f'<div style="font-family:var(--font-body);font-size:13px;letter-spacing:2px;'
             f'color:{T["tx2"]};text-transform:uppercase;">Player Pool</div>'
-            f'<div style="font-family:Figtree,sans-serif;font-size:18px;font-weight:700;'
+            f'<div style="font-family:var(--font-body);font-size:18px;font-weight:700;'
             f'color:{T["tx"]};margin-top:4px;">{pool_label}</div>'
             f'<div style="font-size:13px;">{conn_badge}</div>'
             f"</div>",
@@ -2168,7 +2168,7 @@ def _render_radar_chart(ds, pool):
         ),
         paper_bgcolor=T["bg"],
         plot_bgcolor=T["bg"],
-        font=dict(family="Figtree", color=T["tx2"]),
+        font=dict(family="Inter, sans-serif", color=T["tx2"]),
         showlegend=True,
         legend=dict(font=dict(color=T["tx2"])),
         margin=dict(l=40, r=40, t=30, b=30),

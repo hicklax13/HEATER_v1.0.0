@@ -12,6 +12,9 @@ from src.database import get_connection, init_db, load_player_pool
 from src.feature_flags import require_page_enabled
 from src.feedback import render_feedback_widget
 from src.ui_shared import (
+    THEME as T,
+)
+from src.ui_shared import (
     _headshot_img_html,
     format_stat,
     inject_custom_css,
@@ -218,17 +221,19 @@ else:
                     _gmli_prev = _player_gmli.get("gmli_prev") if _player_gmli else None
                     if _gmli_val is not None:
                         if _gmli_val >= 1.8:
-                            _trust_dot = "#2d6a4f"
+                            _trust_dot = T["green"]
                             _trust_label = "High Trust"
                         elif _gmli_val >= 1.0:
-                            _trust_dot = "#ff9f1c"
+                            _trust_dot = T["warn"]
                             _trust_label = "Moderate"
                         else:
-                            _trust_dot = "#e63946"
+                            _trust_dot = T["danger"]
                             _trust_label = "Low Trust"
                         _trend_html = ""
                         if _gmli_prev is not None and (_gmli_prev - _gmli_val) > 0.5:
-                            _trend_html = ' <span style="color:#e63946;font-weight:700;">&#8595; Declining</span>'
+                            _trend_html = (
+                                f' <span style="color:{T["danger"]};font-weight:700;">&#8595; Declining</span>'
+                            )
                         gmli_html = (
                             f'<div style="font-size:0.6rem;margin-top:2px;white-space:nowrap;">'
                             f'<span style="display:inline-block;width:7px;height:7px;'

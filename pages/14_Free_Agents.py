@@ -466,7 +466,7 @@ with ctx:
     pos_filter = st.session_state.get("fa_merged_pos_filter", "All")
     render_context_card(
         "Filter by Position",
-        f'<div style="font-size:12px;color:{T["tx2"]};font-family:Figtree,sans-serif;">'
+        f'<div style="font-size:12px;color:{T["tx2"]};font-family:var(--font-body);">'
         f"Filters all sections below to the selected position.</div>",
     )
     for pos in POSITIONS:
@@ -534,7 +534,7 @@ with ctx:
     else:
         render_context_card(
             "Ownership Heat Index",
-            f'<div style="font-size:12px;color:{T["tx2"]};font-family:Figtree,sans-serif;">'
+            f'<div style="font-size:12px;color:{T["tx2"]};font-family:var(--font-body);">'
             f"Ownership data not available — sync with Yahoo to enable heat tracking.</div>",
         )
 
@@ -583,7 +583,7 @@ with main:
     )
     st.markdown(
         f'<div style="font-size:12px;color:{T["tx2"]};margin-bottom:8px;'
-        f'font-family:Figtree,sans-serif;">'
+        f'font-family:var(--font-body);">'
         f"Free agents ranked by net Standings Gained Points improvement "
         f"after accounting for the recommended drop. Only positive-value swaps are shown.</div>",
         unsafe_allow_html=True,
@@ -710,7 +710,7 @@ with main:
                     for reason in reasons:
                         st.markdown(
                             f'<div style="font-size:13px;color:{T["tx"]};'
-                            f'padding:2px 0;font-family:Figtree,sans-serif;">'
+                            f'padding:2px 0;font-family:var(--font-body);">'
                             f"{reason}</div>",
                             unsafe_allow_html=True,
                         )
@@ -786,7 +786,7 @@ with main:
             _opp_label = f" (vs {_opp_profile['name']})" if _opp_profile else ""
             st.markdown(
                 f'<div style="font-size:12px;color:{T["tx2"]};margin-bottom:8px;'
-                f'font-family:Figtree,sans-serif;">'
+                f'font-family:var(--font-body);">'
                 f"Matchup-aware streaming targets{_opp_label}. Budget: 5 streaming adds per week.</div>",
                 unsafe_allow_html=True,
             )
@@ -813,7 +813,7 @@ with main:
     )
     st.markdown(
         f'<div style="font-size:12px;color:{T["tx2"]};margin-bottom:8px;'
-        f'font-family:Figtree,sans-serif;">'
+        f'font-family:var(--font-body);">'
         f"Full ranked free agent list with projected impact on your roster. "
         f"The Impact column shows the Standings Gained Points delta if this player "
         f"replaced the weakest player at the same position on your roster.</div>",
@@ -1134,7 +1134,7 @@ with main:
 
             st.markdown(
                 f'<div style="font-size:11px;color:{T["tx2"]};margin-bottom:4px;'
-                f'font-family:Figtree,sans-serif;">'
+                f'font-family:var(--font-body);">'
                 f"Showing {len(display_fa_df)} of {_total_ranked} free agents{_filter_label}."
                 f" Click column headers to sort.</div>",
                 unsafe_allow_html=True,
@@ -1163,7 +1163,7 @@ with main:
     )
     st.markdown(
         f'<div style="font-size:12px;color:{T["tx2"]};margin-bottom:8px;'
-        f'font-family:Figtree,sans-serif;">'
+        f'font-family:var(--font-body);">'
         f"Roster players paired with a recommended add, ordered by how little "
         f"Standings Gained Points they contribute to your lineup totals.</div>",
         unsafe_allow_html=True,
