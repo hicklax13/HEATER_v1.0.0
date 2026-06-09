@@ -4,6 +4,11 @@ primaryColor = "#ff6d00"
 backgroundColor = "#f4f3f1"
 secondaryBackgroundColor = "#ffffff"
 textColor = "#1b1c20"
+# Streamlit's theme.font only accepts "sans serif"/"serif"/"monospace". The
+# rendered family is locked to Inter (body) / Archivo (display) / IBM Plex Mono
+# by the !important font-lock rules in src/ui_shared.py inject_custom_css(),
+# which override this generic stack everywhere — so "sans serif" here is just
+# the pre-CSS fallback, never what the user sees.
 font = "sans serif"
 
 [server]

@@ -320,7 +320,7 @@ def _render_news_card(player_name: str, news_item: dict, ownership: dict) -> str
         f'box-shadow:0 1px 4px rgba(0,0,0,0.06);">'
         f'<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">'
         f"{header_html} {sentiment_html}</div>"
-        f'<div style="margin-top:8px;font-family:Figtree,sans-serif;">'
+        f'<div style="margin-top:8px;font-family:var(--font-body);">'
         f'<span style="font-size:15px;font-weight:700;color:{T["tx"]};">'
         f"{player_name}</span>"
         f'<span style="font-size:14px;color:{T["tx"]};margin-left:8px;">'
@@ -400,7 +400,7 @@ def _render_news_tab(roster: "pd.DataFrame") -> None:
         st.markdown(
             f'<div style="text-align:center;padding:40px 20px;">'
             f"{PAGE_ICONS.get('check', '')}"
-            f'<p style="font-family:Figtree,sans-serif;font-size:16px;'
+            f'<p style="font-family:var(--font-body);font-size:16px;'
             f'color:{T["tx2"]};margin-top:12px;">'
             f"No recent news for your roster. Check back later for updates "
             f"on injuries, transactions, call-ups, and lineup changes.</p></div>",
@@ -447,7 +447,7 @@ def _render_news_tab(roster: "pd.DataFrame") -> None:
         summary_parts.append(f"{other_count} other")
 
     st.markdown(
-        f'<div style="font-family:Figtree,sans-serif;font-size:14px;'
+        f'<div style="font-family:var(--font-body);font-size:14px;'
         f'color:{T["tx2"]};margin-bottom:12px;">'
         f"{PAGE_ICONS.get('alert', '')} "
         f"{len(all_news)} news item{'s' if len(all_news) != 1 else ''} "
@@ -1487,7 +1487,7 @@ else:
                                 for i, action in enumerate(_actions, 1):
                                     _action_html += (
                                         f'<div style="padding:3px 0;font-size:12px;'
-                                        f'font-family:Figtree,sans-serif;color:{T["tx"]};">'
+                                        f'font-family:var(--font-body);color:{T["tx"]};">'
                                         f'<span style="font-weight:700;color:{T["primary"]};">'
                                         f"{i}.</span> {action}</div>"
                                     )
@@ -1500,7 +1500,7 @@ else:
                                 for sg in streaming:
                                     _stream_html += (
                                         f'<div style="padding:3px 0;font-size:12px;'
-                                        f'font-family:Figtree,sans-serif;color:{T["tx"]};">'
+                                        f'font-family:var(--font-body);color:{T["tx"]};">'
                                         f"{sg}</div>"
                                     )
                                 render_context_card("Streaming Targets", _stream_html)
@@ -1542,19 +1542,19 @@ else:
                             if checkpoint["categories_at_risk"]:
                                 _chk_html += (
                                     f'<div style="padding:3px 0;font-size:12px;'
-                                    f'font-family:Figtree,sans-serif;color:{T["warn"]};">'
+                                    f'font-family:var(--font-body);color:{T["warn"]};">'
                                     f"At-Risk: {', '.join(checkpoint['categories_at_risk'])}</div>"
                                 )
                             for rec in checkpoint["recommendations"]:
                                 _chk_html += (
                                     f'<div style="padding:3px 0;font-size:12px;'
-                                    f'font-family:Figtree,sans-serif;color:{T["tx"]};">'
+                                    f'font-family:var(--font-body);color:{T["tx"]};">'
                                     f"{rec}</div>"
                                 )
                             if not checkpoint["recommendations"]:
                                 _chk_html += (
                                     f'<div style="padding:3px 0;font-size:12px;'
-                                    f'font-family:Figtree,sans-serif;color:{T["green"]};">'
+                                    f'font-family:var(--font-body);color:{T["green"]};">'
                                     f"No adjustments needed — stay the course.</div>"
                                 )
                             render_context_card("Thursday Mid-Week Checkpoint", _chk_html)

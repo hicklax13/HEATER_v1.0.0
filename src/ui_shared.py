@@ -2547,6 +2547,99 @@ def inject_custom_css():
         text-transform: none !important;
         letter-spacing: normal !important;
     }}
+
+    /* ════════════════════════════════════════════════════════════════
+       FONT-LOCK — "these fonts only": every character in the app must
+       render in Archivo (--font-display), Inter (--font-body), or IBM
+       Plex Mono (--font-mono). Streamlit ships its own font stacks on
+       built-in widgets (BaseWeb select/input/tabs, metric, expander,
+       dataframe chrome, etc.) that otherwise escape the base .stApp
+       font. This block forces Inter as the body family on every widget
+       container + its descendants; headings/.sec-head/.page-title/.phead
+       stay Archivo and stat figures/.mono/tables keep their existing
+       Archivo/mono treatment (those rules are !important + later or more
+       specific, so they win over this body default). Glide grid uses the
+       --gdg-* Archivo tokens and Plotly uses Inter — both left alone.
+       ════════════════════════════════════════════════════════════════ */
+    .stButton, .stDownloadButton,
+    [data-baseweb="select"], [data-baseweb="input"], [data-baseweb="tab"],
+    [data-testid="stWidgetLabel"], [data-testid="stMarkdownContainer"],
+    [data-testid="stCaptionContainer"],
+    .stRadio, .stCheckbox, .stSelectbox, .stMultiSelect,
+    .stTextInput, .stNumberInput, .stSlider,
+    [data-testid="stMetricValue"], [data-testid="stMetricLabel"],
+    [data-testid="stExpander"], .stTabs, .stDataFrame, [data-testid="stTable"],
+    .stButton *, .stDownloadButton *,
+    [data-baseweb="select"] *, [data-baseweb="input"] *, [data-baseweb="tab"] *,
+    [data-testid="stWidgetLabel"] *, [data-testid="stMarkdownContainer"] *,
+    [data-testid="stCaptionContainer"] *,
+    .stRadio *, .stCheckbox *, .stSelectbox *, .stMultiSelect *,
+    .stTextInput *, .stNumberInput *, .stSlider *,
+    [data-testid="stExpander"] *, .stTabs *, [data-testid="stTable"] * {{
+        font-family: var(--font-body) !important;
+    }}
+    /* Headings + display surfaces stay on Archivo even inside the widget
+       containers font-locked above (re-assert so the body default can't
+       leak into a heading rendered via st.markdown/st.subheader). */
+    [data-testid="stMarkdownContainer"] h1,
+    [data-testid="stMarkdownContainer"] h2,
+    [data-testid="stMarkdownContainer"] h3,
+    [data-testid="stMarkdownContainer"] h4,
+    .sec-head, .page-title, .phead, .phead-title,
+    .heater-h1, [data-testid="stMetricValue"] {{
+        font-family: var(--font-display) !important;
+    }}
+    /* Mono figures stay on IBM Plex Mono. */
+    .stat, .mono, td.num, .fig,
+    div[data-testid="stMetric"] [data-testid="stMetricValue"] {{
+        font-family: var(--font-mono) !important;
+    }}
+
+    /* ════════════════════════════════════════════════════════════════
+       CLICKABLE / OPENS-A-WINDOW TEXT = orange + underline.
+       Convention: any hyperlink or text that opens a window/dialog reads
+       as interactive — orange (--fp-primary), underlined, pointer cursor,
+       brightening to --fp-flame on hover. SCOPED TO MAIN CONTENT ONLY:
+       prefixed with the main block container and explicitly NOT inside
+       .stSidebar, so the sidebar nav links stay bone-on-navy. Buttons,
+       download buttons, and st.page_link nav are deliberately EXCLUDED
+       (they have their own flat/gradient button styling) via :not() and
+       by only matching bare <a>/.heater-link/.clickable, never .stButton.
+       ════════════════════════════════════════════════════════════════ */
+    [data-testid="stMainBlockContainer"] [data-testid="stMarkdownContainer"] a,
+    .stMain [data-testid="stMarkdownContainer"] a,
+    [data-testid="stMainBlockContainer"] .stMarkdown a,
+    .stMain .stMarkdown a,
+    .stMain .heater-link, .stMain a.clickable,
+    [data-testid="stMainBlockContainer"] .heater-link,
+    [data-testid="stMainBlockContainer"] a.clickable {{
+        color: var(--fp-primary) !important;
+        text-decoration: underline !important;
+        text-underline-offset: 2px !important;
+        cursor: pointer !important;
+    }}
+    [data-testid="stMainBlockContainer"] [data-testid="stMarkdownContainer"] a:hover,
+    .stMain [data-testid="stMarkdownContainer"] a:hover,
+    [data-testid="stMainBlockContainer"] .stMarkdown a:hover,
+    .stMain .stMarkdown a:hover,
+    .stMain .heater-link:hover, .stMain a.clickable:hover,
+    [data-testid="stMainBlockContainer"] .heater-link:hover,
+    [data-testid="stMainBlockContainer"] a.clickable:hover {{
+        color: var(--fp-flame) !important;
+    }}
+    /* Reusable helper classes (use anywhere a span/link should read as a
+       link or window-opener): <a class="heater-link"> / class="clickable". */
+    .heater-link, .clickable {{
+        color: var(--fp-primary);
+        cursor: pointer;
+    }}
+    /* Roster player-name link (build_roster_table_html emits
+       <a href="?player=..."> wrapping the player cell): the NAME reads as
+       "click to open dossier" — orange, underline on hover, pointer. The
+       team-abbr sub-line below it is intentionally left muted/mono. */
+    .rtbl td.ph a {{ cursor: pointer !important; }}
+    .rtbl td.ph a b {{ color: var(--fp-primary) !important; }}
+    .rtbl td.ph a:hover b {{ text-decoration: underline !important; text-underline-offset: 2px !important; }}
     </style>
     """,
         unsafe_allow_html=True,
@@ -5116,7 +5209,7 @@ def page_timer_footer(page_name: str = "") -> None:
     label = f"{page_name} loaded" if page_name else "Page loaded"
     st.markdown(
         f'<div style="text-align:right;padding:8px 12px 4px;'
-        f'font-size:11px;color:{THEME["tx2"]};font-family:monospace;">'
+        f'font-size:11px;color:{THEME["tx2"]};font-family:var(--font-mono);">'
         f"{label} in {elapsed:.2f}s</div>",
         unsafe_allow_html=True,
     )

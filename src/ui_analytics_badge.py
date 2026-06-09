@@ -137,7 +137,7 @@ def build_analytics_badge_html(ctx: AnalyticsContext) -> str:
         padding: 8px 12px;
         margin: 8px 0;
         background: {color}08;
-        font-family: monospace;
+        font-family: var(--font-mono);
     ">
         <div style="display:flex;align-items:center;gap:8px">
             <div style="
