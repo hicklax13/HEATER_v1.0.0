@@ -651,6 +651,15 @@ def _init_db_tables_and_columns(conn):
             er INTEGER DEFAULT 0,
             bb_allowed INTEGER DEFAULT 0,
             h_allowed INTEGER DEFAULT 0,
+            -- Combustion dossier game log (2026-06-09): opponent + result, so the
+            -- dossier .glog table can show the opposing team logo + a W/L badge.
+            -- Nullable + additive; populated from the statsapi gameLog split.
+            opponent_id INTEGER,
+            opponent_abbr TEXT,
+            is_home INTEGER,
+            result TEXT,
+            team_score INTEGER,
+            opp_score INTEGER,
             PRIMARY KEY (player_id, game_date)
         );
     """)
@@ -764,6 +773,19 @@ def _init_db_tables_and_columns(conn):
     _safe_add_column(conn, "league_teams", "waiver_priority", "INTEGER")
     _safe_add_column(conn, "league_teams", "number_of_moves", "INTEGER")
     _safe_add_column(conn, "league_teams", "number_of_trades", "INTEGER")
+
+    # Combustion dossier game log (2026-06-09): opponent + result columns so the
+    # player-dossier .glog table can show the opposing team logo + a W/L badge
+    # (mockup docs/design/mockup-player-popup.html). Legacy DBs predate these
+    # columns; the statsapi gameLog split carries opponent + isHome + isWin (but
+    # NOT final scores, so team_score/opp_score stay NULL for now). Additive +
+    # nullable — old rows render "—" until the next game-log refresh re-fetches.
+    _safe_add_column(conn, "game_logs", "opponent_id", "INTEGER")
+    _safe_add_column(conn, "game_logs", "opponent_abbr", "TEXT")
+    _safe_add_column(conn, "game_logs", "is_home", "INTEGER")
+    _safe_add_column(conn, "game_logs", "result", "TEXT")
+    _safe_add_column(conn, "game_logs", "team_score", "INTEGER")
+    _safe_add_column(conn, "game_logs", "opp_score", "INTEGER")
 
     # T2: Advanced batting stats in statcast_archive
     _safe_add_column(conn, "statcast_archive", "babip", "REAL")
@@ -958,6 +980,7 @@ _VALID_TABLE_NAMES = frozenset(
         "catcher_framing",
         "pvb_splits",
         "opponent_trade_history",
+        "game_logs",
     }
 )
 _VALID_COL_RE = __import__("re").compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")

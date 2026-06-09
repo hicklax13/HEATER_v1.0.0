@@ -4554,10 +4554,13 @@ def _dossier_game_log_rows(player_id: int, is_hitter: bool, limit: int = 10) -> 
     """Assemble up-to-``limit`` newest-first game-log rows for the dossier table.
 
     Sources per-game counting lines from ``game_logs`` (via
-    ``player_databank.load_game_logs``). That table has NO opponent/result
-    columns, so ``opp``/``result``/``score`` are omitted (render as "—"); the
-    Form bar is derived from per-game performance vs the player's own window.
-    Returns ``[]`` on any failure (caller renders the empty state).
+    ``player_databank.load_game_logs``). When the row carries the opponent /
+    result enrichment columns (``opponent_abbr``, ``is_home``, ``result``;
+    populated by the game-log refresh) the opponent logo + "vs/@ ABBR" and a W/L
+    badge render; rows that predate the enrichment (NULL columns) degrade
+    gracefully to "—". The Form bar is derived from per-game performance vs the
+    player's own window. Returns ``[]`` on any failure (caller renders the empty
+    state).
     """
     try:
         from src.player_databank import load_game_logs
@@ -4582,6 +4585,44 @@ def _dossier_game_log_rows(player_id: int, is_hitter: bool, limit: int = 10) -> 
             return 0.0 if (f != f) else f  # NaN guard
         except (TypeError, ValueError):
             return 0.0
+
+    def _opp_result(row) -> dict:
+        """Extract opponent / home / result enrichment from a game_logs row.
+
+        Returns a dict with ``opp`` / ``home`` / ``result`` / ``score`` keys
+        suitable for ``build_game_log_html``. Missing / NULL columns are omitted
+        so the renderer shows a graceful "—" (old rows, pre-enrichment).
+        """
+        out: dict = {}
+        # Opponent abbr (str). NULL/NaN/empty → omit (renders "—").
+        if "opponent_abbr" in row.index:
+            opp = row["opponent_abbr"]
+            if isinstance(opp, str) and opp.strip():
+                out["opp"] = opp.strip()
+        # Home/away flag → "vs" vs "@". Default True only matters when ``opp``
+        # is present; pandas may store the int as float/NaN.
+        if "is_home" in row.index:
+            ih = row["is_home"]
+            try:
+                if ih is not None and ih == ih:  # NaN guard
+                    out["home"] = bool(int(ih))
+            except (TypeError, ValueError):
+                pass
+        # Result badge ("W"/"L").
+        if "result" in row.index:
+            res = row["result"]
+            if isinstance(res, str) and res.strip().upper() in ("W", "L"):
+                out["result"] = res.strip().upper()
+        # Optional score "team-opp" when both are present (currently always NULL
+        # from statsapi — kept for forward-compat once a score source is wired).
+        if "team_score" in row.index and "opp_score" in row.index:
+            ts, os_ = row["team_score"], row["opp_score"]
+            try:
+                if (ts is not None and ts == ts) and (os_ is not None and os_ == os_):
+                    out["score"] = f"{int(ts)}-{int(os_)}"
+            except (TypeError, ValueError):
+                pass
+        return out
 
     rows: list[dict] = []
     # For the form bar: hitters use per-game total bases proxy (H + 2*HR + RBI),
@@ -4610,6 +4651,7 @@ def _dossier_game_log_rows(player_id: int, is_hitter: bool, limit: int = 10) -> 
                 "rbi": _num(r, "rbi"),
                 "avg": (h / ab) if ab > 0 else 0.0,
             }
+            row.update(_opp_result(r))
             score = h + 2.0 * row["hr"] + row["rbi"]
         else:
             ip = _num(r, "ip")
@@ -4622,6 +4664,7 @@ def _dossier_game_log_rows(player_id: int, is_hitter: bool, limit: int = 10) -> 
                 "k": _num(r, "k"),
                 "era": (er * 9.0 / ip) if ip > 0 else 0.0,
             }
+            row.update(_opp_result(r))
             score = row["k"] - er
         raw_scores.append(score)
         parsed.append(row)

@@ -13,7 +13,7 @@ import pandas as pd
 
 from src.database import get_connection, load_player_pool
 from src.live_stats import _ip_outs_to_decimal
-from src.ui_shared import T
+from src.ui_shared import TEAM_BRAND, T
 from src.valuation import LeagueConfig as _LC_Class
 
 logger = logging.getLogger(__name__)
@@ -376,7 +376,7 @@ def _fetch_and_store_player_logs(
                     if not game_date:
                         continue
                     stat_raw = split.get("stat", {}) or {}
-                    row = _parse_game_log_row(player_id, game_date, season, group, stat_raw)
+                    row = _parse_game_log_row(player_id, game_date, season, group, stat_raw, split=split)
                     rows.append(row)
 
             # If we found data in this group, don't try the other
@@ -395,11 +395,13 @@ def _fetch_and_store_player_logs(
             INSERT OR REPLACE INTO game_logs
                 (player_id, game_date, season,
                  pa, ab, h, r, hr, rbi, sb, bb, hbp, sf,
-                 ip, w, l, sv, k, er, bb_allowed, h_allowed)
+                 ip, w, l, sv, k, er, bb_allowed, h_allowed,
+                 opponent_id, opponent_abbr, is_home, result, team_score, opp_score)
             VALUES
                 (:player_id, :game_date, :season,
                  :pa, :ab, :h, :r, :hr, :rbi, :sb, :bb, :hbp, :sf,
-                 :ip, :w, :l, :sv, :k, :er, :bb_allowed, :h_allowed)
+                 :ip, :w, :l, :sv, :k, :er, :bb_allowed, :h_allowed,
+                 :opponent_id, :opponent_abbr, :is_home, :result, :team_score, :opp_score)
             """,
             rows,
         )
@@ -418,6 +420,7 @@ def _parse_game_log_row(
     season: int,
     group: str,
     raw: dict,
+    split: dict | None = None,
 ) -> dict:
     """Convert a raw statsapi game-log entry into a game_logs table row dict.
 
@@ -426,11 +429,23 @@ def _parse_game_log_row(
         game_date: ISO date string (YYYY-MM-DD).
         season: Season year integer.
         group: "hitting" or "pitching".
-        raw: The ``stats`` sub-dict from the statsapi response entry.
+        raw: The ``stat`` sub-dict from the statsapi response entry (the
+             per-game counting line).
+        split: The full statsapi gameLog split dict (the parent of ``raw``),
+               which carries ``opponent`` {id, name}, ``isHome``, and ``isWin``.
+               Optional for back-compat: when ``None`` the opponent/result
+               enrichment columns default to ``None`` (rendered as "—").
 
     Returns:
         Dict with all game_logs column keys populated (zero-defaults for
-        columns from the other stat group).
+        columns from the other stat group; ``None`` for the additive opponent /
+        result enrichment columns when ``split`` is absent or incomplete).
+
+    Note:
+        The statsapi gameLog split does NOT carry the game's final score, so
+        ``team_score`` / ``opp_score`` are always ``None`` here (the columns
+        exist for forward-compat); ``result`` ("W"/"L") is derived from the
+        split's ``isWin`` flag (the player's-team outcome).
     """
 
     def _int(key: str) -> int:
@@ -473,7 +488,37 @@ def _parse_game_log_row(
         "er": 0,
         "bb_allowed": 0,
         "h_allowed": 0,
+        # Opponent / result enrichment (Combustion dossier game log).
+        # Default None — populated below only when the split dict is provided.
+        "opponent_id": None,
+        "opponent_abbr": None,
+        "is_home": None,
+        "result": None,
+        "team_score": None,
+        "opp_score": None,
     }
+
+    # ── Opponent / home / result enrichment ──────────────────────────────────
+    # The gameLog split carries opponent {id, name}, isHome, isWin. Resolve the
+    # opponent abbr from TEAM_BRAND (None when the id is unknown → renders "—").
+    if isinstance(split, dict):
+        opp = split.get("opponent")
+        if isinstance(opp, dict):
+            try:
+                opp_id = int(opp.get("id")) if opp.get("id") is not None else None
+            except (ValueError, TypeError):
+                opp_id = None
+            base["opponent_id"] = opp_id
+            if opp_id is not None and opp_id in TEAM_BRAND:
+                base["opponent_abbr"] = TEAM_BRAND[opp_id]["abbr"]
+
+        is_home_raw = split.get("isHome")
+        if isinstance(is_home_raw, bool):
+            base["is_home"] = 1 if is_home_raw else 0
+
+        is_win_raw = split.get("isWin")
+        if isinstance(is_win_raw, bool):
+            base["result"] = "W" if is_win_raw else "L"
 
     if group == "hitting":
         base.update(
