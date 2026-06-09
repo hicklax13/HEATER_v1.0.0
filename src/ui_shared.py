@@ -3713,6 +3713,7 @@ def build_roster_table_html(df, *, is_hitter: bool = True, player_ids=None) -> s
         ph_td = (
             f'<td class="ph" style="padding:8px 12px;border-bottom:1px solid var(--fp-divider);'
             f"text-align:left;position:relative;"
+            f"background:transparent;"
             f"background:color-mix(in srgb,{tc} 8%,transparent);"
             f'box-shadow:inset 3px 0 0 {tc};">{pcell_inner}</td>'
         )
@@ -3921,9 +3922,9 @@ def build_compact_table_html(
                     else:
                         cell_html += f"{fv:.2f}"
                 except (ValueError, TypeError):
-                    cell_html += str(val) if val is not None else ""
+                    cell_html += _html.escape(str(val)) if val is not None else ""
             else:
-                cell_html += str(val) if val is not None else ""
+                cell_html += _html.escape(str(val)) if val is not None else ""
 
             cls_attr = f' class="{" ".join(cls_parts)}"' if cls_parts else ""
             cells.append(f"<td{cls_attr}>{cell_html}</td>")
@@ -4330,10 +4331,10 @@ def render_matchup_ticker():
         marker = {"WIN": "+", "LOSS": "-", "TIE": "="}.get(res, "")
         cat_rows += (
             f'<div class="cat-row {css_cls}">'
-            f'<span style="width:50px;display:inline-block;">{cat}</span>'
-            f'<span style="width:60px;text-align:right;display:inline-block;">{you_val}</span>'
+            f'<span style="width:50px;display:inline-block;">{_html.escape(str(cat))}</span>'
+            f'<span style="width:60px;text-align:right;display:inline-block;">{_html.escape(str(you_val))}</span>'
             f'<span style="width:20px;text-align:center;display:inline-block;opacity:0.4;">v</span>'
-            f'<span style="width:60px;display:inline-block;">{opp_val}</span>'
+            f'<span style="width:60px;display:inline-block;">{_html.escape(str(opp_val))}</span>'
             f'<span style="width:20px;text-align:right;display:inline-block;">{marker}</span>'
             f"</div>"
         )

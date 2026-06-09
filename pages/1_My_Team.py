@@ -1034,9 +1034,9 @@ else:
                             f'<span style="background:{_fl_icon_color};color:#fff;padding:1px 6px;'
                             f'border-radius:4px;font-size:10px;font-weight:700;white-space:nowrap;">'
                             f"{_fl_label}</span>"
-                            f'<span style="font-weight:700;font-size:13px;min-width:40px;">{_fl_cat}</span>'
+                            f'<span style="font-weight:700;font-size:13px;min-width:40px;">{_html.escape(str(_fl_cat))}</span>'
                             f'<span style="color:{T["tx2"]};font-size:11px;">gap: {_fl_gap_str}</span>'
-                            f'<span style="color:{T["tx"]};font-size:11px;flex:1;">{fl["suggestion"]}</span>'
+                            f'<span style="color:{T["tx"]};font-size:11px;flex:1;">{_html.escape(str(fl["suggestion"]))}</span>'
                             f"</div>"
                         )
                     st.markdown(
@@ -1271,9 +1271,7 @@ else:
                                 f'<div style="margin-top:6px;padding-top:4px;border-top:1px solid {T["border"]};">'
                             )
                             for _fa in _top_actions:
-                                _flip_actions_html += (
-                                    f'<div style="font-size:10px;color:{T["tx2"]};padding:1px 0;">{_fa}</div>'
-                                )
+                                _flip_actions_html += f'<div style="font-size:10px;color:{T["tx2"]};padding:1px 0;">{_html.escape(str(_fa))}</div>'
                             _flip_actions_html += "</div>"
 
                         st.markdown(
