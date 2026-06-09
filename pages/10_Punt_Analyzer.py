@@ -1,5 +1,6 @@
 """Punt Analyzer — Simulate different category punt strategies."""
 
+import html as _html
 import logging
 import time
 
@@ -10,7 +11,17 @@ from src.auth import multi_user_enabled, require_auth, resolve_viewer_team_name
 from src.database import init_db, load_player_pool
 from src.feature_flags import require_page_enabled
 from src.feedback import render_feedback_widget
-from src.ui_shared import format_stat, inject_custom_css, render_styled_table
+from src.ui_shared import (
+    _headshot_img_html,
+    build_heatbar_html,
+    build_stat_readout_html,
+    format_stat,
+    inject_custom_css,
+    render_page_header,
+    render_panel,
+    team_color,
+    team_logo_url,
+)
 from src.usage import log_page_view
 from src.valuation import LeagueConfig, SGPCalculator
 from src.yahoo_data_service import get_yahoo_data_service
@@ -32,9 +43,10 @@ require_auth()
 require_page_enabled("page:10_Punt_Analyzer")
 log_page_view("Punt Analyzer")
 
-st.markdown(
-    '<div class="page-title-wrap"><div class="page-title"><span>Punt Strategy Simulator</span></div></div>',
-    unsafe_allow_html=True,
+render_page_header(
+    "Punt Strategy Simulator",
+    eyebrow="STRATEGY",
+    fig="FIG.10 — CATEGORY PUNT MODEL",
 )
 
 pool = load_player_pool()
@@ -44,6 +56,66 @@ if pool.empty:
 
 pool = pool.rename(columns={"name": "player_name"})
 config = LeagueConfig()
+
+
+# ── Branded value-swing table (Combustion instrument look) ────────────────────
+# build_compact_table_html escapes cell values, so logos/headshots can't be
+# injected there. This renders an inline .rtbl-style table with a team-color
+# accent + headshot + logo per row and Archivo tabular SGP figures.
+def _value_swing_table_html(df: pd.DataFrame, *, gain: bool) -> str:
+    """Build a branded player value-change table for the punt gainers/losers."""
+    th = (
+        "font-family:var(--font-display);font-weight:800;font-size:10.5px;"
+        "letter-spacing:.06em;text-transform:uppercase;color:#2c2f36;"
+        "padding:9px 12px;border-bottom:2px solid rgba(24,26,32,.18);"
+    )
+    head = (
+        f'<th style="{th}text-align:left;">Player</th>'
+        f'<th style="{th}text-align:center;">Pos</th>'
+        f'<th style="{th}text-align:right;">Original</th>'
+        f'<th style="{th}text-align:right;">Punt</th>'
+        f'<th style="{th}text-align:right;">Change</th>'
+    )
+    td_num = (
+        "padding:8px 12px;border-bottom:1px solid var(--fp-divider);text-align:right;"
+        "font-family:var(--font-display);font-weight:700;font-size:13.5px;"
+        "font-variant-numeric:tabular-nums;color:var(--fp-tx);"
+    )
+    delta_color = "var(--fp-ember)" if gain else "var(--fp-cold)"
+    rows = ""
+    for _, r in df.iterrows():
+        team = r.get("team")
+        tc = team_color(team)
+        logo = team_logo_url(team)
+        abbr = _html.escape(str(team or "").strip().upper())
+        name = _html.escape(str(r.get("player_name", "")))
+        headshot = _headshot_img_html(r.get("mlb_id"), size=34)
+        pos_txt = _html.escape(str(r.get("positions") or "").split(",")[0].split("/")[0].strip())
+        pcell = (
+            f'<span style="display:flex;align-items:center;gap:11px;">{headshot}'
+            f'<span style="display:flex;flex-direction:column;gap:1px;min-width:0;">'
+            f'<b style="font-family:var(--font-body);font-weight:600;font-size:13.5px;color:var(--fp-tx);">{name}</b>'
+            f'<span style="font-family:var(--font-mono);font-size:10px;color:var(--fp-tx-subtle);'
+            f'letter-spacing:.04em;display:flex;align-items:center;gap:5px;">'
+            f'<img src="{logo}" width="13" height="13" style="vertical-align:-2px;" loading="lazy" '
+            f"onerror=\"this.style.display='none'\" />{abbr}</span></span></span>"
+        )
+        rows += (
+            f'<tr><td style="padding:8px 12px;border-bottom:1px solid var(--fp-divider);'
+            f"background:color-mix(in srgb,{tc} 8%,transparent);box-shadow:inset 3px 0 0 {tc};"
+            f'">{pcell}</td>'
+            f'<td style="padding:8px 12px;border-bottom:1px solid var(--fp-divider);text-align:center;">'
+            f'<span style="font-family:var(--font-mono);font-size:9.5px;font-weight:600;color:var(--fp-tx-muted);'
+            f'background:var(--fp-surface);border:1px solid var(--fp-border);border-radius:5px;padding:2px 7px;">{pos_txt}</span></td>'
+            f'<td style="{td_num}color:var(--fp-tx-muted);">{format_stat(float(r.get("original_sgp", 0) or 0), "SGP")}</td>'
+            f'<td style="{td_num}">{format_stat(float(r.get("punt_sgp", 0) or 0), "SGP")}</td>'
+            f'<td style="{td_num}color:{delta_color};">{format_stat(float(r.get("value_change", 0) or 0), "SGP")}</td></tr>'
+        )
+    return (
+        '<table class="rtbl" style="width:100%;border-collapse:collapse;margin-top:4px;">'
+        f"<thead><tr>{head}</tr></thead><tbody>{rows}</tbody></table>"
+    )
+
 
 # ── Category Selection ──────────────────────────────────────────────────────
 
@@ -107,59 +179,69 @@ progress.empty()
 
 # ── Summary ─────────────────────────────────────────────────────────────────
 
-st.markdown(f"### Punting: {', '.join(punt_cats)}")
-
-# Show which categories remain active
 active_cats = [c for c in all_cats if c not in punt_cats]
-active_str = ", ".join(active_cats)
-st.markdown(f"**Active categories ({len(active_cats)}):** {active_str}")
-st.markdown(f"**Punted categories ({len(punt_cats)}):** {', '.join(punt_cats)}")
+_punt_chips = "".join(
+    f'<span style="display:inline-block;font-family:var(--font-mono);font-size:11px;font-weight:600;'
+    f"color:var(--fp-cold);background:color-mix(in srgb,var(--fp-cold) 12%,transparent);"
+    f"border:1px solid color-mix(in srgb,var(--fp-cold) 35%,transparent);border-radius:14px;"
+    f'padding:3px 11px;margin:0 6px 6px 0;">{_html.escape(c)}</span>'
+    for c in punt_cats
+)
+_active_chips = "".join(
+    f'<span style="display:inline-block;font-family:var(--font-mono);font-size:11px;font-weight:600;'
+    f"color:var(--fp-ember);background:color-mix(in srgb,var(--fp-primary) 10%,transparent);"
+    f"border:1px solid color-mix(in srgb,var(--fp-primary) 35%,transparent);border-radius:14px;"
+    f'padding:3px 11px;margin:0 6px 6px 0;">{_html.escape(c)}</span>'
+    for c in active_cats
+)
+_readouts = (
+    '<div style="display:flex;gap:32px;flex-wrap:wrap;margin-bottom:16px;">'
+    + build_stat_readout_html("Punted", len(punt_cats), accent=True)
+    + build_stat_readout_html("Active", len(active_cats))
+    + build_stat_readout_html("Categories", len(all_cats))
+    + "</div>"
+)
+_summary_body = (
+    _readouts + '<div style="font-family:var(--font-display);font-size:9px;font-weight:800;letter-spacing:.2em;'
+    'text-transform:uppercase;color:var(--fp-tx-muted);margin-bottom:6px;">Punted</div>'
+    + f'<div style="margin-bottom:14px;">{_punt_chips}</div>'
+    + '<div style="font-family:var(--font-display);font-size:9px;font-weight:800;letter-spacing:.2em;'
+    'text-transform:uppercase;color:var(--fp-tx-muted);margin-bottom:6px;">Active</div>' + f"<div>{_active_chips}</div>"
+)
+render_panel(
+    f"Punting {', '.join(punt_cats)}",
+    _summary_body,
+    fig_label="FIG.10.1 — STRATEGY",
+    accent="top",
+)
 
 # ── Biggest Winners (value increases under punt) ────────────────────────────
 
-st.markdown("### Biggest Value Gainers Under Punt Strategy")
-st.caption("Players whose value increases most when punted categories are removed.")
-
 gainers = pool.nlargest(15, "value_change")[
-    ["player_name", "positions", "team", "original_sgp", "punt_sgp", "value_change"]
+    ["player_name", "positions", "team", "mlb_id", "original_sgp", "punt_sgp", "value_change"]
 ].copy()
-gainers["original_sgp"] = gainers["original_sgp"].map(lambda x: f"{x:+.2f}")
-gainers["punt_sgp"] = gainers["punt_sgp"].map(lambda x: f"{x:+.2f}")
-gainers["value_change"] = gainers["value_change"].map(lambda x: f"{x:+.2f}")
-gainers = gainers.rename(
-    columns={
-        "player_name": "Player",
-        "positions": "Pos",
-        "team": "Team",
-        "original_sgp": "Original SGP",
-        "punt_sgp": "Punt SGP",
-        "value_change": "Change",
-    }
+render_panel(
+    "Biggest Value Gainers Under Punt",
+    '<div style="font-size:12px;color:var(--fp-tx-muted);margin-bottom:8px;">'
+    "Players whose value increases most when the punted categories are removed.</div>"
+    + _value_swing_table_html(gainers, gain=True),
+    fig_label="FIG.10.2 — VALUE UP",
+    accent="top",
 )
-render_styled_table(gainers)
 
 # ── Biggest Losers (value decreases under punt) ────────────────────────────
 
-st.markdown("### Biggest Value Losers Under Punt Strategy")
-st.caption("Players whose value decreases when punted categories are removed — potential trade targets.")
-
 losers = pool.nsmallest(15, "value_change")[
-    ["player_name", "positions", "team", "original_sgp", "punt_sgp", "value_change"]
+    ["player_name", "positions", "team", "mlb_id", "original_sgp", "punt_sgp", "value_change"]
 ].copy()
-losers["original_sgp"] = losers["original_sgp"].map(lambda x: f"{x:+.2f}")
-losers["punt_sgp"] = losers["punt_sgp"].map(lambda x: f"{x:+.2f}")
-losers["value_change"] = losers["value_change"].map(lambda x: f"{x:+.2f}")
-losers = losers.rename(
-    columns={
-        "player_name": "Player",
-        "positions": "Pos",
-        "team": "Team",
-        "original_sgp": "Original SGP",
-        "punt_sgp": "Punt SGP",
-        "value_change": "Change",
-    }
+render_panel(
+    "Biggest Value Losers Under Punt",
+    '<div style="font-size:12px;color:var(--fp-tx-muted);margin-bottom:8px;">'
+    "Players whose value decreases when the punted categories are removed — potential trade targets.</div>"
+    + _value_swing_table_html(losers, gain=False),
+    fig_label="FIG.10.3 — VALUE DOWN",
+    accent="top",
 )
-render_styled_table(losers)
 
 # ── Standings Impact ────────────────────────────────────────────────────────
 
@@ -185,10 +267,14 @@ if _HAS_CATEGORY_ANALYSIS:
             user_totals = all_team_totals.get(user_team_name, {})
 
             if user_totals and all_team_totals:
-                st.markdown("### Standings Impact")
-                st.caption("How your current standings ranks change when focusing only on non-punted categories.")
-
+                _n_teams = max(len(all_team_totals), 2)
                 impact_rows = []
+                impact_html_rows = ""
+                _th = (
+                    "font-family:var(--font-display);font-weight:800;font-size:10.5px;"
+                    "letter-spacing:.06em;text-transform:uppercase;color:#2c2f36;"
+                    "padding:9px 12px;border-bottom:2px solid rgba(24,26,32,.18);"
+                )
                 for cat in all_cats:
                     rank_vals = sorted(
                         [t.get(cat, 0) for t in all_team_totals.values()],
@@ -204,17 +290,48 @@ if _HAS_CATEGORY_ANALYSIS:
                             if v > my_val:
                                 my_rank += 1
 
-                    status = "PUNT" if cat in punt_cats else "ACTIVE"
-                    impact_rows.append(
-                        {
-                            "Category": cat,
-                            "Your Total": format_stat(my_val, cat) if cat in config.rate_stats else f"{my_val:.0f}",
-                            "Rank": f"{my_rank}/12",
-                            "Status": status,
-                        }
+                    is_punt = cat in punt_cats
+                    status = "PUNT" if is_punt else "ACTIVE"
+                    impact_rows.append({"Status": status, "Rank": f"{my_rank}/12"})
+
+                    # Rank-strength heat bar: rank 1 = best = full bar.
+                    _strength = max(0.0, (_n_teams - my_rank + 1) / _n_teams * 100.0)
+                    _bar = build_heatbar_html(_strength, win=(not is_punt and my_rank <= _n_teams / 2))
+                    _val_str = format_stat(my_val, cat) if cat in config.rate_stats else f"{my_val:.0f}"
+                    _status_color = "var(--fp-cold)" if is_punt else "var(--fp-ember)"
+                    impact_html_rows += (
+                        f'<tr><td style="padding:8px 12px;border-bottom:1px solid var(--fp-divider);'
+                        f"font-family:var(--font-display);font-weight:800;font-size:13px;color:var(--fp-tx);"
+                        f'">{_html.escape(cat)}</td>'
+                        f'<td style="padding:8px 12px;border-bottom:1px solid var(--fp-divider);text-align:right;'
+                        f"font-family:var(--font-display);font-weight:700;font-size:13px;"
+                        f'font-variant-numeric:tabular-nums;color:var(--fp-tx);">{_val_str}</td>'
+                        f'<td style="padding:8px 12px;border-bottom:1px solid var(--fp-divider);text-align:right;'
+                        f"font-family:var(--font-mono);font-weight:600;font-size:12px;color:var(--fp-tx-muted);"
+                        f'">{my_rank}/12</td>'
+                        f'<td style="padding:8px 12px;border-bottom:1px solid var(--fp-divider);width:140px;">{_bar}</td>'
+                        f'<td style="padding:8px 12px;border-bottom:1px solid var(--fp-divider);text-align:right;'
+                        f"font-family:var(--font-mono);font-size:9.5px;font-weight:700;letter-spacing:.08em;"
+                        f'color:{_status_color};">{status}</td></tr>'
                     )
 
-                render_styled_table(pd.DataFrame(impact_rows))
+                _impact_table = (
+                    '<table class="rtbl" style="width:100%;border-collapse:collapse;margin-top:4px;">'
+                    f'<thead><tr><th style="{_th}text-align:left;">Category</th>'
+                    f'<th style="{_th}text-align:right;">Your Total</th>'
+                    f'<th style="{_th}text-align:right;">Rank</th>'
+                    f'<th style="{_th}text-align:left;">Strength</th>'
+                    f'<th style="{_th}text-align:right;">Status</th></tr></thead>'
+                    f"<tbody>{impact_html_rows}</tbody></table>"
+                )
+                render_panel(
+                    "Standings Impact",
+                    '<div style="font-size:12px;color:var(--fp-tx-muted);margin-bottom:8px;">'
+                    "How your current standings ranks read when focusing only on non-punted "
+                    "categories. The strength bar fills toward rank 1.</div>" + _impact_table,
+                    fig_label="FIG.10.4 — RANKS",
+                    accent="top",
+                )
 
                 # Compute effective standings points (only from active categories)
                 active_points = sum(13 - int(r["Rank"].split("/")[0]) for r in impact_rows if r["Status"] == "ACTIVE")

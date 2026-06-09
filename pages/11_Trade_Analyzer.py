@@ -5,6 +5,7 @@ LP lineup optimization, and deterministic grading (A+ to F).
 Falls back to the legacy analyzer if the engine is unavailable.
 """
 
+import html as _html
 import logging
 import time
 
@@ -21,6 +22,9 @@ from src.ui_shared import (
     METRIC_TOOLTIPS,
     PAGE_ICONS,
     T,
+    _headshot_img_html,
+    build_heatbar_html,
+    build_stat_readout_html,
     format_stat,
     inject_custom_css,
     no_league_data_message,
@@ -30,9 +34,12 @@ from src.ui_shared import (
     render_context_card,
     render_context_columns,
     render_data_freshness_card,
-    render_page_layout,
+    render_matchup_ticker,
+    render_page_header,
     render_player_select,
+    render_reco_banner,
     render_styled_table,
+    team_logo_url,
 )
 from src.usage import log_page_view
 from src.valuation import LeagueConfig, add_process_risk, compute_percentile_projections, compute_projection_volatility
@@ -82,7 +89,9 @@ require_page_enabled("page:11_Trade_Analyzer")
 log_page_view("Trade Analyzer")
 page_timer_start()
 
-render_page_layout("Trade Analyzer", banner_teaser="Analyze a trade below", banner_icon="trade")
+render_page_header("Trade Analyzer", eyebrow="TRADES", fig="FIG.11 — TRADE EVALUATION ENGINE")
+render_reco_banner("Analyze a trade below", "", "trade_analyzer")
+render_matchup_ticker()
 
 # Load data
 pool = load_player_pool()
@@ -413,9 +422,30 @@ else:
                         d_champ = result.get("delta_champ_prob", 0.0)
 
                         st.markdown(
-                            '<div style="font-family:var(--font-body);font-size:18px;'
-                            'color:#9ca3af;letter-spacing:2px;margin-top:8px;">'
-                            "Primary Objective — Δ Title Odds</div>",
+                            '<div style="display:flex;align-items:center;gap:11px;margin-top:14px;'
+                            'margin-bottom:6px;">'
+                            '<span style="width:3px;height:16px;background:var(--fp-primary);'
+                            'box-shadow:0 0 8px rgba(255,109,0,.5);border-radius:2px;"></span>'
+                            '<span style="font-family:var(--font-display);font-weight:800;font-size:15px;'
+                            "letter-spacing:.05em;text-transform:uppercase;color:var(--fp-tx);"
+                            '">Primary Objective — Δ Title Odds</span>'
+                            '<span style="font-family:var(--font-mono);font-size:10px;letter-spacing:.12em;'
+                            'color:var(--fp-tx-muted);margin-left:auto;">FIG.11.1 — PLAYOFF SIM</span></div>',
+                            unsafe_allow_html=True,
+                        )
+                        # Title-odds heat bars: orange = trade improves the odds.
+                        _play_after = float(after.get("playoff_prob", 0) or 0.0)
+                        _champ_after = float(after.get("champ_prob", 0) or 0.0)
+                        _play_bar = build_heatbar_html(_play_after * 100.0, win=(d_play >= 0))
+                        _champ_bar = build_heatbar_html(_champ_after * 100.0, win=(d_champ >= 0))
+                        st.markdown(
+                            '<div style="display:flex;gap:24px;margin-bottom:6px;">'
+                            f'<div style="flex:1;"><div style="font-family:var(--font-display);font-size:9px;'
+                            "font-weight:800;letter-spacing:.2em;text-transform:uppercase;color:var(--fp-tx-muted);"
+                            f'margin-bottom:4px;">Playoff odds</div>{_play_bar}</div>'
+                            f'<div style="flex:1;"><div style="font-family:var(--font-display);font-size:9px;'
+                            "font-weight:800;letter-spacing:.2em;text-transform:uppercase;color:var(--fp-tx-muted);"
+                            f'margin-bottom:4px;">Championship odds</div>{_champ_bar}</div></div>',
                             unsafe_allow_html=True,
                         )
                         pc1, pc2, pc3 = st.columns(3)
@@ -533,16 +563,28 @@ else:
                             f'font-weight:bold;">{grade}</span>'
                         )
 
+                    # Confidence heat bar + surplus-SGP readout under the verdict.
+                    _conf_pct = float(result.get("confidence_pct", 0) or 0.0)
+                    _surplus_val = float(
+                        (result.get("surplus_sgp") if engine_used == "phase1" else result.get("total_sgp_change", 0))
+                        or 0.0
+                    )
+                    _conf_bar = build_heatbar_html(_conf_pct, win=(result["verdict"] == "ACCEPT"))
+                    _surplus_readout = build_stat_readout_html(
+                        "Surplus SGP", format_stat(_surplus_val, "SGP"), accent=(_surplus_val >= 0)
+                    )
                     st.markdown(
                         f'<div class="glass" style="border:2px solid {color};'
-                        f"padding:20px;text-align:center;margin:16px 0;"
-                        f'animation:slideUp 0.4s ease-out both;">'
-                        f"{icon}"
-                        f'<span style="font-family:var(--font-body);font-size:28px;color:{color};'
-                        f'letter-spacing:2px;margin-left:12px;">{result["verdict"]}</span>'
-                        f"{grade_html}"
-                        f'<span style="color:{T["tx2"]};margin-left:12px;font-size:18px;">'
-                        f"{result['confidence_pct']:.2f}% confidence</span></div>",
+                        f"padding:20px;margin:16px 0;animation:slideUp 0.4s ease-out both;"
+                        f'display:flex;align-items:center;gap:18px;flex-wrap:wrap;">'
+                        f'<div style="display:flex;align-items:center;">{icon}'
+                        f'<span style="font-family:var(--font-display);font-weight:900;font-size:28px;color:{color};'
+                        f'letter-spacing:1px;margin-left:12px;">{result["verdict"]}</span>{grade_html}</div>'
+                        f'<div style="flex:1;min-width:180px;">'
+                        f'<div style="display:flex;justify-content:space-between;font-family:var(--font-mono);'
+                        f'font-size:11px;color:{T["tx2"]};margin-bottom:4px;">'
+                        f"<span>Confidence</span><span>{_conf_pct:.1f}%</span></div>{_conf_bar}</div>"
+                        f"{_surplus_readout}</div>",
                         unsafe_allow_html=True,
                     )
                     verdict_key = "trade_verdict" if engine_used == "phase1" else "trade_verdict_legacy"
@@ -1146,32 +1188,53 @@ else:
                         for flag in result["risk_flags"]:
                             st.warning(flag)
 
-                    # Show headshots + injury badges for traded players
-                    from src.ui_shared import _headshot_img_html
+                    # Show headshots + team logos + injury badges for traded players.
+                    def _trade_player_row(name: str) -> str:
+                        p = pool[pool["player_name"] == name]
+                        if p.empty:
+                            return ""
+                        mid = p.iloc[0].get("mlb_id")
+                        team = p.iloc[0].get("team")
+                        hs = float(p.iloc[0].get("health_score", 0.85) or 0.85)
+                        badge_icon, label = get_injury_badge(hs)
+                        shot = _headshot_img_html(mid, size=30)
+                        logo = team_logo_url(team)
+                        safe_name = _html.escape(str(name))
+                        safe_label = _html.escape(str(label))
+                        return (
+                            f'<div style="display:flex;align-items:center;gap:8px;padding:5px 0;'
+                            f'border-bottom:1px solid var(--fp-divider);">{shot}'
+                            f'<img src="{logo}" width="16" height="16" style="vertical-align:middle;" '
+                            f'loading="lazy" onerror="this.style.display=\'none\'" />{badge_icon}'
+                            f'<span style="font-family:var(--font-body);font-weight:600;font-size:13.5px;'
+                            f'color:var(--fp-tx);">{safe_name}</span>'
+                            f'<span style="font-family:var(--font-mono);font-size:11px;color:var(--fp-tx-muted);'
+                            f'margin-left:auto;">{safe_label}</span></div>'
+                        )
 
                     trade_col1, trade_col2 = st.columns(2)
                     with trade_col1:
-                        st.markdown("**Giving:**")
+                        st.markdown(
+                            '<div style="font-family:var(--font-display);font-weight:800;font-size:11px;'
+                            "letter-spacing:.1em;text-transform:uppercase;color:var(--fp-tx-muted);"
+                            'margin-bottom:4px;">Giving</div>',
+                            unsafe_allow_html=True,
+                        )
                         for name in giving_names:
-                            p = pool[pool["player_name"] == name]
-                            if not p.empty:
-                                pid = p.iloc[0]["player_id"]
-                                mid = p.iloc[0].get("mlb_id")
-                                hs = float(p.iloc[0].get("health_score", 0.85) or 0.85)
-                                badge_icon, label = get_injury_badge(hs)
-                                shot = _headshot_img_html(mid, size=28)
-                                st.markdown(f"{shot}{badge_icon} {name} — {label}", unsafe_allow_html=True)
+                            _row = _trade_player_row(name)
+                            if _row:
+                                st.markdown(_row, unsafe_allow_html=True)
                     with trade_col2:
-                        st.markdown("**Receiving:**")
+                        st.markdown(
+                            '<div style="font-family:var(--font-display);font-weight:800;font-size:11px;'
+                            "letter-spacing:.1em;text-transform:uppercase;color:var(--fp-ember);"
+                            'margin-bottom:4px;">Receiving</div>',
+                            unsafe_allow_html=True,
+                        )
                         for name in receiving_names:
-                            p = pool[pool["player_name"] == name]
-                            if not p.empty:
-                                pid = p.iloc[0]["player_id"]
-                                mid = p.iloc[0].get("mlb_id")
-                                hs = float(p.iloc[0].get("health_score", 0.85) or 0.85)
-                                badge_icon, label = get_injury_badge(hs)
-                                shot = _headshot_img_html(mid, size=28)
-                                st.markdown(f"{shot}{badge_icon} {name} — {label}", unsafe_allow_html=True)
+                            _row = _trade_player_row(name)
+                            if _row:
+                                st.markdown(_row, unsafe_allow_html=True)
 
                     # Player card selector for traded players
                     _trade_all_names = list(giving_names) + list(receiving_names)

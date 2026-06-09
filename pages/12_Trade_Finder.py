@@ -5,6 +5,7 @@ cosine dissimilarity team pairing and behavioral acceptance modeling.
 Four tabs: Trade Recommendations, Target a Player, Browse Partners, Trade Readiness.
 """
 
+import html as _html
 import time
 
 import pandas as pd
@@ -30,14 +31,20 @@ from src.trade_finder import (
 from src.ui_shared import CAT_DISPLAY_NAMES as _CAT_DISPLAY  # noqa: E402
 from src.ui_shared import (
     T,
+    build_heatbar_html,
+    build_roster_table_html,
+    build_stat_readout_html,
     format_stat,
     inject_custom_css,
     page_timer_footer,
     page_timer_start,
     render_context_card,
     render_context_columns,
-    render_page_layout,
+    render_matchup_ticker,
+    render_page_header,
+    render_reco_banner,
     render_sortable_table,
+    team_logo_url,
 )
 from src.usage import log_page_view
 from src.valuation import LeagueConfig
@@ -287,13 +294,13 @@ def main():
             f"Top opportunity: Send {best_give} to {best_partner} for {best_recv} "
             f"({format_stat(best_gain, 'SGP')} Standings Gained Points)"
         )
-        render_page_layout(
-            "Trade Finder",
-            banner_teaser=banner_text,
-            banner_icon="trade_analyzer",
-        )
+        render_page_header("Trade Finder", eyebrow="TRADES", fig="FIG.12 — OPPORTUNITY SCANNER")
+        render_reco_banner(banner_text, "", "trade_analyzer")
+        render_matchup_ticker()
     else:
-        render_page_layout("Trade Finder", banner_teaser="No profitable trades found at this time.")
+        render_page_header("Trade Finder", eyebrow="TRADES", fig="FIG.12 — OPPORTUNITY SCANNER")
+        render_reco_banner("No profitable trades found at this time.", "", "trade_analyzer")
+        render_matchup_ticker()
 
     # ── Context + Main columns ────────────────────────────────────────
     ctx, main_col = render_context_columns()
@@ -320,23 +327,28 @@ def main():
         needs_html += "</ul>"
         render_context_card("Category Needs", needs_html)
 
-        # Complementary teams
+        # Complementary teams — fit score rendered as an orange heat bar.
         if all_team_totals and user_team_name:
             partners = find_complementary_teams(user_team_name, all_team_totals, config, top_n=5)
             partners_html = ""
             for i, (team, score) in enumerate(partners, 1):
+                _fit_bar = build_heatbar_html(min(100.0, max(0.0, float(score) * 100.0)), win=True)
                 partners_html += (
-                    f'<div style="font-size:12px;color:{T["tx"]};padding:2px 0;">'
-                    f'{i}. {team} <span style="color:{T["tx2"]};">({score:.2f})</span></div>'
+                    f'<div style="padding:5px 0;">'
+                    f'<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:3px;">'
+                    f'<span style="font-size:12px;color:{T["tx"]};font-weight:600;">{i}. {team}</span>'
+                    f'<span style="font-family:var(--font-mono);font-size:11px;color:{T["tx2"]};">{score:.2f}</span>'
+                    f"</div>{_fit_bar}</div>"
                 )
             render_context_card("Best Trade Partners", partners_html)
 
-        # Scan stats
+        # Scan stats — stat-readout chips.
         stats_html = (
-            f'<div style="font-size:12px;color:{T["tx"]};">'
-            f"Trades found: {len(opportunities)}<br>"
-            f"Teams scanned: {len(league_rosters) - 1}<br>"
-            f"Scan time: {scan_time:.2f}s</div>"
+            '<div style="display:flex;gap:18px;flex-wrap:wrap;">'
+            + build_stat_readout_html("Trades", len(opportunities), accent=True)
+            + build_stat_readout_html("Teams", max(0, len(league_rosters) - 1))
+            + build_stat_readout_html("Scan", f"{scan_time:.1f}s")
+            + "</div>"
         )
         render_context_card("Scan Summary", stats_html)
 
@@ -982,21 +994,42 @@ def main():
                         except ImportError:
                             st.info("Trade intelligence module not available.")
 
-                # Opponent roster
+                # Opponent roster — branded instrument tables (headshots + team
+                # logos + team-color tint), split into hitters and pitchers like
+                # the My Team roster + player dossier.
                 opp_pids_browse = league_rosters.get(selected_browse_team, [])
                 opp_pool_browse = pool[pool["player_id"].isin(opp_pids_browse)].copy()
                 if not opp_pool_browse.empty:
-                    st.markdown("**Opponent Roster**")
-                    name_col_b = "name" if "name" in opp_pool_browse.columns else "player_name"
-                    display_cols_b = [name_col_b, "positions"]
-                    for col_b in ["r", "hr", "rbi", "sb", "avg", "w", "sv", "k", "era", "whip"]:
-                        if col_b in opp_pool_browse.columns:
-                            display_cols_b.append(col_b)
-                    display_df_b = opp_pool_browse[[c for c in display_cols_b if c in opp_pool_browse.columns]].copy()
-                    display_df_b = display_df_b.rename(
-                        columns={"name": "Player", "player_name": "Player", "positions": "Pos"}
+                    # build_roster_table_html reads a "name" column; the pool
+                    # exposes "player_name", so alias it back.
+                    if "name" not in opp_pool_browse.columns and "player_name" in opp_pool_browse.columns:
+                        opp_pool_browse["name"] = opp_pool_browse["player_name"]
+
+                    _opp_logo = team_logo_url(selected_browse_team)
+                    st.markdown(
+                        f'<div style="display:flex;align-items:center;gap:9px;margin:14px 0 6px;">'
+                        f'<img src="{_opp_logo}" width="22" height="22" loading="lazy" '
+                        f"onerror=\"this.style.display='none'\" />"
+                        f'<span style="font-family:var(--font-display);font-weight:800;font-size:15px;'
+                        f"letter-spacing:.05em;text-transform:uppercase;color:var(--fp-tx);"
+                        f'">{_html.escape(str(selected_browse_team))} Roster</span></div>',
+                        unsafe_allow_html=True,
                     )
-                    render_sortable_table(display_df_b, height=500)
+                    if "is_hitter" in opp_pool_browse.columns:
+                        _opp_h = opp_pool_browse[opp_pool_browse["is_hitter"] == 1]
+                        _opp_p = opp_pool_browse[opp_pool_browse["is_hitter"] == 0]
+                    else:
+                        _opp_h, _opp_p = opp_pool_browse, opp_pool_browse.iloc[0:0]
+                    if not _opp_h.empty:
+                        st.markdown(
+                            build_roster_table_html(_opp_h, is_hitter=True),
+                            unsafe_allow_html=True,
+                        )
+                    if not _opp_p.empty:
+                        st.markdown(
+                            build_roster_table_html(_opp_p, is_hitter=False),
+                            unsafe_allow_html=True,
+                        )
 
         # ── Tab 5: Value Chart (was pages/13_Trade_Values.py) ────────
         with tab_values:

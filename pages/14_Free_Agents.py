@@ -1,5 +1,6 @@
 """Free Agents — Unified free agent browsing, add/drop recommendations, and streaming targets."""
 
+import html as _html
 import logging
 
 import pandas as pd
@@ -20,6 +21,8 @@ from src.ui_shared import (
     METRIC_TOOLTIPS,
     POSITIONS,
     THEME,
+    _headshot_img_html,
+    build_heatbar_html,
     format_stat,
     inject_custom_css,
     no_league_data_message,
@@ -28,9 +31,13 @@ from src.ui_shared import (
     render_compact_table,
     render_context_card,
     render_context_columns,
-    render_page_layout,
+    render_matchup_ticker,
+    render_page_header,
     render_player_select,
+    render_reco_banner,
     render_sortable_table,
+    team_color,
+    team_logo_url,
 )
 from src.usage import log_page_view
 from src.valuation import LeagueConfig
@@ -171,6 +178,78 @@ def _dedupe_positions(positions: str) -> str:
             seen.add(t)
             ordered.append(t)
     return ",".join(ordered)
+
+
+def _fa_recs_table_html(
+    recs: list[dict],
+    *,
+    pid_to_mlb: dict,
+    pid_to_team: dict,
+) -> str:
+    """Build the branded Recommended Adds/Drops instrument table.
+
+    Mirrors the My Team roster / player-dossier look: per-row team-color accent,
+    headshot + team logo for the add, an orange sustainability heat bar, Archivo
+    tabular Net-SGP figure, and the paired drop. ``render_compact_table`` escapes
+    cells so it can't carry logos/bars — this inline ``.rtbl`` table can.
+    """
+    th = (
+        "font-family:var(--font-display);font-weight:800;font-size:10.5px;"
+        "letter-spacing:.06em;text-transform:uppercase;color:#2c2f36;"
+        "padding:9px 12px;border-bottom:2px solid rgba(24,26,32,.18);"
+    )
+    head = (
+        f'<th style="{th}text-align:left;">Add</th>'
+        f'<th style="{th}text-align:center;">Pos</th>'
+        f'<th style="{th}text-align:right;">Net SGP</th>'
+        f'<th style="{th}text-align:left;">Sustainability</th>'
+        f'<th style="{th}text-align:left;">Drop</th>'
+    )
+    rows = ""
+    for rec in recs:
+        add_pid = rec.get("add_player_id")
+        team = pid_to_team.get(add_pid)
+        tc = team_color(team)
+        logo = team_logo_url(team)
+        abbr = _html.escape(str(team or "").strip().upper())
+        add_name = _html.escape(str(rec.get("add_name", "")))
+        headshot = _headshot_img_html(pid_to_mlb.get(add_pid), size=34)
+        pos_txt = _html.escape(_dedupe_positions(rec.get("add_positions", "")).split(",")[0])
+        sus_pct = int(float(rec.get("sustainability_score", 0.5) or 0.0) * 100)
+        sus_bar = build_heatbar_html(sus_pct, win=(sus_pct >= 50))
+        drop_name = _html.escape(str(rec.get("drop_name", "")))
+        net_delta = float(rec.get("net_sgp_delta", 0) or 0.0)
+        pcell = (
+            f'<span style="display:flex;align-items:center;gap:11px;">{headshot}'
+            f'<span style="display:flex;flex-direction:column;gap:1px;min-width:0;">'
+            f'<b style="font-family:var(--font-body);font-weight:600;font-size:13.5px;color:var(--fp-tx);">{add_name}</b>'
+            f'<span style="font-family:var(--font-mono);font-size:10px;color:var(--fp-tx-subtle);'
+            f'letter-spacing:.04em;display:flex;align-items:center;gap:5px;">'
+            f'<img src="{logo}" width="13" height="13" style="vertical-align:-2px;" loading="lazy" '
+            f"onerror=\"this.style.display='none'\" />{abbr}</span></span></span>"
+        )
+        rows += (
+            f'<tr><td style="padding:8px 12px;border-bottom:1px solid var(--fp-divider);'
+            f"background:color-mix(in srgb,{tc} 8%,transparent);box-shadow:inset 3px 0 0 {tc};"
+            f'">{pcell}</td>'
+            f'<td style="padding:8px 12px;border-bottom:1px solid var(--fp-divider);text-align:center;">'
+            f'<span style="font-family:var(--font-mono);font-size:9.5px;font-weight:600;color:var(--fp-tx-muted);'
+            f'background:var(--fp-surface);border:1px solid var(--fp-border);border-radius:5px;padding:2px 7px;">{pos_txt}</span></td>'
+            f'<td style="padding:8px 12px;border-bottom:1px solid var(--fp-divider);text-align:right;'
+            f"font-family:var(--font-display);font-weight:800;font-size:13.5px;font-variant-numeric:tabular-nums;"
+            f'color:var(--fp-ember);">{format_stat(net_delta, "SGP")}</td>'
+            f'<td style="padding:8px 12px;border-bottom:1px solid var(--fp-divider);width:150px;">'
+            f'<div style="display:flex;align-items:center;gap:8px;">'
+            f'<div style="flex:1;">{sus_bar}</div>'
+            f'<span style="font-family:var(--font-mono);font-size:11px;font-weight:600;color:var(--fp-tx-muted);'
+            f'white-space:nowrap;">{sus_pct}%</span></div></td>'
+            f'<td style="padding:8px 12px;border-bottom:1px solid var(--fp-divider);'
+            f'font-family:var(--font-body);font-size:12.5px;color:var(--fp-tx-muted);">{drop_name}</td></tr>'
+        )
+    return (
+        '<table class="rtbl" style="width:100%;border-collapse:collapse;margin-top:4px;">'
+        f"<thead><tr>{head}</tr></thead><tbody>{rows}</tbody></table>"
+    )
 
 
 try:
@@ -423,6 +502,11 @@ _pid_to_mlb = {}
 if "mlb_id" in pool.columns and "player_id" in pool.columns:
     _pid_to_mlb = dict(zip(pool["player_id"], pool["mlb_id"]))
 
+# pid → MLB team (for the branded adds-table logo + team-color accent).
+_pid_to_team: dict = {}
+if "team" in pool.columns and "player_id" in pool.columns:
+    _pid_to_team = dict(zip(pool["player_id"], pool["team"]))
+
 # ── Banner: top pickup recommendation ─────────────────────────────────────────
 
 _banner_teaser = "Top free agent pickups by marginal value"
@@ -435,7 +519,9 @@ if recommendations:
         f"Top pickup: Add {_top_add} (drop {_top_drop}) for {format_stat(_top_delta, 'SGP')} Standings Gained Points"
     )
 
-render_page_layout("Free Agents", banner_teaser=_banner_teaser, banner_icon="free_agents")
+render_page_header("Free Agents", eyebrow="WIRE", fig="FIG.14 — FREE AGENTS")
+render_reco_banner(_banner_teaser, "", "free_agents")
+render_matchup_ticker()
 
 # ── Position filter (shared across all sections) ─────────────────────────────
 # 2026-05-19 Section 5: POSITIONS now imported from src.ui_shared (top of file).
@@ -510,19 +596,24 @@ with ctx:
         _hot_count = int((ownership_heat["heat"] >= 7).sum())
         _warm_count = int(((ownership_heat["heat"] >= 4) & (ownership_heat["heat"] < 7)).sum())
         _breakout_count = int(((ownership_heat["heat"] >= 5) & (ownership_heat["percent_owned"] < 30)).sum())
+        _heat_total = max(1, len(ownership_heat))
+        _hot_bar = build_heatbar_html(_hot_count / _heat_total * 100.0, win=True)
+        _warm_bar = build_heatbar_html(_warm_count / _heat_total * 100.0, win=True)
+        _bo_bar = build_heatbar_html(_breakout_count / _heat_total * 100.0, win=True)
+
+        def _heat_index_row(label, count, color, bar):
+            return (
+                f'<div style="padding:4px 0;">'
+                f'<div style="display:flex;justify-content:space-between;align-items:baseline;'
+                f'font-size:12px;font-family:IBM Plex Mono,monospace;margin-bottom:3px;">'
+                f'<span style="color:{T["tx2"]};">{label}</span>'
+                f'<span style="font-weight:600;color:{color};">{count}</span></div>{bar}</div>'
+            )
+
         heat_html = (
-            f'<div style="display:flex;justify-content:space-between;'
-            f'padding:2px 0;font-size:12px;font-family:IBM Plex Mono,monospace;">'
-            f'<span style="color:{T["tx2"]};">Hot (7-10)</span>'
-            f'<span style="font-weight:600;color:{T["danger"]};">{_hot_count}</span></div>'
-            f'<div style="display:flex;justify-content:space-between;'
-            f'padding:2px 0;font-size:12px;font-family:IBM Plex Mono,monospace;">'
-            f'<span style="color:{T["tx2"]};">Warm (4-6)</span>'
-            f'<span style="font-weight:600;color:{T["warn"]};">{_warm_count}</span></div>'
-            f'<div style="display:flex;justify-content:space-between;'
-            f'padding:2px 0;font-size:12px;font-family:IBM Plex Mono,monospace;">'
-            f'<span style="color:{T["tx2"]};">Breakout Candidates</span>'
-            f'<span style="font-weight:600;color:{T["hot"]};">{_breakout_count}</span></div>'
+            _heat_index_row("Hot (7-10)", _hot_count, T["danger"], _hot_bar)
+            + _heat_index_row("Warm (4-6)", _warm_count, T["warn"], _warm_bar)
+            + _heat_index_row("Breakout Candidates", _breakout_count, T["hot"], _bo_bar)
         )
         render_context_card("Ownership Heat Index", heat_html)
         if "fa_breakout_filter" not in st.session_state:
@@ -683,21 +774,10 @@ with main:
                 "or no free agent improves your team's Standings Gained Points total."
             )
     else:
-        adds_rows = []
-        for rec in filtered_recs:
-            sustainability_pct = int(rec.get("sustainability_score", 0.5) * 100)
-            entry = {
-                "Add": rec.get("add_name", ""),
-                "Position": _dedupe_positions(rec.get("add_positions", "")),
-                "Net Standings Gained Points Delta": format_stat(rec.get("net_sgp_delta", 0), "SGP"),
-                "Sustainability": f"{sustainability_pct}%",
-                "Drop": rec.get("drop_name", ""),
-            }
-            if _pid_to_mlb:
-                entry["mlb_id"] = _pid_to_mlb.get(rec.get("add_player_id"))
-            adds_rows.append(entry)
-        adds_df = pd.DataFrame(adds_rows)
-        render_compact_table(adds_df, highlight_cols=["Net Standings Gained Points Delta"])
+        st.markdown(
+            _fa_recs_table_html(filtered_recs, pid_to_mlb=_pid_to_mlb, pid_to_team=_pid_to_team),
+            unsafe_allow_html=True,
+        )
 
         # Reasoning expanders
         for i, rec in enumerate(filtered_recs):
