@@ -322,49 +322,63 @@ PAGE_ICONS = {
 # ── Theme (Light-only — Heater palette) ──────────────────────────
 
 THEME = {
-    "bg": "#f6f7f9",  # FP-revamp: cooler app bg so white cards pop (was cream #f4f5f0)
+    # ── Combustion Index redesign (2026-06-08) ──
+    # Off-white canvas, deep-navy chrome, hot-orange accent. No red in the brand
+    # colorway (ember-red is reserved as a functional negative only). Values from
+    # docs/design/mockup-myteam.html + mockup-player-popup.html :root + the
+    # locked palette in docs/superpowers/plans/2026-06-08-combustion-redesign-plan.md.
+    "bg": "#f4f3f1",  # neutral off-white canvas
     "card": "#ffffff",
-    "card_h": "#e8e9e3",
-    "primary": "#e63946",
-    "primary_l": "#ff6b6b",
+    "card_h": "#ecebe7",
+    "primary": "#ff6d00",  # hot orange — the headline brand change (was red)
+    "primary_l": "#ff9a3c",
     "hot": "#ff6d00",
-    "hot_l": "#ff9e40",
-    "gold": "#ffd60a",
-    "green": "#2d6a4f",
-    "green_l": "#40916c",
-    "sky": "#457b9d",
-    "sky_l": "#a8dadc",
-    "purple": "#6c63ff",
-    "ok": "#2d6a4f",
-    "danger": "#e63946",
+    "hot_l": "#ff9a3c",
+    "gold": "#ffae42",
+    "green": "#1f9d6b",
+    "green_l": "#2bbd86",
+    "sky": "#5f7d9c",  # muted steel (COLD/negative-leaning, minimal blue)
+    "sky_l": "#8aa6c0",
+    "purple": "#6c63ff",  # rarely used; kept
+    "ok": "#1f9d6b",
+    "danger": "#e0492f",  # ember-red — functional negative ONLY, not brand
     "warn": "#ff9f1c",
-    "tx": "#1d1d1f",
-    "tx2": "#6b7280",
-    "border": "#e6e8ec",  # FP-revamp: softened border (was #d4d5cf)
+    "tx": "#1b1c20",  # charcoal primary body text
+    "tx2": "#646a78",
+    "border": "#e3e2de",
+    # ink = text-on-accent (white on colored buttons). MUST stay white — the
+    # mockup's dark "ink" maps to THEME["tx"], not this key.
     "ink": "#ffffff",
-    # ── FP-revamp neutrals (2026-06-08, fantasypros.com-inspired) ──
-    # "surface" is the card fill (== card); the sidebar pair drives the thin dark
-    # icon rail; divider/tx_muted/tx_subtle give the calmer FP text + line hierarchy.
+    # ── Neutrals + chrome (Combustion redesign) ──
+    # "surface" is the card fill (== card); the sidebar pair drives the deep-navy
+    # rail; divider/tx_muted/tx_subtle give the calmer text + line hierarchy.
     "surface": "#ffffff",
-    "sidebar_bg": "#10213a",
-    "sidebar_ink": "#e8edf5",
-    "divider": "#eef0f3",
-    "tx_muted": "#5b6470",
-    "tx_subtle": "#8a929c",
+    "sidebar_bg": "#112744",  # deep navy chrome
+    "sidebar_ink": "#eef1f6",
+    "divider": "#edece8",
+    "tx_muted": "#646a78",
+    "tx_subtle": "#9aa0ac",
     "tiers": [
-        "#e63946",
         "#ff6d00",
-        "#ffd60a",
-        "#2d6a4f",
-        "#457b9d",
-        "#6c63ff",
-        "#8d99ae",
-        "#adb5bd",
+        "#ff9a3c",
+        "#ffae42",
+        "#1f9d6b",
+        "#5f7d9c",
+        "#8aa6c0",
+        "#b0b5be",
+        "#cdd1d8",
     ],
     # Backward compatibility aliases — old code uses T["amber"], T["teal"], etc.
-    "amber": "#e63946",
-    "amber_l": "#ff6b6b",
-    "teal": "#457b9d",
+    # Formerly aliased to red; now orange-family per the redesign.
+    "amber": "#ff6d00",
+    "amber_l": "#ff9a3c",
+    "teal": "#5f7d9c",
+    # ── New Combustion tokens (2026-06-08) ──
+    "flame": "#ff9a3c",  # lighter orange (highlights, hover)
+    "ember": "#e8480a",  # deep orange (gradient base, accent rules)
+    "cold": "#5f7d9c",  # steel (COLD-only signal)
+    "navy": "#112744",  # chrome base
+    "navy2": "#0e2244",  # chrome gradient end
 }
 
 # Simple alias — no proxy needed without dark mode.
@@ -377,6 +391,114 @@ HITTING_CATEGORIES = _LC_ONCE.hitting_categories
 PITCHING_CATEGORIES = _LC_ONCE.pitching_categories
 ALL_CATEGORIES = _LC_ONCE.all_categories
 del _LC_ONCE
+
+# ── Team branding (Combustion redesign, 2026-06-08) ──────────────────
+# MLB Stats API team id → {abbr, primary, secondary}. Primary = official
+# primary brand color (used for team-themed chrome: popup headers, roster
+# accents, chips). Logos render from mlbstatic by id. Anchors verified against
+# the redesign plan; secondaries are the team's standard second brand color.
+TEAM_BRAND: dict[int, dict] = {
+    108: {"abbr": "LAA", "primary": "#BA0021", "secondary": "#003263"},  # Angels
+    109: {"abbr": "ARI", "primary": "#A71930", "secondary": "#E3D4AD"},  # D-backs
+    110: {"abbr": "BAL", "primary": "#DF4601", "secondary": "#000000"},  # Orioles
+    111: {"abbr": "BOS", "primary": "#BD3039", "secondary": "#0C2340"},  # Red Sox
+    112: {"abbr": "CHC", "primary": "#0E3386", "secondary": "#CC3433"},  # Cubs
+    113: {"abbr": "CIN", "primary": "#C6011F", "secondary": "#000000"},  # Reds
+    114: {"abbr": "CLE", "primary": "#0C2340", "secondary": "#E31937"},  # Guardians
+    115: {"abbr": "COL", "primary": "#33006F", "secondary": "#C4CED4"},  # Rockies
+    116: {"abbr": "DET", "primary": "#0C2340", "secondary": "#FA4616"},  # Tigers
+    117: {"abbr": "HOU", "primary": "#002D62", "secondary": "#EB6E1F"},  # Astros
+    118: {"abbr": "KC", "primary": "#004687", "secondary": "#BD9B60"},  # Royals
+    119: {"abbr": "LAD", "primary": "#005A9C", "secondary": "#EF3E42"},  # Dodgers
+    120: {"abbr": "WSH", "primary": "#AB0003", "secondary": "#14225A"},  # Nationals
+    121: {"abbr": "NYM", "primary": "#002D72", "secondary": "#FF5910"},  # Mets
+    133: {"abbr": "ATH", "primary": "#003831", "secondary": "#EFB21E"},  # Athletics
+    134: {"abbr": "PIT", "primary": "#FDB827", "secondary": "#27251F"},  # Pirates
+    135: {"abbr": "SD", "primary": "#2F241D", "secondary": "#FFC425"},  # Padres
+    136: {"abbr": "SEA", "primary": "#0C2C56", "secondary": "#005C5C"},  # Mariners
+    137: {"abbr": "SF", "primary": "#FD5A1E", "secondary": "#27251F"},  # Giants
+    138: {"abbr": "STL", "primary": "#C41E3A", "secondary": "#0C2340"},  # Cardinals
+    139: {"abbr": "TB", "primary": "#092C5C", "secondary": "#8FBCE6"},  # Rays
+    140: {"abbr": "TEX", "primary": "#003278", "secondary": "#C0111F"},  # Rangers
+    141: {"abbr": "TOR", "primary": "#134A8E", "secondary": "#1D2D5C"},  # Blue Jays
+    142: {"abbr": "MIN", "primary": "#002B5C", "secondary": "#D31145"},  # Twins
+    143: {"abbr": "PHI", "primary": "#E81828", "secondary": "#002D72"},  # Phillies
+    144: {"abbr": "ATL", "primary": "#13274F", "secondary": "#CE1141"},  # Braves
+    145: {"abbr": "CWS", "primary": "#27251F", "secondary": "#C4CED4"},  # White Sox
+    146: {"abbr": "MIA", "primary": "#00A3E0", "secondary": "#EF3340"},  # Marlins
+    147: {"abbr": "NYY", "primary": "#0C2340", "secondary": "#C4CED4"},  # Yankees
+    158: {"abbr": "MIL", "primary": "#12284B", "secondary": "#FFC52F"},  # Brewers
+}
+
+# abbr → id reverse map so abbr-only callers can resolve branding/logos.
+TEAM_ABBR_TO_ID: dict[str, int] = {v["abbr"]: k for k, v in TEAM_BRAND.items()}
+
+_TEAM_FALLBACK_COLOR = "#ff6d00"  # orange — when a team can't be resolved
+
+
+def _resolve_team_id(team) -> int | None:
+    """Resolve an MLB Stats API team id from either an int id or an abbr str."""
+    if team is None:
+        return None
+    if isinstance(team, bool):  # guard: bool is an int subclass
+        return None
+    if isinstance(team, int):
+        return team if team in TEAM_BRAND else None
+    try:
+        # numeric-string ids (e.g. "117")
+        as_int = int(team)
+        if as_int in TEAM_BRAND:
+            return as_int
+    except (ValueError, TypeError):
+        pass
+    if isinstance(team, str):
+        return TEAM_ABBR_TO_ID.get(team.strip().upper())
+    return None
+
+
+def team_logo_url(team) -> str:
+    """Return the MLB team logo SVG URL for an id or abbr.
+
+    Falls back to a generic id-0 path when the team is unknown (mlbstatic
+    returns a transparent placeholder rather than 404ing the render).
+    """
+    tid = _resolve_team_id(team)
+    return f"https://www.mlbstatic.com/team-logos/{tid if tid is not None else 0}.svg"
+
+
+def team_color(team) -> str:
+    """Return a team's official primary hex (id or abbr). Orange fallback."""
+    tid = _resolve_team_id(team)
+    if tid is None:
+        return _TEAM_FALLBACK_COLOR
+    return TEAM_BRAND[tid]["primary"]
+
+
+def text_on(hex_color: str) -> str:
+    """Pick readable text (#ffffff or charcoal) for a given background hex.
+
+    WCAG-style relative luminance: dark text on light backgrounds, white text
+    on dark. Keeps team-color labels legible regardless of the team color.
+    """
+    h = (hex_color or "").lstrip("#")
+    if len(h) == 3:
+        h = "".join(c * 2 for c in h)
+    if len(h) != 6:
+        return "#ffffff"
+    try:
+        r, g, b = (int(h[i : i + 2], 16) / 255.0 for i in (0, 2, 4))
+    except ValueError:
+        return "#ffffff"
+
+    def _lin(c: float) -> float:
+        return c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
+
+    lum = 0.2126 * _lin(r) + 0.7152 * _lin(g) + 0.0722 * _lin(b)
+    # Threshold ~0.4 keeps mid-tone team colors (e.g. orange) on dark text only
+    # when genuinely light; navy/maroon get white. 0.179 is the WCAG #767676
+    # midpoint, but 0.4 reads better for saturated brand colors.
+    return THEME["tx"] if lum > 0.4 else "#ffffff"
+
 
 # 2026-05-17 Section 3 D10: canonical category short→long display-name
 # map. Previously duplicated as `_CAT_DISPLAY` (uppercase) in 12_Trade_Finder
@@ -508,7 +630,7 @@ METRIC_TOOLTIPS = {
 
 
 def sec(title):
-    """Render a styled section header (Figtree, title case)."""
+    """Render a styled section header (Archivo display, title case)."""
     st.markdown(f'<div class="sec-head">{title}</div>', unsafe_allow_html=True)
 
 
@@ -545,7 +667,7 @@ def no_league_data_message(reason: str = "") -> str:
 def get_plotly_layout(theme=None):
     """Return Plotly layout kwargs for consistent chart theming.
 
-    FP palette: transparent bg, Figtree font, muted gridlines, HEATER colorway.
+    Combustion palette: transparent bg, Inter font, fine gridlines, orange colorway.
     Plotly 6 rejects 8-digit hex, so gridlines use rgba().
     """
     t = theme or THEME
@@ -553,10 +675,10 @@ def get_plotly_layout(theme=None):
     return {
         "paper_bgcolor": "rgba(0,0,0,0)",
         "plot_bgcolor": "rgba(0,0,0,0)",
-        "font": {"color": t["tx"], "family": "Figtree, sans-serif"},
+        "font": {"color": t["tx"], "family": "Inter, sans-serif"},
         "margin": {"l": 40, "r": 40, "t": 30, "b": 30},
         "height": 350,
-        "colorway": [t["primary"], t["warn"], t["green_l"], t["sky"], t["tx_subtle"]],
+        "colorway": [t["primary"], t["flame"], t["gold"], t["green_l"], t["cold"]],
         "xaxis": {"gridcolor": grid, "zerolinecolor": grid, "linecolor": grid},
         "yaxis": {"gridcolor": grid, "zerolinecolor": grid, "linecolor": grid},
     }
@@ -624,7 +746,7 @@ def inject_custom_css():
     st.markdown(
         f"""
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Figtree:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800;900&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
 
     /* ── Glide Data Grid root-level theme overrides ── */
     :root {{
@@ -636,7 +758,7 @@ def inject_custom_css():
         --gdg-bg-cell-medium: #f6f7f9 !important;
         --gdg-text-dark: #1d1d1f !important;
         --gdg-border-color: #e6e8ec !important;
-        --gdg-header-font-style: 600 13px Figtree, sans-serif !important;
+        --gdg-header-font-style: 600 13px Inter, sans-serif !important;
 
         /* ── FP-revamp design tokens (revamp task 1) ──
            Pages + renderers reference these vars, not hex literals. Values are
@@ -653,10 +775,17 @@ def inject_custom_css():
         --fp-divider: {t["divider"]};
         --fp-sidebar-bg: {t["sidebar_bg"]};
         --fp-sidebar-ink: {t["sidebar_ink"]};
+        /* Combustion redesign derived tokens (2026-06-08) */
+        --fp-flame: {t["flame"]};
+        --fp-ember: {t["ember"]};
+        --fp-cold: {t["cold"]};
+        --fp-navy: {t["navy"]};
+        --fp-navy2: {t["navy2"]};
         --fp-radius: 12px;
         --fp-radius-sm: 8px;
         --fp-shadow: 0 1px 3px rgba(16,33,58,.08);
-        --font-body: 'Figtree', system-ui, -apple-system, sans-serif;
+        --font-body: 'Inter', system-ui, -apple-system, sans-serif;
+        --font-display: 'Archivo', system-ui, sans-serif;
         --font-mono: 'IBM Plex Mono', monospace;
     }}
 
@@ -731,7 +860,7 @@ def inject_custom_css():
         margin-bottom: 4px !important;
     }}
 
-    /* ── FP TYPE SCALE (revamp task 2) — Figtree title-case, Bebas retired ── */
+    /* ── TYPE SCALE (Combustion redesign) — Archivo display + Inter body ── */
     h1, .heater-h1 {{
         font-family: var(--font-body) !important;
         font-weight: 700 !important;
@@ -861,7 +990,7 @@ def inject_custom_css():
         word-break: break-word;
     }}
     .hero .p-meta {{
-        font-family: 'Figtree', sans-serif;
+        font-family: 'Inter', sans-serif;
         font-size: 14px;
         color: {t["tx2"]};
         margin-top: 4px;
@@ -880,7 +1009,7 @@ def inject_custom_css():
         box-shadow: 0 4px 16px rgba(230, 57, 70, 0.3);
     }}
     .hero .reason {{
-        font-family: 'Figtree', sans-serif;
+        font-family: 'Inter', sans-serif;
         font-size: 15px;
         color: {t["hot"]};
         margin-top: 12px;
@@ -943,7 +1072,7 @@ def inject_custom_css():
         word-break: break-word;
     }}
     .alt .a-meta {{
-        font-family: 'Figtree', sans-serif;
+        font-family: 'Inter', sans-serif;
         font-size: 12px;
         color: {t["tx2"]};
     }}
@@ -1038,7 +1167,7 @@ def inject_custom_css():
         color: {t["tx2"]};
     }}
     .roster-slot .s-player {{
-        font-family: 'Figtree', sans-serif;
+        font-family: 'Inter', sans-serif;
         font-size: 12px;
         font-weight: 600;
         color: {t["tx"]};
@@ -1086,7 +1215,7 @@ def inject_custom_css():
     .draft-board {{
         width: 100%;
         border-collapse: collapse;
-        font-family: 'Figtree', sans-serif;
+        font-family: 'Inter', sans-serif;
         font-size: 11px;
     }}
     .draft-board th {{
@@ -1198,7 +1327,7 @@ def inject_custom_css():
         color: {t["tx2"]};
     }}
     .feed-name {{
-        font-family: 'Figtree', sans-serif;
+        font-family: 'Inter', sans-serif;
         font-weight: 600;
         color: {t["tx"]};
         word-break: break-word;
@@ -1347,7 +1476,7 @@ def inject_custom_css():
         text-transform: uppercase;
     }}
     .pc-pos {{
-        font-family: 'Figtree', sans-serif;
+        font-family: 'Inter', sans-serif;
         font-size: 11px;
         color: {t["tx2"]};
         margin-top: 2px;
@@ -1438,7 +1567,7 @@ def inject_custom_css():
         100% {{ transform: scale(1); letter-spacing: 6px; }}
     }}
     .splash-title {{
-        font-family: 'Bebas Neue', sans-serif;
+        font-family: 'Archivo', sans-serif;
         font-size: 42px;
         text-align: center;
         background: linear-gradient(135deg, {t["primary"]}, {t["hot"]}, {t["gold"]});
@@ -1489,7 +1618,7 @@ def inject_custom_css():
         color: {t["tx"]} !important;
         border: 1px solid {t["border"]} !important;
         border-radius: 12px !important;
-        font-family: 'Figtree', sans-serif !important;
+        font-family: 'Inter', sans-serif !important;
         transition: border-color 0.2s ease, box-shadow 0.2s ease !important;
     }}
     div[data-testid="stTextInput"] input:focus,
@@ -1561,7 +1690,7 @@ def inject_custom_css():
         --gdg-bg-cell-medium: #f6f7f9 !important;
         --gdg-text-dark: #1d1d1f !important;
         --gdg-border-color: #e6e8ec !important;
-        --gdg-header-font-style: 600 13px Figtree, sans-serif !important;
+        --gdg-header-font-style: 600 13px Inter, sans-serif !important;
     }}
     div[data-testid="stDataFrame"] [data-testid="glideDataEditor"] {{
         background: #faf8f5 !important;
@@ -1652,7 +1781,7 @@ def inject_custom_css():
     .heater-table {{
         width: 100%;
         border-collapse: collapse;
-        font-family: 'Figtree', sans-serif;
+        font-family: 'Inter', sans-serif;
         font-size: 13px;
         color: {t["tx"]};
     }}
@@ -1812,7 +1941,7 @@ def inject_custom_css():
     }}
     div[data-testid="stExpander"] summary {{
         color: {t["tx"]} !important;
-        font-family: 'Figtree', sans-serif;
+        font-family: 'Inter', sans-serif;
     }}
 
     /* Metrics */
@@ -1866,7 +1995,7 @@ def inject_custom_css():
     [data-testid="stSubheader"],
     .stSubheader {{
         font-weight: 700 !important;
-        font-family: 'Figtree', sans-serif !important;
+        font-family: 'Inter', sans-serif !important;
         color: {t["tx"]} !important;
     }}
     .stMarkdown h1, h1 {{ font-size: 24px !important; }}
@@ -1919,7 +2048,7 @@ def inject_custom_css():
         box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06) !important;
     }}
     .reco-banner-teaser {{
-        font-family: 'Figtree', sans-serif !important;
+        font-family: 'Inter', sans-serif !important;
         font-size: 14px !important;
         font-weight: 600 !important;
         color: {t["tx"]} !important;
@@ -1929,7 +2058,7 @@ def inject_custom_css():
         line-height: 1.4 !important;
     }}
     .reco-banner-detail {{
-        font-family: 'Figtree', sans-serif !important;
+        font-family: 'Inter', sans-serif !important;
         font-size: 13px !important;
         color: {t["tx2"]} !important;
         padding-top: 8px !important;
@@ -1950,7 +2079,7 @@ def inject_custom_css():
         display: flex !important;
         align-items: center !important;
         gap: 12px !important;
-        font-family: 'Figtree', sans-serif !important;
+        font-family: 'Inter', sans-serif !important;
         font-size: 13px !important;
         color: {t["tx"]} !important;
         box-shadow: 0 2px 10px rgba(0,0,0,0.05) !important;
@@ -2037,7 +2166,7 @@ def inject_custom_css():
         padding: 2px 0 !important;
     }}
     .context-stat-label {{
-        font-family: 'Figtree', sans-serif !important;
+        font-family: 'Inter', sans-serif !important;
         font-size: 11px !important;
         color: {t["tx2"]} !important;
         font-weight: 500 !important;
@@ -2103,7 +2232,7 @@ def inject_custom_css():
         left: 0 !important;
         z-index: 3 !important;
         background: {t["card"]} !important;
-        font-family: 'Figtree', sans-serif !important;
+        font-family: 'Inter', sans-serif !important;
         font-weight: 600 !important;
         font-size: 12px !important;
         min-width: 140px !important;
@@ -2333,7 +2462,7 @@ def inject_custom_css():
     /* Roomier top spacing */
     .block-container {{ padding-top: 1.5rem !important; }}
 
-    /* ── FP calm: retire Bebas-era all-caps on prose headers/names/actions.
+    /* ── Calm prose: no all-caps on prose headers/names/actions.
           Placed last so it wins the cascade over earlier uppercase rules.
           Micro-labels (position codes, category codes) keep their casing. ── */
     .cmd-left, .your-turn, .waiting,
@@ -2448,7 +2577,7 @@ def inject_custom_css():
                     + '<line x1="49" y1="45" x2="46" y2="44" stroke="#e63946" stroke-width="1" stroke-linecap="round"/>'
                     + '<circle cx="38" cy="32" r="21" fill="none" stroke="rgba(255,255,255,0.3)" stroke-width="1.2"/>'
                     + '</svg>'
-                    + '<span style="font-family:Bebas Neue,sans-serif;font-size:16px;letter-spacing:2px;font-style:italic;white-space:nowrap;'
+                    + '<span style="font-family:Archivo,sans-serif;font-size:16px;letter-spacing:2px;font-style:italic;white-space:nowrap;'
                     + 'color:#ffffff;font-weight:700;text-shadow:0 1px 4px rgba(0,0,0,0.25);line-height:1;">HEATER</span></div>'
                     + '<div style="width:40px;height:3px;background:linear-gradient(90deg,#e65c00,#ff8c00);border-radius:2px;margin-top:5px;"></div>';
                 header.insertBefore(logoDiv, header.firstChild);
@@ -2579,7 +2708,7 @@ def build_category_heatmap_html(user_totals: dict, all_totals: list[dict]) -> st
     html = (
         f'<table class="heatmap-grid" style="width:100%;border-collapse:collapse;'
         f"background:{T['card']};border-radius:12px;overflow:hidden;margin-top:16px;"
-        f'font-family:Figtree,sans-serif;font-size:14px;color:{T["tx"]};">'
+        f'font-family:Inter,sans-serif;font-size:14px;color:{T["tx"]};">'
         f'<tr style="background:{T["bg"]};border-bottom:2px solid {T["card_h"]};">'
         f'<th style="padding:8px 12px;text-align:left;font-weight:700;">Category</th>'
         f'<th style="padding:8px 12px;text-align:right;font-weight:700;">My Total</th>'
@@ -3361,9 +3490,9 @@ def _render_player_card_header(profile: dict) -> None:
         f'border-radius:12px;margin-bottom:12px;">'
         f"{img_html}"
         f'<div style="flex:1;">'
-        f'<div style="font-family:Bebas Neue,sans-serif;font-size:24px;letter-spacing:2px;'
+        f'<div style="font-family:Archivo,sans-serif;font-size:24px;letter-spacing:2px;'
         f'color:{t["tx"]};line-height:1.2;">{name}</div>'
-        f'<div style="font-family:Figtree,sans-serif;font-size:13px;color:{t["tx2"]};'
+        f'<div style="font-family:Inter,sans-serif;font-size:13px;color:{t["tx2"]};'
         f'margin-top:2px;">{bio_line}</div>'
         f'<div style="display:flex;align-items:center;gap:8px;margin-top:6px;">'
         f'<span class="health-dot" style="background:{dot_color};width:8px;height:8px;"></span>'
@@ -3419,7 +3548,7 @@ def _render_radar_chart(radar: dict, is_hitter: bool) -> None:
         height=320,
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
-        font=dict(family="Figtree, sans-serif", size=12),
+        font=dict(family="Inter, sans-serif", size=12),
     )
 
     st.plotly_chart(fig, width="stretch")
@@ -3596,7 +3725,7 @@ def show_player_card_dialog(player_id: int):
         if rank_parts:
             st.markdown(
                 f'<div style="font-size:13px;color:{t["tx"]};line-height:1.8;'
-                f'font-family:Figtree,sans-serif;">' + "<br>".join(rank_parts) + "</div>",
+                f'font-family:Inter,sans-serif;">' + "<br>".join(rank_parts) + "</div>",
                 unsafe_allow_html=True,
             )
 
