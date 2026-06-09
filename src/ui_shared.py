@@ -3077,6 +3077,368 @@ def build_stat_readout_html(label, value, *, accent: bool = False, sub=None) -> 
     )
 
 
+# ── Player Dossier (Combustion redesign) — pure HTML builders ──────────
+# These mirror the gold-standard mockup docs/design/mockup-player-popup.html
+# (.mhead header band, .glog game-log table, .upc upcoming/projection cards).
+# Kept pure (no Streamlit) so they are unit-testable; show_player_card_dialog
+# assembles the data and calls them.
+
+# Per-player-type game-log column spec: (header label, row-dict key).
+# The leading Date/Opp/Res columns are rendered separately (they have logos
+# + badges); these are the numeric stat columns.
+_DOSSIER_HITTER_GLOG_COLS = [("AB", "ab"), ("H", "h"), ("HR", "hr"), ("RBI", "rbi"), ("AVG", "avg")]
+_DOSSIER_PITCHER_GLOG_COLS = [("IP", "ip"), ("H", "h_allowed"), ("ER", "er"), ("K", "k"), ("ERA", "era")]
+
+# Per-player-type projection fields shown on each upcoming card: (label, key).
+_DOSSIER_HITTER_PROJ_FIELDS = [("H", "h"), ("HR", "hr"), ("RBI", "rbi"), ("R", "r")]
+_DOSSIER_PITCHER_PROJ_FIELDS = [("K", "k"), ("ERA", "era"), ("IP", "ip"), ("W", "w")]
+
+
+def _dossier_fmt(value, key: str) -> str:
+    """Format a single game-log / projection cell for display.
+
+    Rate stats (avg/obp → 3dp, era/whip → 2dp) use their canonical precision;
+    IP shows 1dp; everything else is an integer-ish figure. ``None``/NaN → "—".
+    """
+    if value is None:
+        return "—"
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return _html.escape(str(value))
+    if _math.isnan(f) or _math.isinf(f):
+        return "—"
+    k = (key or "").lower()
+    if k in ("avg", "obp", "avg_calc", "obp_calc"):
+        return f"{f:.3f}"
+    if k in ("era", "whip", "era_calc", "whip_calc"):
+        return f"{f:.2f}"
+    if k in ("ip",):
+        return f"{f:.1f}"
+    # Counting figure — drop trailing ".0".
+    if f == int(f):
+        return str(int(f))
+    return f"{f:.1f}"
+
+
+def build_game_log_html(rows: list[dict], is_hitter: bool) -> str:
+    """Build the ``.glog`` game-log table (mockup: Game Log — Last 10).
+
+    Args:
+        rows: Newest-first per-game dicts. Recognized keys:
+            ``date`` (display string), ``opp`` (opponent abbr, optional),
+            ``home`` (bool — True = "vs", False = "@"), ``result`` ("W"/"L" or
+            ``None``), ``score`` (e.g. "6–3", optional), plus the per-game stat
+            keys for the player type (ab/h/hr/rbi/avg or ip/h_allowed/er/k/era),
+            ``hot`` (bool — tint the row), and ``form_pct`` (0–100 form bar).
+        is_hitter: Selects the hitter vs pitcher column set.
+
+    Returns:
+        Self-contained HTML string (single ``<table class="glog">`` element).
+        Empty / falsy ``rows`` yields a graceful empty-state ``<div>``.
+    """
+    cols = _DOSSIER_HITTER_GLOG_COLS if is_hitter else _DOSSIER_PITCHER_GLOG_COLS
+
+    if not rows:
+        return (
+            '<div class="glog-empty" style="padding:18px 4px;font-family:var(--font-body);'
+            'font-size:13px;color:var(--fp-tx-muted);text-align:center;">'
+            "No game log available yet this season.</div>"
+        )
+
+    # Header row.
+    head_cells = '<th class="l">Date</th><th class="l">Opp</th><th>Res</th>'
+    head_cells += "".join(f"<th>{_html.escape(lbl)}</th>" for lbl, _ in cols)
+    head_cells += '<th class="l">Form</th>'
+
+    body = ""
+    for r in rows:
+        row_cls = ' class="hot"' if r.get("hot") else ""
+        date_disp = _html.escape(str(r.get("date", "") or ""))
+
+        # Opponent cell — logo (if abbr resolvable) + "vs"/"@" prefix.
+        opp = r.get("opp")
+        if opp:
+            opp_abbr = _html.escape(str(opp).upper())
+            prefix = "vs " if r.get("home", True) else "@ "
+            logo = (
+                f'<img class="tlogo" src="{team_logo_url(opp)}" '
+                'style="width:15px;height:15px;margin-right:5px;vertical-align:-3px;" '
+                'loading="lazy" />'
+            )
+            opp_cell = f"{logo}{prefix}{opp_abbr}"
+        else:
+            opp_cell = '<span style="color:var(--fp-tx-subtle);">—</span>'
+
+        # Result badge.
+        res = r.get("result")
+        score = _html.escape(str(r.get("score", "") or ""))
+        if res in ("W", "L"):
+            res_cls = "w" if res == "W" else "l"
+            res_txt = f"{res} {score}".strip()
+            res_cell = f'<span class="res {res_cls}">{_html.escape(res_txt)}</span>'
+        else:
+            res_cell = '<span style="color:var(--fp-tx-subtle);">—</span>'
+
+        stat_cells = "".join(f"<td>{_dossier_fmt(r.get(key), key)}</td>" for _, key in cols)
+
+        # Form bar.
+        try:
+            form_pct = max(0.0, min(100.0, float(r.get("form_pct", 0.0))))
+        except (TypeError, ValueError):
+            form_pct = 0.0
+        form_cell = (
+            '<span class="bar" style="display:inline-block;width:42px;height:5px;border-radius:3px;'
+            'background:var(--fp-divider);overflow:hidden;vertical-align:middle;">'
+            '<i style="display:block;height:100%;border-radius:3px;'
+            "background:linear-gradient(90deg,var(--fp-ember),var(--fp-flame));"
+            f'width:{form_pct:g}%;"></i></span>'
+        )
+
+        body += (
+            f"<tr{row_cls}>"
+            f'<td class="l">{date_disp}</td>'
+            f'<td class="l">{opp_cell}</td>'
+            f"<td>{res_cell}</td>"
+            f"{stat_cells}"
+            f'<td class="l">{form_cell}</td>'
+            "</tr>"
+        )
+
+    return f'<table class="glog"><thead><tr>{head_cells}</tr></thead><tbody>{body}</tbody></table>'
+
+
+def build_upcoming_cards_html(games: list[dict], is_hitter: bool) -> str:
+    """Build the ``.up`` stack of upcoming-game projection cards.
+
+    Args:
+        games: Per-game dicts. Recognized keys: ``date`` (display string),
+            ``opp`` (opponent abbr, optional), ``home`` (bool), ``pitcher``
+            (probable-starter label, optional), ``proj`` (dict of projected
+            per-game stat values keyed by the player type's projection fields),
+            ``conf_pct`` (0–100), ``conf_note`` (short label).
+        is_hitter: Selects the projection field set.
+
+    Returns:
+        Self-contained HTML string (single ``.up`` wrapper). Empty / falsy
+        ``games`` yields a graceful "No upcoming games" state.
+    """
+    fields = _DOSSIER_HITTER_PROJ_FIELDS if is_hitter else _DOSSIER_PITCHER_PROJ_FIELDS
+
+    if not games:
+        return (
+            '<div class="up-empty" style="padding:18px 4px;font-family:var(--font-body);'
+            'font-size:13px;color:var(--fp-tx-muted);text-align:center;">'
+            "No upcoming games scheduled.</div>"
+        )
+
+    cards = ""
+    for g in games:
+        date_disp = _html.escape(str(g.get("date", "") or ""))
+
+        opp = g.get("opp")
+        if opp:
+            opp_abbr = _html.escape(str(opp).upper())
+            prefix = "vs " if g.get("home", True) else "@ "
+            logo = (
+                f'<img class="tlogo" src="{team_logo_url(opp)}" '
+                'style="width:15px;height:15px;margin-right:5px;vertical-align:-3px;" '
+                'loading="lazy" />'
+            )
+            opp_html = (
+                '<span class="opp" style="font-family:var(--font-display);font-weight:700;'
+                "font-size:12.5px;color:var(--fp-tx);display:inline-flex;align-items:center;"
+                f'margin-left:8px;">{logo}{prefix}{opp_abbr}</span>'
+            )
+        else:
+            opp_html = ""
+
+        pitcher = g.get("pitcher")
+        sp_html = ""
+        if pitcher:
+            sp_html = (
+                '<span class="sp" style="font-family:var(--font-body);font-weight:600;'
+                f'font-size:10.5px;color:var(--fp-tx-muted);">{_html.escape(str(pitcher))}</span>'
+            )
+
+        proj = g.get("proj", {}) or {}
+        cells = ""
+        for i, (lbl, key) in enumerate(fields):
+            # Mockup .proj .p:last-child drops the divider — inline styles have no
+            # :last-child, so suppress the border on the final cell explicitly.
+            border = "" if i == len(fields) - 1 else "border-right:1px solid var(--fp-divider);"
+            cells += (
+                f'<div class="p" style="flex:1;text-align:center;{border}padding:2px 0;">'
+                '<div class="pk" style="font-family:var(--font-display);font-weight:800;font-size:10px;'
+                f'letter-spacing:.06em;color:var(--fp-tx);text-transform:uppercase;">{_html.escape(lbl)}</div>'
+                '<div class="pv" style="font-family:var(--font-display);font-weight:700;font-size:19px;'
+                'font-variant-numeric:tabular-nums;color:var(--fp-ember);letter-spacing:-.01em;">'
+                f"{_dossier_fmt(proj.get(key), key)}</div>"
+                "</div>"
+            )
+        proj_html = f'<div class="proj" style="display:flex;gap:0;">{cells}</div>'
+
+        try:
+            conf_pct = max(0.0, min(100.0, float(g.get("conf_pct", 0.0))))
+        except (TypeError, ValueError):
+            conf_pct = 0.0
+        conf_note = _html.escape(str(g.get("conf_note", "") or ""))
+        conf_label = f"{conf_pct:.0f}%"
+        if conf_note:
+            conf_label = f"{conf_label} · {conf_note}"
+        conf_html = (
+            '<div class="conf" style="margin-top:10px;display:flex;align-items:center;gap:8px;">'
+            '<div class="t" style="flex:1;height:5px;border-radius:3px;background:var(--fp-divider);'
+            'overflow:hidden;">'
+            '<i style="display:block;height:100%;'
+            "background:linear-gradient(90deg,var(--fp-ember),var(--fp-primary));"
+            f'width:{conf_pct:g}%;"></i></div>'
+            '<span class="cl" style="font-family:var(--font-mono);font-weight:500;font-size:9px;'
+            f'color:var(--fp-tx-muted);">{conf_label}</span>'
+            "</div>"
+        )
+
+        top_html = (
+            '<div class="top" style="display:flex;align-items:center;justify-content:space-between;'
+            'margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid var(--fp-divider);">'
+            "<div>"
+            '<span class="date" style="font-family:var(--font-display);font-weight:800;font-size:14px;'
+            f'color:var(--fp-tx);letter-spacing:-.005em;">{date_disp}</span>'
+            f"{opp_html}"
+            "</div>"
+            f"{sp_html}"
+            "</div>"
+        )
+
+        cards += (
+            '<div class="upc" style="position:relative;border:1px solid var(--fp-border);border-radius:10px;'
+            "padding:12px 13px;background:linear-gradient(180deg,var(--fp-surface),var(--fp-app-bg));"
+            'box-shadow:var(--fp-shadow);overflow:hidden;">'
+            "<span style=\"content:'';position:absolute;left:0;top:0;width:26px;height:2px;"
+            'background:var(--fp-primary);display:block;"></span>'
+            f"{top_html}{proj_html}{conf_html}"
+            "</div>"
+        )
+
+    return f'<div class="up" style="display:flex;flex-direction:column;gap:10px;">{cards}</div>'
+
+
+def build_dossier_header_html(profile: dict, season_chips: list[dict]) -> str:
+    """Build the team-color-tinted dossier header band (mockup ``.mhead``).
+
+    Args:
+        profile: Player profile dict — ``name``, ``team`` (abbr), ``positions``,
+            ``bats``, ``jersey`` (optional), ``headshot_url``, ``roster_label``
+            (optional eyebrow prefix, default "ROSTER").
+        season_chips: Ordered list of ``{"label", "value", "accent"}`` season
+            stat chips shown on the right (first chip is highlighted).
+
+    Returns:
+        Self-contained HTML string (single ``.mhead`` root element). Background
+        is ``team_color(team)`` with ``text_on(...)`` for readable text.
+    """
+    name = _html.escape(str(profile.get("name", "") or ""))
+    team = str(profile.get("team", "") or "")
+    positions = _html.escape(str(profile.get("positions", "") or "").split("/")[0] if profile.get("positions") else "")
+    bats = _html.escape(str(profile.get("bats", "") or ""))
+    jersey = profile.get("jersey")
+    roster_label = _html.escape(str(profile.get("roster_label", "ROSTER") or "ROSTER")).upper()
+    headshot_url = profile.get("headshot_url") or _AVATAR_FALLBACK_SVG
+
+    base = team_color(team)
+    base_dark = _shade_hex(base, 0.55)  # darker companion for the gradient
+    ink = text_on(base)
+    # Muted variant of the readable ink for the eyebrow / meta lines.
+    soft = "rgba(255,255,255,0.72)" if ink == "#ffffff" else "rgba(27,28,32,0.66)"
+    logo_url = team_logo_url(team)
+
+    # Eyebrow: ROSTER · POS · #num
+    eb_parts = [roster_label]
+    if positions:
+        eb_parts.append(positions)
+    if jersey not in (None, "", 0):
+        eb_parts.append(f"#{_html.escape(str(jersey))}")
+    eyebrow = " · ".join(eb_parts)
+
+    # Meta line: TEAM · BATS L · 2026 SEASON
+    team_full = _html.escape(str(profile.get("team_full", team) or team)).upper()
+    meta_parts = [team_full]
+    if bats:
+        meta_parts.append(f"BATS {bats.upper()}")
+    meta_parts.append("2026 SEASON")
+    meta_line = " · ".join(meta_parts)
+    logo_inline = (
+        f'<img src="{logo_url}" style="width:17px;height:17px;vertical-align:-4px;margin-right:7px;" loading="lazy" />'
+    )
+
+    # Season stat chips.
+    chips_html = ""
+    for i, chip in enumerate(season_chips or []):
+        lbl = _html.escape(str(chip.get("label", "") or ""))
+        val = _html.escape(str(chip.get("value", "") or ""))
+        hl = chip.get("accent", i == 0)
+        chip_bg = "rgba(255,154,60,0.16)" if hl else "rgba(255,255,255,0.06)"
+        v_color = "var(--fp-flame)" if hl else ink
+        chips_html += (
+            f'<div class="mchip" style="padding:5px 16px;border-left:1px solid rgba(255,255,255,0.16);'
+            "display:flex;flex-direction:column;gap:3px;text-align:right;"
+            f'background:{chip_bg};">'
+            f'<span style="font-family:var(--font-display);font-size:10px;font-weight:800;'
+            f'letter-spacing:.14em;text-transform:uppercase;color:{soft};">{lbl}</span>'
+            f'<span style="font-family:var(--font-display);font-weight:800;font-size:21px;'
+            f'font-variant-numeric:tabular-nums;color:{v_color};letter-spacing:-.01em;">{val}</span>'
+            "</div>"
+        )
+
+    chips_block = (
+        f'<div class="mchips" style="margin-left:auto;display:flex;gap:0;">{chips_html}</div>' if chips_html else ""
+    )
+
+    return (
+        '<div class="mhead" style="position:relative;display:flex;align-items:center;gap:22px;'
+        "padding:24px 28px 26px;border-radius:14px 14px 0 0;overflow:hidden;"
+        f'background:linear-gradient(120deg,{base},{base_dark});">'
+        # team-logo watermark
+        f'<img src="{logo_url}" style="position:absolute;right:18px;top:50%;transform:translateY(-50%);'
+        'width:200px;height:200px;opacity:.14;z-index:0;" loading="lazy" />'
+        # orange glow
+        '<span style="position:absolute;right:-60px;top:-60px;width:280px;height:280px;border-radius:50%;'
+        'z-index:0;background:radial-gradient(circle,rgba(235,110,31,.32),transparent 60%);"></span>'
+        # headshot
+        f'<img src="{headshot_url}" onerror="this.onerror=null;this.src=\'{_AVATAR_FALLBACK_SVG}\'" '
+        'style="width:92px;height:92px;border-radius:50%;object-fit:cover;'
+        "border:2px solid rgba(255,255,255,.85);box-shadow:0 0 26px rgba(255,109,0,.4);"
+        'flex-shrink:0;position:relative;z-index:1;" loading="lazy" />'
+        # name block
+        '<div class="mname" style="position:relative;z-index:1;">'
+        f'<div style="font-family:var(--font-mono);font-size:10px;letter-spacing:.2em;'
+        f'color:{soft};text-transform:uppercase;">{eyebrow}</div>'
+        f'<div style="font-family:var(--font-display);font-weight:900;font-size:34px;color:{ink};'
+        f'letter-spacing:-.01em;line-height:1;margin:5px 0 3px;">{name}</div>'
+        '<div style="font-family:var(--font-body);font-weight:600;font-size:12.5px;'
+        f'color:{ink};letter-spacing:.02em;display:flex;align-items:center;">{logo_inline}{meta_line}</div>'
+        "</div>"
+        f"{chips_block}"
+        "</div>"
+    )
+
+
+def _shade_hex(hex_color: str, factor: float) -> str:
+    """Darken a hex color toward black by ``factor`` (0=black, 1=unchanged)."""
+    h = (hex_color or "").lstrip("#")
+    if len(h) == 3:
+        h = "".join(c * 2 for c in h)
+    if len(h) != 6:
+        return "#10203a"  # navy-ish fallback
+    try:
+        r, g, b = (int(h[i : i + 2], 16) for i in (0, 2, 4))
+    except ValueError:
+        return "#10203a"
+    f = max(0.0, min(1.0, factor))
+    r, g, b = (int(round(c * f)) for c in (r, g, b))
+    return f"#{r:02x}{g:02x}{b:02x}"
+
+
 # ── 3-Zone Layout: Constants & Helpers ─────────────────────────────
 
 HITTING_STAT_COLS = set(HITTING_CATEGORIES)
@@ -4205,26 +4567,337 @@ def _render_news_section(news: list[dict]) -> None:
         )
 
 
+def _dossier_is_hitter(positions: str) -> bool:
+    """True when the player has any non-pitching eligibility."""
+    toks = [p.strip().upper() for p in (positions or "").split("/") if p.strip()]
+    if not toks:
+        return True  # default to hitter layout when position unknown
+    return not all(p in ("SP", "RP", "P") for p in toks)
+
+
+def _dossier_season_chips(historical: list[dict], projections: dict, is_hitter: bool) -> list[dict]:
+    """Build the header season-stat chips from the 2026 season line (fallback: blended proj).
+
+    Hitters: AVG / HR / RBI / OBP / OPS. Pitchers: W / K / SV / ERA / WHIP.
+    Returns ``[{"label","value","accent"}]``; missing values render as "—".
+    """
+    # Prefer the in-season (2026) actuals; fall back to blended projection.
+    src: dict = {}
+    for h in historical or []:
+        try:
+            if int(h.get("season", 0)) == 2026:
+                src = h
+                break
+        except (TypeError, ValueError):
+            continue
+    if not src:
+        src = (projections or {}).get("blended", {}) or {}
+
+    def g(*keys):
+        for k in keys:
+            v = src.get(k)
+            if v is not None:
+                return v
+        return None
+
+    if is_hitter:
+        avg = g("AVG", "avg")
+        obp = g("OBP", "obp")
+        # OPS = OBP + SLG; SLG rarely present, so approximate as OBP+? only when SLG known.
+        slg = g("SLG", "slg")
+        ops = None
+        try:
+            if obp is not None and slg is not None:
+                ops = float(obp) + float(slg)
+        except (TypeError, ValueError):
+            ops = None
+        return [
+            {"label": "AVG", "value": _dossier_fmt(avg, "avg"), "accent": True},
+            {"label": "HR", "value": _dossier_fmt(g("HR", "hr"), "hr"), "accent": False},
+            {"label": "RBI", "value": _dossier_fmt(g("RBI", "rbi"), "rbi"), "accent": False},
+            {"label": "OBP", "value": _dossier_fmt(obp, "obp"), "accent": False},
+            {"label": "OPS", "value": _dossier_fmt(ops, "ops") if ops is not None else "—", "accent": False},
+        ]
+    return [
+        {"label": "ERA", "value": _dossier_fmt(g("ERA", "era"), "era"), "accent": True},
+        {"label": "W", "value": _dossier_fmt(g("W", "w"), "w"), "accent": False},
+        {"label": "K", "value": _dossier_fmt(g("K", "k"), "k"), "accent": False},
+        {"label": "SV", "value": _dossier_fmt(g("SV", "sv"), "sv"), "accent": False},
+        {"label": "WHIP", "value": _dossier_fmt(g("WHIP", "whip"), "whip"), "accent": False},
+    ]
+
+
+def _dossier_game_log_rows(player_id: int, is_hitter: bool, limit: int = 10) -> list[dict]:
+    """Assemble up-to-``limit`` newest-first game-log rows for the dossier table.
+
+    Sources per-game counting lines from ``game_logs`` (via
+    ``player_databank.load_game_logs``). That table has NO opponent/result
+    columns, so ``opp``/``result``/``score`` are omitted (render as "—"); the
+    Form bar is derived from per-game performance vs the player's own window.
+    Returns ``[]`` on any failure (caller renders the empty state).
+    """
+    try:
+        from src.player_databank import load_game_logs
+    except Exception:
+        return []
+
+    try:
+        logs = load_game_logs([int(player_id)], season=datetime_now_year())
+    except Exception:
+        return []
+    if logs is None or logs.empty:
+        return []
+
+    logs = logs.head(limit)
+
+    def _num(row, col):
+        if col not in row.index:
+            return 0.0
+        v = row[col]
+        try:
+            f = float(v)
+            return 0.0 if (f != f) else f  # NaN guard
+        except (TypeError, ValueError):
+            return 0.0
+
+    rows: list[dict] = []
+    # For the form bar: hitters use per-game total bases proxy (H + 2*HR + RBI),
+    # pitchers use a quality proxy (K - ER). Scale to the window peak.
+    raw_scores: list[float] = []
+    parsed: list[dict] = []
+    for _, r in logs.iterrows():
+        gd = str(r.get("game_date", "") or "")
+        # Display date "Jun 08".
+        date_disp = gd
+        try:
+            from datetime import datetime as _dt
+
+            date_disp = _dt.strptime(gd[:10], "%Y-%m-%d").strftime("%b %d")
+        except (ValueError, TypeError):
+            pass
+
+        if is_hitter:
+            ab = _num(r, "ab")
+            h = _num(r, "h")
+            row = {
+                "date": date_disp,
+                "ab": ab,
+                "h": h,
+                "hr": _num(r, "hr"),
+                "rbi": _num(r, "rbi"),
+                "avg": (h / ab) if ab > 0 else 0.0,
+            }
+            score = h + 2.0 * row["hr"] + row["rbi"]
+        else:
+            ip = _num(r, "ip")
+            er = _num(r, "er")
+            row = {
+                "date": date_disp,
+                "ip": ip,
+                "h_allowed": _num(r, "h_allowed"),
+                "er": er,
+                "k": _num(r, "k"),
+                "era": (er * 9.0 / ip) if ip > 0 else 0.0,
+            }
+            score = row["k"] - er
+        raw_scores.append(score)
+        parsed.append(row)
+
+    if raw_scores:
+        lo = min(raw_scores)
+        hi = max(raw_scores)
+        span = (hi - lo) or 1.0
+        # "hot" = upper third of this player's own window.
+        hot_cut = lo + span * 0.66
+        for row, sc in zip(parsed, raw_scores):
+            row["form_pct"] = max(8.0, min(100.0, (sc - lo) / span * 100.0))
+            row["hot"] = sc >= hot_cut and hi > lo
+            rows.append(row)
+    return rows
+
+
+def _dossier_upcoming_games(profile: dict, projections: dict, is_hitter: bool, limit: int = 4) -> list[dict]:
+    """Best-effort upcoming-game projection cards.
+
+    Sources the player's team's next MLB games + probable pitchers from the
+    MLB Stats API (graceful: returns ``[]`` if statsapi is unavailable, the
+    network is blocked, or the team can't be resolved). Per-game projections
+    scale the blended season rate to a single game. The caller renders a
+    "No upcoming games" state when this is empty.
+    """
+    team = profile.get("team", "") or ""
+    blended = (projections or {}).get("blended", {}) or {}
+    if not team or not blended:
+        return []
+
+    try:
+        from datetime import datetime as _dt
+        from datetime import timedelta as _td
+
+        import statsapi
+    except Exception:
+        return []
+
+    # Resolve team id → statsapi team lookup.
+    try:
+        tid = _resolve_team_id(team)
+        if tid is None:
+            return []
+        start = _dt.now().strftime("%Y-%m-%d")
+        end = (_dt.now() + _td(days=10)).strftime("%Y-%m-%d")
+        sched = statsapi.schedule(start_date=start, end_date=end, team=tid)
+    except Exception:
+        return []
+    if not sched:
+        return []
+
+    # Per-game scale factors from blended counting stats.
+    def _per_game(stat_key: str, games_basis: float) -> float | None:
+        v = blended.get(stat_key) or blended.get(stat_key.lower())
+        try:
+            fv = float(v)
+        except (TypeError, ValueError):
+            return None
+        return fv / games_basis if games_basis > 0 else None
+
+    games: list[dict] = []
+    for g in sched[:limit]:
+        try:
+            game_date = str(g.get("game_date") or g.get("game_datetime", "") or "")[:10]
+            date_disp = _dt.strptime(game_date, "%Y-%m-%d").strftime("%b %d") if game_date else ""
+        except (ValueError, TypeError):
+            date_disp = ""
+
+        home_id = g.get("home_id")
+        is_home = home_id == tid
+        opp_id = g.get("away_id") if is_home else home_id
+        opp_abbr = TEAM_BRAND.get(opp_id, {}).get("abbr") if opp_id in TEAM_BRAND else None
+        pitcher = g.get("away_probable_pitcher") if is_home else g.get("home_probable_pitcher")
+        pitcher_txt = f"vs {pitcher}" if pitcher and str(pitcher).upper() != "TBD" else ""
+
+        if is_hitter:
+            # Hitters: counting stats over a ~150-game season → per-game line.
+            gp_basis = 150.0
+            proj = {
+                "h": _per_game("H", gp_basis) if blended.get("H") else _hits_from_avg(blended),
+                "hr": _per_game("HR", gp_basis),
+                "rbi": _per_game("RBI", gp_basis),
+                "r": _per_game("R", gp_basis),
+            }
+        else:
+            # Pitchers: starters ~32 starts; per-start lines.
+            gp_basis = 32.0
+            proj = {
+                "k": _per_game("K", gp_basis),
+                "era": blended.get("ERA") or blended.get("era"),
+                "ip": _per_game("IP", gp_basis),
+                "w": _per_game("W", gp_basis),
+            }
+
+        games.append(
+            {
+                "date": date_disp,
+                "opp": opp_abbr,
+                "home": is_home,
+                "pitcher": pitcher_txt,
+                "proj": proj,
+                "conf_pct": 60.0,  # neutral confidence baseline (no per-matchup model wired here)
+                "conf_note": "home" if is_home else "away",
+            }
+        )
+    return games
+
+
+def _hits_from_avg(blended: dict) -> float | None:
+    """Approximate per-game hits from AVG when H is missing (~4.1 AB/game)."""
+    avg = blended.get("AVG") or blended.get("avg")
+    try:
+        return float(avg) * 4.1
+    except (TypeError, ValueError):
+        return None
+
+
+def datetime_now_year() -> int:
+    """Current year (small wrapper kept import-light for the dossier helpers)."""
+    from datetime import UTC
+    from datetime import datetime as _dt
+
+    return _dt.now(UTC).year
+
+
 @st.dialog("Player Card", width="large")
 def show_player_card_dialog(player_id: int):
-    """Render the full player card as a modal dialog."""
+    """Render the player dossier modal (Combustion redesign).
+
+    Layout mirrors the gold-standard mockup: a team-color header band, a
+    "Game Log — Last 10" table, and "Upcoming · Projections" cards. The
+    legacy News + Radar detail are preserved below the mockup content in
+    collapsed expanders. Name + signature kept stable so existing wiring
+    (``?player=<id>`` on My Team) keeps working.
+    """
     from src.player_card import build_player_card_data
 
     data = build_player_card_data(player_id)
     profile = data["profile"]
-    is_hitter = bool(
-        profile.get("positions", "") and not all(p in ("SP", "RP", "P") for p in profile["positions"].split("/"))
-    )
+    projections = data.get("projections", {})
+    historical = data.get("historical", [])
+    is_hitter = _dossier_is_hitter(profile.get("positions", ""))
 
-    # 1. Header
-    _render_player_card_header(profile)
+    # ── 1. Header band (team-color tinted) ──────────────────────
+    season_chips = _dossier_season_chips(historical, projections, is_hitter)
+    st.markdown(build_dossier_header_html(profile, season_chips), unsafe_allow_html=True)
 
-    # 2. Radar chart
+    # ── 2. Body: Game Log (left) | Upcoming·Projections (right) ──
+    glog_rows = _dossier_game_log_rows(player_id, is_hitter)
+    upcoming = _dossier_upcoming_games(profile, projections, is_hitter)
+
+    # Form caption (last-6 hit/quality summary) for the game-log panel.
+    glog_fig = f"LAST {len(glog_rows)}" if glog_rows else "NO DATA"
+    upc_fig = f"NEXT {len(upcoming)}" if upcoming else "—"
+
+    left, right = st.columns([1.45, 1])
+    with left:
+        st.markdown(
+            build_panel_html(
+                "Game Log — Last 10",
+                build_game_log_html(glog_rows, is_hitter),
+                fig_label=glog_fig,
+                accent="left",
+            ),
+            unsafe_allow_html=True,
+        )
+    with right:
+        st.markdown(
+            build_panel_html(
+                "Upcoming · Projections",
+                build_upcoming_cards_html(upcoming, is_hitter),
+                fig_label=upc_fig,
+                accent="left",
+            ),
+            unsafe_allow_html=True,
+        )
+
+    # ── 3. Secondary detail (preserved below the mockup content) ─
+    news = data.get("news", [])
+    with st.expander("Recent News", expanded=False):
+        _render_news_section(news)
+
     radar = data.get("radar", {})
     if radar.get("player"):
-        st.markdown('<div class="sec-head">Percentile Rankings</div>', unsafe_allow_html=True)
-        _render_radar_chart(radar, is_hitter)
+        with st.expander("Percentile Rankings", expanded=False):
+            _render_radar_chart(radar, is_hitter)
 
+    # ── 4. Historical / projections / advanced / rankings detail ─
+    with st.expander("Stats, Projections & Rankings", expanded=False):
+        _render_dossier_detail(data, is_hitter)
+
+
+def _render_dossier_detail(data: dict, is_hitter: bool) -> None:
+    """Render the legacy stat/projection/advanced/rankings/injury/prospect detail.
+
+    Kept as a secondary expander beneath the Combustion dossier layout so the
+    rich data the card already loads is preserved without crowding the hero.
+    """
     # 3. Historical stats
     historical = data.get("historical", [])
     if historical:
