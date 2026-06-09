@@ -177,7 +177,7 @@ PAGE_ICONS = {
         '<polyline points="20 6 9 17 4 12"/></svg>'
     ),
     "x_mark": (
-        '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#e63946" '
+        '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#e0492f" '
         'stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:4px;">'
         '<line x1="18" y1="6" x2="6" y2="18"/>'
         '<line x1="6" y1="6" x2="18" y2="18"/></svg>'
@@ -191,7 +191,7 @@ PAGE_ICONS = {
         '<line x1="12" y1="17" x2="12.01" y2="17"/></svg>'
     ),
     "alert": (
-        '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#e63946" '
+        '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#e0492f" '
         'stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:4px;">'
         '<circle cx="12" cy="12" r="10"/>'
         '<line x1="12" y1="8" x2="12" y2="12"/>'
@@ -231,13 +231,13 @@ PAGE_ICONS = {
         '<polyline points="22 4 12 14.01 9 11.01"/></svg>'
     ),
     "reject": (
-        '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#e63946" '
+        '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#e0492f" '
         'stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:6px;">'
         '<circle cx="12" cy="12" r="10"/>'
         '<line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>'
     ),
     "fire": (
-        '<svg width="14" height="14" viewBox="0 0 24 24" fill="#e63946" stroke="none" '
+        '<svg width="14" height="14" viewBox="0 0 24 24" fill="#ff6d00" stroke="none" '
         'style="vertical-align:middle;margin-right:3px;">'
         '<path d="M12 23c-3.866 0-7-3.134-7-7 0-3 2-5.5 4-8 .667 1.333 1.333 2 2 2'
         " 0-4 1.5-7.5 4-10 .667 2.667 2 5.333 4 8 1.333-1.333 2-3.333 2-6"
@@ -1091,7 +1091,7 @@ def inject_custom_css():
         color: {t["tx2"]};
     }}
     .sgp-chip.pos {{ border-color: {t["green"]}; color: {t["green"]}; background: rgba(45, 106, 79, 0.08); }}
-    .sgp-chip.neg {{ border-color: {t["danger"]}; color: {t["danger"]}; background: rgba(230, 57, 70, 0.08); }}
+    .sgp-chip.neg {{ border-color: {t["danger"]}; color: {t["danger"]}; background: rgba(224, 73, 47, 0.08); }}
 
     /* ── ALTERNATIVE CARDS — Combustion: flat surface, hairline border,
           tier-colored left rail (glassmorphism + lift removed). ── */
@@ -1159,11 +1159,11 @@ def inject_custom_css():
         letter-spacing: 0.5px;
     }}
     .badge-value {{ background: rgba(45, 106, 79, 0.1); color: {t["ok"]}; border: 1px solid rgba(45, 106, 79, 0.3); }}
-    .badge-reach {{ background: rgba(230, 57, 70, 0.1); color: {t["danger"]}; border: 1px solid rgba(230, 57, 70, 0.3); }}
+    .badge-reach {{ background: rgba(224, 73, 47, 0.1); color: {t["danger"]}; border: 1px solid rgba(224, 73, 47, 0.3); }}
     .badge-fair {{ background: {t["card_h"]}; color: {t["tx2"]}; }}
     .badge-risk-low {{ background: rgba(45, 106, 79, 0.1); color: {t["ok"]}; }}
     .badge-risk-med {{ background: rgba(255, 159, 28, 0.1); color: {t["warn"]}; }}
-    .badge-risk-high {{ background: rgba(230, 57, 70, 0.1); color: {t["danger"]}; }}
+    .badge-risk-high {{ background: rgba(224, 73, 47, 0.1); color: {t["danger"]}; }}
     .badge-last-chance {{
         display: inline-block;
         padding: 2px 10px;
@@ -1253,8 +1253,8 @@ def inject_custom_css():
         animation: scarPulse 1.5s ease-in-out infinite;
     }}
     @keyframes scarPulse {{
-        0%, 100% {{ transform: scale(1); box-shadow: 0 0 0 rgba(230, 57, 70, 0); }}
-        50% {{ transform: scale(1.08); box-shadow: 0 0 16px rgba(230, 57, 70, 0.3); }}
+        0%, 100% {{ transform: scale(1); box-shadow: 0 0 0 rgba(224, 73, 47, 0); }}
+        50% {{ transform: scale(1.08); box-shadow: 0 0 16px rgba(224, 73, 47, 0.3); }}
     }}
     .scar-label {{
         font-family: var(--font-body);
@@ -4387,81 +4387,6 @@ def render_context_columns(context_width=1):
 
 
 # ── Player Card Dialog ────────────────────────────────────────────
-
-
-def _render_player_card_header(profile: dict) -> None:
-    """Render the player card header band: headshot + bio + tags."""
-    t = THEME
-    name = _html.escape(profile.get("name", ""))
-    team = _html.escape(profile.get("team", ""))
-    positions = _html.escape(profile.get("positions", ""))
-    bats = profile.get("bats", "")
-    throws = profile.get("throws", "")
-    age = profile.get("age")
-    age_str = f"Age {age}" if age else ""
-    health_label = profile.get("health_label", "")
-    health_score = profile.get("health_score", 0)
-    headshot_url = profile.get("headshot_url", "")
-    tags = profile.get("tags", [])
-
-    # Health dot color
-    if health_score >= 0.9:
-        dot_color = t["green"]
-    elif health_score >= 0.75:
-        dot_color = t["warn"]
-    else:
-        dot_color = t["danger"]
-
-    # Headshot or generic avatar placeholder
-    _card_onerror = f"this.onerror=null;this.src='{_AVATAR_FALLBACK_SVG}'"
-    src = headshot_url if headshot_url else _AVATAR_FALLBACK_SVG
-    img_html = (
-        f'<img src="{src}" '
-        f'style="width:80px;height:80px;border-radius:50%;object-fit:cover;'
-        f"border:3px solid {t['hot']};box-shadow:0 2px 8px rgba(0,0,0,0.15);"
-        f'background:{t["bg"]};" '
-        f'onerror="{_card_onerror}" />'
-    )
-
-    # Tag badges
-    tag_colors = {
-        "Sleeper": t["purple"],
-        "Breakout": t["green"],
-        "Target": t["sky"],
-        "Bust": t["danger"],
-        "Avoid": t["danger"],
-    }
-    tags_html = " ".join(
-        f'<span style="display:inline-block;padding:2px 8px;border-radius:10px;'
-        f"background:{tag_colors.get(tag, t['tx2'])};color:#fff;font-size:10px;"
-        f'font-weight:700;letter-spacing:0.5px;text-transform:uppercase;">'
-        f"{_html.escape(tag)}</span>"
-        for tag in tags
-    )
-
-    # Bio line
-    bio_parts = [p for p in [positions, team, age_str, f"B/T: {bats}/{throws}" if bats else ""] if p]
-    bio_line = " | ".join(bio_parts)
-
-    st.markdown(
-        f'<div style="display:flex;align-items:center;gap:16px;padding:12px 16px;'
-        f"background:{t['surface']};"
-        f"border:1px solid {t['border']};border-left:4px solid {t['primary']};"
-        f"box-shadow:0 1px 3px rgba(24,26,32,.06);"
-        f'border-radius:12px;margin-bottom:12px;">'
-        f"{img_html}"
-        f'<div style="flex:1;">'
-        f'<div style="font-family:Archivo,sans-serif;font-weight:900;font-size:24px;letter-spacing:-0.01em;'
-        f'color:{t["tx"]};line-height:1.2;">{name}</div>'
-        f'<div style="font-family:Inter,sans-serif;font-size:13px;color:{t["tx2"]};'
-        f'margin-top:2px;">{bio_line}</div>'
-        f'<div style="display:flex;align-items:center;gap:8px;margin-top:6px;">'
-        f'<span class="health-dot" style="background:{dot_color};width:8px;height:8px;"></span>'
-        f'<span style="font-size:12px;color:{t["tx2"]};">{_html.escape(health_label)}</span>'
-        f"{tags_html}"
-        f"</div></div></div>",
-        unsafe_allow_html=True,
-    )
 
 
 def _render_radar_chart(radar: dict, is_hitter: bool) -> None:

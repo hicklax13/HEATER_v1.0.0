@@ -2148,7 +2148,7 @@ def _render_radar_chart(ds, pool):
             fill="toself",
             name="My Team",
             line=dict(color=T["amber"], width=2),
-            fillcolor="rgba(230, 57, 70, 0.13)",
+            fillcolor="rgba(255, 109, 0, 0.13)",
         )
     )
     fig.add_trace(

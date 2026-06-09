@@ -1029,23 +1029,27 @@ else:
                         else:
                             _fl_gap_str = str(int(abs(_fl_gap)))
                         _flip_rows += (
-                            f'<div style="display:flex;align-items:center;gap:8px;'
-                            f'padding:4px 0;border-bottom:1px solid {T["border"]};">'
-                            f'<span style="background:{_fl_icon_color};color:#fff;padding:1px 6px;'
-                            f'border-radius:4px;font-size:10px;font-weight:700;white-space:nowrap;">'
+                            '<div class="arow" style="display:flex;align-items:center;gap:12px;'
+                            'padding:10px 4px;border-bottom:1px solid var(--fp-divider);">'
+                            f'<span style="font-family:var(--font-mono);font-size:9.5px;font-weight:600;'
+                            f"letter-spacing:.12em;padding:4px 8px;border-radius:5px;white-space:nowrap;"
+                            f"background:{_fl_icon_color}1f;color:{_fl_icon_color};"
+                            f'border:1px solid {_fl_icon_color}55;">'
                             f"{_fl_label}</span>"
-                            f'<span style="font-weight:700;font-size:13px;min-width:40px;">{_html.escape(str(_fl_cat))}</span>'
-                            f'<span style="color:{T["tx2"]};font-size:11px;">gap: {_fl_gap_str}</span>'
-                            f'<span style="color:{T["tx"]};font-size:11px;flex:1;">{_html.escape(str(fl["suggestion"]))}</span>'
+                            f'<span style="font-family:var(--font-mono);font-weight:600;font-size:12px;'
+                            f'letter-spacing:.04em;color:var(--fp-tx);min-width:40px;">{_html.escape(str(_fl_cat))}</span>'
+                            f'<span style="font-family:var(--font-mono);font-size:10px;'
+                            f'color:var(--fp-tx-subtle);white-space:nowrap;">GAP {_fl_gap_str}</span>'
+                            f'<span style="font-size:12.5px;color:var(--fp-tx-muted);'
+                            f'margin-left:auto;text-align:right;">{_html.escape(str(fl["suggestion"]))}</span>'
                             f"</div>"
                         )
                     st.markdown(
-                        f'<div style="background:{T["card"]};border-left:4px solid {T["warn"]};'
-                        f"border-radius:8px;padding:8px 12px;margin-bottom:8px;"
-                        f'font-family:IBM Plex Mono,monospace;">'
-                        f'<div style="font-size:11px;color:{T["tx2"]};margin-bottom:4px;'
-                        f'font-weight:600;">Flippable Categories</div>'
-                        f"{_flip_rows}</div>",
+                        build_panel_html(
+                            "Flippable Categories",
+                            _flip_rows,
+                            fig_label=f"{len(flippables)} FLAGGED",
+                        ),
                         unsafe_allow_html=True,
                     )
 
@@ -1217,72 +1221,63 @@ else:
 
                         # Build category rows grouped: CONTESTED first, WON, LOST
                         _flip_rows = ""
-                        # Contested categories (amber) with flip probability
+
+                        # Shared row builder: mono uppercase chip + mono stat code +
+                        # Inter body status text. Keeps mono for figures/labels only.
+                        def _flip_row(_chip_label: str, _chip_color: str, _cat: str, _status: str) -> str:
+                            return (
+                                '<div class="arow" style="display:flex;align-items:center;gap:12px;'
+                                'padding:9px 4px;border-bottom:1px solid var(--fp-divider);">'
+                                f'<span style="font-family:var(--font-mono);font-size:9px;font-weight:600;'
+                                f"letter-spacing:.12em;padding:4px 7px;border-radius:5px;"
+                                f"white-space:nowrap;min-width:74px;text-align:center;"
+                                f"background:{_chip_color}1f;color:{_chip_color};"
+                                f'border:1px solid {_chip_color}55;">{_chip_label}</span>'
+                                f'<span style="font-family:var(--font-mono);font-weight:600;font-size:12px;'
+                                f'letter-spacing:.04em;color:var(--fp-tx);min-width:36px;">{_html.escape(str(_cat))}</span>'
+                                f'<span style="font-size:12px;color:var(--fp-tx-muted);'
+                                f'margin-left:auto;text-align:right;">{_status}</span>'
+                                "</div>"
+                            )
+
+                        # Contested categories (orange) with flip probability
                         for _fc in _flip_summary.get("contested", []):
                             _fi = _flip_probs.get(_fc, {})
                             _fp = _fi.get("flip_prob", 0.5)
                             _fp_pct = int(_fp * 100)
-                            _flip_rows += (
-                                f'<div style="display:flex;align-items:center;gap:6px;'
-                                f'padding:3px 0;border-bottom:1px solid {T["border"]};">'
-                                f'<span style="background:{T["hot"]};color:#fff;padding:1px 5px;'
-                                f"border-radius:4px;font-size:9px;font-weight:700;"
-                                f'white-space:nowrap;min-width:60px;text-align:center;">'
-                                f"CONTESTED</span>"
-                                f'<span style="font-weight:700;font-size:12px;min-width:36px;">'
-                                f"{_fc}</span>"
-                                f'<span style="color:{T["hot"]};font-size:11px;font-weight:600;">'
-                                f"{_fp_pct}% flip</span></div>"
+                            _flip_rows += _flip_row(
+                                "CONTESTED",
+                                T["hot"],
+                                _fc,
+                                f'<b style="color:var(--fp-primary);font-weight:600;">{_fp_pct}%</b> flip',
                             )
                         # Won categories (green)
                         for _fc in _flip_summary.get("won", []):
-                            _flip_rows += (
-                                f'<div style="display:flex;align-items:center;gap:6px;'
-                                f'padding:3px 0;border-bottom:1px solid {T["border"]};">'
-                                f'<span style="background:{T["green"]};color:#fff;padding:1px 5px;'
-                                f"border-radius:4px;font-size:9px;font-weight:700;"
-                                f'white-space:nowrap;min-width:60px;text-align:center;">'
-                                f"WON</span>"
-                                f'<span style="font-weight:700;font-size:12px;min-width:36px;">'
-                                f"{_fc}</span>"
-                                f'<span style="color:{T["green"]};font-size:11px;">Protect</span>'
-                                f"</div>"
-                            )
-                        # Lost categories (red)
+                            _flip_rows += _flip_row("WON", T["green"], _fc, "Protect")
+                        # Lost categories (ember — functional negative)
                         for _fc in _flip_summary.get("lost", []):
-                            _flip_rows += (
-                                f'<div style="display:flex;align-items:center;gap:6px;'
-                                f'padding:3px 0;border-bottom:1px solid {T["border"]};">'
-                                f'<span style="background:{T["danger"]};color:#fff;padding:1px 5px;'
-                                f"border-radius:4px;font-size:9px;font-weight:700;"
-                                f'white-space:nowrap;min-width:60px;text-align:center;">'
-                                f"LOST</span>"
-                                f'<span style="font-weight:700;font-size:12px;min-width:36px;">'
-                                f"{_fc}</span>"
-                                f'<span style="color:{T["danger"]};font-size:11px;">Concede</span>'
-                                f"</div>"
-                            )
+                            _flip_rows += _flip_row("LOST", T["danger"], _fc, "Concede")
 
-                        # Top 1-2 recommended actions
+                        # Top 1-2 recommended actions (Inter body, not mono)
                         _flip_actions_html = ""
                         _top_actions = _flip_summary.get("recommended_actions", [])[:2]
                         if _top_actions:
                             _flip_actions_html = (
-                                f'<div style="margin-top:6px;padding-top:4px;border-top:1px solid {T["border"]};">'
+                                '<div style="margin-top:10px;padding-top:9px;border-top:1px solid var(--fp-divider);">'
                             )
                             for _fa in _top_actions:
-                                _flip_actions_html += f'<div style="font-size:10px;color:{T["tx2"]};padding:1px 0;">{_html.escape(str(_fa))}</div>'
+                                _flip_actions_html += (
+                                    '<div style="font-size:12px;color:var(--fp-tx-muted);'
+                                    f'padding:2px 0;">{_html.escape(str(_fa))}</div>'
+                                )
                             _flip_actions_html += "</div>"
 
                         st.markdown(
-                            f'<div style="background:{T["card"]};border-left:4px solid {T["hot"]};'
-                            f"border-radius:8px;padding:8px 12px;margin-bottom:8px;"
-                            f'font-family:IBM Plex Mono,monospace;">'
-                            f'<div style="font-size:11px;color:{T["tx2"]};margin-bottom:4px;'
-                            f'font-weight:600;">Category Flip Analysis'
-                            f'<span style="font-weight:400;margin-left:6px;">'
-                            f"({_flip_games_remaining}d left)</span></div>"
-                            f"{_flip_rows}{_flip_actions_html}</div>",
+                            build_panel_html(
+                                "Category Flip Analysis",
+                                f"{_flip_rows}{_flip_actions_html}",
+                                fig_label=f"{_flip_games_remaining}D LEFT",
+                            ),
                             unsafe_allow_html=True,
                         )
                 except Exception:
@@ -1741,7 +1736,7 @@ else:
                             if _priority_names:
                                 _priority_html = (
                                     f'<div style="margin-bottom:8px;padding:6px 8px;'
-                                    f"background:rgba(230,57,70,0.07);border-radius:6px;"
+                                    f"background:rgba(255,109,0,0.07);border-radius:6px;"
                                     f'border-left:3px solid {T["danger"]};">'
                                     f'<div style="font-size:10px;font-weight:700;letter-spacing:0.8px;'
                                     f'color:{T["danger"]};margin-bottom:3px;">'

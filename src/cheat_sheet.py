@@ -37,20 +37,20 @@ _PRINT_CSS = """
     table { border-collapse: collapse; width: 100%; }
     th, td { border: 1px solid #ccc; padding: 3px 6px; text-align: left; }
     th { background: #1a1a2e; color: #fff; }
-    .tier-break { border-top: 3px solid #e63946; }
+    .tier-break { border-top: 3px solid #e0492f; }
     .tag-badge { display: inline-block; padding: 1px 5px; border-radius: 3px; font-size: 9px; color: #fff; }
 }
 """
 
 _SCREEN_CSS = """
 body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin: 20px; background: #f4f5f0; }
-h1 { color: #1a1a2e; border-bottom: 3px solid #e63946; padding-bottom: 8px; }
-h2 { color: #e63946; margin-top: 24px; }
+h1 { color: #1a1a2e; border-bottom: 3px solid #e0492f; padding-bottom: 8px; }
+h2 { color: #e0492f; margin-top: 24px; }
 table { border-collapse: collapse; width: 100%; margin: 12px 0; background: #fff; border-radius: 8px; overflow: hidden; }
 th { background: linear-gradient(135deg, #1a1a2e, #16213e); color: #fff; padding: 8px 10px; text-align: left; font-size: 12px; }
 td { padding: 6px 10px; border-bottom: 1px solid #eee; font-size: 12px; }
 tr:hover { background: rgba(230, 92, 0, 0.05); }
-.tier-break td { border-top: 3px solid #e63946; }
+.tier-break td { border-top: 3px solid #e0492f; }
 .tag-badge { display: inline-block; padding: 2px 6px; border-radius: 3px; font-size: 10px; font-weight: 600; color: #fff; margin-left: 4px; }
 .health-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; }
 """
@@ -67,8 +67,8 @@ def _player_row_html(player: dict, show_health: bool = True, show_percentiles: b
     for tag in player.get("tags", []):
         color = {
             "Sleeper": "#6c63ff",
-            "Target": "#2d6a4f",
-            "Avoid": "#e63946",
+            "Target": "#1f9d6b",
+            "Avoid": "#e0492f",
             "Breakout": "#ff6d00",
             "Bust": "#6b7280",
         }.get(tag, "#6b7280")
@@ -76,7 +76,7 @@ def _player_row_html(player: dict, show_health: bool = True, show_percentiles: b
     health_html = ""
     if show_health:
         hs = player.get("health_score", DEFAULT_HEALTH_SCORE)
-        color = "#2d6a4f" if hs >= 0.9 else "#ff9f1c" if hs >= 0.7 else "#e63946"
+        color = "#1f9d6b" if hs >= 0.9 else "#ff9f1c" if hs >= 0.7 else "#e0492f"
         health_html = f'<span class="health-dot" style="background:{color};"></span>'
     pct_html = ""
     if show_percentiles:

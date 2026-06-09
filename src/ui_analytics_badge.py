@@ -45,7 +45,7 @@ def build_analytics_badge_html(ctx: AnalyticsContext) -> str:
     tier_colors = {
         ConfidenceTier.HIGH: T.get("cool", "#457b9d"),
         ConfidenceTier.MEDIUM: T.get("hot", "#ff6d00"),
-        ConfidenceTier.LOW: T.get("primary", "#e63946"),
+        ConfidenceTier.LOW: T.get("primary", "#ff6d00"),
         ConfidenceTier.EXPERIMENTAL: "#9c27b0",
     }
     tier_labels = {
@@ -68,8 +68,8 @@ def build_analytics_badge_html(ctx: AnalyticsContext) -> str:
                 ModuleStatus.EXECUTED: f'<span style="color:{T.get("cool", "#457b9d")}">ran</span>',
                 ModuleStatus.FALLBACK: f'<span style="color:{T.get("hot", "#ff6d00")}">fallback</span>',
                 ModuleStatus.SKIPPED: '<span style="color:#999">skipped</span>',
-                ModuleStatus.DISABLED: f'<span style="color:{T.get("primary", "#e63946")}">disabled</span>',
-                ModuleStatus.ERROR: f'<span style="color:{T.get("primary", "#e63946")}">error</span>',
+                ModuleStatus.DISABLED: f'<span style="color:{T.get("primary", "#ff6d00")}">disabled</span>',
+                ModuleStatus.ERROR: f'<span style="color:{T.get("primary", "#ff6d00")}">error</span>',
                 ModuleStatus.NOT_APPLICABLE: '<span style="color:#999">n/a</span>',
             }.get(mod.status, "?")
 
@@ -96,8 +96,8 @@ def build_analytics_badge_html(ctx: AnalyticsContext) -> str:
             quality_badge = {
                 DataQuality.LIVE: f'<span style="color:{T.get("cool", "#457b9d")}">live</span>',
                 DataQuality.STALE: f'<span style="color:{T.get("hot", "#ff6d00")}">stale</span>',
-                DataQuality.SAMPLE: f'<span style="color:{T.get("primary", "#e63946")}">sample</span>',
-                DataQuality.MISSING: f'<span style="color:{T.get("primary", "#e63946")}">missing</span>',
+                DataQuality.SAMPLE: f'<span style="color:{T.get("primary", "#ff6d00")}">sample</span>',
+                DataQuality.MISSING: f'<span style="color:{T.get("primary", "#ff6d00")}">missing</span>',
                 DataQuality.HARDCODED: '<span style="color:#999">hardcoded</span>',
             }.get(ds.quality, "?")
 
@@ -124,7 +124,7 @@ def build_analytics_badge_html(ctx: AnalyticsContext) -> str:
     warning_html = ""
     if warnings:
         warning_items = "".join(
-            f'<li style="font-size:10px;color:{T.get("primary", "#e63946")};margin:1px 0">{w}</li>'
+            f'<li style="font-size:10px;color:{T.get("primary", "#ff6d00")};margin:1px 0">{w}</li>'
             for w in warnings[:5]  # Cap at 5 warnings
         )
         warning_html = f'<ul style="margin:4px 0;padding-left:16px">{warning_items}</ul>'

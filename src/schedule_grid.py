@@ -12,7 +12,7 @@ TIER_COLORS: dict[str, str] = {
     "favorable": "#40916c",
     "neutral": "#6b7280",
     "unfavorable": "#ff9f1c",
-    "avoid": "#e63946",
+    "avoid": "#e0492f",
 }
 
 _DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]

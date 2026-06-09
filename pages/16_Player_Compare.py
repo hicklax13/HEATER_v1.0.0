@@ -262,7 +262,7 @@ with main:
                         name=result["player_a"],
                         line=dict(color=t["amber"]),
                         fill="toself",
-                        fillcolor="rgba(230,57,70,0.15)",
+                        fillcolor="rgba(255,109,0,0.15)",
                     )
                 )
                 fig.add_trace(

@@ -14,7 +14,7 @@ VALID_TAGS: list[str] = ["Sleeper", "Target", "Avoid", "Breakout", "Bust"]
 TAG_COLORS: dict[str, str] = {
     "Sleeper": "#6c63ff",  # purple
     "Target": "#2d6a4f",  # green
-    "Avoid": "#e63946",  # red
+    "Avoid": "#e0492f",  # ember (functional-negative)
     "Breakout": "#ff6d00",  # orange
     "Bust": "#6b7280",  # gray
 }

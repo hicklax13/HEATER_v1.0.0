@@ -577,7 +577,7 @@ def _render_playoff_odds_tab() -> None:
 
         def _highlight_user(row: pd.Series) -> list[str]:
             if row["Team"] == user_team_name:
-                return ["background-color: rgba(230, 57, 70, 0.08); font-weight: 700;"] * len(row)
+                return ["background-color: rgba(255, 109, 0, 0.08); font-weight: 700;"] * len(row)
             return [""] * len(row)
 
         styled = standings_p.style.apply(_highlight_user, axis=1).format(
