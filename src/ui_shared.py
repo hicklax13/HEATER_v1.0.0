@@ -641,11 +641,13 @@ def build_empty_state_html(title: str, body: str = "", icon_key: str = "baseball
     centered, orange SVG icon — never emoji.
     """
     icon = PAGE_ICONS.get(icon_key, PAGE_ICONS["baseball"])
-    body_html = f'<div class="es-body">{body}</div>' if body else ""
+    safe_title = _html.escape(str(title))
+    safe_body = _html.escape(str(body)) if body else ""
+    body_html = f'<div class="es-body">{safe_body}</div>' if safe_body else ""
     return (
         '<div class="empty-state">'
         f'<div class="es-icon">{icon}</div>'
-        f'<div class="es-title">{title}</div>'
+        f'<div class="es-title">{safe_title}</div>'
         f"{body_html}"
         "</div>"
     )
