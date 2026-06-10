@@ -38,6 +38,7 @@ from src.ui_shared import (
     render_context_card,
     render_context_columns,
     render_data_freshness_card,
+    render_empty_state,
     render_matchup_ticker,
     render_page_header,
     render_reco_banner,
@@ -339,12 +340,24 @@ with ctx:
                 else:
                     playoff_label = "Outside playoffs"
 
+            # Streak chip — movement signal from existing records data (hot =
+            # winning streak, steel = losing streak). Text only, no arrows.
+            _streak = str(u.get("streak", "") or "").strip()
+            _streak_chip_html = ""
+            if _streak:
+                _streak_cls = "hot" if _streak.upper().startswith("W") else "cold"
+                _streak_chip_html = (
+                    f'<p style="margin:4px 0 2px;"><span class="chip {_streak_cls}">'
+                    f"{_html.escape(_streak)} STREAK</span></p>"
+                )
+
             render_context_card(
                 "YOUR POSITION",
-                f'<p style="font-size:22px;font-weight:700;margin:0;color:{T["tx"]};">'
+                f'<p class="hero-num" style="font-size:28px;margin:0;">'
                 f"{_ordinal(rank)}</p>"
                 f'<p style="margin:4px 0;font-size:13px;color:{T["tx2"]};">'
                 f"{wins}-{losses}-{ties} ({win_pct:.3f})</p>"
+                f"{_streak_chip_html}"
                 f'<p style="margin:2px 0;font-size:12px;color:{T["tx2"]};">'
                 f"GB from 1st: {gb_first}</p>"
                 f'<p style="margin:2px 0;font-size:12px;color:{T["tx2"]};">'
@@ -352,11 +365,13 @@ with ctx:
             )
         else:
             render_context_card(
-                "YOUR POSITION", '<p style="color:#6b7280;font-size:12px;">Team not found in standings.</p>'
+                "YOUR POSITION",
+                '<p style="color:var(--fp-tx-muted);font-size:12px;">Team not found in standings.</p>',
             )
     else:
         render_context_card(
-            "YOUR POSITION", '<p style="color:#6b7280;font-size:12px;">Connect Yahoo to see your position.</p>'
+            "YOUR POSITION",
+            '<p style="color:var(--fp-tx-muted);font-size:12px;">Connect Yahoo to see your position.</p>',
         )
 
     # Card 2: THIS WEEK
@@ -378,7 +393,9 @@ with ctx:
             f"{mw}-{ml}-{mt}</p>",
         )
     else:
-        render_context_card("THIS WEEK", '<p style="color:#6b7280;font-size:12px;">No matchup data available.</p>')
+        render_context_card(
+            "THIS WEEK", '<p style="color:var(--fp-tx-muted);font-size:12px;">No matchup data available.</p>'
+        )
 
     # Card 3: PLAYOFF ODDS
     sim_result = st.session_state.get("standings_sim_result")
@@ -403,7 +420,8 @@ with ctx:
         )
     else:
         render_context_card(
-            "PLAYOFF ODDS", '<p style="color:#6b7280;font-size:12px;">Run projections to see playoff odds.</p>'
+            "PLAYOFF ODDS",
+            '<p style="color:var(--fp-tx-muted);font-size:12px;">Run projections to see playoff odds.</p>',
         )
 
     # Card 4: Data freshness
@@ -465,11 +483,11 @@ def _render_playoff_odds_tab() -> None:
 
     _po_rosters = _po_yds.get_rosters()
     if _po_rosters.empty:
-        st.info("No league rosters loaded. Connect your Yahoo league first.")
+        render_empty_state("No league rosters loaded", "Connect your Yahoo league first.", icon_key="users")
         return
     user_team_name = resolve_viewer_team_name(_po_rosters)
     if not user_team_name:
-        st.info("No user team identified in roster data.")
+        render_empty_state("No user team identified in roster data", icon_key="users")
         return
     user_team_name = str(user_team_name)
 
@@ -485,7 +503,11 @@ def _render_playoff_odds_tab() -> None:
     config = _po_config
 
     if not all_team_totals:
-        st.info("Connect your Yahoo league or load standings data to run playoff odds.")
+        render_empty_state(
+            "No standings data loaded",
+            "Connect your Yahoo league or load standings data to run playoff odds.",
+            icon_key="playoff_odds",
+        )
         return
 
     team_names_p = sorted(league_rosters_dict.keys())
@@ -546,7 +568,11 @@ def _render_playoff_odds_tab() -> None:
 
     results_p = st.session_state.get("playoff_sim_results")
     if results_p is None:
-        st.info("Press Simulate Season to run the playoff odds simulator.")
+        render_empty_state(
+            "No simulation yet",
+            "Press Simulate Season to run the playoff odds simulator.",
+            icon_key="playoff_odds",
+        )
         return
     if not results_p:
         st.warning("Simulation returned no results. Check that roster data is available for all teams.")
@@ -563,21 +589,26 @@ def _render_playoff_odds_tab() -> None:
             else T.get("primary", T["primary"])
         )
         prob_label = "Strong" if prob_pct >= 60 else "Moderate" if prob_pct >= 40 else "At Risk"
-        st.markdown(
-            f'<div style="background:#ffffff;border-radius:14px;padding:24px 32px;margin-bottom:24px;'
-            f'box-shadow:0 2px 12px rgba(0,0,0,0.06);display:flex;align-items:center;gap:28px;">'
+        _po_hero_body = (
+            f'<div style="display:flex;align-items:center;gap:28px;flex-wrap:wrap;">'
             f"<div>"
-            f'<div style="font-family:var(--font-body);font-size:14px;font-weight:600;'
-            f'color:{T["tx2"]};text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">'
-            f"Your Playoff Probability</div>"
-            f'<div style="font-family:var(--font-body);font-size:56px;font-weight:700;'
-            f'color:{prob_color};line-height:1;">{prob_pct:.1f}%</div>'
+            f'<div style="font-family:var(--font-display);font-size:56px;font-weight:800;'
+            f'font-variant-numeric:tabular-nums;color:{prob_color};line-height:1;">{prob_pct:.1f}%</div>'
             f'<div style="font-family:var(--font-body);font-size:14px;color:{T["tx2"]};margin-top:4px;">'
             f"{prob_label} -- {user_team_name}</div></div>"
             f'<div style="margin-left:auto;text-align:right;">'
-            f'<div style="font-size:13px;color:{T["tx2"]};">Projected Record</div>'
-            f'<div style="font-family:var(--font-body);font-size:28px;color:{T["tx"]};">'
-            f"{user_result['avg_wins']:.1f} - {user_result['avg_losses']:.1f}</div></div></div>",
+            f'<div class="t-label">Projected Record</div>'
+            f'<div style="font-family:var(--font-display);font-size:28px;font-weight:700;'
+            f'font-variant-numeric:tabular-nums;color:{T["tx"]};">'
+            f"{user_result['avg_wins']:.1f} - {user_result['avg_losses']:.1f}</div></div></div>"
+        )
+        st.markdown(
+            build_panel_html(
+                "Your Playoff Probability",
+                _po_hero_body,
+                fig_label="FIG.03 · PLAYOFF ODDS",
+                accent="top",
+            ),
             unsafe_allow_html=True,
         )
 
@@ -638,9 +669,7 @@ with main:
     with tab1:
         has_records = not records_df.empty
         if has_records:
-            # Section A: H2H Record Table
-            _section_label("Head-to-Head Record", fig=f"{len(records_df)} TEAMS")
-
+            # Section A: H2H Record Table (instrument panel, FIG.01)
             display_rows: list[dict] = []
             for _, row in records_df.iterrows():
                 tn = str(row["team_name"])
@@ -697,7 +726,16 @@ with main:
                 'class="compact-table-wrap"',
                 'class="compact-table-wrap standings-cutoff"',
             )
-            st.markdown(cutoff_css + html, unsafe_allow_html=True)
+            st.markdown(
+                cutoff_css
+                + build_panel_html(
+                    "Head-to-Head Record",
+                    html,
+                    fig_label="FIG.01 · CURRENT STANDINGS",
+                    accent="top",
+                ),
+                unsafe_allow_html=True,
+            )
 
         # Section B: Category Standings Grid
         standings_df = yds.get_standings()
@@ -779,7 +817,11 @@ with main:
                 st.markdown(grid_html, unsafe_allow_html=True)
 
         elif not has_records:
-            st.info("Connect your Yahoo league to see live standings. Run the app bootstrap first.")
+            render_empty_state(
+                "No standings yet",
+                "Connect your Yahoo league to see live standings. Run the app bootstrap first.",
+                icon_key="league_standings",
+            )
 
     # ── Tab 2: Season Projections ─────────────────────────────────────
     with tab2:
@@ -868,8 +910,7 @@ with main:
         sim_result = st.session_state.get(_sim_cache_key)
 
         if sim_result:
-            _section_label("Projected Final Standings", fig="500 SIMS · MC")
-
+            # Lead section: projected standings table (instrument panel, FIG.02)
             proj_records = sim_result.get("projected_records", {})
             playoff_probs = sim_result.get("playoff_probability", {})
             magic_nums = sim_result.get("magic_numbers", {})
@@ -933,7 +974,16 @@ with main:
                 'class="compact-table-wrap"',
                 'class="compact-table-wrap proj-cutoff"',
             )
-            st.markdown(proj_cutoff_css + proj_html, unsafe_allow_html=True)
+            st.markdown(
+                proj_cutoff_css
+                + build_panel_html(
+                    "Projected Final Standings",
+                    proj_html,
+                    fig_label="FIG.02 · SEASON PROJECTIONS",
+                    accent="top",
+                ),
+                unsafe_allow_html=True,
+            )
 
             # ── Playoff-odds heat-bar strip (instrument panel) ──
             # A dossier-style visualization of each team's MC playoff probability:
@@ -1117,7 +1167,7 @@ with main:
                             except Exception as e:
                                 st.warning(f"Scenario simulation failed: {e}")
                     else:
-                        st.info("Projection data not available for scenario analysis.")
+                        render_empty_state("Projection data not available for scenario analysis")
                 else:
                     st.warning("Your team not found in standings data.")
 
@@ -1127,7 +1177,11 @@ with main:
             render_compact_table(st.session_state["standings_legacy_result"])
 
         else:
-            st.info("No roster data available for projections. Connect your Yahoo league and run bootstrap.")
+            render_empty_state(
+                "No roster data for projections",
+                "Connect your Yahoo league and run bootstrap.",
+                icon_key="bar_chart",
+            )
 
     # ── Tab 3: Playoff Odds (was pages/7_Playoff_Odds.py) ────────────
     with tab_playoffs:
