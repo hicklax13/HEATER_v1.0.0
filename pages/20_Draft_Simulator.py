@@ -547,15 +547,15 @@ def render_draft_summary(pool: pd.DataFrame, ds: DraftState) -> None:
         avg_sgp = float(np.mean(team_sgps)) if team_sgps else 0.0
         diff = user_sgp - avg_sgp
         if diff > 8:
-            grade, grade_color = "A", "#22c55e"
+            grade, grade_color = "A", T["green"]
         elif diff > 4:
-            grade, grade_color = "B", "#84cc16"
+            grade, grade_color = "B", T["green_l"]
         elif diff > -2:
             grade, grade_color = "C", T["amber"]
         elif diff > -6:
-            grade, grade_color = "D", "#f97316"
+            grade, grade_color = "D", T["primary"]
         else:
-            grade, grade_color = "F", "#ef4444"
+            grade, grade_color = "F", T["danger"]
 
         st.markdown(
             f"""
