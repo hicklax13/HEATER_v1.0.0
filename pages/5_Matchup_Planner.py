@@ -497,7 +497,7 @@ with ctx:
 
     render_context_card(
         "Opponent",
-        f'<div style="font-size:13px;color:{T["tx"]};font-weight:600;">{opp_display}</div>',
+        f'<div style="font-size:13px;color:{T["tx"]};font-weight:600;">{_html.escape(str(opp_display))}</div>',
     )
 
     # Win probability context card
@@ -586,9 +586,9 @@ with ctx:
             _weak = _opp.get("weaknesses", [])
             _strong = _opp.get("strengths", [])
             _opp_html = f'<div style="font-size:12px;color:{THEME["tx"]};">'
-            _opp_html += f"<b>{_opp['name']}</b>"
+            _opp_html += f"<b>{_html.escape(str(_opp['name']))}</b>"
             if _opp.get("tier"):
-                _opp_html += f" ({_opp['tier']})"
+                _opp_html += f" ({_html.escape(str(_opp['tier']))})"
             _opp_html += "</div>"
             if _weak:
                 weak_str = ", ".join(str(w) for w in _weak[:4])
