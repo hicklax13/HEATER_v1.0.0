@@ -6,6 +6,7 @@ PAGE_REGISTRY = [
     {"key": "1_My_Team", "title": "My Team", "path": "pages/1_My_Team.py"},
     {"key": "2_Line-up_Optimizer", "title": "Lineup Optimizer", "path": "pages/2_Line-up_Optimizer.py"},
     {"key": "3_Closer_Monitor", "title": "Closer Monitor", "path": "pages/3_Closer_Monitor.py"},
+    {"key": "4_Pitcher_Streaming", "title": "Pitcher Streaming", "path": "pages/4_Pitcher_Streaming.py"},
     {"key": "5_Matchup_Planner", "title": "Matchup Planner", "path": "pages/5_Matchup_Planner.py"},
     {"key": "6_League_Standings", "title": "League Standings", "path": "pages/6_League_Standings.py"},
     {"key": "10_Punt_Analyzer", "title": "Punt Analyzer", "path": "pages/10_Punt_Analyzer.py"},

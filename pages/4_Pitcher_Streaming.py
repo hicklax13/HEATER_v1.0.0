@@ -1,0 +1,350 @@
+"""Pitcher Streaming — matchup-specific stream finder for any date this week.
+
+Design: docs/superpowers/specs/2026-06-09-pitcher-streaming-analyzer-design.md.
+All scoring arrives from src/optimizer/stream_analyzer.py (Stream Score board)
+and src/optimizer/fa_recommender.py (today's add/drop swaps) — this page
+renders engine output and never computes a score itself (guarded by
+tests/test_stream_page_no_inline_scoring.py).
+"""
+
+import logging
+from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
+
+import pandas as pd
+import streamlit as st
+
+from src.auth import multi_user_enabled, require_auth, resolve_viewer_team_name
+from src.database import init_db, load_player_pool
+from src.feature_flags import require_page_enabled
+from src.feedback import render_feedback_widget
+from src.game_day import get_target_game_date
+from src.league_manager import get_team_roster
+from src.league_rules import WEEKLY_TRANSACTION_LIMIT
+from src.optimizer.constants_registry import CONSTANTS_REGISTRY
+from src.optimizer.fa_recommender import recommend_streaming_moves
+from src.optimizer.stream_analyzer import build_stream_board
+from src.ui_shared import (
+    THEME,
+    format_stat,
+    inject_custom_css,
+    no_league_data_message,
+    page_timer_footer,
+    page_timer_start,
+    render_empty_state,
+    render_page_header,
+    render_sortable_table,
+)
+from src.usage import log_page_view
+from src.valuation import LeagueConfig
+from src.yahoo_data_service import get_yahoo_data_service
+
+logger = logging.getLogger(__name__)
+
+T = THEME
+
+# ── Page setup ────────────────────────────────────────────────────────────────
+
+if not multi_user_enabled():
+    st.set_page_config(
+        page_title="Heater | Pitcher Streaming",
+        page_icon="",
+        layout="wide",
+        initial_sidebar_state="collapsed",
+    )
+
+init_db()
+inject_custom_css()
+require_auth()
+require_page_enabled("page:4_Pitcher_Streaming")
+log_page_view("Pitcher Streaming")
+page_timer_start()
+
+# ── Data loading ──────────────────────────────────────────────────────────────
+
+pool = load_player_pool()
+if pool.empty:
+    st.warning("No player data loaded.")
+    st.stop()
+pool = pool.rename(columns={"name": "player_name"})
+
+config = LeagueConfig()
+yds = get_yahoo_data_service()
+rosters = yds.get_rosters()
+
+if rosters.empty:
+    render_empty_state(
+        "No league data yet",
+        no_league_data_message(yds.data_unavailable_reason()),
+        icon_key="users",
+    )
+    st.stop()
+
+user_team_name = resolve_viewer_team_name(rosters)
+if not user_team_name:
+    st.warning("No user team identified.")
+    st.stop()
+
+user_roster = get_team_roster(user_team_name)
+
+
+def _build_ctx():
+    """Build (and session-cache) the shared optimizer context.
+
+    scope="today" so recommend_streaming_moves can produce swap recs; the
+    board itself works for future dates off the same context. A failed build
+    degrades to a pool-only context with a visible banner (the FA-page
+    visible-fallback rule — never silently).
+    """
+    cached = st.session_state.get("stream_page_ctx")
+    if cached is not None:
+        return cached
+    try:
+        from src.optimizer.shared_data_layer import build_optimizer_context
+        from src.validation.dynamic_context import compute_weeks_remaining
+
+        with st.spinner("Loading matchup, schedule, and player intelligence..."):
+            ctx = build_optimizer_context(
+                scope="today",
+                yds=yds,
+                config=config,
+                weeks_remaining=compute_weeks_remaining(),
+                user_team_name=user_team_name,
+                roster=user_roster,
+                level_filter="MLB only",
+            )
+        st.session_state["stream_page_ctx"] = ctx
+        return ctx
+    except Exception as ctx_err:
+        logger.exception("Pitcher Streaming: optimizer context build failed")
+        st.warning(
+            "Live matchup context unavailable "
+            f"({type(ctx_err).__name__}: {ctx_err}) — showing a schedule-only "
+            "board without matchup urgency, drop suggestions, or roster filtering."
+        )
+        name_to_pool_id = dict(zip(pool["player_name"], pool["player_id"]))
+        rostered_ids = {
+            int(pid)
+            for pid in (name_to_pool_id.get(str(n)) for n in rosters.get("name", pd.Series(dtype=str)))
+            if pid is not None
+        }
+        return SimpleNamespace(
+            player_pool=pool,
+            user_roster_ids=[],
+            league_rostered_ids=rostered_ids,
+            team_strength={},
+            park_factors={},
+            weather={},
+            two_start_pitchers=[],
+            recent_form={},
+            todays_schedule=[],
+            config=config,
+            category_weights=None,
+            adds_remaining_this_week=None,
+            urgency_weights={},
+            scope="today",
+        )
+
+
+ctx = _build_ctx()
+
+
+@st.cache_data(ttl=900, show_spinner=False)
+def _fetch_schedule_cached(date_str: str) -> list[dict]:
+    """One day's MLB schedule (probables + status), cached 15 minutes."""
+    try:
+        import statsapi
+
+        return statsapi.schedule(start_date=date_str, end_date=date_str)
+    except Exception:
+        logger.warning("Pitcher Streaming: schedule fetch failed for %s", date_str, exc_info=True)
+        return []
+
+
+# ── Header ───────────────────────────────────────────────────────────────────
+
+render_page_header("Pitcher Streaming", eyebrow="DAILY", fig="FIG.4 — PITCHER STREAMING")
+
+tab_finder, tab_microscope, tab_planner, tab_record = st.tabs(
+    ["Stream Finder", "Matchup Microscope", "Week Planner", "Track Record"]
+)
+
+# ── Tab 1: Stream Finder ─────────────────────────────────────────────────────
+
+with tab_finder:
+    target_default = get_target_game_date()
+    today_str = datetime.now(UTC).strftime("%Y-%m-%d")
+    date_options: list[str] = []
+    base = datetime.strptime(target_default, "%Y-%m-%d")
+    for offset in range(8):
+        date_options.append((base + timedelta(days=offset)).strftime("%Y-%m-%d"))
+
+    def _date_label(d: str) -> str:
+        dt = datetime.strptime(d, "%Y-%m-%d")
+        suffix = " (today)" if d == today_str else ""
+        return dt.strftime("%a %b %d") + suffix
+
+    ctrl_date, ctrl_mine, ctrl_locked = st.columns([2, 1, 1])
+    with ctrl_date:
+        target_date = st.selectbox("Stream date", date_options, format_func=_date_label, key="stream_date")
+    with ctrl_mine:
+        include_rostered = st.checkbox(
+            "Include my SPs",
+            value=False,
+            help="Compare your own probable starters against the wire on this date.",
+        )
+    with ctrl_locked:
+        show_locked = st.checkbox(
+            "Show locked starts",
+            value=True,
+            help="Keep rows whose game is live or final visible (non-actionable).",
+        )
+
+    # Budget / pacing strip
+    adds_remaining = getattr(ctx, "adds_remaining_this_week", None)
+    ip_target = float(CONSTANTS_REGISTRY["stream_ip_target"].value)
+    losing = []
+    tied = []
+    try:
+        summary = (getattr(ctx, "urgency_weights", None) or {}).get("summary", {})
+        losing = list(summary.get("losing", []))
+        tied = list(summary.get("tied", []))
+    except Exception:
+        pass
+    m1, m2, m3 = st.columns(3)
+    with m1:
+        st.metric(
+            "Adds remaining this week",
+            f"{adds_remaining} / {WEEKLY_TRANSACTION_LIMIT}" if adds_remaining is not None else "—",
+        )
+    with m2:
+        st.metric("Weekly IP target", f"{ip_target:.0f} IP")
+    with m3:
+        st.metric(
+            "Cats in play",
+            ", ".join(losing + tied) if (losing or tied) else "—",
+            help="Losing/tied categories this matchup — streams that help these matter most.",
+        )
+
+    schedule = None if target_date == today_str else _fetch_schedule_cached(target_date)
+    board = build_stream_board(ctx, target_date, schedule=schedule, include_rostered=include_rostered)
+
+    if board.empty:
+        render_empty_state(
+            "No streamable starts",
+            "No probable starters found in the player pool for this date — "
+            "probables may not be posted yet (typically 1-5 days out).",
+            icon_key="baseball",
+        )
+    else:
+        if not show_locked:
+            board = board[board["actionable"]].reset_index(drop=True)
+
+        display = pd.DataFrame(
+            {
+                "Pitcher": board["player_name"],
+                "Tm": board["team"],
+                "Opp": [("vs " if home else "@ ") + opp for home, opp in zip(board["is_home"], board["opponent"])],
+                "Status": board["status"],
+                "Conf": board["confidence"],
+                "GS": board["num_starts"],
+                "Score": board["stream_score"],
+                "Net SGP": [format_stat(v, "SGP") for v in board["net_sgp"]],
+                "Opp wRC+": board["opp_wrc_plus"].round(0).astype(int),
+                "Opp K%": board["opp_k_pct"].round(1),
+                "Park": board["park_factor"].round(2),
+                "xIP": board["expected_ip"].round(1),
+                "xK": board["expected_k"].round(1),
+                "xER": board["expected_er"].round(1),
+                "W%": (board["win_probability"] * 100).round(0).astype(int),
+                "Own%": board["percent_owned"].fillna(0).round(0).astype(int),
+                "Risk": [", ".join(f) for f in board["risk_flags"]],
+            }
+        )
+        if board["split_source"].eq("overall").all():
+            st.caption("Opponent wRC+/K% are overall team rates (vs-handedness splits unavailable).")
+        render_sortable_table(display, height=520, key="stream_board")
+
+        # Why-expanders for the top actionable candidates
+        top = board[board["actionable"]].head(5)
+        if not top.empty:
+            st.markdown("**Why these scores**")
+            for _, row in top.iterrows():
+                title = (
+                    f"{row['player_name']} ({row['team']}) "
+                    f"{'vs' if row['is_home'] else '@'} {row['opponent']} — "
+                    f"score {row['stream_score']}"
+                )
+                with st.expander(title):
+                    comps = row["components"]
+                    comp_df = pd.DataFrame(
+                        {
+                            "Component": list(comps.keys()),
+                            "Value (-1 to +1)": list(comps.values()),
+                            "Weight": [CONSTANTS_REGISTRY[f"stream_score_w_{name}"].value for name in comps.keys()],
+                        }
+                    )
+                    st.dataframe(comp_df, hide_index=True)
+                    if row["risk_flags"]:
+                        st.caption("Risk flags: " + ", ".join(row["risk_flags"]))
+                    st.caption(
+                        f"Expected line: {row['expected_ip']:.1f} IP, "
+                        f"{row['expected_k']:.1f} K, {row['expected_er']:.1f} ER, "
+                        f"{row['win_probability']:.0%} win"
+                    )
+
+    # Swap recommendations — same-day matchup state required
+    st.markdown("---")
+    st.markdown("**Suggested swap (today)**")
+    if target_date != today_str:
+        st.caption(
+            "Swap suggestions need same-day matchup state (lineup locks, "
+            "in-play categories) — pick today's date to see add/drop pairs."
+        )
+    elif getattr(ctx, "scope", "") != "today" or not getattr(ctx, "user_roster_ids", None):
+        st.caption("Swap suggestions unavailable without live matchup context.")
+    else:
+        try:
+            moves = recommend_streaming_moves(ctx)
+            pitcher_moves = moves.get("pitchers", [])
+            if not pitcher_moves:
+                note = (moves.get("diagnostics") or {}).get("note", "")
+                st.caption(
+                    "No pitcher stream clears the engine's net-SGP and "
+                    "category-protection bars today." + (f" ({note})" if note else "")
+                )
+            else:
+                swap_df = pd.DataFrame(
+                    {
+                        "Add": [m.get("add_name", "") for m in pitcher_moves],
+                        "Drop": [m.get("drop_name", "") for m in pitcher_moves],
+                        "Net SGP": [format_stat(m.get("net_sgp", 0.0), "SGP") for m in pitcher_moves],
+                        "Helps": [
+                            ", ".join(m.get("target_cats_helped") or m.get("helps") or []) for m in pitcher_moves
+                        ],
+                    }
+                )
+                st.dataframe(swap_df, hide_index=True)
+        except Exception as swap_err:
+            logger.exception("Pitcher Streaming: recommend_streaming_moves failed")
+            st.warning(
+                f"Swap engine unavailable ({type(swap_err).__name__}: {swap_err}) — board scores above are unaffected."
+            )
+
+# ── Tab 2: Matchup Microscope (Phase 3) ──────────────────────────────────────
+
+with tab_microscope:
+    st.info("Matchup Microscope is being assembled — per-start deep dive lands next.")
+
+# ── Tab 3: Week Planner (Phase 4) ────────────────────────────────────────────
+
+with tab_planner:
+    st.info("Week Planner is being assembled — budget-aware stream sequencing lands next.")
+
+# ── Tab 4: Track Record (Phase 5) ────────────────────────────────────────────
+
+with tab_record:
+    st.info("Track Record is being assembled — historical replay lands next.")
+
+page_timer_footer("Pitcher Streaming")
+render_feedback_widget("Pitcher Streaming")
