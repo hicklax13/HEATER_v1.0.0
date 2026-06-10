@@ -158,12 +158,8 @@ def test_lineup_exposure_regresses_pvb():
 
 
 def test_lineup_exposure_small_sample_shrinks():
-    big = compute_lineup_exposure(
-        99, [11], _mini_pool(), pvb_data={(11, 99): {"pa": 60, "woba": 0.600}}
-    )
-    small = compute_lineup_exposure(
-        99, [11], _mini_pool(), pvb_data={(11, 99): {"pa": 6, "woba": 0.600}}
-    )
+    big = compute_lineup_exposure(99, [11], _mini_pool(), pvb_data={(11, 99): {"pa": 60, "woba": 0.600}})
+    small = compute_lineup_exposure(99, [11], _mini_pool(), pvb_data={(11, 99): {"pa": 6, "woba": 0.600}})
     assert big is not None and small is not None
     assert big > small, "a 6-PA PvB sample must shrink toward the generic wOBA"
 

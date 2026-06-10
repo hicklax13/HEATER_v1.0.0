@@ -170,6 +170,5 @@ def test_replay_no_games_is_empty_not_raise():
 def test_page_renders_proxy_caveat():
     src = _PAGE.read_text(encoding="utf-8")
     assert "proxy_caveat" in src, (
-        "the Track Record tab must check/render the replay proxy caveat — "
-        "replay accuracy must never be oversold"
+        "the Track Record tab must check/render the replay proxy caveat — replay accuracy must never be oversold"
     )
