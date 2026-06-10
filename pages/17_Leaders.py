@@ -23,6 +23,7 @@ from src.ui_shared import (
     render_compact_table,
     render_context_card,
     render_context_columns,
+    render_empty_state,
     render_page_header,
     render_player_select,
     render_reco_banner,
@@ -68,7 +69,7 @@ def _build_leaderboard_html(ldf, stat_col, category, stat_label):
 
     th = (
         "font-family:var(--font-display);font-weight:800;font-size:10.5px;"
-        "letter-spacing:.06em;text-transform:uppercase;color:#2c2f36;"
+        "letter-spacing:.06em;text-transform:uppercase;color:var(--fp-tx);"
         "padding:9px 12px;border-bottom:2px solid rgba(24,26,32,.18);"
     )
     head = (
@@ -198,6 +199,7 @@ render_page_header(
     eyebrow="RESEARCH",
     fig="FIG.17 — CATEGORY LEADERS",
 )
+st.markdown('<div class="hr-heat"></div>', unsafe_allow_html=True)
 render_reco_banner("Category leaders and breakout detection", "", "leaders")
 
 
@@ -408,7 +410,7 @@ def _render_scouting_radar(name: str, grades: list[dict], is_pitcher: bool) -> N
             name="Present",
             line=dict(color=T["sky"]),
             fill="toself",
-            fillcolor="rgba(69,123,157,0.15)",
+            fillcolor="rgba(95,125,156,0.15)",
         )
     )
 
@@ -564,8 +566,10 @@ with main:
             try:
                 stats_df, _is_proj = _load_stats_df()
                 if stats_df.empty:
-                    st.info(
-                        "No player stats available. Return to the Connect League page and click Force Refresh Data in the sidebar to load fresh statistics."
+                    render_empty_state(
+                        "No player stats available",
+                        "Return to the Connect League page and click Force Refresh Data "
+                        "in the sidebar to load fresh statistics.",
                     )
                     st.stop()
                 if _is_proj:
@@ -630,7 +634,7 @@ with main:
                             key_suffix="leaders",
                         )
                 else:
-                    st.info(f"No leaders found for {category}.")
+                    render_empty_state("No leaders found", f"No qualifying players for {category} yet.")
             except Exception as e:
                 st.error(f"Failed to compute category leaders: {e}")
 
@@ -647,9 +651,10 @@ with main:
             try:
                 stats_df_cv, _is_proj_cv = _load_stats_df()
                 if stats_df_cv.empty:
-                    st.info(
-                        "No player stats available. Return to the Connect League page and click "
-                        "Force Refresh Data in the sidebar to load fresh statistics."
+                    render_empty_state(
+                        "No player stats available",
+                        "Return to the Connect League page and click Force Refresh Data "
+                        "in the sidebar to load fresh statistics.",
                     )
                     st.stop()
                 if _is_proj_cv:
@@ -703,7 +708,7 @@ with main:
                             key_suffix="leaders_cv",
                         )
                 else:
-                    st.info("No category value leaders computed.")
+                    render_empty_state("No category value leaders computed")
             except Exception as e:
                 st.error(f"Failed to compute category value leaders: {e}")
 
@@ -719,9 +724,10 @@ with main:
             try:
                 stats_df_bo, _is_proj_bo = _load_stats_df()
                 if stats_df_bo.empty:
-                    st.info(
-                        "No player stats available. Return to the Connect League page and click "
-                        "Force Refresh Data in the sidebar to load fresh statistics."
+                    render_empty_state(
+                        "No player stats available",
+                        "Return to the Connect League page and click Force Refresh Data "
+                        "in the sidebar to load fresh statistics.",
                     )
                     st.stop()
                 if _is_proj_bo:
@@ -828,7 +834,7 @@ with main:
                     )
 
                 if prospects_df.empty:
-                    st.info("No prospect data available. Click Refresh Data to fetch rankings.")
+                    render_empty_state("No prospect data available", "Click Refresh Data to fetch rankings.")
                 else:
                     # Reload with all filters applied
                     pos_arg = position_filter if position_filter != "All" else None
@@ -862,7 +868,7 @@ with main:
                             ]
 
                     if prospects_df.empty:
-                        st.info("No prospects match the selected filters.")
+                        render_empty_state("No prospects match the selected filters")
                     else:
                         # Build display table
                         display_cols = []
@@ -922,7 +928,10 @@ with main:
                                     grade_df = pd.DataFrame(grades)
                                     render_compact_table(grade_df)
                                 else:
-                                    st.info("No scouting tool grades available for this prospect.")
+                                    render_empty_state(
+                                        "No scouting grades",
+                                        "No scouting tool grades available for this prospect.",
+                                    )
 
                                 # Additional info
                                 info_parts = []
@@ -1016,11 +1025,11 @@ with main:
 
     with tab_hot:
         if _trended.empty:
-            st.info("Trend data unavailable. Season stats may not be loaded yet.")
+            render_empty_state("Trend data unavailable", "Season stats may not be loaded yet.")
         else:
             hot = _trended[_trended["trend_label"] == "HOT"].copy().sort_values("trend_delta", ascending=False).head(15)
             if hot.empty:
-                st.info("No players are currently trending hot.")
+                render_empty_state("No players trending hot", icon_key="fire")
             else:
                 st.caption("Players performing significantly above their pre-season projections.")
                 disp = pd.DataFrame(
@@ -1037,13 +1046,13 @@ with main:
 
     with tab_cold:
         if _trended.empty:
-            st.info("Trend data unavailable.")
+            render_empty_state("Trend data unavailable", "Season stats may not be loaded yet.")
         else:
             cold = (
                 _trended[_trended["trend_label"] == "COLD"].copy().sort_values("trend_delta", ascending=True).head(15)
             )
             if cold.empty:
-                st.info("No players are currently trending cold.")
+                render_empty_state("No players trending cold")
             else:
                 st.caption("Players performing significantly below their pre-season projections.")
                 disp = pd.DataFrame(
@@ -1060,14 +1069,17 @@ with main:
 
     with tab_sell:
         if _trend_pool.empty or _trend_season.empty:
-            st.info("Sell-high detection requires pool + season stats.")
+            render_empty_state("Sell-high data unavailable", "Sell-high detection requires pool + season stats.")
         else:
             sell_high = _detect_sell_high_candidates(_trend_pool, _trend_season, _trend_cfg)
             if sell_high.empty:
                 if not _HAS_SUSTAINABILITY:
                     st.info("Sell-high detection requires the sustainability module.")
                 else:
-                    st.info("No sell-high candidates identified. Hot players appear to have sustainable performance.")
+                    render_empty_state(
+                        "No sell-high candidates",
+                        "Hot players appear to have sustainable performance.",
+                    )
             else:
                 st.caption("Players trending hot with low sustainability scores — regression likely.")
                 top = sell_high.head(15)
