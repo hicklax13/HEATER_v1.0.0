@@ -24,7 +24,6 @@ from src.ui_shared import (
     T,
     _headshot_img_html,
     build_heatbar_html,
-    build_stat_readout_html,
     format_stat,
     inject_custom_css,
     no_league_data_message,
@@ -34,6 +33,7 @@ from src.ui_shared import (
     render_context_card,
     render_context_columns,
     render_data_freshness_card,
+    render_empty_state,
     render_matchup_ticker,
     render_page_header,
     render_player_select,
@@ -116,7 +116,7 @@ config = LeagueConfig()
 yds = get_yahoo_data_service()
 rosters = yds.get_rosters()
 if rosters.empty:
-    st.warning(no_league_data_message(yds.data_unavailable_reason()))
+    render_empty_state("No league data yet", no_league_data_message(yds.data_unavailable_reason()), icon_key="users")
     st.stop()
 else:
     user_team_name = resolve_viewer_team_name(rosters)
@@ -161,7 +161,7 @@ else:
         with ctx:
             render_context_card(
                 "Trade Status",
-                '<div style="font-size:12px;color:#6b7280;">Select players to analyze a trade</div>',
+                '<div style="font-size:12px;color:var(--fp-tx-muted);">Select players to analyze a trade</div>',
             )
 
             # Recent transactions card
@@ -376,6 +376,10 @@ else:
                     time.sleep(0.3)
                     trade_progress.empty()
 
+                    # Combustion Finale: hairline divider between the trade-builder
+                    # inputs above and the results section below.
+                    st.markdown('<div class="hr-fade"></div>', unsafe_allow_html=True)
+
                     # Update context panel with trade summary
                     with ctx:
                         verdict_color = T["ok"] if result["verdict"] == "ACCEPT" else T["danger"]
@@ -383,17 +387,17 @@ else:
                         grade_display = f'<div style="font-size:28px;font-family:var(--font-body);color:{verdict_color};letter-spacing:2px;">{result["verdict"]}</div>'
                         if grade_val:
                             grade_display += f'<div style="font-size:20px;font-family:var(--font-body);color:{verdict_color};">{grade_val}</div>'
-                        grade_display += f'<div style="font-size:12px;color:#6b7280;margin-top:4px;">{result["confidence_pct"]:.2f}% confidence</div>'
+                        grade_display += f'<div style="font-size:12px;color:var(--fp-tx-muted);margin-top:4px;">{result["confidence_pct"]:.2f}% confidence</div>'
                         render_context_card("Trade Verdict", grade_display)
 
                         if engine_used == "phase1" and result.get("punt_categories"):
                             punt_list = "".join(
-                                f'<div style="font-size:12px;color:#6b7280;padding:2px 0;">{cat}</div>'
+                                f'<div style="font-size:12px;color:var(--fp-tx-muted);padding:2px 0;">{cat}</div>'
                                 for cat in result["punt_categories"]
                             )
                             render_context_card(
                                 "Punted Categories",
-                                f'<div style="font-size:11px;color:#9ca3af;margin-bottom:4px;">Zero-weighted in evaluation</div>{punt_list}',
+                                f'<div style="font-size:11px;color:var(--fp-tx-subtle);margin-bottom:4px;">Zero-weighted in evaluation</div>{punt_list}',
                             )
 
                         surplus = (
@@ -570,8 +574,16 @@ else:
                         or 0.0
                     )
                     _conf_bar = build_heatbar_html(_conf_pct, win=(result["verdict"] == "ACCEPT"))
-                    _surplus_readout = build_stat_readout_html(
-                        "Surplus SGP", format_stat(_surplus_val, "SGP"), accent=(_surplus_val >= 0)
+                    # Combustion Finale: the surplus-SGP headline figure carries the
+                    # gradient hero numeral (.hero-num). Built inline (not via
+                    # build_stat_readout_html) so no inline color overrides the
+                    # class's orange gradient text clip.
+                    _surplus_readout = (
+                        '<div class="stat" style="display:flex;flex-direction:column;gap:3px;">'
+                        '<span class="stat-k" style="font-size:9px;font-weight:800;letter-spacing:.2em;'
+                        'text-transform:uppercase;color:var(--fp-tx-muted);">Surplus SGP</span>'
+                        f'<span class="stat-v hero-num" style="font-size:24px;">'
+                        f"{format_stat(_surplus_val, 'SGP')}</span></div>"
                     )
                     st.markdown(
                         f'<div class="glass" style="border:2px solid {color};'
@@ -740,7 +752,7 @@ else:
                         if "mc_mean" in result and "cvar5" in result:
                             st.markdown(
                                 '<div style="font-family:var(--font-body);font-size:16px;'
-                                'color:#9ca3af;letter-spacing:2px;margin-top:8px;">'
+                                'color:var(--fp-tx-subtle);letter-spacing:2px;margin-top:8px;">'
                                 "Monte Carlo Risk (injury-aware downside)</div>",
                                 unsafe_allow_html=True,
                             )
@@ -813,7 +825,7 @@ else:
 
                             st.markdown(
                                 '<div style="font-family:var(--font-body);font-size:16px;'
-                                'color:#9ca3af;letter-spacing:2px;margin-top:8px;">'
+                                'color:var(--fp-tx-subtle);letter-spacing:2px;margin-top:8px;">'
                                 "Three-Horizon Impact (report Q(b))</div>",
                                 unsafe_allow_html=True,
                             )
