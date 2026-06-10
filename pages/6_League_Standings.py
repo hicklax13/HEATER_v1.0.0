@@ -813,6 +813,7 @@ with main:
                     grid_df,
                     highlight_cols=highlight_cols,
                     row_classes=grid_row_classes,
+                    html_cols=set(_CAT_ORDER),
                 )
                 st.markdown(grid_html, unsafe_allow_html=True)
 

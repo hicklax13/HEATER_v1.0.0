@@ -369,3 +369,22 @@ def test_empty_state_helper_exists_and_is_emoji_free():
     assert 'class="empty-state"' in html_out
     assert "No data yet" in html_out
     assert not _EMOJI_RE.findall(html_out), "empty-state must be emoji-free (SVG icons only)"
+
+
+def test_compact_table_html_cols_render_unescaped():
+    """Standings rank badges are pre-built trusted HTML — html_cols columns
+    must render raw while every other column stays escaped (2026-06-10 fix:
+    the category grid was showing literal '<span ...>' text)."""
+    import pandas as pd
+
+    from src.ui_shared import build_compact_table_html
+
+    df = pd.DataFrame(
+        {
+            "Team": ["A-Team <script>"],
+            "R": ['<span class="rb">1</span>'],
+        }
+    )
+    out = build_compact_table_html(df, html_cols={"R"})
+    assert '<span class="rb">1</span>' in out, "html_cols cell must render unescaped"
+    assert "&lt;script&gt;" in out, "non-html_cols cells must stay escaped"

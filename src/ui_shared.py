@@ -4063,6 +4063,7 @@ def build_compact_table_html(
     health_col=None,
     max_height=500,
     show_avatars=None,
+    html_cols=None,
 ):
     """Build ESPN-style compact HTML table string from a DataFrame.
 
@@ -4084,12 +4085,15 @@ def build_compact_table_html(
         health_col: Optional column name containing health status strings.
             When provided, a colored dot is prepended to the cell value.
         max_height: Max container height in pixels (0 for unlimited).
+        html_cols: Optional set of column names whose values are TRUSTED
+            pre-built HTML (e.g. rank badges) and must not be escaped.
+            All other cells stay escaped.
 
     Returns:
         HTML string with ``compact-table-wrap`` / ``compact-table`` classes.
     """
     if df is None or df.empty:
-        return '<div class="compact-table-wrap"><p style="padding:16px;color:#6b7280;font-size:13px;">No data available.</p></div>'
+        return '<div class="compact-table-wrap"><p style="padding:16px;color:var(--fp-tx-muted);font-size:13px;">No data available.</p></div>'
 
     # Detect headshot column — extract mlb_id values before hiding
     has_mlb_col = "mlb_id" in df.columns
@@ -4155,11 +4159,15 @@ def build_compact_table_html(
                 mid = mlb_ids[idx] if idx < len(mlb_ids) else None
                 cell_html += _headshot_img_html(mid)
 
-            # Format numeric values — skip first col and health col
+            # Format numeric values — skip first col and health col.
+            # html_cols columns bypass numeric formatting entirely and go
+            # straight to the trusted-HTML branch (raw, unescaped).
             _skip_cols = {first_col}
             if health_col:
                 _skip_cols.add(health_col)
-            if col not in _skip_cols:
+            if html_cols and col in html_cols:
+                cell_html += str(val) if val is not None else ""
+            elif col not in _skip_cols:
                 try:
                     fv = float(val)
                     if _math.isnan(fv) or _math.isinf(fv):
@@ -4349,7 +4357,15 @@ def render_roster_table(
     render_compact_table(display, health_col=health_col if health_col in display.columns else None)
 
 
-def render_compact_table(df, highlight_cols=None, row_classes=None, health_col=None, max_height=500, show_avatars=None):
+def render_compact_table(
+    df,
+    highlight_cols=None,
+    row_classes=None,
+    health_col=None,
+    max_height=500,
+    show_avatars=None,
+    html_cols=None,
+):
     """Render compact ESPN-style table via st.markdown().
 
     Thin wrapper around :func:`build_compact_table_html`.
@@ -4361,6 +4377,7 @@ def render_compact_table(df, highlight_cols=None, row_classes=None, health_col=N
         health_col=health_col,
         max_height=max_height,
         show_avatars=show_avatars,
+        html_cols=html_cols,
     )
     st.markdown(html, unsafe_allow_html=True)
 
