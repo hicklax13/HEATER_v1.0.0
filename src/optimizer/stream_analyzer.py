@@ -546,6 +546,7 @@ def build_stream_board(
                     "expected_k": scored["expected_line"]["k"],
                     "expected_er": scored["expected_line"]["er"],
                     "win_probability": scored["win_probability"],
+                    "whip": _get_num(row, "whip"),
                     "components": scored["components"],
                     "risk_flags": scored["risk_flags"],
                     "percent_owned": _get_num(row, "percent_owned"),
@@ -911,4 +912,107 @@ def replay_stream_date(
         "actuals": actuals_df,
         "summary": summary,
         "proxy_caveat": True,
+    }
+
+
+# ── Matchup impact: with-vs-without the streamed start ───────────────
+
+
+def compute_matchup_impact(
+    my_totals: dict[str, float],
+    opp_totals: dict[str, float],
+    expected_line: dict[str, float],
+    pitcher_whip: float,
+    config: Any = None,
+    num_starts: int = 1,
+    team_ip: float | None = None,
+    n_sims: int = 500,
+) -> dict[str, Any] | None:
+    """Project the LIVE matchup with vs without one streamed start.
+
+    Runs the canonical ``estimate_h2h_win_probability`` (the same engine the
+    Lineup Optimizer uses) on the current matchup totals, then again with the
+    candidate's expected line folded in: K and W add directly (W at the
+    start's win probability; L at ``(1 - win_prob) x stream_loss_decision_share``),
+    ERA/WHIP recombine from components over ``team_ip + ip_added`` — never
+    averaged. Both arms share one RNG seed (paired-MC discipline), so a no-op
+    line yields exact-zero deltas.
+
+    Args:
+        my_totals / opp_totals: Live matchup category totals (lowercase keys,
+            the ``ctx.my_totals`` shape). Empty ⇒ returns None — never guessed.
+        expected_line: ``{"ip", "k", "er", "win_prob"}`` per start (the
+            ``score_stream_candidate`` expected line).
+        pitcher_whip: Candidate's projected WHIP (baserunner rate for the
+            team-WHIP recombination).
+        config: LeagueConfig (inverse/rate cat awareness lives downstream).
+        num_starts: Starts in the window (two-start weeks scale the line).
+        team_ip: My team's weekly IP so far/projected. None ⇒ the registry
+            ``stream_ip_target`` (conservative full-week dilution).
+        n_sims: Copula draws for the overall win-prob (paired seed).
+
+    Returns:
+        {"per_cat": {cat: {"before", "after", "delta"}},
+         "expected_wins_before/after/delta",
+         "overall_win_prob_before/after/delta"} or None.
+    """
+    if not my_totals or not opp_totals:
+        return None
+
+    import numpy as np
+
+    from src.optimizer.h2h_engine import estimate_h2h_win_probability
+
+    n = max(int(num_starts), 0)
+    ip_added = float(expected_line.get("ip", 0.0) or 0.0) * n
+    k_added = float(expected_line.get("k", 0.0) or 0.0) * n
+    er_added = float(expected_line.get("er", 0.0) or 0.0) * n
+    win_prob = float(expected_line.get("win_prob", 0.0) or 0.0)
+    loss_share = float(_CR["stream_loss_decision_share"].value)
+
+    if team_ip is None or team_ip <= 0:
+        team_ip = float(_CR["stream_ip_target"].value)
+
+    after = {str(c).lower(): float(v) for c, v in my_totals.items()}
+    if "k" in after:
+        after["k"] += k_added
+    # No innings ⇒ no start happened ⇒ no decision can be charged.
+    if ip_added > 0:
+        if "w" in after:
+            after["w"] += win_prob * n
+        if "l" in after:
+            after["l"] += (1.0 - win_prob) * loss_share * n
+    if "era" in after and ip_added > 0:
+        er_current = after["era"] * team_ip / 9.0
+        after["era"] = (er_current + er_added) * 9.0 / (team_ip + ip_added)
+    if "whip" in after and ip_added > 0:
+        bb_h_current = after["whip"] * team_ip
+        bb_h_added = max(float(pitcher_whip or 0.0), 0.0) * ip_added
+        after["whip"] = (bb_h_current + bb_h_added) / (team_ip + ip_added)
+
+    before_totals = {str(c).lower(): float(v) for c, v in my_totals.items()}
+    opp = {str(c).lower(): float(v) for c, v in opp_totals.items()}
+
+    # Paired arms: same seed so MC jitter cancels in the delta.
+    seed = 20260610
+    res_before = estimate_h2h_win_probability(before_totals, opp, n_sims=n_sims, rng=np.random.RandomState(seed))
+    res_after = estimate_h2h_win_probability(after, opp, n_sims=n_sims, rng=np.random.RandomState(seed))
+
+    per_cat: dict[str, dict[str, float]] = {}
+    for cat, p_before in res_before["per_category"].items():
+        p_after = res_after["per_category"].get(cat, p_before)
+        per_cat[cat] = {
+            "before": round(float(p_before), 4),
+            "after": round(float(p_after), 4),
+            "delta": float(p_after) - float(p_before),
+        }
+
+    return {
+        "per_cat": per_cat,
+        "expected_wins_before": float(res_before["expected_wins"]),
+        "expected_wins_after": float(res_after["expected_wins"]),
+        "expected_wins_delta": float(res_after["expected_wins"]) - float(res_before["expected_wins"]),
+        "overall_win_prob_before": float(res_before["overall_win_prob"]),
+        "overall_win_prob_after": float(res_after["overall_win_prob"]),
+        "overall_win_prob_delta": float(res_after["overall_win_prob"]) - float(res_before["overall_win_prob"]),
     }
