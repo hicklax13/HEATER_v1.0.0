@@ -306,3 +306,66 @@ def test_content_links_scoped_to_main_not_sidebar():
     assert ".stSidebar" not in selector_blob, (
         "the content-link orange rule must NOT target .stSidebar (sidebar nav links stay bone-on-navy)"
     )
+
+
+# ── Combustion Finale — machined micro-detail layer (2026-06-10) ───────
+
+
+def test_motion_tokens_emitted():
+    """The motion token system (--dur-1/--dur-2/--ease-snap) is emitted."""
+    for token in ("--dur-1:", "--dur-2:", "--ease-snap:"):
+        assert token in _SRC, f"{token} motion token must be emitted in ui_shared.py"
+
+
+def test_reduced_motion_block_present():
+    """A prefers-reduced-motion block kills animation for sensitive users."""
+    assert "@media (prefers-reduced-motion: reduce)" in _SRC, (
+        "ui_shared.py must carry a prefers-reduced-motion block (launch-grade a11y)"
+    )
+
+
+def test_brand_selection_present():
+    """Text selection is branded (navy in main, orange in sidebar)."""
+    assert "::selection" in _SRC, "a ::selection rule must exist"
+
+
+def test_focus_visible_ring_present():
+    """Keyboard focus gets a brand-orange :focus-visible ring."""
+    assert ":focus-visible" in _SRC, "a :focus-visible ring rule must exist"
+
+
+def test_canvas_grain_present():
+    """The app canvas carries the layered grain + blueprint-grid texture."""
+    assert "fractalNoise" in _SRC, "the feTurbulence grain data-URI must be on the canvas"
+    app_block = _css_block(".stApp")
+    assert "data:image/svg+xml" in app_block, ".stApp background must layer the grain data-URI"
+
+
+def test_no_entrance_animation_on_persistent_cards():
+    """Streamlit remounts DOM on every rerun, so entrance keyframes on
+    persistent cards replay on every widget click. The six-card slideUp
+    rule must be gone (slideUp itself may remain for true entrances)."""
+    m = re.search(r"\.glass,\s*\.hero,\s*\.alt[^}]*animation:\s*slideUp", _SRC)
+    assert m is None, "persistent cards must not carry the slideUp entrance animation"
+
+
+def test_dialog_chrome_present():
+    """The player-dossier dialog gets Combustion chrome (wide + machined)."""
+    assert 'div[data-testid="stDialog"]' in _SRC, "stDialog chrome rules must exist"
+    assert "min(92vw, 1100px)" in _SRC, "the dialog must widen to min(92vw, 1100px)"
+
+
+def test_portal_chrome_present():
+    """BaseWeb portals (tooltip/toast) mount on <body> and must be branded navy."""
+    assert '[data-testid="stToast"]' in _SRC, "toast chrome must exist"
+    assert "stTooltipContent" in _SRC, "tooltip chrome must exist"
+
+
+def test_empty_state_helper_exists_and_is_emoji_free():
+    """render_empty_state replaces bare st.info in data-empty contexts."""
+    from src.ui_shared import build_empty_state_html
+
+    html_out = build_empty_state_html("No data yet", "Bootstrap is still warming up.")
+    assert 'class="empty-state"' in html_out
+    assert "No data yet" in html_out
+    assert not _EMOJI_RE.findall(html_out), "empty-state must be emoji-free (SVG icons only)"
