@@ -236,9 +236,12 @@ with tab_finder:
     with m2:
         st.metric("Weekly IP target", f"{ip_target:.0f} IP")
     with m3:
+        _has_both_totals = bool(getattr(ctx, "my_totals", None)) and bool(getattr(ctx, "opp_totals", None))
         if losing or tied:
             _cats_val = ", ".join(losing + tied)
-        elif getattr(ctx, "my_totals", None):
+        elif _has_both_totals:
+            # Codex P2 (PR #133): standings can fill my_totals while the
+            # opponent's stay empty — only claim a sweep with BOTH sides.
             _cats_val = "none — leading all cats"
         else:
             _cats_val = "no matchup data"
@@ -334,7 +337,18 @@ with tab_finder:
             "projection is possible."
         )
     elif not my_totals or not opp_totals:
-        st.caption("Live matchup totals unavailable — connect Yahoo to project impact.")
+        if not getattr(ctx, "live_matchup", None):
+            st.caption(
+                "No live weekly matchup in the cache (yds.get_matchup returned "
+                "nothing) — if My Team also shows no matchup, the server's "
+                "Yahoo sync/token needs attention; impact projection needs the "
+                "live category scores."
+            )
+        else:
+            st.caption(
+                "Live matchup loaded but category totals could not be parsed "
+                "for both teams — impact projection unavailable."
+            )
     elif board.empty or not board["actionable"].any():
         st.caption("No actionable streams to project for this date.")
     else:
