@@ -530,10 +530,104 @@ with tab_planner:
         sequence = " → ".join(f"{e['game_date'][5:]}: {e['player_name']}" for e in plan)
         st.caption(f"Sequence: {sequence}")
 
-# ── Tab 4: Track Record (Phase 5) ────────────────────────────────────────────
+# ── Tab 4: Track Record ──────────────────────────────────────────────────────
 
 with tab_record:
-    st.info("Track Record is being assembled — historical replay lands next.")
+    past_options = [(datetime.now(UTC) - timedelta(days=off)).strftime("%Y-%m-%d") for off in range(1, 15)]
+    replay_date = st.selectbox(
+        "Replay date",
+        past_options,
+        format_func=lambda d: datetime.strptime(d, "%Y-%m-%d").strftime("%a %b %d"),
+        key="replay_date",
+    )
+
+    if st.button("Run replay", key="run_replay"):
+        from src.optimizer.stream_analyzer import replay_stream_date
+
+        with st.spinner("Scoring the historical board and fetching box scores..."):
+            replay = replay_stream_date(ctx, replay_date, schedule=_fetch_schedule_cached(replay_date))
+        if replay["proxy_caveat"]:
+            st.caption(
+                "Replay scores use CURRENT projections and form as a proxy — "
+                "HEATER does not store point-in-time projections. Matchup facts "
+                "(opponent, park, schedule) are historically exact; treat the "
+                "form component as approximate."
+            )
+        if replay["board_then"].empty:
+            render_empty_state(
+                "Nothing to replay",
+                "No probable starters matched the player pool for this date.",
+                icon_key="baseball",
+            )
+        elif replay["actuals"].empty:
+            st.caption(
+                "Board scored, but no actual game logs matched this date (statsapi unavailable or starts were skipped)."
+            )
+            st.dataframe(
+                replay["board_then"][["player_name", "team", "opponent", "stream_score", "expected_k"]],
+                hide_index=True,
+            )
+        else:
+            summary = replay["summary"]
+            r1, r2, r3, r4 = st.columns(4)
+            with r1:
+                st.metric(
+                    "Top picks graded",
+                    f"{summary['games']} starts",
+                )
+            with r2:
+                st.metric(
+                    "Actual line",
+                    f"{format_stat(summary['era'], 'ERA')} ERA / {format_stat(summary['whip'], 'WHIP')} WHIP",
+                )
+            with r3:
+                st.metric("Quality-start rate", f"{summary['qs_rate']:.0%}")
+            with r4:
+                st.metric("K vs expected", f"{summary['k_delta_vs_expected']:+.1f}")
+            actuals_disp = replay["actuals"].rename(
+                columns={
+                    "player_name": "Pitcher",
+                    "team": "Tm",
+                    "opponent": "Opp",
+                    "stream_score_then": "Score",
+                    "expected_k": "xK",
+                    "actual_ip": "IP",
+                    "actual_k": "K",
+                    "actual_er": "ER",
+                    "actual_w": "W",
+                    "quality_start": "QS",
+                }
+            )
+            st.dataframe(
+                actuals_disp[["Pitcher", "Tm", "Opp", "Score", "xK", "IP", "K", "ER", "W", "QS"]],
+                hide_index=True,
+            )
+
+    # ── My streams this season ───────────────────────────────────────────
+    st.markdown("---")
+    st.markdown("**My pitcher adds this season**")
+    try:
+        txns = yds.get_transactions()
+        if txns is None or txns.empty:
+            st.caption("No transaction history available.")
+        else:
+            mine = txns.copy()
+            if "team_name" in mine.columns:
+                mine = mine[mine["team_name"] == user_team_name]
+            if "type" in mine.columns:
+                mine = mine[mine["type"] == "add"]
+            pitcher_names = set(pool.loc[pool.get("is_hitter", 1) == 0, "player_name"].astype(str))
+            name_col = "player_name" if "player_name" in mine.columns else "name"
+            if name_col in mine.columns:
+                mine = mine[mine[name_col].astype(str).isin(pitcher_names)]
+            if mine.empty:
+                st.caption("No pitcher adds recorded for your team yet.")
+            else:
+                show_cols = [c for c in [name_col, "timestamp", "type"] if c in mine.columns]
+                st.dataframe(mine[show_cols].reset_index(drop=True), hide_index=True)
+    except Exception:
+        logger.exception("Pitcher Streaming: transactions table failed")
+        st.caption("Transaction history unavailable.")
 
 page_timer_footer("Pitcher Streaming")
 render_feedback_widget("Pitcher Streaming")

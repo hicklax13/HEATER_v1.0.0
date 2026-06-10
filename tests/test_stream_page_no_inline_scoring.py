@@ -45,16 +45,35 @@ def test_page_imports_engine():
     )
 
 
-def test_no_inline_score_arithmetic():
-    tree = ast.parse(_PAGE.read_text(encoding="utf-8"))
+def _score_arithmetic_offenders(path: Path) -> list[str]:
+    tree = ast.parse(path.read_text(encoding="utf-8"))
     offenders: list[str] = []
     for node in ast.walk(tree):
         for name in _assign_targets(node):
             if "score" not in name.lower():
                 continue
             value = getattr(node, "value", None)
-            if value is not None and any(isinstance(n, ast.BinOp) for n in ast.walk(value)):
+            has_arith = value is not None and any(isinstance(n, ast.BinOp) for n in ast.walk(value))
+            if has_arith or isinstance(node, ast.AugAssign):
                 offenders.append(f"{name} (line {node.lineno})")
+    return offenders
+
+
+def test_no_inline_score_arithmetic():
+    offenders = _score_arithmetic_offenders(_PAGE)
     assert not offenders, (
         f"page computes a score with inline arithmetic — move it into src/optimizer/stream_analyzer.py: {offenders}"
     )
+
+
+def test_lineup_optimizer_streaming_tab_delegates():
+    """Phase 5: the Lineup Optimizer's Streaming tab formula
+    (the K*1.5 + W*0.3 - ERA/WHIP-penalty block) must not regrow — its
+    Section 1 delegates to build_stream_board."""
+    page2 = _PAGE.parent / "2_Line-up_Optimizer.py"
+    src = page2.read_text(encoding="utf-8")
+    assert "build_stream_board" in src, (
+        "Lineup Optimizer streaming tab must delegate scoring to stream_analyzer.build_stream_board"
+    )
+    offenders = _score_arithmetic_offenders(page2)
+    assert not offenders, f"inline streaming-score arithmetic regrew in pages/2: {offenders}"

@@ -812,3 +812,103 @@ def build_week_plan(
             "under_floor": under_floor,
         },
     }
+
+
+# ── Track Record: replay a past date ─────────────────────────────────
+
+
+def replay_stream_date(
+    ctx: Any,
+    target_date: str,
+    top_n: int = 5,
+    schedule: list[dict[str, Any]] | None = None,
+    actuals: dict[int, pd.DataFrame] | None = None,
+) -> dict[str, Any]:
+    """Score a PAST date's board and compare against the actual lines.
+
+    HEATER stores no point-in-time projections, so the replay board is scored
+    with CURRENT data — the matchup facts (opponent, park, schedule) are
+    historically exact, the form/projection inputs are a proxy. The result
+    carries ``proxy_caveat=True`` and consumers MUST surface it.
+
+    Args:
+        ctx: OptimizerDataContext (duck-typed; see build_stream_board).
+        target_date: Past ISO date to replay.
+        top_n: How many top board picks to grade.
+        schedule: Schedule rows for the date (None ⇒ statsapi fetch).
+        actuals: mlb_id → game-log frame override (tests / pre-fetched);
+            None ⇒ per-pitcher statsapi game-log fetches.
+
+    Returns:
+        {"board_then": top-N scored rows, "actuals": per-pick actual lines,
+         "summary": weighted aggregate {era, whip, k, ip, qs_rate, games},
+         "proxy_caveat": True}
+    """
+    board = build_stream_board(ctx, target_date, schedule=schedule)
+    empty = {
+        "board_then": board,
+        "actuals": pd.DataFrame(),
+        "summary": {},
+        "proxy_caveat": True,
+    }
+    if board.empty:
+        return empty
+
+    top = board.head(top_n).reset_index(drop=True)
+    rows: list[dict[str, Any]] = []
+    for _, pick in top.iterrows():
+        mlb_id = pick.get("mlb_id")
+        if mlb_id is None or (isinstance(mlb_id, float) and math.isnan(mlb_id)):
+            continue
+        mlb_id = int(mlb_id)
+        if actuals is not None:
+            history = actuals.get(mlb_id, pd.DataFrame())
+        else:
+            history = get_pitcher_vs_team_history(mlb_id, last_n=40)
+        if history is None or history.empty or "date" not in history.columns:
+            continue
+        day = history[history["date"] == target_date]
+        if day.empty:
+            continue
+        line = day.iloc[0]
+        ip = float(line["ip"])
+        er = float(line["er"])
+        rows.append(
+            {
+                "player_name": pick["player_name"],
+                "team": pick["team"],
+                "opponent": pick["opponent"],
+                "stream_score_then": float(pick["stream_score"]),
+                "expected_k": float(pick["expected_k"]),
+                "actual_ip": ip,
+                "actual_k": float(line["k"]),
+                "actual_er": er,
+                "actual_bb": float(line["bb"]),
+                "actual_h": float(line["h"]),
+                "actual_w": float(line["w"]),
+                "quality_start": bool(ip >= 6.0 and er <= 3.0),
+            }
+        )
+
+    actuals_df = pd.DataFrame(rows)
+    if actuals_df.empty:
+        return {**empty, "board_then": top}
+
+    total_ip = float(actuals_df["actual_ip"].sum())
+    total_er = float(actuals_df["actual_er"].sum())
+    total_bb_h = float(actuals_df["actual_bb"].sum() + actuals_df["actual_h"].sum())
+    summary = {
+        "games": int(len(actuals_df)),
+        "ip": round(total_ip, 1),
+        "k": float(actuals_df["actual_k"].sum()),
+        "era": round(total_er * 9.0 / total_ip, 2) if total_ip > 0 else 0.0,
+        "whip": round(total_bb_h / total_ip, 2) if total_ip > 0 else 0.0,
+        "qs_rate": round(float(actuals_df["quality_start"].mean()), 2),
+        "k_delta_vs_expected": round(float((actuals_df["actual_k"] - actuals_df["expected_k"]).mean()), 2),
+    }
+    return {
+        "board_then": top,
+        "actuals": actuals_df,
+        "summary": summary,
+        "proxy_caveat": True,
+    }
