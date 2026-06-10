@@ -2248,6 +2248,11 @@ def inject_custom_css():
         font-size: 11px !important;
         color: {t["tx2"]} !important;
         font-weight: 500 !important;
+        /* Short labels ("Roster") must never break mid-word in the narrow
+           sidebar cards — exempt from the global overflow-wrap:anywhere. */
+        overflow-wrap: normal !important;
+        word-break: normal !important;
+        white-space: nowrap !important;
     }}
     .context-stat-value {{
         font-family: 'IBM Plex Mono', monospace !important;
