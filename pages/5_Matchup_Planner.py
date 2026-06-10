@@ -17,6 +17,7 @@ from src.ui_shared import (
     THEME,
     _headshot_img_html,
     build_eyebrow_html,
+    build_heatbar_html,
     build_panel_html,
     format_stat,
     inject_custom_css,
@@ -25,6 +26,7 @@ from src.ui_shared import (
     render_compact_table,
     render_context_card,
     render_context_columns,
+    render_empty_state,
     render_matchup_ticker,
     render_page_header,
     render_player_select,
@@ -300,9 +302,9 @@ def _opp_logo_html(opp_abbr: str, size: int = 14) -> str:
 
 
 def _games_detail_html(games: list[dict]) -> str:
-    """Render a compact list of per-game details as HTML."""
+    """Render per-game details as instrument cards (accent-left + date eyebrow)."""
     if not games:
-        return '<span style="color:#6b7280;font-size:12px;">No games scheduled</span>'
+        return '<span style="color:var(--fp-tx-muted);font-size:12px;">No games scheduled</span>'
     parts = []
     for g in games:
         date = str(g.get("game_date", ""))
@@ -313,14 +315,15 @@ def _games_detail_html(games: list[dict]) -> str:
         pf = g.get("park_factor", 1.0)
         _opp_logo = _opp_logo_html(opp)
         parts.append(
+            '<div class="instr-panel accent-left" style="padding:8px 14px;border-radius:10px;">'
+            f'<div class="t-eyebrow" style="margin-bottom:2px;">{_html.escape(date)}</div>'
             '<span style="font-size:11px;color:var(--fp-tx-muted);display:inline-flex;'
-            'align-items:center;gap:2px;">'
-            f'<span style="font-family:var(--font-mono);">{_html.escape(date)}</span> vs '
+            'align-items:center;gap:2px;">vs '
             f'{_opp_logo}<b style="color:var(--fp-tx);">{_html.escape(opp)}</b> '
             f'<span style="color:var(--fp-tx-subtle);">({loc} · PF {float(pf):.2f} · '
-            f"Score {float(raw):.2f})</span></span>"
+            f"Score {float(raw):.2f})</span></span></div>"
         )
-    return '<div style="display:flex;flex-direction:column;gap:4px;">' + "".join(parts) + "</div>"
+    return '<div style="display:flex;flex-direction:column;gap:6px;">' + "".join(parts) + "</div>"
 
 
 def _section_label(text: str, *, fig: str = "") -> str:
@@ -344,18 +347,6 @@ def _section_label(text: str, *, fig: str = "") -> str:
 # ── Helper: build category probability bar HTML ──────────────────────
 
 
-def _prob_bar_color(pct: float) -> str:
-    """Return bar color based on win probability percentage."""
-    if pct >= 70:
-        return T["green"]
-    elif pct >= 55:
-        return T["sky"]
-    elif pct >= 45:
-        return T["warn"]
-    else:
-        return T["danger"]
-
-
 def _cat_header_color(cat: str) -> str:
     """Return category header color: blue for hitting, red for pitching."""
     if cat in _HIT_CATS:
@@ -364,7 +355,7 @@ def _cat_header_color(cat: str) -> str:
 
 
 def _build_category_prob_html(cat_data: list[dict]) -> str:
-    """Build full HTML for category probability bars.
+    """Build full HTML for category probability heat bars.
 
     Each entry has: name, user_proj, opp_proj, win_pct, confidence, is_inverse.
     """
@@ -375,7 +366,6 @@ def _build_category_prob_html(cat_data: list[dict]) -> str:
         user_proj = cat["user_proj"]
         opp_proj = cat["opp_proj"]
         confidence = cat.get("confidence", "low")
-        bar_color = _prob_bar_color(pct)
         header_color = _cat_header_color(name)
         is_inverse = cat.get("is_inverse", False)
         direction_hint = " (lower is better)" if is_inverse else ""
@@ -391,6 +381,11 @@ def _build_category_prob_html(cat_data: list[dict]) -> str:
             user_str = f"{user_proj:.1f}"
             opp_str = f"{opp_proj:.1f}"
 
+        # Canonical Combustion heat bar: orange gradient when favored (>=50%),
+        # steel when trailing. Mono percentage figure sits beside the track.
+        _heatbar = build_heatbar_html(pct, win=(pct >= 50))
+        _pct_color = "var(--fp-primary)" if pct >= 50 else "var(--fp-cold)"
+
         # Single-line HTML, joined with "" (F-VIS-1, 2026-06-02 browser
         # walkthrough). A multi-line pretty-printed f-string broke rendering:
         # Streamlit's markdown treats lines indented 4+ spaces as a code block,
@@ -399,13 +394,11 @@ def _build_category_prob_html(cat_data: list[dict]) -> str:
         # one logical line with no leading indentation, and joining with "", makes
         # the whole bar set one uninterrupted HTML block.
         row_html = (
-            f'<div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid rgba(0,0,0,0.06);">'
-            f'<div style="width:55px;font-weight:700;font-size:13px;color:{header_color};flex-shrink:0;">{name}</div>'
-            f'<div style="flex:1;position:relative;height:22px;background:rgba(0,0,0,0.05);border-radius:11px;overflow:hidden;">'
-            f'<div style="position:absolute;top:0;left:0;height:100%;width:{max(2, min(pct, 100)):.1f}%;background:{bar_color};border-radius:11px;transition:width 0.3s ease;"></div>'
-            f'<div style="position:absolute;top:0;left:0;width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:{T["tx"]};text-shadow:0 0 3px rgba(255,255,255,0.8);">{pct:.0f}%</div>'
-            f"</div>"
-            f'<div style="width:110px;font-size:11px;color:{T["tx2"]};text-align:right;flex-shrink:0;opacity:{conf_opacity};">{user_str} vs {opp_str}{direction_hint}</div>'
+            f'<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--fp-divider);">'
+            f'<div style="width:55px;font-family:var(--font-display);font-weight:800;font-size:13px;color:{header_color};flex-shrink:0;">{name}</div>'
+            f'<div style="flex:1;">{_heatbar}</div>'
+            f'<div style="width:46px;flex-shrink:0;text-align:right;font-family:var(--font-mono);font-weight:600;font-size:12px;color:{_pct_color};">{pct:.0f}%</div>'
+            f'<div style="width:130px;font-family:var(--font-mono);font-size:10.5px;color:{T["tx2"]};text-align:right;flex-shrink:0;opacity:{conf_opacity};letter-spacing:.02em;">{user_str} vs {opp_str}{direction_hint}</div>'
             f"</div>"
         )
         rows.append(row_html)
@@ -511,7 +504,7 @@ with ctx:
     if win_prob_data:
         render_context_card("Win Probability", _build_win_prob_context_html(win_prob_data))
 
-    st.markdown("---")
+    st.markdown('<div class="hr-fade"></div>', unsafe_allow_html=True)
 
     # Week selector: how many days ahead to look
     days_ahead = st.selectbox(
@@ -552,7 +545,11 @@ with ctx:
             f'<div style="font-size:13px;color:{T["tx"]};">{team_name}</div>',
         )
     else:
-        st.info("No league roster data loaded. Using full player pool for demonstration.")
+        render_empty_state(
+            "No league roster data loaded",
+            "Using the full player pool for demonstration.",
+            icon_key="users",
+        )
         render_context_card(
             "Data Source",
             f'<div style="font-size:12px;color:{T["tx2"]};">Showing all pooled players (no league connected).</div>',
@@ -646,7 +643,7 @@ with main:
         filtered_roster = filtered_roster[filtered_roster["is_hitter"] == 0]
 
     if filtered_roster.empty:
-        st.info(f"No {player_type.lower()} found on this roster.")
+        render_empty_state(f"No {player_type.lower()} found on this roster", icon_key="users")
         st.stop()
 
     # Fetch weekly schedule (cached for 1 hour — schedule doesn't change frequently)
@@ -731,7 +728,7 @@ with main:
         m3.metric("Avoid Matchups", n_avoid)
         m4.metric("Average Games", f"{avg_games:.2f}")
 
-    st.markdown("---")
+    st.markdown('<div class="hr-fade"></div>', unsafe_allow_html=True)
 
     # ── Tab view: Category Probabilities | Player Matchups | Per-Game Detail | Hitters | Pitchers
     tab_probs, tab_summary, tab_detail, tab_hitters, tab_pitchers = st.tabs(
@@ -747,13 +744,19 @@ with main:
         if is_past_week and matchup_data and selected_week == current_week - 1:
             # Past week — show actual results hint
             st.subheader(f"Week {selected_week} — Past Results")
-            st.info(
+            render_empty_state(
+                "Past week",
                 "Past week results are shown from Yahoo live data when available. "
-                "Category probabilities are only shown for current and future weeks."
+                "Category probabilities are only shown for current and future weeks.",
+                icon_key="calendar",
             )
         elif is_past_week:
             st.subheader(f"Week {selected_week} — Past Week")
-            st.info("This is a past week. Category probabilities are projections for current and future weeks only.")
+            render_empty_state(
+                "Past week",
+                "Category probabilities are projections for current and future weeks only.",
+                icon_key="calendar",
+            )
 
         if not is_past_week and win_prob_data:
             cats = win_prob_data.get("categories", [])
@@ -762,13 +765,14 @@ with main:
 
             st.subheader(f"Week {selected_week} vs {opp_name_disp}")
 
-            # Overall summary line
+            # Overall summary line — gradient hero numeral on the headline figure
             proj_score = win_prob_data.get("projected_score", {})
             st.markdown(
-                f'<div style="font-size:14px;color:{T["tx"]};margin-bottom:12px;">'
-                f'Overall win probability: <strong style="color:{T["green"] if overall_wp >= 55 else T["danger"] if overall_wp < 45 else T["warn"]};">'
-                f"{overall_wp:.0f}%</strong>"
-                f" &mdash; Projected score: {proj_score.get('W', 0):.0f}-{proj_score.get('L', 0):.0f}"
+                f'<div style="font-size:14px;color:{T["tx"]};margin-bottom:12px;'
+                f'display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;">'
+                f"<span>Overall win probability:</span>"
+                f'<strong class="hero-num" style="font-size:34px;line-height:1;">{overall_wp:.0f}%</strong>'
+                f"<span>&mdash; Projected score: {proj_score.get('W', 0):.0f}-{proj_score.get('L', 0):.0f}</span>"
                 f"</div>",
                 unsafe_allow_html=True,
             )
@@ -776,26 +780,25 @@ with main:
             # Sort categories by win probability descending
             sorted_cats = sorted(cats, key=lambda c: c["win_pct"], reverse=True)
 
-            # Build and render bars inside an instrument panel (corner ticks +
-            # Archivo header + orange accent), matching the dossier look.
+            # Build and render heat bars inside an instrument panel (corner
+            # ticks + Archivo header + orange accent), matching the dossier look.
             html = _build_category_prob_html(sorted_cats)
             st.markdown(
                 build_panel_html(
-                    "Category Win Probability",
+                    "Category Outlook",
                     html,
-                    fig_label=f"{len(sorted_cats)} CAT · vs {_html.escape(str(opp_name_disp))}",
+                    fig_label="FIG.02 · WIN PROBABILITY BY CAT",
+                    accent="top",
                 ),
                 unsafe_allow_html=True,
             )
 
-            # Legend for bar colors
+            # Legend for heat-bar colors
             st.markdown(
-                f'<div style="font-size:11px;color:{T["tx2"]};margin-top:8px;padding:4px 0;">'
-                f'<span style="color:{T["green"]};">70%+ Strong advantage</span> &nbsp;|&nbsp; '
-                f'<span style="color:{T["sky"]};">55-70% Lean advantage</span> &nbsp;|&nbsp; '
-                f'<span style="color:{T["warn"]};">45-55% Toss-up</span> &nbsp;|&nbsp; '
-                f'<span style="color:{T["danger"]};">Below 45% Disadvantage</span>'
-                f"</div>",
+                '<div style="font-size:11px;color:var(--fp-tx-muted);margin-top:8px;padding:4px 0;">'
+                '<span style="color:var(--fp-primary);font-weight:600;">Orange — favored (50%+)</span> &nbsp;|&nbsp; '
+                '<span style="color:var(--fp-cold);font-weight:600;">Steel — trailing (below 50%)</span>'
+                "</div>",
                 unsafe_allow_html=True,
             )
 
@@ -807,19 +810,22 @@ with main:
         elif not is_past_week and not win_prob_data:
             st.subheader(f"Week {selected_week} Category Probabilities")
             if not STANDINGS_ENGINE_AVAILABLE:
-                st.info(
-                    "The standings engine module is not available. "
-                    "Ensure src/standings_engine.py is present and all dependencies are installed."
+                render_empty_state(
+                    "Standings engine unavailable",
+                    "Ensure src/standings_engine.py is present and all dependencies are installed.",
+                    icon_key="warning",
                 )
             elif not user_team_name:
-                st.info(
-                    "Connect your Yahoo league to see category win probabilities. "
-                    "The Category Probabilities tab requires league roster data."
+                render_empty_state(
+                    "Connect your Yahoo league to see category win probabilities",
+                    "The Category Probabilities tab requires league roster data.",
+                    icon_key="users",
                 )
             else:
-                st.info(
-                    "Could not compute category win probabilities for this week. "
-                    "This may happen if the opponent cannot be identified or roster data is missing."
+                render_empty_state(
+                    "Could not compute category win probabilities for this week",
+                    "This may happen if the opponent cannot be identified or roster data is missing.",
+                    icon_key="calendar",
                 )
 
     # ── Build display DataFrame (shared across player tabs) ───────────
@@ -864,10 +870,10 @@ with main:
 
     with tab_summary:
         if not has_player_ratings:
-            st.info(
-                "No matchup ratings could be computed. Check that the roster and "
-                "schedule data are available. Try running the app bootstrap or "
-                "syncing Yahoo data to refresh schedule information."
+            render_empty_state(
+                "No matchup ratings could be computed",
+                "Check that the roster and schedule data are available. Try running "
+                "the app bootstrap or syncing Yahoo data to refresh schedule information.",
             )
         else:
             st.markdown(
@@ -887,7 +893,7 @@ with main:
 
     with tab_detail:
         if not has_player_ratings:
-            st.info("No matchup ratings available for per-game detail.")
+            render_empty_state("No matchup ratings available for per-game detail")
         else:
             st.markdown(_section_label("Per-Game Matchup Detail", fig="PARK · PLATOON"), unsafe_allow_html=True)
             st.caption(
@@ -946,11 +952,11 @@ with main:
 
     with tab_hitters:
         if not has_player_ratings:
-            st.info("No matchup ratings available for hitters.")
+            render_empty_state("No matchup ratings available for hitters")
         else:
             hitter_df = ratings_df[ratings_df["is_hitter"] == True].copy()  # noqa: E712
             if hitter_df.empty:
-                st.info("No hitters found in current selection.")
+                render_empty_state("No hitters found in current selection", icon_key="users")
             else:
                 st.markdown(_section_label("Hitters", fig=f"∑ {len(hitter_df)}"), unsafe_allow_html=True)
                 hitter_display = _build_display_df(hitter_df)
@@ -965,11 +971,11 @@ with main:
 
     with tab_pitchers:
         if not has_player_ratings:
-            st.info("No matchup ratings available for pitchers.")
+            render_empty_state("No matchup ratings available for pitchers")
         else:
             pitcher_df = ratings_df[ratings_df["is_hitter"] == False].copy()  # noqa: E712
             if pitcher_df.empty:
-                st.info("No pitchers found in current selection.")
+                render_empty_state("No pitchers found in current selection", icon_key="users")
             else:
                 st.markdown(_section_label("Pitchers", fig=f"∑ {len(pitcher_df)}"), unsafe_allow_html=True)
                 pitcher_display = _build_display_df(pitcher_df)
@@ -983,7 +989,7 @@ with main:
                     )
 
     # ── Tier color legend inline ──────────────────────────────────────
-    st.markdown("---")
+    st.markdown('<div class="hr-fade"></div>', unsafe_allow_html=True)
     legend_items = " &nbsp;|&nbsp; ".join(
         f'<span style="display:inline-flex;align-items:center;gap:5px;">'
         f'<span style="width:9px;height:9px;border-radius:50%;background:{color};display:inline-block;"></span>'
