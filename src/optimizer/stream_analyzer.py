@@ -21,12 +21,46 @@ Engine purity rules (guarded by tests/test_stream_analyzer_*.py):
 from __future__ import annotations
 
 import logging
+import math
+from datetime import UTC, datetime
 from typing import Any
 
+import pandas as pd
+
 from src.game_day import _NEUTRAL_DEFAULTS as _TEAM_NEUTRAL
+from src.game_day import (
+    DOME_TEAMS,
+    FINAL_GAME_STATUSES,
+    LOCKED_GAME_STATUSES,
+    OUTFIELD_BEARING,
+)
 from src.optimizer.constants_registry import CONSTANTS_REGISTRY as _CR
+from src.optimizer.matchup_adjustments import (
+    is_wind_blowing_out,
+    weather_wind_hr_adjustment,
+)
+from src.optimizer.streaming import (
+    _WHIP_SAFETY_CEILING,
+    compute_bayesian_stream_score,
+    compute_streaming_value,
+)
+from src.two_start import _confidence_tier, compute_pitcher_matchup_score
+from src.valuation import normalize_player_name, team_name_to_abbr
 
 logger = logging.getLogger(__name__)
+
+# Sigmoid steepness mapping the weighted component blend ([-1, 1]) onto the
+# 0-100 display scale. Pure display shaping (neutral blend ⇒ 50), not a
+# tunable model parameter — the tunables are the registry weights.
+_SCORE_SIGMOID_K: float = 3.0
+
+# L14 IP below which the recent-form signal is noise (mirrors the FA engine's
+# l14_ip volume gate, PR #110 / P5b).
+_FORM_MIN_L14_IP: float = 5.0
+
+# Form deltas are clipped to ±20% before normalization — same magnitude as
+# streaming.py's _FORM_MULT_LO/HI band and the DCV form clip.
+_FORM_DELTA_CLIP: float = 0.20
 
 # The six Stream Score components, in registry order. Weights are read from
 # CONSTANTS_REGISTRY at call time (never cached at import) so calibration
@@ -99,3 +133,425 @@ def get_opponent_offense_context(
         "l14_wrc_plus": entry.get("l14_wrc_plus"),
         "split_source": split_source,
     }
+
+
+# ── Component helpers ────────────────────────────────────────────────
+
+
+def _clamp(value: float, lo: float = -1.0, hi: float = 1.0) -> float:
+    return max(lo, min(hi, value))
+
+
+def _get_num(obj: Any, key: str, default: float | None = None) -> float | None:
+    """Extract a finite float from a dict-like row, else *default*."""
+    try:
+        val = obj.get(key) if hasattr(obj, "get") else obj[key]
+    except (KeyError, TypeError, IndexError):
+        return default
+    try:
+        out = float(val)
+    except (TypeError, ValueError):
+        return default
+    if math.isnan(out):
+        return default
+    return out
+
+
+def _lower_keys(mapping: dict[str, float] | None) -> dict[str, float] | None:
+    """streaming.py expects lowercase stat keys; LeagueConfig uses uppercase."""
+    if not mapping:
+        return None
+    return {str(k).lower(): float(v) for k, v in mapping.items()}
+
+
+def _ip_per_start(pitcher_row: Any) -> float | None:
+    """Best-effort projected IP per start; None when underivable."""
+    explicit = _get_num(pitcher_row, "ip_per_start")
+    if explicit is not None and explicit > 0:
+        return explicit
+    ip = _get_num(pitcher_row, "ip")
+    gs = _get_num(pitcher_row, "gs")
+    if ip is not None and gs is not None and gs > 0:
+        return ip / gs
+    return None
+
+
+def _form_component(pitcher_row: Any, recent_form: dict | None) -> float:
+    """L14-vs-baseline form in [-1, 1]; 0 when data is missing or thin."""
+    if not recent_form:
+        return 0.0
+    l14 = recent_form.get("l14") or {}
+    l14_ip = _get_num(l14, "ip", 0.0) or 0.0
+    if l14_ip < _FORM_MIN_L14_IP:
+        return 0.0
+
+    base_era = _get_num(pitcher_row, "era")
+    l14_era = _get_num(l14, "era")
+    era_term = 0.0
+    if base_era and base_era > 0 and l14_era is not None:
+        # Lower L14 ERA than baseline = hot.
+        era_term = _clamp((base_era - l14_era) / base_era, -_FORM_DELTA_CLIP, _FORM_DELTA_CLIP)
+
+    base_ip = _get_num(pitcher_row, "ip")
+    base_k = _get_num(pitcher_row, "k")
+    l14_k = _get_num(l14, "k")
+    k_term = 0.0
+    if base_ip and base_ip > 0 and base_k is not None and l14_k is not None and l14_ip > 0:
+        base_k9 = base_k * 9.0 / base_ip
+        l14_k9 = l14_k * 9.0 / l14_ip
+        if base_k9 > 0:
+            k_term = _clamp((l14_k9 - base_k9) / base_k9, -_FORM_DELTA_CLIP, _FORM_DELTA_CLIP)
+
+    return _clamp((0.5 * era_term + 0.5 * k_term) / _FORM_DELTA_CLIP)
+
+
+def _env_component(park_factor: float, weather: dict | None, venue: str) -> tuple[float, bool]:
+    """Park × weather environment in [-1, 1] (pitcher perspective).
+
+    Returns (component, wind_out) — wind_out feeds the WIND_OUT risk flag.
+    Domes ignore weather entirely (park-only).
+    """
+    park_term = 0.0
+    if park_factor and park_factor > 0:
+        park_term = _clamp(1.0 / park_factor, 0.5, 2.0) - 1.0
+
+    wind_term = 0.0
+    wind_out = False
+    if weather and venue and venue not in DOME_TEAMS:
+        wind_mph = _get_num(weather, "wind_mph", 0.0) or 0.0
+        wind_dir = _get_num(weather, "wind_dir")
+        bearing = OUTFIELD_BEARING.get(venue)
+        if wind_dir is not None and bearing is not None:
+            wind_out = is_wind_blowing_out(wind_dir, bearing)
+        hr_mult = weather_wind_hr_adjustment(wind_mph, wind_out=wind_out)
+        # hr_mult > 1 (wind out) hurts the pitcher.
+        wind_term = 1.0 - hr_mult
+
+    return _clamp(2.0 * (park_term + wind_term)), wind_out
+
+
+def _risk_flags(
+    pitcher_row: Any,
+    start_info: dict,
+    opp_context: dict,
+    wind_out: bool,
+) -> list[str]:
+    flags: list[str] = []
+
+    whip = _get_num(pitcher_row, "whip")
+    if whip is not None and whip > _WHIP_SAFETY_CEILING:
+        flags.append("HIGH_WHIP")
+
+    ip_ps = _ip_per_start(pitcher_row)
+    if ip_ps is not None and ip_ps < float(_CR["stream_risk_short_leash_ip"].value):
+        flags.append("SHORT_LEASH")
+
+    if float(opp_context.get("wrc_plus", 0.0)) >= float(_CR["stream_risk_elite_offense_wrc"].value):
+        flags.append("ELITE_OFFENSE")
+
+    park = float(start_info.get("park_factor") or 1.0)
+    if park >= float(_CR["stream_risk_hitter_park"].value):
+        flags.append("HITTER_PARK")
+
+    weather = start_info.get("weather") or {}
+    wind_mph = _get_num(weather, "wind_mph", 0.0) or 0.0
+    if wind_out and wind_mph >= float(_CR["stream_risk_wind_out_mph"].value):
+        flags.append("WIND_OUT")
+
+    if str(start_info.get("confidence", "")).upper() == "LOW":
+        flags.append("LOW_CONFIDENCE")
+
+    return flags
+
+
+# ── Scoring ──────────────────────────────────────────────────────────
+
+
+def score_stream_candidate(
+    pitcher_row: Any,
+    start_info: dict[str, Any],
+    opp_context: dict[str, Any],
+    config: Any = None,
+    category_weights: dict[str, float] | None = None,
+    recent_form: dict | None = None,
+    lineup_exposure: float | None = None,
+) -> dict[str, Any]:
+    """Score one (pitcher, scheduled start) as a streaming candidate.
+
+    Composes the canonical engines into a 0-100 Stream Score:
+    ``compute_pitcher_matchup_score`` (matchup), ``compute_streaming_value``
+    (marginal SGP — owns the inverse-stat signs), ``compute_bayesian_stream_score``
+    (expected line + win prob), park/weather helpers (environment), L14 form,
+    and regressed PvB lineup exposure when supplied.
+
+    Args:
+        pitcher_row: Pool-row dict/Series (era/whip/k/w/ip [+ k_bb_pct,
+            xfip, csw_pct, fip, throws, ip_per_start, gs] preferred).
+        start_info: Per-start context: opponent, is_home, venue,
+            park_factor, weather, confidence, num_starts, game_date.
+        opp_context: Output of :func:`get_opponent_offense_context`.
+        config: LeagueConfig (sgp_denominators); None falls back to
+            streaming.py's registry-fed defaults.
+        category_weights: Optional per-category multipliers (any key case).
+        recent_form: ``{"l14": {...}}`` from game_day recent form.
+        lineup_exposure: Regressed opposing-lineup wOBA delta vs league
+            average (positive = dangerous lineup). None ⇒ neutral.
+
+    Returns:
+        {"stream_score", "components", "risk_flags", "expected_line",
+         "net_sgp", "matchup_score", "win_probability"}
+    """
+    weights = _score_weights()
+    is_home = bool(start_info.get("is_home", False))
+    num_starts = int(start_info.get("num_starts", 1) or 1)
+    park_factor = float(start_info.get("park_factor") or 1.0)
+    sgp_denoms = _lower_keys(getattr(config, "sgp_denominators", None))
+    cat_weights = _lower_keys(category_weights)
+
+    # 1. Matchup (two_start.py 0-10 scale → [-1, 1]).
+    pitcher_stats = {
+        key: val
+        for key in ("k_bb_pct", "xfip", "csw_pct", "era", "whip")
+        if (val := _get_num(pitcher_row, key)) is not None
+    }
+    # team_strength carries k_pct in percent; the matchup scorer expects a frac.
+    opp_stats = {
+        "wrc_plus": float(opp_context.get("wrc_plus", _TEAM_NEUTRAL["wrc_plus"])),
+        "k_pct": float(opp_context.get("k_pct", _TEAM_NEUTRAL["k_pct"])) / 100.0,
+    }
+    matchup_score = compute_pitcher_matchup_score(
+        pitcher_stats,
+        opponent_team_stats=opp_stats,
+        park_factor=park_factor,
+        is_home=is_home,
+    )
+    comp_matchup = _clamp((matchup_score - 5.0) / 5.0)
+
+    # 2. Marginal SGP (canonical path — inverse-stat signs live in streaming.py).
+    sv = compute_streaming_value(
+        pitcher_row,
+        weekly_games=num_starts,
+        team_park_factor=park_factor,
+        category_weights=cat_weights,
+        sgp_denominators=sgp_denoms,
+    )
+    net_sgp = float(sv["net_value"])
+    comp_sgp = _clamp(net_sgp)
+
+    # 3. Recent form.
+    comp_form = _form_component(pitcher_row, recent_form)
+
+    # 4. Opposing-lineup / PvB exposure (day-of only; neutral when absent).
+    if lineup_exposure is None:
+        comp_lineup = 0.0
+    else:
+        # ±0.050 wOBA exposure spans the full component range; dangerous
+        # lineups (positive exposure) push the component negative.
+        comp_lineup = _clamp(-float(lineup_exposure) / 0.050)
+
+    # 5. Environment (park × wind; dome ⇒ park-only).
+    venue = str(start_info.get("venue") or "")
+    comp_env, wind_out = _env_component(park_factor, start_info.get("weather"), venue)
+
+    # 6. Win probability + expected line.
+    era = _get_num(pitcher_row, "era", _TEAM_NEUTRAL["team_era"]) or _TEAM_NEUTRAL["team_era"]
+    ip = _get_num(pitcher_row, "ip", 0.0) or 0.0
+    k = _get_num(pitcher_row, "k", 0.0) or 0.0
+    k9 = (k * 9.0 / ip) if ip > 0 else 7.5
+    fip = _get_num(pitcher_row, "fip") or _get_num(pitcher_row, "xfip") or era
+    bayes = compute_bayesian_stream_score(
+        pitcher_era=era,
+        pitcher_k9=k9,
+        pitcher_fip=fip,
+        opp_k_pct=float(opp_context.get("k_pct", _TEAM_NEUTRAL["k_pct"])) / 100.0,
+        is_home=is_home,
+        sgp_denominators=sgp_denoms,
+    )
+    win_prob = float(bayes["win_probability"])
+    comp_winprob = _clamp((win_prob - 0.5) * 2.0)
+
+    components = {
+        "matchup": round(comp_matchup, 4),
+        "sgp": round(comp_sgp, 4),
+        "form": round(comp_form, 4),
+        "lineup": round(comp_lineup, 4),
+        "env": round(comp_env, 4),
+        "winprob": round(comp_winprob, 4),
+    }
+    blended = sum(weights[name] * components[name] for name in components)
+    stream_score = 100.0 / (1.0 + math.exp(-_SCORE_SIGMOID_K * blended))
+
+    return {
+        "stream_score": round(stream_score, 1),
+        "components": components,
+        "risk_flags": _risk_flags(pitcher_row, start_info, opp_context, wind_out),
+        "expected_line": {
+            "ip": float(bayes["expected_ip"]),
+            "k": float(bayes["expected_k"]),
+            "er": float(bayes["expected_er"]),
+            "win_prob": win_prob,
+        },
+        "net_sgp": net_sgp,
+        "matchup_score": float(matchup_score),
+        "win_probability": win_prob,
+    }
+
+
+# ── Stream board ─────────────────────────────────────────────────────
+
+
+def _fetch_schedule_for_date(target_date: str) -> list[dict[str, Any]]:
+    """Fetch one day's schedule (with probables + status) via statsapi."""
+    try:
+        import statsapi
+
+        return statsapi.schedule(start_date=target_date, end_date=target_date)
+    except Exception:
+        logger.warning("stream_analyzer: schedule fetch failed for %s", target_date, exc_info=True)
+        return []
+
+
+def _pool_name_index(pool: pd.DataFrame) -> dict[str, int]:
+    """normalized player name → positional index into *pool*."""
+    name_col = "player_name" if "player_name" in pool.columns else "name"
+    index: dict[str, int] = {}
+    for pos, raw in enumerate(pool[name_col].astype(str)):
+        key = normalize_player_name(raw)
+        if key and key not in index:
+            index[key] = pos
+    return index
+
+
+def build_stream_board(
+    ctx: Any,
+    target_date: str,
+    schedule: list[dict[str, Any]] | None = None,
+    include_rostered: bool = False,
+) -> pd.DataFrame:
+    """One scored row per streamable (pitcher, start) on *target_date*.
+
+    Rows whose game has started/finished (today only) are retained but marked
+    non-actionable (status LOCKED/FINAL) — transparency over hiding. Pitchers
+    rostered by other league teams are never streamable; the user's own SPs
+    appear only when *include_rostered* is set (rostered=True).
+
+    Args:
+        ctx: OptimizerDataContext (duck-typed: player_pool,
+            league_rostered_ids, user_roster_ids, team_strength,
+            park_factors, weather, two_start_pitchers, recent_form, config,
+            todays_schedule, category_weights).
+        target_date: ISO date (YYYY-MM-DD), today through ~+7.
+        schedule: Schedule rows for the date (statsapi.schedule shape).
+            None ⇒ ctx.todays_schedule when target_date is today, else a
+            live statsapi fetch (empty list on failure).
+    """
+    today = datetime.now(UTC).strftime("%Y-%m-%d")
+    if schedule is None:
+        ctx_sched = getattr(ctx, "todays_schedule", None)
+        if target_date == today and ctx_sched:
+            schedule = ctx_sched
+        else:
+            schedule = _fetch_schedule_for_date(target_date)
+
+    pool = getattr(ctx, "player_pool", None)
+    if pool is None or len(pool) == 0 or not schedule:
+        return pd.DataFrame()
+
+    name_index = _pool_name_index(pool)
+    rostered_ids = {int(i) for i in (getattr(ctx, "league_rostered_ids", None) or set())}
+    user_ids = {int(i) for i in (getattr(ctx, "user_roster_ids", None) or [])}
+    team_strength = getattr(ctx, "team_strength", None) or {}
+    park_factors = getattr(ctx, "park_factors", None) or {}
+    weather_map = getattr(ctx, "weather", None) or {}
+    two_start_ids = {int(i) for i in (getattr(ctx, "two_start_pitchers", None) or [])}
+    recent_form_map = getattr(ctx, "recent_form", None) or {}
+    config = getattr(ctx, "config", None)
+    category_weights = getattr(ctx, "category_weights", None)
+
+    rows: list[dict[str, Any]] = []
+    for game in schedule:
+        if str(game.get("game_date", "")) != target_date:
+            continue
+        status_raw = str(game.get("status", "")).lower()
+        locked = target_date == today and status_raw in LOCKED_GAME_STATUSES
+        if locked:
+            status = "FINAL" if status_raw in FINAL_GAME_STATUSES else "LOCKED"
+        else:
+            status = "PROBABLE"
+        home_abbr = team_name_to_abbr(str(game.get("home_name", "")))
+        away_abbr = team_name_to_abbr(str(game.get("away_name", "")))
+
+        for side, pitcher_team, opp_team in (
+            ("home", home_abbr, away_abbr),
+            ("away", away_abbr, home_abbr),
+        ):
+            probable = str(game.get(f"{side}_probable_pitcher", "") or "").strip()
+            if not probable:
+                continue
+            pos = name_index.get(normalize_player_name(probable))
+            if pos is None:
+                continue
+            row = pool.iloc[pos]
+            pid = _get_num(row, "player_id")
+            pid = int(pid) if pid is not None else None
+
+            rostered = pid is not None and pid in rostered_ids
+            if rostered and not (include_rostered and pid in user_ids):
+                continue
+
+            throws = str(row.get("throws") or "") or None
+            opp_context = get_opponent_offense_context(opp_team, throws, team_strength)
+            num_starts = 2 if (pid is not None and pid in two_start_ids) else 1
+            start_info = {
+                "game_date": target_date,
+                "opponent": opp_team,
+                "is_home": side == "home",
+                "venue": home_abbr,
+                "park_factor": float(park_factors.get(home_abbr) or 1.0),
+                "weather": weather_map.get(home_abbr) or {},
+                "confidence": _confidence_tier(target_date),
+                "num_starts": num_starts,
+            }
+            scored = score_stream_candidate(
+                row,
+                start_info,
+                opp_context,
+                config,
+                category_weights=category_weights,
+                recent_form=recent_form_map.get(pid) if pid is not None else None,
+            )
+            rows.append(
+                {
+                    "player_id": pid,
+                    "player_name": str(row.get("player_name", row.get("name", probable))),
+                    "team": pitcher_team,
+                    "throws": throws or "",
+                    "opponent": opp_team,
+                    "is_home": side == "home",
+                    "venue": home_abbr,
+                    "park_factor": start_info["park_factor"],
+                    "opp_wrc_plus": opp_context["wrc_plus"],
+                    "opp_k_pct": opp_context["k_pct"],
+                    "split_source": opp_context["split_source"],
+                    "status": status,
+                    "actionable": not locked,
+                    "confidence": start_info["confidence"],
+                    "num_starts": num_starts,
+                    "stream_score": scored["stream_score"],
+                    "net_sgp": scored["net_sgp"],
+                    "matchup_score": scored["matchup_score"],
+                    "expected_ip": scored["expected_line"]["ip"],
+                    "expected_k": scored["expected_line"]["k"],
+                    "expected_er": scored["expected_line"]["er"],
+                    "win_probability": scored["win_probability"],
+                    "components": scored["components"],
+                    "risk_flags": scored["risk_flags"],
+                    "percent_owned": _get_num(row, "percent_owned"),
+                    "rostered": rostered,
+                }
+            )
+
+    board = pd.DataFrame(rows)
+    if board.empty:
+        return board
+    return board.sort_values("stream_score", ascending=False).reset_index(drop=True)
