@@ -7,6 +7,12 @@
       "runtimeArgs": ["-m", "streamlit", "run", "app.py"],
       "port": 8501,
       "env": { "HEATER_SCHEDULER_BOOT": "1", "MULTI_USER": "1" }
+    },
+    {
+      "name": "streamlit-v1",
+      "runtimeExecutable": "C:\\Users\\conno\\Code\\HEATER_v1.0.1\\.venv\\Scripts\\python.exe",
+      "runtimeArgs": ["-m", "streamlit", "run", "app.py", "--server.port", "8502"],
+      "port": 8502
     }
   ]
 }
