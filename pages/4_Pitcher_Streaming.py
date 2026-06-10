@@ -103,12 +103,28 @@ def _build_ctx():
         from src.optimizer.shared_data_layer import build_optimizer_context
         from src.validation.dynamic_context import compute_weeks_remaining
 
+        # Park factors must be passed in — build_optimizer_context does NOT
+        # load them itself (the board showed Park 1.00 for every venue on
+        # 2026-06-10 because this was omitted). Same canonical source as the
+        # Lineup Optimizer: live park_factors table, emergency dict fallback.
+        try:
+            from src.data_bootstrap import PARK_FACTORS as _PF_FALLBACK
+        except Exception:
+            _PF_FALLBACK = {}
+        try:
+            from src.database import load_park_factors
+
+            _park_factors = load_park_factors(fallback=_PF_FALLBACK or None) or {}
+        except Exception:
+            _park_factors = _PF_FALLBACK
+
         with st.spinner("Loading matchup, schedule, and player intelligence..."):
             ctx = build_optimizer_context(
                 scope="today",
                 yds=yds,
                 config=config,
                 weeks_remaining=compute_weeks_remaining(),
+                park_factors=_park_factors,
                 user_team_name=user_team_name,
                 roster=user_roster,
                 level_filter="MLB only",
@@ -220,9 +236,15 @@ with tab_finder:
     with m2:
         st.metric("Weekly IP target", f"{ip_target:.0f} IP")
     with m3:
+        if losing or tied:
+            _cats_val = ", ".join(losing + tied)
+        elif getattr(ctx, "my_totals", None):
+            _cats_val = "none — leading all cats"
+        else:
+            _cats_val = "no matchup data"
         st.metric(
             "Cats in play",
-            ", ".join(losing + tied) if (losing or tied) else "—",
+            _cats_val,
             help="Losing/tied categories this matchup — streams that help these matter most.",
         )
 
