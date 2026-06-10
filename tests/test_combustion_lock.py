@@ -428,3 +428,36 @@ def test_compact_table_html_cols_render_unescaped():
     out = build_compact_table_html(df, html_cols={"R"})
     assert '<span class="rb">1</span>' in out, "html_cols cell must render unescaped"
     assert "&lt;script&gt;" in out, "non-html_cols cells must stay escaped"
+
+
+# ── Team-color-backed headshots (2026-06-10 owner request) ─────────────
+
+
+def test_headshot_circle_backs_with_team_color():
+    """_headshot_img_html(team=...) backs the avatar circle with the team's
+    primary color (MLB 'spots' headshot PNGs are transparent, so the color
+    shows through). Missing/unresolvable team keeps the neutral card tint —
+    NEVER the orange team_color() fallback (a sea of orange circles)."""
+    from src.ui_shared import TEAM_BRAND, THEME, _headshot_img_html
+
+    backed = _headshot_img_html(660271, size=36, team="HOU")
+    assert f"background:{TEAM_BRAND[117]['primary']};" in backed, "team-backed avatar must use the team primary color"
+    neutral = _headshot_img_html(660271, size=36)
+    assert f"background:{THEME['card_h']};" in neutral, "no team -> neutral card tint"
+    unknown = _headshot_img_html(660271, size=36, team="ZZZ")
+    assert f"background:{THEME['card_h']};" in unknown, "unresolvable team -> neutral tint, not the orange fallback"
+
+
+def test_roster_and_my_team_rows_use_team_backed_headshots():
+    """The roster builder threads each row's team into the avatar, and the
+    My Team Today's-Actions + Streaks rows render team-backed headshot
+    circles instead of bare 13px team logos (owner request 2026-06-10)."""
+    assert re.search(r"_headshot_img_html\(mlb_id,\s*size=36,\s*team=team\)", _SRC), (
+        "build_roster_table_html must pass the row's team to the avatar"
+    )
+    page = (Path(__file__).resolve().parent.parent / "pages" / "1_My_Team.py").read_text(encoding="utf-8")
+    # The page imports the helper under per-card aliases (_action_headshot /
+    # _streak_headshot) so each card stays independently fail-safe.
+    assert page.count("import _headshot_img_html as") >= 2, (
+        "Today's Actions + Streaks rows must render headshot circles (team-backed)"
+    )

@@ -3823,17 +3823,25 @@ _AVATAR_FALLBACK_SVG = (
 )
 
 
-def _headshot_img_html(mlb_id, size: int = 22) -> str:
+def _headshot_img_html(mlb_id, size: int = 22, team=None) -> str:
     """Return a tiny circular headshot <img> tag.
 
     Always returns a visible circle:
     - If mlb_id is valid, shows the MLB headshot with fallback to generic avatar on error.
     - If mlb_id is missing/invalid, shows the generic avatar directly.
+    - When *team* (MLB id or abbr) RESOLVES, the circle is backed by the team's
+      primary color — the MLB "spots" headshot PNGs are transparent, so the
+      color shows through (2026-06-10 owner request). Missing/unresolvable
+      team keeps the neutral card tint (never the orange team_color fallback,
+      which would paint every unknown avatar brand-orange).
     """
+    bg = THEME["card_h"]
+    if team is not None and _resolve_team_id(team) is not None:
+        bg = team_color(team)
     _style = (
         f"border-radius:50%;object-fit:cover;vertical-align:middle;"
         f"margin-right:5px;border:1px solid rgba(0,0,0,0.08);flex-shrink:0;"
-        f"background:{THEME['card_h']};"
+        f"background:{bg};"
     )
     _onerror = f"this.onerror=null;this.src='{_AVATAR_FALLBACK_SVG}'"
 
@@ -3973,7 +3981,7 @@ def build_roster_table_html(df, *, is_hitter: bool = True, player_ids=None) -> s
         dot = _roster_status_dot_class(row.get("status"))
         name = _html.escape(str(row.get("name", "")))
         mlb_id = row.get("mlb_id")
-        headshot = _headshot_img_html(mlb_id, size=36)
+        headshot = _headshot_img_html(mlb_id, size=36, team=team)
 
         # Player cell inner (headshot + name w/ status dot + team logo + abbr).
         sdot = (

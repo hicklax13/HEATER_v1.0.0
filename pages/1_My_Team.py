@@ -1053,7 +1053,7 @@ else:
                 # detail). The reason text strips the leading "<name> " so it
                 # reads as a clean why-clause beside the bold name.
                 try:
-                    from src.ui_shared import team_logo_url as _action_logo
+                    from src.ui_shared import _headshot_img_html as _action_headshot
 
                     _wr_actions = compute_todays_actions(
                         roster=roster,
@@ -1061,6 +1061,11 @@ else:
                         losing_cats=_wr_losing_cats,
                     )
                     if _wr_actions:
+                        # Actions rows come from war_room_actions with player/team
+                        # but no mlb_id — the roster (their source) provides it.
+                        _mlb_by_name: dict[str, object] = {}
+                        if "name" in roster.columns and "mlb_id" in roster.columns:
+                            _mlb_by_name = dict(zip(roster["name"].astype(str), roster["mlb_id"], strict=False))
                         _action_rows = ""
                         for _ai, _act in enumerate(_wr_actions, 1):
                             _pri = _act.get("priority", _ai)
@@ -1073,13 +1078,9 @@ else:
                             if _plain and _why.startswith(_plain):
                                 _why = _why[len(_plain) :].lstrip(" -—:")
                             _why = _html.escape(_why) if _why else _html.escape(_detail)
-                            _logo_html = (
-                                f'<img class="tlogo" src="{_action_logo(_ateam)}" '
-                                f'style="width:13px;height:13px;vertical-align:-3px;margin-right:5px;" '
-                                f'loading="lazy"/>'
-                                if _ateam
-                                else ""
-                            )
+                            # Team-color-backed headshot circle (2026-06-10 owner
+                            # request — replaces the bare 13px team logo).
+                            _shot_html = _action_headshot(_mlb_by_name.get(_plain), size=26, team=_ateam or None)
                             _action_rows += (
                                 '<div class="arow" style="display:flex;align-items:center;gap:14px;'
                                 'padding:12px 4px;border-bottom:1px solid var(--fp-divider);">'
@@ -1087,10 +1088,11 @@ else:
                                 "font-weight:600;letter-spacing:.12em;padding:4px 8px;border-radius:5px;"
                                 "background:rgba(255,109,0,.12);color:var(--fp-ember);"
                                 f'border:1px solid rgba(255,109,0,.32);white-space:nowrap;">PRI·{_pri}</span>'
+                                f"{_shot_html}"
                                 f'<span class="name" style="font-weight:600;font-size:13.5px;color:var(--fp-tx);'
                                 f'min-width:128px;">{_aname}</span>'
                                 f'<span class="team" style="font-family:var(--font-mono);font-size:10px;'
-                                f'color:var(--fp-tx-subtle);white-space:nowrap;">{_logo_html}{_ateam}</span>'
+                                f'color:var(--fp-tx-subtle);white-space:nowrap;">{_ateam}</span>'
                                 f'<span class="why" style="font-size:12.5px;color:var(--fp-tx-muted);'
                                 f'margin-left:auto;text-align:right;">{_why}</span>'
                                 "</div>"
@@ -1108,7 +1110,7 @@ else:
 
                 # ── Card 4: Hot/Cold Report ──
                 try:
-                    from src.ui_shared import team_logo_url as _streak_logo
+                    from src.ui_shared import _headshot_img_html as _streak_headshot
 
                     _wr_hotcold = compute_hot_cold_report(roster, max_entries=4)
                     if _wr_hotcold:
@@ -1136,13 +1138,20 @@ else:
                             _hc_team = _html.escape(str(_hc.get("team", "")).strip().upper())
                             _hc_head = _html.escape(str(_hc.get("headline", "")))
                             _hc_detail = _html.escape(str(_hc.get("detail", "")))
-                            _logo_html = (
-                                f'<img class="tlogo" src="{_streak_logo(_hc_team)}" '
-                                f'style="width:13px;height:13px;vertical-align:-3px;margin-right:5px;" '
-                                f'loading="lazy"/>'
-                                if _hc_team
-                                else ""
-                            )
+                            # Team-color-backed headshot circle (2026-06-10 owner
+                            # request — replaces the bare 13px team logo). The
+                            # hot/cold entries carry no mlb_id; the roster (their
+                            # source) provides the name->mlb_id lookup. Built
+                            # per-card so this card stays independently fail-safe.
+                            _hc_mid = None
+                            if "name" in roster.columns and "mlb_id" in roster.columns:
+                                _hc_match = roster.loc[
+                                    roster["name"].astype(str) == str(_hc.get("player", "")),
+                                    "mlb_id",
+                                ]
+                                if not _hc_match.empty:
+                                    _hc_mid = _hc_match.iloc[0]
+                            _shot_html = _streak_headshot(_hc_mid, size=28, team=_hc_team or None)
                             _hc_tiles += (
                                 f'<div class="streak {_tone}" style="position:relative;'
                                 "border:1px solid var(--fp-divider);border-radius:11px;padding:14px 15px;"
@@ -1153,10 +1162,11 @@ else:
                                 f'<span class="tag" style="font-family:var(--font-mono);font-size:9px;'
                                 f"font-weight:600;letter-spacing:.14em;padding:3px 7px;border-radius:4px;"
                                 f'{_tag_style}">{"HOT" if _is_hot else "COLD"}</span>'
+                                f"{_shot_html}"
                                 "<div>"
                                 f'<div class="pn" style="font-weight:700;font-size:14px;color:var(--fp-tx);">{_hc_name}</div>'
                                 f'<div class="pt" style="font-family:var(--font-mono);font-size:10px;'
-                                f'color:var(--fp-tx-subtle);">{_logo_html}{_hc_team}</div>'
+                                f'color:var(--fp-tx-subtle);">{_hc_team}</div>'
                                 "</div></div>"
                                 f'<div class="line" style="font-family:var(--font-mono);font-size:12px;'
                                 f'color:var(--fp-tx);letter-spacing:.02em;">{_hc_head}</div>'
