@@ -153,9 +153,11 @@ def _get_roster_badge(player_id, rosters_df):
         team = match.iloc[0].get("team_name", "Unknown")
         return (
             f'<span style="font-size:11px;padding:2px 6px;'
-            f'background:#e8f5e9;border-radius:4px;">Rostered: {team}</span>'
+            f'background:rgba(31,157,107,.08);border-radius:4px;">Rostered: {team}</span>'
         )
-    return '<span style="font-size:11px;padding:2px 6px;background:#f5f5f5;border-radius:4px;">Free Agent</span>'
+    return (
+        '<span style="font-size:11px;padding:2px 6px;background:var(--fp-divider);border-radius:4px;">Free Agent</span>'
+    )
 
 
 player_names = sorted(pool["player_name"].tolist())
@@ -334,7 +336,7 @@ with main:
                         name=result["player_b"],
                         line=dict(color=t["teal"]),
                         fill="toself",
-                        fillcolor="rgba(69,123,157,0.15)",
+                        fillcolor="rgba(95,125,156,0.15)",
                     )
                 )
                 layout_kwargs = get_plotly_layout(t)
