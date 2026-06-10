@@ -31,6 +31,7 @@ from src.ui_shared import (
     render_compact_table,
     render_context_card,
     render_context_columns,
+    render_empty_state,
     render_matchup_ticker,
     render_page_header,
     render_player_select,
@@ -195,7 +196,7 @@ def _fa_recs_table_html(
     """
     th = (
         "font-family:var(--font-display);font-weight:800;font-size:10.5px;"
-        "letter-spacing:.06em;text-transform:uppercase;color:#2c2f36;"
+        "letter-spacing:.06em;text-transform:uppercase;color:var(--fp-tx);"
         "padding:9px 12px;border-bottom:2px solid rgba(24,26,32,.18);"
     )
     head = (
@@ -330,7 +331,7 @@ yds = get_yahoo_data_service()
 rosters = yds.get_rosters()
 
 if rosters.empty:
-    st.warning(no_league_data_message(yds.data_unavailable_reason()))
+    render_empty_state("No league data yet", no_league_data_message(yds.data_unavailable_reason()), icon_key="users")
     st.stop()
 
 user_team_name = resolve_viewer_team_name(rosters)
@@ -358,7 +359,7 @@ else:
     user_roster_ids = user_roster["player_id"].astype(int).tolist() if not user_roster.empty else []
 
 if not user_roster_ids:
-    st.warning("Your roster appears to be empty. No free agent analysis can be generated.")
+    render_empty_state("Your roster appears to be empty", "No free agent analysis can be generated.", icon_key="users")
     st.stop()
 
 # ── Get free agents — unified service (Yahoo-first with DB fallback) ──────────
