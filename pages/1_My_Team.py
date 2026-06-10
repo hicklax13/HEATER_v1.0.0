@@ -608,11 +608,8 @@ else:
         # buttons can't live inside the HTML header); a "LIVE" pill carries
         # the freshness affordance.
         _live_pill_html = (
-            '<div class="livepill" style="display:flex;align-items:center;gap:7px;'
-            "font-family:var(--font-mono);font-size:11px;color:var(--fp-tx-muted);"
-            'letter-spacing:.06em;">'
-            '<span style="width:7px;height:7px;border-radius:50%;background:var(--fp-primary);'
-            'box-shadow:0 0 10px var(--fp-primary);"></span>LIVE</div>'
+            '<div class="livepill" style="display:flex;align-items:center;">'
+            '<span class="chip hot"><span class="dot-live"></span>LIVE</span></div>'
         )
         render_page_header(
             "My Team",
@@ -981,19 +978,15 @@ else:
                         f'grid-template-columns:repeat(6,1fr);gap:8px;">{_cat_cells}</div>'
                     )
 
-                    # Opponent + weekly score sub-header.
-                    _mp_score_color = (
-                        "var(--fp-primary)"
-                        if pulse["margin"] > 0
-                        else (T["danger"] if pulse["margin"] < 0 else "var(--fp-tx-muted)")
-                    )
+                    # Opponent + weekly score sub-header. The W-L record renders
+                    # as the gradient hero numeral (.hero-num supplies the
+                    # Archivo-900 face + orange gradient clip).
                     _mp_sub = (
                         '<div class="matchsub" style="display:flex;align-items:baseline;'
                         'justify-content:space-between;margin-bottom:16px;">'
                         f'<div class="opp" style="font-size:12px;color:var(--fp-tx-muted);">vs '
                         f'<b style="color:var(--fp-tx);font-weight:600;">{_html.escape(str(pulse["opponent"]))}</b></div>'
-                        f'<div class="rec" style="font-family:var(--font-display);font-weight:900;'
-                        f'font-size:28px;color:{_mp_score_color};letter-spacing:.02em;">{pulse["score"]}</div>'
+                        f'<div class="rec hero-num" style="font-size:28px;">{pulse["score"]}</div>'
                         "</div>"
                     )
                     st.markdown(
