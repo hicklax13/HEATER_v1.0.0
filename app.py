@@ -56,6 +56,7 @@ from src.ui_shared import (
     build_category_heatmap_html,
     inject_custom_css,
     render_context_card,
+    render_page_header,
     render_page_layout,
     render_player_select,
     render_styled_table,
@@ -175,9 +176,10 @@ def render_wizard_progress(current_step):
 
 
 def render_setup_page():
-    st.markdown(
-        f'<div class="page-title-wrap"><div class="page-title"><span>{PAGE_ICONS["logo"]} HEATER</span></div></div>',
-        unsafe_allow_html=True,
+    render_page_header(
+        "HEATER",
+        eyebrow="FOURZYNBURN LEAGUE · 2026 SEASON",
+        fig="FIG.00 · COMMAND HOME",
     )
     step = st.session_state.setup_step
     render_wizard_progress(step)

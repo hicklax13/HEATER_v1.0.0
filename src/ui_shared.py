@@ -1627,37 +1627,6 @@ def inject_custom_css():
         0%, 100% {{ background-position: 0% 50%; }}
         50% {{ background-position: 100% 50%; }}
     }}
-    .page-title {{
-        font-family: var(--font-display) !important;
-        font-size: 26px !important;
-        letter-spacing: -0.015em !important;
-        font-style: normal !important;
-        font-weight: 900 !important;
-        text-align: center !important;
-        margin-top: 8px !important;
-        margin-bottom: 8px !important;
-        word-break: break-word !important;
-        overflow-wrap: anywhere !important;
-        display: inline-block !important;
-        padding: 8px 28px !important;
-        border-radius: 50px !important;
-        background: linear-gradient(135deg, var(--fp-navy), var(--fp-navy2)) !important;
-        box-shadow: 0 3px 14px rgba(16,33,58,0.3), inset 0 1px 0 rgba(255,255,255,0.08) !important;
-        position: relative !important;
-        color: #ffffff !important;
-        -webkit-text-fill-color: #ffffff !important;
-        text-shadow: 0 1px 4px rgba(0,0,0,0.25) !important;
-    }}
-    .page-title-wrap {{
-        text-align: center !important;
-        margin-top: 4px !important;
-        margin-bottom: 2px !important;
-    }}
-    .page-title span {{
-        color: #ffffff !important;
-        -webkit-text-fill-color: #ffffff !important;
-        text-shadow: 0 1px 4px rgba(0,0,0,0.25) !important;
-    }}
     /* ── SPLASH SCREEN TITLE ─────────────────── */
     @keyframes titleReveal {{
         0% {{ letter-spacing: 20px; opacity: 0; transform: scale(1.3); }}
@@ -2385,11 +2354,6 @@ def inject_custom_css():
 
     /* ── RESPONSIVE ──────────────────────────── */
     @media (max-width: 768px) {{
-        .page-title {{
-            font-size: 22px !important;
-            letter-spacing: 2px !important;
-            padding: 6px 20px !important;
-        }}
         .splash-title {{
             font-size: 36px;
         }}
@@ -2443,11 +2407,6 @@ def inject_custom_css():
         }}
     }}
     @media (max-width: 480px) {{
-        .page-title {{
-            font-size: 18px !important;
-            letter-spacing: 1px !important;
-            padding: 5px 14px !important;
-        }}
         .splash-title {{
             font-size: 28px;
         }}
@@ -2764,7 +2723,7 @@ def inject_custom_css():
        built-in widgets (BaseWeb select/input/tabs, metric, expander,
        dataframe chrome, etc.) that otherwise escape the base .stApp
        font. This block forces Inter as the body family on every widget
-       container + its descendants; headings/.sec-head/.page-title/.phead
+       container + its descendants; headings/.sec-head/.phead
        stay Archivo and stat figures/.mono/tables keep their existing
        Archivo/mono treatment (those rules are !important + later or more
        specific, so they win over this body default). Glide grid uses the
@@ -2794,7 +2753,7 @@ def inject_custom_css():
     [data-testid="stMarkdownContainer"] h2,
     [data-testid="stMarkdownContainer"] h3,
     [data-testid="stMarkdownContainer"] h4,
-    .sec-head, .page-title, .phead, .phead-title,
+    .sec-head, .phead, .phead-title,
     .heater-h1, [data-testid="stMetricValue"] {{
         font-family: var(--font-display) !important;
     }}
@@ -2962,21 +2921,6 @@ def inject_custom_css():
                     + '<div style="width:40px;height:3px;background:linear-gradient(90deg,#e65c00,#ff8c00);border-radius:2px;margin-top:5px;"></div>';
                 header.insertBefore(logoDiv, header.firstChild);
             }
-
-            // Inject orange bar under page title badges (with retry for timing)
-            function injectTitleBars() {
-                var pts = parent.document.querySelectorAll('.page-title');
-                pts.forEach(function(pt) {
-                    if (!pt.nextElementSibling || !pt.nextElementSibling.classList.contains('page-title-bar')) {
-                        var bar = parent.document.createElement('div');
-                        bar.className = 'page-title-bar';
-                        bar.style.cssText = 'width:180px;height:3px;background:linear-gradient(90deg,#e65c00,#ff8c00);border-radius:2px;margin:3px auto 0;';
-                        pt.parentNode.insertBefore(bar, pt.nextSibling);
-                    }
-                });
-                if (pts.length === 0) { setTimeout(injectTitleBars, 300); }
-            }
-            injectTitleBars();
 
             var firstLink = nav.querySelector('li:first-child a');
             if (!firstLink || !firstLink.querySelector('.nav-icon')) { setTimeout(setup, 200); }

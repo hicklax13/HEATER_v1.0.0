@@ -604,9 +604,9 @@ else:
         safe_name = _html.escape(user_team_name)
 
         # ── Combustion page header (mockup .phead) ──
-        # Replaces the old navy .page-title pill. The native Refresh/Sync
-        # buttons render just below (Streamlit buttons can't live inside the
-        # HTML header); a "LIVE" pill carries the freshness affordance.
+        # The native Refresh/Sync buttons render just below (Streamlit
+        # buttons can't live inside the HTML header); a "LIVE" pill carries
+        # the freshness affordance.
         _live_pill_html = (
             '<div class="livepill" style="display:flex;align-items:center;gap:7px;'
             "font-family:var(--font-mono);font-size:11px;color:var(--fp-tx-muted);"
