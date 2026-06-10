@@ -551,7 +551,7 @@ def render_draft_summary(pool: pd.DataFrame, ds: DraftState) -> None:
         elif diff > 4:
             grade, grade_color = "B", T["green_l"]
         elif diff > -2:
-            grade, grade_color = "C", T["amber"]
+            grade, grade_color = "C", T["gold"]
         elif diff > -6:
             grade, grade_color = "D", T["primary"]
         else:
