@@ -12,10 +12,11 @@ from pathlib import Path
 
 import pytest
 
-# The 8 pages that render a personalized "my team" view.
+# The 9 pages that render a personalized "my team" view.
 _PERSONALIZED_PAGES = [
     "1_My_Team.py",
     "2_Line-up_Optimizer.py",
+    "4_Pitcher_Streaming.py",
     "5_Matchup_Planner.py",
     "6_League_Standings.py",
     "10_Punt_Analyzer.py",

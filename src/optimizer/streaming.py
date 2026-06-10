@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from src.league_rules import WEEKLY_TRANSACTION_LIMIT
 from src.optimizer.constants_registry import CONSTANTS_REGISTRY as _CR
 from src.validation.constant_optimizer import load_constants
 
@@ -34,8 +35,11 @@ DEFAULT_SGP_DENOMS: dict[str, float] = {
     "whip": 0.03,
 }
 
-# Weekly transaction budget for streaming adds.
-WEEKLY_ADDS_BUDGET: int = 7
+# Weekly transaction budget for streaming adds — canonical value lives in
+# league_rules (FourzynBurn: 10 adds+trades per matchup week). The stale
+# inline 7 made the budget-exhausted guard and last-add penalty fire three
+# adds early.
+WEEKLY_ADDS_BUDGET: int = WEEKLY_TRANSACTION_LIMIT
 
 # Default IP per start for a typical starting pitcher.
 _DEFAULT_IP_PER_START = 5.5
@@ -242,6 +246,7 @@ def rank_streaming_candidates(
     sgp_denominators: dict[str, float] | None = None,
     max_results: int = 10,
     adds_used_this_week: int = 0,
+    weekly_adds_budget: int | None = None,
 ) -> list[dict]:
     """Rank free-agent pitchers by streaming value for the upcoming week.
 
@@ -259,6 +264,8 @@ def rank_streaming_candidates(
             used this week.  When only 1 add remains, candidate values
             are halved to discourage using the last add on a streamer.
             When the budget is exhausted, returns an empty list.
+        weekly_adds_budget: Override for the weekly add budget. Defaults
+            to the canonical league_rules.WEEKLY_TRANSACTION_LIMIT (10).
 
     Returns:
         List of dicts sorted by ``net_value`` descending, each with:
@@ -268,8 +275,10 @@ def rank_streaming_candidates(
     if not free_agent_pitchers:
         return []
 
+    budget = WEEKLY_ADDS_BUDGET if weekly_adds_budget is None else weekly_adds_budget
+
     # Budget exhausted — no streaming adds available
-    if adds_used_this_week >= WEEKLY_ADDS_BUDGET:
+    if adds_used_this_week >= budget:
         return []
 
     pf = park_factors or {}
@@ -297,7 +306,7 @@ def rank_streaming_candidates(
         net_value = sv["net_value"]
 
         # Penalize when only 1 add remains to discourage using it on a streamer
-        if adds_used_this_week >= WEEKLY_ADDS_BUDGET - 1:
+        if adds_used_this_week >= budget - 1:
             net_value *= 0.5
 
         results.append(
@@ -439,7 +448,7 @@ def quantify_two_start_value(
 
 def optimal_streaming_schedule(
     candidates: list[dict],
-    max_adds: int = 7,
+    max_adds: int = WEEKLY_TRANSACTION_LIMIT,
 ) -> list[dict]:
     """Select the optimal subset of streaming candidates.
 
