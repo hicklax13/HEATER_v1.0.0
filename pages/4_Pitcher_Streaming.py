@@ -228,6 +228,7 @@ with tab_finder:
 
     schedule = None if target_date == today_str else _fetch_schedule_cached(target_date)
     board = build_stream_board(ctx, target_date, schedule=schedule, include_rostered=include_rostered)
+    board_full = board  # unfiltered reference for the Microscope tab
 
     if board.empty:
         render_empty_state(
@@ -331,10 +332,133 @@ with tab_finder:
                 f"Swap engine unavailable ({type(swap_err).__name__}: {swap_err}) — board scores above are unaffected."
             )
 
-# ── Tab 2: Matchup Microscope (Phase 3) ──────────────────────────────────────
+# ── Tab 2: Matchup Microscope ────────────────────────────────────────────────
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _history_cached(mlb_id: int, opp_team: str | None, last_n: int) -> pd.DataFrame:
+    from src.optimizer.stream_analyzer import get_pitcher_vs_team_history
+
+    return get_pitcher_vs_team_history(mlb_id, opp_team=opp_team, last_n=last_n)
+
 
 with tab_microscope:
-    st.info("Matchup Microscope is being assembled — per-start deep dive lands next.")
+    if board_full.empty:
+        st.info("Pick a date with streamable starts on the Stream Finder tab first.")
+    else:
+        options = list(board_full.index)
+        pick = st.selectbox(
+            "Candidate",
+            options,
+            format_func=lambda i: (
+                f"{board_full.loc[i, 'player_name']} ({board_full.loc[i, 'team']}) "
+                f"{'vs' if board_full.loc[i, 'is_home'] else '@'} {board_full.loc[i, 'opponent']}"
+            ),
+            key="microscope_pick",
+        )
+        sel = board_full.loc[pick]
+
+        c1, c2, c3, c4 = st.columns(4)
+        with c1:
+            st.metric("Stream Score", sel["stream_score"])
+        with c2:
+            st.metric("Net SGP", format_stat(sel["net_sgp"], "SGP"))
+        with c3:
+            st.metric("Matchup (0-10)", sel["matchup_score"])
+        with c4:
+            st.metric("Status", f"{sel['status']} / {sel['confidence']}")
+
+        env_bits = [
+            f"Venue {sel['venue']} (park {sel['park_factor']:.2f})",
+            f"Opp wRC+ {sel['opp_wrc_plus']:.0f}, K% {sel['opp_k_pct']:.1f}",
+        ]
+        if sel["risk_flags"]:
+            env_bits.append("Risk: " + ", ".join(sel["risk_flags"]))
+        st.caption(" | ".join(env_bits))
+        if sel["split_source"] == "overall":
+            st.caption("Opponent rates are overall splits (vs-handedness data unavailable).")
+
+        comp_df = pd.DataFrame(
+            {
+                "Component": list(sel["components"].keys()),
+                "Value (-1 to +1)": list(sel["components"].values()),
+                "Weight": [CONSTANTS_REGISTRY[f"stream_score_w_{n}"].value for n in sel["components"]],
+            }
+        )
+        st.dataframe(comp_df, hide_index=True)
+
+        # ── Opposing lineup + PvB exposure ───────────────────────────────
+        st.markdown("**Opposing lineup**")
+        confirmed = (getattr(ctx, "confirmed_lineups", None) or {}).get(sel["opponent"]) or []
+        if not confirmed:
+            st.caption(
+                f"No confirmed lineup posted for {sel['opponent']} yet "
+                "(lineups typically post 1-2 hours before first pitch)."
+            )
+        else:
+            name_to_pool = dict(zip(pool["player_name"], pool["player_id"]))
+            bats_by_name = dict(zip(pool["player_name"], pool.get("bats", "")))
+            batter_ids = [int(name_to_pool[n]) for n in confirmed if name_to_pool.get(n) is not None]
+            lineup_df = pd.DataFrame(
+                {
+                    "Order": range(1, len(confirmed) + 1),
+                    "Batter": confirmed,
+                    "Bats": [bats_by_name.get(n, "") or "" for n in confirmed],
+                }
+            )
+            st.dataframe(lineup_df, hide_index=True)
+            try:
+                from src.optimizer.stream_analyzer import compute_lineup_exposure
+
+                exposure = compute_lineup_exposure(int(sel["player_id"]), batter_ids, pool)
+                if exposure is not None:
+                    st.caption(
+                        f"Regressed lineup wOBA vs league average: {exposure:+.3f} "
+                        "(positive = dangerous lineup for this pitcher; "
+                        "PvB samples shrunk to 60-PA stabilization)"
+                    )
+            except Exception:
+                logger.exception("Pitcher Streaming: lineup exposure failed")
+
+        # ── Pitcher game-log history ─────────────────────────────────────
+        st.markdown("**Recent starts**")
+        mlb_id = sel.get("mlb_id")
+        if not mlb_id or pd.isna(mlb_id):
+            st.caption("No MLB id on file for this pitcher — game logs unavailable.")
+        elif st.button("Load game logs", key="load_history"):
+            hist = _history_cached(int(mlb_id), None, 10)
+            if hist.empty:
+                st.caption("No game logs returned (statsapi unavailable or no starts).")
+            else:
+                from src.optimizer.stream_analyzer import aggregate_pitcher_history
+
+                hist_disp = hist.copy()
+                hist_disp["ip"] = hist_disp["ip"].round(1)
+                st.dataframe(
+                    hist_disp[["date", "opponent", "is_home", "ip", "k", "er", "bb", "h"]],
+                    hide_index=True,
+                )
+                agg_all = aggregate_pitcher_history(hist)
+                vs_opp = hist[hist["opponent"] == sel["opponent"]]
+                agg_opp = aggregate_pitcher_history(vs_opp)
+                a1, a2 = st.columns(2)
+                with a1:
+                    st.metric(
+                        f"Last {agg_all.get('games', 0)} starts",
+                        f"{format_stat(agg_all.get('era', 0.0), 'ERA')} ERA, "
+                        f"{format_stat(agg_all.get('whip', 0.0), 'WHIP')} WHIP, "
+                        f"{agg_all.get('k', 0):.0f} K",
+                    )
+                with a2:
+                    if agg_opp:
+                        st.metric(
+                            f"vs {sel['opponent']} ({agg_opp['games']} starts)",
+                            f"{format_stat(agg_opp.get('era', 0.0), 'ERA')} ERA, "
+                            f"{format_stat(agg_opp.get('whip', 0.0), 'WHIP')} WHIP, "
+                            f"{agg_opp.get('k', 0):.0f} K",
+                        )
+                    else:
+                        st.metric(f"vs {sel['opponent']}", "no recent starts")
 
 # ── Tab 3: Week Planner (Phase 4) ────────────────────────────────────────────
 

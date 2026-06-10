@@ -520,9 +520,11 @@ def build_stream_board(
                 category_weights=category_weights,
                 recent_form=recent_form_map.get(pid) if pid is not None else None,
             )
+            mlb_id = _get_num(row, "mlb_id")
             rows.append(
                 {
                     "player_id": pid,
+                    "mlb_id": int(mlb_id) if mlb_id is not None else None,
                     "player_name": str(row.get("player_name", row.get("name", probable))),
                     "team": pitcher_team,
                     "throws": throws or "",
@@ -555,3 +557,146 @@ def build_stream_board(
     if board.empty:
         return board
     return board.sort_values("stream_score", ascending=False).reset_index(drop=True)
+
+
+# ── Matchup Microscope: pitcher history + lineup exposure ────────────
+
+
+def get_pitcher_vs_team_history(
+    mlb_id: int,
+    opp_team: str | None = None,
+    venue: str | None = None,
+    last_n: int = 10,
+) -> pd.DataFrame:
+    """Per-start game-log rows for a pitcher, newest first.
+
+    Pulls the statsapi pitching gameLog (the backtest_runner idiom), parses
+    IP via the canonical outs converter, and optionally filters to starts
+    against *opp_team* and/or at *venue* (the home team's park: the pitcher's
+    own team when home, the opponent when away). Empty DataFrame — never a
+    raise — when statsapi is unavailable or the fetch fails.
+
+    Columns: date, opponent, is_home, venue, ip, k, er, bb, h, w, l.
+    """
+    from src.live_stats import _ip_outs_to_decimal
+
+    try:
+        import statsapi
+
+        result = statsapi.player_stat_data(int(mlb_id), group="pitching", type="gameLog", sportId=1)
+    except Exception:
+        logger.warning("stream_analyzer: pitching gameLog fetch failed for mlb_id=%s", mlb_id, exc_info=True)
+        return pd.DataFrame()
+
+    rows: list[dict[str, Any]] = []
+    for entry in result.get("stats", []) or []:
+        stats = entry.get("stats", entry) or {}
+        opp_raw = entry.get("opponent") or {}
+        opp_name = opp_raw.get("name", "") if isinstance(opp_raw, dict) else str(opp_raw)
+        opp_abbr = team_name_to_abbr(opp_name) if opp_name else ""
+        is_home = bool(entry.get("isHome", False))
+        rows.append(
+            {
+                "date": str(entry.get("date", "")),
+                "opponent": opp_abbr,
+                "is_home": is_home,
+                "venue": "" if is_home else opp_abbr,  # own park resolved by caller when home
+                "ip": _ip_outs_to_decimal(stats.get("inningsPitched", "0")),
+                "k": float(stats.get("strikeOuts", 0) or 0),
+                "er": float(stats.get("earnedRuns", 0) or 0),
+                "bb": float(stats.get("baseOnBalls", 0) or 0),
+                "h": float(stats.get("hits", 0) or 0),
+                "w": float(stats.get("wins", 0) or 0),
+                "l": float(stats.get("losses", 0) or 0),
+            }
+        )
+
+    df = pd.DataFrame(rows)
+    if df.empty:
+        return df
+    df = df.sort_values("date", ascending=False).reset_index(drop=True)
+    if opp_team:
+        df = df[df["opponent"] == opp_team].reset_index(drop=True)
+    if venue:
+        df = df[df["venue"] == venue].reset_index(drop=True)
+    return df.head(last_n).reset_index(drop=True)
+
+
+def aggregate_pitcher_history(history: pd.DataFrame) -> dict[str, float]:
+    """Weighted aggregate of per-start rows: ERA = ER*9/IP, WHIP = (BB+H)/IP.
+
+    Rate stats are computed from summed components, never averaged per-game
+    (the house rate-stat aggregation rule).
+    """
+    if history is None or history.empty:
+        return {}
+    total_ip = float(history["ip"].sum())
+    er = float(history["er"].sum())
+    bb = float(history["bb"].sum())
+    h = float(history["h"].sum())
+    return {
+        "games": int(len(history)),
+        "ip": round(total_ip, 2),
+        "k": float(history["k"].sum()),
+        "w": float(history["w"].sum()),
+        "l": float(history["l"].sum()),
+        "er": er,
+        "era": round(er * 9.0 / total_ip, 2) if total_ip > 0 else 0.0,
+        "whip": round((bb + h) / total_ip, 2) if total_ip > 0 else 0.0,
+    }
+
+
+def compute_lineup_exposure(
+    pitcher_id: int,
+    batter_ids: list[int],
+    pool: pd.DataFrame,
+    pvb_data: dict[tuple[int, int], dict] | None = None,
+) -> float | None:
+    """Regressed opposing-lineup wOBA delta vs league average.
+
+    For each opposing batter: start from his generic wOBA (pool ``xwoba``,
+    league average when missing) and shrink any PvB-vs-this-pitcher sample
+    toward it with the canonical 60-PA stabilization
+    (``pvb_matchup_adjustment``). Positive return = the lineup profiles as
+    dangerous for this pitcher; None = nothing to reason about (feeds the
+    neutral lineup component).
+    """
+    if not batter_ids:
+        return None
+    from src.optimizer.matchup_adjustments import get_pvb_matchup_data, pvb_matchup_adjustment
+
+    if pvb_data is None:
+        try:
+            pvb_data = get_pvb_matchup_data(batter_ids=list(batter_ids), pitcher_ids=[int(pitcher_id)])
+        except Exception:
+            logger.warning("stream_analyzer: PvB fetch failed", exc_info=True)
+            pvb_data = {}
+
+    league_woba = float(_CR["league_avg_woba"].value)
+    generic_by_id: dict[int, float] = {}
+    if pool is not None and len(pool) and "player_id" in pool.columns:
+        for _, prow in pool.iterrows():
+            pid = _get_num(prow, "player_id")
+            if pid is None:
+                continue
+            xwoba = _get_num(prow, "xwoba")
+            generic_by_id[int(pid)] = xwoba if xwoba is not None else league_woba
+
+    wobas: list[float] = []
+    for bid in batter_ids:
+        generic = generic_by_id.get(int(bid), league_woba)
+        sample = (pvb_data or {}).get((int(bid), int(pitcher_id)))
+        if sample:
+            wobas.append(
+                pvb_matchup_adjustment(
+                    batter_generic_woba=generic,
+                    pvb_woba=float(sample.get("woba", generic)),
+                    pvb_pa=int(sample.get("pa", 0) or 0),
+                )
+            )
+        else:
+            wobas.append(generic)
+
+    if not wobas:
+        return None
+    return float(sum(wobas) / len(wobas) - league_woba)
