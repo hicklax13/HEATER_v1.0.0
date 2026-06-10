@@ -869,15 +869,28 @@ def inject_custom_css():
     /* Pure clutter (decoration strip + Deploy button) — hidden on all widths. */
     [data-testid="stDecoration"] {{ display: none !important; }}
     [data-testid="stAppDeployButton"] {{ display: none !important; }}
-    /* DESKTOP: hide the header bar AND the toolbar — the sidebar is always
-       visible, so Streamlit's chrome isn't needed.
-       PHONES: KEEP both. The collapsed sidebar's open toggle
-       (stExpandSidebarButton, a "»" button) is parented INSIDE stToolbar, so
-       hiding the toolbar on mobile strands users with no way to open the nav
-       (2026-06-01: this was the mobile-navigation bug). */
+    /* DESKTOP: hide the header bar AND the toolbar ONLY WHILE THE SIDEBAR IS
+       EXPANDED — the rail carries the nav, so Streamlit's chrome is redundant.
+       The hide MUST be conditioned on body:has(sidebar[aria-expanded="true"]):
+       the only reopen control (stExpandSidebarButton, ») lives inside that
+       header, so an unconditional hide strands anyone who clicks the « collapse
+       chevron (2026-06-10 prod report: owner collapsed the rail and had no way
+       back; the desktop chrome must return whenever the rail is collapsed or
+       absent, e.g. on the login page).
+       PHONES: KEEP both always. The collapsed sidebar's open toggle is parented
+       INSIDE stToolbar, so hiding the toolbar on mobile strands users with no
+       way to open the nav (2026-06-01: this was the mobile-navigation bug). */
     @media (min-width: 768px) {{
-        header[data-testid="stHeader"] {{ display: none !important; }}
-        [data-testid="stToolbar"] {{ display: none !important; }}
+        body:has(section[data-testid="stSidebar"][aria-expanded="true"]) header[data-testid="stHeader"] {{ display: none !important; }}
+        body:has(section[data-testid="stSidebar"][aria-expanded="true"]) [data-testid="stToolbar"] {{ display: none !important; }}
+        [data-testid="stExpandSidebarButton"] {{
+            display: inline-flex !important;
+            visibility: visible !important;
+            align-items: center !important;
+            justify-content: center !important;
+            min-width: 2.5rem !important;
+            min-height: 2.5rem !important;
+        }}
     }}
     @media (max-width: 767px) {{
         header[data-testid="stHeader"] {{ display: flex !important; }}
@@ -1912,11 +1925,15 @@ def inject_custom_css():
         background: linear-gradient(180deg, var(--fp-navy), var(--fp-navy2)) !important;
         border-right: none !important;
     }}
-    /* Thin rail WIDTH only on desktop. On phones Streamlit renders the sidebar
-       as a slide-over drawer — forcing 100px there would cramp it — so mobile
-       keeps the default full-width drawer (the dark rail styling still applies). */
+    /* Thin rail WIDTH only on desktop, and ONLY while EXPANDED. On phones
+       Streamlit renders the sidebar as a slide-over drawer — forcing 100px
+       there would cramp it — so mobile keeps the default full-width drawer
+       (the dark rail styling still applies). The [aria-expanded="true"] scope
+       matters: Streamlit collapses the rail by sliding the paint off-screen
+       (translateX) while the element keeps its layout box — forcing width on
+       the collapsed shell left a blank 100px strip (2026-06-10 prod report). */
     @media (min-width: 768px) {{
-        .stSidebar {{
+        section[data-testid="stSidebar"][aria-expanded="true"] {{
             width: 100px !important;
             min-width: 100px !important;
         }}

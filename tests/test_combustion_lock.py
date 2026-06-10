@@ -112,24 +112,64 @@ def test_sidebar_is_navy_rail_with_desktop_scoped_width():
 
     # The thin-rail width rule lives inside an @media (min-width: 768px) block so
     # phones keep the full-width slide-over drawer (mobile-nav fix invariant).
-    media_idx = _SRC.find("@media (min-width: 768px)")
-    width_re = re.compile(r"\.stSidebar \{\{\s*width:\s*(\d+)px", re.DOTALL)
+    # 2026-06-10: the rule must ALSO be scoped to the EXPANDED state
+    # ([aria-expanded="true"]) — forcing width on the collapsed shell left a
+    # blank 100px strip on desktop (collapse slides the paint off-screen via
+    # translateX but the !important width kept the layout box; prod report).
+    width_re = re.compile(
+        r"\[data-testid=\"stSidebar\"\]\[aria-expanded=\"true\"\] \{\{\s*width:\s*(\d+)px",
+        re.DOTALL,
+    )
     m = None
     search_from = 0
     while True:
         media_idx = _SRC.find("@media (min-width: 768px)", search_from)
         if media_idx == -1:
             break
-        # Look for a width-bearing .stSidebar rule shortly after this media query.
+        # Look for a width-bearing expanded-sidebar rule shortly after this media query.
         window = _SRC[media_idx : media_idx + 400]
         wm = width_re.search(window)
         if wm:
             m = wm
             break
         search_from = media_idx + 1
-    assert m, "a desktop-scoped (@media min-width:768px) .stSidebar width rule was not found"
+    assert m, (
+        "a desktop-scoped (@media min-width:768px) expanded-sidebar "
+        '(section[data-testid="stSidebar"][aria-expanded="true"]) width rule was not found'
+    )
     width = int(m.group(1))
     assert width <= 140, f"the sidebar should be a thin rail (<=140px) on desktop; found width:{width}px"
+    # The OLD unconditional form must be gone — it is exactly the bug.
+    assert not re.search(r"768px[^@]{0,400}\.stSidebar \{\{\s*width:", _SRC, re.DOTALL), (
+        "desktop sidebar width must not target .stSidebar unconditionally "
+        "(collapsed shell would keep a 100px layout box -> blank strip)"
+    )
+
+
+def test_sidebar_collapse_is_recoverable_on_desktop():
+    """A desktop user who collapses the rail («) must be able to reopen it.
+
+    The only expand control (stExpandSidebarButton, ») lives inside Streamlit's
+    header/toolbar — which the desktop CSS hides. The hide must therefore be
+    CONDITIONED on the sidebar being expanded (body:has(...[aria-expanded="true"]))
+    so the chrome comes back when the rail is collapsed. 2026-06-10 prod report:
+    owner clicked « and was stranded with a blank strip and no way back.
+    """
+    hide_re = re.compile(
+        r"body:has\(section\[data-testid=\"stSidebar\"\]\[aria-expanded=\"true\"\]\)\s*"
+        r"header\[data-testid=\"stHeader\"\]\s*\{\{\s*display:\s*none",
+        re.DOTALL,
+    )
+    assert hide_re.search(_SRC), (
+        "the desktop header hide must be scoped to body:has(sidebar[aria-expanded=true]) "
+        "so the expand control returns when the rail is collapsed"
+    )
+    # No unconditional desktop header hide may remain.
+    assert not re.search(
+        r"768px[^@]{0,200}?\n\s*header\[data-testid=\"stHeader\"\]\s*\{\{\s*display:\s*none",
+        _SRC,
+        re.DOTALL,
+    ), "an unconditional desktop header hide would strand collapsed-sidebar users"
 
 
 # ── Full-width layout ─────────────────────────────────────────────────
