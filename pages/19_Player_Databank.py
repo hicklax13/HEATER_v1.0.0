@@ -27,7 +27,9 @@ from src.ui_shared import (
     T,
     build_stat_readout_html,
     inject_custom_css,
+    render_empty_state,
     render_page_header,
+    render_panel,
     render_reco_banner,
 )
 from src.usage import log_page_view
@@ -268,7 +270,11 @@ if search_submitted:
     st.session_state["db_search_triggered"] = True
 
 if not st.session_state.get("db_search_triggered", False):
-    st.info("Select your filters above, then click **Search** to find players.")
+    render_empty_state(
+        "Search the databank",
+        "Set your filters above, then click Search to pull live stats for every MLB player.",
+        icon_key="free_agents",
+    )
     st.stop()
 
 # ── Load and filter data ─────────────────────────────────────────────────────
@@ -293,7 +299,11 @@ filtered = filter_databank(
 )
 
 if filtered.empty:
-    st.info("No players match the selected filters.")
+    render_empty_state(
+        "No matches",
+        "No players match the selected filters. Try widening your search.",
+        icon_key="free_agents",
+    )
     st.stop()
 
 # ── Server-side sort ─────────────────────────────────────────────────────────
@@ -335,7 +345,8 @@ page_df = filtered.iloc[start_idx:end_idx]
 as_of_label = get_data_as_of_label(stat_view)
 refreshed_label = get_data_refreshed_label(stat_view)
 
-# Instrument readout strip: range / total / page / freshness as Archivo chips.
+# Instrument readout strip: range / total / page / freshness as Archivo chips,
+# wrapped in a corner-ticked instrument panel (Combustion Finale uplift).
 _readouts = [
     build_stat_readout_html("SHOWING", f"{start_idx + 1}\u2013{end_idx}", sub=f"of {total_players:,}"),
     build_stat_readout_html("PAGE", f"{page + 1} / {total_pages}"),
@@ -348,11 +359,11 @@ if refreshed_label:
     _refresh_val = refreshed_label.replace("Refreshed ", "").replace("Refreshed: ", "")
     _readouts.append(build_stat_readout_html("REFRESHED", _refresh_val))
 
-st.markdown(
-    '<div style="display:flex;gap:30px;flex-wrap:wrap;align-items:flex-start;'
-    "border:1px solid var(--fp-border);border-radius:10px;padding:11px 16px;"
-    'margin:4px 0 10px 0;box-shadow:var(--fp-shadow);background:var(--fp-surface);">' + "".join(_readouts) + "</div>",
-    unsafe_allow_html=True,
+render_panel(
+    "Search Results",
+    '<div style="display:flex;gap:30px;flex-wrap:wrap;align-items:flex-start;">' + "".join(_readouts) + "</div>",
+    fig_label="FIG.01 · DATABANK RESULTS",
+    accent="top",
 )
 
 # ── Render table ─────────────────────────────────────────────────────────────
