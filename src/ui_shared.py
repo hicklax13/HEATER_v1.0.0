@@ -2666,12 +2666,12 @@ def inject_custom_css():
         -webkit-backdrop-filter: none !important;
         border: 1px solid var(--fp-border) !important;
         border-radius: var(--fp-radius) !important;
-        box-shadow: var(--fp-shadow) !important;
+        box-shadow: inset 0 1px 0 rgba(255,255,255,.9), var(--fp-shadow) !important;
         padding: 20px !important;
     }}
     .glass:hover, .fp-card:hover {{
-        transform: none !important;
-        box-shadow: 0 4px 14px rgba(16,33,58,.10) !important;
+        transform: translateY(-1px) !important;
+        box-shadow: inset 0 1px 0 rgba(255,255,255,.9), 0 4px 14px rgba(16,33,58,.10) !important;
     }}
     /* Buttons (Combustion): flat white-outline base; solid-orange gradient
        primary with a subtle orange glow. Matches mockup .btn / .btn.primary. */
