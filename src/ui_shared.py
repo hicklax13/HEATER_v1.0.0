@@ -634,6 +634,28 @@ def sec(title):
     st.markdown(f'<div class="sec-head">{title}</div>', unsafe_allow_html=True)
 
 
+def build_empty_state_html(title: str, body: str = "", icon_key: str = "baseball") -> str:
+    """Build the instrument-styled empty-data state panel (Combustion Finale).
+
+    Replaces bare st.info() in data-empty contexts: dot-grid dashed panel,
+    centered, orange SVG icon — never emoji.
+    """
+    icon = PAGE_ICONS.get(icon_key, PAGE_ICONS["baseball"])
+    body_html = f'<div class="es-body">{body}</div>' if body else ""
+    return (
+        '<div class="empty-state">'
+        f'<div class="es-icon">{icon}</div>'
+        f'<div class="es-title">{title}</div>'
+        f"{body_html}"
+        "</div>"
+    )
+
+
+def render_empty_state(title: str, body: str = "", icon_key: str = "baseball") -> None:
+    """st.markdown wrapper for build_empty_state_html."""
+    st.markdown(build_empty_state_html(title, body, icon_key), unsafe_allow_html=True)
+
+
 def no_league_data_message(reason: str = "") -> str:
     """Member-facing message for the empty-league-data state, adapted to WHY it
     is empty (from ``YahooDataService.data_unavailable_reason()``).
@@ -745,8 +767,10 @@ def inject_custom_css():
     t = THEME
     st.markdown(
         f"""
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800;900&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,500..900&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
 
     /* ── Glide Data Grid root-level theme overrides — Combustion scoreboard:
           Archivo-800 uppercase headers, Archivo data cells, charcoal text. ── */
@@ -790,6 +814,9 @@ def inject_custom_css():
         --font-body: 'Inter', system-ui, -apple-system, sans-serif;
         --font-display: 'Archivo', system-ui, sans-serif;
         --font-mono: 'IBM Plex Mono', monospace;
+        --dur-1: 120ms;
+        --dur-2: 180ms;
+        --ease-snap: cubic-bezier(.2, .7, .3, 1);
     }}
 
     /* ── BASE ─────────────────────────────────── */
@@ -800,7 +827,11 @@ def inject_custom_css():
        (Archivo) + figures (mono) re-assert their own families later. */
     html, body {{ font-family: var(--font-body) !important; }}
     .stApp {{
-        background: var(--fp-app-bg) !important;
+        background:
+            url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.78' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)' opacity='0.05'/%3E%3C/svg%3E") repeat,
+            linear-gradient(rgba(17,39,68,.022) 1px, transparent 1px) 0 0 / 100% 28px,
+            linear-gradient(90deg, rgba(17,39,68,.016) 1px, transparent 1px) 0 0 / 28px 100%,
+            var(--fp-app-bg) !important;
         font-family: var(--font-body);
         color: {t["tx"]};
     }}
@@ -905,7 +936,7 @@ def inject_custom_css():
         background:
             radial-gradient(rgba(24,26,32,.035) 1px, transparent 1.3px) 0 0 / 20px 20px,
             var(--fp-surface);
-        box-shadow: 0 1px 3px rgba(24,26,32,.06), 0 6px 20px rgba(24,26,32,.04);
+        box-shadow: inset 0 1px 0 rgba(255,255,255,.9), 0 1px 3px rgba(24,26,32,.06), 0 6px 20px rgba(24,26,32,.04);
     }}
     /* Faint orange wash bleeding from the top-right, like the mockup. */
     .instr-panel::before {{
@@ -942,12 +973,12 @@ def inject_custom_css():
         border-radius: 14px;
         padding: 20px;
         margin-bottom: 12px;
-        box-shadow: 0 1px 3px rgba(24,26,32,.06), 0 6px 20px rgba(24,26,32,.04);
+        box-shadow: inset 0 1px 0 rgba(255,255,255,.9), 0 1px 3px rgba(24,26,32,.06), 0 6px 20px rgba(24,26,32,.04);
         transition: box-shadow 0.2s ease;
     }}
     .glass:hover {{
-        transform: none;
-        box-shadow: 0 4px 14px rgba(24,26,32,.10);
+        transform: translateY(-1px);
+        box-shadow: inset 0 1px 0 rgba(255,255,255,.9), 0 4px 14px rgba(24,26,32,.10);
     }}
 
     /* ── COMMAND BAR — Combustion: flat instrument strip (no blur). ── */
@@ -962,7 +993,7 @@ def inject_custom_css():
         margin-bottom: 16px;
         flex-wrap: wrap;
         gap: 10px;
-        box-shadow: 0 1px 3px rgba(24,26,32,.06);
+        box-shadow: inset 0 1px 0 rgba(255,255,255,.9), 0 1px 3px rgba(24,26,32,.06);
     }}
     .cmd-left {{
         font-family: var(--font-body);
@@ -1030,12 +1061,12 @@ def inject_custom_css():
         padding: 24px;
         margin-bottom: 16px;
         position: relative;
-        box-shadow: 0 1px 3px rgba(24,26,32,.06), 0 6px 20px rgba(24,26,32,.04);
+        box-shadow: inset 0 1px 0 rgba(255,255,255,.9), 0 1px 3px rgba(24,26,32,.06), 0 6px 20px rgba(24,26,32,.04);
         transition: box-shadow 0.2s ease;
     }}
     .hero:hover {{
-        transform: none;
-        box-shadow: 0 4px 14px rgba(24,26,32,.10);
+        transform: translateY(-1px);
+        box-shadow: inset 0 1px 0 rgba(255,255,255,.9), 0 4px 14px rgba(24,26,32,.10);
     }}
     .hero .p-name {{
         font-family: var(--font-display);
@@ -1465,7 +1496,7 @@ def inject_custom_css():
         padding: 24px;
         margin: 16px 0;
         text-align: center;
-        box-shadow: 0 1px 3px rgba(24,26,32,.06), 0 6px 20px rgba(24,26,32,.04);
+        box-shadow: inset 0 1px 0 rgba(255,255,255,.9), 0 1px 3px rgba(24,26,32,.06), 0 6px 20px rgba(24,26,32,.04);
     }}
     .verdict-banner .verdict-text {{
         font-family: var(--font-display);
@@ -1581,12 +1612,12 @@ def inject_custom_css():
     }}
 
     /* ── STAGGERED ENTRANCE ──────────────────── */
+    /* Streamlit remounts the DOM on every rerun, so entrance keyframes on
+       persistent cards replay on every widget click. slideUp is kept ONLY
+       for true entrances (.reco-banner-detail). */
     @keyframes slideUp {{
         from {{ opacity: 0; transform: translateY(20px); }}
         to {{ opacity: 1; transform: translateY(0); }}
-    }}
-    .glass, .hero, .alt, .metric-card, .player-card, .cat-card {{
-        animation: slideUp 0.4s ease-out both;
     }}
 
     /* ── KINETIC GRADIENT TEXT ────────────────── */
@@ -1770,10 +1801,6 @@ def inject_custom_css():
         background: rgba(245, 242, 237, 0.9) !important;
         color: {t["tx"]} !important;
     }}
-    .stToast, [data-testid="stToast"] {{
-        background: #ffffff !important;
-        color: {t["tx"]} !important;
-    }}
     [data-testid="stPopover"], .stPopover {{
         background: #ffffff !important;
         color: {t["tx"]} !important;
@@ -1843,7 +1870,7 @@ def inject_custom_css():
         border: 1px solid var(--fp-border);
         border-radius: 12px;
         overflow: hidden;
-        box-shadow: 0 1px 3px rgba(24,26,32,.06), 0 6px 20px rgba(24,26,32,.04);
+        box-shadow: inset 0 1px 0 rgba(255,255,255,.9), 0 1px 3px rgba(24,26,32,.06), 0 6px 20px rgba(24,26,32,.04);
         background: var(--fp-surface);
         position: relative;
         border-left: 4px solid var(--fp-primary);
@@ -2436,6 +2463,180 @@ def inject_custom_css():
         .reco-banner {{
             padding: 8px 10px !important;
         }}
+    }}
+
+    /* ═══ COMBUSTION FINALE — machined micro-detail layer (2026-06-10) ═══ */
+
+    /* Interaction chrome */
+    * {{ scrollbar-width: thin; scrollbar-color: #c9c8c3 transparent; }}
+    .stSidebar * {{ scrollbar-color: rgba(238,241,246,.28) transparent; }}
+    ::selection {{ background: var(--fp-navy); color: #ffffff; }}
+    .stSidebar ::selection {{ background: var(--fp-primary); color: #ffffff; }}
+    :focus-visible {{ outline: 2px solid var(--fp-primary); outline-offset: 2px; border-radius: 4px; }}
+    :focus:not(:focus-visible) {{ outline: none; }}
+
+    /* Numeric law — stat columns never shimmy */
+    .stat, .mono, td.num, .heater-table td, .compact-table td, .draft-board td,
+    [data-testid="stMetricValue"] {{
+        font-variant-numeric: tabular-nums slashed-zero;
+    }}
+
+    /* Reading polish */
+    h1, h2, h3, .sec-head {{ text-wrap: balance; }}
+    .stMarkdown p {{ text-wrap: pretty; }}
+    h1, h2, h3 {{ scroll-margin-top: 84px; }}
+
+    /* Gradient hairline dividers */
+    .hr-fade {{ height: 1px; border: 0; margin: 18px 0;
+        background: linear-gradient(90deg, transparent, var(--fp-border) 15%, var(--fp-border) 85%, transparent); }}
+    .hr-heat {{ height: 1px; border: 0; margin: 18px 0;
+        background: linear-gradient(90deg, var(--fp-primary), rgba(255,109,0,.25) 45%, transparent 80%); }}
+    [data-testid="stDivider"] hr {{ height: 1px; border: 0;
+        background: linear-gradient(90deg, transparent, var(--fp-border) 15%, var(--fp-border) 85%, transparent); }}
+
+    /* Hero numerals — Archivo width axis + orange gradient clip (orange ONLY, never red) */
+    .hero-num {{
+        font-family: var(--font-display);
+        font-weight: 900;
+        font-stretch: 112%;
+        font-variant-numeric: tabular-nums;
+        letter-spacing: -0.015em;
+        background: linear-gradient(180deg, #ff8a2a, #ff6d00 55%, #e85f00);
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+    }}
+
+    /* Chip system — embossed token look; .dot-live strictly for live indicators */
+    .chip {{ display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px;
+        font: 600 11px/1.6 var(--font-body); letter-spacing: .05em; text-transform: uppercase;
+        background: var(--fp-surface); border: 1px solid var(--fp-border); color: var(--fp-tx-muted);
+        box-shadow: inset 0 0 0 1px rgba(255,255,255,.6), 0 1px 2px rgba(24,26,32,.05);
+        transition: border-color var(--dur-1) var(--ease-snap), transform var(--dur-1) var(--ease-snap); }}
+    .chip:hover {{ border-color: var(--fp-primary); transform: translateY(-1px); }}
+    .chip.hot {{ color: var(--fp-primary); border-color: rgba(255,109,0,.45); background: rgba(255,109,0,.06); }}
+    .chip.cold {{ color: var(--fp-cold); border-color: rgba(95,125,156,.45); background: rgba(95,125,156,.07); }}
+    @keyframes dotPulse {{ 50% {{ box-shadow: 0 0 0 4px rgba(255,109,0,0); }} }}
+    .chip .dot-live {{ width: 6px; height: 6px; border-radius: 50%; background: var(--fp-primary);
+        box-shadow: 0 0 0 0 rgba(255,109,0,.45); animation: dotPulse 2.2s ease-out infinite; }}
+
+    /* Conic heat wash — opt-in second light layer for hero panels */
+    .instr-panel.heat::before {{
+        background:
+            radial-gradient(120% 80% at 100% 0%, rgba(255,109,0,.05), transparent 42%),
+            conic-gradient(from 210deg at 108% -8%, rgba(255,154,60,.07), transparent 28%);
+    }}
+
+    /* Empty state — instrument-styled no-data panel */
+    .empty-state {{
+        position: relative;
+        border: 1px dashed var(--fp-border);
+        border-radius: 14px;
+        padding: 34px 26px;
+        margin: 8px 0 14px;
+        text-align: center;
+        background:
+            radial-gradient(rgba(24,26,32,.03) 1px, transparent 1.3px) 0 0 / 20px 20px,
+            var(--fp-surface);
+    }}
+    .empty-state .es-icon svg {{ width: 26px; height: 26px; stroke: var(--fp-primary); margin: 0 auto 8px; display: block; }}
+    .empty-state .es-title {{ font-family: var(--font-display); font-weight: 800; font-size: 15px; color: var(--fp-tx); margin-bottom: 4px; }}
+    .empty-state .es-body {{ font-family: var(--font-body); font-size: 12.5px; color: var(--fp-tx-muted); max-width: 460px; margin: 0 auto; line-height: 1.55; }}
+
+    /* Type-scale utilities — stop minting inline sizes */
+    .t-eyebrow {{ font-family: var(--font-body); font-weight: 700; font-size: 10px; letter-spacing: .28em; text-transform: uppercase; color: var(--fp-tx-muted); }}
+    .t-fig {{ font-family: var(--font-mono); font-size: 10px; letter-spacing: .12em; color: var(--fp-tx-muted); }}
+    .t-label {{ font-family: var(--font-body); font-weight: 600; font-size: 11px; letter-spacing: .05em; text-transform: uppercase; color: var(--fp-tx-muted); }}
+    .t-caption {{ font-family: var(--font-body); font-size: 12px; color: var(--fp-tx-muted); }}
+
+    /* Table micro-interaction — inset accent bar on row hover (no layout shift) */
+    .heater-table tbody tr, .compact-table tbody tr, .draft-board tbody tr {{
+        transition: background-color var(--dur-1) var(--ease-snap), box-shadow var(--dur-1) var(--ease-snap);
+    }}
+    .heater-table tbody tr:hover, .compact-table tbody tr:hover {{
+        box-shadow: inset 3px 0 0 var(--fp-primary);
+    }}
+
+    /* Sticky header depth cue — hairline + soft scroll shadow */
+    .heater-table thead th, .compact-table thead th {{
+        box-shadow: 0 1px 0 var(--fp-border), 0 4px 10px rgba(24,26,32,.04);
+    }}
+
+    /* Animated tab underline — the highlight glides between tabs */
+    .stTabs [data-baseweb="tab-highlight"] {{ background-color: var(--fp-primary); height: 2px; border-radius: 2px;
+        transition: all 240ms cubic-bezier(.4, 0, .2, 1); }}
+    .stTabs [data-baseweb="tab-border"] {{ background-color: var(--fp-divider); height: 1px; }}
+
+    /* Expander chrome */
+    [data-testid="stExpander"] summary {{ transition: background-color var(--dur-1) var(--ease-snap), color var(--dur-1) var(--ease-snap); }}
+    [data-testid="stExpander"] summary:hover {{ background: #faf9f6; color: var(--fp-primary); }}
+    [data-testid="stExpanderToggleIcon"] {{ transition: transform 180ms var(--ease-snap); }}
+
+    /* Dialog chrome — player dossier */
+    div[data-testid="stDialog"] div[role="dialog"] {{
+        position: relative;
+        width: min(92vw, 1100px);
+        border-radius: 16px;
+        border: 1px solid var(--fp-border);
+        box-shadow: 0 24px 80px rgba(16,33,58,.38), inset 0 1px 0 rgba(255,255,255,.9);
+    }}
+    div[data-testid="stDialog"] div[role="dialog"]::before {{
+        content: ""; position: absolute; top: 0; left: 24px; right: 24px; height: 2px;
+        background: linear-gradient(90deg, var(--fp-primary), transparent 70%);
+        pointer-events: none;
+    }}
+
+    /* Portal chrome — tooltips + toasts mount on <body>, outside .stApp */
+    div[data-baseweb="tooltip"], [data-testid="stTooltipContent"] {{
+        background: var(--fp-navy) !important; color: #eef1f6 !important;
+        border-radius: 8px !important;
+        font: 500 12.5px/1.45 var(--font-body) !important;
+        box-shadow: 0 8px 24px rgba(16,33,58,.3) !important;
+    }}
+    [data-testid="stToast"] {{
+        background: var(--fp-navy) !important; color: #eef1f6 !important;
+        border-radius: 10px !important; border-left: 3px solid var(--fp-primary) !important;
+        box-shadow: 0 12px 32px rgba(16,33,58,.35) !important;
+    }}
+    [data-testid="stToast"] * {{ color: #eef1f6 !important; }}
+
+    /* Metric self-tinting via :has() */
+    [data-testid="stMetric"]:has([data-testid="stMetricDeltaIcon-Up"]) {{
+        background: rgba(31,157,107,.05); border-radius: 10px; padding: 6px 10px; }}
+    [data-testid="stMetric"]:has([data-testid="stMetricDeltaIcon-Down"]) {{
+        background: rgba(224,73,47,.04); border-radius: 10px; padding: 6px 10px; }}
+
+    /* Glide grid — selection ring + hairline refinement */
+    :root {{
+        --gdg-accent-color: {t["primary"]} !important;
+        --gdg-accent-light: rgba(255,109,0,.10) !important;
+        --gdg-horizontal-border-color: rgba(24,26,32,.07) !important;
+        --gdg-text-medium: {t["tx_muted"]} !important;
+        --gdg-cell-horizontal-padding: 10px !important;
+        --gdg-rounding-radius: 10px !important;
+        --gdg-bg-search-result: rgba(255,174,66,.22) !important;
+    }}
+
+    /* Sidebar machining — inner hairline + grouped-nav section headers */
+    .stSidebar {{ box-shadow: inset -1px 0 0 rgba(255,255,255,.06); }}
+    [data-testid="stNavSectionHeader"] {{
+        font-family: var(--font-body) !important; font-size: 9px !important; font-weight: 700 !important;
+        letter-spacing: .22em !important; text-transform: uppercase !important;
+        color: rgba(238,241,246,.55) !important; margin-top: 10px !important;
+    }}
+
+    /* Shimmer — two-tone on-brand + no-motion fallback lives in the block below */
+    .shimmer {{ background: linear-gradient(100deg, #efeeea 40%, #f7f6f3 50%, #efeeea 60%) 0 0 / 200% 100%; }}
+
+    /* Reduced motion — keep as the LAST rules in the sheet */
+    @media (prefers-reduced-motion: reduce) {{
+        *, *::before, *::after {{
+            animation-duration: .01ms !important;
+            animation-iteration-count: 1 !important;
+            transition-duration: .01ms !important;
+            scroll-behavior: auto !important;
+        }}
+        .shimmer {{ animation: none; background: #efeeea; }}
     }}
 
     /* ── PRINT ────────────────────────────────── */
