@@ -46,6 +46,7 @@ from src.ui_shared import (
     render_compact_table,
     render_context_card,
     render_context_columns,
+    render_empty_state,
     render_matchup_ticker,
     render_page_header,
     render_player_select,
@@ -229,7 +230,7 @@ _display_team_name = "".join(c for c in user_team_name if ord(c) < 0x10000).stri
 
 roster = get_team_roster(user_team_name)
 if roster is None or roster.empty:
-    st.info("Your roster is empty. Import roster data first.")
+    render_empty_state("Your roster is empty", "Import roster data first.", icon_key="my_team")
     st.stop()
 
 # User player IDs for start/sit filtering
@@ -745,17 +746,17 @@ with ctx:
         _yahoo_live = False
         _has_cached_data = False
 
-    _status_colors = {"fresh": "#4CAF50", "stale": "#FF9800", "unknown": "#9E9E9E"}
+    _status_colors = {"fresh": T["green"], "stale": T["primary"], "unknown": T["tx_muted"]}
 
     if _yahoo_live:
         _yahoo_status_label = "Live"
-        _yahoo_status_color = "#4CAF50"
+        _yahoo_status_color = T["green"]
     elif _has_cached_data:
         _yahoo_status_label = "Cached"
-        _yahoo_status_color = "#FF9800"
+        _yahoo_status_color = T["primary"]
     else:
         _yahoo_status_label = "Offline"
-        _yahoo_status_color = "#9E9E9E"
+        _yahoo_status_color = T["tx_muted"]
 
     _freshness_html = (
         f'<div class="context-stat-row" style="margin-bottom:6px;">'
@@ -767,7 +768,7 @@ with ctx:
     if _opt_timestamps:
         for _src_name, _src_info in _opt_timestamps.items():
             _f_status = _src_info.get("status", "unknown")
-            _f_color = _status_colors.get(_f_status, "#9E9E9E")
+            _f_color = _status_colors.get(_f_status, T["tx_muted"])
             _f_label = _src_name.replace("_", " ").title()
             _f_source = _src_info.get("source_label", "")
             _f_as_of = _src_info.get("data_as_of", "")
@@ -837,7 +838,7 @@ with ctx:
                         _f_time_str = _local_ref.strftime("%I:%M %p").lstrip("0")
                     except Exception:
                         _f_time_str = str(_ts)[:16]
-                _f_color = "#4CAF50" if _status == "success" else "#FF9800"
+                _f_color = T["green"] if _status == "success" else T["primary"]
                 _freshness_html += (
                     f'<div style="display:flex;justify-content:space-between;align-items:baseline;'
                     f'padding:2px 0;border-bottom:1px solid {T["border"]}33;">'
@@ -2259,7 +2260,11 @@ with main:
                     except Exception:
                         pass
         else:
-            st.info("Click **Optimize Lineup** to generate your optimal start/sit decisions.")
+            render_empty_state(
+                "No lineup generated yet",
+                "Click Optimize Lineup to generate your optimal start/sit decisions.",
+                icon_key="lineup_optimizer",
+            )
 
     # ================================================================
     # TAB 2: START/SIT
@@ -2450,10 +2455,11 @@ with main:
                     compare_ids = unique_ids
 
                     if len(compare_ids) < 2:
-                        st.info(
-                            f"No bench or free agent alternatives found for the "
-                            f"{slot_name} slot. The current starter ({starter_name}) "
-                            f"is the only option."
+                        render_empty_state(
+                            f"No alternatives for the {slot_name} slot",
+                            f"No bench or free agent options found. The current "
+                            f"starter ({starter_name}) is the only option.",
+                            icon_key="player_compare",
                         )
                     else:
                         # Label the candidates
@@ -2733,10 +2739,11 @@ with main:
                 )
 
                 if not selected_names:
-                    st.info(
-                        "Select at least 2 players above to receive a "
-                        "start/sit recommendation. Rostered players appear "
-                        "at the top of the list."
+                    render_empty_state(
+                        "No players selected",
+                        "Select at least 2 players above to receive a start/sit "
+                        "recommendation. Rostered players appear at the top of the list.",
+                        icon_key="player_compare",
                     )
                 elif len(selected_names) == 1:
                     st.warning("Select at least 2 players to compare. Only 1 player chosen.")
@@ -3023,12 +3030,18 @@ with main:
             )
             st.caption(METRIC_TOOLTIPS.get("cat_targeting", ""))
         elif standings.empty:
-            st.info(
+            render_empty_state(
+                "No league standings loaded",
                 "Import league standings to see category targeting recommendations. "
-                "The optimizer will identify where small gains yield the biggest standings jumps."
+                "The optimizer will identify where small gains yield the biggest standings jumps.",
+                icon_key="league_standings",
             )
         else:
-            st.info("Category weights will appear after running the optimizer.")
+            render_empty_state(
+                "No category weights yet",
+                "Category weights will appear after running the optimizer.",
+                icon_key="category_tracker",
+            )
 
         # Maximin comparison
         maximin = result.get("maximin_comparison") if result else None
@@ -3418,9 +3431,17 @@ with main:
         elif not _stream_schedule:
             st.info("Unable to load MLB schedule. Check your internet connection.")
         elif _fa_sp_pool.empty:
-            st.info("No free agent pitchers available. Connect to Yahoo or ensure projection data is loaded.")
+            render_empty_state(
+                "No free agent pitchers available",
+                "Connect to Yahoo or ensure projection data is loaded.",
+                icon_key="free_agents",
+            )
         else:
-            st.info("No streaming candidates found for this week.")
+            render_empty_state(
+                "No streaming candidates this week",
+                "No free agent pitchers cleared the streaming quality bar for this week's schedule.",
+                icon_key="calendar",
+            )
 
         # ──────────────────────────────────────────────────────────────
         # SECTION 2: Two-Start Starting Pitchers (your roster)
@@ -3553,7 +3574,11 @@ with main:
                 "rate-stat exposure (ERA, WHIP)."
             )
         else:
-            st.info("No two-start starting pitchers detected for your roster this week.")
+            render_empty_state(
+                "No two-start pitchers detected",
+                "No starting pitchers on your roster are in line for two starts this week.",
+                icon_key="calendar",
+            )
 
         # ──────────────────────────────────────────────────────────────
         # SECTION 3: Weekly Streaming Calendar
