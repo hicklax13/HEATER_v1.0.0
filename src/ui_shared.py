@@ -767,10 +767,17 @@ def inject_custom_css():
     Uses glassmorphism, 3D buttons, kinetic typography, and tactile animations.
     """
     t = THEME
+    # Preconnect MUST live in its own markdown call: a <link> opener demotes the
+    # whole block to a CommonMark type-6 HTML block, which ends at the first
+    # blank line — the <style> sheet below would then render as literal text.
+    # Standalone, the sheet starts with <style> and gets type-1 (raw-to-close).
+    st.markdown(
+        '<link rel="preconnect" href="https://fonts.googleapis.com">'
+        '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>',
+        unsafe_allow_html=True,
+    )
     st.markdown(
         f"""
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,500..900&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
 
