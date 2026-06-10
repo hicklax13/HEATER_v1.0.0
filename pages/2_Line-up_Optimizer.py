@@ -1034,6 +1034,12 @@ with main:
                     _dcv_form = _opt_ctx.recent_form if _opt_ctx else None
                     _dcv_team_strength = _opt_ctx.team_strength if _opt_ctx else None
                     _dcv_rate_modes = _dcv_urgency.get("rate_modes") if _dcv_urgency else None
+                    # Persist alongside the result: the render branch below
+                    # re-executes on EVERY rerun (e.g. the "Refresh Yahoo
+                    # Data" button) where this optimize-click local is
+                    # unbound — reading it back avoids the NameError
+                    # (2026-06-10 live incident).
+                    st.session_state["_dcv_rate_modes"] = _dcv_rate_modes
 
                     dcv = build_daily_dcv_table(
                         roster=roster if not roster.empty else pool,
@@ -1551,6 +1557,10 @@ with main:
                 # ── Post-process: bench SPs when rate stats are abandoned ──
                 # When both ERA and WHIP are unrecoverable, pure SPs with
                 # negative DCV only add IP damage. Bench them; keep RPs for saves.
+                # Read from session state, NOT the optimize-click local: this
+                # render branch also runs on plain reruns (Refresh Yahoo Data,
+                # any widget click) where the local was never bound.
+                _dcv_rate_modes = st.session_state.get("_dcv_rate_modes")
                 if _dcv_rate_modes:
                     _era_abn = _dcv_rate_modes.get("ERA") == "abandon"
                     _whip_abn = _dcv_rate_modes.get("WHIP") == "abandon"
