@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import logging
 import math
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pandas as pd
@@ -700,3 +700,115 @@ def compute_lineup_exposure(
     if not wobas:
         return None
     return float(sum(wobas) / len(wobas) - league_woba)
+
+
+# ── Week Planner ─────────────────────────────────────────────────────
+
+
+def build_week_plan(
+    ctx: Any,
+    schedule: list[dict[str, Any]] | None = None,
+    max_adds: int | None = None,
+    base_weekly_ip: float | None = None,
+    days_ahead: int = 7,
+) -> dict[str, Any]:
+    """Greedy streaming sequence for the remaining week, under the add budget.
+
+    Scores every actionable FA start from today through *days_ahead* days
+    (via :func:`build_stream_board`), then hands the candidates to the
+    canonical greedy selector ``optimal_streaming_schedule`` — which dedups
+    by pitcher and stops at the budget. The plan is advisory: FCFS waivers
+    mean nothing can be reserved, so callers should re-plan on each render.
+
+    Args:
+        ctx: OptimizerDataContext (duck-typed; see build_stream_board).
+        schedule: Multi-day schedule rows (statsapi.schedule shape). None ⇒
+            one live fetch covering the window (empty on failure).
+        max_adds: Budget override. Defaults to ctx.adds_remaining_this_week,
+            then the canonical league limit.
+        base_weekly_ip: Already-projected weekly IP from the current roster.
+            When provided, the summary's ``under_floor`` flag compares
+            base + planned IP against the Yahoo forfeit floor; None ⇒ flag
+            is None (unknown baseline — never guessed).
+        days_ahead: Window size in days (default one matchup week).
+
+    Returns:
+        {"plan": [entry, ...], "summary": {...}} — entries are
+        optimal_streaming_schedule outputs enriched with game_date,
+        stream_score, expected line, and num_starts.
+    """
+    from src.league_rules import WEEKLY_TRANSACTION_LIMIT
+    from src.optimizer.streaming import optimal_streaming_schedule
+
+    today = datetime.now(UTC)
+    dates = [(today + timedelta(days=off)).strftime("%Y-%m-%d") for off in range(days_ahead)]
+
+    if schedule is None:
+        try:
+            import statsapi
+
+            schedule = statsapi.schedule(start_date=dates[0], end_date=dates[-1])
+        except Exception:
+            logger.warning("stream_analyzer: week schedule fetch failed", exc_info=True)
+            schedule = []
+
+    budget = max_adds
+    if budget is None:
+        budget = getattr(ctx, "adds_remaining_this_week", None)
+    if budget is None:
+        budget = WEEKLY_TRANSACTION_LIMIT
+    budget = max(0, int(budget))
+
+    candidates: list[dict[str, Any]] = []
+    for date_str in dates:
+        day_games = [g for g in schedule if str(g.get("game_date", "")) == date_str]
+        if not day_games:
+            continue
+        board = build_stream_board(ctx, date_str, schedule=day_games)
+        if board.empty:
+            continue
+        for _, row in board.iterrows():
+            if not row["actionable"] or row["rostered"]:
+                continue
+            candidates.append(
+                {
+                    "player_name": row["player_name"],
+                    "player_id": row["player_id"],
+                    "team": row["team"],
+                    "opponent": row["opponent"],
+                    "game_date": date_str,
+                    "net_value": float(row["net_sgp"]),
+                    "stream_score": float(row["stream_score"]),
+                    "expected_ip": float(row["expected_ip"]),
+                    "expected_k": float(row["expected_k"]),
+                    "num_starts": int(row["num_starts"]),
+                    "confidence": row["confidence"],
+                    "risk_flags": list(row["risk_flags"]),
+                }
+            )
+
+    plan = optimal_streaming_schedule(candidates, max_adds=budget)
+    plan.sort(key=lambda e: e.get("game_date", ""))
+
+    from src.ip_tracker import MIN_IP, WEEKLY_TARGET
+
+    ip_added = sum(e["expected_ip"] * e["num_starts"] for e in plan)
+    k_added = sum(e["expected_k"] * e["num_starts"] for e in plan)
+    under_floor: bool | None = None
+    if base_weekly_ip is not None:
+        under_floor = (float(base_weekly_ip) + ip_added) < MIN_IP
+
+    return {
+        "plan": plan,
+        "summary": {
+            "max_adds": budget,
+            "n_planned": len(plan),
+            "ip_added": round(ip_added, 1),
+            "k_added": round(k_added, 1),
+            "net_sgp_total": round(sum(e["net_value"] for e in plan), 2),
+            "ip_target": WEEKLY_TARGET,
+            "ip_floor": MIN_IP,
+            "base_weekly_ip": base_weekly_ip,
+            "under_floor": under_floor,
+        },
+    }

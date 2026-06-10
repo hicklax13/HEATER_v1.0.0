@@ -460,10 +460,75 @@ with tab_microscope:
                     else:
                         st.metric(f"vs {sel['opponent']}", "no recent starts")
 
-# ── Tab 3: Week Planner (Phase 4) ────────────────────────────────────────────
+# ── Tab 3: Week Planner ──────────────────────────────────────────────────────
+
+
+@st.cache_data(ttl=900, show_spinner=False)
+def _fetch_week_schedule_cached(start: str, end: str) -> list[dict]:
+    try:
+        import statsapi
+
+        return statsapi.schedule(start_date=start, end_date=end)
+    except Exception:
+        logger.warning("Pitcher Streaming: week schedule fetch failed", exc_info=True)
+        return []
+
 
 with tab_planner:
-    st.info("Week Planner is being assembled — budget-aware stream sequencing lands next.")
+    st.caption(
+        "Greedy stream sequence for the next 7 days under your remaining add "
+        "budget. Advisory only — FCFS waivers mean nothing is reserved; the "
+        "plan re-computes on every visit."
+    )
+    week_start = datetime.now(UTC).strftime("%Y-%m-%d")
+    week_end = (datetime.now(UTC) + timedelta(days=6)).strftime("%Y-%m-%d")
+    week_schedule = _fetch_week_schedule_cached(week_start, week_end)
+
+    from src.optimizer.stream_analyzer import build_week_plan
+
+    plan_result = build_week_plan(ctx, schedule=week_schedule)
+    plan = plan_result["plan"]
+    summary = plan_result["summary"]
+
+    p1, p2, p3, p4 = st.columns(4)
+    with p1:
+        st.metric("Planned streams", f"{summary['n_planned']} / {summary['max_adds']} adds")
+    with p2:
+        st.metric("IP added", f"{summary['ip_added']:.1f}")
+    with p3:
+        st.metric("K added", f"{summary['k_added']:.0f}")
+    with p4:
+        st.metric("Net SGP", format_stat(summary["net_sgp_total"], "SGP"))
+    st.caption(
+        f"Weekly pacing: {summary['ip_target']:.0f} IP target, {summary['ip_floor']:.0f} IP Yahoo forfeit floor."
+    )
+
+    if not plan:
+        render_empty_state(
+            "No positive-value streams in the window",
+            "Either probables aren't posted yet, the add budget is exhausted, "
+            "or no FA start clears a positive net SGP.",
+            icon_key="baseball",
+        )
+    else:
+        plan_df = pd.DataFrame(
+            {
+                "Date": [e["game_date"] for e in plan],
+                "Add": [e["player_name"] for e in plan],
+                "Tm": [e["team"] for e in plan],
+                "Opp": [e["opponent"] for e in plan],
+                "GS": [e["num_starts"] for e in plan],
+                "Conf": [e["confidence"] for e in plan],
+                "Score": [e["stream_score"] for e in plan],
+                "Net SGP": [format_stat(e["net_value"], "SGP") for e in plan],
+                "xIP": [round(e["expected_ip"] * e["num_starts"], 1) for e in plan],
+                "xK": [round(e["expected_k"] * e["num_starts"], 1) for e in plan],
+                "Risk": [", ".join(e["risk_flags"]) for e in plan],
+            }
+        )
+        st.dataframe(plan_df, hide_index=True)
+        sequence = " → ".join(f"{e['game_date'][5:]}: {e['player_name']}" for e in plan)
+        st.caption(f"Sequence: {sequence}")
 
 # ── Tab 4: Track Record (Phase 5) ────────────────────────────────────────────
 
