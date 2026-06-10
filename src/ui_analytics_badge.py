@@ -43,10 +43,10 @@ def build_analytics_badge_html(ctx: AnalyticsContext) -> str:
 
     # Tier colors
     tier_colors = {
-        ConfidenceTier.HIGH: T.get("cool", "#457b9d"),
+        ConfidenceTier.HIGH: T.get("cool", T["sky"]),
         ConfidenceTier.MEDIUM: T.get("hot", "#ff6d00"),
         ConfidenceTier.LOW: T.get("primary", "#ff6d00"),
-        ConfidenceTier.EXPERIMENTAL: "#9c27b0",
+        ConfidenceTier.EXPERIMENTAL: T["purple"],
     }
     tier_labels = {
         ConfidenceTier.HIGH: "High Input Quality",
@@ -65,17 +65,17 @@ def build_analytics_badge_html(ctx: AnalyticsContext) -> str:
         module_rows = []
         for name, mod in ctx.modules.items():
             status_icon = {
-                ModuleStatus.EXECUTED: f'<span style="color:{T.get("cool", "#457b9d")}">ran</span>',
+                ModuleStatus.EXECUTED: f'<span style="color:{T.get("cool", T["sky"])}">ran</span>',
                 ModuleStatus.FALLBACK: f'<span style="color:{T.get("hot", "#ff6d00")}">fallback</span>',
-                ModuleStatus.SKIPPED: '<span style="color:#999">skipped</span>',
+                ModuleStatus.SKIPPED: f'<span style="color:{T["tx_subtle"]}">skipped</span>',
                 ModuleStatus.DISABLED: f'<span style="color:{T.get("primary", "#ff6d00")}">disabled</span>',
                 ModuleStatus.ERROR: f'<span style="color:{T.get("primary", "#ff6d00")}">error</span>',
-                ModuleStatus.NOT_APPLICABLE: '<span style="color:#999">n/a</span>',
+                ModuleStatus.NOT_APPLICABLE: f'<span style="color:{T["tx_subtle"]}">n/a</span>',
             }.get(mod.status, "?")
 
             reason = ""
             if mod.fallback_reason:
-                reason = f' <span style="color:#999;font-size:9px">({mod.fallback_reason})</span>'
+                reason = f' <span style="color:{T["tx_subtle"]};font-size:9px">({mod.fallback_reason})</span>'
 
             module_rows.append(
                 f'<tr><td style="font-size:10px;padding:1px 4px">{name}</td>'
@@ -94,11 +94,11 @@ def build_analytics_badge_html(ctx: AnalyticsContext) -> str:
         data_rows = []
         for name, ds in ctx.data_sources.items():
             quality_badge = {
-                DataQuality.LIVE: f'<span style="color:{T.get("cool", "#457b9d")}">live</span>',
+                DataQuality.LIVE: f'<span style="color:{T.get("cool", T["sky"])}">live</span>',
                 DataQuality.STALE: f'<span style="color:{T.get("hot", "#ff6d00")}">stale</span>',
                 DataQuality.SAMPLE: f'<span style="color:{T.get("primary", "#ff6d00")}">sample</span>',
                 DataQuality.MISSING: f'<span style="color:{T.get("primary", "#ff6d00")}">missing</span>',
-                DataQuality.HARDCODED: '<span style="color:#999">hardcoded</span>',
+                DataQuality.HARDCODED: f'<span style="color:{T["tx_subtle"]}">hardcoded</span>',
             }.get(ds.quality, "?")
 
             age = ""
@@ -147,7 +147,7 @@ def build_analytics_badge_html(ctx: AnalyticsContext) -> str:
             <span style="font-size:11px;font-weight:600;color:{color}">
                 {label}
             </span>
-            <span style="font-size:10px;color:#999;margin-left:auto">
+            <span style="font-size:10px;color:{T["tx_subtle"]};margin-left:auto">
                 {summary}
             </span>
         </div>
