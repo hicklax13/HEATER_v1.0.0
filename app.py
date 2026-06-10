@@ -434,7 +434,12 @@ def render_step_settings():
     sec("Step 1 — League Settings")
 
     # ── Yahoo Fantasy Connect (optional) ──────────────────────────────
-    if YFPY_AVAILABLE and not st.session_state.get("yahoo_connected"):
+    # v1 (local single-user) ONLY. Under MULTI_USER the server scheduler owns
+    # the Yahoo token (admins paste it in Admin Controls) and sessions are
+    # read-only — the per-session OAuth here would be redundant noise for
+    # members AND its sync_to_db() call would violate the sole-writer
+    # invariant (2026-06-10 owner request: hide it on the hosted app).
+    if YFPY_AVAILABLE and not multi_user_enabled() and not st.session_state.get("yahoo_connected"):
         yahoo_key = os.environ.get("YAHOO_CLIENT_ID")
         yahoo_secret = os.environ.get("YAHOO_CLIENT_SECRET")
         yahoo_league_id = os.environ.get("YAHOO_LEAGUE_ID", "").strip()
@@ -443,12 +448,15 @@ def render_step_settings():
                 from src.yahoo_api import build_oauth_url, exchange_code_for_token
 
                 auth_url = build_oauth_url(yahoo_key, redirect_uri="oob")
+                # Inline !important so the white label survives the global
+                # content-link rule (orange !important) — orange-on-orange
+                # rendered this button blank (2026-06-10).
                 st.markdown(
                     f'<a href="{auth_url}" target="_blank" style="'
                     f"display:inline-block;padding:8px 20px;"
-                    f"background:{T['amber']};color:{T['ink']};"
+                    f"background:{T['amber']};color:{T['ink']} !important;"
                     f"border-radius:8px;font-weight:700;font-family:var(--font-body);"
-                    f'text-decoration:none;font-size:14px;">'
+                    f'text-decoration:none !important;font-size:14px;">'
                     f"Authorize with Yahoo</a>",
                     unsafe_allow_html=True,
                 )
