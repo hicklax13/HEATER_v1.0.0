@@ -2589,8 +2589,9 @@ def inject_custom_css():
     .stSidebar {{ box-shadow: inset -1px 0 0 rgba(255,255,255,.06); }}
     [data-testid="stNavSectionHeader"] {{
         font-family: var(--font-body) !important; font-size: 9px !important; font-weight: 700 !important;
-        letter-spacing: .22em !important; text-transform: uppercase !important;
+        letter-spacing: .14em !important; text-transform: uppercase !important;
         color: rgba(238,241,246,.55) !important; margin-top: 10px !important;
+        justify-content: center !important;
     }}
 
     /* Shimmer — two-tone on-brand + no-motion fallback lives in the block below */
@@ -2768,6 +2769,17 @@ def inject_custom_css():
     .stat, .mono, td.num, .fig,
     div[data-testid="stMetric"] [data-testid="stMetricValue"] {{
         font-family: var(--font-mono) !important;
+    }}
+    /* Material Symbols ligature spans are the ONE exception to the font
+       lock: Streamlit renders widget glyphs (expander chevron, nav
+       expand_more, dialog close) as icon-font ligature TEXT — forcing
+       Inter on them shows the literal ligature name ("keyboard_arrow_right").
+       Re-assert the icon font AFTER the lock so no container rule can
+       break it. */
+    span[data-testid="stIconMaterial"] {{
+        font-family: "Material Symbols Rounded" !important;
+        letter-spacing: normal !important;
+        text-transform: none !important;
     }}
 
     /* ════════════════════════════════════════════════════════════════
