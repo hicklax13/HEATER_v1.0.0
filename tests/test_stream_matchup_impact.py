@@ -72,8 +72,7 @@ def test_gem_start_helps_k_w_and_expected_wins():
     assert impact["per_cat"]["k"]["delta"] > 0
     assert impact["per_cat"]["w"]["delta"] > 0
     assert impact["per_cat"]["era"]["delta"] > 0, (
-        "a 1-ER/7-IP start lowers team ERA — the ERA win probability must RISE "
-        "(inverse-cat sign discipline)"
+        "a 1-ER/7-IP start lowers team ERA — the ERA win probability must RISE (inverse-cat sign discipline)"
     )
     assert impact["expected_wins_delta"] > 0
     # Hitting cats untouched by a pitcher stream.
@@ -86,9 +85,7 @@ def test_blowup_start_hurts_rates():
     assert impact is not None
     assert impact["per_cat"]["era"]["delta"] < 0
     assert impact["per_cat"]["whip"]["delta"] < 0
-    assert impact["per_cat"]["l"]["delta"] < 0, (
-        "a likely loss raises team L — the L win probability must FALL"
-    )
+    assert impact["per_cat"]["l"]["delta"] < 0, "a likely loss raises team L — the L win probability must FALL"
 
 
 def test_noop_line_is_exact_zero_paired():
@@ -119,6 +116,5 @@ def test_two_starts_scale_counting_impact():
 def test_page_wires_matchup_impact():
     src = _PAGE.read_text(encoding="utf-8")
     assert "compute_matchup_impact" in src, (
-        "the Stream Finder must surface the with-vs-without matchup impact "
-        "(owner request 2026-06-10)"
+        "the Stream Finder must surface the with-vs-without matchup impact (owner request 2026-06-10)"
     )
