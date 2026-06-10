@@ -2472,7 +2472,10 @@ def inject_custom_css():
         background: linear-gradient(180deg, #ff8a2a, #ff6d00 55%, #e85f00);
         -webkit-background-clip: text;
         background-clip: text;
-        color: transparent;
+        /* !important + text-fill-color so the gradient clip survives the
+           global charcoal text rules (which also carry !important). */
+        color: transparent !important;
+        -webkit-text-fill-color: transparent !important;
     }}
 
     /* Chip system — embossed token look; .dot-live strictly for live indicators */
