@@ -1,15 +1,30 @@
+# Fonts are ALSO locked to Inter (body) / Archivo (display) / IBM Plex Mono
+# by the !important font-lock rules in src/ui_shared.py inject_custom_css().
+# The fonts-by-URL values below (Streamlit >=1.47 advanced theming) align the
+# native theme with that lock so pre-CSS paint + native widgets match.
 [theme]
 base = "light"
 primaryColor = "#ff6d00"
 backgroundColor = "#f4f3f1"
 secondaryBackgroundColor = "#ffffff"
 textColor = "#1b1c20"
-# Streamlit's theme.font only accepts "sans serif"/"serif"/"monospace". The
-# rendered family is locked to Inter (body) / Archivo (display) / IBM Plex Mono
-# by the !important font-lock rules in src/ui_shared.py inject_custom_css(),
-# which override this generic stack everywhere — so "sans serif" here is just
-# the pre-CSS fallback, never what the user sees.
-font = "sans serif"
+linkColor = "#ff6d00"
+borderColor = "#e3e2de"
+baseRadius = "12px"
+buttonRadius = "10px"
+dataframeBorderColor = "#e3e2de"
+dataframeHeaderBackgroundColor = "#ffffff"
+headingFontWeights = [900, 800, 800]
+chartCategoricalColors = ["#ff6d00", "#ff9a3c", "#ffae42", "#1f9d6b", "#5f7d9c", "#8aa6c0", "#b0b5be", "#cdd1d8"]
+font = "Inter:https://fonts.googleapis.com/css2?family=Inter:wght@400..700&display=swap"
+headingFont = "Archivo:https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,500..900&display=swap"
+codeFont = "'IBM Plex Mono':https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap"
+
+[theme.sidebar]
+backgroundColor = "#112744"
+textColor = "#eef1f6"
+borderColor = "#0c1d33"
+primaryColor = "#ff6d00"
 
 [server]
 headless = true
