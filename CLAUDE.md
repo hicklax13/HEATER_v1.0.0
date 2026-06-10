@@ -7,7 +7,7 @@ A fantasy-baseball draft assistant + in-season manager for a 12-team Yahoo Sport
 The codebase is organized around 7 feature surfaces:
 
 1. **Draft Tool** (`app.py`) — Heater-themed splash + bootstrap + setup wizard + 3-column draft page with Monte Carlo recommendations.
-2. **In-Season Pages** (`pages/`) — 13 pages, consolidated 2026-05-18 via Section 5 audit: My Team, Lineup Optimizer, Closer Monitor, Matchup Planner, League Standings (+ Playoff Odds tab), Punt Analyzer, Trade Analyzer, Trade Finder (+ Value Chart tab), Free Agents, Player Compare, Leaders (+ Hot/Cold/Sell-High tabs), Player Databank, Draft Simulator. Bullpen, Weekly_Dashboard, Weekly_Recap, Waiver_Wire pages removed — their underlying engine modules (`src/contextual_factors.py`, `src/weekly_report.py`, `src/waiver_wire.py`) remain callable.
+2. **In-Season Pages** (`pages/`) — 14 pages (13 from the 2026-05-18 Section 5 consolidation + Pitcher Streaming added 2026-06-10): My Team, Lineup Optimizer, Closer Monitor, Pitcher Streaming, Matchup Planner, League Standings (+ Playoff Odds tab), Punt Analyzer, Trade Analyzer, Trade Finder (+ Value Chart tab), Free Agents, Player Compare, Leaders (+ Hot/Cold/Sell-High tabs), Player Databank, Draft Simulator. Bullpen, Weekly_Dashboard, Weekly_Recap, Waiver_Wire pages removed — their underlying engine modules (`src/contextual_factors.py`, `src/weekly_report.py`, `src/waiver_wire.py`) remain callable.
 3. **Trade Analyzer Engine** (`src/engine/`) — 6-phase pipeline: deterministic SGP → stochastic MC (paired, true antithetic) → signal intelligence → contextual adjustments → game theory → production convergence/caching.
 4. **Lineup Optimizer** (`src/optimizer/`) — 21-module pipeline with PuLP LP, daily category value (DCV) scoring, sigmoid urgency, FA recommender, sensitivity analysis, backtest framework.
 5. **Draft Recommendation Engine** (`src/draft_engine.py`) — 8-stage enhancement chain with 3 execution modes (Quick/Standard/Full).
@@ -32,7 +32,7 @@ python load_sample_data.py             # Load sample data (first time/testing)
 streamlit run app.py                   # Run the app
 python -m ruff check .                 # Lint
 python -m ruff format .                # Format
-python -m pytest --ignore=tests/test_cheat_sheet.py  # Full suite (~4458 pass; cheat_sheet skipped on Windows)
+python -m pytest --ignore=tests/test_cheat_sheet.py  # Full suite (~5361 pass; cheat_sheet skipped on Windows)
 python -m pytest tests/test_foo.py -v  # Single test file
 
 # Parallel test execution (matches CI's sharded layout)
@@ -80,11 +80,13 @@ requirements.txt            — pip dependencies
 load_sample_data.py         — Sample data generator for testing
 .streamlit/config.toml      — Native ≥1.47 advanced theming: Combustion palette, fonts-by-URL, [theme.sidebar], chartCategoricalColors
 
-pages/ — 13 in-season pages, ordered for daily workflow (status → daily action → strategy → trades → wire → research → preseason):
+pages/ — 14 in-season pages, ordered for daily workflow (status → daily action → strategy → trades → wire → research → preseason):
   # Status & this-week context
   1_My_Team.py              — War Room, roster, category standings, alerts, Yahoo sync
   2_Line-up_Optimizer.py    — 6-tab optimizer: Start/Sit, Optimize, Manual, Streaming, Daily, Roster
   3_Closer_Monitor.py       — 30-team closer depth chart grid
+  4_Pitcher_Streaming.py    — 4-tab stream analyzer: Finder (date-driven Stream Score board) /
+                              Microscope (lineup+PvB+game-log deep dive) / Week Planner / Track Record
   5_Matchup_Planner.py      — Category probabilities, player matchups, per-game detail
   6_League_Standings.py     — 3 tabs: Current Standings / Season Projections / Playoff Odds
   10_Punt_Analyzer.py       — Punt-category strategy recommender
@@ -100,7 +102,8 @@ pages/ — 13 in-season pages, ordered for daily workflow (status → daily acti
   # Preseason
   20_Draft_Simulator.py     — Draft simulator with AI opponents, MC recommendations
 
-# Section 5 (2026-05-18) consolidated 20 → 13 pages.
+# Section 5 (2026-05-18) consolidated 20 → 13 pages;
+# 4_Pitcher_Streaming added 2026-06-10 (slot 4 reused) → 14 pages.
 # Removed pages: 4_Bullpen, 7_Playoff_Odds, 8_Weekly_Dashboard,
 # 9_Weekly_Recap, 13_Trade_Values, 15_Waiver_Wire, 18_Trends.
 # Their core engine logic lives in src/ and remains importable.
@@ -182,6 +185,8 @@ src/
     h2h_engine.py           — H2H category weights + win probability
     sgp_theory.py           — Non-linear marginal SGP
     streaming.py            — Pitcher streaming + two-start fatigue (uses constants_registry)
+    stream_analyzer.py      — Pitcher Streaming page engine: Stream Score board, matchup deep-dive,
+                              week planner, historical replay (composes streaming/two_start/matchup_adjustments)
     scenario_generator.py   — Gaussian copula + CVaR + empirical correlation
     dual_objective.py       — H2H/Roto weight blending
     advanced_lp.py          — Maximin, epsilon-constraint, stochastic MIP (imports PULP_AVAILABLE)
@@ -225,7 +230,7 @@ scripts/
   # One-time DB migration (2026-05-21)
   migrate_muncy_dna_2026_05_21.py  — Insert LAD Muncy + repoint league_rosters (idempotent)
 
-tests/                      — 336 test files, ~4458 passing tests
+tests/                      — 448 test files, ~5361 passing tests
   conftest.py               — Session-scoped league_standings fixture (autouse)
   test_no_*.py              — Structural-invariant guards (see Structural Invariants section)
   test_sf*.py               — TDD tests for SF-1..SF-28 fixes
@@ -366,6 +371,20 @@ format_stat(0.275, "AVG")  # "0.275"
 format_stat(3.85, "ERA")   # "3.85"
 format_stat(2.34, "SGP")   # "+2.34"
 
+# Pitcher Streaming engine (canonical engine for the Pitcher Streaming page;
+# also powers the Lineup Optimizer Streaming tab's Section 1 after the Phase 5 DRY)
+from src.optimizer.stream_analyzer import (
+    build_stream_board,        # (ctx, target_date, schedule=None, include_rostered=False) -> DataFrame
+    score_stream_candidate,    # (pitcher_row, start_info, opp_context, config, ...) -> dict (0-100 + components)
+    build_week_plan,           # (ctx, schedule=None, max_adds=None, base_weekly_ip=None) -> {"plan", "summary"}
+    replay_stream_date,        # (ctx, past_date, top_n=5) -> {"board_then", "actuals", "summary", "proxy_caveat"}
+    get_pitcher_vs_team_history,  # statsapi gameLog rows; aggregate_pitcher_history for weighted ERA/WHIP
+    compute_lineup_exposure,   # regressed PvB lineup wOBA delta vs league (None = neutral)
+)
+
+# Weekly transaction budget — canonical home (streaming.WEEKLY_ADDS_BUDGET mirrors it)
+from src.league_rules import WEEKLY_TRANSACTION_LIMIT  # 10
+
 # Optimizer validation tools
 from src.optimizer.data_freshness import DataFreshnessTracker
 from src.optimizer.constants_registry import CONSTANTS_REGISTRY
@@ -476,6 +495,14 @@ The Free Agents page (`pages/14_Free_Agents.py`) is the sole consumer of `recomm
 - **News-derived suspension dates** — `parse_suspension_days()` in `news_sentiment.py` recognizes "Suspended through MM/DD" and "Suspended for N games" patterns (PR #109 / FA P5d). Wired into `expected_return_days` column on `ctx.roster` + `ctx.player_pool` so short suspensions (Valdez-class, ~1-7 days) get appropriate IL-weight curves, not the 0.0 indefinite default.
 - **`_il_weight_from_status` parses day counts inline** — Status strings like `"IL10 - 3 days"` now extract the day count before falling through to the IL10/IL15/IL60 string defaults (PR #105 / FA PR8).
 - **Legacy fallback is now visible** — When the new `recommend_fa_moves` engine throws, `pages/14_Free_Agents.py` falls back to the legacy `compute_add_drop_recommendations` AND shows a `st.warning(...)` banner with the exception type and message (PR #98). Prevents silent degradation masking new-engine bugs.
+
+### Stream Analyzer (Pitcher Streaming page)
+- **`team_strength` k_pct is in PERCENT (22.0); `compute_pitcher_matchup_score` and `compute_bayesian_stream_score` expect FRACTIONS (0.22)** — `score_stream_candidate` divides by 100 at the boundary. Passing percent through unconverted silently doubles the opponent-K signal.
+- **`LeagueConfig.sgp_denominators` keys are UPPERCASE; `streaming.py` expects lowercase** — `stream_analyzer._lower_keys` bridges. Passing uppercase keys silently falls back to `DEFAULT_SGP_DENOMS`.
+- **Locked rows stay on the board** — status LOCKED/FINAL with `actionable=False`; UI greys them out rather than hiding (transparency). Locking applies only when `target_date == today` so a stale status string can't lock tomorrow's start.
+- **The page computes no scores** — every score/rank arrives from `stream_analyzer` / `recommend_streaming_moves`; AST-guarded for BOTH this page and the Lineup Optimizer Streaming tab.
+- **Replay is a proxy** — `replay_stream_date` scores past dates with CURRENT projections (`proxy_caveat=True`, rendered in-UI). Exact replay needs a scheduler-written nightly snapshot table (deferred; keep the sole-writer invariant when it lands).
+- **SP-focused by design** — closers/saves streaming lives on the Closer Monitor page; the engine scores probables only.
 
 ### Lineup Optimizer
 - **DTD/IL exclusion** — `_il_statuses` includes `dtd` and `day-to-day`.
@@ -639,6 +666,20 @@ These tests guard against regression of the cleanup work. Adding new code that v
 | `test_plan4_scheduler_wiring.py` | `app.py` imports `start_background_refresh`; `main()` calls it AFTER the flag-off early return (v1 never spawns a thread — AST-checked) and `start_background_refresh()` is idempotent (exactly one `heater-refresh` thread across repeat calls) (v2 Plan 4) |
 | `test_plan4_bootstrap_suppression.py` | `render_single_user_app()` branches on `multi_user_enabled()`; the flag-on branch calls `_render_multiuser_home_gate()` and does NOT call `render_splash_screen` (no per-session bootstrap under MULTI_USER). `_latest_successful_refresh()` returns None when the refresh-log snapshot is empty or success-free, and the most-recent success timestamp otherwise (the single authoritative "data warm yet?" signal) (v2 Plan 4) |
 | `test_plan4_backcompat.py` | `MULTI_USER` off ⇒ `main()` renders the single-user app exactly once and starts the scheduler ZERO times (`require_auth` never reached); flag-off Home keeps `render_splash_screen` (v1 byte-for-byte) (v2 Plan 4) |
+
+**2026-06-10 Pitcher Streaming Analyzer guards (14th page + stream engine):**
+
+| Test | Guards |
+|------|--------|
+| `test_stream_analyzer_constants_registered.py` | The six `stream_score_w_*` component weights (sum == 1.0, convex blend) + four `stream_risk_*` thresholds live in `CONSTANTS_REGISTRY` with value/citation/bounds/sensitivity |
+| `test_stream_analyzer_adds_budget_canonical.py` | Weekly add budget is canonical: `league_rules.WEEKLY_TRANSACTION_LIMIT == 10`; `streaming.WEEKLY_ADDS_BUDGET` mirrors it (was a stale literal 7 — budget-exhausted guard + last-add penalty fired three adds early); `rank_streaming_candidates` honors the 10-add budget + `weekly_adds_budget` override; `stream_analyzer` never imports the legacy alias |
+| `test_stream_analyzer_score_components.py` | `score_stream_candidate` returns a 0-100 score decomposed into exactly 6 components each in [-1, 1]; weights read from the registry AT CALL TIME (patch ⇒ score changes); matchup monotonicity (weak offense/pitcher park > elite offense/hitter park); missing lineup/form data ⇒ neutral 0.0, never NaN; each risk flag (HIGH_WHIP/SHORT_LEASH/ELITE_OFFENSE/HITTER_PARK/WIND_OUT/LOW_CONFIDENCE) fires on its registry threshold; WIND_OUT suppressed in domes; L14 form gated at 5 IP |
+| `test_stream_analyzer_inverse_stats.py` | ERA/WHIP/L enter the Stream Score through `compute_streaming_value` (canonical signs): the era=9.0/whip=2.0 unknown-pitcher line scores NEGATIVE sgp component (the FA PR #99 lesson); no module-level denominator table; no hardcoded uppercase category collections |
+| `test_stream_analyzer_locked_games.py` | `build_stream_board`: in-progress/final games (today only) stay VISIBLE but `actionable=False` with status LOCKED/FINAL; future dates never lock and carry the two_start confidence tier (HIGH/MED/LOW); other teams' rostered pitchers excluded; `include_rostered` admits only the user's SPs; two-start weeks score weekly SGP volume; board sorted by score |
+| `test_stream_analyzer_history.py` | `get_pitcher_vs_team_history` parses IP via `_ip_outs_to_decimal` ("6.1" = 6⅓), filters by opponent, returns empty frame (no raise) on statsapi failure; `aggregate_pitcher_history` uses weighted ERA=ER*9/IP, WHIP=(BB+H)/IP — never per-game averages; `compute_lineup_exposure` shrinks PvB samples to 60-PA stabilization and returns None with nothing to reason about |
+| `test_stream_week_planner.py` | `build_week_plan` never plans more adds than `ctx.adds_remaining_this_week`; summary reports pacing against `ip_tracker.WEEKLY_TARGET` + `MIN_IP` (never literals); `under_floor` is None when the roster baseline is unknown (never guessed); a pitcher with two window starts is planned at most once; rostered pitchers never planned |
+| `test_stream_replay.py` | `replay_stream_date` always carries `proxy_caveat=True` (no point-in-time projections stored — replay uses current data) and the page renders the caveat; actuals aggregated with weighted rates; empty date ⇒ empty results, no raise |
+| `test_stream_page_no_inline_scoring.py` | NO score arithmetic in pages: `pages/4_Pitcher_Streaming.py` AND `pages/2_Line-up_Optimizer.py` (whose Streaming-tab `K*1.5 + W*0.3 − penalties` formula was DRY'd into the engine) contain zero `*score*`-named assignments built from BinOp/AugAssign arithmetic; both delegate to `build_stream_board` |
 
 **2026-06-05 launch-hardening guards (post-go-live fixes):**
 
@@ -882,7 +923,7 @@ When a future audit flags one of these, the correct response is: confirm it matc
 
 ## Testing
 
-- **~4458 passing tests** across 336 test files, 16 skipped (PyMC/XGBoost/WeasyPrint optional)
+- **~5361 passing tests** across 448 test files, ~110 skipped (PyMC/XGBoost/WeasyPrint optional + network-gated)
 - **CI:** GitHub Actions (Python 3.12, sharded 4 ways)
 - **Coverage:** ~71.6% (60% CI floor — the 5-week "Coverage Floor red" was actually a flaky timing test, fixed 2026-05-20 by PR #70)
 - **Pre-commit hook:** Enforces `ruff format` + `ruff check` on every commit
