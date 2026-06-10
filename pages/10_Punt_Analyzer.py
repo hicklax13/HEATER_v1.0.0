@@ -48,6 +48,7 @@ render_page_header(
     eyebrow="STRATEGY",
     fig="FIG.10 — CATEGORY PUNT MODEL",
 )
+st.markdown('<div class="hr-heat"></div>', unsafe_allow_html=True)
 
 pool = load_player_pool()
 if pool.empty:
@@ -66,7 +67,7 @@ def _value_swing_table_html(df: pd.DataFrame, *, gain: bool) -> str:
     """Build a branded player value-change table for the punt gainers/losers."""
     th = (
         "font-family:var(--font-display);font-weight:800;font-size:10.5px;"
-        "letter-spacing:.06em;text-transform:uppercase;color:#2c2f36;"
+        "letter-spacing:.06em;text-transform:uppercase;color:var(--fp-tx);"
         "padding:9px 12px;border-bottom:2px solid rgba(24,26,32,.18);"
     )
     head = (
@@ -181,18 +182,10 @@ progress.empty()
 
 active_cats = [c for c in all_cats if c not in punt_cats]
 _punt_chips = "".join(
-    f'<span style="display:inline-block;font-family:var(--font-mono);font-size:11px;font-weight:600;'
-    f"color:var(--fp-cold);background:color-mix(in srgb,var(--fp-cold) 12%,transparent);"
-    f"border:1px solid color-mix(in srgb,var(--fp-cold) 35%,transparent);border-radius:14px;"
-    f'padding:3px 11px;margin:0 6px 6px 0;">{_html.escape(c)}</span>'
-    for c in punt_cats
+    f'<span class="chip cold" style="margin:0 6px 6px 0;">{_html.escape(c)}</span>' for c in punt_cats
 )
 _active_chips = "".join(
-    f'<span style="display:inline-block;font-family:var(--font-mono);font-size:11px;font-weight:600;'
-    f"color:var(--fp-ember);background:color-mix(in srgb,var(--fp-primary) 10%,transparent);"
-    f"border:1px solid color-mix(in srgb,var(--fp-primary) 35%,transparent);border-radius:14px;"
-    f'padding:3px 11px;margin:0 6px 6px 0;">{_html.escape(c)}</span>'
-    for c in active_cats
+    f'<span class="chip hot" style="margin:0 6px 6px 0;">{_html.escape(c)}</span>' for c in active_cats
 )
 _readouts = (
     '<div style="display:flex;gap:32px;flex-wrap:wrap;margin-bottom:16px;">'
@@ -272,7 +265,7 @@ if _HAS_CATEGORY_ANALYSIS:
                 impact_html_rows = ""
                 _th = (
                     "font-family:var(--font-display);font-weight:800;font-size:10.5px;"
-                    "letter-spacing:.06em;text-transform:uppercase;color:#2c2f36;"
+                    "letter-spacing:.06em;text-transform:uppercase;color:var(--fp-tx);"
                     "padding:9px 12px;border-bottom:2px solid rgba(24,26,32,.18);"
                 )
                 for cat in all_cats:
@@ -298,7 +291,7 @@ if _HAS_CATEGORY_ANALYSIS:
                     _strength = max(0.0, (_n_teams - my_rank + 1) / _n_teams * 100.0)
                     _bar = build_heatbar_html(_strength, win=(not is_punt and my_rank <= _n_teams / 2))
                     _val_str = format_stat(my_val, cat) if cat in config.rate_stats else f"{my_val:.0f}"
-                    _status_color = "var(--fp-cold)" if is_punt else "var(--fp-ember)"
+                    _status_chip = f'<span class="chip {"cold" if is_punt else "hot"}">{status}</span>'
                     impact_html_rows += (
                         f'<tr><td style="padding:8px 12px;border-bottom:1px solid var(--fp-divider);'
                         f"font-family:var(--font-display);font-weight:800;font-size:13px;color:var(--fp-tx);"
@@ -310,9 +303,8 @@ if _HAS_CATEGORY_ANALYSIS:
                         f"font-family:var(--font-mono);font-weight:600;font-size:12px;color:var(--fp-tx-muted);"
                         f'">{my_rank}/12</td>'
                         f'<td style="padding:8px 12px;border-bottom:1px solid var(--fp-divider);width:140px;">{_bar}</td>'
-                        f'<td style="padding:8px 12px;border-bottom:1px solid var(--fp-divider);text-align:right;'
-                        f"font-family:var(--font-mono);font-size:9.5px;font-weight:700;letter-spacing:.08em;"
-                        f'color:{_status_color};">{status}</td></tr>'
+                        f'<td style="padding:8px 12px;border-bottom:1px solid var(--fp-divider);'
+                        f'text-align:right;">{_status_chip}</td></tr>'
                     )
 
                 _impact_table = (
