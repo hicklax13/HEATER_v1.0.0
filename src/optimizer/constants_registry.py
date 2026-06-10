@@ -824,6 +824,15 @@ CONSTANTS_REGISTRY: dict[str, ConstantEntry] = {
         sensitivity="LOW",
         description="HITTER_PARK risk flag: venue park factor at/above this",
     ),
+    "stream_loss_decision_share": ConstantEntry(
+        value=0.65,
+        lower_bound=0.40,
+        upper_bound=0.90,
+        citation="MLB starter decision rates: ~2/3 of starts end in a W or L for the starter (Baseball-Reference team pitching splits, 2022-2025); expected L per start = (1 - win_prob) x share",
+        module="optimizer/stream_analyzer.py",
+        sensitivity="MEDIUM",
+        description="Share of non-win starts charged as a pitcher Loss in matchup-impact projection",
+    ),
     "stream_risk_wind_out_mph": ConstantEntry(
         value=12.0,
         lower_bound=8.0,

@@ -294,6 +294,71 @@ with tab_finder:
                         f"{row['win_probability']:.0%} win"
                     )
 
+    # ── Matchup impact: this week's matchup with vs without the stream ──
+    st.markdown("---")
+    st.markdown("**Matchup impact (with vs without the stream)**")
+    sel_date = datetime.strptime(target_date, "%Y-%m-%d").date()
+    now_utc = datetime.now(UTC).date()
+    week_monday = now_utc - timedelta(days=now_utc.weekday())
+    week_sunday = week_monday + timedelta(days=6)
+    in_matchup_week = week_monday <= sel_date <= week_sunday
+    my_totals = getattr(ctx, "my_totals", None) or {}
+    opp_totals = getattr(ctx, "opp_totals", None) or {}
+
+    if not in_matchup_week:
+        st.caption(
+            "This date falls outside the current matchup week (Mon-Sun) — "
+            "next week's opponent isn't known yet, so no with/without "
+            "projection is possible."
+        )
+    elif not my_totals or not opp_totals:
+        st.caption("Live matchup totals unavailable — connect Yahoo to project impact.")
+    elif board.empty or not board["actionable"].any():
+        st.caption("No actionable streams to project for this date.")
+    else:
+        from src.optimizer.stream_analyzer import compute_matchup_impact
+
+        opp_label = getattr(ctx, "opponent_name", "") or "opponent"
+        impact_rows = []
+        for _, row in board[board["actionable"]].head(5).iterrows():
+            impact = compute_matchup_impact(
+                my_totals,
+                opp_totals,
+                {
+                    "ip": row["expected_ip"],
+                    "k": row["expected_k"],
+                    "er": row["expected_er"],
+                    "win_prob": row["win_probability"],
+                },
+                pitcher_whip=row.get("whip") or 0.0,
+                config=config,
+                num_starts=int(row["num_starts"]),
+            )
+            if impact is None:
+                continue
+            movers = sorted(impact["per_cat"].items(), key=lambda kv: abs(kv[1]["delta"]), reverse=True)
+            mover_txt = ", ".join(
+                f"{cat.upper()} {d['delta']:+.0%}" for cat, d in movers[:3] if abs(d["delta"]) >= 0.005
+            )
+            impact_rows.append(
+                {
+                    "Pitcher": row["player_name"],
+                    "vs": row["opponent"],
+                    "Exp cat wins": f"{impact['expected_wins_delta']:+.2f}",
+                    "Matchup win%": f"{impact['overall_win_prob_delta']:+.1%}",
+                    "Biggest movers": mover_txt or "negligible",
+                }
+            )
+        if impact_rows:
+            st.caption(
+                f"Projected change to this week's matchup vs {opp_label} if you "
+                "add each pitcher for this start (same category engine as the "
+                "Lineup Optimizer; drop-side cost shown in the swap table below)."
+            )
+            st.dataframe(pd.DataFrame(impact_rows), hide_index=True)
+        else:
+            st.caption("Matchup impact could not be computed for these candidates.")
+
     # Swap recommendations — same-day matchup state required
     st.markdown("---")
     st.markdown("**Suggested swap (today)**")
