@@ -40,8 +40,10 @@ from src.ui_shared import (
     page_timer_start,
     render_context_card,
     render_context_columns,
+    render_empty_state,
     render_matchup_ticker,
     render_page_header,
+    render_panel,
     render_reco_banner,
     render_sortable_table,
     team_logo_url,
@@ -162,7 +164,7 @@ def main():
     rosters_df = yds.get_rosters()
 
     if rosters_df.empty:
-        st.warning("No league rosters loaded. Connect to Yahoo and sync rosters first.")
+        render_empty_state("No league rosters loaded", "Connect to Yahoo and sync rosters first.", icon_key="users")
         return
 
     # Build {team_name: [player_ids]} dict
@@ -174,7 +176,11 @@ def main():
             league_rosters.setdefault(team, []).append(int(pid))
 
     if len(league_rosters) < 2:
-        st.warning("Need at least 2 teams loaded to find trades.")
+        render_empty_state(
+            "Need at least 2 teams loaded to find trades",
+            "Sync more league rosters from Yahoo to scan for opportunities.",
+            icon_key="users",
+        )
         return
 
     # Identify the current viewer's team (auth-aware under MULTI_USER).
@@ -186,12 +192,14 @@ def main():
             user_team_name = next(iter(league_rosters), None)
 
     if not user_team_name or user_team_name not in league_rosters:
-        st.warning("No user team identified. Connect to Yahoo and sync rosters first.")
+        render_empty_state("No user team identified", "Connect to Yahoo and sync rosters first.", icon_key="users")
         return
 
     user_roster_ids = league_rosters.get(user_team_name, [])
     if not user_roster_ids:
-        st.warning(f"No roster found for '{user_team_name}'. Check Yahoo sync.")
+        render_empty_state(
+            "No roster found", f"No roster found for '{user_team_name}'. Check Yahoo sync.", icon_key="users"
+        )
         return
 
     # Compute team category totals (Yahoo standings first, projection fallback)
@@ -377,11 +385,11 @@ def main():
 
     with main_col:
         if not opportunities:
-            st.info(
-                "No profitable trade opportunities found. This can happen when:\n"
-                "- League standings data is missing (sync with Yahoo)\n"
-                "- Your roster is well-balanced (no clear upgrade paths)\n"
-                "- All opponents have weaker players at your need positions"
+            render_empty_state(
+                "No profitable trade opportunities found",
+                "This can happen when league standings data is missing (sync with Yahoo), "
+                "your roster is well-balanced (no clear upgrade paths), or all opponents "
+                "have weaker players at your need positions.",
             )
             page_timer_footer("Trade Finder")
             return
@@ -457,7 +465,7 @@ def main():
                     st.success(f"Found {len(enhanced_recs)} enhanced recommendations (marked below)")
                     st.session_state["_enhanced_recs"] = enhanced_recs
                 else:
-                    st.info("No enhanced recommendations found.")
+                    render_empty_state("No enhanced recommendations found")
 
             # Build the unified trade table
             df = _build_trade_df(opportunities)
@@ -566,7 +574,7 @@ def main():
                         opp_ids.extend(pids)
 
                 if not opp_ids:
-                    st.info("No opponent players found. Sync your Yahoo league data.")
+                    render_empty_state("No opponent players found", "Sync your Yahoo league data.", icon_key="users")
                 else:
                     # Get FA pool for comparison
                     try:
@@ -592,7 +600,7 @@ def main():
                         )
 
                     if readiness_df.empty:
-                        st.info("Could not compute Trade Readiness scores.")
+                        render_empty_state("Could not compute Trade Readiness scores")
                     else:
                         # Add ADP tier classification
                         def _adp_tier(row):
@@ -747,31 +755,68 @@ def main():
                             # Two columns: Lowball | Fair Value
                             col_low, col_fair = st.columns(2)
 
-                            for col_prop, label, key_prop, color in [
-                                (col_low, "Lowball", "lowball", T["hot"]),
-                                (col_fair, "Fair Value", "fair_value", T["ok"]),
+                            for col_prop, label, key_prop in [
+                                (col_low, "Lowball", "lowball"),
+                                (col_fair, "Fair Value", "fair_value"),
                             ]:
                                 with col_prop:
                                     proposal = proposals.get(key_prop)
                                     if proposal is None:
-                                        st.info(
-                                            f"No {label.lower()} proposal found -- no viable package on your roster."
+                                        render_empty_state(
+                                            f"No {label.lower()} proposal found",
+                                            "No viable package on your roster.",
                                         )
                                         continue
 
-                                    # Header
-                                    st.markdown(
-                                        f'<div style="background:{color}20;border:1px solid {color};'
-                                        f'border-radius:8px;padding:12px;margin-bottom:8px;">'
-                                        f'<div style="font-family:var(--font-body);font-size:20px;'
-                                        f'color:{color};font-weight:700;">{label}</div>'
-                                        f"</div>",
-                                        unsafe_allow_html=True,
-                                    )
-
-                                    # Give players
+                                    # Proposal card — instrument panel with the
+                                    # partner-team eyebrow, the give package, and
+                                    # category-delta chips (Combustion Finale).
                                     give_names = proposal.get("giving_names", [])
-                                    st.markdown(f"**You give:** {', '.join(give_names) if give_names else 'N/A'}")
+                                    _give_txt = _html.escape(", ".join(give_names) if give_names else "N/A")
+
+                                    # Category impact → chips: orange (.hot) for SGP
+                                    # gains, steel (.cold) for losses; the mono figure
+                                    # inside each chip carries the SGP delta.
+                                    cat_impact = proposal.get("category_impact", {})
+                                    _chip_parts: list[str] = []
+                                    for cat_i in config.all_categories:
+                                        val_i = cat_impact.get(cat_i, 0)
+                                        display_name_i = _CAT_DISPLAY.get(cat_i, cat_i)
+                                        _sgp_txt = format_stat(val_i, "SGP")
+                                        if val_i > 0.05:
+                                            _chip_parts.append(
+                                                f'<span class="chip hot">+{display_name_i}'
+                                                f'<span class="mono" style="font-family:var(--font-mono);'
+                                                f'font-size:10px;">{_sgp_txt}</span></span>'
+                                            )
+                                        elif val_i < -0.05:
+                                            _chip_parts.append(
+                                                f'<span class="chip cold">-{display_name_i}'
+                                                f'<span class="mono" style="font-family:var(--font-mono);'
+                                                f'font-size:10px;">{_sgp_txt}</span></span>'
+                                            )
+                                    if _chip_parts:
+                                        _chips_html = (
+                                            '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:9px;">'
+                                            + "".join(_chip_parts)
+                                            + "</div>"
+                                        )
+                                    elif cat_impact:
+                                        _chips_html = (
+                                            '<div class="t-caption" style="margin-top:9px;">'
+                                            "No material category movement.</div>"
+                                        )
+                                    else:
+                                        _chips_html = ""
+
+                                    _panel_body = (
+                                        f'<div class="t-eyebrow" style="margin-bottom:7px;">'
+                                        f"{_html.escape(str(target_team))}</div>"
+                                        f'<div style="font-family:var(--font-body);font-size:13px;'
+                                        f'color:var(--fp-tx);">You give: <b>{_give_txt}</b></div>'
+                                        f"{_chips_html}"
+                                    )
+                                    render_panel(label, _panel_body, accent="left")
 
                                     # Metrics row
                                     m1, m2, m3 = st.columns(3)
@@ -783,32 +828,6 @@ def main():
                                         "Accept",
                                         f"{proposal.get('acceptance_probability', 0):.0%}",
                                     )
-
-                                    # Category impact
-                                    cat_impact = proposal.get("category_impact", {})
-                                    if cat_impact:
-                                        impact_rows = []
-                                        for cat_i in config.all_categories:
-                                            val_i = cat_impact.get(cat_i, 0)
-                                            display_name_i = _CAT_DISPLAY.get(cat_i, cat_i)
-                                            if val_i > 0.05:
-                                                arrow = "+"
-                                            elif val_i < -0.05:
-                                                arrow = "-"
-                                            else:
-                                                arrow = "~"
-                                            impact_rows.append(
-                                                {
-                                                    "Category": display_name_i,
-                                                    "Impact": format_stat(val_i, "SGP"),
-                                                    "Direction": arrow,
-                                                }
-                                            )
-                                        st.dataframe(
-                                            pd.DataFrame(impact_rows),
-                                            hide_index=True,
-                                            use_container_width=True,
-                                        )
 
                                     # ADP + ECR
                                     adp_fair_t = proposal.get("adp_fairness", 0)
@@ -961,9 +980,9 @@ def main():
                                             expanded=False,
                                         ):
                                             col_lb, col_fv = st.columns(2)
-                                            for col_p, lbl, pkey, clr in [
-                                                (col_lb, "Lowball", "lowball", T["hot"]),
-                                                (col_fv, "Fair Value", "fair_value", T["ok"]),
+                                            for col_p, lbl, pkey in [
+                                                (col_lb, "Lowball", "lowball"),
+                                                (col_fv, "Fair Value", "fair_value"),
                                             ]:
                                                 with col_p:
                                                     prop = proposals_b.get(pkey)
@@ -979,14 +998,17 @@ def main():
                                                         if isinstance(eff_p, dict)
                                                         else 0
                                                     )
-                                                    st.markdown(
-                                                        f'<div style="background:{clr}20;border:1px solid {clr};'
-                                                        f'border-radius:6px;padding:8px;margin-bottom:4px;">'
-                                                        f'<span style="font-family:var(--font-body);color:{clr};font-weight:700;">'
-                                                        f"{lbl}</span></div>",
-                                                        unsafe_allow_html=True,
+                                                    # Proposal card — instrument panel
+                                                    # with partner eyebrow (Combustion
+                                                    # Finale).
+                                                    render_panel(
+                                                        lbl,
+                                                        f'<div class="t-eyebrow" style="margin-bottom:6px;">'
+                                                        f"{_html.escape(str(selected_browse_team))}</div>"
+                                                        f'<div style="font-family:var(--font-body);font-size:13px;'
+                                                        f'color:var(--fp-tx);">Give: <b>{_html.escape(give_n)}</b></div>',
+                                                        accent="left",
                                                     )
-                                                    st.markdown(f"Give: **{give_n}**")
                                                     pm1, pm2, pm3 = st.columns(3)
                                                     pm1.metric("Grade", grade_p)
                                                     pm2.metric("Efficiency", f"{eff_r:.1f}x")
@@ -1068,7 +1090,7 @@ def _render_value_chart_tab(pool, config, all_team_totals, user_team_name) -> No
         return
 
     if trade_values.empty:
-        st.info("No trade values computed. Check that player data is loaded.")
+        render_empty_state("No trade values computed", "Check that player data is loaded.")
         return
 
     has_context = bool(user_team_name and user_totals and all_team_totals)
@@ -1103,7 +1125,7 @@ def _render_value_chart_tab(pool, config, all_team_totals, user_team_name) -> No
         mask = filtered[name_col].str.contains(search_query, case=False, na=False)
         filtered = filtered[mask].copy()
     if filtered.empty:
-        st.info("No players match the current filters.")
+        render_empty_state("No players match the current filters")
         return
 
     value_col = "contextual_value" if show_contextual and "contextual_value" in filtered.columns else "trade_value"
@@ -1126,7 +1148,7 @@ def _render_value_chart_tab(pool, config, all_team_totals, user_team_name) -> No
         tier_players = filtered[filtered[tier_col] == tier_name].copy()
         if tier_players.empty:
             continue
-        tier_color = TIER_COLORS.get(tier_name, "#666666")
+        tier_color = TIER_COLORS.get(tier_name, T["tx_muted"])
         st.markdown(
             f'<div style="margin-top:24px;margin-bottom:8px;padding:8px 16px;'
             f"background:{tier_color};"
@@ -1149,7 +1171,7 @@ def _render_value_chart_tab(pool, config, all_team_totals, user_team_name) -> No
         )
         render_styled_table(display, max_height=400)
 
-    st.markdown("---")
+    st.markdown('<div class="hr-fade"></div>', unsafe_allow_html=True)
     st.caption(
         METRIC_TOOLTIPS.get(
             "sgp",
