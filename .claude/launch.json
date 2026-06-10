@@ -3,9 +3,10 @@
   "configurations": [
     {
       "name": "streamlit-app",
-      "runtimeExecutable": "streamlit",
-      "runtimeArgs": ["run", "app.py"],
-      "port": 8501
+      "runtimeExecutable": "C:\\Users\\conno\\Code\\HEATER_v1.0.1\\.venv\\Scripts\\python.exe",
+      "runtimeArgs": ["-m", "streamlit", "run", "app.py"],
+      "port": 8501,
+      "env": { "HEATER_SCHEDULER_BOOT": "1", "MULTI_USER": "1" }
     }
   ]
 }

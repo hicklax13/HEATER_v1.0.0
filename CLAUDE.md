@@ -167,7 +167,7 @@ src/
   validation/               — Calibration, constant optimization, dynamic context, survival
 
   # UI
-  ui_shared.py              — THEME, PAGE_ICONS, format_stat (canonical formatter)
+  ui_shared.py              — THEME, PAGE_ICONS, format_stat (canonical formatter), Combustion design system CSS (locked by test_combustion_lock.py)
   ui_analytics_badge.py / cheat_sheet.py
 
   # Misc
@@ -432,6 +432,7 @@ _il_weight_from_status(status: str, expected_return_days: float | None = None) -
 - **Optimize click uses cached Yahoo data (T1.21)** — `pages/2_Line-up_Optimizer.py`'s optimize handler does NOT force-refresh Yahoo. Users force-refresh via the "Refresh Yahoo Data" sidebar button. This decoupling closed the 159-second OAuth hang documented in the v2 design spec. `_get_cached` in `src/yahoo_data_service.py` also wraps every Yahoo fetch in a 15-second `ThreadPoolExecutor` timeout so a hung Yahoo call cannot block page rendering. Structurally guarded by `tests/test_oauth_decoupling.py`.
 
 ### Streamlit UI
+- **Combustion Index design system (2026-06-09, locked)** — Off-white canvas + deep-navy chrome rail + orange `#ff6d00` primary (NO brand red; ember `#e63946` allowed only for functional-negative icons). Fonts: Archivo (display, `--font-display`), Inter (body, `--font-body`), IBM Plex Mono (figures, `--font-mono`) — Figtree/Bebas retired. `html, body` is root-locked to Inter and Streamlit's BaseWeb widgets are font-locked via a comma-joined selector rule. Clickable text uses the `.heater-link`/`.clickable` helper (orange + underline), scoped to main content — sidebar nav stays bone-on-navy. Full-width layout (`max-width: none`). All of this is machine-checked by `tests/test_combustion_lock.py` (13 tests).
 - **No emoji** — All icons are inline SVGs from `PAGE_ICONS`. Injury badges use CSS dots.
 - **CSS `!important` required** — Streamlit's inline CSS has high specificity.
 - **HTML sanitization** — `st.markdown('<div>')` auto-closes tags. Use self-contained HTML blocks.
@@ -644,6 +645,7 @@ These tests guard against regression of the cleanup work. Adding new code that v
 | `test_pages_use_viewer_team_resolver.py` (frame guard, extended 2026-06-05) | Every personalized page calls `resolve_viewer_team_name()` WITH a frame (no zero-arg call) so the emoji/whitespace reconciliation runs. League Standings' no-frame call returned the env-seeded "Team Hickey", which never matched the Yahoo emoji-prefixed name → "Your Position: Team not found in standings" + 9 other broken `== user_team` comparisons (`b7f0567`) |
 | `test_build_optimizer_context_user_roster_filter.py` (F5, extended 2026-06-05) | `build_optimizer_context` refuses a multi-team rosters fallback when `user_team_name` is falsy + `roster=None` (leaves roster empty + WARNs) instead of silently using all 12 teams → league-wide nonsense recs. Single-team fetched rosters (unambiguous) are still used |
 | `test_standings_close_battles.py` | `standings_utils.close_battle_categories()` skips matchup categories with a missing/empty/whitespace name so the standings banner never renders "Close battles: , , ." (2026-06-05 cosmetic); tolerates malformed rows without raising |
+| `test_combustion_lock.py` | Locks the Combustion Index design system (2026-06-09): `THEME["primary"] == "#ff6d00"`; Google-Fonts @import loads Archivo + Inter + IBM Plex Mono (Figtree/Bebas banned module-wide); `--font-*` + `--fp-*` tokens emitted; `.sec-head` uses Archivo, never all-caps; sidebar is a navy rail with desktop-scoped (≤140px, `@media min-width:768px`) width so phones keep the drawer; block container full-width (1180px clamp banned); no emoji in `inject_custom_css()` output or `PAGE_ICONS`; root body-font lock (`html, body` → Inter) + BaseWeb widget font-lock; `.heater-link`/`.clickable` = orange + underline; content-link orange rule scoped to main (never `.stSidebar`) |
 
 **Spec-completion guards (Items 1-8, 2026-05-25 — finish the Enhanced Trade Engine report):**
 
