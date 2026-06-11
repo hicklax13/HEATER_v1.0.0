@@ -411,6 +411,41 @@ def _fetch_schedule_for_date(target_date: str) -> list[dict[str, Any]]:
         return []
 
 
+def _ensure_opponent_strength(
+    team_strength: dict[str, dict[str, Any]],
+    schedule: list[dict[str, Any]] | None,
+) -> dict[str, dict[str, Any]]:
+    """Fill team-strength gaps for every team appearing in *schedule*.
+
+    Uses game_day.get_team_strength (session-cached); fetch failures leave
+    the team absent so downstream falls back to the documented neutral line.
+    Never mutates the caller's dict.
+    """
+    if not schedule:
+        return team_strength
+    abbrs: set[str] = set()
+    for game in schedule:
+        for side in ("home_name", "away_name"):
+            abbr = team_name_to_abbr(str(game.get(side, "")), default="")
+            if abbr:
+                abbrs.add(abbr)
+    missing = [a for a in abbrs if a not in team_strength]
+    if not missing:
+        return team_strength
+    try:
+        from src.game_day import get_team_strength
+    except Exception:
+        return team_strength
+    for abbr in missing:
+        try:
+            entry = get_team_strength(abbr)
+            if entry:
+                team_strength[abbr] = entry
+        except Exception:
+            continue
+    return team_strength
+
+
 def _pool_name_index(pool: pd.DataFrame) -> dict[str, int]:
     """normalized player name → positional index into *pool*."""
     name_col = "player_name" if "player_name" in pool.columns else "name"
@@ -460,7 +495,11 @@ def build_stream_board(
     name_index = _pool_name_index(pool)
     rostered_ids = {int(i) for i in (getattr(ctx, "league_rostered_ids", None) or set())}
     user_ids = {int(i) for i in (getattr(ctx, "user_roster_ids", None) or [])}
-    team_strength = getattr(ctx, "team_strength", None) or {}
+    # ctx.team_strength only covers teams ON THE USER'S ROSTER
+    # (shared_data_layer._load_team_strength) — stream opponents are
+    # league-wide, so enrich missing teams here or every off-roster opponent
+    # silently scores as a neutral 100 wRC+ / 22 K% (2026-06-10 live finding).
+    team_strength = _ensure_opponent_strength(dict(getattr(ctx, "team_strength", None) or {}), schedule)
     park_factors = getattr(ctx, "park_factors", None) or {}
     weather_map = getattr(ctx, "weather", None) or {}
     two_start_ids = {int(i) for i in (getattr(ctx, "two_start_pitchers", None) or [])}

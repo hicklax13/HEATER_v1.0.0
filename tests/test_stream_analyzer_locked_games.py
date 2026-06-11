@@ -162,3 +162,58 @@ def test_board_sorted_by_score_descending():
     board = build_stream_board(_ctx(), today, schedule=_schedule(today))
     scores = list(board["stream_score"])
     assert scores == sorted(scores, reverse=True)
+
+
+def test_board_enriches_off_roster_opponent_strength(monkeypatch):
+    """ctx.team_strength only covers the user's rostered teams — the board
+    must enrich missing opponents via game_day.get_team_strength so
+    off-roster opponents don't all score as a neutral 100 wRC+ / 22 K%
+    (2026-06-10 live finding)."""
+    import src.game_day as game_day
+
+    fetched = {}
+
+    def _fake_ts(abbr):
+        fetched[abbr] = True
+        return {"wrc_plus": 85.0, "k_pct": 26.0}
+
+    monkeypatch.setattr(game_day, "get_team_strength", _fake_ts)
+    today = _today()
+    board = build_stream_board(_ctx(team_strength={}), today, schedule=_schedule(today))
+    assert fetched, "missing opponents must be fetched"
+    assert (board["opp_wrc_plus"] == 85.0).all()
+
+
+def test_board_neutral_when_strength_fetch_fails(monkeypatch):
+    """Fetch failures degrade to the neutral line — never raise."""
+    import src.game_day as game_day
+
+    def _boom(abbr):
+        raise RuntimeError("statsapi down")
+
+    monkeypatch.setattr(game_day, "get_team_strength", _boom)
+    today = _today()
+    board = build_stream_board(_ctx(team_strength={}), today, schedule=_schedule(today))
+    assert len(board) == 2
+    assert (board["opp_wrc_plus"] == 100.0).all()
+
+
+def test_board_prefers_ctx_team_strength(monkeypatch):
+    """Teams already in ctx.team_strength are NOT re-fetched."""
+    import src.game_day as game_day
+
+    def _boom(abbr):
+        raise AssertionError(f"should not fetch {abbr}")
+
+    monkeypatch.setattr(game_day, "get_team_strength", _boom)
+    today = _today()
+    strength = {
+        "CWS": {"wrc_plus": 80.0, "k_pct": 27.0},
+        "NYY": {"wrc_plus": 115.0, "k_pct": 19.0},
+        "SEA": {"wrc_plus": 100.0, "k_pct": 22.0},
+        "BOS": {"wrc_plus": 100.0, "k_pct": 22.0},
+    }
+    board = build_stream_board(_ctx(team_strength=strength), today, schedule=_schedule(today))
+    by_name = board.set_index("player_name")
+    assert by_name.loc["Streamer A", "opp_wrc_plus"] == 80.0
+    assert by_name.loc["Streamer B", "opp_wrc_plus"] == 115.0

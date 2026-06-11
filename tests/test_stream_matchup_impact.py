@@ -118,3 +118,11 @@ def test_page_wires_matchup_impact():
     assert "compute_matchup_impact" in src, (
         "the Stream Finder must surface the with-vs-without matchup impact (owner request 2026-06-10)"
     )
+
+
+def test_page_passes_park_factors_to_context_builder():
+    """build_optimizer_context does NOT load park factors itself — the page
+    must pass them or every venue scores Park 1.00 (2026-06-10 live finding)."""
+    src = _PAGE.read_text(encoding="utf-8")
+    assert "park_factors=_park_factors" in src
+    assert "load_park_factors" in src
