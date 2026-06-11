@@ -33,9 +33,12 @@ def _overrides() -> dict:
     if not raw:
         return {}
     try:
-        return json.loads(raw)
+        parsed = json.loads(raw)
     except (ValueError, TypeError):
         return {}
+    # Guard against valid-but-non-dict JSON (corrupt/manual write): a list would
+    # crash model_for_tier's {**defaults, **_overrides()} unpack on the hot path.
+    return parsed if isinstance(parsed, dict) else {}
 
 
 def model_for_tier(tier: str) -> str:
