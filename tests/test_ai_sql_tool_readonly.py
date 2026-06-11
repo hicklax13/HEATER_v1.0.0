@@ -72,3 +72,22 @@ def test_row_limit_enforced():
 
     out = run_read_only_sql("SELECT 1 AS n FROM players", max_rows=5)
     assert len(out["rows"]) <= 5
+
+
+@pytest.mark.parametrize("bad", [123, ["SELECT 1"], b"SELECT 1", None, {"a": 1}])
+def test_non_string_sql_returns_error_not_raise(bad):
+    """Contract: a non-str query returns an error dict, never raises."""
+    from src.ai.sql_tool import run_read_only_sql
+
+    out = run_read_only_sql(bad)
+    assert out["rows"] == [] and out["error"] is not None
+
+
+@pytest.mark.parametrize("cap", [-1, 0, None, 2.5, float("nan"), "lots"])
+def test_bad_max_rows_does_not_raise(cap):
+    """Contract: an odd max_rows is clamped/defaulted, never raises."""
+    from src.ai.sql_tool import run_read_only_sql
+
+    out = run_read_only_sql("SELECT 1 AS one", max_rows=cap)
+    assert isinstance(out, dict) and out["error"] is None
+    assert out["rows"] == [{"one": 1}]

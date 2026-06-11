@@ -26,7 +26,18 @@ def _looks_select(sql: str) -> bool:
 
 
 def run_read_only_sql(sql: str, max_rows: int = _MAX_ROWS_DEFAULT) -> dict:
-    sql = (sql or "").strip().rstrip(";").strip()
+    # Contract: never raise into the agent loop. The caller is an LLM (via the
+    # tool layer) and may pass a non-string sql or an odd max_rows — validate
+    # both up front so string ops / fetchmany can't throw.
+    if not isinstance(sql, str):
+        return {"rows": [], "error": "Query must be a string."}
+    try:
+        max_rows = int(max_rows)
+    except (TypeError, ValueError, OverflowError):
+        max_rows = _MAX_ROWS_DEFAULT
+    if max_rows < 1:
+        max_rows = _MAX_ROWS_DEFAULT
+    sql = sql.strip().rstrip(";").strip()
     if not sql:
         return {"rows": [], "error": "Empty query."}
     # single statement only
