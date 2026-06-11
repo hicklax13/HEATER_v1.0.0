@@ -508,9 +508,11 @@ def build_stream_board(
     category_weights = getattr(ctx, "category_weights", None)
 
     rows: list[dict[str, Any]] = []
+    census = {"games": 0, "probables": 0, "matched": 0, "rostered_excluded": 0}
     for game in schedule:
         if str(game.get("game_date", "")) != target_date:
             continue
+        census["games"] += 1
         status_raw = str(game.get("status", "")).lower()
         locked = target_date == today and status_raw in LOCKED_GAME_STATUSES
         if locked:
@@ -527,15 +529,18 @@ def build_stream_board(
             probable = str(game.get(f"{side}_probable_pitcher", "") or "").strip()
             if not probable:
                 continue
+            census["probables"] += 1
             pos = name_index.get(normalize_player_name(probable))
             if pos is None:
                 continue
+            census["matched"] += 1
             row = pool.iloc[pos]
             pid = _get_num(row, "player_id")
             pid = int(pid) if pid is not None else None
 
             rostered = pid is not None and pid in rostered_ids
             if rostered and not (include_rostered and pid in user_ids):
+                census["rostered_excluded"] += 1
                 continue
 
             throws = str(row.get("throws") or "") or None
@@ -595,8 +600,11 @@ def build_stream_board(
 
     board = pd.DataFrame(rows)
     if board.empty:
+        board.attrs["census"] = census
         return board
-    return board.sort_values("stream_score", ascending=False).reset_index(drop=True)
+    board = board.sort_values("stream_score", ascending=False).reset_index(drop=True)
+    board.attrs["census"] = census
+    return board
 
 
 # ── Matchup Microscope: pitcher history + lineup exposure ────────────
