@@ -111,7 +111,9 @@ def set_admin_shared_key(provider: str, api_key: str, admin_id: int) -> None:
     """Encrypt + store the shared fallback key for a provider (admin only path).
 
     Stored as a JSON map {provider: ciphertext} in app_settings under one key.
-    set_setting() is MULTI_USER-gated and audit-logs the action name only.
+    set_setting() is MULTI_USER-gated and audit-logs the value it receives — which
+    here is the ENCRYPTED ciphertext map, never the plaintext key. (The admin page
+    additionally logs an "ai_shared_key_update" action with the provider only.)
     """
     import json
 
