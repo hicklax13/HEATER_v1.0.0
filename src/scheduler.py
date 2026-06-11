@@ -84,6 +84,17 @@ def _refresh_once() -> None:
     global _last_yahoo_ok
     from src.data_bootstrap import bootstrap_all_data
 
+    # AI-requested forced refreshes: the scheduler is the sole writer, so it
+    # drains the queue the chat's request_refresh tool fills. Best-effort.
+    try:
+        from src.ai.refresh_queue import drain_queue
+
+        drained = drain_queue()
+        if drained:
+            logger.info("Scheduler: drained %d AI refresh request(s).", drained)
+    except Exception as exc:
+        logger.warning("Scheduler: forced_refresh_queue drain failed: %s", exc)
+
     # Relay: refresh the on-disk token from the gist BEFORE reconnecting, so yfpy
     # sees a valid token and never calls Yahoo's (datacenter-blocked) refresh.
     try:
