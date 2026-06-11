@@ -66,39 +66,66 @@ def append_message(
         conn.close()
 
 
-def load_messages(conversation_id: int) -> list[dict]:
+def load_messages(conversation_id: int, user_id: int | None = None) -> list[dict]:
+    """Messages for a conversation, oldest first. Pass ``user_id`` to scope to the
+    owner — returns [] for a conversation the user doesn't own (defense-in-depth
+    against a caller passing an untrusted id)."""
     from src.database import get_connection
 
     conn = get_connection()
     try:
-        rows = conn.execute(
-            "SELECT role, content, model, created_at FROM ai_messages WHERE conversation_id = ? ORDER BY id",
-            (conversation_id,),
-        ).fetchall()
+        if user_id is None:
+            rows = conn.execute(
+                "SELECT role, content, model, created_at FROM ai_messages WHERE conversation_id = ? ORDER BY id",
+                (conversation_id,),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT m.role, m.content, m.model, m.created_at FROM ai_messages m "
+                "JOIN ai_conversations c ON c.id = m.conversation_id "
+                "WHERE m.conversation_id = ? AND c.user_id = ? ORDER BY m.id",
+                (conversation_id, user_id),
+            ).fetchall()
         return [dict(r) for r in rows]
     finally:
         conn.close()
 
 
-def rename_conversation(conversation_id: int, title: str) -> None:
+def rename_conversation(conversation_id: int, title: str, user_id: int | None = None) -> None:
+    """Rename a conversation. Pass ``user_id`` to scope the write to the owner."""
     from src.database import get_connection
 
     conn = get_connection()
     try:
-        conn.execute(
-            "UPDATE ai_conversations SET title = ?, updated_at = ? WHERE id = ?",
-            (title[:120], _now(), conversation_id),
-        )
+        if user_id is None:
+            conn.execute(
+                "UPDATE ai_conversations SET title = ?, updated_at = ? WHERE id = ?",
+                (title[:120], _now(), conversation_id),
+            )
+        else:
+            conn.execute(
+                "UPDATE ai_conversations SET title = ?, updated_at = ? WHERE id = ? AND user_id = ?",
+                (title[:120], _now(), conversation_id, user_id),
+            )
         conn.commit()
     finally:
         conn.close()
 
 
-def delete_conversation(conversation_id: int) -> None:
+def delete_conversation(conversation_id: int, user_id: int | None = None) -> None:
+    """Delete a conversation + its messages. Pass ``user_id`` to scope the delete
+    to the owner — a non-owner id deletes nothing."""
     from src.database import get_connection
 
     conn = get_connection()
     try:
+        if user_id is not None:
+            owns = conn.execute(
+                "SELECT 1 FROM ai_conversations WHERE id = ? AND user_id = ?",
+                (conversation_id, user_id),
+            ).fetchone()
+            if owns is None:
+                return  # not the owner — delete nothing
         conn.execute("DELETE FROM ai_messages WHERE conversation_id = ?", (conversation_id,))
         conn.execute("DELETE FROM ai_conversations WHERE id = ?", (conversation_id,))
         conn.commit()

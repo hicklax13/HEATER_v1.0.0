@@ -54,3 +54,30 @@ def test_rename_and_delete():
     assert list_conversations(99)[0]["title"] == "new"
     delete_conversation(cid)
     assert list_conversations(99) == []
+
+
+def test_user_id_scoping_blocks_cross_user_access():
+    """Defense-in-depth: passing user_id scopes load/rename/delete to the owner."""
+    from src.ai.history import (
+        append_message,
+        create_conversation,
+        delete_conversation,
+        list_conversations,
+        load_messages,
+        rename_conversation,
+    )
+
+    cid = create_conversation(1, "owner-only", "m")
+    append_message(cid, "user", "secret")
+
+    # a different user cannot read, rename, or delete it when scoped
+    assert load_messages(cid, user_id=2) == []
+    rename_conversation(cid, "hijacked", user_id=2)
+    assert list_conversations(1)[0]["title"] == "owner-only"  # unchanged
+    delete_conversation(cid, user_id=2)
+    assert len(list_conversations(1)) == 1  # still there
+
+    # the owner can
+    assert [m["content"] for m in load_messages(cid, user_id=1)] == ["secret"]
+    delete_conversation(cid, user_id=1)
+    assert list_conversations(1) == []
