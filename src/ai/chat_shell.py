@@ -62,9 +62,13 @@ def _shell_script(container_id: str = CONTAINER_ID, launcher_id: str = LAUNCHER_
         if (s.top  != null) {{ w.style.top  = s.top  + 'px'; w.style.bottom = 'auto'; }}
         if (s.width)  w.style.width  = s.width + 'px';
         if (s.height) w.style.height = s.height + 'px';
-        w.classList.toggle('heater-ai-hidden', s.open === false);
+        // Default closed: the window is open ONLY when explicitly opened (s.open===true).
+        // On first load (s.open undefined) the launcher shows and the window stays hidden,
+        // so the two are never visible at once.
+        const isOpen = s.open === true;
+        w.classList.toggle('heater-ai-hidden', !isOpen);
         const launcher = el('{launcher_id}');
-        if (launcher) launcher.style.display = (s.open === false || s.open == null) ? 'inline-flex' : 'none';
+        if (launcher) launcher.style.display = isOpen ? 'none' : 'inline-flex';
       }}
 
       function wireLauncher() {{
