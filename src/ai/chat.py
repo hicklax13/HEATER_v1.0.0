@@ -137,6 +137,11 @@ def _handle_send(prompt: str, tier: str, page: str, user: dict) -> None:
     with st.chat_message("user"):
         st.markdown(prompt)
 
+    # No rosters frame is passed: under MULTI_USER the resolver returns the
+    # session user's admin-assigned team from identity (not a frame match), and
+    # here the team name is only an informational label in the system prompt —
+    # it is never used as a DataFrame match key, so the 2026-06-05 frame-guard
+    # (a standings-matching concern) does not apply.
     viewer_team = resolve_viewer_team_name()
     system = build_system_prompt(page, viewer_team)
     messages = [{"role": "system", "content": system}] + st.session_state[_STATE_MSGS]
@@ -196,9 +201,10 @@ def _render_ai_settings(user: dict) -> None:
         existing = list_keys(uid)
         if existing:
             st.caption("Your keys:")
-            for k in existing:
+            for i, k in enumerate(existing):
                 row = st.columns([3, 1])
                 row[0].write(f"{k['provider']}" + (f" - {k['label']}" if k["label"] else ""))
-                if row[1].button("Remove", key=f"del_{k['provider']}_{k['label']}"):
+                # row index in the key keeps it unique even for two same-(provider,label) rows
+                if row[1].button("Remove", key=f"del_{i}_{k['provider']}_{k['label']}"):
                     delete_key(uid, k["provider"], k["label"])
                     st.rerun()
