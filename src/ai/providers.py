@@ -72,7 +72,9 @@ def chat(
                 args = {}
             result = dispatch_tool(tc.function.name, args, user_id=user_id)
             tool_trace.append({"name": tc.function.name, "args": args})
-            convo.append({"role": "tool", "tool_call_id": tc.id, "content": result})
+            # `name` is optional on OpenAI/Anthropic tool messages but some
+            # OpenAI-compatible + ollama gateways rely on it — echo it for safety.
+            convo.append({"role": "tool", "tool_call_id": tc.id, "name": tc.function.name, "content": result})
 
     # loop cap hit
     return {
