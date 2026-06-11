@@ -252,8 +252,17 @@ with tab_finder:
         )
 
     schedule = None if target_date == today_str else _fetch_schedule_cached(target_date)
-    board = build_stream_board(ctx, target_date, schedule=schedule, include_rostered=include_rostered)
+    with st.spinner("Scoring the stream board..."):
+        board = build_stream_board(ctx, target_date, schedule=schedule, include_rostered=include_rostered)
     board_full = board  # unfiltered reference for the Microscope tab
+    census = board.attrs.get("census") or {}
+    if census:
+        st.caption(
+            f"Slate: {census.get('games', 0)} games, "
+            f"{census.get('probables', 0)} probables posted, "
+            f"{census.get('matched', 0)} matched to the player pool, "
+            f"{census.get('rostered_excluded', 0)} excluded as rostered."
+        )
 
     if board.empty:
         render_empty_state(
@@ -356,35 +365,37 @@ with tab_finder:
 
         opp_label = getattr(ctx, "opponent_name", "") or "opponent"
         impact_rows = []
-        for _, row in board[board["actionable"]].head(5).iterrows():
-            impact = compute_matchup_impact(
-                my_totals,
-                opp_totals,
-                {
-                    "ip": row["expected_ip"],
-                    "k": row["expected_k"],
-                    "er": row["expected_er"],
-                    "win_prob": row["win_probability"],
-                },
-                pitcher_whip=row.get("whip") or 0.0,
-                config=config,
-                num_starts=int(row["num_starts"]),
-            )
-            if impact is None:
-                continue
-            movers = sorted(impact["per_cat"].items(), key=lambda kv: abs(kv[1]["delta"]), reverse=True)
-            mover_txt = ", ".join(
-                f"{cat.upper()} {d['delta']:+.0%}" for cat, d in movers[:3] if abs(d["delta"]) >= 0.005
-            )
-            impact_rows.append(
-                {
-                    "Pitcher": row["player_name"],
-                    "vs": row["opponent"],
-                    "Exp cat wins": f"{impact['expected_wins_delta']:+.2f}",
-                    "Matchup win%": f"{impact['overall_win_prob_delta']:+.1%}",
-                    "Biggest movers": mover_txt or "negligible",
-                }
-            )
+        impact_candidates = board[board["actionable"]].head(5)
+        with st.spinner("Projecting matchup impact..."):
+            for _, row in impact_candidates.iterrows():
+                impact = compute_matchup_impact(
+                    my_totals,
+                    opp_totals,
+                    {
+                        "ip": row["expected_ip"],
+                        "k": row["expected_k"],
+                        "er": row["expected_er"],
+                        "win_prob": row["win_probability"],
+                    },
+                    pitcher_whip=row.get("whip") or 0.0,
+                    config=config,
+                    num_starts=int(row["num_starts"]),
+                )
+                if impact is None:
+                    continue
+                movers = sorted(impact["per_cat"].items(), key=lambda kv: abs(kv[1]["delta"]), reverse=True)
+                mover_txt = ", ".join(
+                    f"{cat.upper()} {d['delta']:+.0%}" for cat, d in movers[:3] if abs(d["delta"]) >= 0.005
+                )
+                impact_rows.append(
+                    {
+                        "Pitcher": row["player_name"],
+                        "vs": row["opponent"],
+                        "Exp cat wins": f"{impact['expected_wins_delta']:+.2f}",
+                        "Matchup win%": f"{impact['overall_win_prob_delta']:+.1%}",
+                        "Biggest movers": mover_txt or "negligible",
+                    }
+                )
         if impact_rows:
             st.caption(
                 f"Projected change to this week's matchup vs {opp_label} if you "
@@ -407,7 +418,13 @@ with tab_finder:
         st.caption("Swap suggestions unavailable without live matchup context.")
     else:
         try:
-            moves = recommend_streaming_moves(ctx)
+            _swap_cache = st.session_state.get("stream_swap_cache")
+            if _swap_cache and _swap_cache.get("date") == today_str:
+                moves = _swap_cache["moves"]
+            else:
+                with st.spinner("Evaluating add/drop swaps..."):
+                    moves = recommend_streaming_moves(ctx)
+                st.session_state["stream_swap_cache"] = {"date": today_str, "moves": moves}
             pitcher_moves = moves.get("pitchers", [])
             if not pitcher_moves:
                 note = (moves.get("diagnostics") or {}).get("note", "")
@@ -578,58 +595,76 @@ def _fetch_week_schedule_cached(start: str, end: str) -> list[dict]:
 with tab_planner:
     st.caption(
         "Greedy stream sequence for the next 7 days under your remaining add "
-        "budget. Advisory only — FCFS waivers mean nothing is reserved; the "
-        "plan re-computes on every visit."
+        "budget. Advisory only — FCFS waivers mean nothing is reserved."
     )
+    # Button-gated: scoring 7 days of boards on EVERY rerun blocked the whole
+    # page for long stretches on the live server (2026-06-11 finding — tabs
+    # appeared blank while the script was still grinding). Plan is cached per
+    # session per day; the button rebuilds it.
     week_start = datetime.now(UTC).strftime("%Y-%m-%d")
-    week_end = (datetime.now(UTC) + timedelta(days=6)).strftime("%Y-%m-%d")
-    week_schedule = _fetch_week_schedule_cached(week_start, week_end)
+    _plan_cache = st.session_state.get("stream_week_plan")
+    _plan_fresh = bool(_plan_cache) and _plan_cache.get("date") == week_start
+    if st.button("Build 7-day plan" if not _plan_fresh else "Rebuild plan", key="build_week_plan"):
+        week_end = (datetime.now(UTC) + timedelta(days=6)).strftime("%Y-%m-%d")
+        week_schedule = _fetch_week_schedule_cached(week_start, week_end)
 
-    from src.optimizer.stream_analyzer import build_week_plan
+        from src.optimizer.stream_analyzer import build_week_plan
 
-    plan_result = build_week_plan(ctx, schedule=week_schedule)
-    plan = plan_result["plan"]
-    summary = plan_result["summary"]
+        with st.spinner("Scoring all streamable starts in the next 7 days..."):
+            _plan_cache = {"date": week_start, "result": build_week_plan(ctx, schedule=week_schedule)}
+        st.session_state["stream_week_plan"] = _plan_cache
+        _plan_fresh = True
 
-    p1, p2, p3, p4 = st.columns(4)
-    with p1:
-        st.metric("Planned streams", f"{summary['n_planned']} / {summary['max_adds']} adds")
-    with p2:
-        st.metric("IP added", f"{summary['ip_added']:.1f}")
-    with p3:
-        st.metric("K added", f"{summary['k_added']:.0f}")
-    with p4:
-        st.metric("Net SGP", format_stat(summary["net_sgp_total"], "SGP"))
-    st.caption(
-        f"Weekly pacing: {summary['ip_target']:.0f} IP target, {summary['ip_floor']:.0f} IP Yahoo forfeit floor."
-    )
-
-    if not plan:
-        render_empty_state(
-            "No positive-value streams in the window",
-            "Either probables aren't posted yet, the add budget is exhausted, "
-            "or no FA start clears a positive net SGP.",
-            icon_key="baseball",
-        )
+    if not _plan_fresh:
+        st.info("Click 'Build 7-day plan' to score the week's streamable starts (~10-60s).")
+        plan_result = None
     else:
-        plan_df = pd.DataFrame(
-            {
-                "Date": [e["game_date"] for e in plan],
-                "Add": [e["player_name"] for e in plan],
-                "Tm": [e["team"] for e in plan],
-                "Opp": [e["opponent"] for e in plan],
-                "GS": [e["num_starts"] for e in plan],
-                "Conf": [e["confidence"] for e in plan],
-                "Score": [e["stream_score"] for e in plan],
-                "Net SGP": [format_stat(e["net_value"], "SGP") for e in plan],
-                "xIP": [round(e["expected_ip"] * e["num_starts"], 1) for e in plan],
-                "xK": [round(e["expected_k"] * e["num_starts"], 1) for e in plan],
-                "Risk": [", ".join(e["risk_flags"]) for e in plan],
-            }
+        plan_result = _plan_cache["result"]
+
+if plan_result is not None:
+    with tab_planner:
+        plan = plan_result["plan"]
+        summary = plan_result["summary"]
+
+        p1, p2, p3, p4 = st.columns(4)
+        with p1:
+            st.metric("Planned streams", f"{summary['n_planned']} / {summary['max_adds']} adds")
+        with p2:
+            st.metric("IP added", f"{summary['ip_added']:.1f}")
+        with p3:
+            st.metric("K added", f"{summary['k_added']:.0f}")
+        with p4:
+            st.metric("Net SGP", format_stat(summary["net_sgp_total"], "SGP"))
+        st.caption(
+            f"Weekly pacing: {summary['ip_target']:.0f} IP target, {summary['ip_floor']:.0f} IP Yahoo forfeit floor."
         )
-        st.dataframe(plan_df, hide_index=True)
-        sequence = " → ".join(f"{e['game_date'][5:]}: {e['player_name']}" for e in plan)
-        st.caption(f"Sequence: {sequence}")
+
+        if not plan:
+            render_empty_state(
+                "No positive-value streams in the window",
+                "Either probables aren't posted yet, the add budget is exhausted, "
+                "or no FA start clears a positive net SGP.",
+                icon_key="baseball",
+            )
+        else:
+            plan_df = pd.DataFrame(
+                {
+                    "Date": [e["game_date"] for e in plan],
+                    "Add": [e["player_name"] for e in plan],
+                    "Tm": [e["team"] for e in plan],
+                    "Opp": [e["opponent"] for e in plan],
+                    "GS": [e["num_starts"] for e in plan],
+                    "Conf": [e["confidence"] for e in plan],
+                    "Score": [e["stream_score"] for e in plan],
+                    "Net SGP": [format_stat(e["net_value"], "SGP") for e in plan],
+                    "xIP": [round(e["expected_ip"] * e["num_starts"], 1) for e in plan],
+                    "xK": [round(e["expected_k"] * e["num_starts"], 1) for e in plan],
+                    "Risk": [", ".join(e["risk_flags"]) for e in plan],
+                }
+            )
+            st.dataframe(plan_df, hide_index=True)
+            sequence = " → ".join(f"{e['game_date'][5:]}: {e['player_name']}" for e in plan)
+            st.caption(f"Sequence: {sequence}")
 
 # ── Tab 4: Track Record ──────────────────────────────────────────────────────
 
