@@ -53,13 +53,13 @@ def tool_specs() -> list[dict]:
             "function": {
                 "name": "request_refresh",
                 "description": (
-                    "Request a data refresh for a source (e.g. 'players', 'yahoo', or 'all'). "
+                    "Request a data refresh. 'source' is optional and currently advisory "
+                    "(any request triggers a full refresh); omit it to refresh everything. "
                     "Returns a request_id; the background scheduler runs it. Use sparingly."
                 ),
                 "parameters": {
                     "type": "object",
                     "properties": {"source": {"type": "string"}},
-                    "required": ["source"],
                 },
             },
         },
@@ -73,7 +73,10 @@ def dispatch_tool(name: str, args: dict, user_id: int) -> str:
 
             return json.dumps(run_read_only_sql(args.get("sql", "")), default=str)
         if name == "get_player":
-            return _get_player(args.get("name", ""))
+            player_name = str(args.get("name", "")).strip()
+            if not player_name:
+                return json.dumps({"error": "Missing required arg: name"})
+            return _get_player(player_name)
         if name == "get_standings":
             return _get_standings()
         if name == "request_refresh":
