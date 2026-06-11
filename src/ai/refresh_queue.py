@@ -63,6 +63,10 @@ def drain_queue() -> int:
         rid = row["id"]
         _set_status(rid, "running")
         try:
+            # NOTE: bootstrap_all_data has no per-source filter, so every request
+            # triggers a FULL force refresh regardless of row["source"]. The source
+            # column is metadata/intent only today. If a single-source refresh
+            # entrypoint is added later, pass row["source"] through here.
             _bootstrap_all_data(force=True)
             _set_status(rid, "done", completed=True)
         except Exception as exc:
