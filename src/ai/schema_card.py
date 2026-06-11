@@ -6,9 +6,17 @@ wrong joins). Secret/PII tables are excluded from what the model can see + query
 
 from __future__ import annotations
 
-# Tables the AI must never see or query (keys, auth, raw user creds).
+# Tables the AI must never see or query. Two groups:
+#   - secrets / PII / auth: keys, tokens, settings, user creds, sessions, audit.
+#   - the chat's own meta-tables: conversations/messages/usage/queue. Excluding
+#     these stops a user's AI from reading OTHER users' chat history or usage via
+#     the query_data SQL tool (it's keyed to baseball data, not the chat plumbing).
 _EXCLUDED = {
     "ai_provider_keys",
+    "ai_conversations",
+    "ai_messages",
+    "ai_usage_ledger",
+    "forced_refresh_queue",
     "auth_tokens",
     "app_settings",
     "users",
