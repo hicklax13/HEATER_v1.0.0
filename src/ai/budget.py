@@ -29,7 +29,9 @@ def daily_cap_usd() -> float:
 
 
 def set_daily_cap(usd: float, admin_id: int) -> None:
-    set_setting(_DAILY_CAP_SETTING, str(float(usd)), admin_id)
+    # Clamp to >= 0: a negative cap would make is_over_cap True for everyone
+    # (spent >= negative), silently locking all users out of chat.
+    set_setting(_DAILY_CAP_SETTING, str(max(0.0, float(usd))), admin_id)
 
 
 def record_usage(user_id: int, tokens_in: int, tokens_out: int, cost_usd: float) -> None:
@@ -46,7 +48,7 @@ def record_usage(user_id: int, tokens_in: int, tokens_out: int, cost_usd: float)
                 tokens_out = tokens_out + excluded.tokens_out,
                 cost_usd = cost_usd + excluded.cost_usd
             """,
-            (user_id, _today(), int(tokens_in), int(tokens_out), float(cost_usd)),
+            (user_id, _today(), int(tokens_in), int(tokens_out), max(0.0, float(cost_usd))),
         )
         conn.commit()
     finally:
