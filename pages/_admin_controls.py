@@ -8,7 +8,7 @@ owns the single call under st.navigation().
 import streamlit as st
 
 from src.ai.budget import daily_cap_usd, set_daily_cap
-from src.ai.keys import set_admin_shared_key
+from src.ai.keys import list_admin_shared_providers, probe_shared_key, set_admin_shared_key
 from src.ai.router import model_catalog, model_for_tier, set_tier_models
 from src.app_settings import get_broadcast, get_maintenance, set_broadcast, set_maintenance
 from src.audit import list_audit, log_action
@@ -121,6 +121,23 @@ if st.button("Save shared key"):
         st.success(f"Shared {_ai_provider} key saved.")
     else:
         st.error("Enter a key first.")
+
+# Configured shared keys — presence + a live per-provider test. Key VALUES are
+# never shown (encrypted at rest); this only reports which providers are wired
+# and whether each one authenticates right now.
+st.markdown("**Configured shared keys** (names only — values are never shown)")
+_configured = set(list_admin_shared_providers())
+for _prov in ("deepseek", "anthropic", "openai", "gemini", "xai", "openrouter"):
+    _row = st.columns([2, 1, 4])
+    _is_set = _prov in _configured
+    _row[0].write(f"{_prov} — {'configured' if _is_set else 'not set'}")
+    if _is_set and _row[1].button("Test", key=f"ai_keytest_{_prov}"):
+        _ok, _msg = probe_shared_key(_prov)
+        log_action(_admin_id, "ai_shared_key_test", target=_prov)
+        if _ok:
+            _row[2].success(_msg)
+        else:
+            _row[2].error(_msg)
 
 _cap = st.number_input("Per-user daily cap (USD)", min_value=0.0, value=float(daily_cap_usd()), step=0.25, key="ai_cap")
 if st.button("Save daily cap"):

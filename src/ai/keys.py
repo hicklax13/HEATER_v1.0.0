@@ -146,3 +146,63 @@ def get_admin_shared_key(provider: str) -> str | None:
         return _decrypt(ct)
     except Exception:
         return None
+
+
+def list_admin_shared_providers() -> list[str]:
+    """Provider NAMES that currently have a shared key configured (never the keys).
+
+    Presence-only visibility for the Admin Console — the ciphertext is never
+    returned. Empty when the flag is off / nothing is set / the map is corrupt.
+    """
+    import json
+
+    raw = get_setting(_SHARED_KEY_SETTING)
+    if not raw:
+        return []
+    try:
+        data = json.loads(raw)
+    except (ValueError, TypeError):
+        return []
+    if not isinstance(data, dict):
+        return []
+    # only surface providers whose stored ciphertext is non-empty
+    return sorted(p for p, ct in data.items() if ct)
+
+
+def _probe_model_for_provider(provider: str) -> str | None:
+    """Cheapest catalog model for a provider — used only for the live key probe."""
+    from src.ai.router import model_catalog, price_per_token, provider_of
+
+    candidates = [m for _label, m in model_catalog() if provider_of(m) == provider]
+    if not candidates:
+        return None
+    return min(candidates, key=lambda m: sum(price_per_token(m)))
+
+
+def probe_shared_key(provider: str) -> tuple[bool, str]:
+    """Live 1-shot check of the admin shared key for a provider → (ok, message).
+
+    Decrypts the stored shared key and runs a tiny completion through the cheapest
+    catalog model for that provider. Success = the call returns without raising
+    (a valid-but-thinking model may emit empty text on a tiny budget — that still
+    proves the key authenticates). The key is never returned or logged.
+    """
+    key = get_admin_shared_key(provider)
+    if not key:
+        return False, "No shared key set."
+    model = _probe_model_for_provider(provider)
+    if not model:
+        return False, f"No catalog model for {provider}."
+    try:
+        import litellm
+
+        litellm.suppress_debug_info = True
+        litellm.completion(
+            model=model,
+            messages=[{"role": "user", "content": "Reply with: OK"}],
+            api_key=key,
+            max_tokens=32,
+        )
+        return True, f"Working — authenticated via {model}."
+    except Exception as e:  # noqa: BLE001 — surface any provider error verbatim to the admin
+        return False, f"{type(e).__name__}: {str(e)[:200]}"

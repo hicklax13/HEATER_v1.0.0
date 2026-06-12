@@ -80,3 +80,55 @@ def test_list_and_delete():
     assert all("k1" not in str(r) and "k2" not in str(r) for r in listed)
     delete_key(99, "openai", "work")
     assert {r["provider"] for r in list_keys(99)} == {"gemini"}
+
+
+def test_list_admin_shared_providers_presence_only():
+    from src.ai.keys import list_admin_shared_providers, set_admin_shared_key
+
+    assert list_admin_shared_providers() == []
+    set_admin_shared_key("deepseek", "sk-ds-secret", admin_id=1)
+    set_admin_shared_key("anthropic", "sk-ant-secret", admin_id=1)
+    provs = list_admin_shared_providers()
+    assert provs == ["anthropic", "deepseek"]  # sorted, presence only
+    # never leaks the stored key material
+    assert all("sk-" not in p for p in provs)
+
+
+def test_probe_shared_key_no_key_set():
+    from src.ai.keys import probe_shared_key
+
+    ok, msg = probe_shared_key("anthropic")
+    assert ok is False
+    assert "No shared key" in msg
+
+
+def test_probe_shared_key_success(monkeypatch):
+    import sys
+    import types
+
+    from src.ai.keys import probe_shared_key, set_admin_shared_key
+
+    set_admin_shared_key("anthropic", "sk-admin", admin_id=1)
+    fake = types.SimpleNamespace(completion=lambda **kw: object(), suppress_debug_info=False)
+    monkeypatch.setitem(sys.modules, "litellm", fake)
+    ok, msg = probe_shared_key("anthropic")
+    assert ok is True
+    assert "Working" in msg
+
+
+def test_probe_shared_key_surfaces_provider_error(monkeypatch):
+    import sys
+    import types
+
+    from src.ai.keys import probe_shared_key, set_admin_shared_key
+
+    set_admin_shared_key("openai", "sk-bad", admin_id=1)
+
+    def _boom(**kw):
+        raise RuntimeError("invalid api key")
+
+    fake = types.SimpleNamespace(completion=_boom, suppress_debug_info=False)
+    monkeypatch.setitem(sys.modules, "litellm", fake)
+    ok, msg = probe_shared_key("openai")
+    assert ok is False
+    assert "RuntimeError" in msg and "invalid api key" in msg
