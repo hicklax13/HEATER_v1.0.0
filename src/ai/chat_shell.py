@@ -27,11 +27,14 @@ def window_frame_css() -> str:
     """
     return (
         "position: fixed; bottom: 24px; right: 24px; width: 380px;"
-        # Auto-height so a short/new conversation fits its content (no dead space
-        # below the input); grows to the cap as messages accumulate, then scrolls.
-        "height: auto; max-height: min(560px, 82vh);"
-        "min-width: 300px; min-height: 200px; max-width: 90vw;"
-        "resize: both; overflow: auto; z-index: 99999;"
+        # Fixed-height flex column: header + controls sit at the top, the transcript
+        # flexes to fill the middle and scrolls internally, and the chat input is
+        # pinned at the bottom (the descendant rules live in float_window_css,
+        # scoped to .heater-ai-window). Window itself never scrolls.
+        "display: flex; flex-direction: column;"
+        "height: min(560px, 82vh); min-height: 360px;"
+        "min-width: 300px; max-width: 90vw;"
+        "resize: both; overflow: hidden; z-index: 99999;"
         "background: #fff; border: 1px solid rgba(0,0,0,.18); border-radius: 12px;"
         "box-shadow: 0 10px 40px rgba(0,0,0,.18);"
     )
@@ -54,6 +57,23 @@ def float_window_css() -> str:
       }}
       #{CONTAINER_ID}-header {{ cursor: move; user-select: none; }}
       .heater-ai-hidden {{ display: none !important; }}
+      /* Internal layout (scoped to the JS-tagged .heater-ai-window): header +
+         controls at the top, transcript flexes to fill the middle and scrolls,
+         chat input pinned at the bottom. The window itself is a flex column
+         (set in window_frame_css). */
+      .heater-ai-window > div[data-testid="stLayoutWrapper"] {{
+        flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column;
+      }}
+      .heater-ai-window > div[data-testid="stLayoutWrapper"] > div[data-testid="stVerticalBlock"] {{
+        flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: .45rem;
+      }}
+      .heater-ai-window div[data-testid="stVerticalBlockBorderWrapper"] {{
+        flex: 1 1 auto !important; min-height: 0 !important; height: auto !important;
+      }}
+      .heater-ai-window div[data-testid="stVerticalBlockBorderWrapper"] > div {{
+        height: 100% !important; max-height: none !important; overflow-y: auto !important;
+      }}
+      .heater-ai-window div[data-testid="stChatInput"] {{ flex: 0 0 auto; }}
     </style>
     """
 
@@ -76,6 +96,7 @@ def _shell_script(container_id: str = CONTAINER_ID, launcher_id: str = LAUNCHER_
 
       function apply() {{
         const w = winBlock(); if (!w) return;
+        w.classList.add('heater-ai-window');  // stable hook for the layout rules
         const s = load();
         if (s.left != null) {{ w.style.left = s.left + 'px'; w.style.right = 'auto'; }}
         if (s.top  != null) {{ w.style.top  = s.top  + 'px'; w.style.bottom = 'auto'; }}

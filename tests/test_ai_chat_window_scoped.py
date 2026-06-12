@@ -20,8 +20,13 @@ def test_float_window_css_has_no_global_frame_rule():
     assert f"{CONTAINER_ID}-anchor" not in css, (
         "frame must not match the anchor in a global rule (it climbs to ancestors)"
     )
-    assert "stVerticalBlock" not in css, "frame must not target stVerticalBlock in a global rule"
+    assert ":has(" not in css, "no :has() in the window stylesheet (a descendant :has over-matches ancestors)"
     assert "380px" not in css, "window sizing belongs in window_frame_css (scoped via float_parent)"
+    # Structural Streamlit selectors are allowed ONLY when scoped to the window
+    # class — an unscoped stVerticalBlock rule would bleed onto every page block.
+    for line in css.splitlines():
+        if "stVerticalBlock" in line or "stLayoutWrapper" in line:
+            assert ".heater-ai-window" in line, f"structural rule must be scoped to .heater-ai-window: {line.strip()}"
 
 
 def test_window_frame_css_is_scoped_declarations():
@@ -48,14 +53,27 @@ def test_chat_widget_calls_float_parent_with_scoped_css():
         assert c.args or c.keywords, "float_parent must be called WITH scoped css, never bare"
 
 
-def test_window_is_auto_height_not_fixed_540():
-    """The window fits its content (no dead space below the input) and caps+scrolls."""
+def test_window_is_flex_column_with_capped_height():
+    """The window is a flex column (input pins to the bottom), height capped to the
+    viewport — NOT the old fixed 540px box that left dead space below the input."""
     from src.ai.chat_shell import window_frame_css
 
     frame = window_frame_css()
-    assert "height: auto" in frame, "window must auto-fit content height"
-    assert "height: 540px" not in frame, "fixed 540px height left dead space below the input"
-    assert "max-height" in frame, "must cap height then scroll"
+    assert "height: 540px" not in frame, "fixed 540px with a mid-window input left dead space"
+    assert "flex-direction: column" in frame, "window must be a flex column to pin the input"
+    assert "82vh" in frame or "max-height" in frame, "window height must be capped to the viewport"
+
+
+def test_internal_layout_pins_input_to_bottom():
+    """float_window_css scopes the transcript-fills / input-at-bottom rules to the
+    JS-tagged .heater-ai-window, and the shell tags the window with that class."""
+    from src.ai.chat_shell import _shell_script, float_window_css
+
+    css = float_window_css()
+    assert ".heater-ai-window" in css, "layout rules must be scoped to the window class"
+    assert "stChatInput" in css, "the chat input must be positioned by the layout rules"
+    assert "flex: 1 1 auto" in css, "the transcript must flex to fill the middle"
+    assert "heater-ai-window" in _shell_script(), "the shell must tag the window with the class"
 
 
 def test_shell_does_not_persist_window_size():

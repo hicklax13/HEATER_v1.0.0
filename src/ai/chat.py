@@ -72,12 +72,18 @@ def render_chat_widget(page: str) -> None:
 
 
 def _render_window_body(page: str, user: dict) -> None:
+    # Navy/orange title bar — consistent with the app's panel headers (Combustion).
     st.markdown(
         f'<div id="{CONTAINER_ID}-header" style="display:flex;justify-content:space-between;'
-        'align-items:center;padding:8px 10px;border-bottom:1px solid #eee;">'
-        "<strong>HEATER AI</strong><span>"
-        '<button data-ai-act="minimize" style="border:none;background:none;cursor:pointer;">_</button>'
-        '<button data-ai-act="close" style="border:none;background:none;cursor:pointer;">x</button>'
+        "align-items:center;padding:9px 12px;margin-bottom:6px;background:#112744;color:#fff;"
+        "border-radius:9px;cursor:move;user-select:none;"
+        'font-family:Archivo,system-ui,sans-serif;font-weight:700;letter-spacing:.3px;">'
+        '<span>HEATER <span style="color:#ff6d00;">AI</span></span>'
+        '<span style="display:flex;gap:2px;">'
+        '<button data-ai-act="minimize" title="Minimize" style="border:none;background:none;'
+        'color:#cfd6e2;cursor:pointer;font-size:18px;line-height:1;padding:0 6px;">_</button>'
+        '<button data-ai-act="close" title="Close" style="border:none;background:none;'
+        'color:#cfd6e2;cursor:pointer;font-size:15px;line-height:1;padding:0 6px;">x</button>'
         "</span></div>",
         unsafe_allow_html=True,
     )
@@ -86,15 +92,16 @@ def _render_window_body(page: str, user: dict) -> None:
 
 @st.fragment
 def _render_chat_fragment(page: str, user: dict) -> None:
+    # ---- top controls: conversation history + new ----
     cols = st.columns([3, 1])
     convos = history.list_conversations(user["user_id"])
-    options = ["New conversation"] + [c["title"] for c in convos]
-    pick = cols[0].selectbox("Conversations", options, label_visibility="collapsed", key="ai_conv_pick")
-    if cols[1].button("+", key="ai_new_chat"):
+    conv_options = ["New conversation"] + [c["title"] for c in convos]
+    conv_pick = cols[0].selectbox("Conversations", conv_options, label_visibility="collapsed", key="ai_conv_pick")
+    if cols[1].button("+", key="ai_new_chat", help="Start a new conversation"):
         st.session_state[_STATE_MSGS] = []
         st.session_state[_STATE_CONV] = None
-    if pick != "New conversation":
-        chosen = convos[options.index(pick) - 1]
+    if conv_pick != "New conversation":
+        chosen = convos[conv_options.index(conv_pick) - 1]
         if st.session_state[_STATE_CONV] != chosen["id"]:
             st.session_state[_STATE_CONV] = chosen["id"]
             st.session_state[_STATE_MSGS] = [
@@ -102,17 +109,13 @@ def _render_chat_fragment(page: str, user: dict) -> None:
                 for m in history.load_messages(chosen["id"], user_id=user["user_id"])
             ]
 
+    # ---- model picker + per-key settings ----
+    model_options, resolver = _model_picker_options()
+    model_pick = st.selectbox("Model", model_options, index=1, key="ai_model_pick", label_visibility="collapsed")
+    model = _resolve_model(resolver[model_pick])
     _render_ai_settings(user)
 
-    for m in st.session_state[_STATE_MSGS]:
-        with st.chat_message(m["role"]):
-            st.markdown(m["content"])
-
-    options, resolver = _model_picker_options()
-    pick = st.selectbox("Model", options, index=1, key="ai_model_pick", label_visibility="collapsed")
-    model = _resolve_model(resolver[pick])
-
-    # Tool toggles: web search + deep research are off by default (cost/latency).
+    # ---- tool toggles (off by default: cost/latency) ----
     tcols = st.columns(3)
     web_search = tcols[0].toggle("Web", value=False, key="ai_web_search", help="Let the AI search the web")
     deep_research = tcols[1].toggle(
@@ -121,12 +124,21 @@ def _render_chat_fragment(page: str, user: dict) -> None:
     attach_mode = tcols[2].toggle(
         "Attach", value=False, key="ai_attach_mode", help="Attach text you highlight on the page"
     )
-
     _render_attach_controls(attach_mode)
+
+    # ---- transcript (scrolls); the input stays pinned at the window bottom ----
+    messages = st.session_state[_STATE_MSGS]
+    transcript = st.container(height=240)
+    with transcript:
+        if not messages:
+            st.caption("Ask anything about your league — rosters, matchups, trades, projections.")
+        for m in messages:
+            with st.chat_message(m["role"]):
+                st.markdown(m["content"])
 
     prompt = st.chat_input("Ask anything about your league...", key="ai_prompt")
     if prompt:
-        _handle_send(prompt, model, page, user, web_search=web_search, deep_research=deep_research)
+        _handle_send(prompt, model, page, user, transcript, web_search=web_search, deep_research=deep_research)
 
 
 def _render_attach_controls(attach_mode: bool) -> None:
@@ -182,7 +194,13 @@ def _resolve_model(selection: tuple[str, str]) -> str:
 
 
 def _handle_send(
-    prompt: str, model: str, page: str, user: dict, web_search: bool = False, deep_research: bool = False
+    prompt: str,
+    model: str,
+    page: str,
+    user: dict,
+    transcript,
+    web_search: bool = False,
+    deep_research: bool = False,
 ) -> None:
     from src.ai.providers import chat as provider_chat
 
@@ -192,10 +210,12 @@ def _handle_send(
     on_own_key = api_key is not None and _is_user_own_key(uid, provider)
 
     if api_key is None:
-        st.warning(f"No API key for {provider}. Add one in AI Settings, or ask the admin to set a shared key.")
+        with transcript:
+            st.warning(f"No API key for {provider}. Add one in AI Settings, or ask the admin to set a shared key.")
         return
     if budget.is_over_cap(uid, on_own_key=on_own_key):
-        st.warning("You've hit your AI usage limit for today. Try again tomorrow or add your own key.")
+        with transcript:
+            st.warning("You've hit your AI usage limit for today. Try again tomorrow or add your own key.")
         return
 
     # Prepend any page text the user attached as explicit context for THIS message.
@@ -203,8 +223,6 @@ def _handle_send(
     sent = prompt if not attached else f"[Context the user selected on the page]\n{attached}\n\n[Question]\n{prompt}"
 
     st.session_state[_STATE_MSGS].append({"role": "user", "content": sent})
-    with st.chat_message("user"):
-        st.markdown(prompt if not attached else f"_(with attached selection)_\n\n{prompt}")
 
     # No rosters frame is passed: under MULTI_USER the resolver returns the
     # session user's admin-assigned team from identity (not a frame match), and
@@ -215,17 +233,22 @@ def _handle_send(
     system = build_system_prompt(page, viewer_team)
     messages = [{"role": "system", "content": system}] + st.session_state[_STATE_MSGS]
 
-    with st.chat_message("assistant"):
-        with st.spinner("Thinking..."):
-            result = provider_chat(
-                model=model,
-                messages=messages,
-                api_key=api_key,
-                user_id=uid,
-                web_search=web_search,
-                deep_research=deep_research,
-            )
-        st.write_stream(_typewriter(result["content"]))
+    # Render the new exchange INSIDE the transcript so it lands in the scroll area
+    # (not below the input). Re-entering the container appends to it.
+    with transcript:
+        with st.chat_message("user"):
+            st.markdown(prompt if not attached else f"_(with attached selection)_\n\n{prompt}")
+        with st.chat_message("assistant"):
+            with st.spinner("Thinking..."):
+                result = provider_chat(
+                    model=model,
+                    messages=messages,
+                    api_key=api_key,
+                    user_id=uid,
+                    web_search=web_search,
+                    deep_research=deep_research,
+                )
+            st.write_stream(_typewriter(result["content"]))
 
     st.session_state[_STATE_ATTACHED] = None  # consume the attachment
 
