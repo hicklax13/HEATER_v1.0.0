@@ -32,6 +32,10 @@ python-dotenv>=1.0.1    # imported by streamlit-oauth + app.py/scripts/preflight
 cryptography>=42.0
 # Bayesian projection updates (optional — heavy dependency)
 # pymc>=5.0
+# Pin matplotlib < 3.11: arviz_plots (pulled in by arviz, imported at app startup
+# via src/bayesian.py) calls the removed `matplotlib.style.core`, so a newer
+# matplotlib breaks `import arviz` and the whole app fails to boot. 3.10.x works.
+matplotlib>=3.10,<3.11
 arviz>=0.15.0
 # Lineup optimization
 PuLP>=2.7
