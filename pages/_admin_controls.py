@@ -7,6 +7,8 @@ owns the single call under st.navigation().
 
 import streamlit as st
 
+from src.ai.budget import daily_cap_usd, set_daily_cap
+from src.ai.keys import set_admin_shared_key
 from src.app_settings import get_broadcast, get_maintenance, set_broadcast, set_maintenance
 from src.audit import list_audit, log_action
 from src.auth import current_user, enter_view_as, require_admin
@@ -97,6 +99,31 @@ if st.button("Save Yahoo token"):
         st.success(_msg)
     else:
         st.error(_msg)
+
+# --- AI chat assistant -----------------------------------------------------
+st.subheader("AI chat assistant")
+st.caption(
+    "Set a shared provider key so every member can chat without their own key, "
+    "and cap per-user daily spend. The key is encrypted at rest and never shown back."
+)
+
+_ai_provider = st.selectbox(
+    "Shared key provider", ["anthropic", "openai", "gemini", "openrouter"], key="ai_shared_provider"
+)
+ai_shared_key_text = st.text_input("Shared API key", value="", type="password", key="ai_shared_key_input")
+if st.button("Save shared key"):
+    if ai_shared_key_text.strip():
+        set_admin_shared_key(_ai_provider, ai_shared_key_text.strip(), admin_id=_admin_id)
+        log_action(_admin_id, "ai_shared_key_update", target=_ai_provider)
+        st.success(f"Shared {_ai_provider} key saved.")
+    else:
+        st.error("Enter a key first.")
+
+_cap = st.number_input("Per-user daily cap (USD)", min_value=0.0, value=float(daily_cap_usd()), step=0.25, key="ai_cap")
+if st.button("Save daily cap"):
+    set_daily_cap(_cap, admin_id=_admin_id)
+    log_action(_admin_id, "ai_daily_cap_update", detail={"usd": _cap})
+    st.success(f"Daily cap set to ${_cap:.2f}.")
 
 # --- Audit log -------------------------------------------------------------
 st.subheader("Audit log")
