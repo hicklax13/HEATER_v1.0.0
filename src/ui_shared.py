@@ -2905,6 +2905,20 @@ def inject_custom_css():
             'color:#fff;font-size:18px;letter-spacing:2px;">HEATER</span>'
         )
 
+    # Global navy top chrome bar on every page — matches the sidebar fill (#112744)
+    # and thickness, framing the app. Content + sidebar logo are offset below it.
+    st.markdown(
+        "<style>"
+        ".stApp::before{content:'';position:fixed;top:0;left:0;right:0;height:90px;"
+        "background:#112744;z-index:9998;}"
+        'div[data-testid="stMainBlockContainer"]{padding-top:98px!important;}'
+        'section[data-testid="stSidebar"] [data-testid="stSidebarHeader"]{margin-top:90px!important;}'
+        # widen the sidebar content so the logo fills the rail (bigger logo)
+        'section[data-testid="stSidebar"] [data-testid="stSidebarContent"]{padding-left:5px!important;padding-right:5px!important;}'
+        "</style>",
+        unsafe_allow_html=True,
+    )
+
     components.html(
         """<script>
         (function setup() {
@@ -2975,8 +2989,8 @@ def inject_custom_css():
                 logoDiv.innerHTML = '__LOGO_INNER__';
                 header.insertBefore(logoDiv, header.firstChild);
             }
-            // Tighten the sidebar header so the logo sits flush at the top (kills the gap).
-            if (header) { header.style.paddingTop = '4px'; header.style.paddingBottom = '0'; }
+            // Tighten the sidebar header so the logo sits flush + fills the rail width.
+            if (header) { header.style.padding = '6px 2px 2px'; }
 
             // Collapse zero-height helper blocks (injected <style>/<link>, height=0
             // component iframes, streamlit-float markers) so the main column's 16px
