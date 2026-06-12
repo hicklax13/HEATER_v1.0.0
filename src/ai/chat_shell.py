@@ -35,8 +35,9 @@ def window_frame_css() -> str:
         "height: min(560px, 82vh); min-height: 360px;"
         "min-width: 300px; max-width: 90vw;"
         "resize: both; overflow: hidden; z-index: 99999;"
-        "background: #fff; border: 1px solid rgba(0,0,0,.18); border-radius: 12px;"
-        "box-shadow: 0 10px 40px rgba(0,0,0,.18);"
+        # Professional accent border: subtle navy edge + a thin orange ring.
+        "background: #fff; border: 1px solid rgba(17,39,68,.28); border-radius: 12px;"
+        "box-shadow: 0 14px 44px rgba(17,39,68,.22), 0 0 0 1.5px rgba(255,109,0,.35);"
     )
 
 
@@ -74,6 +75,37 @@ def float_window_css() -> str:
         height: 100% !important; max-height: none !important; overflow-y: auto !important;
       }}
       .heater-ai-window div[data-testid="stChatInput"] {{ flex: 0 0 auto; }}
+      /* ---- visual polish: compact controls, orange accents, separated areas ---- */
+      .heater-ai-window {{ font-size: 0.85rem; }}
+      /* compact dropdowns (model + conversation) with orange accent borders */
+      .heater-ai-window [data-baseweb="select"] > div {{
+        min-height: 30px !important; border: 1px solid rgba(255,109,0,.5) !important;
+        border-radius: 8px; font-size: 0.82rem;
+      }}
+      /* compact buttons (+, AI Settings, Attach) with orange accent borders */
+      .heater-ai-window .stButton button,
+      .heater-ai-window [data-testid="stPopover"] button {{
+        min-height: 30px !important; padding: 2px 10px !important; font-size: 0.8rem !important;
+        border: 1px solid rgba(255,109,0,.55) !important; border-radius: 8px !important;
+      }}
+      /* smaller toggle labels so "Research" stays on one line */
+      .heater-ai-window [data-testid="stWidgetLabel"] p {{ font-size: 0.72rem; white-space: nowrap; }}
+      .heater-ai-window [data-testid="stTooltipIcon"] svg {{ width: 13px; height: 13px; }}
+      /* accent border around the navy HEATER AI header bar */
+      .heater-ai-window #{CONTAINER_ID}-header {{
+        border: 1.5px solid #ff6d00 !important; box-shadow: 0 2px 8px rgba(17,39,68,.18);
+      }}
+      /* separate the controls area from the transcript: orange-accented panel */
+      .heater-ai-window div[data-testid="stVerticalBlockBorderWrapper"] {{
+        border: 1px solid rgba(255,109,0,.45) !important; border-radius: 10px;
+        background: #fbfbfc; margin-top: 5px;
+      }}
+      /* chat input: smaller text + darker fill so it stands out */
+      .heater-ai-window div[data-testid="stChatInput"] > div {{
+        background: #e7ebf1 !important; border: 1px solid rgba(255,109,0,.5) !important;
+        border-radius: 10px;
+      }}
+      .heater-ai-window [data-testid="stChatInputTextArea"] {{ font-size: 0.85rem; }}
     </style>
     """
 

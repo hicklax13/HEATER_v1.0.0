@@ -130,8 +130,6 @@ def _render_chat_fragment(page: str, user: dict) -> None:
     messages = st.session_state[_STATE_MSGS]
     transcript = st.container(height=240)
     with transcript:
-        if not messages:
-            st.caption("Ask anything about your league — rosters, matchups, trades, projections.")
         for m in messages:
             with st.chat_message(m["role"]):
                 st.markdown(m["content"])
