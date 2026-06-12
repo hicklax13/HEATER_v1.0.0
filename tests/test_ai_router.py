@@ -71,3 +71,29 @@ def test_deepseek_models_priced_and_in_catalog():
     assert "deepseek/deepseek-v4-pro" in catalog
     assert label_for_model("deepseek/deepseek-v4-pro") == "DeepSeek V4 Pro"
     assert label_for_model("unknown/model") == "unknown/model"
+
+
+def test_openai_and_gemini_models_priced_and_in_catalog():
+    from src.ai.router import model_catalog, price_per_token, provider_of
+
+    # OpenAI GPT-5.x
+    assert price_per_token("openai/gpt-5.5") == pytest.approx((5e-6, 30e-6))
+    assert price_per_token("openai/gpt-5.4") == pytest.approx((2.5e-6, 15e-6))
+    assert price_per_token("openai/gpt-5.4-nano") == pytest.approx((0.2e-6, 1.25e-6))
+    assert provider_of("openai/gpt-5.5") == "openai"
+    # Google Gemini 3.x
+    assert price_per_token("gemini/gemini-3.1-pro-preview") == pytest.approx((2e-6, 12e-6))
+    assert price_per_token("gemini/gemini-3.5-flash") == pytest.approx((1.5e-6, 9e-6))
+    assert price_per_token("gemini/gemini-3.1-flash-lite") == pytest.approx((0.25e-6, 1.5e-6))
+    assert provider_of("gemini/gemini-3.5-flash") == "gemini"
+    # all six in the picker catalog
+    models = {m for _, m in model_catalog()}
+    for m in (
+        "openai/gpt-5.5",
+        "openai/gpt-5.4",
+        "openai/gpt-5.4-nano",
+        "gemini/gemini-3.1-pro-preview",
+        "gemini/gemini-3.5-flash",
+        "gemini/gemini-3.1-flash-lite",
+    ):
+        assert m in models
