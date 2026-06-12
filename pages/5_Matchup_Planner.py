@@ -8,6 +8,7 @@ import logging
 import pandas as pd
 import streamlit as st
 
+from src.ai.chat import render_chat_widget
 from src.auth import multi_user_enabled, require_auth, resolve_viewer_team_name
 from src.database import init_db, load_player_pool
 from src.feature_flags import require_page_enabled
@@ -111,6 +112,7 @@ inject_custom_css()
 require_auth()
 require_page_enabled("page:5_Matchup_Planner")
 log_page_view("Matchup Planner")
+render_chat_widget("Matchup Planner")
 page_timer_start()
 
 # ── Load player pool ──────────────────────────────────────────────────

@@ -4,6 +4,14 @@ numpy>=1.24.0
 scipy>=1.10.0
 bcrypt>=4.1
 plotly>=5.18.0
+# AI chat assistant (Phase 1): one interface to Anthropic/OpenAI/Gemini/OpenRouter/Ollama
+# Floor pinned to 1.80.0 — litellm >=1.83.8 requires Python <3.14 (CI/Railway use 3.12; local dev uses 3.14)
+litellm>=1.80.0
+# Floating, draggable chat window container
+streamlit-float>=0.3.5
+# AI chat Phase 2: free web search (no key) + JS bridge for highlight-to-attach
+ddgs>=9.14.0
+streamlit-js-eval>=1.0.0
 requests>=2.28.0
 MLB-StatsAPI>=1.7
 pybaseball>=2.2.7

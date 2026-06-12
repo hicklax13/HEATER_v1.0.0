@@ -6,6 +6,7 @@ import logging
 import pandas as pd
 import streamlit as st
 
+from src.ai.chat import render_chat_widget
 from src.alerts import (  # noqa: F401  IL_STASH_NAMES re-export kept for backward compat + structural guard test_fa_il_stash_unified_protection
     IL_STASH_NAMES,
     get_il_stash_names,
@@ -286,6 +287,7 @@ inject_custom_css()
 require_auth()
 require_page_enabled("page:14_Free_Agents")
 log_page_view("Free Agents")
+render_chat_widget("Free Agents")
 page_timer_start()
 
 # ── Data loading ──────────────────────────────────────────────────────────────

@@ -11,6 +11,7 @@ import time
 import pandas as pd
 import streamlit as st
 
+from src.ai.chat import render_chat_widget
 from src.auth import multi_user_enabled, require_auth, resolve_viewer_team_name
 from src.database import (
     coerce_numeric_df,
@@ -149,6 +150,7 @@ def main():
     require_auth()
     require_page_enabled("page:12_Trade_Finder")
     log_page_view("Trade Finder")
+    render_chat_widget("Trade Finder")
     init_db()
 
     config = LeagueConfig()

@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
+from src.ai.chat import render_chat_widget
 from src.auth import multi_user_enabled, require_auth
 from src.database import init_db, load_player_pool
 from src.draft_state import DraftState
@@ -62,6 +63,7 @@ inject_custom_css()
 require_auth()
 require_page_enabled("page:20_Draft_Simulator")
 log_page_view("Draft Simulator")
+render_chat_widget("Draft Simulator")
 page_timer_start()
 
 

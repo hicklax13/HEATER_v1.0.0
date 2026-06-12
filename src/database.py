@@ -944,6 +944,68 @@ def _init_multiuser_tables(conn):
             revoked INTEGER NOT NULL DEFAULT 0
         );
         CREATE INDEX IF NOT EXISTS idx_auth_tokens_user ON auth_tokens(user_id);
+
+        -- v2 AI Phase 1: per-user encrypted provider keys (BYOK). encrypted_key is
+        -- Fernet ciphertext; plaintext is never stored. Admin shared key lives in
+        -- app_settings, not here.
+        CREATE TABLE IF NOT EXISTS ai_provider_keys (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL REFERENCES users(user_id),
+            provider TEXT NOT NULL,
+            label TEXT,
+            encrypted_key TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE(user_id, provider, label)
+        );
+        CREATE INDEX IF NOT EXISTS idx_ai_keys_user ON ai_provider_keys(user_id);
+
+        -- v2 AI Phase 1: saved conversations (history dropdown) + their messages.
+        CREATE TABLE IF NOT EXISTS ai_conversations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL REFERENCES users(user_id),
+            title TEXT NOT NULL,
+            model TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_ai_conv_user ON ai_conversations(user_id, updated_at);
+
+        CREATE TABLE IF NOT EXISTS ai_messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            conversation_id INTEGER NOT NULL REFERENCES ai_conversations(id),
+            role TEXT NOT NULL,
+            content TEXT NOT NULL,
+            model TEXT,
+            tokens_in INTEGER DEFAULT 0,
+            tokens_out INTEGER DEFAULT 0,
+            cost_usd REAL DEFAULT 0.0,
+            created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_ai_msg_conv ON ai_messages(conversation_id, id);
+
+        -- v2 AI Phase 1: per-user daily spend ledger for cost caps.
+        CREATE TABLE IF NOT EXISTS ai_usage_ledger (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL REFERENCES users(user_id),
+            day TEXT NOT NULL,
+            tokens_in INTEGER DEFAULT 0,
+            tokens_out INTEGER DEFAULT 0,
+            cost_usd REAL DEFAULT 0.0,
+            UNIQUE(user_id, day)
+        );
+
+        -- v2 AI Phase 1: the ONLY write path the AI has. request_refresh enqueues
+        -- here; the single-writer scheduler drains it (preserves single-writer).
+        CREATE TABLE IF NOT EXISTS forced_refresh_queue (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source TEXT NOT NULL,
+            requested_by INTEGER REFERENCES users(user_id),
+            status TEXT NOT NULL DEFAULT 'pending',
+            detail TEXT,
+            created_at TEXT NOT NULL,
+            completed_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_refresh_queue_status ON forced_refresh_queue(status);
     """)
     conn.commit()
 

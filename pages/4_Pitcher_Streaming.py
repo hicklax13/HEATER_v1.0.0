@@ -14,6 +14,7 @@ from types import SimpleNamespace
 import pandas as pd
 import streamlit as st
 
+from src.ai.chat import render_chat_widget
 from src.auth import multi_user_enabled, require_auth, resolve_viewer_team_name
 from src.database import init_db, load_player_pool
 from src.feature_flags import require_page_enabled
@@ -58,6 +59,7 @@ inject_custom_css()
 require_auth()
 require_page_enabled("page:4_Pitcher_Streaming")
 log_page_view("Pitcher Streaming")
+render_chat_widget("Pitcher Streaming")
 page_timer_start()
 
 # ── Data loading ──────────────────────────────────────────────────────────────
