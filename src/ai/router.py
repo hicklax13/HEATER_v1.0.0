@@ -32,6 +32,21 @@ _PRICE_PER_TOKEN = {
     # DeepSeek V4 (released 2026-04; replaced V3.2/R1). Both 1M ctx, tool-calling.
     "deepseek/deepseek-v4-flash": (0.14e-6, 0.28e-6),
     "deepseek/deepseek-v4-pro": (0.435e-6, 0.87e-6),
+    # OpenAI GPT-5.x (June 2026).
+    "openai/gpt-5.5": (5e-6, 30e-6),
+    "openai/gpt-5.4": (2.5e-6, 15e-6),
+    "openai/gpt-5.4-nano": (0.2e-6, 1.25e-6),
+    # Google Gemini 3.x (June 2026). Pro Preview base tier (<=200k prompt).
+    "gemini/gemini-3.1-pro-preview": (2e-6, 12e-6),
+    "gemini/gemini-3.5-flash": (1.5e-6, 9e-6),
+    "gemini/gemini-3.1-flash-lite": (0.25e-6, 1.5e-6),
+    # xAI Grok (June 2026). grok-4.3 is the flagship (2M ctx).
+    "xai/grok-4.3": (1.25e-6, 2.5e-6),
+    # OpenRouter aggregator: 'auto' routes per-prompt to a strong model. Cost is
+    # route-dependent (exact per-call cost shows on OpenRouter's dashboard); this
+    # is a deliberately conservative estimate so the shared-key daily cap still
+    # meaningfully applies. Members see the real spend on openrouter.ai.
+    "openrouter/auto": (2e-6, 8e-6),
 }
 
 # Models offered in the chat window's per-message picker. (label, model_string).
@@ -42,6 +57,14 @@ _MODEL_CATALOG = [
     ("Claude Haiku 4.5", "anthropic/claude-haiku-4-5"),
     ("Claude Sonnet 4.6", "anthropic/claude-sonnet-4-6"),
     ("Claude Opus 4.8", "anthropic/claude-opus-4-8"),
+    ("GPT-5.5", "openai/gpt-5.5"),
+    ("GPT-5.4", "openai/gpt-5.4"),
+    ("GPT-5.4 Nano", "openai/gpt-5.4-nano"),
+    ("Gemini 3.1 Pro", "gemini/gemini-3.1-pro-preview"),
+    ("Gemini 3.5 Flash", "gemini/gemini-3.5-flash"),
+    ("Gemini 3.1 Flash-Lite", "gemini/gemini-3.1-flash-lite"),
+    ("Grok 4.3", "xai/grok-4.3"),
+    ("OpenRouter (Auto)", "openrouter/auto"),
 ]
 
 
