@@ -58,3 +58,16 @@ def test_price_table_known_models():
     assert pout == pytest.approx(25e-6)
     # local model is free
     assert price_per_token("ollama/qwen2.5:7b") == (0.0, 0.0)
+
+
+def test_deepseek_models_priced_and_in_catalog():
+    from src.ai.router import label_for_model, model_catalog, price_per_token, provider_of
+
+    assert price_per_token("deepseek/deepseek-v4-flash") == pytest.approx((0.14e-6, 0.28e-6))
+    assert price_per_token("deepseek/deepseek-v4-pro") == pytest.approx((0.435e-6, 0.87e-6))
+    assert provider_of("deepseek/deepseek-v4-flash") == "deepseek"
+    catalog = dict((m, label) for label, m in model_catalog())
+    assert "deepseek/deepseek-v4-flash" in catalog
+    assert "deepseek/deepseek-v4-pro" in catalog
+    assert label_for_model("deepseek/deepseek-v4-pro") == "DeepSeek V4 Pro"
+    assert label_for_model("unknown/model") == "unknown/model"

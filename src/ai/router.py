@@ -25,7 +25,20 @@ _PRICE_PER_TOKEN = {
     "anthropic/claude-sonnet-4-6": (3e-6, 15e-6),
     "anthropic/claude-opus-4-8": (5e-6, 25e-6),
     "anthropic/claude-fable-5": (10e-6, 50e-6),
+    # DeepSeek V4 (released 2026-04; replaced V3.2/R1). Both 1M ctx, tool-calling.
+    "deepseek/deepseek-v4-flash": (0.14e-6, 0.28e-6),
+    "deepseek/deepseek-v4-pro": (0.435e-6, 0.87e-6),
 }
+
+# Models offered in the chat window's per-message picker. (label, model_string).
+# Tier autos (Simple/Moderate/Complex) are added by the UI on top of these.
+_MODEL_CATALOG = [
+    ("DeepSeek V4 Flash", "deepseek/deepseek-v4-flash"),
+    ("DeepSeek V4 Pro", "deepseek/deepseek-v4-pro"),
+    ("Claude Haiku 4.5", "anthropic/claude-haiku-4-5"),
+    ("Claude Sonnet 4.6", "anthropic/claude-sonnet-4-6"),
+    ("Claude Opus 4.8", "anthropic/claude-opus-4-8"),
+]
 
 
 def _overrides() -> dict:
@@ -51,6 +64,19 @@ def set_tier_models(mapping: dict, admin_id: int) -> None:
     current = _overrides()
     current.update({k: v for k, v in mapping.items() if v})
     set_setting(_TIER_MODELS_SETTING, json.dumps(current), admin_id)
+
+
+def model_catalog() -> list[tuple[str, str]]:
+    """(label, model_string) pairs offered in the chat window's model picker."""
+    return list(_MODEL_CATALOG)
+
+
+def label_for_model(model: str) -> str:
+    """Human label for a model string (falls back to the raw string)."""
+    for label, m in _MODEL_CATALOG:
+        if m == model:
+            return label
+    return model
 
 
 def provider_of(model: str) -> str:

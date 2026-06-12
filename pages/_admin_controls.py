@@ -9,6 +9,7 @@ import streamlit as st
 
 from src.ai.budget import daily_cap_usd, set_daily_cap
 from src.ai.keys import set_admin_shared_key
+from src.ai.router import model_catalog, model_for_tier, set_tier_models
 from src.app_settings import get_broadcast, get_maintenance, set_broadcast, set_maintenance
 from src.audit import list_audit, log_action
 from src.auth import current_user, enter_view_as, require_admin
@@ -108,7 +109,9 @@ st.caption(
 )
 
 _ai_provider = st.selectbox(
-    "Shared key provider", ["anthropic", "openai", "gemini", "openrouter"], key="ai_shared_provider"
+    "Shared key provider",
+    ["deepseek", "anthropic", "openai", "gemini", "openrouter"],
+    key="ai_shared_provider",
 )
 ai_shared_key_text = st.text_input("Shared API key", value="", type="password", key="ai_shared_key_input")
 if st.button("Save shared key"):
@@ -124,6 +127,28 @@ if st.button("Save daily cap"):
     set_daily_cap(_cap, admin_id=_admin_id)
     log_action(_admin_id, "ai_daily_cap_update", detail={"usd": _cap})
     st.success(f"Daily cap set to ${_cap:.2f}.")
+
+# Tier -> model mapping (which model the Simple/Moderate/Complex autos use).
+st.caption("Default model per task tier (members can still pick a specific model in the chat window).")
+_catalog = model_catalog()
+_model_labels = [label for label, _ in _catalog]
+_model_by_label = dict(_catalog)
+_label_by_model = {m: label for label, m in _catalog}
+_tier_cols = st.columns(3)
+_tier_choice = {}
+for _i, _tier in enumerate(("simple", "moderate", "complex")):
+    _cur_model = model_for_tier(_tier)
+    _cur_label = _label_by_model.get(_cur_model, _model_labels[0])
+    _tier_choice[_tier] = _tier_cols[_i].selectbox(
+        _tier.capitalize(),
+        _model_labels,
+        index=_model_labels.index(_cur_label) if _cur_label in _model_labels else 0,
+        key=f"ai_tier_{_tier}",
+    )
+if st.button("Save tier models"):
+    set_tier_models({t: _model_by_label[lbl] for t, lbl in _tier_choice.items()}, admin_id=_admin_id)
+    log_action(_admin_id, "ai_tier_models_update")
+    st.success("Tier models saved.")
 
 # --- Audit log -------------------------------------------------------------
 st.subheader("Audit log")

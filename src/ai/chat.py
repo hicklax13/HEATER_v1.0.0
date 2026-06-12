@@ -13,7 +13,7 @@ import streamlit as st
 from src.ai import budget, history
 from src.ai.chat_shell import CONTAINER_ID, render_launcher_and_shell
 from src.ai.keys import delete_key, get_key, list_keys, store_key
-from src.ai.router import model_for_tier, price_per_token, provider_of
+from src.ai.router import model_catalog, model_for_tier, price_per_token, provider_of
 from src.ai.schema_card import build_schema_card
 from src.auth import current_user, multi_user_enabled, resolve_viewer_team_name
 
@@ -104,24 +104,41 @@ def _render_chat_fragment(page: str, user: dict) -> None:
         with st.chat_message(m["role"]):
             st.markdown(m["content"])
 
-    tier = st.selectbox(
-        "Model",
-        ["simple", "moderate", "complex"],
-        index=1,
-        key="ai_tier",
-        format_func=lambda t: _TIER_LABEL[t],
-        label_visibility="collapsed",
-    )
+    options, resolver = _model_picker_options()
+    pick = st.selectbox("Model", options, index=1, key="ai_model_pick", label_visibility="collapsed")
+    model = _resolve_model(resolver[pick])
     prompt = st.chat_input("Ask anything about your league...", key="ai_prompt")
     if prompt:
-        _handle_send(prompt, tier, page, user)
+        _handle_send(prompt, model, page, user)
 
 
-def _handle_send(prompt: str, tier: str, page: str, user: dict) -> None:
+def _model_picker_options() -> tuple[list[str], dict]:
+    """Picker labels + a resolver: label -> ('tier', name) or ('model', model_string).
+
+    Offers the 3 tier autos (which route via the admin tier map) plus every
+    specific model in the catalog (DeepSeek V4 Flash/Pro, Claude tiers).
+    """
+    options: list[str] = []
+    resolver: dict[str, tuple[str, str]] = {}
+    for t in ("simple", "moderate", "complex"):
+        label = f"Auto - {_TIER_LABEL[t]}"
+        options.append(label)
+        resolver[label] = ("tier", t)
+    for label, m in model_catalog():
+        options.append(label)
+        resolver[label] = ("model", m)
+    return options, resolver
+
+
+def _resolve_model(selection: tuple[str, str]) -> str:
+    kind, value = selection
+    return model_for_tier(value) if kind == "tier" else value
+
+
+def _handle_send(prompt: str, model: str, page: str, user: dict) -> None:
     from src.ai.providers import chat as provider_chat
 
     uid = user["user_id"]
-    model = model_for_tier(tier)
     provider = provider_of(model)
     api_key = get_key(uid, provider)
     on_own_key = api_key is not None and _is_user_own_key(uid, provider)
@@ -192,7 +209,7 @@ def _render_ai_settings(user: dict) -> None:
     with st.popover("AI Settings", help="Your API keys"):
         st.caption("Add your own provider key to use your own model + skip shared-key caps.")
         with st.form("ai_key_form", clear_on_submit=True):
-            provider = st.selectbox("Provider", ["anthropic", "openai", "gemini", "openrouter", "ollama"])
+            provider = st.selectbox("Provider", ["deepseek", "anthropic", "openai", "gemini", "openrouter", "ollama"])
             label = st.text_input("Label (optional)", value="")
             key_text = st.text_input("API key", value="", type="password")
             if st.form_submit_button("Save key") and key_text.strip():
