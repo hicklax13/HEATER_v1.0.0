@@ -46,3 +46,42 @@ def test_dispatch_unknown_tool_returns_error():
 
     out = dispatch_tool("does_not_exist", {}, user_id=99)
     assert "error" in out.lower()
+
+
+def test_convenience_tools_present():
+    from src.ai.tools import tool_specs
+
+    names = {t["function"]["name"] for t in tool_specs()}
+    assert {"get_my_team", "get_free_agents", "compare_players"}.issubset(names)
+
+
+def test_search_tools_gated_by_flags():
+    from src.ai.tools import tool_specs
+
+    base = {t["function"]["name"] for t in tool_specs()}
+    assert "web_search" not in base and "deep_research" not in base
+    with_search = {t["function"]["name"] for t in tool_specs(web_search_enabled=True)}
+    assert "web_search" in with_search and "deep_research" not in with_search
+    with_both = {t["function"]["name"] for t in tool_specs(web_search_enabled=True, deep_research_enabled=True)}
+    assert {"web_search", "deep_research"}.issubset(with_both)
+
+
+def test_dispatch_web_search_when_mocked(monkeypatch):
+    import json
+
+    from src.ai import search
+    from src.ai.tools import dispatch_tool
+
+    monkeypatch.setattr(search, "_ddgs_text", lambda q, n: [{"title": "T", "href": "http://x", "body": "b"}])
+    out = dispatch_tool("web_search", {"query": "acuna injury"}, user_id=99)
+    data = json.loads(out)
+    assert data["results"][0]["url"] == "http://x"
+
+
+def test_dispatch_web_search_missing_query():
+    import json
+
+    from src.ai.tools import dispatch_tool
+
+    out = dispatch_tool("web_search", {}, user_id=99)
+    assert "error" in json.loads(out)

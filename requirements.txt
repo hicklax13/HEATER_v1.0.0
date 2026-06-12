@@ -9,6 +9,9 @@ plotly>=5.18.0
 litellm>=1.80.0
 # Floating, draggable chat window container
 streamlit-float>=0.3.5
+# AI chat Phase 2: free web search (no key) + JS bridge for highlight-to-attach
+ddgs>=9.14.0
+streamlit-js-eval>=1.0.0
 requests>=2.28.0
 MLB-StatsAPI>=1.7
 pybaseball>=2.2.7

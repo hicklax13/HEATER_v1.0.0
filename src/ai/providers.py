@@ -26,12 +26,18 @@ def chat(
     api_key: str | None,
     user_id: int,
     max_tool_rounds: int = _MAX_TOOL_ROUNDS,
+    web_search: bool = False,
+    deep_research: bool = False,
 ) -> dict:
-    """Run the tool loop. Returns {content, tokens_in, tokens_out, tool_trace}."""
+    """Run the tool loop. Returns {content, tokens_in, tokens_out, tool_trace}.
+
+    web_search / deep_research add those tools to the surface only when the user
+    enabled them in the chat window.
+    """
     convo = list(messages)
     tool_trace: list[dict] = []
     tokens_in = tokens_out = 0
-    specs = tool_specs()
+    specs = tool_specs(web_search_enabled=web_search, deep_research_enabled=deep_research)
 
     for _ in range(max_tool_rounds):
         resp = _completion(model=model, messages=convo, tools=specs, api_key=api_key)

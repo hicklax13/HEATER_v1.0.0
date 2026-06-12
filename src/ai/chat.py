@@ -19,6 +19,7 @@ from src.auth import current_user, multi_user_enabled, resolve_viewer_team_name
 
 _STATE_MSGS = "ai_chat_messages"
 _STATE_CONV = "ai_chat_conversation_id"
+_STATE_ATTACHED = "ai_chat_attached"
 _TIER_LABEL = {"simple": "Simple", "moderate": "Moderate", "complex": "Complex"}
 
 
@@ -107,9 +108,51 @@ def _render_chat_fragment(page: str, user: dict) -> None:
     options, resolver = _model_picker_options()
     pick = st.selectbox("Model", options, index=1, key="ai_model_pick", label_visibility="collapsed")
     model = _resolve_model(resolver[pick])
+
+    # Tool toggles: web search + deep research are off by default (cost/latency).
+    tcols = st.columns(3)
+    web_search = tcols[0].toggle("Web", value=False, key="ai_web_search", help="Let the AI search the web")
+    deep_research = tcols[1].toggle(
+        "Research", value=False, key="ai_deep_research", help="Deeper web research (search + read pages)"
+    )
+    attach_mode = tcols[2].toggle(
+        "Attach", value=False, key="ai_attach_mode", help="Attach text you highlight on the page"
+    )
+
+    _render_attach_controls(attach_mode)
+
     prompt = st.chat_input("Ask anything about your league...", key="ai_prompt")
     if prompt:
-        _handle_send(prompt, model, page, user)
+        _handle_send(prompt, model, page, user, web_search=web_search, deep_research=deep_research)
+
+
+def _render_attach_controls(attach_mode: bool) -> None:
+    """When attach mode is on: a button that captures the user's on-page text
+    selection (via streamlit-js-eval reading window.parent.getSelection) and stores
+    it as context for the next message; plus a chip to review/clear it."""
+    if not attach_mode:
+        return
+    if st.button("Attach highlighted text", key="ai_attach_btn"):
+        st.session_state["_ai_attach_n"] = st.session_state.get("_ai_attach_n", 0) + 1
+    n = st.session_state.get("_ai_attach_n", 0)
+    if n:
+        try:
+            from streamlit_js_eval import streamlit_js_eval
+
+            sel = streamlit_js_eval(
+                js_expressions="window.parent.getSelection ? window.parent.getSelection().toString() : ''",
+                key=f"ai_getsel_{n}",
+                want_output=True,
+            )
+        except Exception:
+            sel = None
+        if sel and str(sel).strip():
+            st.session_state[_STATE_ATTACHED] = str(sel).strip()[:4000]
+    attached = st.session_state.get(_STATE_ATTACHED)
+    if attached:
+        st.caption(f"Attached ({len(attached)} chars): {attached[:80]}...")
+        if st.button("Clear attachment", key="ai_attach_clear"):
+            st.session_state[_STATE_ATTACHED] = None
 
 
 def _model_picker_options() -> tuple[list[str], dict]:
@@ -135,7 +178,9 @@ def _resolve_model(selection: tuple[str, str]) -> str:
     return model_for_tier(value) if kind == "tier" else value
 
 
-def _handle_send(prompt: str, model: str, page: str, user: dict) -> None:
+def _handle_send(
+    prompt: str, model: str, page: str, user: dict, web_search: bool = False, deep_research: bool = False
+) -> None:
     from src.ai.providers import chat as provider_chat
 
     uid = user["user_id"]
@@ -150,9 +195,13 @@ def _handle_send(prompt: str, model: str, page: str, user: dict) -> None:
         st.warning("You've hit your AI usage limit for today. Try again tomorrow or add your own key.")
         return
 
-    st.session_state[_STATE_MSGS].append({"role": "user", "content": prompt})
+    # Prepend any page text the user attached as explicit context for THIS message.
+    attached = st.session_state.get(_STATE_ATTACHED)
+    sent = prompt if not attached else f"[Context the user selected on the page]\n{attached}\n\n[Question]\n{prompt}"
+
+    st.session_state[_STATE_MSGS].append({"role": "user", "content": sent})
     with st.chat_message("user"):
-        st.markdown(prompt)
+        st.markdown(prompt if not attached else f"_(with attached selection)_\n\n{prompt}")
 
     # No rosters frame is passed: under MULTI_USER the resolver returns the
     # session user's admin-assigned team from identity (not a frame match), and
@@ -165,8 +214,17 @@ def _handle_send(prompt: str, model: str, page: str, user: dict) -> None:
 
     with st.chat_message("assistant"):
         with st.spinner("Thinking..."):
-            result = provider_chat(model=model, messages=messages, api_key=api_key, user_id=uid)
+            result = provider_chat(
+                model=model,
+                messages=messages,
+                api_key=api_key,
+                user_id=uid,
+                web_search=web_search,
+                deep_research=deep_research,
+            )
         st.write_stream(_typewriter(result["content"]))
+
+    st.session_state[_STATE_ATTACHED] = None  # consume the attachment
 
     st.session_state[_STATE_MSGS].append({"role": "assistant", "content": result["content"]})
 

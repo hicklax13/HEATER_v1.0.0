@@ -38,3 +38,15 @@ def test_chat_wires_ai_settings():
     src = (Path(__file__).resolve().parent.parent / "src" / "ai" / "chat.py").read_text(encoding="utf-8")
     assert "_render_ai_settings" in src
     assert "store_key" in src and "list_keys" in src and "delete_key" in src
+
+
+def test_chat_wires_phase2_features():
+    """The widget exposes the model picker + web-search/deep-research toggles + attach."""
+    from pathlib import Path
+
+    src = (Path(__file__).resolve().parent.parent / "src" / "ai" / "chat.py").read_text(encoding="utf-8")
+    assert "_model_picker_options" in src and "model_catalog" in src  # model dropdown
+    assert "ai_web_search" in src and "ai_deep_research" in src  # tool toggles
+    assert "_render_attach_controls" in src and "getSelection" in src  # highlight-attach
+    # the toggles are threaded to the provider
+    assert "web_search=web_search" in src and "deep_research=deep_research" in src
