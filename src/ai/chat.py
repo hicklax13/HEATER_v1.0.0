@@ -12,15 +12,14 @@ import streamlit as st
 
 from src.ai import budget, history
 from src.ai.chat_shell import CONTAINER_ID, render_launcher_and_shell, window_frame_css
-from src.ai.keys import delete_key, get_key, list_keys, store_key
-from src.ai.router import model_catalog, model_for_tier, price_per_token, provider_of
+from src.ai.keys import delete_key, get_key, list_admin_shared_providers, list_keys, store_key
+from src.ai.router import model_catalog, price_per_token, provider_of
 from src.ai.schema_card import build_schema_card
 from src.auth import current_user, multi_user_enabled, resolve_viewer_team_name
 
 _STATE_MSGS = "ai_chat_messages"
 _STATE_CONV = "ai_chat_conversation_id"
 _STATE_ATTACHED = "ai_chat_attached"
-_TIER_LABEL = {"simple": "Simple", "moderate": "Moderate", "complex": "Complex"}
 
 
 def build_system_prompt(page: str, viewer_team: str | None) -> str:
@@ -109,10 +108,11 @@ def _render_chat_fragment(page: str, user: dict) -> None:
                 for m in history.load_messages(chosen["id"], user_id=user["user_id"])
             ]
 
-    # ---- model picker + per-key settings ----
-    model_options, resolver = _model_picker_options()
-    model_pick = st.selectbox("Model", model_options, index=1, key="ai_model_pick", label_visibility="collapsed")
-    model = _resolve_model(resolver[model_pick])
+    # ---- model picker: concrete models for providers that have a key ----
+    available = _available_providers(user["user_id"]) or {provider_of(m) for _, m in model_catalog()}
+    model_options, resolver = _model_picker_options(available)
+    model_pick = st.selectbox("Model", model_options, index=0, key="ai_model_pick2", label_visibility="collapsed")
+    model = resolver[model_pick]
     _render_ai_settings(user)
 
     # ---- tool toggles (off by default: cost/latency) ----
@@ -168,27 +168,27 @@ def _render_attach_controls(attach_mode: bool) -> None:
             st.session_state[_STATE_ATTACHED] = None
 
 
-def _model_picker_options() -> tuple[list[str], dict]:
-    """Picker labels + a resolver: label -> ('tier', name) or ('model', model_string).
+def _available_providers(user_id: int) -> set[str]:
+    """Providers the viewer can actually use: their own keys + the admin shared keys."""
+    own = {k["provider"] for k in list_keys(user_id)}
+    shared = set(list_admin_shared_providers())
+    return own | shared
 
-    Offers the 3 tier autos (which route via the admin tier map) plus every
-    specific model in the catalog (DeepSeek V4 Flash/Pro, Claude tiers).
+
+def _model_picker_options(available_providers: set[str]) -> tuple[list[str], dict]:
+    """Picker labels + a resolver mapping label -> model_string.
+
+    Lists every catalog model whose provider has a usable key (the viewer's own
+    key or the admin shared key). The Simple/Moderate/Complex tier autos are NOT
+    offered — members pick a concrete model directly.
     """
     options: list[str] = []
-    resolver: dict[str, tuple[str, str]] = {}
-    for t in ("simple", "moderate", "complex"):
-        label = f"Auto - {_TIER_LABEL[t]}"
-        options.append(label)
-        resolver[label] = ("tier", t)
+    resolver: dict[str, str] = {}
     for label, m in model_catalog():
-        options.append(label)
-        resolver[label] = ("model", m)
+        if provider_of(m) in available_providers:
+            options.append(label)
+            resolver[label] = m
     return options, resolver
-
-
-def _resolve_model(selection: tuple[str, str]) -> str:
-    kind, value = selection
-    return model_for_tier(value) if kind == "tier" else value
 
 
 def _handle_send(
