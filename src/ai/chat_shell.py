@@ -26,8 +26,11 @@ def window_frame_css() -> str:
     pins the whole page into this 380px box and blanks the main column.
     """
     return (
-        "position: fixed; bottom: 24px; right: 24px; width: 380px; height: 540px;"
-        "min-width: 300px; min-height: 240px; max-width: 90vw; max-height: 90vh;"
+        "position: fixed; bottom: 24px; right: 24px; width: 380px;"
+        # Auto-height so a short/new conversation fits its content (no dead space
+        # below the input); grows to the cap as messages accumulate, then scrolls.
+        "height: auto; max-height: min(560px, 82vh);"
+        "min-width: 300px; min-height: 200px; max-width: 90vw;"
         "resize: both; overflow: auto; z-index: 99999;"
         "background: #fff; border: 1px solid rgba(0,0,0,.18); border-radius: 12px;"
         "box-shadow: 0 10px 40px rgba(0,0,0,.18);"
@@ -62,7 +65,7 @@ def _shell_script(container_id: str = CONTAINER_ID, launcher_id: str = LAUNCHER_
     <script>
     (function() {{
       const doc = window.parent.document;
-      const KEY = 'heaterAiWindow';
+      const KEY = 'heaterAiWindowV2';
       function el(id) {{ return doc.getElementById(id); }}
       function winBlock() {{
         const anchor = el('{container_id}-anchor');
@@ -76,8 +79,9 @@ def _shell_script(container_id: str = CONTAINER_ID, launcher_id: str = LAUNCHER_
         const s = load();
         if (s.left != null) {{ w.style.left = s.left + 'px'; w.style.right = 'auto'; }}
         if (s.top  != null) {{ w.style.top  = s.top  + 'px'; w.style.bottom = 'auto'; }}
-        if (s.width)  w.style.width  = s.width + 'px';
-        if (s.height) w.style.height = s.height + 'px';
+        // Size is NOT restored: CSS owns it (auto-height fits the conversation,
+        // width:380px default). Live resize still works; it just resets on reload —
+        // persisting size froze the window at its initial 540px and left dead space.
         // Default closed: the window is open ONLY when explicitly opened (s.open===true).
         // On first load (s.open undefined) the launcher shows and the window stays hidden,
         // so the two are never visible at once.
@@ -123,12 +127,8 @@ def _shell_script(container_id: str = CONTAINER_ID, launcher_id: str = LAUNCHER_
         doc.addEventListener('mouseup', function() {{
           if (!drag) return; drag = null;
           const r = w.getBoundingClientRect();
-          const s = load(); s.left = r.left; s.top = r.top; s.width = r.width; s.height = r.height; save(s); apply();
+          const s = load(); s.left = r.left; s.top = r.top; save(s);
         }});
-        new ResizeObserver(function() {{
-          const r = w.getBoundingClientRect();
-          const s = load(); s.width = r.width; s.height = r.height; save(s);
-        }}).observe(w);
       }}
 
       function tick() {{ wireLauncher(); wireHeader(); apply(); }}

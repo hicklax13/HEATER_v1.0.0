@@ -46,3 +46,24 @@ def test_chat_widget_calls_float_parent_with_scoped_css():
     assert calls, "render_chat_widget must call float_parent"
     for c in calls:
         assert c.args or c.keywords, "float_parent must be called WITH scoped css, never bare"
+
+
+def test_window_is_auto_height_not_fixed_540():
+    """The window fits its content (no dead space below the input) and caps+scrolls."""
+    from src.ai.chat_shell import window_frame_css
+
+    frame = window_frame_css()
+    assert "height: auto" in frame, "window must auto-fit content height"
+    assert "height: 540px" not in frame, "fixed 540px height left dead space below the input"
+    assert "max-height" in frame, "must cap height then scroll"
+
+
+def test_shell_does_not_persist_window_size():
+    """Size is NOT saved to localStorage: persisting the initial 540px froze the
+    window and reintroduced the dead-space bug. Position + open state still persist."""
+    from src.ai.chat_shell import _shell_script
+
+    js = _shell_script()
+    assert "ResizeObserver" not in js, "size-persisting ResizeObserver must stay removed"
+    assert "s.height = r.height" not in js and "s.width = r.width" not in js, "must not save window size"
+    assert "s.left" in js and "s.open" in js, "position + open state still persist"
