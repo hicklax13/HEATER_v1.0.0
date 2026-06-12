@@ -14,10 +14,15 @@ import src.scheduler as scheduler
 
 
 @pytest.fixture(autouse=True)
-def _reset_scheduler_state():
+def _reset_scheduler_state(monkeypatch):
     """Keep module globals from leaking between tests / into other suites."""
     scheduler._scheduler_running = False
     scheduler._stop_event.clear()
+    # _refresh_once drains the AI forced_refresh_queue first (a SHARED table other
+    # suites write to). These tests assert the reconnect+staleness bootstrap flow
+    # only, so neutralize the drain step — otherwise a sibling test's leftover
+    # pending row makes the drain fire an extra bootstrap and flakes calls==1.
+    monkeypatch.setattr("src.ai.refresh_queue.drain_queue", lambda: 0)
     yield
     scheduler._scheduler_running = False
     scheduler._stop_event.clear()
