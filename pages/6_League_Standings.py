@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
+from src.ai.chat import render_chat_widget
 from src.auth import multi_user_enabled, require_auth, resolve_viewer_team_name
 from src.database import (
     init_db,
@@ -255,6 +256,7 @@ inject_custom_css()
 require_auth()
 require_page_enabled("page:6_League_Standings")
 log_page_view("League Standings")
+render_chat_widget("League Standings")
 page_timer_start()
 
 # ── Data loading ──────────────────────────────────────────────────────

@@ -7,6 +7,7 @@ import logging
 
 import streamlit as st
 
+from src.ai.chat import render_chat_widget
 from src.auth import multi_user_enabled, require_auth
 from src.closer_monitor import build_closer_grid, build_depth_data_from_db
 from src.database import get_connection, init_db, load_player_pool
@@ -44,6 +45,7 @@ inject_custom_css()
 require_auth()
 require_page_enabled("page:3_Closer_Monitor")
 log_page_view("Closer Monitor")
+render_chat_widget("Closer Monitor")
 page_timer_start()
 
 render_page_header(

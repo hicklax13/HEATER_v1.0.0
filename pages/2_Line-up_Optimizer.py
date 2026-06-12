@@ -20,6 +20,7 @@ import time
 import pandas as pd
 import streamlit as st
 
+from src.ai.chat import render_chat_widget
 from src.auth import multi_user_enabled, require_auth, resolve_viewer_team_name, viewer_can_write
 from src.database import (
     coerce_numeric_df,
@@ -166,6 +167,7 @@ inject_custom_css()
 require_auth()
 require_page_enabled("page:2_Line-up_Optimizer")
 log_page_view("Lineup")
+render_chat_widget("Lineup")
 page_timer_start()
 
 render_page_header(

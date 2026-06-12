@@ -7,6 +7,7 @@ import html as _ldr_html
 import pandas as pd
 import streamlit as st
 
+from src.ai.chat import render_chat_widget
 from src.auth import multi_user_enabled, require_auth, viewer_can_write
 from src.database import coerce_numeric_df, get_connection, init_db, load_player_pool
 from src.feature_flags import require_page_enabled
@@ -192,6 +193,7 @@ inject_custom_css()
 require_auth()
 require_page_enabled("page:17_Leaders")
 log_page_view("Leaders")
+render_chat_widget("Leaders")
 page_timer_start()
 
 render_page_header(

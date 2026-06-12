@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 
 import streamlit as st
 
+from src.ai.chat import render_chat_widget
 from src.auth import multi_user_enabled, require_auth
 from src.database import init_db
 from src.feature_flags import require_page_enabled
@@ -57,6 +58,7 @@ inject_custom_css()
 require_auth()
 require_page_enabled("page:19_Player_Databank")
 log_page_view("Player Databank")
+render_chat_widget("Player Databank")
 
 # Page layout
 render_page_header(

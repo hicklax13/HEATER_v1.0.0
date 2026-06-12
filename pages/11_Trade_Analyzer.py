@@ -12,6 +12,7 @@ import time
 import pandas as pd
 import streamlit as st
 
+from src.ai.chat import render_chat_widget
 from src.auth import multi_user_enabled, require_auth, resolve_viewer_team_name
 from src.database import coerce_numeric_df, init_db, load_player_pool
 from src.feature_flags import require_page_enabled
@@ -87,6 +88,7 @@ inject_custom_css()
 require_auth()
 require_page_enabled("page:11_Trade_Analyzer")
 log_page_view("Trade Analyzer")
+render_chat_widget("Trade Analyzer")
 page_timer_start()
 
 render_page_header("Trade Analyzer", eyebrow="TRADES", fig="FIG.11 — TRADE EVALUATION ENGINE")
