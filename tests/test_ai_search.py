@@ -102,3 +102,28 @@ def test_fetch_url_refuses_private(monkeypatch):
 
     with pytest.raises(ValueError):
         search._fetch_url("http://169.254.169.254/")
+
+
+def test_fetch_url_blocks_redirect_to_private(monkeypatch):
+    """A public URL that 301s to an internal host is blocked at the redirect hop."""
+    import socket
+    from types import SimpleNamespace
+
+    import requests
+
+    from src.ai import search
+
+    monkeypatch.setattr(socket, "gethostbyname", lambda h: "93.184.216.34")  # start host is public
+
+    def fake_get(url, **kw):
+        # redirect every request to a cloud-metadata IP
+        return SimpleNamespace(
+            status_code=302,
+            headers={"Location": "http://169.254.169.254/latest/meta-data/"},
+            text="",
+            raise_for_status=lambda: None,
+        )
+
+    monkeypatch.setattr(requests, "get", fake_get)
+    with pytest.raises(ValueError):
+        search._fetch_url("https://example.com/start")

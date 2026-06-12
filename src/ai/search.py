@@ -53,18 +53,32 @@ def _is_public_http_url(url: str) -> bool:
 
 
 def _fetch_url(url: str) -> str:
-    """Fetch a URL and return its visible text (isolated for mocking)."""
+    """Fetch a URL and return its visible text (isolated for mocking).
+
+    Redirects are followed MANUALLY so every hop is re-validated as public — a
+    public URL that 301s to an internal/metadata host (redirect-based SSRF) is
+    blocked, while legitimate http->https / canonical redirects still work.
+    """
     import requests
     from bs4 import BeautifulSoup
 
-    if not _is_public_http_url(url):
-        raise ValueError("refusing to fetch non-public URL")
-    resp = requests.get(url, timeout=10, headers={"User-Agent": _UA})
-    resp.raise_for_status()
-    soup = BeautifulSoup(resp.text, "html.parser")
-    for tag in soup(["script", "style", "nav", "header", "footer", "noscript"]):
-        tag.decompose()
-    return " ".join(soup.get_text(separator=" ").split())
+    current = url
+    for _ in range(5):  # initial request + up to 4 redirects
+        if not _is_public_http_url(current):
+            raise ValueError("refusing to fetch non-public URL")
+        resp = requests.get(current, timeout=10, headers={"User-Agent": _UA}, allow_redirects=False)
+        if resp.status_code in (301, 302, 303, 307, 308):
+            loc = resp.headers.get("Location")
+            if not loc:
+                break
+            current = requests.compat.urljoin(current, loc)  # resolve relative redirects, re-check next loop
+            continue
+        resp.raise_for_status()
+        soup = BeautifulSoup(resp.text, "html.parser")
+        for tag in soup(["script", "style", "nav", "header", "footer", "noscript"]):
+            tag.decompose()
+        return " ".join(soup.get_text(separator=" ").split())
+    raise ValueError("too many redirects")
 
 
 def web_search(query: str, max_results: int = _DEFAULT_RESULTS) -> dict:
