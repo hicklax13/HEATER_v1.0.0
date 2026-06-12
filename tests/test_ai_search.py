@@ -62,3 +62,43 @@ def test_deep_research_propagates_search_error(monkeypatch):
     monkeypatch.setattr(search, "_ddgs_text", boom)
     out = search.deep_research("q")
     assert out["sources"] == [] and out["error"]
+
+
+import pytest  # noqa: E402
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://127.0.0.1/x",
+        "http://169.254.169.254/latest/meta-data/",  # cloud metadata
+        "http://10.0.0.5/internal",
+        "http://192.168.1.1/admin",
+        "ftp://example.com/file",  # non-http scheme
+        "file:///etc/passwd",
+        "http:///nohost",
+        "not a url",
+    ],
+)
+def test_fetcher_blocks_non_public_urls(url):
+    from src.ai.search import _is_public_http_url
+
+    assert _is_public_http_url(url) is False
+
+
+def test_fetcher_allows_public_url(monkeypatch):
+    import socket
+
+    # mock DNS so there's no real network: resolve the host to a public IP
+    monkeypatch.setattr(socket, "gethostbyname", lambda h: "93.184.216.34")
+    from src.ai.search import _is_public_http_url
+
+    assert _is_public_http_url("https://example.com/page") is True
+
+
+def test_fetch_url_refuses_private(monkeypatch):
+    """_fetch_url raises (caught upstream) on a non-public URL before any request."""
+    from src.ai import search
+
+    with pytest.raises(ValueError):
+        search._fetch_url("http://169.254.169.254/")

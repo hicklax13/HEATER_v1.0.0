@@ -31,11 +31,34 @@ def _ddgs_text(query: str, max_results: int) -> list[dict]:
         return list(d.text(query, max_results=max_results))
 
 
+def _is_public_http_url(url: str) -> bool:
+    """True only for http(s) URLs whose host resolves to a GLOBAL (public) IP.
+
+    Blocks SSRF to loopback/private/link-local/metadata endpoints (e.g.
+    http://localhost, http://169.254.169.254) that a malicious search result
+    could smuggle in for deep_research to fetch.
+    """
+    import ipaddress
+    import socket
+    from urllib.parse import urlparse
+
+    try:
+        parsed = urlparse(url)
+        if parsed.scheme not in ("http", "https") or not parsed.hostname:
+            return False
+        ip = ipaddress.ip_address(socket.gethostbyname(parsed.hostname))
+        return ip.is_global
+    except Exception:
+        return False
+
+
 def _fetch_url(url: str) -> str:
     """Fetch a URL and return its visible text (isolated for mocking)."""
     import requests
     from bs4 import BeautifulSoup
 
+    if not _is_public_http_url(url):
+        raise ValueError("refusing to fetch non-public URL")
     resp = requests.get(url, timeout=10, headers={"User-Agent": _UA})
     resp.raise_for_status()
     soup = BeautifulSoup(resp.text, "html.parser")
