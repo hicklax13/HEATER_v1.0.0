@@ -105,3 +105,11 @@ def test_grok_model_priced_and_in_catalog():
     assert price_per_token("xai/grok-4.3") == pytest.approx((1.25e-6, 2.5e-6))
     assert provider_of("xai/grok-4.3") == "xai"
     assert "xai/grok-4.3" in {m for _, m in model_catalog()}
+
+
+def test_openrouter_auto_in_catalog():
+    from src.ai.router import model_catalog, price_per_token, provider_of
+
+    assert provider_of("openrouter/auto") == "openrouter"
+    assert price_per_token("openrouter/auto") == pytest.approx((2e-6, 8e-6))
+    assert "openrouter/auto" in {m for _, m in model_catalog()}

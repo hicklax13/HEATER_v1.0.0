@@ -42,6 +42,11 @@ _PRICE_PER_TOKEN = {
     "gemini/gemini-3.1-flash-lite": (0.25e-6, 1.5e-6),
     # xAI Grok (June 2026). grok-4.3 is the flagship (2M ctx).
     "xai/grok-4.3": (1.25e-6, 2.5e-6),
+    # OpenRouter aggregator: 'auto' routes per-prompt to a strong model. Cost is
+    # route-dependent (exact per-call cost shows on OpenRouter's dashboard); this
+    # is a deliberately conservative estimate so the shared-key daily cap still
+    # meaningfully applies. Members see the real spend on openrouter.ai.
+    "openrouter/auto": (2e-6, 8e-6),
 }
 
 # Models offered in the chat window's per-message picker. (label, model_string).
@@ -59,6 +64,7 @@ _MODEL_CATALOG = [
     ("Gemini 3.5 Flash", "gemini/gemini-3.5-flash"),
     ("Gemini 3.1 Flash-Lite", "gemini/gemini-3.1-flash-lite"),
     ("Grok 4.3", "xai/grok-4.3"),
+    ("OpenRouter (Auto)", "openrouter/auto"),
 ]
 
 
