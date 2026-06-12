@@ -13,10 +13,14 @@ from src.app_settings import get_setting, set_setting
 
 _TIER_MODELS_SETTING = "ai_tier_models"
 
+# Defaults point at DeepSeek V4 (the operator's configured shared provider) so the
+# Simple/Moderate/Complex "Auto" tiers work out of the box with the DeepSeek shared
+# key. Admins can repoint any tier to another provider in Admin Controls, and members
+# can pick a specific model in the chat window's dropdown.
 _DEFAULT_TIER_MODELS = {
-    "simple": "anthropic/claude-haiku-4-5",
-    "moderate": "anthropic/claude-sonnet-4-6",
-    "complex": "anthropic/claude-opus-4-8",
+    "simple": "deepseek/deepseek-v4-flash",
+    "moderate": "deepseek/deepseek-v4-flash",
+    "complex": "deepseek/deepseek-v4-pro",
 }
 
 # USD per token (input, output). Verified June 2026. ollama/* is local = free.

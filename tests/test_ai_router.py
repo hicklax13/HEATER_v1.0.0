@@ -22,15 +22,15 @@ def _multi_user(monkeypatch):
 def test_default_tier_models():
     from src.ai.router import model_for_tier
 
-    assert model_for_tier("simple") == "anthropic/claude-haiku-4-5"
-    assert model_for_tier("moderate") == "anthropic/claude-sonnet-4-6"
-    assert model_for_tier("complex") == "anthropic/claude-opus-4-8"
+    assert model_for_tier("simple") == "deepseek/deepseek-v4-flash"
+    assert model_for_tier("moderate") == "deepseek/deepseek-v4-flash"
+    assert model_for_tier("complex") == "deepseek/deepseek-v4-pro"
 
 
 def test_unknown_tier_falls_back_to_moderate():
     from src.ai.router import model_for_tier
 
-    assert model_for_tier("nonsense") == "anthropic/claude-sonnet-4-6"
+    assert model_for_tier("nonsense") == "deepseek/deepseek-v4-flash"
 
 
 def test_admin_override(monkeypatch):
@@ -39,7 +39,7 @@ def test_admin_override(monkeypatch):
     set_tier_models({"simple": "gemini/gemini-3-flash"}, admin_id=1)
     assert model_for_tier("simple") == "gemini/gemini-3-flash"
     # untouched tiers keep defaults
-    assert model_for_tier("complex") == "anthropic/claude-opus-4-8"
+    assert model_for_tier("complex") == "deepseek/deepseek-v4-pro"
 
 
 def test_provider_of():
