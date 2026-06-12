@@ -760,6 +760,27 @@ def render_styled_table(df, hide_index=True, max_height=None):
 # ── CSS Injection ──────────────────────────────────────────────────
 
 
+_HEATER_LOGO_B64: str | None = None
+
+
+def _heater_logo_b64() -> str:
+    """Base64 of the v2 HEATER logo PNG (assets/heater_logo_v2.png), cached per process.
+
+    Returns '' if the asset is missing so the caller can fall back to a text wordmark.
+    """
+    global _HEATER_LOGO_B64
+    if _HEATER_LOGO_B64 is None:
+        import base64
+        from pathlib import Path
+
+        try:
+            _p = Path(__file__).resolve().parent.parent / "assets" / "heater_logo_v2.png"
+            _HEATER_LOGO_B64 = base64.b64encode(_p.read_bytes()).decode()
+        except Exception:
+            _HEATER_LOGO_B64 = ""
+    return _HEATER_LOGO_B64
+
+
 def inject_custom_css():
     """Inject the complete Heater CSS for all pages.
 
@@ -2872,6 +2893,18 @@ def inject_custom_css():
     # Rename sidebar "app" → "Connect League" and inject logo + branding via JS
     import streamlit.components.v1 as components
 
+    _logo_b64 = _heater_logo_b64()
+    if _logo_b64:
+        _logo_inner = (
+            '<img src="data:image/png;base64,' + _logo_b64 + '" alt="HEATER" '
+            'style="width:100%;max-width:158px;height:auto;display:block;margin:2px auto 0;">'
+        )
+    else:
+        _logo_inner = (
+            '<span style="font-family:Archivo,sans-serif;font-style:italic;font-weight:700;'
+            'color:#fff;font-size:18px;letter-spacing:2px;">HEATER</span>'
+        )
+
     components.html(
         """<script>
         (function setup() {
@@ -2939,45 +2972,33 @@ def inject_custom_css():
                 const logoDiv = parent.document.createElement('div');
                 logoDiv.className = 'heater-logo';
                 logoDiv.style.cssText = 'display:flex;flex-direction:column;align-items:center;width:100%;padding:6px 4px 8px 4px;';
-                logoDiv.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;gap:3px;"><svg width="30" height="30" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" style="flex-shrink:0;">'
-                    + '<defs><radialGradient id="sbl" cx="40%" cy="35%" r="55%">'
-                    + '<stop offset="0%" stop-color="#fff"/><stop offset="60%" stop-color="#f5f0e8"/>'
-                    + '<stop offset="100%" stop-color="#e8ddd0"/></radialGradient>'
-                    + '<linearGradient id="ssl" x1="0" y1="0" x2="1" y2="0">'
-                    + '<stop offset="0%" stop-color="rgba(255,255,255,0.9)"/>'
-                    + '<stop offset="100%" stop-color="rgba(255,255,255,0)"/></linearGradient></defs>'
-                    + '<line x1="2" y1="22" x2="18" y2="28" stroke="url(#ssl)" stroke-width="2.5" stroke-linecap="round"/>'
-                    + '<line x1="0" y1="32" x2="16" y2="33" stroke="url(#ssl)" stroke-width="2" stroke-linecap="round"/>'
-                    + '<line x1="4" y1="42" x2="17" y2="39" stroke="url(#ssl)" stroke-width="1.5" stroke-linecap="round"/>'
-                    + '<circle cx="38" cy="32" r="18" fill="url(#sbl)"/>'
-                    + '<circle cx="38" cy="32" r="18" fill="none" stroke="rgba(255,255,255,0.4)" stroke-width="0.8"/>'
-                    + '<ellipse cx="39" cy="50" rx="12" ry="2" fill="rgba(0,0,0,0.1)"/>'
-                    + '<path d="M29 16 C24 22 22 27 23 32 C22 37 24 42 29 48" fill="none" stroke="#ff6d00" stroke-width="1.6" stroke-linecap="round"/>'
-                    + '<path d="M47 16 C52 22 54 27 53 32 C54 37 52 42 47 48" fill="none" stroke="#ff6d00" stroke-width="1.6" stroke-linecap="round"/>'
-                    + '<line x1="27" y1="19" x2="30" y2="20" stroke="#ff6d00" stroke-width="1" stroke-linecap="round"/>'
-                    + '<line x1="25" y1="23" x2="28" y2="23.5" stroke="#ff6d00" stroke-width="1" stroke-linecap="round"/>'
-                    + '<line x1="24" y1="27.5" x2="27" y2="27.5" stroke="#ff6d00" stroke-width="1" stroke-linecap="round"/>'
-                    + '<line x1="24" y1="36.5" x2="27" y2="36.5" stroke="#ff6d00" stroke-width="1" stroke-linecap="round"/>'
-                    + '<line x1="25" y1="41" x2="28" y2="40.5" stroke="#ff6d00" stroke-width="1" stroke-linecap="round"/>'
-                    + '<line x1="27" y1="45" x2="30" y2="44" stroke="#ff6d00" stroke-width="1" stroke-linecap="round"/>'
-                    + '<line x1="49" y1="19" x2="46" y2="20" stroke="#ff6d00" stroke-width="1" stroke-linecap="round"/>'
-                    + '<line x1="51" y1="23" x2="48" y2="23.5" stroke="#ff6d00" stroke-width="1" stroke-linecap="round"/>'
-                    + '<line x1="52" y1="27.5" x2="49" y2="27.5" stroke="#ff6d00" stroke-width="1" stroke-linecap="round"/>'
-                    + '<line x1="52" y1="36.5" x2="49" y2="36.5" stroke="#ff6d00" stroke-width="1" stroke-linecap="round"/>'
-                    + '<line x1="51" y1="41" x2="48" y2="40.5" stroke="#ff6d00" stroke-width="1" stroke-linecap="round"/>'
-                    + '<line x1="49" y1="45" x2="46" y2="44" stroke="#ff6d00" stroke-width="1" stroke-linecap="round"/>'
-                    + '<circle cx="38" cy="32" r="21" fill="none" stroke="rgba(255,255,255,0.3)" stroke-width="1.2"/>'
-                    + '</svg>'
-                    + '<span style="font-family:Archivo,sans-serif;font-size:16px;letter-spacing:2px;font-style:italic;white-space:nowrap;'
-                    + 'color:#ffffff;font-weight:700;text-shadow:0 1px 4px rgba(0,0,0,0.25);line-height:1;">HEATER</span></div>'
-                    + '<div style="width:40px;height:3px;background:linear-gradient(90deg,#e65c00,#ff8c00);border-radius:2px;margin-top:5px;"></div>';
+                logoDiv.innerHTML = '__LOGO_INNER__';
                 header.insertBefore(logoDiv, header.firstChild);
             }
+
+            // Collapse zero-height helper blocks (injected <style>/<link>, height=0
+            // component iframes, streamlit-float markers) so the main column's 16px
+            // flex row-gap doesn't stack into a big empty band atop every page.
+            function collapseHelpers() {
+                const main = parent.document.querySelector('section[data-testid="stMain"]');
+                if (!main) return;
+                main.querySelectorAll('[data-testid="stElementContainer"]').forEach(function(el){
+                    if (el.getAttribute('data-heater-collapsed')) return;
+                    if (el.getBoundingClientRect().height > 0.5) return;  // never touch visible content
+                    const md = el.querySelector('[data-testid="stMarkdownContainer"]');
+                    const isHelper = el.querySelector('iframe')
+                        || el.querySelector('.float, .elim')
+                        || (md && (md.querySelector(':scope > style, :scope > link') || md.textContent.trim() === ''));
+                    if (isHelper) { el.style.display = 'none'; el.setAttribute('data-heater-collapsed', '1'); }
+                });
+            }
+            collapseHelpers();
+            [250, 600, 1200, 2500].forEach(function(ms){ setTimeout(collapseHelpers, ms); });
 
             var firstLink = nav.querySelector('li:first-child a');
             if (!firstLink || !firstLink.querySelector('.nav-icon')) { setTimeout(setup, 200); }
         })();
-        </script>""",
+        </script>""".replace("__LOGO_INNER__", _logo_inner),
         height=0,
     )
 
