@@ -2897,7 +2897,7 @@ def inject_custom_css():
     if _logo_b64:
         _logo_inner = (
             '<img src="data:image/png;base64,' + _logo_b64 + '" alt="HEATER" '
-            'style="width:100%;max-width:158px;height:auto;display:block;margin:2px auto 0;">'
+            'style="width:100%;height:auto;display:block;margin:0;border-radius:6px;">'
         )
     else:
         _logo_inner = (
@@ -2971,10 +2971,12 @@ def inject_custom_css():
             if (header && !header.querySelector('.heater-logo')) {
                 const logoDiv = parent.document.createElement('div');
                 logoDiv.className = 'heater-logo';
-                logoDiv.style.cssText = 'display:flex;flex-direction:column;align-items:center;width:100%;padding:6px 4px 8px 4px;';
+                logoDiv.style.cssText = 'display:flex;flex-direction:column;align-items:center;width:100%;padding:2px 0 4px;';
                 logoDiv.innerHTML = '__LOGO_INNER__';
                 header.insertBefore(logoDiv, header.firstChild);
             }
+            // Tighten the sidebar header so the logo sits flush at the top (kills the gap).
+            if (header) { header.style.paddingTop = '4px'; header.style.paddingBottom = '0'; }
 
             // Collapse zero-height helper blocks (injected <style>/<link>, height=0
             // component iframes, streamlit-float markers) so the main column's 16px
