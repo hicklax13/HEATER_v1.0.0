@@ -327,8 +327,8 @@ THEME = {
     # colorway (ember-red is reserved as a functional negative only). Values from
     # docs/design/mockup-myteam.html + mockup-player-popup.html :root + the
     # locked palette in docs/superpowers/plans/2026-06-08-combustion-redesign-plan.md.
-    "bg": "#f4f3f1",  # neutral off-white canvas
-    "card": "#ffffff",
+    "bg": "#ffffff",  # pure white canvas (owner request 2026-06-10: off-white + blueprint grid removed)
+    "card": "#f5f6f8",  # pale surface fill (owner request 2026-06-10: white elements re-filled)
     "card_h": "#ecebe7",
     "primary": "#ff6d00",  # hot orange — the headline brand change (was red)
     "primary_l": "#ff9a3c",
@@ -352,7 +352,7 @@ THEME = {
     # ── Neutrals + chrome (Combustion redesign) ──
     # "surface" is the card fill (== card); the sidebar pair drives the deep-navy
     # rail; divider/tx_muted/tx_subtle give the calmer text + line hierarchy.
-    "surface": "#ffffff",
+    "surface": "#f5f6f8",
     "sidebar_bg": "#112744",  # deep navy chrome
     "sidebar_ink": "#eef1f6",
     "divider": "#edece8",
@@ -836,11 +836,9 @@ def inject_custom_css():
        (Archivo) + figures (mono) re-assert their own families later. */
     html, body {{ font-family: var(--font-body) !important; }}
     .stApp {{
-        background:
-            url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.78' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)' opacity='0.05'/%3E%3C/svg%3E") repeat,
-            linear-gradient(rgba(17,39,68,.022) 1px, transparent 1px) 0 0 / 100% 28px,
-            linear-gradient(90deg, rgba(17,39,68,.016) 1px, transparent 1px) 0 0 / 28px 100%,
-            var(--fp-app-bg) !important;
+        /* Owner request 2026-06-10: plain white canvas — the feTurbulence grain
+           and blueprint-grid gradient layers were removed app-wide. */
+        background: var(--fp-app-bg) !important;
         font-family: var(--font-body);
         color: {t["tx"]};
     }}
@@ -959,6 +957,15 @@ def inject_custom_css():
             radial-gradient(rgba(24,26,32,.035) 1px, transparent 1.3px) 0 0 / 20px 20px,
             var(--fp-surface);
         box-shadow: inset 0 1px 0 rgba(255,255,255,.9), 0 1px 3px rgba(24,26,32,.06), 0 6px 20px rgba(24,26,32,.04);
+    }}
+    /* Owner request 2026-06-10: surface-filled elements (pale #f5f6f8 fill)
+       carry darker, bolder text than the white canvas around them. Accent
+       colors (orange links, status chips) keep their own rules. */
+    .instr-panel, .glass, .alt, .context-card,
+    [data-testid="stPopover"], [data-baseweb="popover"], [data-baseweb="menu"],
+    [data-testid="stChatMessage"] {{
+        color: #101114;
+        font-weight: 600;
     }}
     /* Faint orange wash bleeding from the top-right, like the mockup. */
     .instr-panel::before {{
@@ -1793,11 +1800,11 @@ def inject_custom_css():
         color: {t["tx"]} !important;
     }}
     [data-testid="stPopover"], .stPopover {{
-        background: #ffffff !important;
+        background: var(--fp-surface) !important;
         color: {t["tx"]} !important;
     }}
     [data-testid="stChatMessage"], .stChatMessage {{
-        background: rgba(255, 255, 255, 0.7) !important;
+        background: var(--fp-surface) !important;
         color: {t["tx"]} !important;
     }}
     .stForm, [data-testid="stForm"] {{
@@ -1821,11 +1828,11 @@ def inject_custom_css():
     }}
     /* Select/dropdown menus */
     [data-baseweb="popover"], [data-baseweb="menu"] {{
-        background: #ffffff !important;
+        background: var(--fp-surface) !important;
         color: {t["tx"]} !important;
     }}
     [data-baseweb="select"] [data-baseweb="input"] {{
-        background: rgba(255, 255, 255, 0.7) !important;
+        background: var(--fp-surface) !important;
     }}
     /* Number input steppers */
     div[data-testid="stNumberInput"] [data-testid="stNumberInputStepUp"],
@@ -2358,7 +2365,7 @@ def inject_custom_css():
         box-shadow: 2px 0 4px rgba(0, 0, 0, 0.06) !important;
     }}
     .compact-table tr:hover .col-name {{
-        background: #ffffff !important;
+        background: var(--fp-surface) !important;
     }}
     .row-start td {{
         background: rgba(45, 106, 79, 0.04) !important;
@@ -2884,6 +2891,7 @@ def inject_custom_css():
                 'Lineup': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>',
                 'Line-up Optimizer': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>',
                 'Closer Monitor': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="7"/><polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"/></svg>',
+                'Pitcher Streaming': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.59 4.59A2 2 0 1 1 11 8H2"/><path d="M12.59 19.41A2 2 0 1 0 14 16H2"/><path d="M17.73 7.73A2.5 2.5 0 1 1 19.5 12H2"/></svg>',
                 'Standings': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>',
                 'Leaders': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>',
                 'Trade Finder': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',

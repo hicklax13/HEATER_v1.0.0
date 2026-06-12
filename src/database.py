@@ -2749,6 +2749,12 @@ def load_matchup_cache(team_name: str, week: int | None = None) -> dict | None:
 
     If ``week`` is None, returns the most recently updated matchup for
     the team. Useful as a SQLite fallback when Yahoo is offline.
+
+    Name reconciliation (2026-06-10 live finding): cache rows are written
+    under YAHOO's team names (leading emoji/whitespace) while callers pass
+    the admin-assigned plain name — an exact-only match could never hit, so
+    every server session saw an empty matchup. On an exact miss, retry with
+    the canonical ``_normalize_team_name`` comparison (the b7f0567 fix DNA).
     """
     if not team_name:
         return None
@@ -2757,19 +2763,36 @@ def load_matchup_cache(team_name: str, week: int | None = None) -> dict | None:
     conn = get_connection()
     try:
         cursor = conn.cursor()
-        if week is None:
-            cursor.execute(
-                """SELECT matchup_json FROM league_matchup_cache
-                   WHERE team_name = ? ORDER BY updated_at DESC LIMIT 1""",
-                (team_name,),
-            )
-        else:
-            cursor.execute(
-                """SELECT matchup_json FROM league_matchup_cache
-                   WHERE team_name = ? AND week = ?""",
-                (team_name, int(week)),
-            )
-        row = cursor.fetchone()
+
+        def _query(name: str):
+            if week is None:
+                cursor.execute(
+                    """SELECT matchup_json FROM league_matchup_cache
+                       WHERE team_name = ? ORDER BY updated_at DESC LIMIT 1""",
+                    (name,),
+                )
+            else:
+                cursor.execute(
+                    """SELECT matchup_json FROM league_matchup_cache
+                       WHERE team_name = ? AND week = ?""",
+                    (name, int(week)),
+                )
+            return cursor.fetchone()
+
+        row = _query(team_name)
+        if not row:
+            # Exact miss — reconcile against the cached names (emoji/whitespace
+            # variants of the same team).
+            from src.auth import _normalize_team_name
+
+            wanted = _normalize_team_name(team_name)
+            if wanted:
+                cursor.execute("SELECT DISTINCT team_name FROM league_matchup_cache")
+                for (cached_name,) in cursor.fetchall():
+                    if cached_name != team_name and _normalize_team_name(cached_name) == wanted:
+                        row = _query(cached_name)
+                        if row:
+                            break
         if not row:
             return None
         return _json.loads(row[0])

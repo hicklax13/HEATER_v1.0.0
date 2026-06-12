@@ -23,7 +23,7 @@ _INTERACTIVE_PAGES = sorted(
 
 
 def test_found_the_pages():
-    assert len(_INTERACTIVE_PAGES) == 13, [p.name for p in _INTERACTIVE_PAGES]
+    assert len(_INTERACTIVE_PAGES) == 14, [p.name for p in _INTERACTIVE_PAGES]
 
 
 @pytest.mark.parametrize("page", _INTERACTIVE_PAGES, ids=lambda p: p.name)

@@ -1036,6 +1036,12 @@ with main:
                     _dcv_form = _opt_ctx.recent_form if _opt_ctx else None
                     _dcv_team_strength = _opt_ctx.team_strength if _opt_ctx else None
                     _dcv_rate_modes = _dcv_urgency.get("rate_modes") if _dcv_urgency else None
+                    # Persist alongside the result: the render branch below
+                    # re-executes on EVERY rerun (e.g. the "Refresh Yahoo
+                    # Data" button) where this optimize-click local is
+                    # unbound — reading it back avoids the NameError
+                    # (2026-06-10 live incident).
+                    st.session_state["_dcv_rate_modes"] = _dcv_rate_modes
 
                     dcv = build_daily_dcv_table(
                         roster=roster if not roster.empty else pool,
@@ -1553,6 +1559,10 @@ with main:
                 # ── Post-process: bench SPs when rate stats are abandoned ──
                 # When both ERA and WHIP are unrecoverable, pure SPs with
                 # negative DCV only add IP damage. Bench them; keep RPs for saves.
+                # Read from session state, NOT the optimize-click local: this
+                # render branch also runs on plain reruns (Refresh Yahoo Data,
+                # any widget click) where the local was never bound.
+                _dcv_rate_modes = st.session_state.get("_dcv_rate_modes")
                 if _dcv_rate_modes:
                     _era_abn = _dcv_rate_modes.get("ERA") == "abandon"
                     _whip_abn = _dcv_rate_modes.get("WHIP") == "abandon"
@@ -3180,6 +3190,7 @@ with main:
                         "away_abbr": _away_abbr,
                         "home_probable_pitcher": _g.get("home_probable_pitcher", ""),
                         "away_probable_pitcher": _g.get("away_probable_pitcher", ""),
+                        "status": _g.get("status", ""),
                     }
                 )
                 for _abbr in [_home_abbr, _away_abbr]:
@@ -3272,133 +3283,94 @@ with main:
 
         _stream_picks: list[dict] = []
         if not _fa_sp_pool.empty and _stream_schedule:
-            # Build name->player_id lookup from FA pool
-            _fa_name_col = "player_name" if "player_name" in _fa_sp_pool.columns else "name"
-            _fa_name_set = (
-                set(_fa_sp_pool[_fa_name_col].str.strip().tolist()) if _fa_name_col in _fa_sp_pool.columns else set()
+            # Scoring delegated to the canonical stream engine — the previous
+            # page-local formula (K*1.5 + W*0.3 - ERA/WHIP penalties + bonuses)
+            # lived outside CONSTANTS_REGISTRY and duplicated engine logic.
+            # Guarded by tests/test_stream_page_no_inline_scoring.py.
+            # SP-focused by design: closer/saves streaming lives on the
+            # Closer Monitor page.
+            from types import SimpleNamespace as _StreamNS
+
+            from src.optimizer.stream_analyzer import build_stream_board as _build_stream_board
+
+            _team_strength_map: dict[str, dict] = {}
+            try:
+                from src.game_day import get_team_strength as _get_ts
+
+                for _abbr in _stream_team_game_counts:
+                    if _abbr:
+                        _team_strength_map[_abbr] = _get_ts(_abbr)
+            except Exception:
+                _team_strength_map = {}
+
+            _stream_eng_ctx = _StreamNS(
+                player_pool=_fa_sp_pool,  # already FA-only
+                user_roster_ids=[],
+                league_rostered_ids=set(),
+                team_strength=_team_strength_map,
+                park_factors=_effective_park_factors() or {},
+                weather={},
+                two_start_pitchers=[],
+                recent_form={},
+                todays_schedule=[],
+                config=league_config,
+                category_weights=None,
             )
 
-            # Score each FA pitcher based on: schedule, projections, matchup quality
-            for _, _fp in _fa_sp_pool.iterrows():
-                _fp_name = str(_fp.get("player_name", _fp.get("name", ""))).strip()
-                _fp_team = str(_fp.get("team", "")).strip()
-                _fp_positions = str(_fp.get("positions", ""))
-                _is_sp = "SP" in _fp_positions
-
-                # Projected stats
-                _fp_k = float(_fp.get("k", 0) or 0)
-                _fp_era = float(_fp.get("era", 0) or 0)
-                _fp_whip = float(_fp.get("whip", 0) or 0)
-                _fp_ip = float(_fp.get("ip", 0) or 0)
-                _fp_w = float(_fp.get("w", 0) or 0)
-                _fp_sv = float(_fp.get("sv", 0) or 0)
-
-                # Skip pitchers with no meaningful projections
-                if _fp_ip <= 0 and _fp_k <= 0 and _fp_sv <= 0:
+            _best_by_name: dict[str, dict] = {}
+            _window_dates = sorted({g.get("game_date", "") for g in _stream_schedule if g.get("game_date")})
+            for _gd in _window_dates:
+                _day_games = [g for g in _stream_schedule if g.get("game_date") == _gd]
+                try:
+                    _day_board = _build_stream_board(_stream_eng_ctx, _gd, schedule=_day_games)
+                except Exception as _board_exc:
+                    logger.debug("Stream board failed for %s: %s", _gd, _board_exc)
                     continue
+                if _day_board.empty:
+                    continue
+                for _, _brow in _day_board.iterrows():
+                    _bname = str(_brow["player_name"]).strip()
+                    _entry = _brow.to_dict()
+                    _entry["game_date"] = _gd
+                    if _bname not in _best_by_name or _entry["stream_score"] > _best_by_name[_bname]["stream_score"]:
+                        _best_by_name[_bname] = _entry
 
-                # Per-IP rates for scoring
-                _k_per_ip = (_fp_k / _fp_ip) if _fp_ip > 0 else 0
-                _k_per_start = _k_per_ip * 6.0  # approximate per-start K
-
-                # Check if this pitcher is a probable starter in the schedule
-                _starts_this_week: list[dict] = []
-                _next_start_date = ""
-                _next_opp = ""
-                if _fp_name in _pitcher_schedule:
-                    _starts_this_week = _pitcher_schedule[_fp_name]
-                    if _starts_this_week:
-                        _starts_this_week.sort(key=lambda x: x["date"])
-                        _next_start_date = _starts_this_week[0]["date"]
-                        _next_opp = _starts_this_week[0]["opponent"]
-
-                # Calculate team games this week
-                _team_games = _stream_team_game_counts.get(_fp_team, 0)
-
-                # ── Streaming score ──
-                # Base: K rate (higher = better)
-                _score = _k_per_start * 1.5
-
-                # Win upside
-                _score += _fp_w * 0.3
-
-                # ERA/WHIP penalty (lower is better; penalize bad ratios)
-                if _fp_era > 0:
-                    _era_penalty = max(0, (_fp_era - 3.50)) * 1.2
-                    _score -= _era_penalty
-                if _fp_whip > 0:
-                    _whip_penalty = max(0, (_fp_whip - 1.15)) * 3.0
-                    _score -= _whip_penalty
-
-                # Two-start bonus for SP
+            _fa_name_col = "player_name" if "player_name" in _fa_sp_pool.columns else "name"
+            _fa_by_name = {str(_r.get(_fa_name_col, "")).strip(): _r for _, _r in _fa_sp_pool.iterrows()}
+            for _bname, _entry in _best_by_name.items():
+                _starts_this_week = sorted(_pitcher_schedule.get(_bname, []), key=lambda x: x["date"])
                 _num_starts = len(_starts_this_week)
-                if _is_sp and _num_starts >= 2:
-                    _score += 3.0
-                elif _is_sp and _num_starts == 1:
-                    _score += 1.0
-
-                # Known start bonus (probable pitcher listed)
-                if _next_start_date:
-                    _score += 1.5
-
-                # Schedule volume bonus (team has many games)
-                if _team_games >= 7:
-                    _score += 0.5
-
-                # Saves bonus for RP closers
-                if _fp_sv > 0 and "RP" in _fp_positions:
-                    _score += _fp_sv * 0.4
-
-                # Matchup quality: check opponent batting strength
-                if _next_opp:
-                    try:
-                        from src.game_day import get_team_strength
-
-                        _opp_strength = get_team_strength(_next_opp)
-                        _opp_wrc = float(_opp_strength.get("wrc_plus", 100) or 100)
-                        # Lower wRC+ = weaker opponent = better matchup
-                        if _opp_wrc < 95:
-                            _score += 1.5  # favorable
-                            _matchup_label = "Easy"
-                        elif _opp_wrc > 108:
-                            _score -= 1.0  # tough
-                            _matchup_label = "Tough"
-                        else:
-                            _matchup_label = "Avg"
-                    except Exception:
-                        _matchup_label = "--"
+                _fp = _fa_by_name.get(_bname)
+                _opp_wrc = float(_entry.get("opp_wrc_plus", 100.0) or 100.0)
+                if _opp_wrc < 95:
+                    _matchup_label = "Easy"
+                elif _opp_wrc > 108:
+                    _matchup_label = "Tough"
                 else:
-                    _matchup_label = "--"
-
-                # Stream type label
-                if _is_sp and _num_starts >= 2:
-                    _stream_type = "2-Start SP"
-                elif _is_sp:
-                    _stream_type = "SP Stream"
-                elif _fp_sv > 0:
-                    _stream_type = "Closer"
-                else:
-                    _stream_type = "RP Stream"
-
+                    _matchup_label = "Avg"
                 _stream_picks.append(
                     {
-                        "player_name": _fp_name,
-                        "team": _fp_team,
-                        "type": _stream_type,
-                        "next_start": _next_start_date if _next_start_date else "--",
-                        "opponent": _next_opp if _next_opp else "--",
-                        "num_starts": _num_starts,
-                        "proj_k": _fp_k,
-                        "proj_era": _fp_era,
-                        "proj_whip": _fp_whip,
-                        "proj_ip": _fp_ip,
-                        "proj_sv": _fp_sv,
+                        "player_name": _bname,
+                        "team": _entry.get("team", ""),
+                        "type": "2-Start SP" if _num_starts >= 2 else "SP Stream",
+                        "next_start": (
+                            _starts_this_week[0]["date"] if _starts_this_week else _entry.get("game_date", "--")
+                        ),
+                        "opponent": (
+                            _starts_this_week[0]["opponent"] if _starts_this_week else _entry.get("opponent", "--")
+                        ),
+                        "num_starts": max(_num_starts, 1),
+                        "proj_k": float(_fp.get("k", 0) or 0) if _fp is not None else 0.0,
+                        "proj_era": float(_fp.get("era", 0) or 0) if _fp is not None else 0.0,
+                        "proj_whip": float(_fp.get("whip", 0) or 0) if _fp is not None else 0.0,
+                        "proj_ip": float(_fp.get("ip", 0) or 0) if _fp is not None else 0.0,
+                        "proj_sv": float(_fp.get("sv", 0) or 0) if _fp is not None else 0.0,
                         "matchup": _matchup_label,
-                        "score": round(_score, 2),
+                        "score": float(_entry.get("stream_score", 0.0)),
                     }
                 )
 
-            # Sort by score descending, take top 15
+            # Sort by engine Stream Score descending, take top 15
             _stream_picks.sort(key=lambda x: x["score"], reverse=True)
             _stream_picks = _stream_picks[:15]
 
@@ -3427,8 +3399,9 @@ with main:
 
             render_styled_table(pd.DataFrame(_picks_display))
             st.caption(
-                "Score combines projected K rate, ERA/WHIP quality, two-start bonus, "
-                "and opponent strength (wRC+). Higher is better."
+                "Stream Score (0-100) from the canonical stream engine: matchup "
+                "quality, marginal SGP, form, environment, and win probability. "
+                "Saves streaming lives on the Closer Monitor page."
             )
         elif not _stream_schedule:
             st.info("Unable to load MLB schedule. Check your internet connection.")

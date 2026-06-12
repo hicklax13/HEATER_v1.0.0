@@ -374,11 +374,16 @@ def test_focus_visible_ring_present():
     assert ":focus-visible" in _SRC, "a :focus-visible ring rule must exist"
 
 
-def test_canvas_grain_present():
-    """The app canvas carries the layered grain + blueprint-grid texture."""
-    assert "fractalNoise" in _SRC, "the feTurbulence grain data-URI must be on the canvas"
+def test_canvas_plain_white():
+    """Owner request 2026-06-10: the canvas is PLAIN WHITE — the feTurbulence
+    grain and blueprint-grid gradient layers must stay gone app-wide."""
+    assert "fractalNoise" not in _SRC, "the feTurbulence grain data-URI was removed — do not reintroduce it"
     app_block = _css_block(".stApp")
-    assert "data:image/svg+xml" in app_block, ".stApp background must layer the grain data-URI"
+    assert "data:image/svg+xml" not in app_block, ".stApp must not layer a texture data-URI"
+    assert "linear-gradient" not in app_block, ".stApp must not carry blueprint-grid gradient layers"
+    from src.ui_shared import THEME
+
+    assert THEME["bg"].lower() == "#ffffff", "canvas token must be pure white"
 
 
 def test_no_entrance_animation_on_persistent_cards():

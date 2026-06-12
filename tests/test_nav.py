@@ -46,7 +46,7 @@ def test_build_pages_groups(monkeypatch):
 
     groups = build_pages({"is_admin": 1}, draft_page=lambda: None)
     assert set(groups) == {"Home", "Season", "Admin"}
-    assert len(groups["Season"]) == 13
+    assert len(groups["Season"]) == 14
     assert len(groups["Admin"]) == 3
 
 

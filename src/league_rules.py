@@ -9,6 +9,11 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
+# FourzynBurn: 10 adds + trades combined per matchup week (FCFS waivers).
+# Canonical home of the weekly transaction budget — every consumer
+# (streaming, FA engine, UI budget strips) must derive from this value.
+WEEKLY_TRANSACTION_LIMIT: int = 10
+
 
 def weeks_remaining(as_of: _date | None = None, season: int = 2026) -> int:
     """Canonical accessor for weeks remaining in the regular season.
@@ -53,11 +58,11 @@ def get_weekly_transaction_count(
     return int(mask.sum())
 
 
-def is_at_transaction_limit(current_count: int, limit: int = 10) -> bool:
+def is_at_transaction_limit(current_count: int, limit: int = WEEKLY_TRANSACTION_LIMIT) -> bool:
     """Return True if the weekly transaction limit has been reached."""
     return current_count >= limit
 
 
-def get_transactions_remaining(current_count: int, limit: int = 10) -> int:
+def get_transactions_remaining(current_count: int, limit: int = WEEKLY_TRANSACTION_LIMIT) -> int:
     """Return how many transactions remain this week."""
     return max(0, limit - current_count)
