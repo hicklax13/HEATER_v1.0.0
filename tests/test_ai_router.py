@@ -97,3 +97,11 @@ def test_openai_and_gemini_models_priced_and_in_catalog():
         "gemini/gemini-3.1-flash-lite",
     ):
         assert m in models
+
+
+def test_grok_model_priced_and_in_catalog():
+    from src.ai.router import model_catalog, price_per_token, provider_of
+
+    assert price_per_token("xai/grok-4.3") == pytest.approx((1.25e-6, 2.5e-6))
+    assert provider_of("xai/grok-4.3") == "xai"
+    assert "xai/grok-4.3" in {m for _, m in model_catalog()}

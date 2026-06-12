@@ -267,7 +267,9 @@ def _render_ai_settings(user: dict) -> None:
     with st.popover("AI Settings", help="Your API keys"):
         st.caption("Add your own provider key to use your own model + skip shared-key caps.")
         with st.form("ai_key_form", clear_on_submit=True):
-            provider = st.selectbox("Provider", ["deepseek", "anthropic", "openai", "gemini", "openrouter", "ollama"])
+            provider = st.selectbox(
+                "Provider", ["deepseek", "anthropic", "openai", "gemini", "xai", "openrouter", "ollama"]
+            )
             label = st.text_input("Label (optional)", value="")
             key_text = st.text_input("API key", value="", type="password")
             if st.form_submit_button("Save key") and key_text.strip():

@@ -110,7 +110,7 @@ st.caption(
 
 _ai_provider = st.selectbox(
     "Shared key provider",
-    ["deepseek", "anthropic", "openai", "gemini", "openrouter"],
+    ["deepseek", "anthropic", "openai", "gemini", "xai", "openrouter"],
     key="ai_shared_provider",
 )
 ai_shared_key_text = st.text_input("Shared API key", value="", type="password", key="ai_shared_key_input")
