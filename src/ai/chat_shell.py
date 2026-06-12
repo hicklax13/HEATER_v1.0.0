@@ -16,8 +16,31 @@ LAUNCHER_ID = "heater-ai-launcher"
 LAUNCHER_LABEL = "AI Chat"
 
 
+def window_frame_css() -> str:
+    """Frame styling for the floated chat window — declarations only (no <style>).
+
+    Passed to streamlit-float's float_parent(css=...) so it is scoped to ONLY the
+    chat container via that library's unique per-container class. It must NOT be a
+    global `div:has(... anchor)` rule: a descendant `:has()` matches every ANCESTOR
+    that contains the anchor, including the page's top-level content block, which
+    pins the whole page into this 380px box and blanks the main column.
+    """
+    return (
+        "position: fixed; bottom: 24px; right: 24px; width: 380px; height: 540px;"
+        "min-width: 300px; min-height: 240px; max-width: 90vw; max-height: 90vh;"
+        "resize: both; overflow: auto; z-index: 99999;"
+        "background: #fff; border: 1px solid rgba(0,0,0,.18); border-radius: 12px;"
+        "box-shadow: 0 10px 40px rgba(0,0,0,.18);"
+    )
+
+
 def float_window_css() -> str:
-    """CSS for the floated container: window frame, resizable, draggable header."""
+    """CSS for the launcher button + window-header affordances ONLY.
+
+    The window FRAME positioning lives in window_frame_css() and is applied
+    per-container through float_parent(css=...) — see that function's note on why
+    a global :has() frame rule cannot be used here.
+    """
     return f"""
     <style>
       #{LAUNCHER_ID} {{
@@ -25,13 +48,6 @@ def float_window_css() -> str:
         background: var(--heater-primary, #ff6d00); color: #fff; border: none;
         border-radius: 8px; padding: 7px 12px; font-weight: 600; cursor: pointer;
         font-family: inherit; display: inline-flex; gap: 6px; align-items: center;
-      }}
-      div[data-testid="stVerticalBlock"]:has(> div #{CONTAINER_ID}-anchor) {{
-        position: fixed; bottom: 24px; right: 24px; width: 380px; height: 540px;
-        min-width: 300px; min-height: 240px; max-width: 90vw; max-height: 90vh;
-        resize: both; overflow: auto; z-index: 99999;
-        background: #fff; border: 1px solid rgba(0,0,0,.18); border-radius: 12px;
-        box-shadow: 0 10px 40px rgba(0,0,0,.18);
       }}
       #{CONTAINER_ID}-header {{ cursor: move; user-select: none; }}
       .heater-ai-hidden {{ display: none !important; }}

@@ -11,7 +11,7 @@ import time
 import streamlit as st
 
 from src.ai import budget, history
-from src.ai.chat_shell import CONTAINER_ID, render_launcher_and_shell
+from src.ai.chat_shell import CONTAINER_ID, render_launcher_and_shell, window_frame_css
 from src.ai.keys import delete_key, get_key, list_keys, store_key
 from src.ai.router import model_catalog, model_for_tier, price_per_token, provider_of
 from src.ai.schema_card import build_schema_card
@@ -65,7 +65,10 @@ def render_chat_widget(page: str) -> None:
     with window:
         st.markdown(f'<div id="{CONTAINER_ID}-anchor"></div>', unsafe_allow_html=True)
         _render_window_body(page, user)
-        float_parent()
+        # Scope the frame to THIS container only (float_parent tags it with a unique
+        # class). A global :has() frame rule would over-match ancestors — see
+        # window_frame_css() — and pin the whole page, blanking the main column.
+        float_parent(css=window_frame_css())
 
 
 def _render_window_body(page: str, user: dict) -> None:
