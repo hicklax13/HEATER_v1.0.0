@@ -7,13 +7,59 @@ import pytest
 
 from src.database import get_connection, init_db
 from src.player_databank import (
+    _format_cell,
     compute_rolling_stats,
     export_to_excel,
     filter_databank,
+    format_innings,
     load_databank,
     load_game_logs,
     render_databank_table,
 )
+
+
+class TestFormatInnings:
+    """Unit tests for format_innings — IP outs-notation display helper.
+
+    Baseball IP uses thirds: .1 = 1/3 inning, .2 = 2/3 inning.
+    The decimal stored in the DB is a true fraction (56.333... or 56.667...);
+    format_innings must render it back as outs notation (56.1 or 56.2).
+    """
+
+    def test_two_thirds(self):
+        assert format_innings(56.667) == "56.2"
+
+    def test_one_third(self):
+        assert format_innings(56.333) == "56.1"
+
+    def test_whole_innings(self):
+        assert format_innings(56.0) == "56.0"
+
+    def test_zero_two_thirds(self):
+        assert format_innings(0.667) == "0.2"
+
+    def test_zero_one_third(self):
+        assert format_innings(0.333) == "0.1"
+
+    def test_zero(self):
+        assert format_innings(0.0) == "0.0"
+
+    def test_rollover_thirds_become_next_inning(self):
+        # 3 thirds == 1 full inning — e.g. 5.999... should give 6.0 not 5.3
+        assert format_innings(6.0) == "6.0"
+
+    def test_format_cell_ip_column(self):
+        """_format_cell routes the ip column through format_innings."""
+        # 56 + 2/3 stored as decimal ≈ 56.6666...
+        assert _format_cell(56 + 2 / 3, "ip") == "56.2"
+        # 56 + 1/3
+        assert _format_cell(56 + 1 / 3, "ip") == "56.1"
+        # Whole innings
+        assert _format_cell(10.0, "ip") == "10.0"
+
+    def test_format_cell_ip_case_insensitive(self):
+        """Column name 'IP' (uppercase) also routes correctly."""
+        assert _format_cell(1 + 2 / 3, "IP") == "1.2"
 
 
 class TestGameLogsSchema:

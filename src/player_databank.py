@@ -852,6 +852,31 @@ def filter_databank(
     return result
 
 
+# ── IP display helper ─────────────────────────────────────────────────────────
+
+
+def format_innings(ip: float) -> str:
+    """Convert a decimal innings-pitched value to outs (thirds) notation.
+
+    Baseball IP uses thirds of an inning: .1 = ⅓, .2 = ⅔.  A value stored
+    as a true decimal fraction (e.g. 56.6̄ for 56⅔ IP) must be converted back
+    to the conventional display format ("56.2"), not rendered as a naive
+    floating-point string ("56.7").
+
+    Args:
+        ip: Decimal innings value (e.g. 56.333... or 56.667...).
+
+    Returns:
+        Outs-notation string (e.g. "56.1", "56.2", "56.0").
+    """
+    whole = int(ip)
+    thirds = round((ip - whole) * 3)
+    if thirds == 3:
+        whole += 1
+        thirds = 0
+    return f"{whole}.{thirds}"
+
+
 # ── HTML table rendering ──────────────────────────────────────────────────────
 
 # Computed rate-stat column aliases: maps calc column → display column name
@@ -899,10 +924,10 @@ def _format_cell(value: object, col: str) -> str:
         except (TypeError, ValueError):
             return str(value)
 
-    # IP: .1f
+    # IP: outs notation (56.667 → "56.2", 56.333 → "56.1")
     if col_lower == "ip":
         try:
-            return f"{float(value):.1f}"
+            return format_innings(float(value))
         except (TypeError, ValueError):
             return str(value)
 
