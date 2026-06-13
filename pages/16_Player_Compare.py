@@ -6,7 +6,7 @@ import pandas as pd
 import streamlit as st
 
 from src.ai.chat import render_chat_widget
-from src.auth import multi_user_enabled, require_auth
+from src.auth import multi_user_enabled, require_auth, resolve_viewer_team_name
 from src.database import coerce_numeric_df, get_connection, init_db, load_player_pool
 from src.feature_flags import require_page_enabled
 from src.feedback import render_feedback_widget
@@ -144,15 +144,26 @@ elif _level_filter == "MLB + AAA + AA":
 _yds = get_yahoo_data_service()
 rosters_df = _yds.get_rosters()
 config = LeagueConfig()
+user_team_name = resolve_viewer_team_name(rosters_df)
 
 
-def _get_roster_badge(player_id, rosters_df):
-    """Return HTML badge showing roster status."""
+def _get_roster_badge(player_id, rosters_df, viewer_team: str | None = None):
+    """Return HTML badge showing roster status.
+
+    Shows "My Team" for the viewer's own rostered players (using the emoji-
+    reconciled name from resolve_viewer_team_name), "Rostered: {team}" for
+    other teams, and "Free Agent" for unrostered players.
+    """
     if rosters_df.empty:
         return ""
     match = rosters_df[rosters_df["player_id"] == player_id]
     if not match.empty:
         team = match.iloc[0].get("team_name", "Unknown")
+        if viewer_team and str(team) == str(viewer_team):
+            return (
+                '<span style="font-size:11px;padding:2px 6px;'
+                'background:rgba(255,109,0,.12);border-radius:4px;font-weight:600;">My Team</span>'
+            )
         return (
             f'<span style="font-size:11px;padding:2px 6px;'
             f'background:rgba(31,157,107,.08);border-radius:4px;">Rostered: {team}</span>'
@@ -231,9 +242,9 @@ with main:
         # Roster status badges
         badge_col1, badge_col2 = st.columns(2)
         with badge_col1:
-            st.markdown(_get_roster_badge(id_a, rosters_df), unsafe_allow_html=True)
+            st.markdown(_get_roster_badge(id_a, rosters_df, viewer_team=user_team_name), unsafe_allow_html=True)
         with badge_col2:
-            st.markdown(_get_roster_badge(id_b, rosters_df), unsafe_allow_html=True)
+            st.markdown(_get_roster_badge(id_b, rosters_df, viewer_team=user_team_name), unsafe_allow_html=True)
 
         compare_progress = st.progress(0, text="Comparing players across 12 categories...")
         result = compare_players(int(id_a), int(id_b), pool, config)
