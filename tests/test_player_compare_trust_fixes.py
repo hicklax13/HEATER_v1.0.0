@@ -98,8 +98,12 @@ def test_page_imports_compute_category_fit():
 
 def test_page_calls_compute_category_fit():
     """compute_category_fit must be called (not just imported)."""
+    # Strip triple-quoted docstrings only; the single-quote strip was fragile
+    # (a multiline `'[^']*'` match could swallow the function call itself when
+    # import lines were reordered). Instead check non-docstring lines directly.
     text = re.sub(r'"""[\s\S]*?"""', "", PAGE_TEXT)
-    text = re.sub(r"'[^']*'", "", text)
+    # Only strip double-quoted strings to avoid cross-line single-quote matches
+    text = re.sub(r'"[^"\n]*"', "", text)
     assert "compute_category_fit(" in text, "Task 3.5: compute_category_fit() never called in 16_Player_Compare.py"
 
 

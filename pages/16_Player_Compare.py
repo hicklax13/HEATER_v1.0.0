@@ -23,7 +23,9 @@ except Exception:
     HAS_ROLLING_STATS = False
 from src.ui_shared import (
     ALL_CATEGORIES,
+    HITTING_CATEGORIES,
     METRIC_TOOLTIPS,
+    PITCHING_CATEGORIES,
     build_heatbar_html,
     build_stat_readout_html,
     format_stat,
@@ -318,10 +320,34 @@ with main:
             with _id_c2:
                 st.markdown(_identity_card(player_b_name, id_b, "#5f7d9c"), unsafe_allow_html=True)
 
+            # Determine player types (hitter vs pitcher) — needed for radar axis
+            # filtering (4.6-B) and cross-type guard (4.6-C).
+            _row_a_type = pool[pool["player_id"] == id_a]
+            _row_b_type = pool[pool["player_id"] == id_b]
+            is_hitter_a = bool(int(_row_a_type.iloc[0].get("is_hitter", 1))) if not _row_a_type.empty else True
+            is_hitter_b = bool(int(_row_b_type.iloc[0].get("is_hitter", 1))) if not _row_b_type.empty else True
+            _cross_type = is_hitter_a != is_hitter_b
+
+            # 4.6-C — Cross-type guard: hitter vs pitcher comparison is not meaningful
+            if _cross_type:
+                st.warning(
+                    "Comparing a hitter and a pitcher — category comparison isn't "
+                    "meaningful across types. The z-scores, radar, and composite below "
+                    "reflect league-wide norms within each player's position group only."
+                )
+
             # Radar chart
             if HAS_PLOTLY:
                 t = get_theme()
-                cats = ALL_CATEGORIES
+                # 4.6-B: same-type comparisons use only the 6 relevant axes so the
+                # opposite-type axes (which are always 0) don't produce a dead flat ring.
+                # Cross-type comparisons fall back to all 12 cats so both players show up.
+                if not _cross_type and is_hitter_a:
+                    cats = HITTING_CATEGORIES
+                elif not _cross_type and not is_hitter_a:
+                    cats = PITCHING_CATEGORIES
+                else:
+                    cats = ALL_CATEGORIES
                 cat_display_names = {
                     "R": "Runs",
                     "HR": "Home Runs",
@@ -874,7 +900,9 @@ with main:
                 for row in health_rows:
                     row["Confidence"] = "—"
 
-            render_styled_table(pd.DataFrame(health_rows))
+            # 4.6-A: use render_compact_table with html_cols so the colored dot <span>
+            # in the Health column renders as HTML rather than escaped text.
+            render_compact_table(pd.DataFrame(health_rows), html_cols={"Health"})
 
             # E10: Catcher Framing Value comparison
             try:
