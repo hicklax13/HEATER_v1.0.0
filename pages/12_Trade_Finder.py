@@ -230,6 +230,16 @@ def main():
         ),
     )
 
+    # Scan size: default fast scan (20 results, ~10-15s); sidebar slider to expand.
+    _max_results = st.sidebar.slider(
+        "Results to scan",
+        min_value=10,
+        max_value=50,
+        value=20,
+        step=10,
+        help="Start with 20 for a fast scan (~10-15s). Expand to 50 for a deeper search.",
+    )
+
     # Load schedule + current wins for the playoff-prob re-rank.
     _weekly_schedule = None
     _current_wins = None
@@ -253,48 +263,63 @@ def main():
         else "Scanning league for trade opportunities..."
     )
 
-    # #10: memoize the expensive scan in session_state. It used to re-run on EVERY
-    # widget interaction (filters, viewing a trade) — 16-75s each time. Recompute
-    # only when the inputs change (rosters/totals shift on a data refresh, or the
-    # title-odds toggle flips); all_team_totals in the signature is the freshness
-    # proxy (a refresh updates standings → totals → the key changes).
+    # #10: memoize the expensive scan in session_state. Recompute only when
+    # the inputs change (rosters/totals shift on a data refresh, the title-odds
+    # toggle flips, or the scan size changes); all_team_totals in the signature
+    # is the freshness proxy (a refresh updates standings → totals → key changes).
     _scan_sig = trade_scan_signature(
         user_team_name=user_team_name,
         user_roster_ids=user_roster_ids,
         league_rosters=league_rosters,
         all_team_totals=all_team_totals,
         top_partners=11,
-        max_results=50,
+        max_results=_max_results,
         title_odds_enabled=bool(_title_odds_enabled),
     )
     _cached = st.session_state.get("_tf_scan_cache")
     if _cached and _cached.get("sig") == _scan_sig:
+        # Cache hit — use stored results without re-running the scan.
         opportunities = _cached["results"]
         scan_time = _cached.get("scan_time", 0.0)
     else:
-        with st.spinner(_spinner_msg):
-            t0 = time.time()
-            opportunities = find_trade_opportunities(
-                user_roster_ids=user_roster_ids,
-                player_pool=pool,
-                config=config,
-                all_team_totals=all_team_totals,
-                user_team_name=user_team_name,
-                league_rosters=league_rosters,
-                max_results=50,
-                top_partners=11,
-                enable_title_odds_rerank=_title_odds_enabled,
-                weekly_schedule=_weekly_schedule,
-                current_wins=_current_wins,
-                title_odds_top_n=15,
-                title_odds_n_sims=5_000,
-            )
-            scan_time = time.time() - t0
-        st.session_state["_tf_scan_cache"] = {
-            "sig": _scan_sig,
-            "results": opportunities,
-            "scan_time": scan_time,
-        }
+        # Cold state or stale cache — show prompt and wait for user to run scan.
+        # Task 2.3: gate the full multi-team scan behind an explicit button so
+        # the page doesn't hang for 43.8s on every cold load.
+        render_page_header("Trade Finder", eyebrow="TRADES", fig="FIG.12 — OPPORTUNITY SCANNER")
+        render_matchup_ticker()
+        render_empty_state(
+            "No trade scan run yet",
+            "Click 'Run trade scan' to search all 11 opponents for profitable trades. "
+            f"Scanning {_max_results} results takes about 10–15 seconds.",
+            icon_key="trade_analyzer",
+        )
+        if st.button("Run trade scan", type="primary", key="run_scan_btn"):
+            with st.spinner(_spinner_msg):
+                t0 = time.time()
+                opportunities = find_trade_opportunities(
+                    user_roster_ids=user_roster_ids,
+                    player_pool=pool,
+                    config=config,
+                    all_team_totals=all_team_totals,
+                    user_team_name=user_team_name,
+                    league_rosters=league_rosters,
+                    max_results=_max_results,
+                    top_partners=11,
+                    enable_title_odds_rerank=_title_odds_enabled,
+                    weekly_schedule=_weekly_schedule,
+                    current_wins=_current_wins,
+                    title_odds_top_n=15,
+                    title_odds_n_sims=5_000,
+                )
+                scan_time = time.time() - t0
+            st.session_state["_tf_scan_cache"] = {
+                "sig": _scan_sig,
+                "results": opportunities,
+                "scan_time": scan_time,
+            }
+            st.rerun()
+        page_timer_footer("Trade Finder")
+        return
 
     # ── Banner ────────────────────────────────────────────────────────
     if opportunities:
