@@ -2482,9 +2482,11 @@ else:
                             for c in ["ERA", "WHIP"]:
                                 if c in bayes_df.columns:
                                     bayes_df[c] = bayes_df[c].map(lambda x, _c=c: format_stat(x, _c))
-                            for c in ["HR", "RBI", "SB", "K", "ID"]:
+                            for c in ["HR", "RBI", "SB", "K"]:
                                 if c in bayes_df.columns:
-                                    bayes_df[c] = bayes_df[c].map(lambda x: f"{x:.2f}")
+                                    bayes_df[c] = bayes_df[c].map(
+                                        lambda x: str(int(round(float(x)))) if pd.notna(x) else ""
+                                    )
                             render_compact_table(bayes_df, max_height=400)
                     finally:
                         conn.close()
