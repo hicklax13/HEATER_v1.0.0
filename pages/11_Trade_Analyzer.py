@@ -505,7 +505,7 @@ else:
                     )
                     st.markdown(
                         f'<div class="glass" style="border:2px solid {color};'
-                        f"padding:20px;margin:16px 0;animation:slideUp 0.4s ease-out both;"
+                        f"padding:20px;margin:16px 0;"
                         f'display:flex;align-items:center;gap:18px;flex-wrap:wrap;">'
                         f'<div style="display:flex;align-items:center;">{icon}'
                         f'<span style="font-family:var(--font-display);font-weight:900;font-size:28px;color:{color};'
@@ -572,7 +572,7 @@ else:
                                 help=(
                                     "Monte-Carlo simulated probability of finishing top-4. "
                                     "Delta = after-trade minus before-trade. Negative = trade "
-                                    "hurts your playoff odds. Report Section B.10 + Q(a)."
+                                    "hurts your playoff odds."
                                 ),
                             )
                             pc2.metric(
@@ -615,7 +615,7 @@ else:
                                         f"E[Δchamp] − (λ/2) × Var[Δchamp] with λ={_lambda}. "
                                         f"Penalizes high-variance trades. > 0 → accept under "
                                         f"CARA preferences; < 0 → variance penalty exceeds "
-                                        f"expected gain. Report Section B.9."
+                                        f"expected gain."
                                     ),
                                 )
                                 cara2.metric(
@@ -625,7 +625,7 @@ else:
                                         "Conditional Value-at-Risk at 20%: average "
                                         "championship-prob delta across the WORST 20% "
                                         "of simulated futures. Negative = trade carries "
-                                        "real downside in unlucky scenarios. Report B.9."
+                                        "real downside in unlucky scenarios."
                                     ),
                                 )
                                 cara3.metric(
@@ -694,7 +694,7 @@ else:
                                     "Δ VORP (league-wide)",
                                     f"{_vorp:+.2f}" if _vorp is not None else "—",
                                     help=(
-                                        "Secondary league-wide fairness check (report B.8): "
+                                        "League-wide fairness check: "
                                         "Σ VORP(receiving) − Σ VORP(giving) using standard "
                                         "positional replacement levels. Independent of YOUR "
                                         "roster — answers 'is this trade fair league-wide?'"
@@ -704,7 +704,7 @@ else:
                                     "Δ G-score (variance-aware)",
                                     f"{_gscore:+.2f}" if _gscore is not None else "—",
                                     help=(
-                                        "Rosenof G-score delta (report B.5/C.2): like a "
+                                        "Variance-adjusted score delta: like a "
                                         "z-score delta but with the team-level weekly-variance "
                                         "term, so volatile boom-bust profiles are discounted "
                                         "relative to steady producers."
@@ -714,8 +714,8 @@ else:
                                     _capped = (result.get("specialist_cap_detail", {}) or {}).get("capped", {})
                                     _names = ", ".join(_capped.keys())
                                     st.warning(
-                                        f"Specialist cap (report H.2): **{_spec_pen:.2f}** SGP of "
-                                        f"single-category credit removed for {_names} — a single "
+                                        f"Single-category cap: **{_spec_pen:.2f}** SGP of "
+                                        f"specialist credit removed for {_names} — a single "
                                         f"player shouldn't be valued on more than 25% of one "
                                         f"category's standings range."
                                     )
@@ -880,7 +880,7 @@ else:
                             st.markdown(
                                 '<div style="font-family:var(--font-body);font-size:16px;'
                                 'color:var(--fp-tx-subtle);letter-spacing:2px;margin-top:8px;">'
-                                "Three-Horizon Impact (report Q(b))</div>",
+                                "Three-Horizon Impact</div>",
                                 unsafe_allow_html=True,
                             )
                             h1, h2, h3 = st.columns(3)
@@ -936,7 +936,7 @@ else:
                         # the SGP scalar can't see.
                         if _wm and "summary" in _wm:
                             with st.expander(
-                                f"📅 Weekly H2H impact (Feature 2 — {len(_wm['summary'])} weeks)",
+                                f"Weekly H2H impact — {len(_wm['summary'])} weeks",
                                 expanded=False,
                             ):
                                 st.caption(

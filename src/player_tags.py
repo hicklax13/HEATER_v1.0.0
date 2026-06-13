@@ -12,11 +12,11 @@ from src.database import get_connection
 VALID_TAGS: list[str] = ["Sleeper", "Target", "Avoid", "Breakout", "Bust"]
 
 TAG_COLORS: dict[str, str] = {
-    "Sleeper": "#6c63ff",  # purple
-    "Target": "#2d6a4f",  # green
-    "Avoid": "#e0492f",  # ember (functional-negative)
-    "Breakout": "#ff6d00",  # orange
-    "Bust": "#6b7280",  # gray
+    "Sleeper": "#6c63ff",  # purple (THEME["purple"]) — not in banned set
+    "Target": "#2d6a4f",  # forest green — not in banned set
+    "Avoid": "#e0492f",  # ember (functional-negative, THEME["danger"])
+    "Breakout": "#ff6d00",  # orange (THEME["primary"])
+    "Bust": "#9aa0ac",  # Combustion tx_subtle (tailwind gray-400 replaced)
 }
 
 
@@ -85,7 +85,7 @@ def render_tag_badges_html(tags: list[dict]) -> str:
         return ""
     parts = []
     for t in tags:
-        color = TAG_COLORS.get(t["tag"], "#6b7280")
+        color = TAG_COLORS.get(t["tag"], "#9aa0ac")  # fallback: Combustion tx_subtle
         parts.append(
             f'<span style="display:inline-block;padding:2px 8px;border-radius:4px;'
             f"font-size:11px;font-weight:600;color:#fff;background:{color};"

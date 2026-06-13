@@ -57,11 +57,11 @@ TIERS = [
 ]
 
 TIER_COLORS = {
-    "Elite": "#ffd60a",
-    "Star": "#457b9d",
-    "Solid Starter": "#2d6a4f",
-    "Flex": "#666666",
-    "Replacement": "#cc3333",
+    "Elite": "#ffd60a",  # gold — intentional tier accent (not in banned set)
+    "Star": "var(--fp-sky)",  # Combustion sky / steel blue via CSS var
+    "Solid Starter": "#2d6a4f",  # forest green — not in banned set
+    "Flex": "var(--fp-tx-muted)",  # muted gray via CSS var
+    "Replacement": "var(--fp-danger)",  # ember red via CSS var
 }
 
 LEAGUE_BUDGET = 3120.0  # 12 teams × $260

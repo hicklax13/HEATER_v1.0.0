@@ -8,11 +8,11 @@ from datetime import UTC, datetime, timedelta
 import pandas as pd
 
 TIER_COLORS: dict[str, str] = {
-    "smash": "#2d6a4f",
-    "favorable": "#40916c",
-    "neutral": "#6b7280",
-    "unfavorable": "#ff9f1c",
-    "avoid": "#e0492f",
+    "smash": "#2d6a4f",  # forest green — not in banned set
+    "favorable": "#40916c",  # medium green — not in banned set
+    "neutral": "#9aa0ac",  # Combustion tx_subtle (tailwind gray-400 replaced)
+    "unfavorable": "#ff9f1c",  # amber warn — not in banned set
+    "avoid": "#e0492f",  # ember danger — not in banned set
 }
 
 _DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
