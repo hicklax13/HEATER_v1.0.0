@@ -944,294 +944,297 @@ with main:
                 alpha = max(0.0, 1.0 - (weeks_remaining / 26.0))
             # "today" scope: alpha unused by DCV engine
 
-            progress_bar = st.progress(0, text="Syncing roster and building shared data context...")
+            with st.spinner("Optimizing lineup…"):
+                progress_bar = st.progress(0, text="Syncing roster and building shared data context...")
 
-            # T1.21: use cached roster data. Users can force-refresh via the
-            # "Refresh Yahoo Data" button in the sidebar. Implicit force_refresh
-            # here caused a 159s OAuth hang when the access token expired.
-            try:
-                yds.get_rosters()
-                roster = get_team_roster(user_team_name)
-                if "name" in roster.columns and "player_name" not in roster.columns:
-                    roster = roster.rename(columns={"name": "player_name"})
-                for _sc in ["r", "hr", "rbi", "sb", "avg", "obp", "w", "l", "sv", "k", "era", "whip", "ip", "pa"]:
-                    if _sc in roster.columns:
-                        roster[_sc] = pd.to_numeric(roster[_sc], errors="coerce").fillna(0)
-            except Exception:
-                pass
-
-            # ── Build shared optimizer context (single source of truth) ──
-            _opt_ctx = None
-            try:
-                from src.optimizer.shared_data_layer import build_optimizer_context
-
-                progress_bar.progress(10, text="Loading matchup data, schedule, and player intelligence...")
-                _opt_ctx = build_optimizer_context(
-                    scope=_scope_key,
-                    yds=yds,
-                    config=league_config,
-                    weeks_remaining=weeks_remaining,
-                    park_factors=_effective_park_factors(),
-                    user_team_name=user_team_name,
-                    roster=roster,
-                )
-                st.session_state["optimizer_context"] = _opt_ctx
-            except Exception as _ctx_err:
-                import logging as _log
-
-                _log.getLogger(__name__).warning("Failed to build optimizer context: %s", _ctx_err)
-
-            # Fetch today's MLB schedule for game-today annotations
-            _today_teams_playing: set[str] = set()
-            try:
-                from datetime import datetime, timedelta, timezone
-
-                import statsapi
-
-                # Target date: today or tomorrow if all games final
-                from src.game_day import get_target_game_date
-                from src.valuation import team_name_to_abbr as _tn_to_abbr
-
-                _opt_target_date = get_target_game_date()
-                st.session_state["_optimizer_target_date"] = _opt_target_date
-                _today_sched = statsapi.schedule(date=_opt_target_date)
-
-                for _g in _today_sched:
-                    for _side in ("home_name", "away_name"):
-                        _raw = str(_g.get(_side, ""))
-                        # default="" so unmatched names fail-quiet (legacy behavior)
-                        _abbr = _tn_to_abbr(_raw, default="")
-                        if _abbr:
-                            _today_teams_playing.add(_abbr)
-                        if _raw:
-                            _today_teams_playing.add(_raw)
-            except Exception:
-                pass
-
-            # ── Route to appropriate engine based on scope ────────────
-            if _scope_key == "today":
-                # ── TODAY: DCV engine ─────────────────────────────────
-                progress_bar.progress(30, text="Computing Daily Category Values...")
+                # T1.21: use cached roster data. Users can force-refresh via the
+                # "Refresh Yahoo Data" button in the sidebar. Implicit force_refresh
+                # here caused a 159s OAuth hang when the access token expired.
                 try:
-                    from src.optimizer.daily_optimizer import build_daily_dcv_table
-
-                    _dcv_sched = None
-                    try:
-                        import statsapi
-
-                        # Use the same target date (auto-advanced if today's games are final)
-                        _dcv_target = st.session_state.get("_optimizer_target_date", "")
-                        if not _dcv_target:
-                            from datetime import datetime, timedelta, timezone
-
-                            _ET2 = timezone(timedelta(hours=-4))
-                            _dcv_target = datetime.now(_ET2).strftime("%Y-%m-%d")
-                        _dcv_sched = statsapi.schedule(date=_dcv_target)
-                    except Exception:
-                        _dcv_sched = []
-
-                    # Pass shared context enrichments into DCV
-                    _dcv_urgency = _opt_ctx.urgency_weights if _opt_ctx else None
-                    _dcv_lineups = _opt_ctx.confirmed_lineups if _opt_ctx else None
-                    _dcv_form = _opt_ctx.recent_form if _opt_ctx else None
-                    _dcv_team_strength = _opt_ctx.team_strength if _opt_ctx else None
-                    _dcv_rate_modes = _dcv_urgency.get("rate_modes") if _dcv_urgency else None
-                    # Persist alongside the result: the render branch below
-                    # re-executes on EVERY rerun (e.g. the "Refresh Yahoo
-                    # Data" button) where this optimize-click local is
-                    # unbound — reading it back avoids the NameError
-                    # (2026-06-10 live incident).
-                    st.session_state["_dcv_rate_modes"] = _dcv_rate_modes
-
-                    dcv = build_daily_dcv_table(
-                        roster=roster if not roster.empty else pool,
-                        matchup=yds.get_matchup(),
-                        schedule_today=_dcv_sched if _dcv_sched else None,
-                        park_factors=_effective_park_factors() or {},
-                        urgency_weights=_dcv_urgency,
-                        confirmed_lineups=_dcv_lineups,
-                        recent_form=_dcv_form,
-                        rate_modes=_dcv_rate_modes,
-                        team_strength=_dcv_team_strength,
-                    )
-
-                    # Sanity check: warn if DCV produced all zeros
-                    if not dcv.empty and "total_dcv" in dcv.columns:
-                        _active_dcv = dcv.loc[dcv.get("health_factor", pd.Series(1.0, index=dcv.index)) > 0]
-                        if not _active_dcv.empty and _active_dcv["total_dcv"].abs().sum() < 1e-6:
-                            st.warning(
-                                "DCV scores are all zero — START/BENCH decisions may be unreliable. "
-                                "Try syncing Yahoo data or refreshing projections."
-                            )
-
-                    progress_bar.progress(100, text="Daily optimization complete!")
-                    time.sleep(0.3)
-                    progress_bar.empty()
-
-                    # Store as result in compatible format for display
-                    st.session_state["lineup_optimizer_result"] = {
-                        "dcv_table": dcv,
-                        "scope": "today",
-                        "lineup": None,
-                        "category_weights": _opt_ctx.category_weights if _opt_ctx else {},
-                        "h2h_analysis": None,
-                        "streaming_suggestions": None,
-                        "risk_metrics": None,
-                        "maximin_comparison": None,
-                        "recommendations": [],
-                        "timing": {"total": 0},
-                        "mode": "dcv",
-                        "matchup_adjusted": True,
-                    }
-                    st.session_state["lineup_today_teams"] = _today_teams_playing
-
-                except Exception as e:
-                    progress_bar.empty()
-                    st.error(f"Daily optimization failed: {e}")
-
-            else:
-                # ── REST OF WEEK / REST OF SEASON: LP pipeline ────────
-                # Use shared context weights instead of monkey-patching
-                _urgency_weights: dict[str, float] = {}
-                if _opt_ctx and _opt_ctx.urgency_weights:
-                    # Extract inner urgency dict — compute_urgency_weights() returns
-                    # {"urgency": {cat: float}, "rate_modes": {...}, "summary": {...}}
-                    _urgency_weights = (
-                        _opt_ctx.urgency_weights.get("urgency", {})
-                        if isinstance(_opt_ctx.urgency_weights, dict)
-                        else {}
-                    )
-
-                # IP-aware pitching weight adjustment
-                _ip_boost = 1.0
-                try:
-                    if IP_TRACKER_AVAILABLE:
-                        from src.ip_tracker import compute_weekly_ip_projection, get_days_remaining_in_week
-
-                        _pitchers = []
-                        for _, _pr in (
-                            roster[roster.get("is_hitter", 1) == 0].iterrows() if "is_hitter" in roster.columns else []
-                        ):
-                            _pitchers.append(
-                                {
-                                    "ip": _proj_ip_lookup.get(_pr.get("player_id"), float(_pr.get("ip", 0) or 0)),
-                                    "positions": str(_pr.get("positions", "")),
-                                    "status": str(_pr.get("status", "active")),
-                                    "is_starter": "SP" in str(_pr.get("positions", "")).upper(),
-                                }
-                            )
-                        if _pitchers:
-                            _ip_result = compute_weekly_ip_projection(_pitchers, get_days_remaining_in_week())
-                            if _ip_result.get("status") == "danger":
-                                _ip_boost = 1.5
-                            elif _ip_result.get("status") == "safe":
-                                _ip_boost = 0.7
+                    yds.get_rosters()
+                    roster = get_team_roster(user_team_name)
+                    if "name" in roster.columns and "player_name" not in roster.columns:
+                        roster = roster.rename(columns={"name": "player_name"})
+                    for _sc in ["r", "hr", "rbi", "sb", "avg", "obp", "w", "l", "sv", "k", "era", "whip", "ip", "pa"]:
+                        if _sc in roster.columns:
+                            roster[_sc] = pd.to_numeric(roster[_sc], errors="coerce").fillna(0)
                 except Exception:
                     pass
 
-                if PIPELINE_AVAILABLE:
-                    progress_bar.progress(20, text=f"Running {mode} optimization pipeline ({_opt_scope})...")
+                # ── Build shared optimizer context (single source of truth) ──
+                _opt_ctx = None
+                try:
+                    from src.optimizer.shared_data_layer import build_optimizer_context
 
-                    pipeline = LineupOptimizerPipeline(
-                        roster,
-                        mode=mode,
-                        alpha=alpha,
-                        weeks_remaining=weeks_remaining,
+                    progress_bar.progress(10, text="Loading matchup data, schedule, and player intelligence...")
+                    _opt_ctx = build_optimizer_context(
+                        scope=_scope_key,
+                        yds=yds,
                         config=league_config,
+                        weeks_remaining=weeks_remaining,
+                        park_factors=_effective_park_factors(),
+                        user_team_name=user_team_name,
+                        roster=roster,
                     )
+                    st.session_state["optimizer_context"] = _opt_ctx
+                except Exception as _ctx_err:
+                    import logging as _log
 
-                    pipeline._preset = dict(pipeline._preset)
-                    pipeline._preset["risk_aversion"] = risk_aversion
+                    _log.getLogger(__name__).warning("Failed to build optimizer context: %s", _ctx_err)
 
-                    # Wire urgency weights + IP boost via monkey-patch
+                # Fetch today's MLB schedule for game-today annotations
+                _today_teams_playing: set[str] = set()
+                try:
+                    from datetime import datetime, timedelta, timezone
+
+                    import statsapi
+
+                    # Target date: today or tomorrow if all games final
+                    from src.game_day import get_target_game_date
+                    from src.valuation import team_name_to_abbr as _tn_to_abbr
+
+                    _opt_target_date = get_target_game_date()
+                    st.session_state["_optimizer_target_date"] = _opt_target_date
+                    _today_sched = statsapi.schedule(date=_opt_target_date)
+
+                    for _g in _today_sched:
+                        for _side in ("home_name", "away_name"):
+                            _raw = str(_g.get(_side, ""))
+                            # default="" so unmatched names fail-quiet (legacy behavior)
+                            _abbr = _tn_to_abbr(_raw, default="")
+                            if _abbr:
+                                _today_teams_playing.add(_abbr)
+                            if _raw:
+                                _today_teams_playing.add(_raw)
+                except Exception:
+                    pass
+
+                # ── Route to appropriate engine based on scope ────────────
+                if _scope_key == "today":
+                    # ── TODAY: DCV engine ─────────────────────────────────
+                    progress_bar.progress(30, text="Computing Daily Category Values...")
                     try:
-                        if _urgency_weights or _ip_boost != 1.0:
-                            _pitching_cats = {"w", "l", "sv", "k", "era", "whip"}
-                            _urgency_mults: dict[str, float] = {}
-                            for _ucat, _urg in _urgency_weights.items():
-                                _ucat_lower = _ucat.lower()
-                                if _urg > 0.6:
-                                    _mult = 1.5
-                                elif _urg > 0.4:
-                                    _mult = 1.2
-                                elif _urg > 0.25:
-                                    _mult = 1.0
-                                else:
-                                    _mult = 0.6
-                                if _ucat_lower in _pitching_cats:
-                                    _mult *= _ip_boost
-                                _urgency_mults[_ucat_lower] = _mult
+                        from src.optimizer.daily_optimizer import build_daily_dcv_table
 
-                            if _urgency_mults:
-                                _original_compute = pipeline._compute_category_weights
+                        _dcv_sched = None
+                        try:
+                            import statsapi
 
-                                def _urgency_wrapped_compute(*args, **kwargs):
-                                    base_weights = _original_compute(*args, **kwargs)
-                                    adjusted = {}
-                                    for cat, base_w in base_weights.items():
-                                        cat_key = cat.lower()
-                                        if cat_key in _urgency_mults:
-                                            adjusted[cat] = base_w * _urgency_mults[cat_key]
-                                        else:
-                                            adjusted[cat] = base_w
-                                    return adjusted
+                            # Use the same target date (auto-advanced if today's games are final)
+                            _dcv_target = st.session_state.get("_optimizer_target_date", "")
+                            if not _dcv_target:
+                                from datetime import datetime, timedelta, timezone
 
-                                pipeline._compute_category_weights = _urgency_wrapped_compute
+                                _ET2 = timezone(timedelta(hours=-4))
+                                _dcv_target = datetime.now(_ET2).strftime("%Y-%m-%d")
+                            _dcv_sched = statsapi.schedule(date=_dcv_target)
+                        except Exception:
+                            _dcv_sched = []
+
+                        # Pass shared context enrichments into DCV
+                        _dcv_urgency = _opt_ctx.urgency_weights if _opt_ctx else None
+                        _dcv_lineups = _opt_ctx.confirmed_lineups if _opt_ctx else None
+                        _dcv_form = _opt_ctx.recent_form if _opt_ctx else None
+                        _dcv_team_strength = _opt_ctx.team_strength if _opt_ctx else None
+                        _dcv_rate_modes = _dcv_urgency.get("rate_modes") if _dcv_urgency else None
+                        # Persist alongside the result: the render branch below
+                        # re-executes on EVERY rerun (e.g. the "Refresh Yahoo
+                        # Data" button) where this optimize-click local is
+                        # unbound — reading it back avoids the NameError
+                        # (2026-06-10 live incident).
+                        st.session_state["_dcv_rate_modes"] = _dcv_rate_modes
+
+                        dcv = build_daily_dcv_table(
+                            roster=roster if not roster.empty else pool,
+                            matchup=yds.get_matchup(),
+                            schedule_today=_dcv_sched if _dcv_sched else None,
+                            park_factors=_effective_park_factors() or {},
+                            urgency_weights=_dcv_urgency,
+                            confirmed_lineups=_dcv_lineups,
+                            recent_form=_dcv_form,
+                            rate_modes=_dcv_rate_modes,
+                            team_strength=_dcv_team_strength,
+                        )
+
+                        # Sanity check: warn if DCV produced all zeros
+                        if not dcv.empty and "total_dcv" in dcv.columns:
+                            _active_dcv = dcv.loc[dcv.get("health_factor", pd.Series(1.0, index=dcv.index)) > 0]
+                            if not _active_dcv.empty and _active_dcv["total_dcv"].abs().sum() < 1e-6:
+                                st.warning(
+                                    "DCV scores are all zero — START/BENCH decisions may be unreliable. "
+                                    "Try syncing Yahoo data or refreshing projections."
+                                )
+
+                        progress_bar.progress(100, text="Daily optimization complete!")
+                        time.sleep(0.3)
+                        progress_bar.empty()
+
+                        # Store as result in compatible format for display
+                        st.session_state["lineup_optimizer_result"] = {
+                            "dcv_table": dcv,
+                            "scope": "today",
+                            "lineup": None,
+                            "category_weights": _opt_ctx.category_weights if _opt_ctx else {},
+                            "h2h_analysis": None,
+                            "streaming_suggestions": None,
+                            "risk_metrics": None,
+                            "maximin_comparison": None,
+                            "recommendations": [],
+                            "timing": {"total": 0},
+                            "mode": "dcv",
+                            "matchup_adjusted": True,
+                        }
+                        st.session_state["lineup_today_teams"] = _today_teams_playing
+
+                    except Exception as e:
+                        progress_bar.empty()
+                        st.error(f"Daily optimization failed: {e}")
+
+                else:
+                    # ── REST OF WEEK / REST OF SEASON: LP pipeline ────────
+                    # Use shared context weights instead of monkey-patching
+                    _urgency_weights: dict[str, float] = {}
+                    if _opt_ctx and _opt_ctx.urgency_weights:
+                        # Extract inner urgency dict — compute_urgency_weights() returns
+                        # {"urgency": {cat: float}, "rate_modes": {...}, "summary": {...}}
+                        _urgency_weights = (
+                            _opt_ctx.urgency_weights.get("urgency", {})
+                            if isinstance(_opt_ctx.urgency_weights, dict)
+                            else {}
+                        )
+
+                    # IP-aware pitching weight adjustment
+                    _ip_boost = 1.0
+                    try:
+                        if IP_TRACKER_AVAILABLE:
+                            from src.ip_tracker import compute_weekly_ip_projection, get_days_remaining_in_week
+
+                            _pitchers = []
+                            for _, _pr in (
+                                roster[roster.get("is_hitter", 1) == 0].iterrows()
+                                if "is_hitter" in roster.columns
+                                else []
+                            ):
+                                _pitchers.append(
+                                    {
+                                        "ip": _proj_ip_lookup.get(_pr.get("player_id"), float(_pr.get("ip", 0) or 0)),
+                                        "positions": str(_pr.get("positions", "")),
+                                        "status": str(_pr.get("status", "active")),
+                                        "is_starter": "SP" in str(_pr.get("positions", "")).upper(),
+                                    }
+                                )
+                            if _pitchers:
+                                _ip_result = compute_weekly_ip_projection(_pitchers, get_days_remaining_in_week())
+                                if _ip_result.get("status") == "danger":
+                                    _ip_boost = 1.5
+                                elif _ip_result.get("status") == "safe":
+                                    _ip_boost = 0.7
                     except Exception:
                         pass
 
-                    progress_bar.progress(40, text="Computing category weights and projections...")
+                    if PIPELINE_AVAILABLE:
+                        progress_bar.progress(20, text=f"Running {mode} optimization pipeline ({_opt_scope})...")
 
-                    _fa_for_streaming = pd.DataFrame()
-                    if mode == "full":
+                        pipeline = LineupOptimizerPipeline(
+                            roster,
+                            mode=mode,
+                            alpha=alpha,
+                            weeks_remaining=weeks_remaining,
+                            config=league_config,
+                        )
+
+                        pipeline._preset = dict(pipeline._preset)
+                        pipeline._preset["risk_aversion"] = risk_aversion
+
+                        # Wire urgency weights + IP boost via monkey-patch
                         try:
-                            _fa_for_streaming = yds.get_free_agents(max_players=500)
+                            if _urgency_weights or _ip_boost != 1.0:
+                                _pitching_cats = {"w", "l", "sv", "k", "era", "whip"}
+                                _urgency_mults: dict[str, float] = {}
+                                for _ucat, _urg in _urgency_weights.items():
+                                    _ucat_lower = _ucat.lower()
+                                    if _urg > 0.6:
+                                        _mult = 1.5
+                                    elif _urg > 0.4:
+                                        _mult = 1.2
+                                    elif _urg > 0.25:
+                                        _mult = 1.0
+                                    else:
+                                        _mult = 0.6
+                                    if _ucat_lower in _pitching_cats:
+                                        _mult *= _ip_boost
+                                    _urgency_mults[_ucat_lower] = _mult
+
+                                if _urgency_mults:
+                                    _original_compute = pipeline._compute_category_weights
+
+                                    def _urgency_wrapped_compute(*args, **kwargs):
+                                        base_weights = _original_compute(*args, **kwargs)
+                                        adjusted = {}
+                                        for cat, base_w in base_weights.items():
+                                            cat_key = cat.lower()
+                                            if cat_key in _urgency_mults:
+                                                adjusted[cat] = base_w * _urgency_mults[cat_key]
+                                            else:
+                                                adjusted[cat] = base_w
+                                        return adjusted
+
+                                    pipeline._compute_category_weights = _urgency_wrapped_compute
                         except Exception:
                             pass
 
-                    result = pipeline.optimize(
-                        standings=standings if not standings.empty else None,
-                        team_name=user_team_name,
-                        h2h_opponent_totals=opp_totals if opp_totals else None,
-                        my_totals=my_totals if my_totals else None,
-                        week_schedule=week_schedule if week_schedule else None,
-                        park_factors=_effective_park_factors(),
-                        free_agents=_fa_for_streaming if not _fa_for_streaming.empty else None,
-                    )
+                        progress_bar.progress(40, text="Computing category weights and projections...")
 
-                    progress_bar.progress(100, text="Optimization complete!")
-                    time.sleep(0.3)
-                    progress_bar.empty()
+                        _fa_for_streaming = pd.DataFrame()
+                        if mode == "full":
+                            try:
+                                _fa_for_streaming = yds.get_free_agents(max_players=500)
+                            except Exception:
+                                pass
 
-                    result["scope"] = _scope_key
-                    st.session_state["lineup_optimizer_result"] = result
-                    st.session_state["lineup_today_teams"] = _today_teams_playing
+                        result = pipeline.optimize(
+                            standings=standings if not standings.empty else None,
+                            team_name=user_team_name,
+                            h2h_opponent_totals=opp_totals if opp_totals else None,
+                            my_totals=my_totals if my_totals else None,
+                            week_schedule=week_schedule if week_schedule else None,
+                            park_factors=_effective_park_factors(),
+                            free_agents=_fa_for_streaming if not _fa_for_streaming.empty else None,
+                        )
 
-                else:
-                    # Fallback to basic optimizer
-                    progress_bar.progress(20, text="Building constraint matrix...")
-                    optimizer = LineupOptimizer(roster, league_config)
-                    basic_result = optimizer.optimize_lineup(
-                        category_weights=_opt_ctx.category_weights if _opt_ctx else None,
-                    )
-                    progress_bar.progress(100, text="Optimization complete!")
-                    time.sleep(0.3)
-                    progress_bar.empty()
+                        progress_bar.progress(100, text="Optimization complete!")
+                        time.sleep(0.3)
+                        progress_bar.empty()
 
-                    result = {
-                        "lineup": basic_result,
-                        "scope": _scope_key,
-                        "category_weights": {},
-                        "h2h_analysis": None,
-                        "streaming_suggestions": None,
-                        "risk_metrics": None,
-                        "maximin_comparison": None,
-                        "recommendations": [],
-                        "timing": {"total": 0},
-                        "mode": "basic",
-                        "matchup_adjusted": False,
-                    }
-                    st.session_state["lineup_optimizer_result"] = result
+                        result["scope"] = _scope_key
+                        st.session_state["lineup_optimizer_result"] = result
+                        st.session_state["lineup_today_teams"] = _today_teams_playing
+
+                    else:
+                        # Fallback to basic optimizer
+                        progress_bar.progress(20, text="Building constraint matrix...")
+                        optimizer = LineupOptimizer(roster, league_config)
+                        basic_result = optimizer.optimize_lineup(
+                            category_weights=_opt_ctx.category_weights if _opt_ctx else None,
+                        )
+                        progress_bar.progress(100, text="Optimization complete!")
+                        time.sleep(0.3)
+                        progress_bar.empty()
+
+                        result = {
+                            "lineup": basic_result,
+                            "scope": _scope_key,
+                            "category_weights": {},
+                            "h2h_analysis": None,
+                            "streaming_suggestions": None,
+                            "risk_metrics": None,
+                            "maximin_comparison": None,
+                            "recommendations": [],
+                            "timing": {"total": 0},
+                            "mode": "basic",
+                            "matchup_adjusted": False,
+                        }
+                        st.session_state["lineup_optimizer_result"] = result
 
         # Display results from session state
         result = st.session_state.get("lineup_optimizer_result")

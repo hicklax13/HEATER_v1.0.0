@@ -863,7 +863,7 @@ with main:
 
             if team_totals and ENGINE_AVAILABLE:
                 # Use enhanced simulation with actual schedule
-                with st.spinner("Running season simulation..."):
+                with st.spinner("Simulating remaining season…"):
                     try:
                         sim_result = simulate_season_enhanced(
                             current_standings=current_standings
@@ -902,7 +902,7 @@ with main:
 
             elif team_totals and LEGACY_SIM_AVAILABLE:
                 # Fallback to legacy simulation
-                with st.spinner("Running season simulation..."):
+                with st.spinner("Simulating remaining season…"):
                     try:
                         legacy_df = simulate_season(team_totals, n_sims=500, seed=42)
                         st.session_state["standings_legacy_result"] = legacy_df
