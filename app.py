@@ -2607,6 +2607,13 @@ def render_single_user_app():
         # warming gate and bail out until the first successful refresh lands.
         if not _render_multiuser_home_gate():
             return
+        # In-season framing: draft is done, direct users to the active pages.
+        from src.nav import is_in_season
+
+        if is_in_season():
+            st.info(
+                "Draft's done — head to **My Team**, **Lineup Optimizer**, or **Free Agents** to manage your season."
+            )
     else:
         render_splash_screen()
 

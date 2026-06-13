@@ -729,10 +729,19 @@ def render_tabs(pool: pd.DataFrame, ds: DraftState) -> None:
 
 render_page_header(
     "Draft Simulator",
-    eyebrow="PRESEASON",
+    eyebrow="SCOUTING",
     fig="FIG.20 — MOCK DRAFT",
 )
 render_reco_banner("Simulate your draft with AI opponents", "", "draft")
+
+# In-season framing banner
+try:
+    from src.nav import is_in_season as _is_in_season
+
+    if _is_in_season():
+        st.info("Use this to test player values or prep for next year's draft.")
+except Exception:
+    pass
 
 pool = get_pool()
 
