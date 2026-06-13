@@ -101,6 +101,9 @@ def _build_trade_df(trades: list[dict]) -> pd.DataFrame:
             else "",
             "Grade": trade.get("grade", ""),
             "Acceptance": trade.get("acceptance_label", ""),
+            # Numeric probability for sort — sorting on the string "Acceptance" label
+            # alphabetically puts "Medium" above "High" (M > H > L).
+            "acceptance_prob": float(trade.get("acceptance_probability", 0.0)),
             "Health": trade.get("health_risk", "") or "",
             "Score": round(trade.get("composite_score", 0), 2),
             "FA Alt": trade.get("fa_name", "") if trade.get("fa_alternative") else "",
@@ -525,7 +528,9 @@ def main():
                 sort_map = {
                     "Composite Score": ("Score", False),
                     "Need Efficiency": ("Need Efficiency", False),
-                    "Acceptance Probability": ("Acceptance", False),
+                    # Sort on the numeric probability column, not the string label.
+                    # Alphabetical sort on "Acceptance" puts "Medium" above "High".
+                    "Acceptance Probability": ("acceptance_prob", False),
                     "Your SGP Gain": ("Your Gain", False),
                 }
                 sort_col, sort_asc = sort_map.get(sort_option, ("Score", False))

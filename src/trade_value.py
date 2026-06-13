@@ -270,14 +270,23 @@ def compute_trade_values(
     # Non-linear scaling: exponent 0.7 compresses top, expands mid-range
     pool["trade_value"] = pool["sgp_surplus"].apply(lambda s: round(100.0 * (max(s, 0) / max_surplus) ** 0.7, 1))
 
-    # ── Step 6: Time decay adjustment ─────────────────────────────────
-    # Scale values by remaining season fraction (full season = 26 weeks)
-    # Applied BEFORE tier assignment so tiers reflect actual trade value.
+    # ── Step 6: Assign tiers from PRE-decay trade value ───────────────
+    # Tiers must reflect a player's RELATIVE standing, not the absolute
+    # post-decay value.  At 15 weeks remaining (time_factor ≈ 0.577) the
+    # post-decay maximum is ~57.7, which is below the Elite (90) and Star
+    # (75) thresholds — both buckets would be permanently empty.
+    # Assigning tiers here, before decay, means Elite/Star are always
+    # reachable for the top players regardless of weeks remaining.
+    pool["tier"] = pool["trade_value"].apply(assign_tier)
+
+    # ── Step 7: Time decay adjustment ─────────────────────────────────
+    # Scale values by remaining season fraction (full season = 26 weeks).
+    # Tiers are already assigned above so they are not affected by decay.
     total_weeks = 26.0
     time_factor = min(weeks_remaining / total_weeks, 1.0)
     pool["trade_value"] = (pool["trade_value"] * time_factor).round(2)
 
-    # ── Step 7: Compute dollar values ─────────────────────────────────
+    # ── Step 8: Compute dollar values ─────────────────────────────────
 
     positive_surplus = pool.loc[pool["sgp_surplus"] > 0, "sgp_surplus"]
     total_positive = positive_surplus.sum()
@@ -288,10 +297,6 @@ def compute_trade_values(
     else:
         pool["dollar_value"] = 1.0
     pool["dollar_value"] = (pool["dollar_value"] * time_factor).round(2)
-
-    # ── Step 8: Assign tiers and ranks ────────────────────────────────
-
-    pool["tier"] = pool["trade_value"].apply(assign_tier)
 
     pool = pool.sort_values("trade_value", ascending=False).reset_index(drop=True)
     pool["rank"] = range(1, len(pool) + 1)
