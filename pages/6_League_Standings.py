@@ -31,7 +31,6 @@ from src.ui_shared import (
     build_eyebrow_html,
     build_heatbar_html,
     build_panel_html,
-    format_stat,
     inject_custom_css,
     jargon_help,
     page_timer_footer,
@@ -431,7 +430,7 @@ with ctx:
                 f'<p class="hero-num" style="font-size:28px;margin:0;">'
                 f"{_ordinal(rank)}</p>"
                 f'<p style="margin:4px 0;font-size:13px;color:{T["tx2"]};">'
-                f"{wins}-{losses}-{ties} ({win_pct:.3f})</p>"
+                f"{wins}-{losses}-{ties} ({win_pct * 100:.1f}%)</p>"
                 f"{_streak_chip_html}"
                 f'<p style="margin:2px 0;font-size:12px;color:{T["tx2"]};">'
                 f"GB from 1st: {gb_first}</p>"
@@ -752,7 +751,6 @@ with main:
                 l = int(row.get("losses", 0))
                 t = int(row.get("ties", 0))
                 wp = float(row.get("win_pct", 0.0))
-                streak = str(row.get("streak", "") or "")
                 rk = int(row.get("rank", 0))
 
                 # Games back from 1st
@@ -771,9 +769,8 @@ with main:
                         "W": w,
                         "L": l,
                         "T": t,
-                        "Win%": format_stat(wp, "AVG"),
+                        "Win%": f"{wp * 100:.1f}%",
                         "GB": gb_str,
-                        "Streak": streak,
                     }
                 )
 
@@ -1025,7 +1022,7 @@ with main:
                         "Proj W": rec.get("W", 0),
                         "Proj L": rec.get("L", 0),
                         "Proj T": rec.get("T", 0),
-                        "Win%": format_stat(rec.get("win_pct", 0), "AVG"),
+                        "Win%": f"{rec.get('win_pct', 0) * 100:.1f}%",
                         "Playoff%": f"{pp * 100:.0f}%",
                         "Magic#": magic_str,
                         "SOS": f"{ss:.3f}",
