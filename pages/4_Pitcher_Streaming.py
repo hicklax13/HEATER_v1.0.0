@@ -29,10 +29,13 @@ from src.ui_shared import (
     THEME,
     format_stat,
     inject_custom_css,
+    jargon_help,
     no_league_data_message,
     page_timer_footer,
     page_timer_start,
+    render_data_freshness_chip,
     render_empty_state,
+    render_glossary_expander,
     render_page_header,
     render_sortable_table,
 )
@@ -181,7 +184,9 @@ def _fetch_schedule_cached(date_str: str) -> list[dict]:
 
 # ── Header ───────────────────────────────────────────────────────────────────
 
-render_page_header("Pitcher Streaming", eyebrow="DAILY", fig="FIG.4 — PITCHER STREAMING")
+render_page_header("Pitcher Streaming", eyebrow="DAILY", fig="FIG.04 — PITCHER STREAMING")
+render_data_freshness_chip("probables")
+render_glossary_expander(["Stream Score", "Net SGP", "wRC+", "xFIP", "SIERA"])
 
 tab_finder, tab_microscope, tab_planner, tab_record = st.tabs(
     ["Stream Finder", "Matchup Microscope", "Week Planner", "Track Record"]
@@ -277,15 +282,30 @@ with tab_finder:
         if not show_locked:
             board = board[board["actionable"]].reset_index(drop=True)
 
+        # ── Task 3.4+3.7: Top pick callout + Score scale note ────────────────
+        _actionable = board[board["actionable"]] if "actionable" in board.columns else board
+        if not _actionable.empty:
+            _top_row = _actionable.iloc[0]
+            _top_name = _top_row["player_name"]
+            _top_score = int(_top_row["stream_score"])
+            _top_opp = ("vs " if _top_row["is_home"] else "@ ") + str(_top_row["opponent"])
+            st.info(
+                f"Top pick today: **{_top_name}** ({_top_row['team']}) {_top_opp} — "
+                f"Score {_top_score} / 100. "
+                f"Score 0-100: higher = better streaming target (matchup, park, offense, form, risk). "
+                f"Use the expander below or 'What do these numbers mean?' for definitions."
+            )
+
         display = pd.DataFrame(
             {
+                "Rank": range(1, len(board) + 1),
                 "Pitcher": board["player_name"],
                 "Tm": board["team"],
                 "Opp": [("vs " if home else "@ ") + opp for home, opp in zip(board["is_home"], board["opponent"])],
+                "Score": board["stream_score"],
                 "Status": board["status"],
                 "Conf": board["confidence"],
                 "GS": board["num_starts"],
-                "Score": board["stream_score"],
                 "Net SGP": [format_stat(v, "SGP") for v in board["net_sgp"]],
                 "Opp wRC+": board["opp_wrc_plus"].round(0).astype(int),
                 "Opp K%": board["opp_k_pct"].round(1),
@@ -298,8 +318,11 @@ with tab_finder:
                 "Risk": [", ".join(f) for f in board["risk_flags"]],
             }
         )
+        _score_help = jargon_help("Stream Score")
+        _net_sgp_help = jargon_help("Net SGP")
         if board["split_source"].eq("overall").all():
             st.caption("Opponent wRC+/K% are overall team rates (vs-handedness splits unavailable).")
+        st.caption(f"Score (0-100): {_score_help} | Net SGP: {_net_sgp_help}")
         render_sortable_table(display, height=520, key="stream_board")
 
         # Why-expanders for the top actionable candidates

@@ -295,6 +295,28 @@ def build_depth_data_from_db(season: int = 2026) -> dict:
     return depth
 
 
+_TEAM_NORMALIZE: dict[str, str] = {
+    "OAK": "ATH",
+    "AZ": "ARI",
+    "WSN": "WSH",
+    "CHW": "CWS",
+    "TBR": "TB",
+    "KCR": "KC",
+    "SDP": "SD",
+    "SFG": "SF",
+}
+
+# Reverse map: e.g. "ARI" → {"ARI", "AZ"}, "ATH" → {"ATH", "OAK"}, ...
+_TEAM_ALIASES: dict[str, set[str]] = {}
+for _alias, _canon in _TEAM_NORMALIZE.items():
+    _TEAM_ALIASES.setdefault(_canon, {_canon}).add(_alias)
+
+
+def _normalize_grid_team(abbr: str) -> str:
+    """Normalize a team abbreviation to its canonical form."""
+    return _TEAM_NORMALIZE.get(abbr.upper().strip(), abbr.upper().strip())
+
+
 def build_closer_grid(
     depth_data: dict,
     player_pool: pd.DataFrame | None = None,
@@ -316,8 +338,19 @@ def build_closer_grid(
     if not depth_data:
         return []
 
+    # Pre-normalize pool["team"] so pool lookups work regardless of whether the
+    # pool uses "AZ" or "ARI", "OAK" or "ATH", etc.
+    _pool_normalized: pd.DataFrame | None = None
+    if player_pool is not None and not player_pool.empty and "team" in player_pool.columns:
+        _pool_normalized = player_pool.copy()
+        _pool_normalized["_team_norm"] = _pool_normalized["team"].apply(
+            lambda t: _normalize_grid_team(str(t)) if pd.notna(t) else ""
+        )
+
     grid = []
-    for team, info in sorted(depth_data.items()):
+    for raw_team, info in sorted(depth_data.items()):
+        # Normalize the depth-data team key to the canonical abbreviation.
+        team = _normalize_grid_team(raw_team)
         closer_name = info.get("closer", "Unknown")
         setup_names = info.get("setup", [])
         confidence = float(info.get("closer_confidence", 0.5))
@@ -326,15 +359,17 @@ def build_closer_grid(
         whip = 0.0
 
         mlb_id = None
-        if player_pool is not None and not player_pool.empty:
+        if _pool_normalized is not None:
             # BUG-020: normalize names to handle accents (e.g. "Edwin Díaz" vs
             # "Edwin Diaz"), suffixes ("Jr.", "III"), and punctuation. Uses the
             # canonical normalize_player_name from src.valuation (Section 3 D2).
+            # Team comparison uses the pre-normalized "_team_norm" column so
+            # "AZ" entries (depth_data) match "ARI" rows (pool) and vice versa.
             from src.valuation import normalize_player_name
 
             norm_closer = normalize_player_name(closer_name)
-            pool_names_norm = player_pool["name"].apply(normalize_player_name)
-            match = player_pool[(pool_names_norm == norm_closer) & (player_pool["team"] == team)]
+            pool_names_norm = _pool_normalized["name"].apply(normalize_player_name)
+            match = _pool_normalized[(pool_names_norm == norm_closer) & (_pool_normalized["_team_norm"] == team)]
             if not match.empty:
                 row = match.iloc[0]
                 _sv = row.get("sv", 0)

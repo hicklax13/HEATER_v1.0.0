@@ -414,7 +414,7 @@ def get_injury_badge(health_score: float) -> tuple[str, str]:
     if health_score is None:
         return (_dot.format(color="#fb923c"), "Unknown")
     if health_score >= 0.85:
-        return (_dot.format(color="#84cc16"), "Low Risk")
+        return (_dot.format(color="#1f9d6b"), "Low Risk")  # THEME["green"] / Combustion ok-green
     if health_score >= 0.65:
         return (_dot.format(color="#fb923c"), "Moderate Risk")
     if health_score >= 0.40:

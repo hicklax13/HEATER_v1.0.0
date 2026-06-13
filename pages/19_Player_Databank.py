@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 import streamlit as st
 
 from src.ai.chat import render_chat_widget
-from src.auth import multi_user_enabled, require_auth
+from src.auth import multi_user_enabled, require_auth, resolve_viewer_team_name
 from src.database import init_db
 from src.feature_flags import require_page_enabled
 from src.feedback import render_feedback_widget
@@ -28,6 +28,7 @@ from src.ui_shared import (
     T,
     build_stat_readout_html,
     inject_custom_css,
+    render_data_freshness_chip,
     render_empty_state,
     render_page_header,
     render_panel,
@@ -43,6 +44,24 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 PAGE_SIZE = 25
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _cached_load_databank(stat_view: str):
+    """Load the player databank for *stat_view*, cached for 5 minutes.
+
+    Wraps ``load_databank`` (which calls ``load_player_pool`` internally) so
+    that repeated Streamlit reruns within the TTL window don't pay the ~4 s
+    pool-load penalty.
+    """
+    import pandas as pd  # local import — pandas not at module top-level here
+
+    try:
+        return load_databank(stat_view)
+    except Exception:
+        logger.exception("_cached_load_databank: failed for stat_view=%s", stat_view)
+        return pd.DataFrame()
+
 
 # ── Page config ──────────────────────────────────────────────────────────────
 
@@ -67,6 +86,7 @@ render_page_header(
     fig="FIG.19 — PLAYER DATABASE",
 )
 render_reco_banner("Live stats for every MLB player", "", "databank")
+render_data_freshness_chip("season_stats")
 
 # ── Filter constants ─────────────────────────────────────────────────────────
 
@@ -79,7 +99,6 @@ POSITION_OPTIONS = [
     ("3B", "3B"),
     ("SS", "SS"),
     ("OF", "OF"),
-    ("Util", "Util"),
     ("SP", "SP"),
     ("RP", "RP"),
 ]
@@ -88,7 +107,6 @@ STATUS_OPTIONS = [
     ("ALL", "All Players"),
     ("A", "All Available Players"),
     ("FA", "Free Agents Only"),
-    ("W", "Waivers Only"),
     ("T", "All Taken Players"),
 ]
 
@@ -172,6 +190,7 @@ SORT_COL_MAP = {
 
 # Get fantasy teams from Yahoo / SQLite cache (before form so options are ready)
 fantasy_team_options = [("NONE", "No Team Selected")]
+_rosters_for_lens = None
 try:
     if get_yahoo_data_service is not None:
         yds = get_yahoo_data_service()
@@ -179,6 +198,7 @@ try:
         # (session_state → Yahoo API → SQLite) and works even when
         # the live Yahoo connection is down.
         rosters = yds.get_rosters()
+        _rosters_for_lens = rosters
         if rosters is not None and not rosters.empty:
             team_col = "team_name" if "team_name" in rosters.columns else None
             if team_col:
@@ -187,6 +207,9 @@ try:
                         fantasy_team_options.append((str(tn), str(tn)))
 except Exception:
     pass
+
+# Resolve the viewer's own team name (MULTI_USER-aware; falls back to is_user_team).
+viewer_team = resolve_viewer_team_name(_rosters_for_lens)
 
 # ── Filter form (deferred execution — table renders only on Search) ──────────
 
@@ -199,8 +222,8 @@ with st.form("databank_filters", border=False):
         label_visibility="collapsed",
     )
 
-    # Row 2: Position + Show My Team
-    pos_col, show_col = st.columns([5, 1])
+    # Row 2: Position + Roster Lens (My Roster / Free Agents / All)
+    pos_col, lens_col, show_col = st.columns([4, 2, 1])
     with pos_col:
         position = st.selectbox(
             "Position",
@@ -208,6 +231,19 @@ with st.form("databank_filters", border=False):
             format_func=lambda x: dict(POSITION_OPTIONS).get(x, x),
             index=0,
             key="db_position",
+        )
+    with lens_col:
+        _lens_options = ["All", "My Roster", "Free Agents"]
+        roster_lens = st.selectbox(
+            "Quick Lens",
+            options=_lens_options,
+            index=0,
+            key="db_roster_lens",
+            help=(
+                "My Roster: show only players on your team. "
+                "Free Agents: show unclaimed players only. "
+                "All: no ownership filter."
+            ),
         )
     with show_col:
         show_my_team = st.checkbox("Show my team", key="db_show_my_team")
@@ -284,20 +320,32 @@ if not st.session_state.get("db_search_triggered", False):
 is_pitcher = position in ("P", "SP", "RP")
 
 with st.spinner("Loading player data..."):
-    df = load_databank(stat_view)
+    df = _cached_load_databank(stat_view)
 
 if df.empty:
     st.warning("No player data available. Run the data bootstrap first.")
     st.stop()
 
+# Apply roster-lens override: "My Roster" forces fantasy_team to viewer's team;
+# "Free Agents" forces status to "FA".  "All" leaves the form-selected values.
+_eff_fantasy_team = fantasy_team
+_eff_status = status
+_eff_show_my_team = show_my_team
+_lens_val = st.session_state.get("db_roster_lens", "All")
+if _lens_val == "My Roster" and viewer_team:
+    _eff_fantasy_team = viewer_team
+    _eff_show_my_team = True
+elif _lens_val == "Free Agents":
+    _eff_status = "FA"
+
 filtered = filter_databank(
     df,
     position=position,
-    status=status,
+    status=_eff_status,
     mlb_team=mlb_team,
-    fantasy_team=fantasy_team,
+    fantasy_team=_eff_fantasy_team,
     search=search,
-    show_my_team=show_my_team,
+    show_my_team=_eff_show_my_team,
 )
 
 if filtered.empty:

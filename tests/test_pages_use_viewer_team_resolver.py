@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-# The 9 pages that render a personalized "my team" view.
+# The 10 pages that render a personalized "my team" view.
 _PERSONALIZED_PAGES = [
     "1_My_Team.py",
     "2_Line-up_Optimizer.py",
@@ -23,6 +23,7 @@ _PERSONALIZED_PAGES = [
     "11_Trade_Analyzer.py",
     "12_Trade_Finder.py",
     "14_Free_Agents.py",
+    "16_Player_Compare.py",
 ]
 
 _PAGES_DIR = Path(__file__).resolve().parent.parent / "pages"

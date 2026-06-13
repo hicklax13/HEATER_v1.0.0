@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+# Keys in this list that are preseason-only (moved to a separate nav group in-season).
+_PRESEASON_KEYS = {"20_Draft_Simulator"}
+
 PAGE_REGISTRY = [
     {"key": "1_My_Team", "title": "My Team", "path": "pages/1_My_Team.py"},
     {"key": "2_Line-up_Optimizer", "title": "Lineup Optimizer", "path": "pages/2_Line-up_Optimizer.py"},
@@ -26,6 +29,17 @@ _ADMIN_PAGES = [
 ]
 
 
+def is_in_season() -> bool:
+    """Return True when the regular season is active (weeks_remaining > 0)."""
+    try:
+        from src.league_rules import weeks_remaining
+
+        return weeks_remaining() > 0
+    except Exception:
+        # Fail open: if we can't determine, assume in-season (the common case).
+        return True
+
+
 def filter_enabled_pages(keys: list[str], flags: dict[str, bool]) -> list[str]:
     """Pure: keep keys whose flag is truthy or absent (absence = enabled)."""
     return [k for k in keys if flags.get(k, True)]
@@ -41,9 +55,29 @@ def build_pages(user: dict, draft_page) -> dict:
     enabled_keys = filter_enabled_pages([e["key"] for e in PAGE_REGISTRY], flags)
     by_key = {e["key"]: e for e in PAGE_REGISTRY}
 
-    home = st.Page(draft_page, title="Draft Tool", default=True)
-    season = [st.Page(by_key[k]["path"], title=by_key[k]["title"]) for k in enabled_keys]
-    groups = {"Home": [home], "Season": season}
+    in_season = is_in_season()
+
+    if in_season:
+        # In-season: My Team is the default; Draft Tool + Draft Simulator go in Preseason.
+        season_keys = [k for k in enabled_keys if k not in _PRESEASON_KEYS]
+        preseason_keys = [k for k in enabled_keys if k in _PRESEASON_KEYS]
+
+        season = []
+        for k in season_keys:
+            is_default = k == "1_My_Team"
+            season.append(st.Page(by_key[k]["path"], title=by_key[k]["title"], default=is_default))
+
+        preseason = [st.Page(by_key[k]["path"], title=by_key[k]["title"]) for k in preseason_keys]
+        # Draft Tool always present in Preseason (even if its page func is the single-user app)
+        draft_tool_page = st.Page(draft_page, title="Draft Tool")
+        preseason = [draft_tool_page] + preseason
+
+        groups: dict = {"Season": season, "Preseason": preseason}
+    else:
+        # Pre-season: Draft Tool is the default home.
+        draft_tool_page = st.Page(draft_page, title="Draft Tool", default=True)
+        season = [st.Page(by_key[k]["path"], title=by_key[k]["title"]) for k in enabled_keys]
+        groups = {"Home": [draft_tool_page], "Season": season}
 
     if user and user.get("is_admin"):
         groups["Admin"] = [st.Page(p["path"], title=p["title"]) for p in _ADMIN_PAGES]

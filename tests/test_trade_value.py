@@ -430,3 +430,216 @@ class TestEdgeCases:
 
     def test_league_budget_constant(self):
         assert LEAGUE_BUDGET == 3120.0  # 12 × $260
+
+
+# ── Task 1.7: Tier assignment must not be crushed by time decay ────────
+# With ~15 weeks remaining, time_factor ≈ 0.577. If tiers are assigned
+# AFTER decay, every player's value is capped at ~57.7 → Elite/Star
+# buckets (≥75) are permanently empty.  Tiers must reflect the pre-decay
+# relative rank so top players still land in Elite/Star.
+
+
+class TestTierAssignmentPreDecay:
+    """Tier assignment must use the pre-decay (relative) trade value,
+    not the post-decay absolute value, so Elite/Star tiers are reachable
+    at any point in the season."""
+
+    def test_top_players_not_all_replacement_at_15_weeks(self, pool, config):
+        """With 15 weeks remaining the #1 and #2 players must NOT be Replacement."""
+        result = compute_trade_values(pool, config, weeks_remaining=15)
+        top2_tiers = result.head(2)["tier"].tolist()
+        assert "Replacement" not in top2_tiers, (
+            f"Top-2 players are Replacement with 15 weeks left: {top2_tiers}. "
+            "Tiers must be assigned from pre-decay values."
+        )
+
+    def test_rank1_player_is_elite_or_star_at_15_weeks(self, pool, config):
+        """The #1 ranked player must be Elite or Star at 15 weeks remaining."""
+        result = compute_trade_values(pool, config, weeks_remaining=15)
+        rank1_tier = result.iloc[0]["tier"]
+        assert rank1_tier in ("Elite", "Star"), (
+            f"Rank-1 player tier is '{rank1_tier}' at 15 weeks — expected Elite or Star. "
+            "Time decay is crushing tier assignments; assign tiers before decay."
+        )
+
+    def test_tiers_span_multiple_buckets_at_15_weeks(self, pool, config):
+        """With a 20-player pool and 15 weeks left, tiers must not all be Replacement."""
+        result = compute_trade_values(pool, config, weeks_remaining=15)
+        unique_tiers = set(result["tier"].unique())
+        assert unique_tiers != {"Replacement"}, (
+            "All players are Replacement at 15 weeks — tier cutoffs must be "
+            "scaled or tiers must be assigned before time decay."
+        )
+
+    def test_tiers_consistent_regardless_of_weeks_remaining(self, pool, config):
+        """The top player's tier must be identical at 26 weeks and 1 week.
+        Tier assignment must reflect relative standing, not absolute post-decay value."""
+        full = compute_trade_values(pool, config, weeks_remaining=26)
+        late = compute_trade_values(pool, config, weeks_remaining=1)
+        top_full = full.iloc[0]["tier"]
+        top_late = late.iloc[0]["tier"]
+        assert top_full == top_late, (
+            f"Rank-1 tier changes from '{top_full}' (26w) to '{top_late}' (1w). "
+            "Tiers must be assigned before time decay is applied."
+        )
+
+
+# ── Task 1.8: Sort by Acceptance must use numeric probability ──────────
+# The trade dict carries both "acceptance_label" (High/Medium/Low) and
+# "acceptance_probability" (float). _build_trade_df only exposes the
+# string label; sorting on it alphabetically puts Medium above High.
+# Fix: expose "acceptance_prob" (float) alongside "Acceptance" (label)
+# and sort on the numeric column.
+
+
+def _make_trade_dicts() -> list[dict]:
+    """Minimal trade dicts covering all three acceptance labels."""
+    return [
+        {
+            "giving_names": ["Player A"],
+            "receiving_names": ["Player X"],
+            "trade_type": "1-for-1",
+            "opponent_team": "Team 1",
+            "user_sgp_gain": 1.0,
+            "opponent_sgp_gain": 0.5,
+            "grade": "B",
+            "acceptance_label": "Low",
+            "acceptance_probability": 0.20,
+            "health_risk": "",
+            "composite_score": 10.0,
+        },
+        {
+            "giving_names": ["Player B"],
+            "receiving_names": ["Player Y"],
+            "trade_type": "1-for-1",
+            "opponent_team": "Team 2",
+            "user_sgp_gain": 2.0,
+            "opponent_sgp_gain": 1.0,
+            "grade": "A",
+            "acceptance_label": "High",
+            "acceptance_probability": 0.75,
+            "health_risk": "",
+            "composite_score": 20.0,
+        },
+        {
+            "giving_names": ["Player C"],
+            "receiving_names": ["Player Z"],
+            "trade_type": "1-for-1",
+            "opponent_team": "Team 3",
+            "user_sgp_gain": 1.5,
+            "opponent_sgp_gain": 0.8,
+            "grade": "B+",
+            "acceptance_label": "Medium",
+            "acceptance_probability": 0.45,
+            "health_risk": "",
+            "composite_score": 15.0,
+        },
+    ]
+
+
+def _simulate_build_trade_df(trades: list[dict]) -> pd.DataFrame:
+    """Replicate what _build_trade_df produces after the fix.
+
+    This mirrors the page helper directly so we can test the column contract
+    without needing to import the page (which calls main() at module level).
+    The fix adds "acceptance_prob" (float) so the sort-map can use it instead
+    of the string "Acceptance" label.
+    """
+    rows = []
+    for trade in trades:
+        giving = ", ".join(trade.get("giving_names", []))
+        receiving = ", ".join(trade.get("receiving_names", []))
+        row = {
+            "You Give": giving,
+            "You Receive": receiving,
+            "Type": trade.get("trade_type", "1-for-1"),
+            "Partner": trade.get("opponent_team", ""),
+            "Your Gain": round(trade.get("user_sgp_gain", 0), 2),
+            "Their Gain": round(trade.get("opponent_sgp_gain", 0), 2),
+            "Grade": trade.get("grade", ""),
+            "Acceptance": trade.get("acceptance_label", ""),
+            # ← THE FIX: expose numeric probability alongside the label
+            "acceptance_prob": float(trade.get("acceptance_probability", 0.0)),
+            "Health": trade.get("health_risk", "") or "",
+            "Score": round(trade.get("composite_score", 0), 2),
+        }
+        rows.append(row)
+    return pd.DataFrame(rows) if rows else pd.DataFrame()
+
+
+class TestAcceptanceSortOrder:
+    """_build_trade_df must expose a numeric acceptance_prob column so
+    that sort-by-Acceptance orders rows High > Medium > Low.
+
+    The fix adds "acceptance_prob" (float) to the row dict in _build_trade_df
+    and updates sort_map["Acceptance Probability"] to use "acceptance_prob"
+    instead of "Acceptance".
+    """
+
+    def test_build_trade_df_exposes_acceptance_prob_column(self):
+        """The fixed _build_trade_df must include a numeric 'acceptance_prob' column."""
+        df = _simulate_build_trade_df(_make_trade_dicts())
+        assert "acceptance_prob" in df.columns, (
+            "'acceptance_prob' numeric column missing. "
+            "Add it so sort-by-Acceptance uses numeric values, not string labels."
+        )
+
+    def test_acceptance_prob_values_are_numeric(self):
+        """acceptance_prob must be a float matching the source dict."""
+        df = _simulate_build_trade_df(_make_trade_dicts())
+        assert df["acceptance_prob"].dtype.kind == "f", "acceptance_prob must be float"
+        probs = sorted(df["acceptance_prob"].tolist())
+        assert probs == pytest.approx([0.20, 0.45, 0.75])
+
+    def test_sort_by_acceptance_prob_descending_gives_high_medium_low_order(self):
+        """Sorting by acceptance_prob descending must put High before Medium before Low."""
+        df = _simulate_build_trade_df(_make_trade_dicts())
+        sorted_df = df.sort_values("acceptance_prob", ascending=False)
+        labels = sorted_df["Acceptance"].tolist()
+        assert labels == ["High", "Medium", "Low"], (
+            f"Sort by acceptance_prob descending gave {labels}; expected ['High', 'Medium', 'Low']. "
+            "String-sort on 'Acceptance' produces wrong order (Medium before High)."
+        )
+
+    def test_string_sort_on_acceptance_label_is_broken(self):
+        """Confirm the old bug: sorting on the label string gives wrong order.
+
+        Alphabetical descending of High/Medium/Low → Medium > Low > High.
+        This test documents why the numeric column is needed.
+        """
+        df = _simulate_build_trade_df(_make_trade_dicts())
+        # alphabetical descending: M > L > H → first row is NOT High
+        string_sorted = df.sort_values("Acceptance", ascending=False)
+        labels_str = string_sorted["Acceptance"].tolist()
+        assert labels_str[0] != "High", (
+            "String-label sort happened to put High first — this is an alphabetical "
+            "coincidence that breaks for Medium/Low. The numeric column is still needed."
+        )
+
+    def test_page_sort_map_uses_acceptance_prob_key(self):
+        """AST guard: pages/12_Trade_Finder.py sort_map must map
+        'Acceptance Probability' to 'acceptance_prob', not 'Acceptance'."""
+        import ast
+        from pathlib import Path
+
+        src = Path(__file__).resolve().parent.parent / "pages" / "12_Trade_Finder.py"
+        tree = ast.parse(src.read_text(encoding="utf-8"))
+
+        # Find the sort_map dict literal in the file
+        found_correct = False
+        for node in ast.walk(tree):
+            # Look for: "Acceptance Probability": ("acceptance_prob", False)
+            if isinstance(node, ast.Dict):
+                for key, val in zip(node.keys, node.values):
+                    if isinstance(key, ast.Constant) and key.value == "Acceptance Probability":
+                        # val should be a Tuple whose first element is "acceptance_prob"
+                        if isinstance(val, ast.Tuple) and val.elts:
+                            first = val.elts[0]
+                            if isinstance(first, ast.Constant) and first.value == "acceptance_prob":
+                                found_correct = True
+
+        assert found_correct, (
+            "pages/12_Trade_Finder.py sort_map['Acceptance Probability'] must map "
+            "to ('acceptance_prob', False), not ('Acceptance', False). "
+            "Without this fix, sorting by Acceptance uses alphabetical string order."
+        )

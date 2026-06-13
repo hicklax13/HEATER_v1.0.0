@@ -39,7 +39,7 @@ STAT_VIEW_OPTIONS: dict[str, str] = {
     "S_PS7": "Next 7 Days (proj)",
     "S_PS14": "Next 14 Days (proj)",
     "S_PSR": "Remaining Games (proj)",
-    "S_L": "Today (live)",
+    "S_L": "ROS Projections",
     "S_L7": "Last 7 Days (total)",
     "S_L14": "Last 14 Days (total)",
     "S_L30": "Last 30 Days (total)",
@@ -60,10 +60,6 @@ STAT_VIEW_OPTIONS: dict[str, str] = {
     "S_SD_2026": "Season (std dev)",
     "S_SD_2025": "2025 Season (std dev)",
     "S_SD_2024": "2024 Season (std dev)",
-    "K_K": "Ranks",
-    "R_O": "Research",
-    "M_W": "Fantasy Matchups",
-    "O_O": "Opponents",
 }
 
 # ── Stat view computation parameters ─────────────────────────────────────────
@@ -97,10 +93,6 @@ STAT_VIEW_PARAMS: dict[str, dict] = {
     "S_SD_2026": {"type": "stddev", "days": None, "season": 2026},
     "S_SD_2025": {"type": "stddev", "days": None, "season": 2025},
     "S_SD_2024": {"type": "stddev", "days": None, "season": 2024},
-    "K_K": {"type": "special", "days": None, "season": None},
-    "R_O": {"type": "special", "days": None, "season": None},
-    "M_W": {"type": "special", "days": None, "season": None},
-    "O_O": {"type": "special", "days": None, "season": None},
 }
 
 
@@ -852,6 +844,31 @@ def filter_databank(
     return result
 
 
+# ── IP display helper ─────────────────────────────────────────────────────────
+
+
+def format_innings(ip: float) -> str:
+    """Convert a decimal innings-pitched value to outs (thirds) notation.
+
+    Baseball IP uses thirds of an inning: .1 = ⅓, .2 = ⅔.  A value stored
+    as a true decimal fraction (e.g. 56.6̄ for 56⅔ IP) must be converted back
+    to the conventional display format ("56.2"), not rendered as a naive
+    floating-point string ("56.7").
+
+    Args:
+        ip: Decimal innings value (e.g. 56.333... or 56.667...).
+
+    Returns:
+        Outs-notation string (e.g. "56.1", "56.2", "56.0").
+    """
+    whole = int(ip)
+    thirds = round((ip - whole) * 3)
+    if thirds == 3:
+        whole += 1
+        thirds = 0
+    return f"{whole}.{thirds}"
+
+
 # ── HTML table rendering ──────────────────────────────────────────────────────
 
 # Computed rate-stat column aliases: maps calc column → display column name
@@ -899,10 +916,10 @@ def _format_cell(value: object, col: str) -> str:
         except (TypeError, ValueError):
             return str(value)
 
-    # IP: .1f
+    # IP: outs notation (56.667 → "56.2", 56.333 → "56.1")
     if col_lower == "ip":
         try:
-            return f"{float(value):.1f}"
+            return format_innings(float(value))
         except (TypeError, ValueError):
             return str(value)
 
@@ -1068,7 +1085,7 @@ def render_databank_table(
 }}
 .hdb-table thead th {{
     background: #ffffff;
-    color: #2c2f36;
+    color: var(--fp-tx);
     font-weight: 800;
     font-size: 12px;
     text-transform: uppercase;

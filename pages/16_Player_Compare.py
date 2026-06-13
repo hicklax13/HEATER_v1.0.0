@@ -6,11 +6,11 @@ import pandas as pd
 import streamlit as st
 
 from src.ai.chat import render_chat_widget
-from src.auth import multi_user_enabled, require_auth
+from src.auth import multi_user_enabled, require_auth, resolve_viewer_team_name
 from src.database import coerce_numeric_df, get_connection, init_db, load_player_pool
 from src.feature_flags import require_page_enabled
 from src.feedback import render_feedback_widget
-from src.in_season import compare_players
+from src.in_season import compare_players, compute_category_fit
 from src.injury_model import get_injury_badge
 from src.usage import log_page_view
 from src.yahoo_data_service import get_yahoo_data_service
@@ -23,7 +23,9 @@ except Exception:
     HAS_ROLLING_STATS = False
 from src.ui_shared import (
     ALL_CATEGORIES,
+    HITTING_CATEGORIES,
     METRIC_TOOLTIPS,
+    PITCHING_CATEGORIES,
     build_heatbar_html,
     build_stat_readout_html,
     format_stat,
@@ -31,11 +33,14 @@ from src.ui_shared import (
     get_plotly_polar,
     get_theme,
     inject_custom_css,
+    jargon_help,
     page_timer_footer,
     page_timer_start,
     render_compact_table,
     render_context_card,
     render_context_columns,
+    render_data_freshness_chip,
+    render_glossary_expander,
     render_page_header,
     render_panel,
     render_player_select,
@@ -72,6 +77,7 @@ render_page_header(
     eyebrow="RESEARCH",
     fig="FIG.16 — HEAD-TO-HEAD",
 )
+render_data_freshness_chip("player_pool")
 render_reco_banner("Select two players to compare", "", "player_compare")
 
 
@@ -144,15 +150,26 @@ elif _level_filter == "MLB + AAA + AA":
 _yds = get_yahoo_data_service()
 rosters_df = _yds.get_rosters()
 config = LeagueConfig()
+user_team_name = resolve_viewer_team_name(rosters_df)
 
 
-def _get_roster_badge(player_id, rosters_df):
-    """Return HTML badge showing roster status."""
+def _get_roster_badge(player_id, rosters_df, viewer_team: str | None = None):
+    """Return HTML badge showing roster status.
+
+    Shows "My Team" for the viewer's own rostered players (using the emoji-
+    reconciled name from resolve_viewer_team_name), "Rostered: {team}" for
+    other teams, and "Free Agent" for unrostered players.
+    """
     if rosters_df.empty:
         return ""
     match = rosters_df[rosters_df["player_id"] == player_id]
     if not match.empty:
         team = match.iloc[0].get("team_name", "Unknown")
+        if viewer_team and str(team) == str(viewer_team):
+            return (
+                '<span style="font-size:11px;padding:2px 6px;'
+                'background:rgba(255,109,0,.12);border-radius:4px;font-weight:600;">My Team</span>'
+            )
         return (
             f'<span style="font-size:11px;padding:2px 6px;'
             f'background:rgba(31,157,107,.08);border-radius:4px;">Rostered: {team}</span>'
@@ -183,7 +200,12 @@ with main:
 
     col1, col2 = st.columns(2)
     with col1:
-        search_a = st.text_input("Search Player A", key="search_a", placeholder="Type a player name...")
+        search_a = st.text_input(
+            "Search Player A",
+            key="search_a",
+            placeholder="Type a player name...",
+            help=jargon_help("ECR"),
+        )
         filtered_a = [n for n in player_names if search_a.lower() in n.lower()] if search_a else player_names
         if filtered_a:
             # Show top matches as selectable cards
@@ -231,9 +253,9 @@ with main:
         # Roster status badges
         badge_col1, badge_col2 = st.columns(2)
         with badge_col1:
-            st.markdown(_get_roster_badge(id_a, rosters_df), unsafe_allow_html=True)
+            st.markdown(_get_roster_badge(id_a, rosters_df, viewer_team=user_team_name), unsafe_allow_html=True)
         with badge_col2:
-            st.markdown(_get_roster_badge(id_b, rosters_df), unsafe_allow_html=True)
+            st.markdown(_get_roster_badge(id_b, rosters_df, viewer_team=user_team_name), unsafe_allow_html=True)
 
         compare_progress = st.progress(0, text="Comparing players across 12 categories...")
         result = compare_players(int(id_a), int(id_b), pool, config)
@@ -298,10 +320,34 @@ with main:
             with _id_c2:
                 st.markdown(_identity_card(player_b_name, id_b, "#5f7d9c"), unsafe_allow_html=True)
 
+            # Determine player types (hitter vs pitcher) — needed for radar axis
+            # filtering (4.6-B) and cross-type guard (4.6-C).
+            _row_a_type = pool[pool["player_id"] == id_a]
+            _row_b_type = pool[pool["player_id"] == id_b]
+            is_hitter_a = bool(int(_row_a_type.iloc[0].get("is_hitter", 1))) if not _row_a_type.empty else True
+            is_hitter_b = bool(int(_row_b_type.iloc[0].get("is_hitter", 1))) if not _row_b_type.empty else True
+            _cross_type = is_hitter_a != is_hitter_b
+
+            # 4.6-C — Cross-type guard: hitter vs pitcher comparison is not meaningful
+            if _cross_type:
+                st.warning(
+                    "Comparing a hitter and a pitcher — category comparison isn't "
+                    "meaningful across types. The z-scores, radar, and composite below "
+                    "reflect league-wide norms within each player's position group only."
+                )
+
             # Radar chart
             if HAS_PLOTLY:
                 t = get_theme()
-                cats = ALL_CATEGORIES
+                # 4.6-B: same-type comparisons use only the 6 relevant axes so the
+                # opposite-type axes (which are always 0) don't produce a dead flat ring.
+                # Cross-type comparisons fall back to all 12 cats so both players show up.
+                if not _cross_type and is_hitter_a:
+                    cats = HITTING_CATEGORIES
+                elif not _cross_type and not is_hitter_a:
+                    cats = PITCHING_CATEGORIES
+                else:
+                    cats = ALL_CATEGORIES
                 cat_display_names = {
                     "R": "Runs",
                     "HR": "Home Runs",
@@ -417,8 +463,21 @@ with main:
                         "Advantage": adv,
                     }
                 )
-            render_compact_table(pd.DataFrame(rows))
+            render_compact_table(
+                pd.DataFrame(rows),
+            )
             st.caption(METRIC_TOOLTIPS["z_score"])
+            # Task 3.3 — inverse-stat annotation: ERA/WHIP/L z-scores are
+            # quality-adjusted (lower raw value = better = higher z-score).
+            st.caption(
+                "Inverse stats (ERA, WHIP, L): lower is better. "
+                "Z-scores are already quality-adjusted so a higher z-score "
+                "always means the player is farther above average, even for inverse categories."
+            )
+            render_glossary_expander(
+                ["SGP", "VORP", "ECR", "ADP"],
+                label="What do these numbers mean?",
+            )
 
             # N3: SGP Contribution Breakdown — shows concentrated vs diversified value
             try:
@@ -465,6 +524,88 @@ with main:
                         )
             except Exception:
                 pass
+
+            # Task 3.5: Category Fit for Your Team
+            # Wire compute_category_fit so the viewer sees which player better
+            # fills their WEAK categories (e.g. "Helps your weak AVG and SB").
+            # Build a simple team profile from standings data when available.
+            # Falls back to a neutral "average" profile so the block is always
+            # renderable even when rosters data is unavailable.
+            try:
+                from src.valuation import SGPCalculator as _SGPCalc
+
+                _fit_calc = _SGPCalc(config)
+                _fit_row_a = pool[pool["player_id"] == id_a]
+                _fit_row_b = pool[pool["player_id"] == id_b]
+                if not _fit_row_a.empty and not _fit_row_b.empty:
+                    _fit_sgp_a = _fit_calc.player_sgp(_fit_row_a.iloc[0])
+                    _fit_sgp_b = _fit_calc.player_sgp(_fit_row_b.iloc[0])
+
+                    _team_profile: dict[str, str] = {}
+                    _profile_source = "unknown"
+                    if user_team_name:
+                        try:
+                            from src.standings_utils import get_team_totals
+
+                            _all_totals = get_team_totals()
+                            if _all_totals and user_team_name in _all_totals:
+                                _user_totals = _all_totals[user_team_name]
+                                _n_teams = len(_all_totals)
+                                for _cat in config.all_categories:
+                                    _uv = _user_totals.get(_cat, 0) or 0
+                                    _vals = [t.get(_cat, 0) or 0 for t in _all_totals.values()]
+                                    if _cat in set(config.inverse_stats):
+                                        _rank = 1 + sum(1 for v in _vals if v < _uv and v > 0)
+                                    else:
+                                        _rank = 1 + sum(1 for v in _vals if v > _uv)
+                                    if _rank <= max(2, _n_teams // 4):
+                                        _team_profile[_cat] = "strong"
+                                    elif _rank >= _n_teams - max(1, _n_teams // 4):
+                                        _team_profile[_cat] = "weak"
+                                    else:
+                                        _team_profile[_cat] = "average"
+                                _profile_source = f"standings ({user_team_name})"
+                        except Exception:
+                            pass
+
+                    if not _team_profile:
+                        _team_profile = {cat: "average" for cat in config.all_categories}
+                        _profile_source = "no roster data"
+
+                    _fit_a = compute_category_fit(_fit_sgp_a, _team_profile)
+                    _fit_b = compute_category_fit(_fit_sgp_b, _team_profile)
+
+                    _helps_a = _fit_a.get("helps", [])
+                    _helps_b = _fit_b.get("helps", [])
+                    _fit_score_a = _fit_a.get("fit_score", 0)
+                    _fit_score_b = _fit_b.get("fit_score", 0)
+                    _wastes_a = _fit_a.get("wastes", [])
+                    _wastes_b = _fit_b.get("wastes", [])
+
+                    if _helps_a or _helps_b or _wastes_a or _wastes_b:
+                        st.subheader("Fits Your Team")
+
+                        def _fit_line(player_name: str, helps: list, wastes: list, score: float) -> str:
+                            parts = []
+                            if helps:
+                                cats_str = ", ".join(cat_full_names.get(c, c) for c in helps)
+                                parts.append(f"Helps your weak **{cats_str}**")
+                            if wastes:
+                                cats_str = ", ".join(cat_full_names.get(c, c) for c in wastes)
+                                parts.append(f"Redundant in **{cats_str}** (already strong)")
+                            if not parts:
+                                parts.append("No clear category fit signal")
+                            return f"**{player_name}** — " + "; ".join(parts)
+
+                        st.markdown(_fit_line(player_a_name, _helps_a, _wastes_a, _fit_score_a))
+                        st.markdown(_fit_line(player_b_name, _helps_b, _wastes_b, _fit_score_b))
+                        st.caption(
+                            f"Category fit based on your team weak/strong categories "
+                            f"(source: {_profile_source}). "
+                            "Weak = ranked bottom third in the league. Strong = top third."
+                        )
+            except Exception:
+                pass  # Graceful fallback — category fit is supplemental
 
             # N2: Schedule strength comparison — next 2-4 weeks of matchup quality
             try:
@@ -759,7 +900,9 @@ with main:
                 for row in health_rows:
                     row["Confidence"] = "—"
 
-            render_styled_table(pd.DataFrame(health_rows))
+            # 4.6-A: use render_compact_table with html_cols so the colored dot <span>
+            # in the Health column renders as HTML rather than escaped text.
+            render_compact_table(pd.DataFrame(health_rows), html_cols={"Health"})
 
             # E10: Catcher Framing Value comparison
             try:

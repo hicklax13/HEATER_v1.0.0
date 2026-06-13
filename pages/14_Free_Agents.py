@@ -26,13 +26,16 @@ from src.ui_shared import (
     build_heatbar_html,
     format_stat,
     inject_custom_css,
+    jargon_help,
     no_league_data_message,
     page_timer_footer,
     page_timer_start,
     render_compact_table,
     render_context_card,
     render_context_columns,
+    render_data_freshness_chip,
     render_empty_state,
+    render_glossary_expander,
     render_matchup_ticker,
     render_page_header,
     render_player_select,
@@ -292,7 +295,14 @@ page_timer_start()
 
 # ── Data loading ──────────────────────────────────────────────────────────────
 
-pool = load_player_pool()
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _get_player_pool():
+    """Return the enriched player pool, cached for 5 minutes per the Yahoo TTL."""
+    return load_player_pool()
+
+
+pool = _get_player_pool()
 if pool.empty:
     st.warning("No player data loaded.")
     st.stop()
@@ -457,9 +467,15 @@ except Exception as _fa_engine_err:
 # ADP pre-filter cap of 200; we lift it here by passing
 # ``max_candidates=len(fa_pool)``.
 ranked_fas = pd.DataFrame()
+# Cap implausible marginal_value outliers that arise from team-mismatched join
+# rows. A single phantom row (e.g. 125.19 vs next-best 11.8) otherwise becomes
+# the unchallenged #1 pickup and dominates the entire ranked list.
+_FA_MARGINAL_CAP = 30.0
 try:
     _rank_cap = max(200, len(fa_pool))
     ranked_fas = rank_free_agents(user_roster_ids, fa_pool, pool, config, max_candidates=_rank_cap)
+    if not ranked_fas.empty and "marginal_value" in ranked_fas.columns:
+        ranked_fas["marginal_value"] = ranked_fas["marginal_value"].clip(upper=_FA_MARGINAL_CAP)
 except Exception as e:
     logger.exception("Failed to rank free agents")
 
@@ -523,8 +539,12 @@ if recommendations:
     )
 
 render_page_header("Free Agents", eyebrow="WIRE", fig="FIG.14 — FREE AGENTS")
+render_data_freshness_chip("free_agents")
 render_reco_banner(_banner_teaser, "", "free_agents")
 render_matchup_ticker()
+# Task 3.4: Heat 0-10 scale anchor — displayed once, near the top of the page.
+# Heat 0-10: higher = more added/owned lately; 7+ = hot wire activity.
+render_glossary_expander(["Heat", "Net SGP", "SGP"])
 
 # ── Position filter (shared across all sections) ─────────────────────────────
 # 2026-05-19 Section 5: POSITIONS now imported from src.ui_shared (top of file).
@@ -679,7 +699,9 @@ with main:
         f'<div style="font-size:12px;color:{T["tx2"]};margin-bottom:8px;'
         f'font-family:var(--font-body);">'
         f"Free agents ranked by net Standings Gained Points improvement "
-        f"after accounting for the recommended drop. Only positive-value swaps are shown.</div>",
+        f"after accounting for the recommended drop. Only positive-value swaps are shown. "
+        f'<span title="{jargon_help("Net SGP")}" style="cursor:help;border-bottom:1px dotted {T["tx2"]};">Net SGP</span> '
+        f"= standings-point gain minus loss.</div>",
         unsafe_allow_html=True,
     )
 
@@ -714,11 +736,16 @@ with main:
     protected_drop_names: set[str] = set(get_il_stash_names())
 
     # (2) Dynamic IL news-string match: expand the substring set.
+    # player_news has no player_name column — JOIN players to obtain the name.
     try:
         _il_conn = get_connection()
         try:
             _il_news = pd.read_sql_query(
-                "SELECT player_name, il_status FROM player_news WHERE news_type = 'injury' ORDER BY fetched_at DESC",
+                "SELECT p.name AS player_name, pn.il_status "
+                "FROM player_news pn "
+                "JOIN players p ON p.player_id = pn.player_id "
+                "WHERE pn.news_type = 'injury' "
+                "ORDER BY pn.fetched_at DESC",
                 _il_conn,
             )
         finally:
@@ -732,7 +759,7 @@ with main:
                     if _pname:
                         protected_drop_names.add(_pname)
     except Exception:
-        pass  # Non-fatal: fall back to the hardcoded + roster-status checks.
+        logger.warning("IL-news player_news query failed — IL stash protection may be incomplete", exc_info=True)
 
     # (3) Authoritative Yahoo roster status check: anyone whose
     # league_rosters.status is in the IL family gets protected by name.
@@ -899,7 +926,9 @@ with main:
         f'font-family:var(--font-body);">'
         f"Full ranked free agent list with projected impact on your roster. "
         f"The Impact column shows the Standings Gained Points delta if this player "
-        f"replaced the weakest player at the same position on your roster.</div>",
+        f"replaced the weakest player at the same position on your roster. "
+        f'<span title="{jargon_help("Heat")}" style="cursor:help;border-bottom:1px dotted {T["tx2"]};">Heat</span> '
+        f"(0-10): higher = more added/owned lately; 7+ = hot wire activity.</div>",
         unsafe_allow_html=True,
     )
 
@@ -1203,23 +1232,26 @@ with main:
 
             # PR14 (FA P3.10): pagination toggle. The default view shows the
             # top 200 by marginal value; checking "Show all" reveals the
-            # full ranked pool.
+            # full ranked pool, capped at _FA_SHOW_ALL_CAP to prevent
+            # rendering thousands of DOM nodes that would freeze the browser.
+            _FA_SHOW_ALL_CAP = 1000
             _total_ranked = len(display_fa_df)
             _show_all = False
             if _total_ranked > 200:
                 _show_all = st.checkbox(
-                    f"Show all {_total_ranked} free agents (currently showing top 200)",
+                    f"Show all free agents (up to {_FA_SHOW_ALL_CAP}, currently showing top 200)",
                     value=False,
                     key="fa_show_all",
                 )
-                if not _show_all:
+                if _show_all:
+                    display_fa_df = display_fa_df.head(_FA_SHOW_ALL_CAP)
+                else:
                     display_fa_df = display_fa_df.head(200)
 
             st.markdown(
                 f'<div style="font-size:11px;color:{T["tx2"]};margin-bottom:4px;'
                 f'font-family:var(--font-body);">'
-                f"Showing {len(display_fa_df)} of {_total_ranked} free agents{_filter_label}."
-                f" Click column headers to sort.</div>",
+                f"Showing {len(display_fa_df)} of {_total_ranked} free agents{_filter_label}.</div>",
                 unsafe_allow_html=True,
             )
             _has_html_cols = "Heat" in display_fa_df.columns or "Signal" in display_fa_df.columns
@@ -1259,13 +1291,17 @@ with main:
         # load via get_il_stash_names(), AND players returning within 2 weeks)
         protected_names = set(get_il_stash_names())
 
-        # Dynamic IL return-date check: protect players returning within 14 days
+        # Dynamic IL return-date check: protect players returning within 14 days.
+        # player_news has no player_name column — JOIN players to obtain the name.
         try:
             _il_conn = get_connection()
             try:
                 _il_news = pd.read_sql_query(
-                    "SELECT player_name, il_status, headline FROM player_news "
-                    "WHERE news_type = 'injury' ORDER BY fetched_at DESC",
+                    "SELECT p.name AS player_name, pn.il_status, pn.headline "
+                    "FROM player_news pn "
+                    "JOIN players p ON p.player_id = pn.player_id "
+                    "WHERE pn.news_type = 'injury' "
+                    "ORDER BY pn.fetched_at DESC",
                     _il_conn,
                 )
             finally:
@@ -1279,7 +1315,7 @@ with main:
                         if _pname:
                             protected_names.add(_pname)
         except Exception:
-            pass  # Non-fatal: fall back to hardcoded list
+            logger.warning("IL-news player_news query failed — drop protection may be incomplete", exc_info=True)
 
         drops_rows = []
         for rec in filtered_recs:

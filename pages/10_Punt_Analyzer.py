@@ -12,12 +12,15 @@ from src.auth import multi_user_enabled, require_auth, resolve_viewer_team_name
 from src.database import init_db, load_player_pool
 from src.feature_flags import require_page_enabled
 from src.feedback import render_feedback_widget
+from src.standings_utils import filter_standings_to_valid_teams
 from src.ui_shared import (
     _headshot_img_html,
     build_heatbar_html,
     build_stat_readout_html,
     format_stat,
     inject_custom_css,
+    render_data_freshness_chip,
+    render_empty_state,
     render_page_header,
     render_panel,
     team_color,
@@ -46,10 +49,11 @@ log_page_view("Punt Analyzer")
 render_chat_widget("Punt Analyzer")
 
 render_page_header(
-    "Punt Strategy Simulator",
+    "Punt Analyzer",
     eyebrow="STRATEGY",
     fig="FIG.10 — CATEGORY PUNT MODEL",
 )
+render_data_freshness_chip("projections")
 st.markdown('<div class="hr-heat"></div>', unsafe_allow_html=True)
 
 pool = load_player_pool()
@@ -158,16 +162,10 @@ try:
     progress.progress(50, text="Computing punt-adjusted values...")
     sgp_punt = SGPCalculator(punt_config)
 
-    # Compute total SGP for each player under both strategies
-    orig_sgps = []
-    punt_sgps = []
-    for _, player in pool.iterrows():
-        orig_sgps.append(sgp_orig.total_sgp(player))
-        punt_sgps.append(sgp_punt.total_sgp(player))
-
+    # Compute total SGP for each player under both strategies (vectorized batch).
     pool = pool.copy()
-    pool["original_sgp"] = orig_sgps
-    pool["punt_sgp"] = punt_sgps
+    pool["original_sgp"] = sgp_orig.total_sgp_batch(pool)
+    pool["punt_sgp"] = sgp_punt.total_sgp_batch(pool)
     pool["value_change"] = pool["punt_sgp"] - pool["original_sgp"]
 
     progress.progress(100, text="Analysis complete!")
@@ -210,23 +208,81 @@ render_panel(
     accent="top",
 )
 
+# ── Deep-link: browse Free Agents for active (non-punted) categories ─────────
+# Stash active categories in session_state so the Free Agents page can read
+# them and pre-filter recommendations.
+st.session_state["_punt_active_cats"] = active_cats
+st.page_link(
+    "pages/14_Free_Agents.py",
+    label=f"Browse Free Agents for active categories ({', '.join(active_cats[:4])}{'…' if len(active_cats) > 4 else ''}) →",
+    help="Opens the Free Agents page. Your active (non-punted) categories are saved so you can filter recommendations there.",
+)
+
+# ── Task 3.5: "My Roster only" lens ──────────────────────────────────────────
+# Fetch rosters early so they're available for the lens toggle and
+# the standings-impact panel that follows.
+_yds = get_yahoo_data_service()
+_rosters_for_lens = _yds.get_rosters()
+_user_team_for_lens = None
+_user_roster_names: set[str] = set()
+if not _rosters_for_lens.empty:
+    _user_team_for_lens = resolve_viewer_team_name(_rosters_for_lens)
+    if _user_team_for_lens:
+        _user_team_for_lens = str(_user_team_for_lens)
+        _my_rows = _rosters_for_lens[_rosters_for_lens["team_name"] == _user_team_for_lens]
+        _name_col = "player_name" if "player_name" in _my_rows.columns else "name"
+        if _name_col in _my_rows.columns:
+            _user_roster_names = set(_my_rows[_name_col].dropna().astype(str))
+
+_show_my_roster_only = st.toggle(
+    "My Roster only",
+    value=False,
+    key="punt_my_roster_only",
+    help="Show only players on your current roster in the value-swing tables below.",
+)
+
+# Apply roster filter when the lens is active
+if _show_my_roster_only and _user_roster_names:
+    _display_pool = pool[pool["player_name"].isin(_user_roster_names)].copy()
+    if _display_pool.empty:
+        st.info("No roster players found in the player pool for the value-swing tables.")
+        _display_pool = pool  # fall back gracefully
+else:
+    _display_pool = pool
+
 # ── Biggest Winners (value increases under punt) ────────────────────────────
 
-gainers = pool.nlargest(15, "value_change")[
+_gainers_raw = _display_pool.nlargest(15, "value_change")[
     ["player_name", "positions", "team", "mlb_id", "original_sgp", "punt_sgp", "value_change"]
 ].copy()
-render_panel(
-    "Biggest Value Gainers Under Punt",
-    '<div style="font-size:12px;color:var(--fp-tx-muted);margin-bottom:8px;">'
-    "Players whose value increases most when the punted categories are removed.</div>"
-    + _value_swing_table_html(gainers, gain=True),
-    fig_label="FIG.10.2 — VALUE UP",
-    accent="top",
-)
+gainers = _gainers_raw[_gainers_raw["value_change"] > 0]
+
+if gainers.empty:
+    render_panel(
+        "Biggest Value Gainers Under Punt",
+        '<div style="font-size:12px;color:var(--fp-tx-muted);margin-bottom:8px;">'
+        "Players whose value increases most when the punted categories are removed.</div>",
+        fig_label="FIG.10.2 — VALUE UP",
+        accent="top",
+    )
+    render_empty_state(
+        "No value gainers",
+        "No players gain value when punting these categories — all players contribute equally (or less) without them.",
+        icon_key="bar_chart",
+    )
+else:
+    render_panel(
+        "Biggest Value Gainers Under Punt",
+        '<div style="font-size:12px;color:var(--fp-tx-muted);margin-bottom:8px;">'
+        "Players whose value increases most when the punted categories are removed.</div>"
+        + _value_swing_table_html(gainers, gain=True),
+        fig_label="FIG.10.2 — VALUE UP",
+        accent="top",
+    )
 
 # ── Biggest Losers (value decreases under punt) ────────────────────────────
 
-losers = pool.nsmallest(15, "value_change")[
+losers = _display_pool.nsmallest(15, "value_change")[
     ["player_name", "positions", "team", "mlb_id", "original_sgp", "punt_sgp", "value_change"]
 ].copy()
 render_panel(
@@ -239,102 +295,140 @@ render_panel(
 )
 
 # ── Standings Impact ────────────────────────────────────────────────────────
+# Task 3.6: wrap the entire compute in try/except and surface failures
+# visibly via st.warning / render_empty_state instead of a bare pass.
 
 if _HAS_CATEGORY_ANALYSIS:
-    # Use canonical Yahoo data service (3-tier cache: session_state → Yahoo API → SQLite).
-    _yds = get_yahoo_data_service()
-    standings = _yds.get_standings()
-    rosters = _yds.get_rosters()
+    try:
+        # Use rosters already fetched for the lens above (3-tier cache hit).
+        standings = _yds.get_standings()
+        rosters = _rosters_for_lens
 
-    if not standings.empty and not rosters.empty:
-        user_team_name = resolve_viewer_team_name(rosters)
-        if user_team_name:
-            user_team_name = str(user_team_name)
-
-            all_team_totals: dict[str, dict[str, float]] = {}
-            if "category" in standings.columns:
-                for _, row in standings.iterrows():
-                    team = str(row.get("team_name", ""))
-                    cat = str(row.get("category", "")).strip()
-                    val = float(row.get("total", 0))
-                    all_team_totals.setdefault(team, {})[cat] = val
-
-            user_totals = all_team_totals.get(user_team_name, {})
-
-            if user_totals and all_team_totals:
-                _n_teams = max(len(all_team_totals), 2)
-                impact_rows = []
-                impact_html_rows = ""
-                _th = (
-                    "font-family:var(--font-display);font-weight:800;font-size:10.5px;"
-                    "letter-spacing:.06em;text-transform:uppercase;color:var(--fp-tx);"
-                    "padding:9px 12px;border-bottom:2px solid rgba(24,26,32,.18);"
+        if standings.empty or rosters.empty:
+            st.warning(
+                "Standings Impact panel requires league standings and roster data. "
+                "Sync your Yahoo league to enable this view."
+            )
+        else:
+            user_team_name = _user_team_for_lens or resolve_viewer_team_name(rosters)
+            if not user_team_name:
+                st.warning(
+                    "Standings Impact: could not identify your team. "
+                    "Make sure your Yahoo account is connected and your team is assigned."
                 )
-                for cat in all_cats:
-                    rank_vals = sorted(
-                        [t.get(cat, 0) for t in all_team_totals.values()],
-                        reverse=(cat not in config.inverse_stats),
+            else:
+                user_team_name = str(user_team_name)
+
+                # MS-C5: drop ghost teams (present in standings cache but absent from
+                # current rosters) so n_teams and per-category ranks are correct.
+                _valid_teams = (
+                    set(rosters["team_name"].astype(str).unique()) if "team_name" in rosters.columns else None
+                )
+                _standings_filtered = filter_standings_to_valid_teams(standings, _valid_teams)
+
+                all_team_totals: dict[str, dict[str, float]] = {}
+                if "category" in _standings_filtered.columns:
+                    for _, row in _standings_filtered.iterrows():
+                        team = str(row.get("team_name", ""))
+                        cat = str(row.get("category", "")).strip()
+                        val = float(row.get("total", 0))
+                        all_team_totals.setdefault(team, {})[cat] = val
+
+                user_totals = all_team_totals.get(user_team_name, {})
+
+                if not user_totals or not all_team_totals:
+                    render_empty_state(
+                        "Standings data not available",
+                        "Your team's category totals could not be found. Try refreshing Yahoo data via the sidebar.",
+                        icon_key="bar_chart",
                     )
-                    my_val = user_totals.get(cat, 0)
-                    my_rank = 1
-                    for v in rank_vals:
-                        if cat in config.inverse_stats:
-                            if v < my_val:
-                                my_rank += 1
-                        else:
-                            if v > my_val:
-                                my_rank += 1
+                else:
+                    _n_teams = max(len(all_team_totals), 2)
+                    impact_rows = []
+                    impact_html_rows = ""
+                    _th = (
+                        "font-family:var(--font-display);font-weight:800;font-size:10.5px;"
+                        "letter-spacing:.06em;text-transform:uppercase;color:var(--fp-tx);"
+                        "padding:9px 12px;border-bottom:2px solid rgba(24,26,32,.18);"
+                    )
+                    for cat in all_cats:
+                        rank_vals = sorted(
+                            [t.get(cat, 0) for t in all_team_totals.values()],
+                            reverse=(cat not in config.inverse_stats),
+                        )
+                        my_val = user_totals.get(cat, 0)
+                        my_rank = 1
+                        for v in rank_vals:
+                            if cat in config.inverse_stats:
+                                if v < my_val:
+                                    my_rank += 1
+                            else:
+                                if v > my_val:
+                                    my_rank += 1
 
-                    is_punt = cat in punt_cats
-                    status = "PUNT" if is_punt else "ACTIVE"
-                    impact_rows.append({"Status": status, "Rank": f"{my_rank}/12"})
+                        is_punt = cat in punt_cats
+                        status = "PUNT" if is_punt else "ACTIVE"
+                        impact_rows.append({"Status": status, "Rank": f"{my_rank}/{_n_teams}"})
 
-                    # Rank-strength heat bar: rank 1 = best = full bar.
-                    _strength = max(0.0, (_n_teams - my_rank + 1) / _n_teams * 100.0)
-                    _bar = build_heatbar_html(_strength, win=(not is_punt and my_rank <= _n_teams / 2))
-                    _val_str = format_stat(my_val, cat) if cat in config.rate_stats else f"{my_val:.0f}"
-                    _status_chip = f'<span class="chip {"cold" if is_punt else "hot"}">{status}</span>'
-                    impact_html_rows += (
-                        f'<tr><td style="padding:8px 12px;border-bottom:1px solid var(--fp-divider);'
-                        f"font-family:var(--font-display);font-weight:800;font-size:13px;color:var(--fp-tx);"
-                        f'">{_html.escape(cat)}</td>'
-                        f'<td style="padding:8px 12px;border-bottom:1px solid var(--fp-divider);text-align:right;'
-                        f"font-family:var(--font-display);font-weight:700;font-size:13px;"
-                        f'font-variant-numeric:tabular-nums;color:var(--fp-tx);">{_val_str}</td>'
-                        f'<td style="padding:8px 12px;border-bottom:1px solid var(--fp-divider);text-align:right;'
-                        f"font-family:var(--font-mono);font-weight:600;font-size:12px;color:var(--fp-tx-muted);"
-                        f'">{my_rank}/12</td>'
-                        f'<td style="padding:8px 12px;border-bottom:1px solid var(--fp-divider);width:140px;">{_bar}</td>'
-                        f'<td style="padding:8px 12px;border-bottom:1px solid var(--fp-divider);'
-                        f'text-align:right;">{_status_chip}</td></tr>'
+                        # Rank-strength heat bar: rank 1 = best = full bar.
+                        _strength = max(0.0, (_n_teams - my_rank + 1) / _n_teams * 100.0)
+                        _bar = build_heatbar_html(_strength, win=(not is_punt and my_rank <= _n_teams / 2))
+                        _val_str = format_stat(my_val, cat) if cat in config.rate_stats else f"{my_val:.0f}"
+                        _status_chip = f'<span class="chip {"cold" if is_punt else "hot"}">{status}</span>'
+                        impact_html_rows += (
+                            f'<tr><td style="padding:8px 12px;border-bottom:1px solid var(--fp-divider);'
+                            f"font-family:var(--font-display);font-weight:800;font-size:13px;color:var(--fp-tx);"
+                            f'">{_html.escape(cat)}</td>'
+                            f'<td style="padding:8px 12px;border-bottom:1px solid var(--fp-divider);text-align:right;'
+                            f"font-family:var(--font-display);font-weight:700;font-size:13px;"
+                            f'font-variant-numeric:tabular-nums;color:var(--fp-tx);">{_val_str}</td>'
+                            f'<td style="padding:8px 12px;border-bottom:1px solid var(--fp-divider);text-align:right;'
+                            f"font-family:var(--font-mono);font-weight:600;font-size:12px;color:var(--fp-tx-muted);"
+                            f'">{my_rank}/{_n_teams}</td>'
+                            f'<td style="padding:8px 12px;border-bottom:1px solid var(--fp-divider);width:140px;">{_bar}</td>'
+                            f'<td style="padding:8px 12px;border-bottom:1px solid var(--fp-divider);'
+                            f'text-align:right;">{_status_chip}</td></tr>'
+                        )
+
+                    _impact_table = (
+                        '<table class="rtbl" style="width:100%;border-collapse:collapse;margin-top:4px;">'
+                        f'<thead><tr><th style="{_th}text-align:left;">Category</th>'
+                        f'<th style="{_th}text-align:right;">Your Total</th>'
+                        f'<th style="{_th}text-align:right;">Rank</th>'
+                        f'<th style="{_th}text-align:left;">Strength</th>'
+                        f'<th style="{_th}text-align:right;">Status</th></tr></thead>'
+                        f"<tbody>{impact_html_rows}</tbody></table>"
+                    )
+                    render_panel(
+                        "Standings Impact",
+                        '<div style="font-size:12px;color:var(--fp-tx-muted);margin-bottom:8px;">'
+                        "How your current standings ranks read when focusing only on non-punted "
+                        "categories. The strength bar fills toward rank 1.</div>" + _impact_table,
+                        fig_label="FIG.10.4 — RANKS",
+                        accent="top",
                     )
 
-                _impact_table = (
-                    '<table class="rtbl" style="width:100%;border-collapse:collapse;margin-top:4px;">'
-                    f'<thead><tr><th style="{_th}text-align:left;">Category</th>'
-                    f'<th style="{_th}text-align:right;">Your Total</th>'
-                    f'<th style="{_th}text-align:right;">Rank</th>'
-                    f'<th style="{_th}text-align:left;">Strength</th>'
-                    f'<th style="{_th}text-align:right;">Status</th></tr></thead>'
-                    f"<tbody>{impact_html_rows}</tbody></table>"
-                )
-                render_panel(
-                    "Standings Impact",
-                    '<div style="font-size:12px;color:var(--fp-tx-muted);margin-bottom:8px;">'
-                    "How your current standings ranks read when focusing only on non-punted "
-                    "categories. The strength bar fills toward rank 1.</div>" + _impact_table,
-                    fig_label="FIG.10.4 — RANKS",
-                    accent="top",
-                )
+                    # Compute effective standings points (only from active categories).
+                    # Use (_n_teams + 1 - rank) so points scale correctly for 12 teams:
+                    # rank 1 → _n_teams pts, rank _n_teams → 1 pt (never 0 for last place).
+                    active_points = sum(
+                        _n_teams + 1 - int(r["Rank"].split("/")[0]) for r in impact_rows if r["Status"] == "ACTIVE"
+                    )
+                    punt_points = sum(
+                        _n_teams + 1 - int(r["Rank"].split("/")[0]) for r in impact_rows if r["Status"] == "PUNT"
+                    )
+                    total_points = active_points + punt_points
 
-                # Compute effective standings points (only from active categories)
-                active_points = sum(13 - int(r["Rank"].split("/")[0]) for r in impact_rows if r["Status"] == "ACTIVE")
-                punt_points = sum(13 - int(r["Rank"].split("/")[0]) for r in impact_rows if r["Status"] == "PUNT")
-                total_points = active_points + punt_points
+                    st.metric(
+                        "Standings Points from Active Categories",
+                        f"{active_points}",
+                        help=f"Total points: {total_points} (active: {active_points}, punted: {punt_points})",
+                    )
+    except Exception as _si_exc:
+        logger.warning("Standings Impact panel failed: %s", _si_exc)
+        st.warning(
+            f"Standings Impact panel could not be computed ({type(_si_exc).__name__}). "
+            "This may indicate missing league data — try refreshing Yahoo data via the sidebar."
+        )
 
-                st.metric(
-                    "Standings Points from Active Categories",
-                    f"{active_points}",
-                    help=f"Total points: {total_points} (active: {active_points}, punted: {punt_points})",
-                )
 render_feedback_widget("Punt Analyzer")

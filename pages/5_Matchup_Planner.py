@@ -22,12 +22,15 @@ from src.ui_shared import (
     build_panel_html,
     format_stat,
     inject_custom_css,
+    jargon_help,
     page_timer_footer,
     page_timer_start,
     render_compact_table,
     render_context_card,
     render_context_columns,
+    render_data_freshness_chip,
     render_empty_state,
+    render_glossary_expander,
     render_matchup_ticker,
     render_page_header,
     render_player_select,
@@ -74,6 +77,13 @@ except Exception:
 
 logger = logging.getLogger(__name__)
 
+# Season weeks from LeagueConfig (FourzynBurn canonical = 26).
+# Used for week navigator cap so weeks 25-26 are reachable.
+try:
+    _season_weeks: int = LeagueConfig().season_weeks
+except Exception:
+    _season_weeks = 26
+
 T = THEME
 
 # ── Tier color map ────────────────────────────────────────────────────
@@ -117,7 +127,14 @@ page_timer_start()
 
 # ── Load player pool ──────────────────────────────────────────────────
 
-pool = load_player_pool()
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _get_player_pool():
+    """Return the enriched player pool, cached for 5 minutes per the Yahoo TTL."""
+    return load_player_pool()
+
+
+pool = _get_player_pool()
 if pool.empty:
     st.warning("No player data loaded. Run load_sample_data.py or bootstrap from the main app.")
     st.stop()
@@ -263,6 +280,7 @@ render_page_header(
     eyebrow="THIS WEEK",
     fig="FIG.05 — MATCHUP GRID",
 )
+render_data_freshness_chip("matchup")
 render_reco_banner(banner_teaser, "", "calendar")
 render_matchup_ticker()
 
@@ -422,7 +440,7 @@ def _build_win_prob_context_html(prob_data: dict) -> str:
         <div style="display:flex;justify-content:space-between;font-size:12px;
                     margin-bottom:4px;color:{T["tx"]};">
             <span style="color:{T["green"]};font-weight:700;">Win {win_pct:.0f}%</span>
-            <span style="color:{T["tx2"]};font-weight:600;">Tie {tie_pct:.0f}%</span>
+            <span style="color:{T["tx2"]};font-weight:600;">Draw (6-6) {tie_pct:.0f}%</span>
             <span style="color:{T["danger"]};font-weight:700;">Loss {loss_pct:.0f}%</span>
         </div>
         <div style="display:flex;height:14px;border-radius:7px;overflow:hidden;
@@ -472,7 +490,7 @@ with ctx:
         )
     with nav_c3:
         if st.button("▶", key="week_next", help="Next week"):
-            if st.session_state["matchup_week"] < 24:
+            if st.session_state["matchup_week"] < _season_weeks:
                 st.session_state["matchup_week"] += 1
                 st.rerun()
 
@@ -523,6 +541,7 @@ with ctx:
         options=["All", "Hitters", "Pitchers"],
         index=0,
         key="matchup_player_type",
+        help=jargon_help("SOS"),
     )
 
     # Team selector (if league data is available)
@@ -662,12 +681,15 @@ with main:
         with st.spinner("Fetching MLB schedule..."):
             weekly_schedule = _cached_schedule(int(days_ahead))
 
+    schedule_warning = ""
     if not weekly_schedule:
         schedule_warning = (
             "No live schedule data available. Matchup ratings are computed "
             "from projection data only (games count will be 0 for all players). "
             "Connect to the internet and ensure statsapi is installed for live schedules."
         )
+    if schedule_warning:
+        st.warning(schedule_warning)
 
     # Run the matchup planner
     park_factors = PARK_FACTORS if PARK_FACTORS_AVAILABLE else {}
@@ -728,8 +750,13 @@ with main:
         m1.metric("Players Rated", len(ratings_df))
         m2.metric("Smash Matchups", n_smash)
         m3.metric("Avoid Matchups", n_avoid)
-        m4.metric("Average Games", f"{avg_games:.2f}")
+        m4.metric(
+            "Average Games",
+            f"{avg_games:.2f}" if avg_games > 0 else "—",
+            help="Average scheduled games per rated player this week. Shows — when no schedule data is available (offline / no Yahoo connection).",
+        )
 
+    render_glossary_expander(["Smash", "SOS", "SGP", "wRC+", "xFIP"])
     st.markdown('<div class="hr-fade"></div>', unsafe_allow_html=True)
 
     # ── Tab view: Category Probabilities | Player Matchups | Per-Game Detail | Hitters | Pitchers
@@ -789,7 +816,7 @@ with main:
                 build_panel_html(
                     "Category Outlook",
                     html,
-                    fig_label="FIG.02 · WIN PROBABILITY BY CAT",
+                    fig_label="FIG.05 · WIN PROBABILITY BY CAT",
                     accent="top",
                 ),
                 unsafe_allow_html=True,

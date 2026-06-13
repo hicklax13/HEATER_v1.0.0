@@ -31,15 +31,17 @@ from src.ui_shared import (
     build_eyebrow_html,
     build_heatbar_html,
     build_panel_html,
-    format_stat,
     inject_custom_css,
+    jargon_help,
     page_timer_footer,
     page_timer_start,
     render_compact_table,
     render_context_card,
     render_context_columns,
     render_data_freshness_card,
+    render_data_freshness_chip,
     render_empty_state,
+    render_glossary_expander,
     render_matchup_ticker,
     render_page_header,
     render_reco_banner,
@@ -218,6 +220,50 @@ def _build_banner_teaser(matchup: dict | None) -> str:
     return teaser
 
 
+# ── Helper: build reco banner expanded_html ──────────────────────────
+
+
+def _build_banner_expanded_html(
+    records_df: pd.DataFrame,
+    user_team: str | None,
+    standings_df: pd.DataFrame | None = None,
+) -> str:
+    """Build a one-line 'do this next' hint for the reco banner expanded panel.
+
+    Considers the user's current rank and GB from the playoff line (4th seed)
+    to suggest the most relevant next action.  Returns an empty string when
+    there is not enough data to build a meaningful hint.
+    """
+    if records_df.empty or not user_team:
+        return ""
+    user_row = records_df[records_df["team_name"] == user_team]
+    if user_row.empty:
+        return ""
+    u = user_row.iloc[0]
+    rank = int(u.get("rank", 0))
+    wins = int(u.get("wins", 0))
+
+    # Determine GB from playoff line
+    if rank <= _PLAYOFF_SPOTS:
+        fifth_row = records_df[records_df["rank"] == _PLAYOFF_SPOTS + 1]
+        if not fifth_row.empty:
+            cushion = wins - int(fifth_row.iloc[0]["wins"])
+            hint = f"You're {cushion}W ahead of the playoff cut — protect your lead on Free Agents."
+        else:
+            hint = "You're in playoff position — check Free Agents to extend your lead."
+    else:
+        fourth_row = records_df[records_df["rank"] == _PLAYOFF_SPOTS]
+        if not fourth_row.empty:
+            gb = int(fourth_row.iloc[0]["wins"]) - wins
+            hint = (
+                f"You're {gb} GB of the {_ordinal(_PLAYOFF_SPOTS)} seed — target your weakest category on Free Agents."
+            )
+        else:
+            hint = "You're outside the playoffs — visit Free Agents to improve your roster."
+
+    return f'<span style="font-size:13px;color:var(--fp-tx);">{_html.escape(hint)}</span>'
+
+
 # ── Helper: rank badge HTML ───────────────────────────────────────────
 
 
@@ -270,13 +316,39 @@ user_team = _get_user_team_name(records_df)
 # ── Banner ────────────────────────────────────────────────────────────
 
 banner_teaser = _build_banner_teaser(matchup)
+_banner_expanded = _build_banner_expanded_html(records_df, user_team)
 render_page_header(
     "League Standings",
     eyebrow="LEAGUE",
     fig="FIG.06 — STANDINGS BOARD",
 )
-render_reco_banner(banner_teaser, "", "league_standings")
+render_reco_banner(banner_teaser, _banner_expanded, "league_standings")
+
+# ── Deep-links: navigate to relevant action pages ─────────────────────
+# Show after the banner so the user can jump directly to the right page.
+if not records_df.empty and user_team:
+    _user_rank_row = records_df[records_df["team_name"] == user_team]
+    _user_rank = int(_user_rank_row.iloc[0]["rank"]) if not _user_rank_row.empty else 99
+    _link_col1, _link_col2 = st.columns([1, 1])
+    with _link_col1:
+        st.page_link(
+            "pages/14_Free_Agents.py",
+            label="Free Agents — improve your weakest category",
+            icon=":material/person_add:",
+        )
+    with _link_col2:
+        st.page_link(
+            "pages/5_Matchup_Planner.py",
+            label="Matchup Planner — see this week's category odds",
+            icon=":material/calendar_today:",
+        )
+
 render_matchup_ticker()
+render_data_freshness_chip("standings")
+render_glossary_expander(
+    ["Magic#", "SOS"],
+    label="What do Magic# and SOS mean?",
+)
 
 
 def _section_label(text: str, *, fig: str = "") -> None:
@@ -358,7 +430,7 @@ with ctx:
                 f'<p class="hero-num" style="font-size:28px;margin:0;">'
                 f"{_ordinal(rank)}</p>"
                 f'<p style="margin:4px 0;font-size:13px;color:{T["tx2"]};">'
-                f"{wins}-{losses}-{ties} ({win_pct:.3f})</p>"
+                f"{wins}-{losses}-{ties} ({win_pct * 100:.1f}%)</p>"
                 f"{_streak_chip_html}"
                 f'<p style="margin:2px 0;font-size:12px;color:{T["tx2"]};">'
                 f"GB from 1st: {gb_first}</p>"
@@ -679,7 +751,6 @@ with main:
                 l = int(row.get("losses", 0))
                 t = int(row.get("ties", 0))
                 wp = float(row.get("win_pct", 0.0))
-                streak = str(row.get("streak", "") or "")
                 rk = int(row.get("rank", 0))
 
                 # Games back from 1st
@@ -698,9 +769,8 @@ with main:
                         "W": w,
                         "L": l,
                         "T": t,
-                        "Win%": format_stat(wp, "AVG"),
+                        "Win%": f"{wp * 100:.1f}%",
                         "GB": gb_str,
-                        "Streak": streak,
                     }
                 )
 
@@ -760,6 +830,10 @@ with main:
 
             if not cat_standings.empty:
                 _section_label("Category Standings", fig="12 CAT · RANKS")
+                st.caption(
+                    "Rank badges: green = rank 1 (best in league) → yellow = mid-table → red = rank 9-12."
+                    " Lower is better for ERA, WHIP, and L."
+                )
 
                 # Compute per-category ranks: for each category rank teams by total
                 # (inverse stats: lower is better)
@@ -863,7 +937,7 @@ with main:
 
             if team_totals and ENGINE_AVAILABLE:
                 # Use enhanced simulation with actual schedule
-                with st.spinner("Running season simulation..."):
+                with st.spinner("Simulating remaining season…"):
                     try:
                         sim_result = simulate_season_enhanced(
                             current_standings=current_standings
@@ -902,7 +976,7 @@ with main:
 
             elif team_totals and LEGACY_SIM_AVAILABLE:
                 # Fallback to legacy simulation
-                with st.spinner("Running season simulation..."):
+                with st.spinner("Simulating remaining season…"):
                     try:
                         legacy_df = simulate_season(team_totals, n_sims=500, seed=42)
                         st.session_state["standings_legacy_result"] = legacy_df
@@ -948,7 +1022,7 @@ with main:
                         "Proj W": rec.get("W", 0),
                         "Proj L": rec.get("L", 0),
                         "Proj T": rec.get("T", 0),
-                        "Win%": format_stat(rec.get("win_pct", 0), "AVG"),
+                        "Win%": f"{rec.get('win_pct', 0) * 100:.1f}%",
                         "Playoff%": f"{pp * 100:.0f}%",
                         "Magic#": magic_str,
                         "SOS": f"{ss:.3f}",
@@ -964,6 +1038,9 @@ with main:
                     proj_row_classes[idx] = "row-start"
 
             proj_html = build_compact_table_html(proj_df, row_classes=proj_row_classes)
+
+            # Column legend: Magic# and SOS tooltips (jargon_help for comprehension)
+            st.caption(f"**Magic#** — {jargon_help('Magic#')}  |  **SOS** — {jargon_help('SOS')}")
 
             # Playoff cutoff line
             proj_cutoff_css = f"""
