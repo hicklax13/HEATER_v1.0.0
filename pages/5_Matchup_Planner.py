@@ -117,7 +117,14 @@ page_timer_start()
 
 # ── Load player pool ──────────────────────────────────────────────────
 
-pool = load_player_pool()
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _get_player_pool():
+    """Return the enriched player pool, cached for 5 minutes per the Yahoo TTL."""
+    return load_player_pool()
+
+
+pool = _get_player_pool()
 if pool.empty:
     st.warning("No player data loaded. Run load_sample_data.py or bootstrap from the main app.")
     st.stop()

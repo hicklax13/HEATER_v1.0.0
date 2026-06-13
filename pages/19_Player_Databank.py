@@ -44,6 +44,24 @@ logger = logging.getLogger(__name__)
 
 PAGE_SIZE = 25
 
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _cached_load_databank(stat_view: str):
+    """Load the player databank for *stat_view*, cached for 5 minutes.
+
+    Wraps ``load_databank`` (which calls ``load_player_pool`` internally) so
+    that repeated Streamlit reruns within the TTL window don't pay the ~4 s
+    pool-load penalty.
+    """
+    import pandas as pd  # local import — pandas not at module top-level here
+
+    try:
+        return load_databank(stat_view)
+    except Exception:
+        logger.exception("_cached_load_databank: failed for stat_view=%s", stat_view)
+        return pd.DataFrame()
+
+
 # ── Page config ──────────────────────────────────────────────────────────────
 
 if not multi_user_enabled():
@@ -284,7 +302,7 @@ if not st.session_state.get("db_search_triggered", False):
 is_pitcher = position in ("P", "SP", "RP")
 
 with st.spinner("Loading player data..."):
-    df = load_databank(stat_view)
+    df = _cached_load_databank(stat_view)
 
 if df.empty:
     st.warning("No player data available. Run the data bootstrap first.")
