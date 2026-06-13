@@ -84,6 +84,28 @@ def _standings_data_state() -> str:
 
 init_db()
 
+
+# ── Cached pool helper (Task 2.2-TA) ─────────────────────────────────────────
+# load_player_pool() takes ~4.3 s and get_health_adjusted_pool() adds ~0.5 s.
+# Cache both together so reruns (widget interactions, checkbox toggles) are
+# instant. The global "Refresh All Data" button clears st.cache_data, so
+# freshness is preserved end-to-end.
+@st.cache_data(ttl=300, show_spinner=False)
+def _load_trade_pool() -> "pd.DataFrame":
+    """Load + health-adjust the player pool, cached 5 minutes."""
+    _pool = load_player_pool()
+    if _pool.empty:
+        return _pool
+    _pool = _pool.rename(columns={"name": "player_name"})
+    if TRADE_INTEL_AVAILABLE:
+        try:
+            _pool = get_health_adjusted_pool(_pool)
+            _pool = apply_scarcity_flags(_pool)
+        except Exception:
+            pass  # Graceful degradation — use raw pool if intelligence fails
+    return _pool
+
+
 inject_custom_css()
 require_auth()
 require_page_enabled("page:11_Trade_Analyzer")
@@ -95,21 +117,11 @@ render_page_header("Trade Analyzer", eyebrow="TRADES", fig="FIG.11 — TRADE EVA
 render_reco_banner("Analyze a trade below", "", "trade_analyzer")
 render_matchup_ticker()
 
-# Load data
-pool = load_player_pool()
+# Load data (cached — ~4.3 s pool load is skipped on reruns)
+pool = _load_trade_pool()
 if pool.empty:
     st.warning("No player data. Load sample data or import projections first.")
     st.stop()
-
-pool = pool.rename(columns={"name": "player_name"})
-
-# Apply trade intelligence: health-adjust projections and add scarcity flags
-if TRADE_INTEL_AVAILABLE:
-    try:
-        pool = get_health_adjusted_pool(pool)
-        pool = apply_scarcity_flags(pool)
-    except Exception:
-        pass  # Graceful degradation — use raw pool if intelligence fails
 
 config = LeagueConfig()
 
@@ -247,6 +259,21 @@ else:
                     key="receiving",
                 )
 
+            # ── Task 2.1: MC opt-in checkbox ─────────────────────────────────
+            # MC runs ~44.8 s synchronously — opt-in only so the fast
+            # deterministic Phase-1 result renders immediately for every trade.
+            # The grade and verdict always come from Phase 1 (SGP authority);
+            # MC is a risk-diagnostic add-on.
+            _run_mc = st.checkbox(
+                "Run deep risk analysis — adds ~45s (Monte Carlo injury-aware downside tail)",
+                value=False,
+                help=(
+                    "Runs ~10,000 paired Monte Carlo simulations with the injury model "
+                    "to produce a CVaR₅ downside tail and P(trade helps) distribution. "
+                    "The trade grade is always from Phase 1 SGP regardless of this setting."
+                ),
+            )
+
             if st.button("Analyze Trade", type="primary", width="stretch"):
                 if not giving_names or not receiving_names:
                     st.error("Select at least one player on each side.")
@@ -261,118 +288,126 @@ else:
                     trade_progress = st.progress(0, text="Computing category impacts...")
 
                     # Try the new Phase 1 engine first, fall back to legacy
-                    try:
-                        from src.engine.output.trade_evaluator import evaluate_trade
-
-                        trade_progress.progress(20, text="Running marginal elasticity analysis...")
-                        trade_progress.progress(40, text="Computing category gaps and punt detection...")
-                        trade_progress.progress(60, text="Optimizing lineup assignments...")
-
-                        from src.validation.dynamic_context import compute_weeks_remaining
-
-                        # 2026-05-23: load Yahoo schedule + league rosters + current
-                        # wins for Features 2 (weekly matrix) + 3 (playoff sim).
-                        # Best-effort — if any source fails we still produce the
-                        # core trade evaluation; the affected feature is skipped.
-                        _weekly_schedule: dict[int, str] | None = None
-                        _league_rosters: dict[str, list[int]] | None = None
-                        _current_wins: dict[str, int] | None = None
-                        # Full Schedule Phase (2026-05-24): also load
-                        # full league schedule so playoff sim can use
-                        # per-team-per-week opponent matchups instead of
-                        # Binomial(N, avg_p) approximation.
-                        _full_league_schedule = None
+                    # ── Task 2.5-TA: wrap the compute in a spinner so the page
+                    #    doesn't appear frozen.  When MC is enabled, the label
+                    #    tells the user why it's taking ~45s.
+                    _spinner_label = (
+                        "Running risk analysis (~45s) — Monte Carlo injury-aware downside tail…"
+                        if _run_mc
+                        else "Evaluating trade…"
+                    )
+                    with st.spinner(_spinner_label):
                         try:
-                            from src.database import (
-                                get_connection,
-                                load_league_schedule,
-                                load_league_schedule_full,
-                                load_league_standings,
-                            )
+                            from src.engine.output.trade_evaluator import evaluate_trade
 
-                            _weekly_schedule = load_league_schedule() or None
-                            _full_league_schedule = load_league_schedule_full() or None
-                            _conn = get_connection()
+                            trade_progress.progress(20, text="Running marginal elasticity analysis...")
+                            trade_progress.progress(40, text="Computing category gaps and punt detection...")
+                            trade_progress.progress(60, text="Optimizing lineup assignments...")
+
+                            from src.validation.dynamic_context import compute_weeks_remaining
+
+                            # 2026-05-23: load Yahoo schedule + league rosters + current
+                            # wins for Features 2 (weekly matrix) + 3 (playoff sim).
+                            # Best-effort — if any source fails we still produce the
+                            # core trade evaluation; the affected feature is skipped.
+                            _weekly_schedule: dict[int, str] | None = None
+                            _league_rosters: dict[str, list[int]] | None = None
+                            _current_wins: dict[str, int] | None = None
+                            # Full Schedule Phase (2026-05-24): also load
+                            # full league schedule so playoff sim can use
+                            # per-team-per-week opponent matchups instead of
+                            # Binomial(N, avg_p) approximation.
+                            _full_league_schedule = None
                             try:
-                                import pandas as pd
-
-                                _lr_df = pd.read_sql_query(
-                                    "SELECT team_name, player_id FROM league_rosters WHERE player_id IS NOT NULL",
-                                    _conn,
+                                from src.database import (
+                                    get_connection,
+                                    load_league_schedule,
+                                    load_league_schedule_full,
+                                    load_league_standings,
                                 )
-                            finally:
-                                _conn.close()
-                            if not _lr_df.empty:
-                                _league_rosters = {}
-                                for _tn, _grp in _lr_df.groupby("team_name"):
-                                    _league_rosters[str(_tn)] = _grp["player_id"].astype(int).tolist()
-                            _standings = load_league_standings()
-                            if not _standings.empty:
-                                _wins_rows = _standings[_standings["category"] == "WINS"]
-                                if not _wins_rows.empty:
-                                    _current_wins = {
-                                        str(r["team_name"]): int(r["total"]) for _, r in _wins_rows.iterrows()
-                                    }
-                        except Exception as _ctx_exc:
-                            import logging
 
-                            logging.getLogger(__name__).warning(
-                                "Trade Analyzer: failed to load schedule/rosters/wins "
-                                "for Features 2/3 wiring (%s) — proceeding without",
-                                _ctx_exc,
+                                _weekly_schedule = load_league_schedule() or None
+                                _full_league_schedule = load_league_schedule_full() or None
+                                _conn = get_connection()
+                                try:
+                                    import pandas as pd
+
+                                    _lr_df = pd.read_sql_query(
+                                        "SELECT team_name, player_id FROM league_rosters WHERE player_id IS NOT NULL",
+                                        _conn,
+                                    )
+                                finally:
+                                    _conn.close()
+                                if not _lr_df.empty:
+                                    _league_rosters = {}
+                                    for _tn, _grp in _lr_df.groupby("team_name"):
+                                        _league_rosters[str(_tn)] = _grp["player_id"].astype(int).tolist()
+                                _standings = load_league_standings()
+                                if not _standings.empty:
+                                    _wins_rows = _standings[_standings["category"] == "WINS"]
+                                    if not _wins_rows.empty:
+                                        _current_wins = {
+                                            str(r["team_name"]): int(r["total"]) for _, r in _wins_rows.iterrows()
+                                        }
+                            except Exception as _ctx_exc:
+                                import logging
+
+                                logging.getLogger(__name__).warning(
+                                    "Trade Analyzer: failed to load schedule/rosters/wins "
+                                    "for Features 2/3 wiring (%s) — proceeding without",
+                                    _ctx_exc,
+                                )
+
+                            # Both Features 2 + 3 require schedule + rosters; F3 also
+                            # needs current_wins + user_team_name. Wire what we have.
+                            _enable_wm = bool(_weekly_schedule and _league_rosters)
+                            _enable_ps = bool(_weekly_schedule and _league_rosters and _current_wins and user_team_name)
+
+                            result = evaluate_trade(
+                                giving_ids=giving_ids,
+                                receiving_ids=receiving_ids,
+                                user_roster_ids=user_roster_ids,
+                                player_pool=pool,
+                                config=config,
+                                user_team_name=user_team_name,
+                                weeks_remaining=compute_weeks_remaining(),
+                                # Task 2.1: MC is now opt-in via checkbox (_run_mc).
+                                # Phase-1 SGP grade always runs; MC is a risk diagnostic
+                                # that adds ~45 s when requested. The injury-aware
+                                # downside tail (CVaR₅) only appears when _run_mc=True.
+                                enable_mc=_run_mc,
+                                enable_weekly_matrix=_enable_wm,
+                                enable_playoff_sim=_enable_ps,
+                                weekly_schedule=_weekly_schedule,
+                                league_rosters=_league_rosters,
+                                current_wins=_current_wins,
+                                playoff_n_sims=20_000,
+                                full_league_schedule=_full_league_schedule,
                             )
+                            engine_used = "phase1"
+                        except Exception as e:
+                            import logging
+                            import traceback
 
-                        # Both Features 2 + 3 require schedule + rosters; F3 also
-                        # needs current_wins + user_team_name. Wire what we have.
-                        _enable_wm = bool(_weekly_schedule and _league_rosters)
-                        _enable_ps = bool(_weekly_schedule and _league_rosters and _current_wins and user_team_name)
+                            _tb = traceback.format_exc()
+                            logging.getLogger(__name__).warning(
+                                "Phase 1 engine failed, falling back to legacy: %s\n%s", e, _tb
+                            )
+                            st.warning(
+                                f"Phase 1 engine failed ({type(e).__name__}: {e}), using legacy analyzer. Details in console."
+                            )
+                            # Fall back to legacy analyzer
+                            from src.in_season import analyze_trade
 
-                        result = evaluate_trade(
-                            giving_ids=giving_ids,
-                            receiving_ids=receiving_ids,
-                            user_roster_ids=user_roster_ids,
-                            player_pool=pool,
-                            config=config,
-                            user_team_name=user_team_name,
-                            weeks_remaining=compute_weeks_remaining(),
-                            # UI follow-up: single-trade analysis runs the Phase 2
-                            # Monte Carlo so the risk band + injury-aware downside
-                            # tail (enable_injury_mc defaults True) surface. The
-                            # grade stays Phase-1 weighted-SGP (authority); MC is a
-                            # risk diagnostic only. ~a few seconds for one trade.
-                            enable_mc=True,
-                            enable_weekly_matrix=_enable_wm,
-                            enable_playoff_sim=_enable_ps,
-                            weekly_schedule=_weekly_schedule,
-                            league_rosters=_league_rosters,
-                            current_wins=_current_wins,
-                            playoff_n_sims=20_000,
-                            full_league_schedule=_full_league_schedule,
-                        )
-                        engine_used = "phase1"
-                    except Exception as e:
-                        import logging
-                        import traceback
-
-                        _tb = traceback.format_exc()
-                        logging.getLogger(__name__).warning(
-                            "Phase 1 engine failed, falling back to legacy: %s\n%s", e, _tb
-                        )
-                        st.warning(
-                            f"Phase 1 engine failed ({type(e).__name__}: {e}), using legacy analyzer. Details in console."
-                        )
-                        # Fall back to legacy analyzer
-                        from src.in_season import analyze_trade
-
-                        trade_progress.progress(40, text="Running Monte Carlo simulation (200 iterations)...")
-                        result = analyze_trade(
-                            giving_ids=giving_ids,
-                            receiving_ids=receiving_ids,
-                            user_roster_ids=user_roster_ids,
-                            player_pool=pool,
-                            config=config,
-                        )
-                        engine_used = "legacy"
+                            trade_progress.progress(40, text="Running legacy trade analysis...")
+                            result = analyze_trade(
+                                giving_ids=giving_ids,
+                                receiving_ids=receiving_ids,
+                                user_roster_ids=user_roster_ids,
+                                player_pool=pool,
+                                config=config,
+                            )
+                            engine_used = "legacy"
 
                     trade_progress.progress(100, text="Trade analysis complete!")
                     time.sleep(0.3)

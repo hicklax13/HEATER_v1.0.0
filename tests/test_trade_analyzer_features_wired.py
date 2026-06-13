@@ -98,12 +98,26 @@ def test_page_renders_weekly_matrix(page_source: str) -> None:
 
 
 def test_page_enables_mc_for_single_trade(page_source: str) -> None:
-    """UI follow-up: single-trade analysis must opt into Phase 2 Monte Carlo
-    (enable_mc=True) so the risk band + injury-aware downside tail render.
-    Without it, the TE-E5 injury MC never runs on the Trade Analyzer."""
-    assert "enable_mc=True" in page_source, (
-        "Trade Analyzer must pass enable_mc=True for the single-trade path so "
-        "the Monte-Carlo risk band / injury downside tail surfaces."
+    """UI follow-up: single-trade analysis must expose an MC opt-in so the
+    risk band + injury-aware downside tail CAN render.
+
+    2026-06-13 (Task 2.1): MC is now OPT-IN (not default=True) because the
+    44.8 s synchronous run was dropping the WebSocket. The page must have a
+    checkbox that lets the user request MC — the enable_mc= kwarg is then
+    wired from that checkbox value rather than hardcoded True. Guard has been
+    updated accordingly; see test_trade_analyzer_perf_fixes.py for the full
+    set of MC opt-in structural checks.
+    """
+    # MC must be OPT-IN: the literal `enable_mc=True` is no longer acceptable.
+    # Instead verify the page has an opt-in control AND wires it to evaluate_trade.
+    assert "enable_mc=" in page_source, (
+        "Trade Analyzer must pass enable_mc= to evaluate_trade() so the "
+        "Monte-Carlo risk band / injury downside tail can surface when opted in."
+    )
+    # The page should NOT hardcode True — it must be a variable (checkbox value)
+    assert "enable_mc=True" not in page_source, (
+        "Trade Analyzer must NOT hardcode enable_mc=True. MC is now opt-in "
+        "(checkbox) to avoid 44.8 s WebSocket drop. Pass the checkbox variable."
     )
 
 
