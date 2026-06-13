@@ -816,7 +816,7 @@ with main:
                 build_panel_html(
                     "Category Outlook",
                     html,
-                    fig_label="FIG.02 · WIN PROBABILITY BY CAT",
+                    fig_label="FIG.05 · WIN PROBABILITY BY CAT",
                     accent="top",
                 ),
                 unsafe_allow_html=True,

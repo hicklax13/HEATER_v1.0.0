@@ -184,7 +184,7 @@ def _fetch_schedule_cached(date_str: str) -> list[dict]:
 
 # ── Header ───────────────────────────────────────────────────────────────────
 
-render_page_header("Pitcher Streaming", eyebrow="DAILY", fig="FIG.4 — PITCHER STREAMING")
+render_page_header("Pitcher Streaming", eyebrow="DAILY", fig="FIG.04 — PITCHER STREAMING")
 render_data_freshness_chip("probables")
 render_glossary_expander(["Stream Score", "Net SGP", "wRC+", "xFIP", "SIERA"])
 

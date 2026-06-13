@@ -49,7 +49,7 @@ log_page_view("Punt Analyzer")
 render_chat_widget("Punt Analyzer")
 
 render_page_header(
-    "Punt Strategy Simulator",
+    "Punt Analyzer",
     eyebrow="STRATEGY",
     fig="FIG.10 — CATEGORY PUNT MODEL",
 )
