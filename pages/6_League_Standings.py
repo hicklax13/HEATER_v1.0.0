@@ -33,13 +33,16 @@ from src.ui_shared import (
     build_panel_html,
     format_stat,
     inject_custom_css,
+    jargon_help,
     page_timer_footer,
     page_timer_start,
     render_compact_table,
     render_context_card,
     render_context_columns,
     render_data_freshness_card,
+    render_data_freshness_chip,
     render_empty_state,
+    render_glossary_expander,
     render_matchup_ticker,
     render_page_header,
     render_reco_banner,
@@ -277,6 +280,11 @@ render_page_header(
 )
 render_reco_banner(banner_teaser, "", "league_standings")
 render_matchup_ticker()
+render_data_freshness_chip("standings")
+render_glossary_expander(
+    ["Magic#", "SOS"],
+    label="What do Magic# and SOS mean?",
+)
 
 
 def _section_label(text: str, *, fig: str = "") -> None:
@@ -760,6 +768,10 @@ with main:
 
             if not cat_standings.empty:
                 _section_label("Category Standings", fig="12 CAT · RANKS")
+                st.caption(
+                    "Rank badges: green = rank 1 (best in league) → yellow = mid-table → red = rank 9-12."
+                    " Lower is better for ERA, WHIP, and L."
+                )
 
                 # Compute per-category ranks: for each category rank teams by total
                 # (inverse stats: lower is better)
@@ -964,6 +976,9 @@ with main:
                     proj_row_classes[idx] = "row-start"
 
             proj_html = build_compact_table_html(proj_df, row_classes=proj_row_classes)
+
+            # Column legend: Magic# and SOS tooltips (jargon_help for comprehension)
+            st.caption(f"**Magic#** — {jargon_help('Magic#')}  |  **SOS** — {jargon_help('SOS')}")
 
             # Playoff cutoff line
             proj_cutoff_css = f"""

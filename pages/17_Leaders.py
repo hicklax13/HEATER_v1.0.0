@@ -8,7 +8,7 @@ import pandas as pd
 import streamlit as st
 
 from src.ai.chat import render_chat_widget
-from src.auth import multi_user_enabled, require_auth, viewer_can_write
+from src.auth import multi_user_enabled, require_auth, resolve_viewer_team_name, viewer_can_write
 from src.database import coerce_numeric_df, get_connection, init_db, load_player_pool
 from src.feature_flags import require_page_enabled
 from src.feedback import render_feedback_widget
@@ -19,12 +19,15 @@ from src.ui_shared import (
     get_plotly_layout,
     get_plotly_polar,
     inject_custom_css,
+    jargon_help,
     page_timer_footer,
     page_timer_start,
     render_compact_table,
     render_context_card,
     render_context_columns,
+    render_data_freshness_chip,
     render_empty_state,
+    render_glossary_expander,
     render_page_header,
     render_player_select,
     render_reco_banner,
@@ -44,13 +47,16 @@ from src.valuation import LeagueConfig as _LC_FOR_CATS  # noqa: E402
 _INVERSE_LEADER_CATS = set(_LC_FOR_CATS().inverse_stats)
 
 
-def _build_leaderboard_html(ldf, stat_col, category, stat_label):
+def _build_leaderboard_html(ldf, stat_col, category, stat_label, *, viewer_ids: set | None = None):
     """Build a branded ``.rtbl``-style leaderboard with logos + headshots + heat bars.
 
     Pure presentation. ``ldf`` is the already-computed, already-ordered leaders
     slice (its row order is preserved as the rank). Columns consumed when present:
     ``name``, ``team``, ``positions``, ``mlb_id``, ``rostered_by`` and ``stat_col``.
     Falls back gracefully when team/headshot data is missing.
+
+    ``viewer_ids`` — set of player_id integers owned by the viewer; their rows
+    receive an is_mine star marker so the user can instantly spot their own players.
     """
     rows = list(ldf.iterrows())
     is_inverse = category in _INVERSE_LEADER_CATS
@@ -86,6 +92,13 @@ def _build_leaderboard_html(ldf, stat_col, category, stat_label):
         team = str(r.get("team", "") or "")
         pos = _ldr_html.escape(str(r.get("positions", "") or "").split(",")[0].split("/")[0].strip())
         rostered = _ldr_html.escape(str(r.get("rostered_by", "") or "—"))
+        # is_mine: mark viewer's own rostered players with a star chip
+        _pid = r.get("player_id")
+        try:
+            _pid_int = int(_pid) if _pid is not None else None
+        except (ValueError, TypeError):
+            _pid_int = None
+        is_mine = viewer_ids is not None and _pid_int is not None and _pid_int in viewer_ids
         tc = team_color(team) if team and team != "MLB" else "#ff6d00"
         logo = team_logo_url(team) if team and team != "MLB" else ""
         mlb = r.get("mlb_id")
@@ -131,8 +144,16 @@ def _build_leaderboard_html(ldf, stat_col, category, stat_label):
             f'background:color-mix(in srgb,{tc} 8%,transparent);box-shadow:inset 3px 0 0 {tc};">'
             f'<span style="display:flex;align-items:center;gap:9px;">{hs}'
             f'<span style="display:flex;flex-direction:column;gap:1px;min-width:0;">'
-            f'<b style="font-family:var(--font-body);font-weight:600;font-size:13px;color:var(--fp-tx);">{name}</b>'
-            f'<span style="font-family:var(--font-mono);font-size:9.5px;color:var(--fp-tx-subtle);letter-spacing:.04em;">'
+            f'<b style="font-family:var(--font-body);font-weight:600;font-size:13px;color:var(--fp-tx);">{name}'
+            + (
+                '<span style="margin-left:5px;font-size:9px;font-weight:700;padding:1px 4px;'
+                'border-radius:3px;background:rgba(255,109,0,.15);color:var(--fp-primary);" '
+                'title="On your roster">MY TEAM</span>'
+                if is_mine
+                else ""
+            )
+            + "</b>"
+            + f'<span style="font-family:var(--font-mono);font-size:9.5px;color:var(--fp-tx-subtle);letter-spacing:.04em;">'
             f"{logo_html}{team_txt} · {pos}</span></span></span></td>"
             f'<td style="padding:8px 12px;border-bottom:1px solid var(--fp-divider);text-align:left;'
             f'font-family:var(--font-mono);font-size:11px;color:var(--fp-tx-muted);">{rostered}</td>'
@@ -203,6 +224,11 @@ render_page_header(
 )
 st.markdown('<div class="hr-heat"></div>', unsafe_allow_html=True)
 render_reco_banner("Category leaders and breakout detection", "", "leaders")
+render_data_freshness_chip("season_stats")
+render_glossary_expander(
+    ["Sell-High", "Buy-Low", "Heat", "Smash"],
+    label="What do these terms mean?",
+)
 
 
 @st.cache_data(ttl=300)
@@ -523,11 +549,36 @@ with main:
         ]
     )
 
+    # ── Resolve viewer's rostered player IDs for is_mine highlighting ──
+    from src.yahoo_data_service import get_yahoo_data_service as _get_yds
+
+    _yds_ldr = _get_yds()
+    _rosters_ldr = _yds_ldr.get_rosters()
+    _viewer_team_ldr = resolve_viewer_team_name(_rosters_ldr)
+    _viewer_ids: set[int] = set()
+    if not _rosters_ldr.empty and _viewer_team_ldr and "team_name" in _rosters_ldr.columns:
+        _my_rows = _rosters_ldr[_rosters_ldr["team_name"] == _viewer_team_ldr]
+        if "player_id" in _my_rows.columns:
+            for _pid in _my_rows["player_id"].dropna():
+                try:
+                    _viewer_ids.add(int(_pid))
+                except (ValueError, TypeError):
+                    pass
+
     with tab1:
         if not LEADERS_AVAILABLE:
             st.info("Leaders module not available. Ensure src/leaders.py exists.")
         else:
             st.markdown("Top performers in each statistical category.")
+
+            # ── My Roster / Free Agents / All lens ──────────────────────────
+            _lens = st.radio(
+                "Show",
+                ["All", "My Roster", "Free Agents"],
+                horizontal=True,
+                key="leaders_lens",
+                help="Filter the leaderboard to your rostered players, free agents, or everyone.",
+            )
 
             # Column display mapping for category leaders
             _CAT_DISPLAY = {
@@ -608,6 +659,13 @@ with main:
                     )
                 if category in leaders:
                     ldf = leaders[category].copy()
+
+                    # ── Lens filter (My Roster / Free Agents / All) ──────────
+                    if _lens == "My Roster" and _viewer_ids and "player_id" in ldf.columns:
+                        ldf = ldf[ldf["player_id"].apply(lambda p: (int(p) if p is not None else None) in _viewer_ids)]
+                    elif _lens == "Free Agents" and "rostered_by" in ldf.columns:
+                        ldf = ldf[ldf["rostered_by"].fillna("Free Agent") == "Free Agent"]
+
                     st.caption(f"Showing top {len(ldf)} of {total_eligible:,} eligible players")
                     stat_col = _CAT_COL.get(category, category.lower())
                     # Branded leaderboard: rank + headshot + team logo/color +
@@ -616,7 +674,13 @@ with main:
                     if stat_col in ldf.columns:
                         _stat_label = _CAT_DISPLAY.get(category, category)
                         st.markdown(
-                            _build_leaderboard_html(ldf, stat_col, category, _stat_label),
+                            _build_leaderboard_html(
+                                ldf,
+                                stat_col,
+                                category,
+                                _stat_label,
+                                viewer_ids=_viewer_ids if _viewer_ids else None,
+                            ),
                             unsafe_allow_html=True,
                         )
                     else:
@@ -1092,6 +1156,7 @@ with main:
                 render_styled_table(disp, max_height=500)
 
     with tab_sell:
+        st.caption(jargon_help("Sell-High"))
         if _trend_pool.empty or _trend_season.empty:
             render_empty_state("Sell-high data unavailable", "Sell-high detection requires pool + season stats.")
         else:
