@@ -12,12 +12,14 @@ from src.auth import multi_user_enabled, require_auth, resolve_viewer_team_name
 from src.database import init_db, load_player_pool
 from src.feature_flags import require_page_enabled
 from src.feedback import render_feedback_widget
+from src.standings_utils import filter_standings_to_valid_teams
 from src.ui_shared import (
     _headshot_img_html,
     build_heatbar_html,
     build_stat_readout_html,
     format_stat,
     inject_custom_css,
+    render_empty_state,
     render_page_header,
     render_panel,
     team_color,
@@ -212,17 +214,33 @@ render_panel(
 
 # ── Biggest Winners (value increases under punt) ────────────────────────────
 
-gainers = pool.nlargest(15, "value_change")[
+_gainers_raw = pool.nlargest(15, "value_change")[
     ["player_name", "positions", "team", "mlb_id", "original_sgp", "punt_sgp", "value_change"]
 ].copy()
-render_panel(
-    "Biggest Value Gainers Under Punt",
-    '<div style="font-size:12px;color:var(--fp-tx-muted);margin-bottom:8px;">'
-    "Players whose value increases most when the punted categories are removed.</div>"
-    + _value_swing_table_html(gainers, gain=True),
-    fig_label="FIG.10.2 — VALUE UP",
-    accent="top",
-)
+gainers = _gainers_raw[_gainers_raw["value_change"] > 0]
+
+if gainers.empty:
+    render_panel(
+        "Biggest Value Gainers Under Punt",
+        '<div style="font-size:12px;color:var(--fp-tx-muted);margin-bottom:8px;">'
+        "Players whose value increases most when the punted categories are removed.</div>",
+        fig_label="FIG.10.2 — VALUE UP",
+        accent="top",
+    )
+    render_empty_state(
+        "No value gainers",
+        "No players gain value when punting these categories — all players contribute equally (or less) without them.",
+        icon_key="bar_chart",
+    )
+else:
+    render_panel(
+        "Biggest Value Gainers Under Punt",
+        '<div style="font-size:12px;color:var(--fp-tx-muted);margin-bottom:8px;">'
+        "Players whose value increases most when the punted categories are removed.</div>"
+        + _value_swing_table_html(gainers, gain=True),
+        fig_label="FIG.10.2 — VALUE UP",
+        accent="top",
+    )
 
 # ── Biggest Losers (value decreases under punt) ────────────────────────────
 
@@ -251,9 +269,14 @@ if _HAS_CATEGORY_ANALYSIS:
         if user_team_name:
             user_team_name = str(user_team_name)
 
+            # MS-C5: drop ghost teams (present in standings cache but absent from
+            # current rosters) so n_teams and per-category ranks are correct.
+            _valid_teams = set(rosters["team_name"].astype(str).unique()) if "team_name" in rosters.columns else None
+            _standings_filtered = filter_standings_to_valid_teams(standings, _valid_teams)
+
             all_team_totals: dict[str, dict[str, float]] = {}
-            if "category" in standings.columns:
-                for _, row in standings.iterrows():
+            if "category" in _standings_filtered.columns:
+                for _, row in _standings_filtered.iterrows():
                     team = str(row.get("team_name", ""))
                     cat = str(row.get("category", "")).strip()
                     val = float(row.get("total", 0))
@@ -287,7 +310,7 @@ if _HAS_CATEGORY_ANALYSIS:
 
                     is_punt = cat in punt_cats
                     status = "PUNT" if is_punt else "ACTIVE"
-                    impact_rows.append({"Status": status, "Rank": f"{my_rank}/12"})
+                    impact_rows.append({"Status": status, "Rank": f"{my_rank}/{_n_teams}"})
 
                     # Rank-strength heat bar: rank 1 = best = full bar.
                     _strength = max(0.0, (_n_teams - my_rank + 1) / _n_teams * 100.0)
@@ -303,7 +326,7 @@ if _HAS_CATEGORY_ANALYSIS:
                         f'font-variant-numeric:tabular-nums;color:var(--fp-tx);">{_val_str}</td>'
                         f'<td style="padding:8px 12px;border-bottom:1px solid var(--fp-divider);text-align:right;'
                         f"font-family:var(--font-mono);font-weight:600;font-size:12px;color:var(--fp-tx-muted);"
-                        f'">{my_rank}/12</td>'
+                        f'">{my_rank}/{_n_teams}</td>'
                         f'<td style="padding:8px 12px;border-bottom:1px solid var(--fp-divider);width:140px;">{_bar}</td>'
                         f'<td style="padding:8px 12px;border-bottom:1px solid var(--fp-divider);'
                         f'text-align:right;">{_status_chip}</td></tr>'
@@ -327,9 +350,15 @@ if _HAS_CATEGORY_ANALYSIS:
                     accent="top",
                 )
 
-                # Compute effective standings points (only from active categories)
-                active_points = sum(13 - int(r["Rank"].split("/")[0]) for r in impact_rows if r["Status"] == "ACTIVE")
-                punt_points = sum(13 - int(r["Rank"].split("/")[0]) for r in impact_rows if r["Status"] == "PUNT")
+                # Compute effective standings points (only from active categories).
+                # Use (_n_teams + 1 - rank) so points scale correctly for 12 teams:
+                # rank 1 → _n_teams pts, rank _n_teams → 1 pt (never 0 for last place).
+                active_points = sum(
+                    _n_teams + 1 - int(r["Rank"].split("/")[0]) for r in impact_rows if r["Status"] == "ACTIVE"
+                )
+                punt_points = sum(
+                    _n_teams + 1 - int(r["Rank"].split("/")[0]) for r in impact_rows if r["Status"] == "PUNT"
+                )
                 total_points = active_points + punt_points
 
                 st.metric(
