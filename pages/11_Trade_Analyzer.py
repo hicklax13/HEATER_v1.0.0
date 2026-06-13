@@ -27,6 +27,7 @@ from src.ui_shared import (
     build_heatbar_html,
     format_stat,
     inject_custom_css,
+    jargon_help,
     no_league_data_message,
     page_timer_footer,
     page_timer_start,
@@ -34,7 +35,9 @@ from src.ui_shared import (
     render_context_card,
     render_context_columns,
     render_data_freshness_card,
+    render_data_freshness_chip,
     render_empty_state,
+    render_glossary_expander,
     render_matchup_ticker,
     render_page_header,
     render_player_select,
@@ -116,6 +119,7 @@ page_timer_start()
 render_page_header("Trade Analyzer", eyebrow="TRADES", fig="FIG.11 — TRADE EVALUATION ENGINE")
 render_reco_banner("Analyze a trade below", "", "trade_analyzer")
 render_matchup_ticker()
+render_data_freshness_chip("projections")
 
 # Load data (cached — ~4.3 s pool load is skipped on reruns)
 pool = _load_trade_pool()
@@ -451,133 +455,10 @@ else:
                             f'<div style="font-size:20px;font-family:var(--font-body);color:{surplus_color};">{surplus:+.2f}</div>',
                         )
 
-                    # ── Feature 3 (2026-05-23): Playoff + Championship probability ──
-                    # Per the Enhanced Trade Engine report Q(a), this is the engine's
-                    # PRIMARY objective. Render ABOVE the SGP-grade verdict so the user
-                    # sees title-odds impact first, with SGP as the interpretable diagnostic.
-                    if "playoff_sim" in result:
-                        ps = result["playoff_sim"]
-                        before = ps.get("before", {})
-                        after = ps.get("after", {})
-                        d_play = result.get("delta_playoff_prob", 0.0)
-                        d_champ = result.get("delta_champ_prob", 0.0)
-
-                        st.markdown(
-                            '<div style="display:flex;align-items:center;gap:11px;margin-top:14px;'
-                            'margin-bottom:6px;">'
-                            '<span style="width:3px;height:16px;background:var(--fp-primary);'
-                            'box-shadow:0 0 8px rgba(255,109,0,.5);border-radius:2px;"></span>'
-                            '<span style="font-family:var(--font-display);font-weight:800;font-size:15px;'
-                            "letter-spacing:.05em;text-transform:uppercase;color:var(--fp-tx);"
-                            '">Primary Objective — Δ Title Odds</span>'
-                            '<span style="font-family:var(--font-mono);font-size:10px;letter-spacing:.12em;'
-                            'color:var(--fp-tx-muted);margin-left:auto;">FIG.11.1 — PLAYOFF SIM</span></div>',
-                            unsafe_allow_html=True,
-                        )
-                        # Title-odds heat bars: orange = trade improves the odds.
-                        _play_after = float(after.get("playoff_prob", 0) or 0.0)
-                        _champ_after = float(after.get("champ_prob", 0) or 0.0)
-                        _play_bar = build_heatbar_html(_play_after * 100.0, win=(d_play >= 0))
-                        _champ_bar = build_heatbar_html(_champ_after * 100.0, win=(d_champ >= 0))
-                        st.markdown(
-                            '<div style="display:flex;gap:24px;margin-bottom:6px;">'
-                            f'<div style="flex:1;"><div style="font-family:var(--font-display);font-size:9px;'
-                            "font-weight:800;letter-spacing:.2em;text-transform:uppercase;color:var(--fp-tx-muted);"
-                            f'margin-bottom:4px;">Playoff odds</div>{_play_bar}</div>'
-                            f'<div style="flex:1;"><div style="font-family:var(--font-display);font-size:9px;'
-                            "font-weight:800;letter-spacing:.2em;text-transform:uppercase;color:var(--fp-tx-muted);"
-                            f'margin-bottom:4px;">Championship odds</div>{_champ_bar}</div></div>',
-                            unsafe_allow_html=True,
-                        )
-                        pc1, pc2, pc3 = st.columns(3)
-                        pc1.metric(
-                            "P(make playoffs / top-4)",
-                            f"{after.get('playoff_prob', 0):.1%}",
-                            delta=f"{d_play:+.2%}",
-                            delta_color="normal",
-                            help=(
-                                "Monte-Carlo simulated probability of finishing top-4. "
-                                "Delta = after-trade minus before-trade. Negative = trade "
-                                "hurts your playoff odds. Report Section B.10 + Q(a)."
-                            ),
-                        )
-                        pc2.metric(
-                            "P(win championship)",
-                            f"{after.get('champ_prob', 0):.1%}",
-                            delta=f"{d_champ:+.2%}",
-                            delta_color="normal",
-                            help=(
-                                "Joint probability of (a) finishing top-4 AND (b) winning "
-                                "the 2-round bracket (1v4, 2v3, re-seeded final). "
-                                "20,000 MC sims with paired-MC discipline."
-                            ),
-                        )
-                        pc3.metric(
-                            "E[additional regular-season wins]",
-                            f"{after.get('mean_regular_season_wins', 0):.1f}",
-                            delta=f"{after.get('mean_regular_season_wins', 0) - before.get('mean_regular_season_wins', 0):+.1f}",
-                            delta_color="normal",
-                            help=(
-                                "Expected matchup wins over remaining weeks (per the schedule-aware weekly H2H matrix)."
-                            ),
-                        )
-
-                        # ── CARA mean-CVaR utility (report Section B.9) ──
-                        # Risk-adjusted utility on per-sim Δchamp_prob deltas.
-                        # CARA = E[Δchamp] - λ/2 × Var[Δchamp] with λ=0.15.
-                        # CVaR_20 = average outcome in worst 20% of sims.
-                        # Together they answer: "Is the expected gain worth
-                        # the downside risk?"
-                        _cara = ps.get("cara_utility")
-                        _cvar20 = ps.get("cvar20_champ")
-                        _var_champ = ps.get("var_champ")
-                        _lambda = ps.get("lambda_risk_aversion", 0.15)
-                        if _cara is not None and _cvar20 is not None:
-                            cara1, cara2, cara3 = st.columns(3)
-                            cara1.metric(
-                                "CARA utility (risk-adjusted)",
-                                f"{_cara:+.4f}",
-                                help=(
-                                    f"E[Δchamp] − (λ/2) × Var[Δchamp] with λ={_lambda}. "
-                                    f"Penalizes high-variance trades. > 0 → accept under "
-                                    f"CARA preferences; < 0 → variance penalty exceeds "
-                                    f"expected gain. Report Section B.9."
-                                ),
-                            )
-                            cara2.metric(
-                                "CVaR₂₀ (worst-20% Δchamp)",
-                                f"{_cvar20:+.2%}",
-                                help=(
-                                    "Conditional Value-at-Risk at 20%: average "
-                                    "championship-prob delta across the WORST 20% "
-                                    "of simulated futures. Negative = trade carries "
-                                    "real downside in unlucky scenarios. Report B.9."
-                                ),
-                            )
-                            cara3.metric(
-                                "Var[Δchamp]",
-                                f"{_var_champ:.4f}" if _var_champ is not None else "—",
-                                help=(
-                                    "Variance of per-sim championship-prob delta. "
-                                    "0 = trade always produces identical bracket "
-                                    "outcome; >0 = bracket outcome varies across sims."
-                                ),
-                            )
-
-                            # λ-sensitivity sweep (report Sections H.10 / C.7).
-                            # Shows how the risk-adjusted utility shifts with the
-                            # manager's risk stance: 0.05 = risk-seeking (must
-                            # gamble for a playoff push), 0.30 = risk-averse
-                            # (protecting a strong position).
-                            _sweep = ps.get("cara_utility_sweep") or {}
-                            if _sweep:
-                                _parts = []
-                                _labels = {0.05: "risk-seeking", 0.15: "central", 0.30: "risk-averse"}
-                                for _lam in sorted(_sweep):
-                                    _parts.append(f"λ={_lam} ({_labels.get(_lam, '')}): **{_sweep[_lam]:+.4f}**")
-                                st.caption("CARA utility across risk-aversion λ — " + " · ".join(_parts))
-
-                    # Verdict banner
+                    # ── Task 3.7: VERDICT / GRADE — first result rendered ─────────
+                    # The verdict banner is now the FIRST thing rendered after the
+                    # hairline divider so users see ACCEPT/DECLINE immediately.
+                    # Playoff sim, CARA/CVaR, and weekly matrix follow in expanders.
                     if result["verdict"] == "ACCEPT":
                         color = T["ok"]
                         icon = PAGE_ICONS["accept"]
@@ -638,6 +519,137 @@ else:
                     )
                     verdict_key = "trade_verdict" if engine_used == "phase1" else "trade_verdict_legacy"
                     st.caption(METRIC_TOOLTIPS[verdict_key])
+
+                    # ── Task 3.3: Glossary expander + jargon tooltips ─────────
+                    render_glossary_expander(
+                        ["SGP", "Net SGP", "VORP", "ADP", "ECR"],
+                        label="What do these numbers mean?",
+                    )
+
+                    # ── Feature 3 (2026-05-23): Playoff + Championship probability ──
+                    # Inside an expander so the verdict stays primary (Task 3.7).
+                    if "playoff_sim" in result:
+                        ps = result["playoff_sim"]
+                        before = ps.get("before", {})
+                        after = ps.get("after", {})
+                        d_play = result.get("delta_playoff_prob", 0.0)
+                        d_champ = result.get("delta_champ_prob", 0.0)
+
+                        with st.expander("Title odds (playoff sim) — Δ Title Odds", expanded=True):
+                            st.markdown(
+                                '<div style="display:flex;align-items:center;gap:11px;margin-top:4px;'
+                                'margin-bottom:6px;">'
+                                '<span style="width:3px;height:16px;background:var(--fp-primary);'
+                                'box-shadow:0 0 8px rgba(255,109,0,.5);border-radius:2px;"></span>'
+                                '<span style="font-family:var(--font-display);font-weight:800;font-size:15px;'
+                                "letter-spacing:.05em;text-transform:uppercase;color:var(--fp-tx);"
+                                '">Primary Objective — Δ Title Odds</span>'
+                                '<span style="font-family:var(--font-mono);font-size:10px;letter-spacing:.12em;'
+                                'color:var(--fp-tx-muted);margin-left:auto;">FIG.11.1 — PLAYOFF SIM</span></div>',
+                                unsafe_allow_html=True,
+                            )
+                            # Title-odds heat bars: orange = trade improves the odds.
+                            _play_after = float(after.get("playoff_prob", 0) or 0.0)
+                            _champ_after = float(after.get("champ_prob", 0) or 0.0)
+                            _play_bar = build_heatbar_html(_play_after * 100.0, win=(d_play >= 0))
+                            _champ_bar = build_heatbar_html(_champ_after * 100.0, win=(d_champ >= 0))
+                            st.markdown(
+                                '<div style="display:flex;gap:24px;margin-bottom:6px;">'
+                                f'<div style="flex:1;"><div style="font-family:var(--font-display);font-size:9px;'
+                                "font-weight:800;letter-spacing:.2em;text-transform:uppercase;color:var(--fp-tx-muted);"
+                                f'margin-bottom:4px;">Playoff odds</div>{_play_bar}</div>'
+                                f'<div style="flex:1;"><div style="font-family:var(--font-display);font-size:9px;'
+                                "font-weight:800;letter-spacing:.2em;text-transform:uppercase;color:var(--fp-tx-muted);"
+                                f'margin-bottom:4px;">Championship odds</div>{_champ_bar}</div></div>',
+                                unsafe_allow_html=True,
+                            )
+                            pc1, pc2, pc3 = st.columns(3)
+                            pc1.metric(
+                                "P(make playoffs / top-4)",
+                                f"{after.get('playoff_prob', 0):.1%}",
+                                delta=f"{d_play:+.2%}",
+                                delta_color="normal",
+                                help=(
+                                    "Monte-Carlo simulated probability of finishing top-4. "
+                                    "Delta = after-trade minus before-trade. Negative = trade "
+                                    "hurts your playoff odds. Report Section B.10 + Q(a)."
+                                ),
+                            )
+                            pc2.metric(
+                                "P(win championship)",
+                                f"{after.get('champ_prob', 0):.1%}",
+                                delta=f"{d_champ:+.2%}",
+                                delta_color="normal",
+                                help=(
+                                    "Joint probability of (a) finishing top-4 AND (b) winning "
+                                    "the 2-round bracket (1v4, 2v3, re-seeded final). "
+                                    "20,000 MC sims with paired-MC discipline."
+                                ),
+                            )
+                            pc3.metric(
+                                "E[additional regular-season wins]",
+                                f"{after.get('mean_regular_season_wins', 0):.1f}",
+                                delta=f"{after.get('mean_regular_season_wins', 0) - before.get('mean_regular_season_wins', 0):+.1f}",
+                                delta_color="normal",
+                                help=(
+                                    "Expected matchup wins over remaining weeks (per the schedule-aware weekly H2H matrix)."
+                                ),
+                            )
+
+                            # ── CARA mean-CVaR utility (report Section B.9) ──
+                            # Risk-adjusted utility on per-sim Δchamp_prob deltas.
+                            # CARA = E[Δchamp] - λ/2 × Var[Δchamp] with λ=0.15.
+                            # CVaR_20 = average outcome in worst 20% of sims.
+                            # Together they answer: "Is the expected gain worth
+                            # the downside risk?"
+                            _cara = ps.get("cara_utility")
+                            _cvar20 = ps.get("cvar20_champ")
+                            _var_champ = ps.get("var_champ")
+                            _lambda = ps.get("lambda_risk_aversion", 0.15)
+                            if _cara is not None and _cvar20 is not None:
+                                cara1, cara2, cara3 = st.columns(3)
+                                cara1.metric(
+                                    "CARA utility (risk-adjusted)",
+                                    f"{_cara:+.4f}",
+                                    help=(
+                                        f"E[Δchamp] − (λ/2) × Var[Δchamp] with λ={_lambda}. "
+                                        f"Penalizes high-variance trades. > 0 → accept under "
+                                        f"CARA preferences; < 0 → variance penalty exceeds "
+                                        f"expected gain. Report Section B.9."
+                                    ),
+                                )
+                                cara2.metric(
+                                    "CVaR₂₀ (worst-20% Δchamp)",
+                                    f"{_cvar20:+.2%}",
+                                    help=(
+                                        "Conditional Value-at-Risk at 20%: average "
+                                        "championship-prob delta across the WORST 20% "
+                                        "of simulated futures. Negative = trade carries "
+                                        "real downside in unlucky scenarios. Report B.9."
+                                    ),
+                                )
+                                cara3.metric(
+                                    "Var[Δchamp]",
+                                    f"{_var_champ:.4f}" if _var_champ is not None else "—",
+                                    help=(
+                                        "Variance of per-sim championship-prob delta. "
+                                        "0 = trade always produces identical bracket "
+                                        "outcome; >0 = bracket outcome varies across sims."
+                                    ),
+                                )
+
+                                # λ-sensitivity sweep (report Sections H.10 / C.7).
+                                # Shows how the risk-adjusted utility shifts with the
+                                # manager's risk stance: 0.05 = risk-seeking (must
+                                # gamble for a playoff push), 0.30 = risk-averse
+                                # (protecting a strong position).
+                                _sweep = ps.get("cara_utility_sweep") or {}
+                                if _sweep:
+                                    _parts = []
+                                    _labels = {0.05: "risk-seeking", 0.15: "central", 0.30: "risk-averse"}
+                                    for _lam in sorted(_sweep):
+                                        _parts.append(f"λ={_lam} ({_labels.get(_lam, '')}): **{_sweep[_lam]:+.4f}**")
+                                    st.caption("CARA utility across risk-aversion λ — " + " · ".join(_parts))
 
                     # ── Feature 1 (2026-05-23): IP-floor status indicator ──
                     # When projected weekly IP drops below the 20 IP/week Yahoo floor,
@@ -746,11 +758,16 @@ else:
                         col1.metric(
                             "Trade Grade",
                             result.get("grade", "N/A"),
+                            help=jargon_help("Net SGP")
+                            or (
+                                "A+ to F scale driven by Surplus SGP (standings-gained-points net). "
+                                "Phase 1 SGP is always the grade authority."
+                            ),
                         )
                         col2.metric(
                             "Surplus Standings Gained Points",
                             format_stat(result.get("surplus_sgp", 0), "SGP"),
-                            help=METRIC_TOOLTIPS["sgp"],
+                            help=jargon_help("SGP") or METRIC_TOOLTIPS["sgp"],
                         )
                         # Roster move indicator (drop or pickup for uneven trades)
                         roster_move = "None"
