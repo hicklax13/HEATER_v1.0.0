@@ -160,16 +160,10 @@ try:
     progress.progress(50, text="Computing punt-adjusted values...")
     sgp_punt = SGPCalculator(punt_config)
 
-    # Compute total SGP for each player under both strategies
-    orig_sgps = []
-    punt_sgps = []
-    for _, player in pool.iterrows():
-        orig_sgps.append(sgp_orig.total_sgp(player))
-        punt_sgps.append(sgp_punt.total_sgp(player))
-
+    # Compute total SGP for each player under both strategies (vectorized batch).
     pool = pool.copy()
-    pool["original_sgp"] = orig_sgps
-    pool["punt_sgp"] = punt_sgps
+    pool["original_sgp"] = sgp_orig.total_sgp_batch(pool)
+    pool["punt_sgp"] = sgp_punt.total_sgp_batch(pool)
     pool["value_change"] = pool["punt_sgp"] - pool["original_sgp"]
 
     progress.progress(100, text="Analysis complete!")
