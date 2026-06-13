@@ -26,13 +26,16 @@ from src.ui_shared import (
     build_heatbar_html,
     format_stat,
     inject_custom_css,
+    jargon_help,
     no_league_data_message,
     page_timer_footer,
     page_timer_start,
     render_compact_table,
     render_context_card,
     render_context_columns,
+    render_data_freshness_chip,
     render_empty_state,
+    render_glossary_expander,
     render_matchup_ticker,
     render_page_header,
     render_player_select,
@@ -536,8 +539,12 @@ if recommendations:
     )
 
 render_page_header("Free Agents", eyebrow="WIRE", fig="FIG.14 — FREE AGENTS")
+render_data_freshness_chip("free_agents")
 render_reco_banner(_banner_teaser, "", "free_agents")
 render_matchup_ticker()
+# Task 3.4: Heat 0-10 scale anchor — displayed once, near the top of the page.
+# Heat 0-10: higher = more added/owned lately; 7+ = hot wire activity.
+render_glossary_expander(["Heat", "Net SGP", "SGP"])
 
 # ── Position filter (shared across all sections) ─────────────────────────────
 # 2026-05-19 Section 5: POSITIONS now imported from src.ui_shared (top of file).
@@ -692,7 +699,9 @@ with main:
         f'<div style="font-size:12px;color:{T["tx2"]};margin-bottom:8px;'
         f'font-family:var(--font-body);">'
         f"Free agents ranked by net Standings Gained Points improvement "
-        f"after accounting for the recommended drop. Only positive-value swaps are shown.</div>",
+        f"after accounting for the recommended drop. Only positive-value swaps are shown. "
+        f'<span title="{jargon_help("Net SGP")}" style="cursor:help;border-bottom:1px dotted {T["tx2"]};">Net SGP</span> '
+        f"= standings-point gain minus loss.</div>",
         unsafe_allow_html=True,
     )
 
@@ -917,7 +926,9 @@ with main:
         f'font-family:var(--font-body);">'
         f"Full ranked free agent list with projected impact on your roster. "
         f"The Impact column shows the Standings Gained Points delta if this player "
-        f"replaced the weakest player at the same position on your roster.</div>",
+        f"replaced the weakest player at the same position on your roster. "
+        f'<span title="{jargon_help("Heat")}" style="cursor:help;border-bottom:1px dotted {T["tx2"]};">Heat</span> '
+        f"(0-10): higher = more added/owned lately; 7+ = hot wire activity.</div>",
         unsafe_allow_html=True,
     )
 
