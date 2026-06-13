@@ -99,7 +99,6 @@ POSITION_OPTIONS = [
     ("3B", "3B"),
     ("SS", "SS"),
     ("OF", "OF"),
-    ("Util", "Util"),
     ("SP", "SP"),
     ("RP", "RP"),
 ]
@@ -108,7 +107,6 @@ STATUS_OPTIONS = [
     ("ALL", "All Players"),
     ("A", "All Available Players"),
     ("FA", "Free Agents Only"),
-    ("W", "Waivers Only"),
     ("T", "All Taken Players"),
 ]
 

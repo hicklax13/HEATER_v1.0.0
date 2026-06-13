@@ -39,7 +39,7 @@ STAT_VIEW_OPTIONS: dict[str, str] = {
     "S_PS7": "Next 7 Days (proj)",
     "S_PS14": "Next 14 Days (proj)",
     "S_PSR": "Remaining Games (proj)",
-    "S_L": "Today (live)",
+    "S_L": "ROS Projections",
     "S_L7": "Last 7 Days (total)",
     "S_L14": "Last 14 Days (total)",
     "S_L30": "Last 30 Days (total)",
@@ -60,10 +60,6 @@ STAT_VIEW_OPTIONS: dict[str, str] = {
     "S_SD_2026": "Season (std dev)",
     "S_SD_2025": "2025 Season (std dev)",
     "S_SD_2024": "2024 Season (std dev)",
-    "K_K": "Ranks",
-    "R_O": "Research",
-    "M_W": "Fantasy Matchups",
-    "O_O": "Opponents",
 }
 
 # ── Stat view computation parameters ─────────────────────────────────────────
@@ -97,10 +93,6 @@ STAT_VIEW_PARAMS: dict[str, dict] = {
     "S_SD_2026": {"type": "stddev", "days": None, "season": 2026},
     "S_SD_2025": {"type": "stddev", "days": None, "season": 2025},
     "S_SD_2024": {"type": "stddev", "days": None, "season": 2024},
-    "K_K": {"type": "special", "days": None, "season": None},
-    "R_O": {"type": "special", "days": None, "season": None},
-    "M_W": {"type": "special", "days": None, "season": None},
-    "O_O": {"type": "special", "days": None, "season": None},
 }
 
 
@@ -1093,7 +1085,7 @@ def render_databank_table(
 }}
 .hdb-table thead th {{
     background: #ffffff;
-    color: #2c2f36;
+    color: var(--fp-tx);
     font-weight: 800;
     font-size: 12px;
     text-transform: uppercase;

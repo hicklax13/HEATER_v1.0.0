@@ -424,10 +424,10 @@ class TestHTMLTableRenderer:
         )
         html = render_databank_table(df, stat_view="S_S_2026", is_pitcher=False)
         # Combustion scoreboard table treatment (2026-06-08): white header with
-        # charcoal text, neutral zebra/hover; the old dark-navy header stays
-        # retired.
+        # charcoal text via CSS var, neutral zebra/hover; old dark-navy header retired.
         assert "#16213e" not in html  # dark navy header retired
-        assert "#2c2f36" in html  # charcoal header text
+        assert "#2c2f36" not in html  # banned off-palette hex — replaced with var(--fp-tx)
+        assert "var(--fp-tx)" in html  # charcoal header text via CSS variable
         assert "#eef0f3" in html  # neutral row hover
 
 
