@@ -56,7 +56,7 @@ render_page_header(
     eyebrow="BULLPEN",
     fig="FIG.03 — SAVE DEPTH CHART",
 )
-render_reco_banner("30-team closer depth chart", "", "closer")
+render_reco_banner("Closer depth chart", "", "closer")
 render_data_freshness_chip("depth_charts")
 render_glossary_expander(["% JOB", "gmLI"])
 render_matchup_ticker()
@@ -212,7 +212,7 @@ else:
         # can hover to understand the stat abbreviations.
         _hdr_c1, _hdr_c2, _hdr_c3 = st.columns([3, 3, 2])
         with _hdr_c1:
-            st.caption(f"Showing {len(grid)} teams with closer data.")
+            st.caption(f"Showing {len(grid)} of 30 teams with closer data.")
         with _hdr_c2:
             _pct_job_help = jargon_help("% JOB")
             _gmli_help = jargon_help("gmLI")
@@ -373,7 +373,7 @@ else:
   </div>
   <div style="display:flex;gap:0;border-top:1px solid var(--fp-divider);padding-top:5px;position:relative;z-index:1;">
     <div style="flex:1;text-align:center;border-right:1px solid var(--fp-divider);">
-      <div style="font-family:var(--font-display);font-size:8.5px;font-weight:800;letter-spacing:.08em;color:var(--fp-tx-muted);">SV</div>
+      <div style="font-family:var(--font-display);font-size:8.5px;font-weight:800;letter-spacing:.08em;color:var(--fp-tx-muted);">PROJ SV</div>
       <div style="font-family:var(--font-display);font-weight:800;font-size:15px;font-variant-numeric:tabular-nums;color:var(--fp-ember);">{sv_str}</div>
     </div>
     <div style="flex:1;text-align:center;border-right:1px solid var(--fp-divider);">
