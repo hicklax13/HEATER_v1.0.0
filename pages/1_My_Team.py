@@ -29,6 +29,7 @@ from src.ui_shared import (
     render_compact_table,
     render_context_card,
     render_data_freshness_card,
+    render_data_freshness_chip,
     render_empty_state,
     render_page_header,
     render_player_select,
@@ -576,6 +577,50 @@ else:
             except Exception:
                 pass
 
+        # Standings-based fallback for Record / Rank when no live Yahoo client
+        # is present (read-only members, cached/multi-user sessions).
+        if not _id_record or _id_rank is None:
+            try:
+                _standings_df = yds.get_standings()
+                if not _standings_df.empty and "team_name" in _standings_df.columns:
+                    # Match by team name (emoji-prefix-tolerant: check contains)
+                    _team_rows = _standings_df[
+                        _standings_df["team_name"].astype(str).str.contains(user_team_name, regex=False, na=False)
+                        | (_standings_df["team_name"].astype(str) == user_team_name)
+                    ]
+                    if _team_rows.empty:
+                        # Try reverse: standings name contains viewer name
+                        _team_rows = _standings_df[
+                            _standings_df["team_name"].apply(
+                                lambda n: user_team_name in str(n) or str(n) in user_team_name
+                            )
+                        ]
+                    if not _team_rows.empty and "rank" in _standings_df.columns:
+                        _rank_vals = _standings_df[_standings_df["team_name"].isin(_team_rows["team_name"].unique())][
+                            "rank"
+                        ].dropna()
+                        if not _rank_vals.empty and _id_rank is None:
+                            import numpy as _np
+
+                            _id_rank = int(_np.median(_rank_vals))
+                    if not _team_rows.empty and not _id_record:
+                        _wins_row = (
+                            _team_rows[_team_rows.get("category", _team_rows.columns[0]) == "WINS"]
+                            if "category" in _team_rows.columns
+                            else pd.DataFrame()
+                        )
+                        _losses_row = (
+                            _team_rows[_team_rows.get("category", _team_rows.columns[0]) == "LOSSES"]
+                            if "category" in _team_rows.columns
+                            else pd.DataFrame()
+                        )
+                        if not _wins_row.empty and not _losses_row.empty and "total" in _standings_df.columns:
+                            _sw = int(_wins_row["total"].iloc[0])
+                            _sl = int(_losses_row["total"].iloc[0])
+                            _id_record = f"{_sw}–{_sl}–0"
+            except Exception:
+                pass  # Non-fatal; fallback stays "—"
+
         # Build the Combustion identity avatar (mockup .idav — a navy rounded
         # square with initials, or the Yahoo logo when available). Rendered
         # later in the identity strip once the roster counts are known.
@@ -620,6 +665,7 @@ else:
             fig="FIG.01 — ROSTER CONTROL",
             actions_html=_live_pill_html,
         )
+        render_data_freshness_chip("matchup")
 
         # Action buttons — inline row
         btn1, btn2, btn_spacer = st.columns([1, 1, 3])

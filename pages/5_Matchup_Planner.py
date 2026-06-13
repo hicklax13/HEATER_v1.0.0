@@ -22,12 +22,15 @@ from src.ui_shared import (
     build_panel_html,
     format_stat,
     inject_custom_css,
+    jargon_help,
     page_timer_footer,
     page_timer_start,
     render_compact_table,
     render_context_card,
     render_context_columns,
+    render_data_freshness_chip,
     render_empty_state,
+    render_glossary_expander,
     render_matchup_ticker,
     render_page_header,
     render_player_select,
@@ -270,6 +273,7 @@ render_page_header(
     eyebrow="THIS WEEK",
     fig="FIG.05 — MATCHUP GRID",
 )
+render_data_freshness_chip("matchup")
 render_reco_banner(banner_teaser, "", "calendar")
 render_matchup_ticker()
 
@@ -530,6 +534,7 @@ with ctx:
         options=["All", "Hitters", "Pitchers"],
         index=0,
         key="matchup_player_type",
+        help=jargon_help("SOS"),
     )
 
     # Team selector (if league data is available)
@@ -669,12 +674,15 @@ with main:
         with st.spinner("Fetching MLB schedule..."):
             weekly_schedule = _cached_schedule(int(days_ahead))
 
+    schedule_warning = ""
     if not weekly_schedule:
         schedule_warning = (
             "No live schedule data available. Matchup ratings are computed "
             "from projection data only (games count will be 0 for all players). "
             "Connect to the internet and ensure statsapi is installed for live schedules."
         )
+    if schedule_warning:
+        st.warning(schedule_warning)
 
     # Run the matchup planner
     park_factors = PARK_FACTORS if PARK_FACTORS_AVAILABLE else {}
@@ -737,6 +745,7 @@ with main:
         m3.metric("Avoid Matchups", n_avoid)
         m4.metric("Average Games", f"{avg_games:.2f}")
 
+    render_glossary_expander(["Smash", "SOS", "SGP", "wRC+", "xFIP"])
     st.markdown('<div class="hr-fade"></div>', unsafe_allow_html=True)
 
     # ── Tab view: Category Probabilities | Player Matchups | Per-Game Detail | Hitters | Pitchers
