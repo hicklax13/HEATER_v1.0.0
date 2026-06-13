@@ -15,6 +15,7 @@ try:
 except ImportError:
     st = None  # type: ignore[assignment]
 
+from src.database import get_refresh_log_snapshot
 from src.valuation import LeagueConfig as _LC_Class
 
 # ── Inline SVG Page Icons ─────────────────────────────────────────
@@ -5635,6 +5636,210 @@ def render_data_freshness_card():
 
 
 # ── Unified Stat Formatting ──────────────────────────────────────────
+
+
+# ── Data-Freshness Chip ───────────────────────────────────────────────────────
+# Reuses get_refresh_log_snapshot() from src.database — no duplicate tracking.
+# DataFreshnessTracker (src/optimizer/data_freshness.py) manages TTLs for the
+# optimizer pipeline; the chip here surfaces per-source last_refresh to the UI.
+
+
+def humanize_age(age_minutes: float) -> str:
+    """Return a human-readable relative-time string for *age_minutes*.
+
+    Examples:
+        0  -> "just now"
+        1  -> "1 minute ago"
+        5  -> "5 minutes ago"
+        60 -> "1 hour ago"
+        90 -> "1 hour ago"
+        120 -> "2 hours ago"
+        1440 -> "1 day ago"
+        2880 -> "2 days ago"
+    """
+    try:
+        mins = float(age_minutes)
+    except (TypeError, ValueError):
+        return "unknown"
+
+    if mins <= 0:
+        return "just now"
+    if mins < 2:
+        return "1 minute ago"
+    if mins < 60:
+        return f"{int(mins)} minutes ago"
+    hours = int(mins // 60)
+    if hours < 24:
+        if hours == 1:
+            return "1 hour ago"
+        return f"{hours} hours ago"
+    days = int(hours // 24)
+    if days == 1:
+        return "1 day ago"
+    return f"{days} days ago"
+
+
+def render_data_freshness_chip(
+    source: str | None = None,
+    *,
+    age_minutes: float | None = None,
+) -> None:
+    """Render a small inline chip showing how fresh the data for *source* is.
+
+    Data source:
+    - If *age_minutes* is given it is used directly (useful for tests / callers
+      that already computed the age).
+    - Otherwise, *source* is looked up in ``get_refresh_log_snapshot()`` and the
+      age is derived from ``last_refresh``.
+    - If neither is available the chip reads "freshness unknown".
+
+    Visual treatment:
+    - **Neutral** (surface fill, muted text) when age <= 1440 min (24 h).
+    - **Amber/warn** (``var(--fp-amber)`` border + tint) when age > 1440 min.
+
+    No emoji. Uses only THEME tokens / CSS vars.
+    """
+    from datetime import UTC, datetime
+
+    if st is None:
+        return  # Streamlit not available
+
+    # ── Resolve age ──────────────────────────────────────────────────────────
+    resolved_minutes: float | None = age_minutes
+
+    if resolved_minutes is None and source is not None:
+        try:
+            snap = get_refresh_log_snapshot()
+            for row in snap:
+                if row.get("source") == source:
+                    last_refresh = row.get("last_refresh")
+                    if last_refresh:
+                        try:
+                            if isinstance(last_refresh, str):
+                                # ISO format stored as "2026-06-13T10:00:00" or similar
+                                ts = datetime.fromisoformat(last_refresh)
+                                if ts.tzinfo is None:
+                                    ts = ts.replace(tzinfo=UTC)
+                            else:
+                                ts = last_refresh
+                            now = datetime.now(UTC)
+                            resolved_minutes = (now - ts).total_seconds() / 60.0
+                        except Exception:
+                            pass
+                    break
+        except Exception:
+            pass
+    elif resolved_minutes is None and source is None:
+        # No source, no age — still try snapshot so callers/tests can observe the call
+        try:
+            get_refresh_log_snapshot()
+        except Exception:
+            pass
+
+    # ── Render ───────────────────────────────────────────────────────────────
+    t = THEME
+    if resolved_minutes is None:
+        label = "Freshness unknown"
+        border_color = f"var(--fp-border, {t['border']})"
+        bg_color = f"var(--fp-surface, {t['surface']})"
+        text_color = f"var(--fp-tx-subtle, {t['tx_subtle']})"
+        dot_color = t["tx_subtle"]
+    else:
+        label = f"Updated {humanize_age(resolved_minutes)}"
+        stale = resolved_minutes > 1440
+        if stale:
+            border_color = f"var(--fp-amber, {t['warn']})"
+            bg_color = "rgba(255,159,28,0.08)"
+            text_color = f"var(--fp-amber, {t['warn']})"
+            dot_color = t["warn"]
+        else:
+            border_color = f"var(--fp-border, {t['border']})"
+            bg_color = f"var(--fp-surface, {t['surface']})"
+            text_color = f"var(--fp-tx-muted, {t['tx_muted']})"
+            dot_color = t["green"]
+
+    import html as _html_mod
+
+    safe_label = _html_mod.escape(label)
+    html = (
+        f'<span style="'
+        f"display:inline-flex;align-items:center;gap:5px;"
+        f"font-family:var(--font-mono,'IBM Plex Mono',monospace);"
+        f"font-size:11px;font-weight:500;"
+        f"color:{text_color};"
+        f"border:1px solid {border_color};"
+        f"background:{bg_color};"
+        f"border-radius:20px;padding:2px 10px;"
+        f'">'
+        f'<span style="width:6px;height:6px;border-radius:50%;'
+        f"background:{dot_color};display:inline-block;flex-shrink:0;"
+        f'"></span>'
+        f"{safe_label}"
+        f"</span>"
+    )
+    st.markdown(html, unsafe_allow_html=True)
+
+
+# ── Glossary / Jargon Tooltips ────────────────────────────────────────────────
+
+
+JARGON: dict[str, str] = {
+    "SGP": "Standings Gained Points — how many standings spots a stat contributes. Higher = more league impact.",
+    "DCV": "Daily Category Value — single-day scoring contribution across all 12 categories.",
+    "VORP": "Value Over Replacement Player — how much better this player is than a freely available substitute.",
+    "wRC+": "Weighted Runs Created Plus — overall offensive value vs league avg (100 = average; lower is worse).",
+    "xFIP": "Expected Fielding Independent Pitching — ERA estimate using HR rate, walks, strikeouts; removes luck.",
+    "SIERA": "Skill-Interactive ERA — ERA predictor that accounts for ground balls and strikeout/walk balance.",
+    "Stuff+": "Pitch quality metric (100 = average); measures movement, velocity, and spin vs league baseline.",
+    "Net SGP": "Trade SGP gain minus SGP lost — the net standings-point change from a proposed trade.",
+    "Stream Score": "0-100 score for a streaming pitcher start: matchup, park, offense, form, and risk factors.",
+    "Heat": "Hot-streak signal — player significantly outperforming recent rolling average across key categories.",
+    "% JOB": "Closer Job % — probability this reliever gets save opportunities in the current closer role.",
+    "Smash": "High-contact, high-power composite signal; elevated barrel rate and hard-hit rate vs league avg.",
+    "Magic#": "Magic Number — wins + opponent losses needed to clinch a playoff spot or category lead.",
+    "SOS": "Strength of Schedule — aggregate difficulty of upcoming matchups (pitching or offense faced).",
+    "Sell-High": "Player whose recent production exceeds true talent; good trade-away candidate before regression.",
+    "Buy-Low": "Player trading below true talent due to small sample or slump; target in trades or FA pickups.",
+    "gmLI": "Game Leverage Index — average game-pressure weight of a reliever's appearances; 1.0 = average.",
+    "ECR": "Expert Consensus Rank — average ranking across multiple fantasy experts (lower rank = better).",
+    "ADP": "Average Draft Position — where this player typically gets selected across real fantasy drafts.",
+}
+
+
+def jargon_help(term: str) -> str:
+    """Return the one-line definition for *term* from JARGON, or '' if unknown.
+
+    Suitable for use as a ``help=`` tooltip string in any Streamlit widget.
+    """
+    return JARGON.get(term, "")
+
+
+def render_glossary_expander(
+    terms: list[str] | None = None,
+    *,
+    label: str = "What do these numbers mean?",
+) -> None:
+    """Render a collapsed st.expander listing plain-English definitions.
+
+    Args:
+        terms: List of JARGON keys to include. When None (default), all
+               entries in JARGON are shown in insertion order.
+        label: Expander header text (default "What do these numbers mean?").
+    """
+    if st is None:
+        return
+
+    keys = list(JARGON.keys()) if terms is None else list(terms)
+
+    with st.expander(label, expanded=False):
+        for key in keys:
+            defn = JARGON.get(key, "")
+            if defn:
+                st.markdown(
+                    f"**{_html.escape(key)}** — {_html.escape(defn)}",
+                    unsafe_allow_html=False,
+                )
+            # Unknown terms are silently skipped so callers can pass a superset.
 
 
 def format_stat(value: float, stat_type: str) -> str:
