@@ -587,6 +587,45 @@ def main():
                 }
                 render_sortable_table(display_df, column_config=col_config, height=600)
 
+            # ── Deep-link: Analyze top trade in Trade Analyzer ────────
+            # Build a list of (label, giving_ids, receiving_ids) from
+            # the raw opportunities list (which has full ID arrays).
+            _tf_rows: list[tuple[str, list, list]] = []
+            for _opp in opportunities[:10]:
+                _give_n = ", ".join(_opp.get("giving_names", []) or [])
+                _recv_n = ", ".join(_opp.get("receiving_names", []) or [])
+                _label = f"Give {_give_n} / Receive {_recv_n}"
+                _tf_rows.append((_label, _opp.get("giving_ids", []), _opp.get("receiving_ids", [])))
+
+            if _tf_rows:
+                st.markdown('<div class="hr-fade"></div>', unsafe_allow_html=True)
+                st.markdown(
+                    f'<p style="font-size:12px;color:{T["tx2"]};margin-bottom:4px;">'
+                    "Send a trade to the Trade Analyzer for a full 6-phase deep-dive.</p>",
+                    unsafe_allow_html=True,
+                )
+                _analyze_options = [r[0] for r in _tf_rows]
+                _sel_label = st.selectbox(
+                    "Pick a trade to analyze",
+                    _analyze_options,
+                    key="tf_analyze_pick",
+                    label_visibility="collapsed",
+                )
+                _sel_idx = _analyze_options.index(_sel_label) if _sel_label in _analyze_options else 0
+                _, _sel_give_ids, _sel_recv_ids = _tf_rows[_sel_idx]
+                if st.button("Analyze in Trade Analyzer →", key="tf_analyze_btn"):
+                    st.session_state["_tf_prefill"] = {
+                        "giving_ids": _sel_give_ids,
+                        "receiving_ids": _sel_recv_ids,
+                    }
+                    st.switch_page("pages/11_Trade_Analyzer.py")
+                else:
+                    # Persist stash so it survives re-runs before the user clicks
+                    st.session_state["_tf_prefill"] = {
+                        "giving_ids": _sel_give_ids,
+                        "receiving_ids": _sel_recv_ids,
+                    }
+
         # ── Tab 5: Trade Readiness ───────────────────────────────────
         with tab_readiness:
             st.markdown(

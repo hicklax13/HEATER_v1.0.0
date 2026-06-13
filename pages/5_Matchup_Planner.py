@@ -77,6 +77,13 @@ except Exception:
 
 logger = logging.getLogger(__name__)
 
+# Season weeks from LeagueConfig (FourzynBurn canonical = 26).
+# Used for week navigator cap so weeks 25-26 are reachable.
+try:
+    _season_weeks: int = LeagueConfig().season_weeks
+except Exception:
+    _season_weeks = 26
+
 T = THEME
 
 # ── Tier color map ────────────────────────────────────────────────────
@@ -433,7 +440,7 @@ def _build_win_prob_context_html(prob_data: dict) -> str:
         <div style="display:flex;justify-content:space-between;font-size:12px;
                     margin-bottom:4px;color:{T["tx"]};">
             <span style="color:{T["green"]};font-weight:700;">Win {win_pct:.0f}%</span>
-            <span style="color:{T["tx2"]};font-weight:600;">Tie {tie_pct:.0f}%</span>
+            <span style="color:{T["tx2"]};font-weight:600;">Draw (6-6) {tie_pct:.0f}%</span>
             <span style="color:{T["danger"]};font-weight:700;">Loss {loss_pct:.0f}%</span>
         </div>
         <div style="display:flex;height:14px;border-radius:7px;overflow:hidden;
@@ -483,7 +490,7 @@ with ctx:
         )
     with nav_c3:
         if st.button("▶", key="week_next", help="Next week"):
-            if st.session_state["matchup_week"] < 24:
+            if st.session_state["matchup_week"] < _season_weeks:
                 st.session_state["matchup_week"] += 1
                 st.rerun()
 
@@ -743,7 +750,11 @@ with main:
         m1.metric("Players Rated", len(ratings_df))
         m2.metric("Smash Matchups", n_smash)
         m3.metric("Avoid Matchups", n_avoid)
-        m4.metric("Average Games", f"{avg_games:.2f}")
+        m4.metric(
+            "Average Games",
+            f"{avg_games:.2f}" if avg_games > 0 else "—",
+            help="Average scheduled games per rated player this week. Shows — when no schedule data is available (offline / no Yahoo connection).",
+        )
 
     render_glossary_expander(["Smash", "SOS", "SGP", "wRC+", "xFIP"])
     st.markdown('<div class="hr-fade"></div>', unsafe_allow_html=True)

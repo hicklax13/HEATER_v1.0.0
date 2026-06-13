@@ -208,6 +208,16 @@ render_panel(
     accent="top",
 )
 
+# ── Deep-link: browse Free Agents for active (non-punted) categories ─────────
+# Stash active categories in session_state so the Free Agents page can read
+# them and pre-filter recommendations.
+st.session_state["_punt_active_cats"] = active_cats
+st.page_link(
+    "pages/14_Free_Agents.py",
+    label=f"Browse Free Agents for active categories ({', '.join(active_cats[:4])}{'…' if len(active_cats) > 4 else ''}) →",
+    help="Opens the Free Agents page. Your active (non-punted) categories are saved so you can filter recommendations there.",
+)
+
 # ── Task 3.5: "My Roster only" lens ──────────────────────────────────────────
 # Fetch rosters early so they're available for the lens toggle and
 # the standings-impact panel that follows.
