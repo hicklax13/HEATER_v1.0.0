@@ -615,16 +615,22 @@ def render_step_settings():
 
         if not auto_sgp:
             _sgp_help = "Stat increase needed to gain one H2H category win"
-            sgp_r = st.number_input("Runs", value=32.0, step=1.0, key="sgp_r", help=_sgp_help)
-            sgp_hr = st.number_input("Home Runs", value=12.0, step=1.0, key="sgp_hr", help=_sgp_help)
-            sgp_rbi = st.number_input("Runs Batted In", value=30.0, step=1.0, key="sgp_rbi", help=_sgp_help)
-            sgp_sb = st.number_input("Stolen Bases", value=8.0, step=1.0, key="sgp_sb", help=_sgp_help)
+            sgp_r = st.number_input("Runs", value=32.0, step=1.0, format="%.1f", key="sgp_r", help=_sgp_help)
+            sgp_hr = st.number_input("Home Runs", value=12.0, step=1.0, format="%.1f", key="sgp_hr", help=_sgp_help)
+            sgp_rbi = st.number_input(
+                "Runs Batted In", value=30.0, step=1.0, format="%.1f", key="sgp_rbi", help=_sgp_help
+            )
+            sgp_sb = st.number_input("Stolen Bases", value=8.0, step=1.0, format="%.1f", key="sgp_sb", help=_sgp_help)
             sgp_avg = st.number_input(
                 "Batting Average", value=0.008, step=0.001, format="%.4f", key="sgp_avg", help=_sgp_help
             )
-            sgp_w = st.number_input("Wins", value=3.0, step=1.0, key="sgp_w", help=_sgp_help)
-            sgp_sv = st.number_input("Saves", value=7.0, step=1.0, key="sgp_sv", help=_sgp_help)
-            sgp_k = st.number_input("Strikeouts", value=25.0, step=1.0, key="sgp_k", help=_sgp_help)
+            sgp_obp = st.number_input(
+                "On-Base Percentage", value=0.005, step=0.001, format="%.4f", key="sgp_obp", help=_sgp_help
+            )
+            sgp_w = st.number_input("Wins", value=3.0, step=1.0, format="%.1f", key="sgp_w", help=_sgp_help)
+            sgp_l = st.number_input("Losses", value=3.0, step=1.0, format="%.1f", key="sgp_l", help=_sgp_help)
+            sgp_sv = st.number_input("Saves", value=7.0, step=1.0, format="%.1f", key="sgp_sv", help=_sgp_help)
+            sgp_k = st.number_input("Strikeouts", value=25.0, step=1.0, format="%.1f", key="sgp_k", help=_sgp_help)
             sgp_era = st.number_input(
                 "Earned Run Average", value=0.30, step=0.01, format="%.3f", key="sgp_era", help=_sgp_help
             )
@@ -771,7 +777,9 @@ def _build_player_pool(progress=None):
             lc.sgp_denominators["RBI"] = st.session_state.get("sgp_rbi", 30.0)
             lc.sgp_denominators["SB"] = st.session_state.get("sgp_sb", 8.0)
             lc.sgp_denominators["AVG"] = st.session_state.get("sgp_avg", 0.008)
+            lc.sgp_denominators["OBP"] = st.session_state.get("sgp_obp", 0.005)
             lc.sgp_denominators["W"] = st.session_state.get("sgp_w", 3.0)
+            lc.sgp_denominators["L"] = st.session_state.get("sgp_l", 3.0)
             lc.sgp_denominators["SV"] = st.session_state.get("sgp_sv", 7.0)
             lc.sgp_denominators["K"] = st.session_state.get("sgp_k", 25.0)
             lc.sgp_denominators["ERA"] = st.session_state.get("sgp_era", 0.30)
@@ -2073,7 +2081,7 @@ def render_category_balance(ds, pool):
         ("Saves", totals.get("SV", 0), ""),
         ("Strikeouts", totals.get("K", 0), ""),
         ("Earned Run Average", totals.get("ERA", 0), ".2f"),
-        ("Walks + Hits per Inning Pitched", totals.get("WHIP", 0), ".3f"),
+        ("Walks + Hits per Inning Pitched", totals.get("WHIP", 0), ".2f"),
     ]
 
     cols = st.columns(6)
