@@ -199,7 +199,7 @@ class TestApplyInjuryAdjustment:
 class TestInjuryBadge:
     def test_injury_badge_low(self):
         icon, label = get_injury_badge(0.90)
-        assert "#84cc16" in icon  # green dot
+        assert "#1f9d6b" in icon  # green dot (THEME["ok"] / Combustion ok-green)
         assert label == "Low Risk"
 
     def test_injury_badge_moderate(self):
