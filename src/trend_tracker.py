@@ -57,6 +57,17 @@ SELL_HIGH_SUSTAINABILITY_CAP = 0.45
 MIN_HITTER_PA = 30
 MIN_PITCHER_IP = 10.0
 
+# Minimum PROJECTED volume — fringe pitchers with ip_proj < 15 (e.g. long
+# relievers in tiny sample sizes) collapse to RATE_FLOOR denominators and
+# produce +200…+935 deltas that dominate Hot/Cold lists.
+# Hitters below pa_proj < 50 have the same issue with SB/HR rates.
+MIN_HITTER_PA_PROJ = 50
+MIN_PITCHER_IP_PROJ = 15.0
+
+# Delta clip — cap computed trend deltas to avoid RATE_FLOOR explosions
+# bleeding into the final trend_delta.
+DELTA_CLIP = 3.0
+
 # Rate stat floor to avoid division by near-zero
 RATE_FLOOR = 0.001
 
@@ -244,27 +255,32 @@ def compute_player_trends(
             stat_detail_rows.append({})
             continue
 
-        # Check minimum sample size
+        # Check minimum PROJECTED volume — near-zero ip_proj / pa_proj collapse
+        # to RATE_FLOOR denominators and produce +200…+935 delta explosions.
+        # Check minimum ACTUAL sample size for statistical reliability too.
         if is_hitter:
-            pa = float(actual_row.get("pa", 0) or 0)
-            if pa < MIN_HITTER_PA:
+            pa_proj = float(proj_row.get("pa", 0) or 0)
+            pa_actual = float(actual_row.get("pa", 0) or 0)
+            if pa_proj < MIN_HITTER_PA_PROJ or pa_actual < MIN_HITTER_PA:
                 trend_deltas.append(0.0)
                 trend_labels.append("NEUTRAL")
                 stat_detail_rows.append({})
                 continue
             deltas = _hitter_rate_deltas(actual_row, proj_row)
         else:
-            ip = float(actual_row.get("ip", 0) or 0)
-            if ip < MIN_PITCHER_IP:
+            ip_proj = float(proj_row.get("ip", 0) or 0)
+            ip_actual = float(actual_row.get("ip", 0) or 0)
+            if ip_proj < MIN_PITCHER_IP_PROJ or ip_actual < MIN_PITCHER_IP:
                 trend_deltas.append(0.0)
                 trend_labels.append("NEUTRAL")
                 stat_detail_rows.append({})
                 continue
             deltas = _pitcher_rate_deltas(actual_row, proj_row)
 
-        # Average delta across key stats
+        # Average delta across key stats; clip to [-DELTA_CLIP, +DELTA_CLIP]
+        # to prevent any single near-zero-projected stat from dominating.
         if deltas:
-            avg_delta = float(np.mean(list(deltas.values())))
+            avg_delta = float(np.clip(np.mean(list(deltas.values())), -DELTA_CLIP, DELTA_CLIP))
         else:
             avg_delta = 0.0
 

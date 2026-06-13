@@ -29,6 +29,7 @@ from src.ui_shared import (
     render_compact_table,
     render_context_card,
     render_data_freshness_card,
+    render_empty_state,
     render_page_header,
     render_player_select,
     show_player_card_dialog,
@@ -1982,83 +1983,95 @@ else:
                     _sc_available = [c for c in _sc_cols if c in _sc_pool.columns]
                     if "player_id" in _sc_available and len(_sc_available) > 1:
                         _sc_data = _sc_pool[_sc_available].copy()
-                        for _nc in ["xwoba", "barrel_pct", "hard_hit_pct", "stuff_plus"]:
-                            if _nc in _sc_data.columns:
-                                _sc_data[_nc] = pd.to_numeric(_sc_data[_nc], errors="coerce").fillna(0)
-                        _sc_roster = roster[["player_id", "name"]].merge(_sc_data, on="player_id", how="left")
-                        _sc_rows: list[str] = []
-
-                        # Elite barrel rate hitters
-                        if "barrel_pct" in _sc_roster.columns:
-                            _elite_barrel = _sc_roster[
-                                (_sc_roster.get("is_hitter", 0) == 1) & (_sc_roster["barrel_pct"] > 10)
-                            ]
-                            for _, _sbr in _elite_barrel.iterrows():
-                                _xw_str = ""
-                                if "xwoba" in _sc_roster.columns and _sbr.get("xwoba", 0) > 0:
-                                    _xw_str = f", xwOBA .{int(_sbr['xwoba'] * 1000):03d}"
-                                _sc_rows.append(
-                                    f'<div style="padding:2px 0;font-size:12px;">'
-                                    f'<span class="health-dot" style="background:{T["green"]};"></span>'
-                                    f'<span style="font-weight:600;">{_sbr["name"]}</span> '
-                                    f'<span style="color:{T["tx2"]};">barrel {_sbr["barrel_pct"]:.1f}%'
-                                    f"{_xw_str}</span></div>"
-                                )
-
-                        # Elite xwOBA hitters (not already shown via barrel)
-                        _barrel_names = set()
-                        if "barrel_pct" in _sc_roster.columns:
-                            _barrel_names = set(
-                                _sc_roster[(_sc_roster.get("is_hitter", 0) == 1) & (_sc_roster["barrel_pct"] > 10)][
-                                    "name"
-                                ]
+                        # Check for NULL Statcast data before processing
+                        _key_sc_cols = ["xwoba", "barrel_pct", "hard_hit_pct", "stuff_plus"]
+                        _present_sc = [c for c in _key_sc_cols if c in _sc_data.columns]
+                        _has_sc_data = bool(_present_sc and _sc_data[_present_sc].notna().any().any())
+                        if not _has_sc_data:
+                            render_empty_state(
+                                "Statcast data not loaded",
+                                "Run a full data refresh from the sidebar to populate "
+                                "barrel rate, xwOBA, hard-hit%, and Stuff+ metrics.",
+                                "chart",
                             )
-                        if "xwoba" in _sc_roster.columns:
-                            _elite_xw = _sc_roster[
-                                (_sc_roster.get("is_hitter", 0) == 1)
-                                & (_sc_roster["xwoba"] > 0.350)
-                                & (~_sc_roster["name"].isin(_barrel_names))
-                            ]
-                            for _, _sxr in _elite_xw.iterrows():
-                                _sc_rows.append(
-                                    f'<div style="padding:2px 0;font-size:12px;">'
-                                    f'<span class="health-dot" style="background:{T["green"]};"></span>'
-                                    f'<span style="font-weight:600;">{_sxr["name"]}</span> '
-                                    f'<span style="color:{T["tx2"]};">xwOBA '
-                                    f".{int(_sxr['xwoba'] * 1000):03d}</span></div>"
-                                )
+                        else:
+                            for _nc in _key_sc_cols:
+                                if _nc in _sc_data.columns:
+                                    _sc_data[_nc] = pd.to_numeric(_sc_data[_nc], errors="coerce").fillna(0)
+                            _sc_roster = roster[["player_id", "name"]].merge(_sc_data, on="player_id", how="left")
+                            _sc_rows: list[str] = []
 
-                        # Elite Stuff+ pitchers
-                        if "stuff_plus" in _sc_roster.columns:
-                            _elite_stuff = _sc_roster[
-                                (_sc_roster.get("is_hitter", 0) == 0) & (_sc_roster["stuff_plus"] > 110)
-                            ]
-                            for _, _ssr in _elite_stuff.iterrows():
-                                _sc_rows.append(
-                                    f'<div style="padding:2px 0;font-size:12px;">'
-                                    f'<span class="health-dot" style="background:{T["sky"]};"></span>'
-                                    f'<span style="font-weight:600;">{_ssr["name"]}</span> '
-                                    f'<span style="color:{T["tx2"]};">Stuff+ '
-                                    f"{_ssr['stuff_plus']:.0f}</span></div>"
-                                )
+                            # Elite barrel rate hitters
+                            if "barrel_pct" in _sc_roster.columns:
+                                _elite_barrel = _sc_roster[
+                                    (_sc_roster.get("is_hitter", 0) == 1) & (_sc_roster["barrel_pct"] > 10)
+                                ]
+                                for _, _sbr in _elite_barrel.iterrows():
+                                    _xw_str = ""
+                                    if "xwoba" in _sc_roster.columns and _sbr.get("xwoba", 0) > 0:
+                                        _xw_str = f", xwOBA .{int(_sbr['xwoba'] * 1000):03d}"
+                                    _sc_rows.append(
+                                        f'<div style="padding:2px 0;font-size:12px;">'
+                                        f'<span class="health-dot" style="background:{T["green"]};"></span>'
+                                        f'<span style="font-weight:600;">{_sbr["name"]}</span> '
+                                        f'<span style="color:{T["tx2"]};">barrel {_sbr["barrel_pct"]:.1f}%'
+                                        f"{_xw_str}</span></div>"
+                                    )
 
-                        # BUY_LOW regression candidates
-                        if "regression_flag" in _sc_roster.columns:
-                            _buy_low = _sc_roster[_sc_roster["regression_flag"] == "BUY_LOW"]
-                            for _, _blr in _buy_low.iterrows():
-                                _xw_tag = ""
-                                if "xwoba" in _sc_roster.columns and _blr.get("xwoba", 0) > 0:
-                                    _xw_tag = f" (xwOBA .{int(_blr['xwoba'] * 1000):03d})"
-                                _sc_rows.append(
-                                    f'<div style="padding:2px 0;font-size:12px;">'
-                                    f'<span class="health-dot" style="background:{T["warn"]};"></span>'
-                                    f'<span style="font-weight:600;">{_blr["name"]}</span> '
-                                    f'<span style="color:{T["warn"]};">BUY LOW'
-                                    f"{_xw_tag}</span></div>"
+                            # Elite xwOBA hitters (not already shown via barrel)
+                            _barrel_names = set()
+                            if "barrel_pct" in _sc_roster.columns:
+                                _barrel_names = set(
+                                    _sc_roster[(_sc_roster.get("is_hitter", 0) == 1) & (_sc_roster["barrel_pct"] > 10)][
+                                        "name"
+                                    ]
                                 )
+                            if "xwoba" in _sc_roster.columns:
+                                _elite_xw = _sc_roster[
+                                    (_sc_roster.get("is_hitter", 0) == 1)
+                                    & (_sc_roster["xwoba"] > 0.350)
+                                    & (~_sc_roster["name"].isin(_barrel_names))
+                                ]
+                                for _, _sxr in _elite_xw.iterrows():
+                                    _sc_rows.append(
+                                        f'<div style="padding:2px 0;font-size:12px;">'
+                                        f'<span class="health-dot" style="background:{T["green"]};"></span>'
+                                        f'<span style="font-weight:600;">{_sxr["name"]}</span> '
+                                        f'<span style="color:{T["tx2"]};">xwOBA '
+                                        f".{int(_sxr['xwoba'] * 1000):03d}</span></div>"
+                                    )
 
-                        if _sc_rows:
-                            render_context_card("Statcast Signals", "".join(_sc_rows))
+                            # Elite Stuff+ pitchers
+                            if "stuff_plus" in _sc_roster.columns:
+                                _elite_stuff = _sc_roster[
+                                    (_sc_roster.get("is_hitter", 0) == 0) & (_sc_roster["stuff_plus"] > 110)
+                                ]
+                                for _, _ssr in _elite_stuff.iterrows():
+                                    _sc_rows.append(
+                                        f'<div style="padding:2px 0;font-size:12px;">'
+                                        f'<span class="health-dot" style="background:{T["sky"]};"></span>'
+                                        f'<span style="font-weight:600;">{_ssr["name"]}</span> '
+                                        f'<span style="color:{T["tx2"]};">Stuff+ '
+                                        f"{_ssr['stuff_plus']:.0f}</span></div>"
+                                    )
+
+                            # BUY_LOW regression candidates
+                            if "regression_flag" in _sc_roster.columns:
+                                _buy_low = _sc_roster[_sc_roster["regression_flag"] == "BUY_LOW"]
+                                for _, _blr in _buy_low.iterrows():
+                                    _xw_tag = ""
+                                    if "xwoba" in _sc_roster.columns and _blr.get("xwoba", 0) > 0:
+                                        _xw_tag = f" (xwOBA .{int(_blr['xwoba'] * 1000):03d})"
+                                    _sc_rows.append(
+                                        f'<div style="padding:2px 0;font-size:12px;">'
+                                        f'<span class="health-dot" style="background:{T["warn"]};"></span>'
+                                        f'<span style="font-weight:600;">{_blr["name"]}</span> '
+                                        f'<span style="color:{T["warn"]};">BUY LOW'
+                                        f"{_xw_tag}</span></div>"
+                                    )
+
+                            if _sc_rows:
+                                render_context_card("Statcast Signals", "".join(_sc_rows))
                 except Exception:
                     pass  # Graceful degradation — skip card on any error
 

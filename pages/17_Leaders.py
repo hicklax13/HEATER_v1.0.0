@@ -762,57 +762,73 @@ with main:
                         suffixes=("", "_pool"),
                     )
 
-                scored = compute_breakout_scores_batch(stats_df_bo)
+                # Guard: when all key Statcast columns are NULL every player
+                # scores exactly 50.0 (the `pool is None` fallback in
+                # compute_breakout_score).  Detect this before scoring so we
+                # show a meaningful empty state instead of 20 identical 50.0 rows.
+                _key_statcast_cols = ["barrel_pct", "xwoba", "hard_hit_pct", "stuff_plus"]
+                _available_sc = [c for c in _key_statcast_cols if c in stats_df_bo.columns]
+                _has_statcast = bool(_available_sc and stats_df_bo[_available_sc].notna().any().any())
 
-                # Filter and sort
-                scored = scored.sort_values("breakout_score", ascending=False)
-
-                # Separate candidates (>70) and rest
-                candidates = scored[scored["breakout_score"] >= 70].head(25)
-                others = scored[(scored["breakout_score"] >= 40) & (scored["breakout_score"] < 70)].head(15)
-
-                if candidates.empty:
-                    st.info("No players currently score above 70. Showing top scorers instead.")
-                    candidates = scored.head(20)
-
-                _BO_DISPLAY = {
-                    "name": "Player",
-                    "team": "Team",
-                    "positions": "Position",
-                    "breakout_score": "Breakout Score",
-                    "breakout_flag": "Status",
-                    "rostered_by": "Rostered By",
-                }
-
-                def _format_bo_table(df_in: pd.DataFrame) -> pd.DataFrame:
-                    df_out = df_in.copy()
-                    df_out["breakout_score"] = df_out["breakout_score"].round(1)
-                    df_out["breakout_flag"] = df_out["breakout_score"].apply(
-                        lambda s: "Breakout Candidate" if s >= 70 else ("Watch List" if s >= 55 else "")
+                if not _has_statcast:
+                    render_empty_state(
+                        "Statcast data not loaded",
+                        "Breakout scores require barrel rate, xwOBA, hard-hit%, and Stuff+ data. "
+                        "Run a full data refresh from the sidebar to populate Statcast metrics.",
+                        "chart",
                     )
-                    show = ["name", "team", "positions", "breakout_score", "breakout_flag"]
-                    if "rostered_by" in df_out.columns:
-                        show.append("rostered_by")
-                    if "mlb_id" in df_out.columns:
-                        show.append("mlb_id")
-                    show = [c for c in show if c in df_out.columns]
-                    return df_out[show].rename(columns=_BO_DISPLAY)
+                else:
+                    scored = compute_breakout_scores_batch(stats_df_bo)
 
-                st.subheader("Breakout Candidates (Score 70+)")
-                st.caption(f"Showing {len(candidates)} players")
-                render_compact_table(_format_bo_table(candidates))
+                    # Filter and sort
+                    scored = scored.sort_values("breakout_score", ascending=False)
 
-                if "player_id" in candidates.columns:
-                    render_player_select(
-                        candidates["name"].tolist(),
-                        candidates["player_id"].tolist(),
-                        key_suffix="leaders_bo",
-                    )
+                    # Separate candidates (>70) and rest
+                    candidates = scored[scored["breakout_score"] >= 70].head(25)
+                    others = scored[(scored["breakout_score"] >= 40) & (scored["breakout_score"] < 70)].head(15)
 
-                if not others.empty:
-                    st.subheader("Watch List (Score 40-70)")
-                    st.caption(f"Showing {len(others)} players")
-                    render_compact_table(_format_bo_table(others))
+                    if candidates.empty:
+                        st.info("No players currently score above 70. Showing top scorers instead.")
+                        candidates = scored.head(20)
+
+                    _BO_DISPLAY = {
+                        "name": "Player",
+                        "team": "Team",
+                        "positions": "Position",
+                        "breakout_score": "Breakout Score",
+                        "breakout_flag": "Status",
+                        "rostered_by": "Rostered By",
+                    }
+
+                    def _format_bo_table(df_in: pd.DataFrame) -> pd.DataFrame:
+                        df_out = df_in.copy()
+                        df_out["breakout_score"] = df_out["breakout_score"].round(1)
+                        df_out["breakout_flag"] = df_out["breakout_score"].apply(
+                            lambda s: "Breakout Candidate" if s >= 70 else ("Watch List" if s >= 55 else "")
+                        )
+                        show = ["name", "team", "positions", "breakout_score", "breakout_flag"]
+                        if "rostered_by" in df_out.columns:
+                            show.append("rostered_by")
+                        if "mlb_id" in df_out.columns:
+                            show.append("mlb_id")
+                        show = [c for c in show if c in df_out.columns]
+                        return df_out[show].rename(columns=_BO_DISPLAY)
+
+                    st.subheader("Breakout Candidates (Score 70+)")
+                    st.caption(f"Showing {len(candidates)} players")
+                    render_compact_table(_format_bo_table(candidates))
+
+                    if "player_id" in candidates.columns:
+                        render_player_select(
+                            candidates["name"].tolist(),
+                            candidates["player_id"].tolist(),
+                            key_suffix="leaders_bo",
+                        )
+
+                    if not others.empty:
+                        st.subheader("Watch List (Score 40-70)")
+                        st.caption(f"Showing {len(others)} players")
+                        render_compact_table(_format_bo_table(others))
 
             except Exception as e:
                 st.error(f"Failed to compute breakout scores: {e}")
@@ -1012,7 +1028,13 @@ with main:
     def _trend_key_stats(rows) -> list[str]:
         out = []
         for _, row in rows.iterrows():
-            is_h = int(row.get("is_hitter", 1) or 1)
+            # Safe coercion: 0/0.0/"0" must remain 0 (pitcher).
+            # `int(0 or 1) == 1` is the bug — `or 1` turns pitchers into hitters.
+            _raw_ih = row.get("is_hitter", 1)
+            try:
+                is_h = int(float(_raw_ih)) if _raw_ih is not None else 1
+            except (ValueError, TypeError):
+                is_h = 1
             if is_h:
                 avg_val = float(row.get("avg", 0) or 0)
                 hr_val = int(row.get("hr", 0) or 0)
