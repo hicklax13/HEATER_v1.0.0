@@ -680,10 +680,14 @@ def render_tabs(pool: pd.DataFrame, ds: DraftState) -> None:
             render_styled_table(disp_sorted, max_height=400)
 
             # Player card selector
+            # Use plain (pre-headshot) names from `disp` so the selectbox options
+            # are readable text and not raw <img ...> HTML strings.
             if "player_id" in disp.columns:
-                _disp_ids = disp.sort_values("pick_score", ascending=False)["player_id"].tolist()
+                _disp_sorted_plain = disp.sort_values("pick_score", ascending=False)
+                _disp_ids = _disp_sorted_plain["player_id"].tolist()
+                _plain_names = _disp_sorted_plain["player_name"].tolist()
                 render_player_select(
-                    disp_sorted["Player"].tolist(),
+                    _plain_names,
                     _disp_ids,
                     key_suffix="draftsim",
                 )
@@ -902,9 +906,13 @@ with main:
             st.rerun()
     with btn_col2:
         if st.button("Undo Last Pick") and ds.pick_log:
-            ds.undo_last_pick()
-            # If we undid back to opponent territory, let AI re-pick up to user turn
-            auto_pick_opponents(pool)
+            # Pop AI picks until the user's own last pick is at the top of the log,
+            # then pop that too. This rewinds back THROUGH the user's pick so it's
+            # the user's turn again — without immediately re-making the AI picks.
+            while ds.pick_log and ds.pick_log[-1]["team_index"] != ds.user_team_index:
+                ds.undo_last_pick()
+            if ds.pick_log and ds.pick_log[-1]["team_index"] == ds.user_team_index:
+                ds.undo_last_pick()
             st.rerun()
 
     # Recommendations or waiting state
