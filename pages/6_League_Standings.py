@@ -221,6 +221,50 @@ def _build_banner_teaser(matchup: dict | None) -> str:
     return teaser
 
 
+# ── Helper: build reco banner expanded_html ──────────────────────────
+
+
+def _build_banner_expanded_html(
+    records_df: pd.DataFrame,
+    user_team: str | None,
+    standings_df: pd.DataFrame | None = None,
+) -> str:
+    """Build a one-line 'do this next' hint for the reco banner expanded panel.
+
+    Considers the user's current rank and GB from the playoff line (4th seed)
+    to suggest the most relevant next action.  Returns an empty string when
+    there is not enough data to build a meaningful hint.
+    """
+    if records_df.empty or not user_team:
+        return ""
+    user_row = records_df[records_df["team_name"] == user_team]
+    if user_row.empty:
+        return ""
+    u = user_row.iloc[0]
+    rank = int(u.get("rank", 0))
+    wins = int(u.get("wins", 0))
+
+    # Determine GB from playoff line
+    if rank <= _PLAYOFF_SPOTS:
+        fifth_row = records_df[records_df["rank"] == _PLAYOFF_SPOTS + 1]
+        if not fifth_row.empty:
+            cushion = wins - int(fifth_row.iloc[0]["wins"])
+            hint = f"You're {cushion}W ahead of the playoff cut — protect your lead on Free Agents."
+        else:
+            hint = "You're in playoff position — check Free Agents to extend your lead."
+    else:
+        fourth_row = records_df[records_df["rank"] == _PLAYOFF_SPOTS]
+        if not fourth_row.empty:
+            gb = int(fourth_row.iloc[0]["wins"]) - wins
+            hint = (
+                f"You're {gb} GB of the {_ordinal(_PLAYOFF_SPOTS)} seed — target your weakest category on Free Agents."
+            )
+        else:
+            hint = "You're outside the playoffs — visit Free Agents to improve your roster."
+
+    return f'<span style="font-size:13px;color:var(--fp-tx);">{_html.escape(hint)}</span>'
+
+
 # ── Helper: rank badge HTML ───────────────────────────────────────────
 
 
@@ -273,12 +317,33 @@ user_team = _get_user_team_name(records_df)
 # ── Banner ────────────────────────────────────────────────────────────
 
 banner_teaser = _build_banner_teaser(matchup)
+_banner_expanded = _build_banner_expanded_html(records_df, user_team)
 render_page_header(
     "League Standings",
     eyebrow="LEAGUE",
     fig="FIG.06 — STANDINGS BOARD",
 )
-render_reco_banner(banner_teaser, "", "league_standings")
+render_reco_banner(banner_teaser, _banner_expanded, "league_standings")
+
+# ── Deep-links: navigate to relevant action pages ─────────────────────
+# Show after the banner so the user can jump directly to the right page.
+if not records_df.empty and user_team:
+    _user_rank_row = records_df[records_df["team_name"] == user_team]
+    _user_rank = int(_user_rank_row.iloc[0]["rank"]) if not _user_rank_row.empty else 99
+    _link_col1, _link_col2 = st.columns([1, 1])
+    with _link_col1:
+        st.page_link(
+            "pages/14_Free_Agents.py",
+            label="Free Agents — improve your weakest category",
+            icon=":material/person_add:",
+        )
+    with _link_col2:
+        st.page_link(
+            "pages/5_Matchup_Planner.py",
+            label="Matchup Planner — see this week's category odds",
+            icon=":material/calendar_today:",
+        )
+
 render_matchup_ticker()
 render_data_freshness_chip("standings")
 render_glossary_expander(

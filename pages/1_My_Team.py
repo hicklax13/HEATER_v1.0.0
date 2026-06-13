@@ -908,7 +908,13 @@ else:
             if banner_teaser:
                 from src.ui_shared import render_reco_banner
 
-                render_reco_banner(banner_teaser, "", "my_team")
+                _banner_expanded_html = (
+                    '<span style="font-size:13px;color:var(--fp-tx);">'
+                    "Check Free Agents to upgrade weak categories, "
+                    "or Pitcher Streaming for K/ERA/W improvements."
+                    "</span>"
+                )
+                render_reco_banner(banner_teaser, _banner_expanded_html, "my_team")
             from src.ui_shared import render_matchup_ticker
 
             render_matchup_ticker()
@@ -1094,6 +1100,28 @@ else:
                         ),
                         unsafe_allow_html=True,
                     )
+
+                    # ── Deep-links below Flippable Categories ──
+                    # Determine whether any flippable cat is pitching-related so
+                    # we can route to Pitcher Streaming vs Free Agents.
+                    _pit_flip_cats = {"K", "W", "ERA", "WHIP", "SV", "L"}
+                    _has_pit_flip = any(fl.get("category", "") in _pit_flip_cats for fl in flippables)
+                    _has_hit_flip = any(fl.get("category", "") not in _pit_flip_cats for fl in flippables)
+                    _fl_link_col1, _fl_link_col2 = st.columns([1, 1])
+                    if _has_hit_flip or not _has_pit_flip:
+                        with _fl_link_col1:
+                            st.page_link(
+                                "pages/14_Free_Agents.py",
+                                label="Free Agents — find hitter upgrades",
+                                icon=":material/person_add:",
+                            )
+                    if _has_pit_flip:
+                        with _fl_link_col2 if _has_hit_flip else _fl_link_col1:
+                            st.page_link(
+                                "pages/4_Pitcher_Streaming.py",
+                                label="Pitcher Streaming — stream for K/ERA/W",
+                                icon=":material/sports_baseball:",
+                            )
 
                 # ── Card 3: Today's Actions (mockup .panel + .arow rows) ──
                 # Each row: PRI·N orange chip + player name + team logo/abbr +
