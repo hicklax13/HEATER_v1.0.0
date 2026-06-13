@@ -244,7 +244,7 @@ else:
                     era_str = format_stat(item["era"], "ERA") if item["era"] else "—"
                     whip_str = format_stat(item["whip"], "WHIP") if item["whip"] else "—"
                     sv_str = f"{int(item['projected_sv'])}" if item["projected_sv"] else "—"
-                    setup_str = _html.escape(", ".join(item["setup_names"]) if item["setup_names"] else "—")
+                    setup_str = _html.escape(", ".join(item["setup_names"])) if item["setup_names"] else ""
                     closer_name_safe = _html.escape(item["closer_name"])
                     headshot = _headshot_img_html(item.get("mlb_id"), size=34)
 
@@ -273,7 +273,7 @@ else:
                     _team_label_ink = text_on(_tc)
 
                     # Recent form indicator from MatchupContextService
-                    form_html = "<!-- no form data -->"
+                    form_html = ""
                     try:
                         from src.matchup_context import get_matchup_context
 
@@ -297,8 +297,9 @@ else:
                     except Exception:
                         pass
 
-                    # gmLI trust indicator (data may come from session_state in future)
-                    gmli_html = "<!-- no gmli data -->"
+                    # gmLI trust indicator (data may come from session_state in future).
+                    # Default is empty string — the row is omitted when no data exists.
+                    gmli_html = ""
                     _gmli_data = st.session_state.get("closer_gmli_data", {})
                     _player_gmli = _gmli_data.get(closer_name, {})
                     _gmli_val = _player_gmli.get("gmli") if _player_gmli else None
@@ -329,7 +330,7 @@ else:
                         )
 
                     # Build actual stats line if available
-                    actual_sv_html = "<!-- no actual stats -->"
+                    actual_sv_html = ""
                     if actual_sv is not None:
                         actual_era_str = format_stat(actual_era, "ERA") if actual_era else "—"
                         actual_whip_str = format_stat(actual_whip, "WHIP") if actual_whip else "—"
@@ -339,6 +340,19 @@ else:
                             f'letter-spacing:.02em;">2026 ACTUAL · {actual_sv} SV · {actual_era_str} ERA · '
                             f"{actual_whip_str} WHIP</div>"
                         )
+
+                    # SETUP row: only rendered when there are actual setup names.
+                    setup_row_html = (
+                        (
+                            '<div style="font-family:var(--font-mono);font-size:9px;'
+                            "color:var(--fp-tx-subtle);margin-top:4px;"
+                            "white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"
+                            'position:relative;z-index:1;letter-spacing:.02em;">'
+                            f"SETUP · {setup_str}</div>"
+                        )
+                        if setup_str
+                        else ""
+                    )
 
                     # Job-security heat bar: orange (secure) → steel (shaky).
                     _security_bar = build_heatbar_html(pct, win=(security >= 0.5))
@@ -388,10 +402,7 @@ else:
   {actual_sv_html}
   {form_html}
   {gmli_html}
-  <div style="font-family:var(--font-mono);font-size:9px;color:var(--fp-tx-subtle);margin-top:4px;
-       white-space:nowrap;overflow:hidden;text-overflow:ellipsis;position:relative;z-index:1;letter-spacing:.02em;">
-    SETUP · {setup_str}
-  </div>
+  {setup_row_html}
 </div>
 """,
                         unsafe_allow_html=True,

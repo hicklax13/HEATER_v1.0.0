@@ -242,8 +242,6 @@ def render_splash_screen():
 
     import time as _time
 
-    import streamlit.components.v1 as _components
-
     placeholder = st.empty()
     with placeholder.container():
         st.markdown(
@@ -261,6 +259,10 @@ def render_splash_screen():
         # Python/Streamlit can only update the UI during on_progress
         # callbacks (which fire at phase boundaries, not every second).
         # Without JS, the timer appears frozen between phase transitions.
+        # Delivered via st.html(unsafe_allow_javascript=True) — the supported
+        # native API that runs the inline <script> without the deprecated
+        # st.components.v1.html (removed after 2026-06-01). Plain st.markdown
+        # would strip the <script>; st.iframe takes a URL, not srcdoc HTML.
         _timer_color = T["tx"]
         _timer_html = (
             '<div id="heater-splash-timer" style="'
@@ -290,7 +292,7 @@ def render_splash_screen():
             "})();"
             "</script>"
         )
-        _components.html(_timer_html, height=48)
+        st.html(_timer_html, unsafe_allow_javascript=True)
         status_text = st.empty()
 
         _boot_start = _time.monotonic()
