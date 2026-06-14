@@ -63,6 +63,7 @@ from src.ui_shared import (
     sec,
 )
 from src.usage import bump_activity
+from src.user_data import load_view, save_view
 from src.valuation import (
     LeagueConfig,
     SGPCalculator,
@@ -2597,6 +2598,77 @@ def _render_multiuser_home_gate() -> bool:
     return True
 
 
+# ── Onboarding guide (R-8) ──────────────────────────────────────────
+
+
+def _onboarding_dismissed() -> bool:
+    """Return True if the current user has dismissed the onboarding guide.
+
+    Reads ``load_view("ui", "onboarding")`` and returns the ``dismissed`` flag.
+    Returns False on any error (missing view, corrupt JSON, DB locked) so that
+    the guide shows rather than crashes.
+    """
+    try:
+        data = load_view("ui", "onboarding")
+        if data is None:
+            return False
+        return bool(data.get("dismissed", False))
+    except Exception:
+        logger.debug("_onboarding_dismissed: load_view failed; defaulting to False.", exc_info=True)
+        return False
+
+
+def _render_onboarding_guide():
+    """Render the first-run 'Welcome to HEATER' guide on the Home page.
+
+    Shows once per user until they dismiss it.  After dismissal a small
+    expander re-opens the guide.  All persistence goes through
+    ``save_view`` / ``load_view`` so it works in both v1 and v2.
+
+    Rules: no emoji, no off-palette hex, native Streamlit only.
+    """
+    dismissed = _onboarding_dismissed()
+
+    if not dismissed:
+        with st.container():
+            st.markdown(
+                f'<div class="metric-card" style="border-left:4px solid {T["primary"]};'
+                f'padding:20px 24px;margin-bottom:16px;">'
+                f'<div style="font-family:var(--font-body);font-size:20px;font-weight:700;'
+                f'color:{T["tx"]};margin-bottom:8px;">Welcome to HEATER</div>'
+                f'<div style="font-family:var(--font-body);font-size:14px;color:{T["tx2"]};'
+                f'margin-bottom:12px;">'
+                f"The draft is done. Here is where to go each day to manage your team."
+                f"</div>"
+                f'<ol style="font-family:var(--font-body);font-size:14px;color:{T["tx"]};'
+                f'line-height:1.8;margin:0 0 0 16px;padding:0;">'
+                f"<li><strong>My Team</strong> &mdash; check your roster and this week's matchup first.</li>"
+                f"<li><strong>Lineup Optimizer</strong> &mdash; set today's starting lineup.</li>"
+                f"<li><strong>Matchup Planner / Free Agents</strong> &mdash; find category edges and pickups.</li>"
+                f"<li><strong>Trade Analyzer</strong> &mdash; evaluate any deals before you pull the trigger.</li>"
+                f"</ol>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+
+            if st.button("Got it — don't show again", key="_onboarding_dismiss_btn"):
+                try:
+                    save_view("ui", "onboarding", {"dismissed": True})
+                except Exception:
+                    logger.debug("_render_onboarding_guide: save_view failed.", exc_info=True)
+                st.rerun()
+    else:
+        # Re-open affordance — small expander so the guide stays accessible.
+        with st.expander("Show getting-started guide", expanded=False):
+            st.markdown(
+                "**Your daily in-season workflow:**\n\n"
+                "1. **My Team** — check your roster and this week's matchup.\n"
+                "2. **Lineup Optimizer** — set today's starting lineup.\n"
+                "3. **Matchup Planner / Free Agents** — find category edges and pickups.\n"
+                "4. **Trade Analyzer** — evaluate any deals before you accept or send."
+            )
+
+
 def render_single_user_app():
     """The v1 single-user experience: splash/bootstrap, refresh, draft flow.
 
@@ -2616,6 +2688,7 @@ def render_single_user_app():
             st.info(
                 "Draft's done — head to **My Team**, **Lineup Optimizer**, or **Free Agents** to manage your season."
             )
+            _render_onboarding_guide()
     else:
         render_splash_screen()
 
