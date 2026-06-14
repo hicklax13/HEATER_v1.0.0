@@ -2886,6 +2886,65 @@ def inject_custom_css():
     .rtbl td.ph a {{ cursor: pointer !important; }}
     .rtbl td.ph a b {{ color: var(--fp-primary) !important; }}
     .rtbl td.ph a:hover b {{ text-decoration: underline !important; text-underline-offset: 2px !important; }}
+
+    /* ── MOBILE RESPONSIVE (R-7) — additive; desktop rules unchanged ── */
+    /* Breakpoint: tablets and phones (≤768px) */
+    @media (max-width: 768px) {{
+        /* Tables: iOS momentum scroll on compact-table containers.
+           Desktop already has overflow-x:auto — this adds the WebKit
+           touch-acceleration layer for smooth finger-swipe on Safari/iOS. */
+        .compact-table-wrap {{
+            -webkit-overflow-scrolling: touch !important;
+        }}
+
+        /* Touch targets: buttons, tab labels, and nav links must be at
+           least 44px tall (WCAG 2.5.5 / Apple HIG) so thumbs can tap
+           without mis-hitting an adjacent control. */
+        .stButton > button,
+        .stTabs [data-baseweb="tab"],
+        [data-testid="stSidebarNav"] a {{
+            min-height: 44px !important;
+            padding-top: 10px !important;
+            padding-bottom: 10px !important;
+        }}
+
+        /* Hero numerals: scale down so oversized figures don't clip or
+           overflow the narrow phone viewport. Desktop uses large fixed px
+           sizes set by individual pages; clamp keeps them readable. */
+        .hero-num {{
+            font-size: clamp(28px, 8vw, 48px) !important;
+            font-stretch: 100% !important;
+        }}
+        .heater-h1 {{
+            font-size: clamp(22px, 6vw, 36px) !important;
+        }}
+
+        /* Cards: reduce horizontal padding so card content has breathing
+           room without the 20px desktop gutters cramping a 375px screen. */
+        .glass, .fp-card, .metric-card {{
+            padding: 12px !important;
+        }}
+
+        /* Columns: Streamlit's st.columns() rows can cramp on very small
+           screens — allow wrapping so items stack vertically. */
+        [data-testid="stHorizontalBlock"] {{
+            flex-wrap: wrap !important;
+        }}
+    }}
+
+    /* Phone-only: tightest adjustments for ≤480px */
+    @media (max-width: 480px) {{
+        .compact-table {{
+            font-size: 11px !important;
+        }}
+        .sec-head {{
+            font-size: 16px !important;
+        }}
+        [data-testid="stMainBlockContainer"] {{
+            padding-left: 8px !important;
+            padding-right: 8px !important;
+        }}
+    }}
     </style>
     """,
         unsafe_allow_html=True,
