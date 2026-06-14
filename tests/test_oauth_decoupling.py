@@ -24,12 +24,25 @@ YDS_PATH = REPO_ROOT / "src" / "yahoo_data_service.py"
 
 
 def _find_optimize_clicked_blocks(tree: ast.Module) -> list[ast.If]:
-    """Return all `if optimize_clicked:` blocks in the parsed page."""
+    """Return all ``if optimize_clicked`` blocks in the parsed page.
+
+    Matches both the simple form ``if optimize_clicked:`` and the guarded
+    form ``if optimize_clicked and not ...:`` (R-6 compound condition).
+    """
     blocks: list[ast.If] = []
     for node in ast.walk(tree):
-        if isinstance(node, ast.If) and isinstance(node.test, ast.Name):
-            if node.test.id == "optimize_clicked":
-                blocks.append(node)
+        if not isinstance(node, ast.If):
+            continue
+        # Simple: ``if optimize_clicked:``
+        if isinstance(node.test, ast.Name) and node.test.id == "optimize_clicked":
+            blocks.append(node)
+            continue
+        # Compound: ``if optimize_clicked and ...:``
+        if isinstance(node.test, ast.BoolOp) and isinstance(node.test.op, ast.And):
+            for val in node.test.values:
+                if isinstance(val, ast.Name) and val.id == "optimize_clicked":
+                    blocks.append(node)
+                    break
     return blocks
 
 
