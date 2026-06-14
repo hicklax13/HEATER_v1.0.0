@@ -83,12 +83,14 @@ class TestOptimizerPageReadsDbTable:
         assert "def _effective_park_factors(" in src
         assert "load_park_factors(" in src
 
-        # No park_factors= kwarg may still pass the bare frozen alias. Every
-        # call site must go through the DB-backed resolver.
+        # No park_factors= kwarg may still pass the bare frozen PARK_FACTORS
+        # alias. Call sites resolve via _effective_park_factors(); the threaded
+        # optimize compute (R-6) receives that already-resolved value as a param
+        # and forwards a lowercase `park_factors` variable, which is fine.
         for lineno, line in enumerate(src.splitlines(), start=1):
             stripped = line.strip()
             if stripped.startswith("park_factors=") or stripped.startswith("park_factors =("):
-                assert "_effective_park_factors" in line, (
-                    f"pages/2_Line-up_Optimizer.py:{lineno} passes park_factors "
-                    f"without the DB-backed resolver: {line.strip()!r}"
+                assert "PARK_FACTORS" not in line or "_effective_park_factors" in line, (
+                    f"pages/2_Line-up_Optimizer.py:{lineno} passes the bare frozen "
+                    f"PARK_FACTORS alias instead of the DB-backed resolver: {line.strip()!r}"
                 )
