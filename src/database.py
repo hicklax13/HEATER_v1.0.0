@@ -1006,6 +1006,29 @@ def _init_multiuser_tables(conn):
             completed_at TEXT
         );
         CREATE INDEX IF NOT EXISTS idx_refresh_queue_status ON forced_refresh_queue(status);
+
+        -- Phase 7: per-user watchlists. Works in v1 (user_id=0) and v2.
+        CREATE TABLE IF NOT EXISTS user_watchlist (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL DEFAULT 0,
+            player_id INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE(user_id, player_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_watchlist_user ON user_watchlist(user_id);
+
+        -- Phase 7: per-user saved lineups / trades (opaque JSON payload).
+        -- kind is e.g. "lineup" or "trade"; name is user-chosen label.
+        CREATE TABLE IF NOT EXISTS user_saved_views (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL DEFAULT 0,
+            kind TEXT NOT NULL,
+            name TEXT NOT NULL,
+            payload_json TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE(user_id, kind, name)
+        );
+        CREATE INDEX IF NOT EXISTS idx_saved_views_user_kind ON user_saved_views(user_id, kind);
     """)
     conn.commit()
 
