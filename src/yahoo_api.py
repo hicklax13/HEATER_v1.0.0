@@ -2354,6 +2354,263 @@ class YahooFantasyClient:
             "opp_points": opp_points,
         }
 
+    # ------------------------------------------------------------------
+    # Write methods (R-1 backend): set_lineup + add_drop
+    # ------------------------------------------------------------------
+    # Both methods reach Yahoo's write API via _get_bearer_token() — the same
+    # path used by get_free_agents / _supplement_standings_with_season_stats.
+    # They NEVER raise to the caller; all failure paths return structured dicts.
+    #
+    # Endpoints:
+    #   PUT  /fantasy/v2/team/{team_key}/roster          — set lineup
+    #   POST /fantasy/v2/league/{league_key}/transactions — add / drop
+    #
+    # 401/403 both map to the "fspt-w" not-authorized message because Yahoo
+    # returns 401 when the token is valid but the app scope lacks write
+    # permission (fspt-w), and 403 when the token is expired/invalid.
+    # ------------------------------------------------------------------
+
+    _WRITE_AUTH_ERROR = (
+        "Yahoo write access not authorized — your Yahoo app may need write (fspt-w) permission; re-authorize Yahoo."
+    )
+
+    @staticmethod
+    def _build_roster_xml(assignments: list[dict], coverage_date: str) -> str:
+        """Build the XML body for a PUT /team/{team_key}/roster request.
+
+        Args:
+            assignments: List of ``{"player_key": str, "position": str}``.
+            coverage_date: ISO date string ``"YYYY-MM-DD"``.
+
+        Returns:
+            XML string suitable for the request body.
+        """
+        lines = [
+            '<?xml version="1.0" encoding="UTF-8"?>',
+            "<fantasy_content>",
+            "  <roster>",
+            "    <coverage_type>date</coverage_type>",
+            f"    <date>{coverage_date}</date>",
+            "    <players>",
+        ]
+        for a in assignments:
+            lines += [
+                "      <player>",
+                f"        <player_key>{a['player_key']}</player_key>",
+                "        <position>",
+                f"          <position>{a['position']}</position>",
+                "        </position>",
+                "      </player>",
+            ]
+        lines += [
+            "    </players>",
+            "  </roster>",
+            "</fantasy_content>",
+        ]
+        return "\n".join(lines)
+
+    @staticmethod
+    def _build_transaction_xml(
+        add_player_key: str | None,
+        drop_player_key: str | None,
+        team_key: str,
+    ) -> str:
+        """Build the XML body for a POST /league/{league_key}/transactions request.
+
+        Supports add+drop, add-only, and drop-only in one helper.
+
+        Args:
+            add_player_key: Yahoo player key to add, or ``None``.
+            drop_player_key: Yahoo player key to drop, or ``None``.
+            team_key: Destination/source team key (e.g. ``"469.l.109662.t.7"``).
+
+        Returns:
+            XML string suitable for the POST body.
+        """
+        if add_player_key and drop_player_key:
+            tx_type = "add/drop"
+        elif add_player_key:
+            tx_type = "add"
+        else:
+            tx_type = "drop"
+
+        lines = [
+            '<?xml version="1.0" encoding="UTF-8"?>',
+            "<fantasy_content>",
+            "  <transaction>",
+            f"    <type>{tx_type}</type>",
+            "    <players>",
+        ]
+
+        if add_player_key:
+            lines += [
+                "      <player>",
+                f"        <player_key>{add_player_key}</player_key>",
+                "        <transaction_data>",
+                "          <type>add</type>",
+                f"          <destination_team_key>{team_key}</destination_team_key>",
+                "        </transaction_data>",
+                "      </player>",
+            ]
+
+        if drop_player_key:
+            lines += [
+                "      <player>",
+                f"        <player_key>{drop_player_key}</player_key>",
+                "        <transaction_data>",
+                "          <type>drop</type>",
+                f"          <source_team_key>{team_key}</source_team_key>",
+                "        </transaction_data>",
+                "      </player>",
+            ]
+
+        lines += [
+            "    </players>",
+            "  </transaction>",
+            "</fantasy_content>",
+        ]
+        return "\n".join(lines)
+
+    def set_lineup(
+        self,
+        assignments: list[dict],
+        coverage_date: str,
+    ) -> dict:
+        """Set the user's lineup for a given date via Yahoo Fantasy API.
+
+        Sends a PUT to ``/fantasy/v2/team/{team_key}/roster`` with an XML body
+        listing each player's desired slot for ``coverage_date``.
+
+        Args:
+            assignments: ``[{"player_key": str, "position": str}, ...]``.
+                Each entry maps a Yahoo player key to its desired slot
+                (e.g. ``"SS"``, ``"BN"``, ``"SP"``).
+            coverage_date: Date the lineup applies to, ``"YYYY-MM-DD"``.
+
+        Returns:
+            ``{"ok": True, "applied": N}`` on success, or
+            ``{"ok": False, "error": str, "status": int | None}`` on any
+            failure. **Never raises.**
+        """
+        if not self._ensure_auth():
+            return {"ok": False, "error": "Not connected to Yahoo.", "status": None}
+
+        token = self._get_bearer_token()
+        if not token:
+            return {"ok": False, "error": "Not connected to Yahoo.", "status": None}
+
+        team_key = getattr(self._query, "league_key", "").replace(".l.", ".l.") + ".t."
+        # Build the proper team_key from league_key + user's team id
+        # For the write endpoint we use the league_key attribute that was set
+        # in authenticate() — format: "{game_id}.l.{league_id}".
+        # The PUT URL uses the *user's* full team_key. We discover it lazily
+        # via _get_user_team_key(); fall back to composing one from the league
+        # key if discovery fails (callers with explicit team_key can override
+        # by passing it inside assignments metadata — but the simple contract
+        # doesn't require it, so we use what we can discover).
+        user_team_key = self._get_user_team_key() or (getattr(self._query, "league_key", "") + ".t.1")
+
+        url = f"https://fantasysports.yahooapis.com/fantasy/v2/team/{user_team_key}/roster"
+        xml_body = self._build_roster_xml(assignments, coverage_date)
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/xml",
+        }
+
+        try:
+            _rate_limit()
+            resp = _requests.put(url, data=xml_body.encode("utf-8"), headers=headers, timeout=20)
+        except Exception as exc:
+            logger.warning("set_lineup: network error: %s: %s", type(exc).__name__, exc)
+            return {"ok": False, "error": f"Network error: {type(exc).__name__}", "status": None}
+
+        if resp.status_code in (401, 403):
+            logger.warning("set_lineup: HTTP %d — Yahoo write access denied.", resp.status_code)
+            return {"ok": False, "error": self._WRITE_AUTH_ERROR, "status": resp.status_code}
+
+        if resp.status_code != 200:
+            logger.warning("set_lineup: HTTP %d from Yahoo.", resp.status_code)
+            return {
+                "ok": False,
+                "error": f"Yahoo returned HTTP {resp.status_code}.",
+                "status": resp.status_code,
+            }
+
+        logger.info("set_lineup: applied %d player assignments for %s.", len(assignments), coverage_date)
+        return {"ok": True, "applied": len(assignments)}
+
+    def add_drop(
+        self,
+        add_player_key: str | None,
+        drop_player_key: str | None,
+    ) -> dict:
+        """Add and/or drop a player via Yahoo Fantasy API.
+
+        Posts a transaction (add, drop, or add/drop) to
+        ``/fantasy/v2/league/{league_key}/transactions``.
+
+        Args:
+            add_player_key: Yahoo player key to add (e.g. ``"469.p.11111"``),
+                or ``None`` for a drop-only transaction.
+            drop_player_key: Yahoo player key to drop, or ``None`` for
+                add-only.
+
+        Returns:
+            ``{"ok": True}`` on success, or
+            ``{"ok": False, "error": str, "status": int | None}`` on any
+            failure. **Never raises.**
+        """
+        if not self._ensure_auth():
+            return {"ok": False, "error": "Not connected to Yahoo.", "status": None}
+
+        if not add_player_key and not drop_player_key:
+            return {
+                "ok": False,
+                "error": "Must provide at least one of add_player_key or drop_player_key.",
+                "status": None,
+            }
+
+        token = self._get_bearer_token()
+        if not token:
+            return {"ok": False, "error": "Not connected to Yahoo.", "status": None}
+
+        league_key = getattr(self._query, "league_key", None) or (f"{self._query.game_id}.l.{self.league_id}")
+        user_team_key = self._get_user_team_key() or (league_key + ".t.1")
+
+        url = f"https://fantasysports.yahooapis.com/fantasy/v2/league/{league_key}/transactions"
+        xml_body = self._build_transaction_xml(
+            add_player_key=add_player_key,
+            drop_player_key=drop_player_key,
+            team_key=user_team_key,
+        )
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/xml",
+        }
+
+        try:
+            _rate_limit()
+            resp = _requests.post(url, data=xml_body.encode("utf-8"), headers=headers, timeout=20)
+        except Exception as exc:
+            logger.warning("add_drop: network error: %s: %s", type(exc).__name__, exc)
+            return {"ok": False, "error": f"Network error: {type(exc).__name__}", "status": None}
+
+        if resp.status_code in (401, 403):
+            logger.warning("add_drop: HTTP %d — Yahoo write access denied.", resp.status_code)
+            return {"ok": False, "error": self._WRITE_AUTH_ERROR, "status": resp.status_code}
+
+        if resp.status_code != 200:
+            logger.warning("add_drop: HTTP %d from Yahoo.", resp.status_code)
+            return {
+                "ok": False,
+                "error": f"Yahoo returned HTTP {resp.status_code}.",
+                "status": resp.status_code,
+            }
+
+        action = "add+drop" if (add_player_key and drop_player_key) else ("add" if add_player_key else "drop")
+        logger.info("add_drop: %s transaction succeeded.", action)
+        return {"ok": True}
+
     def get_all_team_matchups(self) -> dict:
         """Every team's current-week matchup, keyed by team name.
 
