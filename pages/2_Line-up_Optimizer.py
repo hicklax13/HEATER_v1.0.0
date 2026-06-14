@@ -157,6 +157,50 @@ def _build_lineup_payload(
     }
 
 
+def _build_lineup_assignments(
+    result: dict,
+    roster: pd.DataFrame,
+) -> list[dict]:
+    """Build the Yahoo ``assignments`` list from the LP slot map + roster.
+
+    Args:
+        result: The optimizer result dict; must contain ``"lp_slot_map"``
+            (``{player_id: slot_str}``) to produce any output.
+        roster: DataFrame with at least ``player_id`` and
+            ``yahoo_player_key`` columns (from ``get_team_roster``).
+
+    Returns:
+        ``[{"player_key": str, "position": str}, ...]`` — one entry per
+        LP-assigned starter whose ``yahoo_player_key`` is non-empty.
+        Players missing a key are silently skipped (they cannot be written
+        to Yahoo).  Returns ``[]`` when ``lp_slot_map`` is absent or empty.
+    """
+    lp_slot_map: dict[int, str] = result.get("lp_slot_map") or {}
+    if not lp_slot_map or roster is None or roster.empty:
+        return []
+
+    # Build a pid → yahoo_player_key lookup from the roster.
+    if "player_id" not in roster.columns or "yahoo_player_key" not in roster.columns:
+        return []
+
+    key_lookup: dict[int, str] = {}
+    for _, row in roster.iterrows():
+        pid = row.get("player_id")
+        ykey = str(row.get("yahoo_player_key") or "").strip()
+        if pid is not None and ykey:
+            try:
+                key_lookup[int(pid)] = ykey
+            except (TypeError, ValueError):
+                pass
+
+    assignments: list[dict] = []
+    for pid, slot in lp_slot_map.items():
+        ykey = key_lookup.get(int(pid) if pid is not None else -1, "")
+        if ykey:
+            assignments.append({"player_key": ykey, "position": str(slot)})
+    return assignments
+
+
 # ── Background-thread executor (R-6: non-blocking optimize) ─────────
 # Single-worker executor: the optimizer is CPU-bound on one roster; a
 # second concurrent submit would just queue anyway.
@@ -1686,6 +1730,9 @@ with main:
                     # Stash empty-slot info for the display step
                     st.session_state["_lineup_empty_slots"] = _strategic_empty_slots
                     st.session_state["_lineup_filled_slots"] = set(_lp_slot_map.values())
+                    # Persist the LP slot map so the "Apply to Yahoo" UI can
+                    # build assignments on any rerun without rebinding the local.
+                    st.session_state["_lp_slot_map"] = dict(_lp_slot_map)
                 except Exception:
                     import logging as _lp_log
 
@@ -2068,6 +2115,131 @@ with main:
                     "Higher = more valuable today. LEAVE EMPTY = no eligible player, "
                     "all eligible players idle, or starting would hurt your matchup."
                 )
+
+                # ── R-1: Apply lineup to Yahoo (confirm-gated) ──────────────
+                # Only shown when the Yahoo write client is available (token-owner
+                # session). Read-only members and un-connected sessions see a small
+                # caption instead. The two-step confirm guard prevents accidental
+                # writes: click "Apply…" to preview the assignments, then either
+                # "Confirm & apply" to execute the write or "Cancel" to abort.
+                _apply_lp_slot_map = st.session_state.get("_lp_slot_map") or {}
+                _apply_coverage_date = st.session_state.get("_optimizer_target_date", "")
+                if yds.is_connected() and viewer_can_write():
+                    if _apply_lp_slot_map and _apply_coverage_date:
+                        _pending = st.session_state.get("_apply_lineup_pending", False)
+                        if not _pending:
+                            if st.button(
+                                "Apply this lineup to Yahoo",
+                                key="apply_lineup_to_yahoo",
+                                help="Preview the slot assignments before they are sent to Yahoo.",
+                            ):
+                                st.session_state["_apply_lineup_pending"] = True
+                                st.rerun()
+                        else:
+                            # ── Preview & confirm step ──────────────────────
+                            _apply_roster = st.session_state.get("_click_roster") or roster
+                            _apply_assignments = _build_lineup_assignments(
+                                {"lp_slot_map": _apply_lp_slot_map},
+                                _apply_roster,
+                            )
+                            st.markdown(
+                                f'<div style="background:rgba(255,109,0,0.06);'
+                                f"border:1px solid {T['primary']};border-radius:8px;"
+                                f'padding:10px 14px;margin:0 0 10px;">'
+                                f'<div style="font-size:14px;font-weight:700;'
+                                f'color:{T["primary"]};margin-bottom:6px;">'
+                                f"Confirm lineup for {_apply_coverage_date}</div>",
+                                unsafe_allow_html=True,
+                            )
+                            if _apply_assignments:
+                                _preview_lines = "".join(
+                                    f"<li><strong>{T['tx']}</strong>"
+                                    f"<span style='color:{T['tx']};'>"
+                                    f"{a['player_key']} → {a['position']}</span></li>"
+                                    for a in _apply_assignments
+                                )
+                                # Build a human-readable preview using player names
+                                # from the roster keyed by yahoo_player_key.
+                                _apply_roster_safe = _apply_roster if _apply_roster is not None else pd.DataFrame()
+                                _key_to_name: dict[str, str] = {}
+                                if not _apply_roster_safe.empty and "yahoo_player_key" in _apply_roster_safe.columns:
+                                    for _, _pr in _apply_roster_safe.iterrows():
+                                        _pk = str(_pr.get("yahoo_player_key") or "").strip()
+                                        _pn = str(_pr.get("name") or _pr.get("player_name") or _pk)
+                                        if _pk:
+                                            _key_to_name[_pk] = _pn
+                                _preview_rows = "".join(
+                                    f"<li style='margin:2px 0;'>"
+                                    f"<strong>{_key_to_name.get(a['player_key'], a['player_key'])}</strong>"
+                                    f" → <em>{a['position']}</em></li>"
+                                    for a in _apply_assignments
+                                )
+                                st.markdown(
+                                    f'<ul style="margin:0 0 8px;padding-left:20px;'
+                                    f'font-size:13px;color:{T["tx"]};">{_preview_rows}</ul>',
+                                    unsafe_allow_html=True,
+                                )
+                                st.markdown("</div>", unsafe_allow_html=True)
+                                _col_confirm, _col_cancel = st.columns([1, 1])
+                                with _col_confirm:
+                                    if st.button(
+                                        "Confirm & apply to Yahoo",
+                                        key="apply_lineup_confirm",
+                                        type="primary",
+                                    ):
+                                        _apply_client = yds._client
+                                        if _apply_client is not None:
+                                            _apply_result = _apply_client.set_lineup(
+                                                _apply_assignments,
+                                                _apply_coverage_date,
+                                            )
+                                        else:
+                                            _apply_result = {
+                                                "ok": False,
+                                                "error": "Yahoo client not available.",
+                                                "status": None,
+                                            }
+                                        st.session_state["_apply_lineup_pending"] = False
+                                        if _apply_result.get("ok"):
+                                            st.success("Lineup applied to Yahoo.")
+                                        else:
+                                            _apply_err = _apply_result.get("error", "Unknown error")
+                                            st.error(_apply_err)
+                                            # Manual-moves fallback so the user can set
+                                            # the lineup by hand if the API write failed.
+                                            _manual_lines = "".join(
+                                                f"<li>{_key_to_name.get(a['player_key'], a['player_key'])}"
+                                                f" → {a['position']}</li>"
+                                                for a in _apply_assignments
+                                            )
+                                            st.markdown(
+                                                f'<div style="margin-top:8px;padding:8px 12px;'
+                                                f"border-left:3px solid {T['tx2']};"
+                                                f"background:rgba(158,158,158,0.10);"
+                                                f"border-radius:4px;font-size:13px;"
+                                                f'color:{T["tx"]};">'
+                                                f"<b>Set manually in Yahoo:</b>"
+                                                f'<ul style="margin:4px 0 0;padding-left:18px;">'
+                                                f"{_manual_lines}</ul></div>",
+                                                unsafe_allow_html=True,
+                                            )
+                                with _col_cancel:
+                                    if st.button("Cancel", key="apply_lineup_cancel"):
+                                        st.session_state["_apply_lineup_pending"] = False
+                                        st.rerun()
+                            else:
+                                st.markdown("</div>", unsafe_allow_html=True)
+                                st.info(
+                                    "No slot assignments to apply — run Optimize first "
+                                    "or no players had Yahoo keys in the roster."
+                                )
+                                if st.button("Cancel", key="apply_lineup_cancel_empty"):
+                                    st.session_state["_apply_lineup_pending"] = False
+                                    st.rerun()
+                    else:
+                        st.caption("Run Optimize to generate a lineup before applying to Yahoo.")
+                else:
+                    st.caption("Connect Yahoo (as the team owner) to apply lineups.")
 
                 # FA recommendations for Today scope — daily streaming only.
                 # Long-term FA moves show on Rest-of-Week / Rest-of-Season

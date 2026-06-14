@@ -258,6 +258,86 @@ def _fa_recs_table_html(
     )
 
 
+def resolve_add_drop_keys(
+    rec: dict,
+    drop_player_id: int | None,
+    fa_df: pd.DataFrame,
+    roster_df: pd.DataFrame,
+) -> tuple[str | None, str | None, str | None]:
+    """Resolve Yahoo player keys needed for an add/drop transaction.
+
+    Looks up the add player's Yahoo ``player_key`` (from *fa_df* rows or
+    directly from *rec*) and the drop player's ``yahoo_player_key`` (from
+    *roster_df*).
+
+    Args:
+        rec:            The recommendation dict (carries ``add_player_id`` and
+                        optionally ``player_key``).
+        drop_player_id: The ``player_id`` of the player to drop.
+        fa_df:          Free-agent DataFrame — may carry a ``player_key`` column
+                        populated when Yahoo data is live.
+        roster_df:      The user's roster DataFrame — must carry
+                        ``yahoo_player_key`` (from ``league_rosters``).
+
+    Returns:
+        ``(add_key, drop_key, error_msg)`` where *error_msg* is ``None`` on
+        success or a human-readable string when a key could not be resolved.
+        *add_key* / *drop_key* are ``None`` when unresolvable.
+    """
+    add_player_id = rec.get("add_player_id")
+    add_name = rec.get("add_name", "this player")
+    drop_name = rec.get("drop_name", "this player")
+
+    # ── Resolve add key ───────────────────────────────────────────────────────
+    add_key: str | None = None
+
+    # 1. Try the rec itself (passed through from the Yahoo FA fetch)
+    raw_key = rec.get("player_key") or rec.get("add_player_key")
+    if raw_key and str(raw_key).strip():
+        add_key = str(raw_key).strip()
+
+    # 2. Fallback: look up in fa_df if it carries a player_key column
+    if not add_key and not fa_df.empty and "player_key" in fa_df.columns and add_player_id is not None:
+        _match = fa_df[fa_df["player_id"] == add_player_id]
+        if not _match.empty:
+            _k = _match.iloc[0].get("player_key")
+            if _k and str(_k).strip():
+                add_key = str(_k).strip()
+
+    if not add_key:
+        return (
+            None,
+            None,
+            (f"Couldn't resolve Yahoo player id for {add_name}. Please add {add_name} manually in Yahoo Fantasy."),
+        )
+
+    # ── Resolve drop key ──────────────────────────────────────────────────────
+    drop_key: str | None = None
+
+    if drop_player_id is not None and not roster_df.empty and "yahoo_player_key" in roster_df.columns:
+        # Prefer matching by player_id
+        id_col = "player_id" if "player_id" in roster_df.columns else None
+        if id_col:
+            _match = roster_df[roster_df[id_col] == drop_player_id]
+            if not _match.empty:
+                _k = _match.iloc[0].get("yahoo_player_key")
+                if _k and str(_k).strip():
+                    drop_key = str(_k).strip()
+
+    if not drop_key:
+        return (
+            None,
+            None,
+            (
+                f"Couldn't resolve Yahoo player id for {drop_name}. "
+                f"Please apply the move manually in Yahoo Fantasy: "
+                f"add {add_name} and drop {drop_name}."
+            ),
+        )
+
+    return add_key, drop_key, None
+
+
 def _sync_watchlist(
     selected_ids: set[int],
     current_ids: set[int],
@@ -917,6 +997,78 @@ with main:
         add_ids = [int(pid) for pid in add_ids_raw if pid is not None]
         if add_names and add_ids:
             render_player_select(add_names, add_ids, key_suffix="fa_merged_adds")
+
+        # ── R-1: Add/Drop on Yahoo (confirm-gated) ───────────────────────────
+        # Only show the write controls when a writable Yahoo client is connected
+        # (token-owner session). Read-only MULTI_USER members see a caption.
+        if yds.is_connected():
+            st.markdown(
+                f'<div style="font-size:11.5px;color:{T["tx2"]};margin:10px 0 6px;'
+                f'font-family:var(--font-body);">Apply a recommended add/drop directly to Yahoo:</div>',
+                unsafe_allow_html=True,
+            )
+            for _i, _rec in enumerate(filtered_recs):
+                _add_name = _rec.get("add_name", "")
+                _drop_name = _rec.get("drop_name", "")
+                if not _add_name or not _drop_name:
+                    continue
+                _btn_key = f"fa_add_drop_btn_{_i}"
+                _pending_key = f"fa_add_drop_pending_{_i}"
+                if st.button(
+                    f"Add/Drop on Yahoo: {_add_name} / {_drop_name}",
+                    key=_btn_key,
+                    type="secondary",
+                ):
+                    st.session_state[_pending_key] = _rec
+
+                if st.session_state.get(_pending_key):
+                    _pending_rec = st.session_state[_pending_key]
+                    _p_add = _pending_rec.get("add_name", "")
+                    _p_drop = _pending_rec.get("drop_name", "")
+                    st.markdown(
+                        f'<div style="background:var(--fp-surface);border:1px solid var(--fp-ember);'
+                        f'border-radius:8px;padding:10px 14px;margin:6px 0;font-family:var(--font-body);">'
+                        f'<b style="color:var(--fp-ember);">Confirm transaction</b><br>'
+                        f'<span style="font-size:13px;">Add: <b>{_html.escape(_p_add)}</b>'
+                        f" &nbsp;·&nbsp; Drop: <b>{_html.escape(_p_drop)}</b></span>"
+                        f"</div>",
+                        unsafe_allow_html=True,
+                    )
+                    _col_confirm, _col_cancel = st.columns([1, 1])
+                    with _col_confirm:
+                        if st.button("Confirm & apply to Yahoo", key=f"fa_confirm_{_i}", type="primary"):
+                            # Resolve Yahoo player keys
+                            _drop_pid = _pending_rec.get("drop_player_id")
+                            _add_key, _drop_key, _key_err = resolve_add_drop_keys(
+                                _pending_rec, _drop_pid, fa_pool, user_roster
+                            )
+                            if _key_err:
+                                st.error(_key_err)
+                            else:
+                                _client = yds._client
+                                result = _client.add_drop(
+                                    add_player_key=_add_key,
+                                    drop_player_key=_drop_key,
+                                )
+                                if result.get("ok"):
+                                    st.success(f"Add/drop submitted to Yahoo: add {_p_add}, drop {_p_drop}.")
+                                    st.session_state.pop(_pending_key, None)
+                                else:
+                                    _err_msg = result.get("error", "Unknown error from Yahoo.")
+                                    st.error(_err_msg)
+                                    st.info(
+                                        f"Please apply the move manually in Yahoo Fantasy: "
+                                        f"add {_p_add} and drop {_p_drop}."
+                                    )
+                    with _col_cancel:
+                        if st.button("Cancel", key=f"fa_cancel_{_i}"):
+                            st.session_state.pop(_pending_key, None)
+                            st.rerun()
+        else:
+            st.caption(
+                "Connect Yahoo (as the team owner) to apply moves directly. "
+                "Read-only members cannot submit transactions."
+            )
 
     # ── Section 2: This Week's Streams ────────────────────────────────────────
 
