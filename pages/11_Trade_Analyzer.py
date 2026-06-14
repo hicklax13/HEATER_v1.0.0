@@ -46,6 +46,7 @@ from src.ui_shared import (
     team_logo_url,
 )
 from src.usage import log_page_view
+from src.user_data import delete_view, list_views, load_view, save_view
 from src.valuation import LeagueConfig, add_process_risk, compute_percentile_projections, compute_projection_volatility
 from src.yahoo_data_service import get_yahoo_data_service
 
@@ -148,6 +149,64 @@ def _consume_trade_prefill(
 
     session_state["giving"] = giving_names
     session_state["receiving"] = receiving_names
+
+
+# ── R-3: Save / load named trade proposals ────────────────────────────────────
+
+
+def _save_trade_proposal(
+    name: str,
+    giving_ids: list,
+    receiving_ids: list,
+    result: dict | None,
+) -> None:
+    """Serialise the current proposal and persist it via save_view.
+
+    Args:
+        name:          User-supplied label for this saved trade.
+        giving_ids:    List of player_ids being traded away.
+        receiving_ids: List of player_ids being received.
+        result:        Trade engine result dict (grade/verdict captured if present).
+                       Pass None when no analysis has been run yet.
+    """
+    if not name or not name.strip():
+        return  # Blank/whitespace name → friendly no-op
+
+    payload: dict = {
+        "giving_ids": list(giving_ids),
+        "receiving_ids": list(receiving_ids),
+    }
+    if result is not None:
+        if "grade" in result:
+            payload["grade"] = result["grade"]
+        if "verdict" in result:
+            payload["verdict"] = result["verdict"]
+
+    save_view("trade", name.strip(), payload)
+
+
+def _load_trade_proposal(name: str, session_state: dict) -> None:
+    """Load a saved trade and restore it via the existing _tf_prefill mechanism.
+
+    Sets ``session_state["_tf_prefill"]`` with the saved giving_ids /
+    receiving_ids so the downstream ``_consume_trade_prefill`` call picks them
+    up and pre-populates the multiselects on the next rerun.
+
+    Args:
+        name:          Name of the saved trade to load.
+        session_state: The dict-like Streamlit session_state (or any dict in tests).
+    """
+    if not name or not name.strip():
+        return  # Blank/whitespace name → friendly no-op
+
+    payload = load_view("trade", name.strip())
+    if payload is None:
+        return  # Not found or corrupt → silent no-op
+
+    session_state["_tf_prefill"] = {
+        "giving_ids": list(payload.get("giving_ids", [])),
+        "receiving_ids": list(payload.get("receiving_ids", [])),
+    }
 
 
 inject_custom_css()
@@ -336,6 +395,57 @@ else:
                 ),
             )
 
+            # ── R-3: Saved trades controls ────────────────────────────────────
+            with st.expander("Saved trades", expanded=False):
+                # ── Save ──────────────────────────────────────────────────────
+                st.caption("Save the current proposal under a name.")
+                _save_col_name, _save_col_btn = st.columns([3, 1])
+                with _save_col_name:
+                    _save_name = st.text_input(
+                        "Trade name",
+                        placeholder="e.g. Judge for Acuna",
+                        label_visibility="collapsed",
+                        key="_ta_save_name",
+                    )
+                with _save_col_btn:
+                    if st.button("Save", key="_ta_save_btn"):
+                        if not _save_name or not _save_name.strip():
+                            st.warning("Enter a name before saving.")
+                        elif not giving_names and not receiving_names:
+                            st.warning("Select players before saving.")
+                        else:
+                            _giving_ids_now = [name_to_id[n] for n in giving_names if n in name_to_id]
+                            _receiving_ids_now = [name_to_id[n] for n in receiving_names if n in name_to_id]
+                            _result_now = st.session_state.get("_ta_last_result")
+                            _save_trade_proposal(_save_name, _giving_ids_now, _receiving_ids_now, _result_now)
+                            st.success(f'Saved "{_save_name.strip()}".')
+
+                st.divider()
+
+                # ── Load / Delete ──────────────────────────────────────────────
+                st.caption("Load or delete a previously saved trade.")
+                _saved_names = list_views("trade")
+                if _saved_names:
+                    _load_col_sel, _load_col_load, _load_col_del = st.columns([3, 1, 1])
+                    with _load_col_sel:
+                        _chosen_saved = st.selectbox(
+                            "Saved trade",
+                            options=_saved_names,
+                            label_visibility="collapsed",
+                            key="_ta_load_select",
+                        )
+                    with _load_col_load:
+                        if st.button("Load", key="_ta_load_btn"):
+                            _load_trade_proposal(_chosen_saved, st.session_state)
+                            st.rerun()
+                    with _load_col_del:
+                        if st.button("Delete", key="_ta_del_btn"):
+                            delete_view("trade", _chosen_saved)
+                            st.success(f'Deleted "{_chosen_saved}".')
+                            st.rerun()
+                else:
+                    st.info("No saved trades yet.")
+
             if st.button("Analyze Trade", type="primary", width="stretch"):
                 if not giving_names or not receiving_names:
                     st.error("Select at least one player on each side.")
@@ -474,6 +584,9 @@ else:
                     trade_progress.progress(100, text="Trade analysis complete!")
                     time.sleep(0.3)
                     trade_progress.empty()
+
+                    # R-3: persist last result so the "Save" button can include grade/verdict.
+                    st.session_state["_ta_last_result"] = result
 
                     # Combustion Finale: hairline divider between the trade-builder
                     # inputs above and the results section below.

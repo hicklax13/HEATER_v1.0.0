@@ -45,6 +45,7 @@ from src.ui_shared import (
     team_logo_url,
 )
 from src.usage import log_page_view
+from src.user_data import add_to_watchlist, get_watchlist, remove_from_watchlist, toggle_watchlist  # noqa: F401
 from src.valuation import LeagueConfig
 from src.yahoo_data_service import get_yahoo_data_service
 
@@ -255,6 +256,24 @@ def _fa_recs_table_html(
         '<table class="rtbl" style="width:100%;border-collapse:collapse;margin-top:4px;">'
         f"<thead><tr>{head}</tr></thead><tbody>{rows}</tbody></table>"
     )
+
+
+def _sync_watchlist(
+    selected_ids: set[int],
+    current_ids: set[int],
+) -> tuple[set[int], set[int]]:
+    """Compute the add/remove delta between the multiselect and the DB watchlist.
+
+    Args:
+        selected_ids: player_ids currently selected in st.multiselect.
+        current_ids:  player_ids already stored in the DB watchlist.
+
+    Returns:
+        (to_add, to_remove) — each a set[int]; both empty when nothing changed.
+    """
+    to_add = selected_ids - current_ids
+    to_remove = current_ids - selected_ids
+    return to_add, to_remove
 
 
 try:
@@ -689,6 +708,73 @@ with main:
 
     pos_filter = st.session_state.get("fa_merged_pos_filter", "All")
 
+    # ── Watchlist control (R-3) ───────────────────────────────────────────────
+    # Build a name↔id mapping from the full FA pool so multiselect options
+    # are human-readable (player names) and syncing back maps names to ids.
+    _wl_name_to_id: dict[str, int] = {}
+    _wl_id_to_name: dict[int, str] = {}
+    if not fa_pool.empty and "player_name" in fa_pool.columns and "player_id" in fa_pool.columns:
+        for _, _wl_row in fa_pool.iterrows():
+            _wl_pid = _wl_row.get("player_id")
+            _wl_nm = _wl_row.get("player_name") or _wl_row.get("name", "")
+            if _wl_pid is not None and _wl_nm:
+                _wl_name_to_id[str(_wl_nm)] = int(_wl_pid)
+                _wl_id_to_name[int(_wl_pid)] = str(_wl_nm)
+
+    _wl_all_names = sorted(_wl_name_to_id.keys())
+    _wl_current_ids: set[int] = get_watchlist()
+    # Only default-select names that are still in the current FA pool
+    _wl_default_names = [_wl_id_to_name[pid] for pid in _wl_current_ids if pid in _wl_id_to_name]
+
+    _wl_selected_names: list[str] = st.multiselect(
+        "★ Watchlist",
+        options=_wl_all_names,
+        default=_wl_default_names,
+        help="Add free agents to your watchlist. Watched players are marked ★ in the table below.",
+        key="fa_watchlist_multiselect",
+    )
+    _wl_selected_ids = {_wl_name_to_id[n] for n in _wl_selected_names if n in _wl_name_to_id}
+    _wl_to_add, _wl_to_remove = _sync_watchlist(_wl_selected_ids, _wl_current_ids)
+    for _pid in _wl_to_add:
+        add_to_watchlist(_pid)
+    for _pid in _wl_to_remove:
+        remove_from_watchlist(_pid)
+    # Re-read after sync so the expander reflects the committed state.
+    _wl_current_ids = get_watchlist()
+
+    # ── Watchlist expander (R-3) ──────────────────────────────────────────────
+    _wl_count = len(_wl_current_ids)
+    with st.expander(f"★ My Watchlist ({_wl_count})", expanded=False):
+        if _wl_count == 0:
+            render_empty_state(
+                "Your watchlist is empty",
+                "Use the multiselect above to add free agents you want to track.",
+                icon_key="users",
+            )
+        else:
+            # Build a small display table: name + best available stat.
+            _wl_rows = []
+            for _wpid in sorted(_wl_current_ids):
+                _wname = _wl_id_to_name.get(_wpid, f"Player {_wpid}")
+                # Pull from the ranked FA pool if available.
+                _wl_fa_row = None
+                if not ranked_fas.empty and "player_id" in ranked_fas.columns:
+                    _wl_matches = ranked_fas[ranked_fas["player_id"] == _wpid]
+                    if not _wl_matches.empty:
+                        _wl_fa_row = _wl_matches.iloc[0]
+                _wmv = ""
+                if _wl_fa_row is not None and "marginal_value" in ranked_fas.columns:
+                    _raw_mv = _wl_fa_row.get("marginal_value")
+                    if pd.notna(_raw_mv):
+                        _wmv = f"{float(_raw_mv):.2f}"
+                _wpos = ""
+                if _wl_fa_row is not None and "positions" in ranked_fas.columns:
+                    _wpos = _dedupe_positions(str(_wl_fa_row.get("positions") or ""))
+                _wl_rows.append({"Player": _wname, "Position": _wpos, "Marginal Value": _wmv})
+            _wl_df = pd.DataFrame(_wl_rows)
+            if not _wl_df.empty:
+                render_compact_table(_wl_df)
+
     # ── Section 1: Recommended Adds/Drops ─────────────────────────────────────
 
     st.markdown(
@@ -1106,6 +1192,15 @@ with main:
                 _enriched_cols.append("l14_era")
             if "l14_k_g" in _display_fas.columns and _has_pitchers:
                 _enriched_cols.append("l14_k_g")
+
+            # R-3: prefix watched players with ★ in the display name column.
+            if _wl_current_ids and "player_id" in _display_fas.columns and "player_name" in _display_fas.columns:
+                _display_fas["player_name"] = _display_fas.apply(
+                    lambda _r: (
+                        f"★ {_r['player_name']}" if int(_r["player_id"]) in _wl_current_ids else _r["player_name"]
+                    ),
+                    axis=1,
+                )
 
             show_cols = [
                 "player_name",

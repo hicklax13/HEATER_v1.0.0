@@ -34,6 +34,7 @@ from src.ui_shared import (
     text_on,
 )
 from src.usage import log_page_view
+from src.user_data import add_to_watchlist, get_watchlist, remove_from_watchlist
 
 logger = logging.getLogger(__name__)
 
@@ -225,6 +226,62 @@ else:
                 help=jargon_help("% JOB"),
             )
 
+        # ── Closer Watchlist (R-3) ────────────────────────────────────────────
+        # Build a name→player_id map from the grid + pool for the multiselect.
+        _name_to_pid: dict[str, int] = {}
+        for _gi in grid:
+            _gname = _gi["closer_name"]
+            _pid = _gi.get("player_id")
+            if _pid is None and not pool.empty:
+                _pool_match = (
+                    pool[pool.get("name", pool.columns[0]) == _gname] if "name" in pool.columns else pool.iloc[0:0]
+                )
+                if not _pool_match.empty and "player_id" in _pool_match.columns:
+                    _pid = int(_pool_match.iloc[0]["player_id"])
+            if _pid is not None:
+                _name_to_pid[_gname] = int(_pid)
+
+        _all_closer_names = [_gi["closer_name"] for _gi in grid]
+        try:
+            _watched_ids: set[int] = get_watchlist()
+        except Exception:
+            _watched_ids = set()
+
+        # Default selection = watched closers whose name is in the current grid.
+        _pid_to_name = {v: k for k, v in _name_to_pid.items()}
+        _watched_defaults = [_pid_to_name[_wid] for _wid in _watched_ids if _wid in _pid_to_name]
+
+        _wl_col, _wl_cap_col = st.columns([4, 1])
+        with _wl_col:
+            _selected_names = st.multiselect(
+                "★ Watch closers",
+                options=_all_closer_names,
+                default=_watched_defaults,
+                placeholder="Select closers to track…",
+                help="Tracked closers are starred on their cards.",
+                label_visibility="visible",
+            )
+        with _wl_cap_col:
+            _n_watching = len(_selected_names)
+            st.caption(f"★ Watching {_n_watching} closer{'s' if _n_watching != 1 else ''}")
+
+        # Sync add/remove delta back to the watchlist store (defensive: skip unknown ids).
+        _selected_ids = {_name_to_pid[n] for n in _selected_names if n in _name_to_pid}
+        _to_add = _selected_ids - _watched_ids
+        _to_remove = _watched_ids - _selected_ids
+        for _wid in _to_add:
+            try:
+                add_to_watchlist(_wid)
+            except Exception:
+                pass
+        for _wid in _to_remove:
+            try:
+                remove_from_watchlist(_wid)
+            except Exception:
+                pass
+        # Refresh the local set to reflect the current selection for badge rendering.
+        _watched_ids = _selected_ids
+
         # Render in 5-column layout
         cols_per_row = 5
         for row_start in range(0, len(grid), cols_per_row):
@@ -265,6 +322,17 @@ else:
                         )
                     else:
                         _badge_html = ""
+
+                    # WATCHED chip — append to badge line if this closer is on the watchlist.
+                    _closer_pid = _name_to_pid.get(closer_name)
+                    _is_watched = _closer_pid is not None and _closer_pid in _watched_ids
+                    if _is_watched:
+                        _badge_html += (
+                            '<span class="chip" style="font-size:9px;padding:1px 6px;'
+                            "background:var(--fp-ember);color:#fff;"
+                            "border-radius:4px;font-weight:700;letter-spacing:.05em;"
+                            'margin-left:3px;">WATCHED</span>'
+                        )
 
                     # Team identity: logo + official team color drive the card accent.
                     _team_abbr = str(item["team"])

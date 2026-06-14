@@ -55,6 +55,7 @@ from src.ui_shared import (
     render_styled_table,
 )
 from src.usage import log_page_view
+from src.user_data import delete_view, list_views, load_view, save_view
 from src.valuation import LeagueConfig
 from src.yahoo_data_service import get_yahoo_data_service
 
@@ -132,6 +133,28 @@ def _effective_park_factors() -> dict[str, float] | None:
     except Exception:
         pf = PARK_FACTORS if PARK_FACTORS else None
     return pf or None
+
+
+# ── Saved-lineup payload builder ─────────────────────────────────────
+
+
+def _build_lineup_payload(
+    mode: str,
+    scope: str,
+    risk_aversion: float,
+    starter_ids: list[int],
+) -> dict:
+    """Build a small, JSON-serializable dict capturing the current lineup config.
+
+    Kept intentionally compact: ids + scalars + strings only — no DataFrames.
+    Called by the "Save current lineup" button and unit-tested independently.
+    """
+    return {
+        "mode": str(mode),
+        "scope": str(scope),
+        "risk_aversion": float(risk_aversion),
+        "starter_ids": [int(i) for i in starter_ids],
+    }
 
 
 # Start/sit advisor
@@ -894,6 +917,90 @@ with ctx:
             except Exception as _refresh_err:
                 st.toast(f"Refresh failed: {_refresh_err}", icon="❌")
         st.rerun()
+
+    # ── Saved lineups ────────────────────────────────────────────────
+    with st.expander("Saved lineups", expanded=False):
+        # ── Save current lineup ──────────────────────────────────────
+        _sv_name = st.text_input(
+            "Lineup name",
+            placeholder="e.g. Week 14 — punt SB",
+            key="lineup_save_name",
+        )
+        if st.button("Save current lineup", key="lineup_save_btn", width="stretch"):
+            if not _sv_name or not _sv_name.strip():
+                st.warning("Enter a name before saving.")
+            else:
+                # Collect starter_ids from the last optimizer result (if any)
+                _sv_result = st.session_state.get("lineup_optimizer_result") or {}
+                _sv_lineup = _sv_result.get("lineup") or {}
+                _sv_starter_ids: list[int] = []
+                if _sv_lineup.get("assignments"):
+                    for _asgn in _sv_lineup["assignments"]:
+                        _pid = _asgn.get("player_id")
+                        if _pid is not None and _asgn.get("is_starting"):
+                            try:
+                                _sv_starter_ids.append(int(_pid))
+                            except (ValueError, TypeError):
+                                pass
+                _sv_payload = _build_lineup_payload(
+                    mode=st.session_state.get("lineup_mode", "standard"),
+                    scope=st.session_state.get("optimizer_scope", "Rest of Week"),
+                    risk_aversion=float(st.session_state.get("lineup_risk", 0.15)),
+                    starter_ids=_sv_starter_ids,
+                )
+                try:
+                    save_view("lineup", _sv_name.strip(), _sv_payload)
+                    st.toast(f"Lineup '{_sv_name.strip()}' saved.", icon="✅")
+                    st.rerun()
+                except Exception as _sv_err:
+                    st.error(f"Save failed: {_sv_err}")
+
+        # ── Load / delete saved lineup ────────────────────────────────
+        _saved_names = list_views("lineup")
+        if _saved_names:
+            _lv_name = st.selectbox(
+                "Load or delete a saved lineup",
+                options=_saved_names,
+                key="lineup_load_select",
+            )
+            _lv_col1, _lv_col2 = st.columns(2)
+            with _lv_col1:
+                if st.button("Load lineup", key="lineup_load_btn", width="stretch"):
+                    if _lv_name:
+                        _lv_payload = load_view("lineup", _lv_name)
+                        if _lv_payload is None:
+                            st.warning(f"Could not load '{_lv_name}'.")
+                        else:
+                            # Restore settings into session state for the next rerun
+                            if "mode" in _lv_payload:
+                                st.session_state["lineup_mode"] = _lv_payload["mode"]
+                            if "scope" in _lv_payload:
+                                # Map stored scope key back to display label
+                                _scope_label_map = {
+                                    "today": "Today",
+                                    "rest_of_week": "Rest of Week",
+                                    "rest_of_season": "Rest of Season",
+                                }
+                                _stored_scope = _lv_payload["scope"]
+                                _display_scope = _scope_label_map.get(_stored_scope, _stored_scope)
+                                st.session_state["optimizer_scope"] = _display_scope
+                            if "risk_aversion" in _lv_payload:
+                                st.session_state["lineup_risk"] = float(_lv_payload["risk_aversion"])
+                            st.toast(f"Lineup '{_lv_name}' loaded — settings restored.", icon="✅")
+                            st.rerun()
+                    else:
+                        st.info("Select a saved lineup first.")
+            with _lv_col2:
+                if st.button("Delete lineup", key="lineup_delete_btn", width="stretch"):
+                    if _lv_name:
+                        try:
+                            delete_view("lineup", _lv_name)
+                            st.toast(f"Lineup '{_lv_name}' deleted.", icon="✅")
+                            st.rerun()
+                        except Exception as _del_err:
+                            st.error(f"Delete failed: {_del_err}")
+        else:
+            st.caption("No saved lineups yet.")
 
 
 # ── Main content panel ───────────────────────────────────────────────
