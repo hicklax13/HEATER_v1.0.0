@@ -1254,6 +1254,18 @@ with main:
                 f"Showing {len(display_fa_df)} of {_total_ranked} free agents{_filter_label}.</div>",
                 unsafe_allow_html=True,
             )
+
+            # R-4 CSV export — the download_button is rendered beside the table
+            # caption. We use display_fa_df (the already-filtered, already-renamed
+            # view frame) so the CSV reflects exactly what the user sees.
+            st.download_button(
+                label="Download CSV",
+                data=display_fa_df.to_csv(index=False).encode("utf-8"),
+                file_name="heater_free_agents.csv",
+                mime="text/csv",
+                key="fa_csv",
+            )
+
             _has_html_cols = "Heat" in display_fa_df.columns or "Signal" in display_fa_df.columns
             if _has_html_cols:
                 # Use compact table for HTML heat/signal labels

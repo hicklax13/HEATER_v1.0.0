@@ -427,7 +427,7 @@ st.markdown(table_html, unsafe_allow_html=True)
 
 # ── Pagination controls + Export ─────────────────────────────────────────────
 
-pag_c1, pag_c2, pag_c3, pag_c4 = st.columns([1.5, 2, 1.5, 1.5])
+pag_c1, pag_c2, pag_c3, pag_c4, pag_c5 = st.columns([1.5, 2, 1.5, 1.5, 1.5])
 
 with pag_c1:
     if page > 0:
@@ -461,4 +461,15 @@ with pag_c4:
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         key="db_export",
     )
+
+with pag_c5:
+    if not filtered.empty:
+        csv_filename = f"heater_databank_{safe_label}_{today_str}.csv"
+        st.download_button(
+            label="Download CSV",
+            data=filtered.to_csv(index=False).encode("utf-8"),
+            file_name=csv_filename,
+            mime="text/csv",
+            key="databank_csv",
+        )
 render_feedback_widget("Player Databank")

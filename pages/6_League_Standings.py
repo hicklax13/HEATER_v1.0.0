@@ -809,6 +809,16 @@ with main:
                 unsafe_allow_html=True,
             )
 
+            if not record_df.empty:
+                _standings_csv_date = datetime.now(UTC).strftime("%Y-%m-%d")
+                st.download_button(
+                    label="Download CSV",
+                    data=record_df.to_csv(index=False).encode("utf-8"),
+                    file_name=f"heater_standings_{_standings_csv_date}.csv",
+                    mime="text/csv",
+                    key="standings_csv",
+                )
+
         # Section B: Category Standings Grid
         standings_df = yds.get_standings()
         if not standings_df.empty and "team_name" in standings_df.columns and "category" in standings_df.columns:
