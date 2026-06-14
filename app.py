@@ -130,6 +130,25 @@ st.markdown(
 # ── Session Init ─────────────────────────────────────────────────────
 
 
+def _hydrate_theme() -> None:
+    """Hydrate heater_theme from persisted user preference (default 'light').
+
+    Called once per session, early in main() before inject_custom_css() so the
+    correct theme is applied on first render.  Defensive — any failure falls back
+    to 'light' silently.
+    """
+    if "heater_theme" in st.session_state:
+        return  # already set this session
+    try:
+        saved = load_view("ui", "theme")
+        mode = (saved or {}).get("mode", "light")
+        if mode not in ("light", "dark"):
+            mode = "light"
+    except Exception:
+        mode = "light"
+    st.session_state["heater_theme"] = mode
+
+
 def init_session():
     defaults = {
         "page": "setup",
@@ -2765,6 +2784,7 @@ def main():
 
     configure_src_logging()  # ensure src.* logs reach Railway stdout (explicit + idempotent)
     init_session()
+    _hydrate_theme()  # load saved theme preference before CSS is emitted (R-10)
     inject_custom_css()
     init_db()
 

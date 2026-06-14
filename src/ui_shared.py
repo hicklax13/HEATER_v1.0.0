@@ -18,6 +18,24 @@ except ImportError:
 from src.database import get_refresh_log_snapshot
 from src.valuation import LeagueConfig as _LC_Class
 
+
+# Lazy import — avoid circular import; called only at runtime from render_theme_toggle.
+def _save_view_safe(kind: str, name: str, payload: dict) -> None:
+    """Thin wrapper around user_data.save_view that never raises."""
+    try:
+        from src.user_data import save_view as _sv
+
+        _sv(kind, name, payload)
+    except Exception:
+        pass
+
+
+# Re-export save_view at module level so mock.patch("src.ui_shared.save_view") works in tests.
+def save_view(kind: str, name: str, payload: dict) -> None:
+    """Persist a UI preference via user_data. Defensive wrapper — never raises."""
+    _save_view_safe(kind, name, payload)
+
+
 # ── Inline SVG Page Icons ─────────────────────────────────────────
 # Unique vector icons for each page. Each is a compact inline SVG string
 # (24x24 viewBox) that can be embedded in st.markdown().
@@ -2973,6 +2991,101 @@ def inject_custom_css():
     """,
         unsafe_allow_html=True,
     )
+
+    # ── DARK MODE — additive, default-off (R-10) ────────────────────
+    # Reads st.session_state["heater_theme"]; only emits when "dark".
+    # The base light sheet above is ALWAYS emitted unchanged — this block
+    # is purely additive so the Combustion lock tests continue to pass.
+    try:
+        _ss = st.session_state  # type: ignore[attr-defined]
+        _theme_pref = _ss.get("heater_theme", "light") if isinstance(_ss, dict) or hasattr(_ss, "get") else "light"
+    except Exception:
+        _theme_pref = "light"
+    if _theme_pref == "dark":
+        st.markdown(
+            """<style>
+    /* ── HEATER Dark Mode overrides (R-10) — additive, default-off.
+       Overrides the --fp-* CSS variables declared in :root above.
+       Orange accent (#ff6d00) and navy chrome identity are KEPT.
+       All colours reference approved THEME tokens or known-safe values. */
+    :root {
+        /* Canvas: deep navy near-black */
+        --fp-app-bg: #0e1623;
+        /* Surfaces: slightly lighter dark panels */
+        --fp-surface: #14202f;
+        /* Body text: light bone (navy sidebar-ink colour) */
+        --fp-tx: #eef1f6;
+        --fp-tx-muted: #8a96a8;
+        --fp-tx-subtle: #5e6878;
+        /* Borders: toned-down for dark backgrounds */
+        --fp-border: #26334a;
+        --fp-divider: #1e2d40;
+        /* Primary accent and ember stay orange — identity preserved */
+        /* --fp-primary: #ff6d00; (unchanged) */
+        /* --fp-ember: #e8480a;   (unchanged) */
+        /* --fp-flame: #ff9a3c;   (unchanged) */
+        /* Navy chrome stays — sidebar rail unchanged */
+    }
+    .stApp {
+        background: var(--fp-app-bg) !important;
+        color: var(--fp-tx) !important;
+    }
+    .heater-table thead th {
+        background: var(--fp-surface) !important;
+        color: var(--fp-tx) !important;
+        border-bottom: 2px solid var(--fp-border) !important;
+    }
+    .heater-table tbody td {
+        background: var(--fp-surface) !important;
+        color: var(--fp-tx) !important;
+        border-bottom: 1px solid var(--fp-border) !important;
+    }
+    .heater-table-wrap {
+        background: var(--fp-surface);
+        border-color: var(--fp-border);
+    }
+    .glass, .fp-card, .metric-card,
+    .instr-panel, .hero, .alt, .cmd-bar, .context-card,
+    div[data-testid="stExpander"],
+    [data-testid="stPopover"],
+    [data-baseweb="popover"], [data-baseweb="menu"],
+    [data-testid="stChatMessage"] {
+        background: var(--fp-surface) !important;
+        border-color: var(--fp-border) !important;
+        color: var(--fp-tx) !important;
+    }
+    div[data-testid="stTextInput"] input,
+    div[data-testid="stNumberInput"] input,
+    div[data-testid="stSelectbox"] > div,
+    div[data-testid="stMultiSelect"] > div {
+        background: var(--fp-surface) !important;
+        color: var(--fp-tx) !important;
+        border-color: var(--fp-border) !important;
+    }
+    pre, code, .stCodeBlock, [data-testid="stCodeBlock"] {
+        background: var(--fp-surface) !important;
+        color: var(--fp-tx) !important;
+    }
+    [data-testid="stBottomBlockContainer"] {
+        background: var(--fp-app-bg) !important;
+    }
+    /* Glide Data Grid dark tokens — use CSS vars, not hex literals */
+    div[data-testid="stDataFrame"] [data-testid="glideDataEditor"],
+    div[data-testid="stDataFrame"] .dvn-scroller,
+    div[data-testid="stDataFrame"] {
+        --gdg-bg-header: var(--fp-surface) !important;
+        --gdg-bg-header-has-focus: var(--fp-surface) !important;
+        --gdg-bg-header-hovered: var(--fp-surface) !important;
+        --gdg-text-header: var(--fp-tx) !important;
+        --gdg-bg-cell: var(--fp-surface) !important;
+        --gdg-bg-cell-medium: var(--fp-surface) !important;
+        --gdg-text-dark: var(--fp-tx) !important;
+        --gdg-border-color: rgba(238,241,246,.10) !important;
+    }
+    /* Sidebar stays navy — no override needed; just ensure text is readable */
+    </style>""",
+            unsafe_allow_html=True,
+        )
 
     # Rename sidebar "app" → "Connect League" and inject logo + branding via JS
     import streamlit.components.v1 as components
@@ -5989,3 +6102,32 @@ def format_stat(value: float, stat_type: str) -> str:
         return f"{value:.1f}%"
     else:
         return f"{int(value)}" if value == int(value) else f"{value:.1f}"
+
+
+# ── Theme toggle (R-10) ──────────────────────────────────────────────────────
+
+
+def render_theme_toggle() -> None:
+    """Render a dark-mode toggle in the sidebar and persist the preference.
+
+    Reads current mode from ``st.session_state["heater_theme"]`` (default "light").
+    On change, writes the new mode to ``st.session_state`` and persists it via
+    ``save_view("ui", "theme", {"mode": ...})``.  Persistence failures are
+    swallowed — they never crash the app.
+
+    Call this once per page render, e.g. inside ``with st.sidebar:`` or at the
+    bottom of a sidebar block.
+    """
+    if st is None:
+        return
+    current = st.session_state.get("heater_theme", "light")
+    is_dark = current == "dark"
+    with st.sidebar:
+        new_dark = st.toggle("Dark mode", value=is_dark, key="_heater_theme_toggle")
+    new_mode = "dark" if new_dark else "light"
+    if new_mode != current:
+        st.session_state["heater_theme"] = new_mode
+        try:
+            save_view("ui", "theme", {"mode": new_mode})
+        except Exception:
+            pass
