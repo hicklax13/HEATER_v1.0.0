@@ -4644,16 +4644,37 @@ def _fetch_matchup_data() -> dict | None:
         return cached  # return stale data on error
 
 
-def render_matchup_ticker():
+def render_matchup_ticker(matchup_data: dict | None = None):
     """Render a compact matchup scoreboard bar.
 
-    Only renders when Yahoo is connected and matchup data is available.
-    Caches data in session_state for 5 minutes to avoid API spam.
-    """
-    if not st.session_state.get("yahoo_connected"):
-        return
+    Renders whenever matchup data is available — from a pre-fetched dict
+    passed by the caller, from the session-state cache (live Yahoo session),
+    or from the YahooDataService SQLite fallback (read-only MULTI_USER members).
+    Does NOT require ``yahoo_connected`` to be set.  Renders nothing when no
+    matchup data can be obtained from any source.
 
-    data = _fetch_matchup_data()
+    Parameters
+    ----------
+    matchup_data:
+        Pre-fetched matchup dict (same schema as ``get_current_matchup()``).
+        When ``None`` the function tries the internal 5-minute session cache
+        (yahoo_client path) first, then the YahooDataService cache fallback.
+    """
+    data: dict | None = matchup_data
+
+    if data is None:
+        # Try the existing yahoo_client session-cache path first (live sessions)
+        data = _fetch_matchup_data()
+
+    if data is None:
+        # Fall back to YahooDataService (has SQLite cache — serves MULTI_USER members)
+        try:
+            from src.yahoo_data_service import get_yahoo_data_service as _get_yds
+
+            data = _get_yds().get_matchup()
+        except Exception:
+            pass
+
     if data is None:
         return
 

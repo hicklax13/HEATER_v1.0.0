@@ -346,6 +346,111 @@ class TestGetCurrentMatchup:
 # ---------------------------------------------------------------------------
 
 
+class TestMatchupTickerCachedData:
+    """render_matchup_ticker renders from a cache-served dict without yahoo_connected."""
+
+    _CACHE_MATCHUP = {
+        "week": 7,
+        "status": "midevent",
+        "user_name": "Team Hickey",
+        "opp_name": "Rival Squad",
+        "wins": 5,
+        "losses": 4,
+        "ties": 3,
+        "categories": [
+            {"cat": "R", "you": 30, "opp": 25, "result": "WIN"},
+            {"cat": "ERA", "you": 3.10, "opp": 4.20, "result": "WIN"},
+        ],
+    }
+
+    def test_renders_team_names_from_cache_without_yahoo_connected(self):
+        """Ticker renders using a pre-fetched matchup dict even when
+        yahoo_connected is NOT set in session state — covers the read-only
+        MULTI_USER member path where the scheduler writes the matchup to
+        the SQLite cache and get_matchup() returns it."""
+        from unittest.mock import MagicMock, patch
+
+        import streamlit as st
+
+        from src.ui_shared import render_matchup_ticker
+
+        # Ensure yahoo_connected is absent from session state
+        st.session_state.pop("yahoo_connected", None)
+
+        rendered_html: list[str] = []
+
+        def capture_markdown(html, **kwargs):
+            rendered_html.append(html)
+
+        with (
+            patch.object(st, "markdown", side_effect=capture_markdown),
+            patch.object(st, "expander", return_value=MagicMock(__enter__=lambda s: s, __exit__=lambda s, *a: None)),
+        ):
+            render_matchup_ticker(matchup_data=self._CACHE_MATCHUP)
+
+        assert rendered_html, "render_matchup_ticker produced no output with cache-served matchup"
+        combined = " ".join(rendered_html)
+        assert "Rival Squad" in combined, "Opponent name missing from ticker HTML"
+        assert "5-4-3" in combined, "Score string missing from ticker HTML"
+        assert "Week 7" in combined, "Week number missing from ticker HTML"
+
+    def test_renders_nothing_when_no_data_and_no_yahoo_connected(self):
+        """When matchup_data=None and yahoo_connected is absent, no HTML is emitted."""
+        from unittest.mock import MagicMock, patch
+
+        import streamlit as st
+
+        from src.ui_shared import render_matchup_ticker
+
+        st.session_state.pop("yahoo_connected", None)
+        # Ensure _fetch_matchup_data also returns nothing (no yahoo_client)
+        st.session_state.pop("yahoo_client", None)
+        st.session_state.pop("_matchup_ticker_data", None)
+
+        rendered_html: list[str] = []
+
+        def capture_markdown(html, **kwargs):
+            rendered_html.append(html)
+
+        # Also mock get_yahoo_data_service so the YDS fallback returns None.
+        # The function does a local import, so patch the module it imports from.
+        mock_yds = MagicMock()
+        mock_yds.get_matchup.return_value = None
+
+        with (
+            patch.object(st, "markdown", side_effect=capture_markdown),
+            patch("src.yahoo_data_service.YahooDataService.get_matchup", return_value=None),
+            patch("src.yahoo_data_service.get_yahoo_data_service", return_value=mock_yds),
+        ):
+            render_matchup_ticker(matchup_data=None)
+
+        ticker_html = [h for h in rendered_html if "matchup-ticker" in h]
+        assert not ticker_html, "Ticker should not render when no matchup data is available"
+
+    def test_live_session_unaffected_when_yahoo_connected(self):
+        """When yahoo_connected IS set and data comes from yahoo_client, behavior unchanged."""
+        from unittest.mock import MagicMock, patch
+
+        import streamlit as st
+
+        from src.ui_shared import render_matchup_ticker
+
+        st.session_state["yahoo_connected"] = True
+
+        rendered_html: list[str] = []
+
+        def capture_markdown(html, **kwargs):
+            rendered_html.append(html)
+
+        with (
+            patch.object(st, "markdown", side_effect=capture_markdown),
+            patch.object(st, "expander", return_value=MagicMock(__enter__=lambda s: s, __exit__=lambda s, *a: None)),
+        ):
+            render_matchup_ticker(matchup_data=self._CACHE_MATCHUP)
+
+        assert any("matchup-ticker" in h for h in rendered_html), "Ticker should render for live Yahoo session too"
+
+
 class TestMatchupTickerHelpers:
     """Tests for ticker display logic."""
 

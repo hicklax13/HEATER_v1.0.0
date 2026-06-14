@@ -917,7 +917,7 @@ else:
                 render_reco_banner(banner_teaser, _banner_expanded_html, "my_team")
             from src.ui_shared import render_matchup_ticker
 
-            render_matchup_ticker()
+            render_matchup_ticker(matchup_data=yds.get_matchup())
 
             # ── WAR ROOM BRIEFING ────────────────────────────────────────
             # Dynamic, actionable intelligence replacing static alerts.

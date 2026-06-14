@@ -343,7 +343,7 @@ if not records_df.empty and user_team:
             icon=":material/calendar_today:",
         )
 
-render_matchup_ticker()
+render_matchup_ticker(matchup_data=matchup)
 render_data_freshness_chip("standings")
 render_glossary_expander(
     ["Magic#", "SOS"],
