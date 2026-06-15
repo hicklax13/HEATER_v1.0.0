@@ -2005,8 +2005,8 @@ def inject_custom_css():
        the collapsed shell left a blank 100px strip (2026-06-10 prod report). */
     @media (min-width: 768px) {{
         section[data-testid="stSidebar"][aria-expanded="true"] {{
-            width: 100px !important;
-            min-width: 100px !important;
+            width: 140px !important;
+            min-width: 140px !important;
         }}
     }}
     .stSidebar [data-testid="stSidebarContent"] {{
@@ -3109,9 +3109,15 @@ def inject_custom_css():
         ".stApp::before{content:'';position:fixed;top:0;left:0;right:0;height:45px;"
         "background:#112744;z-index:9998;}"
         'div[data-testid="stMainBlockContainer"]{padding-top:53px!important;}'
-        'section[data-testid="stSidebar"] [data-testid="stSidebarHeader"]{margin-top:45px!important;}'
-        # widen the sidebar content so the logo fills the rail (bigger logo)
-        'section[data-testid="stSidebar"] [data-testid="stSidebarContent"]{padding-left:5px!important;padding-right:5px!important;}'
+        'section[data-testid="stSidebar"] [data-testid="stSidebarHeader"]{margin-top:45px!important;padding:0!important;width:100%!important;max-width:100%!important;}'
+        # Force the HEATER logo to fill the full rail width via !important CSS. The
+        # logo's one-time JS inline style can't be updated on rerun (it's only set
+        # when the div is first created), so the authoritative sizing lives here.
+        # The header collapses to ~69px from default Streamlit content padding, so
+        # the logo bleeds past it (negative margin) to reach the rail edges.
+        'section[data-testid="stSidebar"] [data-testid="stSidebarContent"]{padding-left:4px!important;padding-right:4px!important;}'
+        ".heater-logo{width:calc(100% + 8px)!important;margin:0 -4px!important;padding:0!important;display:block!important;}"
+        ".heater-logo img{width:100%!important;max-width:none!important;height:auto!important;display:block!important;border-radius:0!important;}"
         "</style>",
         unsafe_allow_html=True,
     )
