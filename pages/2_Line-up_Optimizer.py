@@ -32,6 +32,18 @@ from src.feature_flags import require_page_enabled
 from src.feedback import render_feedback_widget
 from src.injury_model import compute_health_score, get_injury_badge
 from src.league_manager import get_free_agents, get_team_roster
+from src.lineup_optimizer_helpers import (
+    decision_row_classes as _decision_row_classes,
+)
+from src.lineup_optimizer_helpers import (
+    expand_skeleton as _expand_skeleton,
+)
+from src.lineup_optimizer_helpers import (
+    fmt_deltas as _fmt_deltas,
+)
+from src.lineup_optimizer_helpers import (
+    slot_sort_key as _slot_sort_key_helper,
+)
 from src.standings_utils import get_all_team_totals
 from src.ui_shared import (
     METRIC_TOOLTIPS,
@@ -1884,22 +1896,18 @@ with main:
                     "NA": 5,
                 }
 
-                def _slot_sort_key(df_in, order_map):
-                    default = max(order_map.values()) + 1
-                    return df_in["selected_position"].map(lambda s: order_map.get(s, default))
-
                 # Sort: START on top, then BENCH, then IL — within each group by slot order
                 # "START ⚠" (forced start) sorts alongside regular START.
                 _DECISION_ORDER = {"START": 0, "START ⚠": 0, "BENCH": 1, "IL": 2}
 
                 if not batters_dcv.empty and "selected_position" in batters_dcv.columns:
-                    batters_dcv["_slot_sort"] = _slot_sort_key(batters_dcv, _BATTER_SLOT_ORDER)
+                    batters_dcv["_slot_sort"] = _slot_sort_key_helper(batters_dcv, _BATTER_SLOT_ORDER)
                     batters_dcv["_dec_sort"] = batters_dcv["Decision"].map(_DECISION_ORDER).fillna(2)
                     batters_dcv = batters_dcv.sort_values(
                         ["_dec_sort", "_slot_sort", "total_dcv"], ascending=[True, True, False]
                     ).drop(columns=["_slot_sort", "_dec_sort"])
                 if not pitchers_dcv.empty and "selected_position" in pitchers_dcv.columns:
-                    pitchers_dcv["_slot_sort"] = _slot_sort_key(pitchers_dcv, _PITCHER_SLOT_ORDER)
+                    pitchers_dcv["_slot_sort"] = _slot_sort_key_helper(pitchers_dcv, _PITCHER_SLOT_ORDER)
                     pitchers_dcv["_dec_sort"] = pitchers_dcv["Decision"].map(_DECISION_ORDER).fillna(2)
                     pitchers_dcv = pitchers_dcv.sort_values(
                         ["_dec_sort", "_slot_sort", "total_dcv"], ascending=[True, True, False]
@@ -1950,13 +1958,7 @@ with main:
                 _filled_slots = st.session_state.get("_lineup_filled_slots", set())
                 _empty_slot_meta = st.session_state.get("_lineup_empty_slots", {})
 
-                def _expand_skeleton(slots_dict):
-                    """{C: (1, [...]), OF: (3, [...]) ...} → ['C','1B','2B','3B','SS','OF','OF','OF','Util','Util']"""
-                    expanded = []
-                    for slot, (count, _eligible_codes) in slots_dict.items():
-                        for _ in range(count):
-                            expanded.append(slot)
-                    return expanded
+                # _expand_skeleton imported from src.lineup_optimizer_helpers
 
                 def _inject_empty_rows(display_df, slots_dict):
                     """Append LEAVE EMPTY rows for skeleton slots not present in display."""
@@ -2014,21 +2016,7 @@ with main:
                 pitchers_display = _inject_empty_rows(pitchers_display, _PITCHER_SLOTS)
 
                 # ── Row styling by decision ──
-                def _decision_row_classes(df_in):
-                    classes = {}
-                    for i in range(len(df_in)):
-                        decision = str(df_in.iloc[i].get("Decision", "BENCH"))
-                        if decision.startswith("START") and "⚠" in decision:
-                            classes[i] = "row-start-forced"
-                        elif decision.startswith("START"):
-                            classes[i] = "row-start"
-                        elif decision == "IL":
-                            classes[i] = "row-il"
-                        elif decision == "LEAVE EMPTY":
-                            classes[i] = "row-empty"
-                        else:
-                            classes[i] = "row-bench"
-                    return classes
+                # _decision_row_classes imported from src.lineup_optimizer_helpers
 
                 st.markdown(
                     f"<style>"
@@ -2252,10 +2240,7 @@ with main:
                 st.divider()
                 _section_label("Today's Streaming Recommendations", fig="DAILY")
 
-                def _fmt_deltas(d: dict) -> str:
-                    if not d:
-                        return "\u2014"
-                    return ", ".join(f"{k.upper()} {v:+.2f}" for k, v in sorted(d.items(), key=lambda kv: -abs(kv[1])))
+                # _fmt_deltas imported from src.lineup_optimizer_helpers
 
                 def _render_stream_block(label: str, entries: list) -> None:
                     if not entries:
