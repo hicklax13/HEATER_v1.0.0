@@ -3106,10 +3106,10 @@ def inject_custom_css():
     # and thickness, framing the app. Content + sidebar logo are offset below it.
     st.markdown(
         "<style>"
-        ".stApp::before{content:'';position:fixed;top:0;left:0;right:0;height:90px;"
+        ".stApp::before{content:'';position:fixed;top:0;left:0;right:0;height:45px;"
         "background:#112744;z-index:9998;}"
-        'div[data-testid="stMainBlockContainer"]{padding-top:98px!important;}'
-        'section[data-testid="stSidebar"] [data-testid="stSidebarHeader"]{margin-top:90px!important;}'
+        'div[data-testid="stMainBlockContainer"]{padding-top:53px!important;}'
+        'section[data-testid="stSidebar"] [data-testid="stSidebarHeader"]{margin-top:45px!important;}'
         # widen the sidebar content so the logo fills the rail (bigger logo)
         'section[data-testid="stSidebar"] [data-testid="stSidebarContent"]{padding-left:5px!important;padding-right:5px!important;}'
         "</style>",
@@ -3182,12 +3182,12 @@ def inject_custom_css():
             if (header && !header.querySelector('.heater-logo')) {
                 const logoDiv = parent.document.createElement('div');
                 logoDiv.className = 'heater-logo';
-                logoDiv.style.cssText = 'display:flex;flex-direction:column;align-items:center;width:100%;padding:2px 0 4px;';
+                logoDiv.style.cssText = 'display:flex;flex-direction:column;align-items:center;width:100%;padding:0;';
                 logoDiv.innerHTML = '__LOGO_INNER__';
                 header.insertBefore(logoDiv, header.firstChild);
             }
             // Tighten the sidebar header so the logo sits flush + fills the rail width.
-            if (header) { header.style.padding = '6px 2px 2px'; }
+            if (header) { header.style.padding = '2px 2px 0'; }
 
             // Collapse zero-height helper blocks (injected <style>/<link>, height=0
             // component iframes, streamlit-float markers) so the main column's 16px
