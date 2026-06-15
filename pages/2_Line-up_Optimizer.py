@@ -13,9 +13,9 @@ decision model into a single unified lineup management page:
 
 from __future__ import annotations
 
+import concurrent.futures
 import html as _html
 import logging
-import time
 
 import pandas as pd
 import streamlit as st
@@ -32,6 +32,18 @@ from src.feature_flags import require_page_enabled
 from src.feedback import render_feedback_widget
 from src.injury_model import compute_health_score, get_injury_badge
 from src.league_manager import get_free_agents, get_team_roster
+from src.lineup_optimizer_helpers import (
+    decision_row_classes as _decision_row_classes,
+)
+from src.lineup_optimizer_helpers import (
+    expand_skeleton as _expand_skeleton,
+)
+from src.lineup_optimizer_helpers import (
+    fmt_deltas as _fmt_deltas,
+)
+from src.lineup_optimizer_helpers import (
+    slot_sort_key as _slot_sort_key_helper,
+)
 from src.standings_utils import get_all_team_totals
 from src.ui_shared import (
     METRIC_TOOLTIPS,
@@ -55,6 +67,7 @@ from src.ui_shared import (
     render_styled_table,
 )
 from src.usage import log_page_view
+from src.user_data import delete_view, list_views, load_view, save_view
 from src.valuation import LeagueConfig
 from src.yahoo_data_service import get_yahoo_data_service
 
@@ -132,6 +145,312 @@ def _effective_park_factors() -> dict[str, float] | None:
     except Exception:
         pf = PARK_FACTORS if PARK_FACTORS else None
     return pf or None
+
+
+# ── Saved-lineup payload builder ─────────────────────────────────────
+
+
+def _build_lineup_payload(
+    mode: str,
+    scope: str,
+    risk_aversion: float,
+    starter_ids: list[int],
+) -> dict:
+    """Build a small, JSON-serializable dict capturing the current lineup config.
+
+    Kept intentionally compact: ids + scalars + strings only — no DataFrames.
+    Called by the "Save current lineup" button and unit-tested independently.
+    """
+    return {
+        "mode": str(mode),
+        "scope": str(scope),
+        "risk_aversion": float(risk_aversion),
+        "starter_ids": [int(i) for i in starter_ids],
+    }
+
+
+def _build_lineup_assignments(
+    result: dict,
+    roster: pd.DataFrame,
+) -> list[dict]:
+    """Build the Yahoo ``assignments`` list from the LP slot map + roster.
+
+    Args:
+        result: The optimizer result dict; must contain ``"lp_slot_map"``
+            (``{player_id: slot_str}``) to produce any output.
+        roster: DataFrame with at least ``player_id`` and
+            ``yahoo_player_key`` columns (from ``get_team_roster``).
+
+    Returns:
+        ``[{"player_key": str, "position": str}, ...]`` — one entry per
+        LP-assigned starter whose ``yahoo_player_key`` is non-empty.
+        Players missing a key are silently skipped (they cannot be written
+        to Yahoo).  Returns ``[]`` when ``lp_slot_map`` is absent or empty.
+    """
+    lp_slot_map: dict[int, str] = result.get("lp_slot_map") or {}
+    if not lp_slot_map or roster is None or roster.empty:
+        return []
+
+    # Build a pid → yahoo_player_key lookup from the roster.
+    if "player_id" not in roster.columns or "yahoo_player_key" not in roster.columns:
+        return []
+
+    key_lookup: dict[int, str] = {}
+    for _, row in roster.iterrows():
+        pid = row.get("player_id")
+        ykey = str(row.get("yahoo_player_key") or "").strip()
+        if pid is not None and ykey:
+            try:
+                key_lookup[int(pid)] = ykey
+            except (TypeError, ValueError):
+                pass
+
+    assignments: list[dict] = []
+    for pid, slot in lp_slot_map.items():
+        ykey = key_lookup.get(int(pid) if pid is not None else -1, "")
+        if ykey:
+            assignments.append({"player_key": ykey, "position": str(slot)})
+    return assignments
+
+
+# ── Background-thread executor (R-6: non-blocking optimize) ─────────
+# Single-worker executor: the optimizer is CPU-bound on one roster; a
+# second concurrent submit would just queue anyway.
+_OPT_EXECUTOR: concurrent.futures.ThreadPoolExecutor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+
+
+def _poll_optimize(session_state: dict) -> str:
+    """Inspect session_state and advance the async-optimize state machine.
+
+    Returns one of:
+      "idle"    — no future present (or _opt_running is False/absent)
+      "running" — future present and not yet done
+      "done"    — future completed; result stored in session_state and
+                  _opt_running cleared
+      "error"   — future raised; error stored in _opt_error and
+                  _opt_running cleared
+
+    This is a PURE function — it never calls ``st.*``.  The caller is
+    responsible for calling ``st.rerun()`` when the return value is
+    "running".
+    """
+    if not session_state.get("_opt_running"):
+        return "idle"
+    future = session_state.get("_opt_future")
+    if future is None:
+        return "idle"
+    if not future.done():
+        return "running"
+    # Future is done — inspect result
+    exc = future.exception()
+    if exc is not None:
+        session_state["_opt_error"] = str(exc)
+        session_state["_opt_running"] = False
+        return "error"
+    session_state["lineup_optimizer_result"] = future.result()
+    session_state["_opt_running"] = False
+    return "done"
+
+
+def _run_optimize_compute(
+    scope_key: str,
+    roster,
+    pool,
+    matchup,
+    league_config,
+    weeks_remaining: float,
+    alpha: float,
+    mode: str,
+    risk_aversion: float,
+    standings,
+    opp_totals: dict,
+    my_totals: dict,
+    week_schedule: list,
+    park_factors,
+    user_team_name: str,
+    proj_ip_lookup: dict,
+    pipeline_available: bool,
+    optimizer_available: bool,
+    ip_tracker_available: bool,
+    fa_for_streaming=None,
+    opt_ctx=None,
+    today_sched=None,
+    today_teams_playing: set | None = None,
+    dcv_rate_modes=None,
+) -> dict:
+    """Pure compute function — runs the full optimize pipeline and returns
+    the result dict.
+
+    **MUST NOT call ``st.*``** — this runs in a background thread that has
+    no Streamlit ScriptRunContext.  All side-effects (progress bars, spinners,
+    session_state writes) are handled by the caller AFTER this returns.
+    """
+    import logging as _tlog
+
+    _log = _tlog.getLogger(__name__)
+
+    if today_teams_playing is None:
+        today_teams_playing = set()
+
+    if scope_key == "today":
+        # ── TODAY: DCV engine ─────────────────────────────────────────
+        try:
+            from src.optimizer.daily_optimizer import build_daily_dcv_table
+
+            _dcv_sched = today_sched or []
+            _dcv_urgency = opt_ctx.urgency_weights if opt_ctx else None
+            _dcv_lineups = opt_ctx.confirmed_lineups if opt_ctx else None
+            _dcv_form = opt_ctx.recent_form if opt_ctx else None
+            _dcv_team_strength = opt_ctx.team_strength if opt_ctx else None
+            _dcv_rate_modes_local = dcv_rate_modes
+
+            dcv = build_daily_dcv_table(
+                roster=roster if not roster.empty else pool,
+                matchup=matchup,
+                schedule_today=_dcv_sched if _dcv_sched else None,
+                park_factors=park_factors or {},
+                urgency_weights=_dcv_urgency,
+                confirmed_lineups=_dcv_lineups,
+                recent_form=_dcv_form,
+                rate_modes=_dcv_rate_modes_local,
+                team_strength=_dcv_team_strength,
+            )
+            return {
+                "dcv_table": dcv,
+                "scope": "today",
+                "lineup": None,
+                "category_weights": opt_ctx.category_weights if opt_ctx else {},
+                "h2h_analysis": None,
+                "streaming_suggestions": None,
+                "risk_metrics": None,
+                "maximin_comparison": None,
+                "recommendations": [],
+                "timing": {"total": 0},
+                "mode": "dcv",
+                "matchup_adjusted": True,
+                "_today_teams_playing": today_teams_playing,
+                "_dcv_rate_modes": _dcv_rate_modes_local,
+            }
+        except Exception as _e:
+            raise RuntimeError(f"Daily optimization failed: {_e}") from _e
+
+    # ── REST OF WEEK / REST OF SEASON: LP pipeline ────────────────────
+
+    _urgency_weights: dict[str, float] = {}
+    if opt_ctx and opt_ctx.urgency_weights:
+        _urgency_weights = (
+            opt_ctx.urgency_weights.get("urgency", {}) if isinstance(opt_ctx.urgency_weights, dict) else {}
+        )
+
+    _ip_boost = 1.0
+    try:
+        if ip_tracker_available:
+            from src.ip_tracker import compute_weekly_ip_projection, get_days_remaining_in_week
+
+            _pitchers = []
+            for _, _pr in roster[roster.get("is_hitter", 1) == 0].iterrows() if "is_hitter" in roster.columns else []:
+                _pitchers.append(
+                    {
+                        "ip": proj_ip_lookup.get(_pr.get("player_id"), float(_pr.get("ip", 0) or 0)),
+                        "positions": str(_pr.get("positions", "")),
+                        "status": str(_pr.get("status", "active")),
+                        "is_starter": "SP" in str(_pr.get("positions", "")).upper(),
+                    }
+                )
+            if _pitchers:
+                _ip_result = compute_weekly_ip_projection(_pitchers, get_days_remaining_in_week())
+                if _ip_result.get("status") == "danger":
+                    _ip_boost = 1.5
+                elif _ip_result.get("status") == "safe":
+                    _ip_boost = 0.7
+    except Exception:
+        pass
+
+    if pipeline_available:
+        pipeline = LineupOptimizerPipeline(
+            roster,
+            mode=mode,
+            alpha=alpha,
+            weeks_remaining=weeks_remaining,
+            config=league_config,
+        )
+        pipeline._preset = dict(pipeline._preset)
+        pipeline._preset["risk_aversion"] = risk_aversion
+
+        try:
+            if _urgency_weights or _ip_boost != 1.0:
+                _pitching_cats = {"w", "l", "sv", "k", "era", "whip"}
+                _urgency_mults: dict[str, float] = {}
+                for _ucat, _urg in _urgency_weights.items():
+                    _ucat_lower = _ucat.lower()
+                    if _urg > 0.6:
+                        _mult = 1.5
+                    elif _urg > 0.4:
+                        _mult = 1.2
+                    elif _urg > 0.25:
+                        _mult = 1.0
+                    else:
+                        _mult = 0.6
+                    if _ucat_lower in _pitching_cats:
+                        _mult *= _ip_boost
+                    _urgency_mults[_ucat_lower] = _mult
+
+                if _urgency_mults:
+                    _original_compute = pipeline._compute_category_weights
+
+                    def _urgency_wrapped_compute(*args, **kwargs):
+                        base_weights = _original_compute(*args, **kwargs)
+                        adjusted = {}
+                        for cat, base_w in base_weights.items():
+                            cat_key = cat.lower()
+                            if cat_key in _urgency_mults:
+                                adjusted[cat] = base_w * _urgency_mults[cat_key]
+                            else:
+                                adjusted[cat] = base_w
+                        return adjusted
+
+                    pipeline._compute_category_weights = _urgency_wrapped_compute
+        except Exception:
+            pass
+
+        _fa = (
+            fa_for_streaming if fa_for_streaming is not None and not getattr(fa_for_streaming, "empty", True) else None
+        )
+
+        result = pipeline.optimize(
+            standings=standings if not standings.empty else None,
+            team_name=user_team_name,
+            h2h_opponent_totals=opp_totals if opp_totals else None,
+            my_totals=my_totals if my_totals else None,
+            week_schedule=week_schedule if week_schedule else None,
+            park_factors=park_factors,
+            free_agents=_fa,
+        )
+        result["scope"] = scope_key
+        result["_today_teams_playing"] = today_teams_playing
+        return result
+
+    # Fallback to basic optimizer
+    from src.lineup_optimizer import LineupOptimizer
+
+    optimizer = LineupOptimizer(roster, league_config)
+    basic_result = optimizer.optimize_lineup(
+        category_weights=opt_ctx.category_weights if opt_ctx else None,
+    )
+    return {
+        "lineup": basic_result,
+        "scope": scope_key,
+        "category_weights": {},
+        "h2h_analysis": None,
+        "streaming_suggestions": None,
+        "risk_metrics": None,
+        "maximin_comparison": None,
+        "recommendations": [],
+        "timing": {"total": 0},
+        "mode": "basic",
+        "matchup_adjusted": False,
+        "_today_teams_playing": today_teams_playing,
+    }
 
 
 # Start/sit advisor
@@ -895,6 +1214,90 @@ with ctx:
                 st.toast(f"Refresh failed: {_refresh_err}", icon="❌")
         st.rerun()
 
+    # ── Saved lineups ────────────────────────────────────────────────
+    with st.expander("Saved lineups", expanded=False):
+        # ── Save current lineup ──────────────────────────────────────
+        _sv_name = st.text_input(
+            "Lineup name",
+            placeholder="e.g. Week 14 — punt SB",
+            key="lineup_save_name",
+        )
+        if st.button("Save current lineup", key="lineup_save_btn", width="stretch"):
+            if not _sv_name or not _sv_name.strip():
+                st.warning("Enter a name before saving.")
+            else:
+                # Collect starter_ids from the last optimizer result (if any)
+                _sv_result = st.session_state.get("lineup_optimizer_result") or {}
+                _sv_lineup = _sv_result.get("lineup") or {}
+                _sv_starter_ids: list[int] = []
+                if _sv_lineup.get("assignments"):
+                    for _asgn in _sv_lineup["assignments"]:
+                        _pid = _asgn.get("player_id")
+                        if _pid is not None and _asgn.get("is_starting"):
+                            try:
+                                _sv_starter_ids.append(int(_pid))
+                            except (ValueError, TypeError):
+                                pass
+                _sv_payload = _build_lineup_payload(
+                    mode=st.session_state.get("lineup_mode", "standard"),
+                    scope=st.session_state.get("optimizer_scope", "Rest of Week"),
+                    risk_aversion=float(st.session_state.get("lineup_risk", 0.15)),
+                    starter_ids=_sv_starter_ids,
+                )
+                try:
+                    save_view("lineup", _sv_name.strip(), _sv_payload)
+                    st.toast(f"Lineup '{_sv_name.strip()}' saved.", icon="✅")
+                    st.rerun()
+                except Exception as _sv_err:
+                    st.error(f"Save failed: {_sv_err}")
+
+        # ── Load / delete saved lineup ────────────────────────────────
+        _saved_names = list_views("lineup")
+        if _saved_names:
+            _lv_name = st.selectbox(
+                "Load or delete a saved lineup",
+                options=_saved_names,
+                key="lineup_load_select",
+            )
+            _lv_col1, _lv_col2 = st.columns(2)
+            with _lv_col1:
+                if st.button("Load lineup", key="lineup_load_btn", width="stretch"):
+                    if _lv_name:
+                        _lv_payload = load_view("lineup", _lv_name)
+                        if _lv_payload is None:
+                            st.warning(f"Could not load '{_lv_name}'.")
+                        else:
+                            # Restore settings into session state for the next rerun
+                            if "mode" in _lv_payload:
+                                st.session_state["lineup_mode"] = _lv_payload["mode"]
+                            if "scope" in _lv_payload:
+                                # Map stored scope key back to display label
+                                _scope_label_map = {
+                                    "today": "Today",
+                                    "rest_of_week": "Rest of Week",
+                                    "rest_of_season": "Rest of Season",
+                                }
+                                _stored_scope = _lv_payload["scope"]
+                                _display_scope = _scope_label_map.get(_stored_scope, _stored_scope)
+                                st.session_state["optimizer_scope"] = _display_scope
+                            if "risk_aversion" in _lv_payload:
+                                st.session_state["lineup_risk"] = float(_lv_payload["risk_aversion"])
+                            st.toast(f"Lineup '{_lv_name}' loaded — settings restored.", icon="✅")
+                            st.rerun()
+                    else:
+                        st.info("Select a saved lineup first.")
+            with _lv_col2:
+                if st.button("Delete lineup", key="lineup_delete_btn", width="stretch"):
+                    if _lv_name:
+                        try:
+                            delete_view("lineup", _lv_name)
+                            st.toast(f"Lineup '{_lv_name}' deleted.", icon="✅")
+                            st.rerun()
+                        except Exception as _del_err:
+                            st.error(f"Delete failed: {_del_err}")
+        else:
+            st.caption("No saved lineups yet.")
+
 
 # ── Main content panel ───────────────────────────────────────────────
 
@@ -936,7 +1339,8 @@ with main:
 
         optimize_clicked = st.button("Optimize Lineup", type="primary", key="lineup_run_opt")
 
-        if optimize_clicked:
+        if optimize_clicked and not st.session_state.get("_opt_running"):
+            # ── R-6: Async optimize — submit to background thread ─────────
             # Auto-compute alpha per scope (replaces manual slider)
             if _scope_key == "rest_of_week":
                 alpha = 1.0  # Pure H2H for weekly matchup
@@ -944,297 +1348,139 @@ with main:
                 alpha = max(0.0, 1.0 - (weeks_remaining / 26.0))
             # "today" scope: alpha unused by DCV engine
 
-            with st.spinner("Optimizing lineup…"):
-                progress_bar = st.progress(0, text="Syncing roster and building shared data context...")
+            # ── Pre-compute on main thread: data that needs st.* ─────────
+            # T1.21: use cached roster data (no force_refresh — avoids 159s OAuth hang).
+            try:
+                yds.get_rosters()
+                _click_roster = get_team_roster(user_team_name)
+                if "name" in _click_roster.columns and "player_name" not in _click_roster.columns:
+                    _click_roster = _click_roster.rename(columns={"name": "player_name"})
+                for _sc in ["r", "hr", "rbi", "sb", "avg", "obp", "w", "l", "sv", "k", "era", "whip", "ip", "pa"]:
+                    if _sc in _click_roster.columns:
+                        _click_roster[_sc] = pd.to_numeric(_click_roster[_sc], errors="coerce").fillna(0)
+            except Exception:
+                _click_roster = roster  # fall back to already-loaded roster
 
-                # T1.21: use cached roster data. Users can force-refresh via the
-                # "Refresh Yahoo Data" button in the sidebar. Implicit force_refresh
-                # here caused a 159s OAuth hang when the access token expired.
+            # Build shared optimizer context on main thread (needs yds)
+            _click_opt_ctx = None
+            try:
+                from src.optimizer.shared_data_layer import build_optimizer_context
+
+                _click_opt_ctx = build_optimizer_context(
+                    scope=_scope_key,
+                    yds=yds,
+                    config=league_config,
+                    weeks_remaining=weeks_remaining,
+                    park_factors=_effective_park_factors(),
+                    user_team_name=user_team_name,
+                    roster=_click_roster,
+                )
+                st.session_state["optimizer_context"] = _click_opt_ctx
+            except Exception as _ctx_err:
+                logger.warning("Failed to build optimizer context: %s", _ctx_err)
+
+            # Resolve DCV rate_modes now (needed by render branch on every rerun)
+            _click_dcv_urgency = _click_opt_ctx.urgency_weights if _click_opt_ctx else None
+            _click_dcv_rate_modes = _click_dcv_urgency.get("rate_modes") if _click_dcv_urgency else None
+            st.session_state["_dcv_rate_modes"] = _click_dcv_rate_modes
+
+            # Fetch today's schedule and teams playing (needs statsapi)
+            _click_today_teams: set[str] = set()
+            _click_today_sched: list = []
+            try:
+                import statsapi
+
+                from src.game_day import get_target_game_date
+                from src.valuation import team_name_to_abbr as _tn_to_abbr
+
+                _opt_target_date = get_target_game_date()
+                st.session_state["_optimizer_target_date"] = _opt_target_date
+                _click_today_sched = statsapi.schedule(date=_opt_target_date)
+
+                for _g in _click_today_sched:
+                    for _side in ("home_name", "away_name"):
+                        _raw = str(_g.get(_side, ""))
+                        _abbr = _tn_to_abbr(_raw, default="")
+                        if _abbr:
+                            _click_today_teams.add(_abbr)
+                        if _raw:
+                            _click_today_teams.add(_raw)
+            except Exception:
+                pass
+
+            # Fetch FA for streaming (full mode) on main thread (needs yds)
+            _click_fa = pd.DataFrame()
+            if mode == "full":
                 try:
-                    yds.get_rosters()
-                    roster = get_team_roster(user_team_name)
-                    if "name" in roster.columns and "player_name" not in roster.columns:
-                        roster = roster.rename(columns={"name": "player_name"})
-                    for _sc in ["r", "hr", "rbi", "sb", "avg", "obp", "w", "l", "sv", "k", "era", "whip", "ip", "pa"]:
-                        if _sc in roster.columns:
-                            roster[_sc] = pd.to_numeric(roster[_sc], errors="coerce").fillna(0)
+                    _click_fa = yds.get_free_agents(max_players=500)
                 except Exception:
                     pass
 
-                # ── Build shared optimizer context (single source of truth) ──
-                _opt_ctx = None
-                try:
-                    from src.optimizer.shared_data_layer import build_optimizer_context
+            _click_matchup = yds.get_matchup()
+            _click_park = _effective_park_factors()
 
-                    progress_bar.progress(10, text="Loading matchup data, schedule, and player intelligence...")
-                    _opt_ctx = build_optimizer_context(
-                        scope=_scope_key,
-                        yds=yds,
-                        config=league_config,
-                        weeks_remaining=weeks_remaining,
-                        park_factors=_effective_park_factors(),
-                        user_team_name=user_team_name,
-                        roster=roster,
-                    )
-                    st.session_state["optimizer_context"] = _opt_ctx
-                except Exception as _ctx_err:
-                    import logging as _log
+            # ── Submit the heavy compute to the background thread ─────────
+            _future = _OPT_EXECUTOR.submit(
+                _run_optimize_compute,
+                scope_key=_scope_key,
+                roster=_click_roster,
+                pool=pool,
+                matchup=_click_matchup,
+                league_config=league_config,
+                weeks_remaining=weeks_remaining,
+                alpha=alpha,
+                mode=mode,
+                risk_aversion=risk_aversion,
+                standings=standings,
+                opp_totals=opp_totals,
+                my_totals=my_totals,
+                week_schedule=week_schedule,
+                park_factors=_click_park,
+                user_team_name=user_team_name,
+                proj_ip_lookup=_proj_ip_lookup,
+                pipeline_available=PIPELINE_AVAILABLE,
+                optimizer_available=OPTIMIZER_AVAILABLE,
+                ip_tracker_available=IP_TRACKER_AVAILABLE,
+                fa_for_streaming=_click_fa,
+                opt_ctx=_click_opt_ctx,
+                today_sched=_click_today_sched,
+                today_teams_playing=_click_today_teams,
+                dcv_rate_modes=_click_dcv_rate_modes,
+            )
+            st.session_state["_opt_future"] = _future
+            st.session_state["_opt_running"] = True
+            st.rerun()
 
-                    _log.getLogger(__name__).warning("Failed to build optimizer context: %s", _ctx_err)
+        # ── Poll the background future on every rerun ─────────────────────
+        _poll_status = _poll_optimize(st.session_state)
 
-                # Fetch today's MLB schedule for game-today annotations
-                _today_teams_playing: set[str] = set()
-                try:
-                    from datetime import datetime, timedelta, timezone
-
-                    import statsapi
-
-                    # Target date: today or tomorrow if all games final
-                    from src.game_day import get_target_game_date
-                    from src.valuation import team_name_to_abbr as _tn_to_abbr
-
-                    _opt_target_date = get_target_game_date()
-                    st.session_state["_optimizer_target_date"] = _opt_target_date
-                    _today_sched = statsapi.schedule(date=_opt_target_date)
-
-                    for _g in _today_sched:
-                        for _side in ("home_name", "away_name"):
-                            _raw = str(_g.get(_side, ""))
-                            # default="" so unmatched names fail-quiet (legacy behavior)
-                            _abbr = _tn_to_abbr(_raw, default="")
-                            if _abbr:
-                                _today_teams_playing.add(_abbr)
-                            if _raw:
-                                _today_teams_playing.add(_raw)
-                except Exception:
-                    pass
-
-                # ── Route to appropriate engine based on scope ────────────
-                if _scope_key == "today":
-                    # ── TODAY: DCV engine ─────────────────────────────────
-                    progress_bar.progress(30, text="Computing Daily Category Values...")
-                    try:
-                        from src.optimizer.daily_optimizer import build_daily_dcv_table
-
-                        _dcv_sched = None
-                        try:
-                            import statsapi
-
-                            # Use the same target date (auto-advanced if today's games are final)
-                            _dcv_target = st.session_state.get("_optimizer_target_date", "")
-                            if not _dcv_target:
-                                from datetime import datetime, timedelta, timezone
-
-                                _ET2 = timezone(timedelta(hours=-4))
-                                _dcv_target = datetime.now(_ET2).strftime("%Y-%m-%d")
-                            _dcv_sched = statsapi.schedule(date=_dcv_target)
-                        except Exception:
-                            _dcv_sched = []
-
-                        # Pass shared context enrichments into DCV
-                        _dcv_urgency = _opt_ctx.urgency_weights if _opt_ctx else None
-                        _dcv_lineups = _opt_ctx.confirmed_lineups if _opt_ctx else None
-                        _dcv_form = _opt_ctx.recent_form if _opt_ctx else None
-                        _dcv_team_strength = _opt_ctx.team_strength if _opt_ctx else None
-                        _dcv_rate_modes = _dcv_urgency.get("rate_modes") if _dcv_urgency else None
-                        # Persist alongside the result: the render branch below
-                        # re-executes on EVERY rerun (e.g. the "Refresh Yahoo
-                        # Data" button) where this optimize-click local is
-                        # unbound — reading it back avoids the NameError
-                        # (2026-06-10 live incident).
-                        st.session_state["_dcv_rate_modes"] = _dcv_rate_modes
-
-                        dcv = build_daily_dcv_table(
-                            roster=roster if not roster.empty else pool,
-                            matchup=yds.get_matchup(),
-                            schedule_today=_dcv_sched if _dcv_sched else None,
-                            park_factors=_effective_park_factors() or {},
-                            urgency_weights=_dcv_urgency,
-                            confirmed_lineups=_dcv_lineups,
-                            recent_form=_dcv_form,
-                            rate_modes=_dcv_rate_modes,
-                            team_strength=_dcv_team_strength,
-                        )
-
-                        # Sanity check: warn if DCV produced all zeros
-                        if not dcv.empty and "total_dcv" in dcv.columns:
-                            _active_dcv = dcv.loc[dcv.get("health_factor", pd.Series(1.0, index=dcv.index)) > 0]
-                            if not _active_dcv.empty and _active_dcv["total_dcv"].abs().sum() < 1e-6:
-                                st.warning(
-                                    "DCV scores are all zero — START/BENCH decisions may be unreliable. "
-                                    "Try syncing Yahoo data or refreshing projections."
-                                )
-
-                        progress_bar.progress(100, text="Daily optimization complete!")
-                        time.sleep(0.3)
-                        progress_bar.empty()
-
-                        # Store as result in compatible format for display
-                        st.session_state["lineup_optimizer_result"] = {
-                            "dcv_table": dcv,
-                            "scope": "today",
-                            "lineup": None,
-                            "category_weights": _opt_ctx.category_weights if _opt_ctx else {},
-                            "h2h_analysis": None,
-                            "streaming_suggestions": None,
-                            "risk_metrics": None,
-                            "maximin_comparison": None,
-                            "recommendations": [],
-                            "timing": {"total": 0},
-                            "mode": "dcv",
-                            "matchup_adjusted": True,
-                        }
-                        st.session_state["lineup_today_teams"] = _today_teams_playing
-
-                    except Exception as e:
-                        progress_bar.empty()
-                        st.error(f"Daily optimization failed: {e}")
-
-                else:
-                    # ── REST OF WEEK / REST OF SEASON: LP pipeline ────────
-                    # Use shared context weights instead of monkey-patching
-                    _urgency_weights: dict[str, float] = {}
-                    if _opt_ctx and _opt_ctx.urgency_weights:
-                        # Extract inner urgency dict — compute_urgency_weights() returns
-                        # {"urgency": {cat: float}, "rate_modes": {...}, "summary": {...}}
-                        _urgency_weights = (
-                            _opt_ctx.urgency_weights.get("urgency", {})
-                            if isinstance(_opt_ctx.urgency_weights, dict)
-                            else {}
-                        )
-
-                    # IP-aware pitching weight adjustment
-                    _ip_boost = 1.0
-                    try:
-                        if IP_TRACKER_AVAILABLE:
-                            from src.ip_tracker import compute_weekly_ip_projection, get_days_remaining_in_week
-
-                            _pitchers = []
-                            for _, _pr in (
-                                roster[roster.get("is_hitter", 1) == 0].iterrows()
-                                if "is_hitter" in roster.columns
-                                else []
-                            ):
-                                _pitchers.append(
-                                    {
-                                        "ip": _proj_ip_lookup.get(_pr.get("player_id"), float(_pr.get("ip", 0) or 0)),
-                                        "positions": str(_pr.get("positions", "")),
-                                        "status": str(_pr.get("status", "active")),
-                                        "is_starter": "SP" in str(_pr.get("positions", "")).upper(),
-                                    }
-                                )
-                            if _pitchers:
-                                _ip_result = compute_weekly_ip_projection(_pitchers, get_days_remaining_in_week())
-                                if _ip_result.get("status") == "danger":
-                                    _ip_boost = 1.5
-                                elif _ip_result.get("status") == "safe":
-                                    _ip_boost = 0.7
-                    except Exception:
-                        pass
-
-                    if PIPELINE_AVAILABLE:
-                        progress_bar.progress(20, text=f"Running {mode} optimization pipeline ({_opt_scope})...")
-
-                        pipeline = LineupOptimizerPipeline(
-                            roster,
-                            mode=mode,
-                            alpha=alpha,
-                            weeks_remaining=weeks_remaining,
-                            config=league_config,
-                        )
-
-                        pipeline._preset = dict(pipeline._preset)
-                        pipeline._preset["risk_aversion"] = risk_aversion
-
-                        # Wire urgency weights + IP boost via monkey-patch
-                        try:
-                            if _urgency_weights or _ip_boost != 1.0:
-                                _pitching_cats = {"w", "l", "sv", "k", "era", "whip"}
-                                _urgency_mults: dict[str, float] = {}
-                                for _ucat, _urg in _urgency_weights.items():
-                                    _ucat_lower = _ucat.lower()
-                                    if _urg > 0.6:
-                                        _mult = 1.5
-                                    elif _urg > 0.4:
-                                        _mult = 1.2
-                                    elif _urg > 0.25:
-                                        _mult = 1.0
-                                    else:
-                                        _mult = 0.6
-                                    if _ucat_lower in _pitching_cats:
-                                        _mult *= _ip_boost
-                                    _urgency_mults[_ucat_lower] = _mult
-
-                                if _urgency_mults:
-                                    _original_compute = pipeline._compute_category_weights
-
-                                    def _urgency_wrapped_compute(*args, **kwargs):
-                                        base_weights = _original_compute(*args, **kwargs)
-                                        adjusted = {}
-                                        for cat, base_w in base_weights.items():
-                                            cat_key = cat.lower()
-                                            if cat_key in _urgency_mults:
-                                                adjusted[cat] = base_w * _urgency_mults[cat_key]
-                                            else:
-                                                adjusted[cat] = base_w
-                                        return adjusted
-
-                                    pipeline._compute_category_weights = _urgency_wrapped_compute
-                        except Exception:
-                            pass
-
-                        progress_bar.progress(40, text="Computing category weights and projections...")
-
-                        _fa_for_streaming = pd.DataFrame()
-                        if mode == "full":
-                            try:
-                                _fa_for_streaming = yds.get_free_agents(max_players=500)
-                            except Exception:
-                                pass
-
-                        result = pipeline.optimize(
-                            standings=standings if not standings.empty else None,
-                            team_name=user_team_name,
-                            h2h_opponent_totals=opp_totals if opp_totals else None,
-                            my_totals=my_totals if my_totals else None,
-                            week_schedule=week_schedule if week_schedule else None,
-                            park_factors=_effective_park_factors(),
-                            free_agents=_fa_for_streaming if not _fa_for_streaming.empty else None,
-                        )
-
-                        progress_bar.progress(100, text="Optimization complete!")
-                        time.sleep(0.3)
-                        progress_bar.empty()
-
-                        result["scope"] = _scope_key
-                        st.session_state["lineup_optimizer_result"] = result
-                        st.session_state["lineup_today_teams"] = _today_teams_playing
-
-                    else:
-                        # Fallback to basic optimizer
-                        progress_bar.progress(20, text="Building constraint matrix...")
-                        optimizer = LineupOptimizer(roster, league_config)
-                        basic_result = optimizer.optimize_lineup(
-                            category_weights=_opt_ctx.category_weights if _opt_ctx else None,
-                        )
-                        progress_bar.progress(100, text="Optimization complete!")
-                        time.sleep(0.3)
-                        progress_bar.empty()
-
-                        result = {
-                            "lineup": basic_result,
-                            "scope": _scope_key,
-                            "category_weights": {},
-                            "h2h_analysis": None,
-                            "streaming_suggestions": None,
-                            "risk_metrics": None,
-                            "maximin_comparison": None,
-                            "recommendations": [],
-                            "timing": {"total": 0},
-                            "mode": "basic",
-                            "matchup_adjusted": False,
-                        }
-                        st.session_state["lineup_optimizer_result"] = result
+        if _poll_status == "running":
+            # Show non-blocking status — user can read other parts of the page
+            st.info("Optimizing your lineup… (running in background, you can keep reading)")
+            st.rerun()
+        elif _poll_status == "done":
+            # Unpack side-effect fields the thread can't write directly
+            _done_result = st.session_state.get("lineup_optimizer_result", {})
+            _done_teams = _done_result.pop("_today_teams_playing", set())
+            st.session_state["lineup_today_teams"] = _done_teams
+            _done_dcv_modes = _done_result.pop("_dcv_rate_modes", None)
+            if _done_dcv_modes is not None:
+                st.session_state["_dcv_rate_modes"] = _done_dcv_modes
+            # DCV zero-score warning (needs st.warning — main thread only)
+            if _done_result.get("scope") == "today":
+                _dcv_chk = _done_result.get("dcv_table")
+                if _dcv_chk is not None and not getattr(_dcv_chk, "empty", True):
+                    if "total_dcv" in _dcv_chk.columns:
+                        _active_chk = _dcv_chk.loc[
+                            _dcv_chk.get("health_factor", pd.Series(1.0, index=_dcv_chk.index)) > 0
+                        ]
+                        if not _active_chk.empty and _active_chk["total_dcv"].abs().sum() < 1e-6:
+                            st.warning(
+                                "DCV scores are all zero — START/BENCH decisions may be unreliable. "
+                                "Try syncing Yahoo data or refreshing projections."
+                            )
+        elif _poll_status == "error":
+            st.error(f"Optimization failed: {st.session_state.pop('_opt_error', 'unknown error')}")
 
         # Display results from session state
         result = st.session_state.get("lineup_optimizer_result")
@@ -1496,6 +1742,9 @@ with main:
                     # Stash empty-slot info for the display step
                     st.session_state["_lineup_empty_slots"] = _strategic_empty_slots
                     st.session_state["_lineup_filled_slots"] = set(_lp_slot_map.values())
+                    # Persist the LP slot map so the "Apply to Yahoo" UI can
+                    # build assignments on any rerun without rebinding the local.
+                    st.session_state["_lp_slot_map"] = dict(_lp_slot_map)
                 except Exception:
                     import logging as _lp_log
 
@@ -1647,22 +1896,18 @@ with main:
                     "NA": 5,
                 }
 
-                def _slot_sort_key(df_in, order_map):
-                    default = max(order_map.values()) + 1
-                    return df_in["selected_position"].map(lambda s: order_map.get(s, default))
-
                 # Sort: START on top, then BENCH, then IL — within each group by slot order
                 # "START ⚠" (forced start) sorts alongside regular START.
                 _DECISION_ORDER = {"START": 0, "START ⚠": 0, "BENCH": 1, "IL": 2}
 
                 if not batters_dcv.empty and "selected_position" in batters_dcv.columns:
-                    batters_dcv["_slot_sort"] = _slot_sort_key(batters_dcv, _BATTER_SLOT_ORDER)
+                    batters_dcv["_slot_sort"] = _slot_sort_key_helper(batters_dcv, _BATTER_SLOT_ORDER)
                     batters_dcv["_dec_sort"] = batters_dcv["Decision"].map(_DECISION_ORDER).fillna(2)
                     batters_dcv = batters_dcv.sort_values(
                         ["_dec_sort", "_slot_sort", "total_dcv"], ascending=[True, True, False]
                     ).drop(columns=["_slot_sort", "_dec_sort"])
                 if not pitchers_dcv.empty and "selected_position" in pitchers_dcv.columns:
-                    pitchers_dcv["_slot_sort"] = _slot_sort_key(pitchers_dcv, _PITCHER_SLOT_ORDER)
+                    pitchers_dcv["_slot_sort"] = _slot_sort_key_helper(pitchers_dcv, _PITCHER_SLOT_ORDER)
                     pitchers_dcv["_dec_sort"] = pitchers_dcv["Decision"].map(_DECISION_ORDER).fillna(2)
                     pitchers_dcv = pitchers_dcv.sort_values(
                         ["_dec_sort", "_slot_sort", "total_dcv"], ascending=[True, True, False]
@@ -1713,13 +1958,7 @@ with main:
                 _filled_slots = st.session_state.get("_lineup_filled_slots", set())
                 _empty_slot_meta = st.session_state.get("_lineup_empty_slots", {})
 
-                def _expand_skeleton(slots_dict):
-                    """{C: (1, [...]), OF: (3, [...]) ...} → ['C','1B','2B','3B','SS','OF','OF','OF','Util','Util']"""
-                    expanded = []
-                    for slot, (count, _eligible_codes) in slots_dict.items():
-                        for _ in range(count):
-                            expanded.append(slot)
-                    return expanded
+                # _expand_skeleton imported from src.lineup_optimizer_helpers
 
                 def _inject_empty_rows(display_df, slots_dict):
                     """Append LEAVE EMPTY rows for skeleton slots not present in display."""
@@ -1777,21 +2016,7 @@ with main:
                 pitchers_display = _inject_empty_rows(pitchers_display, _PITCHER_SLOTS)
 
                 # ── Row styling by decision ──
-                def _decision_row_classes(df_in):
-                    classes = {}
-                    for i in range(len(df_in)):
-                        decision = str(df_in.iloc[i].get("Decision", "BENCH"))
-                        if decision.startswith("START") and "⚠" in decision:
-                            classes[i] = "row-start-forced"
-                        elif decision.startswith("START"):
-                            classes[i] = "row-start"
-                        elif decision == "IL":
-                            classes[i] = "row-il"
-                        elif decision == "LEAVE EMPTY":
-                            classes[i] = "row-empty"
-                        else:
-                            classes[i] = "row-bench"
-                    return classes
+                # _decision_row_classes imported from src.lineup_optimizer_helpers
 
                 st.markdown(
                     f"<style>"
@@ -1879,6 +2104,131 @@ with main:
                     "all eligible players idle, or starting would hurt your matchup."
                 )
 
+                # ── R-1: Apply lineup to Yahoo (confirm-gated) ──────────────
+                # Only shown when the Yahoo write client is available (token-owner
+                # session). Read-only members and un-connected sessions see a small
+                # caption instead. The two-step confirm guard prevents accidental
+                # writes: click "Apply…" to preview the assignments, then either
+                # "Confirm & apply" to execute the write or "Cancel" to abort.
+                _apply_lp_slot_map = st.session_state.get("_lp_slot_map") or {}
+                _apply_coverage_date = st.session_state.get("_optimizer_target_date", "")
+                if yds.is_connected() and viewer_can_write():
+                    if _apply_lp_slot_map and _apply_coverage_date:
+                        _pending = st.session_state.get("_apply_lineup_pending", False)
+                        if not _pending:
+                            if st.button(
+                                "Apply this lineup to Yahoo",
+                                key="apply_lineup_to_yahoo",
+                                help="Preview the slot assignments before they are sent to Yahoo.",
+                            ):
+                                st.session_state["_apply_lineup_pending"] = True
+                                st.rerun()
+                        else:
+                            # ── Preview & confirm step ──────────────────────
+                            _apply_roster = st.session_state.get("_click_roster") or roster
+                            _apply_assignments = _build_lineup_assignments(
+                                {"lp_slot_map": _apply_lp_slot_map},
+                                _apply_roster,
+                            )
+                            st.markdown(
+                                f'<div style="background:rgba(255,109,0,0.06);'
+                                f"border:1px solid {T['primary']};border-radius:8px;"
+                                f'padding:10px 14px;margin:0 0 10px;">'
+                                f'<div style="font-size:14px;font-weight:700;'
+                                f'color:{T["primary"]};margin-bottom:6px;">'
+                                f"Confirm lineup for {_apply_coverage_date}</div>",
+                                unsafe_allow_html=True,
+                            )
+                            if _apply_assignments:
+                                _preview_lines = "".join(
+                                    f"<li><strong>{T['tx']}</strong>"
+                                    f"<span style='color:{T['tx']};'>"
+                                    f"{a['player_key']} → {a['position']}</span></li>"
+                                    for a in _apply_assignments
+                                )
+                                # Build a human-readable preview using player names
+                                # from the roster keyed by yahoo_player_key.
+                                _apply_roster_safe = _apply_roster if _apply_roster is not None else pd.DataFrame()
+                                _key_to_name: dict[str, str] = {}
+                                if not _apply_roster_safe.empty and "yahoo_player_key" in _apply_roster_safe.columns:
+                                    for _, _pr in _apply_roster_safe.iterrows():
+                                        _pk = str(_pr.get("yahoo_player_key") or "").strip()
+                                        _pn = str(_pr.get("name") or _pr.get("player_name") or _pk)
+                                        if _pk:
+                                            _key_to_name[_pk] = _pn
+                                _preview_rows = "".join(
+                                    f"<li style='margin:2px 0;'>"
+                                    f"<strong>{_key_to_name.get(a['player_key'], a['player_key'])}</strong>"
+                                    f" → <em>{a['position']}</em></li>"
+                                    for a in _apply_assignments
+                                )
+                                st.markdown(
+                                    f'<ul style="margin:0 0 8px;padding-left:20px;'
+                                    f'font-size:13px;color:{T["tx"]};">{_preview_rows}</ul>',
+                                    unsafe_allow_html=True,
+                                )
+                                st.markdown("</div>", unsafe_allow_html=True)
+                                _col_confirm, _col_cancel = st.columns([1, 1])
+                                with _col_confirm:
+                                    if st.button(
+                                        "Confirm & apply to Yahoo",
+                                        key="apply_lineup_confirm",
+                                        type="primary",
+                                    ):
+                                        _apply_client = yds._client
+                                        if _apply_client is not None:
+                                            _apply_result = _apply_client.set_lineup(
+                                                _apply_assignments,
+                                                _apply_coverage_date,
+                                            )
+                                        else:
+                                            _apply_result = {
+                                                "ok": False,
+                                                "error": "Yahoo client not available.",
+                                                "status": None,
+                                            }
+                                        st.session_state["_apply_lineup_pending"] = False
+                                        if _apply_result.get("ok"):
+                                            st.success("Lineup applied to Yahoo.")
+                                        else:
+                                            _apply_err = _apply_result.get("error", "Unknown error")
+                                            st.error(_apply_err)
+                                            # Manual-moves fallback so the user can set
+                                            # the lineup by hand if the API write failed.
+                                            _manual_lines = "".join(
+                                                f"<li>{_key_to_name.get(a['player_key'], a['player_key'])}"
+                                                f" → {a['position']}</li>"
+                                                for a in _apply_assignments
+                                            )
+                                            st.markdown(
+                                                f'<div style="margin-top:8px;padding:8px 12px;'
+                                                f"border-left:3px solid {T['tx2']};"
+                                                f"background:rgba(158,158,158,0.10);"
+                                                f"border-radius:4px;font-size:13px;"
+                                                f'color:{T["tx"]};">'
+                                                f"<b>Set manually in Yahoo:</b>"
+                                                f'<ul style="margin:4px 0 0;padding-left:18px;">'
+                                                f"{_manual_lines}</ul></div>",
+                                                unsafe_allow_html=True,
+                                            )
+                                with _col_cancel:
+                                    if st.button("Cancel", key="apply_lineup_cancel"):
+                                        st.session_state["_apply_lineup_pending"] = False
+                                        st.rerun()
+                            else:
+                                st.markdown("</div>", unsafe_allow_html=True)
+                                st.info(
+                                    "No slot assignments to apply — run Optimize first "
+                                    "or no players had Yahoo keys in the roster."
+                                )
+                                if st.button("Cancel", key="apply_lineup_cancel_empty"):
+                                    st.session_state["_apply_lineup_pending"] = False
+                                    st.rerun()
+                    else:
+                        st.caption("Run Optimize to generate a lineup before applying to Yahoo.")
+                else:
+                    st.caption("Connect Yahoo (as the team owner) to apply lineups.")
+
                 # FA recommendations for Today scope — daily streaming only.
                 # Long-term FA moves show on Rest-of-Week / Rest-of-Season
                 # scopes. Streaming fires only when there are in-play
@@ -1890,10 +2240,7 @@ with main:
                 st.divider()
                 _section_label("Today's Streaming Recommendations", fig="DAILY")
 
-                def _fmt_deltas(d: dict) -> str:
-                    if not d:
-                        return "\u2014"
-                    return ", ".join(f"{k.upper()} {v:+.2f}" for k, v in sorted(d.items(), key=lambda kv: -abs(kv[1])))
+                # _fmt_deltas imported from src.lineup_optimizer_helpers
 
                 def _render_stream_block(label: str, entries: list) -> None:
                     if not entries:

@@ -19,8 +19,11 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 PAGE_OPT = REPO_ROOT / "pages" / "2_Line-up_Optimizer.py"
 PAGE_STD = REPO_ROOT / "pages" / "6_League_Standings.py"
 
-# Pattern: st.spinner("Optimizing lineup…") — allow straight or curly ellipsis
-_SPINNER_OPT = re.compile(r'st\.spinner\s*\(\s*["\']Optimizing lineup[…\.]{1,3}["\']')
+# Pattern: optimize feedback — st.spinner OR the async poll-state st.info/st.status
+# ("Optimizing…"). The optimize runs background-threaded (R-6), so the blocking
+# spinner was replaced by a poll-state "Optimizing…" indicator; either satisfies the
+# "user has feedback during the solve" intent.
+_SPINNER_OPT = re.compile(r"st\.(?:spinner|status|info)\s*\(\s*[^)]*Optimizing")
 # Pattern: st.spinner("Simulating remaining season…")
 _SPINNER_STD = re.compile(r'st\.spinner\s*\(\s*["\']Simulating remaining season[…\.]{1,3}["\']')
 

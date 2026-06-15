@@ -692,6 +692,21 @@ with main:
                         ]
                         render_compact_table(ldf[show_cols].rename(columns=_CAT_DISPLAY))
 
+                    # R-4 CSV export — download what the user sees in the leaderboard.
+                    # Use ldf (filtered by lens) with display-friendly column names.
+                    _ldr_csv_cols = [
+                        c for c in ["name", "team", "positions", "rostered_by", stat_col] if c in ldf.columns
+                    ]
+                    _ldr_csv_df = ldf[_ldr_csv_cols].rename(columns=_CAT_DISPLAY)
+                    if not _ldr_csv_df.empty:
+                        st.download_button(
+                            label="Download CSV",
+                            data=_ldr_csv_df.to_csv(index=False).encode("utf-8"),
+                            file_name=f"heater_category_leaders_{category.lower()}.csv",
+                            mime="text/csv",
+                            key="leaders_csv_tab1",
+                        )
+
                     # Player card selector
                     if "player_id" in leaders[category].columns and "name" in leaders[category].columns:
                         render_player_select(
@@ -765,6 +780,17 @@ with main:
                     }
                     display_cv = cv_df[_cv_show].rename(columns=_CV_DISPLAY)
                     render_compact_table(display_cv)
+
+                    # R-4 CSV export for the Category Value tab.
+                    _cv_csv = display_cv[[c for c in display_cv.columns if c != "mlb_id"]]
+                    if not _cv_csv.empty:
+                        st.download_button(
+                            label="Download CSV",
+                            data=_cv_csv.to_csv(index=False).encode("utf-8"),
+                            file_name="heater_category_value_leaders.csv",
+                            mime="text/csv",
+                            key="leaders_csv_tab2",
+                        )
 
                     # Player card selector
                     if "player_id" in cv_df.columns and "Player" in display_cv.columns:

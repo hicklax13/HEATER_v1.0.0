@@ -46,6 +46,7 @@ from src.ui_shared import (
     team_logo_url,
 )
 from src.usage import log_page_view
+from src.user_data import delete_view, list_views, load_view, save_view
 from src.valuation import LeagueConfig, add_process_risk, compute_percentile_projections, compute_projection_volatility
 from src.yahoo_data_service import get_yahoo_data_service
 
@@ -107,6 +108,105 @@ def _load_trade_pool() -> "pd.DataFrame":
         except Exception:
             pass  # Graceful degradation — use raw pool if intelligence fails
     return _pool
+
+
+def _consume_trade_prefill(
+    session_state: dict,
+    id_to_name_give: dict,
+    id_to_name_receive: dict,
+) -> None:
+    """Consume `_tf_prefill` from session state and pre-populate selectors.
+
+    Reads ``session_state["_tf_prefill"]`` (a dict with ``giving_ids`` and
+    ``receiving_ids`` lists), maps each id to a player name using the provided
+    look-up dicts, and writes the resolved names into
+    ``session_state["giving"]`` / ``session_state["receiving"]`` so that the
+    downstream ``st.multiselect`` widgets pick them up as their initial value.
+
+    Always pops ``_tf_prefill`` so the prefill is applied exactly once and
+    does not re-fire on subsequent reruns or after the user edits the trade.
+
+    Args:
+        session_state:     The dict-like Streamlit session_state (or any dict
+                           in tests).
+        id_to_name_give:   Maps player_id -> name for the *give* selector's
+                           valid options (i.e. the user's own roster names).
+        id_to_name_receive: Maps player_id -> name for the *receive* selector's
+                           valid options (i.e. other teams' player names).
+    """
+    raw = session_state.pop("_tf_prefill", None)
+    if raw is None:
+        return
+    if not isinstance(raw, dict):
+        return  # Malformed — silently discard
+
+    giving_ids = raw.get("giving_ids", [])
+    receiving_ids = raw.get("receiving_ids", [])
+
+    # Filter to only ids that exist in the selector options (defensive)
+    giving_names = [id_to_name_give[pid] for pid in giving_ids if pid in id_to_name_give]
+    receiving_names = [id_to_name_receive[pid] for pid in receiving_ids if pid in id_to_name_receive]
+
+    session_state["giving"] = giving_names
+    session_state["receiving"] = receiving_names
+
+
+# ── R-3: Save / load named trade proposals ────────────────────────────────────
+
+
+def _save_trade_proposal(
+    name: str,
+    giving_ids: list,
+    receiving_ids: list,
+    result: dict | None,
+) -> None:
+    """Serialise the current proposal and persist it via save_view.
+
+    Args:
+        name:          User-supplied label for this saved trade.
+        giving_ids:    List of player_ids being traded away.
+        receiving_ids: List of player_ids being received.
+        result:        Trade engine result dict (grade/verdict captured if present).
+                       Pass None when no analysis has been run yet.
+    """
+    if not name or not name.strip():
+        return  # Blank/whitespace name → friendly no-op
+
+    payload: dict = {
+        "giving_ids": list(giving_ids),
+        "receiving_ids": list(receiving_ids),
+    }
+    if result is not None:
+        if "grade" in result:
+            payload["grade"] = result["grade"]
+        if "verdict" in result:
+            payload["verdict"] = result["verdict"]
+
+    save_view("trade", name.strip(), payload)
+
+
+def _load_trade_proposal(name: str, session_state: dict) -> None:
+    """Load a saved trade and restore it via the existing _tf_prefill mechanism.
+
+    Sets ``session_state["_tf_prefill"]`` with the saved giving_ids /
+    receiving_ids so the downstream ``_consume_trade_prefill`` call picks them
+    up and pre-populates the multiselects on the next rerun.
+
+    Args:
+        name:          Name of the saved trade to load.
+        session_state: The dict-like Streamlit session_state (or any dict in tests).
+    """
+    if not name or not name.strip():
+        return  # Blank/whitespace name → friendly no-op
+
+    payload = load_view("trade", name.strip())
+    if payload is None:
+        return  # Not found or corrupt → silent no-op
+
+    session_state["_tf_prefill"] = {
+        "giving_ids": list(payload.get("giving_ids", [])),
+        "receiving_ids": list(payload.get("receiving_ids", [])),
+    }
 
 
 inject_custom_css()
@@ -209,15 +309,64 @@ else:
             render_data_freshness_card()
 
         with main:
+            # ── Build selector option lists before rendering widgets ──────────
+            # Both lists are needed by _consume_trade_prefill (called once,
+            # before either multiselect) to resolve prefilled player IDs → names.
+
+            # Give side: the user's own roster names
+            if not user_roster.empty and "name" in user_roster.columns:
+                give_options = sorted(user_roster["name"].dropna().unique().tolist())
+            else:
+                give_options = sorted(pool[pool["player_id"].isin(user_roster_ids)]["player_name"].tolist())
+
+            # Receive side: players on OTHER teams' rosters
+            other_team_pids = set()
+            _all_teams = rosters["team_name"].unique()
+            for _tn in _all_teams:
+                if str(_tn) == str(user_team_name):
+                    continue
+                _team_rows = rosters[rosters["team_name"] == _tn]
+                for _, _tr in _team_rows.iterrows():
+                    _pname = _tr.get("player_name") or _tr.get("name", "")
+                    _matched = name_to_id.get(_pname)
+                    if _matched is not None:
+                        other_team_pids.add(_matched)
+                    else:
+                        other_team_pids.add(_tr.get("player_id"))
+
+            if other_team_pids:
+                other_players = pool[pool["player_id"].isin(other_team_pids)]
+            else:
+                # Fallback: show only players on OTHER teams' rosters
+                # (you can only trade for players someone owns)
+                from src.database import get_all_rostered_player_ids
+
+                _all_rostered = get_all_rostered_player_ids(rosters)
+                _other_team_ids = _all_rostered - set(user_roster_ids)
+                if _other_team_ids:
+                    other_players = pool[pool["player_id"].isin(_other_team_ids)]
+                else:
+                    # No rosters loaded at all — show top players as last resort
+                    other_players = pool[~pool["player_id"].isin(user_roster_ids)].head(500)
+
+            receive_options = sorted(other_players["player_name"].dropna().unique().tolist())
+
+            # ── Consume Trade Finder prefill (if any) ────────────────────────
+            # Trade Finder sets st.session_state["_tf_prefill"] = {giving_ids,
+            # receiving_ids} then calls st.switch_page() to navigate here.
+            # We resolve ids → names using the option lists built above and
+            # inject them into session_state["giving"] / ["receiving"] so the
+            # multiselects below pick them up as their initial value.
+            # _tf_prefill is popped immediately so it only fires once.
+            _id_to_name_give = {name_to_id[n]: n for n in give_options if n in name_to_id}
+            _id_to_name_receive = {name_to_id[n]: n for n in receive_options if n in name_to_id}
+            _consume_trade_prefill(st.session_state, _id_to_name_give, _id_to_name_receive)
+
             col1, col2 = st.columns(2)
             with col1:
                 st.subheader("You Give")
                 # Use the actual roster for the dropdown — player_pool may not
                 # contain all roster players (only those with projections).
-                if not user_roster.empty and "name" in user_roster.columns:
-                    give_options = sorted(user_roster["name"].dropna().unique().tolist())
-                else:
-                    give_options = sorted(pool[pool["player_id"].isin(user_roster_ids)]["player_name"].tolist())
                 giving_names = st.multiselect(
                     "Select players to trade away",
                     options=give_options,
@@ -225,38 +374,6 @@ else:
                 )
             with col2:
                 st.subheader("You Receive")
-                # Build tradeable universe: players rostered by OTHER teams
-                # (not FAs — you trade with opponents, not the waiver wire)
-                other_team_pids = set()
-                all_teams = rosters["team_name"].unique()
-                for tn in all_teams:
-                    if str(tn) == str(user_team_name):
-                        continue
-                    team_rows = rosters[rosters["team_name"] == tn]
-                    for _, tr in team_rows.iterrows():
-                        pname = tr.get("player_name") or tr.get("name", "")
-                        matched = name_to_id.get(pname)
-                        if matched is not None:
-                            other_team_pids.add(matched)
-                        else:
-                            other_team_pids.add(tr.get("player_id"))
-
-                if other_team_pids:
-                    other_players = pool[pool["player_id"].isin(other_team_pids)]
-                else:
-                    # Fallback: show only players on OTHER teams' rosters
-                    # (you can only trade for players someone owns)
-                    from src.database import get_all_rostered_player_ids
-
-                    _all_rostered = get_all_rostered_player_ids(rosters)
-                    _other_team_ids = _all_rostered - set(user_roster_ids)
-                    if _other_team_ids:
-                        other_players = pool[pool["player_id"].isin(_other_team_ids)]
-                    else:
-                        # No rosters loaded at all — show top players as last resort
-                        other_players = pool[~pool["player_id"].isin(user_roster_ids)].head(500)
-
-                receive_options = sorted(other_players["player_name"].dropna().unique().tolist())
                 receiving_names = st.multiselect(
                     "Select players to receive",
                     options=receive_options,
@@ -277,6 +394,57 @@ else:
                     "The trade grade is always from Phase 1 SGP regardless of this setting."
                 ),
             )
+
+            # ── R-3: Saved trades controls ────────────────────────────────────
+            with st.expander("Saved trades", expanded=False):
+                # ── Save ──────────────────────────────────────────────────────
+                st.caption("Save the current proposal under a name.")
+                _save_col_name, _save_col_btn = st.columns([3, 1])
+                with _save_col_name:
+                    _save_name = st.text_input(
+                        "Trade name",
+                        placeholder="e.g. Judge for Acuna",
+                        label_visibility="collapsed",
+                        key="_ta_save_name",
+                    )
+                with _save_col_btn:
+                    if st.button("Save", key="_ta_save_btn"):
+                        if not _save_name or not _save_name.strip():
+                            st.warning("Enter a name before saving.")
+                        elif not giving_names and not receiving_names:
+                            st.warning("Select players before saving.")
+                        else:
+                            _giving_ids_now = [name_to_id[n] for n in giving_names if n in name_to_id]
+                            _receiving_ids_now = [name_to_id[n] for n in receiving_names if n in name_to_id]
+                            _result_now = st.session_state.get("_ta_last_result")
+                            _save_trade_proposal(_save_name, _giving_ids_now, _receiving_ids_now, _result_now)
+                            st.success(f'Saved "{_save_name.strip()}".')
+
+                st.divider()
+
+                # ── Load / Delete ──────────────────────────────────────────────
+                st.caption("Load or delete a previously saved trade.")
+                _saved_names = list_views("trade")
+                if _saved_names:
+                    _load_col_sel, _load_col_load, _load_col_del = st.columns([3, 1, 1])
+                    with _load_col_sel:
+                        _chosen_saved = st.selectbox(
+                            "Saved trade",
+                            options=_saved_names,
+                            label_visibility="collapsed",
+                            key="_ta_load_select",
+                        )
+                    with _load_col_load:
+                        if st.button("Load", key="_ta_load_btn"):
+                            _load_trade_proposal(_chosen_saved, st.session_state)
+                            st.rerun()
+                    with _load_col_del:
+                        if st.button("Delete", key="_ta_del_btn"):
+                            delete_view("trade", _chosen_saved)
+                            st.success(f'Deleted "{_chosen_saved}".')
+                            st.rerun()
+                else:
+                    st.info("No saved trades yet.")
 
             if st.button("Analyze Trade", type="primary", width="stretch"):
                 if not giving_names or not receiving_names:
@@ -416,6 +584,9 @@ else:
                     trade_progress.progress(100, text="Trade analysis complete!")
                     time.sleep(0.3)
                     trade_progress.empty()
+
+                    # R-3: persist last result so the "Save" button can include grade/verdict.
+                    st.session_state["_ta_last_result"] = result
 
                     # Combustion Finale: hairline divider between the trade-builder
                     # inputs above and the results section below.

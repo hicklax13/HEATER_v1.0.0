@@ -343,7 +343,7 @@ if not records_df.empty and user_team:
             icon=":material/calendar_today:",
         )
 
-render_matchup_ticker()
+render_matchup_ticker(matchup_data=matchup)
 render_data_freshness_chip("standings")
 render_glossary_expander(
     ["Magic#", "SOS"],
@@ -808,6 +808,16 @@ with main:
                 ),
                 unsafe_allow_html=True,
             )
+
+            if not record_df.empty:
+                _standings_csv_date = datetime.now(UTC).strftime("%Y-%m-%d")
+                st.download_button(
+                    label="Download CSV",
+                    data=record_df.to_csv(index=False).encode("utf-8"),
+                    file_name=f"heater_standings_{_standings_csv_date}.csv",
+                    mime="text/csv",
+                    key="standings_csv",
+                )
 
         # Section B: Category Standings Grid
         standings_df = yds.get_standings()

@@ -18,6 +18,24 @@ except ImportError:
 from src.database import get_refresh_log_snapshot
 from src.valuation import LeagueConfig as _LC_Class
 
+
+# Lazy import — avoid circular import; called only at runtime from render_theme_toggle.
+def _save_view_safe(kind: str, name: str, payload: dict) -> None:
+    """Thin wrapper around user_data.save_view that never raises."""
+    try:
+        from src.user_data import save_view as _sv
+
+        _sv(kind, name, payload)
+    except Exception:
+        pass
+
+
+# Re-export save_view at module level so mock.patch("src.ui_shared.save_view") works in tests.
+def save_view(kind: str, name: str, payload: dict) -> None:
+    """Persist a UI preference via user_data. Defensive wrapper — never raises."""
+    _save_view_safe(kind, name, payload)
+
+
 # ── Inline SVG Page Icons ─────────────────────────────────────────
 # Unique vector icons for each page. Each is a compact inline SVG string
 # (24x24 viewBox) that can be embedded in st.markdown().
@@ -26,6 +44,7 @@ PAGE_ICONS = {
     # ── Logo: realistic baseball with classic stitching + heat trail ──
     "logo": (
         '<svg width="40" height="40" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" '
+        'role="img" aria-label="HEATER logo" '
         'style="vertical-align:middle;margin-right:8px;">'
         "<defs>"
         '<radialGradient id="bl" cx="40%" cy="35%" r="55%">'
@@ -73,6 +92,7 @@ PAGE_ICONS = {
     ),
     "logo_lg": (
         '<svg width="64" height="64" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" '
+        'role="img" aria-label="HEATER logo" '
         'style="vertical-align:middle;">'
         "<defs>"
         '<radialGradient id="bll" cx="40%" cy="35%" r="55%">'
@@ -113,7 +133,8 @@ PAGE_ICONS = {
     # ── Page navigation icons ──
     "configurations": (
         '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
-        'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:8px;">'
+        'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" '
+        'role="img" aria-label="Settings" style="vertical-align:middle;margin-right:8px;">'
         '<circle cx="12" cy="12" r="3"/>'
         '<path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06'
         "a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09"
@@ -127,7 +148,8 @@ PAGE_ICONS = {
     ),
     "my_team": (
         '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
-        'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:8px;">'
+        'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" '
+        'role="img" aria-label="My Team" style="vertical-align:middle;margin-right:8px;">'
         '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>'
         '<circle cx="9" cy="7" r="4"/>'
         '<path d="M23 21v-2a4 4 0 0 0-3-3.87"/>'
@@ -135,7 +157,8 @@ PAGE_ICONS = {
     ),
     "trade_analyzer": (
         '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
-        'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:8px;">'
+        'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" '
+        'role="img" aria-label="Trade Analyzer" style="vertical-align:middle;margin-right:8px;">'
         '<polyline points="17 1 21 5 17 9"/>'
         '<path d="M3 11V9a4 4 0 0 1 4-4h14"/>'
         '<polyline points="7 23 3 19 7 15"/>'
@@ -143,7 +166,8 @@ PAGE_ICONS = {
     ),
     "player_compare": (
         '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
-        'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:8px;">'
+        'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" '
+        'role="img" aria-label="Player Compare" style="vertical-align:middle;margin-right:8px;">'
         '<line x1="18" y1="20" x2="18" y2="10"/>'
         '<line x1="12" y1="20" x2="12" y2="4"/>'
         '<line x1="6" y1="20" x2="6" y2="14"/>'
@@ -151,7 +175,8 @@ PAGE_ICONS = {
     ),
     "free_agents": (
         '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
-        'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:8px;">'
+        'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" '
+        'role="img" aria-label="Free Agents" style="vertical-align:middle;margin-right:8px;">'
         '<circle cx="11" cy="11" r="8"/>'
         '<line x1="21" y1="21" x2="16.65" y2="16.65"/>'
         '<line x1="11" y1="8" x2="11" y2="14"/>'
@@ -159,7 +184,8 @@ PAGE_ICONS = {
     ),
     "lineup_optimizer": (
         '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
-        'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:8px;">'
+        'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" '
+        'role="img" aria-label="Lineup Optimizer" style="vertical-align:middle;margin-right:8px;">'
         '<rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>'
         '<line x1="3" y1="9" x2="21" y2="9"/>'
         '<line x1="3" y1="15" x2="21" y2="15"/>'
@@ -168,24 +194,28 @@ PAGE_ICONS = {
     # ── Utility icons ──
     "refresh": (
         '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
-        'stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:4px;">'
+        'stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" '
+        'role="img" aria-label="Refresh" style="vertical-align:middle;margin-right:4px;">'
         '<polyline points="23 4 23 10 17 10"/>'
         '<path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>'
     ),
     "check": (
         '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#2d6a4f" '
-        'stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:4px;">'
+        'stroke-width="3" stroke-linecap="round" stroke-linejoin="round" '
+        'role="img" aria-label="Success" style="vertical-align:middle;margin-right:4px;">'
         '<polyline points="20 6 9 17 4 12"/></svg>'
     ),
     "x_mark": (
         '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#e0492f" '
-        'stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:4px;">'
+        'stroke-width="3" stroke-linecap="round" stroke-linejoin="round" '
+        'role="img" aria-label="Error" style="vertical-align:middle;margin-right:4px;">'
         '<line x1="18" y1="6" x2="6" y2="18"/>'
         '<line x1="6" y1="6" x2="18" y2="18"/></svg>'
     ),
     "warning": (
         '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#ff9f1c" '
-        'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:4px;">'
+        'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" '
+        'role="img" aria-label="Warning" style="vertical-align:middle;margin-right:4px;">'
         '<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86'
         'a2 2 0 0 0-3.42 0z"/>'
         '<line x1="12" y1="9" x2="12" y2="13"/>'
@@ -193,33 +223,34 @@ PAGE_ICONS = {
     ),
     "alert": (
         '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#e0492f" '
-        'stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:4px;">'
+        'stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" '
+        'role="img" aria-label="Alert" style="vertical-align:middle;margin-right:4px;">'
         '<circle cx="12" cy="12" r="10"/>'
         '<line x1="12" y1="8" x2="12" y2="12"/>'
         '<line x1="12" y1="16" x2="12.01" y2="16"/></svg>'
     ),
     "baseball": (
         '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
-        'stroke-width="2" stroke-linecap="round" style="vertical-align:middle;margin-right:8px;">'
+        'stroke-width="2" stroke-linecap="round" aria-hidden="true" style="vertical-align:middle;margin-right:8px;">'
         '<circle cx="12" cy="12" r="10"/>'
         '<path d="M4.93 4.93c4.08 2.38 4.08 11.76 0 14.14"/>'
         '<path d="M19.07 4.93c-4.08 2.38-4.08 11.76 0 14.14"/></svg>'
     ),
     "bar_chart": (
         '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
-        'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:4px;">'
+        'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:middle;margin-right:4px;">'
         '<line x1="18" y1="20" x2="18" y2="10"/>'
         '<line x1="12" y1="20" x2="12" y2="4"/>'
         '<line x1="6" y1="20" x2="6" y2="14"/></svg>'
     ),
     "zap": (
         '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
-        'stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:4px;">'
+        'stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:middle;margin-right:4px;">'
         '<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>'
     ),
     "calendar": (
         '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
-        'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:4px;">'
+        'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:middle;margin-right:4px;">'
         '<rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>'
         '<line x1="16" y1="2" x2="16" y2="6"/>'
         '<line x1="8" y1="2" x2="8" y2="6"/>'
@@ -227,93 +258,104 @@ PAGE_ICONS = {
     ),
     "accept": (
         '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2d6a4f" '
-        'stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:6px;">'
+        'stroke-width="3" stroke-linecap="round" stroke-linejoin="round" '
+        'role="img" aria-label="Accept" style="vertical-align:middle;margin-right:6px;">'
         '<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>'
         '<polyline points="22 4 12 14.01 9 11.01"/></svg>'
     ),
     "reject": (
         '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#e0492f" '
-        'stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:6px;">'
+        'stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" '
+        'role="img" aria-label="Reject" style="vertical-align:middle;margin-right:6px;">'
         '<circle cx="12" cy="12" r="10"/>'
         '<line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>'
     ),
     "fire": (
         '<svg width="14" height="14" viewBox="0 0 24 24" fill="#ff6d00" stroke="none" '
-        'style="vertical-align:middle;margin-right:3px;">'
+        'aria-hidden="true" style="vertical-align:middle;margin-right:3px;">'
         '<path d="M12 23c-3.866 0-7-3.134-7-7 0-3 2-5.5 4-8 .667 1.333 1.333 2 2 2'
         " 0-4 1.5-7.5 4-10 .667 2.667 2 5.333 4 8 1.333-1.333 2-3.333 2-6"
         ' 2 2 3 4.5 3 7 0 3.866-3.134 7-7 7z"/></svg>'
     ),
     "trending_up": (
         '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
-        'stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:3px;">'
+        'stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:middle;margin-right:3px;">'
         '<polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/>'
         '<polyline points="17 6 23 6 23 12"/></svg>'
     ),
     "minus": (
         '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
-        'stroke-width="2.5" stroke-linecap="round" style="vertical-align:middle;margin-right:3px;">'
+        'stroke-width="2.5" stroke-linecap="round" aria-hidden="true" style="vertical-align:middle;margin-right:3px;">'
         '<line x1="5" y1="12" x2="19" y2="12"/></svg>'
     ),
     "users": (
         '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
-        'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:4px;">'
+        'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:middle;margin-right:4px;">'
         '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>'
         '<circle cx="9" cy="7" r="4"/>'
         '<path d="M23 21v-2a4 4 0 0 0-3-3.87"/>'
         '<path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>'
     ),
-    "league_standings": '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 17V9"/><path d="M11 17V5"/><path d="M15 17v-4"/><path d="M19 17v-8"/></svg>',
-    "databank": '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/></svg>',
+    "league_standings": '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" role="img" aria-label="League Standings"><path d="M3 3v18h18"/><path d="M7 17V9"/><path d="M11 17V5"/><path d="M15 17v-4"/><path d="M19 17v-8"/></svg>',
+    "databank": '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" role="img" aria-label="Player Databank"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/></svg>',
     # ── New page icons ──
     "weekly_dashboard": (
         '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
-        'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:8px;">'
+        'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" '
+        'role="img" aria-label="Weekly Dashboard" style="vertical-align:middle;margin-right:8px;">'
         '<rect x="3" y="3" width="8" height="9" rx="1"/><rect x="13" y="3" width="8" height="5" rx="1"/>'
         '<rect x="13" y="10" width="8" height="11" rx="1"/><rect x="3" y="14" width="8" height="7" rx="1"/></svg>'
     ),
     "trade_values": (
         '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
-        'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:8px;">'
+        'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" '
+        'role="img" aria-label="Trade Values" style="vertical-align:middle;margin-right:8px;">'
         '<line x1="12" y1="1" x2="12" y2="23"/>'
         '<path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>'
     ),
     "waiver_wire": (
         '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
-        'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:8px;">'
+        'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" '
+        'role="img" aria-label="Waiver Wire" style="vertical-align:middle;margin-right:8px;">'
         '<path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/>'
         '<line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>'
     ),
     "category_tracker": (
         '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
-        'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:8px;">'
+        'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" '
+        'role="img" aria-label="Category Tracker" style="vertical-align:middle;margin-right:8px;">'
         '<path d="M9 11l3 3L22 4"/>'
         '<path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>'
     ),
     "trends": (
         '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
-        'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:8px;">'
+        'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" '
+        'role="img" aria-label="Trends" style="vertical-align:middle;margin-right:8px;">'
         '<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>'
     ),
     "playoff_odds": (
         '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
-        'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:8px;">'
+        'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" '
+        'role="img" aria-label="Playoff Odds" style="vertical-align:middle;margin-right:8px;">'
         '<path d="M21.21 15.89A10 10 0 1 1 8 2.83"/><path d="M22 12A10 10 0 0 0 12 2v10z"/></svg>'
     ),
     "bullpen": (
         '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
-        'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:8px;">'
+        'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" '
+        'role="img" aria-label="Bullpen" style="vertical-align:middle;margin-right:8px;">'
         '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>'
     ),
     "punt_analyzer": (
         '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
-        'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:8px;">'
+        'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" '
+        'role="img" aria-label="Punt Analyzer" style="vertical-align:middle;margin-right:8px;">'
         '<circle cx="12" cy="12" r="10"/>'
         '<line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>'
     ),
     "weekly_recap": (
         '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
-        'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:8px;">'
+        'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" '
+        'role="img" aria-label="Weekly Recap" style="vertical-align:middle;margin-right:8px;">'
         '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>'
         '<polyline points="14 2 14 8 20 8"/>'
         '<line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>'
@@ -1963,8 +2005,8 @@ def inject_custom_css():
        the collapsed shell left a blank 100px strip (2026-06-10 prod report). */
     @media (min-width: 768px) {{
         section[data-testid="stSidebar"][aria-expanded="true"] {{
-            width: 100px !important;
-            min-width: 100px !important;
+            width: 140px !important;
+            min-width: 140px !important;
         }}
     }}
     .stSidebar [data-testid="stSidebarContent"] {{
@@ -2886,10 +2928,164 @@ def inject_custom_css():
     .rtbl td.ph a {{ cursor: pointer !important; }}
     .rtbl td.ph a b {{ color: var(--fp-primary) !important; }}
     .rtbl td.ph a:hover b {{ text-decoration: underline !important; text-underline-offset: 2px !important; }}
+
+    /* ── MOBILE RESPONSIVE (R-7) — additive; desktop rules unchanged ── */
+    /* Breakpoint: tablets and phones (≤768px) */
+    @media (max-width: 768px) {{
+        /* Tables: iOS momentum scroll on compact-table containers.
+           Desktop already has overflow-x:auto — this adds the WebKit
+           touch-acceleration layer for smooth finger-swipe on Safari/iOS. */
+        .compact-table-wrap {{
+            -webkit-overflow-scrolling: touch !important;
+        }}
+
+        /* Touch targets: buttons, tab labels, and nav links must be at
+           least 44px tall (WCAG 2.5.5 / Apple HIG) so thumbs can tap
+           without mis-hitting an adjacent control. */
+        .stButton > button,
+        .stTabs [data-baseweb="tab"],
+        [data-testid="stSidebarNav"] a {{
+            min-height: 44px !important;
+            padding-top: 10px !important;
+            padding-bottom: 10px !important;
+        }}
+
+        /* Hero numerals: scale down so oversized figures don't clip or
+           overflow the narrow phone viewport. Desktop uses large fixed px
+           sizes set by individual pages; clamp keeps them readable. */
+        .hero-num {{
+            font-size: clamp(28px, 8vw, 48px) !important;
+            font-stretch: 100% !important;
+        }}
+        .heater-h1 {{
+            font-size: clamp(22px, 6vw, 36px) !important;
+        }}
+
+        /* Cards: reduce horizontal padding so card content has breathing
+           room without the 20px desktop gutters cramping a 375px screen. */
+        .glass, .fp-card, .metric-card {{
+            padding: 12px !important;
+        }}
+
+        /* Columns: Streamlit's st.columns() rows can cramp on very small
+           screens — allow wrapping so items stack vertically. */
+        [data-testid="stHorizontalBlock"] {{
+            flex-wrap: wrap !important;
+        }}
+    }}
+
+    /* Phone-only: tightest adjustments for ≤480px */
+    @media (max-width: 480px) {{
+        .compact-table {{
+            font-size: 11px !important;
+        }}
+        .sec-head {{
+            font-size: 16px !important;
+        }}
+        [data-testid="stMainBlockContainer"] {{
+            padding-left: 8px !important;
+            padding-right: 8px !important;
+        }}
+    }}
     </style>
     """,
         unsafe_allow_html=True,
     )
+
+    # ── DARK MODE — additive, default-off (R-10) ────────────────────
+    # Reads st.session_state["heater_theme"]; only emits when "dark".
+    # The base light sheet above is ALWAYS emitted unchanged — this block
+    # is purely additive so the Combustion lock tests continue to pass.
+    try:
+        _ss = st.session_state  # type: ignore[attr-defined]
+        _theme_pref = _ss.get("heater_theme", "light") if isinstance(_ss, dict) or hasattr(_ss, "get") else "light"
+    except Exception:
+        _theme_pref = "light"
+    if _theme_pref == "dark":
+        st.markdown(
+            """<style>
+    /* ── HEATER Dark Mode overrides (R-10) — additive, default-off.
+       Overrides the --fp-* CSS variables declared in :root above.
+       Orange accent (#ff6d00) and navy chrome identity are KEPT.
+       All colours reference approved THEME tokens or known-safe values. */
+    :root {
+        /* Canvas: deep navy near-black */
+        --fp-app-bg: #0e1623;
+        /* Surfaces: slightly lighter dark panels */
+        --fp-surface: #14202f;
+        /* Body text: light bone (navy sidebar-ink colour) */
+        --fp-tx: #eef1f6;
+        --fp-tx-muted: #8a96a8;
+        --fp-tx-subtle: #5e6878;
+        /* Borders: toned-down for dark backgrounds */
+        --fp-border: #26334a;
+        --fp-divider: #1e2d40;
+        /* Primary accent and ember stay orange — identity preserved */
+        /* --fp-primary: #ff6d00; (unchanged) */
+        /* --fp-ember: #e8480a;   (unchanged) */
+        /* --fp-flame: #ff9a3c;   (unchanged) */
+        /* Navy chrome stays — sidebar rail unchanged */
+    }
+    .stApp {
+        background: var(--fp-app-bg) !important;
+        color: var(--fp-tx) !important;
+    }
+    .heater-table thead th {
+        background: var(--fp-surface) !important;
+        color: var(--fp-tx) !important;
+        border-bottom: 2px solid var(--fp-border) !important;
+    }
+    .heater-table tbody td {
+        background: var(--fp-surface) !important;
+        color: var(--fp-tx) !important;
+        border-bottom: 1px solid var(--fp-border) !important;
+    }
+    .heater-table-wrap {
+        background: var(--fp-surface);
+        border-color: var(--fp-border);
+    }
+    .glass, .fp-card, .metric-card,
+    .instr-panel, .hero, .alt, .cmd-bar, .context-card,
+    div[data-testid="stExpander"],
+    [data-testid="stPopover"],
+    [data-baseweb="popover"], [data-baseweb="menu"],
+    [data-testid="stChatMessage"] {
+        background: var(--fp-surface) !important;
+        border-color: var(--fp-border) !important;
+        color: var(--fp-tx) !important;
+    }
+    div[data-testid="stTextInput"] input,
+    div[data-testid="stNumberInput"] input,
+    div[data-testid="stSelectbox"] > div,
+    div[data-testid="stMultiSelect"] > div {
+        background: var(--fp-surface) !important;
+        color: var(--fp-tx) !important;
+        border-color: var(--fp-border) !important;
+    }
+    pre, code, .stCodeBlock, [data-testid="stCodeBlock"] {
+        background: var(--fp-surface) !important;
+        color: var(--fp-tx) !important;
+    }
+    [data-testid="stBottomBlockContainer"] {
+        background: var(--fp-app-bg) !important;
+    }
+    /* Glide Data Grid dark tokens — use CSS vars, not hex literals */
+    div[data-testid="stDataFrame"] [data-testid="glideDataEditor"],
+    div[data-testid="stDataFrame"] .dvn-scroller,
+    div[data-testid="stDataFrame"] {
+        --gdg-bg-header: var(--fp-surface) !important;
+        --gdg-bg-header-has-focus: var(--fp-surface) !important;
+        --gdg-bg-header-hovered: var(--fp-surface) !important;
+        --gdg-text-header: var(--fp-tx) !important;
+        --gdg-bg-cell: var(--fp-surface) !important;
+        --gdg-bg-cell-medium: var(--fp-surface) !important;
+        --gdg-text-dark: var(--fp-tx) !important;
+        --gdg-border-color: rgba(238,241,246,.10) !important;
+    }
+    /* Sidebar stays navy — no override needed; just ensure text is readable */
+    </style>""",
+            unsafe_allow_html=True,
+        )
 
     # Rename sidebar "app" → "Connect League" and inject logo + branding via JS
     import streamlit.components.v1 as components
@@ -2910,12 +3106,18 @@ def inject_custom_css():
     # and thickness, framing the app. Content + sidebar logo are offset below it.
     st.markdown(
         "<style>"
-        ".stApp::before{content:'';position:fixed;top:0;left:0;right:0;height:90px;"
+        ".stApp::before{content:'';position:fixed;top:0;left:0;right:0;height:45px;"
         "background:#112744;z-index:9998;}"
-        'div[data-testid="stMainBlockContainer"]{padding-top:98px!important;}'
-        'section[data-testid="stSidebar"] [data-testid="stSidebarHeader"]{margin-top:90px!important;}'
-        # widen the sidebar content so the logo fills the rail (bigger logo)
-        'section[data-testid="stSidebar"] [data-testid="stSidebarContent"]{padding-left:5px!important;padding-right:5px!important;}'
+        'div[data-testid="stMainBlockContainer"]{padding-top:53px!important;}'
+        'section[data-testid="stSidebar"] [data-testid="stSidebarHeader"]{margin-top:45px!important;padding:0!important;width:100%!important;max-width:100%!important;}'
+        # Force the HEATER logo to fill the full rail width via !important CSS. The
+        # logo's one-time JS inline style can't be updated on rerun (it's only set
+        # when the div is first created), so the authoritative sizing lives here.
+        # The header collapses to ~69px from default Streamlit content padding, so
+        # the logo bleeds past it (negative margin) to reach the rail edges.
+        'section[data-testid="stSidebar"] [data-testid="stSidebarContent"]{padding-left:4px!important;padding-right:4px!important;}'
+        ".heater-logo{width:calc(100% + 8px)!important;margin:0 -4px!important;padding:0!important;display:block!important;}"
+        ".heater-logo img{width:100%!important;max-width:none!important;height:auto!important;display:block!important;border-radius:0!important;}"
         "</style>",
         unsafe_allow_html=True,
     )
@@ -2986,12 +3188,12 @@ def inject_custom_css():
             if (header && !header.querySelector('.heater-logo')) {
                 const logoDiv = parent.document.createElement('div');
                 logoDiv.className = 'heater-logo';
-                logoDiv.style.cssText = 'display:flex;flex-direction:column;align-items:center;width:100%;padding:2px 0 4px;';
+                logoDiv.style.cssText = 'display:flex;flex-direction:column;align-items:center;width:calc(100% + 10px);margin:0 -5px;padding:0;';
                 logoDiv.innerHTML = '__LOGO_INNER__';
                 header.insertBefore(logoDiv, header.firstChild);
             }
             // Tighten the sidebar header so the logo sits flush + fills the rail width.
-            if (header) { header.style.padding = '6px 2px 2px'; }
+            if (header) { header.style.padding = '0'; }
 
             // Collapse zero-height helper blocks (injected <style>/<link>, height=0
             // component iframes, streamlit-float markers) so the main column's 16px
@@ -3851,6 +4053,28 @@ _HEALTH_DOT_COLORS = {
 }
 
 
+def build_health_dot_html(status: str) -> str:
+    """Return an accessible colored dot span for a health/injury status.
+
+    Carries ``role="img"``, ``aria-label``, and ``title`` so colorblind
+    users and screen readers receive the status text alongside the color cue.
+    Visual output is identical to the inline ``health-dot`` class used
+    throughout the app (additive accessibility only).
+
+    Args:
+        status: One of the known status strings (e.g. ``"Healthy"``,
+            ``"Day-to-Day"``, ``"IL"``, ``"High Risk"``).  Unknown values
+            are rendered with the fallback text color — the aria attributes
+            are still included so assistive tech surfaces the raw string.
+    """
+    dot_color = _HEALTH_DOT_COLORS.get(str(status), THEME["tx2"])
+    esc_status = _html.escape(str(status))
+    return (
+        f'<span class="health-dot" role="img" aria-label="{esc_status}" '
+        f'title="{esc_status}" style="background:{dot_color};"></span>'
+    )
+
+
 _MLB_HEADSHOT_URL = (
     "https://img.mlbstatic.com/mlb-photos/image/upload/"
     "d_people:generic:headshot:67:current.png/"
@@ -3905,7 +4129,7 @@ def _headshot_img_html(mlb_id, size: int = 22, team=None) -> str:
     else:
         url = _AVATAR_FALLBACK_SVG
 
-    return f'<img src="{url}" width="{size}" height="{size}" style="{_style}" onerror="{_onerror}" loading="lazy" />'
+    return f'<img src="{url}" width="{size}" height="{size}" alt="Player headshot" style="{_style}" onerror="{_onerror}" loading="lazy" />'
 
 
 # Mockup .rtbl column sets — (df_key, header_label, stat_type_for_format).
@@ -4230,7 +4454,7 @@ def build_compact_table_html(
         if col in highlight_cols:
             cls_parts.append(highlight_cols[col])
         cls_attr = f' class="{" ".join(cls_parts)}"' if cls_parts else ""
-        header_cells.append(f"<th{cls_attr}>{col}</th>")
+        header_cells.append(f'<th scope="col"{cls_attr}>{col}</th>')
     header_html = "<tr>" + "".join(header_cells) + "</tr>"
 
     # Build body rows
@@ -4246,11 +4470,10 @@ def build_compact_table_html(
             if is_name_col:
                 cls_parts.append("col-name")
 
-            # Health dot injection
+            # Health dot injection — accessible via build_health_dot_html
             cell_html = ""
             if health_col and col == health_col and val:
-                dot_color = _HEALTH_DOT_COLORS.get(str(val), THEME["tx2"])
-                cell_html = f'<span class="health-dot" style="background:{dot_color};"></span>'
+                cell_html = build_health_dot_html(str(val))
 
             # Headshot / avatar injection for name column
             if is_name_col and show_avatars:
@@ -4292,7 +4515,7 @@ def build_compact_table_html(
     height_style = f"max-height:{max_height}px;" if max_height else ""
     return (
         f'<div class="compact-table-wrap" style="{height_style}">'
-        f'<table class="compact-table">'
+        f'<table class="compact-table" role="table">'
         f"<thead>{header_html}</thead>"
         f"<tbody>{body_html}</tbody>"
         f"</table></div>"
@@ -4644,16 +4867,37 @@ def _fetch_matchup_data() -> dict | None:
         return cached  # return stale data on error
 
 
-def render_matchup_ticker():
+def render_matchup_ticker(matchup_data: dict | None = None):
     """Render a compact matchup scoreboard bar.
 
-    Only renders when Yahoo is connected and matchup data is available.
-    Caches data in session_state for 5 minutes to avoid API spam.
-    """
-    if not st.session_state.get("yahoo_connected"):
-        return
+    Renders whenever matchup data is available — from a pre-fetched dict
+    passed by the caller, from the session-state cache (live Yahoo session),
+    or from the YahooDataService SQLite fallback (read-only MULTI_USER members).
+    Does NOT require ``yahoo_connected`` to be set.  Renders nothing when no
+    matchup data can be obtained from any source.
 
-    data = _fetch_matchup_data()
+    Parameters
+    ----------
+    matchup_data:
+        Pre-fetched matchup dict (same schema as ``get_current_matchup()``).
+        When ``None`` the function tries the internal 5-minute session cache
+        (yahoo_client path) first, then the YahooDataService cache fallback.
+    """
+    data: dict | None = matchup_data
+
+    if data is None:
+        # Try the existing yahoo_client session-cache path first (live sessions)
+        data = _fetch_matchup_data()
+
+    if data is None:
+        # Fall back to YahooDataService (has SQLite cache — serves MULTI_USER members)
+        try:
+            from src.yahoo_data_service import get_yahoo_data_service as _get_yds
+
+            data = _get_yds().get_matchup()
+        except Exception:
+            pass
+
     if data is None:
         return
 
@@ -4830,10 +5074,13 @@ def _render_news_section(news: list[dict]) -> None:
         # Sentiment dot
         if sentiment >= 0.2:
             sent_color = t["green"]
+            sent_label = "Positive sentiment"
         elif sentiment >= -0.2:
             sent_color = t["warn"]
+            sent_label = "Neutral sentiment"
         else:
             sent_color = t["danger"]
+            sent_label = "Negative sentiment"
 
         # Type label
         type_colors = {"injury": t["danger"], "transaction": t["purple"], "callup": t["green"], "lineup": t["sky"]}
@@ -4848,7 +5095,7 @@ def _render_news_section(news: list[dict]) -> None:
             f'text-transform:uppercase;letter-spacing:0.5px;">{news_type}</span>'
             f'<span style="font-size:10px;color:{t["tx2"]};font-family:IBM Plex Mono,monospace;">'
             f"{date_display}</span>"
-            f'<span class="health-dot" style="background:{sent_color};width:6px;height:6px;"></span>'
+            f'<span class="health-dot" role="img" aria-label="{sent_label}" title="{sent_label}" style="background:{sent_color};width:6px;height:6px;"></span>'
             f"</div>"
             f'<div style="font-size:13px;font-weight:600;color:{t["tx"]};margin-top:4px;">'
             f"{headline}</div></div>",
@@ -5861,3 +6108,32 @@ def format_stat(value: float, stat_type: str) -> str:
         return f"{value:.1f}%"
     else:
         return f"{int(value)}" if value == int(value) else f"{value:.1f}"
+
+
+# ── Theme toggle (R-10) ──────────────────────────────────────────────────────
+
+
+def render_theme_toggle() -> None:
+    """Render a dark-mode toggle in the sidebar and persist the preference.
+
+    Reads current mode from ``st.session_state["heater_theme"]`` (default "light").
+    On change, writes the new mode to ``st.session_state`` and persists it via
+    ``save_view("ui", "theme", {"mode": ...})``.  Persistence failures are
+    swallowed — they never crash the app.
+
+    Call this once per page render, e.g. inside ``with st.sidebar:`` or at the
+    bottom of a sidebar block.
+    """
+    if st is None:
+        return
+    current = st.session_state.get("heater_theme", "light")
+    is_dark = current == "dark"
+    with st.sidebar:
+        new_dark = st.toggle("Dark mode", value=is_dark, key="_heater_theme_toggle")
+    new_mode = "dark" if new_dark else "light"
+    if new_mode != current:
+        st.session_state["heater_theme"] = new_mode
+        try:
+            save_view("ui", "theme", {"mode": new_mode})
+        except Exception:
+            pass

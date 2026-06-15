@@ -45,6 +45,7 @@ from src.ui_shared import (
     team_logo_url,
 )
 from src.usage import log_page_view
+from src.user_data import add_to_watchlist, get_watchlist, remove_from_watchlist, toggle_watchlist  # noqa: F401
 from src.valuation import LeagueConfig
 from src.yahoo_data_service import get_yahoo_data_service
 
@@ -255,6 +256,104 @@ def _fa_recs_table_html(
         '<table class="rtbl" style="width:100%;border-collapse:collapse;margin-top:4px;">'
         f"<thead><tr>{head}</tr></thead><tbody>{rows}</tbody></table>"
     )
+
+
+def resolve_add_drop_keys(
+    rec: dict,
+    drop_player_id: int | None,
+    fa_df: pd.DataFrame,
+    roster_df: pd.DataFrame,
+) -> tuple[str | None, str | None, str | None]:
+    """Resolve Yahoo player keys needed for an add/drop transaction.
+
+    Looks up the add player's Yahoo ``player_key`` (from *fa_df* rows or
+    directly from *rec*) and the drop player's ``yahoo_player_key`` (from
+    *roster_df*).
+
+    Args:
+        rec:            The recommendation dict (carries ``add_player_id`` and
+                        optionally ``player_key``).
+        drop_player_id: The ``player_id`` of the player to drop.
+        fa_df:          Free-agent DataFrame — may carry a ``player_key`` column
+                        populated when Yahoo data is live.
+        roster_df:      The user's roster DataFrame — must carry
+                        ``yahoo_player_key`` (from ``league_rosters``).
+
+    Returns:
+        ``(add_key, drop_key, error_msg)`` where *error_msg* is ``None`` on
+        success or a human-readable string when a key could not be resolved.
+        *add_key* / *drop_key* are ``None`` when unresolvable.
+    """
+    add_player_id = rec.get("add_player_id")
+    add_name = rec.get("add_name", "this player")
+    drop_name = rec.get("drop_name", "this player")
+
+    # ── Resolve add key ───────────────────────────────────────────────────────
+    add_key: str | None = None
+
+    # 1. Try the rec itself (passed through from the Yahoo FA fetch)
+    raw_key = rec.get("player_key") or rec.get("add_player_key")
+    if raw_key and str(raw_key).strip():
+        add_key = str(raw_key).strip()
+
+    # 2. Fallback: look up in fa_df if it carries a player_key column
+    if not add_key and not fa_df.empty and "player_key" in fa_df.columns and add_player_id is not None:
+        _match = fa_df[fa_df["player_id"] == add_player_id]
+        if not _match.empty:
+            _k = _match.iloc[0].get("player_key")
+            if _k and str(_k).strip():
+                add_key = str(_k).strip()
+
+    if not add_key:
+        return (
+            None,
+            None,
+            (f"Couldn't resolve Yahoo player id for {add_name}. Please add {add_name} manually in Yahoo Fantasy."),
+        )
+
+    # ── Resolve drop key ──────────────────────────────────────────────────────
+    drop_key: str | None = None
+
+    if drop_player_id is not None and not roster_df.empty and "yahoo_player_key" in roster_df.columns:
+        # Prefer matching by player_id
+        id_col = "player_id" if "player_id" in roster_df.columns else None
+        if id_col:
+            _match = roster_df[roster_df[id_col] == drop_player_id]
+            if not _match.empty:
+                _k = _match.iloc[0].get("yahoo_player_key")
+                if _k and str(_k).strip():
+                    drop_key = str(_k).strip()
+
+    if not drop_key:
+        return (
+            None,
+            None,
+            (
+                f"Couldn't resolve Yahoo player id for {drop_name}. "
+                f"Please apply the move manually in Yahoo Fantasy: "
+                f"add {add_name} and drop {drop_name}."
+            ),
+        )
+
+    return add_key, drop_key, None
+
+
+def _sync_watchlist(
+    selected_ids: set[int],
+    current_ids: set[int],
+) -> tuple[set[int], set[int]]:
+    """Compute the add/remove delta between the multiselect and the DB watchlist.
+
+    Args:
+        selected_ids: player_ids currently selected in st.multiselect.
+        current_ids:  player_ids already stored in the DB watchlist.
+
+    Returns:
+        (to_add, to_remove) — each a set[int]; both empty when nothing changed.
+    """
+    to_add = selected_ids - current_ids
+    to_remove = current_ids - selected_ids
+    return to_add, to_remove
 
 
 try:
@@ -689,6 +788,73 @@ with main:
 
     pos_filter = st.session_state.get("fa_merged_pos_filter", "All")
 
+    # ── Watchlist control (R-3) ───────────────────────────────────────────────
+    # Build a name↔id mapping from the full FA pool so multiselect options
+    # are human-readable (player names) and syncing back maps names to ids.
+    _wl_name_to_id: dict[str, int] = {}
+    _wl_id_to_name: dict[int, str] = {}
+    if not fa_pool.empty and "player_name" in fa_pool.columns and "player_id" in fa_pool.columns:
+        for _, _wl_row in fa_pool.iterrows():
+            _wl_pid = _wl_row.get("player_id")
+            _wl_nm = _wl_row.get("player_name") or _wl_row.get("name", "")
+            if _wl_pid is not None and _wl_nm:
+                _wl_name_to_id[str(_wl_nm)] = int(_wl_pid)
+                _wl_id_to_name[int(_wl_pid)] = str(_wl_nm)
+
+    _wl_all_names = sorted(_wl_name_to_id.keys())
+    _wl_current_ids: set[int] = get_watchlist()
+    # Only default-select names that are still in the current FA pool
+    _wl_default_names = [_wl_id_to_name[pid] for pid in _wl_current_ids if pid in _wl_id_to_name]
+
+    _wl_selected_names: list[str] = st.multiselect(
+        "★ Watchlist",
+        options=_wl_all_names,
+        default=_wl_default_names,
+        help="Add free agents to your watchlist. Watched players are marked ★ in the table below.",
+        key="fa_watchlist_multiselect",
+    )
+    _wl_selected_ids = {_wl_name_to_id[n] for n in _wl_selected_names if n in _wl_name_to_id}
+    _wl_to_add, _wl_to_remove = _sync_watchlist(_wl_selected_ids, _wl_current_ids)
+    for _pid in _wl_to_add:
+        add_to_watchlist(_pid)
+    for _pid in _wl_to_remove:
+        remove_from_watchlist(_pid)
+    # Re-read after sync so the expander reflects the committed state.
+    _wl_current_ids = get_watchlist()
+
+    # ── Watchlist expander (R-3) ──────────────────────────────────────────────
+    _wl_count = len(_wl_current_ids)
+    with st.expander(f"★ My Watchlist ({_wl_count})", expanded=False):
+        if _wl_count == 0:
+            render_empty_state(
+                "Your watchlist is empty",
+                "Use the multiselect above to add free agents you want to track.",
+                icon_key="users",
+            )
+        else:
+            # Build a small display table: name + best available stat.
+            _wl_rows = []
+            for _wpid in sorted(_wl_current_ids):
+                _wname = _wl_id_to_name.get(_wpid, f"Player {_wpid}")
+                # Pull from the ranked FA pool if available.
+                _wl_fa_row = None
+                if not ranked_fas.empty and "player_id" in ranked_fas.columns:
+                    _wl_matches = ranked_fas[ranked_fas["player_id"] == _wpid]
+                    if not _wl_matches.empty:
+                        _wl_fa_row = _wl_matches.iloc[0]
+                _wmv = ""
+                if _wl_fa_row is not None and "marginal_value" in ranked_fas.columns:
+                    _raw_mv = _wl_fa_row.get("marginal_value")
+                    if pd.notna(_raw_mv):
+                        _wmv = f"{float(_raw_mv):.2f}"
+                _wpos = ""
+                if _wl_fa_row is not None and "positions" in ranked_fas.columns:
+                    _wpos = _dedupe_positions(str(_wl_fa_row.get("positions") or ""))
+                _wl_rows.append({"Player": _wname, "Position": _wpos, "Marginal Value": _wmv})
+            _wl_df = pd.DataFrame(_wl_rows)
+            if not _wl_df.empty:
+                render_compact_table(_wl_df)
+
     # ── Section 1: Recommended Adds/Drops ─────────────────────────────────────
 
     st.markdown(
@@ -831,6 +997,78 @@ with main:
         add_ids = [int(pid) for pid in add_ids_raw if pid is not None]
         if add_names and add_ids:
             render_player_select(add_names, add_ids, key_suffix="fa_merged_adds")
+
+        # ── R-1: Add/Drop on Yahoo (confirm-gated) ───────────────────────────
+        # Only show the write controls when a writable Yahoo client is connected
+        # (token-owner session). Read-only MULTI_USER members see a caption.
+        if yds.is_connected():
+            st.markdown(
+                f'<div style="font-size:11.5px;color:{T["tx2"]};margin:10px 0 6px;'
+                f'font-family:var(--font-body);">Apply a recommended add/drop directly to Yahoo:</div>',
+                unsafe_allow_html=True,
+            )
+            for _i, _rec in enumerate(filtered_recs):
+                _add_name = _rec.get("add_name", "")
+                _drop_name = _rec.get("drop_name", "")
+                if not _add_name or not _drop_name:
+                    continue
+                _btn_key = f"fa_add_drop_btn_{_i}"
+                _pending_key = f"fa_add_drop_pending_{_i}"
+                if st.button(
+                    f"Add/Drop on Yahoo: {_add_name} / {_drop_name}",
+                    key=_btn_key,
+                    type="secondary",
+                ):
+                    st.session_state[_pending_key] = _rec
+
+                if st.session_state.get(_pending_key):
+                    _pending_rec = st.session_state[_pending_key]
+                    _p_add = _pending_rec.get("add_name", "")
+                    _p_drop = _pending_rec.get("drop_name", "")
+                    st.markdown(
+                        f'<div style="background:var(--fp-surface);border:1px solid var(--fp-ember);'
+                        f'border-radius:8px;padding:10px 14px;margin:6px 0;font-family:var(--font-body);">'
+                        f'<b style="color:var(--fp-ember);">Confirm transaction</b><br>'
+                        f'<span style="font-size:13px;">Add: <b>{_html.escape(_p_add)}</b>'
+                        f" &nbsp;·&nbsp; Drop: <b>{_html.escape(_p_drop)}</b></span>"
+                        f"</div>",
+                        unsafe_allow_html=True,
+                    )
+                    _col_confirm, _col_cancel = st.columns([1, 1])
+                    with _col_confirm:
+                        if st.button("Confirm & apply to Yahoo", key=f"fa_confirm_{_i}", type="primary"):
+                            # Resolve Yahoo player keys
+                            _drop_pid = _pending_rec.get("drop_player_id")
+                            _add_key, _drop_key, _key_err = resolve_add_drop_keys(
+                                _pending_rec, _drop_pid, fa_pool, user_roster
+                            )
+                            if _key_err:
+                                st.error(_key_err)
+                            else:
+                                _client = yds._client
+                                result = _client.add_drop(
+                                    add_player_key=_add_key,
+                                    drop_player_key=_drop_key,
+                                )
+                                if result.get("ok"):
+                                    st.success(f"Add/drop submitted to Yahoo: add {_p_add}, drop {_p_drop}.")
+                                    st.session_state.pop(_pending_key, None)
+                                else:
+                                    _err_msg = result.get("error", "Unknown error from Yahoo.")
+                                    st.error(_err_msg)
+                                    st.info(
+                                        f"Please apply the move manually in Yahoo Fantasy: "
+                                        f"add {_p_add} and drop {_p_drop}."
+                                    )
+                    with _col_cancel:
+                        if st.button("Cancel", key=f"fa_cancel_{_i}"):
+                            st.session_state.pop(_pending_key, None)
+                            st.rerun()
+        else:
+            st.caption(
+                "Connect Yahoo (as the team owner) to apply moves directly. "
+                "Read-only members cannot submit transactions."
+            )
 
     # ── Section 2: This Week's Streams ────────────────────────────────────────
 
@@ -1107,6 +1345,15 @@ with main:
             if "l14_k_g" in _display_fas.columns and _has_pitchers:
                 _enriched_cols.append("l14_k_g")
 
+            # R-3: prefix watched players with ★ in the display name column.
+            if _wl_current_ids and "player_id" in _display_fas.columns and "player_name" in _display_fas.columns:
+                _display_fas["player_name"] = _display_fas.apply(
+                    lambda _r: (
+                        f"★ {_r['player_name']}" if int(_r["player_id"]) in _wl_current_ids else _r["player_name"]
+                    ),
+                    axis=1,
+                )
+
             show_cols = [
                 "player_name",
                 "positions",
@@ -1254,6 +1501,18 @@ with main:
                 f"Showing {len(display_fa_df)} of {_total_ranked} free agents{_filter_label}.</div>",
                 unsafe_allow_html=True,
             )
+
+            # R-4 CSV export — the download_button is rendered beside the table
+            # caption. We use display_fa_df (the already-filtered, already-renamed
+            # view frame) so the CSV reflects exactly what the user sees.
+            st.download_button(
+                label="Download CSV",
+                data=display_fa_df.to_csv(index=False).encode("utf-8"),
+                file_name="heater_free_agents.csv",
+                mime="text/csv",
+                key="fa_csv",
+            )
+
             _has_html_cols = "Heat" in display_fa_df.columns or "Signal" in display_fa_df.columns
             if _has_html_cols:
                 # Use compact table for HTML heat/signal labels
