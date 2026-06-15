@@ -3182,12 +3182,12 @@ def inject_custom_css():
             if (header && !header.querySelector('.heater-logo')) {
                 const logoDiv = parent.document.createElement('div');
                 logoDiv.className = 'heater-logo';
-                logoDiv.style.cssText = 'display:flex;flex-direction:column;align-items:center;width:100%;padding:0;';
+                logoDiv.style.cssText = 'display:flex;flex-direction:column;align-items:center;width:calc(100% + 10px);margin:0 -5px;padding:0;';
                 logoDiv.innerHTML = '__LOGO_INNER__';
                 header.insertBefore(logoDiv, header.firstChild);
             }
             // Tighten the sidebar header so the logo sits flush + fills the rail width.
-            if (header) { header.style.padding = '2px 2px 0'; }
+            if (header) { header.style.padding = '0'; }
 
             // Collapse zero-height helper blocks (injected <style>/<link>, height=0
             // component iframes, streamlit-float markers) so the main column's 16px
