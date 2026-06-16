@@ -2786,36 +2786,51 @@ def load_matchup_cache(team_name: str, week: int | None = None) -> dict | None:
     conn = get_connection()
     try:
         cursor = conn.cursor()
+        from src.auth import _normalize_team_name
 
-        def _query(name: str):
-            if week is None:
-                cursor.execute(
-                    """SELECT matchup_json FROM league_matchup_cache
-                       WHERE team_name = ? ORDER BY updated_at DESC LIMIT 1""",
-                    (name,),
-                )
-            else:
+        row = None
+        if week is None:
+            # "Current matchup" = the HIGHEST week cached for this team across ALL
+            # name spellings. The scheduler's sync_all_team_matchups writes Yahoo's
+            # emoji form ("(emoji) Team Hickey") while other paths use the
+            # admin-assigned plain form ("Team Hickey"); the same team thus lives
+            # under two names written at different times. Selecting the freshest
+            # updated_at for the EXACT name only (reconciling spellings just on a
+            # miss) let a STALE older-week row under one spelling shadow the
+            # current-week row under the other — the 2026-06-16 owner finding where
+            # a frozen 4-2 hid the live 4-8. Tie-break: exact-name match, then
+            # freshest updated_at. Guarded by
+            # tests/test_matchup_cache_name_reconciliation.py.
+            wanted = _normalize_team_name(team_name)
+            cursor.execute("SELECT team_name, week, matchup_json, updated_at FROM league_matchup_cache")
+            best_key = None
+            for cached_name, wk, mj, upd in cursor.fetchall():
+                if _normalize_team_name(cached_name) != wanted:
+                    continue
+                key = (int(wk or 0), 1 if cached_name == team_name else 0, str(upd or ""))
+                if best_key is None or key > best_key:
+                    best_key, row = key, (mj,)
+        else:
+            # Specific week requested: exact name match, then reconcile name
+            # variants (emoji/whitespace) on a miss.
+            def _query(name: str):
                 cursor.execute(
                     """SELECT matchup_json FROM league_matchup_cache
                        WHERE team_name = ? AND week = ?""",
                     (name, int(week)),
                 )
-            return cursor.fetchone()
+                return cursor.fetchone()
 
-        row = _query(team_name)
-        if not row:
-            # Exact miss — reconcile against the cached names (emoji/whitespace
-            # variants of the same team).
-            from src.auth import _normalize_team_name
-
-            wanted = _normalize_team_name(team_name)
-            if wanted:
-                cursor.execute("SELECT DISTINCT team_name FROM league_matchup_cache")
-                for (cached_name,) in cursor.fetchall():
-                    if cached_name != team_name and _normalize_team_name(cached_name) == wanted:
-                        row = _query(cached_name)
-                        if row:
-                            break
+            row = _query(team_name)
+            if not row:
+                wanted = _normalize_team_name(team_name)
+                if wanted:
+                    cursor.execute("SELECT DISTINCT team_name FROM league_matchup_cache")
+                    for (cached_name,) in cursor.fetchall():
+                        if cached_name != team_name and _normalize_team_name(cached_name) == wanted:
+                            row = _query(cached_name)
+                            if row:
+                                break
         if not row:
             return None
         return _json.loads(row[0])

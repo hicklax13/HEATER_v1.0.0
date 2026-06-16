@@ -29,15 +29,30 @@ def test_dispatch_query_data():
     assert "one" in out  # serialized result contains the column
 
 
-def test_dispatch_request_refresh_enqueues():
+def test_dispatch_request_refresh_forbidden_for_member():
+    """2026-06-16 security: under MULTI_USER (set by the fixture) with no admin
+    session, the AI request_refresh tool is gated — members are read-only and
+    the scheduler is the sole SQLite writer, so a member cannot queue full
+    bootstraps via chat. Gated by viewer_can_write()."""
+    import json
+
+    from src.ai.tools import dispatch_tool
+
+    out = json.loads(dispatch_tool("request_refresh", {"source": "players"}, user_id=99))
+    assert "request_id" not in out
+    assert out.get("status") == "forbidden"
+
+
+def test_dispatch_request_refresh_enqueues_in_single_user(monkeypatch):
+    """v1 (MULTI_USER off): the lone user owns the data and may refresh, so the
+    tool still enqueues and the scheduler will drain it."""
+    import json
+
     from src.ai.refresh_queue import status_of
     from src.ai.tools import dispatch_tool
 
-    out = dispatch_tool("request_refresh", {"source": "players"}, user_id=99)
-    # the tool returns a request id we can check
-    import json
-
-    rid = json.loads(out)["request_id"]
+    monkeypatch.delenv("MULTI_USER", raising=False)
+    rid = json.loads(dispatch_tool("request_refresh", {"source": "players"}, user_id=99))["request_id"]
     assert status_of(rid) == "pending"
 
 

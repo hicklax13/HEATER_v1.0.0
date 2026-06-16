@@ -44,3 +44,8 @@ gatherUsageStats = false
 [client]
 # Hide the Deploy button / toolbar chrome so the nav bar sits flush at top
 toolbarMode = "minimal"
+# Never render exception tracebacks in the browser. The 12-member instance is
+# semi-trusted; a provider/LiteLLM error on the admin-configured SHARED AI key
+# could otherwise echo request context (incl. key material) into a member's
+# page. Errors still reach Railway stdout for the admin (2026-06-16 review).
+showErrorDetails = "none"
