@@ -416,6 +416,49 @@ def validate_credentials(consumer_key: str, consumer_secret: str) -> bool:
 # ---------------------------------------------------------------------------
 
 
+def _score_matchup_category(cat: str, you_str, opp_str, inverse_cats) -> str:
+    """Score one H2H category from the focus team's perspective -> WIN/LOSS/TIE.
+
+    Rate stats (AVG/OBP/ERA/WHIP) come back from Yahoo as "-" (or "") when a team
+    has no qualifying volume that week (0 AB / 0 IP). Yahoo scores that as a LOSS
+    for the team WITHOUT volume — the opponent has a real ratio and wins — and a
+    TIE only when BOTH teams lack it. Matching that fixes the early-week
+    "0 IP -> ERA/WHIP silently skipped" undercount (the owner saw 5-3-2 when the
+    live Yahoo board was 5-5). Inverse cats (L/ERA/WHIP) compare lower-is-better.
+    """
+
+    def _f(v):
+        if v in ("-", "", None):
+            return None
+        try:
+            return float(v)
+        except (ValueError, TypeError):
+            return None
+
+    you = _f(you_str)
+    opp = _f(opp_str)
+    if you is None and opp is None:
+        # Pre-event / both teams lack volume (0 IP/AB) -> undecided, not counted.
+        # Preserves the prior 0-0-0 pre-event tally; the headline W-L is
+        # unaffected either way (an undecided category is neither win nor loss).
+        return "-"
+    if you is None:  # opponent has the stat, we don't -> loss
+        return "LOSS"
+    if opp is None:  # we have the stat, opponent doesn't -> win
+        return "WIN"
+    if cat in inverse_cats:  # lower is better (L, ERA, WHIP)
+        if you < opp:
+            return "WIN"
+        if you > opp:
+            return "LOSS"
+        return "TIE"
+    if you > opp:
+        return "WIN"
+    if you < opp:
+        return "LOSS"
+    return "TIE"
+
+
 class YahooFantasyClient:
     """Yahoo Fantasy Sports API client using yfpy.
 
@@ -2190,39 +2233,21 @@ class YahooFantasyClient:
                 user_stats, user_points = self._get_team_week_stats_raw(str(user_team_key), current_week)
                 opp_stats, opp_points = self._get_team_week_stats_raw(opp_key, current_week)
 
-                # Compute category wins/losses/ties
+                # Compute category wins/losses/ties. _score_matchup_category
+                # mirrors Yahoo's scoring incl. undefined rate stats ("-" from a
+                # 0 IP/AB week), which count as a loss for the team without volume.
                 wins = losses = ties = 0
                 categories = []
                 for cat in self._all_cats:
                     yv_str = user_stats.get(cat, "-")
                     ov_str = opp_stats.get(cat, "-")
-                    result = "-"
-                    try:
-                        yv = float(yv_str) if yv_str not in ("-", "") else None
-                        ov = float(ov_str) if ov_str not in ("-", "") else None
-                        if yv is not None and ov is not None:
-                            if cat in self._inverse_cats:
-                                if yv < ov:
-                                    result = "WIN"
-                                    wins += 1
-                                elif yv > ov:
-                                    result = "LOSS"
-                                    losses += 1
-                                else:
-                                    result = "TIE"
-                                    ties += 1
-                            else:
-                                if yv > ov:
-                                    result = "WIN"
-                                    wins += 1
-                                elif yv < ov:
-                                    result = "LOSS"
-                                    losses += 1
-                                else:
-                                    result = "TIE"
-                                    ties += 1
-                    except (ValueError, TypeError):
-                        pass
+                    result = _score_matchup_category(cat, yv_str, ov_str, self._inverse_cats)
+                    if result == "WIN":
+                        wins += 1
+                    elif result == "LOSS":
+                        losses += 1
+                    elif result == "TIE":
+                        ties += 1
                     categories.append({"cat": cat, "you": yv_str, "opp": ov_str, "result": result})
 
                 return {
@@ -2312,33 +2337,13 @@ class YahooFantasyClient:
         for cat in self._all_cats:
             yv_str = focus_stats.get(cat, "-")
             ov_str = opp_stats.get(cat, "-")
-            result = "-"
-            try:
-                yv = float(yv_str) if yv_str not in ("-", "") else None
-                ov = float(ov_str) if ov_str not in ("-", "") else None
-                if yv is not None and ov is not None:
-                    if cat in self._inverse_cats:
-                        if yv < ov:
-                            result = "WIN"
-                            wins += 1
-                        elif yv > ov:
-                            result = "LOSS"
-                            losses += 1
-                        else:
-                            result = "TIE"
-                            ties += 1
-                    else:
-                        if yv > ov:
-                            result = "WIN"
-                            wins += 1
-                        elif yv < ov:
-                            result = "LOSS"
-                            losses += 1
-                        else:
-                            result = "TIE"
-                            ties += 1
-            except (ValueError, TypeError):
-                pass
+            result = _score_matchup_category(cat, yv_str, ov_str, self._inverse_cats)
+            if result == "WIN":
+                wins += 1
+            elif result == "LOSS":
+                losses += 1
+            elif result == "TIE":
+                ties += 1
             categories.append({"cat": cat, "you": yv_str, "opp": ov_str, "result": result})
 
         return {
