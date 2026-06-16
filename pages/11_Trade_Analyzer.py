@@ -809,6 +809,47 @@ else:
                                         + ", ".join(f"{t}={w}" for t, w in sorted(_cw_used.items()))
                                     )
 
+                                # Per-team PROJECTED rest-of-season picture. This
+                                # is the decisive view: it shows whether the user
+                                # is locked out of top-4 because opponents are
+                                # projected to GAIN far more additional wins (the
+                                # de-saturated-user vs saturated-opponent asymmetry
+                                # in playoff_sim), vs simply being too far back.
+                                _proj_add = before.get("team_proj_additional") or {}
+                                _proj_final = before.get("team_proj_final") or {}
+                                _weekly_p = before.get("team_weekly_p") or {}
+                                _nwr = before.get("n_weeks_remaining")
+                                if _proj_final:
+                                    st.markdown(
+                                        f"**Projected rest-of-season** "
+                                        f"({_nwr} weeks remaining) — sorted by projected final wins. "
+                                        f"Top-{4} make the playoffs:"
+                                    )
+                                    _ranked = sorted(_proj_final.items(), key=lambda kv: kv[1], reverse=True)
+                                    _lines = [
+                                        "| # | Team | Now | +Proj | =Final | Wk win% |",
+                                        "|---|------|-----|-------|--------|---------|",
+                                    ]
+                                    for _rank, (_t, _fin) in enumerate(_ranked, start=1):
+                                        _is_me = _t == user_team_name
+                                        _name = f"**{_t}** (you)" if _is_me else _t
+                                        _cw = _cw_used.get(_t, 0)
+                                        _add = _proj_add.get(_t, 0.0)
+                                        _wp = _weekly_p.get(_t, 0.0)
+                                        _lines.append(
+                                            f"| {_rank} | {_name} | {_cw} | {_add:+.1f} | "
+                                            f"{_fin:.1f} | {_wp * 100:.0f}% |"
+                                        )
+                                        if _rank == 4:
+                                            _lines.append("| | _— playoff cutline —_ | | | | |")
+                                    st.markdown("\n".join(_lines))
+                                    st.caption(
+                                        "If your **Wk win%** is lower than equally-placed rivals, or rivals' "
+                                        "**+Proj** dwarfs yours despite a comparable roster, the sim is "
+                                        "scoring you and your opponents with different math — that is the "
+                                        "asymmetry to fix."
+                                    )
+
                             # ── CARA mean-CVaR utility (report Section B.9) ──
                             # Risk-adjusted utility on per-sim Δchamp_prob deltas.
                             # CARA = E[Δchamp] - λ/2 × Var[Δchamp] with λ=0.15.

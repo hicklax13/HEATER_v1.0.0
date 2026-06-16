@@ -132,6 +132,10 @@ def simulate_playoff_outcomes(
             "mean_regular_season_wins": 0.0,
             "current_wins_used": {},
             "current_wins_unmatched": [],
+            "n_weeks_remaining": 0,
+            "team_proj_additional": {},
+            "team_proj_final": {},
+            "team_weekly_p": {},
             "n_sims": 0,
             "method": "hickey-centric-binomial-opp",
         }
@@ -245,6 +249,17 @@ def simulate_playoff_outcomes(
             current_wins_unmatched,
         )
 
+    # Diagnostic (2026-06): per-team PROJECTED rest-of-season picture. Surfaces
+    # WHY a team's playoff odds land where they do — the current-wins table alone
+    # can't show whether the user is locked out because opponents are projected
+    # to gain far more additional wins (e.g. the user is scored with the
+    # de-saturated copula path while opponents use the saturated normal-approx in
+    # _team_average_weekly_win_prob — an asymmetry that suppresses a strong
+    # user's relative standing). All three are means over the sim batch.
+    team_proj_additional = {t: round(float(additional_wins[:, i].mean()), 1) for i, t in enumerate(team_names)}
+    team_proj_final = {t: round(float(final_wins[:, i].mean()), 1) for i, t in enumerate(team_names)}
+    team_weekly_p = {t: round(float(p_avg_arr[i]), 3) for i, t in enumerate(team_names)}
+
     # ── Determine top-4 per sim and user's playoff seed ─────────────
     # Higher wins = better rank. argsort descending → top 4 = first 4 entries.
     sorted_team_indices = np.argsort(-final_wins, axis=1)  # (n_sims, n_teams)
@@ -286,6 +301,11 @@ def simulate_playoff_outcomes(
         "current_wins": int(current_wins.get(user_team_name, 0)),
         "current_wins_used": current_wins_used,
         "current_wins_unmatched": current_wins_unmatched,
+        # Diagnostic: per-team projected RoS picture (means over the sim batch).
+        "n_weeks_remaining": int(n_weeks_remaining),
+        "team_proj_additional": team_proj_additional,
+        "team_proj_final": team_proj_final,
+        "team_weekly_p": team_weekly_p,
         "n_sims": int(n_sims),
         "method": sim_method,
         # CARA Phase (2026-05-24): per-sim Bernoulli outcomes for the
