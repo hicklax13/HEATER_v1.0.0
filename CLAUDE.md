@@ -4,6 +4,23 @@
 
 A fantasy-baseball draft assistant + in-season manager for a 12-team Yahoo Sports H2H Categories snake-draft league. Built with Streamlit, powered by Monte Carlo simulation, Bayesian projection updating, and LP-constrained lineup optimization. **2026 MLB season is active; the app is in in-season mode** — draft completed, all components running against live league + Yahoo data.
 
+> ## ★ NORTH STAR (set 2026-06-16) — the ultimate goal
+> **HEATER is being prepared to become a real, monetized, general-public consumer product.** Every future session should treat this as the destination behind feature and architecture decisions. Today HEATER is a private single-league (FourzynBurn) Streamlit app on Railway for 12 users; "public + monetized" is where we are going. "Prepare the app as it stands" = keep the working app running while we build toward the product.
+>
+> - **Maintenance model:** from launch day 1 it is just the owner (Connor) + Claude, until HEATER earns enough revenue to fund hires. Bias every technical decision toward solo-operator-plus-AI maintainability and low operational overhead until then.
+> - **This REVERSES the old "intentionally OUT" calls** (see the _Roadmap status_ line in "Known Design Choices" below): the **FastAPI/Next.js (or Reflex) re-platform** and the **multi-league / multi-tenant data model** are now ON the roadmap as the path to public scale — not off-limits. They were "OUT" only for the private-league context.
+> - **Why going public is a re-platform, not a UI tweak:** three hard ceilings — single Railway replica + SQLite sole-writer (→ **Postgres** + external workers), one hardcoded league / Yahoo `game_key 469` (→ **multi-tenant** data model + per-user OAuth), and heavy per-session Streamlit cost. Leading architecture: **keep the Python engine** (`src/engine`, `src/optimizer`, `src/valuation`) behind a **FastAPI** service + **Postgres** + background workers, with a real frontend (**Next.js/React** preferred for a consumer product; **Reflex** the stay-in-Python alternative). The Combustion Index *design language* transfers; the engine is preserved.
+> - **Status:** goal recorded 2026-06-16; the phased migration plan is **not yet written** — that is the next strategic step (decouple engine → API + Postgres first, rebuild the frontend page-by-page to parity, then layer multi-tenancy / auth / billing).
+
+### Operating model & roles (set 2026-06-16)
+
+Toward the North Star, HEATER is being driven by **two parallel Claude tracks that must converge**:
+
+- **This track — CEO / Product Officer:** product strategy, system architecture, the migration / re-platform, monetization & business model, and engineering execution. Owns *how HEATER is built, scaled, monetized, and shipped*.
+- **Parallel track — CMO:** reimagines the entire look & feel — design, frontend aesthetics, UI/UX, logo, colors, branding — with full creative latitude ("nothing is off limits"). Owns *how HEATER looks and feels*.
+- **Overlap (the frontend) is shared:** the CEO track owns the stack, build, and scale; the CMO track owns the visual / brand / UX vision. The two plans MUST reconcile — the chosen frontend stack has to host the CMO's design language, and the migration plan must leave headroom for a full rebrand (so a CMO redesign is a re-skin, not a re-architecture).
+- **Planning method:** spec with `brainstorming`, document with `writing-plans`, execute with `dispatching-parallel-agents`. Deliverable = a **multi-phased plan to the monetized product**, beginning with **Phase 0: the multi-section migration plan** (decouple the Python engine behind a FastAPI service + Postgres + background workers, then rebuild the frontend to parity). Plans live in `docs/superpowers/plans/`.
+
 The codebase is organized around 7 feature surfaces:
 
 1. **Draft Tool** (`app.py`) — Heater-themed splash + bootstrap + setup wizard + 3-column draft page with Monte Carlo recommendations.
@@ -916,7 +933,7 @@ Milestone tags: `milestone/2026-05-21-fa-engine-overhaul-complete` (PR #110); `m
 - **Monolith split [R-5]:** pure helpers extracted to `src/my_team_helpers.py` + `src/lineup_optimizer_helpers.py` (behavior-identical; extraction limited to helpers NOT pinned by structural guards, which all stay green).
 - **Chrome tweaks:** global top bar halved (`.stApp::before` 90→45px, content offset 53px); sidebar rail widened 100→**140px** (the MAX under `test_combustion_lock`'s `<=140` "thin rail" cap — this also un-truncates the nav labels); the **HEATER logo is sized by `!important` CSS in `inject_custom_css`** (`.heater-logo`/`.heater-logo img`), NOT the one-time `components.html` JS inline style (that only runs when the div is first created and can't update on rerun — edit the CSS, not the JS).
 
-**Still intentionally OUT (do not build without an explicit ask):** **multi-league** (fundamental data-model change) and the **thin-client / FastAPI-Next.js re-platform** (would discard the working Streamlit app). **Multi-player trades already work** — the Trade Analyzer evaluates any N-for-M list; only the Trade *Finder's* auto-suggestion generator caps at 2-for-1 (a complex, low-value combinatorial enhancement, not built).
+**Roadmap status (updated 2026-06-16 — see ★ NORTH STAR in Overview):** **multi-league / multi-tenancy** and the **thin-client / FastAPI-Next.js (or Reflex) re-platform** are NO LONGER "out" — they are now the planned path to the public, monetized consumer product (the ultimate goal). They remain *unbuilt* and *not yet planned in detail* (the phased migration plan is the next strategic step), and the current private-league Streamlit app stays the working baseline until the new stack reaches parity. Do not start the re-platform without first agreeing a migration plan with the owner. **Multi-player trades already work** — the Trade Analyzer evaluates any N-for-M list; only the Trade *Finder's* auto-suggestion generator caps at 2-for-1 (a complex, low-value combinatorial enhancement, not built).
 
 ## Known Design Choices & External Limitations
 
