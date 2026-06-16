@@ -1359,7 +1359,12 @@ def evaluate_trade(
                 total_surplus -= markov_fa_penalty
             _mod_markov.influence = 0.2
         else:
-            _mod_markov.status = ModuleStatus.DISABLED
+            # Gated module: the FA-discount premise only applies when the trade
+            # shrinks the roster and the engine backfills with free agents. On
+            # an equal/roster-grow trade it computes nothing — that's "doesn't
+            # apply to this trade," NOT "required inputs missing." NOT_APPLICABLE
+            # keeps it out of the quality score (vs DISABLED scoring it 0.0).
+            _mod_markov.status = ModuleStatus.NOT_APPLICABLE
             _mod_markov.fallback_reason = "No FA pickups (not a roster-shrink trade)"
 
     # Step 6f: Specialist cap (report Section H.2)
@@ -1379,10 +1384,11 @@ def evaluate_trade(
         )
         if specialist_cap_penalty > 0:
             total_surplus -= specialist_cap_penalty
-            _mod_spec.influence = 0.2
-        else:
-            _mod_spec.status = ModuleStatus.DISABLED
-            _mod_spec.fallback_reason = "No received starter exceeds the per-category specialist cap"
+        # Always-run analysis, like replacement/flexibility/ip_floor: it
+        # iterates every received starter against the cap. Finding no excess is
+        # a ran-and-found-nothing result, so it stays EXECUTED (default) with a
+        # fixed influence weight — not DISABLED ("required inputs missing").
+        _mod_spec.influence = 0.2
 
     # Step 7: Grade the trade
     trade_grade = grade_trade(total_surplus)

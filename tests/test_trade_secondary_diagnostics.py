@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import pandas as pd
 
+from src.analytics_context import ModuleStatus
 from src.engine.output.trade_evaluator import (
     _SPECIALIST_CAP_FRACTION,
     _compute_specialist_cap_penalty,
@@ -262,3 +263,58 @@ def test_result_exposes_specialist_cap_keys() -> None:
     assert "specialist_cap_penalty" in result
     assert "specialist_cap_detail" in result
     assert isinstance(result["specialist_cap_penalty"], (int, float))
+
+
+# ── Module-status reporting: precondition-not-met vs ran-found-nothing ──
+#
+# The analytics badge distinguishes a module that *could not apply* to this
+# trade (NOT_APPLICABLE — excluded from the quality score) from one whose
+# required inputs were genuinely missing (DISABLED — scored 0.0 + "missing
+# inputs" warning). Two penalty modules used DISABLED for the benign cases:
+#   • markov_fa_discount is GATED — on a non-roster-shrink trade it computes
+#     nothing, so it doesn't apply → NOT_APPLICABLE.
+#   • specialist_cap ALWAYS runs its full analysis (like replacement/
+#     flexibility/ip_floor); finding no excess is a ran-and-found-nothing
+#     result → EXECUTED, not DISABLED.
+
+
+def test_markov_module_not_applicable_on_equal_trade() -> None:
+    """Equal 1-for-1 trade → no FA pickup → markov module is NOT_APPLICABLE."""
+    pool, roster = _full_roster_pool()
+    result = evaluate_trade(
+        giving_ids=[1],
+        receiving_ids=[50],
+        user_roster_ids=roster,
+        player_pool=pool,
+        enable_mc=False,
+        enable_context=False,
+        enable_game_theory=False,
+        apply_ytd_blend=False,
+    )
+    ctx = result["analytics_context"]
+    mod = ctx.modules["phase1_markov_fa_discount"]
+    assert mod.status == ModuleStatus.NOT_APPLICABLE
+    # Reason text preserved for badge transparency.
+    assert "FA pickups" in (mod.fallback_reason or "")
+
+
+def test_specialist_cap_module_executed_when_no_specialist() -> None:
+    """No received specialist → penalty 0, but the analysis still RAN.
+
+    The module computed a real result (no excess to cap), so it must report
+    EXECUTED — matching its sibling always-run penalty modules — not DISABLED.
+    """
+    pool, roster = _full_roster_pool()
+    result = evaluate_trade(
+        giving_ids=[1],
+        receiving_ids=[50],
+        user_roster_ids=roster,
+        player_pool=pool,
+        enable_mc=False,
+        enable_context=False,
+        enable_game_theory=False,
+        apply_ytd_blend=False,
+    )
+    assert result["specialist_cap_penalty"] == 0  # no specialist received
+    ctx = result["analytics_context"]
+    assert ctx.modules["phase1_specialist_cap"].status == ModuleStatus.EXECUTED
