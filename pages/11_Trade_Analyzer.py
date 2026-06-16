@@ -780,7 +780,7 @@ else:
                             _cw_used = before.get("current_wins_used") or {}
                             _cw_unmatched = before.get("current_wins_unmatched") or []
                             _my_cw = _cw_used.get(user_team_name)
-                            with st.expander("⚙ Playoff-sim diagnostic — current wins used", expanded=True):
+                            with st.expander("Playoff-sim diagnostic — current wins used", expanded=True):
                                 if _my_cw is None:
                                     st.warning(
                                         f"Your team ('{user_team_name}') was not found in the "
