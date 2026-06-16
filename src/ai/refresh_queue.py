@@ -21,6 +21,17 @@ def request_refresh(source: str, requested_by: int | None = None) -> int:
 
     conn = get_connection()
     try:
+        # Dedup: if a request is already pending/running, reuse it instead of
+        # enqueueing another. drain_queue runs a FULL bootstrap per request
+        # regardless of `source`, so one active request already covers
+        # everything — this caps the queue at a single in-flight refresh so a
+        # caller cannot pile up unbounded full-bootstrap runs (2026-06-16
+        # hardening; the AI request_refresh tool is also admin-gated upstream).
+        existing = conn.execute(
+            "SELECT id FROM forced_refresh_queue WHERE status IN ('pending', 'running') ORDER BY id LIMIT 1"
+        ).fetchone()
+        if existing is not None:
+            return int(existing["id"])
         cur = conn.execute(
             "INSERT INTO forced_refresh_queue (source, requested_by, status, created_at) VALUES (?, ?, 'pending', ?)",
             (source, requested_by, datetime.now(UTC).isoformat()),

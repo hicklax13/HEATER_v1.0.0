@@ -39,39 +39,48 @@ def _now() -> str:
     return datetime.now(UTC).isoformat()
 
 
+def _write(sql: str, params: tuple) -> bool:
+    """Best-effort per-user write (watchlist / saved views).
+
+    Members write their OWN rows from session processes while the scheduler is
+    the primary SQLite writer; on a transient 'database is locked' — or any
+    error — log + swallow so it never crashes the member's page (mirrors
+    ``usage.bump_activity``). ``get_connection()`` already waits up to
+    ``busy_timeout`` for the lock before raising. Returns True on a committed
+    write. (2026-06-16 hardening — Phase 7 added the first member-triggered
+    writes; this gives them the resilience the refresh_log path already has.)
+    """
+    from src.database import get_connection
+
+    conn = get_connection()
+    try:
+        conn.execute(sql, params)
+        conn.commit()
+        return True
+    except Exception as exc:
+        logger.warning("user_data write skipped (%s): %s", type(exc).__name__, exc)
+        return False
+    finally:
+        conn.close()
+
+
 # ── Watchlist ─────────────────────────────────────────────────────────
 
 
 def add_to_watchlist(player_id: int) -> None:
     """Add *player_id* to the current user's watchlist. Idempotent."""
-    from src.database import get_connection
-
-    uid = _current_user_id()
-    conn = get_connection()
-    try:
-        conn.execute(
-            "INSERT OR IGNORE INTO user_watchlist (user_id, player_id, created_at) VALUES (?, ?, ?)",
-            (uid, player_id, _now()),
-        )
-        conn.commit()
-    finally:
-        conn.close()
+    _write(
+        "INSERT OR IGNORE INTO user_watchlist (user_id, player_id, created_at) VALUES (?, ?, ?)",
+        (_current_user_id(), player_id, _now()),
+    )
 
 
 def remove_from_watchlist(player_id: int) -> None:
     """Remove *player_id* from the current user's watchlist. Silent if absent."""
-    from src.database import get_connection
-
-    uid = _current_user_id()
-    conn = get_connection()
-    try:
-        conn.execute(
-            "DELETE FROM user_watchlist WHERE user_id = ? AND player_id = ?",
-            (uid, player_id),
-        )
-        conn.commit()
-    finally:
-        conn.close()
+    _write(
+        "DELETE FROM user_watchlist WHERE user_id = ? AND player_id = ?",
+        (_current_user_id(), player_id),
+    )
 
 
 def get_watchlist() -> set[int]:
@@ -114,24 +123,14 @@ def save_view(kind: str, name: str, payload: dict) -> None:
     Upserts on (user_id, kind, name) — calling again with a different payload
     updates the existing row (and refreshes created_at).
     """
-    from src.database import get_connection
-
-    uid = _current_user_id()
-    payload_json = json.dumps(payload, ensure_ascii=False)
-    now = _now()
-    conn = get_connection()
-    try:
-        conn.execute(
-            "INSERT INTO user_saved_views (user_id, kind, name, payload_json, created_at)"
-            " VALUES (?, ?, ?, ?, ?)"
-            " ON CONFLICT(user_id, kind, name)"
-            " DO UPDATE SET payload_json = excluded.payload_json,"
-            "               created_at   = excluded.created_at",
-            (uid, kind, name, payload_json, now),
-        )
-        conn.commit()
-    finally:
-        conn.close()
+    _write(
+        "INSERT INTO user_saved_views (user_id, kind, name, payload_json, created_at)"
+        " VALUES (?, ?, ?, ?, ?)"
+        " ON CONFLICT(user_id, kind, name)"
+        " DO UPDATE SET payload_json = excluded.payload_json,"
+        "               created_at   = excluded.created_at",
+        (_current_user_id(), kind, name, json.dumps(payload, ensure_ascii=False), _now()),
+    )
 
 
 def load_view(kind: str, name: str) -> dict | None:
@@ -178,15 +177,7 @@ def list_views(kind: str) -> list[str]:
 
 def delete_view(kind: str, name: str) -> None:
     """Delete a saved view by kind + name. Silent if not found."""
-    from src.database import get_connection
-
-    uid = _current_user_id()
-    conn = get_connection()
-    try:
-        conn.execute(
-            "DELETE FROM user_saved_views WHERE user_id = ? AND kind = ? AND name = ?",
-            (uid, kind, name),
-        )
-        conn.commit()
-    finally:
-        conn.close()
+    _write(
+        "DELETE FROM user_saved_views WHERE user_id = ? AND kind = ? AND name = ?",
+        (_current_user_id(), kind, name),
+    )

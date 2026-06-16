@@ -109,6 +109,25 @@ def dispatch_tool(name: str, args: dict, user_id: int) -> str:
         if name == "get_free_agents":
             return _get_free_agents(int(args.get("limit", 50) or 50))
         if name == "request_refresh":
+            # Member-triggered DB writes are admin-only under MULTI_USER (the
+            # scheduler is the sole writer; members are read-only). Gate the AI
+            # refresh tool by the same viewer_can_write() that gates every
+            # refresh button, so a member can't queue full bootstraps via chat
+            # (2026-06-16 security review). v1/no-session ⇒ allowed.
+            try:
+                from src.auth import viewer_can_write
+
+                _can_refresh = viewer_can_write()
+            except Exception:
+                _can_refresh = True
+            if not _can_refresh:
+                return json.dumps(
+                    {
+                        "status": "forbidden",
+                        "error": "Data refresh is admin-only — the league's data refreshes "
+                        "automatically on a schedule.",
+                    }
+                )
             from src.ai.refresh_queue import request_refresh
 
             rid = request_refresh(args.get("source", "all"), requested_by=user_id)

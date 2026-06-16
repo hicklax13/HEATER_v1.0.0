@@ -238,14 +238,29 @@ def _handle_send(
             st.markdown(prompt if not attached else f"_(with attached selection)_\n\n{prompt}")
         with st.chat_message("assistant"):
             with st.spinner("Thinking..."):
-                result = provider_chat(
-                    model=model,
-                    messages=messages,
-                    api_key=api_key,
-                    user_id=uid,
-                    web_search=web_search,
-                    deep_research=deep_research,
-                )
+                try:
+                    result = provider_chat(
+                        model=model,
+                        messages=messages,
+                        api_key=api_key,
+                        user_id=uid,
+                        web_search=web_search,
+                        deep_research=deep_research,
+                    )
+                except Exception:
+                    # Never surface a provider/LiteLLM traceback in the page — on
+                    # the admin-configured SHARED key it can echo request context
+                    # (incl. key material). Log for the admin (Railway stdout) and
+                    # show the member a generic message (2026-06-16 review).
+                    import logging
+
+                    logging.getLogger(__name__).warning("provider_chat failed", exc_info=True)
+                    result = {
+                        "content": "Sorry — the AI provider returned an error. Please try again, "
+                        "or pick a different model in Settings.",
+                        "tokens_in": 0,
+                        "tokens_out": 0,
+                    }
             st.write_stream(_typewriter(result["content"]))
 
     st.session_state[_STATE_ATTACHED] = None  # consume the attachment

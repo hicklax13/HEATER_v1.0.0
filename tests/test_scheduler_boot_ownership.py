@@ -24,14 +24,36 @@ import pytest
 import src.scheduler as scheduler
 
 
+def _quiesce_refresh_threads():
+    """Stop the scheduler AND join any leaked 'heater-refresh' thread.
+
+    These tests assert on the PROCESS-GLOBAL thread list, so a refresh thread
+    leaked by another test file co-located on the same xdist worker (e.g. an
+    AppTest that runs app.main() under MULTI_USER, which starts the scheduler
+    and never stops it) would otherwise make
+    ``test_reader_process_does_not_start_thread`` see a phantom thread. Wake
+    every heater-refresh thread via the stop event and join it, for a
+    deterministic baseline regardless of cross-file execution order under
+    ``-n auto --dist loadfile`` (2026-06-16: surfaced when a new test file
+    shifted the loadfile distribution; the scheduler itself is unaffected and
+    passes this file in isolation)."""
+    scheduler.stop_background_refresh()
+    scheduler._scheduler_running = False
+    scheduler._stop_event.set()
+    for t in list(threading.enumerate()):
+        if t.name == "heater-refresh":
+            t.join(timeout=2)
+    scheduler._stop_event.clear()
+
+
 @pytest.fixture(autouse=True)
 def _clean_scheduler(monkeypatch):
     # No-op the whole refresh cycle so the started thread never touches the
     # DB/Yahoo/network — this test is purely about thread lifecycle + the gate.
     monkeypatch.setattr(scheduler, "_refresh_once", lambda: None)
-    scheduler.stop_background_refresh()  # clean baseline before each test
+    _quiesce_refresh_threads()  # clean baseline before each test (incl. leaks)
     yield
-    scheduler.stop_background_refresh()
+    _quiesce_refresh_threads()
     # The boot-process entrypoint sets these directly (not via monkeypatch); pop
     # so ownership never leaks into another test.
     for var in ("HEATER_SCHEDULER_BOOT", "HEATER_SCHEDULER_IS_OWNER"):
