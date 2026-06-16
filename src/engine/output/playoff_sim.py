@@ -130,6 +130,8 @@ def simulate_playoff_outcomes(
             "champ_prob": 0.0,
             "playoff_seed_distribution": {i: 0.0 for i in range(1, _PLAYOFF_SPOTS + 1)},
             "mean_regular_season_wins": 0.0,
+            "current_wins_used": {},
+            "current_wins_unmatched": [],
             "n_sims": 0,
             "method": "hickey-centric-binomial-opp",
         }
@@ -227,6 +229,22 @@ def simulate_playoff_outcomes(
     current_wins_arr = np.array([current_wins.get(t, 0) for t in team_names], dtype=int)
     final_wins = current_wins_arr[None, :] + additional_wins  # (n_sims, n_teams)
 
+    # Diagnostic (2026-06): record the current-wins value actually USED per team
+    # and flag any team whose name was NOT found in the supplied current_wins
+    # dict (it silently defaulted to 0 above). current_wins is keyed by the
+    # caller's standings team-names while team_names comes from the rosters; a
+    # format mismatch (leading emoji/whitespace) drops a real W-L record here,
+    # which buries that team's playoff odds. Surfaced so the UI can show whether
+    # the user's own record was matched.
+    current_wins_used = {t: int(current_wins.get(t, 0)) for t in team_names}
+    current_wins_unmatched = [t for t in team_names if t not in current_wins]
+    if current_wins_unmatched:
+        logger.warning(
+            "simulate_playoff_outcomes: %d team(s) not found in current_wins (defaulted to 0 wins): %s",
+            len(current_wins_unmatched),
+            current_wins_unmatched,
+        )
+
     # ── Determine top-4 per sim and user's playoff seed ─────────────
     # Higher wins = better rank. argsort descending → top 4 = first 4 entries.
     sorted_team_indices = np.argsort(-final_wins, axis=1)  # (n_sims, n_teams)
@@ -266,6 +284,8 @@ def simulate_playoff_outcomes(
         "playoff_seed_distribution": {k: round(v, 4) for k, v in seed_dist.items()},
         "mean_regular_season_wins": round(float(user_additional_wins.mean()), 2),
         "current_wins": int(current_wins.get(user_team_name, 0)),
+        "current_wins_used": current_wins_used,
+        "current_wins_unmatched": current_wins_unmatched,
         "n_sims": int(n_sims),
         "method": sim_method,
         # CARA Phase (2026-05-24): per-sim Bernoulli outcomes for the

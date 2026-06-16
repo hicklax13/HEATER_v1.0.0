@@ -767,6 +767,48 @@ else:
                                 ),
                             )
 
+                            # ── DIAGNOSTIC (2026-06): current-wins matching ──
+                            # Confirms whether the playoff sim counted each
+                            # team's actual season record. current_wins is keyed
+                            # by STANDINGS team-names but the sim looks teams up
+                            # by ROSTER team-names; a name-format mismatch
+                            # (emoji/whitespace) silently drops a record -> 0
+                            # wins -> buried playoff odds. This readout shows the
+                            # value the sim used for YOUR team and flags any
+                            # team it could not match, so a re-run pinpoints the
+                            # cause. Pure diagnostic — no effect on the math.
+                            _cw_used = before.get("current_wins_used") or {}
+                            _cw_unmatched = before.get("current_wins_unmatched") or []
+                            _my_cw = _cw_used.get(user_team_name)
+                            with st.expander("⚙ Playoff-sim diagnostic — current wins used", expanded=True):
+                                if _my_cw is None:
+                                    st.warning(
+                                        f"Your team ('{user_team_name}') was not found in the "
+                                        "playoff-sim standings at all — its record could not be matched."
+                                    )
+                                else:
+                                    st.write(
+                                        f"**Your team:** `{user_team_name}` — current wins the sim used: **{_my_cw}**"
+                                    )
+                                    if _my_cw == 0:
+                                        st.warning(
+                                            "The sim counted **0** current wins for your team. If your "
+                                            "real record isn't 0-x-x, your wins are being dropped — that "
+                                            "is the bug burying your playoff odds."
+                                        )
+                                if _cw_unmatched:
+                                    st.error(
+                                        f"{len(_cw_unmatched)} team(s) could NOT be matched to standings "
+                                        f"(counted as 0 wins): {', '.join(map(str, _cw_unmatched))}"
+                                    )
+                                else:
+                                    st.caption("All 12 teams matched to a standings record.")
+                                if _cw_used:
+                                    st.caption(
+                                        "Per-team current wins used: "
+                                        + ", ".join(f"{t}={w}" for t, w in sorted(_cw_used.items()))
+                                    )
+
                             # ── CARA mean-CVaR utility (report Section B.9) ──
                             # Risk-adjusted utility on per-sim Δchamp_prob deltas.
                             # CARA = E[Δchamp] - λ/2 × Var[Δchamp] with λ=0.15.

@@ -231,6 +231,35 @@ def test_seed_distribution_sums_to_playoff_prob() -> None:
     assert abs(seed_sum - result["playoff_prob"]) < 1e-6
 
 
+def test_sim_exposes_current_wins_diagnostic() -> None:
+    """Diagnostic (2026-06): the sim reports the current-wins value it actually
+    USED per team and flags any team whose name was NOT found in current_wins
+    (silently defaulted to 0). This surfaces the standings-vs-roster team-name
+    mismatch that can drop a real record and bury that team's playoff odds.
+    """
+    pool, rosters, wins = _build_mini_league()
+    # Simulate a name mismatch by dropping the user's record from current_wins.
+    wins_missing = {k: v for k, v in wins.items() if k != "Team_5"}
+    schedule = _build_schedule("Team_5", [t for t in rosters if t != "Team_5"], 10, 26)
+    result = simulate_playoff_outcomes(
+        user_roster_ids=rosters["Team_5"],
+        user_team_name="Team_5",
+        all_team_rosters=rosters,
+        user_schedule=schedule,
+        current_wins=wins_missing,
+        player_pool=pool,
+        n_sims=500,
+    )
+    assert "current_wins_used" in result
+    assert "current_wins_unmatched" in result
+    # A matched team keeps its real value; the dropped team defaults to 0 and
+    # is flagged in current_wins_unmatched.
+    assert result["current_wins_used"]["Team_0"] == wins_missing["Team_0"]
+    assert result["current_wins_used"]["Team_5"] == 0
+    assert "Team_5" in result["current_wins_unmatched"]
+    assert "Team_0" not in result["current_wins_unmatched"]
+
+
 def test_user_not_in_rosters_returns_zero() -> None:
     """If user_team_name not in rosters, return zero probabilities (no crash)."""
     pool, rosters, wins = _build_mini_league()
