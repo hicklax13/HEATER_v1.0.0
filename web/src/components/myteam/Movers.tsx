@@ -43,15 +43,15 @@ function TeamHaze({ teamId }: { teamId: number }) {
   const tb = teamBrand(teamId);
   return (
     <>
-      {/* faded team-color gradient base */}
+      {/* dark team-color gradient (kept gradient, much darker) */}
       <span
         aria-hidden
         className="pointer-events-none absolute inset-0"
         style={{
-          background: `linear-gradient(145deg, color-mix(in srgb, ${tb.primary} 62%, white) 0%, color-mix(in srgb, ${tb.primary} 32%, white) 48%, color-mix(in srgb, ${tb.primary} 12%, white) 100%)`,
+          background: `linear-gradient(145deg, color-mix(in srgb, ${tb.primary} 96%, white) 0%, ${tb.primary} 50%, color-mix(in srgb, ${tb.primary} 72%, black) 122%)`,
         }}
       />
-      {/* team logo watermark */}
+      {/* prominent team logo (bright halo so it reads on the dark fill) */}
       <img
         src={MLB.teamLogo(teamId)}
         alt=""
@@ -59,16 +59,8 @@ function TeamHaze({ teamId }: { teamId: number }) {
         onError={(e) => {
           (e.currentTarget as HTMLImageElement).style.display = "none";
         }}
-        className="pointer-events-none absolute left-1/2 top-1/2 size-60 -translate-x-1/2 -translate-y-1/2 opacity-[0.20]"
-      />
-      {/* soft veil keeps the centered headshot/text crisp over the logo + tint */}
-      <span
-        aria-hidden
-        className="pointer-events-none absolute inset-0"
-        style={{
-          background:
-            "radial-gradient(circle at 50% 44%, rgba(255,255,255,0.6), rgba(255,255,255,0.15) 58%, transparent 100%)",
-        }}
+        style={{ filter: "brightness(1.7) drop-shadow(0 0 2px rgba(255,255,255,0.5))" }}
+        className="pointer-events-none absolute left-1/2 top-1/2 size-64 -translate-x-1/2 -translate-y-1/2 opacity-[0.5]"
       />
     </>
   );
@@ -87,9 +79,9 @@ function MoverCard({ m }: { m: Mover }) {
         className="block w-full text-left"
         aria-label={`Open ${m.name} player card`}
       >
-        <Card className="relative overflow-hidden p-4 text-center">
+        <Card className="relative overflow-hidden p-3 text-center">
           <TeamHaze teamId={m.teamId} />
-          <div className="relative">
+          <div className="relative rounded-xl bg-white p-3.5 shadow-[0_2px_10px_rgba(8,16,32,0.16)]">
             <div className="flex justify-center">
               <PlayerAvatar mlbId={m.mlbId} teamId={m.teamId} name={m.name} size={54} />
             </div>
