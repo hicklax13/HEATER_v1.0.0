@@ -79,23 +79,23 @@ function MoverCard({ m }: { m: Mover }) {
         className="block w-full text-left"
         aria-label={`Open ${m.name} player card`}
       >
-        <Card className="relative overflow-hidden p-3 text-center">
+        <Card className="relative overflow-hidden p-6 text-center">
           <TeamHaze teamId={m.teamId} />
-          <div className="relative rounded-xl bg-white p-3.5 shadow-[0_2px_10px_rgba(8,16,32,0.16)]">
+          <div className="relative mx-auto max-w-[180px] rounded-xl bg-white p-3 shadow-[0_2px_10px_rgba(8,16,32,0.18)]">
             <div className="flex justify-center">
-              <PlayerAvatar mlbId={m.mlbId} teamId={m.teamId} name={m.name} size={54} />
+              <PlayerAvatar mlbId={m.mlbId} teamId={m.teamId} name={m.name} size={44} />
             </div>
             <div className="mt-2 font-display text-[15px] font-bold text-navy">{m.name}</div>
             <div className="tnum text-[11px] font-semibold uppercase tracking-wide text-ink-3">
               {m.pos} · {m.teamAbbr}
             </div>
-            <div className="mt-3 flex items-center justify-center gap-3">
+            <div className="mt-2 flex items-center justify-center gap-3">
               <Slot label={m.stat1.label} value={m.stat1.value} />
               <span className="h-7 w-px bg-line" />
               <Slot label={m.stat2.label} value={m.stat2.value} />
             </div>
             <div className="mt-1.5 text-[11px] font-medium text-ink-2">{m.context}</div>
-            <div className="mt-3 flex items-center justify-center gap-2">
+            <div className="mt-2 flex items-center justify-center gap-2">
               <span
                 className={cn(
                   "inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-semibold",
@@ -107,7 +107,7 @@ function MoverCard({ m }: { m: Mover }) {
               </span>
               <Sparkline data={m.spark} color={up ? COLORS.ok : COLORS.ember} width={48} height={16} />
             </div>
-            <div className="mt-3 flex items-center justify-center gap-2 border-t border-line pt-2 text-[10.5px] text-ink-3">
+            <div className="mt-2 flex items-center justify-center gap-2 border-t border-line pt-2 text-[10.5px] text-ink-3">
               {m.rosteredByYou && (
                 <span className="rounded bg-heat/10 px-1.5 py-0.5 font-semibold text-heat">Yours</span>
               )}
