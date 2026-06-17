@@ -47,7 +47,6 @@ export function WinHero({ matchup }: { matchup: Matchup }) {
   const col = heatColor(disp);
   const valAngle = START + (disp / 100) * SWEEP;
   const down = matchup.deltaVsLastWeek < 0;
-  const DeltaIcon = down ? ArrowDown : ArrowUp;
 
   const onMove = (e: React.MouseEvent<HTMLElement>) => {
     if (reduce) return;
@@ -116,16 +115,16 @@ export function WinHero({ matchup }: { matchup: Matchup }) {
               <div className="mt-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-white/75">
                 Win Probability
               </div>
-              <div
-                className={`tnum mt-1 inline-flex items-center gap-1 text-[12px] ${down ? "text-ember" : "text-ok"}`}
-              >
-                <DeltaIcon className="size-3" aria-hidden />
-                {Math.abs(matchup.deltaVsLastWeek)}% vs last week
-              </div>
             </div>
           </div>
 
-          <SplitBar win={matchup.winPct} tie={matchup.tiePct} loss={matchup.lossPct} proj={matchup.projLine} />
+          <SplitBar
+            win={matchup.winPct}
+            tie={matchup.tiePct}
+            loss={matchup.lossPct}
+            proj={matchup.projLine}
+            delta={matchup.deltaVsLastWeek}
+          />
         </div>
 
         <Identity
@@ -176,12 +175,16 @@ function SplitBar({
   tie,
   loss,
   proj,
+  delta,
 }: {
   win: number;
   tie: number;
   loss: number;
   proj: string;
+  delta: number;
 }) {
+  const down = delta < 0;
+  const DeltaIcon = down ? ArrowDown : ArrowUp;
   return (
     <div className="group mt-4 w-full max-w-[260px]">
       <div
@@ -197,6 +200,12 @@ function SplitBar({
         <span className="text-heat">Win {win}%</span>
         <span>Tie {tie}%</span>
         <span className="text-ember/90">Loss {loss}%</span>
+      </div>
+      <div
+        className={`mt-1.5 flex items-center justify-center gap-1 font-display text-[12px] font-semibold ${down ? "text-ember" : "text-ok"}`}
+      >
+        <DeltaIcon className="size-3" aria-hidden />
+        {Math.abs(delta)}% vs last week
       </div>
       <div className="tnum mt-1 text-center text-[11px] text-white/50">{proj}</div>
     </div>

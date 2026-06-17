@@ -24,7 +24,7 @@ export const MY_TEAM: MyTeamData = {
     winPct: 46,
     tiePct: 19,
     lossPct: 35,
-    projLine: "proj 6–6",
+    projLine: "Proj. 6–6",
     deltaVsLastWeek: -3,
   },
   moversScope: "mine",

@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Archivo, Inter, IBM_Plex_Mono } from "next/font/google";
+import { Archivo, Inter } from "next/font/google";
 import "./globals.css";
 import { Providers } from "@/components/chrome/Providers";
 import { TopBar } from "@/components/chrome/TopBar";
@@ -17,14 +17,6 @@ const inter = Inter({
   variable: "--font-inter",
   display: "swap",
 });
-// Figures: IBM Plex Mono (static weights).
-const plex = IBM_Plex_Mono({
-  subsets: ["latin"],
-  weight: ["400", "500", "600"],
-  variable: "--font-plex",
-  display: "swap",
-});
-
 export const metadata: Metadata = {
   title: "HEATER — My Team",
   description: "The analyst's edge for fantasy baseball.",
@@ -40,7 +32,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${archivo.variable} ${inter.variable} ${plex.variable}`}
+      className={`${archivo.variable} ${inter.variable}`}
     >
       <body className="min-h-full bg-canvas text-ink">
         <Providers>
