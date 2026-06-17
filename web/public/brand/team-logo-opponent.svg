@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Fantasy team logo">
+  <defs>
+    <linearGradient id="ring2" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f0c040"/>
+      <stop offset="1" stop-color="#c8920f"/>
+    </linearGradient>
+    <linearGradient id="fld2" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#7a2434"/>
+      <stop offset="1" stop-color="#4a0f1b"/>
+    </linearGradient>
+  </defs>
+  <circle cx="32" cy="32" r="30" fill="url(#fld2)" stroke="url(#ring2)" stroke-width="3"/>
+  <path d="M12 22 Q32 33 52 22" fill="none" stroke="#f0c040" stroke-width="2" stroke-linecap="round" opacity="0.45"/>
+  <path d="M12 43 Q32 32 52 43" fill="none" stroke="#f0c040" stroke-width="2" stroke-linecap="round" opacity="0.7"/>
+  <text x="32" y="38" text-anchor="middle" font-family="Archivo, Arial Black, Arial, sans-serif" font-size="16" font-weight="800" letter-spacing="0.3" fill="#fdf0d5">GVU</text>
+</svg>

@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HEATER — My Team (pro detail)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --navy:#0e2038;--navy2:#0b1830;--ink-on:#e9f0f9;
+    --surface:#ffffff;--line:#e7e9ee;--ink:#16202f;--ink2:#586173;--ink3:#8a93a4;
+    --brand-navy:#112744;--orange:#ff6d00;--orange-d:#c2470a;
+    --pos:#1f9d6b;--neg:#e0492f;--mono:'JetBrains Mono',monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;color:var(--ink);font-family:'Inter',sans-serif;-webkit-font-smoothing:antialiased;min-height:100vh;
+    background:
+      radial-gradient(1100px 650px at 85% -12%, #ffffff 0%, rgba(255,255,255,0) 55%),
+      radial-gradient(900px 600px at 8% 108%, rgba(255,109,0,.07), transparent 60%),
+      linear-gradient(158deg,#eef4fc 0%,#dfe8f5 44%,#cbd7ec 80%,#bdcbe6 100%);}
+  .mono{font-family:var(--mono)}
+  .eyb{font-family:var(--mono);font-size:12px;letter-spacing:.18em;text-transform:uppercase;font-weight:500;color:var(--orange-d)}
+  .ic{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;vertical-align:-3px}
+  .tick{position:absolute;width:14px;height:14px;pointer-events:none}
+  .tl{top:13px;left:13px;border-top:2px solid;border-left:2px solid}.tr{top:13px;right:13px;border-top:2px solid;border-right:2px solid}
+  .bl{bottom:13px;left:13px;border-bottom:2px solid;border-left:2px solid}.br{bottom:13px;right:13px;border-bottom:2px solid;border-right:2px solid}
+
+  .topbar{height:68px;display:flex;align-items:center;gap:26px;padding:0 30px 0 16px;
+    background:linear-gradient(180deg,#15294a,#0e2038);border-bottom:1px solid rgba(255,255,255,.06);
+    box-shadow:0 1px 0 rgba(255,109,0,.55),0 10px 30px rgba(11,24,48,.18);position:sticky;top:0;z-index:5}
+  .logo-link{display:flex;align-items:center;text-decoration:none;cursor:pointer;border-radius:10px;
+    transition:transform .15s ease,filter .15s ease}
+  .logo-link:hover{transform:scale(1.04);filter:brightness(1.07) drop-shadow(0 0 10px rgba(255,109,0,.35))}
+  .logo-link:active{transform:scale(.99)}
+  .topbar img.wm{height:52px;display:block;filter:drop-shadow(0 3px 9px rgba(0,0,0,.45))}
+  nav{display:flex;gap:22px;margin-left:8px}
+  nav a{font-size:14.5px;font-weight:500;color:rgba(233,240,249,.72);text-decoration:none;position:relative;padding:4px 0}
+  nav a.active{color:#fff;font-weight:600}
+  nav a.active::after{content:"";position:absolute;left:0;right:0;bottom:-23px;height:3px;background:var(--orange);border-radius:3px 3px 0 0;box-shadow:0 0 12px rgba(255,109,0,.7)}
+  .spacer{flex:1}
+  .tbtn{color:rgba(233,240,249,.7);display:flex;align-items:center}
+  .pro{font-family:var(--mono);font-size:11px;letter-spacing:.12em;color:#ffd9b8;border:1px solid rgba(255,109,0,.55);background:rgba(255,109,0,.12);border-radius:7px;padding:4px 10px}
+  .avatar{width:34px;height:34px;border-radius:50%;background:#1b3358;border:1px solid rgba(255,255,255,.14);color:#fff;display:flex;align-items:center;justify-content:center;font-family:'Archivo';font-weight:700;font-size:13px}
+
+  .wrap{max-width:1120px;margin:0 auto;padding:28px 28px 12px}
+  .htop{display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:12px}
+  h1{font-family:'Archivo';font-weight:800;font-size:34px;letter-spacing:-.01em;color:var(--brand-navy);margin:6px 0 4px}
+  .sub{font-family:var(--mono);font-size:13.5px;color:var(--ink2)}
+  .chips{display:flex;gap:8px;flex-wrap:wrap}
+  .chip{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:11.5px;font-weight:500;
+    padding:6px 11px;border-radius:8px;background:var(--surface);border:1px solid var(--line);color:var(--ink2);box-shadow:0 1px 2px rgba(17,39,68,.04)}
+  .chip .dot{width:7px;height:7px;border-radius:50%}
+  .sec{display:flex;align-items:center;gap:8px;font-family:'Archivo';font-weight:700;font-size:14px;color:var(--brand-navy);
+    text-transform:uppercase;letter-spacing:.04em;margin:22px 2px 12px}
+  .sec .ic{color:var(--orange)}
+  .info{color:var(--ink3);cursor:help}
+
+  .hero{position:relative;overflow:hidden;border-radius:18px;color:var(--ink-on);
+    background:radial-gradient(130% 150% at 78% -10%,#1c3358,#0d1a31 60%,#0a1528);
+    border:1px solid rgba(255,255,255,.09);box-shadow:0 24px 60px rgba(9,20,42,.35),inset 0 1px 0 rgba(255,255,255,.06)}
+  .hero::before{content:"";position:absolute;inset:0;pointer-events:none;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='49' viewBox='0 0 28 49'%3E%3Cg fill='none' stroke='%23ffffff' stroke-opacity='0.06' stroke-width='1'%3E%3Cpath d='M13.99 9.25l13 7.5v15l-13 7.5L1 31.75v-15l12.99-7.5zM3 17.9v12.7l10.99 6.34 11-6.35V17.9l-11-6.34L3 17.9zM0 15l12.98-7.5V0h-2v6.35L0 12.69v2.3zm0 18.5L12.98 41v8h-2v-6.85L0 35.81v-2.3zM15 0v7.5L27.99 15H28v-2.31h-.01L17 6.35V0h-2zm0 49v-8l12.99-7.5H28v2.31h-.01L17 42.15V49h-2z'/%3E%3C/g%3E%3C/svg%3E"),radial-gradient(60% 85% at 50% 128%,rgba(255,109,0,.17),transparent 72%);
+    background-repeat:repeat,no-repeat;background-size:34px 59px,100% 100%}
+  .hero .wm{position:absolute;right:-26px;bottom:-44px;width:300px;opacity:.10;transform:rotate(-8deg);pointer-events:none}
+  .hero .tick{border-color:rgba(255,109,0,.55)}
+  .heroIn{position:relative;display:flex;align-items:center;padding:24px 30px}
+  .team{flex:1}
+  .team .lab{font-family:var(--mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:rgba(233,240,249,.55)}
+  .team .name{font-family:'Archivo';font-weight:700;font-size:22px;line-height:1.12;margin-top:4px}
+  .team .rec{font-family:var(--mono);font-size:14px;color:rgba(233,240,249,.72);margin-top:3px}
+  .team.right{text-align:right}
+  .center{text-align:center;padding:0 32px;margin:0 6px;border-left:1px solid rgba(255,255,255,.1);border-right:1px solid rgba(255,255,255,.1)}
+  .wp{font-family:'Archivo';font-weight:800;font-size:60px;line-height:.9;color:var(--orange);text-shadow:0 0 26px rgba(255,109,0,.55)}
+  .wp span{font-size:28px}
+  .wpd{font-family:var(--mono);font-size:11px;color:var(--pos);margin-top:2px}
+  .wlab{font-family:var(--mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:rgba(233,240,249,.6);margin-top:5px}
+  .wsub{font-family:var(--mono);font-size:12px;color:rgba(233,240,249,.5);margin-top:3px}
+  .heatbar{display:flex;gap:2px;height:7px;margin-top:13px;border-radius:4px;overflow:hidden;box-shadow:0 0 14px rgba(255,109,0,.4)}
+  .heatbar i{flex:1}
+
+  /* movers */
+  .movers{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+  .mover{position:relative;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px 14px 14px;text-align:center;box-shadow:0 1px 2px rgba(17,39,68,.04),0 10px 26px rgba(17,39,68,.05)}
+  .phwrap{position:relative;width:54px;height:54px;margin:0 auto 9px}
+  .ph{width:54px;height:54px;border-radius:50%;background:#eef1f6;border:2px solid var(--ring,#d7dde6);overflow:hidden;position:relative;display:flex;align-items:center;justify-content:center}
+  .ph .ini{font-family:'Archivo';font-weight:700;font-size:15px;color:#9aa6b5}
+  .ph img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+  .badge{position:absolute;right:-3px;bottom:-3px;width:22px;height:22px;border-radius:50%;background:#fff;border:1px solid var(--line);padding:2px;box-shadow:0 1px 3px rgba(0,0,0,.18)}
+  .mname{font-family:'Archivo';font-weight:700;font-size:14.5px;color:var(--brand-navy)}
+  .mpos{font-family:var(--mono);font-size:10.5px;color:var(--ink3);letter-spacing:.05em;margin-top:1px}
+  .mstat{font-family:var(--mono);font-size:12.5px;color:var(--ink);margin-top:7px}
+  .tchip{display:inline-flex;align-items:center;gap:4px;margin-top:9px;font-family:var(--mono);font-size:10.5px;font-weight:500;padding:3px 8px;border-radius:6px}
+  .tchip.up{background:#e7f5ee;color:#157a52}.tchip.dn{background:#fbeae6;color:#b5391f}
+
+  /* lever */
+  .lever{position:relative;background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--orange);border-radius:14px;padding:18px 22px;box-shadow:0 1px 2px rgba(17,39,68,.04),0 12px 30px rgba(17,39,68,.05)}
+  .pill{display:inline-flex;align-items:center;gap:6px;background:#fff1e6;color:var(--orange-d);border-radius:7px;padding:4px 10px;font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;font-weight:500}
+  .lever p{font-size:18px;line-height:1.45;color:#22293a;margin:11px 0 0}
+  .lever b{color:var(--neg);font-weight:600}
+  .leverbtm{display:flex;align-items:center;justify-content:space-between;margin-top:14px;flex-wrap:wrap;gap:10px}
+  .faces{display:flex;align-items:center;gap:-8px}
+  .faces .ph{width:38px;height:38px;margin-left:-10px;border:2px solid #fff}
+  .faces .ph:first-child{margin-left:0}
+  .btn{display:inline-flex;align-items:center;gap:8px;background:linear-gradient(180deg,#ff7d1a,#ff6d00);color:#fff;border:none;border-radius:10px;padding:11px 18px;font-family:'Inter';font-size:14px;font-weight:600;cursor:pointer;box-shadow:0 6px 16px rgba(255,109,0,.32)}
+
+  .grid{display:grid;grid-template-columns:1fr 320px;gap:16px;align-items:start}
+  .card{position:relative;background:var(--surface);border:1px solid var(--line);border-radius:16px;box-shadow:0 1px 2px rgba(17,39,68,.04),0 12px 30px rgba(17,39,68,.05)}
+  .card .tick{border-color:rgba(17,39,68,.16)}
+  .ct{padding:16px 20px}
+  table{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:13.5px;margin-top:4px}
+  thead th{font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink3);font-weight:500;text-align:right;padding:0 8px 11px}
+  thead th.l{text-align:left}
+  tbody td{padding:10px 8px;border-top:1px solid var(--line);text-align:right;color:var(--ink);vertical-align:middle}
+  tbody td.l{text-align:left;font-weight:500}
+  tr.flip{background:#fff6ee}
+  .pos{color:var(--pos);font-weight:600}.neg{color:var(--neg);font-weight:600}
+  .wpcell{display:inline-flex;flex-direction:column;align-items:flex-end;gap:4px;min-width:54px}
+  .wptrack{width:52px;height:5px;border-radius:3px;background:#edeff3;overflow:hidden}
+  .wpfill{height:100%;border-radius:3px}
+  .spark{vertical-align:middle}
+
+  .mcol{display:flex;flex-direction:column;gap:16px}
+  .metric{position:relative;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px 16px;overflow:hidden;box-shadow:0 1px 2px rgba(17,39,68,.04),0 10px 24px rgba(17,39,68,.05)}
+  .metric::after{content:"";position:absolute;right:-30px;top:-30px;width:80px;height:80px;border-radius:50%;background:radial-gradient(circle,rgba(255,109,0,.1),transparent 70%)}
+  .metric .lab{font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink3)}
+  .metric .val{font-family:'Archivo';font-weight:800;font-size:28px;color:var(--brand-navy);line-height:1.05;margin-top:4px}
+  .metric .val small{font-family:var(--mono);font-size:13px;font-weight:400;color:var(--ink2)}
+  .metric .mtr{font-family:var(--mono);font-size:11px;margin-top:5px}
+  .traj{padding:16px 18px}
+  .traj h4{font-family:'Archivo';font-weight:700;font-size:13px;text-transform:uppercase;letter-spacing:.04em;color:var(--brand-navy);margin:0 0 2px;display:flex;align-items:center;gap:8px}
+  .traj .cap{font-family:var(--mono);font-size:11px;color:var(--ink3);margin-bottom:8px}
+
+  footer{max-width:1120px;margin:8px auto 0;padding:18px 30px 34px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;
+    font-family:var(--mono);font-size:11.5px;color:var(--ink2);border-top:1px solid rgba(17,39,68,.08)}
+  footer .src{display:flex;gap:16px;flex-wrap:wrap}
+  footer b{color:var(--brand-navy);font-weight:600}
+</style>
+<style>
+  /* ===== premium craft pass: depth · material · texture ===== */
+  :root{--shadow:0 1px 2px rgba(16,32,55,.05),0 5px 12px rgba(16,32,55,.06),0 20px 44px rgba(16,32,55,.09)}
+  body{
+    background:
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)' opacity='0.05'/%3E%3C/svg%3E"),
+      radial-gradient(1100px 650px at 85% -12%, #ffffff 0%, rgba(255,255,255,0) 55%),
+      radial-gradient(900px 600px at 8% 108%, rgba(255,109,0,.07), transparent 60%),
+      linear-gradient(158deg,#eef4fc 0%,#dfe8f5 44%,#cbd7ec 80%,#bdcbe6 100%);
+    background-repeat:repeat,no-repeat,no-repeat,no-repeat;
+    background-size:120px 120px,100% 100%,100% 100%,100% 100%;}
+  .topbar{background:linear-gradient(180deg,rgba(21,41,74,.9),rgba(13,28,52,.92));
+    backdrop-filter:blur(14px) saturate(150%);-webkit-backdrop-filter:blur(14px) saturate(150%)}
+  .card,.mover,.metric,.lever{background:linear-gradient(180deg,#ffffff,#fafcff);
+    box-shadow:var(--shadow),inset 0 1px 0 rgba(255,255,255,.9);border:1px solid rgba(16,32,55,.07)}
+  .mover{transition:transform .18s ease,box-shadow .18s ease}
+  .hero{border:1px solid transparent;box-shadow:0 26px 64px rgba(9,20,42,.42),inset 0 1px 0 rgba(255,255,255,.06);
+    background:radial-gradient(130% 150% at 78% -10%,#1c3358,#0d1a31 60%,#0a1528) padding-box,
+      linear-gradient(135deg,rgba(255,109,0,.7),rgba(255,255,255,.08) 40%,rgba(255,109,0,.28)) border-box}
+  .hero::after{content:"";position:absolute;left:0;right:0;top:0;height:42%;pointer-events:none;border-radius:18px 18px 0 0;
+    background:linear-gradient(180deg,rgba(255,255,255,.10),transparent)}
+  .wp{background:linear-gradient(180deg,#ffb066,#ff6d00 58%,#ec5a00);-webkit-background-clip:text;background-clip:text;
+    color:transparent;filter:drop-shadow(0 0 22px rgba(255,109,0,.5))}
+  .ph{box-shadow:0 5px 14px rgba(16,32,55,.18),inset 0 1px 0 rgba(255,255,255,.6)}
+  .badge{box-shadow:0 2px 7px rgba(16,32,55,.22)}
+  .heatbar{box-shadow:0 0 16px rgba(255,109,0,.45),inset 0 1px 0 rgba(255,255,255,.25)}
+  .chip{box-shadow:0 1px 2px rgba(16,32,55,.05),inset 0 1px 0 rgba(255,255,255,.85)}
+</style>
+</head>
+<body>
+  <div class="topbar">
+    <a class="logo-link" href="#home" title="Home" aria-label="HEATER — back to Home"><img class="wm" src="heater-wordmark-v2.png" alt="HEATER home"></a>
+    <nav><a class="active" href="#">My Team</a><a href="#">Lineup</a><a href="#">Matchup</a><a href="#">Trades</a><a href="#">Free Agents</a><a href="#">Research</a></nav>
+    <div class="spacer"></div>
+    <span class="tbtn"><svg class="ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></span>
+    <span class="tbtn"><svg class="ic" viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg></span>
+    <span class="pro">PRO</span>
+    <div class="avatar">CH</div>
+  </div>
+
+  <div class="wrap">
+    <div class="htop">
+      <div>
+        <div class="eyb">Season &middot; week 12 &middot; my team</div>
+        <h1>Team Hickey</h1>
+        <div class="sub">3&ndash;7&ndash;1 &middot; 10th of 12 &middot; 7 GB from 1st</div>
+      </div>
+      <div class="chips">
+        <span class="chip"><span class="dot" style="background:#e0492f"></span>2 on IL</span>
+        <span class="chip"><span class="dot" style="background:#1f9d6b"></span>Lineup set</span>
+        <span class="chip"><svg class="ic" style="width:14px;height:14px;color:#586173" viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>3 news</span>
+      </div>
+    </div>
+
+    <div class="sec" style="margin-top:18px"><svg class="ic" viewBox="0 0 24 24"><path d="M14 9V5a3 3 0 0 0-6 0v4"/><rect x="2" y="9" width="20" height="12" rx="2"/></svg> &nbsp;</div>
+    <div class="hero" style="margin-top:-6px">
+      <img class="wm" src="heater-icon.png" alt="">
+      <span class="tick tl"></span><span class="tick tr"></span><span class="tick bl"></span><span class="tick br"></span>
+      <div class="heroIn">
+        <div class="team"><div class="lab">You</div><div class="name">Team Hickey</div><div class="rec">3&ndash;7&ndash;1</div></div>
+        <div class="center">
+          <div class="wp">46<span>%</span></div>
+          <div class="wpd">&#9650; 4% vs last week</div>
+          <div class="wlab">Win probability</div>
+          <div class="wsub">tie 19% &middot; loss 35% &middot; proj 6&ndash;6</div>
+          <div class="heatbar"><i style="background:#33527d"></i><i style="background:#4f74a0"></i><i style="background:#8f9a8f"></i><i style="background:#d99a3a"></i><i style="background:#ff8c1a"></i><i style="background:#ff6d00"></i></div>
+        </div>
+        <div class="team right"><div class="lab">Opponent</div><div class="name">The Good The Vlad The Ugly</div><div class="rec">7&ndash;4&ndash;0</div></div>
+      </div>
+    </div>
+
+    <div class="sec"><svg class="ic" viewBox="0 0 24 24"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg> This week's movers</div>
+    <div class="movers">
+      <div class="mover"><div class="phwrap"><div class="ph" style="--ring:#0C2340"><span class="ini">AJ</span><img src="https://midfield.mlbstatic.com/v1/people/592450/spots/120" onerror="this.remove()"></div><img class="badge" src="https://www.mlbstatic.com/team-logos/147.svg" onerror="this.remove()"></div><div class="mname">A. Judge</div><div class="mpos">RF &middot; NYY</div><div class="mstat">3 HR &middot; 7 RBI</div><span class="tchip up">&#9650; on fire</span></div>
+      <div class="mover"><div class="phwrap"><div class="ph" style="--ring:#004687"><span class="ini">BW</span><img src="https://midfield.mlbstatic.com/v1/people/677951/spots/120" onerror="this.remove()"></div><img class="badge" src="https://www.mlbstatic.com/team-logos/118.svg" onerror="this.remove()"></div><div class="mname">B. Witt Jr.</div><div class="mpos">SS &middot; KC</div><div class="mstat">4 SB &middot; .360</div><span class="tchip up">&#9650; heating</span></div>
+      <div class="mover"><div class="phwrap"><div class="ph" style="--ring:#0C2340"><span class="ini">TS</span><img src="https://midfield.mlbstatic.com/v1/people/669373/spots/120" onerror="this.remove()"></div><img class="badge" src="https://www.mlbstatic.com/team-logos/116.svg" onerror="this.remove()"></div><div class="mname">T. Skubal</div><div class="mpos">SP &middot; DET</div><div class="mstat">13 K &middot; W &middot; 1.50</div><span class="tchip up">&#9650; ace week</span></div>
+      <div class="mover"><div class="phwrap"><div class="ph" style="--ring:#002D72"><span class="ini">JS</span><img src="https://midfield.mlbstatic.com/v1/people/665742/spots/120" onerror="this.remove()"></div><img class="badge" src="https://www.mlbstatic.com/team-logos/121.svg" onerror="this.remove()"></div><div class="mname">J. Soto</div><div class="mpos">RF &middot; NYM</div><div class="mstat">2-for-21 &middot; .095</div><span class="tchip dn">&#9660; ice cold</span></div>
+    </div>
+
+    <div class="sec"><svg class="ic" viewBox="0 0 24 24"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg> This week's lever</div>
+    <div class="lever" style="margin-top:-4px">
+      <span class="pill">Stolen bases</span>
+      <p>You're <b>13 stolen bases behind</b> your opponent &mdash; your single biggest gap. Three free agents can close most of it before Sunday.</p>
+      <div class="leverbtm">
+        <div class="faces">
+          <div class="ph" style="--ring:#A71930"><span class="ini">CC</span><img src="https://midfield.mlbstatic.com/v1/people/682998/spots/120" onerror="this.remove()"></div>
+          <div class="ph" style="--ring:#C6011F"><span class="ini">ED</span><img src="https://midfield.mlbstatic.com/v1/people/682829/spots/120" onerror="this.remove()"></div>
+          <div class="ph" style="--ring:#E81828"><span class="ini">VS</span><img src="https://midfield.mlbstatic.com/v1/people/700241/spots/120" onerror="this.remove()"></div>
+        </div>
+        <button class="btn">See the 3 pickups &rarr;</button>
+      </div>
+    </div>
+
+    <div class="grid" style="margin-top:18px">
+      <div class="card ct">
+        <span class="tick tr"></span><span class="tick br"></span>
+        <div class="sec" style="margin:2px 0 6px"><svg class="ic" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg> Category outlook <svg class="ic info" style="width:14px;height:14px" viewBox="0 0 24 24" title="Win % = modeled chance you win this category this week"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg></div>
+        <table>
+          <thead><tr><th class="l">Category</th><th>You</th><th>Opp</th><th>Edge</th><th>10-wk trend</th><th>Win %</th></tr></thead>
+          <tbody>
+            <tr><td class="l">HR</td><td>18</td><td>14</td><td class="pos">+4</td><td><svg class="spark" width="64" height="18" viewBox="0 0 64 18"><polyline points="0,13 11,11 22,12 33,8 44,7 55,4 64,3" fill="none" stroke="#1f9d6b" stroke-width="1.6"/></svg></td><td><div class="wpcell">71<div class="wptrack"><div class="wpfill" style="width:71%;background:#1f9d6b"></div></div></div></td></tr>
+            <tr><td class="l">K</td><td>312</td><td>281</td><td class="pos">+31</td><td><svg class="spark" width="64" height="18" viewBox="0 0 64 18"><polyline points="0,12 11,10 22,9 33,9 44,6 55,5 64,4" fill="none" stroke="#1f9d6b" stroke-width="1.6"/></svg></td><td><div class="wpcell">64<div class="wptrack"><div class="wpfill" style="width:64%;background:#1f9d6b"></div></div></div></td></tr>
+            <tr><td class="l">OBP</td><td>.338</td><td>.334</td><td class="pos">+.004</td><td><svg class="spark" width="64" height="18" viewBox="0 0 64 18"><polyline points="0,9 11,10 22,8 33,9 44,8 55,9 64,8" fill="none" stroke="#8a93a4" stroke-width="1.6"/></svg></td><td><div class="wpcell">53<div class="wptrack"><div class="wpfill" style="width:53%;background:#c9923f"></div></div></div></td></tr>
+            <tr><td class="l">ERA</td><td>4.10</td><td>3.62</td><td class="neg">&minus;0.48</td><td><svg class="spark" width="64" height="18" viewBox="0 0 64 18"><polyline points="0,6 11,7 22,8 33,7 44,10 55,11 64,13" fill="none" stroke="#e0492f" stroke-width="1.6"/></svg></td><td><div class="wpcell">38<div class="wptrack"><div class="wpfill" style="width:38%;background:#e0492f"></div></div></div></td></tr>
+            <tr><td class="l">SV</td><td>9</td><td>15</td><td class="neg">&minus;6</td><td><svg class="spark" width="64" height="18" viewBox="0 0 64 18"><polyline points="0,8 11,9 22,9 33,11 44,10 55,12 64,12" fill="none" stroke="#e0492f" stroke-width="1.6"/></svg></td><td><div class="wpcell">29<div class="wptrack"><div class="wpfill" style="width:29%;background:#e0492f"></div></div></div></td></tr>
+            <tr class="flip"><td class="l">SB</td><td>9</td><td>22</td><td class="neg">&minus;13</td><td><svg class="spark" width="64" height="18" viewBox="0 0 64 18"><polyline points="0,7 11,8 22,10 33,11 44,12 55,13 64,14" fill="none" stroke="#e0492f" stroke-width="1.6"/></svg></td><td><div class="wpcell">12<div class="wptrack"><div class="wpfill" style="width:12%;background:#e0492f"></div></div></div></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="mcol">
+        <div class="metric"><div class="lab">IP pace</div><div class="val">38<small> / 54</small></div><div class="mtr pos">&#9650; on pace &middot; +6 vs last wk</div></div>
+        <div class="metric"><div class="lab">Moves left</div><div class="val">7<small> / 10</small></div><div class="mtr" style="color:#586173">3 used this week</div></div>
+        <div class="metric"><div class="lab">Roster</div><div class="val">23<small> +4 IL</small></div><div class="mtr neg">&#9660; 2 new injuries</div></div>
+        <div class="card traj">
+          <span class="tick br"></span>
+          <h4><svg class="ic" style="color:var(--orange)" viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg> Season trajectory</h4>
+          <div class="cap">League rank &middot; weeks 1&ndash;12</div>
+          <svg width="100%" viewBox="0 0 300 116" preserveAspectRatio="none">
+            <line x1="18" y1="18" x2="282" y2="18" stroke="#eef0f4"/><line x1="18" y1="48" x2="282" y2="48" stroke="#eef0f4"/><line x1="18" y1="78" x2="282" y2="78" stroke="#eef0f4"/>
+            <polyline points="18,58 42,52 66,45 90,38 114,52 138,58 162,52 186,65 210,72 234,65 258,78 282,78" fill="none" stroke="#ff6d00" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>
+            <circle cx="282" cy="78" r="4" fill="#ff6d00"/>
+            <text x="18" y="14" font-family="JetBrains Mono" font-size="9" fill="#8a93a4">1st</text>
+            <text x="18" y="92" font-family="JetBrains Mono" font-size="9" fill="#8a93a4">12th</text>
+          </svg>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    <div class="src"><span>Data: <b>MLB Stats API</b> &middot; FanGraphs &middot; Yahoo</span><span>Updated <b>14m ago</b></span></div>
+    <div>HEATER <b>v2.0</b> &middot; Pro</div>
+  </footer>
+</body>
+</html>

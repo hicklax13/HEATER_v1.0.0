@@ -1,0 +1,113 @@
+@import "tailwindcss";
+
+/* ===========================================================================
+   HEATER — Combustion tokens.
+   Palette CLONED from the Gemini brand assets (V2 wordmark + baseball icon),
+   sampled via brand_inbox/_extract_colors*.py. Tiers seed from legacy THEME.
+   =========================================================================== */
+@theme {
+  /* canvas + surfaces */
+  --color-canvas: #ffffff;
+  --color-surface: #f5f6f8;
+  --color-surface-2: #eef0f3;
+  --color-ink: #1b1c20;
+  --color-ink-2: #646a78;
+  --color-ink-3: #9aa0ac;
+  --color-line: #e3e2de;
+
+  /* navy chrome / hero (cloned: wordmark #041731 → baseball #1b1f3a) */
+  --color-navy: #0a1f3a;
+  --color-navy-deep: #041731;
+  --color-navy-700: #1b1f3a;
+  --color-navy-elevated: #122844;
+
+  /* heat ramp (cloned flame: redhot → heat → flame → gold) */
+  --color-heat: #ff5c10;
+  --color-flame: #ff8a1e;
+  --color-gold: #ffe519;
+  --color-redhot: #ff4401;
+
+  /* functional negative + stitch */
+  --color-ember: #e63946;
+  --color-stitch: #7f292e;
+
+  /* positive + neutral accents */
+  --color-ok: #1f9d6b;
+  --color-warn: #eab308;
+  --color-steel: #5f7d9c;
+  --color-chrome: #eef0f2;
+  --color-cream: #e4d9c0;
+
+  /* categorical tier ramp */
+  --color-tier-1: #ff5c10;
+  --color-tier-2: #ff8a1e;
+  --color-tier-3: #ffae42;
+  --color-tier-4: #1f9d6b;
+  --color-tier-5: #5f7d9c;
+  --color-tier-6: #8aa6c0;
+  --color-tier-7: #b0b5be;
+  --color-tier-8: #cdd1d8;
+
+  /* type (wired to next/font variables set on <html>) */
+  --font-display: var(--font-archivo);
+  --font-body: var(--font-inter);
+  --font-mono: var(--font-plex);
+
+  --radius-card: 16px;
+}
+
+/* motion tokens (reused everywhere) */
+:root {
+  --dur-1: 120ms;
+  --dur-2: 220ms;
+  --ease-snap: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@layer base {
+  html,
+  body {
+    height: 100%;
+  }
+  body {
+    background: var(--color-canvas);
+    color: var(--color-ink);
+    font-family: var(--font-body), system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  ::selection {
+    background: var(--color-heat);
+    color: #ffffff;
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-heat);
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+}
+
+/* tabular monospace figures, locked */
+@utility tnum {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-variant-numeric: tabular-nums lining-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+/* slow ember drift for the hero hexes (gated below) */
+@keyframes ember-drift {
+  0% { background-position: 0 0; }
+  100% { background-position: 0 -118px; }
+}
+
+/* MUST stay last: reduced-motion wins. Disables CSS transitions/animations.
+   (framer-motion is additionally gated via useReducedMotion in components.) */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
