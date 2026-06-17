@@ -1,0 +1,244 @@
+{
+  "components": {
+    "schemas": {
+      "CategoryLine": {
+        "properties": {
+          "cat": {
+            "title": "Cat",
+            "type": "string"
+          },
+          "edge": {
+            "title": "Edge",
+            "type": "number"
+          },
+          "inverse": {
+            "default": false,
+            "title": "Inverse",
+            "type": "boolean"
+          },
+          "opp": {
+            "title": "Opp",
+            "type": "number"
+          },
+          "win_prob": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Win Prob",
+            "type": "number"
+          },
+          "you": {
+            "title": "You",
+            "type": "number"
+          }
+        },
+        "required": [
+          "cat",
+          "you",
+          "opp",
+          "edge",
+          "win_prob"
+        ],
+        "title": "CategoryLine",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "MatchupHero": {
+        "properties": {
+          "loss_prob": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Loss Prob",
+            "type": "number"
+          },
+          "opponent": {
+            "title": "Opponent",
+            "type": "string"
+          },
+          "tie_prob": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Tie Prob",
+            "type": "number"
+          },
+          "week": {
+            "title": "Week",
+            "type": "integer"
+          },
+          "win_prob": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Win Prob",
+            "type": "number"
+          }
+        },
+        "required": [
+          "opponent",
+          "week",
+          "win_prob",
+          "tie_prob",
+          "loss_prob"
+        ],
+        "title": "MatchupHero",
+        "type": "object"
+      },
+      "MyTeamResponse": {
+        "properties": {
+          "categories": {
+            "items": {
+              "$ref": "#/components/schemas/CategoryLine"
+            },
+            "title": "Categories",
+            "type": "array"
+          },
+          "matchup": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MatchupHero"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rank": {
+            "title": "Rank",
+            "type": "integer"
+          },
+          "record": {
+            "title": "Record",
+            "type": "string"
+          },
+          "team_name": {
+            "title": "Team Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "team_name",
+          "record",
+          "rank",
+          "matchup",
+          "categories"
+        ],
+        "title": "MyTeamResponse",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "title": "HEATER API",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/me/team": {
+      "get": {
+        "operationId": "get_my_team_api_me_team_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "team_name",
+            "required": true,
+            "schema": {
+              "title": "Team Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MyTeamResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get My Team",
+        "tags": [
+          "team"
+        ]
+      }
+    },
+    "/healthz": {
+      "get": {
+        "operationId": "healthz_healthz_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Healthz Healthz Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Healthz"
+      }
+    }
+  }
+}
