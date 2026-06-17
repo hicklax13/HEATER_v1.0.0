@@ -48,7 +48,7 @@ function TeamHaze({ teamId }: { teamId: number }) {
         aria-hidden
         className="pointer-events-none absolute inset-0"
         style={{
-          background: `linear-gradient(150deg, color-mix(in srgb, ${tb.primary} 30%, white) 0%, color-mix(in srgb, ${tb.primary} 13%, white) 52%, #ffffff 100%)`,
+          background: `linear-gradient(145deg, color-mix(in srgb, ${tb.primary} 62%, white) 0%, color-mix(in srgb, ${tb.primary} 32%, white) 48%, color-mix(in srgb, ${tb.primary} 12%, white) 100%)`,
         }}
       />
       {/* team logo watermark */}
@@ -67,7 +67,7 @@ function TeamHaze({ teamId }: { teamId: number }) {
         className="pointer-events-none absolute inset-0"
         style={{
           background:
-            "radial-gradient(circle at 50% 42%, rgba(255,255,255,0.55), rgba(255,255,255,0.18) 60%, transparent 100%)",
+            "radial-gradient(circle at 50% 44%, rgba(255,255,255,0.6), rgba(255,255,255,0.15) 58%, transparent 100%)",
         }}
       />
     </>
