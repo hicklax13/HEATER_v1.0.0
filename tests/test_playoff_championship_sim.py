@@ -228,7 +228,11 @@ def test_seed_distribution_sums_to_playoff_prob() -> None:
         n_sims=3000,
     )
     seed_sum = sum(result["playoff_seed_distribution"].values())
-    assert abs(seed_sum - result["playoff_prob"]) < 1e-6
+    # playoff_prob and each seed bucket are independently round(.., 4) in the
+    # return dict, so the sum of four rounded buckets can differ from the
+    # rounded total by up to ~2e-4. The invariant (Σ seed probs == playoff
+    # prob) holds exactly pre-rounding; tolerate the 4-decimal rounding here.
+    assert abs(seed_sum - result["playoff_prob"]) < 1e-3
 
 
 def test_sim_exposes_current_wins_diagnostic() -> None:

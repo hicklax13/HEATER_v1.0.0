@@ -165,6 +165,8 @@ def simulate_playoff_outcomes(
         player_pool=player_pool,
         config=config,
         variance_cv=variance_cv,
+        correlate_categories=correlate_categories,
+        seed=seed,
     )  # dict {team_name: float in [0, 1]}
 
     # Override user's p with the schedule-aware avg from the matrix.
@@ -208,6 +210,8 @@ def simulate_playoff_outcomes(
             variance_cv=variance_cv,
             weeks_to_include=weeks_to_sim,
             team_names=team_names,
+            correlate_categories=correlate_categories,
+            seed=seed,
         )
         # Override user's row with the schedule-aware probs we already computed.
         # (Otherwise per_team_p_matrix has the same value for user as for others,
@@ -448,6 +452,8 @@ def _compute_per_week_per_team_p_win(
     variance_cv: dict[str, float],
     weeks_to_include: list[int],
     team_names: list[str],
+    correlate_categories: bool = True,
+    seed: int = 42,
 ) -> np.ndarray:
     """Per-team-per-week P(team wins matchup) using full league schedule.
 
@@ -506,12 +512,19 @@ def _compute_per_week_per_team_p_win(
                     inverse=cat in inverse,
                 )
 
-            # P(team_a wins majority of 12 cats) — Poisson-binomial normal approx
-            mean_cats = float(p_per_cat.sum())
-            var_cats = float((p_per_cat * (1.0 - p_per_cat)).sum())
-            sd = float(np.sqrt(max(var_cats, 1e-12)))
-            z = (len(cats) / 2.0 - mean_cats) / sd
-            p_a_wins = float(1.0 - norm.cdf(z))
+            # P(team_a wins majority of 12 cats) — scored with the SAME
+            # de-saturating method as the user (copula path when
+            # correlate_categories=True). The independent normal-approx this
+            # replaced saturated strong teams to ~1.0/week, collapsing their
+            # win-count variance and locking the top seeds — which buried a
+            # competitive user at exactly 0.0% playoff odds (#S1365, 2026-06-16).
+            p_a_wins = float(
+                _prob_majority_cat_wins(
+                    p_per_cat[None, :],
+                    correlate_categories=correlate_categories,
+                    seed=seed,
+                )[0]
+            )
             p_a_wins = max(0.0, min(1.0, p_a_wins))
 
             # Symmetric assignment: team_a wins → team_b loses
@@ -644,6 +657,8 @@ def _team_average_weekly_win_prob(
     player_pool: pd.DataFrame,
     config: LeagueConfig,
     variance_cv: dict[str, float],
+    correlate_categories: bool = True,
+    seed: int = 42,
 ) -> dict[str, float]:
     """Estimate each team's average per-week win probability.
 
@@ -686,12 +701,17 @@ def _team_average_weekly_win_prob(
                 for cat in cats
             ]
         )
-        # P(majority of 12 cats) via normal approx
-        mean_cats = p_per_cat.sum()
-        var_cats = (p_per_cat * (1 - p_per_cat)).sum()
-        sd = float(np.sqrt(max(var_cats, 1e-12)))
-        z = (len(cats) / 2.0 - mean_cats) / sd
-        p_win = float(1.0 - norm.cdf(z))
+        # P(majority of 12 cats) — scored with the SAME de-saturating method
+        # as the user (copula path) so a strong team's weekly win prob isn't
+        # saturated to ~1.0 here while the user's is de-saturated elsewhere
+        # (the #S1365 scoring asymmetry, 2026-06-16).
+        p_win = float(
+            _prob_majority_cat_wins(
+                p_per_cat[None, :],
+                correlate_categories=correlate_categories,
+                seed=seed,
+            )[0]
+        )
         result[team_name] = max(0.0, min(1.0, p_win))
 
     return result

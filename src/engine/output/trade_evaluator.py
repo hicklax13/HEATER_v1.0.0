@@ -1699,12 +1699,25 @@ def evaluate_trade(
                         )
                         full_league_schedule = None
 
+                # #S1365 (2026-06-16): the playoff sim must simulate only the
+                # REMAINING weeks. load_league_schedule() returns the user's FULL
+                # season schedule (~24 matchup weeks), so passing it straight
+                # through set n_weeks_remaining = the whole season — projecting
+                # impossible 30+-win finals and burying a competitive user at
+                # ~0% playoff odds. Cap to the last `weeks_remaining` weeks (the
+                # authoritative forward horizon). Path A opponent weeks derive
+                # from user_schedule's keys, so this corrects both sides at once.
+                _ps_schedule = weekly_schedule
+                if weekly_schedule and weeks_remaining and len(weekly_schedule) > int(weeks_remaining):
+                    _future_weeks = sorted(weekly_schedule.keys())[-int(weeks_remaining) :]
+                    _ps_schedule = {w: weekly_schedule[w] for w in _future_weeks}
+
                 ps = simulate_trade_playoff_delta(
                     before_roster_ids=before_ids,
                     after_roster_ids=after_ids,
                     user_team_name=user_team_name,
                     all_team_rosters=league_rosters,
-                    user_schedule=weekly_schedule,
+                    user_schedule=_ps_schedule,
                     current_wins=current_wins,
                     player_pool=player_pool,
                     config=config,

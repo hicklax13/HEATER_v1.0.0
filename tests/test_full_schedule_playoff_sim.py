@@ -238,3 +238,41 @@ def test_page_passes_full_league_schedule_to_evaluate(page_source: str) -> None:
     assert "full_league_schedule=" in page_source, (
         "evaluate_trade() must receive full_league_schedule= for accurate non-user-team simulation"
     )
+
+
+def test_playoff_sim_caps_schedule_to_weeks_remaining() -> None:
+    """#S1365 (2026-06-16): evaluate_trade must cap the playoff sim to the
+    REMAINING weeks, not the full season schedule.
+
+    load_league_schedule() returns the user's ENTIRE season (~24 matchup weeks).
+    Passing it through unfiltered set n_weeks_remaining = the whole season,
+    projecting impossible 30+-win finals (live: a team at 11 wins projected to
+    32.6) and burying a competitive user at ~0% playoff odds. The fix caps the
+    schedule to the last `weeks_remaining` weeks.
+    """
+    from src.engine.output.trade_evaluator import evaluate_trade
+
+    pool, rosters, wins, user_sched, full_sched = _build_league()
+    assert len(user_sched) == 16, "fixture sanity: user schedule spans weeks 9..24"
+
+    result = evaluate_trade(
+        giving_ids=[rosters["T5"][0]],
+        receiving_ids=[rosters["T8"][0]],
+        user_roster_ids=rosters["T5"],
+        player_pool=pool,
+        user_team_name="T5",
+        weeks_remaining=6,  # far fewer than the 16-week schedule
+        enable_playoff_sim=True,
+        enable_weekly_matrix=False,
+        weekly_schedule=user_sched,
+        league_rosters=rosters,
+        current_wins=wins,
+        playoff_n_sims=200,
+        full_league_schedule=full_sched,
+    )
+    ps = result.get("playoff_sim")
+    assert ps is not None, "playoff sim should have run (enable_playoff_sim=True)"
+    assert ps["before"]["n_weeks_remaining"] == 6, (
+        "playoff sim must simulate only the last `weeks_remaining`=6 weeks; got "
+        f"{ps['before']['n_weeks_remaining']} (the full season schedule leaked through)"
+    )
