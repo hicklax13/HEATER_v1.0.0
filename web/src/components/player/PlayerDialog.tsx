@@ -144,6 +144,7 @@ export function PlayerDialog({ player, children }: { player: DialogPlayer; child
 
 /** Solid-white roster chip — matches the FantasyPros reference layout (no Drop button). */
 function RosterBox({ owner, ownPct, ownDelta }: { owner: string; ownPct: number; ownDelta: number }) {
+  const isFA = owner === "Free Agent";
   const down = ownDelta < 0;
   const up = ownDelta > 0;
   const deltaTxt = ownDelta === 0 ? "" : ` (${up ? "+" : ""}${ownDelta}% Last Day)`;
@@ -153,16 +154,20 @@ function RosterBox({ owner, ownPct, ownDelta }: { owner: string; ownPct: number;
     <div className="hidden w-[244px] overflow-hidden rounded-xl bg-white text-ink shadow-[0_8px_24px_rgba(0,0,0,0.22)] sm:block">
       <div className="flex items-center gap-2 p-3">
         {/* fantasy team logo (placeholder → Yahoo team_logos url when wired) */}
-        <img
-          src="/brand/team-logo-placeholder.svg"
-          alt=""
-          aria-hidden
-          className="size-9 shrink-0 rounded-full ring-1 ring-black/5"
-        />
+        {!isFA && (
+          <img
+            src="/brand/team-logo-placeholder.svg"
+            alt=""
+            aria-hidden
+            className="size-9 shrink-0 rounded-full ring-1 ring-black/5"
+          />
+        )}
         <div className="min-w-0 flex-1">
-          <div className="text-[10px] font-bold uppercase tracking-wide text-ink-3">Rostered By</div>
+          <div className="text-[10px] font-bold uppercase tracking-wide text-ink-3">
+            {isFA ? "Status" : "Rostered By"}
+          </div>
           <div className="flex items-center gap-1">
-            <Trophy className="size-3.5 shrink-0" style={{ color: "#f0b429" }} aria-hidden />
+            {!isFA && <Trophy className="size-3.5 shrink-0" style={{ color: "#f0b429" }} aria-hidden />}
             <span className="truncate text-[14px] font-bold text-heat">{owner}</span>
           </div>
         </div>
