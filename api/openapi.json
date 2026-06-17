@@ -1,6 +1,24 @@
 {
   "components": {
     "schemas": {
+      "CategoryImpact": {
+        "properties": {
+          "cat": {
+            "title": "Cat",
+            "type": "string"
+          },
+          "delta": {
+            "title": "Delta",
+            "type": "number"
+          }
+        },
+        "required": [
+          "cat",
+          "delta"
+        ],
+        "title": "CategoryImpact",
+        "type": "object"
+      },
       "CategoryLine": {
         "properties": {
           "cat": {
@@ -168,6 +186,34 @@
           "recommendations"
         ],
         "title": "FreeAgentsResponse",
+        "type": "object"
+      },
+      "GradeRange": {
+        "properties": {
+          "center": {
+            "title": "Center",
+            "type": "number"
+          },
+          "grade": {
+            "title": "Grade",
+            "type": "string"
+          },
+          "high": {
+            "title": "High",
+            "type": "number"
+          },
+          "low": {
+            "title": "Low",
+            "type": "number"
+          }
+        },
+        "required": [
+          "grade",
+          "low",
+          "center",
+          "high"
+        ],
+        "title": "GradeRange",
         "type": "object"
       },
       "HTTPValidationError": {
@@ -689,6 +735,140 @@
         "title": "TeamStanding",
         "type": "object"
       },
+      "TradeEvaluateRequest": {
+        "properties": {
+          "enable_mc": {
+            "default": false,
+            "title": "Enable Mc",
+            "type": "boolean"
+          },
+          "giving_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Giving Ids",
+            "type": "array"
+          },
+          "receiving_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Receiving Ids",
+            "type": "array"
+          },
+          "team_name": {
+            "title": "Team Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "team_name",
+          "giving_ids",
+          "receiving_ids"
+        ],
+        "title": "TradeEvaluateRequest",
+        "type": "object"
+      },
+      "TradeEvaluationResponse": {
+        "properties": {
+          "category_impacts": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/CategoryImpact"
+            },
+            "title": "Category Impacts",
+            "type": "array"
+          },
+          "confidence_pct": {
+            "default": 0.0,
+            "title": "Confidence Pct",
+            "type": "number"
+          },
+          "delta_champ_prob": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delta Champ Prob"
+          },
+          "delta_playoff_prob": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delta Playoff Prob"
+          },
+          "giving": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/PlayerRef"
+            },
+            "title": "Giving",
+            "type": "array"
+          },
+          "grade": {
+            "default": "",
+            "title": "Grade",
+            "type": "string"
+          },
+          "grade_range": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GradeRange"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "mc_enabled": {
+            "default": false,
+            "title": "Mc Enabled",
+            "type": "boolean"
+          },
+          "receiving": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/PlayerRef"
+            },
+            "title": "Receiving",
+            "type": "array"
+          },
+          "summary": {
+            "default": "",
+            "title": "Summary",
+            "type": "string"
+          },
+          "surplus_sgp": {
+            "default": 0.0,
+            "title": "Surplus Sgp",
+            "type": "number"
+          },
+          "verdict": {
+            "default": "",
+            "title": "Verdict",
+            "type": "string"
+          },
+          "warnings": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "title": "TradeEvaluationResponse",
+        "type": "object"
+      },
       "ValidationError": {
         "properties": {
           "loc": {
@@ -1102,6 +1282,47 @@
         "summary": "Get Streaming",
         "tags": [
           "streaming"
+        ]
+      }
+    },
+    "/api/trade/evaluate": {
+      "post": {
+        "operationId": "evaluate_trade_endpoint_api_trade_evaluate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TradeEvaluateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TradeEvaluationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Evaluate Trade Endpoint",
+        "tags": [
+          "trade"
         ]
       }
     },
