@@ -7,6 +7,7 @@ from api.services.closers_service import CloserService
 from api.services.fa_service import FreeAgentService
 from api.services.leaders_service import LeadersService
 from api.services.lineup_service import LineupService
+from api.services.matchup_service import MatchupService
 from api.services.standings_service import StandingsService
 from api.services.team_service import TeamService
 
@@ -33,3 +34,7 @@ def get_closer_service() -> CloserService:
 
 def get_leaders_service() -> LeadersService:
     return LeadersService()
+
+
+def get_matchup_service() -> MatchupService:
+    return MatchupService()
