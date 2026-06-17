@@ -12,6 +12,7 @@ from api.services.punt_service import PuntService
 from api.services.standings_service import StandingsService
 from api.services.streaming_service import StreamingService
 from api.services.team_service import TeamService
+from api.services.trade_service import TradeService
 
 
 def get_team_service() -> TeamService:
@@ -48,3 +49,7 @@ def get_streaming_service() -> StreamingService:
 
 def get_punt_service() -> PuntService:
     return PuntService()
+
+
+def get_trade_service() -> TradeService:
+    return TradeService()
