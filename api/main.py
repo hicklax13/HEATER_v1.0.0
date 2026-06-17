@@ -18,9 +18,11 @@ def create_app() -> FastAPI:
 
     from api.routers.free_agents import router as fa_router
     from api.routers.lineup import router as lineup_router
+    from api.routers.standings import router as standings_router
     from api.routers.team import router as team_router
 
     app.include_router(team_router)
     app.include_router(fa_router)
     app.include_router(lineup_router)
+    app.include_router(standings_router)
     return app
