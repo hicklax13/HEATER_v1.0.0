@@ -41,6 +41,78 @@
         "title": "CategoryLine",
         "type": "object"
       },
+      "FreeAgentRec": {
+        "properties": {
+          "add_name": {
+            "title": "Add Name",
+            "type": "string"
+          },
+          "add_positions": {
+            "title": "Add Positions",
+            "type": "string"
+          },
+          "drop_name": {
+            "title": "Drop Name",
+            "type": "string"
+          },
+          "drop_positions": {
+            "title": "Drop Positions",
+            "type": "string"
+          },
+          "net_sgp_delta": {
+            "title": "Net Sgp Delta",
+            "type": "number"
+          },
+          "reasoning": {
+            "default": "",
+            "title": "Reasoning",
+            "type": "string"
+          },
+          "urgency_categories": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Urgency Categories",
+            "type": "array"
+          }
+        },
+        "required": [
+          "add_name",
+          "add_positions",
+          "drop_name",
+          "drop_positions",
+          "net_sgp_delta"
+        ],
+        "title": "FreeAgentRec",
+        "type": "object"
+      },
+      "FreeAgentsResponse": {
+        "properties": {
+          "adds_remaining": {
+            "title": "Adds Remaining",
+            "type": "integer"
+          },
+          "recommendations": {
+            "items": {
+              "$ref": "#/components/schemas/FreeAgentRec"
+            },
+            "title": "Recommendations",
+            "type": "array"
+          },
+          "team_name": {
+            "title": "Team Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "team_name",
+          "adds_remaining",
+          "recommendations"
+        ],
+        "title": "FreeAgentsResponse",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -52,6 +124,95 @@
           }
         },
         "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "LineupOptimizeRequest": {
+        "properties": {
+          "mode": {
+            "default": "quick",
+            "title": "Mode",
+            "type": "string"
+          },
+          "roster_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Roster Ids",
+            "type": "array"
+          },
+          "team_name": {
+            "title": "Team Name",
+            "type": "string"
+          },
+          "weeks_remaining": {
+            "default": 16,
+            "maximum": 26.0,
+            "minimum": 0.0,
+            "title": "Weeks Remaining",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "team_name"
+        ],
+        "title": "LineupOptimizeRequest",
+        "type": "object"
+      },
+      "LineupOptimizeResponse": {
+        "properties": {
+          "mode": {
+            "title": "Mode",
+            "type": "string"
+          },
+          "recommendations": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Recommendations",
+            "type": "array"
+          },
+          "slots": {
+            "items": {
+              "$ref": "#/components/schemas/LineupSlot"
+            },
+            "title": "Slots",
+            "type": "array"
+          },
+          "team_name": {
+            "title": "Team Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "team_name",
+          "mode",
+          "slots"
+        ],
+        "title": "LineupOptimizeResponse",
+        "type": "object"
+      },
+      "LineupSlot": {
+        "properties": {
+          "player_id": {
+            "title": "Player Id",
+            "type": "integer"
+          },
+          "player_name": {
+            "title": "Player Name",
+            "type": "string"
+          },
+          "slot": {
+            "title": "Slot",
+            "type": "string"
+          }
+        },
+        "required": [
+          "slot",
+          "player_name",
+          "player_id"
+        ],
+        "title": "LineupSlot",
         "type": "object"
       },
       "MatchupHero": {
@@ -176,6 +337,99 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/free-agents": {
+      "get": {
+        "operationId": "get_free_agents_api_free_agents_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "team_name",
+            "required": true,
+            "schema": {
+              "title": "Team Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "max_moves",
+            "required": false,
+            "schema": {
+              "default": 5,
+              "title": "Max Moves",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FreeAgentsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Free Agents",
+        "tags": [
+          "free-agents"
+        ]
+      }
+    },
+    "/api/lineup/optimize": {
+      "post": {
+        "operationId": "optimize_lineup_api_lineup_optimize_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LineupOptimizeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LineupOptimizeResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Optimize Lineup",
+        "tags": [
+          "lineup"
+        ]
+      }
+    },
     "/api/me/team": {
       "get": {
         "operationId": "get_my_team_api_me_team_get",
