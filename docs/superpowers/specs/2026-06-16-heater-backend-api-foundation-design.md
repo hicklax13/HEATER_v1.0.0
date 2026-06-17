@@ -134,7 +134,7 @@ Each step is independently shippable and leaves the live Streamlit app running.
 | Decision | Choice | Note |
 |---|---|---|
 | Frontend+backend stack | **Next.js + FastAPI + Postgres** | Confirmed 2026-06-16; matches A + business plan |
-| Monetization tiers | **2-tier Free → Pro** (~$8.99/mo, ~$79/yr) | Adopts CMO recommendation over the April 3-tier; simpler for solo ops. **Your sign-off wanted.** |
+| Monetization tiers | **2-tier Free → Pro** (~$8.99/mo, ~$79/yr) | Adopts CMO recommendation over the April 3-tier; simpler for solo ops. **Owner-confirmed 2026-06-17.** |
 | Data licensing posture | **Commercial-safe core** | Own projections core; FanGraphs droppable; multi-platform + manual import |
 | League connection | **Multi-platform** (Sleeper/Yahoo/ESPN/CBS + manual) | Your #1 product requirement |
 | Hosting | Vercel (frontend, A) · **Railway (FastAPI + workers)** · **Neon (Postgres)** · **Upstash (Redis)** | Matches business-plan §5.2 |
