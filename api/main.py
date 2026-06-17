@@ -1,4 +1,4 @@
-"""FastAPI app factory for the HEATER backend API (Sub-project B, Slice 1).
+"""FastAPI app factory for the HEATER backend API (Sub-project B, Slices 1+2).
 
 Thin transport layer over the existing Python engines. Routers do auth/
 validate/serialize only — all data work lives in api/services/.
@@ -16,7 +16,11 @@ def create_app() -> FastAPI:
     def healthz() -> dict[str, str]:
         return {"status": "ok"}
 
+    from api.routers.free_agents import router as fa_router
+    from api.routers.lineup import router as lineup_router
     from api.routers.team import router as team_router
 
     app.include_router(team_router)
+    app.include_router(fa_router)
+    app.include_router(lineup_router)
     return app
