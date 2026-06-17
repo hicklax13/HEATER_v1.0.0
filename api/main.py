@@ -16,6 +16,7 @@ def create_app() -> FastAPI:
     def healthz() -> dict[str, str]:
         return {"status": "ok"}
 
+    from api.routers.closers import router as closers_router
     from api.routers.free_agents import router as fa_router
     from api.routers.lineup import router as lineup_router
     from api.routers.standings import router as standings_router
@@ -25,4 +26,5 @@ def create_app() -> FastAPI:
     app.include_router(fa_router)
     app.include_router(lineup_router)
     app.include_router(standings_router)
+    app.include_router(closers_router)
     return app
