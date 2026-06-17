@@ -41,6 +41,63 @@
         "title": "CategoryLine",
         "type": "object"
       },
+      "CloserEntry": {
+        "properties": {
+          "closer": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PlayerRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "confidence": {
+            "default": "",
+            "title": "Confidence",
+            "type": "string"
+          },
+          "handcuffs": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/PlayerRef"
+            },
+            "title": "Handcuffs",
+            "type": "array"
+          },
+          "role": {
+            "default": "",
+            "title": "Role",
+            "type": "string"
+          },
+          "team": {
+            "title": "Team",
+            "type": "string"
+          }
+        },
+        "required": [
+          "team"
+        ],
+        "title": "CloserEntry",
+        "type": "object"
+      },
+      "ClosersResponse": {
+        "properties": {
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/CloserEntry"
+            },
+            "title": "Entries",
+            "type": "array"
+          }
+        },
+        "required": [
+          "entries"
+        ],
+        "title": "ClosersResponse",
+        "type": "object"
+      },
       "FreeAgentRec": {
         "properties": {
           "add": {
@@ -124,6 +181,49 @@
           }
         },
         "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "LeaderRow": {
+        "properties": {
+          "player": {
+            "$ref": "#/components/schemas/PlayerRef"
+          },
+          "rank": {
+            "title": "Rank",
+            "type": "integer"
+          },
+          "value": {
+            "title": "Value",
+            "type": "number"
+          }
+        },
+        "required": [
+          "rank",
+          "player",
+          "value"
+        ],
+        "title": "LeaderRow",
+        "type": "object"
+      },
+      "LeadersResponse": {
+        "properties": {
+          "category": {
+            "title": "Category",
+            "type": "string"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/LeaderRow"
+            },
+            "title": "Rows",
+            "type": "array"
+          }
+        },
+        "required": [
+          "category",
+          "rows"
+        ],
+        "title": "LeadersResponse",
         "type": "object"
       },
       "LineupOptimizeRequest": {
@@ -333,6 +433,68 @@
         "title": "PlayerRef",
         "type": "object"
       },
+      "StandingsResponse": {
+        "properties": {
+          "teams": {
+            "items": {
+              "$ref": "#/components/schemas/TeamStanding"
+            },
+            "title": "Teams",
+            "type": "array"
+          }
+        },
+        "required": [
+          "teams"
+        ],
+        "title": "StandingsResponse",
+        "type": "object"
+      },
+      "TeamStanding": {
+        "properties": {
+          "category_ranks": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "default": {},
+            "title": "Category Ranks",
+            "type": "object"
+          },
+          "losses": {
+            "default": 0,
+            "title": "Losses",
+            "type": "integer"
+          },
+          "points": {
+            "default": 0.0,
+            "title": "Points",
+            "type": "number"
+          },
+          "rank": {
+            "title": "Rank",
+            "type": "integer"
+          },
+          "team_name": {
+            "title": "Team Name",
+            "type": "string"
+          },
+          "ties": {
+            "default": 0,
+            "title": "Ties",
+            "type": "integer"
+          },
+          "wins": {
+            "default": 0,
+            "title": "Wins",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "rank",
+          "team_name"
+        ],
+        "title": "TeamStanding",
+        "type": "object"
+      },
       "ValidationError": {
         "properties": {
           "loc": {
@@ -374,6 +536,27 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/closers": {
+      "get": {
+        "operationId": "get_closers_api_closers_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClosersResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Closers",
+        "tags": [
+          "closers"
+        ]
+      }
+    },
     "/api/free-agents": {
       "get": {
         "operationId": "get_free_agents_api_free_agents_get",
@@ -423,6 +606,59 @@
         "summary": "Get Free Agents",
         "tags": [
           "free-agents"
+        ]
+      }
+    },
+    "/api/leaders": {
+      "get": {
+        "operationId": "get_leaders_api_leaders_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "category",
+            "required": false,
+            "schema": {
+              "default": "HR",
+              "title": "Category",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 25,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LeadersResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Leaders",
+        "tags": [
+          "leaders"
         ]
       }
     },
@@ -506,6 +742,27 @@
         "summary": "Get My Team",
         "tags": [
           "team"
+        ]
+      }
+    },
+    "/api/standings": {
+      "get": {
+        "operationId": "get_standings_api_standings_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StandingsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Standings",
+        "tags": [
+          "standings"
         ]
       }
     },
