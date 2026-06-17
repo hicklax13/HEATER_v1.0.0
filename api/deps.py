@@ -8,6 +8,7 @@ from api.services.fa_service import FreeAgentService
 from api.services.leaders_service import LeadersService
 from api.services.lineup_service import LineupService
 from api.services.matchup_service import MatchupService
+from api.services.punt_service import PuntService
 from api.services.standings_service import StandingsService
 from api.services.streaming_service import StreamingService
 from api.services.team_service import TeamService
@@ -43,3 +44,7 @@ def get_matchup_service() -> MatchupService:
 
 def get_streaming_service() -> StreamingService:
     return StreamingService()
+
+
+def get_punt_service() -> PuntService:
+    return PuntService()

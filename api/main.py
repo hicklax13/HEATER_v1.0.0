@@ -21,6 +21,7 @@ def create_app() -> FastAPI:
     from api.routers.leaders import router as leaders_router
     from api.routers.lineup import router as lineup_router
     from api.routers.matchup import router as matchup_router
+    from api.routers.punt import router as punt_router
     from api.routers.standings import router as standings_router
     from api.routers.streaming import router as streaming_router
     from api.routers.team import router as team_router
@@ -33,4 +34,5 @@ def create_app() -> FastAPI:
     app.include_router(leaders_router)
     app.include_router(matchup_router)
     app.include_router(streaming_router)
+    app.include_router(punt_router)
     return app
