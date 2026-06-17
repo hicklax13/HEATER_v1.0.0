@@ -132,6 +132,7 @@ const BASE: Record<number, Base> = {
 
 /* ---------- formatting ---------- */
 function fmt(cat: string, v: number): string {
+  if (v == null || Number.isNaN(v)) return "—";
   if (cat === "AVG" || cat === "OBP") return v.toFixed(3).replace(/^0/, "");
   if (cat === "ERA" || cat === "WHIP") return v.toFixed(2);
   return String(Math.round(v));
@@ -232,12 +233,18 @@ function projRows(b: Base, cats: string[]): ProjRow[] {
 }
 
 function fallback(m: PlayerRef): Base {
+  const isPitcher = /SP|RP|^P$/.test(m.pos);
+  const hit: CatMap = { R: 30, HR: 8, RBI: 30, SB: 4, AVG: 0.255, OBP: 0.32 };
+  const pit: CatMap = { W: 5, L: 4, SV: 0, K: 70, ERA: 3.9, WHIP: 1.25 };
+  const season = isPitcher ? pit : hit;
   return {
-    name: m.name, pos: m.pos, teamId: m.teamId, bats: "—", jersey: "", gp: 70,
-    rankOverall: 120, rankPos: 40, pitcher: /SP|RP|^P$/.test(m.pos),
-    season: { R: 30, HR: 8, RBI: 30, SB: 4, AVG: 0.255, OBP: 0.32 },
-    y2025: { R: 60, HR: 16, RBI: 60, SB: 8, AVG: 0.255, OBP: 0.32 },
-    y2024: { R: 60, HR: 16, RBI: 60, SB: 8, AVG: 0.255, OBP: 0.32 },
+    name: m.name, pos: m.pos, teamId: m.teamId,
+    bats: isPitcher ? "Throws Right" : "Bats Right", jersey: "",
+    gp: isPitcher ? 14 : 70, ip: isPitcher ? 84 : undefined,
+    rankOverall: 120, rankPos: 40, pitcher: isPitcher,
+    season,
+    y2025: { ...season },
+    y2024: { ...season },
     y2025Rank: 120, y2024Rank: 120,
     history: [{ kind: "added", date: "—", text: "On your roster", member: "Team Hickey" }],
   };

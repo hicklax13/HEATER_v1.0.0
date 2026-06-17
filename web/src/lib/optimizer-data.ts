@@ -1,0 +1,85 @@
+import type { PlayerRef } from "./types";
+
+/**
+ * Mock Optimizer data — today's recommended lineup for Team Hickey.
+ * Swap this module for the API client in Sub-project B; the shape is the contract.
+ */
+export type SlotStatus = "start" | "sit" | "bench" | "off";
+
+export interface LineupSlot {
+  slot: string; // C, 1B, …, SP, RP, P, Util, BN
+  player: PlayerRef & { ownPct?: number };
+  matchup: string; // "vs SF", "@NYM", "OFF"
+  proj: string; // short projected line
+  value: number; // 0–100 daily value
+  status: SlotStatus;
+  note?: string;
+}
+
+export interface CatImpact {
+  key: string;
+  proj: string;
+  trend: "up" | "down" | "flat";
+}
+
+export interface OptimizerData {
+  date: string;
+  optimal: boolean; // is the current lineup already optimal?
+  starters: LineupSlot[];
+  bench: LineupSlot[];
+  ipPace: { value: number; total: number };
+  movesLeft: { value: number; total: number };
+  swaps: { out: string; in: string; gain: string }[];
+  impact: CatImpact[];
+}
+
+const p = (
+  name: string,
+  pos: string,
+  teamAbbr: string,
+  teamId: number,
+  mlbId: number,
+): PlayerRef => ({ name, pos, teamAbbr, teamId, mlbId });
+
+export const OPTIMIZER: OptimizerData = {
+  date: "Tue Jun 17",
+  optimal: false,
+  starters: [
+    { slot: "C", player: p("Will Smith", "C", "LAD", 119, 669257), matchup: "vs COL", proj: "0.9 H · 0.4 R", value: 61, status: "start" },
+    { slot: "1B", player: p("Matt Olson", "1B", "ATL", 144, 621566), matchup: "@MIA", proj: "1.0 H · 0.5 RBI", value: 68, status: "start" },
+    { slot: "2B", player: p("Ozzie Albies", "2B", "ATL", 144, 645277), matchup: "@MIA", proj: "0.9 H · 0.3 SB", value: 55, status: "start" },
+    { slot: "3B", player: p("José Ramírez", "3B", "CLE", 114, 608070), matchup: "vs MIN", proj: "1.1 H · 0.5 RBI", value: 74, status: "start" },
+    { slot: "SS", player: p("Bobby Witt Jr.", "SS", "KC", 118, 677951), matchup: "vs DET", proj: "1.2 H · 0.4 SB", value: 81, status: "start" },
+    { slot: "OF", player: p("Aaron Judge", "RF", "NYY", 147, 592450), matchup: "@BAL", proj: "1.0 H · 0.6 HR", value: 88, status: "start" },
+    { slot: "OF", player: p("Kyle Tucker", "RF", "CHC", 112, 663656), matchup: "@STL", proj: "1.0 H · 0.4 RBI", value: 64, status: "start" },
+    { slot: "OF", player: p("Juan Soto", "RF", "NYM", 121, 665742), matchup: "vs PHI", proj: "0.7 H · 0.2 HR", value: 41, status: "sit", note: "2-for-21 + LHP starter — sit for Merrill (RHP)" },
+    { slot: "Util", player: p("Yordan Alvarez", "DH", "HOU", 117, 670541), matchup: "vs SEA", proj: "1.0 H · 0.5 HR", value: 72, status: "start" },
+    { slot: "Util", player: p("Marcell Ozuna", "DH", "ATL", 144, 542303), matchup: "@MIA", proj: "0.9 H · 0.4 RBI", value: 57, status: "start" },
+    { slot: "SP", player: p("Tarik Skubal", "SP", "DET", 116, 669373), matchup: "@KC", proj: "6.0 IP · 7 K", value: 90, status: "start", note: "Two-start week" },
+    { slot: "SP", player: p("Zack Wheeler", "SP", "PHI", 143, 554430), matchup: "@NYM", proj: "6.1 IP · 7 K", value: 85, status: "start" },
+    { slot: "RP", player: p("Emmanuel Clase", "RP", "CLE", 114, 661403), matchup: "vs MIN", proj: "1.0 IP · SV", value: 66, status: "start" },
+    { slot: "RP", player: p("Devin Williams", "RP", "NYY", 147, 642207), matchup: "@BAL", proj: "1.0 IP · K", value: 60, status: "start" },
+  ],
+  bench: [
+    { slot: "BN", player: p("Jackson Merrill", "OF", "SD", 135, 683002), matchup: "vs PHI", proj: "1.0 H · 0.4 RBI", value: 63, status: "bench", note: "RHP matchup — start over Soto" },
+    { slot: "BN", player: p("Spencer Strider", "SP", "ATL", 144, 675911), matchup: "OFF", proj: "—", value: 0, status: "off", note: "Not pitching today" },
+    { slot: "BN", player: p("Jordan Westburg", "3B", "BAL", 110, 672275), matchup: "vs NYY", proj: "0.8 H · 0.3 R", value: 44, status: "bench" },
+  ],
+  ipPace: { value: 38, total: 54 },
+  movesLeft: { value: 7, total: 10 },
+  swaps: [
+    { out: "Juan Soto", in: "Jackson Merrill", gain: "+0.22 SGP today" },
+  ],
+  impact: [
+    { key: "R", proj: "6.4", trend: "up" },
+    { key: "HR", proj: "2.1", trend: "up" },
+    { key: "RBI", proj: "5.8", trend: "flat" },
+    { key: "SB", proj: "0.9", trend: "down" },
+    { key: "K", proj: "29", trend: "up" },
+    { key: "SV", proj: "1.4", trend: "flat" },
+  ],
+};
+
+export function fetchOptimizer(delayMs = 600): Promise<OptimizerData> {
+  return new Promise((resolve) => setTimeout(() => resolve(OPTIMIZER), delayMs));
+}

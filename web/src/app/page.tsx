@@ -7,7 +7,6 @@ import { fetchMyTeam } from "@/lib/data";
 import type { MyTeamData } from "@/lib/types";
 import { EASE_SNAP } from "@/lib/motion";
 import { cn } from "@/lib/utils";
-import { TopBar } from "@/components/chrome/TopBar";
 import { Footer } from "@/components/chrome/Footer";
 import { WinHero } from "@/components/myteam/WinHero";
 import { Movers } from "@/components/myteam/Movers";
@@ -64,8 +63,7 @@ export default function MyTeamPage() {
   }, []);
 
   return (
-    <div className="flex min-h-full flex-col">
-      <TopBar />
+    <>
       <main className="w-full flex-1 px-5 py-6">
         {state.status === "loading" && <LoadingView />}
         {state.status === "error" && <ErrorView onRetry={load} />}
@@ -75,7 +73,7 @@ export default function MyTeamPage() {
         )}
       </main>
       {state.status === "loaded" && <Footer freshnessMinutes={state.data.freshnessMinutes} />}
-    </div>
+    </>
   );
 }
 

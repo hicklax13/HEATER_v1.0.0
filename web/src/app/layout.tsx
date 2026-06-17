@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Archivo, Inter, IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
 import { Providers } from "@/components/chrome/Providers";
+import { TopBar } from "@/components/chrome/TopBar";
 
 // Display: Archivo variable, with the width (wdth) axis for stretched hero numerals.
 const archivo = Archivo({
@@ -42,7 +43,12 @@ export default function RootLayout({
       className={`${archivo.variable} ${inter.variable} ${plex.variable}`}
     >
       <body className="min-h-full bg-canvas text-ink">
-        <Providers>{children}</Providers>
+        <Providers>
+          <div className="flex min-h-full flex-col">
+            <TopBar />
+            {children}
+          </div>
+        </Providers>
       </body>
     </html>
   );

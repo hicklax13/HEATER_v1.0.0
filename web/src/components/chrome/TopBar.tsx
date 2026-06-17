@@ -21,7 +21,7 @@ import { usePalette } from "./Providers";
 
 const NAV = [
   { label: "Team", href: "/" },
-  { label: "Optimizer", href: "#" },
+  { label: "Optimizer", href: "/optimizer" },
   { label: "Matchup", href: "#" },
   { label: "Trades", href: "#" },
   { label: "Players", href: "#" },
