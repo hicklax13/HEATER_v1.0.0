@@ -329,6 +329,39 @@
         "title": "LineupSlot",
         "type": "object"
       },
+      "MatchupCategory": {
+        "properties": {
+          "cat": {
+            "title": "Cat",
+            "type": "string"
+          },
+          "inverse": {
+            "default": false,
+            "title": "Inverse",
+            "type": "boolean"
+          },
+          "opp": {
+            "title": "Opp",
+            "type": "number"
+          },
+          "win_prob": {
+            "title": "Win Prob",
+            "type": "number"
+          },
+          "you": {
+            "title": "You",
+            "type": "number"
+          }
+        },
+        "required": [
+          "cat",
+          "you",
+          "opp",
+          "win_prob"
+        ],
+        "title": "MatchupCategory",
+        "type": "object"
+      },
       "MatchupHero": {
         "properties": {
           "loss_prob": {
@@ -366,6 +399,47 @@
           "loss_prob"
         ],
         "title": "MatchupHero",
+        "type": "object"
+      },
+      "MatchupResponse": {
+        "properties": {
+          "categories": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/MatchupCategory"
+            },
+            "title": "Categories",
+            "type": "array"
+          },
+          "opponent": {
+            "default": "",
+            "title": "Opponent",
+            "type": "string"
+          },
+          "projected_cat_wins": {
+            "default": 0.0,
+            "title": "Projected Cat Wins",
+            "type": "number"
+          },
+          "team_name": {
+            "title": "Team Name",
+            "type": "string"
+          },
+          "week": {
+            "default": 0,
+            "title": "Week",
+            "type": "integer"
+          },
+          "win_prob": {
+            "default": 0.0,
+            "title": "Win Prob",
+            "type": "number"
+          }
+        },
+        "required": [
+          "team_name"
+        ],
+        "title": "MatchupResponse",
         "type": "object"
       },
       "MyTeamResponse": {
@@ -433,6 +507,63 @@
         "title": "PlayerRef",
         "type": "object"
       },
+      "PuntCategory": {
+        "properties": {
+          "cat": {
+            "title": "Cat",
+            "type": "string"
+          },
+          "current_rank": {
+            "title": "Current Rank",
+            "type": "integer"
+          },
+          "gainable": {
+            "title": "Gainable",
+            "type": "boolean"
+          },
+          "recommendation": {
+            "default": "",
+            "title": "Recommendation",
+            "type": "string"
+          }
+        },
+        "required": [
+          "cat",
+          "current_rank",
+          "gainable"
+        ],
+        "title": "PuntCategory",
+        "type": "object"
+      },
+      "PuntResponse": {
+        "properties": {
+          "categories": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/PuntCategory"
+            },
+            "title": "Categories",
+            "type": "array"
+          },
+          "punt_candidates": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Punt Candidates",
+            "type": "array"
+          },
+          "team_name": {
+            "title": "Team Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "team_name"
+        ],
+        "title": "PuntResponse",
+        "type": "object"
+      },
       "StandingsResponse": {
         "properties": {
           "teams": {
@@ -447,6 +578,69 @@
           "teams"
         ],
         "title": "StandingsResponse",
+        "type": "object"
+      },
+      "StreamCandidate": {
+        "properties": {
+          "actionable": {
+            "default": true,
+            "title": "Actionable",
+            "type": "boolean"
+          },
+          "opponent": {
+            "default": "",
+            "title": "Opponent",
+            "type": "string"
+          },
+          "player": {
+            "$ref": "#/components/schemas/PlayerRef"
+          },
+          "reason": {
+            "default": "",
+            "title": "Reason",
+            "type": "string"
+          },
+          "score": {
+            "default": 0.0,
+            "title": "Score",
+            "type": "number"
+          },
+          "status": {
+            "default": "",
+            "title": "Status",
+            "type": "string"
+          },
+          "team": {
+            "default": "",
+            "title": "Team",
+            "type": "string"
+          }
+        },
+        "required": [
+          "player"
+        ],
+        "title": "StreamCandidate",
+        "type": "object"
+      },
+      "StreamingResponse": {
+        "properties": {
+          "candidates": {
+            "items": {
+              "$ref": "#/components/schemas/StreamCandidate"
+            },
+            "title": "Candidates",
+            "type": "array"
+          },
+          "date": {
+            "title": "Date",
+            "type": "string"
+          }
+        },
+        "required": [
+          "date",
+          "candidates"
+        ],
+        "title": "StreamingResponse",
         "type": "object"
       },
       "TeamStanding": {
@@ -703,6 +897,49 @@
         ]
       }
     },
+    "/api/matchup": {
+      "get": {
+        "operationId": "get_matchup_api_matchup_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "team_name",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Team Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MatchupResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Matchup",
+        "tags": [
+          "matchup"
+        ]
+      }
+    },
     "/api/me/team": {
       "get": {
         "operationId": "get_my_team_api_me_team_get",
@@ -745,6 +982,49 @@
         ]
       }
     },
+    "/api/punt": {
+      "get": {
+        "operationId": "get_punt_api_punt_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "team_name",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Team Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PuntResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Punt",
+        "tags": [
+          "punt"
+        ]
+      }
+    },
     "/api/standings": {
       "get": {
         "operationId": "get_standings_api_standings_get",
@@ -763,6 +1043,65 @@
         "summary": "Get Standings",
         "tags": [
           "standings"
+        ]
+      }
+    },
+    "/api/streaming": {
+      "get": {
+        "operationId": "get_streaming_api_streaming_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "date",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Date"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 25,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StreamingResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Streaming",
+        "tags": [
+          "streaming"
         ]
       }
     },
