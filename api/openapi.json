@@ -43,56 +43,57 @@
       },
       "FreeAgentRec": {
         "properties": {
-          "add_name": {
-            "title": "Add Name",
-            "type": "string"
+          "add": {
+            "$ref": "#/components/schemas/PlayerRef"
           },
-          "add_positions": {
-            "title": "Add Positions",
-            "type": "string"
-          },
-          "drop_name": {
-            "title": "Drop Name",
-            "type": "string"
-          },
-          "drop_positions": {
-            "title": "Drop Positions",
-            "type": "string"
-          },
-          "net_sgp_delta": {
-            "title": "Net Sgp Delta",
-            "type": "number"
-          },
-          "reasoning": {
-            "default": "",
-            "title": "Reasoning",
-            "type": "string"
-          },
-          "urgency_categories": {
+          "categories_helped": {
             "default": [],
             "items": {
               "type": "string"
             },
-            "title": "Urgency Categories",
+            "title": "Categories Helped",
             "type": "array"
+          },
+          "drop": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PlayerRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "marginal_value": {
+            "title": "Marginal Value",
+            "type": "number"
+          },
+          "ownership_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ownership Pct"
+          },
+          "rationale": {
+            "default": "",
+            "title": "Rationale",
+            "type": "string"
           }
         },
         "required": [
-          "add_name",
-          "add_positions",
-          "drop_name",
-          "drop_positions",
-          "net_sgp_delta"
+          "add",
+          "marginal_value"
         ],
         "title": "FreeAgentRec",
         "type": "object"
       },
       "FreeAgentsResponse": {
         "properties": {
-          "adds_remaining": {
-            "title": "Adds Remaining",
-            "type": "integer"
-          },
           "recommendations": {
             "items": {
               "$ref": "#/components/schemas/FreeAgentRec"
@@ -107,7 +108,6 @@
         },
         "required": [
           "team_name",
-          "adds_remaining",
           "recommendations"
         ],
         "title": "FreeAgentsResponse",
@@ -128,28 +128,25 @@
       },
       "LineupOptimizeRequest": {
         "properties": {
-          "mode": {
-            "default": "quick",
-            "title": "Mode",
-            "type": "string"
+          "date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Date"
           },
-          "roster_ids": {
-            "items": {
-              "type": "integer"
-            },
-            "title": "Roster Ids",
-            "type": "array"
+          "scope": {
+            "default": "rest_of_season",
+            "title": "Scope",
+            "type": "string"
           },
           "team_name": {
             "title": "Team Name",
             "type": "string"
-          },
-          "weeks_remaining": {
-            "default": 16,
-            "maximum": 26.0,
-            "minimum": 0.0,
-            "title": "Weeks Remaining",
-            "type": "integer"
           }
         },
         "required": [
@@ -160,17 +157,9 @@
       },
       "LineupOptimizeResponse": {
         "properties": {
-          "mode": {
-            "title": "Mode",
+          "date": {
+            "title": "Date",
             "type": "string"
-          },
-          "recommendations": {
-            "default": [],
-            "items": {
-              "type": "string"
-            },
-            "title": "Recommendations",
-            "type": "array"
           },
           "slots": {
             "items": {
@@ -179,6 +168,11 @@
             "title": "Slots",
             "type": "array"
           },
+          "summary": {
+            "default": "",
+            "title": "Summary",
+            "type": "string"
+          },
           "team_name": {
             "title": "Team Name",
             "type": "string"
@@ -186,7 +180,7 @@
         },
         "required": [
           "team_name",
-          "mode",
+          "date",
           "slots"
         ],
         "title": "LineupOptimizeResponse",
@@ -194,13 +188,32 @@
       },
       "LineupSlot": {
         "properties": {
-          "player_id": {
-            "title": "Player Id",
-            "type": "integer"
-          },
-          "player_name": {
-            "title": "Player Name",
+          "action": {
+            "title": "Action",
             "type": "string"
+          },
+          "forced_start": {
+            "default": false,
+            "title": "Forced Start",
+            "type": "boolean"
+          },
+          "player": {
+            "$ref": "#/components/schemas/PlayerRef"
+          },
+          "projected": {
+            "title": "Projected",
+            "type": "number"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
           },
           "slot": {
             "title": "Slot",
@@ -209,8 +222,9 @@
         },
         "required": [
           "slot",
-          "player_name",
-          "player_id"
+          "player",
+          "action",
+          "projected"
         ],
         "title": "LineupSlot",
         "type": "object"
@@ -296,6 +310,29 @@
         "title": "MyTeamResponse",
         "type": "object"
       },
+      "PlayerRef": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "positions": {
+            "title": "Positions",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "positions"
+        ],
+        "title": "PlayerRef",
+        "type": "object"
+      },
       "ValidationError": {
         "properties": {
           "loc": {
@@ -352,11 +389,11 @@
           },
           {
             "in": "query",
-            "name": "max_moves",
+            "name": "limit",
             "required": false,
             "schema": {
               "default": 5,
-              "title": "Max Moves",
+              "title": "Limit",
               "type": "integer"
             }
           }

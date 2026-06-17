@@ -1,40 +1,29 @@
-"""Contract models for the Lineup Optimize endpoint.
-
-The frontend's web/lib/data/types.ts is generated from the OpenAPI schema
-these produce (see scripts/export_openapi.py).
-
-LineupSlot maps directly to one assignment from LineupOptimizer.optimize_lineup()
-  -> "assignments": [{"slot": str, "player_name": str, "player_id": int}, ...]
-
-LineupOptimizeRequest carries the minimum inputs the pipeline needs:
-  roster_ids    — list of player DB ids on the user's roster
-  team_name     — for context/logging
-  mode          — "quick" | "standard" | "full"  (default "quick" for API)
-  weeks_remaining — passed through to the pipeline
-
-LineupOptimizeResponse wraps the result with recommendations and metadata.
-"""
+"""Contract models for the Lineup Optimizer page."""
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
+
+from api.contracts.common import PlayerRef
 
 
 class LineupOptimizeRequest(BaseModel):
-    roster_ids: list[int] = Field(default_factory=list)
     team_name: str
-    mode: str = "quick"
-    weeks_remaining: int = Field(default=16, ge=0, le=26)
+    date: str | None = None
+    scope: str = "rest_of_season"
 
 
 class LineupSlot(BaseModel):
     slot: str
-    player_name: str
-    player_id: int
+    player: PlayerRef
+    action: str  # "START" | "SIT"
+    projected: float
+    forced_start: bool = False
+    reason: str | None = None
 
 
 class LineupOptimizeResponse(BaseModel):
     team_name: str
-    mode: str
+    date: str
     slots: list[LineupSlot]
-    recommendations: list[str] = []
+    summary: str = ""
