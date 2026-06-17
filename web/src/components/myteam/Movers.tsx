@@ -43,15 +43,15 @@ function TeamHaze({ teamId }: { teamId: number }) {
   const tb = teamBrand(teamId);
   return (
     <>
-      {/* team-color gradient (wider light → primary → deep range so the gradient reads) */}
+      {/* dark team-color gradient (lighter left → primary → deep right, like the reference cards) */}
       <span
         aria-hidden
         className="pointer-events-none absolute inset-0"
         style={{
-          background: `linear-gradient(145deg, color-mix(in srgb, ${tb.primary} 74%, white) 0%, ${tb.primary} 52%, color-mix(in srgb, ${tb.primary} 66%, black) 126%)`,
+          background: `linear-gradient(120deg, color-mix(in srgb, ${tb.primary} 80%, white) 0%, ${tb.primary} 50%, color-mix(in srgb, ${tb.primary} 68%, black) 128%)`,
         }}
       />
-      {/* large, bold team logo (crisp halo so it reads on the dark fill) */}
+      {/* large tonal team-logo watermark on the right, bleeding off-edge (matches the reference cards) */}
       <img
         src={MLB.teamLogo(teamId)}
         alt=""
@@ -59,11 +59,8 @@ function TeamHaze({ teamId }: { teamId: number }) {
         onError={(e) => {
           (e.currentTarget as HTMLImageElement).style.display = "none";
         }}
-        style={{
-          filter:
-            "brightness(1.45) drop-shadow(0 0 2px rgba(255,255,255,0.55)) drop-shadow(0 2px 10px rgba(0,0,0,0.3))",
-        }}
-        className="pointer-events-none absolute left-1/2 top-1/2 size-80 -translate-x-1/2 -translate-y-1/2 opacity-[0.72]"
+        style={{ filter: "brightness(0) invert(1) drop-shadow(0 1px 1px rgba(0,0,0,0.25))" }}
+        className="pointer-events-none absolute right-0 top-1/2 size-96 -translate-y-1/2 translate-x-[20%] opacity-[0.22]"
       />
     </>
   );
