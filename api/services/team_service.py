@@ -16,16 +16,16 @@ class TeamService:
         from src.yahoo_data_service import get_yahoo_data_service
 
         yds = get_yahoo_data_service()
-        standings = yds.get_standings()  # pd.DataFrame
+        cfg = LeagueConfig()
+        raw_matchup = yds.get_matchup()
+        standings = yds.get_standings()
         rank, record = self._rank_and_record(standings, team_name)
-        matchup = self._matchup(yds.get_matchup(), LeagueConfig())
-        categories = self._categories(yds.get_matchup(), LeagueConfig())
         return MyTeamResponse(
             team_name=team_name,
             record=record,
             rank=rank,
-            matchup=matchup,
-            categories=categories,
+            matchup=self._matchup(raw_matchup, cfg),
+            categories=self._categories(raw_matchup, cfg),
         )
 
     @staticmethod
