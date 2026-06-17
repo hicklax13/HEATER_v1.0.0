@@ -7,6 +7,9 @@
 
 ---
 
+> **⚠ LOCKED 2026-06-16 — overrides §3.2 (mark) and §3.3 (dark-first) below.**
+> The owner selected the **official HEATER logo**: a flaming-baseball **icon** + a chrome flame **wordmark** (production assets in `brand/`: `heater-icon.png`, `heater-wordmark.png`, transparent + `previews/` on white/navy, and favicon sizes 512/192/180/64/32/16). The abstract **"Hot Zone H" is retired.** The app **theme is LIGHT-first** (the dark-first call below is reversed per owner). The **"heat as data"** heat-ramp (hot = winning / cold = losing) is retained as the *data-viz* language only — the *logo* is the flaming baseball, not the heat grid. Source: owner-chosen Gemini renders, background-removed + sized via `brand_inbox/_process_logos.py`.
+
 ## 1. Strategy — the wedge
 
 A competitive scan of 13 fantasy/analytics brands (Sleeper, Underdog, DraftKings, FanDuel, ESPN, Yahoo, PFF, The Athletic, FanGraphs, FantasyPros, Rotowire, Baseball Savant, Fantrax) found a clean, exploitable split:

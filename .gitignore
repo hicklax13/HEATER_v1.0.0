@@ -82,3 +82,9 @@ test_screenshots/
 
 # Superpowers brainstorming visual companion artifacts
 .superpowers/
+
+# Brand asset scratch (experiments + generation/processing scripts)
+brand_inbox/
+# Loose owner-saved logo renders (canonical copies live in brand/source/)
+/Gemini HEATER *.png
+/Gemini HEATER *.jpg
