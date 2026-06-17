@@ -3,6 +3,8 @@
 > **Status:** Draft for review · **Date:** 2026-06-16 · **Branch:** `feat/frontend-replatform-foundation`
 > **Owner:** Connor (Team Hickey) · **Author:** design brainstorm session
 > **Supersedes for the frontend:** the Streamlit-bound "Combustion Index" presentation layer (`src/ui_shared.py` + `pages/*`). The Python analytics layer is **kept** (see §2).
+>
+> **⚠ Brand section reframed (2026-06-16):** the goal moved to a *monetized public product* and the brand was fully reopened. The **identity is now defined by `2026-06-16-heater-brand-design-vision.md`** (dark-first "analyst's edge" identity, the Hot Zone H mark, "heat as data"). This spec's **stack, architecture, component archetypes, and page list still hold** — but ignore its §4–§5 "light-first Combustion hybrid" brand details and use the brand-vision doc instead.
 
 ---
 
