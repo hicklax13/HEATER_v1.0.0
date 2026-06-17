@@ -1,5 +1,9 @@
 # HEATER — Fantasy Baseball In-Season Manager
 
+## Connor's Preferences
+
+**Response style — ALWAYS:** Shortest, least verbose, simplest response possible. Every reply (instructions, answers, status updates, code explanations, everything) must be as brief as possible without dropping important information. One action per step. Plain language. No filler.
+
 ## Overview
 
 A fantasy-baseball draft assistant + in-season manager for a 12-team Yahoo Sports H2H Categories snake-draft league. Built with Streamlit, powered by Monte Carlo simulation, Bayesian projection updating, and LP-constrained lineup optimization. **2026 MLB season is active; the app is in in-season mode** — draft completed, all components running against live league + Yahoo data.
@@ -19,7 +23,26 @@ Toward the North Star, HEATER is being driven by **two parallel Claude tracks th
 - **This track — CEO / Product Officer:** product strategy, system architecture, the migration / re-platform, monetization & business model, and engineering execution. Owns *how HEATER is built, scaled, monetized, and shipped*.
 - **Parallel track — CMO:** reimagines the entire look & feel — design, frontend aesthetics, UI/UX, logo, colors, branding — with full creative latitude ("nothing is off limits"). Owns *how HEATER looks and feels*.
 - **Overlap (the frontend) is shared:** the CEO track owns the stack, build, and scale; the CMO track owns the visual / brand / UX vision. The two plans MUST reconcile — the chosen frontend stack has to host the CMO's design language, and the migration plan must leave headroom for a full rebrand (so a CMO redesign is a re-skin, not a re-architecture).
-- **Planning method:** spec with `brainstorming`, document with `writing-plans`, execute with `dispatching-parallel-agents`. Deliverable = a **multi-phased plan to the monetized product**, beginning with **Phase 0: the multi-section migration plan** (decouple the Python engine behind a FastAPI service + Postgres + background workers, then rebuild the frontend to parity). Plans live in `docs/superpowers/plans/`.
+- **Planning method:** spec with `brainstorming`, document with `writing-plans`, execute with `dispatching-parallel-agents`. The work is decomposed into **four sub-projects A/B/C/D** (see _Program structure_ next), each its own spec → plan(s) → build cycle.
+
+### Program structure & file map (set 2026-06-17 — read this before planning re-platform work)
+
+The whole re-platform = **4 sub-projects**, split across the two tracks:
+
+- **A — Frontend foundation** (CMO) — design system + Next.js app shell + 3 foundation pages. Specs: `docs/superpowers/specs/2026-06-16-heater-frontend-foundation-design.md` + brand `...-heater-brand-design-vision.md`.
+- **B — Backend API + data** (CEO) — FastAPI over the **unchanged** Python engines + Postgres + workers + auth + multi-tenancy. Spec: `docs/superpowers/specs/2026-06-16-heater-backend-api-foundation-design.md`.
+- **C — Page migration** (joint) — rebuild the 14 pages in React against B's API.
+- **D — Cutover & launch** (CEO) — run both apps in parallel, Stripe billing-live, migrate users, retire Streamlit.
+
+**Hierarchy — do NOT conflate these levels:**
+- Program → 4 sub-projects (A/B/C/D)
+- each sub-project → **one spec doc** + several **phases**
+- each phase → **its own plan file** (in `docs/superpowers/plans/`) → small **tasks** (TDD steps)
+- a spec's **"sections"** are just document headings — NOT phases, NOT tasks. _(Example: B's spec has 9 sections; B's build has 6 phases B0–B5; only B0 has a task-level plan so far: `docs/superpowers/plans/2026-06-17-heater-backend-api-slice1.md`.)_
+
+**No single "master plan" file** — specs in `docs/superpowers/specs/`, one plan file per phase in `docs/superpowers/plans/`. This CLAUDE.md (★ NORTH STAR + Operating model) is the only top-level index.
+
+**Frontend stack (confirmed):** **Next.js + React + TypeScript** frontend, **FastAPI** backend. **Streamlit stays LIVE through the entire migration (strangler-fig) and is retired only in Sub-project D — it is NOT the long-term frontend.** Monetization = **2-tier Free→Pro** (owner-confirmed 2026-06-17).
 
 The codebase is organized around 7 feature surfaces:
 
