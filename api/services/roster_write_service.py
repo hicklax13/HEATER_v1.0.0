@@ -23,13 +23,13 @@ class RosterWriteService:
         if c is None:
             return MutationResult(ok=False, error=_NOT_CONNECTED, status=None)
         assignments = [{"player_key": a.yahoo_player_key, "position": a.slot} for a in req.assignments]
-        return self._to_result(c.set_lineup(assignments, req.date))
+        return self._safe_call(lambda: c.set_lineup(assignments, req.date))
 
     def add_drop(self, req: AddDropRequest, client=None) -> MutationResult:
         c = client if client is not None else self._client()
         if c is None:
             return MutationResult(ok=False, error=_NOT_CONNECTED, status=None)
-        return self._to_result(c.add_drop(req.add_player_key, req.drop_player_key))
+        return self._safe_call(lambda: c.add_drop(req.add_player_key, req.drop_player_key))
 
     @staticmethod
     def _client():
@@ -41,6 +41,16 @@ class RosterWriteService:
             return get_yahoo_data_service()._client
         except Exception:
             return None
+
+    def _safe_call(self, fn) -> MutationResult:
+        # The client documents "never raises", but its auth/XML helpers run
+        # outside its own try/except — wrap defensively so a write endpoint
+        # can never 500 (matches the sibling read services' resilience idiom).
+        try:
+            raw = fn()
+        except Exception as exc:
+            return MutationResult(ok=False, error=f"Write failed: {type(exc).__name__}", status=None)
+        return self._to_result(raw)
 
     @staticmethod
     def _to_result(raw) -> MutationResult:

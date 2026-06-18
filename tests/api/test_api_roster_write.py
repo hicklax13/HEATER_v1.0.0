@@ -177,3 +177,23 @@ def test_post_add_drop_both_null_is_ok_false_not_http_error():
     resp = client.post("/api/transactions/add-drop", json={})
     assert resp.status_code == 200  # graceful: failure is in the body, not the HTTP status
     assert resp.json()["ok"] is False
+
+
+def test_service_set_lineup_is_graceful_when_client_raises():
+    class _BoomClient:
+        def set_lineup(self, assignments, coverage_date):
+            raise RuntimeError("yahoo exploded")
+
+    result = RosterWriteService().set_lineup(_lineup_req(), client=_BoomClient())
+    assert result.ok is False and result.status is None
+    assert "failed" in (result.error or "").lower()
+
+
+def test_service_add_drop_is_graceful_when_client_raises():
+    class _BoomClient:
+        def add_drop(self, add_player_key, drop_player_key):
+            raise RuntimeError("yahoo exploded")
+
+    result = RosterWriteService().add_drop(AddDropRequest(add_player_key="469.p.9"), client=_BoomClient())
+    assert result.ok is False and result.status is None
+    assert "failed" in (result.error or "").lower()
