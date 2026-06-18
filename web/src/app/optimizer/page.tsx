@@ -23,6 +23,30 @@ import { PlayerDialog } from "@/components/player/PlayerDialog";
 import { LineupTable } from "@/components/optimizer/LineupTable";
 import { cn } from "@/lib/utils";
 
+/** When optimized, move each swap's `in` player into the `out` player's slot
+ *  (now starting) and drop the `out` player to the bench — so clicking Optimize
+ *  visibly rebuilds the lineup, not just a banner. */
+function applySwaps(
+  starters: OptimizerData["starters"],
+  bench: OptimizerData["bench"],
+  swaps: OptimizerData["swaps"],
+  optimized: boolean,
+): { starters: OptimizerData["starters"]; bench: OptimizerData["bench"] } {
+  if (!optimized || swaps.length === 0) return { starters, bench };
+  const s = [...starters];
+  const b = [...bench];
+  for (const sw of swaps) {
+    const outIdx = s.findIndex((x) => x.player.name === sw.out);
+    const inIdx = b.findIndex((x) => x.player.name === sw.in);
+    if (outIdx === -1 || inIdx === -1) continue;
+    const outSlot = s[outIdx];
+    const inSlot = b[inIdx];
+    s[outIdx] = { ...inSlot, slot: outSlot.slot, status: "start", note: undefined };
+    b[inIdx] = { ...outSlot, slot: "BN", status: "bench", note: "Optimized to bench" };
+  }
+  return { starters: s, bench: b };
+}
+
 export default function OptimizerPage() {
   const [data, setData] = useState<OptimizerData | null>(null);
   const [optimized, setOptimized] = useState(false);
@@ -36,6 +60,10 @@ export default function OptimizerPage() {
       alive = false;
     };
   }, []);
+
+  const view = data
+    ? applySwaps(data.starters, data.bench, data.swaps, optimized)
+    : { starters: [], bench: [] };
 
   return (
     <>
@@ -56,11 +84,11 @@ export default function OptimizerPage() {
               <div className="space-y-6">
                 <Card className="p-5">
                   <SectionHead title="Starting Lineup" sub="Today" />
-                  <LineupTable slots={data.starters} />
+                  <LineupTable slots={view.starters} />
                 </Card>
                 <Card className="p-5">
                   <SectionHead title="Bench" sub="Available To Swap In" />
-                  <LineupTable slots={data.bench} />
+                  <LineupTable slots={view.bench} />
                 </Card>
               </div>
               <aside className="space-y-4">
