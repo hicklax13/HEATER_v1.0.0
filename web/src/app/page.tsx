@@ -14,6 +14,7 @@ import { LeverCard } from "@/components/myteam/LeverCard";
 import { CategoryOutlook } from "@/components/myteam/CategoryOutlook";
 import { OpsCards } from "@/components/myteam/OpsCards";
 import { SeasonTrajectory } from "@/components/myteam/SeasonTrajectory";
+import { WinProbTrend } from "@/components/viz/WinProbTrend";
 import { Card } from "@/components/ui/Card";
 import { Skeleton } from "@/components/ui/Skeleton";
 
@@ -134,6 +135,10 @@ function Loaded({
       <motion.div variants={item} className="grid gap-6 lg:grid-cols-[1fr_320px] lg:items-start">
         <CategoryOutlook rows={data.categories} pulseLever={leverHover} />
         <OpsCards cards={data.ops} />
+      </motion.div>
+
+      <motion.div variants={item}>
+        <WinProbTrend data={data.winProbTrend} />
       </motion.div>
 
       <motion.div variants={item}>

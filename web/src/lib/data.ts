@@ -82,6 +82,7 @@ export const MY_TEAM: MyTeamData = {
     { week: 5, rank: 6 }, { week: 6, rank: 7 }, { week: 7, rank: 6 }, { week: 8, rank: 8 },
     { week: 9, rank: 9 }, { week: 10, rank: 8 }, { week: 11, rank: 10 }, { week: 12, rank: 10 },
   ],
+  winProbTrend: [56, 54, 57, 52, 55, 53, 50, 52, 49, 51, 49, 46],
   playoffCutRank: 4,
 };
 

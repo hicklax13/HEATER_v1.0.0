@@ -85,6 +85,7 @@ export interface MyTeamData {
   categories: CategoryRow[];
   ops: OpsCard[];
   trajectory: TrajectoryPoint[];
+  winProbTrend: number[];
   playoffCutRank: number;
 }
 
