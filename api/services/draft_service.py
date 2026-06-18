@@ -99,7 +99,7 @@ class DraftService:
                 continue
             rank = g("overall_rank")
             score = g("composite_value")
-            psgp = g("mean_sgp")
+            psgp = g("mc_mean_sgp")
             out.append(
                 DraftRecommendation(
                     player=PlayerRef(
@@ -110,9 +110,8 @@ class DraftService:
                     rank=_i(rank if rank is not None else g("rank")),
                     score=_f(score if score is not None else g("combined_score")),
                     projected_sgp=_f(psgp if psgp is not None else g("risk_adjusted_sgp")),
-                    confidence=_opt_f(g("confidence")),
+                    confidence=_opt_s(g("confidence_level")),
                     tag=_opt_s(g("buy_fair_avoid")),
-                    reason="",
                 )
             )
         return out
@@ -132,13 +131,6 @@ def _i(v, d: int = 0) -> int:
     except (TypeError, ValueError):
         return d
     return d if x != x else int(x)
-
-
-def _opt_f(v):
-    if v is None:
-        return None
-    x = _f(v, d=float("nan"))
-    return None if x != x else x
 
 
 def _opt_s(v):

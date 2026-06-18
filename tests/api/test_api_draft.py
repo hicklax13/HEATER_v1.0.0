@@ -47,7 +47,7 @@ def test_response_shape():
                 rank=1,
                 score=87.5,
                 projected_sgp=4.2,
-                confidence=0.8,
+                confidence="HIGH",
                 tag="BUY",
             )
         ],
@@ -110,8 +110,8 @@ def test_to_recs_maps_and_is_nan_safe():
                 "positions": "OF",
                 "overall_rank": 1,
                 "composite_value": 92.3,
-                "mean_sgp": 5.1,
-                "confidence": 0.77,
+                "mc_mean_sgp": 5.1,
+                "confidence_level": "HIGH",
                 "buy_fair_avoid": "BUY",
             },
             {
@@ -120,8 +120,8 @@ def test_to_recs_maps_and_is_nan_safe():
                 "positions": "2B",
                 "overall_rank": 2,
                 "composite_value": float("nan"),  # missing → must degrade to 0.0, not NaN
-                "mean_sgp": 3.0,
-                "confidence": float("nan"),  # missing → None
+                "mc_mean_sgp": 3.0,
+                "confidence_level": None,  # missing → None
                 "buy_fair_avoid": None,
             },
         ]
@@ -129,9 +129,9 @@ def test_to_recs_maps_and_is_nan_safe():
     recs = DraftService._to_recs(frame)
     assert len(recs) == 2
     assert recs[0].player.id == 7 and recs[0].rank == 1 and recs[0].score == 92.3
-    assert recs[0].tag == "BUY" and recs[0].confidence == 0.77
+    assert recs[0].tag == "BUY" and recs[0].confidence == "HIGH"
     assert recs[1].score == 0.0  # NaN composite_value degraded
-    assert recs[1].confidence is None  # NaN confidence → None
+    assert recs[1].confidence is None  # None confidence_level → None
     assert recs[1].tag is None
 
 
@@ -149,7 +149,7 @@ def test_recommend_full_path_with_injected_engine():
                 "positions": "OF",
                 "overall_rank": 1,
                 "composite_value": 90.0,
-                "mean_sgp": 5.0,
+                "mc_mean_sgp": 5.0,
             }
         ]
     )
@@ -206,3 +206,12 @@ def test_post_draft_recommend_accepts_empty_body_defaults():
     resp = client.post("/api/draft/recommend", json={})  # all fields default
     assert resp.status_code == 200
     assert resp.json()["recommendations"][0]["rank"] == 1
+
+
+def test_run_engine_clamps_caps():
+    fake = _FakeEngine(pd.DataFrame())
+    ds = DraftService()._rebuild_state(_req())
+    DraftService()._run_engine(_req(top_n_req=9999), ds, engine=fake, pool=object())
+    assert fake.called_with["top_n"] == 50  # _TOP_N_CAP
+    # n_simulations default 300 is within the 1000 cap
+    assert fake.called_with["n_simulations"] == 300

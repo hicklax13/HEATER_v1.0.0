@@ -46,7 +46,7 @@ class DraftRecommendation(BaseModel):
     rank: int
     score: float  # composite value (0-100)
     projected_sgp: float  # MC mean roster SGP (best-effort)
-    confidence: float | None = None
+    confidence: str | None = None  # engine confidence_level: HIGH/MEDIUM/LOW
     tag: str | None = None  # e.g. buy/fair/avoid
     reason: str = ""
 
