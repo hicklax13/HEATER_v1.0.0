@@ -5,6 +5,7 @@ from api.contracts.roster_write import (
     LineupSetRequest,
     MutationResult,
 )
+from api.services.roster_write_service import RosterWriteService
 
 
 def test_player_ref_yahoo_key_is_optional_and_defaults_none():
@@ -39,3 +40,81 @@ def test_mutation_result_shape():
     assert ok.model_dump() == {"ok": True, "applied": 2, "error": None, "status": None}
     fail = MutationResult(ok=False, error="denied", status=403)
     assert fail.ok is False and fail.status == 403
+
+
+_UNSET = object()
+
+
+class _FakeClient:
+    """Stand-in for YahooFantasyClient — records calls, returns canned dicts."""
+
+    def __init__(self, lineup_ret=_UNSET, addrop_ret=_UNSET):
+        self._lineup_ret = lineup_ret if lineup_ret is not _UNSET else {"ok": True, "applied": 2}
+        self._addrop_ret = addrop_ret if addrop_ret is not _UNSET else {"ok": True}
+        self.last_assignments = None
+        self.last_date = None
+        self.last_add = None
+        self.last_drop = None
+
+    def set_lineup(self, assignments, coverage_date):
+        self.last_assignments = assignments
+        self.last_date = coverage_date
+        return self._lineup_ret
+
+    def add_drop(self, add_player_key, drop_player_key):
+        self.last_add = add_player_key
+        self.last_drop = drop_player_key
+        return self._addrop_ret
+
+
+def _lineup_req():
+    return LineupSetRequest(
+        team_name="Team Hickey",
+        date="2027-04-05",
+        assignments=[
+            LineupAssignment(yahoo_player_key="469.p.1", slot="SS"),
+            LineupAssignment(yahoo_player_key="469.p.2", slot="BN"),
+        ],
+    )
+
+
+def test_service_set_lineup_maps_and_passes_through():
+    fake = _FakeClient()
+    result = RosterWriteService().set_lineup(_lineup_req(), client=fake)
+    assert result.ok is True and result.applied == 2
+    # the service translates {yahoo_player_key, slot} -> {player_key, position}
+    assert fake.last_assignments == [
+        {"player_key": "469.p.1", "position": "SS"},
+        {"player_key": "469.p.2", "position": "BN"},
+    ]
+    assert fake.last_date == "2027-04-05"
+
+
+def test_service_add_drop_passes_keys_through():
+    fake = _FakeClient(addrop_ret={"ok": True})
+    result = RosterWriteService().add_drop(
+        AddDropRequest(add_player_key="469.p.9", drop_player_key="469.p.3"), client=fake
+    )
+    assert result.ok is True
+    assert fake.last_add == "469.p.9" and fake.last_drop == "469.p.3"
+
+
+def test_service_passes_through_write_scope_denial():
+    fake = _FakeClient(lineup_ret={"ok": False, "error": "Yahoo write access denied — re-authorize.", "status": 403})
+    result = RosterWriteService().set_lineup(_lineup_req(), client=fake)
+    assert result.ok is False and result.status == 403
+    assert "re-authorize" in (result.error or "")
+
+
+def test_service_no_client_is_graceful(monkeypatch):
+    svc = RosterWriteService()
+    monkeypatch.setattr(svc, "_client", lambda: None)
+    result = svc.set_lineup(_lineup_req())
+    assert result.ok is False and result.status is None
+    assert "Not connected" in (result.error or "")
+
+
+def test_service_non_dict_response_is_graceful():
+    fake = _FakeClient(lineup_ret=None)  # client returned something unexpected
+    result = RosterWriteService().set_lineup(_lineup_req(), client=fake)
+    assert result.ok is False and "Unexpected" in (result.error or "")
