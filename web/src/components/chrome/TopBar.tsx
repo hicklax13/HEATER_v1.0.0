@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { usePalette } from "./Providers";
+import { HexMesh } from "@/components/ui/HexMesh";
 
 const NAV = [
   { label: "Team", href: "/" },
@@ -37,8 +38,9 @@ export function TopBar() {
   const underlineOn = hovered ?? activeLabel;
 
   return (
-    <header className="sticky top-0 z-40 border-b border-white/[0.06] bg-gradient-to-b from-[#15294a] to-navy shadow-[0_1px_0_rgba(255,92,16,0.5),0_10px_30px_rgba(11,24,48,0.18)]">
-      <div className="flex h-[68px] w-full items-center gap-4 pl-3 pr-5">
+    <header className="sticky top-0 z-40 overflow-hidden border-b border-white/[0.06] bg-gradient-to-b from-[#15294a] to-navy shadow-[0_1px_0_rgba(255,92,16,0.5),0_10px_30px_rgba(11,24,48,0.18)]">
+      <HexMesh />
+      <div className="relative flex h-[68px] w-full items-center gap-4 pl-3 pr-5">
         <Link
           href="/"
           aria-label="HEATER — back to Home"

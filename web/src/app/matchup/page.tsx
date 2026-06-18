@@ -14,7 +14,7 @@ import { Footer } from "@/components/chrome/Footer";
 import { Card } from "@/components/ui/Card";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { COLORS, heatColor } from "@/lib/tokens";
-import { HEX } from "@/lib/hex";
+import { HexMesh } from "@/components/ui/HexMesh";
 import { cn } from "@/lib/utils";
 
 /* eslint-disable @next/next/no-img-element -- local SVG team crests */
@@ -113,15 +113,7 @@ function Hero({ data }: { data: MatchupData }) {
         aria-hidden
         className="pointer-events-none absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-white/30 to-transparent"
       />
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-0 motion-safe:animate-[ember-drift_22s_linear_infinite]"
-        style={{
-          backgroundImage: `url("${HEX}")`,
-          backgroundSize: "34px 59px",
-          transform: `translate(${par.x}px, ${par.y}px)`,
-        }}
-      />
+      <HexMesh par={par} />
       <div
         aria-hidden
         className="pointer-events-none absolute inset-x-0 bottom-0 h-2/3"
