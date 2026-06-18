@@ -17,6 +17,7 @@ import { Footer } from "@/components/chrome/Footer";
 import { Card } from "@/components/ui/Card";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { HexMesh } from "@/components/ui/HexMesh";
+import { CategoryBattle } from "@/components/viz/CategoryBattle";
 import { PlayerLink } from "@/components/player/PlayerLink";
 import { cn } from "@/lib/utils";
 import { staggerContainer, staggerItem } from "@/lib/motion";
@@ -43,6 +44,9 @@ export default function MatchupPage() {
           <motion.div variants={staggerContainer} initial="hidden" animate="show" className="space-y-6">
             <motion.div variants={staggerItem}>
               <ScoreHeader data={data} />
+            </motion.div>
+            <motion.div variants={staggerItem}>
+              <CategoryBattle cats={data.cats} youScore={data.you.score} oppScore={data.opp.score} />
             </motion.div>
             <motion.div variants={staggerItem}>
               <CatTotals data={data} />
