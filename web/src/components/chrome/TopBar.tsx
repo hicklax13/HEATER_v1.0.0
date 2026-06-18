@@ -26,7 +26,7 @@ const NAV = [
   { label: "Matchup", href: "/matchup" },
   { label: "Trades", href: "/trades" },
   { label: "Players", href: "/players" },
-  { label: "Research", href: "#" },
+  { label: "Research", href: "/research" },
 ];
 
 export function TopBar() {

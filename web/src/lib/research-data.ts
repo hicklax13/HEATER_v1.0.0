@@ -1,0 +1,57 @@
+import type { PlayerRef } from "./types";
+
+/**
+ * Mock Research data — league-wide leaders with hot/cold/breakout/sell-high lenses.
+ * Swap this module for the API client in Sub-project B; the shape is the contract.
+ */
+export type Lens = "overall" | "hot" | "cold" | "breakout" | "sell";
+
+export interface LeaderRow extends PlayerRef {
+  rank: number;
+  hitter: boolean;
+  stats: string[]; // 3 key stats
+  value: number; // 0–100 overall value
+  trend: "up" | "down" | "flat";
+  tag: Exclude<Lens, "overall">;
+  note: string; // short context line
+}
+
+export interface ResearchData {
+  leaders: LeaderRow[];
+}
+
+const lr = (
+  rank: number,
+  name: string,
+  pos: string,
+  teamAbbr: string,
+  teamId: number,
+  mlbId: number,
+  hitter: boolean,
+  value: number,
+  trend: "up" | "down" | "flat",
+  tag: Exclude<Lens, "overall">,
+  note: string,
+  stats: string[],
+): LeaderRow => ({ rank, name, pos, teamAbbr, teamId, mlbId, hitter, value, trend, tag, note, stats });
+
+export const RESEARCH: ResearchData = {
+  leaders: [
+    lr(1, "Aaron Judge", "RF", "NYY", 147, 592450, true, 98, "up", "hot", "Leads the league in HR", ["24 HR", "58 R", ".322 AVG"]),
+    lr(2, "Bobby Witt Jr.", "SS", "KC", 118, 677951, true, 94, "up", "hot", "Elite 5-category shortstop", ["22 SB", ".305 AVG", "52 RBI"]),
+    lr(3, "Tarik Skubal", "SP", "DET", 116, 669373, false, 93, "flat", "hot", "Best ratios among starters", ["130 K", "2.10 ERA", "0.95 WHIP"]),
+    lr(4, "Paul Skenes", "SP", "PIT", 134, 694973, false, 91, "up", "hot", "Surging — ace upside", ["118 K", "1.96 ERA", "0.92 WHIP"]),
+    lr(5, "Elly De La Cruz", "SS", "CIN", 113, 682829, true, 90, "up", "hot", "Leads the league in SB", ["28 SB", "18 HR", "55 R"]),
+    lr(6, "Corbin Carroll", "OF", "ARI", 109, 682998, true, 86, "up", "breakout", "Power + speed leap", ["21 HR", "19 SB", ".265 AVG"]),
+    lr(7, "Pete Crow-Armstrong", "OF", "CHC", 112, 691718, true, 84, "up", "breakout", "Toolsy breakout season", ["16 HR", "24 SB", ".270 AVG"]),
+    lr(8, "Jackson Merrill", "OF", "SD", 135, 683002, true, 80, "up", "breakout", "Sophomore jump", ["15 HR", "10 SB", ".292 AVG"]),
+    lr(9, "Marcell Ozuna", "Util", "ATL", 144, 542303, true, 74, "down", "sell", "HR/FB% due to regress", ["20 HR", "58 RBI", ".265 AVG"]),
+    lr(10, "Juan Soto", "RF", "NYM", 121, 665742, true, 72, "down", "cold", "Worst slump of his career", ["19 HR", ".265 AVG", "2-for-21"]),
+    lr(11, "Mookie Betts", "SS", "LAD", 119, 605141, true, 70, "down", "cold", "Quietly cold for 3 weeks", ["12 HR", ".248 AVG", "—8 game skid"]),
+    lr(12, "Spencer Steer", "1B", "CIN", 113, 668715, true, 60, "down", "sell", "BABIP-fueled, unsustainable", ["14 HR", "51 RBI", ".244 AVG"]),
+  ],
+};
+
+export function fetchResearch(delayMs = 600): Promise<ResearchData> {
+  return new Promise((resolve) => setTimeout(() => resolve(RESEARCH), delayMs));
+}
