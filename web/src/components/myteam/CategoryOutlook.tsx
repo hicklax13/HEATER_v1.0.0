@@ -5,6 +5,7 @@ import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { ArrowUp, ArrowDown, Minus, ChevronDown, Grid2x2 } from "lucide-react";
 import type { CategoryRow } from "@/lib/types";
 import { Card } from "@/components/ui/Card";
+import { CategoryRadar } from "@/components/viz/CategoryRadar";
 import { Sparkline } from "@/components/ui/Sparkline";
 import { COLORS } from "@/lib/tokens";
 import { cn } from "@/lib/utils";
@@ -49,6 +50,11 @@ export function CategoryOutlook({
           <span className="font-medium text-ember">behind ↓</span> — already adjusted for stats where
           lower is better (ERA).
         </p>
+      </div>
+
+      <div className="flex flex-col items-center gap-1 border-b border-line px-4 pb-4 pt-1">
+        <CategoryRadar data={rows.map((r) => ({ cat: r.key, you: r.winPct }))} />
+        <p className="text-[11px] text-ink-3">Win&nbsp;% by category — dashed ring is 50% break-even</p>
       </div>
 
       <table className="w-full text-left">
