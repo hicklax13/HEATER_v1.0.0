@@ -206,6 +206,218 @@
         "title": "DatabankResponse",
         "type": "object"
       },
+      "DraftClock": {
+        "properties": {
+          "current_pick": {
+            "title": "Current Pick",
+            "type": "integer"
+          },
+          "is_user_turn": {
+            "title": "Is User Turn",
+            "type": "boolean"
+          },
+          "pick_in_round": {
+            "title": "Pick In Round",
+            "type": "integer"
+          },
+          "picking_team_index": {
+            "title": "Picking Team Index",
+            "type": "integer"
+          },
+          "round": {
+            "title": "Round",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "current_pick",
+          "round",
+          "pick_in_round",
+          "picking_team_index",
+          "is_user_turn"
+        ],
+        "title": "DraftClock",
+        "type": "object"
+      },
+      "DraftConfig": {
+        "properties": {
+          "num_rounds": {
+            "default": 23,
+            "title": "Num Rounds",
+            "type": "integer"
+          },
+          "num_teams": {
+            "default": 12,
+            "title": "Num Teams",
+            "type": "integer"
+          },
+          "roster_config": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Roster Config"
+          },
+          "user_team_index": {
+            "default": 0,
+            "title": "User Team Index",
+            "type": "integer"
+          }
+        },
+        "title": "DraftConfig",
+        "type": "object"
+      },
+      "DraftPick": {
+        "properties": {
+          "pick": {
+            "title": "Pick",
+            "type": "integer"
+          },
+          "player_id": {
+            "title": "Player Id",
+            "type": "integer"
+          },
+          "player_name": {
+            "title": "Player Name",
+            "type": "string"
+          },
+          "positions": {
+            "title": "Positions",
+            "type": "string"
+          },
+          "team_index": {
+            "title": "Team Index",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "pick",
+          "team_index",
+          "player_id",
+          "player_name",
+          "positions"
+        ],
+        "title": "DraftPick",
+        "type": "object"
+      },
+      "DraftRecommendRequest": {
+        "properties": {
+          "config": {
+            "$ref": "#/components/schemas/DraftConfig",
+            "default": {
+              "num_rounds": 23,
+              "num_teams": 12,
+              "user_team_index": 0
+            }
+          },
+          "n_simulations": {
+            "default": 300,
+            "title": "N Simulations",
+            "type": "integer"
+          },
+          "pick_log": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/DraftPick"
+            },
+            "title": "Pick Log",
+            "type": "array"
+          },
+          "top_n": {
+            "default": 8,
+            "title": "Top N",
+            "type": "integer"
+          }
+        },
+        "title": "DraftRecommendRequest",
+        "type": "object"
+      },
+      "DraftRecommendResponse": {
+        "properties": {
+          "clock": {
+            "$ref": "#/components/schemas/DraftClock"
+          },
+          "recommendations": {
+            "items": {
+              "$ref": "#/components/schemas/DraftRecommendation"
+            },
+            "title": "Recommendations",
+            "type": "array"
+          },
+          "summary": {
+            "default": "",
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "clock",
+          "recommendations"
+        ],
+        "title": "DraftRecommendResponse",
+        "type": "object"
+      },
+      "DraftRecommendation": {
+        "properties": {
+          "confidence": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence"
+          },
+          "player": {
+            "$ref": "#/components/schemas/PlayerRef"
+          },
+          "projected_sgp": {
+            "title": "Projected Sgp",
+            "type": "number"
+          },
+          "rank": {
+            "title": "Rank",
+            "type": "integer"
+          },
+          "reason": {
+            "default": "",
+            "title": "Reason",
+            "type": "string"
+          },
+          "score": {
+            "title": "Score",
+            "type": "number"
+          },
+          "tag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tag"
+          }
+        },
+        "required": [
+          "player",
+          "rank",
+          "score",
+          "projected_sgp"
+        ],
+        "title": "DraftRecommendation",
+        "type": "object"
+      },
       "FreeAgentRec": {
         "properties": {
           "add": {
@@ -1304,6 +1516,47 @@
         "summary": "Get Databank",
         "tags": [
           "databank"
+        ]
+      }
+    },
+    "/api/draft/recommend": {
+      "post": {
+        "operationId": "draft_recommend_api_draft_recommend_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DraftRecommendRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DraftRecommendResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Draft Recommend",
+        "tags": [
+          "draft"
         ]
       }
     },
