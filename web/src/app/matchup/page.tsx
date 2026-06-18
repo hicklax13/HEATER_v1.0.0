@@ -1,29 +1,22 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useReducedMotion } from "framer-motion";
-import { Swords, Target } from "lucide-react";
+import { Trophy, ChevronLeft, ChevronRight } from "lucide-react";
 import {
   fetchMatchup,
-  catStatus,
   type MatchupData,
-  type CatMatchup,
-  type CatStatus,
+  type MatchPlayer,
+  type RosterRow,
+  type TeamSide,
+  type GameState,
+  type CatCol,
+  type LeagueTeam,
 } from "@/lib/matchup-data";
 import { Footer } from "@/components/chrome/Footer";
 import { Card } from "@/components/ui/Card";
 import { Skeleton } from "@/components/ui/Skeleton";
-import { COLORS, heatColor } from "@/lib/tokens";
-import { HexMesh } from "@/components/ui/HexMesh";
+import { PlayerLink } from "@/components/player/PlayerLink";
 import { cn } from "@/lib/utils";
-
-/* eslint-disable @next/next/no-img-element -- local SVG team crests */
-
-const STATUS: Record<CatStatus, { label: string; text: string; bg: string; bar: string }> = {
-  win: { label: "Winning", text: "text-ok", bg: "bg-ok/12", bar: COLORS.ok },
-  loss: { label: "Losing", text: "text-ember", bg: "bg-ember/12", bar: COLORS.ember },
-  tossup: { label: "Toss-Up", text: "text-warn", bg: "bg-warn/15", bar: COLORS.warn },
-};
 
 export default function MatchupPage() {
   const [data, setData] = useState<MatchupData | null>(null);
@@ -45,278 +38,348 @@ export default function MatchupPage() {
           <LoadingView />
         ) : (
           <div className="space-y-6">
-            <Header data={data} />
-            <Hero data={data} />
-            <div className="grid gap-6 lg:grid-cols-[1fr_300px]">
-              <CategoryBoard categories={data.categories} />
-              <aside className="space-y-4">
-                <TargetCard categories={data.categories} />
-              </aside>
-            </div>
+            <ScoreHeader data={data} />
+            <CatTotals data={data} />
+            <RosterCompare
+              title="Hitters"
+              columns={data.hitterColumns}
+              rows={data.hitters}
+              totals={data.hitterTotals}
+              you={data.you.name}
+              opp={data.opp.name}
+            />
+            <RosterCompare
+              title="Pitchers"
+              columns={data.pitcherColumns}
+              rows={data.pitchers}
+              totals={data.pitcherTotals}
+              you={data.you.name}
+              opp={data.opp.name}
+            />
+            <LeagueMatchups data={data} />
           </div>
         )}
       </main>
-      <Footer freshnessMinutes={9} />
+      <Footer freshnessMinutes={2} />
     </>
   );
 }
 
-function tally(cats: CatMatchup[]) {
-  let win = 0,
-    loss = 0,
-    tossup = 0;
-  for (const c of cats) {
-    const s = catStatus(c.winPct);
-    if (s === "win") win++;
-    else if (s === "loss") loss++;
-    else tossup++;
-  }
-  return { win, loss, tossup };
+/* ---------------- shared bits ---------------- */
+
+function initials(name: string): string {
+  return name
+    .replace(/[^a-zA-Z ]/g, "")
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((w) => w[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
 }
 
-function Header({ data }: { data: MatchupData }) {
+function Avatar({ name, size = 40 }: { name: string; size?: number }) {
   return (
-    <div className="flex flex-wrap items-end justify-between gap-3">
-      <div>
-        <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-ink-3">
-          Matchup · Week {data.week}
-        </div>
-        <h1 className="font-display text-3xl font-extrabold text-navy">Matchup</h1>
-        <p className="mt-1 text-[13px] text-ink-2">vs {data.opp.name}</p>
-      </div>
-      <span className="tnum rounded-md bg-surface px-2.5 py-1 text-[12px] font-semibold text-ink-2 ring-1 ring-line">
-        {data.daysLeft} days left
-      </span>
-    </div>
-  );
-}
-
-function Hero({ data }: { data: MatchupData }) {
-  const t = tally(data.categories);
-  const col = heatColor(data.winPct);
-  const reduce = useReducedMotion();
-  const [par, setPar] = useState({ x: 0, y: 0 });
-  const onMove = (e: React.MouseEvent<HTMLElement>) => {
-    if (reduce) return;
-    const r = e.currentTarget.getBoundingClientRect();
-    setPar({ x: ((e.clientX - r.left) / r.width - 0.5) * 8, y: ((e.clientY - r.top) / r.height - 0.5) * 8 });
-  };
-  return (
-    <section
-      onMouseMove={onMove}
-      onMouseLeave={() => setPar({ x: 0, y: 0 })}
-      className="relative overflow-hidden rounded-2xl border border-white/10 p-6 text-chrome shadow-[0_24px_60px_rgba(9,20,42,0.35)]"
-      style={{ background: `radial-gradient(130% 150% at 50% -20%, ${COLORS.navy700}, ${COLORS.navyDeep} 70%)` }}
-      aria-label={`Matchup win probability ${data.winPct} percent. Projected ${t.win} winning, ${t.tossup} toss-up, ${t.loss} losing.`}
+    <span
+      className="flex shrink-0 items-center justify-center rounded-full bg-gradient-to-b from-navy-700 to-navy font-display font-bold text-white ring-2 ring-line"
+      style={{ width: size, height: size, fontSize: size * 0.34 }}
+      aria-hidden
     >
-      <span
-        aria-hidden
-        className="pointer-events-none absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-white/30 to-transparent"
-      />
-      <HexMesh par={par} />
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-x-0 bottom-0 h-2/3"
-        style={{ background: `radial-gradient(60% 90% at 50% 130%, ${COLORS.heat}22, transparent 70%)` }}
-      />
-      <div className="relative grid items-center gap-4 md:grid-cols-[1fr_auto_1fr]">
-        <TeamSide name={data.you.name} record={data.you.record} logo={data.you.logo} />
-        <div className="flex flex-col items-center">
-          <div className="font-display text-5xl font-extrabold leading-none" style={{ color: col }}>
-            <span className="tnum">{data.winPct}</span>
-            <span className="text-2xl">%</span>
-          </div>
-          <div className="mt-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-white/70">
-            Win Probability
-          </div>
-          <div className="tnum mt-2 flex items-center gap-2 text-[12px] font-semibold">
-            <span className="text-ok">{t.win} W</span>
-            <span className="text-warn">{t.tossup} Toss-Up</span>
-            <span className="text-ember">{t.loss} L</span>
-          </div>
-        </div>
-        <TeamSide name={data.opp.name} record={data.opp.record} logo={data.opp.logo} right />
-      </div>
-
-      {/* 12-category battle strip */}
-      <div className="relative mt-5 flex gap-1">
-        {data.categories.map((c) => {
-          const s = STATUS[catStatus(c.winPct)];
-          return (
-            <div
-              key={c.key}
-              className="flex-1 rounded-md py-1 text-center"
-              style={{ backgroundColor: `${s.bar}2e` }}
-              title={`${c.key}: ${c.winPct}% win`}
-            >
-              <div className="tnum text-[11px] font-bold" style={{ color: s.bar }}>
-                {c.key}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </section>
+      {initials(name)}
+    </span>
   );
 }
 
-function TeamSide({
-  name,
-  record,
-  logo,
-  right,
-}: {
-  name: string;
-  record: string;
-  logo: string;
-  right?: boolean;
-}) {
-  return (
-    <div className={cn("flex flex-col", right ? "items-end text-right" : "items-start")}>
-      <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/65">
-        {right ? "Opponent" : "You"}
-      </div>
-      <img
-        src={logo}
-        alt=""
-        aria-hidden
-        className="mt-2 size-12 rounded-full bg-white/5 shadow-[0_4px_14px_rgba(0,0,0,0.35)] ring-2 ring-white/20"
-      />
-      <div className="mt-2 font-display text-lg font-bold leading-tight text-chrome md:text-xl">{name}</div>
-      <div className="tnum mt-0.5 text-[13px] text-white/70">{record}</div>
-    </div>
-  );
+function stateColor(state: GameState): string {
+  if (state === "live") return "text-ok";
+  if (state === "sched") return "text-steel";
+  return "text-ink-3";
 }
 
-function CategoryBoard({ categories }: { categories: CatMatchup[] }) {
-  const hitting = categories.filter((c) => c.group === "Hitting");
-  const pitching = categories.filter((c) => c.group === "Pitching");
+/* ---------------- score header ---------------- */
+
+function ScoreHeader({ data }: { data: MatchupData }) {
   return (
     <Card className="p-5">
-      <div className="mb-3 flex items-center gap-2">
-        <Swords className="size-4 text-heat" aria-hidden />
-        <h2 className="font-display text-base font-bold text-navy">Category Breakdown</h2>
+      <div className="mb-4 flex flex-wrap items-center gap-2 border-b border-line pb-3">
+        <div className="flex items-center gap-1 rounded-full border border-line px-1">
+          <button className="flex size-7 items-center justify-center rounded-full text-ink-3 hover:bg-surface" aria-label="Previous week">
+            <ChevronLeft className="size-4" aria-hidden />
+          </button>
+          <span className="px-1 text-[13px] font-bold text-navy">Week {data.week}</span>
+          <button className="flex size-7 items-center justify-center rounded-full text-ink-3 hover:bg-surface" aria-label="Next week">
+            <ChevronRight className="size-4" aria-hidden />
+          </button>
+        </div>
+        <div className="flex flex-wrap items-center gap-1 text-[12.5px]">
+          {data.dateTabs.map((t, i) => (
+            <span
+              key={t}
+              className={cn(
+                "rounded-md px-2 py-1 font-semibold",
+                i === 0 ? "bg-navy text-white" : "text-ink-2 hover:bg-surface",
+              )}
+            >
+              {t}
+            </span>
+          ))}
+        </div>
       </div>
-      <CatTable title="Hitting" rows={hitting} />
-      <div className="mt-5">
-        <CatTable title="Pitching" rows={pitching} />
+
+      <div className="grid items-center gap-4 sm:grid-cols-[1fr_auto_1fr]">
+        <TeamHead team={data.you} trophy align="left" />
+        <div className="flex items-center justify-center gap-3 font-display">
+          <span className="tnum text-4xl font-extrabold text-navy">{data.you.score}</span>
+          <span className="text-[13px] font-semibold uppercase tracking-wide text-ink-3">vs</span>
+          <span className="tnum text-4xl font-extrabold text-ink-2">{data.opp.score}</span>
+        </div>
+        <TeamHead team={data.opp} align="right" />
       </div>
-      <p className="mt-3 text-[11px] text-ink-3">L, ERA, WHIP — lower is better.</p>
     </Card>
   );
 }
 
-function CatTable({ title, rows }: { title: string; rows: CatMatchup[] }) {
+function TeamHead({ team, trophy, align }: { team: TeamSide; trophy?: boolean; align: "left" | "right" }) {
+  const right = align === "right";
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full min-w-[520px]">
-        <thead>
-          <tr className="border-b border-line">
-            <Th left>{title}</Th>
-            <Th>You</Th>
-            <Th>Opp</Th>
-            <Th left>Win Probability</Th>
-            <Th>Status</Th>
-          </tr>
-        </thead>
-        <tbody className="text-[13px]">
-          {rows.map((c) => {
-            const s = STATUS[catStatus(c.winPct)];
-            const youBetter = c.winPct >= 50;
-            return (
-              <tr key={c.key} className="border-b border-line/60">
-                <td className="px-2.5 py-2.5">
-                  <span className="font-bold text-navy">{c.key}</span>
-                  {c.inverse && <span className="ml-1 text-[10px] text-ink-3">▼</span>}
-                </td>
-                <td className={cn("tnum px-2.5 py-2.5 text-right", youBetter ? "font-bold text-ink" : "text-ink-2")}>
-                  {c.you}
-                </td>
-                <td className={cn("tnum px-2.5 py-2.5 text-right", !youBetter ? "font-bold text-ink" : "text-ink-2")}>
-                  {c.opp}
-                </td>
-                <td className="px-2.5 py-2.5">
-                  <div className="flex items-center gap-2">
-                    <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-surface-2">
-                      <span
-                        className="block h-full rounded-full"
-                        style={{ width: `${c.winPct}%`, backgroundColor: s.bar }}
-                      />
-                    </div>
-                    <span className="tnum w-8 text-right text-[12px] font-semibold" style={{ color: s.bar }}>
-                      {c.winPct}%
-                    </span>
-                  </div>
-                </td>
-                <td className="px-2.5 py-2.5 text-right">
-                  <span className={cn("inline-flex rounded-md px-2 py-0.5 text-[11px] font-bold", s.bg, s.text)}>
-                    {s.label}
-                  </span>
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+    <div className={cn("flex items-center gap-3", right && "flex-row-reverse text-right")}>
+      <Avatar name={team.name} size={48} />
+      <div>
+        <div className={cn("flex items-center gap-1", right && "flex-row-reverse")}>
+          {trophy && <Trophy className="size-4" style={{ color: "#f0b429" }} aria-hidden />}
+          <span className="font-display text-lg font-bold text-navy">{team.name}</span>
+        </div>
+        <div className="text-[12px] text-ink-2">{team.manager}</div>
+        <div className="tnum text-[12px] text-ink-3">{team.record}</div>
+      </div>
     </div>
   );
 }
 
-function Th({ children, left }: { children: React.ReactNode; left?: boolean }) {
+/* ---------------- category totals ---------------- */
+
+function CatTotals({ data }: { data: MatchupData }) {
   return (
-    <th
-      scope="col"
-      className={cn(
-        "whitespace-nowrap px-2.5 py-2 text-[11px] font-bold uppercase tracking-wide text-navy",
-        left ? "text-left" : "text-right",
-      )}
-    >
-      {children}
-    </th>
+    <Card className="overflow-hidden p-0">
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[820px] text-[13px]">
+          <thead>
+            <tr className="border-b border-line bg-surface">
+              <th className="px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wide text-ink-3">Team</th>
+              {data.cats.map((c) => (
+                <th key={c.key} className="px-2 py-2 text-right text-[11px] font-bold uppercase tracking-wide text-ink-3">
+                  {c.key}
+                </th>
+              ))}
+              <th className="px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wide text-navy">Score</th>
+            </tr>
+          </thead>
+          <tbody>
+            <CatRow team={data.you} cats={data.cats} side="you" />
+            <CatRow team={data.opp} cats={data.cats} side="opp" />
+          </tbody>
+        </table>
+      </div>
+    </Card>
   );
 }
 
-function TargetCard({ categories }: { categories: CatMatchup[] }) {
-  const tossups = categories
-    .filter((c) => catStatus(c.winPct) === "tossup")
-    .sort((a, b) => Math.abs(50 - a.winPct) - Math.abs(50 - b.winPct));
+function CatRow({ team, cats, side }: { team: TeamSide; cats: CatCol[]; side: "you" | "opp" }) {
   return (
-    <Card className="p-4">
-      <div className="mb-2 flex items-center gap-2 text-[12px] font-bold uppercase tracking-wider text-navy">
-        <Target className="size-4 text-heat" aria-hidden />
-        Toss-Ups To Target
+    <tr className="border-b border-line/60 last:border-0">
+      <td className="whitespace-nowrap px-3 py-2.5 font-bold text-navy">{team.name}</td>
+      {cats.map((c) => {
+        const val = side === "you" ? c.you : c.opp;
+        const wins = c.win === side;
+        return (
+          <td
+            key={c.key}
+            className={cn("tnum px-2 py-2.5 text-right", wins ? "bg-heat/10 font-bold text-navy" : "text-ink-2")}
+          >
+            {val}
+          </td>
+        );
+      })}
+      <td className="tnum px-3 py-2.5 text-right font-display text-base font-extrabold text-navy">{team.score}</td>
+    </tr>
+  );
+}
+
+/* ---------------- roster compare ---------------- */
+
+function RosterCompare({
+  title,
+  columns,
+  rows,
+  totals,
+  you,
+  opp,
+}: {
+  title: string;
+  columns: string[];
+  rows: RosterRow[];
+  totals: { you: string[]; opp: string[] };
+  you: string;
+  opp: string;
+}) {
+  return (
+    <Card className="overflow-hidden p-0">
+      <div className="border-b border-line bg-surface px-4 py-2.5">
+        <h2 className="font-display text-sm font-bold text-navy">{title}</h2>
       </div>
-      {tossups.length === 0 ? (
-        <p className="text-[13px] text-ink-2">No coin-flip categories this week.</p>
-      ) : (
-        <ul className="space-y-2">
-          {tossups.map((c) => (
-            <li key={c.key} className="flex items-center justify-between rounded-lg bg-surface px-3 py-2">
-              <span className="font-bold text-navy">{c.key}</span>
-              <span className="tnum text-[12px] text-ink-2">
-                {c.you} <span className="text-ink-3">vs</span> {c.opp}
-              </span>
-              <span className="tnum text-[12px] font-bold text-warn">{c.winPct}%</span>
-            </li>
-          ))}
-        </ul>
-      )}
-      <p className="mt-2 text-[11px] text-ink-3">
-        These are within reach — winning them flips the matchup.
-      </p>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[1040px] text-[12.5px]">
+          <thead>
+            <tr className="border-b border-line text-[10.5px] font-bold uppercase tracking-wide text-ink-3">
+              <th className="px-3 py-2 text-left">Player</th>
+              {columns.map((c) => (
+                <th key={`yl-${c}`} className="px-1.5 py-2 text-right">{c}</th>
+              ))}
+              <th className="bg-surface px-2 py-2 text-center text-navy">Pos</th>
+              <th className="px-3 py-2 text-left">Player</th>
+              {columns.map((c) => (
+                <th key={`or-${c}`} className="px-1.5 py-2 text-right">{c}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, i) => (
+              <tr key={i} className="border-b border-line/60">
+                <PlayerCell p={row.you} rosteredBy={you} />
+                <StatCells p={row.you} />
+                <td className="bg-surface px-2 py-2 text-center font-bold text-navy">{row.slot}</td>
+                <PlayerCell p={row.opp} rosteredBy={opp} />
+                <StatCells p={row.opp} />
+              </tr>
+            ))}
+            <tr className="border-t-2 border-line bg-surface font-bold text-navy">
+              <td className="px-3 py-2.5">TOTAL</td>
+              {totals.you.map((v, i) => (
+                <td key={`yt-${i}`} className="tnum px-1.5 py-2.5 text-right">{v}</td>
+              ))}
+              <td className="bg-surface-2" />
+              <td className="px-3 py-2.5">TOTAL</td>
+              {totals.opp.map((v, i) => (
+                <td key={`ot-${i}`} className="tnum px-1.5 py-2.5 text-right">{v}</td>
+              ))}
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </Card>
+  );
+}
+
+function PlayerCell({ p, rosteredBy }: { p: MatchPlayer | null; rosteredBy: string }) {
+  if (!p) {
+    return <td className="px-3 py-2 text-[12px] italic text-ink-3">Empty</td>;
+  }
+  return (
+    <td className="px-3 py-2 align-top">
+      <div className="flex flex-wrap items-center gap-x-1">
+        <PlayerLink
+          player={{ name: p.name, pos: p.pos, teamAbbr: p.teamAbbr, teamId: p.teamId, mlbId: p.mlbId, rosteredBy }}
+          className="text-[12.5px]"
+        />
+        <span className="tnum text-[10.5px] text-ink-3">
+          {p.teamAbbr} · {p.pos}
+        </span>
+        {p.badge && (
+          <span
+            className={cn(
+              "rounded px-1 text-[9px] font-bold",
+              p.badge === "IL" ? "bg-ember/12 text-ember" : "bg-warn/15 text-warn",
+            )}
+          >
+            {p.badge}
+          </span>
+        )}
+      </div>
+      <div className={cn("text-[10.5px]", stateColor(p.state))}>{p.status}</div>
+    </td>
+  );
+}
+
+function StatCells({ p }: { p: MatchPlayer | null }) {
+  const vals = p ? p.stats : ["-", "-", "-", "-", "-", "-", "-"];
+  return (
+    <>
+      {vals.map((v, i) => (
+        <td
+          key={i}
+          className={cn("tnum px-1.5 py-2 text-right align-top", v === "-" ? "text-ink-3" : "text-ink")}
+        >
+          {v}
+        </td>
+      ))}
+    </>
+  );
+}
+
+/* ---------------- league matchups ---------------- */
+
+function LeagueMatchups({ data }: { data: MatchupData }) {
+  return (
+    <Card className="overflow-hidden p-0">
+      <div className="flex items-center justify-between border-b border-line bg-surface px-4 py-2.5">
+        <h2 className="font-display text-sm font-bold text-navy">Week {data.week} Matchups</h2>
+        <span className="text-[11px] font-semibold uppercase tracking-wide text-ok">In Progress</span>
+      </div>
+      <ul>
+        {data.league.map((m, i) => (
+          <li
+            key={i}
+            className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 border-b border-line/60 px-4 py-3 last:border-0"
+          >
+            <LeagueTeamCell team={m.a} align="right" trophy={i === 0} winner={m.a.score > m.b.score} />
+            <div className="tnum flex items-center gap-2 font-display text-lg font-extrabold">
+              <span className={m.a.score > m.b.score ? "text-navy" : "text-ink-3"}>{m.a.score}</span>
+              <span className="text-[11px] font-semibold text-ink-3">–</span>
+              <span className={m.b.score > m.a.score ? "text-navy" : "text-ink-3"}>{m.b.score}</span>
+            </div>
+            <LeagueTeamCell team={m.b} align="left" winner={m.b.score > m.a.score} />
+          </li>
+        ))}
+      </ul>
+    </Card>
+  );
+}
+
+function LeagueTeamCell({
+  team,
+  align,
+  trophy,
+  winner,
+}: {
+  team: LeagueTeam;
+  align: "left" | "right";
+  trophy?: boolean;
+  winner?: boolean;
+}) {
+  const right = align === "right";
+  return (
+    <div className={cn("flex min-w-0 items-center gap-2.5", right ? "flex-row-reverse text-right" : "text-left")}>
+      <Avatar name={team.name} size={34} />
+      <div className="min-w-0">
+        <div className={cn("flex items-center gap-1", right && "flex-row-reverse")}>
+          {trophy && <Trophy className="size-3.5 shrink-0" style={{ color: "#f0b429" }} aria-hidden />}
+          <span className={cn("truncate font-bold", winner ? "text-navy" : "text-ink")}>{team.name}</span>
+        </div>
+        <div className="tnum truncate text-[11px] text-ink-3">
+          {team.manager} · {team.record}
+        </div>
+      </div>
+    </div>
   );
 }
 
 function LoadingView() {
   return (
     <div className="space-y-6">
-      <Skeleton className="h-14 w-64" />
-      <Skeleton className="h-44 w-full rounded-2xl" />
-      <div className="grid gap-6 lg:grid-cols-[1fr_300px]">
-        <Skeleton className="h-96 w-full rounded-2xl" />
-        <Skeleton className="h-60 w-full rounded-2xl" />
-      </div>
+      <Skeleton className="h-32 w-full rounded-2xl" />
+      <Skeleton className="h-20 w-full rounded-2xl" />
+      <Skeleton className="h-96 w-full rounded-2xl" />
+      <Skeleton className="h-96 w-full rounded-2xl" />
     </div>
   );
 }
