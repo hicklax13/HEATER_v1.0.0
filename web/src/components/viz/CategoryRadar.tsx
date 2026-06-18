@@ -6,7 +6,7 @@ import { COLORS } from "@/lib/tokens";
  */
 export function CategoryRadar({
   data,
-  size = 240,
+  size = 264,
 }: {
   data: { cat: string; you: number }[];
   size?: number;
@@ -14,7 +14,7 @@ export function CategoryRadar({
   const n = data.length;
   const cx = size / 2;
   const cy = size / 2;
-  const R = size / 2 - 32; // room for axis labels
+  const R = size / 2 - 34; // room for axis labels
   const ang = (i: number) => (-90 + (i * 360) / n) * (Math.PI / 180);
   const pt = (i: number, r: number): [number, number] => [cx + r * Math.cos(ang(i)), cy + r * Math.sin(ang(i))];
   const poly = (vals: number[]) =>
@@ -29,6 +29,12 @@ export function CategoryRadar({
 
   return (
     <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} role="img" aria-label="Win percentage by category">
+      <defs>
+        <radialGradient id="radar-fill" cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stopColor={COLORS.heat} stopOpacity={0.34} />
+          <stop offset="100%" stopColor={COLORS.heat} stopOpacity={0.06} />
+        </radialGradient>
+      </defs>
       {rings.map((rg) => (
         <polygon key={rg} points={poly(data.map(() => rg))} fill="none" stroke={COLORS.line} strokeWidth={1} />
       ))}
@@ -48,15 +54,25 @@ export function CategoryRadar({
       {/* your shape */}
       <polygon
         points={poly(data.map((d) => d.you))}
-        fill={COLORS.heat}
-        fillOpacity={0.18}
+        fill="url(#radar-fill)"
         stroke={COLORS.heat}
         strokeWidth={2}
         strokeLinejoin="round"
+        style={{ filter: "drop-shadow(0 0 6px rgba(255,92,16,0.35))" }}
       />
       {data.map((d, i) => {
         const [x, y] = pt(i, (Math.max(0, Math.min(100, d.you)) / 100) * R);
-        return <circle key={`d${i}`} cx={x} cy={y} r={2.6} fill={COLORS.heat} />;
+        return (
+          <circle
+            key={`d${i}`}
+            cx={x}
+            cy={y}
+            r={3.2}
+            fill={COLORS.heat}
+            stroke={COLORS.canvas}
+            strokeWidth={1.5}
+          />
+        );
       })}
       {/* axis labels */}
       {data.map((d, i) => {
