@@ -1,7 +1,7 @@
 "use client";
 
 import type { LineupSlot, SlotStatus } from "@/lib/optimizer-data";
-import { PlayerLink } from "@/components/player/PlayerLink";
+import { PlayerDialog } from "@/components/player/PlayerDialog";
 import { PlayerAvatar } from "@/components/ui/PlayerAvatar";
 import { cn } from "@/lib/utils";
 
@@ -30,18 +30,29 @@ export function LineupTable({ slots }: { slots: LineupSlot[] }) {
           {slots.map((s, i) => {
             const st = STATUS[s.status];
             return (
-              <tr key={i} className={cn("border-b border-line/60", s.status === "off" && "opacity-60")}>
+              <tr
+                key={i}
+                className={cn(
+                  "border-b border-line/60 transition-colors duration-[var(--dur-1)] hover:bg-surface/60",
+                  s.status === "off" && "opacity-60",
+                )}
+              >
                 <td className="tnum px-2.5 py-2.5 font-bold text-navy">{s.slot}</td>
-                <td className="px-2.5 py-2.5">
-                  <div className="flex items-center gap-2">
-                    <PlayerAvatar mlbId={s.player.mlbId} teamId={s.player.teamId} name={s.player.name} size={26} />
-                    <div className="min-w-0">
-                      <PlayerLink player={s.player} className="text-[13px]" />
-                      <div className="tnum text-[10.5px] text-ink-3">
-                        {s.player.pos} · {s.player.teamAbbr}
-                      </div>
-                    </div>
-                  </div>
+                <td className="p-0">
+                  <PlayerDialog player={s.player}>
+                    <button
+                      type="button"
+                      className="flex w-full items-center gap-2 rounded px-2.5 py-2.5 text-left transition-colors hover:bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-heat/50"
+                    >
+                      <PlayerAvatar mlbId={s.player.mlbId} teamId={s.player.teamId} name={s.player.name} size={26} />
+                      <span className="min-w-0">
+                        <span className="block text-[13px] font-semibold text-navy">{s.player.name}</span>
+                        <span className="tnum block text-[10.5px] text-ink-3">
+                          {s.player.pos} · {s.player.teamAbbr}
+                        </span>
+                      </span>
+                    </button>
+                  </PlayerDialog>
                 </td>
                 <td className="tnum px-2.5 py-2.5 text-ink-2">{s.matchup}</td>
                 <td className="px-2.5 py-2.5">

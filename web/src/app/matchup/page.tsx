@@ -18,7 +18,7 @@ import { Card } from "@/components/ui/Card";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { HexMesh } from "@/components/ui/HexMesh";
 import { CategoryBattle } from "@/components/viz/CategoryBattle";
-import { PlayerLink } from "@/components/player/PlayerLink";
+import { PlayerDialog } from "@/components/player/PlayerDialog";
 import { cn } from "@/lib/utils";
 import { staggerContainer, staggerItem } from "@/lib/motion";
 
@@ -267,7 +267,10 @@ function RosterCompare({
           </thead>
           <tbody>
             {rows.map((row, i) => (
-              <tr key={i} className="border-b border-line/60">
+              <tr
+                key={i}
+                className="border-b border-line/60 transition-colors duration-[var(--dur-1)] hover:bg-surface/60"
+              >
                 <PlayerCell p={row.you} rosteredBy={you} />
                 <StatCells p={row.you} />
                 <td className="bg-surface px-2 py-2 text-center font-bold text-navy">{row.slot}</td>
@@ -298,27 +301,30 @@ function PlayerCell({ p, rosteredBy }: { p: MatchPlayer | null; rosteredBy: stri
     return <td className="px-3 py-2 text-[12px] italic text-ink-3">Empty</td>;
   }
   return (
-    <td className="px-3 py-2 align-top">
-      <div className="flex flex-wrap items-center gap-x-1">
-        <PlayerLink
-          player={{ name: p.name, pos: p.pos, teamAbbr: p.teamAbbr, teamId: p.teamId, mlbId: p.mlbId, rosteredBy }}
-          className="text-[12.5px]"
-        />
-        <span className="tnum text-[10.5px] text-ink-3">
-          {p.teamAbbr} · {p.pos}
-        </span>
-        {p.badge && (
-          <span
-            className={cn(
-              "rounded px-1 text-[9px] font-bold",
-              p.badge === "IL" ? "bg-ember/12 text-ember" : "bg-warn/15 text-warn",
+    <td className="p-0 align-top">
+      <PlayerDialog
+        player={{ name: p.name, pos: p.pos, teamAbbr: p.teamAbbr, teamId: p.teamId, mlbId: p.mlbId, rosteredBy }}
+      >
+        <button className="flex w-full flex-col items-start gap-0.5 rounded px-3 py-2 text-left align-top transition-colors hover:bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-heat/50">
+          <span className="flex flex-wrap items-center gap-x-1">
+            <span className="text-[12.5px] font-semibold text-navy">{p.name}</span>
+            <span className="tnum text-[10.5px] text-ink-3">
+              {p.teamAbbr} · {p.pos}
+            </span>
+            {p.badge && (
+              <span
+                className={cn(
+                  "rounded px-1 text-[9px] font-bold",
+                  p.badge === "IL" ? "bg-ember/12 text-ember" : "bg-warn/15 text-warn",
+                )}
+              >
+                {p.badge}
+              </span>
             )}
-          >
-            {p.badge}
           </span>
-        )}
-      </div>
-      <div className={cn("text-[10.5px]", stateColor(p.state))}>{p.status}</div>
+          <span className={cn("text-[10.5px]", stateColor(p.state))}>{p.status}</span>
+        </button>
+      </PlayerDialog>
     </td>
   );
 }

@@ -8,7 +8,7 @@ import { staggerContainer, staggerItem } from "@/lib/motion";
 import { Footer } from "@/components/chrome/Footer";
 import { Card } from "@/components/ui/Card";
 import { Skeleton } from "@/components/ui/Skeleton";
-import { PlayerLink } from "@/components/player/PlayerLink";
+import { PlayerDialog } from "@/components/player/PlayerDialog";
 import { PlayerAvatar } from "@/components/ui/PlayerAvatar";
 import { COLORS } from "@/lib/tokens";
 import { cn } from "@/lib/utils";
@@ -199,19 +199,21 @@ function FATable({ rows, need }: { rows: FreeAgent[]; need: string }) {
             const up = p.ownDelta > 0;
             const DeltaIcon = up ? ArrowUp : ArrowDown;
             return (
-              <tr key={p.mlbId} className="border-b border-line/60">
+              <tr key={p.mlbId} className="border-b border-line/60 transition-colors duration-[var(--dur-1)] hover:bg-surface/60">
                 <td className="tnum px-2.5 py-2.5 text-center font-bold text-ink-3">{p.rank}</td>
-                <td className="px-2.5 py-2.5">
-                  <div className="flex items-center gap-2">
-                    <PlayerAvatar mlbId={p.mlbId} teamId={p.teamId} name={p.name} size={28} />
-                    <div className="min-w-0">
-                      <PlayerLink player={{ ...p, rosteredBy: "Free Agent" }} className="text-[13px]" />
-                      <div className="tnum text-[10.5px] text-ink-3">
-                        {p.pos} · {p.teamAbbr}
-                        {p.tag && <span className="ml-1 font-semibold text-heat">· {p.tag}</span>}
-                      </div>
-                    </div>
-                  </div>
+                <td className="p-0">
+                  <PlayerDialog player={{ ...p, rosteredBy: "Free Agent" }}>
+                    <button className="flex w-full items-center gap-2 rounded px-2.5 py-2.5 text-left transition-colors hover:bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-heat/50">
+                      <PlayerAvatar mlbId={p.mlbId} teamId={p.teamId} name={p.name} size={28} />
+                      <span className="min-w-0">
+                        <span className="block truncate text-[13px] font-semibold text-navy">{p.name}</span>
+                        <span className="tnum block text-[10.5px] text-ink-3">
+                          {p.pos} · {p.teamAbbr}
+                          {p.tag && <span className="ml-1 font-semibold text-heat">· {p.tag}</span>}
+                        </span>
+                      </span>
+                    </button>
+                  </PlayerDialog>
                 </td>
                 <td className="px-2.5 py-2.5">
                   <div className="tnum flex gap-3 text-ink-2">

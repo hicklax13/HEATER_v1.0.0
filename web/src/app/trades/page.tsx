@@ -8,7 +8,7 @@ import { staggerContainer, staggerItem } from "@/lib/motion";
 import { Footer } from "@/components/chrome/Footer";
 import { Card } from "@/components/ui/Card";
 import { Skeleton } from "@/components/ui/Skeleton";
-import { PlayerLink } from "@/components/player/PlayerLink";
+import { PlayerDialog } from "@/components/player/PlayerDialog";
 import { PlayerAvatar } from "@/components/ui/PlayerAvatar";
 import { cn } from "@/lib/utils";
 
@@ -160,13 +160,15 @@ function Side({
       </div>
       <div className="space-y-1.5">
         {players.map((p) => (
-          <div key={p.name} className="flex items-center gap-2 rounded-lg border border-line bg-surface px-2.5 py-1.5">
-            <PlayerAvatar mlbId={p.mlbId} teamId={p.teamId} name={p.name} size={28} />
-            <div className="min-w-0">
-              <PlayerLink player={{ ...p, rosteredBy }} className="text-[13px]" />
-              <div className="tnum text-[10.5px] text-ink-3">{p.keyStat}</div>
-            </div>
-          </div>
+          <PlayerDialog key={p.name} player={{ ...p, rosteredBy }}>
+            <button className="flex w-full items-center gap-2 rounded-lg border border-line bg-surface px-2.5 py-1.5 text-left transition-colors duration-[var(--dur-1)] hover:border-heat/40 hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-heat/50">
+              <PlayerAvatar mlbId={p.mlbId} teamId={p.teamId} name={p.name} size={28} />
+              <span className="min-w-0">
+                <span className="block truncate text-[13px] font-semibold text-navy">{p.name}</span>
+                <span className="tnum block text-[10.5px] text-ink-3">{p.keyStat}</span>
+              </span>
+            </button>
+          </PlayerDialog>
         ))}
       </div>
     </div>
