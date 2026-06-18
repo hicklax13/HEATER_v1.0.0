@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useReducedMotion } from "framer-motion";
 import { Swords, Target } from "lucide-react";
 import {
   fetchMatchup,
@@ -13,6 +14,7 @@ import { Footer } from "@/components/chrome/Footer";
 import { Card } from "@/components/ui/Card";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { COLORS, heatColor } from "@/lib/tokens";
+import { HEX } from "@/lib/hex";
 import { cn } from "@/lib/utils";
 
 /* eslint-disable @next/next/no-img-element -- local SVG team crests */
@@ -92,13 +94,40 @@ function Header({ data }: { data: MatchupData }) {
 function Hero({ data }: { data: MatchupData }) {
   const t = tally(data.categories);
   const col = heatColor(data.winPct);
+  const reduce = useReducedMotion();
+  const [par, setPar] = useState({ x: 0, y: 0 });
+  const onMove = (e: React.MouseEvent<HTMLElement>) => {
+    if (reduce) return;
+    const r = e.currentTarget.getBoundingClientRect();
+    setPar({ x: ((e.clientX - r.left) / r.width - 0.5) * 8, y: ((e.clientY - r.top) / r.height - 0.5) * 8 });
+  };
   return (
     <section
+      onMouseMove={onMove}
+      onMouseLeave={() => setPar({ x: 0, y: 0 })}
       className="relative overflow-hidden rounded-2xl border border-white/10 p-6 text-chrome shadow-[0_24px_60px_rgba(9,20,42,0.35)]"
       style={{ background: `radial-gradient(130% 150% at 50% -20%, ${COLORS.navy700}, ${COLORS.navyDeep} 70%)` }}
       aria-label={`Matchup win probability ${data.winPct} percent. Projected ${t.win} winning, ${t.tossup} toss-up, ${t.loss} losing.`}
     >
-      <div className="grid items-center gap-4 md:grid-cols-[1fr_auto_1fr]">
+      <span
+        aria-hidden
+        className="pointer-events-none absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-white/30 to-transparent"
+      />
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 motion-safe:animate-[ember-drift_22s_linear_infinite]"
+        style={{
+          backgroundImage: `url("${HEX}")`,
+          backgroundSize: "34px 59px",
+          transform: `translate(${par.x}px, ${par.y}px)`,
+        }}
+      />
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 bottom-0 h-2/3"
+        style={{ background: `radial-gradient(60% 90% at 50% 130%, ${COLORS.heat}22, transparent 70%)` }}
+      />
+      <div className="relative grid items-center gap-4 md:grid-cols-[1fr_auto_1fr]">
         <TeamSide name={data.you.name} record={data.you.record} logo={data.you.logo} />
         <div className="flex flex-col items-center">
           <div className="font-display text-5xl font-extrabold leading-none" style={{ color: col }}>
