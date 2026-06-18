@@ -116,6 +116,68 @@
         "title": "ClosersResponse",
         "type": "object"
       },
+      "ComparePlayer": {
+        "properties": {
+          "player": {
+            "$ref": "#/components/schemas/PlayerRef"
+          },
+          "stats": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "default": {},
+            "title": "Stats",
+            "type": "object"
+          }
+        },
+        "required": [
+          "player"
+        ],
+        "title": "ComparePlayer",
+        "type": "object"
+      },
+      "CompareResponse": {
+        "properties": {
+          "categories": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Categories",
+            "type": "array"
+          },
+          "players": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ComparePlayer"
+            },
+            "title": "Players",
+            "type": "array"
+          }
+        },
+        "title": "CompareResponse",
+        "type": "object"
+      },
+      "DatabankResponse": {
+        "properties": {
+          "player": {
+            "$ref": "#/components/schemas/PlayerRef"
+          },
+          "seasons": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/SeasonStat"
+            },
+            "title": "Seasons",
+            "type": "array"
+          }
+        },
+        "required": [
+          "player"
+        ],
+        "title": "DatabankResponse",
+        "type": "object"
+      },
       "FreeAgentRec": {
         "properties": {
           "add": {
@@ -610,6 +672,27 @@
         "title": "PuntResponse",
         "type": "object"
       },
+      "SeasonStat": {
+        "properties": {
+          "stats": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "default": {},
+            "title": "Stats",
+            "type": "object"
+          },
+          "year": {
+            "title": "Year",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "year"
+        ],
+        "title": "SeasonStat",
+        "type": "object"
+      },
       "StandingsResponse": {
         "properties": {
           "teams": {
@@ -869,6 +952,66 @@
         "title": "TradeEvaluationResponse",
         "type": "object"
       },
+      "TradeFinderResponse": {
+        "properties": {
+          "suggestions": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/TradeSuggestion"
+            },
+            "title": "Suggestions",
+            "type": "array"
+          },
+          "team_name": {
+            "title": "Team Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "team_name"
+        ],
+        "title": "TradeFinderResponse",
+        "type": "object"
+      },
+      "TradeSuggestion": {
+        "properties": {
+          "giving": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/PlayerRef"
+            },
+            "title": "Giving",
+            "type": "array"
+          },
+          "net_sgp": {
+            "default": 0.0,
+            "title": "Net Sgp",
+            "type": "number"
+          },
+          "partner_team": {
+            "title": "Partner Team",
+            "type": "string"
+          },
+          "rationale": {
+            "default": "",
+            "title": "Rationale",
+            "type": "string"
+          },
+          "receiving": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/PlayerRef"
+            },
+            "title": "Receiving",
+            "type": "array"
+          }
+        },
+        "required": [
+          "partner_team"
+        ],
+        "title": "TradeSuggestion",
+        "type": "object"
+      },
       "ValidationError": {
         "properties": {
           "loc": {
@@ -928,6 +1071,92 @@
         "summary": "Get Closers",
         "tags": [
           "closers"
+        ]
+      }
+    },
+    "/api/compare": {
+      "get": {
+        "operationId": "get_compare_api_compare_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "ids",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Ids",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompareResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Compare",
+        "tags": [
+          "compare"
+        ]
+      }
+    },
+    "/api/databank": {
+      "get": {
+        "operationId": "get_databank_api_databank_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "player_id",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "title": "Player Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatabankResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Databank",
+        "tags": [
+          "databank"
         ]
       }
     },
@@ -1282,6 +1511,59 @@
         "summary": "Get Streaming",
         "tags": [
           "streaming"
+        ]
+      }
+    },
+    "/api/trade-finder": {
+      "get": {
+        "operationId": "get_trade_finder_api_trade_finder_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "team_name",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Team Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 10,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TradeFinderResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Trade Finder",
+        "tags": [
+          "trade-finder"
         ]
       }
     },
