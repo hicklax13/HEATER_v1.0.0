@@ -16,6 +16,7 @@ import { OpsCards } from "@/components/myteam/OpsCards";
 import { SeasonTrajectory } from "@/components/myteam/SeasonTrajectory";
 import { WinProbTrend } from "@/components/viz/WinProbTrend";
 import { Card } from "@/components/ui/Card";
+import { EmptyState } from "@/components/ui/EmptyState";
 import { Skeleton } from "@/components/ui/Skeleton";
 
 type State =
@@ -177,35 +178,34 @@ function LoadingView() {
 
 function ErrorView({ onRetry }: { onRetry: () => void }) {
   return (
-    <Card className="mx-auto mt-10 max-w-md p-8 text-center">
-      <div className="mx-auto flex size-12 items-center justify-center rounded-full bg-ember/10">
-        <RefreshCw className="size-5 text-ember" aria-hidden />
-      </div>
-      <h2 className="mt-4 font-display text-lg font-bold text-navy">We couldn&apos;t load your team</h2>
-      <p className="mt-1 text-sm text-ink-2">
-        The data service didn&apos;t respond. Your roster is safe — try again.
-      </p>
-      <button
-        onClick={onRetry}
-        className="mt-5 inline-flex min-h-11 items-center gap-2 rounded-xl bg-gradient-to-b from-[#ff7a2e] to-heat px-5 text-sm font-semibold text-white shadow-[0_6px_16px_rgba(255,92,16,0.32)] transition-transform duration-[var(--dur-1)] hover:scale-[1.02] active:scale-95 motion-reduce:transform-none"
-      >
-        <RefreshCw className="size-4" aria-hidden />
-        Retry
-      </button>
+    <Card className="mx-auto mt-10 max-w-md">
+      <EmptyState
+        icon={RefreshCw}
+        tone="error"
+        title="We couldn't load your team"
+        body="The data service didn't respond. Your roster is safe — try again."
+        action={
+          <button
+            onClick={onRetry}
+            className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-gradient-to-b from-[#ff7a2e] to-heat px-5 text-sm font-semibold text-white shadow-[0_6px_16px_rgba(255,92,16,0.32)] transition-transform duration-[var(--dur-1)] hover:scale-[1.02] active:scale-95 motion-reduce:transform-none"
+          >
+            <RefreshCw className="size-4" aria-hidden />
+            Retry
+          </button>
+        }
+      />
     </Card>
   );
 }
 
 function EmptyView() {
   return (
-    <Card className="mx-auto mt-10 max-w-md p-8 text-center">
-      <div className="mx-auto flex size-12 items-center justify-center rounded-full bg-surface-2">
-        <Inbox className="size-5 text-ink-3" aria-hidden />
-      </div>
-      <h2 className="mt-4 font-display text-lg font-bold text-navy">No team data yet</h2>
-      <p className="mt-1 text-sm text-ink-2">
-        Connect your Yahoo league and we&apos;ll build your dashboard automatically.
-      </p>
+    <Card className="mx-auto mt-10 max-w-md">
+      <EmptyState
+        icon={Inbox}
+        title="No team data yet"
+        body="Connect your Yahoo league and we'll build your dashboard automatically."
+      />
     </Card>
   );
 }

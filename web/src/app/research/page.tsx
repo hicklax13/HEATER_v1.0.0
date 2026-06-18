@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { Flame, Snowflake, TrendingUp, TrendingDown, ArrowUp, ArrowDown, Minus, Search } from "lucide-react";
+import { Flame, Snowflake, TrendingUp, TrendingDown, ArrowUp, ArrowDown, Minus, Search, SearchX } from "lucide-react";
 import { fetchResearch, type ResearchData, type LeaderRow, type Lens } from "@/lib/research-data";
 import { staggerContainer, staggerItem } from "@/lib/motion";
 import { Footer } from "@/components/chrome/Footer";
@@ -10,6 +10,7 @@ import { Card } from "@/components/ui/Card";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { PlayerDialog } from "@/components/player/PlayerDialog";
 import { PlayerAvatar } from "@/components/ui/PlayerAvatar";
+import { EmptyState } from "@/components/ui/EmptyState";
 import { cn } from "@/lib/utils";
 
 const LENSES: { key: Lens; label: string }[] = [
@@ -144,7 +145,13 @@ function Toolbar({
 
 function LeaderTable({ rows }: { rows: LeaderRow[] }) {
   if (rows.length === 0) {
-    return <p className="py-8 text-center text-[13px] text-ink-3">No players match this lens.</p>;
+    return (
+      <EmptyState
+        icon={SearchX}
+        title="No players match"
+        body="Try a different lens or search a different name."
+      />
+    );
   }
   return (
     <div className="overflow-x-auto">
