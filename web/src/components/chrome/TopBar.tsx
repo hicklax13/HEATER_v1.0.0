@@ -24,7 +24,7 @@ const NAV = [
   { label: "Team", href: "/" },
   { label: "Optimizer", href: "/optimizer" },
   { label: "Matchup", href: "/matchup" },
-  { label: "Trades", href: "#" },
+  { label: "Trades", href: "/trades" },
   { label: "Players", href: "/players" },
   { label: "Research", href: "#" },
 ];
