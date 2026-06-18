@@ -14,6 +14,7 @@ import {
   Settings,
   Sparkles,
   LogOut,
+  Menu,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -55,6 +56,41 @@ export function TopBar() {
             className="h-[48px] w-auto drop-shadow-[0_3px_9px_rgba(0,0,0,0.45)] transition-transform duration-[var(--dur-1)] group-hover:scale-[1.04] motion-reduce:transform-none"
           />
         </Link>
+
+        {/* mobile nav — hamburger dropdown (desktop uses the inline <nav> below) */}
+        <DropdownMenu.Root>
+          <DropdownMenu.Trigger
+            aria-label="Open navigation menu"
+            className="flex size-10 items-center justify-center rounded-lg text-white/80 transition-colors hover:bg-white/10 md:hidden"
+          >
+            <Menu className="size-6" aria-hidden />
+          </DropdownMenu.Trigger>
+          <DropdownMenu.Portal>
+            <DropdownMenu.Content
+              align="start"
+              sideOffset={10}
+              className="z-50 min-w-[210px] rounded-xl border border-white/10 bg-navy p-1.5 text-chrome shadow-[0_20px_60px_rgba(0,0,0,0.5)]"
+            >
+              {NAV.map((n) => {
+                const active = n.label === activeLabel;
+                return (
+                  <DropdownMenu.Item key={n.label} asChild>
+                    <Link
+                      href={n.href}
+                      aria-current={active ? "page" : undefined}
+                      className={cn(
+                        "flex min-h-11 cursor-pointer items-center rounded-lg px-3 py-2 text-sm font-semibold outline-none transition-colors data-[highlighted]:bg-white/10",
+                        active ? "text-heat" : "text-chrome",
+                      )}
+                    >
+                      {n.label}
+                    </Link>
+                  </DropdownMenu.Item>
+                );
+              })}
+            </DropdownMenu.Content>
+          </DropdownMenu.Portal>
+        </DropdownMenu.Root>
 
         <nav
           className="ml-1 hidden items-center gap-1 md:flex"
