@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { motion } from "framer-motion";
 import { ArrowRight, ArrowUp, ArrowDown, TrendingUp, Plus } from "lucide-react";
 import { fetchTrades, type TradesData, type TradeRec, type TradePlayer, type CatImpact } from "@/lib/trades-data";
+import { staggerContainer, staggerItem } from "@/lib/motion";
 import { Footer } from "@/components/chrome/Footer";
 import { Card } from "@/components/ui/Card";
 import { Skeleton } from "@/components/ui/Skeleton";
@@ -31,14 +33,18 @@ export default function TradesPage() {
         {!data ? (
           <LoadingView />
         ) : (
-          <div className="space-y-6">
-            <Header needs={data.needs} count={data.recs.length} />
-            <div className="space-y-4">
-              {data.recs.map((rec) => (
-                <TradeCard key={rec.id} rec={rec} />
-              ))}
-            </div>
-          </div>
+          <motion.div variants={staggerContainer} initial="hidden" animate="show" className="space-y-6">
+            <motion.div variants={staggerItem}>
+              <Header needs={data.needs} count={data.recs.length} />
+            </motion.div>
+            <motion.div variants={staggerItem}>
+              <div className="space-y-4">
+                {data.recs.map((rec) => (
+                  <TradeCard key={rec.id} rec={rec} />
+                ))}
+              </div>
+            </motion.div>
+          </motion.div>
         )}
       </main>
       <Footer freshnessMinutes={9} />

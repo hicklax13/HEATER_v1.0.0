@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { motion } from "framer-motion";
 import { Flame, Snowflake, TrendingUp, TrendingDown, ArrowUp, ArrowDown, Minus, Search } from "lucide-react";
 import { fetchResearch, type ResearchData, type LeaderRow, type Lens } from "@/lib/research-data";
+import { staggerContainer, staggerItem } from "@/lib/motion";
 import { Footer } from "@/components/chrome/Footer";
 import { Card } from "@/components/ui/Card";
 import { Skeleton } from "@/components/ui/Skeleton";
@@ -56,13 +58,17 @@ export default function ResearchPage() {
         {!data ? (
           <LoadingView />
         ) : (
-          <div className="space-y-6">
-            <Header />
-            <Card className="p-5">
-              <Toolbar lens={lens} setLens={setLens} query={query} setQuery={setQuery} shown={rows.length} />
-              <LeaderTable rows={rows} />
-            </Card>
-          </div>
+          <motion.div variants={staggerContainer} initial="hidden" animate="show" className="space-y-6">
+            <motion.div variants={staggerItem}>
+              <Header />
+            </motion.div>
+            <motion.div variants={staggerItem}>
+              <Card className="p-5">
+                <Toolbar lens={lens} setLens={setLens} query={query} setQuery={setQuery} shown={rows.length} />
+                <LeaderTable rows={rows} />
+              </Card>
+            </motion.div>
+          </motion.div>
         )}
       </main>
       <Footer freshnessMinutes={9} />

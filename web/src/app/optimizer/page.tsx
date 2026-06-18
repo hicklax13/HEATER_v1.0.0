@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { motion } from "framer-motion";
 import {
   Wand2,
   TrendingUp,
@@ -12,6 +13,7 @@ import {
   Repeat,
 } from "lucide-react";
 import { fetchOptimizer, type OptimizerData, type CatImpact } from "@/lib/optimizer-data";
+import { staggerContainer, staggerItem } from "@/lib/motion";
 import { Footer } from "@/components/chrome/Footer";
 import { Card } from "@/components/ui/Card";
 import { Skeleton } from "@/components/ui/Skeleton";
@@ -38,10 +40,16 @@ export default function OptimizerPage() {
         {!data ? (
           <LoadingView />
         ) : (
-          <div className="space-y-6">
-            <Header date={data.date} optimized={optimized} onOptimize={() => setOptimized(true)} />
-            {optimized && <SuccessBanner swaps={data.swaps} />}
-            <div className="grid gap-6 lg:grid-cols-[1fr_300px]">
+          <motion.div variants={staggerContainer} initial="hidden" animate="show" className="space-y-6">
+            <motion.div variants={staggerItem}>
+              <Header date={data.date} optimized={optimized} onOptimize={() => setOptimized(true)} />
+            </motion.div>
+            {optimized && (
+              <motion.div variants={staggerItem}>
+                <SuccessBanner swaps={data.swaps} />
+              </motion.div>
+            )}
+            <motion.div variants={staggerItem} className="grid gap-6 lg:grid-cols-[1fr_300px]">
               <div className="space-y-6">
                 <Card className="p-5">
                   <SectionHead title="Starting Lineup" sub="Today" />
@@ -57,8 +65,8 @@ export default function OptimizerPage() {
                 <PaceCard ipPace={data.ipPace} movesLeft={data.movesLeft} />
                 <ImpactCard impact={data.impact} />
               </aside>
-            </div>
-          </div>
+            </motion.div>
+          </motion.div>
         )}
       </main>
       <Footer freshnessMinutes={9} />

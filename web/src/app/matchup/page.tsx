@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { motion } from "framer-motion";
 import { Trophy, ChevronLeft, ChevronRight } from "lucide-react";
 import {
   fetchMatchup,
@@ -18,6 +19,7 @@ import { Skeleton } from "@/components/ui/Skeleton";
 import { HexMesh } from "@/components/ui/HexMesh";
 import { PlayerLink } from "@/components/player/PlayerLink";
 import { cn } from "@/lib/utils";
+import { staggerContainer, staggerItem } from "@/lib/motion";
 
 export default function MatchupPage() {
   const [data, setData] = useState<MatchupData | null>(null);
@@ -38,27 +40,37 @@ export default function MatchupPage() {
         {!data ? (
           <LoadingView />
         ) : (
-          <div className="space-y-6">
-            <ScoreHeader data={data} />
-            <CatTotals data={data} />
-            <RosterCompare
-              title="Hitters"
-              columns={data.hitterColumns}
-              rows={data.hitters}
-              totals={data.hitterTotals}
-              you={data.you.name}
-              opp={data.opp.name}
-            />
-            <RosterCompare
-              title="Pitchers"
-              columns={data.pitcherColumns}
-              rows={data.pitchers}
-              totals={data.pitcherTotals}
-              you={data.you.name}
-              opp={data.opp.name}
-            />
-            <LeagueMatchups data={data} />
-          </div>
+          <motion.div variants={staggerContainer} initial="hidden" animate="show" className="space-y-6">
+            <motion.div variants={staggerItem}>
+              <ScoreHeader data={data} />
+            </motion.div>
+            <motion.div variants={staggerItem}>
+              <CatTotals data={data} />
+            </motion.div>
+            <motion.div variants={staggerItem}>
+              <RosterCompare
+                title="Hitters"
+                columns={data.hitterColumns}
+                rows={data.hitters}
+                totals={data.hitterTotals}
+                you={data.you.name}
+                opp={data.opp.name}
+              />
+            </motion.div>
+            <motion.div variants={staggerItem}>
+              <RosterCompare
+                title="Pitchers"
+                columns={data.pitcherColumns}
+                rows={data.pitchers}
+                totals={data.pitcherTotals}
+                you={data.you.name}
+                opp={data.opp.name}
+              />
+            </motion.div>
+            <motion.div variants={staggerItem}>
+              <LeagueMatchups data={data} />
+            </motion.div>
+          </motion.div>
         )}
       </main>
       <Footer freshnessMinutes={2} />

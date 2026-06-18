@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { motion } from "framer-motion";
 import { Search, Plus, Flame, ArrowUp, ArrowDown } from "lucide-react";
 import { fetchPlayers, type PlayersData, type FreeAgent } from "@/lib/players-data";
+import { staggerContainer, staggerItem } from "@/lib/motion";
 import { Footer } from "@/components/chrome/Footer";
 import { Card } from "@/components/ui/Card";
 import { Skeleton } from "@/components/ui/Skeleton";
@@ -46,26 +48,32 @@ export default function PlayersPage() {
         {!data ? (
           <LoadingView />
         ) : (
-          <div className="space-y-6">
-            <Header />
-            <NeedCallout
-              need={data.topNeed}
-              count={data.freeAgents.filter((p) => p.fit === data.topNeed).length}
-              onShow={() => setFilter("need")}
-            />
-            <Card className="p-5">
-              <Toolbar
-                filter={filter}
-                setFilter={setFilter}
-                query={query}
-                setQuery={setQuery}
+          <motion.div variants={staggerContainer} initial="hidden" animate="show" className="space-y-6">
+            <motion.div variants={staggerItem}>
+              <Header />
+            </motion.div>
+            <motion.div variants={staggerItem}>
+              <NeedCallout
                 need={data.topNeed}
-                shown={rows.length}
-                total={data.freeAgents.length}
+                count={data.freeAgents.filter((p) => p.fit === data.topNeed).length}
+                onShow={() => setFilter("need")}
               />
-              <FATable rows={rows} need={data.topNeed} />
-            </Card>
-          </div>
+            </motion.div>
+            <motion.div variants={staggerItem}>
+              <Card className="p-5">
+                <Toolbar
+                  filter={filter}
+                  setFilter={setFilter}
+                  query={query}
+                  setQuery={setQuery}
+                  need={data.topNeed}
+                  shown={rows.length}
+                  total={data.freeAgents.length}
+                />
+                <FATable rows={rows} need={data.topNeed} />
+              </Card>
+            </motion.div>
+          </motion.div>
         )}
       </main>
       <Footer freshnessMinutes={9} />
