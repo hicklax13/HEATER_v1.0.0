@@ -1,6 +1,34 @@
 {
   "components": {
     "schemas": {
+      "AddDropRequest": {
+        "properties": {
+          "add_player_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Add Player Key"
+          },
+          "drop_player_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Drop Player Key"
+          }
+        },
+        "title": "AddDropRequest",
+        "type": "object"
+      },
       "CategoryImpact": {
         "properties": {
           "cat": {
@@ -334,6 +362,35 @@
         "title": "LeadersResponse",
         "type": "object"
       },
+      "LineupAssignment": {
+        "properties": {
+          "player_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Player Id"
+          },
+          "slot": {
+            "title": "Slot",
+            "type": "string"
+          },
+          "yahoo_player_key": {
+            "title": "Yahoo Player Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "yahoo_player_key",
+          "slot"
+        ],
+        "title": "LineupAssignment",
+        "type": "object"
+      },
       "LineupOptimizeRequest": {
         "properties": {
           "date": {
@@ -392,6 +449,32 @@
           "slots"
         ],
         "title": "LineupOptimizeResponse",
+        "type": "object"
+      },
+      "LineupSetRequest": {
+        "properties": {
+          "assignments": {
+            "items": {
+              "$ref": "#/components/schemas/LineupAssignment"
+            },
+            "title": "Assignments",
+            "type": "array"
+          },
+          "date": {
+            "title": "Date",
+            "type": "string"
+          },
+          "team_name": {
+            "title": "Team Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "team_name",
+          "date",
+          "assignments"
+        ],
+        "title": "LineupSetRequest",
         "type": "object"
       },
       "LineupSlot": {
@@ -550,6 +633,52 @@
         "title": "MatchupResponse",
         "type": "object"
       },
+      "MutationResult": {
+        "properties": {
+          "applied": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Applied"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "ok": {
+            "title": "Ok",
+            "type": "boolean"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          }
+        },
+        "required": [
+          "ok"
+        ],
+        "title": "MutationResult",
+        "type": "object"
+      },
       "MyTeamResponse": {
         "properties": {
           "categories": {
@@ -605,6 +734,17 @@
           "positions": {
             "title": "Positions",
             "type": "string"
+          },
+          "yahoo_player_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Yahoo Player Key"
           }
         },
         "required": [
@@ -1014,6 +1154,13 @@
       },
       "ValidationError": {
         "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
           "loc": {
             "items": {
               "anyOf": [
@@ -1303,6 +1450,47 @@
         "summary": "Optimize Lineup",
         "tags": [
           "lineup"
+        ]
+      }
+    },
+    "/api/lineup/set": {
+      "post": {
+        "operationId": "set_lineup_api_lineup_set_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LineupSetRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MutationResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Set Lineup",
+        "tags": [
+          "roster-write"
         ]
       }
     },
@@ -1605,6 +1793,47 @@
         "summary": "Evaluate Trade Endpoint",
         "tags": [
           "trade"
+        ]
+      }
+    },
+    "/api/transactions/add-drop": {
+      "post": {
+        "operationId": "add_drop_api_transactions_add_drop_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddDropRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MutationResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Add Drop",
+        "tags": [
+          "roster-write"
         ]
       }
     },
