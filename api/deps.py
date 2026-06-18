@@ -4,6 +4,7 @@ app.dependency_overrides so they never touch the live data layer."""
 from __future__ import annotations
 
 from api.services.closers_service import CloserService
+from api.services.compare_service import CompareService
 from api.services.fa_service import FreeAgentService
 from api.services.leaders_service import LeadersService
 from api.services.lineup_service import LineupService
@@ -58,3 +59,7 @@ def get_trade_service() -> TradeService:
 
 def get_trade_finder_service() -> TradeFinderService:
     return TradeFinderService()
+
+
+def get_compare_service() -> CompareService:
+    return CompareService()
