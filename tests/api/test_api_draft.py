@@ -1,4 +1,5 @@
 import pandas as pd
+from starlette.testclient import TestClient
 
 from api.contracts.common import PlayerRef
 from api.contracts.draft import (
@@ -9,6 +10,8 @@ from api.contracts.draft import (
     DraftRecommendRequest,
     DraftRecommendResponse,
 )
+from api.deps import get_draft_service
+from api.main import create_app
 from api.services.draft_service import DraftService
 
 
@@ -167,3 +170,39 @@ def test_recommend_is_graceful_when_engine_raises():
     assert resp.recommendations == []
     assert resp.clock.round == 1 and resp.clock.is_user_turn is True  # clock still computed
     assert "unavailable" in resp.summary.lower()
+
+
+class _FakeDraftService:
+    def recommend(self, req) -> DraftRecommendResponse:
+        return DraftRecommendResponse(
+            clock=DraftClock(current_pick=0, round=1, pick_in_round=1, picking_team_index=0, is_user_turn=True),
+            recommendations=[
+                DraftRecommendation(
+                    player=PlayerRef(id=1, name="A. Player", positions="SS"),
+                    rank=1,
+                    score=88.0,
+                    projected_sgp=4.0,
+                )
+            ],
+            summary="1 recommendation for pick 1.",
+        )
+
+
+def test_post_draft_recommend_returns_contract():
+    app = create_app()
+    app.dependency_overrides[get_draft_service] = lambda: _FakeDraftService()
+    client = TestClient(app)
+    resp = client.post("/api/draft/recommend", json={"config": {"num_teams": 12, "user_team_index": 0}, "pick_log": []})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["clock"]["is_user_turn"] is True
+    assert body["recommendations"][0]["player"]["name"] == "A. Player"
+
+
+def test_post_draft_recommend_accepts_empty_body_defaults():
+    app = create_app()
+    app.dependency_overrides[get_draft_service] = lambda: _FakeDraftService()
+    client = TestClient(app)
+    resp = client.post("/api/draft/recommend", json={})  # all fields default
+    assert resp.status_code == 200
+    assert resp.json()["recommendations"][0]["rank"] == 1

@@ -6,6 +6,7 @@ from __future__ import annotations
 from api.services.closers_service import CloserService
 from api.services.compare_service import CompareService
 from api.services.databank_service import DatabankService
+from api.services.draft_service import DraftService
 from api.services.fa_service import FreeAgentService
 from api.services.leaders_service import LeadersService
 from api.services.lineup_service import LineupService
@@ -73,3 +74,7 @@ def get_databank_service() -> DatabankService:
 
 def get_roster_write_service() -> RosterWriteService:
     return RosterWriteService()
+
+
+def get_draft_service() -> DraftService:
+    return DraftService()

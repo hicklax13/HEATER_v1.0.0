@@ -19,6 +19,7 @@ def create_app() -> FastAPI:
     from api.routers.closers import router as closers_router
     from api.routers.compare import router as compare_router
     from api.routers.databank import router as databank_router
+    from api.routers.draft import router as draft_router
     from api.routers.free_agents import router as fa_router
     from api.routers.leaders import router as leaders_router
     from api.routers.lineup import router as lineup_router
@@ -45,4 +46,5 @@ def create_app() -> FastAPI:
     app.include_router(compare_router)
     app.include_router(databank_router)
     app.include_router(roster_write_router)
+    app.include_router(draft_router)
     return app
