@@ -15,6 +15,7 @@ import {
 import { Footer } from "@/components/chrome/Footer";
 import { Card } from "@/components/ui/Card";
 import { Skeleton } from "@/components/ui/Skeleton";
+import { HexMesh } from "@/components/ui/HexMesh";
 import { PlayerLink } from "@/components/player/PlayerLink";
 import { cn } from "@/lib/utils";
 
@@ -78,10 +79,13 @@ function initials(name: string): string {
     .toUpperCase();
 }
 
-function Avatar({ name, size = 40 }: { name: string; size?: number }) {
+function Avatar({ name, size = 40, onDark }: { name: string; size?: number; onDark?: boolean }) {
   return (
     <span
-      className="flex shrink-0 items-center justify-center rounded-full bg-gradient-to-b from-navy-700 to-navy font-display font-bold text-white ring-2 ring-line"
+      className={cn(
+        "flex shrink-0 items-center justify-center rounded-full bg-gradient-to-b from-navy-700 to-navy font-display font-bold text-white ring-2",
+        onDark ? "ring-white/25" : "ring-line",
+      )}
       style={{ width: size, height: size, fontSize: size * 0.34 }}
       aria-hidden
     >
@@ -100,42 +104,45 @@ function stateColor(state: GameState): string {
 
 function ScoreHeader({ data }: { data: MatchupData }) {
   return (
-    <Card className="p-5">
-      <div className="mb-4 flex flex-wrap items-center gap-2 border-b border-line pb-3">
-        <div className="flex items-center gap-1 rounded-full border border-line px-1">
-          <button className="flex size-7 items-center justify-center rounded-full text-ink-3 hover:bg-surface" aria-label="Previous week">
-            <ChevronLeft className="size-4" aria-hidden />
-          </button>
-          <span className="px-1 text-[13px] font-bold text-navy">Week {data.week}</span>
-          <button className="flex size-7 items-center justify-center rounded-full text-ink-3 hover:bg-surface" aria-label="Next week">
-            <ChevronRight className="size-4" aria-hidden />
-          </button>
+    <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-b from-[#15294a] to-navy text-chrome shadow-[0_1px_0_rgba(255,92,16,0.4),0_18px_44px_rgba(11,24,48,0.28)]">
+      <HexMesh />
+      <div className="relative p-5">
+        <div className="mb-4 flex flex-wrap items-center gap-2 border-b border-white/10 pb-3">
+          <div className="flex items-center gap-1 rounded-full border border-white/15 px-1">
+            <button className="flex size-7 items-center justify-center rounded-full text-white/60 hover:bg-white/10" aria-label="Previous week">
+              <ChevronLeft className="size-4" aria-hidden />
+            </button>
+            <span className="px-1 text-[13px] font-bold text-white">Week {data.week}</span>
+            <button className="flex size-7 items-center justify-center rounded-full text-white/60 hover:bg-white/10" aria-label="Next week">
+              <ChevronRight className="size-4" aria-hidden />
+            </button>
+          </div>
+          <div className="flex flex-wrap items-center gap-1 text-[12.5px]">
+            {data.dateTabs.map((t, i) => (
+              <span
+                key={t}
+                className={cn(
+                  "rounded-md px-2 py-1 font-semibold",
+                  i === 0 ? "bg-heat text-white" : "text-white/65 hover:bg-white/10",
+                )}
+              >
+                {t}
+              </span>
+            ))}
+          </div>
         </div>
-        <div className="flex flex-wrap items-center gap-1 text-[12.5px]">
-          {data.dateTabs.map((t, i) => (
-            <span
-              key={t}
-              className={cn(
-                "rounded-md px-2 py-1 font-semibold",
-                i === 0 ? "bg-navy text-white" : "text-ink-2 hover:bg-surface",
-              )}
-            >
-              {t}
-            </span>
-          ))}
-        </div>
-      </div>
 
-      <div className="grid items-center gap-4 sm:grid-cols-[1fr_auto_1fr]">
-        <TeamHead team={data.you} trophy align="left" />
-        <div className="flex items-center justify-center gap-3 font-display">
-          <span className="tnum text-4xl font-extrabold text-navy">{data.you.score}</span>
-          <span className="text-[13px] font-semibold uppercase tracking-wide text-ink-3">vs</span>
-          <span className="tnum text-4xl font-extrabold text-ink-2">{data.opp.score}</span>
+        <div className="grid items-center gap-4 sm:grid-cols-[1fr_auto_1fr]">
+          <TeamHead team={data.you} trophy align="left" />
+          <div className="flex items-center justify-center gap-3 font-display">
+            <span className="tnum text-4xl font-extrabold text-white">{data.you.score}</span>
+            <span className="text-[13px] font-semibold uppercase tracking-wide text-white/50">vs</span>
+            <span className="tnum text-4xl font-extrabold text-white/55">{data.opp.score}</span>
+          </div>
+          <TeamHead team={data.opp} align="right" />
         </div>
-        <TeamHead team={data.opp} align="right" />
       </div>
-    </Card>
+    </div>
   );
 }
 
@@ -143,14 +150,14 @@ function TeamHead({ team, trophy, align }: { team: TeamSide; trophy?: boolean; a
   const right = align === "right";
   return (
     <div className={cn("flex items-center gap-3", right && "flex-row-reverse text-right")}>
-      <Avatar name={team.name} size={48} />
+      <Avatar name={team.name} size={48} onDark />
       <div>
         <div className={cn("flex items-center gap-1", right && "flex-row-reverse")}>
           {trophy && <Trophy className="size-4" style={{ color: "#f0b429" }} aria-hidden />}
-          <span className="font-display text-lg font-bold text-navy">{team.name}</span>
+          <span className="font-display text-lg font-bold text-white">{team.name}</span>
         </div>
-        <div className="text-[12px] text-ink-2">{team.manager}</div>
-        <div className="tnum text-[12px] text-ink-3">{team.record}</div>
+        <div className="text-[12px] text-white/70">{team.manager}</div>
+        <div className="tnum text-[12px] text-white/55">{team.record}</div>
       </div>
     </div>
   );
