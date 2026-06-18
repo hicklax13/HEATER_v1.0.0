@@ -1,49 +1,19 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { animate, useMotionValue, useReducedMotion } from "framer-motion";
+import { useState } from "react";
+import { useReducedMotion } from "framer-motion";
 import { ArrowDown, ArrowUp } from "lucide-react";
 import type { Matchup } from "@/lib/types";
-import { COLORS, heatColor } from "@/lib/tokens";
-import { EASE_SNAP } from "@/lib/motion";
+import { COLORS } from "@/lib/tokens";
 import { HexMesh } from "@/components/ui/HexMesh";
+import { HeatGauge } from "@/components/viz/HeatGauge";
 
 /* eslint-disable @next/next/no-img-element -- local SVG team crests */
-
-const START = 130;
-const SWEEP = 280;
-
-function polar(cx: number, cy: number, r: number, deg: number): [number, number] {
-  const a = ((deg - 90) * Math.PI) / 180;
-  return [cx + r * Math.cos(a), cy + r * Math.sin(a)];
-}
-function arc(cx: number, cy: number, r: number, a0: number, a1: number): string {
-  const [x0, y0] = polar(cx, cy, r, a0);
-  const [x1, y1] = polar(cx, cy, r, a1);
-  const large = a1 - a0 <= 180 ? 0 : 1;
-  return `M ${x0.toFixed(2)} ${y0.toFixed(2)} A ${r} ${r} 0 ${large} 1 ${x1.toFixed(2)} ${y1.toFixed(2)}`;
-}
 
 export function WinHero({ matchup }: { matchup: Matchup }) {
   const reduce = useReducedMotion();
   const final = matchup.winPct;
-  const mv = useMotionValue(0);
-  const [animated, setAnimated] = useState(0);
   const [par, setPar] = useState({ x: 0, y: 0 });
-  const disp = reduce ? final : animated;
-
-  useEffect(() => {
-    if (reduce) return;
-    const controls = animate(mv, final, {
-      duration: 1,
-      ease: EASE_SNAP,
-      onUpdate: (v) => setAnimated(Math.round(v)),
-    });
-    return () => controls.stop();
-  }, [final, reduce, mv]);
-
-  const col = heatColor(disp);
-  const valAngle = START + (disp / 100) * SWEEP;
   const down = matchup.deltaVsLastWeek < 0;
 
   const onMove = (e: React.MouseEvent<HTMLElement>) => {
@@ -80,37 +50,7 @@ export function WinHero({ matchup }: { matchup: Matchup }) {
         />
 
         <div className="flex flex-col items-center">
-          <div className="relative h-[175px] w-[200px]">
-            <svg width="200" height="175" viewBox="0 0 200 175" aria-hidden focusable="false">
-              <path
-                d={arc(100, 100, 80, START, START + SWEEP)}
-                fill="none"
-                stroke="rgba(255,255,255,0.1)"
-                strokeWidth="12"
-                strokeLinecap="round"
-              />
-              <path
-                d={arc(100, 100, 80, START, Math.max(START + 0.01, valAngle))}
-                fill="none"
-                stroke={col}
-                strokeWidth="12"
-                strokeLinecap="round"
-                style={{ filter: `drop-shadow(0 0 10px ${col}88)` }}
-              />
-            </svg>
-            <div className="absolute inset-0 flex flex-col items-center justify-center pt-1.5">
-              <div
-                className="font-display font-extrabold leading-none"
-                style={{ fontSize: 64, color: col, textShadow: `0 0 26px ${col}66` }}
-              >
-                <span className="tnum">{disp}</span>
-                <span style={{ fontSize: 28 }}>%</span>
-              </div>
-              <div className="mt-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-white/75">
-                Win Probability
-              </div>
-            </div>
-          </div>
+          <HeatGauge value={final} />
 
           <SplitBar
             win={matchup.winPct}

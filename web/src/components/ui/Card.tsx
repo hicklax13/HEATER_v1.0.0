@@ -1,21 +1,21 @@
 import { cn } from "@/lib/utils";
 
+const TONES = {
+  flat: "border border-line bg-canvas",
+  raised: "border border-line bg-canvas shadow-elev-2",
+  inset: "border border-line bg-surface",
+} as const;
+
 /** Surface card with a machined top-edge inset (legacy Combustion detail). */
 export function Card({
   className,
   machined = true,
+  tone = "raised",
   children,
   ...props
-}: React.HTMLAttributes<HTMLDivElement> & { machined?: boolean }) {
+}: React.HTMLAttributes<HTMLDivElement> & { machined?: boolean; tone?: keyof typeof TONES }) {
   return (
-    <div
-      className={cn(
-        "relative rounded-2xl border border-line bg-canvas",
-        "shadow-[0_1px_2px_rgba(16,32,55,0.05),0_10px_30px_rgba(16,32,55,0.06)]",
-        className,
-      )}
-      {...props}
-    >
+    <div className={cn("relative rounded-2xl", TONES[tone], className)} {...props}>
       {machined && (
         <span
           aria-hidden
