@@ -11,6 +11,7 @@ from api.services.leaders_service import LeadersService
 from api.services.lineup_service import LineupService
 from api.services.matchup_service import MatchupService
 from api.services.punt_service import PuntService
+from api.services.roster_write_service import RosterWriteService
 from api.services.standings_service import StandingsService
 from api.services.streaming_service import StreamingService
 from api.services.team_service import TeamService
@@ -68,3 +69,7 @@ def get_compare_service() -> CompareService:
 
 def get_databank_service() -> DatabankService:
     return DatabankService()
+
+
+def get_roster_write_service() -> RosterWriteService:
+    return RosterWriteService()

@@ -24,6 +24,7 @@ def create_app() -> FastAPI:
     from api.routers.lineup import router as lineup_router
     from api.routers.matchup import router as matchup_router
     from api.routers.punt import router as punt_router
+    from api.routers.roster_write import router as roster_write_router
     from api.routers.standings import router as standings_router
     from api.routers.streaming import router as streaming_router
     from api.routers.team import router as team_router
@@ -43,4 +44,5 @@ def create_app() -> FastAPI:
     app.include_router(trade_finder_router)
     app.include_router(compare_router)
     app.include_router(databank_router)
+    app.include_router(roster_write_router)
     return app

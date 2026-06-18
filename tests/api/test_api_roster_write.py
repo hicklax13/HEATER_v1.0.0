@@ -1,3 +1,5 @@
+from starlette.testclient import TestClient
+
 from api.contracts.common import PlayerRef
 from api.contracts.roster_write import (
     AddDropRequest,
@@ -5,6 +7,8 @@ from api.contracts.roster_write import (
     LineupSetRequest,
     MutationResult,
 )
+from api.deps import get_roster_write_service
+from api.main import create_app
 from api.services.roster_write_service import RosterWriteService
 
 
@@ -118,3 +122,58 @@ def test_service_non_dict_response_is_graceful():
     fake = _FakeClient(lineup_ret=None)  # client returned something unexpected
     result = RosterWriteService().set_lineup(_lineup_req(), client=fake)
     assert result.ok is False and "Unexpected" in (result.error or "")
+
+
+class _FakeWriteService:
+    def set_lineup(self, req) -> MutationResult:
+        return MutationResult(ok=True, applied=len(req.assignments))
+
+    def add_drop(self, req) -> MutationResult:
+        if not req.add_player_key and not req.drop_player_key:
+            return MutationResult(
+                ok=False,
+                error="Must provide at least one of add_player_key or drop_player_key.",
+                status=None,
+            )
+        return MutationResult(ok=True)
+
+
+def _client_with_fake():
+    app = create_app()
+    app.dependency_overrides[get_roster_write_service] = lambda: _FakeWriteService()
+    return TestClient(app)
+
+
+def test_post_lineup_set_returns_contract():
+    client = _client_with_fake()
+    resp = client.post(
+        "/api/lineup/set",
+        json={
+            "team_name": "Team Hickey",
+            "date": "2027-04-05",
+            "assignments": [
+                {"yahoo_player_key": "469.p.1", "slot": "SS"},
+                {"yahoo_player_key": "469.p.2", "slot": "BN"},
+            ],
+        },
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["ok"] is True and body["applied"] == 2
+
+
+def test_post_add_drop_returns_contract():
+    client = _client_with_fake()
+    resp = client.post(
+        "/api/transactions/add-drop",
+        json={"add_player_key": "469.p.9", "drop_player_key": "469.p.3"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is True
+
+
+def test_post_add_drop_both_null_is_ok_false_not_http_error():
+    client = _client_with_fake()
+    resp = client.post("/api/transactions/add-drop", json={})
+    assert resp.status_code == 200  # graceful: failure is in the body, not the HTTP status
+    assert resp.json()["ok"] is False
