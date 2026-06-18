@@ -87,11 +87,11 @@ The value is the Python analytics — `src/engine/` (6-phase trade pipeline), `s
 ### 4.1 API layer (FastAPI)
 - **Thin by rule:** routers do auth → validate → call an engine function → serialize. **No analytics logic in the API layer** (mirrors the structural discipline that kept logic out of `pages/`). A guard test enforces "no SGP/category math in `api/routers/`."
 - Endpoints map 1:1 to A's data seam. Initial set (read-first):
-  - `GET /me/team` → `getMyTeam()` (roster, record, matchup, category standings)
-  - `GET /free-agents?filters` → `getFreeAgents()` (FA recommender output)
-  - `POST /lineup/optimize` → optimizer pipeline (async job; returns job id → poll/stream)
-  - `POST /trade/evaluate` → `evaluate_trade(...)` (async job for the MC/playoff path)
-  - `GET /standings`, `GET /matchup`, `GET /leaders`, `GET /players/{id}` …
+  - `GET /api/me/team` → `getMyTeam()` (roster, record, matchup, category standings)
+  - `GET /api/free-agents?filters` → `getFreeAgents()` (FA recommender output)
+  - `POST /api/lineup/optimize` → optimizer pipeline (async job; returns job id → poll/stream)
+  - `POST /api/trade/evaluate` → `evaluate_trade(...)` (async job for the MC/playoff path)
+  - `GET /api/standings`, `GET /api/matchup`, `GET /api/leaders`, `GET /api/players/{id}` …
 - **Contract source of truth:** OpenAPI schema generated from FastAPI/Pydantic models; A's `lib/data/types.ts` is generated from (or checked against) it. Contract tests fail CI on drift.
 
 ### 4.2 Data layer (Postgres + repository)
