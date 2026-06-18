@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from api.services.closers_service import CloserService
 from api.services.compare_service import CompareService
+from api.services.databank_service import DatabankService
 from api.services.fa_service import FreeAgentService
 from api.services.leaders_service import LeadersService
 from api.services.lineup_service import LineupService
@@ -63,3 +64,7 @@ def get_trade_finder_service() -> TradeFinderService:
 
 def get_compare_service() -> CompareService:
     return CompareService()
+
+
+def get_databank_service() -> DatabankService:
+    return DatabankService()
