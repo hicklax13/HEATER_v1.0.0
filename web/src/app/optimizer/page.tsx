@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { motion } from "framer-motion";
 import {
   Wand2,
@@ -21,6 +21,8 @@ import { HeroNum } from "@/components/ui/HeroNum";
 import { PlayerAvatar } from "@/components/ui/PlayerAvatar";
 import { PlayerDialog } from "@/components/player/PlayerDialog";
 import { LineupTable } from "@/components/optimizer/LineupTable";
+import { usePageData } from "@/lib/use-page-data";
+import { PageError, PageEmpty } from "@/components/ui/PageStates";
 import { cn } from "@/lib/utils";
 
 /** When optimized, move each swap's `in` player into the `out` player's slot
@@ -48,65 +50,59 @@ function applySwaps(
 }
 
 export default function OptimizerPage() {
-  const [data, setData] = useState<OptimizerData | null>(null);
-  const [optimized, setOptimized] = useState(false);
-
-  useEffect(() => {
-    let alive = true;
-    fetchOptimizer().then((d) => {
-      if (alive) setData(d);
-    });
-    return () => {
-      alive = false;
-    };
-  }, []);
-
-  const view = data
-    ? applySwaps(data.starters, data.bench, data.swaps, optimized)
-    : { starters: [], bench: [] };
+  const { state, retry } = usePageData(fetchOptimizer);
 
   return (
     <>
       <main className="w-full flex-1 px-5 py-6">
-        {!data ? (
-          <LoadingView />
-        ) : (
-          <motion.div variants={staggerContainer} initial="hidden" animate="show" className="space-y-6">
-            <motion.div variants={staggerItem}>
-              <Header date={data.date} optimized={optimized} onOptimize={() => setOptimized(true)} />
-            </motion.div>
-            {optimized && (
-              <motion.div variants={staggerItem}>
-                <SuccessBanner swaps={data.swaps} />
-              </motion.div>
-            )}
-            <motion.div variants={staggerItem} className="grid gap-6 lg:grid-cols-[1fr_300px]">
-              <div className="space-y-6">
-                <Card className="p-5">
-                  <SectionHead title="Starting Lineup" sub="Today" />
-                  <LineupTable slots={view.starters} />
-                </Card>
-                <Card className="p-5">
-                  <SectionHead title="Bench" sub="Available To Swap In" />
-                  <LineupTable slots={view.bench} />
-                </Card>
-              </div>
-              <aside className="space-y-4">
-                <SwapCard
-                  swaps={data.swaps}
-                  starters={data.starters}
-                  bench={data.bench}
-                  optimized={optimized}
-                />
-                <PaceCard ipPace={data.ipPace} movesLeft={data.movesLeft} />
-                <ImpactCard impact={data.impact} />
-              </aside>
-            </motion.div>
-          </motion.div>
+        {state.status === "loading" && <LoadingView />}
+        {state.status === "error" && <PageError onRetry={retry} />}
+        {state.status === "empty" && (
+          <PageEmpty
+            icon={Wand2}
+            title="No lineup to optimize"
+            body="We couldn't find your roster for today."
+          />
         )}
+        {state.status === "loaded" && <Loaded data={state.data} />}
       </main>
-      <Footer freshnessMinutes={9} />
+      {state.status === "loaded" && <Footer freshnessMinutes={9} />}
     </>
+  );
+}
+
+function Loaded({ data }: { data: OptimizerData }) {
+  const [optimized, setOptimized] = useState(false);
+  const view = applySwaps(data.starters, data.bench, data.swaps, optimized);
+
+  return (
+    <motion.div variants={staggerContainer} initial="hidden" animate="show" className="space-y-6">
+      <motion.div variants={staggerItem}>
+        <Header date={data.date} optimized={optimized} onOptimize={() => setOptimized(true)} />
+      </motion.div>
+      {optimized && (
+        <motion.div variants={staggerItem}>
+          <SuccessBanner swaps={data.swaps} />
+        </motion.div>
+      )}
+      <motion.div variants={staggerItem} className="grid gap-6 lg:grid-cols-[1fr_300px]">
+        <div className="space-y-6">
+          <Card className="p-5">
+            <SectionHead title="Starting Lineup" sub="Today" />
+            <LineupTable slots={view.starters} />
+          </Card>
+          <Card className="p-5">
+            <SectionHead title="Bench" sub="Available To Swap In" />
+            <LineupTable slots={view.bench} />
+          </Card>
+        </div>
+        <aside className="space-y-4">
+          <SwapCard swaps={data.swaps} starters={data.starters} bench={data.bench} optimized={optimized} />
+          <PaceCard ipPace={data.ipPace} movesLeft={data.movesLeft} />
+          <ImpactCard impact={data.impact} />
+        </aside>
+      </motion.div>
+    </motion.div>
   );
 }
 
