@@ -24,9 +24,13 @@ export function apiLeadersToResearch(api: ApiLeadersResponse): ResearchData {
   const leaders: LeaderRow[] = api.rows.map((r) => ({
     name: r.player.name,
     pos: r.player.positions,
-    teamAbbr: "", // gap: API leaders has no team
-    teamId: 0,
-    mlbId: 0, // gap: no mlbId -> PlayerAvatar shows its initials fallback
+    // PlayerRef now carries team/mlb fields (snake_case JSON -> camelCase here).
+    // /api/leaders emits null for these until M0.2 populates it; the ?? fallbacks
+    // keep PlayerAvatar's initials placeholder until real ids arrive, then
+    // headshots + team logos light up with no further frontend change.
+    teamAbbr: r.player.team_abbr ?? "",
+    teamId: r.player.team_id ?? 0,
+    mlbId: r.player.mlb_id ?? 0,
     rank: r.rank,
     hitter: isHitter(r.player.positions),
     stats: [fmt(r.value, api.category)], // gap: API gives one figure, not 3

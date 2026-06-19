@@ -745,10 +745,16 @@ export interface components {
         PlayerRef: {
             /** Id */
             id: number;
+            /** Mlb Id */
+            mlb_id?: number | null;
             /** Name */
             name: string;
             /** Positions */
             positions: string;
+            /** Team Abbr */
+            team_abbr?: string | null;
+            /** Team Id */
+            team_id?: number | null;
             /** Yahoo Player Key */
             yahoo_player_key?: string | null;
         };
