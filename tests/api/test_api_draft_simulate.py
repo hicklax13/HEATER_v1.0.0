@@ -1,3 +1,4 @@
+import pandas as pd
 from starlette.testclient import TestClient
 
 from api.contracts.draft import (
@@ -30,3 +31,52 @@ def test_simulate_response_shape():
     assert dumped["clock"]["is_user_turn"] is True
     assert dumped["picks"][0]["player_id"] == 101
     assert dumped["summary"].startswith("1 opponent")
+
+
+def _sim_pool() -> pd.DataFrame:
+    positions = ["SS", "OF", "2B", "3B", "1B", "SP", "RP", "C"]
+    rows = [
+        {
+            "player_id": 100 + i,
+            "name": f"Player{i}",
+            "player_name": f"Player{i}",
+            "positions": positions[i % len(positions)],
+            "adp": float(i + 1),
+        }
+        for i in range(20)
+    ]
+    return pd.DataFrame(rows)
+
+
+def test_simulate_picks_advances_to_user_turn_with_seed():
+    # user at seat 2, fresh draft → exactly seats 0 and 1 auto-pick, then user's turn.
+    req = DraftSimulatePicksRequest(config=DraftConfig(num_teams=12, user_team_index=2), pick_log=[], seed=42)
+    resp = DraftService().simulate_picks(req, pool=_sim_pool())
+    assert resp.clock.is_user_turn is True
+    assert resp.clock.picking_team_index == 2
+    assert [p.team_index for p in resp.picks] == [0, 1]
+    assert "2 opponent picks" in resp.summary
+
+
+def test_simulate_picks_seed_is_reproducible():
+    req = DraftSimulatePicksRequest(config=DraftConfig(user_team_index=2), seed=7)
+    pool = _sim_pool()
+    a = [p.player_id for p in DraftService().simulate_picks(req, pool=pool).picks]
+    b = [p.player_id for p in DraftService().simulate_picks(req, pool=pool).picks]
+    assert a == b
+
+
+def test_simulate_picks_no_picks_when_user_on_clock():
+    req = DraftSimulatePicksRequest(config=DraftConfig(user_team_index=0), seed=1)
+    resp = DraftService().simulate_picks(req, pool=_sim_pool())
+    assert resp.picks == []
+    assert resp.clock.is_user_turn is True
+
+
+def test_simulate_picks_graceful_when_pool_load_fails():
+    # pool=None forces the real load_player_pool(); in a DB-less env it raises and
+    # the service must still return a valid clock with no picks (never 500).
+    req = DraftSimulatePicksRequest(config=DraftConfig(user_team_index=3), seed=1)
+    resp = DraftService().simulate_picks(req, pool=None)
+    assert isinstance(resp, DraftSimulatePicksResponse)
+    assert resp.clock.round >= 1  # clock always computed from the rebuilt state

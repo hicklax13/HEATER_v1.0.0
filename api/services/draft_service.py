@@ -15,9 +15,12 @@ from __future__ import annotations
 from api.contracts.common import PlayerRef
 from api.contracts.draft import (
     DraftClock,
+    DraftPick,
     DraftRecommendation,
     DraftRecommendRequest,
     DraftRecommendResponse,
+    DraftSimulatePicksRequest,
+    DraftSimulatePicksResponse,
 )
 
 _TOP_N_CAP = 50
@@ -45,6 +48,40 @@ class DraftService:
                 clock=clock,
                 recommendations=[],
                 summary="Draft recommendations unavailable (no pool data in this environment).",
+            )
+
+    def simulate_picks(self, req: DraftSimulatePicksRequest, pool=None) -> DraftSimulatePicksResponse:
+        try:
+            ds = self._rebuild_state(req)
+        except Exception:
+            return DraftSimulatePicksResponse(clock=_ZERO_CLOCK, picks=[], summary="Invalid draft state.")
+        try:
+            import numpy as np
+
+            from src.simulation import auto_pick_opponents
+
+            if pool is None:
+                from src.database import load_player_pool
+
+                pool = load_player_pool()
+            rng = np.random.default_rng(req.seed) if req.seed is not None else None
+            made = auto_pick_opponents(ds, pool, rng=rng)
+            picks = [DraftPick(**m) for m in made]
+            n = len(picks)
+            return DraftSimulatePicksResponse(
+                clock=self._clock(ds),
+                picks=picks,
+                summary=f"{n} opponent pick{'s' if n != 1 else ''} simulated.",
+            )
+        except Exception:
+            try:
+                clock = self._clock(ds)
+            except Exception:
+                clock = _ZERO_CLOCK
+            return DraftSimulatePicksResponse(
+                clock=clock,
+                picks=[],
+                summary="Draft simulation unavailable (no pool data in this environment).",
             )
 
     @staticmethod
