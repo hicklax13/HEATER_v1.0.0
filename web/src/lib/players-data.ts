@@ -53,7 +53,7 @@ const fa = (
 export const PLAYERS: PlayersData = {
   topNeed: "SB",
   freeAgents: [
-    fa(1, "Jose Caballero", "2B,SS", "NYY", 147, 676609, true, 86, 24, 5, "SB", [["AVG", ".238"], ["SB", "22"], ["R", "38"]], "Rising"),
+    fa(1, "Jose Caballero", "2B,SS,3B,OF", "NYY", 147, 676609, true, 86, 24, 5, "SB", [["AVG", ".238"], ["SB", "22"], ["R", "38"]], "Rising"),
     fa(2, "Victor Scott II", "OF", "STL", 138, 687363, true, 81, 17, 8, "SB", [["AVG", ".245"], ["SB", "26"], ["R", "41"]], "Rising"),
     fa(3, "Porter Hodge", "RP", "CHC", 112, 687863, false, 75, 21, 11, "SV", [["ERA", "2.10"], ["SV", "7"], ["K", "38"]], "Closer Role"),
     fa(4, "Brenton Doyle", "OF", "COL", 115, 686668, true, 72, 33, 2, "SB", [["AVG", ".258"], ["HR", "12"], ["SB", "18"]]),
@@ -61,7 +61,7 @@ export const PLAYERS: PlayersData = {
     fa(6, "Reese Olson", "SP", "DET", 116, 681857, false, 64, 26, 4, "K", [["ERA", "3.25"], ["K", "78"], ["W", "5"]], "Streamer"),
     fa(7, "Jordan Romano", "RP", "PHI", 143, 605447, false, 61, 38, 3, "SV", [["ERA", "3.40"], ["SV", "9"], ["K", "30"]]),
     fa(8, "Spencer Steer", "1B,OF", "CIN", 113, 668715, true, 57, 44, 0, "RBI", [["AVG", ".244"], ["HR", "14"], ["RBI", "51"]]),
-    fa(9, "Jonathan India", "2B", "KC", 118, 663697, true, 53, 36, -2, "R", [["AVG", ".251"], ["R", "49"], ["OBP", ".340"]]),
+    fa(9, "Jonathan India", "2B,3B,OF", "KC", 118, 663697, true, 53, 36, -2, "R", [["AVG", ".251"], ["R", "49"], ["OBP", ".340"]]),
     fa(10, "Mitch Keller", "SP", "PIT", 134, 656605, false, 49, 41, 1, "K", [["ERA", "3.85"], ["K", "92"], ["W", "6"]]),
   ],
 };
