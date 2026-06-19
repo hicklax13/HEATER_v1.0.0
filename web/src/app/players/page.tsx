@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { Search, SearchX, Plus, Flame, ArrowUp, ArrowDown } from "lucide-react";
 import { fetchPlayers, type PlayersData, type FreeAgent } from "@/lib/players-data";
@@ -13,26 +13,38 @@ import { PlayerAvatar } from "@/components/ui/PlayerAvatar";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { COLORS } from "@/lib/tokens";
 import { cn } from "@/lib/utils";
+import { usePageData } from "@/lib/use-page-data";
+import { PageError, PageEmpty } from "@/components/ui/PageStates";
 
 type Filter = "all" | "hitters" | "pitchers" | "need";
 
 export default function PlayersPage() {
-  const [data, setData] = useState<PlayersData | null>(null);
+  const { state, retry } = usePageData(fetchPlayers);
+
+  return (
+    <>
+      <main className="w-full flex-1 px-5 py-6">
+        {state.status === "loading" && <LoadingView />}
+        {state.status === "error" && <PageError onRetry={retry} />}
+        {state.status === "empty" && (
+          <PageEmpty
+            icon={Search}
+            title="No free agents available"
+            body="The free-agent pool is empty right now."
+          />
+        )}
+        {state.status === "loaded" && <Loaded data={state.data} />}
+      </main>
+      {state.status === "loaded" && <Footer freshnessMinutes={9} />}
+    </>
+  );
+}
+
+function Loaded({ data }: { data: PlayersData }) {
   const [filter, setFilter] = useState<Filter>("all");
   const [query, setQuery] = useState("");
 
-  useEffect(() => {
-    let alive = true;
-    fetchPlayers().then((d) => {
-      if (alive) setData(d);
-    });
-    return () => {
-      alive = false;
-    };
-  }, []);
-
   const rows = useMemo(() => {
-    if (!data) return [];
     const q = query.trim().toLowerCase();
     return data.freeAgents.filter((p) => {
       if (filter === "hitters" && !p.hitter) return false;
@@ -44,41 +56,32 @@ export default function PlayersPage() {
   }, [data, filter, query]);
 
   return (
-    <>
-      <main className="w-full flex-1 px-5 py-6">
-        {!data ? (
-          <LoadingView />
-        ) : (
-          <motion.div variants={staggerContainer} initial="hidden" animate="show" className="space-y-6">
-            <motion.div variants={staggerItem}>
-              <Header />
-            </motion.div>
-            <motion.div variants={staggerItem}>
-              <NeedCallout
-                need={data.topNeed}
-                count={data.freeAgents.filter((p) => p.fit === data.topNeed).length}
-                onShow={() => setFilter("need")}
-              />
-            </motion.div>
-            <motion.div variants={staggerItem}>
-              <Card className="p-5">
-                <Toolbar
-                  filter={filter}
-                  setFilter={setFilter}
-                  query={query}
-                  setQuery={setQuery}
-                  need={data.topNeed}
-                  shown={rows.length}
-                  total={data.freeAgents.length}
-                />
-                <FATable rows={rows} need={data.topNeed} />
-              </Card>
-            </motion.div>
-          </motion.div>
-        )}
-      </main>
-      <Footer freshnessMinutes={9} />
-    </>
+    <motion.div variants={staggerContainer} initial="hidden" animate="show" className="space-y-6">
+      <motion.div variants={staggerItem}>
+        <Header />
+      </motion.div>
+      <motion.div variants={staggerItem}>
+        <NeedCallout
+          need={data.topNeed}
+          count={data.freeAgents.filter((p) => p.fit === data.topNeed).length}
+          onShow={() => setFilter("need")}
+        />
+      </motion.div>
+      <motion.div variants={staggerItem}>
+        <Card className="p-5">
+          <Toolbar
+            filter={filter}
+            setFilter={setFilter}
+            query={query}
+            setQuery={setQuery}
+            need={data.topNeed}
+            shown={rows.length}
+            total={data.freeAgents.length}
+          />
+          <FATable rows={rows} need={data.topNeed} />
+        </Card>
+      </motion.div>
+    </motion.div>
   );
 }
 
