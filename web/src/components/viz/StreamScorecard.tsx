@@ -19,7 +19,7 @@ export function StreamScorecard({
   return (
     <div className="flex flex-col items-center gap-3">
       <div className="rounded-2xl bg-navy px-4 pb-3 pt-1">
-        <HeatGauge value={score} label="Stream Score" size={size} />
+        <HeatGauge value={score} label="Stream Score" size={size} unit="" />
       </div>
       <div className="w-full">
         <FactorBars components={components} />

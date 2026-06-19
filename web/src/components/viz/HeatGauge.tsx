@@ -28,10 +28,12 @@ export function HeatGauge({
   value,
   label = "Win Probability",
   size = 200,
+  unit = "%",
 }: {
   value: number; // 0..100
   label?: string;
   size?: number;
+  unit?: string;
 }) {
   const disp = useCountUp(value);
   const col = heatColor(disp);
@@ -69,7 +71,7 @@ export function HeatGauge({
           <HeroNum width={70} style={{ fontSize: Math.round(size * 0.32) }}>
             {disp}
           </HeroNum>
-          <span style={{ fontSize: Math.round(size * 0.14), fontWeight: 800 }}>%</span>
+          <span style={{ fontSize: Math.round(size * 0.14), fontWeight: 800 }}>{unit}</span>
         </div>
         <div className="mt-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-white/75">{label}</div>
       </div>

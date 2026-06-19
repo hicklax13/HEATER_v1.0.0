@@ -156,7 +156,7 @@ export const STREAMING: StreamingData = {
         riskFlags: [], expectedLine: "6.2 IP · 8 K · 2.0 ER", why: "Ace ratios; weak-hitting opponent, but low win odds (poor run support)." }),
     cand(3, pr("Garrett Crochet", "SP", "BOS", 111, 676979), "TB", true, 74,
       { matchup: 0.5, env: 0.1, form: 0.45, lineup: 0.4, sgp: 0.75, winprob: 0.45 },
-      { netSgp: 0.88, oppWrcPlus: 96, oppKpct: 23.0, park: 1.04, xIp: 6.0, xK: 8.4, xEr: 2.6, winPct: 58,
+      { numStarts: 2, netSgp: 0.88, oppWrcPlus: 96, oppKpct: 23.0, park: 1.04, xIp: 6.0, xK: 8.4, xEr: 2.6, winPct: 58,
         ownPct: 94, riskFlags: ["HITTER_PARK"], expectedLine: "6.0 IP · 8 K · 2.6 ER", why: "Top-tier strikeouts; Fenway adds some ratio risk." }),
     cand(4, pr("Cole Ragans", "SP", "KC", 118, 666142), "DET", false, 68,
       { matchup: 0.35, env: 0.2, form: 0.3, lineup: 0.3, sgp: 0.62, winprob: 0.4 },
@@ -168,7 +168,7 @@ export const STREAMING: StreamingData = {
         ownPct: 88, riskFlags: ["ELITE_OFFENSE"], expectedLine: "5.6 IP · 7 K · 3.1 ER", why: "Good win odds; Cubs offense is a real threat." }),
     cand(6, pr("Hunter Greene", "SP", "CIN", 113, 668881), "COL", false, 41,
       { matchup: -0.3, env: -0.7, form: 0.1, lineup: -0.25, sgp: 0.5, winprob: 0.2 },
-      { netSgp: -0.22, oppWrcPlus: 118, oppKpct: 19.0, park: 1.28, xIp: 5.2, xK: 6.4, xEr: 4.2, winPct: 44,
+      { status: "locked", actionable: false, netSgp: -0.22, oppWrcPlus: 118, oppKpct: 19.0, park: 1.28, xIp: 5.2, xK: 6.4, xEr: 4.2, winPct: 44,
         riskFlags: ["HITTER_PARK", "ELITE_OFFENSE"], ownPct: 85, expectedLine: "5.2 IP · 6 K · 4.2 ER", why: "Coors. Strikeouts, but a blow-up risk to ratios." }),
   ],
   probables: [

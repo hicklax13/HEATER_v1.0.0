@@ -31,7 +31,7 @@ export function StreamBoard({ board }: { board: StreamCandidate[] }) {
             </tr>
           </thead>
           <tbody className="tnum text-[13px]">
-            {board.map((c) => {
+            {[...board].sort((a, b) => b.score - a.score).map((c) => {
               const expanded = open === c.rank;
               return (
                 <Row key={c.rank} c={c} expanded={expanded} onToggle={() => setOpen(expanded ? null : c.rank)} />
