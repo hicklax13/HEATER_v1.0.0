@@ -15,12 +15,24 @@ from api.deps import get_roster_write_service
 
 router = APIRouter(prefix="/api", tags=["roster-write"])
 
+# The `dependencies=[require_principal]` gate does not auto-document its 401, so
+# we declare it explicitly — the frontend generates its client from openapi.json
+# and needs to know these endpoints require (and can reject) a bearer token.
+_AUTH_401 = {401: {"description": "Authentication required: missing or invalid bearer token."}}
 
-@router.post("/lineup/set", response_model=MutationResult, dependencies=[Depends(require_principal)])
+
+@router.post(
+    "/lineup/set", response_model=MutationResult, dependencies=[Depends(require_principal)], responses=_AUTH_401
+)
 def set_lineup(req: LineupSetRequest, service=Depends(get_roster_write_service)) -> MutationResult:
     return service.set_lineup(req)
 
 
-@router.post("/transactions/add-drop", response_model=MutationResult, dependencies=[Depends(require_principal)])
+@router.post(
+    "/transactions/add-drop",
+    response_model=MutationResult,
+    dependencies=[Depends(require_principal)],
+    responses=_AUTH_401,
+)
 def add_drop(req: AddDropRequest, service=Depends(get_roster_write_service)) -> MutationResult:
     return service.add_drop(req)
