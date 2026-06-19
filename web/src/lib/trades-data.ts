@@ -109,7 +109,7 @@ export const TRADES: TradesData = {
       give: [tp("Tarik Skubal", "DET", 116, 669373, "SP · DET", "130 K · 2.10 ERA")],
       get: [
         tp("José Ramírez", "CLE", 114, 608070, "3B · CLE", "18 HR · 22 SB"),
-        tp("Jordan Romano", "PHI", 143, 656266, "RP · PHI", "9 SV"),
+        tp("Jordan Romano", "PHI", 143, 605447, "RP · PHI", "9 SV"),
       ],
       impact: [
         { cat: "SB", delta: "+5", dir: "up" },

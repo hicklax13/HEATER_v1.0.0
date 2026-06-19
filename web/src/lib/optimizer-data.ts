@@ -61,9 +61,9 @@ export const OPTIMIZER: OptimizerData = {
     { slot: "RP", player: p("Devin Williams", "RP", "NYY", 147, 642207), matchup: "@BAL", proj: "1.0 IP · K", value: 60, status: "start" },
   ],
   bench: [
-    { slot: "BN", player: p("Jackson Merrill", "OF", "SD", 135, 683002), matchup: "vs PHI", proj: "1.0 H · 0.4 RBI", value: 63, status: "bench", note: "RHP matchup — start over Soto" },
+    { slot: "BN", player: p("Jackson Merrill", "OF", "SD", 135, 701538), matchup: "vs PHI", proj: "1.0 H · 0.4 RBI", value: 63, status: "bench", note: "RHP matchup — start over Soto" },
     { slot: "BN", player: p("Spencer Strider", "SP", "ATL", 144, 675911), matchup: "OFF", proj: "—", value: 0, status: "off", note: "Not pitching today" },
-    { slot: "BN", player: p("Jordan Westburg", "3B", "BAL", 110, 672275), matchup: "vs NYY", proj: "0.8 H · 0.3 R", value: 44, status: "bench" },
+    { slot: "BN", player: p("Jordan Westburg", "3B", "BAL", 110, 676059), matchup: "vs NYY", proj: "0.8 H · 0.3 R", value: 44, status: "bench" },
   ],
   ipPace: { value: 38, total: 54 },
   movesLeft: { value: 7, total: 10 },
