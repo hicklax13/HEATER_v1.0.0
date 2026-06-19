@@ -177,7 +177,7 @@ function LeaderTable({ rows }: { rows: LeaderRow[] }) {
             const trendCls = up ? "text-ok" : p.trend === "down" ? "text-ember" : "text-ink-3";
             return (
               <tr
-                key={p.mlbId}
+                key={p.rank}
                 className="border-b border-line/60 transition-colors duration-[var(--dur-1)] hover:bg-surface/60"
               >
                 <td className="tnum px-2.5 py-2.5 text-center font-bold text-ink-3">{p.rank}</td>
