@@ -66,3 +66,54 @@ def test_to_pool_item_zero_max_value_is_safe():
     pool = pd.DataFrame([{"player_id": 1, "name": "X", "positions": "OF", "mlb_id": 1, "team": "NYY"}])
     item = _to_pool_item(1, {"player_id": 1, "marginal_value": 0.0, "is_hitter": True}, pool, max_value=0.0)
     assert item.value == 0.0  # no divide-by-zero
+
+
+def test_free_agents_pool_endpoint_returns_contract():
+    from starlette.testclient import TestClient
+
+    from api.contracts.common import PlayerRef
+    from api.contracts.free_agents import FreeAgentPoolItem, FreeAgentPoolResponse, StatItem
+    from api.deps import get_fa_pool_service
+    from api.main import create_app
+
+    class _FakePoolService:
+        def get_free_agents_pool(self, team_name, limit=100):
+            return FreeAgentPoolResponse(
+                top_need="SB",
+                free_agents=[
+                    FreeAgentPoolItem(
+                        player=PlayerRef(
+                            id=1,
+                            mlb_id=592450,
+                            name="Aaron Judge",
+                            positions="OF",
+                            team_abbr="NYY",
+                            team_id=147,
+                        ),
+                        rank=1,
+                        value=100.0,
+                        own_pct=45.0,
+                        own_delta=0.0,
+                        hitter=True,
+                        stats=[StatItem(label="HR", value="24")],
+                        fit="HR",
+                        tag="Buy Low",
+                    )
+                ],
+            )
+
+    app = create_app()
+    app.dependency_overrides[get_fa_pool_service] = lambda: _FakePoolService()
+    try:
+        resp = TestClient(app).get("/api/free-agents/pool?team_name=Team+Hickey")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["top_need"] == "SB"
+        fa = body["free_agents"][0]
+        assert fa["player"]["mlb_id"] == 592450
+        assert fa["player"]["team_id"] == 147
+        assert fa["value"] == 100.0
+        assert fa["fit"] == "HR"
+        assert fa["stats"][0] == {"label": "HR", "value": "24"}
+    finally:
+        app.dependency_overrides.clear()

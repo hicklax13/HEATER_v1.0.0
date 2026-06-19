@@ -476,6 +476,86 @@
         "title": "DraftSimulatePicksResponse",
         "type": "object"
       },
+      "FreeAgentPoolItem": {
+        "properties": {
+          "fit": {
+            "default": "",
+            "title": "Fit",
+            "type": "string"
+          },
+          "hitter": {
+            "default": true,
+            "title": "Hitter",
+            "type": "boolean"
+          },
+          "own_delta": {
+            "default": 0.0,
+            "title": "Own Delta",
+            "type": "number"
+          },
+          "own_pct": {
+            "default": 0.0,
+            "title": "Own Pct",
+            "type": "number"
+          },
+          "player": {
+            "$ref": "#/components/schemas/PlayerRef"
+          },
+          "rank": {
+            "title": "Rank",
+            "type": "integer"
+          },
+          "stats": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/StatItem"
+            },
+            "title": "Stats",
+            "type": "array"
+          },
+          "tag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tag"
+          },
+          "value": {
+            "title": "Value",
+            "type": "number"
+          }
+        },
+        "required": [
+          "player",
+          "rank",
+          "value"
+        ],
+        "title": "FreeAgentPoolItem",
+        "type": "object"
+      },
+      "FreeAgentPoolResponse": {
+        "properties": {
+          "free_agents": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/FreeAgentPoolItem"
+            },
+            "title": "Free Agents",
+            "type": "array"
+          },
+          "top_need": {
+            "default": "",
+            "title": "Top Need",
+            "type": "string"
+          }
+        },
+        "title": "FreeAgentPoolResponse",
+        "type": "object"
+      },
       "FreeAgentRec": {
         "properties": {
           "add": {
@@ -1152,6 +1232,24 @@
         "title": "StandingsResponse",
         "type": "object"
       },
+      "StatItem": {
+        "properties": {
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "label",
+          "value"
+        ],
+        "title": "StatItem",
+        "type": "object"
+      },
       "StreamCandidate": {
         "properties": {
           "actionable": {
@@ -1739,6 +1837,58 @@
           }
         },
         "summary": "Get Free Agents",
+        "tags": [
+          "free-agents"
+        ]
+      }
+    },
+    "/api/free-agents/pool": {
+      "get": {
+        "operationId": "get_free_agents_pool_api_free_agents_pool_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "team_name",
+            "required": true,
+            "schema": {
+              "title": "Team Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FreeAgentPoolResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Free Agents Pool",
         "tags": [
           "free-agents"
         ]
