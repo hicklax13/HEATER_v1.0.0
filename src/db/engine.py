@@ -17,13 +17,15 @@ _engine: Engine | None = None
 
 def engine_url() -> str:
     """The SQLAlchemy URL for the active backend. DATABASE_URL if set, else the
-    local SQLite file (resolved via the same path logic as direct connections)."""
+    local SQLite file. Reuses the SAME `DB_PATH` constant `get_connection()` uses
+    (not a fresh re-resolve), so the engine and direct connections point at one
+    file by construction — the seam B2.2 wires the read path onto."""
     url = os.environ.get("DATABASE_URL")
     if url:
         return url
-    from src.database import _resolve_db_path
+    from src.database import DB_PATH
 
-    return f"sqlite:///{_resolve_db_path().as_posix()}"
+    return f"sqlite:///{DB_PATH.as_posix()}"
 
 
 def get_engine() -> Engine:
@@ -44,5 +46,6 @@ def reset_engine_cache() -> None:
 
 
 def is_sqlite_backend() -> bool:
-    """True when the active backend is the local SQLite file (the default)."""
-    return engine_url().startswith("sqlite")
+    """True when the active backend is the local SQLite file (the default).
+    Case-insensitive on the URL scheme (RFC 3986 schemes are case-insensitive)."""
+    return engine_url().lower().startswith("sqlite")

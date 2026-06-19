@@ -48,6 +48,29 @@ def test_engine_is_cached(monkeypatch):
     assert get_engine() is get_engine()  # one engine per process (pool reuse)
 
 
+def test_is_sqlite_backend_handles_driver_and_case(monkeypatch):
+    from src.db.engine import is_sqlite_backend, reset_engine_cache
+
+    monkeypatch.setenv("DATABASE_URL", "sqlite+pysqlite:///x.db")
+    reset_engine_cache()
+    assert is_sqlite_backend() is True  # explicit-driver sqlite URL
+    monkeypatch.setenv("DATABASE_URL", "SQLITE:///x.db")
+    assert is_sqlite_backend() is True  # scheme is case-insensitive
+    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://u:p@localhost/db")
+    assert is_sqlite_backend() is False
+    reset_engine_cache()
+
+
+def test_reset_engine_cache_rebuilds_new_engine(monkeypatch):
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    from src.db.engine import get_engine, reset_engine_cache
+
+    reset_engine_cache()
+    first = get_engine()
+    reset_engine_cache()
+    assert get_engine() is not first  # dispose-and-rebuild contract
+
+
 def test_get_connection_sqlite_unchanged(monkeypatch):
     monkeypatch.delenv("DATABASE_URL", raising=False)
     from src.database import get_connection
