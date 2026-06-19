@@ -106,6 +106,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/free-agents/pool": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Free Agents Pool */
+        get: operations["get_free_agents_pool_api_free_agents_pool_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/leaders": {
         parameters: {
             query?: never;
@@ -541,6 +558,54 @@ export interface components {
              */
             summary: string;
         };
+        /** FreeAgentPoolItem */
+        FreeAgentPoolItem: {
+            /**
+             * Fit
+             * @default
+             */
+            fit: string;
+            /**
+             * Hitter
+             * @default true
+             */
+            hitter: boolean;
+            /**
+             * Own Delta
+             * @default 0
+             */
+            own_delta: number;
+            /**
+             * Own Pct
+             * @default 0
+             */
+            own_pct: number;
+            player: components["schemas"]["PlayerRef"];
+            /** Rank */
+            rank: number;
+            /**
+             * Stats
+             * @default []
+             */
+            stats: components["schemas"]["StatItem"][];
+            /** Tag */
+            tag?: string | null;
+            /** Value */
+            value: number;
+        };
+        /** FreeAgentPoolResponse */
+        FreeAgentPoolResponse: {
+            /**
+             * Free Agents
+             * @default []
+             */
+            free_agents: components["schemas"]["FreeAgentPoolItem"][];
+            /**
+             * Top Need
+             * @default
+             */
+            top_need: string;
+        };
         /** FreeAgentRec */
         FreeAgentRec: {
             add: components["schemas"]["PlayerRef"];
@@ -803,6 +868,13 @@ export interface components {
         StandingsResponse: {
             /** Teams */
             teams: components["schemas"]["TeamStanding"][];
+        };
+        /** StatItem */
+        StatItem: {
+            /** Label */
+            label: string;
+            /** Value */
+            value: string;
         };
         /** StreamCandidate */
         StreamCandidate: {
@@ -1175,6 +1247,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FreeAgentsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_free_agents_pool_api_free_agents_pool_get: {
+        parameters: {
+            query: {
+                team_name: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FreeAgentPoolResponse"];
                 };
             };
             /** @description Validation Error */

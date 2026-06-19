@@ -1,5 +1,6 @@
-import type { ApiLeadersResponse } from "@/lib/api/types";
+import type { ApiLeadersResponse, ApiFreeAgentPoolResponse } from "@/lib/api/types";
 import type { LeaderRow, ResearchData } from "@/lib/research-data";
+import type { FreeAgent, PlayersData } from "@/lib/players-data";
 
 const PITCHER_POS = /\b(P|SP|RP)\b/;
 
@@ -40,4 +41,26 @@ export function apiLeadersToResearch(api: ApiLeadersResponse): ResearchData {
     note: `Live · ${api.category} leader`,
   }));
   return { leaders };
+}
+
+/** Map the FA-pool response → the frontend PlayersData. The contract is a near
+ *  1:1 match (rank/value/own/stats/fit/tag + enriched PlayerRef); this just
+ *  renames snake_case → camelCase and flattens the PlayerRef (null-safe). */
+export function apiPoolToPlayers(api: ApiFreeAgentPoolResponse): PlayersData {
+  const freeAgents: FreeAgent[] = api.free_agents.map((it) => ({
+    name: it.player.name,
+    pos: it.player.positions,
+    teamAbbr: it.player.team_abbr ?? "",
+    teamId: it.player.team_id ?? 0,
+    mlbId: it.player.mlb_id ?? 0,
+    rank: it.rank,
+    ownPct: it.own_pct,
+    ownDelta: it.own_delta,
+    value: it.value,
+    hitter: it.hitter,
+    stats: it.stats, // StatItem {label,value} === frontend stat shape
+    fit: it.fit,
+    tag: it.tag ?? undefined,
+  }));
+  return { topNeed: api.top_need, freeAgents };
 }

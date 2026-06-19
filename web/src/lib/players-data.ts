@@ -1,8 +1,12 @@
 import type { PlayerRef } from "./types";
+import { apiGet } from "@/lib/api/client";
+import { apiPoolToPlayers } from "@/lib/api/adapters";
+import type { ApiFreeAgentPoolResponse } from "@/lib/api/types";
 
 /**
  * Mock Free Agents data — available players ranked by marginal value.
- * Swap this module for the API client in Sub-project B; the shape is the contract.
+ * With NEXT_PUBLIC_HEATER_LIVE=1, fetchPlayers wires to GET /api/free-agents/pool
+ * and falls back to this mock on any error or empty response.
  */
 export interface FreeAgent extends PlayerRef {
   rank: number; // FA value rank
@@ -66,6 +70,18 @@ export const PLAYERS: PlayersData = {
   ],
 };
 
-export function fetchPlayers(delayMs = 600): Promise<PlayersData> {
+export async function fetchPlayers(delayMs = 600): Promise<PlayersData> {
+  if (process.env.NEXT_PUBLIC_HEATER_LIVE === "1") {
+    try {
+      // Single-league context: the user's team is fixed until multi-tenancy (M4).
+      const api = await apiGet<ApiFreeAgentPoolResponse>("/free-agents/pool", {
+        team_name: "Team Hickey",
+        limit: 50,
+      });
+      if (api.free_agents.length > 0) return apiPoolToPlayers(api);
+    } catch {
+      // fall through to mock
+    }
+  }
   return new Promise((resolve) => setTimeout(() => resolve(PLAYERS), delayMs));
 }

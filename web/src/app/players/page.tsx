@@ -324,7 +324,7 @@ function FATable({ rows, need }: { rows: FreeAgent[]; need: string }) {
             const up = p.ownDelta > 0;
             const DeltaIcon = up ? ArrowUp : ArrowDown;
             return (
-              <tr key={p.mlbId} className="border-b border-line/60 transition-colors duration-[var(--dur-1)] hover:bg-surface/60">
+              <tr key={p.rank} className="border-b border-line/60 transition-colors duration-[var(--dur-1)] hover:bg-surface/60">
                 <td className="tnum px-2.5 py-2.5 text-center font-bold text-ink-3">{p.rank}</td>
                 <td className="p-0">
                   <PlayerDialog player={{ ...p, rosteredBy: "Free Agent" }}>
