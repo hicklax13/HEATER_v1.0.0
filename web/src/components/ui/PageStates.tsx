@@ -1,7 +1,7 @@
 "use client";
 
 import type { LucideIcon } from "lucide-react";
-import { RefreshCw } from "lucide-react";
+import { CloudOff, RefreshCw } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 
@@ -10,7 +10,7 @@ export function PageError({ onRetry }: { onRetry: () => void }) {
   return (
     <Card className="mx-auto mt-10 max-w-md">
       <EmptyState
-        icon={RefreshCw}
+        icon={CloudOff}
         tone="error"
         title="We couldn't load this"
         body="The data service didn't respond. Your data is safe — try again."
