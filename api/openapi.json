@@ -418,6 +418,64 @@
         "title": "DraftRecommendation",
         "type": "object"
       },
+      "DraftSimulatePicksRequest": {
+        "properties": {
+          "config": {
+            "$ref": "#/components/schemas/DraftConfig",
+            "default": {
+              "num_rounds": 23,
+              "num_teams": 12,
+              "user_team_index": 0
+            }
+          },
+          "pick_log": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/DraftPick"
+            },
+            "title": "Pick Log",
+            "type": "array"
+          },
+          "seed": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seed"
+          }
+        },
+        "title": "DraftSimulatePicksRequest",
+        "type": "object"
+      },
+      "DraftSimulatePicksResponse": {
+        "properties": {
+          "clock": {
+            "$ref": "#/components/schemas/DraftClock"
+          },
+          "picks": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/DraftPick"
+            },
+            "title": "Picks",
+            "type": "array"
+          },
+          "summary": {
+            "default": "",
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "clock"
+        ],
+        "title": "DraftSimulatePicksResponse",
+        "type": "object"
+      },
       "FreeAgentRec": {
         "properties": {
           "add": {
@@ -1560,6 +1618,47 @@
         ]
       }
     },
+    "/api/draft/simulate-picks": {
+      "post": {
+        "operationId": "draft_simulate_picks_api_draft_simulate_picks_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DraftSimulatePicksRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DraftSimulatePicksResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Draft Simulate Picks",
+        "tags": [
+          "draft"
+        ]
+      }
+    },
     "/api/free-agents": {
       "get": {
         "operationId": "get_free_agents_api_free_agents_get",
@@ -1709,6 +1808,24 @@
     "/api/lineup/set": {
       "post": {
         "operationId": "set_lineup_api_lineup_set_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -1729,6 +1846,9 @@
               }
             },
             "description": "Successful Response"
+          },
+          "401": {
+            "description": "Authentication required: missing or invalid bearer token."
           },
           "422": {
             "content": {
@@ -2052,6 +2172,24 @@
     "/api/transactions/add-drop": {
       "post": {
         "operationId": "add_drop_api_transactions_add_drop_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -2072,6 +2210,9 @@
               }
             },
             "description": "Successful Response"
+          },
+          "401": {
+            "description": "Authentication required: missing or invalid bearer token."
           },
           "422": {
             "content": {

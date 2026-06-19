@@ -5,7 +5,12 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 
-from api.contracts.draft import DraftRecommendRequest, DraftRecommendResponse
+from api.contracts.draft import (
+    DraftRecommendRequest,
+    DraftRecommendResponse,
+    DraftSimulatePicksRequest,
+    DraftSimulatePicksResponse,
+)
 from api.deps import get_draft_service
 
 router = APIRouter(prefix="/api", tags=["draft"])
@@ -14,3 +19,10 @@ router = APIRouter(prefix="/api", tags=["draft"])
 @router.post("/draft/recommend", response_model=DraftRecommendResponse)
 def draft_recommend(req: DraftRecommendRequest, service=Depends(get_draft_service)) -> DraftRecommendResponse:
     return service.recommend(req)
+
+
+@router.post("/draft/simulate-picks", response_model=DraftSimulatePicksResponse)
+def draft_simulate_picks(
+    req: DraftSimulatePicksRequest, service=Depends(get_draft_service)
+) -> DraftSimulatePicksResponse:
+    return service.simulate_picks(req)
