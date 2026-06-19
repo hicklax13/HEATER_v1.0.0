@@ -129,6 +129,17 @@ def get_connection(timeout: float = 60.0) -> sqlite3.Connection:
     write transaction held longer than that and the phase needs its
     writes batched into fewer transactions.
     """
+    # B2.0 seam: SQLite (the default) keeps the exact behavior below. A non-SQLite
+    # DATABASE_URL means Postgres — whose connection wiring lands in B2.2 — so fail
+    # loud rather than silently fall through to a SQLite file.
+    from src.db.engine import is_sqlite_backend
+
+    if not is_sqlite_backend():
+        raise NotImplementedError(
+            "Non-SQLite DATABASE_URL set, but Postgres connection wiring is not "
+            "implemented until B2.2. Unset DATABASE_URL to use the SQLite backend."
+        )
+    # --- existing SQLite implementation unchanged from here ---
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(DB_PATH), timeout=timeout)
     conn.row_factory = sqlite3.Row

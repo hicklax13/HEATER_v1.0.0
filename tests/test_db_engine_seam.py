@@ -46,3 +46,30 @@ def test_engine_is_cached(monkeypatch):
 
     reset_engine_cache()
     assert get_engine() is get_engine()  # one engine per process (pool reuse)
+
+
+def test_get_connection_sqlite_unchanged(monkeypatch):
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    from src.database import get_connection
+
+    conn = get_connection()
+    try:
+        assert isinstance(conn, sqlite3.Connection)
+        assert conn.row_factory is sqlite3.Row  # dict-row access preserved
+        assert conn.execute("SELECT 1").fetchone()[0] == 1
+        assert conn.execute("PRAGMA journal_mode").fetchone()[0].lower() == "wal"
+    finally:
+        conn.close()
+
+
+def test_get_connection_rejects_unwired_postgres(monkeypatch):
+    # B2.0 establishes the seam but does NOT wire Postgres connections — that is
+    # B2.2. A non-SQLite DATABASE_URL must fail LOUD, never silently mis-connect.
+    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://u:p@localhost:5432/heater")
+    from src.database import get_connection
+    from src.db.engine import reset_engine_cache
+
+    reset_engine_cache()
+    with pytest.raises(NotImplementedError):
+        get_connection()
+    reset_engine_cache()  # leave cache clean for other tests
