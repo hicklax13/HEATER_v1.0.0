@@ -80,3 +80,39 @@ def test_simulate_picks_graceful_when_pool_load_fails():
     resp = DraftService().simulate_picks(req, pool=None)
     assert isinstance(resp, DraftSimulatePicksResponse)
     assert resp.clock.round >= 1  # clock always computed from the rebuilt state
+
+
+class _FakeDraftService:
+    def simulate_picks(self, req) -> DraftSimulatePicksResponse:
+        return DraftSimulatePicksResponse(
+            clock=DraftClock(current_pick=2, round=1, pick_in_round=3, picking_team_index=2, is_user_turn=True),
+            picks=[
+                DraftPick(pick=0, team_index=0, player_id=101, player_name="A", positions="SS"),
+                DraftPick(pick=1, team_index=1, player_id=102, player_name="B", positions="OF"),
+            ],
+            summary="2 opponent picks simulated.",
+        )
+
+
+def test_post_draft_simulate_returns_contract():
+    app = create_app()
+    app.dependency_overrides[get_draft_service] = lambda: _FakeDraftService()
+    client = TestClient(app)
+    resp = client.post(
+        "/api/draft/simulate-picks",
+        json={"config": {"num_teams": 12, "user_team_index": 2}, "pick_log": [], "seed": 7},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["clock"]["is_user_turn"] is True
+    assert len(body["picks"]) == 2
+    assert body["picks"][0]["player_id"] == 101
+
+
+def test_post_draft_simulate_accepts_empty_body_defaults():
+    app = create_app()
+    app.dependency_overrides[get_draft_service] = lambda: _FakeDraftService()
+    client = TestClient(app)
+    resp = client.post("/api/draft/simulate-picks", json={})  # all fields default
+    assert resp.status_code == 200
+    assert resp.json()["picks"][0]["team_index"] == 0
