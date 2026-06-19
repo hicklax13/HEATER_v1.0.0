@@ -1,21 +1,14 @@
-/** TypeScript mirrors of the FastAPI contracts this slice consumes.
- *  Source of truth: api/contracts/leaders.py + api/contracts/common.py.
- *  (Full-surface generation from openapi.json is future work — see the gap spec.) */
+/** Thin aliases over the OpenAPI-generated schemas (./generated.ts).
+ *
+ *  Source of truth: api/openapi.json (committed, snapshot-guarded by the backend).
+ *  Regenerate after any contract change with `pnpm gen:api`.
+ *
+ *  These names are kept stable so client.ts / adapters.ts / research-data.ts keep
+ *  importing the same symbols — only their underlying definition is now generated,
+ *  not hand-maintained, so the frontend types can no longer drift from the API. */
 
-export interface ApiPlayerRef {
-  id: number;
-  name: string;
-  positions: string;
-  yahoo_player_key?: string | null;
-}
+import type { components } from "./generated";
 
-export interface ApiLeaderRow {
-  rank: number;
-  player: ApiPlayerRef;
-  value: number;
-}
-
-export interface ApiLeadersResponse {
-  category: string;
-  rows: ApiLeaderRow[];
-}
+export type ApiPlayerRef = components["schemas"]["PlayerRef"];
+export type ApiLeaderRow = components["schemas"]["LeaderRow"];
+export type ApiLeadersResponse = components["schemas"]["LeadersResponse"];
