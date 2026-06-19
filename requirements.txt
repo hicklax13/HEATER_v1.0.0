@@ -59,3 +59,4 @@ pytest-xdist>=3.5.0
 # change. Regenerate the snapshot (python scripts/export_openapi.py) when bumping this.
 fastapi==0.137.1
 httpx==0.28.1      # required by starlette.testclient.TestClient; pinned to keep the api-test stack deterministic
+SQLAlchemy>=2.0          # B2.0 engine seam (DB backend abstraction; alembic/psycopg land in B2.1/B2.2)
