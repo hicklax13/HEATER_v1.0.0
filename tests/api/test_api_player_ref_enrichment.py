@@ -145,3 +145,15 @@ def test_compare_enriches_from_pool(monkeypatch):
     assert resp.players[0].player.mlb_id == 605141
     assert resp.players[0].player.team_abbr == "LAD"
     assert resp.players[0].player.team_id == 119
+
+
+def test_leaders_to_leader_row_enriches():
+    from api.services.leaders_service import LeadersService
+
+    row = {"player_id": 21, "name": "Bobby Witt Jr.", "positions": "SS", "mlb_id": 677951, "team": "KC", "hr": 24}
+    leader_row = LeadersService._to_leader_row(1, row, "hr")
+    assert leader_row.rank == 1
+    assert leader_row.value == 24.0
+    assert leader_row.player.mlb_id == 677951
+    assert leader_row.player.team_abbr == "KC"
+    assert leader_row.player.team_id == 118

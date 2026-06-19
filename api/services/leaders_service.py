@@ -4,8 +4,8 @@ or unknown category degrades to empty rows rather than raising."""
 
 from __future__ import annotations
 
-from api.contracts.common import PlayerRef
 from api.contracts.leaders import LeaderRow, LeadersResponse
+from api.services.player_ref import make_player_ref
 
 # Map display category names to the lowercase stat column in the DataFrame
 _STAT_COL_MAP: dict[str, str] = {
@@ -42,6 +42,8 @@ class LeadersService:
                         s.player_id,
                         p.name,
                         p.positions,
+                        p.mlb_id,
+                        p.team,
                         p.is_hitter,
                         s.pa, s.ip,
                         s.r, s.hr, s.rbi, s.sb,
@@ -76,21 +78,27 @@ class LeadersService:
             stat_col = _STAT_COL_MAP.get(cat_upper, cat_upper.lower())
 
             for rank, (_, row) in enumerate(ldf.iterrows(), start=1):
-                player_id = int(row.get("player_id", 0) or 0)
-                name = str(row.get("name", "") or "")
-                positions = str(row.get("positions", "") or "")
-                raw_val = row.get(stat_col)
-                try:
-                    value = float(raw_val) if raw_val is not None else 0.0
-                except (TypeError, ValueError):
-                    value = 0.0
-                rows.append(
-                    LeaderRow(
-                        rank=rank,
-                        player=PlayerRef(id=player_id, name=name, positions=positions),
-                        value=value,
-                    )
-                )
+                rows.append(self._to_leader_row(rank, row, stat_col))
         except Exception:
             rows = []  # cold env / no data / unknown category → empty rows
         return LeadersResponse(category=category, rows=rows)
+
+    @staticmethod
+    def _to_leader_row(rank: int, row, stat_col: str) -> LeaderRow:
+        g = row.get if hasattr(row, "get") else lambda k, d=None: row[k] if k in row else d
+        raw_val = g(stat_col)
+        try:
+            value = float(raw_val) if raw_val is not None else 0.0
+        except (TypeError, ValueError):
+            value = 0.0
+        return LeaderRow(
+            rank=rank,
+            player=make_player_ref(
+                id=int(g("player_id", 0) or 0),
+                name=str(g("name", "") or ""),
+                positions=str(g("positions", "") or ""),
+                mlb_id=g("mlb_id"),
+                team_abbr=g("team"),
+            ),
+            value=value,
+        )
