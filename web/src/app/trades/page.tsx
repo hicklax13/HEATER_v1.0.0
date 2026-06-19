@@ -1,6 +1,5 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { ArrowRight, ArrowUp, ArrowDown, TrendingUp, Plus } from "lucide-react";
 import { fetchTrades, type TradesData, type TradeRec, type TradePlayer, type CatImpact } from "@/lib/trades-data";
@@ -11,44 +10,47 @@ import { Skeleton } from "@/components/ui/Skeleton";
 import { PlayerDialog } from "@/components/player/PlayerDialog";
 import { PlayerAvatar } from "@/components/ui/PlayerAvatar";
 import { cn } from "@/lib/utils";
+import { usePageData } from "@/lib/use-page-data";
+import { PageError, PageEmpty } from "@/components/ui/PageStates";
 
 const YOU = "Team Hickey";
 
 export default function TradesPage() {
-  const [data, setData] = useState<TradesData | null>(null);
-
-  useEffect(() => {
-    let alive = true;
-    fetchTrades().then((d) => {
-      if (alive) setData(d);
-    });
-    return () => {
-      alive = false;
-    };
-  }, []);
+  const { state, retry } = usePageData(fetchTrades);
 
   return (
     <>
       <main className="w-full flex-1 px-5 py-6">
-        {!data ? (
-          <LoadingView />
-        ) : (
-          <motion.div variants={staggerContainer} initial="hidden" animate="show" className="space-y-6">
-            <motion.div variants={staggerItem}>
-              <Header needs={data.needs} count={data.recs.length} />
-            </motion.div>
-            <motion.div variants={staggerItem}>
-              <div className="space-y-4">
-                {data.recs.map((rec) => (
-                  <TradeCard key={rec.id} rec={rec} />
-                ))}
-              </div>
-            </motion.div>
-          </motion.div>
+        {state.status === "loading" && <LoadingView />}
+        {state.status === "error" && <PageError onRetry={retry} />}
+        {state.status === "empty" && (
+          <PageEmpty
+            icon={TrendingUp}
+            title="No trade ideas yet"
+            body="We need a bit more league data to surface targets."
+          />
         )}
+        {state.status === "loaded" && <Loaded data={state.data} />}
       </main>
-      <Footer freshnessMinutes={9} />
+      {state.status === "loaded" && <Footer freshnessMinutes={9} />}
     </>
+  );
+}
+
+function Loaded({ data }: { data: TradesData }) {
+  return (
+    <motion.div variants={staggerContainer} initial="hidden" animate="show" className="space-y-6">
+      <motion.div variants={staggerItem}>
+        <Header needs={data.needs} count={data.recs.length} />
+      </motion.div>
+      <motion.div variants={staggerItem}>
+        <div className="space-y-4">
+          {data.recs.map((rec) => (
+            <TradeCard key={rec.id} rec={rec} />
+          ))}
+        </div>
+      </motion.div>
+    </motion.div>
   );
 }
 
