@@ -1,11 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { motion } from "framer-motion";
-import { Activity, Check, Bell, RefreshCw, Inbox, type LucideIcon } from "lucide-react";
+import { Activity, Check, Bell, Inbox, type LucideIcon } from "lucide-react";
 import { fetchMyTeam } from "@/lib/data";
 import type { MyTeamData } from "@/lib/types";
 import { EASE_SNAP } from "@/lib/motion";
+import { usePageData } from "@/lib/use-page-data";
+import { PageError, PageEmpty } from "@/components/ui/PageStates";
 import { cn } from "@/lib/utils";
 import { Footer } from "@/components/chrome/Footer";
 import { WinHero } from "@/components/myteam/WinHero";
@@ -15,15 +17,7 @@ import { CategoryOutlook } from "@/components/myteam/CategoryOutlook";
 import { OpsCards } from "@/components/myteam/OpsCards";
 import { SeasonTrajectory } from "@/components/myteam/SeasonTrajectory";
 import { WinProbTrend } from "@/components/viz/WinProbTrend";
-import { Card } from "@/components/ui/Card";
-import { EmptyState } from "@/components/ui/EmptyState";
 import { Skeleton } from "@/components/ui/Skeleton";
-
-type State =
-  | { status: "loading" }
-  | { status: "error" }
-  | { status: "empty" }
-  | { status: "loaded"; data: MyTeamData };
 
 const container = { hidden: {}, show: { transition: { staggerChildren: 0.06 } } };
 const item = {
@@ -40,36 +34,21 @@ const CHIP_TONE: Record<string, string> = {
 };
 
 export default function MyTeamPage() {
-  const [state, setState] = useState<State>({ status: "loading" });
+  const { state, retry } = usePageData(fetchMyTeam);
   const [leverHover, setLeverHover] = useState(false);
-
-  const load = useCallback(() => {
-    setState({ status: "loading" });
-    fetchMyTeam()
-      .then((d) => setState(d ? { status: "loaded", data: d } : { status: "empty" }))
-      .catch(() => setState({ status: "error" }));
-  }, []);
-
-  useEffect(() => {
-    let alive = true;
-    fetchMyTeam()
-      .then((d) => {
-        if (alive) setState(d ? { status: "loaded", data: d } : { status: "empty" });
-      })
-      .catch(() => {
-        if (alive) setState({ status: "error" });
-      });
-    return () => {
-      alive = false;
-    };
-  }, []);
 
   return (
     <>
       <main className="w-full flex-1 px-5 py-6">
         {state.status === "loading" && <LoadingView />}
-        {state.status === "error" && <ErrorView onRetry={load} />}
-        {state.status === "empty" && <EmptyView />}
+        {state.status === "error" && <PageError onRetry={retry} />}
+        {state.status === "empty" && (
+          <PageEmpty
+            icon={Inbox}
+            title="No team data yet"
+            body="Connect your Yahoo league and we'll build your dashboard automatically."
+          />
+        )}
         {state.status === "loaded" && (
           <Loaded data={state.data} leverHover={leverHover} setLeverHover={setLeverHover} />
         )}
@@ -176,36 +155,3 @@ function LoadingView() {
   );
 }
 
-function ErrorView({ onRetry }: { onRetry: () => void }) {
-  return (
-    <Card className="mx-auto mt-10 max-w-md">
-      <EmptyState
-        icon={RefreshCw}
-        tone="error"
-        title="We couldn't load your team"
-        body="The data service didn't respond. Your roster is safe — try again."
-        action={
-          <button
-            onClick={onRetry}
-            className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-gradient-to-b from-[#ff7a2e] to-heat px-5 text-sm font-semibold text-white shadow-[0_6px_16px_rgba(255,92,16,0.32)] transition-transform duration-[var(--dur-1)] hover:scale-[1.02] active:scale-95 motion-reduce:transform-none"
-          >
-            <RefreshCw className="size-4" aria-hidden />
-            Retry
-          </button>
-        }
-      />
-    </Card>
-  );
-}
-
-function EmptyView() {
-  return (
-    <Card className="mx-auto mt-10 max-w-md">
-      <EmptyState
-        icon={Inbox}
-        title="No team data yet"
-        body="Connect your Yahoo league and we'll build your dashboard automatically."
-      />
-    </Card>
-  );
-}
