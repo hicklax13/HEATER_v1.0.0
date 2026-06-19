@@ -418,6 +418,64 @@
         "title": "DraftRecommendation",
         "type": "object"
       },
+      "DraftSimulatePicksRequest": {
+        "properties": {
+          "config": {
+            "$ref": "#/components/schemas/DraftConfig",
+            "default": {
+              "num_rounds": 23,
+              "num_teams": 12,
+              "user_team_index": 0
+            }
+          },
+          "pick_log": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/DraftPick"
+            },
+            "title": "Pick Log",
+            "type": "array"
+          },
+          "seed": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seed"
+          }
+        },
+        "title": "DraftSimulatePicksRequest",
+        "type": "object"
+      },
+      "DraftSimulatePicksResponse": {
+        "properties": {
+          "clock": {
+            "$ref": "#/components/schemas/DraftClock"
+          },
+          "picks": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/DraftPick"
+            },
+            "title": "Picks",
+            "type": "array"
+          },
+          "summary": {
+            "default": "",
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "clock"
+        ],
+        "title": "DraftSimulatePicksResponse",
+        "type": "object"
+      },
       "FreeAgentRec": {
         "properties": {
           "add": {
@@ -1555,6 +1613,47 @@
           }
         },
         "summary": "Draft Recommend",
+        "tags": [
+          "draft"
+        ]
+      }
+    },
+    "/api/draft/simulate-picks": {
+      "post": {
+        "operationId": "draft_simulate_picks_api_draft_simulate_picks_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DraftSimulatePicksRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DraftSimulatePicksResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Draft Simulate Picks",
         "tags": [
           "draft"
         ]
