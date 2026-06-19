@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { Flame, Snowflake, TrendingUp, TrendingDown, ArrowUp, ArrowDown, Minus, Search, SearchX } from "lucide-react";
 import { fetchResearch, type ResearchData, type LeaderRow, type Lens } from "@/lib/research-data";
@@ -12,6 +12,8 @@ import { PlayerDialog } from "@/components/player/PlayerDialog";
 import { PlayerAvatar } from "@/components/ui/PlayerAvatar";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { cn } from "@/lib/utils";
+import { usePageData } from "@/lib/use-page-data";
+import { PageError, PageEmpty } from "@/components/ui/PageStates";
 
 const LENSES: { key: Lens; label: string }[] = [
   { key: "overall", label: "Leaders" },
@@ -29,22 +31,32 @@ const TAG: Record<LeaderRow["tag"], { label: string; cls: string }> = {
 };
 
 export default function ResearchPage() {
-  const [data, setData] = useState<ResearchData | null>(null);
+  const { state, retry } = usePageData(fetchResearch);
+
+  return (
+    <>
+      <main className="w-full flex-1 px-5 py-6">
+        {state.status === "loading" && <LoadingView />}
+        {state.status === "error" && <PageError onRetry={retry} />}
+        {state.status === "empty" && (
+          <PageEmpty
+            icon={Flame}
+            title="No leaders to show"
+            body="Leaderboard data isn't available yet."
+          />
+        )}
+        {state.status === "loaded" && <Loaded data={state.data} />}
+      </main>
+      {state.status === "loaded" && <Footer freshnessMinutes={9} />}
+    </>
+  );
+}
+
+function Loaded({ data }: { data: ResearchData }) {
   const [lens, setLens] = useState<Lens>("overall");
   const [query, setQuery] = useState("");
 
-  useEffect(() => {
-    let alive = true;
-    fetchResearch().then((d) => {
-      if (alive) setData(d);
-    });
-    return () => {
-      alive = false;
-    };
-  }, []);
-
   const rows = useMemo(() => {
-    if (!data) return [];
     const q = query.trim().toLowerCase();
     return data.leaders.filter((p) => {
       if (lens !== "overall" && p.tag !== lens) return false;
@@ -54,26 +66,17 @@ export default function ResearchPage() {
   }, [data, lens, query]);
 
   return (
-    <>
-      <main className="w-full flex-1 px-5 py-6">
-        {!data ? (
-          <LoadingView />
-        ) : (
-          <motion.div variants={staggerContainer} initial="hidden" animate="show" className="space-y-6">
-            <motion.div variants={staggerItem}>
-              <Header />
-            </motion.div>
-            <motion.div variants={staggerItem}>
-              <Card className="p-5">
-                <Toolbar lens={lens} setLens={setLens} query={query} setQuery={setQuery} shown={rows.length} />
-                <LeaderTable rows={rows} />
-              </Card>
-            </motion.div>
-          </motion.div>
-        )}
-      </main>
-      <Footer freshnessMinutes={9} />
-    </>
+    <motion.div variants={staggerContainer} initial="hidden" animate="show" className="space-y-6">
+      <motion.div variants={staggerItem}>
+        <Header />
+      </motion.div>
+      <motion.div variants={staggerItem}>
+        <Card className="p-5">
+          <Toolbar lens={lens} setLens={setLens} query={query} setQuery={setQuery} shown={rows.length} />
+          <LeaderTable rows={rows} />
+        </Card>
+      </motion.div>
+    </motion.div>
   );
 }
 
