@@ -117,3 +117,31 @@ def test_free_agents_pool_endpoint_returns_contract():
         assert fa["stats"][0] == {"label": "HR", "value": "24"}
     finally:
         app.dependency_overrides.clear()
+
+
+def test_to_pool_item_survives_nan_fields():
+    import math
+
+    import numpy as np
+
+    pool = pd.DataFrame([{"player_id": 1, "name": "X", "positions": "SP", "mlb_id": 1, "team": "NYY"}])
+    row = {
+        "player_id": 1,
+        "player_name": "X",
+        "positions": "SP",
+        "is_hitter": np.nan,
+        "marginal_value": np.nan,
+        "best_category": "",
+        "regression_flag": None,
+        "percent_owned": np.nan,
+        "ytd_k": np.nan,
+        "ytd_era": np.nan,
+        "ytd_whip": np.nan,
+    }
+    item = _to_pool_item(1, row, pool, max_value=float("nan"))
+    assert item.value == 0.0
+    assert not math.isnan(item.value)
+    assert item.own_pct == 0.0
+    assert not math.isnan(item.own_pct)
+    assert item.hitter is False  # "P" in "SP" → pitcher, not the bool(nan)=True trap
+    assert len(item.stats) == 3  # pitcher stats, no crash

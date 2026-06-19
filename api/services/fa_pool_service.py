@@ -9,6 +9,7 @@ the marginal SGP normalized to 0-100 (top FA = 100)."""
 from __future__ import annotations
 
 import logging
+import math
 
 from api.contracts.free_agents import FreeAgentPoolItem, FreeAgentPoolResponse, StatItem
 from api.services.player_ref import player_ref_from_pool
@@ -30,6 +31,15 @@ def _tag_from(regression_flag) -> str | None:
     return None
 
 
+def _safe_float(raw, default: float = 0.0) -> float:
+    """Coerce a possibly None/NaN/str value to a finite float (None/NaN/junk → default)."""
+    try:
+        fval = float(raw)
+    except (TypeError, ValueError):
+        return default
+    return default if math.isnan(fval) else fval
+
+
 def _top_need(category_gaps: dict) -> str:
     """User's biggest need = the most-negative gap (gap < 0 ⇒ behind). '' if none."""
     if not category_gaps:
@@ -44,11 +54,7 @@ def _key_stats(row, hitter: bool) -> list[StatItem]:
     spec = _HITTER_STATS if hitter else _PITCHER_STATS
     out: list[StatItem] = []
     for label, col, kind in spec:
-        raw = g(col)
-        try:
-            fval = float(raw) if raw is not None else 0.0
-        except (TypeError, ValueError):
-            fval = 0.0
+        fval = _safe_float(g(col), 0.0)
         value = format_stat(fval, kind) if kind != "int" else str(int(round(fval)))
         out.append(StatItem(label=label, value=value))
     return out
@@ -57,14 +63,19 @@ def _key_stats(row, hitter: bool) -> list[StatItem]:
 def _to_pool_item(rank: int, row, full_pool, max_value: float) -> FreeAgentPoolItem:
     g = row.get if hasattr(row, "get") else lambda k, d=None: row[k] if k in row else d
     pid = int(g("player_id", 0) or 0)
-    hitter = bool(g("is_hitter", True))
-    mval = float(g("marginal_value", 0.0) or 0.0)
-    value = round(max(0.0, min(100.0, mval / max_value * 100.0)), 1) if max_value and max_value > 0 else 0.0
+    ih = g("is_hitter", None)
+    if ih is None or (isinstance(ih, float) and math.isnan(ih)):
+        hitter = "P" not in str(g("positions", "") or "").upper()  # SP/RP/P → pitcher
+    else:
+        hitter = bool(ih)
+    mval = _safe_float(g("marginal_value"), 0.0)
+    max_val = _safe_float(max_value, 0.0)
+    value = round(max(0.0, min(100.0, mval / max_val * 100.0)), 1) if max_val > 0 else 0.0
     return FreeAgentPoolItem(
         player=player_ref_from_pool(pid, full_pool, name=g("player_name"), positions=g("positions")),
         rank=rank,
         value=value,
-        own_pct=float(g("percent_owned", 0.0) or 0.0),
+        own_pct=_safe_float(g("percent_owned"), 0.0),
         own_delta=0.0,  # ownership-trend delta deferred (gap spec: not in API)
         hitter=hitter,
         stats=_key_stats(row, hitter),
@@ -104,7 +115,7 @@ class FreeAgentPoolService:
                     on="player_id",
                     how="left",
                 )
-            max_value = float(ranked["marginal_value"].max() or 0.0)
+            max_value = _safe_float(ranked["marginal_value"].max(), 0.0)
             items = [
                 _to_pool_item(i + 1, row, ctx.player_pool, max_value)
                 for i, row in enumerate(ranked.head(limit).to_dict("records"))
