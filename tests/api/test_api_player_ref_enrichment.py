@@ -62,3 +62,23 @@ def test_streaming_to_candidate_enriches_team_only():
     assert cand.player.team_abbr == "DET"
     assert cand.player.team_id == 116
     assert cand.player.mlb_id is None  # stream board carries no mlb_id
+
+
+def test_enrichment_survives_mixed_null_pool():
+    # A row with mlb_id=None forces the mlb_id column to float64 (the real pool shape),
+    # so the populated row's mlb_id arrives as 592450.0 and must coerce to int 592450.
+    # The null row must degrade cleanly (no "nan" strings).
+    pool = pd.DataFrame(
+        [
+            {"player_id": 1, "name": "Real", "positions": "OF", "mlb_id": 592450, "team": "NYY"},
+            {"player_id": 2, "name": "NoIds", "positions": "SP", "mlb_id": None, "team": None},
+        ]
+    )
+    refs = trade_refs([1, 2], pool)
+    by_id = {r.id: r for r in refs}
+    assert by_id[1].mlb_id == 592450  # float64 592450.0 -> int
+    assert by_id[1].team_abbr == "NYY"
+    assert by_id[1].team_id == 147
+    assert by_id[2].mlb_id is None
+    assert by_id[2].team_abbr is None
+    assert by_id[2].team_id is None

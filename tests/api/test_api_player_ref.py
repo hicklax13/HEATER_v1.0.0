@@ -56,3 +56,12 @@ def test_make_player_ref_defaults_all_enrichment_to_none():
     assert ref.team_abbr is None
     assert ref.team_id is None
     assert ref.yahoo_player_key is None
+
+
+def test_make_player_ref_nan_team_abbr_is_none():
+    import pandas as pd
+
+    assert make_player_ref(id=1, name="x", positions="", team_abbr=float("nan")).team_abbr is None
+    assert make_player_ref(id=1, name="x", positions="", team_abbr=float("nan")).team_id is None
+    assert make_player_ref(id=2, name="y", positions="", team_abbr=pd.NA).team_abbr is None
+    assert make_player_ref(id=2, name="y", positions="", team_abbr=pd.NA).team_id is None
