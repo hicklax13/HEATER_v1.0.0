@@ -911,3 +911,53 @@ def evaluate_pick_standings_impact(
 
     result["standings_impact"] = round(total_impact, 3)
     return result
+
+
+def auto_pick_opponents(ds, pool, rng=None) -> list[dict]:
+    """Advance a mock draft by auto-picking AI opponents until it is the
+    user's turn (or the draft ends). Mutates *ds* in place; returns the list
+    of picks made, each a dict with keys pick/team_index/player_id/
+    player_name/positions (matches the api DraftPick contract).
+
+    Opponent model (unchanged from the Draft Simulator page): take the top-15
+    available players by ADP and sample one with linearly-decreasing weights.
+
+    Args:
+        ds: A DraftState. Read for is_user_turn/current_pick/total_picks and
+            mutated via make_pick().
+        pool: Player pool DataFrame (needs player_id, name/player_name,
+            positions, adp columns).
+        rng: Optional numpy Generator. None (default) → module-level
+            ``np.random`` (byte-identical to the live page). When set, picks
+            are reproducible — used by the stateless API + tests.
+
+    Returns:
+        list[dict]: one entry per AI pick made this call, in pick order.
+    """
+    choice = np.random.choice if rng is None else rng.choice
+    made: list[dict] = []
+    while not ds.is_user_turn and ds.current_pick < ds.total_picks:
+        available = ds.available_players(pool)
+        if available.empty:
+            break
+        candidates = available.nsmallest(min(15, len(available)), "adp")
+        size = len(candidates)
+        weights = np.arange(size, 0, -1, dtype=float)
+        weights /= weights.sum()
+        pick_idx = int(choice(size, p=weights))
+        player = candidates.iloc[pick_idx]
+        pname = str(player.get("player_name", player.get("name", "Unknown")))
+        positions = str(player.get("positions", "Util"))
+        pick_no = ds.current_pick
+        team_index = ds.picking_team_index()
+        ds.make_pick(player_id=int(player["player_id"]), player_name=pname, positions=positions)
+        made.append(
+            {
+                "pick": pick_no,
+                "team_index": team_index,
+                "player_id": int(player["player_id"]),
+                "player_name": pname,
+                "positions": positions,
+            }
+        )
+    return made
