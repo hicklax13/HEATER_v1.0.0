@@ -13,6 +13,7 @@ from src.draft_state import DraftState
 from src.feature_flags import require_page_enabled
 from src.feedback import render_feedback_widget
 from src.simulation import DraftSimulator
+from src.simulation import auto_pick_opponents as _auto_pick_opponents
 from src.ui_shared import (
     T,
     build_heatbar_html,
@@ -131,22 +132,7 @@ def init_mock_draft(pool: pd.DataFrame, draft_pos: int) -> None:
 
 def auto_pick_opponents(pool: pd.DataFrame) -> None:
     ds: DraftState = st.session_state.mock_ds
-    while not ds.is_user_turn and ds.current_pick < ds.total_picks:
-        available = ds.available_players(pool)
-        if available.empty:
-            break
-        candidates = available.nsmallest(min(15, len(available)), "adp")
-        size = len(candidates)
-        weights = np.arange(size, 0, -1, dtype=float)
-        weights /= weights.sum()
-        pick_idx = int(np.random.choice(size, p=weights))
-        player = candidates.iloc[pick_idx]
-        pname = str(player.get("player_name", player.get("name", "Unknown")))
-        ds.make_pick(
-            player_id=int(player["player_id"]),
-            player_name=pname,
-            positions=str(player.get("positions", "Util")),
-        )
+    _auto_pick_opponents(ds, pool)
 
 
 # ── Recommendation Panel ────────────────────────────────────────────────────

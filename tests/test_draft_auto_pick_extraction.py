@@ -88,3 +88,26 @@ def test_returns_pick_metadata():
 def test_no_picks_when_user_already_on_clock():
     made = auto_pick_opponents(_state(user_seat=0), _pool(), rng=np.random.default_rng(1))
     assert made == []
+
+
+def test_page_delegates_to_engine_no_inline_loop():
+    """The page's auto_pick_opponents must import + call the engine fn and
+    contain no inline RNG pick (so it can never drift from the engine)."""
+    tree = ast.parse(_PAGE.read_text(encoding="utf-8"))
+
+    asname = None
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module == "src.simulation":
+            for alias in node.names:
+                if alias.name == "auto_pick_opponents":
+                    asname = alias.asname or alias.name
+    assert asname, "page must import auto_pick_opponents from src.simulation"
+
+    func = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "auto_pick_opponents")
+    # inline MC pick is gone — no `.choice` call remains in the page fn
+    assert not any(isinstance(n, ast.Attribute) and n.attr == "choice" for n in ast.walk(func)), (
+        "page auto_pick_opponents still contains an inline .choice call"
+    )
+    # it delegates to the imported engine fn
+    called = {n.func.id for n in ast.walk(func) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
+    assert asname in called, "page auto_pick_opponents must call the src.simulation delegate"
