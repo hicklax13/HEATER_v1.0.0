@@ -19,6 +19,13 @@
       "runtimeExecutable": "pnpm",
       "runtimeArgs": ["-C", "web", "dev"],
       "port": 3000
+    },
+    {
+      "name": "heater-web-live",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["-C", "web", "dev"],
+      "port": 3000,
+      "env": { "NEXT_PUBLIC_HEATER_LIVE": "1", "HEATER_API_BASE": "http://localhost:8000" }
     }
   ]
 }
