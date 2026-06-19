@@ -997,6 +997,17 @@
             "title": "Id",
             "type": "integer"
           },
+          "mlb_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mlb Id"
+          },
           "name": {
             "title": "Name",
             "type": "string"
@@ -1004,6 +1015,28 @@
           "positions": {
             "title": "Positions",
             "type": "string"
+          },
+          "team_abbr": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Team Abbr"
+          },
+          "team_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Team Id"
           },
           "yahoo_player_key": {
             "anyOf": [
