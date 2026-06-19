@@ -9,6 +9,7 @@ import math
 
 from api.contracts.common import PlayerRef
 from api.contracts.databank import DatabankResponse, SeasonStat
+from api.services.player_ref import make_player_ref
 
 logger = logging.getLogger(__name__)
 
@@ -80,10 +81,12 @@ class DatabankService:
                 if not row_df.empty:
                     r = row_df.iloc[0]
                     name_col = "player_name" if "player_name" in pool.columns else "name"
-                    return PlayerRef(
+                    return make_player_ref(
                         id=player_id,
                         name=str(r.get(name_col, f"Player {player_id}") or f"Player {player_id}"),
                         positions=str(r.get("positions", "") or ""),
+                        mlb_id=r.get("mlb_id"),
+                        team_abbr=r.get("team"),
                     )
         except Exception:
             pass

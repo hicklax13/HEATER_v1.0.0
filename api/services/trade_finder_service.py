@@ -8,6 +8,7 @@ import logging
 
 from api.contracts.common import PlayerRef
 from api.contracts.trade_finder import TradeFinderResponse, TradeSuggestion
+from api.services.player_ref import make_player_ref
 
 logger = logging.getLogger(__name__)
 
@@ -115,10 +116,12 @@ def _build_player_refs(player_ids: list[int], pool) -> list[PlayerRef]:
             else:
                 r = row.iloc[0]
                 refs.append(
-                    PlayerRef(
+                    make_player_ref(
                         id=pid,
                         name=str(r.get(name_col, f"Player {pid}") or f"Player {pid}"),
                         positions=str(r.get("positions", "") or ""),
+                        mlb_id=r.get("mlb_id"),
+                        team_abbr=r.get("team"),
                     )
                 )
     except Exception:
