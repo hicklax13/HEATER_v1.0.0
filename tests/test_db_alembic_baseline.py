@@ -2,9 +2,11 @@
 on SQLite (and renders PG-correct DDL); it must match init_db()'s schema. The
 real `alembic upgrade head` on Postgres is deferred until a PG instance exists."""
 
-import os
+import json
 import pathlib
 import sqlite3
+import subprocess
+import sys
 
 _ROOT = pathlib.Path(__file__).resolve().parents[1]
 
@@ -19,27 +21,37 @@ def test_alembic_scaffolding_exists():
     assert (_ROOT / "alembic" / "versions").is_dir()
 
 
+# Run init_db() in a SUBPROCESS (not an in-process importlib.reload): reloading
+# src.database in-process re-creates loggers + leaves HEATER_DB_PATH mutated, which
+# pollutes co-running tests in the same xdist worker (it broke another test's caplog).
+# The subprocess touches zero global state in the test process. Paths via argv.
+_INIT_DB_SUBPROC = r"""
+import os, json, sqlite3, sys
+db, out = sys.argv[1], sys.argv[2]
+os.environ["HEATER_DB_PATH"] = db
+import src.database as d
+d.init_db()
+conn = sqlite3.connect(db)
+tabs = [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        if not r[0].startswith("sqlite_") and r[0] != "alembic_version"]
+res = {t: [c[1] for c in conn.execute("PRAGMA table_info(" + t + ")")] for t in tabs}
+open(out, "w").write(json.dumps(res))
+"""
+
+
 def _init_db_schema(tmp_path) -> dict[str, set[str]]:
-    """Run the real init_db() on a fresh temp SQLite DB; return {table: {cols}}."""
-    db = tmp_path / "parity.db"
-    os.environ["HEATER_DB_PATH"] = str(db)
-    # Re-resolve the module-level DB_PATH against the temp path.
-    import importlib
-
-    import src.database as database
-
-    importlib.reload(database)
-    database.init_db()
-    conn = sqlite3.connect(str(db))
-    try:
-        tables = {
-            r[0]
-            for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
-            if not r[0].startswith("sqlite_") and r[0] != "alembic_version"
-        }
-        return {t: {c[1] for c in conn.execute(f"PRAGMA table_info({t})")} for t in tables}
-    finally:
-        conn.close()
+    """Run the real init_db() in a subprocess against a fresh temp SQLite DB;
+    return {table: {cols}} — no global-state pollution of the test process."""
+    db = (tmp_path / "parity.db").as_posix()
+    out = (tmp_path / "schema.json").as_posix()
+    proc = subprocess.run(
+        [sys.executable, "-c", _INIT_DB_SUBPROC, db, out],
+        capture_output=True,
+        text=True,
+        cwd=str(_ROOT),
+    )
+    assert proc.returncode == 0, f"init_db subprocess failed:\n{proc.stderr}"
+    return {t: set(cols) for t, cols in json.loads(pathlib.Path(out).read_text()).items()}
 
 
 def test_schema_matches_init_db(tmp_path):
@@ -118,3 +130,21 @@ def test_partial_unique_index_renders_where_on_pg():
     assert partials, "expected partial unique index(es) on player_id_map"
     ddl = str(CreateIndex(partials[0]).compile(dialect=postgresql.dialect())).upper()
     assert "WHERE" in ddl
+
+
+def test_full_metadata_has_no_sqlite_only_tokens_in_pg_ddl():
+    # Compile EVERY table to the Postgres dialect and assert no SQLite-only token
+    # leaked into a column type/default/constraint — catches the whole class of
+    # "ported a SQLite-ism verbatim" bugs (e.g. datetime('now') defaults) before a
+    # real PG `alembic upgrade head` ever runs.
+    from sqlalchemy.dialects import postgresql
+    from sqlalchemy.schema import CreateTable
+
+    from src.db.schema import metadata
+
+    banned = ("datetime(", "strftime(", "julianday(", "autoincrement")
+    offenders = []
+    for table in metadata.tables.values():
+        ddl = str(CreateTable(table).compile(dialect=postgresql.dialect())).lower()
+        offenders += [f"{table.name}: {tok}" for tok in banned if tok in ddl]
+    assert not offenders, f"SQLite-only tokens in Postgres DDL: {offenders}"

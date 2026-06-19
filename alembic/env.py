@@ -9,7 +9,11 @@ from src.db.engine import engine_url
 
 config = context.config
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # disable_existing_loggers=False: when alembic runs in-process (tests via
+    # command.upgrade, or the app importing this), fileConfig must NOT disable
+    # already-configured loggers — the default True nukes pytest's caplog and the
+    # app's logging for everything that runs after a migration.
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 # Schema is the single source for autogenerate/metadata; imported here so
 # `alembic` commands see it. (Created in B2.1 Task 2.)

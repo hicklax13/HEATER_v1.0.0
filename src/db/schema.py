@@ -8,6 +8,14 @@ PG instance exists (B2.2). This schema is verified via:
   1. SQLite upgrade via `alembic upgrade head` on a temp DB.
   2. PG-dialect DDL compilation tests (SERIAL / citext / partial WHERE).
   3. Schema-parity test against init_db()'s SQLite introspection.
+
+FOREIGN KEYS are intentionally NOT declared here. The live SQLite app runs with
+`PRAGMA foreign_keys = OFF` (get_connection never enables it), so init_db()'s ~14
+`REFERENCES` edges are inert documentation today — enforcing them on Postgres would
+add referential integrity the app has never had (new bootstrap-ordering + bulk-load
+constraints, e.g. the user_id=0 default rows that have no users row). Enforcement is
+a deliberate, separate hardening step — a later `op.create_foreign_key` migration
+once the B2.5 data load is verified — not a silent baseline behavior change.
 """
 
 from __future__ import annotations
@@ -23,6 +31,7 @@ from sqlalchemy import (
     Table,
     Text,
     UniqueConstraint,
+    func,
     text,
 )
 from sqlalchemy import (
@@ -386,7 +395,7 @@ player_tags = Table(
         nullable=False,
     ),
     Column("note", Text, server_default=text("''")),
-    Column("created_at", Text, server_default=text("(datetime('now'))")),
+    Column("created_at", Text, server_default=func.now()),
 )
 
 player_tags.append_constraint(_PKC("player_id", "tag"))
@@ -621,6 +630,7 @@ league_settings = Table(
         Integer,
         CheckConstraint("id = 1", name="ck_league_settings_single_row"),
         primary_key=True,
+        autoincrement=False,  # single-row table (CHECK id=1) — INTEGER PK on PG, not SERIAL
     ),
     Column("settings_json", Text, nullable=False),
     Column("updated_at", Text, nullable=False),
