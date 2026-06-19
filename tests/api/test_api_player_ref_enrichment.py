@@ -82,3 +82,66 @@ def test_enrichment_survives_mixed_null_pool():
     assert by_id[2].mlb_id is None
     assert by_id[2].team_abbr is None
     assert by_id[2].team_id is None
+
+
+def test_draft_to_recs_enriches_from_engine_results():
+    import pandas as pd
+
+    from api.services.draft_service import DraftService
+
+    results = pd.DataFrame(
+        [
+            {
+                "player_id": 11,
+                "player_name": "Corbin Carroll",
+                "positions": "OF",
+                "mlb_id": 682998,
+                "team": "ARI",
+                "overall_rank": 1,
+                "composite_value": 95.0,
+                "mc_mean_sgp": 3.2,
+                "confidence_level": "high",
+                "buy_fair_avoid": "buy",
+            }
+        ]
+    )
+    recs = DraftService._to_recs(results)
+    assert recs[0].player.mlb_id == 682998
+    assert recs[0].player.team_abbr == "ARI"
+    assert recs[0].player.team_id == 109
+
+
+def test_compare_enriches_from_pool(monkeypatch):
+    import pandas as pd
+
+    import src.database as db
+    from api.services.compare_service import CompareService
+
+    fake_pool = pd.DataFrame(
+        [
+            {
+                "player_id": 3,
+                "name": "Mookie Betts",
+                "positions": "OF",
+                "mlb_id": 605141,
+                "team": "LAD",
+                "r": 90,
+                "hr": 20,
+                "rbi": 70,
+                "sb": 10,
+                "avg": 0.300,
+                "obp": 0.380,
+                "w": 0,
+                "l": 0,
+                "sv": 0,
+                "k": 0,
+                "era": 0,
+                "whip": 0,
+            }
+        ]
+    )
+    monkeypatch.setattr(db, "load_player_pool", lambda: fake_pool)
+    resp = CompareService().compare([3])
+    assert resp.players[0].player.mlb_id == 605141
+    assert resp.players[0].player.team_abbr == "LAD"
+    assert resp.players[0].player.team_id == 119
