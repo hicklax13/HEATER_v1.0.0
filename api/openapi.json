@@ -29,6 +29,39 @@
         "title": "AddDropRequest",
         "type": "object"
       },
+      "BudgetStrip": {
+        "properties": {
+          "adds_left": {
+            "default": 0,
+            "title": "Adds Left",
+            "type": "integer"
+          },
+          "adds_total": {
+            "default": 10,
+            "title": "Adds Total",
+            "type": "integer"
+          },
+          "cats_in_play": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Cats In Play",
+            "type": "array"
+          },
+          "ip_pace": {
+            "default": 0.0,
+            "title": "Ip Pace",
+            "type": "number"
+          },
+          "ip_target": {
+            "default": 54.0,
+            "title": "Ip Target",
+            "type": "number"
+          }
+        },
+        "title": "BudgetStrip",
+        "type": "object"
+      },
       "CategoryImpact": {
         "properties": {
           "cat": {
@@ -1257,18 +1290,93 @@
             "title": "Actionable",
             "type": "boolean"
           },
+          "components": {
+            "$ref": "#/components/schemas/StreamComponents"
+          },
+          "confidence": {
+            "default": "",
+            "title": "Confidence",
+            "type": "string"
+          },
+          "expected_er": {
+            "default": 0.0,
+            "title": "Expected Er",
+            "type": "number"
+          },
+          "expected_ip": {
+            "default": 0.0,
+            "title": "Expected Ip",
+            "type": "number"
+          },
+          "expected_k": {
+            "default": 0.0,
+            "title": "Expected K",
+            "type": "number"
+          },
+          "expected_line": {
+            "default": "",
+            "title": "Expected Line",
+            "type": "string"
+          },
+          "is_home": {
+            "default": false,
+            "title": "Is Home",
+            "type": "boolean"
+          },
+          "net_sgp": {
+            "default": 0.0,
+            "title": "Net Sgp",
+            "type": "number"
+          },
+          "num_starts": {
+            "default": 1,
+            "title": "Num Starts",
+            "type": "integer"
+          },
+          "opp_k_pct": {
+            "default": 0.0,
+            "title": "Opp K Pct",
+            "type": "number"
+          },
+          "opp_wrc_plus": {
+            "default": 0.0,
+            "title": "Opp Wrc Plus",
+            "type": "number"
+          },
           "opponent": {
             "default": "",
             "title": "Opponent",
             "type": "string"
           },
+          "own_pct": {
+            "default": 0.0,
+            "title": "Own Pct",
+            "type": "number"
+          },
+          "park": {
+            "default": 1.0,
+            "title": "Park",
+            "type": "number"
+          },
           "player": {
             "$ref": "#/components/schemas/PlayerRef"
+          },
+          "rank": {
+            "default": 0,
+            "title": "Rank",
+            "type": "integer"
           },
           "reason": {
             "default": "",
             "title": "Reason",
             "type": "string"
+          },
+          "risk_flags": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Risk Flags",
+            "type": "array"
           },
           "score": {
             "default": 0.0,
@@ -1284,6 +1392,11 @@
             "default": "",
             "title": "Team",
             "type": "string"
+          },
+          "win_pct": {
+            "default": 0.0,
+            "title": "Win Pct",
+            "type": "number"
           }
         },
         "required": [
@@ -1292,8 +1405,48 @@
         "title": "StreamCandidate",
         "type": "object"
       },
+      "StreamComponents": {
+        "description": "The 6 stream-score factors, each in [-1, +1].",
+        "properties": {
+          "env": {
+            "default": 0.0,
+            "title": "Env",
+            "type": "number"
+          },
+          "form": {
+            "default": 0.0,
+            "title": "Form",
+            "type": "number"
+          },
+          "lineup": {
+            "default": 0.0,
+            "title": "Lineup",
+            "type": "number"
+          },
+          "matchup": {
+            "default": 0.0,
+            "title": "Matchup",
+            "type": "number"
+          },
+          "sgp": {
+            "default": 0.0,
+            "title": "Sgp",
+            "type": "number"
+          },
+          "winprob": {
+            "default": 0.0,
+            "title": "Winprob",
+            "type": "number"
+          }
+        },
+        "title": "StreamComponents",
+        "type": "object"
+      },
       "StreamingResponse": {
         "properties": {
+          "budget": {
+            "$ref": "#/components/schemas/BudgetStrip"
+          },
           "candidates": {
             "items": {
               "$ref": "#/components/schemas/StreamCandidate"
@@ -1304,11 +1457,20 @@
           "date": {
             "title": "Date",
             "type": "string"
+          },
+          "top_pick": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StreamCandidate"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
-          "date",
-          "candidates"
+          "date"
         ],
         "title": "StreamingResponse",
         "type": "object"
