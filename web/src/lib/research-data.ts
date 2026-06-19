@@ -1,4 +1,7 @@
 import type { PlayerRef } from "./types";
+import { apiGet } from "@/lib/api/client";
+import { apiLeadersToResearch } from "@/lib/api/adapters";
+import type { ApiLeadersResponse } from "@/lib/api/types";
 
 /**
  * Mock Research data — league-wide leaders with hot/cold/breakout/sell-high lenses.
@@ -52,6 +55,16 @@ export const RESEARCH: ResearchData = {
   ],
 };
 
-export function fetchResearch(delayMs = 600): Promise<ResearchData> {
+/** Mock by default. With NEXT_PUBLIC_HEATER_LIVE=1, fetch live leaders from the
+ *  API and adapt them; fall back to the mock on any error or empty response. */
+export async function fetchResearch(delayMs = 600): Promise<ResearchData> {
+  if (process.env.NEXT_PUBLIC_HEATER_LIVE === "1") {
+    try {
+      const api = await apiGet<ApiLeadersResponse>("/leaders", { category: "HR", limit: 25 });
+      if (api.rows.length > 0) return apiLeadersToResearch(api);
+    } catch {
+      // fall through to mock
+    }
+  }
   return new Promise((resolve) => setTimeout(() => resolve(RESEARCH), delayMs));
 }
