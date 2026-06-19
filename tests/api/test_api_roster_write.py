@@ -1,5 +1,6 @@
 from starlette.testclient import TestClient
 
+from api.auth import Principal, get_auth_verifier
 from api.contracts.common import PlayerRef
 from api.contracts.roster_write import (
     AddDropRequest,
@@ -124,6 +125,11 @@ def test_service_non_dict_response_is_graceful():
     assert result.ok is False and "Unexpected" in (result.error or "")
 
 
+class _AlwaysVerifier:
+    def verify(self, authorization):
+        return Principal(subject="test")
+
+
 class _FakeWriteService:
     def set_lineup(self, req) -> MutationResult:
         return MutationResult(ok=True, applied=len(req.assignments))
@@ -141,6 +147,7 @@ class _FakeWriteService:
 def _client_with_fake():
     app = create_app()
     app.dependency_overrides[get_roster_write_service] = lambda: _FakeWriteService()
+    app.dependency_overrides[get_auth_verifier] = lambda: _AlwaysVerifier()
     return TestClient(app)
 
 
