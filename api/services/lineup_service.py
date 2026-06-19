@@ -4,8 +4,8 @@ NOTE: synchronous for B1; becomes an Arq background job in B3."""
 
 from __future__ import annotations
 
-from api.contracts.common import PlayerRef
 from api.contracts.lineup import LineupOptimizeResponse, LineupSlot
+from api.services.player_ref import player_ref_from_pool
 
 
 class LineupService:
@@ -24,14 +24,21 @@ class LineupService:
             roster = yds.get_rosters()
             pipeline = LineupOptimizerPipeline(roster, mode="standard", config=LeagueConfig())
             result = pipeline.run() if hasattr(pipeline, "run") else None
-            slots = self._to_slots(result)
+            pool = None
+            try:
+                from src.database import load_player_pool
+
+                pool = load_player_pool()
+            except Exception:
+                pool = None
+            slots = self._to_slots(result, pool)
             summary = f"{sum(1 for s in slots if s.action == 'START')} starters set."
         except Exception:
             summary = "Lineup unavailable (no live data in this environment)."
         return LineupOptimizeResponse(team_name=team_name, date=resolved_date, slots=slots, summary=summary)
 
     @staticmethod
-    def _to_slots(result) -> list[LineupSlot]:
+    def _to_slots(result, pool=None) -> list[LineupSlot]:
         # `result` shape is the integration seam; map defensively. Return [] if absent.
         rows = []
         if result is None:
@@ -42,10 +49,11 @@ class LineupService:
             rows.append(
                 LineupSlot(
                     slot=str(g("slot", "") or ""),
-                    player=PlayerRef(
-                        id=int(g("player_id", 0) or 0),
-                        name=str(g("player_name", "") or ""),
-                        positions=str(g("positions", "") or ""),
+                    player=player_ref_from_pool(
+                        g("player_id", 0),
+                        pool,
+                        name=g("player_name", ""),
+                        positions=g("positions", ""),
                     ),
                     action="START" if g("action", "START") in ("START", "start", True) else "SIT",
                     projected=float(g("projected", 0.0) or 0.0),

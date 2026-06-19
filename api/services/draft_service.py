@@ -12,7 +12,6 @@ production passes neither (the real engine + pool are loaded lazily)."""
 
 from __future__ import annotations
 
-from api.contracts.common import PlayerRef
 from api.contracts.draft import (
     DraftClock,
     DraftPick,
@@ -22,6 +21,7 @@ from api.contracts.draft import (
     DraftSimulatePicksRequest,
     DraftSimulatePicksResponse,
 )
+from api.services.player_ref import make_player_ref
 
 _TOP_N_CAP = 50
 _SIM_CAP = 1000
@@ -139,10 +139,12 @@ class DraftService:
             psgp = g("mc_mean_sgp")
             out.append(
                 DraftRecommendation(
-                    player=PlayerRef(
+                    player=make_player_ref(
                         id=pid,
                         name=str(g("player_name") or g("name") or ""),
                         positions=str(g("positions") or ""),
+                        mlb_id=g("mlb_id"),
+                        team_abbr=g("team"),
                     ),
                     rank=_i(rank if rank is not None else g("rank")),
                     score=_f(score if score is not None else g("combined_score")),

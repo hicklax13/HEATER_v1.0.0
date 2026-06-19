@@ -6,8 +6,8 @@ from __future__ import annotations
 
 import logging
 
-from api.contracts.common import PlayerRef
 from api.contracts.compare import ComparePlayer, CompareResponse
+from api.services.player_ref import make_player_ref
 
 logger = logging.getLogger(__name__)
 
@@ -51,10 +51,12 @@ class CompareService:
                 if row.empty:
                     continue
                 r = row.iloc[0]
-                ref = PlayerRef(
+                ref = make_player_ref(
                     id=pid,
                     name=str(r.get(name_col, f"Player {pid}") or f"Player {pid}"),
                     positions=str(r.get("positions", "") or ""),
+                    mlb_id=r.get("mlb_id"),
+                    team_abbr=r.get("team"),
                 )
                 stats: dict[str, float] = {}
                 for cat in categories:

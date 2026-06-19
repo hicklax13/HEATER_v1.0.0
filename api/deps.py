@@ -7,6 +7,7 @@ from api.services.closers_service import CloserService
 from api.services.compare_service import CompareService
 from api.services.databank_service import DatabankService
 from api.services.draft_service import DraftService
+from api.services.fa_pool_service import FreeAgentPoolService
 from api.services.fa_service import FreeAgentService
 from api.services.leaders_service import LeadersService
 from api.services.lineup_service import LineupService
@@ -26,6 +27,10 @@ def get_team_service() -> TeamService:
 
 def get_fa_service() -> FreeAgentService:
     return FreeAgentService()
+
+
+def get_fa_pool_service() -> FreeAgentPoolService:
+    return FreeAgentPoolService()
 
 
 def get_lineup_service() -> LineupService:

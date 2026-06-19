@@ -82,3 +82,136 @@ def test_enrichment_survives_mixed_null_pool():
     assert by_id[2].mlb_id is None
     assert by_id[2].team_abbr is None
     assert by_id[2].team_id is None
+
+
+def test_draft_to_recs_enriches_from_engine_results():
+    import pandas as pd
+
+    from api.services.draft_service import DraftService
+
+    results = pd.DataFrame(
+        [
+            {
+                "player_id": 11,
+                "player_name": "Corbin Carroll",
+                "positions": "OF",
+                "mlb_id": 682998,
+                "team": "ARI",
+                "overall_rank": 1,
+                "composite_value": 95.0,
+                "mc_mean_sgp": 3.2,
+                "confidence_level": "high",
+                "buy_fair_avoid": "buy",
+            }
+        ]
+    )
+    recs = DraftService._to_recs(results)
+    assert recs[0].player.mlb_id == 682998
+    assert recs[0].player.team_abbr == "ARI"
+    assert recs[0].player.team_id == 109
+
+
+def test_compare_enriches_from_pool(monkeypatch):
+    import pandas as pd
+
+    import src.database as db
+    from api.services.compare_service import CompareService
+
+    fake_pool = pd.DataFrame(
+        [
+            {
+                "player_id": 3,
+                "name": "Mookie Betts",
+                "positions": "OF",
+                "mlb_id": 605141,
+                "team": "LAD",
+                "r": 90,
+                "hr": 20,
+                "rbi": 70,
+                "sb": 10,
+                "avg": 0.300,
+                "obp": 0.380,
+                "w": 0,
+                "l": 0,
+                "sv": 0,
+                "k": 0,
+                "era": 0,
+                "whip": 0,
+            }
+        ]
+    )
+    monkeypatch.setattr(db, "load_player_pool", lambda: fake_pool)
+    resp = CompareService().compare([3])
+    assert resp.players[0].player.mlb_id == 605141
+    assert resp.players[0].player.team_abbr == "LAD"
+    assert resp.players[0].player.team_id == 119
+
+
+def test_leaders_to_leader_row_enriches():
+    from api.services.leaders_service import LeadersService
+
+    row = {"player_id": 21, "name": "Bobby Witt Jr.", "positions": "SS", "mlb_id": 677951, "team": "KC", "hr": 24}
+    leader_row = LeadersService._to_leader_row(1, row, "hr")
+    assert leader_row.rank == 1
+    assert leader_row.value == 24.0
+    assert leader_row.player.mlb_id == 677951
+    assert leader_row.player.team_abbr == "KC"
+    assert leader_row.player.team_id == 118
+
+
+def test_lineup_to_slots_enriches_via_pool():
+    import pandas as pd
+
+    from api.services.lineup_service import LineupService
+
+    pool = pd.DataFrame([{"player_id": 31, "name": "X", "positions": "OF", "mlb_id": 660271, "team": "LAA"}])
+    result = {
+        "lineup": [
+            {"slot": "OF", "player_id": 31, "player_name": "Shohei Ohtani", "positions": "OF", "action": "START"}
+        ]
+    }
+    slots = LineupService._to_slots(result, pool)
+    assert slots[0].player.mlb_id == 660271
+    assert slots[0].player.team_abbr == "LAA"
+    assert slots[0].player.team_id == 108
+    assert slots[0].player.name == "Shohei Ohtani"  # engine name preferred
+
+
+def test_lineup_to_slots_without_pool_still_works():
+    from api.services.lineup_service import LineupService
+
+    result = {"lineup": [{"slot": "OF", "player_id": 31, "player_name": "X", "positions": "OF", "action": "START"}]}
+    slots = LineupService._to_slots(result)  # pool defaults to None
+    assert slots[0].player.mlb_id is None
+    assert slots[0].player.id == 31
+
+
+def test_fa_to_rec_enriches_and_fixes_id_key():
+    import pandas as pd
+
+    from api.services.fa_service import FreeAgentService
+
+    pool = pd.DataFrame(
+        [
+            {"player_id": 41, "name": "Add Guy", "positions": "2B", "mlb_id": 700000, "team": "NYM"},
+            {"player_id": 42, "name": "Drop Guy", "positions": "SP", "mlb_id": 800000, "team": "SF"},
+        ]
+    )
+    move = {
+        "add_id": 41,
+        "add_name": "Add Guy",
+        "add_positions": "2B",
+        "drop_id": 42,
+        "drop_name": "Drop Guy",
+        "drop_positions": "SP",
+        "net_sgp_delta": 1.5,
+    }
+    rec = FreeAgentService._to_rec(move, pool)
+    assert rec.add.id == 41  # was always 0 before the id-key fix
+    assert rec.add.mlb_id == 700000
+    assert rec.add.team_abbr == "NYM"
+    assert rec.add.team_id == 121
+    assert rec.drop is not None
+    assert rec.drop.id == 42
+    assert rec.drop.mlb_id == 800000
+    assert rec.drop.team_id == 137

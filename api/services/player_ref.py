@@ -87,3 +87,53 @@ def make_player_ref(
         team_id=team_id_for(abbr),
         yahoo_player_key=yahoo_player_key,
     )
+
+
+def player_ref_from_pool(
+    player_id,
+    pool,
+    *,
+    name=None,
+    positions=None,
+    yahoo_player_key: str | None = None,
+) -> PlayerRef:
+    """Build an enriched PlayerRef by looking up player_id in the player pool.
+
+    Pulls mlb_id + team (-> team_id) from the matching pool row. PREFERS the
+    caller-provided name/positions (the engine's view) and only falls back to
+    the pool's when they're absent, then to a "Player {id}" placeholder. A
+    missing/None/empty pool or a not-found id degrades to a valid un-enriched
+    ref (never raises).
+    """
+    try:
+        pid = int(player_id) if player_id is not None else 0
+    except (TypeError, ValueError):
+        pid = 0
+    mlb_id = None
+    team_abbr = None
+    final_name = name
+    final_pos = positions
+    try:
+        import pandas as pd
+
+        if isinstance(pool, pd.DataFrame) and not pool.empty:
+            match = pool[pool["player_id"] == pid]
+            if not match.empty:
+                r = match.iloc[0]
+                mlb_id = r.get("mlb_id")
+                team_abbr = r.get("team")
+                if not final_name:
+                    name_col = "player_name" if "player_name" in pool.columns else "name"
+                    final_name = r.get(name_col)
+                if not final_pos:
+                    final_pos = r.get("positions")
+    except Exception:
+        pass
+    return make_player_ref(
+        id=pid,
+        name=str(final_name) if final_name else f"Player {pid}",
+        positions=str(final_pos) if final_pos else "",
+        mlb_id=mlb_id,
+        team_abbr=team_abbr,
+        yahoo_player_key=yahoo_player_key,
+    )
