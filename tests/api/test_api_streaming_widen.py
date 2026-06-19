@@ -59,12 +59,18 @@ def test_to_candidate_maps_all_widened_fields():
 
 def test_to_candidate_is_nan_safe():
     c = StreamingService._to_candidate(
-        _board_row(opp_wrc_plus=float("nan"), percent_owned=float("nan"), components={"matchup": float("nan")}),
+        _board_row(
+            opp_wrc_plus=float("nan"),
+            percent_owned=float("nan"),
+            num_starts=float("nan"),
+            components={"matchup": float("nan")},
+        ),
         rank=3,
     )
     assert c.opp_wrc_plus == 0.0  # NaN → 0.0, never reaches JSON as NaN
     assert c.own_pct == 0.0
     assert c.components.matchup == 0.0
+    assert c.num_starts == 1  # int(nan) would raise — guarded to default
 
 
 def test_pick_top_returns_first_actionable():

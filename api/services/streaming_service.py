@@ -111,6 +111,10 @@ class StreamingService:
         comp = g("components", {}) or {}
         ip, k, er = _f(g("expected_ip")), _f(g("expected_k")), _f(g("expected_er"))
         flags = g("risk_flags", []) or []
+        try:
+            num_starts = int(g("num_starts", 1) or 1)
+        except (TypeError, ValueError):
+            num_starts = 1  # NaN/junk → default (int(nan) would raise)
         return StreamCandidate(
             player=make_player_ref(
                 id=pid_int,
@@ -126,7 +130,7 @@ class StreamingService:
             status=str(g("status", "") or ""),
             confidence=str(g("confidence", "") or ""),
             actionable=bool(g("actionable", True)),
-            num_starts=int(g("num_starts", 1) or 1),
+            num_starts=num_starts,
             net_sgp=_f(g("net_sgp")),
             opp_wrc_plus=_f(g("opp_wrc_plus")),
             opp_k_pct=_f(g("opp_k_pct")),
