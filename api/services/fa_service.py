@@ -4,8 +4,8 @@ degrades to an empty recommendation list rather than raising."""
 
 from __future__ import annotations
 
-from api.contracts.common import PlayerRef
 from api.contracts.free_agents import FreeAgentRec, FreeAgentsResponse
+from api.services.player_ref import player_ref_from_pool
 
 
 class FreeAgentService:
@@ -26,29 +26,31 @@ class FreeAgentService:
                 level_filter="MLB only",
             )
             for move in recommend_fa_moves(ctx, max_moves=limit) or []:
-                recs.append(self._to_rec(move))
+                recs.append(self._to_rec(move, getattr(ctx, "player_pool", None)))
         except Exception:
             recs = []  # cold env / no data → empty list (page shows EmptyState)
         return FreeAgentsResponse(team_name=team_name, recommendations=recs)
 
     @staticmethod
-    def _to_rec(move) -> FreeAgentRec:
+    def _to_rec(move, pool=None) -> FreeAgentRec:
         # `move` is the recommender's per-swap dict; map defensively.
-        # Engine keys: add_name, add_positions, drop_name, drop_positions,
-        #              net_sgp_delta, urgency_categories, reasoning
+        # Engine keys: add_id, add_name, add_positions, drop_id, drop_name,
+        #              drop_positions, net_sgp_delta, urgency_categories, reasoning
         g = move.get if isinstance(move, dict) else lambda k, d=None: getattr(move, k, d)
-        add_ref = PlayerRef(
-            id=int(g("add_player_id", 0) or 0),
-            name=str(g("add_name", g("name", "")) or ""),
-            positions=str(g("add_positions", "") or ""),
+        add_ref = player_ref_from_pool(
+            g("add_id", 0),
+            pool,
+            name=g("add_name", g("name", "")),
+            positions=g("add_positions", ""),
         )
         drop_name = g("drop_name", None)
         drop_ref = None
         if drop_name:
-            drop_ref = PlayerRef(
-                id=int(g("drop_player_id", 0) or 0),
-                name=str(drop_name or ""),
-                positions=str(g("drop_positions", "") or ""),
+            drop_ref = player_ref_from_pool(
+                g("drop_id", 0),
+                pool,
+                name=drop_name,
+                positions=g("drop_positions", ""),
             )
         return FreeAgentRec(
             add=add_ref,

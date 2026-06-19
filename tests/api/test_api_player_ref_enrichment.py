@@ -157,3 +157,61 @@ def test_leaders_to_leader_row_enriches():
     assert leader_row.player.mlb_id == 677951
     assert leader_row.player.team_abbr == "KC"
     assert leader_row.player.team_id == 118
+
+
+def test_lineup_to_slots_enriches_via_pool():
+    import pandas as pd
+
+    from api.services.lineup_service import LineupService
+
+    pool = pd.DataFrame([{"player_id": 31, "name": "X", "positions": "OF", "mlb_id": 660271, "team": "LAA"}])
+    result = {
+        "lineup": [
+            {"slot": "OF", "player_id": 31, "player_name": "Shohei Ohtani", "positions": "OF", "action": "START"}
+        ]
+    }
+    slots = LineupService._to_slots(result, pool)
+    assert slots[0].player.mlb_id == 660271
+    assert slots[0].player.team_abbr == "LAA"
+    assert slots[0].player.team_id == 108
+    assert slots[0].player.name == "Shohei Ohtani"  # engine name preferred
+
+
+def test_lineup_to_slots_without_pool_still_works():
+    from api.services.lineup_service import LineupService
+
+    result = {"lineup": [{"slot": "OF", "player_id": 31, "player_name": "X", "positions": "OF", "action": "START"}]}
+    slots = LineupService._to_slots(result)  # pool defaults to None
+    assert slots[0].player.mlb_id is None
+    assert slots[0].player.id == 31
+
+
+def test_fa_to_rec_enriches_and_fixes_id_key():
+    import pandas as pd
+
+    from api.services.fa_service import FreeAgentService
+
+    pool = pd.DataFrame(
+        [
+            {"player_id": 41, "name": "Add Guy", "positions": "2B", "mlb_id": 700000, "team": "NYM"},
+            {"player_id": 42, "name": "Drop Guy", "positions": "SP", "mlb_id": 800000, "team": "SF"},
+        ]
+    )
+    move = {
+        "add_id": 41,
+        "add_name": "Add Guy",
+        "add_positions": "2B",
+        "drop_id": 42,
+        "drop_name": "Drop Guy",
+        "drop_positions": "SP",
+        "net_sgp_delta": 1.5,
+    }
+    rec = FreeAgentService._to_rec(move, pool)
+    assert rec.add.id == 41  # was always 0 before the id-key fix
+    assert rec.add.mlb_id == 700000
+    assert rec.add.team_abbr == "NYM"
+    assert rec.add.team_id == 121
+    assert rec.drop is not None
+    assert rec.drop.id == 42
+    assert rec.drop.mlb_id == 800000
+    assert rec.drop.team_id == 137
