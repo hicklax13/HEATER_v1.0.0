@@ -68,7 +68,7 @@ export const TRADES: TradesData = {
       grade: "B+",
       verdict: "You win slightly",
       give: [
-        tp("Marcell Ozuna", "ATL", 144, 542303, "Util · ATL", "20 HR · 58 RBI"),
+        tp("Marcell Ozuna", "PIT", 134, 542303, "Util · PIT", "20 HR · 58 RBI"),
         tp("Logan Gilbert", "SEA", 136, 669302, "SP · SEA", "118 K · 3.10 ERA"),
       ],
       get: [
