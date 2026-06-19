@@ -73,13 +73,21 @@ def test_simulate_picks_no_picks_when_user_on_clock():
     assert resp.clock.is_user_turn is True
 
 
-def test_simulate_picks_graceful_when_pool_load_fails():
-    # pool=None forces the real load_player_pool(); in a DB-less env it raises and
-    # the service must still return a valid clock with no picks (never 500).
+def test_simulate_picks_graceful_when_pool_load_raises(monkeypatch):
+    # Force the lazy load_player_pool() import to raise so we genuinely exercise the
+    # except branch: the service must NOT 500 — it returns a valid clock, no picks,
+    # and the "unavailable" summary. (Patching src.database.load_player_pool works
+    # because the service does `from src.database import load_player_pool` at call time.)
+    def _boom(*args, **kwargs):
+        raise RuntimeError("no DB in this environment")
+
+    monkeypatch.setattr("src.database.load_player_pool", _boom)
     req = DraftSimulatePicksRequest(config=DraftConfig(user_team_index=3), seed=1)
     resp = DraftService().simulate_picks(req, pool=None)
     assert isinstance(resp, DraftSimulatePicksResponse)
-    assert resp.clock.round >= 1  # clock always computed from the rebuilt state
+    assert resp.picks == []
+    assert resp.clock.round >= 1  # clock still computed from the rebuilt state
+    assert "unavailable" in resp.summary.lower()
 
 
 class _FakeDraftService:
