@@ -55,3 +55,15 @@ class DraftRecommendResponse(BaseModel):
     clock: DraftClock
     recommendations: list[DraftRecommendation]
     summary: str = ""
+
+
+class DraftSimulatePicksRequest(BaseModel):
+    config: DraftConfig = DraftConfig()
+    pick_log: list[DraftPick] = []  # picks so far, in order
+    seed: int | None = None  # None → non-deterministic (matches the live page)
+
+
+class DraftSimulatePicksResponse(BaseModel):
+    clock: DraftClock  # updated clock after the AI picks (whose turn now)
+    picks: list[DraftPick] = []  # the NEW AI opponent picks made this call
+    summary: str = ""
