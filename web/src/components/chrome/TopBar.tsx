@@ -99,7 +99,7 @@ export function TopBar() {
           <Link
             href="/"
             aria-label="Home"
-            className="flex size-11 items-center justify-center rounded-lg text-white/70 transition-colors hover:bg-white/5 hover:text-white"
+            className="flex size-11 items-center justify-center rounded-lg text-white transition-colors hover:bg-white/5"
           >
             <Home className="size-5" aria-hidden />
           </Link>
@@ -112,8 +112,8 @@ export function TopBar() {
                 onMouseEnter={() => setHovered(n.label)}
                 aria-current={active ? "page" : undefined}
                 className={cn(
-                  "relative flex h-11 items-center px-3 text-sm font-semibold transition-colors",
-                  active ? "text-white" : "text-white/70 hover:text-white",
+                  "relative flex h-11 items-center px-3 text-sm font-bold text-white transition-colors",
+                  active && "[text-shadow:0_0_10px_rgba(255,255,255,0.55)]",
                 )}
               >
                 {n.label}
