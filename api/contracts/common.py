@@ -9,3 +9,4 @@ class PlayerRef(BaseModel):
     id: int
     name: str
     positions: str
+    yahoo_player_key: str | None = None
