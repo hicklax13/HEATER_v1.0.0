@@ -28,8 +28,13 @@ function forcedState(): Forced | undefined {
 /**
  * Drives the four-state machine for a page. Pass a STABLE fetcher (a module-level
  * `fetchX` reference, never an inline arrow — an inline arrow changes identity
- * every render and re-fires the effect). `null`/`undefined` resolves to `empty`;
- * a rejection resolves to `error`. `retry()` re-runs the fetcher.
+ * every render and re-fires the effect).
+ *
+ * Empty contract: a fetcher signals "no data at all" by resolving `null` (or
+ * `undefined`) → `empty`. ANY non-null value — including an empty array or a
+ * zero-item object — resolves to `loaded`; pages render "loaded but zero items"
+ * cases (e.g. 0 trade recs) inside their own loaded view, not as page-level empty.
+ * A rejection resolves to `error`. `retry()` re-runs the fetcher.
  */
 export function usePageData<T>(
   fetcher: () => Promise<T | null>,
@@ -51,6 +56,8 @@ export function usePageData<T>(
           setState({ status: forced });
           return;
         }
+        // Reset to loading — necessary on the retry path, where the prior state
+        // may be `loaded`/`error` and must return to `loading` before the refetch.
         setState({ status: "loading" });
         return fetcher();
       })
@@ -60,6 +67,8 @@ export function usePageData<T>(
         setState(data == null ? { status: "empty" } : { status: "loaded", data });
       })
       .catch(() => {
+        // Deliberate: the error UI is generic (see PageError), so the rejection
+        // cause is not surfaced in state. Add an `error` field here if that changes.
         if (alive) setState({ status: "error" });
       });
 
