@@ -53,6 +53,9 @@ oauth_token.json
 .claude/worktrees/
 .claude/todos/
 
+# Agent worktree artifacts (sibling tool)
+.claire/
+
 # Playwright MCP
 .playwright-mcp/
 
@@ -88,3 +91,8 @@ brand_inbox/
 # Loose owner-saved logo renders (canonical copies live in brand/source/)
 /Gemini HEATER *.png
 /Gemini HEATER *.jpg
+/HEATER_Logo_v2.0.0_*.jpg
+/myteam-*.png
+
+# Personal documents (never tracked)
+/Hickey_Connor_Cover_Letter.pdf

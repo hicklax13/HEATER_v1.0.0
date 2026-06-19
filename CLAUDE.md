@@ -46,6 +46,19 @@ The whole re-platform = **4 sub-projects**, split across the two tracks:
 
 **Frontend stack (confirmed):** **Next.js + React + TypeScript** frontend, **FastAPI** backend. **Streamlit stays LIVE through the entire migration (strangler-fig) and is retired only in Sub-project D — it is NOT the long-term frontend.** Monetization = **2-tier Free→Pro** (owner-confirmed 2026-06-17).
 
+### ★ Web Frontend (`web/`) — Sub-project A, CMO track (status 2026-06-19)
+
+The Next.js consumer frontend is **building in `web/`** beside the live Streamlit app (strangler-fig). Foundation + all 6 core pages + a "10/10" design/polish pass are **DONE and on `master`** (united with the backend API in merge `0c06cc1`, 2026-06-19; the `feat/frontend-replatform-foundation` branch is fully contained in master).
+
+- **Stack:** Next.js 16 (App Router, RSC) + React 19 + TypeScript 5.9 + Tailwind CSS v4 (`@theme` tokens in `web/src/app/globals.css`) + framer-motion. Package manager **pnpm**. `web/AGENTS.md` warns this Next.js has breaking changes — read `node_modules/next/dist/docs/` before writing Next-specific code.
+- **Run / verify** (from `web/`): `pnpm dev` (preview), `pnpm build` (production gate), `pnpm exec tsc --noEmit` (types), `pnpm run lint`. **`web/` has NO CI yet** — the green Python CI does not test it, so the local production build IS the gate. (Cosmetic build warning: a stray `~/pnpm-lock.yaml` confuses Next's workspace-root inference; harmless.)
+- **6 pages** (`web/src/app/`): `/` (Team — showcase + in-season landing), `/optimizer`, `/matchup`, `/trades`, `/players`, `/research`. Route-level crossfade via `template.tsx`; per-page mount-stagger.
+- **Design system — "Combustion" light:** navy `#0a1f3a` chrome, orange `#ff5c10` heat, Archivo (display; width-axis hero numerals via `HeroNum`) + Inter (body). `heatColor(pct)` ramp (cool blue → warm orange) drives every viz. Tokens/colors in `web/src/lib/tokens.ts`; motion primitives in `web/src/lib/motion.ts` (`EASE_SNAP`, `staggerContainer/Item`, `useCountUp`).
+- **Signature data-viz** (hand-rolled SVG — NO recharts, by design; in `web/src/components/viz/`): `HeatGauge` (Team hero win%), `CategoryRadar` + `WinProbTrend` (Team), `CategoryBattle` (Matchup tug-of-war).
+- **Canonical components:** `PlayerDialog`/`PlayerLink` (the ONE player card — every player name/row opens it; keyed by `mlbId` with a `fallback()` for unknowns), `Card` (machined edge + opt-in `interactive` lift), `EmptyState` (shared no-results/error), `HexMesh`, `PlayerAvatar`. Data tables: clickable player cells + row-hover everywhere; mobile hamburger nav in `TopBar`.
+- **Mock data = the API contract:** `web/src/lib/*-data.ts` (one per page) holds typed mock data behind a `fetch*()` shim; player detail synthesized in `web/src/lib/player-detail.ts`. **Sub-project B's 16 `/api/*` endpoints are BUILT (see B status above) — the next wiring job is to swap these mock modules for the real client; the shapes ARE the contract.**
+- **NEXT (handoff):** (1) error/empty states on Optimizer/Matchup/Trades (Team page `app/page.tsx` is the four-state reference — unreachable on mocks but needed for real data); (2) push Trades/Players to the Optimizer's polish bar; (3) **wire `web/src/lib/*-data.ts` to the live B API** (`api/openapi.json` is the contract). Frontend specs: `docs/superpowers/specs/2026-06-16-heater-frontend-foundation-design.md`; uplift spec/plan in `docs/superpowers/{specs,plans}/2026-06-17-heater-10-of-10-uplift*.md`.
+
 The codebase is organized around 7 feature surfaces:
 
 1. **Draft Tool** (`app.py`) — Heater-themed splash + bootstrap + setup wizard + 3-column draft page with Monte Carlo recommendations.
