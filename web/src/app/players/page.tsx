@@ -66,7 +66,10 @@ function Loaded({ data }: { data: PlayersData }) {
           <TopPickup fa={data.freeAgents[0]} need={data.topNeed} />
         </motion.div>
       )}
-      <motion.div variants={staggerItem}>
+      <motion.div
+        variants={staggerItem}
+        className="grid gap-6 lg:grid-cols-[1fr_276px] lg:items-start"
+      >
         <Card className="p-5">
           <Toolbar
             filter={filter}
@@ -79,6 +82,7 @@ function Loaded({ data }: { data: PlayersData }) {
           />
           <FATable rows={rows} need={data.topNeed} />
         </Card>
+        <FAByCategory freeAgents={data.freeAgents} topNeed={data.topNeed} />
       </motion.div>
     </motion.div>
   );
@@ -93,6 +97,52 @@ function Header() {
       <h1 className="font-display text-3xl font-extrabold text-navy">Players</h1>
       <p className="mt-1 text-[13px] text-ink-2">Available players ranked by value to your roster.</p>
     </div>
+  );
+}
+
+/** Right-rail: where the waiver depth is, by category. Your biggest gap is highlighted. */
+function FAByCategory({ freeAgents, topNeed }: { freeAgents: FreeAgent[]; topNeed: string }) {
+  const counts = new Map<string, number>();
+  for (const p of freeAgents) counts.set(p.fit, (counts.get(p.fit) ?? 0) + 1);
+  const rows = [...counts.entries()].sort((a, b) => b[1] - a[1]);
+  const max = Math.max(1, ...rows.map(([, n]) => n));
+  return (
+    <Card className="p-4 lg:sticky lg:top-[84px]">
+      <div className="mb-1 flex items-center gap-1.5 text-[12px] font-bold uppercase tracking-wider text-navy">
+        <Flame className="size-4 text-heat" aria-hidden />
+        FA Pool Depth
+      </div>
+      <p className="mb-3 text-[11px] text-ink-3">Available help by category.</p>
+      <ul className="space-y-2.5">
+        {rows.map(([cat, n]) => {
+          const isNeed = cat === topNeed;
+          return (
+            <li key={cat}>
+              <div className="flex items-baseline justify-between text-[12px]">
+                <span className={cn("font-bold", isNeed ? "text-heat" : "text-navy")}>
+                  {cat}
+                  {isNeed && (
+                    <span className="ml-1.5 text-[9px] font-bold uppercase tracking-wide text-heat">
+                      Your gap
+                    </span>
+                  )}
+                </span>
+                <span className="tnum font-semibold text-ink-2">{n}</span>
+              </div>
+              <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-surface-2">
+                <span
+                  className={cn("block h-full rounded-full", !isNeed && "bg-steel/45")}
+                  style={{
+                    width: `${(n / max) * 100}%`,
+                    ...(isNeed ? { background: COLORS.heat } : {}),
+                  }}
+                />
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    </Card>
   );
 }
 
@@ -324,7 +374,10 @@ function FATable({ rows, need }: { rows: FreeAgent[]; need: string }) {
                 <td className="px-2.5 py-2.5">
                   <div className="flex items-center gap-2">
                     <div className="h-1.5 w-20 overflow-hidden rounded-full bg-surface-2">
-                      <span className="block h-full rounded-full bg-heat" style={{ width: `${p.value}%` }} />
+                      <span
+                        className="block h-full rounded-full"
+                        style={{ width: `${p.value}%`, background: heatColor(p.value) }}
+                      />
                     </div>
                     <span className="tnum w-7 text-right text-[12px] font-bold text-navy">{p.value}</span>
                   </div>
