@@ -1,4 +1,4 @@
-"""FastAPI app factory for the HEATER backend API (Sub-project B, Slices 1+2).
+"""FastAPI app factory for the HEATER backend API (Sub-project B).
 
 Thin transport layer over the existing Python engines. Routers do auth/
 validate/serialize only — all data work lives in api/services/.
@@ -6,11 +6,34 @@ validate/serialize only — all data work lives in api/services/.
 
 from __future__ import annotations
 
+import os
+
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+# The Next.js frontend calls this API from a different origin, so the browser
+# requires CORS. Default to local Next.js dev origins; override per environment
+# with HEATER_API_CORS_ORIGINS (comma-separated — e.g. the deployed Vercel domain).
+_DEFAULT_CORS_ORIGINS = "http://localhost:3000,http://127.0.0.1:3000"
+
+
+def _cors_origins() -> list[str]:
+    raw = os.environ.get("HEATER_API_CORS_ORIGINS", _DEFAULT_CORS_ORIGINS)
+    return [o.strip() for o in raw.split(",") if o.strip()]
 
 
 def create_app() -> FastAPI:
     app = FastAPI(title="HEATER API", version="0.1.0")
+
+    # Explicit origin allowlist (never "*") because credentials are allowed;
+    # production origins are supplied via HEATER_API_CORS_ORIGINS at deploy time.
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_cors_origins(),
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
     @app.get("/healthz")
     def healthz() -> dict[str, str]:
