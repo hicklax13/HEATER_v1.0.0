@@ -59,7 +59,10 @@ class EnvTokenVerifier:
                 headers={"WWW-Authenticate": "Bearer"},
             )
         token = _bearer(authorization)
-        if token is None or not hmac.compare_digest(token, expected):
+        # Compare bytes, not str: hmac.compare_digest raises TypeError on the
+        # str/str path when either operand is non-ASCII, which would turn a
+        # hostile non-ASCII token into a 500 instead of a deny. Bytes never raise.
+        if token is None or not hmac.compare_digest(token.encode("utf-8"), expected.encode("utf-8")):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid or missing bearer token.",

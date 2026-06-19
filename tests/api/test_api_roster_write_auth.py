@@ -48,6 +48,26 @@ def test_verify_accepts_matching_token(monkeypatch):
     assert principal.subject == "api-token"
 
 
+def test_verify_non_ascii_token_denies_not_crashes(monkeypatch):
+    # A hostile non-ASCII bearer token must yield a clean 401, NOT a TypeError
+    # (hmac.compare_digest rejects non-ASCII on the str/str path → would 500).
+    monkeypatch.setenv(_ENV, "s3cret")
+    with pytest.raises(HTTPException) as ei:
+        EnvTokenVerifier().verify("Bearer s3crét")  # "s3crét"
+    assert ei.value.status_code == 401
+
+
+def test_verify_non_ascii_secret_does_not_crash(monkeypatch):
+    # Defense for both operands: a non-ASCII configured secret must still
+    # 401 a wrong token and accept the exact match — never raise TypeError.
+    monkeypatch.setenv(_ENV, "sécret")  # non-ASCII secret
+    with pytest.raises(HTTPException) as ei:
+        EnvTokenVerifier().verify("Bearer wrong")
+    assert ei.value.status_code == 401
+    principal = EnvTokenVerifier().verify("Bearer sécret")
+    assert principal.subject == "api-token"
+
+
 # ---------------------------------------------------------------------------
 # Endpoint auth tests (Task 2)
 # ---------------------------------------------------------------------------
