@@ -24,6 +24,7 @@ import { HexMesh } from "@/components/ui/HexMesh";
 const NAV = [
   { label: "Team", href: "/" },
   { label: "Optimizer", href: "/optimizer" },
+  { label: "Streaming", href: "/streaming" },
   { label: "Matchup", href: "/matchup" },
   { label: "Trades", href: "/trades" },
   { label: "Players", href: "/players" },
