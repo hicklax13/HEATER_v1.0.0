@@ -4,8 +4,8 @@ degrades to an empty candidates list rather than raising."""
 
 from __future__ import annotations
 
-from api.contracts.common import PlayerRef
 from api.contracts.streaming import StreamCandidate, StreamingResponse
+from api.services.player_ref import make_player_ref
 
 
 class StreamingService:
@@ -52,7 +52,7 @@ class StreamingService:
             pid_int = 0
         name = str(g("player_name", "") or "")
         positions = "SP"  # stream board is SP-focused by design
-        player = PlayerRef(id=pid_int, name=name, positions=positions)
+        player = make_player_ref(id=pid_int, name=name, positions=positions, team_abbr=g("team"))
         return StreamCandidate(
             player=player,
             team=str(g("team", "") or ""),

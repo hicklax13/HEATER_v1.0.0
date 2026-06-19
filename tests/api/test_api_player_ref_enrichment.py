@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import pandas as pd
 
+from api.services.closers_service import CloserService
 from api.services.databank_service import DatabankService
+from api.services.streaming_service import StreamingService
 from api.services.trade_finder_service import _build_player_refs as finder_refs
 from api.services.trade_service import _build_player_refs as trade_refs
 
@@ -37,3 +39,26 @@ def test_databank_build_ref_enriches_from_pool():
     assert ref.mlb_id == 456789
     assert ref.team_abbr == "BOS"
     assert ref.team_id == 111
+
+
+def test_closers_to_entry_enriches_closer_ref():
+    row = {
+        "team": "NYY",
+        "closer_name": "Devin Williams",
+        "mlb_id": 642207,
+        "job_security": 0.8,
+        "setup_names": [],
+    }
+    entry = CloserService._to_entry(row)
+    assert entry.closer is not None
+    assert entry.closer.mlb_id == 642207
+    assert entry.closer.team_abbr == "NYY"
+    assert entry.closer.team_id == 147
+
+
+def test_streaming_to_candidate_enriches_team_only():
+    row = {"player_id": 9, "player_name": "Tarik Skubal", "team": "DET", "stream_score": 80.0}
+    cand = StreamingService._to_candidate(row)
+    assert cand.player.team_abbr == "DET"
+    assert cand.player.team_id == 116
+    assert cand.player.mlb_id is None  # stream board carries no mlb_id

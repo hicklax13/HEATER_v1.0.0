@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from api.contracts.closers import CloserEntry, ClosersResponse
 from api.contracts.common import PlayerRef
+from api.services.player_ref import make_player_ref
 
 
 class CloserService:
@@ -45,10 +46,12 @@ class CloserService:
         # Build the closer PlayerRef (None when no closer identified)
         closer_ref: PlayerRef | None = None
         if closer_name and closer_name.lower() not in ("unknown", ""):
-            closer_ref = PlayerRef(
+            closer_ref = make_player_ref(
                 id=int(mlb_id) if mlb_id is not None else 0,
                 name=closer_name,
                 positions="RP",
+                mlb_id=mlb_id,
+                team_abbr=team,
             )
 
         # Confidence label derived from job_security float
