@@ -4,14 +4,15 @@ import { useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { Search, SearchX, Plus, Flame, ArrowUp, ArrowDown } from "lucide-react";
 import { fetchPlayers, type PlayersData, type FreeAgent } from "@/lib/players-data";
-import { staggerContainer, staggerItem } from "@/lib/motion";
+import { staggerContainer, staggerItem, useCountUp } from "@/lib/motion";
 import { Footer } from "@/components/chrome/Footer";
 import { Card } from "@/components/ui/Card";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { PlayerDialog } from "@/components/player/PlayerDialog";
 import { PlayerAvatar } from "@/components/ui/PlayerAvatar";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { COLORS } from "@/lib/tokens";
+import { HeroNum } from "@/components/ui/HeroNum";
+import { COLORS, heatColor } from "@/lib/tokens";
 import { cn } from "@/lib/utils";
 import { usePageData } from "@/lib/use-page-data";
 import { PageError, PageEmpty } from "@/components/ui/PageStates";
@@ -60,13 +61,11 @@ function Loaded({ data }: { data: PlayersData }) {
       <motion.div variants={staggerItem}>
         <Header />
       </motion.div>
-      <motion.div variants={staggerItem}>
-        <NeedCallout
-          need={data.topNeed}
-          count={data.freeAgents.filter((p) => p.fit === data.topNeed).length}
-          onShow={() => setFilter("need")}
-        />
-      </motion.div>
+      {data.freeAgents[0] && (
+        <motion.div variants={staggerItem}>
+          <TopPickup fa={data.freeAgents[0]} need={data.topNeed} />
+        </motion.div>
+      )}
       <motion.div variants={staggerItem}>
         <Card className="p-5">
           <Toolbar
@@ -97,21 +96,87 @@ function Header() {
   );
 }
 
-function NeedCallout({ need, count, onShow }: { need: string; count: number; onShow: () => void }) {
+function TopPickup({ fa, need }: { fa: FreeAgent; need: string }) {
+  const value = useCountUp(fa.value);
+  const ramp = heatColor(fa.value);
+  const helpsNeed = fa.fit === need;
   return (
-    <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-line border-l-4 border-l-heat bg-surface p-4">
-      <Flame className="size-5 shrink-0 text-heat" aria-hidden />
-      <p className="flex-1 text-[14px] text-ink">
-        Your biggest gap is <span className="font-bold text-navy">{need}</span> — {count} available free
-        agents help most.
-      </p>
-      <button
-        onClick={onShow}
-        className="inline-flex min-h-9 items-center gap-1 rounded-lg bg-gradient-to-b from-[#ff7a2e] to-heat px-4 text-sm font-bold text-white shadow-[0_4px_12px_rgba(255,92,16,0.3)] transition-transform duration-[var(--dur-1)] hover:scale-[1.02] active:scale-95 motion-reduce:transform-none"
-      >
-        Show {need} Help
-      </button>
-    </div>
+    <Card tone="raised" className="relative overflow-hidden">
+      {/* atmosphere: faint heat glow, top-right */}
+      <span
+        aria-hidden
+        className="pointer-events-none absolute -right-20 -top-24 size-56 rounded-full opacity-[0.08] blur-3xl"
+        style={{ background: ramp }}
+      />
+      <div className="relative flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:gap-5">
+        <PlayerDialog player={{ ...fa, rosteredBy: "Free Agent" }}>
+          <button className="group flex min-w-0 flex-1 items-center gap-3.5 text-left focus-visible:outline-none">
+            <span className="relative shrink-0">
+              <PlayerAvatar mlbId={fa.mlbId} teamId={fa.teamId} name={fa.name} size={60} />
+              <span className="absolute -bottom-1 -right-1 flex size-6 items-center justify-center rounded-full bg-gradient-to-b from-[#ff7a2e] to-heat font-display text-[12px] font-extrabold text-white shadow-[0_2px_8px_rgba(255,92,16,0.45)] ring-2 ring-canvas">
+                1
+              </span>
+            </span>
+            <span className="min-w-0">
+              <span className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.14em] text-heat">
+                <Flame className="size-3.5" aria-hidden />
+                Top Pickup
+              </span>
+              <span className="mt-1 block truncate font-display text-[22px] font-extrabold leading-tight tracking-tight text-navy decoration-heat/40 underline-offset-4 group-hover:underline">
+                {fa.name}
+              </span>
+              <span className="tnum mt-0.5 block text-[12.5px] text-ink-2">
+                {fa.pos} · {fa.teamAbbr}
+                {fa.tag && <span className="ml-1 font-semibold text-heat">· {fa.tag}</span>}
+              </span>
+            </span>
+          </button>
+        </PlayerDialog>
+
+        <div className="flex shrink-0 items-center gap-5 sm:border-l sm:border-line sm:pl-5">
+          <div className="text-right">
+            <HeroNum width={92} className="block text-[46px] leading-[0.85]" style={{ color: ramp }}>
+              {value}
+            </HeroNum>
+            <div className="mt-1 text-[10px] font-bold uppercase tracking-wider text-ink-3">Value</div>
+            <div className="ml-auto mt-2 h-1.5 w-24 overflow-hidden rounded-full bg-surface-2">
+              <span
+                className="block h-full rounded-full"
+                style={{ width: `${fa.value}%`, background: ramp }}
+              />
+            </div>
+          </div>
+          <button className="inline-flex min-h-11 items-center gap-1.5 rounded-xl bg-gradient-to-b from-[#ff7a2e] to-heat px-5 text-sm font-bold text-white shadow-[0_6px_16px_rgba(255,92,16,0.32)] transition-transform duration-[var(--dur-1)] hover:scale-[1.03] active:scale-95 motion-reduce:transform-none">
+            <Plus className="size-4" aria-hidden />
+            Add
+          </button>
+        </div>
+      </div>
+
+      <div className="relative flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t border-line px-5 py-3">
+        <p className="text-[12.5px] text-ink-2">
+          {helpsNeed ? (
+            <>
+              Top available <span className="font-bold text-navy">{need}</span> source — only{" "}
+              <span className="tnum font-semibold text-navy">{fa.ownPct}%</span> rostered.
+            </>
+          ) : (
+            <>
+              Highest-value add on the board —{" "}
+              <span className="tnum font-semibold text-navy">{fa.ownPct}%</span> rostered.
+            </>
+          )}
+        </p>
+        <div className="tnum flex items-center gap-4">
+          {fa.stats.map((s) => (
+            <span key={s.label} className="text-[12.5px]">
+              <span className="font-bold text-navy">{s.value}</span>{" "}
+              <span className="text-[10.5px] text-ink-3">{s.label}</span>
+            </span>
+          ))}
+        </div>
+      </div>
+    </Card>
   );
 }
 
