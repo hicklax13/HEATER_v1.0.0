@@ -9,7 +9,10 @@ import math
 from api.contracts.streaming import (
     BudgetStrip,
     FactorDetail,
+    PitcherScorecard,
     ProbableStarter,
+    StreamAnalyzeRequest,
+    StreamAnalyzeResponse,
     StreamCandidate,
     StreamComponents,
     StreamingResponse,
@@ -128,6 +131,7 @@ class StreamingService:
         candidates: list[StreamCandidate] = []
         top_pick: StreamCandidate | None = None
         budget = BudgetStrip()
+        probables: list[ProbableStarter] = []
         try:
             from src.optimizer.shared_data_layer import build_optimizer_context
             from src.optimizer.stream_analyzer import build_stream_board
@@ -147,6 +151,12 @@ class StreamingService:
                     candidates.append(self._to_candidate(row, rank))
             top_pick = _pick_top(candidates)
             budget = _build_budget(ctx)
+            try:
+                full_board = build_stream_board(ctx, target_date, include_rostered=True)
+                if full_board is not None and not full_board.empty:
+                    probables = [_to_probable(row) for _, row in full_board.iterrows()]
+            except Exception:
+                probables = []
         except Exception:
             candidates = []  # cold env / no data → empty list
 
@@ -155,6 +165,7 @@ class StreamingService:
             candidates=candidates,
             top_pick=top_pick,
             budget=budget,
+            probables=probables,
         )
 
     @staticmethod
@@ -209,3 +220,37 @@ class StreamingService:
             rank=rank,
             reason="",
         )
+
+    def analyze_pitcher(self, req: StreamAnalyzeRequest) -> StreamAnalyzeResponse:
+        from src.game_day import get_target_game_date
+
+        try:
+            date = req.date or str(get_target_game_date())
+        except Exception:
+            from datetime import UTC, datetime
+
+            date = req.date or datetime.now(UTC).strftime("%Y-%m-%d")
+        try:
+            from src.optimizer.shared_data_layer import build_optimizer_context
+            from src.optimizer.stream_analyzer import build_stream_board
+            from src.valuation import LeagueConfig
+            from src.yahoo_data_service import get_yahoo_data_service
+
+            ctx = build_optimizer_context(
+                scope="rest_of_season",
+                yds=get_yahoo_data_service(),
+                config=LeagueConfig(),
+                level_filter="MLB only",
+            )
+            board = build_stream_board(ctx, date, include_rostered=True)
+            if board is not None and not board.empty:
+                match = board[board["player_id"] == req.pitcher_id]
+                if not match.empty:
+                    row = match.iloc[0]
+                    rank = int(match.index[0]) + 1  # board is reset_index'd, so index == 0-based rank
+                    cand = self._to_candidate(row, rank)
+                    scorecard = PitcherScorecard(**cand.model_dump(), factors=_factors(row))
+                    return StreamAnalyzeResponse(found=True, scorecard=scorecard)
+        except Exception:
+            pass
+        return StreamAnalyzeResponse(found=False, scorecard=None)

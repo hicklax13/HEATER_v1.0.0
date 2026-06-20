@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 
-from api.contracts.streaming import StreamingResponse
+from api.contracts.streaming import StreamAnalyzeRequest, StreamAnalyzeResponse, StreamingResponse
 from api.deps import get_streaming_service
 
 router = APIRouter(prefix="/api", tags=["streaming"])
@@ -17,3 +17,8 @@ def get_streaming(
     service=Depends(get_streaming_service),
 ) -> StreamingResponse:
     return service.get_streaming(date=date, limit=limit)
+
+
+@router.post("/streaming/analyze", response_model=StreamAnalyzeResponse)
+def analyze_streaming(req: StreamAnalyzeRequest, service=Depends(get_streaming_service)) -> StreamAnalyzeResponse:
+    return service.analyze_pitcher(req)

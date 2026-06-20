@@ -64,3 +64,93 @@ def test_factors_is_nan_safe():
     by_key = {f.key: f for f in factors}
     assert by_key["matchup"].value == 0.0  # NaN component → 0.0
     assert "wRC+" in by_key["matchup"].detail  # composes without crashing (0 wRC+)
+
+
+def test_streaming_get_includes_probables():
+    from fastapi.testclient import TestClient
+
+    from api.contracts.common import PlayerRef
+    from api.contracts.streaming import ProbableStarter, StreamingResponse
+    from api.deps import get_streaming_service
+    from api.main import create_app
+
+    class _Fake:
+        def get_streaming(self, date=None, limit=25):
+            return StreamingResponse(
+                date="2026-06-19",
+                probables=[
+                    ProbableStarter(
+                        player=PlayerRef(
+                            id=1,
+                            mlb_id=660271,
+                            name="X",
+                            positions="SP",
+                            team_abbr="DET",
+                            team_id=116,
+                        ),
+                        team="DET",
+                        opponent="CWS",
+                        is_home=True,
+                        start_likelihood="confirmed",
+                    )
+                ],
+            )
+
+    app = create_app()
+    app.dependency_overrides[get_streaming_service] = lambda: _Fake()
+    try:
+        body = TestClient(app).get("/api/streaming").json()
+        assert body["probables"][0]["start_likelihood"] == "confirmed"
+        assert body["probables"][0]["player"]["mlb_id"] == 660271
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_analyze_endpoint_returns_scorecard():
+    from fastapi.testclient import TestClient
+
+    from api.contracts.common import PlayerRef
+    from api.contracts.streaming import FactorDetail, PitcherScorecard, StreamAnalyzeResponse
+    from api.deps import get_streaming_service
+    from api.main import create_app
+
+    class _Fake:
+        def analyze_pitcher(self, req):
+            return StreamAnalyzeResponse(
+                found=True,
+                scorecard=PitcherScorecard(
+                    player=PlayerRef(
+                        id=1,
+                        mlb_id=660271,
+                        name="Skubal",
+                        positions="SP",
+                        team_abbr="DET",
+                        team_id=116,
+                    ),
+                    score=82.5,
+                    rank=1,
+                    expected_line="6.0 IP · 7 K · 2 ER",
+                    factors=[
+                        FactorDetail(
+                            key="matchup",
+                            label="Matchup",
+                            value=0.4,
+                            weight=0.35,
+                            detail="vs CWS: 88 wRC+, 24% K",
+                        )
+                    ],
+                ),
+            )
+
+    app = create_app()
+    app.dependency_overrides[get_streaming_service] = lambda: _Fake()
+    try:
+        resp = TestClient(app).post("/api/streaming/analyze", json={"pitcher_id": 660271, "date": "2026-06-19"})
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["found"] is True
+        assert body["scorecard"]["score"] == 82.5
+        assert body["scorecard"]["factors"][0]["key"] == "matchup"
+        assert body["scorecard"]["factors"][0]["weight"] == 0.35
+    finally:
+        app.dependency_overrides.clear()
