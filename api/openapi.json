@@ -833,6 +833,44 @@
         "title": "LeagueMatchup",
         "type": "object"
       },
+      "LeagueRosterTeam": {
+        "properties": {
+          "manager": {
+            "default": "",
+            "title": "Manager",
+            "type": "string"
+          },
+          "players": {
+            "items": {
+              "$ref": "#/components/schemas/PlayerRef"
+            },
+            "title": "Players",
+            "type": "array"
+          },
+          "team_name": {
+            "title": "Team Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "team_name"
+        ],
+        "title": "LeagueRosterTeam",
+        "type": "object"
+      },
+      "LeagueRostersResponse": {
+        "properties": {
+          "teams": {
+            "items": {
+              "$ref": "#/components/schemas/LeagueRosterTeam"
+            },
+            "title": "Teams",
+            "type": "array"
+          }
+        },
+        "title": "LeagueRostersResponse",
+        "type": "object"
+      },
       "Lever": {
         "description": "The single biggest category weakness + suggested pickups to fix it.",
         "properties": {
@@ -1750,6 +1788,26 @@
           "positions"
         ],
         "title": "PlayerRef",
+        "type": "object"
+      },
+      "PlayerSearchResponse": {
+        "properties": {
+          "query": {
+            "title": "Query",
+            "type": "string"
+          },
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/PlayerRef"
+            },
+            "title": "Results",
+            "type": "array"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "title": "PlayerSearchResponse",
         "type": "object"
       },
       "PlayoffOddsResponse": {
@@ -3016,6 +3074,27 @@
         ]
       }
     },
+    "/api/league/rosters": {
+      "get": {
+        "operationId": "league_rosters_api_league_rosters_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LeagueRostersResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "League Rosters",
+        "tags": [
+          "players"
+        ]
+      }
+    },
     "/api/lineup/optimize": {
       "post": {
         "operationId": "optimize_lineup_api_lineup_optimize_post",
@@ -3201,6 +3280,58 @@
         "summary": "Get My Team",
         "tags": [
           "team"
+        ]
+      }
+    },
+    "/api/players/search": {
+      "get": {
+        "operationId": "search_players_api_players_search_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "q",
+            "required": true,
+            "schema": {
+              "title": "Q",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 25,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlayerSearchResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Search Players",
+        "tags": [
+          "players"
         ]
       }
     },

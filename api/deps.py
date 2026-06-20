@@ -15,6 +15,7 @@ from api.services.lineup_service import LineupService
 from api.services.matchup_service import MatchupService
 from api.services.playoff_service import PlayoffService
 from api.services.punt_service import PuntService
+from api.services.roster_query_service import RosterQueryService
 from api.services.roster_write_service import RosterWriteService
 from api.services.standings_service import StandingsService
 from api.services.streaming_service import StreamingService
@@ -57,6 +58,10 @@ def get_leaders_overall_service() -> LeadersOverallService:
 
 def get_playoff_service() -> PlayoffService:
     return PlayoffService()
+
+
+def get_roster_query_service() -> RosterQueryService:
+    return RosterQueryService()
 
 
 def get_matchup_service() -> MatchupService:
