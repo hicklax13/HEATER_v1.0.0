@@ -883,8 +883,10 @@ export interface components {
             date_tabs?: string[];
             /** Hitter Columns */
             hitter_columns?: string[];
+            hitter_totals?: components["schemas"]["SideTotals"];
             /** Hitters */
             hitters?: components["schemas"]["RosterRow"][];
+            opp?: components["schemas"]["TeamSide"];
             /**
              * Opponent
              * @default
@@ -892,6 +894,7 @@ export interface components {
             opponent: string;
             /** Pitcher Columns */
             pitcher_columns?: string[];
+            pitcher_totals?: components["schemas"]["SideTotals"];
             /** Pitchers */
             pitchers?: components["schemas"]["RosterRow"][];
             /**
@@ -911,6 +914,7 @@ export interface components {
              * @default 0
              */
             win_prob: number;
+            you?: components["schemas"]["TeamSide"];
         };
         /** MutationResult */
         MutationResult: {
@@ -1174,6 +1178,13 @@ export interface components {
             /** Year */
             year: number;
         };
+        /** SideTotals */
+        SideTotals: {
+            /** Opp */
+            opp?: string[];
+            /** You */
+            you?: string[];
+        };
         /** StandingsResponse */
         StandingsResponse: {
             /** Teams */
@@ -1358,6 +1369,29 @@ export interface components {
             /** Probables */
             probables?: components["schemas"]["ProbableStarter"][];
             top_pick?: components["schemas"]["StreamCandidate"] | null;
+        };
+        /** TeamSide */
+        TeamSide: {
+            /**
+             * Manager
+             * @default
+             */
+            manager: string;
+            /**
+             * Name
+             * @default
+             */
+            name: string;
+            /**
+             * Record
+             * @default
+             */
+            record: string;
+            /**
+             * Score
+             * @default 0
+             */
+            score: number;
         };
         /** TeamStanding */
         TeamStanding: {

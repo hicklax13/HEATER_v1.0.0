@@ -19,3 +19,4 @@ export type ApiStreamingResponse = components["schemas"]["StreamingResponse"];
 export type ApiStreamAnalyzeResponse = components["schemas"]["StreamAnalyzeResponse"];
 export type ApiStandingsResponse = components["schemas"]["StandingsResponse"];
 export type ApiPuntResponse = components["schemas"]["PuntResponse"];
+export type ApiMatchupResponse = components["schemas"]["MatchupResponse"];

@@ -77,9 +77,13 @@ function Loaded({ data }: { data: MatchupData }) {
           opp={data.opp.name}
         />
       </motion.div>
-      <motion.div variants={staggerItem}>
-        <LeagueMatchups data={data} />
-      </motion.div>
+      {/* League scoreboard is mock-only until Matchup-C ships /api/matchup's
+          other-6-matchups feed; live mode returns league: [] → hidden. */}
+      {data.league.length > 0 && (
+        <motion.div variants={staggerItem}>
+          <LeagueMatchups data={data} />
+        </motion.div>
+      )}
     </motion.div>
   );
 }

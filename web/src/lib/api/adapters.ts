@@ -5,9 +5,17 @@ import type {
   ApiStreamAnalyzeResponse,
   ApiStandingsResponse,
   ApiPuntResponse,
+  ApiMatchupResponse,
 } from "@/lib/api/types";
 import type { StandingsData, TeamStanding } from "@/lib/standings-data";
 import { verdictFor, type PuntData, type PuntCat } from "@/lib/punt-data";
+import type {
+  MatchupData,
+  MatchPlayer,
+  TeamSide,
+  RosterRow,
+  GameState,
+} from "@/lib/matchup-data";
 import type { PlayerRef } from "@/lib/types";
 import type { LeaderRow } from "@/lib/research-data";
 import type { FreeAgent, PlayersData } from "@/lib/players-data";
@@ -192,4 +200,79 @@ export function apiPuntToData(api: ApiPuntResponse): PuntData {
     };
   });
   return { teamName: api.team_name ?? "", nTeams, candidates, cats };
+}
+
+type ApiRosterRow = NonNullable<ApiMatchupResponse["hitters"]>[number];
+type ApiMatchPlayer = NonNullable<ApiRosterRow["you"]>;
+type ApiTeamSide = NonNullable<ApiMatchupResponse["you"]>;
+type ApiSideTotals = NonNullable<ApiMatchupResponse["hitter_totals"]>;
+
+const GAME_STATES: GameState[] = ["final", "live", "sched", "none"];
+
+/** Format a category float → the display string the mock used: AVG/OBP at 3dp
+ *  with no leading zero (".284"), ERA/WHIP at 2dp ("0.86"), counting cats as ints. */
+function fmtCatVal(cat: string, v: number): string {
+  const c = cat.toUpperCase();
+  if (c === "AVG" || c === "OBP") return v.toFixed(3).replace(/^(-?)0\./, "$1.");
+  if (c === "ERA" || c === "WHIP") return v.toFixed(2);
+  return String(Math.round(v));
+}
+
+function toTeamSide(t: ApiTeamSide | undefined): TeamSide {
+  return { name: t?.name ?? "", manager: t?.manager ?? "", record: t?.record ?? "", score: t?.score ?? 0 };
+}
+
+/** API MatchPlayer → frontend. `pos` comes from `player.positions` (the real
+ *  eligible positions); the API's own `MatchPlayer.pos` is just the slot, which
+ *  the frontend already gets from `RosterRow.slot`. `stats` are PROJECTED season
+ *  lines and `state` is the day's schedule state — NOT live box scores (a planned
+ *  future CEO slice). */
+function toMatchPlayer(mp: ApiMatchPlayer | null | undefined): MatchPlayer | null {
+  if (!mp) return null;
+  const r = toPlayerRef(mp.player);
+  const state = (GAME_STATES.includes(mp.state as GameState) ? mp.state : "none") as GameState;
+  return {
+    name: r.name,
+    teamAbbr: r.teamAbbr,
+    teamId: r.teamId,
+    mlbId: r.mlbId,
+    pos: r.pos,
+    status: mp.status ?? "",
+    state,
+    stats: mp.stats ?? [],
+    badge: mp.badge === "IL" || mp.badge === "DTD" ? mp.badge : undefined,
+  };
+}
+
+function toRosterRow(r: ApiRosterRow): RosterRow {
+  return { slot: r.slot ?? "", you: toMatchPlayer(r.you), opp: toMatchPlayer(r.opp) };
+}
+
+function toTotals(t: ApiSideTotals | undefined): { you: string[]; opp: string[] } {
+  return { you: t?.you ?? [], opp: t?.opp ?? [] };
+}
+
+/** Map /api/matchup → frontend MatchupData. The league scoreboard (other 6
+ *  matchups) isn't in the contract yet (Matchup-C) → `league: []`; the page hides
+ *  that section in live mode, so it reappears automatically when the slice lands. */
+export function apiMatchupToData(api: ApiMatchupResponse): MatchupData {
+  return {
+    week: api.week ?? 0,
+    dateTabs: api.date_tabs ?? [],
+    you: toTeamSide(api.you),
+    opp: toTeamSide(api.opp),
+    cats: (api.categories ?? []).map((c) => ({
+      key: c.cat,
+      you: fmtCatVal(c.cat, c.you),
+      opp: fmtCatVal(c.cat, c.opp),
+      win: c.win === "you" || c.win === "opp" ? c.win : undefined,
+    })),
+    hitterColumns: api.hitter_columns ?? [],
+    pitcherColumns: api.pitcher_columns ?? [],
+    hitters: (api.hitters ?? []).map(toRosterRow),
+    pitchers: (api.pitchers ?? []).map(toRosterRow),
+    hitterTotals: toTotals(api.hitter_totals),
+    pitcherTotals: toTotals(api.pitcher_totals),
+    league: [],
+  };
 }

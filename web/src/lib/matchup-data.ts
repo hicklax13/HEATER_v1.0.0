@@ -1,7 +1,15 @@
 /**
- * Mock Matchup data — the live H2H matchup view (Yahoo-style).
- * Swap this module for the API client in Sub-project B; the shape is the contract.
+ * Matchup data — the H2H matchup view (Yahoo-style). Mock by default; live
+ * behind NEXT_PUBLIC_HEATER_LIVE via /api/matchup → apiMatchupToData. A live
+ * error/timeout/empty falls back to the mock (graceful degradation).
+ *
+ * NOTE: the `league` scoreboard (other 6 matchups) is NOT in the API contract
+ * yet (Matchup-C) — live mode returns league: [] and the page hides that section.
  */
+import { apiGet } from "@/lib/api/client";
+import { apiMatchupToData } from "@/lib/api/adapters";
+import type { ApiMatchupResponse } from "@/lib/api/types";
+
 export type GameState = "final" | "live" | "sched" | "none";
 
 export interface MatchPlayer {
@@ -207,6 +215,29 @@ export const MATCHUP: MatchupData = {
   ],
 };
 
-export function fetchMatchup(delayMs = 600): Promise<MatchupData> {
+const isLive = () => process.env.NEXT_PUBLIC_HEATER_LIVE === "1";
+const LIVE_TIMEOUT_MS = 6000;
+
+// Single-league viewer until M4 auth resolves the team from the session. The
+// roster tables are sliced by team_name server-side, so this MUST be passed or
+// hitters/pitchers come back empty. Matches the existing single-league hardcodes
+// (trades/page.tsx `YOU`, adapters.ts standings `isUser`).
+const VIEWER_TEAM = "Team Hickey";
+
+/** Live: GET /api/matchup?team_name=… → adapt. Falls back to the mock when the
+ *  API is down (throw), hangs (>6s), or returns a useless matchup (no categories
+ *  AND no roster rows) — so the page always renders. A useful-but-partial response
+ *  (e.g. categories present, rosters not yet synced) renders as-is. Mock: the
+ *  in-memory MATCHUP after a simulated delay. */
+export async function fetchMatchup(delayMs = 600): Promise<MatchupData> {
+  if (isLive()) {
+    const live = apiGet<ApiMatchupResponse>("/matchup", { team_name: VIEWER_TEAM })
+      .then(apiMatchupToData)
+      .then((d) => (d.cats.length > 0 || d.hitters.length > 0 || d.pitchers.length > 0 ? d : null))
+      .catch(() => null);
+    const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), LIVE_TIMEOUT_MS));
+    const result = await Promise.race([live, timeout]);
+    if (result) return result;
+  }
   return new Promise((resolve) => setTimeout(() => resolve(MATCHUP), delayMs));
 }
