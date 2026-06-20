@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import math
 
-from api.contracts.matchup import MatchPlayer, MatchupCategory, MatchupResponse, RosterRow
+from api.contracts.matchup import MatchPlayer, MatchupCategory, MatchupResponse, RosterRow, SideTotals, TeamSide
 from api.services.player_ref import player_ref_from_pool
 
 _HITTER_COLUMNS = ["H/AB", "R", "HR", "RBI", "SB", "AVG", "OBP"]
@@ -230,21 +230,36 @@ class MatchupService:
         for cat in categories:
             cat.win = _cat_win(cat.you, cat.opp, cat.inverse)
 
+        # Compute scores from per-category win fields (set above).
+        you_score = sum(1 for c in categories if c.win == "you")
+        opp_score = sum(1 for c in categories if c.win == "opp")
+
         # Build roster-comparison tables (wrapped so any failure leaves fields empty).
         hitters: list[RosterRow] = []
         pitchers: list[RosterRow] = []
         date_tabs: list[str] = []
         hitter_columns: list[str] = []
         pitcher_columns: list[str] = []
+        hitter_totals: SideTotals = SideTotals()
+        pitcher_totals: SideTotals = SideTotals()
         try:
             from src.yahoo_data_service import get_yahoo_data_service as _yds_fn
 
             _yds = _yds_fn()
-            hitters, pitchers, date_tabs, hitter_columns, pitcher_columns = self._build_roster_tables(
-                team_name, opponent, _yds, week
-            )
+            (
+                hitters,
+                pitchers,
+                date_tabs,
+                hitter_columns,
+                pitcher_columns,
+                hitter_totals,
+                pitcher_totals,
+            ) = self._build_roster_tables(team_name, opponent, _yds, week)
         except Exception:
             pass  # cold env — leave roster fields at defaults
+
+        you = self._team_side(team_name, you_score)
+        opp = self._team_side(opponent, opp_score)
 
         return MatchupResponse(
             team_name=team_name,
@@ -258,7 +273,34 @@ class MatchupService:
             date_tabs=date_tabs,
             hitter_columns=hitter_columns,
             pitcher_columns=pitcher_columns,
+            you=you,
+            opp=opp,
+            hitter_totals=hitter_totals,
+            pitcher_totals=pitcher_totals,
         )
+
+    @staticmethod
+    def _team_side(team_name: str, score: int) -> TeamSide:
+        manager, record = "", ""
+        try:
+            from src.database import get_connection, load_league_records
+
+            conn = get_connection()
+            try:
+                r = conn.execute("SELECT manager_name FROM league_teams WHERE team_name = ?", (team_name,)).fetchone()
+                if r and r[0]:
+                    manager = str(r[0])
+            finally:
+                conn.close()
+            recs = load_league_records()
+            if recs is not None and not recs.empty:
+                m = recs[recs["team_name"] == team_name]
+                if not m.empty:
+                    row = m.iloc[0]
+                    record = _format_record(row.get("wins"), row.get("losses"), row.get("ties"), row.get("rank"))
+        except Exception:
+            pass
+        return TeamSide(name=team_name, manager=manager, record=record, score=int(score))
 
     @staticmethod
     def _build_roster_tables(
@@ -266,10 +308,11 @@ class MatchupService:
         opponent: str,
         yds,
         week: int,
-    ) -> tuple[list[RosterRow], list[RosterRow], list[str], list[str], list[str]]:
+    ) -> tuple[list[RosterRow], list[RosterRow], list[str], list[str], list[str], SideTotals, SideTotals]:
         """Build hitter/pitcher RosterRow lists for the matchup comparison.
 
-        Returns (hitters, pitchers, date_tabs, hitter_columns, pitcher_columns).
+        Returns (hitters, pitchers, date_tabs, hitter_columns, pitcher_columns,
+                 hitter_totals, pitcher_totals).
         Never raises — on any error returns empty lists.
         """
         import pandas as pd
@@ -292,7 +335,7 @@ class MatchupService:
             rosters = pd.DataFrame()
 
         if rosters is None or rosters.empty:
-            return [], [], [], [], []
+            return [], [], [], [], [], SideTotals(), SideTotals()
 
         try:
             pool = load_player_pool()
@@ -426,12 +469,27 @@ class MatchupService:
         hitters = _pair_rows(you_hitters, opp_hitters, you_h_slots)
         pitchers = _pair_rows(you_pitchers, opp_pitchers, you_p_slots)
 
+        # Aggregate per-side totals from the pool rows for each side's players.
+        def _side_totals(side_rosters: pd.DataFrame, is_hit: bool) -> list[str]:
+            if pool is None or pool.empty or side_rosters.empty:
+                return []
+            ids = [int(p) for p in side_rosters["player_id"].dropna().astype(int).tolist()]
+            sub = pool[pool["player_id"].isin(ids)]
+            if "is_hitter" in sub.columns:
+                sub = sub[sub["is_hitter"].astype(bool) == is_hit]
+            return _aggregate_totals(sub, hitter=is_hit)
+
+        hitter_totals = SideTotals(you=_side_totals(you_rosters, True), opp=_side_totals(opp_rosters, True))
+        pitcher_totals = SideTotals(you=_side_totals(you_rosters, False), opp=_side_totals(opp_rosters, False))
+
         return (
             hitters,
             pitchers,
             _date_tabs(week),
             _HITTER_COLUMNS,
             _PITCHER_COLUMNS,
+            hitter_totals,
+            pitcher_totals,
         )
 
     @staticmethod

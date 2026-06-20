@@ -1100,12 +1100,18 @@
             "title": "Hitter Columns",
             "type": "array"
           },
+          "hitter_totals": {
+            "$ref": "#/components/schemas/SideTotals"
+          },
           "hitters": {
             "items": {
               "$ref": "#/components/schemas/RosterRow"
             },
             "title": "Hitters",
             "type": "array"
+          },
+          "opp": {
+            "$ref": "#/components/schemas/TeamSide"
           },
           "opponent": {
             "default": "",
@@ -1118,6 +1124,9 @@
             },
             "title": "Pitcher Columns",
             "type": "array"
+          },
+          "pitcher_totals": {
+            "$ref": "#/components/schemas/SideTotals"
           },
           "pitchers": {
             "items": {
@@ -1144,6 +1153,9 @@
             "default": 0.0,
             "title": "Win Prob",
             "type": "number"
+          },
+          "you": {
+            "$ref": "#/components/schemas/TeamSide"
           }
         },
         "required": [
@@ -1631,6 +1643,26 @@
         "title": "SeasonStat",
         "type": "object"
       },
+      "SideTotals": {
+        "properties": {
+          "opp": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Opp",
+            "type": "array"
+          },
+          "you": {
+            "items": {
+              "type": "string"
+            },
+            "title": "You",
+            "type": "array"
+          }
+        },
+        "title": "SideTotals",
+        "type": "object"
+      },
       "StandingsResponse": {
         "properties": {
           "teams": {
@@ -1901,6 +1933,32 @@
           "date"
         ],
         "title": "StreamingResponse",
+        "type": "object"
+      },
+      "TeamSide": {
+        "properties": {
+          "manager": {
+            "default": "",
+            "title": "Manager",
+            "type": "string"
+          },
+          "name": {
+            "default": "",
+            "title": "Name",
+            "type": "string"
+          },
+          "record": {
+            "default": "",
+            "title": "Record",
+            "type": "string"
+          },
+          "score": {
+            "default": 0,
+            "title": "Score",
+            "type": "integer"
+          }
+        },
+        "title": "TeamSide",
         "type": "object"
       },
       "TeamStanding": {
