@@ -1164,6 +1164,46 @@
         "title": "MatchupResponse",
         "type": "object"
       },
+      "Mover": {
+        "description": "A hot/cold player on the user's roster (trending vs projection).",
+        "properties": {
+          "context": {
+            "default": "",
+            "title": "Context",
+            "type": "string"
+          },
+          "player": {
+            "$ref": "#/components/schemas/PlayerRef"
+          },
+          "rostered_by_you": {
+            "default": true,
+            "title": "Rostered By You",
+            "type": "boolean"
+          },
+          "stats": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Stats",
+            "type": "array"
+          },
+          "tag": {
+            "default": "",
+            "title": "Tag",
+            "type": "string"
+          },
+          "trend": {
+            "default": "flat",
+            "title": "Trend",
+            "type": "string"
+          }
+        },
+        "required": [
+          "player"
+        ],
+        "title": "Mover",
+        "type": "object"
+      },
       "MutationResult": {
         "properties": {
           "applied": {
@@ -1219,6 +1259,22 @@
             "title": "Categories",
             "type": "array"
           },
+          "eyebrow": {
+            "default": "",
+            "title": "Eyebrow",
+            "type": "string"
+          },
+          "freshness_minutes": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Freshness Minutes"
+          },
           "matchup": {
             "anyOf": [
               {
@@ -1229,12 +1285,41 @@
               }
             ]
           },
+          "movers": {
+            "items": {
+              "$ref": "#/components/schemas/Mover"
+            },
+            "title": "Movers",
+            "type": "array"
+          },
+          "movers_scope": {
+            "default": "mine",
+            "title": "Movers Scope",
+            "type": "string"
+          },
+          "playoff_cut_rank": {
+            "default": 4,
+            "title": "Playoff Cut Rank",
+            "type": "integer"
+          },
           "rank": {
             "title": "Rank",
             "type": "integer"
           },
           "record": {
             "title": "Record",
+            "type": "string"
+          },
+          "status_chips": {
+            "items": {
+              "$ref": "#/components/schemas/StatusChip"
+            },
+            "title": "Status Chips",
+            "type": "array"
+          },
+          "subline": {
+            "default": "",
+            "title": "Subline",
             "type": "string"
           },
           "team_name": {
@@ -1695,6 +1780,30 @@
           "value"
         ],
         "title": "StatItem",
+        "type": "object"
+      },
+      "StatusChip": {
+        "description": "A small dashboard status badge (IL count, news count, \u2026).",
+        "properties": {
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "status": {
+            "default": "info",
+            "title": "Status",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "label",
+          "value"
+        ],
+        "title": "StatusChip",
         "type": "object"
       },
       "StreamAnalyzeRequest": {

@@ -7,7 +7,59 @@ live data degrades to an empty/None field rather than raising."""
 
 from __future__ import annotations
 
-from api.contracts.my_team import CategoryLine, MatchupHero, MyTeamResponse
+import logging
+import math
+from datetime import UTC, datetime
+
+from api.contracts.my_team import (
+    CategoryLine,
+    MatchupHero,
+    Mover,
+    MyTeamResponse,
+    StatusChip,
+)
+from api.services.player_ref import player_ref_from_pool
+
+logger = logging.getLogger(__name__)
+
+# IL/DTD statuses that count toward roster-health (mirrors src.alerts). Yahoo also
+# emits free-form variants like "IL10 - 3 days", so prefixes are matched too.
+_IL_STATUSES = {"IL", "IL10", "IL15", "IL60", "DTD", "NA", "OUT"}
+_IL_PREFIXES = ("IL10", "IL15", "IL60", "IL ", "DTD")
+# Freshness is reported from the most-relevant live sources for this page.
+_FRESHNESS_SOURCES = ("yahoo_standings", "season_stats", "yahoo_rosters")
+_PLAYOFF_CUT_FALLBACK = 4
+
+
+def _is_il_status(status: str) -> bool:
+    """True for an IL/DTD roster status, incl. Yahoo free-form ('IL10 - 3 days')."""
+    s = str(status).upper().strip()
+    return s in _IL_STATUSES or any(s.startswith(p) for p in _IL_PREFIXES)
+
+
+def _f(value, default: float = 0.0) -> float:
+    """Finite-float coercion (None/NaN/inf/junk → default)."""
+    try:
+        fval = float(value)
+    except (TypeError, ValueError):
+        return default
+    return default if (math.isnan(fval) or math.isinf(fval)) else fval
+
+
+def _fmt_avg(value) -> str:
+    """Batting-average display: strip the leading zero only for a true .000-.999 rate
+    ('.310'), but keep it for 0/NaN ('0.000') so it never looks like a parse artifact."""
+    fval = _f(value)
+    text = f"{fval:.3f}"
+    return f"{text.lstrip('0')} AVG" if 0.0 < fval < 1.0 else f"{text} AVG"
+
+
+def _mover_stats(row, hitter: bool) -> list[str]:
+    """Two YTD display stats for a mover, by player type (pool ytd_* columns)."""
+    g = row.get if hasattr(row, "get") else lambda k, d=None: row[k] if k in row else d
+    if hitter:
+        return [f"{int(round(_f(g('ytd_hr'))))} HR", _fmt_avg(g("ytd_avg"))]
+    return [f"{int(round(_f(g('ytd_k'))))} K", f"{_f(g('ytd_era')):.2f} ERA"]
 
 
 class TeamService:
@@ -20,14 +72,28 @@ class TeamService:
         raw_matchup = yds.get_matchup()
         standings = yds.get_standings()
         rank, record = self._rank_and_record(standings, team_name)
+        week = int(raw_matchup.get("week", 0)) if raw_matchup else 0
+        n_teams = self._team_count(standings)
+
+        roster = self._roster(team_name)
+        roster_ids = self._roster_ids(roster)
+
         return MyTeamResponse(
             team_name=team_name,
             record=record,
             rank=rank,
             matchup=self._matchup(raw_matchup, cfg),
             categories=self._categories(raw_matchup, cfg),
+            eyebrow=self._eyebrow(team_name, week),
+            subline=self._subline(record, rank, n_teams, standings),
+            freshness_minutes=self._freshness_minutes(),
+            playoff_cut_rank=self._playoff_cut_rank(),
+            status_chips=self._status_chips(roster, roster_ids),
+            movers=self._movers(roster_ids, cfg),
+            movers_scope="mine",
         )
 
+    # ── existing core ────────────────────────────────────────────────────
     @staticmethod
     def _rank_and_record(standings, team_name: str) -> tuple[int, str]:
         # standings carries per-category rows; the WINS category holds the W-L.
@@ -72,3 +138,231 @@ class TeamService:
                 )
             )
         return out
+
+    # ── slice 1 additions ────────────────────────────────────────────────
+    @staticmethod
+    def _roster(team_name: str):
+        """The user's league-roster rows (player_id/status/name); empty on any failure."""
+        import pandas as pd
+
+        try:
+            from src.database import load_league_rosters
+
+            lr = load_league_rosters()
+            if lr is None or lr.empty or "team_name" not in lr.columns:
+                return pd.DataFrame()
+            return lr[lr["team_name"] == team_name].copy()
+        except Exception as exc:
+            logger.warning("TeamService._roster failed: %s", exc)
+            return pd.DataFrame()
+
+    @staticmethod
+    def _roster_ids(roster) -> list[int]:
+        try:
+            if roster is None or roster.empty or "player_id" not in roster.columns:
+                return []
+            ids = []
+            for v in roster["player_id"].tolist():
+                try:
+                    ids.append(int(v))
+                except (TypeError, ValueError):
+                    continue
+            return ids
+        except Exception:
+            return []
+
+    @staticmethod
+    def _team_count(standings) -> int:
+        try:
+            return int(standings["team_name"].nunique()) if standings is not None and not standings.empty else 12
+        except Exception:
+            return 12
+
+    def _movers(self, roster_ids: list[int], cfg) -> list[Mover]:
+        """Hot/cold players on the user's roster (trend vs projection), top 4 by |delta|.
+
+        Filters the pool to the roster FIRST — compute_player_trends computes each
+        player's own actual-vs-projected delta (not pool-relative), so slicing to the
+        ~28 roster players is both correct and fast (no full-pool scan)."""
+        if not roster_ids:
+            return []
+        try:
+            from src.database import load_player_pool, load_season_stats
+            from src.trend_tracker import compute_player_trends
+
+            pool = load_player_pool()
+            if pool is None or pool.empty:
+                return []
+            pool = pool.rename(columns={"name": "player_name"}) if "name" in pool.columns else pool
+            roster_pool = pool[pool["player_id"].isin(roster_ids)]
+            if roster_pool.empty:
+                return []
+            season = load_season_stats()
+            if season is not None and not season.empty and "player_id" in season.columns:
+                season = season[season["player_id"].isin(roster_ids)]
+            trended = compute_player_trends(roster_pool, season, cfg)
+            if trended is None or trended.empty or "trend_label" not in trended.columns:
+                return []
+            movers_df = trended[trended["trend_label"].isin(["HOT", "COLD"])].copy()
+            if movers_df.empty:
+                return []
+            movers_df["_abs"] = movers_df["trend_delta"].map(lambda v: abs(_f(v)))
+            movers_df = movers_df.sort_values("_abs", ascending=False).head(4)
+            return [self._to_mover(r, roster_pool) for _, r in movers_df.iterrows()]
+        except Exception as exc:
+            logger.warning("TeamService._movers failed: %s", exc)
+            return []
+
+    @staticmethod
+    def _to_mover(row, pool) -> Mover:
+        g = row.get if hasattr(row, "get") else lambda k, d=None: getattr(row, k, d)
+        try:
+            pid = int(g("player_id", 0) or 0)
+        except (TypeError, ValueError):
+            pid = 0
+        ih = g("is_hitter", True)
+        hitter = True if (isinstance(ih, float) and math.isnan(ih)) else bool(ih)
+        hot = str(g("trend_label", "")).upper() == "HOT"
+        return Mover(
+            player=player_ref_from_pool(pid, pool, name=g("player_name") or g("name"), positions=g("positions")),
+            stats=_mover_stats(row, hitter),
+            trend="up" if hot else "down",
+            tag="hot" if hot else "cold",
+            context="Trending hot vs projection" if hot else "Cooling off vs projection",
+            rostered_by_you=True,
+        )
+
+    def _status_chips(self, roster, roster_ids: list[int]) -> list[StatusChip]:
+        chips: list[StatusChip] = []
+        il = self._il_count(roster)
+        if il is not None:
+            chips.append(StatusChip(label="IL", value=il, status="warn" if il else "ok"))
+        news = self._news_count(roster_ids)
+        if news is not None:
+            chips.append(StatusChip(label="News", value=news, status="info"))
+        return chips
+
+    @staticmethod
+    def _il_count(roster) -> int | None:
+        try:
+            if roster is None or roster.empty or "status" not in roster.columns:
+                return None
+            return int(roster["status"].fillna("").map(_is_il_status).sum())
+        except Exception:
+            return None
+
+    @staticmethod
+    def _news_count(roster_ids: list[int]) -> int | None:
+        if not roster_ids:
+            return None
+        try:
+            from src.database import get_connection
+
+            conn = get_connection()
+            try:
+                placeholders = ",".join("?" * len(roster_ids))
+                cur = conn.execute(
+                    f"SELECT COUNT(*) FROM player_news WHERE player_id IN ({placeholders})",
+                    roster_ids,
+                )
+                row = cur.fetchone()
+                return int(row[0]) if row else 0
+            finally:
+                conn.close()
+        except Exception:
+            return None
+
+    @staticmethod
+    def _freshness_minutes() -> float | None:
+        """Minutes since the STALEST core live source last refreshed (None if unknown).
+
+        The dashboard is only as fresh as its oldest core input, so report the max
+        age — a small standings age must not mask hours-stale season stats. Clamped at
+        0 so clock skew / a future timestamp can't yield a negative age."""
+        try:
+            from src.database import get_refresh_log_snapshot
+
+            snap = get_refresh_log_snapshot()
+            if not snap:
+                return None
+            now = datetime.now(UTC)
+            ages: list[float] = []
+            for rec in snap:
+                if rec.get("source") not in _FRESHNESS_SOURCES:
+                    continue
+                ts_raw = rec.get("last_refresh")
+                if not ts_raw:
+                    continue
+                try:
+                    ts = datetime.fromisoformat(str(ts_raw))
+                    if ts.tzinfo is None:
+                        ts = ts.replace(tzinfo=UTC)
+                    ages.append(max(0.0, (now - ts).total_seconds() / 60.0))
+                except (TypeError, ValueError):
+                    continue
+            return round(max(ages), 1) if ages else None
+        except Exception:
+            return None
+
+    @staticmethod
+    def _playoff_cut_rank() -> int:
+        try:
+            from src.engine.output.playoff_sim import _PLAYOFF_SPOTS
+
+            return int(_PLAYOFF_SPOTS)
+        except Exception:
+            return _PLAYOFF_CUT_FALLBACK
+
+    @staticmethod
+    def _eyebrow(team_name: str, week: int) -> str:
+        parts = ["Season"]
+        if week:
+            parts.append(f"Week {week}")
+        if team_name:
+            parts.append(team_name)
+        return " · ".join(parts)
+
+    def _subline(self, record: str, rank: int, n_teams: int, standings) -> str:
+        parts: list[str] = []
+        if record:
+            parts.append(record)
+        if rank and n_teams:
+            parts.append(f"{self._ordinal(rank)} of {n_teams}")
+        gb = self._games_back(standings, record)
+        if gb is not None and gb > 0:
+            parts.append(f"{gb:g} GB from 1st")
+        return " · ".join(parts)
+
+    @staticmethod
+    def _ordinal(n: int) -> str:
+        if 10 <= (n % 100) <= 20:
+            suffix = "th"
+        else:
+            suffix = {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+        return f"{n}{suffix}"
+
+    @staticmethod
+    def _wins_from_record(record: str) -> float | None:
+        try:
+            return float(str(record).split("-")[0])
+        except (TypeError, ValueError, IndexError):
+            return None
+
+    def _games_back(self, standings, record: str) -> float | None:
+        """Matchup wins behind the league leader (H2H, simple win delta). None if not derivable."""
+        try:
+            your_wins = self._wins_from_record(record)
+            if your_wins is None or standings is None or standings.empty:
+                return None
+            wins_rows = standings[standings["category"] == "WINS"]
+            if wins_rows.empty:
+                return None
+            leader_wins = max(
+                (w for w in (self._wins_from_record(t) for t in wins_rows["total"]) if w is not None),
+                default=None,
+            )
+            if leader_wins is None:
+                return None
+            return round(leader_wins - your_wins, 1)
+        except Exception:
+            return None
