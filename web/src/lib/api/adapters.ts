@@ -6,6 +6,7 @@ import type {
   ApiStandingsResponse,
   ApiPuntResponse,
   ApiMatchupResponse,
+  ApiCompareResponse,
 } from "@/lib/api/types";
 import type { StandingsData, TeamStanding } from "@/lib/standings-data";
 import { verdictFor, type PuntData, type PuntCat } from "@/lib/punt-data";
@@ -19,6 +20,7 @@ import type {
 import type { PlayerRef } from "@/lib/types";
 import type { LeaderRow } from "@/lib/research-data";
 import type { FreeAgent, PlayersData } from "@/lib/players-data";
+import type { CompareData } from "@/lib/compare-data";
 import type {
   StreamingData,
   StreamCandidate,
@@ -64,6 +66,7 @@ export function apiOverallToResearch(api: ApiLeadersOverallResponse): LeaderRow[
  *  renames snake_case → camelCase and flattens the PlayerRef (null-safe). */
 export function apiPoolToPlayers(api: ApiFreeAgentPoolResponse): PlayersData {
   const freeAgents: FreeAgent[] = api.free_agents.map((it) => ({
+    id: it.player.id, // HEATER player_id — the compare picker feeds this to /api/compare
     name: it.player.name,
     pos: it.player.positions,
     teamAbbr: it.player.team_abbr ?? "",
@@ -301,5 +304,18 @@ export function apiMatchupToData(api: ApiMatchupResponse): MatchupData {
     hitterTotals: toTotals(api.hitter_totals),
     pitcherTotals: toTotals(api.pitcher_totals),
     league,
+  };
+}
+
+/** Map /api/compare → frontend CompareData. categories[] + per-player stat maps
+ *  (category → projected value); PlayerRef enriched for headshots/logos. The
+ *  frontend computes the winner-per-category (the API returns raw values). */
+export function apiCompareToData(api: ApiCompareResponse): CompareData {
+  return {
+    categories: api.categories ?? [],
+    players: (api.players ?? []).map((p) => ({
+      ...toPlayerRef(p.player),
+      stats: p.stats ?? {},
+    })),
   };
 }

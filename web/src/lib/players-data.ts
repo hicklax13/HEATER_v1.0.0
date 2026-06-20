@@ -9,6 +9,7 @@ import type { ApiFreeAgentPoolResponse } from "@/lib/api/types";
  * and falls back to this mock on any error or empty response.
  */
 export interface FreeAgent extends PlayerRef {
+  id: number; // HEATER player_id — needed to call /api/compare (the picker source)
   rank: number; // FA value rank
   ownPct: number; // % rostered across the league
   ownDelta: number; // ownership trend, last day
@@ -39,6 +40,7 @@ const fa = (
   stats: [string, string][],
   tag?: string,
 ): FreeAgent => ({
+  id: mlbId, // mock token (live data supplies the real HEATER id via the adapter)
   rank,
   name,
   pos,

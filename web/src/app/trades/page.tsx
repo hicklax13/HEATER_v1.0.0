@@ -1,7 +1,8 @@
 "use client";
 
+import { useState } from "react";
 import { motion } from "framer-motion";
-import { ArrowRight, ArrowUp, ArrowDown, TrendingUp, Plus } from "lucide-react";
+import { ArrowRight, ArrowUp, ArrowDown, TrendingUp } from "lucide-react";
 import { fetchTrades, type TradesData, type TradeRec, type TradePlayer, type CatImpact } from "@/lib/trades-data";
 import { staggerContainer, staggerItem, useCountUp } from "@/lib/motion";
 import { Footer } from "@/components/chrome/Footer";
@@ -9,75 +10,99 @@ import { Card } from "@/components/ui/Card";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { PlayerDialog } from "@/components/player/PlayerDialog";
 import { PlayerAvatar } from "@/components/ui/PlayerAvatar";
+import { ComparePanel } from "@/components/trades/ComparePanel";
 import { cn } from "@/lib/utils";
 import { usePageData } from "@/lib/use-page-data";
 import { PageError, PageEmpty } from "@/components/ui/PageStates";
 
+type Tab = "finder" | "compare";
+
 const YOU = "Team Hickey";
 
 export default function TradesPage() {
+  const [tab, setTab] = useState<Tab>("finder");
   const { state, retry } = usePageData(fetchTrades);
 
   return (
     <>
-      <main className="w-full flex-1 px-5 py-6">
-        {state.status === "loading" && <LoadingView />}
-        {state.status === "error" && <PageError onRetry={retry} />}
-        {state.status === "empty" && (
-          <PageEmpty
-            icon={TrendingUp}
-            title="No trade ideas yet"
-            body="We need a bit more league data to surface targets."
-          />
+      <main className="w-full flex-1 space-y-6 px-5 py-6">
+        <PageHead tab={tab} onTab={setTab} />
+
+        {tab === "finder" && (
+          <>
+            {state.status === "loading" && <LoadingView />}
+            {state.status === "error" && <PageError onRetry={retry} />}
+            {state.status === "empty" && (
+              <PageEmpty
+                icon={TrendingUp}
+                title="No trade ideas yet"
+                body="We need a bit more league data to surface targets."
+              />
+            )}
+            {state.status === "loaded" && <FinderView data={state.data} />}
+          </>
         )}
-        {state.status === "loaded" && <Loaded data={state.data} />}
+
+        {tab === "compare" && <ComparePanel />}
       </main>
-      {state.status === "loaded" && <Footer freshnessMinutes={9} />}
+      <Footer freshnessMinutes={9} />
     </>
   );
 }
 
-function Loaded({ data }: { data: TradesData }) {
-  return (
-    <motion.div variants={staggerContainer} initial="hidden" animate="show" className="space-y-6">
-      <motion.div variants={staggerItem}>
-        <Header needs={data.needs} count={data.recs.length} />
-      </motion.div>
-      <motion.div variants={staggerItem}>
-        <div className="space-y-4">
-          {data.recs.map((rec) => (
-            <TradeCard key={rec.id} rec={rec} />
-          ))}
-        </div>
-      </motion.div>
-    </motion.div>
-  );
-}
+const TABS: { key: Tab; label: string }[] = [
+  { key: "finder", label: "Finder" },
+  { key: "compare", label: "Compare" },
+];
 
-function Header({ needs, count }: { needs: string[]; count: number }) {
+function PageHead({ tab, onTab }: { tab: Tab; onTab: (t: Tab) => void }) {
   return (
     <div className="flex flex-wrap items-end justify-between gap-3">
       <div>
         <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-ink-3">
-          Trade Finder · Week 13
+          Trade Workbench · Week 13
         </div>
         <h1 className="font-display text-3xl font-extrabold text-navy">Trades</h1>
-        <p className="mt-1 text-[13px] text-ink-2">
-          {count} deals that target your needs:{" "}
-          {needs.map((n, i) => (
-            <span key={n}>
-              <span className="font-bold text-heat">{n}</span>
-              {i < needs.length - 1 ? ", " : ""}
-            </span>
-          ))}
-          .
-        </p>
       </div>
-      <button className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-gradient-to-b from-heat-bright to-heat px-4 text-sm font-bold text-white shadow-[0_4px_12px_rgba(255,92,16,0.3)] transition-transform duration-[var(--dur-1)] hover:scale-[1.02] active:scale-95 motion-reduce:transform-none">
-        <Plus className="size-4" aria-hidden />
-        Build A Trade
-      </button>
+      <div role="tablist" aria-label="Trades views" className="inline-flex rounded-xl border border-line bg-surface p-1">
+        {TABS.map((t) => (
+          <button
+            key={t.key}
+            role="tab"
+            aria-selected={tab === t.key}
+            onClick={() => onTab(t.key)}
+            className={cn(
+              "rounded-lg px-4 py-1.5 text-[13px] font-bold transition-colors duration-[var(--dur-1)]",
+              tab === t.key ? "bg-navy text-white" : "text-ink-2 hover:text-navy",
+            )}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
     </div>
+  );
+}
+
+function FinderView({ data }: { data: TradesData }) {
+  return (
+    <motion.div variants={staggerContainer} initial="hidden" animate="show" className="space-y-4">
+      <motion.p variants={staggerItem} className="text-[13px] text-ink-2">
+        {data.recs.length} deals that target your needs:{" "}
+        {data.needs.map((n, i) => (
+          <span key={n}>
+            <span className="font-bold text-heat">{n}</span>
+            {i < data.needs.length - 1 ? ", " : ""}
+          </span>
+        ))}
+        .
+      </motion.p>
+      {data.recs.map((rec) => (
+        <motion.div key={rec.id} variants={staggerItem}>
+          <TradeCard rec={rec} />
+        </motion.div>
+      ))}
+    </motion.div>
   );
 }
 
