@@ -52,8 +52,40 @@ class BudgetStrip(BaseModel):
     cats_in_play: list[str] = Field(default_factory=list)
 
 
+class FactorDetail(BaseModel):
+    key: str  # matchup/sgp/form/lineup/env/winprob
+    label: str
+    value: float = 0.0  # the component, [-1, +1]
+    weight: float = 0.0  # the stream_score weight from CONSTANTS_REGISTRY
+    detail: str = ""
+
+
+class ProbableStarter(BaseModel):
+    player: PlayerRef
+    team: str = ""
+    opponent: str = ""
+    is_home: bool = False
+    pos_group: str = "SP"  # SP/SP-RP/RP — engine probables are SPs
+    start_likelihood: str = ""  # confirmed/likely/projected (from confidence proximity)
+
+
+class PitcherScorecard(StreamCandidate):
+    factors: list[FactorDetail] = Field(default_factory=list)
+
+
+class StreamAnalyzeRequest(BaseModel):
+    pitcher_id: int
+    date: str = ""  # YYYY-MM-DD; "" → today
+
+
+class StreamAnalyzeResponse(BaseModel):
+    found: bool = False
+    scorecard: PitcherScorecard | None = None
+
+
 class StreamingResponse(BaseModel):
     date: str
     candidates: list[StreamCandidate] = Field(default_factory=list)
     top_pick: StreamCandidate | None = None
     budget: BudgetStrip = Field(default_factory=BudgetStrip)
+    probables: list[ProbableStarter] = Field(default_factory=list)

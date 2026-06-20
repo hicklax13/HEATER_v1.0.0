@@ -8,6 +8,8 @@ import math
 
 from api.contracts.streaming import (
     BudgetStrip,
+    FactorDetail,
+    ProbableStarter,
     StreamCandidate,
     StreamComponents,
     StreamingResponse,
@@ -56,6 +58,60 @@ def _build_budget(ctx) -> BudgetStrip:
         ip_target=ip_target,
         cats_in_play=cats_in_play,
     )
+
+
+def _likelihood_from(confidence) -> str:
+    """Map the date-proximity confidence tier → a start-likelihood label (proxy)."""
+    return {"HIGH": "confirmed", "MEDIUM": "likely", "LOW": "projected"}.get(str(confidence or "").upper(), "projected")
+
+
+def _to_probable(row) -> ProbableStarter:
+    g = row.get if hasattr(row, "get") else lambda k, d=None: getattr(row, k, d)
+    try:
+        pid = int(g("player_id", 0) or 0)
+    except (TypeError, ValueError):
+        pid = 0
+    return ProbableStarter(
+        player=make_player_ref(
+            id=pid,
+            name=str(g("player_name", "") or ""),
+            positions="SP",
+            mlb_id=g("mlb_id"),
+            team_abbr=g("team"),
+        ),
+        team=str(g("team", "") or ""),
+        opponent=str(g("opponent", "") or ""),
+        is_home=bool(g("is_home", False)),
+        pos_group="SP",
+        start_likelihood=_likelihood_from(g("confidence")),
+    )
+
+
+def _factors(row) -> list[FactorDetail]:
+    """The 6 stream-score factors with registry weights + composed detail strings."""
+    from src.optimizer.constants_registry import CONSTANTS_REGISTRY as _CR
+
+    g = row.get if hasattr(row, "get") else lambda k, d=None: getattr(row, k, d)
+    comp = g("components", {}) or {}
+    opp = str(g("opponent", "") or "")
+    wrc, kpct, park = _f(g("opp_wrc_plus")), _f(g("opp_k_pct")), _f(g("park_factor"), 1.0)
+    nsgp, wp = _f(g("net_sgp")), _f(g("win_probability"))
+
+    def _w(key: str) -> float:
+        try:
+            return float(_CR[f"stream_score_w_{key}"].value)
+        except Exception:
+            return 0.0
+
+    specs = [
+        ("matchup", "Matchup", f"vs {opp}: {wrc:.0f} wRC+, {kpct:.0f}% K"),
+        ("sgp", "Streaming value", f"{nsgp:+.2f} SGP"),
+        ("form", "Recent form", "L14 form vs baseline"),
+        ("lineup", "Lineup", "Opposing lineup exposure"),
+        ("env", "Environment", f"Park factor {park:.2f}"),
+        ("winprob", "Win probability", f"{wp * 100:.0f}% team win prob"),
+    ]
+    return [FactorDetail(key=k, label=lbl, value=_f(comp.get(k)), weight=_w(k), detail=d) for k, lbl, d in specs]
 
 
 class StreamingService:
