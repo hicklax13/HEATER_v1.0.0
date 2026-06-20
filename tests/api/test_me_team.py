@@ -3,8 +3,16 @@ from datetime import UTC, datetime, timedelta
 import pandas as pd
 from starlette.testclient import TestClient
 
-from api.contracts.common import PlayerRef
-from api.contracts.my_team import CategoryLine, MatchupHero, Mover, MyTeamResponse, StatusChip
+from api.contracts.common import PlayerRef, StatItem
+from api.contracts.my_team import (
+    CategoryLine,
+    Lever,
+    LeverPickup,
+    MatchupHero,
+    Mover,
+    MyTeamResponse,
+    StatusChip,
+)
 from api.deps import get_team_service
 from api.main import create_app
 
@@ -25,13 +33,24 @@ class _FakeTeamService:
             movers=[
                 Mover(
                     player=PlayerRef(id=1, mlb_id=592450, name="Judge", positions="OF", team_abbr="NYY", team_id=147),
-                    stats=["18 HR", ".322 AVG"],
+                    stats=[StatItem(label="HR", value="18"), StatItem(label="AVG", value=".322")],
                     trend="up",
                     tag="hot",
                     context="Trending hot vs projection",
                 )
             ],
             movers_scope="mine",
+            lever=Lever(
+                category_key="SB",
+                headline="SB is your weakest category",
+                behind_by=13.0,
+                pickups=[
+                    LeverPickup(
+                        player=PlayerRef(id=2, mlb_id=668800, name="Speedy", positions="OF"),
+                        proj_stat=StatItem(label="SB", value="24"),
+                    )
+                ],
+            ),
         )
 
 
@@ -53,7 +72,12 @@ def test_get_me_team_returns_contract():
     assert body["status_chips"][0]["label"] == "IL"
     assert body["movers"][0]["player"]["mlb_id"] == 592450
     assert body["movers"][0]["tag"] == "hot"
+    assert body["movers"][0]["stats"][0] == {"label": "HR", "value": "18"}  # structured StatItem
     assert body["movers_scope"] == "mine"
+    # slice-2 lever
+    assert body["lever"]["category_key"] == "SB"
+    assert body["lever"]["pickups"][0]["player"]["mlb_id"] == 668800
+    assert body["lever"]["pickups"][0]["proj_stat"] == {"label": "SB", "value": "24"}
 
 
 def test_my_team_contract_shape():
@@ -167,7 +191,8 @@ def test_movers_filters_to_roster_caps_4_and_maps_trend(monkeypatch):
     assert movers[0].player.id == 1
     assert movers[0].tag == "hot" and movers[0].trend == "up"
     assert movers[0].player.mlb_id == 101  # enriched from pool
-    assert movers[0].stats == ["20 HR", ".310 AVG"]
+    # stats are structured StatItem{label,value} (CMO contract ask)
+    assert [(s.label, s.value) for s in movers[0].stats] == [("HR", "20"), ("AVG", ".310")]
     # a COLD mover maps to down/cold
     cold = [m for m in movers if m.tag == "cold"][0]
     assert cold.trend == "down"
@@ -227,13 +252,14 @@ def test_il_count_handles_freeform_yahoo_status():
 
 
 def test_mover_stats_pitcher_and_zero_avg():
-    from api.services.team_service import _fmt_avg, _mover_stats
+    from api.services.team_service import _avg_value, _mover_stats
 
     pitcher = {"ytd_k": 142, "ytd_era": 3.27}
-    assert _mover_stats(pitcher, hitter=False) == ["142 K", "3.27 ERA"]
-    # batting-average display: strip leading zero for a real rate, keep it for 0/NaN
-    assert _fmt_avg(0.314) == ".314 AVG"
-    assert _fmt_avg(0.0) == "0.000 AVG"
+    # structured StatItem{label,value} (pitcher path)
+    assert [(s.label, s.value) for s in _mover_stats(pitcher, hitter=False)] == [("K", "142"), ("ERA", "3.27")]
+    # batting-average VALUE: strip leading zero for a real rate, keep it for 0/NaN
+    assert _avg_value(0.314) == ".314"
+    assert _avg_value(0.0) == "0.000"
 
 
 def test_subline_ordinal_and_games_back():
@@ -248,3 +274,86 @@ def test_subline_ordinal_and_games_back():
     sub = svc._subline("4-6-0", 10, 12, standings)
     assert "10th of 12" in sub
     assert "3 GB from 1st" in sub  # leader 7 wins - your 4 = 3
+
+
+# ── slice-2 lever (DB-free: build_optimizer_context + rank_free_agents monkeypatched
+# at their source modules, since _lever imports them lazily inside the method) ──────
+
+
+class _FakeCtx:
+    def __init__(self, gaps, free_agents, pool, roster_ids):
+        self.category_gaps = gaps
+        self.free_agents = free_agents
+        self.player_pool = pool
+        self.user_roster_ids = roster_ids
+
+
+def test_lever_picks_weakest_cat_and_filters_pickups(monkeypatch):
+    # category_gaps keys are LOWERCASE (real engine shape) but best_category is UPPERCASE;
+    # the lever must normalize so the pickup filter matches. SB is the most-negative gap.
+    gaps = {"hr": 1.5, "sb": -4.0, "r": -1.0}
+    pool = pd.DataFrame(
+        [
+            {"player_id": 2, "name": "Speedy", "positions": "OF", "mlb_id": 668800, "team": "SD", "ytd_sb": 24},
+            {"player_id": 3, "name": "Slugger", "positions": "1B", "mlb_id": 668801, "team": "LAD", "ytd_sb": 1},
+        ]
+    )
+    fas = pd.DataFrame([{"player_id": 2}, {"player_id": 3}])  # non-empty
+    ranked = pd.DataFrame(
+        [
+            {"player_id": 2, "player_name": "Speedy", "positions": "OF", "best_category": "SB", "marginal_value": 1.2},
+            {"player_id": 3, "player_name": "Slugger", "positions": "1B", "best_category": "HR", "marginal_value": 1.1},
+        ]
+    )
+    monkeypatch.setattr(
+        "src.optimizer.shared_data_layer.build_optimizer_context",
+        lambda **k: _FakeCtx(gaps, fas, pool, [1]),
+    )
+    monkeypatch.setattr("src.in_season.rank_free_agents", lambda *a, **k: ranked)
+
+    lever = _real_service()._lever("Team Hickey", cfg=None)
+    assert lever is not None
+    assert lever.category_key == "SB"
+    assert lever.behind_by == 4.0
+    # only the SB-best FA is a pickup (Slugger's best is HR → excluded)
+    assert len(lever.pickups) == 1
+    assert lever.pickups[0].player.mlb_id == 668800
+    assert lever.pickups[0].proj_stat.label == "SB" and lever.pickups[0].proj_stat.value == "24"
+
+
+def test_lever_none_when_winning_all_cats(monkeypatch):
+    # every gap >= 0 → at-or-ahead everywhere → no weakness → lever None (not a misleading card)
+    monkeypatch.setattr("src.yahoo_data_service.get_yahoo_data_service", lambda: None)
+    monkeypatch.setattr(
+        "src.optimizer.shared_data_layer.build_optimizer_context",
+        lambda **k: _FakeCtx({"hr": 1.5, "sb": 0.2, "r": 3.0}, pd.DataFrame(), pd.DataFrame(), []),
+    )
+    monkeypatch.setattr("src.in_season.rank_free_agents", lambda *a, **k: pd.DataFrame())
+    assert _real_service()._lever("Team Hickey", cfg=None) is None
+
+
+def test_lever_none_on_no_gaps_and_cold_env(monkeypatch):
+    monkeypatch.setattr("src.yahoo_data_service.get_yahoo_data_service", lambda: None)
+    # no gaps → None
+    monkeypatch.setattr(
+        "src.optimizer.shared_data_layer.build_optimizer_context",
+        lambda **k: _FakeCtx({}, pd.DataFrame(), pd.DataFrame(), []),
+    )
+    monkeypatch.setattr("src.in_season.rank_free_agents", lambda *a, **k: pd.DataFrame())
+    assert _real_service()._lever("Team Hickey", cfg=None) is None
+
+    # build_optimizer_context raising → None (never propagates)
+    def boom(**k):
+        raise RuntimeError("no context")
+
+    monkeypatch.setattr("src.optimizer.shared_data_layer.build_optimizer_context", boom)
+    assert _real_service()._lever("Team Hickey", cfg=None) is None
+
+
+def test_cat_stat_formats_rate_vs_counting():
+    from api.services.team_service import _cat_stat
+
+    assert _cat_stat({"ytd_sb": 24}, "SB") == StatItem(label="SB", value="24")
+    assert _cat_stat({"ytd_era": 3.27}, "ERA") == StatItem(label="ERA", value="3.27")
+    assert _cat_stat({"ytd_avg": 0.314}, "AVG") == StatItem(label="AVG", value=".314")
+    assert _cat_stat(None, "SB") == StatItem(label="SB", value="0")  # missing pool row → '0'

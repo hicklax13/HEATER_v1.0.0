@@ -809,6 +809,52 @@
         "title": "LeagueMatchup",
         "type": "object"
       },
+      "Lever": {
+        "description": "The single biggest category weakness + suggested pickups to fix it.",
+        "properties": {
+          "behind_by": {
+            "default": 0.0,
+            "title": "Behind By",
+            "type": "number"
+          },
+          "category_key": {
+            "default": "",
+            "title": "Category Key",
+            "type": "string"
+          },
+          "headline": {
+            "default": "",
+            "title": "Headline",
+            "type": "string"
+          },
+          "pickups": {
+            "items": {
+              "$ref": "#/components/schemas/LeverPickup"
+            },
+            "title": "Pickups",
+            "type": "array"
+          }
+        },
+        "title": "Lever",
+        "type": "object"
+      },
+      "LeverPickup": {
+        "description": "A free-agent suggested to address the lever (weakest) category.",
+        "properties": {
+          "player": {
+            "$ref": "#/components/schemas/PlayerRef"
+          },
+          "proj_stat": {
+            "$ref": "#/components/schemas/StatItem"
+          }
+        },
+        "required": [
+          "player",
+          "proj_stat"
+        ],
+        "title": "LeverPickup",
+        "type": "object"
+      },
       "LineupAssignment": {
         "properties": {
           "player_id": {
@@ -1202,7 +1248,7 @@
           },
           "stats": {
             "items": {
-              "type": "string"
+              "$ref": "#/components/schemas/StatItem"
             },
             "title": "Stats",
             "type": "array"
@@ -1294,6 +1340,16 @@
               }
             ],
             "title": "Freshness Minutes"
+          },
+          "lever": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Lever"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "matchup": {
             "anyOf": [
@@ -1785,6 +1841,7 @@
         "type": "object"
       },
       "StatItem": {
+        "description": "A single labeled stat for display, e.g. {label: \"HR\", value: \"18\"}.\n\nShared across pages (free agents, team movers/lever, \u2026). The frontend renders\nlabel + value; counting stats are integer strings, rate stats pre-formatted.",
         "properties": {
           "label": {
             "title": "Label",

@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
-from api.contracts.common import PlayerRef
+from api.contracts.common import PlayerRef, StatItem
 
 
 class MatchupHero(BaseModel):
@@ -30,7 +30,7 @@ class Mover(BaseModel):
     """A hot/cold player on the user's roster (trending vs projection)."""
 
     player: PlayerRef
-    stats: list[str] = Field(default_factory=list)  # up to 2 display stats, e.g. ["18 HR", ".322 AVG"]
+    stats: list[StatItem] = Field(default_factory=list)  # up to 2 stats, e.g. [{HR: 18}, {AVG: .322}]
     trend: str = "flat"  # "up" | "down"
     tag: str = ""  # "hot" | "cold"
     context: str = ""  # short note, e.g. "Trending hot vs projection"
@@ -43,6 +43,22 @@ class StatusChip(BaseModel):
     label: str  # "IL", "News"
     value: int  # count
     status: str = "info"  # "ok" | "warn" | "info"
+
+
+class LeverPickup(BaseModel):
+    """A free-agent suggested to address the lever (weakest) category."""
+
+    player: PlayerRef
+    proj_stat: StatItem  # the player's stat in the lever category, e.g. {SB: "24"}
+
+
+class Lever(BaseModel):
+    """The single biggest category weakness + suggested pickups to fix it."""
+
+    category_key: str = ""  # e.g. "SB"
+    headline: str = ""  # display string, e.g. "SB is your weakest category"
+    behind_by: float = 0.0  # gap magnitude behind the field
+    pickups: list[LeverPickup] = Field(default_factory=list)
 
 
 class MyTeamResponse(BaseModel):
@@ -59,3 +75,5 @@ class MyTeamResponse(BaseModel):
     status_chips: list[StatusChip] = Field(default_factory=list)
     movers: list[Mover] = Field(default_factory=list)
     movers_scope: str = "mine"
+    # ── Team-dashboard slice 2 ──
+    lever: Lever | None = None

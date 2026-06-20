@@ -5,7 +5,12 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 
-from api.contracts.common import PlayerRef
+from api.contracts.common import PlayerRef, StatItem
+
+# StatItem is now defined in api.contracts.common (shared with the Team page);
+# re-exported here so existing `from api.contracts.free_agents import StatItem`
+# imports + the OpenAPI schema name stay unchanged.
+__all__ = ["StatItem"]
 
 
 class FreeAgentRec(BaseModel):
@@ -20,11 +25,6 @@ class FreeAgentRec(BaseModel):
 class FreeAgentsResponse(BaseModel):
     team_name: str
     recommendations: list[FreeAgentRec]
-
-
-class StatItem(BaseModel):
-    label: str
-    value: str
 
 
 class FreeAgentPoolItem(BaseModel):
