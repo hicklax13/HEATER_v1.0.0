@@ -111,12 +111,16 @@ export function CategoryOutlook({
                   </td>
                   <td className="px-2 py-2.5">
                     <div className="flex justify-center">
-                      <Sparkline
-                        data={r.spark}
-                        color={r.edgeDir === "good" ? COLORS.ok : r.edgeDir === "bad" ? COLORS.ember : COLORS.steel}
-                        width={56}
-                        height={16}
-                      />
+                      {r.spark && r.spark.length > 0 ? (
+                        <Sparkline
+                          data={r.spark}
+                          color={r.edgeDir === "good" ? COLORS.ok : r.edgeDir === "bad" ? COLORS.ember : COLORS.steel}
+                          width={56}
+                          height={16}
+                        />
+                      ) : (
+                        <span className="text-[11px] text-ink-3">—</span>
+                      )}
                     </div>
                   </td>
                   <td className="px-2 py-2.5">

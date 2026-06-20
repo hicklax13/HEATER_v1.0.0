@@ -16,8 +16,8 @@ export interface Mover extends PlayerRef {
   context: string;
   trend: Trend;
   tag: string; // "on fire", "ice cold", etc.
-  spark: number[]; // 7-day micro trend
-  ownPct: number;
+  spark?: number[]; // 7-day micro trend — optional (not in the live contract)
+  ownPct?: number; // optional (not in the live contract)
   rosteredByYou: boolean;
 }
 
@@ -30,7 +30,7 @@ export interface CategoryRow {
   edgeDir: "good" | "bad" | "even";
   winPct: number; // 0..100
   higherBetter: boolean; // false for ERA/WHIP/L
-  spark: number[]; // 10-week trend of YOUR value
+  spark?: number[]; // 10-week trend of YOUR value — optional (not in the live contract)
   isLever?: boolean;
 }
 
@@ -43,13 +43,13 @@ export interface Matchup {
   youRecord: string;
   youLogo?: string;
   oppName: string;
-  oppRecord: string;
+  oppRecord?: string; // optional: not in the live contract
   oppLogo?: string;
   winPct: number;
   tiePct: number;
   lossPct: number;
-  projLine: string; // "proj 6-6"
-  deltaVsLastWeek: number; // +4
+  projLine?: string; // "proj 6-6" — optional (not in the live contract)
+  deltaVsLastWeek?: number; // +4 — optional (winprob history, deferred)
 }
 
 export interface OpsCard {
@@ -76,7 +76,7 @@ export interface MyTeamData {
   matchup: Matchup;
   movers: Mover[];
   moversScope: Scope;
-  lever: {
+  lever?: {
     categoryKey: string;
     headline: string;
     behindBy: number;

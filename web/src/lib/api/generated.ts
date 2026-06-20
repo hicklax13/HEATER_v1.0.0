@@ -765,6 +765,37 @@ export interface components {
             a?: components["schemas"]["TeamSide"];
             b?: components["schemas"]["TeamSide"];
         };
+        /**
+         * Lever
+         * @description The single biggest category weakness + suggested pickups to fix it.
+         */
+        Lever: {
+            /**
+             * Behind By
+             * @default 0
+             */
+            behind_by: number;
+            /**
+             * Category Key
+             * @default
+             */
+            category_key: string;
+            /**
+             * Headline
+             * @default
+             */
+            headline: string;
+            /** Pickups */
+            pickups?: components["schemas"]["LeverPickup"][];
+        };
+        /**
+         * LeverPickup
+         * @description A free-agent suggested to address the lever (weakest) category.
+         */
+        LeverPickup: {
+            player: components["schemas"]["PlayerRef"];
+            proj_stat: components["schemas"]["StatItem"];
+        };
         /** LineupAssignment */
         LineupAssignment: {
             /** Player Id */
@@ -946,7 +977,7 @@ export interface components {
              */
             rostered_by_you: boolean;
             /** Stats */
-            stats?: string[];
+            stats?: components["schemas"]["StatItem"][];
             /**
              * Tag
              * @default
@@ -980,6 +1011,7 @@ export interface components {
             eyebrow: string;
             /** Freshness Minutes */
             freshness_minutes?: number | null;
+            lever?: components["schemas"]["Lever"] | null;
             matchup: components["schemas"]["MatchupHero"] | null;
             /** Movers */
             movers?: components["schemas"]["Mover"][];
@@ -988,6 +1020,8 @@ export interface components {
              * @default mine
              */
             movers_scope: string;
+            /** Ops */
+            ops?: components["schemas"]["OpsCard"][];
             /**
              * Playoff Cut Rank
              * @default 4
@@ -1006,6 +1040,30 @@ export interface components {
             subline: string;
             /** Team Name */
             team_name: string;
+        };
+        /**
+         * OpsCard
+         * @description One operational dashboard card (IP pace, moves left, roster health).
+         */
+        OpsCard: {
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /**
+             * Status
+             * @default ok
+             */
+            status: string;
+            /** Total */
+            total: number;
+            /** Value */
+            value: number;
+            /**
+             * Verdict
+             * @default
+             */
+            verdict: string;
         };
         /** OverallLeaderRow */
         OverallLeaderRow: {
@@ -1258,7 +1316,13 @@ export interface components {
             /** Teams */
             teams: components["schemas"]["TeamStanding"][];
         };
-        /** StatItem */
+        /**
+         * StatItem
+         * @description A single labeled stat for display, e.g. {label: "HR", value: "18"}.
+         *
+         *     Shared across pages (free agents, team movers/lever, …). The frontend renders
+         *     label + value; counting stats are integer strings, rate stats pre-formatted.
+         */
         StatItem: {
             /** Label */
             label: string;

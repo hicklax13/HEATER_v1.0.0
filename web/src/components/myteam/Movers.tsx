@@ -105,13 +105,15 @@ function MoverCard({ m }: { m: Mover }) {
                 <TrendIcon className="size-3" aria-hidden />
                 {m.tag}
               </span>
-              <Sparkline data={m.spark} color={up ? COLORS.ok : COLORS.ember} width={48} height={16} />
+              {m.spark && m.spark.length > 0 && (
+                <Sparkline data={m.spark} color={up ? COLORS.ok : COLORS.ember} width={48} height={16} />
+              )}
             </div>
             <div className="mt-2 flex items-center justify-center gap-2 border-t border-line pt-2 text-[10.5px] text-ink-3">
               {m.rosteredByYou && (
                 <span className="rounded bg-heat/10 px-1.5 py-0.5 font-semibold text-heat">Yours</span>
               )}
-              <span className="tnum font-medium">{m.ownPct}% Rostered</span>
+              {m.ownPct !== undefined && <span className="tnum font-medium">{m.ownPct}% Rostered</span>}
             </div>
           </div>
         </Card>

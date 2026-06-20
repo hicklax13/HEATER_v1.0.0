@@ -7,6 +7,7 @@ import type {
   ApiPuntResponse,
   ApiMatchupResponse,
   ApiCompareResponse,
+  ApiMyTeamResponse,
 } from "@/lib/api/types";
 import type { StandingsData, TeamStanding } from "@/lib/standings-data";
 import { verdictFor, type PuntData, type PuntCat } from "@/lib/punt-data";
@@ -17,7 +18,7 @@ import type {
   RosterRow,
   GameState,
 } from "@/lib/matchup-data";
-import type { PlayerRef } from "@/lib/types";
+import type { PlayerRef, MyTeamData, Matchup, Mover, CategoryRow, OpsCard, Scope } from "@/lib/types";
 import type { LeaderRow } from "@/lib/research-data";
 import type { FreeAgent, PlayersData } from "@/lib/players-data";
 import type { CompareData } from "@/lib/compare-data";
@@ -317,5 +318,129 @@ export function apiCompareToData(api: ApiCompareResponse): CompareData {
       ...toPlayerRef(p.player),
       stats: p.stats ?? {},
     })),
+  };
+}
+
+/* ── My Team (flagship dashboard) ───────────────────────────────────────── */
+
+type ApiMover = NonNullable<ApiMyTeamResponse["movers"]>[number];
+type ApiCategoryLine = ApiMyTeamResponse["categories"][number];
+type ApiOpsCard = NonNullable<ApiMyTeamResponse["ops"]>[number];
+type ApiStatusChip = NonNullable<ApiMyTeamResponse["status_chips"]>[number];
+
+const OPS_KEY: Record<string, OpsCard["key"]> = {
+  ip_pace: "ip",
+  moves_left: "moves",
+  roster_health: "roster",
+};
+const OPS_STATUS: Record<string, OpsCard["status"]> = { ok: "ok", warn: "warn", danger: "bad" };
+const MOVER_TREND = new Set(["up", "down"]);
+const EDGE_EPS = 1e-9;
+
+/** Header status chip {label, value, status} → display label + tone + icon. */
+function toStatusChip(c: ApiStatusChip): { label: string; tone: "ok" | "warn" | "bad" | "info"; icon: string } {
+  const key = (c.label ?? "").toLowerCase();
+  if (key.includes("il")) return { label: `${c.value} On IL`, tone: c.value > 0 ? "bad" : "ok", icon: "activity" };
+  if (key.includes("news")) return { label: `${c.value} News`, tone: "info", icon: "bell" };
+  const tone = c.status === "warn" ? "warn" : c.status === "ok" ? "ok" : "info";
+  return { label: `${c.value} ${c.label}`.trim(), tone, icon: "check" };
+}
+
+function toTeamMatchup(api: ApiMyTeamResponse): Matchup {
+  const m = api.matchup;
+  return {
+    youName: api.team_name ?? "",
+    youRecord: api.record ?? "",
+    oppName: m?.opponent ?? "",
+    winPct: Math.round((m?.win_prob ?? 0) * 100),
+    tiePct: Math.round((m?.tie_prob ?? 0) * 100),
+    lossPct: Math.round((m?.loss_prob ?? 0) * 100),
+    // oppRecord / projLine / deltaVsLastWeek / logos omitted — not in the contract
+    // (projLine + delta are history; WinHero defaults the logos to placeholders).
+  };
+}
+
+function toMover(m: ApiMover): Mover {
+  const r = toPlayerRef(m.player);
+  const stats = m.stats ?? [];
+  return {
+    name: r.name,
+    pos: r.pos,
+    teamAbbr: r.teamAbbr,
+    teamId: r.teamId,
+    mlbId: r.mlbId,
+    stat1: stats[0] ?? { label: "", value: "" },
+    stat2: stats[1] ?? { label: "", value: "" },
+    context: m.context ?? "",
+    trend: (MOVER_TREND.has(m.trend) ? m.trend : "flat") as Mover["trend"],
+    tag: m.tag ?? "",
+    rosteredByYou: m.rostered_by_you ?? true,
+    // spark + ownPct omitted — not in the contract (MoverCard hides them).
+  };
+}
+
+/** API CategoryLine → frontend CategoryRow. The display edge + edgeDir are
+ *  computed from you/opp/inverse (polarity-resolved: positive = good for you), so
+ *  inverse cats (ERA/WHIP/L) read correctly regardless of the API `edge` sign. */
+function toCategoryRow(c: ApiCategoryLine, leverKey: string): CategoryRow {
+  const inverse = c.inverse ?? false;
+  const you = c.you ?? 0;
+  const opp = c.opp ?? 0;
+  const polarity = inverse ? opp - you : you - opp; // > 0 ⇒ you're ahead
+  const edgeDir = polarity > EDGE_EPS ? "good" : polarity < -EDGE_EPS ? "bad" : "even";
+  const sign = polarity < -EDGE_EPS ? "−" : "+";
+  return {
+    key: c.cat,
+    you: fmtCatVal(c.cat, you),
+    opp: fmtCatVal(c.cat, opp),
+    edge: `${sign}${fmtCatVal(c.cat, Math.abs(polarity))}`,
+    edgeDir,
+    winPct: Math.round((c.win_prob ?? 0) * 100),
+    higherBetter: !inverse,
+    isLever: !!leverKey && c.cat === leverKey,
+    // spark omitted — not in the contract (CategoryOutlook hides the 10-wk cell).
+  };
+}
+
+function toOpsCard(o: ApiOpsCard): OpsCard {
+  return {
+    key: OPS_KEY[o.key] ?? "roster",
+    label: o.label ?? "",
+    value: o.value ?? 0,
+    total: o.total ?? 0,
+    verdict: o.verdict ?? "",
+    status: OPS_STATUS[o.status] ?? "ok",
+  };
+}
+
+/** Map /api/me/team → frontend MyTeamData. The contract covers the substance
+ *  (header, matchup probs, movers, lever, categories, ops); the mock's flourishes
+ *  (category/mover sparklines, ownPct, projLine/delta) aren't in the contract →
+ *  omitted, and the components degrade. trajectory + win_prob_trend are deferred
+ *  (per-week snapshot table) → empty arrays so the page hides those charts. */
+export function apiMyTeamToData(api: ApiMyTeamResponse): MyTeamData {
+  const leverKey = api.lever?.category_key ?? "";
+  return {
+    eyebrow: api.eyebrow ?? "",
+    teamName: api.team_name ?? "",
+    subline: api.subline ?? "",
+    freshnessMinutes: api.freshness_minutes ?? 0,
+    statusChips: (api.status_chips ?? []).map(toStatusChip),
+    matchup: toTeamMatchup(api),
+    moversScope: (api.movers_scope as Scope) || "mine",
+    movers: (api.movers ?? []).map(toMover),
+    lever: api.lever
+      ? {
+          categoryKey: api.lever.category_key ?? "",
+          headline: api.lever.headline ?? "",
+          behindBy: api.lever.behind_by ?? 0,
+          pickups: (api.lever.pickups ?? []).map((p) => ({ ...toPlayerRef(p.player), projStat: p.proj_stat })),
+        }
+      : undefined,
+    categories: (api.categories ?? []).map((c) => toCategoryRow(c, leverKey)),
+    ops: (api.ops ?? []).map(toOpsCard),
+    trajectory: [], // deferred (per-week history) → page hides the chart
+    winProbTrend: [], // deferred (per-week history) → page hides the chart
+    playoffCutRank: api.playoff_cut_rank ?? 4,
   };
 }

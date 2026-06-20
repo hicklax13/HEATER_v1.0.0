@@ -1,8 +1,17 @@
 import type { MyTeamData } from "./types";
+import { apiGet } from "@/lib/api/client";
+import { apiMyTeamToData } from "@/lib/api/adapters";
+import type { ApiMyTeamResponse } from "@/lib/api/types";
 
 /**
- * Mock My Team data — real Team Hickey numbers + real MLB ids for headshots.
- * Swap this module for the API client in Sub-project B; the shape is the contract.
+ * My Team data — the flagship dashboard. Mock by default; live behind
+ * NEXT_PUBLIC_HEATER_LIVE via /api/me/team → apiMyTeamToData, with mock fallback.
+ *
+ * Live caveats (the adapter handles them): the contract has no category/mover
+ * sparklines, ownPct, projLine/delta, or rank/win-prob HISTORY — so those degrade
+ * (components hide them) and the Season Trajectory + Win-Prob Trend charts stay
+ * hidden until the CEO's per-week snapshot slice lands. movers/lever/ops are
+ * roster-dependent → thin/empty locally, full on Railway.
  */
 export const MY_TEAM: MyTeamData = {
   eyebrow: "Season · Week 12 · Team",
@@ -86,7 +95,20 @@ export const MY_TEAM: MyTeamData = {
   playoffCutRank: 4,
 };
 
-/** Simulated async fetch so the UI can exercise loading → loaded. */
-export function fetchMyTeam(delayMs = 700): Promise<MyTeamData> {
+// Single-league viewer until M4 auth resolves the team from the session — the
+// endpoint slices movers/lever/ops by team_name (like /api/matchup).
+const VIEWER_TEAM = "Team Hickey";
+
+/** Live: GET /api/me/team?team_name=… → adapt. Falls back to the mock on a throw
+ *  or an unresolved team. Mock: the in-memory MY_TEAM after a simulated delay. */
+export async function fetchMyTeam(delayMs = 700): Promise<MyTeamData> {
+  if (process.env.NEXT_PUBLIC_HEATER_LIVE === "1") {
+    try {
+      const api = await apiGet<ApiMyTeamResponse>("/me/team", { team_name: VIEWER_TEAM });
+      if (api.team_name) return apiMyTeamToData(api);
+    } catch {
+      // fall through to mock
+    }
+  }
   return new Promise((resolve) => setTimeout(() => resolve(MY_TEAM), delayMs));
 }

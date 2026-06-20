@@ -103,27 +103,36 @@ function Loaded({
         <Movers movers={data.movers} scope={data.moversScope} />
       </motion.div>
 
-      <motion.div variants={item}>
-        <LeverCard
-          headline={data.lever.headline}
-          behindBy={data.lever.behindBy}
-          pickups={data.lever.pickups}
-          onHoverChange={setLeverHover}
-        />
-      </motion.div>
+      {/* Lever is null when you're winning every category (API) → hide the card. */}
+      {data.lever && (
+        <motion.div variants={item}>
+          <LeverCard
+            headline={data.lever.headline}
+            behindBy={data.lever.behindBy}
+            pickups={data.lever.pickups}
+            onHoverChange={setLeverHover}
+          />
+        </motion.div>
+      )}
 
       <motion.div variants={item} className="grid gap-6 lg:grid-cols-[1fr_320px] lg:items-start">
         <CategoryOutlook rows={data.categories} pulseLever={leverHover} />
         <OpsCards cards={data.ops} />
       </motion.div>
 
-      <motion.div variants={item}>
-        <WinProbTrend data={data.winProbTrend} />
-      </motion.div>
+      {/* Win-Prob Trend + Season Trajectory are per-week HISTORY (deferred — need a
+          snapshot table). Empty in live mode → hidden; they reappear when backed. */}
+      {data.winProbTrend.length > 0 && (
+        <motion.div variants={item}>
+          <WinProbTrend data={data.winProbTrend} />
+        </motion.div>
+      )}
 
-      <motion.div variants={item}>
-        <SeasonTrajectory points={data.trajectory} playoffCut={data.playoffCutRank} />
-      </motion.div>
+      {data.trajectory.length > 0 && (
+        <motion.div variants={item}>
+          <SeasonTrajectory points={data.trajectory} playoffCut={data.playoffCutRank} />
+        </motion.div>
+      )}
     </motion.div>
   );
 }
