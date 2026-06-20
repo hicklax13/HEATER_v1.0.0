@@ -61,6 +61,17 @@ class Lever(BaseModel):
     pickups: list[LeverPickup] = Field(default_factory=list)
 
 
+class OpsCard(BaseModel):
+    """One operational dashboard card (IP pace, moves left, roster health)."""
+
+    key: str  # "ip_pace" | "moves_left" | "roster_health"
+    label: str
+    value: float  # current value (projected IP / adds remaining / healthy count)
+    total: float  # target/ceiling (IP target / 10 / roster size)
+    verdict: str = ""  # human-readable status line
+    status: str = "ok"  # "ok" | "warn" | "danger"
+
+
 class MyTeamResponse(BaseModel):
     team_name: str
     record: str
@@ -77,3 +88,5 @@ class MyTeamResponse(BaseModel):
     movers_scope: str = "mine"
     # ── Team-dashboard slice 2 ──
     lever: Lever | None = None
+    # ── Team-dashboard slice 3 ──
+    ops: list[OpsCard] = Field(default_factory=list)

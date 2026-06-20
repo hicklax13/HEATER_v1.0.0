@@ -11,6 +11,7 @@ from api.contracts.my_team import (
     MatchupHero,
     Mover,
     MyTeamResponse,
+    OpsCard,
     StatusChip,
 )
 from api.deps import get_team_service
@@ -51,6 +52,10 @@ class _FakeTeamService:
                     )
                 ],
             ),
+            ops=[
+                OpsCard(key="ip_pace", label="IP Pace", value=42.0, total=53.9, verdict="42 IP", status="warn"),
+                OpsCard(key="moves_left", label="Moves Left", value=7.0, total=10.0, verdict="7 of 10", status="ok"),
+            ],
         )
 
 
@@ -78,6 +83,9 @@ def test_get_me_team_returns_contract():
     assert body["lever"]["category_key"] == "SB"
     assert body["lever"]["pickups"][0]["player"]["mlb_id"] == 668800
     assert body["lever"]["pickups"][0]["proj_stat"] == {"label": "SB", "value": "24"}
+    # slice-3 ops cards
+    assert [c["key"] for c in body["ops"]] == ["ip_pace", "moves_left"]
+    assert body["ops"][1]["value"] == 7.0 and body["ops"][1]["total"] == 10.0
 
 
 def test_my_team_contract_shape():
@@ -281,11 +289,13 @@ def test_subline_ordinal_and_games_back():
 
 
 class _FakeCtx:
-    def __init__(self, gaps, free_agents, pool, roster_ids):
+    def __init__(self, gaps, free_agents, pool, roster_ids, roster=None, adds_remaining_this_week=10):
         self.category_gaps = gaps
         self.free_agents = free_agents
         self.player_pool = pool
         self.user_roster_ids = roster_ids
+        self.roster = roster if roster is not None else pd.DataFrame()
+        self.adds_remaining_this_week = adds_remaining_this_week
 
 
 def test_lever_picks_weakest_cat_and_filters_pickups(monkeypatch):
@@ -305,13 +315,9 @@ def test_lever_picks_weakest_cat_and_filters_pickups(monkeypatch):
             {"player_id": 3, "player_name": "Slugger", "positions": "1B", "best_category": "HR", "marginal_value": 1.1},
         ]
     )
-    monkeypatch.setattr(
-        "src.optimizer.shared_data_layer.build_optimizer_context",
-        lambda **k: _FakeCtx(gaps, fas, pool, [1]),
-    )
     monkeypatch.setattr("src.in_season.rank_free_agents", lambda *a, **k: ranked)
 
-    lever = _real_service()._lever("Team Hickey", cfg=None)
+    lever = _real_service()._lever(_FakeCtx(gaps, fas, pool, [1]), cfg=None)
     assert lever is not None
     assert lever.category_key == "SB"
     assert lever.behind_by == 4.0
@@ -321,33 +327,26 @@ def test_lever_picks_weakest_cat_and_filters_pickups(monkeypatch):
     assert lever.pickups[0].proj_stat.label == "SB" and lever.pickups[0].proj_stat.value == "24"
 
 
-def test_lever_none_when_winning_all_cats(monkeypatch):
+def test_lever_none_when_winning_all_cats():
     # every gap >= 0 → at-or-ahead everywhere → no weakness → lever None (not a misleading card)
-    monkeypatch.setattr("src.yahoo_data_service.get_yahoo_data_service", lambda: None)
-    monkeypatch.setattr(
-        "src.optimizer.shared_data_layer.build_optimizer_context",
-        lambda **k: _FakeCtx({"hr": 1.5, "sb": 0.2, "r": 3.0}, pd.DataFrame(), pd.DataFrame(), []),
-    )
-    monkeypatch.setattr("src.in_season.rank_free_agents", lambda *a, **k: pd.DataFrame())
-    assert _real_service()._lever("Team Hickey", cfg=None) is None
+    ctx = _FakeCtx({"hr": 1.5, "sb": 0.2, "r": 3.0}, pd.DataFrame(), pd.DataFrame(), [])
+    assert _real_service()._lever(ctx, cfg=None) is None
 
 
-def test_lever_none_on_no_gaps_and_cold_env(monkeypatch):
-    monkeypatch.setattr("src.yahoo_data_service.get_yahoo_data_service", lambda: None)
+def test_lever_none_on_no_gaps_and_cold_env():
     # no gaps → None
-    monkeypatch.setattr(
-        "src.optimizer.shared_data_layer.build_optimizer_context",
-        lambda **k: _FakeCtx({}, pd.DataFrame(), pd.DataFrame(), []),
-    )
-    monkeypatch.setattr("src.in_season.rank_free_agents", lambda *a, **k: pd.DataFrame())
-    assert _real_service()._lever("Team Hickey", cfg=None) is None
+    assert _real_service()._lever(_FakeCtx({}, pd.DataFrame(), pd.DataFrame(), []), cfg=None) is None
+    # cold env (ctx is None, e.g. build_optimizer_context failed) → None
+    assert _real_service()._lever(None, cfg=None) is None
 
-    # build_optimizer_context raising → None (never propagates)
+
+def test_build_ctx_none_on_failure(monkeypatch):
     def boom(**k):
         raise RuntimeError("no context")
 
+    monkeypatch.setattr("src.yahoo_data_service.get_yahoo_data_service", lambda: None)
     monkeypatch.setattr("src.optimizer.shared_data_layer.build_optimizer_context", boom)
-    assert _real_service()._lever("Team Hickey", cfg=None) is None
+    assert _real_service()._build_ctx("Team Hickey", cfg=None) is None
 
 
 def test_cat_stat_formats_rate_vs_counting():
@@ -357,3 +356,75 @@ def test_cat_stat_formats_rate_vs_counting():
     assert _cat_stat({"ytd_era": 3.27}, "ERA") == StatItem(label="ERA", value="3.27")
     assert _cat_stat({"ytd_avg": 0.314}, "AVG") == StatItem(label="AVG", value=".314")
     assert _cat_stat(None, "SB") == StatItem(label="SB", value="0")  # missing pool row → '0'
+
+
+# ── slice-3 ops cards (DB-free) ──────────────────────────────────────────────
+
+
+def test_ops_returns_three_cards(monkeypatch):
+    # roster has 2 pitchers (1 IL) + 1 hitter; pool gives projected IP.
+    roster = pd.DataFrame(
+        {
+            "player_id": [10, 11, 12],
+            "status": ["active", "IL10", "active"],
+        }
+    )
+    pool = pd.DataFrame(
+        [
+            {"player_id": 10, "name": "Ace", "positions": "SP", "is_hitter": 0, "ip": 180, "gs": 30},
+            {"player_id": 11, "name": "Hurt", "positions": "SP", "is_hitter": 0, "ip": 150, "gs": 28},
+            {"player_id": 12, "name": "Bat", "positions": "OF", "is_hitter": 1, "ip": 0, "gs": 0},
+        ]
+    )
+    ctx = _FakeCtx({}, pd.DataFrame(), pool, [10, 11, 12], roster=roster, adds_remaining_this_week=7)
+    cards = {c.key: c for c in _real_service()._ops(ctx)}
+    assert set(cards) == {"ip_pace", "moves_left", "roster_health"}
+    # moves-left = ctx.adds_remaining_this_week / 10
+    assert cards["moves_left"].value == 7.0 and cards["moves_left"].total == 10.0 and cards["moves_left"].status == "ok"
+    # roster-health: 1 of 3 on IL → 2 healthy, warn
+    assert cards["roster_health"].value == 2.0 and cards["roster_health"].total == 3.0
+    assert cards["roster_health"].status == "warn" and cards["roster_health"].verdict == "1 on IL"
+    # ip-pace built from the 2 SPs (IL one excluded by the engine); assert shape, not a
+    # fragile numeric bound (the IP target is an engine constant, not the service's to assert).
+    ip = cards["ip_pace"]
+    assert ip.key == "ip_pace" and ip.status in ("ok", "warn", "danger")
+    assert ip.value >= 0.0 and ip.total > 0.0 and ip.value <= ip.total * 3  # sane, finite
+
+
+def test_ops_empty_ctx_returns_empty():
+    assert _real_service()._ops(None) == []
+
+
+def test_ops_isolates_a_failing_card(monkeypatch):
+    # one card builder raising must not drop the other two (per-card try/except).
+    from api.services.team_service import TeamService
+
+    svc = _real_service()
+    ctx = _FakeCtx(
+        {}, pd.DataFrame(), pd.DataFrame(), [], roster=pd.DataFrame({"player_id": [1], "status": ["active"]})
+    )
+    monkeypatch.setattr(
+        TeamService, "_ip_pace_card", staticmethod(lambda c: (_ for _ in ()).throw(RuntimeError("boom")))
+    )
+    keys = {c.key for c in svc._ops(ctx)}
+    assert keys == {"moves_left", "roster_health"}  # ip_pace raised → skipped, others survive
+
+
+def test_moves_left_status_thresholds():
+    svc = _real_service()
+    base = _FakeCtx({}, pd.DataFrame(), pd.DataFrame(), [])
+    base.adds_remaining_this_week = 5
+    assert svc._moves_left_card(base).status == "ok"
+    base.adds_remaining_this_week = 1
+    assert svc._moves_left_card(base).status == "warn"
+    base.adds_remaining_this_week = 0
+    assert svc._moves_left_card(base).status == "danger"
+    base.adds_remaining_this_week = None  # unknown budget → 0 → danger (no crash)
+    assert svc._moves_left_card(base).status == "danger"
+
+
+def test_roster_health_all_active():
+    roster = pd.DataFrame({"player_id": [1, 2], "status": ["active", "active"]})
+    ctx = _FakeCtx({}, pd.DataFrame(), pd.DataFrame(), [], roster=roster)
+    card = _real_service()._roster_health_card(ctx)
+    assert card.value == 2.0 and card.status == "ok" and card.verdict == "All active"

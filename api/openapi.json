@@ -1373,6 +1373,13 @@
             "title": "Movers Scope",
             "type": "string"
           },
+          "ops": {
+            "items": {
+              "$ref": "#/components/schemas/OpsCard"
+            },
+            "title": "Ops",
+            "type": "array"
+          },
           "playoff_cut_rank": {
             "default": 4,
             "title": "Playoff Cut Rank",
@@ -1411,6 +1418,45 @@
           "categories"
         ],
         "title": "MyTeamResponse",
+        "type": "object"
+      },
+      "OpsCard": {
+        "description": "One operational dashboard card (IP pace, moves left, roster health).",
+        "properties": {
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "status": {
+            "default": "ok",
+            "title": "Status",
+            "type": "string"
+          },
+          "total": {
+            "title": "Total",
+            "type": "number"
+          },
+          "value": {
+            "title": "Value",
+            "type": "number"
+          },
+          "verdict": {
+            "default": "",
+            "title": "Verdict",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "value",
+          "total"
+        ],
+        "title": "OpsCard",
         "type": "object"
       },
       "OverallLeaderRow": {
