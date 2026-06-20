@@ -754,6 +754,17 @@ export interface components {
             /** Rows */
             rows: components["schemas"]["LeaderRow"][];
         };
+        /**
+         * LeagueMatchup
+         * @description One of the week's head-to-head matchups, for the league scoreboard.
+         *
+         *     `a`/`b` reuse TeamSide (name/manager/record/score) — the frontend's LeagueTeam
+         *     shape is identical. `score` is each team's this-week category-win count.
+         */
+        LeagueMatchup: {
+            a?: components["schemas"]["TeamSide"];
+            b?: components["schemas"]["TeamSide"];
+        };
         /** LineupAssignment */
         LineupAssignment: {
             /** Player Id */
@@ -886,6 +897,8 @@ export interface components {
             hitter_totals?: components["schemas"]["SideTotals"];
             /** Hitters */
             hitters?: components["schemas"]["RosterRow"][];
+            /** League */
+            league?: components["schemas"]["LeagueMatchup"][];
             opp?: components["schemas"]["TeamSide"];
             /**
              * Opponent
@@ -916,6 +929,35 @@ export interface components {
             win_prob: number;
             you?: components["schemas"]["TeamSide"];
         };
+        /**
+         * Mover
+         * @description A hot/cold player on the user's roster (trending vs projection).
+         */
+        Mover: {
+            /**
+             * Context
+             * @default
+             */
+            context: string;
+            player: components["schemas"]["PlayerRef"];
+            /**
+             * Rostered By You
+             * @default true
+             */
+            rostered_by_you: boolean;
+            /** Stats */
+            stats?: string[];
+            /**
+             * Tag
+             * @default
+             */
+            tag: string;
+            /**
+             * Trend
+             * @default flat
+             */
+            trend: string;
+        };
         /** MutationResult */
         MutationResult: {
             /** Applied */
@@ -931,11 +973,37 @@ export interface components {
         MyTeamResponse: {
             /** Categories */
             categories: components["schemas"]["CategoryLine"][];
+            /**
+             * Eyebrow
+             * @default
+             */
+            eyebrow: string;
+            /** Freshness Minutes */
+            freshness_minutes?: number | null;
             matchup: components["schemas"]["MatchupHero"] | null;
+            /** Movers */
+            movers?: components["schemas"]["Mover"][];
+            /**
+             * Movers Scope
+             * @default mine
+             */
+            movers_scope: string;
+            /**
+             * Playoff Cut Rank
+             * @default 4
+             */
+            playoff_cut_rank: number;
             /** Rank */
             rank: number;
             /** Record */
             record: string;
+            /** Status Chips */
+            status_chips?: components["schemas"]["StatusChip"][];
+            /**
+             * Subline
+             * @default
+             */
+            subline: string;
             /** Team Name */
             team_name: string;
         };
@@ -1196,6 +1264,21 @@ export interface components {
             label: string;
             /** Value */
             value: string;
+        };
+        /**
+         * StatusChip
+         * @description A small dashboard status badge (IL count, news count, …).
+         */
+        StatusChip: {
+            /** Label */
+            label: string;
+            /**
+             * Status
+             * @default info
+             */
+            status: string;
+            /** Value */
+            value: number;
         };
         /** StreamAnalyzeRequest */
         StreamAnalyzeRequest: {

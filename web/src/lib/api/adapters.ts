@@ -252,10 +252,33 @@ function toTotals(t: ApiSideTotals | undefined): { you: string[]; opp: string[] 
   return { you: t?.you ?? [], opp: t?.opp ?? [] };
 }
 
-/** Map /api/matchup → frontend MatchupData. The league scoreboard (other 6
- *  matchups) isn't in the contract yet (Matchup-C) → `league: []`; the page hides
- *  that section in live mode, so it reappears automatically when the slice lands. */
+/** Normalize a team name for matching: strip emoji/punctuation (Yahoo names can be
+ *  prefixed, e.g. "🔥 Team Hickey") and lowercase. The header's you.name is the
+ *  clean passed team_name, but league[] carries the raw Yahoo display name — so an
+ *  exact compare would miss the viewer's own pairing. */
+function normTeamName(s: string): string {
+  return s.replace(/[^a-z0-9]+/gi, " ").trim().toLowerCase();
+}
+
+/** 1 if the viewer's team is on either side of a league pairing, else 0 — used to
+ *  sort the viewer's own pairing to the front (the LeagueMatchups component
+ *  trophies/highlights entry 0, matching the mock). */
+function leagueHasYou(m: { a: { name: string }; b: { name: string } }, you: string): number {
+  const yn = normTeamName(you);
+  return yn !== "" && (normTeamName(m.a.name) === yn || normTeamName(m.b.name) === yn) ? 1 : 0;
+}
+
+/** Map /api/matchup → frontend MatchupData. `league` is the full week scoreboard
+ *  (all 6 pairings, INCLUDING the viewer's own); each side reuses TeamSide, which
+ *  is structurally identical to the frontend's LeagueTeam. The viewer's pairing is
+ *  sorted first to match the mock + the component's entry-0 trophy. Per-team weekly
+ *  `score` is 0 locally and populates on Railway (same env-caveat as the rosters);
+ *  pairings + records render live regardless. */
 export function apiMatchupToData(api: ApiMatchupResponse): MatchupData {
+  const youName = (api.you?.name ?? "").trim();
+  const league = (api.league ?? [])
+    .map((m) => ({ a: toTeamSide(m.a), b: toTeamSide(m.b) }))
+    .sort((m1, m2) => leagueHasYou(m2, youName) - leagueHasYou(m1, youName));
   return {
     week: api.week ?? 0,
     dateTabs: api.date_tabs ?? [],
@@ -273,6 +296,6 @@ export function apiMatchupToData(api: ApiMatchupResponse): MatchupData {
     pitchers: (api.pitchers ?? []).map(toRosterRow),
     hitterTotals: toTotals(api.hitter_totals),
     pitcherTotals: toTotals(api.pitcher_totals),
-    league: [],
+    league,
   };
 }
