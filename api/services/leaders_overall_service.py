@@ -34,15 +34,20 @@ def _sf(value, default: float = 0.0) -> float:
     return default if (math.isnan(fval) or math.isinf(fval)) else fval
 
 
-def _norm_z(z) -> float:
-    """z-score composite (~−4..+4) → 0-100. NaN/inf → 0.0."""
+def _norm_value(z) -> float:
+    """Overall category_value → 0-100. NaN/inf → 0.0.
+
+    NOTE: `category_value` is a SUM of up to 6 per-category z-scores (one per
+    scoring cat), so it ranges to ~±10 — NOT a single z (~±4). Mapping [-10,10]
+    keeps the top of the board differentiated instead of saturating at 100.
+    """
     try:
         fval = float(z)
     except (TypeError, ValueError):
         return 0.0
     if math.isnan(fval) or math.isinf(fval):
         return 0.0
-    return round(max(0.0, min(100.0, (fval + 4.0) / 8.0 * 100.0)), 1)
+    return round(max(0.0, min(100.0, (fval + 10.0) / 20.0 * 100.0)), 1)
 
 
 def _norm_delta(d) -> float:
@@ -153,7 +158,7 @@ class LeadersOverallService:
             if vdf is None or vdf.empty:
                 return pd.DataFrame(), pool
             vdf = vdf.reset_index(drop=True)
-            vdf["_value"] = [_norm_z(v) for v in vdf["category_value"]]
+            vdf["_value"] = [_norm_value(v) for v in vdf["category_value"]]
             return vdf, pool
 
         if lens in ("hot", "cold"):

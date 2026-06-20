@@ -7,18 +7,22 @@ import pandas as pd
 from api.services.leaders_overall_service import (
     _LENS_META,
     _norm_delta,
-    _norm_z,
+    _norm_value,
     _overall_stats,
     _to_overall_row,
 )
 
 
-def test_norm_z_maps_and_clamps():
-    assert _norm_z(0.0) == 50.0  # (0+4)/8*100
-    assert _norm_z(4.0) == 100.0
-    assert _norm_z(-4.0) == 0.0
-    assert _norm_z(99.0) == 100.0  # clamp
-    assert _norm_z(float("nan")) == 0.0  # NaN-safe
+def test_norm_value_maps_and_clamps():
+    # category_value is a SUM of up to 6 z-scores (~±10), not a single z.
+    assert _norm_value(0.0) == 50.0  # (0+10)/20*100
+    assert _norm_value(10.0) == 100.0
+    assert _norm_value(-10.0) == 0.0
+    assert _norm_value(99.0) == 100.0  # clamp
+    assert _norm_value(float("nan")) == 0.0  # NaN-safe
+    # regression guard: a realistic top sum-of-z (~6.5) must NOT saturate to 100
+    assert _norm_value(6.5) == 82.5
+    assert _norm_value(4.0) < 100.0  # was wrongly 100 under the single-z window
 
 
 def test_norm_delta_maps_and_clamps():
