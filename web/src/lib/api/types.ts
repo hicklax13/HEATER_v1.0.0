@@ -16,3 +16,4 @@ export type ApiFreeAgentPoolResponse = components["schemas"]["FreeAgentPoolRespo
 export type ApiFreeAgentPoolItem = components["schemas"]["FreeAgentPoolItem"];
 export type ApiStreamingResponse = components["schemas"]["StreamingResponse"];
 export type ApiStreamAnalyzeResponse = components["schemas"]["StreamAnalyzeResponse"];
+export type ApiStandingsResponse = components["schemas"]["StandingsResponse"];

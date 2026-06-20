@@ -3,7 +3,9 @@ import type {
   ApiFreeAgentPoolResponse,
   ApiStreamingResponse,
   ApiStreamAnalyzeResponse,
+  ApiStandingsResponse,
 } from "@/lib/api/types";
+import type { StandingsData, TeamStanding } from "@/lib/standings-data";
 import type { PlayerRef } from "@/lib/types";
 import type { LeaderRow, ResearchData } from "@/lib/research-data";
 import type { FreeAgent, PlayersData } from "@/lib/players-data";
@@ -173,4 +175,22 @@ export function apiScorecard(api: ApiStreamAnalyzeResponse): PitcherScorecard | 
       detail: f.detail,
     })),
   };
+}
+
+/** Map /api/standings → frontend StandingsData. Playoff/championship odds aren't
+ *  in the API yet → 0 (the page hides the odds view when all-zero). */
+export function apiStandingsToData(api: ApiStandingsResponse): StandingsData {
+  const teams: TeamStanding[] = (api.teams ?? []).map((t) => ({
+    rank: t.rank ?? 0,
+    teamName: t.team_name ?? "",
+    wins: t.wins ?? 0,
+    losses: t.losses ?? 0,
+    ties: t.ties ?? 0,
+    points: t.points ?? 0,
+    categoryRanks: t.category_ranks ?? {},
+    playoffOdds: 0, // gap: no playoff sim in /api/standings yet
+    champOdds: 0,
+    isUser: (t.team_name ?? "") === "Team Hickey", // single-league until M4
+  }));
+  return { teams, playoffSpots: 4 };
 }

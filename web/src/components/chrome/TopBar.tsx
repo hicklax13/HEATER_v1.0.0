@@ -26,6 +26,7 @@ const NAV = [
   { label: "Optimizer", href: "/optimizer" },
   { label: "Streaming", href: "/streaming" },
   { label: "Matchup", href: "/matchup" },
+  { label: "Standings", href: "/standings" },
   { label: "Trades", href: "/trades" },
   { label: "Players", href: "/players" },
   { label: "Research", href: "/research" },
