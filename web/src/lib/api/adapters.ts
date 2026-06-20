@@ -8,6 +8,7 @@ import type {
   ApiMatchupResponse,
   ApiCompareResponse,
   ApiMyTeamResponse,
+  ApiPlayoffOddsResponse,
 } from "@/lib/api/types";
 import type { StandingsData, TeamStanding } from "@/lib/standings-data";
 import { verdictFor, type PuntData, type PuntCat } from "@/lib/punt-data";
@@ -442,5 +443,19 @@ export function apiMyTeamToData(api: ApiMyTeamResponse): MyTeamData {
     trajectory: [], // deferred (per-week history) → page hides the chart
     winProbTrend: [], // deferred (per-week history) → page hides the chart
     playoffCutRank: api.playoff_cut_rank ?? 4,
+  };
+}
+
+/** Join /api/playoff-odds league[] into standings rows by team name (emoji-
+ *  normalized) → populate playoffOdds. champOdds stays 0 (not in this endpoint —
+ *  the panel/table hide it); returns a new StandingsData. */
+export function applyPlayoffOdds(data: StandingsData, api: ApiPlayoffOddsResponse): StandingsData {
+  const byName = new Map((api.league ?? []).map((t) => [normTeamName(t.team), t.playoff_odds]));
+  return {
+    ...data,
+    teams: data.teams.map((t) => {
+      const odds = byName.get(normTeamName(t.teamName));
+      return odds === undefined ? t : { ...t, playoffOdds: Math.round(odds) };
+    }),
   };
 }

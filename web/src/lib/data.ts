@@ -1,7 +1,7 @@
 import type { MyTeamData } from "./types";
 import { apiGet } from "@/lib/api/client";
 import { apiMyTeamToData } from "@/lib/api/adapters";
-import type { ApiMyTeamResponse } from "@/lib/api/types";
+import type { ApiMyTeamResponse, ApiPlayoffOddsResponse } from "@/lib/api/types";
 
 /**
  * My Team data — the flagship dashboard. Mock by default; live behind
@@ -93,6 +93,7 @@ export const MY_TEAM: MyTeamData = {
   ],
   winProbTrend: [56, 54, 57, 52, 55, 53, 50, 52, 49, 51, 49, 46],
   playoffCutRank: 4,
+  playoffOdds: 12,
 };
 
 // Single-league viewer until M4 auth resolves the team from the session — the
@@ -111,4 +112,17 @@ export async function fetchMyTeam(delayMs = 700): Promise<MyTeamData> {
     }
   }
   return new Promise((resolve) => setTimeout(() => resolve(MY_TEAM), delayMs));
+}
+
+/** Your forward playoff odds (0–100) for the Team header chip. Self-fetched so it
+ *  doesn't block the dashboard on the ~2.4s sim. Returns undefined off-live or on
+ *  error (the chip then keeps its mock fallback). */
+export async function fetchYourPlayoffOdds(): Promise<number | undefined> {
+  if (process.env.NEXT_PUBLIC_HEATER_LIVE !== "1") return undefined;
+  try {
+    const odds = await apiGet<ApiPlayoffOddsResponse>("/playoff-odds", { team_name: VIEWER_TEAM });
+    return odds.you ? Math.round(odds.you.playoff_odds) : undefined;
+  } catch {
+    return undefined;
+  }
 }

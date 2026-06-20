@@ -18,7 +18,7 @@ export function PlayoffOddsPanel({ data }: { data: StandingsData }) {
         <Trophy className="size-4 text-heat" aria-hidden /> Playoff odds
       </div>
       <p className="mb-4 text-[12px] text-ink-3">
-        Monte-Carlo playoff + championship probability. Top {data.playoffSpots} make the playoffs.
+        Monte-Carlo playoff probability. Top {data.playoffSpots} make the playoffs.
       </p>
       {!anyOdds ? (
         <div className="text-[13px] text-ink-2">
@@ -47,9 +47,12 @@ export function PlayoffOddsPanel({ data }: { data: StandingsData }) {
               <span className="tnum w-10 shrink-0 text-right text-[12px] font-bold" style={{ color: heatColor(t.playoffOdds) }}>
                 {t.playoffOdds}%
               </span>
-              <span className="tnum w-20 shrink-0 text-right text-[11px] text-ink-3" title="Championship odds">
-                {t.champOdds}% champ
-              </span>
+              {/* champ% deferred — per-team championship odds aren't engine-derivable yet */}
+              {t.champOdds > 0 && (
+                <span className="tnum w-20 shrink-0 text-right text-[11px] text-ink-3" title="Championship odds">
+                  {t.champOdds}% champ
+                </span>
+              )}
             </div>
           ))}
         </div>

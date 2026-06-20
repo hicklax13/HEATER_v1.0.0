@@ -87,6 +87,7 @@ export interface MyTeamData {
   trajectory: TrajectoryPoint[];
   winProbTrend: number[];
   playoffCutRank: number;
+  playoffOdds?: number; // 0–100 forward playoff odds (live: /api/playoff-odds you.playoff_odds)
 }
 
 export type DataState<T> =

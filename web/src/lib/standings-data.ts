@@ -1,6 +1,6 @@
 import { apiGet } from "@/lib/api/client";
-import { apiStandingsToData } from "@/lib/api/adapters";
-import type { ApiStandingsResponse } from "@/lib/api/types";
+import { apiStandingsToData, applyPlayoffOdds } from "@/lib/api/adapters";
+import type { ApiStandingsResponse, ApiPlayoffOddsResponse } from "@/lib/api/types";
 
 /**
  * Standings data. The standings table wires to GET /api/standings (Yahoo-
@@ -77,8 +77,16 @@ export const STANDINGS: StandingsData = {
 export async function fetchStandings(delayMs = 600): Promise<StandingsData> {
   if (process.env.NEXT_PUBLIC_HEATER_LIVE === "1") {
     try {
-      const api = await apiGet<ApiStandingsResponse>("/standings");
-      if ((api.teams?.length ?? 0) > 0) return apiStandingsToData(api);
+      // Standings + playoff odds in parallel; the odds sim (~2.4s) is best-effort
+      // — a failure leaves the table + panel without odds (graceful empty-state).
+      const [stdg, odds] = await Promise.all([
+        apiGet<ApiStandingsResponse>("/standings"),
+        apiGet<ApiPlayoffOddsResponse>("/playoff-odds", { team_name: "Team Hickey" }).catch(() => null),
+      ]);
+      if ((stdg.teams?.length ?? 0) > 0) {
+        const data = apiStandingsToData(stdg);
+        return odds ? applyPlayoffOdds(data, odds) : data;
+      }
     } catch {
       // fall through to mock
     }

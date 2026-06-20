@@ -225,6 +225,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/playoff-odds": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Playoff Odds */
+        get: operations["get_playoff_odds_api_playoff_odds_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/punt": {
         parameters: {
             query?: never;
@@ -1224,6 +1241,64 @@ export interface components {
             /** Yahoo Player Key */
             yahoo_player_key?: string | null;
         };
+        /** PlayoffOddsResponse */
+        PlayoffOddsResponse: {
+            /** League */
+            league?: components["schemas"]["PlayoffTeam"][];
+            /**
+             * N Sims
+             * @default 0
+             */
+            n_sims: number;
+            /**
+             * Playoff Spots
+             * @default 4
+             */
+            playoff_spots: number;
+            /** Team Name */
+            team_name: string;
+            you?: components["schemas"]["PlayoffTeam"] | null;
+        };
+        /** PlayoffTeam */
+        PlayoffTeam: {
+            /**
+             * Current Wins
+             * @default 0
+             */
+            current_wins: number;
+            /**
+             * In Cut
+             * @default false
+             */
+            in_cut: boolean;
+            /**
+             * Is User
+             * @default false
+             */
+            is_user: boolean;
+            /**
+             * Playoff Odds
+             * @default 0
+             */
+            playoff_odds: number;
+            /**
+             * Projected Record
+             * @default
+             */
+            projected_record: string;
+            /**
+             * Projected Wins
+             * @default 0
+             */
+            projected_wins: number;
+            /**
+             * Rank
+             * @default 0
+             */
+            rank: number;
+            /** Team */
+            team: string;
+        };
         /** ProbableStarter */
         ProbableStarter: {
             /**
@@ -2103,6 +2178,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MyTeamResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_playoff_odds_api_playoff_odds_get: {
+        parameters: {
+            query: {
+                team_name: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlayoffOddsResponse"];
                 };
             };
             /** @description Validation Error */

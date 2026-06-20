@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { Activity, Check, Bell, Inbox, type LucideIcon } from "lucide-react";
-import { fetchMyTeam } from "@/lib/data";
+import { Activity, Check, Bell, Inbox, Trophy, type LucideIcon } from "lucide-react";
+import { fetchMyTeam, fetchYourPlayoffOdds } from "@/lib/data";
 import type { MyTeamData } from "@/lib/types";
 import { EASE_SNAP } from "@/lib/motion";
+import { heatColor } from "@/lib/tokens";
 import { usePageData } from "@/lib/use-page-data";
 import { PageError, PageEmpty } from "@/components/ui/PageStates";
 import { cn } from "@/lib/utils";
@@ -80,6 +81,7 @@ function Loaded({
           <div className="tnum mt-1 text-[13px] text-ink-2">{data.subline}</div>
         </div>
         <div className="flex flex-wrap gap-2">
+          <PlayoffOddsChip fallback={data.playoffOdds} />
           {data.statusChips.map((c) => {
             const Icon = CHIP_ICON[c.icon] ?? Activity;
             return (
@@ -134,6 +136,31 @@ function Loaded({
         </motion.div>
       )}
     </motion.div>
+  );
+}
+
+/** Forward playoff-odds chip — self-fetches so the ~2.4s sim doesn't block the
+ *  dashboard. Hidden until odds resolve (live) or a mock fallback is supplied. */
+function PlayoffOddsChip({ fallback }: { fallback?: number }) {
+  const [odds, setOdds] = useState<number | undefined>(fallback);
+  useEffect(() => {
+    let alive = true;
+    fetchYourPlayoffOdds().then((v) => {
+      if (alive && v !== undefined) setOdds(v);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+  if (odds === undefined) return null;
+  return (
+    <span className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-heat/30 bg-heat/[0.06] px-3 text-[12px] font-semibold text-navy shadow-[0_1px_2px_rgba(16,32,55,0.04)]">
+      <Trophy className="size-3.5 text-heat" aria-hidden />
+      <span className="tnum font-bold" style={{ color: heatColor(odds) }}>
+        {odds}%
+      </span>
+      Playoff Odds
+    </span>
   );
 }
 
