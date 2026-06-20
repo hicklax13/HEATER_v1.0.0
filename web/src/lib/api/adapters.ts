@@ -168,6 +168,10 @@ export function apiScorecard(api: ApiStreamAnalyzeResponse): PitcherScorecard | 
 /** Map /api/standings → frontend StandingsData. Playoff/championship odds aren't
  *  in the API yet → 0 (the page hides the odds view when all-zero). */
 export function apiStandingsToData(api: ApiStandingsResponse): StandingsData {
+  // Live team names carry Yahoo emoji prefixes ("🏆 Team Hickey"); normalize
+  // before the viewer compare or the "YOU" row never highlights (single-league
+  // until M4 auth). Mock uses the clean name, so this was invisible on mock.
+  const youNorm = normTeamName("Team Hickey");
   const teams: TeamStanding[] = (api.teams ?? []).map((t) => ({
     rank: t.rank ?? 0,
     teamName: t.team_name ?? "",
@@ -178,7 +182,7 @@ export function apiStandingsToData(api: ApiStandingsResponse): StandingsData {
     categoryRanks: t.category_ranks ?? {},
     playoffOdds: 0, // gap: no playoff sim in /api/standings yet
     champOdds: 0,
-    isUser: (t.team_name ?? "") === "Team Hickey", // single-league until M4
+    isUser: normTeamName(t.team_name ?? "") === youNorm, // single-league until M4
   }));
   return { teams, playoffSpots: 4 };
 }
