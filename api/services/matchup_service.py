@@ -6,7 +6,15 @@ from __future__ import annotations
 
 import math
 
-from api.contracts.matchup import MatchPlayer, MatchupCategory, MatchupResponse, RosterRow, SideTotals, TeamSide
+from api.contracts.matchup import (
+    LeagueMatchup,
+    MatchPlayer,
+    MatchupCategory,
+    MatchupResponse,
+    RosterRow,
+    SideTotals,
+    TeamSide,
+)
 from api.services.player_ref import player_ref_from_pool
 
 _HITTER_COLUMNS = ["H/AB", "R", "HR", "RBI", "SB", "AVG", "OBP"]
@@ -277,7 +285,61 @@ class MatchupService:
             opp=opp,
             hitter_totals=hitter_totals,
             pitcher_totals=pitcher_totals,
+            league=self._league(team_name, opponent, week, you_score, opp_score),
         )
+
+    def _league(self, team_name: str, opponent: str, week: int, you_score: int, opp_score: int) -> list[LeagueMatchup]:
+        """The week's full scoreboard (all matchups). Pairings + records always
+        derivable; per-team weekly scores are best-effort from each pairing's cached
+        matchup (the user's own pairing reuses the already-computed you/opp scores).
+        Never raises → [] on any failure / cold env."""
+        if not week:
+            return []
+        try:
+            from src.auth import _normalize_team_name
+            from src.database import load_league_schedule_full
+
+            pairings = load_league_schedule_full().get(int(week), [])
+            user = {_normalize_team_name(team_name), _normalize_team_name(opponent)}
+            out: list[LeagueMatchup] = []
+            for a, b in pairings:
+                if {_normalize_team_name(a), _normalize_team_name(b)} == user and "" not in user:
+                    # User's own pairing — reuse the header scores, aligned to a/b.
+                    a_score = you_score if _normalize_team_name(a) == _normalize_team_name(team_name) else opp_score
+                    b_score = opp_score if a_score == you_score else you_score
+                else:
+                    a_score, b_score = self._pairing_scores(a, b, week)
+                out.append(LeagueMatchup(a=self._team_side(a, a_score), b=self._team_side(b, b_score)))
+            return out
+        except Exception:
+            return []
+
+    def _pairing_scores(self, a: str, b: str, week: int) -> tuple[int, int]:
+        """Best-effort (a_wins, b_wins) for a non-user pairing from cached matchups.
+        Tries a's cache, then b's (swapped); (0, 0) when neither is cached."""
+        from_a = self._score_from_cache(a, week)
+        if from_a is not None:
+            return from_a
+        from_b = self._score_from_cache(b, week)
+        if from_b is not None:
+            return from_b[1], from_b[0]  # b's cache is (b_wins, a_wins) → swap to (a, b)
+        return 0, 0
+
+    def _score_from_cache(self, name: str, week: int) -> tuple[int, int] | None:
+        """(name_wins, opp_wins) from name's cached weekly matchup, or None if uncached."""
+        try:
+            from src.database import load_matchup_cache
+
+            cached = load_matchup_cache(name, int(week))
+            raw = (cached or {}).get("categories") if isinstance(cached, dict) else None
+            if not raw:
+                return None
+            cats = self._build_categories(raw, name)
+            wins = sum(1 for c in cats if _cat_win(c.you, c.opp, c.inverse) == "you")
+            opp_wins = sum(1 for c in cats if _cat_win(c.you, c.opp, c.inverse) == "opp")
+            return wins, opp_wins  # (name's wins, opponent's wins)
+        except Exception:
+            return None
 
     @staticmethod
     def _team_side(team_name: str, score: int) -> TeamSide:

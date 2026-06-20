@@ -43,6 +43,17 @@ class SideTotals(BaseModel):
     opp: list[str] = Field(default_factory=list)
 
 
+class LeagueMatchup(BaseModel):
+    """One of the week's head-to-head matchups, for the league scoreboard.
+
+    `a`/`b` reuse TeamSide (name/manager/record/score) — the frontend's LeagueTeam
+    shape is identical. `score` is each team's this-week category-win count.
+    """
+
+    a: TeamSide = Field(default_factory=TeamSide)
+    b: TeamSide = Field(default_factory=TeamSide)
+
+
 class MatchupResponse(BaseModel):
     team_name: str
     opponent: str = ""
@@ -59,3 +70,4 @@ class MatchupResponse(BaseModel):
     opp: TeamSide = Field(default_factory=TeamSide)
     hitter_totals: SideTotals = Field(default_factory=SideTotals)
     pitcher_totals: SideTotals = Field(default_factory=SideTotals)
+    league: list[LeagueMatchup] = Field(default_factory=list)

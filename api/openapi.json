@@ -796,6 +796,19 @@
         "title": "LeadersResponse",
         "type": "object"
       },
+      "LeagueMatchup": {
+        "description": "One of the week's head-to-head matchups, for the league scoreboard.\n\n`a`/`b` reuse TeamSide (name/manager/record/score) \u2014 the frontend's LeagueTeam\nshape is identical. `score` is each team's this-week category-win count.",
+        "properties": {
+          "a": {
+            "$ref": "#/components/schemas/TeamSide"
+          },
+          "b": {
+            "$ref": "#/components/schemas/TeamSide"
+          }
+        },
+        "title": "LeagueMatchup",
+        "type": "object"
+      },
       "LineupAssignment": {
         "properties": {
           "player_id": {
@@ -1108,6 +1121,13 @@
               "$ref": "#/components/schemas/RosterRow"
             },
             "title": "Hitters",
+            "type": "array"
+          },
+          "league": {
+            "items": {
+              "$ref": "#/components/schemas/LeagueMatchup"
+            },
+            "title": "League",
             "type": "array"
           },
           "opp": {
